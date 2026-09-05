@@ -47,6 +47,12 @@ internal sealed class CardsModule : IVRModule
         VRSession.Harmony?.PatchAll(typeof(CardsHandUI_OnLoseCardClick_Gate));
         VRSession.Harmony?.PatchAll(typeof(TakeDamagePanel_BurnHover_Skip));
         VRSession.Harmony?.PatchAll(typeof(DialogPopup_Show_HoverStrip));
+        // ITEMS 9 + 10 (2026-09-05): the pick flow's own OPEN and END edges. The game latches
+        // CardsHandUI.cardHandMode and maxCardsSelected and NOTHING in TakeDamagePanel's close
+        // path clears either, so a burn's banner outlived its flow by ~87 s and re-raised itself
+        // over the next damage prompt. See Cards/Patches/PickFlowPatches.cs for the log excerpt.
+        VRSession.Harmony?.PatchAll(typeof(CardsHandUI_UpdateView_PickFlowOpen));
+        VRSession.Harmony?.PatchAll(typeof(CardsHandUI_Hide_PickFlowEnd));
         // Laser half-hover: the docked action-selection cards take their half highlight
         // from the beam's geometry (HalfSelection.UpdateLaserHighlight); the per-graphic
         // pushers are silenced for laser events so a tooltip row winning the raycast can
@@ -107,6 +113,7 @@ internal sealed class CardsModule : IVRModule
         CardArtPrewarm.Reset();
         CardArtPin.ReleaseAll("the cards module was torn down");
         CardHalfTone.Reset();
+        PickFlowWatch.Reset();
         PokePads.Reset();
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }

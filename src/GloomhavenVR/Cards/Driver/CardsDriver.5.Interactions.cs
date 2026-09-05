@@ -809,6 +809,8 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void LogPickFillGate(CardHandMode mode, bool pickOpen, int refusedPile, CardsHandUI? hand)
     {
+        bool flowLive = Patches.PickFlowWatch.Live;
+        bool presented = CardsGameApi.PickHandIsPresented(hand);
         var key = (mode, pickOpen, refusedPile > 0, _fieldCards.Count);
         if (_loggedPickGate.HasValue && _loggedPickGate.Value == key)
             return;
@@ -817,15 +819,20 @@ internal sealed partial class CardsDriver
         // HW-VERIFY: grep token "PICK GATE". PROOF = a pick=CLOSED line after each burn commits,
         // and no later "Pick fan source (LoseCard): burnt pile". FALSIFIER = pick=OPEN standing for
         // minutes after the last "Pick commit", or the burnt-pile source line back with
-        // refusedFromIllegalPile=0. See this method's doc for what each of those means.
+        // refusedFromIllegalPile=0. See this method's doc for what each of those means. The
+        // openEdgeOutstanding / gameHandIsPresented pair is items 9+10's addition: the FIRST is
+        // now a gate term, the SECOND reports only.
         VRLog.Note("Cards", $"PICK GATE ({mode}): pick={(pickOpen ? "OPEN" : "CLOSED")} " +
-                            $"(the game's own maxCardsSelected = {want}), " +
+                            $"(the game's own maxCardsSelected = {want}, " +
+                            $"openEdgeOutstanding={flowLive}, gameHandIsPresented={presented}), " +
                             $"refusedFromIllegalPile={refusedPile}, cardsLyingInThePickField=" +
                             $"{_fieldCards.Count}. CLOSED means the hand's mode is " +
                             "still a pick mode but nothing is being asked for - the game leaves " +
-                            "CardsHandUI.currentMode latched and TakeDamagePanel's reset re-Shows with " +
-                            "selectableCardType=Any, which turns every widget in the hand selectable " +
-                            "INCLUDING the ones already burnt. No candidate is seated on the board and " +
+                            "CardsHandUI.currentMode latched and TakeDamagePanel's ResetAndHide clears " +
+                            "NEITHER that mode NOR maxCardsSelected (it touches no CardsHandUI at all), " +
+                            "so both read as a live pick for as long as nobody re-Shows the hand. " +
+                            "openEdgeOutstanding=False with maxCardsSelected>0 is exactly that leftover " +
+                            "and is the reading items 9+10 were fixed by. No candidate is seated on the board and " +
                             "no banner is raised while this reads CLOSED.");
     }
 

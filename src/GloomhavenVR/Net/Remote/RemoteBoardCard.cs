@@ -718,6 +718,114 @@ internal sealed class RemoteBoardCard
         LogHighlightPathIfChanged();
     }
 
+    /// <summary>Last (top, bottom) dimming this slot pushed onto its clone — the self-heal key.
+    /// Null before the first push, so a fresh clone is always written once.</summary>
+    private (bool top, bool bottom)? _appliedSpent;
+
+    /// <summary>Change gate for the receiver's own <c>SPENT HALF</c> line.</summary>
+    private string _loggedSpent = string.Empty;
+
+    /// <summary>
+    /// ITEM 8 (2026-09-05): DRAW THE HALVES THIS PLAYER HAS ALREADY USED, exactly as their own
+    /// screen draws them. User, verbatim: "wenn die Karte grau wird weil sie schon benutzt wurde …
+    /// So ist auch für die Mitspieler ersichtlich, welche der beiden Karten bereits
+    /// benutzt/verbrannt wurde. Die 1:1 Regel verlangt es."
+    ///
+    /// <para>MIRROR THE REAL THING, DO NOT REBUILD IT. The dimming is made by the GAME'S OWN call —
+    /// <c>FullAbilityCard.ToggleSideInteractivity(active, actionType)</c> →
+    /// <c>FullAbilityCardAction.SetInteractable</c> → <c>canvasGroup.alpha = active ? 1f : 0.5f</c>
+    /// (FullAbilityCardAction.cs:334) — made on the mirrored clone, which is a real
+    /// <c>Object.Instantiate</c> copy of the owner's own widget and still carries both
+    /// <c>FullAbilityCardAction</c>s. Same group, same alpha, same rect, and the header, title and
+    /// initiative disc stay bright because they sit outside that group, precisely as on the owner's
+    /// board. Nothing is imitated and no second look is invented. The clone's raycasters are
+    /// already stripped, so the <c>interactable</c> half of that call has no reachable effect.</para>
+    ///
+    /// <para>THE THIRD MECHANISM THAT WAS ERASING THIS. Two were on the wire (nothing carried the
+    /// bit; the peer's identity list is DRAINED as halves are played, so <c>_latchedFaces</c>
+    /// re-showed a FRESH face). The third is ours: <c>Cards.Art.CardHalfTone.Normalize</c> runs
+    /// <c>SetInteractable(true)</c> on every mod-owned clone to undo a POOLED widget's inherited
+    /// dimming — a correct fix for a different problem, and it would wipe this one out on the next
+    /// face rebuild. So the mirror takes a HOLD on the face rather than racing it: one writer owns
+    /// the final value, which is the rule this project already pays for breaking.</para>
+    ///
+    /// <para>SELF-HEALING on the same principle as <see cref="ApplyHalf"/>: the write is re-asserted
+    /// whenever the clone is rebuilt (a new <c>_faceCardKey</c> clears the applied state), so a
+    /// re-pooled or re-instantiated face comes back dimmed rather than silently bright.</para>
+    /// </summary>
+    public void SetSpentHalves(int playerId, int slot, bool topSpent, bool bottomSpent)
+    {
+        try
+        {
+            if (Path == RemoteAbilityCardSource.FacePath.None)
+            {
+                ReleaseSpentHold();
+                return;
+            }
+            FullAbilityCard? face = ResolveFaceCard();
+            if (face == null)
+                return;
+
+            // The hold goes down FIRST and every frame the state is asserted: CardHalfTone must
+            // never see this face as "needs correction" in the window between the clone being
+            // rebuilt and the dim being re-applied.
+            CardHalfTone.HoldMirroredDim(face, topSpent || bottomSpent);
+
+            if (_appliedSpent.HasValue && _appliedSpent.Value == (topSpent, bottomSpent))
+                return;
+            _appliedSpent = (topSpent, bottomSpent);
+            face.ToggleSideInteractivity(!topSpent, CBaseCard.ActionType.TopAction);
+            face.ToggleSideInteractivity(!bottomSpent, CBaseCard.ActionType.BottomAction);
+            LogSpentIfChanged(playerId, slot, topSpent, bottomSpent);
+        }
+        catch (System.Exception ex)
+        {
+            // A face mid-rebuild draws UNDIMMED — the picture this surface had before record 41 —
+            // and never takes down the per-frame board tick this runs inside.
+            VRLog.Warn("Net", $"Remote board card: the owner's spent-half dimming could not be " +
+                              $"mirrored ({ex.Message}) — this slot draws both halves bright.");
+            ReleaseSpentHold();
+        }
+    }
+
+    /// <summary>Drop the hold and forget the applied state — a slot that no longer shows a real
+    /// face has no halves to dim and must not keep CardHalfTone standing down for it.</summary>
+    private void ReleaseSpentHold()
+    {
+        _appliedSpent = null;
+        if (_faceCard != null)
+            CardHalfTone.HoldMirroredDim(_faceCard, false);
+    }
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (item 8), the RECEIVER edge. Grep token: <c>SPENT HALF</c> — the SAME
+    /// token the owner's <c>SPENT HALF SENT</c> line carries, so one grep across the two logs
+    /// decides the 1:1 question with no arithmetic: for one moment the owner's mask and this line
+    /// must name the same recess and the same half.
+    ///
+    /// <para>FALSIFIER: this line present naming a half while the user still reports both cards
+    /// looking identical means the bits and the call both landed and something re-brightened the
+    /// clone afterwards — the hold is the term to check, and <c>CardHalfTone</c>'s census prints
+    /// the alpha range that settles it.</para>
+    /// </summary>
+    private void LogSpentIfChanged(int playerId, int slot, bool topSpent, bool bottomSpent)
+    {
+        string now = $"{topSpent}|{bottomSpent}|{Path}";
+        if (now == _loggedSpent)
+            return;
+        _loggedSpent = now;
+        // HW-VERIFY: grep token "SPENT HALF". PROOF = this line and the owner's "SPENT HALF SENT"
+        // naming the same recess and half. FALSIFIER = this line present and the halves still
+        // looking identical: the hold lost to CardHalfTone. See this method's doc.
+        VRLog.Note("Net", $"SPENT HALF [player {playerId}] recess {slot + 1}: top="
+            + $"{topSpent}, bottom={bottomSpent} on a slot whose face={Path} (record 41). TRUE draws "
+            + "that half at alpha 0.5 through the GAME'S OWN FullAbilityCard.ToggleSideInteractivity "
+            + "on the mirrored clone — the identical call and the identical CanvasGroup the owner's "
+            + "screen uses, so the header, title and initiative disc stay bright on both boards. "
+            + "Compare with that player's own 'SPENT HALF SENT' line: the two naming different "
+            + "halves IS the 1:1 breach this record exists to close.");
+    }
+
     /// <summary>Last logged (path, hover, selected) triple — the change gate for the line below.</summary>
     private string _loggedHighlight = string.Empty;
 
@@ -803,30 +911,12 @@ internal sealed class RemoteBoardCard
                 ForgetGameHighlight();
                 return false;
             }
-            if (_faceCard == null)
-            {
-                // The clone lives under _root (slot → RemoteCardArt host → clone); one per slot.
-                // Probed at most once a frame: a face path that somehow has no card widget must
-                // not turn this per-frame drive into a per-frame hierarchy search.
-                if (_faceProbeFrame == Time.frameCount)
-                    return false;
-                _faceProbeFrame = Time.frameCount;
-                _faceCard = _root.GetComponentInChildren<FullAbilityCard>(includeInactive: true);
-                if (_faceCard == null)
-                    return false;
-                int key = _faceCard.GetInstanceID();
-                if (key != _faceCardKey)
-                {
-                    _faceCardKey = key;
-                    ReleaseHighlightMaterials();
-                    IsolateHighlightMaterials(_faceCard);
-                    _appliedHighlight[0] = _appliedHighlight[1] = -1; // a fresh clone starts dark
-                    _appliedDefault[0] = _appliedDefault[1] = false;
-                }
-            }
+            FullAbilityCard? face = ResolveFaceCard();
+            if (face == null)
+                return false;
 
-            bool bottom = ApplyHalf(_faceCard.bottomActionButton, 0, hoverHalf, selectedHalf);
-            bool top = ApplyHalf(_faceCard.topActionButton, 1, hoverHalf, selectedHalf);
+            bool bottom = ApplyHalf(face.bottomActionButton, 0, hoverHalf, selectedHalf);
+            bool top = ApplyHalf(face.topActionButton, 1, hoverHalf, selectedHalf);
             if (!bottom && !top)
                 return false; // widget without highlights: let the quads speak rather than nothing
 
@@ -958,6 +1048,41 @@ internal sealed class RemoteBoardCard
         }
     }
 
+    /// <summary>
+    /// THE ONE PLACE the mirrored clone's own <c>FullAbilityCard</c> is found, and the one place
+    /// the per-clone bookkeeping that hangs off it is reset. Both per-frame drivers - the action
+    /// highlight (record 14) and the spent-half dimming (record 41) - go through it, because a
+    /// second probe that resolved the widget WITHOUT touching <see cref="_faceCardKey"/> would let
+    /// a rebuilt clone keep the previous one's isolated highlight materials and its previous
+    /// applied state: whichever driver ran first that frame would silently disarm the other.
+    ///
+    /// <para>Probed at most once a frame: a face path that somehow has no card widget must not turn
+    /// a per-frame drive into a per-frame hierarchy search. The clone lives under <c>_root</c>
+    /// (slot, then the RemoteCardArt host, then the clone), one per slot.</para>
+    /// </summary>
+    private FullAbilityCard? ResolveFaceCard()
+    {
+        if (_faceCard != null)
+            return _faceCard;
+        if (_faceProbeFrame == Time.frameCount)
+            return null;
+        _faceProbeFrame = Time.frameCount;
+        _faceCard = _root.GetComponentInChildren<FullAbilityCard>(includeInactive: true);
+        if (_faceCard == null)
+            return null;
+        int key = _faceCard.GetInstanceID();
+        if (key != _faceCardKey)
+        {
+            _faceCardKey = key;
+            ReleaseHighlightMaterials();
+            IsolateHighlightMaterials(_faceCard);
+            _appliedHighlight[0] = _appliedHighlight[1] = -1; // a fresh clone starts dark
+            _appliedDefault[0] = _appliedDefault[1] = false;
+            _appliedSpent = null;  // ...and undimmed, so item 8's write is re-asserted onto it
+        }
+        return _faceCard;
+    }
+
     /// <summary>Drop every reference into a face that is gone (or never was), so the next call
     /// re-resolves from scratch instead of touching a destroyed clone.</summary>
     private void ForgetGameHighlight()
@@ -965,6 +1090,11 @@ internal sealed class RemoteBoardCard
         if (_faceCard == null && _faceCardKey == 0)
             return;
         ReleaseHighlightMaterials();
+        // Item 8: the mirrored dim is released WITH the face, and its applied state is forgotten so
+        // the next clone is written once rather than being assumed already dimmed.
+        if (_faceCard != null)
+            CardHalfTone.HoldMirroredDim(_faceCard, false);
+        _appliedSpent = null;
         _faceCard = null;
         _faceCardKey = 0;
         _appliedHighlight[0] = _appliedHighlight[1] = -1;

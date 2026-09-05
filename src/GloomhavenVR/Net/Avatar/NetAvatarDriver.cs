@@ -499,6 +499,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private byte _lastSentSeatCode0;
     private byte _lastSentSeatCode1;
 
+    /// <summary>Change edge for the SPENT-HALF record (41). Initialised to an impossible mask so
+    /// the first sample of a session always prints, including the all-zero one — "nothing of mine
+    /// is dimmed" is the reading that separates "the sampler ran and saw nothing" from "the sampler
+    /// never ran", and those are different defects.</summary>
+    private int _lastSentSpentMask = -1;
+
     /// <summary>Popcount of a 16-bit mask — how many items record 35 is framing. Used by the edge
     /// log only; the wire carries the mask itself.</summary>
     private static int CountBits(ushort mask)
@@ -3210,6 +3216,49 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 + "Peers draw the front through RevealGate.PeerCardPopulation.SacrificedCard, which "
                 + "is a carve-out for the SACRIFICE and for nothing else — a pick candidate in a "
                 + "recess is still the secret the selection phase protects and is never named here.");
+        }
+        // WHICH HALF OF WHICH ROUND CARD IS ALREADY USED (record 41, report item 8). Sampled here
+        // beside the other per-slot records because it describes the same two recesses they do.
+        // It is the owner's OWN PICTURE — the half's CanvasGroup alpha, which is what "grau" means
+        // — and never a model of when a half counts as played; see HalfSelection.SampleLocalSpent.
+        Cards.HalfSelection.SampleLocalSpent(out byte spentMask);
+        if (spentMask != 0)
+        {
+            extras.HasRoundHalfSpent = true;
+            extras.RoundHalfSpentMask = spentMask;
+        }
+        if (spentMask != _lastSentSpentMask)
+        {
+            _lastSentSpentMask = spentMask;
+            // HW-VERIFY: report item 8, the SENDER edge. Grep token: SPENT HALF. Note tier because
+            // either tester can be the one playing a card, and the RECEIVER prints the same token —
+            // one grep across BOTH logs then settles the 1:1 question with no arithmetic.
+            //
+            // PROOF: this line naming a half, and the peer's "SPENT HALF [player n]" line naming
+            // THE SAME recess and the same half within a packet or two of it.
+            //
+            // FALSIFIERS, and they say different things. (1) Only the all-zero first line, all
+            // session, while the owner demonstrably played cards: the SAMPLER is the half that
+            // failed — either the dock read READ-ONLY (we were watching another character) or the
+            // game stopped writing the alpha this reads, and CardHalfTone's census is the next
+            // instrument. (2) This line naming a half while the peer's line is absent: the record
+            // never arrived or the mirror never armed. (3) Both lines present and agreeing while
+            // the user still cannot tell the halves apart: the bits are right and the APPLIER is
+            // wrong — CardHalfTone.Normalize is re-brightening the clone, and its mirrored-dim hold
+            // is the term to check.
+            VRLog.Note("Net", $"SPENT HALF SENT: mask=0x{spentMask:X2} — recess1 top="
+                + $"{NetProtocol.RoundHalfIsSpent(spentMask, 0, top: true)}, recess1 bottom="
+                + $"{NetProtocol.RoundHalfIsSpent(spentMask, 0, top: false)}, recess2 top="
+                + $"{NetProtocol.RoundHalfIsSpent(spentMask, 1, top: true)}, recess2 bottom="
+                + $"{NetProtocol.RoundHalfIsSpent(spentMask, 1, top: false)} (record 41, one byte). "
+                + "TRUE means the owner's OWN screen draws that half at alpha 0.5 — the game's "
+                + "FullAbilityCardAction.SetInteractable(false) writes exactly that and nothing "
+                + "else, which is what the user calls 'grau weil sie schon benutzt wurde'. NO card "
+                + "id and no card name rides here, only which of four regions is dimmed. A mask of "
+                + "0x00 omits the record entirely, so a round before anything is played costs no "
+                + "bytes. The BURN half of item 8 is a different mechanism and is already shipped: "
+                + "RemoteBurnFx resolves the burnt card out of the host-replicated LostAbilityCards "
+                + "and replays the game's own char ramp on it — grep BURN CARD, not this token.");
         }
         if (faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1)
         {

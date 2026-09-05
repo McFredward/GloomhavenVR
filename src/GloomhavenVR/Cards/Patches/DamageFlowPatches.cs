@@ -51,6 +51,14 @@ internal static class CardsHandUI_OnLoseCardClick_Gate
             // and Unity refuses that outright on an inactive GameObject.
             BurnCommitRescue.EnsureHandCanRunItsCoroutine(__instance);
             BurnCommitWatch.Arm();
+            // ITEMS 9 + 10 (2026-09-05) — END EDGE (a) of the pick flow. This prefix is the ONLY
+            // commit callback of the lose/discard confirm popup and covers all three of its
+            // branches, so it is the one place that means "the player has answered" for every
+            // pick the game can open. Everything after it is animation. Nothing on the hand
+            // records this: `cardHandMode` and `maxCardsSelected` both survive the whole flow and
+            // stood for ~87 s of the 2026-09-05 hardware round while our banner kept asking for a
+            // card. See Patches/PickFlowPatches.cs for the log excerpt and the other two edges.
+            PickFlowWatch.NoteCommitAccepted(need);
             return true; // complete selection — run the game's commit unchanged
         }
 

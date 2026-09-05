@@ -772,6 +772,16 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             bool hoverDef = hover >= 0 && _owner.HalfHoverDefault;
             bool selDef = sel >= 0 && (s == 0 ? _owner.HalfSelect0Default : _owner.HalfSelect1Default);
             _cards[s]?.SetHalfStates(hover, sel, hoverDef, selDef);
+
+            // WHICH HALF IS ALREADY USED (record 41, report item 8: "welche der beiden Karten
+            // bereits benutzt/verbrannt wurde"). Driven here, in the same per-frame loop as the
+            // hover/click glow and for the same reason — it describes the same two recesses and
+            // must land with the synced edge rather than on the 4 Hz content cadence. Unlike the
+            // glow it is meaningful ONLY on a slot showing a real face: a card BACK has no halves
+            // to grey, and the slot renderer refuses it there rather than inventing a stand-in.
+            _cards[s]?.SetSpentHalves(_owner.PlayerId, s,
+                                      _owner.RoundHalfIsSpent(s, top: true),
+                                      _owner.RoundHalfIsSpent(s, top: false));
         }
         LogHalfHoverIfChanged();
 

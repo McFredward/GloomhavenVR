@@ -49,6 +49,12 @@ internal static class Program
             // that is peculiar to it: a 2-byte record is ALWAYS recess 1's, so a sacrifice lying in
             // recess 2 must force the long form or every peer draws its front in the wrong recess.
             SacrificeSeatVectors.Run(t);
+            // Which HALF of which round card is already used (41, report item 8). Driven byte by
+            // byte because the record's whole job is saying WHICH of four regions is spent: a bit
+            // that lands on the wrong recess greys a card its owner can still play, and neither end
+            // can see the swap. Half the byte is also unassigned, so the strip that keeps a future
+            // field from dimming a half this build has no name for is asserted here too.
+            SpentHalfVectors.Run(t);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
             HeldPoseMirrorVectors.Run(t, repoRoot);

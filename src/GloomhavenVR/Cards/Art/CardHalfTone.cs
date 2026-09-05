@@ -283,7 +283,11 @@ internal static class CardHalfTone
         {
             if (IsModOwnedCopy(face))
             {
-                if (NeedsCorrection(face))
+                // ITEM 8 (2026-09-05): a clone the PEER MIRROR is deliberately dimming is not a
+                // clone that needs correcting. See HoldMirroredDim for why this is a hold and not
+                // a race: the two are the same write to the same CanvasGroup, and exactly one of
+                // them may own its final value.
+                if (!HasMirroredDim(face) && NeedsCorrection(face))
                     Normalize(face);
                 // The card-FX rest state — the ACTUAL subject of the report, see the class doc. Its
                 // own change gate is the measured deviation from 0, so a face that is already at
@@ -298,6 +302,56 @@ internal static class CardHalfTone
         }
     }
 
+    /// <summary>
+    /// Instance ids of the mod-owned faces a PEER MIRROR is currently dimming on purpose (report
+    /// item 8, extension record 41). Ids and not references: this set is only ever asked "is this
+    /// face held", so holding a strong reference to a clone that is being destroyed would buy
+    /// nothing and cost a leak.
+    /// </summary>
+    private static readonly HashSet<int> s_mirroredDim = new();
+
+    /// <summary>
+    /// ITEM 8: TAKE OR RELEASE THE HOLD that stops <see cref="Normalize"/> re-brightening a face
+    /// whose halves a peer mirror is deliberately drawing at alpha 0.5.
+    ///
+    /// <para>WHY A HOLD AND NOT A RACE. Both writers make the SAME call —
+    /// <c>FullAbilityCard.SetInteractable</c> — to the SAME <c>CanvasGroup</c>, for opposite
+    /// reasons that are each correct in their own place. <see cref="Normalize"/> exists because a
+    /// POOLED widget carries the previous user's dimming forward
+    /// (<c>FullAbilityCardAction.ResetInteractable</c> clears the booleans and leaves the alpha),
+    /// so a mod clone must start bright. <c>Net.Remote.RemoteBoardCard.SetSpentHalves</c> exists
+    /// because the owner's own board draws a PLAYED half at 0.5 and the 1:1 rule says a peer must
+    /// see that. Left to fight, they alternate per rebuild and the user sees a flicker instead of
+    /// an answer; so the mirror announces itself and this file stands down for exactly the faces
+    /// it names. One writer owns the final value — the rule this project has already paid for
+    /// breaking more than once.</para>
+    ///
+    /// <para>The census still MEASURES a held face; only the correcting write is withheld. That is
+    /// deliberate: the alpha range it prints is the instrument that would show a hold gone wrong,
+    /// and an instrument that stops looking where the risk moved is no instrument.</para>
+    /// </summary>
+    internal static void HoldMirroredDim(FullAbilityCard? face, bool held)
+    {
+        if (face == null)
+            return;
+        try
+        {
+            int id = face.GetInstanceID();
+            if (held)
+                s_mirroredDim.Add(id);
+            else
+                s_mirroredDim.Remove(id);
+        }
+        catch (System.Exception ex)
+        {
+            LogErrorOnce("mirrored-dim hold", ex);
+        }
+    }
+
+    /// <summary>Is a peer mirror deliberately dimming this face right now?</summary>
+    private static bool HasMirroredDim(FullAbilityCard face)
+        => s_mirroredDim.Count > 0 && s_mirroredDim.Contains(face.GetInstanceID());
+
     /// <summary>Drop all state (scene teardown / hot reload), mirroring <c>CardArtGuard.Reset</c>.
     /// The rest-state material copies are destroyed here and only here: this runs on scene teardown,
     /// where every clone that could still be wearing one is going away in the same breath.</summary>
@@ -311,6 +365,9 @@ internal static class CardHalfTone
         s_diffReference = null;
         s_diffReferenceRank = int.MaxValue;
         s_diffLogged = false;
+        // The held faces belong to the boards going away with the scene; a stale id could otherwise
+        // collide with a fresh clone's and stand this file down for a face nobody is mirroring.
+        s_mirroredDim.Clear();
         foreach (KeyValuePair<int, Material> entry in s_restCopies)
         {
             if (entry.Value != null)

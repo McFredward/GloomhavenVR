@@ -657,6 +657,19 @@ internal sealed class RemoteAvatar
     public byte SacrificeSeatCode(int slot) =>
         slot == 0 ? SacrificeSeatCode0 : slot == 1 ? SacrificeSeatCode1 : (byte)0;
 
+    /// <summary>
+    /// Which halves of this player's two round cards their OWN screen draws dimmed — extension
+    /// record <see cref="NetProtocol.ExtIdRoundHalfSpent"/>'s four bits (report item 8, "welche der
+    /// beiden Karten bereits benutzt/verbrannt wurde"). 0 while nothing has been played, which is
+    /// also what a peer predating the record reads, so an undimmed board is always the safe answer.
+    /// </summary>
+    public byte RoundHalfSpentMask { get; private set; }
+
+    /// <summary>Is the named half of the named recess drawn dimmed on this player's own screen?
+    /// The one question <see cref="RemoteBoardCard.SetSpentHalves"/> asks of the wire.</summary>
+    public bool RoundHalfIsSpent(int slot, bool top)
+        => NetProtocol.RoundHalfIsSpent(RoundHalfSpentMask, slot, top);
+
     /// <summary>The list length beside <see cref="SacrificeSeatCode"/>.</summary>
     public byte SacrificeSeatCount(int slot) =>
         slot == 0 ? SacrificeSeatCount0 : slot == 1 ? SacrificeSeatCount1 : (byte)0;
@@ -1219,6 +1232,10 @@ internal sealed class RemoteAvatar
         // whose owner has already burnt or re-drawn it.
         SacrificeSeatCode0 = p.HasSacrificeSeat ? p.SacrificeSeatCode0 : (byte)0;
         SacrificeSeatCount0 = p.HasSacrificeSeat ? p.SacrificeSeatCount0 : (byte)0;
+        // Item 8: absent record == nothing dimmed. The sender omits the record for an empty mask,
+        // so the two MUST decode alike or a peer would keep a stale dim across the round boundary
+        // that clears it — the same rule every other omit-when-empty record here follows.
+        RoundHalfSpentMask = p.HasRoundHalfSpent ? p.RoundHalfSpentMask : (byte)0;
         SacrificeSeatCode1 = p.HasSacrificeSeat ? p.SacrificeSeatCode1 : (byte)0;
         SacrificeSeatCount1 = p.HasSacrificeSeat ? p.SacrificeSeatCount1 : (byte)0;
 

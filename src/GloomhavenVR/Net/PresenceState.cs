@@ -543,6 +543,22 @@ internal struct PresenceState
     /// <summary>The LENGTH of the list recess 2's index points into, clamped to 255.</summary>
     public byte SacrificeSeatCount1;
 
+    /// <summary>
+    /// True when at least one half of this player's two round cards is drawn DIMMED on their own
+    /// screen and this packet therefore carries the spent-half record
+    /// (<see cref="NetProtocol.ExtIdRoundHalfSpent"/>). False before anything has been played this
+    /// round, which keeps the record off the wire and the packet byte-identical to ModBuild 448's.
+    /// </summary>
+    public bool HasRoundHalfSpent;
+
+    /// <summary>
+    /// The four <see cref="NetProtocol.RoundHalfSpentMaskBits"/>: one per (recess, half), set when
+    /// the owner's own board draws that half at <c>alpha 0.5</c>. A zero mask is "nothing has been
+    /// played", which is why <see cref="HasRoundHalfSpent"/> is false for it and the record is
+    /// omitted rather than sent empty.
+    /// </summary>
+    public byte RoundHalfSpentMask;
+
     /// <summary>Slot 2's code byte — the card in record
     /// <see cref="NetProtocol.ExtIdSecondHeldCard"/>'s slot, the one
     /// <see cref="NetProtocol.HeldCardGripSecondBit"/> describes. 0 means "this slot names
@@ -1505,6 +1521,15 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>1732 -> 1735 on 2026-09-06: the SPENT-HALF record (41) adds 3 bytes flat — <c>[id][len]</c>
+    /// plus its single mask byte — and even that is in force only while at least one half of the
+    /// sender's two round cards is actually drawn dimmed, so a round before anything is played
+    /// costs nothing. <see cref="MaxSize"/> is UNCHANGED at 2100: the margin is 365 bytes, still
+    /// more than the largest single record (257, board tuning), so the rule below is satisfied
+    /// without a raise. Computed on top of 1732 and not on top of 1726 — the sum moved twice in
+    /// the 2026-09-05 round alone, which is exactly how the consumer literal in
+    /// <c>HeldPropVectors</c> went stale, and it is updated in this same commit.</para>
+    ///
     /// <para>1726 -> 1732 on 2026-09-05, in the same round and on top of the wall-fade raise below:
     /// the SHORT-REST SACRIFICE SEAT record (39) adds 6 bytes at its worst — <c>[id][len]</c> plus
     /// two 2-byte recesses — and that worst case is in force only while a sacrifice is actually
@@ -1804,6 +1829,12 @@ internal static class PresenceSerializer
                           // what keeps every packet outside the few seconds of an actual short rest
                           // byte-identical to the previous build's.
                           || (state.HasSacrificeSeat && SacrificeSeatPayload(in state) > 0)
+                          // A spent-half record with an EMPTY mask says nothing — "no half of my
+                          // two round cards is dimmed" is the resting state of every round before
+                          // anything is played, and drawing it would cost a record on every packet
+                          // for no picture. Same rule as the three records above it.
+                          || (state.HasRoundHalfSpent
+                              && (state.RoundHalfSpentMask & NetProtocol.RoundHalfSpentMaskBits) != 0)
                           // STORY WINDOW SYNC (19): same rule as the test-force record — the
                           // emptiness test lives in the SAMPLER (RemoteStorySync.Sample), which
                           // sets this flag only while a story box is really up here or the single
@@ -2805,6 +2836,23 @@ internal static class PresenceSerializer
                         buffer[i++] = state.SacrificeSeatCode1;
                         buffer[i++] = state.SacrificeSeatCount1;
                     }
+                    records++;
+                }
+                byte spentMask = (byte)(state.RoundHalfSpentMask & NetProtocol.RoundHalfSpentMaskBits);
+                if (state.HasRoundHalfSpent && spentMask != 0
+                    && i + 2 + NetProtocol.RoundHalfSpentBytes <= buffer.Length)
+                {
+                    // WHICH ROUND-CARD HALF IS ALREADY SPENT (41): one mask byte, four bits, one per
+                    // (recess, half). It is the OWNER'S OWN PICTURE and nothing else — the half's
+                    // CanvasGroup is at alpha 0.5 on their screen — so a peer can finally tell which
+                    // of the two cards has been used. NO CARD IDENTITY of any kind rides here.
+                    //
+                    // The mask is re-ANDed with RoundHalfSpentMaskBits on the way out as well as on
+                    // the way in: a future field sharing this byte must never reach an older peer as
+                    // a dimmed half, and a sender bug must never reach a newer one as one either.
+                    buffer[i++] = NetProtocol.ExtIdRoundHalfSpent;
+                    buffer[i++] = (byte)NetProtocol.RoundHalfSpentBytes;
+                    buffer[i++] = spentMask;
                     records++;
                 }
                 int heldPropBytes = HeldPropPayload(in state);
@@ -4058,6 +4106,26 @@ internal static class PresenceSerializer
                             state.SacrificeSeatCount0 = seatCount0;
                             state.SacrificeSeatCode1 = seatCode1;
                             state.SacrificeSeatCount1 = seatCount1;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdRoundHalfSpent
+                             && len >= NetProtocol.RoundHalfSpentBytes)
+                    {
+                        // WHICH ROUND-CARD HALF IS ALREADY SPENT: one mask byte. Masked to the four
+                        // bits THIS build defines, so a newer sender that puts a fifth field in the
+                        // spare bits can never dim a half this receiver has no name for — an
+                        // unknown bit draws the UNDIMMED half, which is what a peer predating the
+                        // record draws and therefore the only safe degradation.
+                        //
+                        // An empty mask decodes to "record absent" rather than to "explicitly
+                        // nothing", because the sender omits the record for exactly that state:
+                        // the two must mean the same thing or a peer would keep a stale dim across
+                        // the round boundary that clears it.
+                        byte spent = (byte)(buffer[i] & NetProtocol.RoundHalfSpentMaskBits);
+                        if (spent != 0)
+                        {
+                            state.HasRoundHalfSpent = true;
+                            state.RoundHalfSpentMask = spent;
                         }
                     }
                     else if (id == NetProtocol.ExtIdSlotCardSize

@@ -470,11 +470,32 @@ internal static class CardsGameApi
     /// <para>The count is read off the HAND (its <c>UpdateView</c> is the same call that produced
     /// the <c>isSelectable</c> flags being tested, so the two can never be a frame apart), falling
     /// back to the manager's copy of the same <c>Show</c> parameter when there is no hand.</para>
+    ///
+    /// <para>ITEMS 9 + 10 (2026-09-05) — THE COUNT IS A BELT, NOT THE ANSWER, AND THE 448 ROUND
+    /// PROVED IT. That build reasoned the count would catch the leftover because
+    /// <c>TakeDamagePanel</c>'s close path re-Shows the hand with <c>maxCardsSelected = 0</c>. The
+    /// line it cited, TakeDamagePanel.cs:520, is <c>PreviewFullHand</c> — a HOVER PREVIEW whose VR
+    /// route is deliberately dead (<c>TakeDamagePanel_BurnHover_Skip</c>) — and the real close path
+    /// <c>ResetAndHide</c> (TakeDamagePanel.cs:1042) touches no <c>CardsHandUI</c> at all. So the
+    /// count stays at whatever the last real <c>Show</c> passed: ALL FOUR host and ALL FOUR peer
+    /// <c>PICK GATE</c> lines of the 2026-09-05 round read <c>pick=OPEN … maxCardsSelected = 1</c>,
+    /// which is 448's own first falsifier firing word for word. The banner therefore stood ~87 s
+    /// (7,850 frames at ~90 fps) across the burn, an entire second damage prompt and its
+    /// take-damage press, and cleared only at the CO-PLAYER'S turn boundary.
+    ///
+    /// The second term is therefore an EDGE and not a state: <see cref="Patches.PickFlowWatch"/>,
+    /// armed by the game's own <c>CardsHandUI.UpdateView</c> and disarmed by the game's own commit
+    /// callback and <c>CardsHandUI.Hide</c>. The two terms are independent on purpose and neither
+    /// is sufficient alone — the count catches a pick the game zeroed without hiding anything, the
+    /// latch catches the far commoner case of a pick the game answered and walked away from — and
+    /// <see cref="PickPileIsLegalFor"/> is the third, deliberately independent of both.</para>
     /// </summary>
     internal static bool PickIsOpen(CardsHandUI? hand)
     {
         try
         {
+            if (!Patches.PickFlowWatch.Live)
+                return false; // no OPEN edge is outstanding — whatever the latches say is leftover
             if (hand != null)
                 return hand.MaxSelectedCards > 0;
             CardsHandManager manager = CardsHandManager.Instance;
@@ -483,6 +504,27 @@ internal static class CardsGameApi
         catch (System.Exception)
         {
             return false; // a game-side shape change must never fabricate a pick nobody asked for
+        }
+    }
+
+    /// <summary>
+    /// Item 10 measurement only, never a gate: the game's own "this hand is on screen" bit —
+    /// <c>CardsHandUI.ShowOrHideInternal</c> (CardsHandUI.cs:512) is the only writer and it is
+    /// reached solely from the game's <c>Show()</c>/<c>Hide()</c> pair, which the mod never calls
+    /// (the 2D hand is suppressed by pinning the window's CanvasGroup alpha, not by deactivating
+    /// anything). Printed beside the count in <c>PICK GATE</c> so the NEXT round can see whether
+    /// this bit tracks the flow better than the count did, WITHOUT a build having bet on it: a new
+    /// instrument's first output is a hypothesis, so it reports and decides nothing.
+    /// </summary>
+    internal static bool PickHandIsPresented(CardsHandUI? hand)
+    {
+        try
+        {
+            return hand != null && hand.gameObject != null && hand.gameObject.activeSelf;
+        }
+        catch (System.Exception)
+        {
+            return false;
         }
     }
 

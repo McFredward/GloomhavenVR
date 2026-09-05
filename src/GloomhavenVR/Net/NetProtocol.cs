@@ -19840,6 +19840,105 @@ internal static class NetProtocol
     /// it trusts recess 2.</summary>
     public const int SacrificeSeatSlotBytes = 2;
 
+    // ---- record 41: WHICH HALF OF A ROUND CARD IS ALREADY SPENT -------------------------------
+    //
+    // Id 41 by ASSIGNMENT, not by "the next free number". 38 and 40 are unclaimed holes left by
+    // parallel development of the 2026-09-05 round and are deliberately NOT reused: a shipped
+    // record id can never be renumbered, and a lane taking "the next free number" is exactly the
+    // habit that produced this file's one id collision (see the note above record 22).
+
+    /// <summary>
+    /// Extension record id: WHICH HALVES OF THE OWNER'S TWO ROUND CARDS ARE ALREADY USED — one
+    /// byte, four bits, one per (slot, half).
+    ///
+    /// <para>USER REPORT (2026-09-05, item 8, verbatim): "Die Kartenanimation wenn eine der beiden
+    /// Karten schon benutzt wurde, wird nicht synchronisiert. Auch hier will ich 1:1 das selbe
+    /// sehen. Also wenn die Karte grau wird weil sie schon benutzt wurde oder 'verbrennt'. So ist
+    /// auch für die Mitspieler ersichtlich, welche der beiden Karten bereits benutzt/verbrannt
+    /// wurde. Die 1:1 Regel verlangt es."</para>
+    ///
+    /// <para>WHAT THE OWNER ACTUALLY SEES, MEASURED AND NOT MODELLED. "Grau" is not a shader, not a
+    /// tint and not a material: it is <c>alpha 0.5</c> on the half's OWN <c>CanvasGroup</c> —
+    /// <c>FullAbilityCardAction.SetInteractable(bool active, bool defaultAction)</c> runs
+    /// <c>canvasGroup.alpha = (active ? 1f : 0.5f)</c> (FullAbilityCardAction.cs:334), which is why
+    /// the card header, title and initiative disc stay bright: they sit OUTSIDE that group. The
+    /// mod already documents this at <c>Cards/Art/CardHalfTone.cs</c>:22-35 and already rules that
+    /// on the owner's own board it is REAL INFORMATION that must not be corrected away
+    /// (CardHalfTone.cs:72-81). <c>CardsActionControlller</c> drives it: <c>SetPhase</c>
+    /// (:302) dims the first played card the moment the second is being chosen, <c>Finish</c>
+    /// (:422-423) dims both when the turn resolves.</para>
+    ///
+    /// <para>WHY IT NEEDED A RECORD AT ALL, AND WHY NO EXISTING ONE WOULD DO. That alpha is written
+    /// by the acting client's own UI phase machine and is replicated by nothing. Record 14's
+    /// per-half field is NOT it and cannot be made into it: it carries
+    /// <c>FullAbilityCardAction.isSelected</c>, a transient CLICK latch that
+    /// <c>CardsActionControlller.Finish</c> CLEARS with <c>Deselect()</c> (:420-421) at the very
+    /// moment this record's bit turns ON — the two are opposites, not neighbours. Record 4's slot
+    /// nibble is occupancy, a POSITION only. And the peer's own identity source hides the change by
+    /// construction: the game DRAINS <c>RoundAbilityCards</c> as halves are played, so
+    /// <c>RemoteControlBoard._latchedFaces</c> re-shows the same FRESH face, and
+    /// <c>CardHalfTone.Normalize</c> then forces any mod-built clone's halves back to alpha 1.
+    /// Three separate mechanisms were each independently erasing the cue.</para>
+    ///
+    /// <para>NOT AN IDENTITY, AND NOT A DECISION. Four bits say "half X of recess Y is dimmed on the
+    /// owner's screen". No card id, no card name, no action, no ordering — a peer that may not see
+    /// the card's face learns nothing it could not already see from the owner's board, because the
+    /// bits ride only while that board is drawing the face they describe. The receiver reproduces
+    /// the look by making the GAME'S OWN call on the mirrored clone
+    /// (<c>FullAbilityCard.ToggleSideInteractivity</c> → the same <c>SetInteractable</c> above), so
+    /// what a peer sees is the owner's picture and not an approximation of it.</para>
+    ///
+    /// <para>THE BURN HALF OF ITEM 8 IS ALREADY SHIPPED and is deliberately NOT re-implemented here:
+    /// <c>RemoteBurnFx</c> resolves the burnt card locally out of the host-replicated
+    /// <c>CCharacterClass.LostAbilityCards</c> and <c>RemoteCardArt</c> replays the game's own
+    /// grey-out/flow/dissolve ramp on it. Adding a second mechanism beside it would be the
+    /// redundancy this project forbids. What was missing was only the QUIET half — a card played
+    /// rather than burnt — and that is this one byte.</para>
+    ///
+    /// <para>Written ONLY while at least one half is actually dimmed, so a round in which nothing
+    /// has been played yet is byte-identical to ModBuild 448's. ADDITIVE TLV: a peer predating the
+    /// record steps over it by its length and draws the undimmed face it drew before.</para>
+    /// </summary>
+    public const byte ExtIdRoundHalfSpent = 41;
+
+    /// <summary>Payload length of <see cref="ExtIdRoundHalfSpent"/>: one mask byte.</summary>
+    public const int RoundHalfSpentBytes = 1;
+
+    /// <summary>Recess 1's TOP half is drawn dimmed on the owner's screen.</summary>
+    public const byte RoundHalfSpentSlot0Top = 1 << 0;
+
+    /// <summary>Recess 1's BOTTOM half is drawn dimmed on the owner's screen.</summary>
+    public const byte RoundHalfSpentSlot0Bottom = 1 << 1;
+
+    /// <summary>Recess 2's TOP half is drawn dimmed on the owner's screen.</summary>
+    public const byte RoundHalfSpentSlot1Top = 1 << 2;
+
+    /// <summary>Recess 2's BOTTOM half is drawn dimmed on the owner's screen.</summary>
+    public const byte RoundHalfSpentSlot1Bottom = 1 << 3;
+
+    /// <summary>Every bit this record defines — anything else in the byte is a future field and is
+    /// ignored rather than drawn, so an older receiver can never dim a half nobody named.</summary>
+    public const byte RoundHalfSpentMaskBits =
+        RoundHalfSpentSlot0Top | RoundHalfSpentSlot0Bottom
+        | RoundHalfSpentSlot1Top | RoundHalfSpentSlot1Bottom;
+
+    /// <summary>The bit for one (recess, half) pair — <paramref name="top"/> picks the half.
+    /// Returns 0 for a slot this record does not describe, so a third recess can never alias
+    /// onto recess 1.</summary>
+    public static byte RoundHalfSpentBit(int slot, bool top) => slot switch
+    {
+        0 => top ? RoundHalfSpentSlot0Top : RoundHalfSpentSlot0Bottom,
+        1 => top ? RoundHalfSpentSlot1Top : RoundHalfSpentSlot1Bottom,
+        _ => (byte)0,
+    };
+
+    /// <summary>Is the named half dimmed on the owner's screen, per <paramref name="mask"/>?</summary>
+    public static bool RoundHalfIsSpent(byte mask, int slot, bool top)
+    {
+        byte bit = RoundHalfSpentBit(slot, top);
+        return bit != 0 && (mask & bit) != 0;
+    }
+
     // ---- record 25: USE BARS ------------------------------------------------------------------
 
     // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------

@@ -752,6 +752,80 @@ internal sealed class HalfSelection
         }
     }
 
+    /// <summary>
+    /// WHICH HALVES OF THE TWO ROUND CARDS ARE ALREADY SPENT — extension record
+    /// <see cref="Net.NetProtocol.ExtIdRoundHalfSpent"/>'s whole payload, as one mask byte.
+    ///
+    /// <para>USER REPORT (2026-09-05, item 8): "wenn die Karte grau wird weil sie schon benutzt
+    /// wurde … So ist auch für die Mitspieler ersichtlich, welche der beiden Karten bereits
+    /// benutzt/verbrannt wurde. Die 1:1 Regel verlangt es."</para>
+    ///
+    /// <para>MEASURE THE PICTURE, NOT THE STATE — and here that is not a preference, it is the only
+    /// honest reading. "Grau" IS <c>alpha 0.5</c> on the half's own <c>CanvasGroup</c>, written by
+    /// <c>FullAbilityCardAction.SetInteractable</c> (:334) and by nothing else. Sampling that alpha
+    /// says exactly "the owner's screen draws this half dimmed", which is the whole of what the 1:1
+    /// rule asks to be mirrored. The alternative — modelling WHEN a half counts as spent from
+    /// <c>CardsActionControlller</c>'s phase fields (<c>SetPhase</c> :302, <c>Finish</c> :422-423,
+    /// <c>AfterItemUseAtEndOfTurn</c> :444-445, plus four pre-emptive per-half dims) — is five
+    /// terms that have to be kept in step with the game forever in order to re-derive a number the
+    /// game has already computed and put on screen.</para>
+    ///
+    /// <para>NOT the click latch. <see cref="SelectedHalfOf"/> reads
+    /// <c>FullAbilityCardAction.isSelected</c>, which <c>CardsActionControlller.Finish</c> CLEARS
+    /// (<c>Deselect()</c>, :420-421) at the very moment this sampler's bit turns ON. The two are
+    /// opposites, which is why record 14 could not be widened to carry this and record 41 exists.</para>
+    ///
+    /// <para>Zeros while the action-selection layout is hidden or the dock is READ-ONLY, on the
+    /// same rule and for the same reason as <see cref="SampleLocalSelection"/>: publishing a
+    /// WATCHED character's dimming would grey the wrong halves of our OWN mirrored board on every
+    /// peer. Read-only throughout; on a packet where nothing is dimmed the whole body is one null
+    /// check and two alpha reads.</para>
+    /// </summary>
+    internal static void SampleLocalSpent(out byte mask)
+    {
+        mask = 0;
+        HalfSelection? self = s_active;
+        if (self == null || !self.IsVisible || self.ReadOnly)
+            return;
+        for (int i = 0; i < self._cards.Count && i < 2; i++)
+        {
+            SpentHalvesOf(self._cards[i], out bool top, out bool bottom);
+            if (top)
+                mask |= Net.NetProtocol.RoundHalfSpentBit(i, top: true);
+            if (bottom)
+                mask |= Net.NetProtocol.RoundHalfSpentBit(i, top: false);
+        }
+    }
+
+    /// <summary>
+    /// One card's two halves, as the owner's screen DRAWS them (guarded — a card mid-teardown reads
+    /// as undimmed, never throws inside the extras sender). The 0.999 threshold is the same one
+    /// <c>Cards.Art.CardHalfTone.NeedsCorrection</c> tests with, deliberately: the two must agree
+    /// about what "dimmed" means or one of them would fight the other.
+    /// </summary>
+    private static void SpentHalvesOf(VRCard? card, out bool top, out bool bottom)
+    {
+        top = false;
+        bottom = false;
+        try
+        {
+            FullAbilityCard? full = card != null ? card.FullCard : null;
+            if (full == null)
+                return;
+            top = IsDimmed(full.topActionButton);
+            bottom = IsDimmed(full.bottomActionButton);
+        }
+        catch
+        {
+            // fall through — an unreadable card is drawn UNDIMMED on every peer, which is the
+            // picture that surface had before this record existed
+        }
+    }
+
+    /// <summary>Is this half's own CanvasGroup below full alpha — i.e. the game dimmed it?</summary>
+    private static bool IsDimmed(FullAbilityCardAction? half)
+        => half != null && half.canvasGroup != null && half.canvasGroup.alpha < 0.999f;
+
     /// <summary>One card's selected half off the game's own per-half latches (guarded — a card
     /// mid-teardown reads as none, never throws inside the extras sender).</summary>
     private static int SelectedHalfOf(VRCard? card)

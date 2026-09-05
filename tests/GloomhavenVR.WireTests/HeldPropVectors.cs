@@ -294,7 +294,7 @@ internal static class HeldPropVectors
     private static void Budget(Harness t)
     {
         t.Case("37f. held prop, the send buffer still satisfies its own margin rule");
-        const int documentedWorstCase = 1732;  // the sum in PresenceSerializer.MaxSize's doc.
+        const int documentedWorstCase = 1735;  // the sum in PresenceSerializer.MaxSize's doc.
                                                // 1513 -> 1570 when this record and the shared-gaze
                                                // byte landed in one round; 1570 -> 1726 on
                                                // 2026-09-05 when an EXISTING term grew (the wall-
@@ -307,7 +307,9 @@ internal static class HeldPropVectors
                                                // goes on passing against a number nobody documents
                                                // any more. It has already been stale once in this
                                                // one round, which is why record 39's lane updated
-                                               // it in the same commit that moved the sum.
+                                               // it in the same commit that moved the sum. 1732 ->
+                                               // 1735 on 2026-09-06: the SPENT-HALF record (41),
+                                               // 3 bytes flat ([id][len] + one mask byte).
         const int largestSingleRecord = 257;   // board tuning: 2 TLV + one 255-byte page
         t.True(PresenceSerializer.MaxSize >= documentedWorstCase + largestSingleRecord,
                $"MaxSize {PresenceSerializer.MaxSize} leaves "

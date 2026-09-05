@@ -202,6 +202,72 @@ internal sealed partial class CardsDriver
              CPlayerActor? actor, string lang, int trayId)? _pickStatusKey;
 
     /// <summary>
+    /// The <see cref="Patches.PickFlowWatch.EndSeq"/> value this driver has already REPORTED, so
+    /// <see cref="ReportPickFlowEnd"/> prints once per flow rather than once per frame of the
+    /// (permanent) cleared state. Starts at 0, which is also the watch's value before any flow has
+    /// ended, so a session with no pick prints nothing.
+    /// </summary>
+    private int _reportedPickFlowEnd;
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (2026-09-05 items 9 + 10). The user's ruling was a TIMING one —
+    /// "Wenn der Verbrennen-Flow vorbei ist muss sich das Controllboard zwingend sofort anpassen!"
+    /// — so this line records the flow's END EDGE and the board's RE-READ as two separate
+    /// timestamps and prints the gap between them. Next round "immediately" is a number, not an
+    /// impression. Grep token: <c>PICK FLOW END</c>.
+    ///
+    /// <para>WHAT IT REPLACES. On 2026-09-05 the gap was ~87 s (7,850 frames at ~90 fps): the burn
+    /// completed at <c>Player.log:233583</c> (<c>BURN CARD [owner/pile-watch]</c>, frame ~212,950)
+    /// and the banner it belonged to was still up — and still being pushed to the peer — through an
+    /// entire second damage prompt and its take-damage press (<c>:239872</c>), re-raising itself at
+    /// <c>:240037</c>, until the CO-PLAYER'S turn boundary ran the game's own <c>SwitchHand</c> at
+    /// <c>:244474</c>. The gap was not a slow re-read: nothing was re-reading, because the two terms
+    /// the board consulted are latches the game never clears.</para>
+    ///
+    /// <para>PROOF the fix landed: one <c>PICK FLOW END</c> line per burn, with
+    /// <c>boardCaughtUpAfter</c> in MILLISECONDS and <c>framesLate</c> at 0 or 1 — the board re-reads
+    /// on the tick after the edge because <c>UpdatePickStatus</c> runs every frame. Read it together
+    /// with the <c>Pick banner SENT: placard hidden</c> line that must follow it within the same
+    /// handful of frames: that is the PEER's copy going down, which is the 1:1 half of the fix.</para>
+    ///
+    /// <para>FALSIFIERS — three, and they say different things. (1) NO <c>PICK FLOW END</c> line at
+    /// all after a burn whose <c>BURN CARD</c> line is present: no END edge fired, so the latch is
+    /// still armed and the fix is INERT — the game reached neither the commit prefix nor
+    /// <c>CardsHandUI.Hide</c>, and the next suspect is a fourth exit from
+    /// <c>AnimateCardsLost</c>. (2) The line present with a <c>boardCaughtUpAfter</c> of whole
+    /// SECONDS: the edge is right and the re-read is genuinely slow — a different defect, in the
+    /// driver's tick and not in this gate. (3) The line present and a <c>Pick banner</c> line
+    /// AFTER it naming the same actor: the banner has a second writer that does not consult
+    /// <see cref="CardsGameApi.PickIsOpen"/>, and the gate is too narrow rather than the latch too
+    /// wide.</para>
+    /// </summary>
+    private void ReportPickFlowEnd()
+    {
+        int seq = Patches.PickFlowWatch.EndSeq;
+        if (seq == _reportedPickFlowEnd)
+            return;
+        _reportedPickFlowEnd = seq;
+        float endedAt = Patches.PickFlowWatch.EndedAt;
+        float now = Time.unscaledTime;
+        // HW-VERIFY: grep token "PICK FLOW END". PROOF = one line per burn with framesLate 0-1 and
+        // a "Pick banner SENT: placard hidden" line just after it. FALSIFIER = no line at all after
+        // a BURN CARD line (the fix is inert, no END edge fired), or boardCaughtUpAfter in whole
+        // seconds (the edge is right, the re-read is slow). See this method's doc for the third.
+        VRLog.Note("Cards", $"PICK FLOW END #{seq}: the pick flow ended at t={endedAt:F3}s " +
+                            $"(frame {Patches.PickFlowWatch.EndedFrame}) and this board re-read it at " +
+                            $"t={now:F3}s (frame {Time.frameCount}) — boardCaughtUpAfter=" +
+                            $"{(now - endedAt) * 1000f:F0} ms, framesLate=" +
+                            $"{Time.frameCount - Patches.PickFlowWatch.EndedFrame}. The flow had been " +
+                            $"live {Patches.PickFlowWatch.LastFlowSeconds:F2}s and was ended by " +
+                            $"{Patches.PickFlowWatch.EndedBy}. The banner and the CONFIRM/UNDO keycap " +
+                            "overrides are down and record 7 stops riding, so every peer's mirrored " +
+                            "placard goes down with it. THIS IS THE USER'S 'sofort': on 2026-09-05 the " +
+                            "same gap was ~87 s because nothing was re-reading at all — the game latches " +
+                            "CardsHandUI.cardHandMode and maxCardsSelected and TakeDamagePanel.ResetAndHide " +
+                            "clears neither, so only the CO-PLAYER'S turn boundary ever cleared it.");
+    }
+
+    /// <summary>
     /// EVENT-DISCARD VR FLOW (pre-scenario "Begegnungen" mali, and every other modal card
     /// pick): drive the board's pick banner + the CONFIRM/UNDO keycap overrides each tick.
     /// The banner names the AFFECTED CHARACTER and the requirement in the player's language
@@ -419,6 +485,7 @@ internal sealed partial class CardsDriver
                 _pickStatusKey = null;
                 _tray.SetPickStatus(null, null, null);
             }
+            ReportPickFlowEnd();
             return;
         }
 
