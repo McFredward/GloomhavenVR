@@ -1198,7 +1198,52 @@ internal static class GuildmasterDestinations
                 return false;
             }
         }
-        return ReturnHome($"{source} on '{window.name}'", $"closing '{window.name}'");
+        bool pressed = ReturnHome($"{source} on '{window.name}'", $"closing '{window.name}'");
+
+        // ITEM 6, 2026-09-05 — VERIFY THE OUTCOME, NOT THE PATH.
+        //
+        // `pressed` is ReturnHome's answer to "did the bar carry a button for the home surface",
+        // and it has never been an answer to "did the mode actually leave". The ModBuild 447 host
+        // log is why that distinction now has an instrument: at the point of no return the sweep
+        // closed the shop window through exactly this method and the dispatch it triggered printed
+        // "MAP TABLE BUTTON 'WorldMap' pressed (X button on 'UI Shop Item Window') but its game
+        // object 'Map Button' is INACTIVE … nothing was dispatched" (:84182), four lines before
+        // "MODAL CLOSE (X button): 'UI Shop Item Window' … closed via UIWindow.Hide()" (:84186).
+        // The WINDOW went and the MODE stayed — and only the mode's Exit takes the party display
+        // back out of selection mode (ModBuild 184/195). `pressed` was true throughout.
+        //
+        // So the mode is READ BACK off the game instead of being inferred from the dispatch. The
+        // press is delivered off-bar since this round (MapButtonRail.SelectThroughTheGamesOwnApi),
+        // which is what makes this line's happy branch reachable at the point of no return at all.
+        EGuildmasterMode after = CurrentMode();
+        bool left = after != current || current == EGuildmasterMode.None;
+        // HW-VERIFY
+        // ITEM 6 — THE ANSWER LINE, and it is at NOTE tier on purpose: the co-player always runs a
+        // shipped build, where VRLog.Info is not printed, so the ReturnHome line beside it is
+        // invisible on exactly the client where "a window left open on the peer is the same defect"
+        // is decided. One line per destination close (five at most in one point-of-no-return
+        // sweep), never per frame.
+        //
+        // THE FALSIFIER: this line reading LEFT=False. That is the defect, not the absence of the
+        // line — absence means no destination was closed at all, which for a point-of-no-return
+        // report means the sweep did not run and 'POINT OF NO RETURN OPENED at edge' is the line to
+        // read instead. LEFT=False together with 'MAP TABLE BUTTON … is INACTIVE' means the off-bar
+        // delivery did not fire; LEFT=False WITHOUT it means the dispatch landed and the game
+        // declined the switch, which would be a different cause entirely.
+        VRLog.Note(Scope, $"GUILDMASTER MODE EXIT: closing '{window.name}' ({source}) — LEFT={left}. "
+                          + $"The guildmaster mode was {current} before and is {after} after, and the "
+                          + $"home surface press {(pressed ? "went out" : "found no button on the bar")}. "
+                          + "THIS IS THE OUTCOME, NOT THE PATH: hiding the window is not the close — "
+                          + "only UIGuildmasterHUD.UpdateCurrentMode -> modes[current].Exit() takes "
+                          + "the party display back out of selection mode (EnableSelectionMode makes "
+                          + "every character slot non-interactable, ModBuild 184/195), so a false "
+                          + "here is a window that closed and a room that did not. IT IS READ BACK "
+                          + "FROM THE GAME because the dispatch's own return value lied at ModBuild "
+                          + "447: the point-of-no-return sweep's press landed on an INACTIVE bar "
+                          + "button and reported success (host Player.log:84182 against :84186). "
+                          + "NOTHING GOES ON THE WIRE — this is one pointerClick's worth of local "
+                          + "presentation, run identically and independently on each client.");
+        return pressed;
     }
 
     /// <summary>

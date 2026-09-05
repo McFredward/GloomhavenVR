@@ -310,6 +310,58 @@ internal static partial class ModalFallback
             if (window.name == MenuWindowFamily.VROptionsWindowName)
                 return MandatoryDecisionTerm.None;
 
+            // THE SECOND EXEMPTION — THE GUILDMASTER DESTINATIONS (user item 3, 2026-09-05:
+            // "Der Händler und co. haben kein X mehr zum schließen. Will ich aber haben.").
+            //
+            // IT IS AN IDENTITY AND A CONSEQUENCE, WHICH IS WHAT THE DERIVED NET IS NOT.
+            // MapRoom.GuildmasterDestinations.IsDestination matches the FIVE window classes off
+            // UIGuildmasterHUD's own serialized references — UIShopItemWindow, UITempleWindow,
+            // UITrainerWindow, UINewEnhancementWindow, UITownRecordsWindow — each by a GetComponent
+            // on the window's OWN GameObject (all five carry [RequireComponent(typeof(UIWindow))]).
+            // That names WHAT this window is. The net names only what the ESC key does, and in the
+            // 3D map room it fires for every window there is: the ModBuild 447 hardware log has
+            // escapeKeyAction=None on all nine no-X windows on the host, and the co-player's log
+            // carries NO 'MODAL WINDOW X AUDIT' line at all — not one window on that client got a
+            // cross all session.
+            //
+            // THE CONSEQUENCE TEST IS ANSWERED BY CODE THAT ALREADY SHIPS, not by an argument.
+            // ModalFallback.CloseFloatedWindow is this family's vetted close and has been since
+            // ModBuild 184/226/230: it flags the parallel float for release, runs the mode's own
+            // Exit through GuildmasterDestinations.LeaveMode (the ONLY thing that takes the party
+            // display back out of selection mode), then hides the game window. The room ALREADY
+            // runs it on this window twice over — a second press of the mode's own table cap
+            // (GuildmasterDestinations.CloseMode, the "Tasten sollen Toggles sein" ruling), and the
+            // point-of-no-return sweep, which closes all five destinations at the rising edge and
+            // did so on BOTH clients in the 447 logs ("CLOSED 8 of 8 NAMED member(s)"). A window
+            // the mod already closes on its own initiative is a window the mod may offer a cross
+            // for; withholding the cross was protecting nothing.
+            //
+            // AND IT DOES NOT RE-OPEN THE ModBuild 445 WOUND. That build tore down 7 merchants and
+            // 10 temples by reading THIS SAME NET as "the player has answered a decision" and
+            // spending a float's stickiness — a caller that must use IdentifiesTheWindow, which
+            // still answers false here (this exemption removes a term, it does not add one). The
+            // question this predicate answers is "may the mod offer a way out", and for these five
+            // the answer is yes and always was; only the net said otherwise.
+            //
+            // SCOPE, STATED. The five destinations and nothing else. The quest popups
+            // (UIQuestPopupManager's three) keep the net: the travel confirm and the multiplayer
+            // ready toggle are PARKED INSIDE the quest window by MapTravelConfirm/MapQuestReadyUp,
+            // so a cross there would take the player's confirm off the table with it, and that
+            // window's layout is another lane's this round. The character screen, the quest log,
+            // the story box, the loadout screen and the encounter window are all named by OLDER
+            // clauses that are evaluated BEFORE this one, so none of them can reach this line.
+            //
+            // AND IT IS GATED ON THE 3D ROOM STANDING, which is not belt-and-braces but the
+            // consequence test again. What makes the cross safe is LeaveMode running the mode's own
+            // Exit, and LeaveMode's FIRST line is `if (!MapRoomDriver.Active || !IsDestination(...))
+            // return false`. With the vanilla 2D map chosen (Plugin.Vanilla2DMap) these windows can
+            // still be floated by the ordinary modal path while the room does not stand, and a cross
+            // there would hide the merchant and leave the Merchant MODE current — the ModBuild 184
+            // strand, with the party display's character slots dead for the rest of the session.
+            // Outside the room the derived net keeps the cross off, exactly as it does today.
+            if (MapRoom.MapRoomDriver.Active && MapRoom.GuildmasterDestinations.IsDestination(window))
+                return MandatoryDecisionTerm.None;
+
             reason = "the GAME ITSELF refuses to close this window on ESC (escapeKeyAction None: "
                    + "UIWindow.Escape returns false without hiding, UIWindow.cs:713-716, and both "
                    + "HideOrShowWindows and ForceHideWindows skip it) — so the mod must not offer a "

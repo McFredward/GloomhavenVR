@@ -166,7 +166,16 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 ///   selected quest lit all eight caps at once. Its ACTION brought the bar back in single player
 ///   only: online, <c>UIMapMultiplayerController</c> holds a second <c>disableOptionsRequests</c>
 ///   entry (:405) that the mod may not remove, so the press ate the player's quest selection and
-///   delivered nothing — twice in his host log, verbatim. See <see cref="Deliverable"/>.</item>
+///   delivered nothing — twice in his host log, verbatim. See <see cref="Deliverable"/>.
+///   <b>2026-09-05, SECOND ROUND:</b> the CLAUSE is back and the REVEAL is still gone. He rejected
+///   the dim-and-refuse residual in the same words ("Alle Buttons wie Händler und co. sollen
+///   drückbar bleiben bis zum point of no return"), and the way out is that both earlier answers
+///   were arguing over <c>optionsContainer.activeSelf</c> — the game's flag, with three of its own
+///   writers. It is conceded. The clause now reads "this button is UNLOCKED and only the bar above
+///   it is off" (<c>activeSelf &amp;&amp; !activeInHierarchy</c>, the exact split between the game's
+///   two writers) and the press is delivered through <see cref="SelectThroughTheGamesOwnApi"/> —
+///   <c>UIGuildmasterButton.Select()</c>, a public method call that needs no pointer event and no
+///   active GameObject. Nothing is written to the game's UI state and the map is never touched.</item>
 /// <item>this cap's own destination is STANDING in the room. Until 2026-09-05 this asked
 ///   <c>toggle.isOn</c>, i.e. the game's single-mode <c>ToggleGroup</c>, and the game marks that
 ///   toggle non-interactable on purpose (<c>UIGuildmasterButton.RefreshSelected</c>, :209:
@@ -207,7 +216,9 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// that silently undid what the player just did. A cap that cannot deliver a click is now simply
 /// dim, which is what the flat game shows in the same state. (1) Hard-coding the caps to look
 /// enabled: that is the symptom, and it would have
-/// left the beam passing through them and silently dropping his quest selection. (2) Writing
+/// left the beam passing through them and silently dropping his quest selection — and note that
+/// with the caps SOLID again (2026-09-05, second round) that beam no longer reaches the tabletop at
+/// all, so aiming at a cap can no longer drop a selection even by accident. (2) Writing
 /// <c>optionsContainer.SetActive(true)</c> ourselves to bring the bar back: a direct edit of game UI
 /// state against a level-triggered game writer, i.e. a write war, and it lies about
 /// <c>disableOptionsRequests</c>. (3) Calling <c>EnableHeadquartersOptions(us, true)</c>: it only
@@ -1376,8 +1387,56 @@ internal sealed class MapButtonRail
     /// the reveal would work, and it would leave the same press quietly eating a selection on the
     /// one machine where it does. The residual is honest and visible; the old behaviour was neither.
     /// </para>
+    ///
+    /// <para><b>AND 2026-09-05 (SECOND ROUND) PUT THE HATCH BACK — WITHOUT THE WRITE THAT MADE THE
+    /// FIRST ONE A LIE.</b> He rejected the residual above in the same words he had already used
+    /// once: <i>"Alle Buttons wie Händler und co. sollen drückbar bleiben bis zum point of no
+    /// return. Aktuell grauen alle buttons aus wenn eine Quest ausgewählt ist."</i> Both previous
+    /// answers moved the SAME term — first light the cap and drop his selection to make the press
+    /// land, then darken the cap and refuse the press — and both were arguing about
+    /// <c>optionsContainer.activeSelf</c>, which is the GAME'S flag, written by three of its own
+    /// methods (<c>RefreshVisibilityHeadquartersOptions</c> :739-751, <c>HandleTempleState</c>
+    /// :581-593, <c>HandleMerchantState</c> :595-606). The standing ruling for that shape is
+    /// <i>do not win a write war — concede the flag and own the number</i>, and the number here is
+    /// not the container's active state at all: it is <c>UIGuildmasterHUD.currentMode</c>. See
+    /// <see cref="SelectThroughTheGamesOwnApi"/>, which reaches that number through
+    /// <c>UIGuildmasterButton.Select()</c> — a plain public method call that needs no active
+    /// GameObject, no pointer event and no <c>ExecuteEvents</c>, so the bar can stay exactly as
+    /// down as the game wants it.</para>
+    ///
+    /// <para><b>THE DISCRIMINATOR IS EXACT AND IT IS THE GAME'S OWN TWO WRITERS.</b> A cap must NOT
+    /// come alive for a mode the game has LOCKED, and until now one term covered both cases because
+    /// <c>IsActive</c> is <c>activeInHierarchy</c>. They are two different writers touching two
+    /// different objects:</para>
+    /// <list type="bullet">
+    ///   <item><b>THIS BUTTON'S OWN GameObject</b> — <c>GuildmasterMode.RefreshUnlocked</c>
+    ///   (decompiled GuildmasterMode.cs:53-56) is the ONLY line in the game that writes it:
+    ///   <c>button.gameObject.SetActive(IsUnlocked)</c>. <c>activeSelf</c> false therefore means
+    ///   THIS MODE IS LOCKED, and the cap stays dim and inert exactly as it does today.</item>
+    ///   <item><b>AN ANCESTOR</b> — <c>optionsContainer</c>, i.e. the whole bar, which is a fact
+    ///   about the MAP and identical for all eight caps. That is the state the user says must not
+    ///   reach the buttons.</item>
+    /// </list>
+    /// <para>So <c>activeSelf &amp;&amp; !activeInHierarchy</c> is not a heuristic: it is "this
+    /// button is unlocked and something above it was switched off", and the only thing above it the
+    /// game switches is the bar.</para>
+    ///
+    /// <para>THE OLD RESIDUAL IS GONE WITH ITS CAUSE. Nothing on this path calls
+    /// <c>DeselectCurrentMapLocation</c> any more and nothing writes to the map — the press cannot
+    /// touch the player's quest selection in single player or online, which is what made the
+    /// ModBuild 200 reveal unsafe. The <c>disableOptionsRequests</c> set is never read, never
+    /// removed from and never guessed at.</para>
     /// </summary>
-    private static bool Deliverable(Cap c) => c.Button != null && c.Button.IsActive;
+    private static bool Deliverable(Cap c) =>
+        c.Button != null && (c.Button.IsActive || BarIsDown(c.Button));
+
+    /// <summary>
+    /// Is this button unreachable ONLY because the game has taken the whole option bar off the
+    /// screen — as opposed to because this mode is locked? See <see cref="Deliverable"/> for the
+    /// two writers this separates. A cheap pair of native property reads, no allocation.
+    /// </summary>
+    private static bool BarIsDown(UIGuildmasterButton button) =>
+        button.gameObject.activeSelf && !button.gameObject.activeInHierarchy;
 
     /// <summary>
     /// WOULD THE GAME, OR THIS ROOM, DO ANYTHING WITH THE PRESS? The three mode-shaped rules,
@@ -2165,10 +2224,32 @@ internal sealed class MapButtonRail
         //     not merely guarded in Pressable: a peer's map switch must never touch this player's
         //     selection either.
         //
-        //     A physical press cannot normally reach this line any more (Deliverable is false, so
-        //     the cap has no collider), which is why the warning below now says what it means: if it
-        //     prints, something dispatched at a bar that is down.
-        if (!target.activeInHierarchy)
+        //     2026-09-05, SECOND ROUND — AND NOW IT NEITHER REFUSES NOR CLEARS THE WAY. He rejected
+        //     the refusal ("Alle Buttons wie Händler und co. sollen drückbar bleiben bis zum point
+        //     of no return"), and the reveal is still unsafe for every reason written above. Both of
+        //     those answers were about optionsContainer.activeSelf, which is the GAME'S flag with
+        //     three of its own writers. The flag is conceded; the press now reaches the NUMBER —
+        //     UIGuildmasterHUD.currentMode — through the game's own public UIGuildmasterButton.Select(),
+        //     which is a method call and not a pointer event, so an inactive GameObject is no obstacle
+        //     to it. See SelectThroughTheGamesOwnApi for the mechanism and its limits.
+        //
+        //     WHAT STILL REFUSES HERE, and it is the one case the old single term hid: this button's
+        //     OWN GameObject being off. GuildmasterMode.RefreshUnlocked (decompiled
+        //     GuildmasterMode.cs:53-56) is the only writer of that, and it means the mode is LOCKED.
+        //     Selecting a locked mode through any route would be the mod doing what the flat game
+        //     refuses, which is the line this family must not cross.
+        //
+        //     THE ORDER MATTERS AND IT IS WHY THIS IS NO LONGER AN EARLY RETURN. Clause (2) below is
+        //     the "second press closes it" contract, and at the point of no return the mod's OWN
+        //     close dispatch arrives here (CloseFloatedWindow -> LeaveMode -> ReturnHome ->
+        //     PressGuildmasterMode) with the bar already down, because a quest is selected by then.
+        //     The ModBuild 447 host log has that exact failure on one line — 84182, "MAP TABLE BUTTON
+        //     'WorldMap' pressed (X button on 'UI Shop Item Window') but its game object 'Map Button'
+        //     is INACTIVE … nothing was dispatched", four lines before the point-of-no-return sweep
+        //     hid the shop window anyway. The window went; the Merchant MODE did not, and only the
+        //     mode's Exit takes the party display back out of selection mode (ModBuild 184/195).
+        bool barDown = !target.activeInHierarchy;
+        if (barDown && !button.gameObject.activeSelf)
         {
             VRLog.Warn(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' pressed ({source}) but its "
                               + $"game object '{target.name}' is INACTIVE, so no pointer event can be "
@@ -2182,11 +2263,15 @@ internal sealed class MapButtonRail
                               + "down for a reason this room cannot lift: "
                               + "UIGuildmasterHUD.RefreshVisibilityHeadquartersOptions runs "
                               + "optionsContainer.SetActive(false) while disableOptionsRequests is "
-                              + "non-empty. A PHYSICAL press should not be able to reach this line at all "
-                              + "— Deliverable() is false while the bar is down, so the cap is dim and has "
-                              + "no collider — so if the source names a hand or the laser, the cap was a "
-                              + "frame behind the game; if it names PressMode or the multiplayer mirror, "
-                              + "this is the mod dispatching into a bar the game has removed.");
+                              + "non-empty. SINCE 2026-09-05 THIS LINE MEANS SOMETHING NARROWER THAN IT "
+                              + "USED TO: a bar that is merely DOWN no longer reaches it — that press is "
+                              + "delivered through the game's own UIGuildmasterButton.Select() instead "
+                              + "(look for MAP TABLE BUTTON DELIVERED OFF-BAR). This line now means this "
+                              + "BUTTON'S OWN GameObject is inactive, which GuildmasterMode.RefreshUnlocked "
+                              + "(:53-56) writes and only for a LOCKED mode, so the refusal is the flat "
+                              + "game's own and the cap should already have been dim: Deliverable() is "
+                              + "false for a locked mode, so if the source names a hand or the laser the "
+                              + "cap was a frame behind the game.");
             return;
         }
 
@@ -2253,6 +2338,15 @@ internal sealed class MapButtonRail
         // sent it on arrival) and must NOT be sent again — that would be the double this brief
         // warns about. Only a press with no hover behind it (PressMode from GuildmasterDestinations,
         // or a poke whose enter was lost to a rebuilt rail) synthesizes its own enter/exit pair.
+        // (4) DISPATCH. Two routes, and the bar's own state picks between them — see clause (1).
+        //     While the bar is down there is no pointer route at all, so the press goes through the
+        //     game's own selection API instead of being dropped.
+        if (barDown)
+        {
+            SelectThroughTheGamesOwnApi(button, source, physical);
+            return;
+        }
+
         bool hovered = cap != null && cap.GameHovered;
         NativeUiPress.Press(target, hovered, CapName(cap, button) + " (" + source + ")");
 
@@ -2282,6 +2376,137 @@ internal sealed class MapButtonRail
                           + "off the game's own serialized item — see the one-shot 'PHYSICAL BUTTON SOUND "
                           + "STATE' line for this button, which names each item and whether AudioController "
                           + "knows it. Nothing here picks or plays a clip.");
+    }
+
+    /// <summary>
+    /// DELIVER THE PRESS WHILE THE GAME HAS THE OPTION BAR OFF THE SCREEN — user item 4,
+    /// 2026-09-05: <i>"Alle Buttons wie Händler und co. sollen drückbar bleiben bis zum point of no
+    /// return. Aktuell grauen alle buttons aus wenn eine Quest ausgewählt ist."</i>
+    ///
+    /// <para><b>THIS IS "CONCEDE THE FLAG, OWN THE NUMBER" AND NOTHING ELSE.</b> The flag is
+    /// <c>optionsContainer.activeSelf</c>. It has three writers inside the game
+    /// (<c>RefreshVisibilityHeadquartersOptions</c> :739-751, <c>HandleTempleState</c> :581-593,
+    /// <c>HandleMerchantState</c> :595-606) and its input is a private <c>HashSet&lt;Component&gt;</c>
+    /// this mod may neither read nor remove from, so every previous answer that tried to change it
+    /// — writing <c>SetActive(true)</c>, calling <c>EnableHeadquartersOptions(us, true)</c>, or
+    /// dropping the player's map selection to make the game write it back — was a write war, a
+    /// measured no-op, or a press that ate what the player had just done. The class doc lists all
+    /// three as rejected and they stay rejected. NOTHING HERE WRITES TO THE GAME'S UI STATE.</para>
+    ///
+    /// <para><b>THE NUMBER IS <c>UIGuildmasterHUD.currentMode</c>, and the game hands it out.</b>
+    /// <c>UIGuildmasterButton.Select()</c> (decompiled UIGuildmasterButton.cs:205-212) is public and
+    /// does exactly what a real click ends in: <c>toggle.SetValue(true)</c> then
+    /// <c>OnValueChanged(true)</c> → <c>RefreshSelected()</c> + <c>OnSelected.Invoke(mode)</c>, and
+    /// <c>OnSelected</c> is where <c>UIGuildmasterHUD</c> hangs <c>UpdateCurrentMode</c> (:431, and
+    /// the two hand-written campaign delegates for the map and city buttons at :207-235). It is a
+    /// METHOD CALL, so <c>ExecuteEvents</c>' inactive-target rule never comes into it and the bar
+    /// can stay as down as the game wants. The mode's own <c>Enter()</c> then opens the destination
+    /// window, which is not a child of the bar, so it appears normally and the mod floats it.</para>
+    ///
+    /// <para><b>WHY THE GROUP HAS TO BE UNWOUND BY HAND, and it is the game's own rule.</b> uGUI's
+    /// <c>Toggle.Set</c> notifies its <c>ToggleGroup</c> only while <c>m_Group.isActiveAndEnabled
+    /// &amp;&amp; IsActive()</c>, and the group lives ON the bar (<c>toggleGroup =
+    /// optionsContainer.GetComponentInChildren&lt;ToggleGroup&gt;()</c>, :156), so with the bar down
+    /// neither term holds and the previously selected toggle would be left ON beside the new one.
+    /// The loop below turns the others off through <c>UIGuildmasterButton.Deselect()</c> — the
+    /// public counterpart, which runs the same <c>RefreshSelected()</c> the group's own notification
+    /// would have run — in the same order a real click produces: old off, then new on. When the bar
+    /// comes back the game finds exactly the state its own click would have left.</para>
+    ///
+    /// <para><b>WHAT IS NOT DONE, STATED.</b> No <c>pointerEnter/Down/Up/Click/Exit</c> is sent, so
+    /// the game's own press SOUND — which is played by those handlers off the button's serialized
+    /// items — does not play on this route. That is a missing click, not a missing action, and it is
+    /// the honest cost of a bar that is not on screen to be clicked. The haptic pulse, the cap's
+    /// travel and the debounce all already fired in <see cref="Press"/> before this is reached.</para>
+    ///
+    /// <para><b>MULTIPLAYER.</b> Unchanged in kind: a guildmaster mode switch is local presentation
+    /// on the client that made it, exactly as it is through the pointer route, and this method sends
+    /// nothing and reads nothing from the wire. A peer's surface mirror
+    /// (<c>RemoteMapRoom</c> → <c>PressMode</c>) arrives here as a programmatic dispatch and now
+    /// LANDS on that client instead of being dropped when its bar happens to be down.</para>
+    /// </summary>
+    private void SelectThroughTheGamesOwnApi(UIGuildmasterButton button, string source, bool physical)
+    {
+        EGuildmasterMode mode = button.GuildmasterMode;
+        int deselected = 0;
+        string turnedOff = string.Empty;
+        try
+        {
+            // THE GROUP'S JOB, DONE BY HAND — see the doc. Only the caps this rail owns are walked:
+            // they are the eight modes the game's own bar carries, and a mode with no cap has no
+            // toggle for this room to have turned on in the first place.
+            for (int i = 0; i < _caps.Count; i++)
+            {
+                Cap other = _caps[i];
+                if (other.Button == null || ReferenceEquals(other.Button, button))
+                    continue;
+                if (other.Toggle == null || !other.Toggle.isOn)
+                    continue;
+                other.Button.Deselect();
+                deselected++;
+                turnedOff = turnedOff.Length == 0
+                    ? other.Button.GuildmasterMode.ToString()
+                    : turnedOff + ", " + other.Button.GuildmasterMode;
+            }
+
+            // NORMALISE, THEN SELECT. Select() is a no-op on a toggle that is already on, and a
+            // toggle can be left on by a mode the game exited without the group's help — which is
+            // precisely the state this whole method exists inside. Deselect() first makes the
+            // Select() below unconditional, and it is the same pair a real click produces.
+            button.Deselect();
+            button.Select();
+        }
+        catch (System.Exception ex)
+        {
+            // UIGuildmasterButton.RefreshSelected dereferences EventSystem.current and
+            // UIInfoTools.Instance (:190-203). Both exist on a live campaign map and neither is this
+            // mod's to guarantee, so a teardown mid-press must cost one press and not the room.
+            VRLog.Error(Scope, $"MAP TABLE BUTTON '{mode}' off-bar selection FAILED ({source}) — "
+                               + $"{ex.GetType().Name}: {ex.Message}. Nothing was written to the game "
+                               + "and the guildmaster mode is unchanged; the game's own bar is "
+                               + "off-screen, so the player sees no half-finished state.");
+            return;
+        }
+
+        // HW-VERIFY
+        // ITEM 4, 2026-09-05 — THE ANSWER LINE. One line per press taken on this route, never per
+        // frame, and it prints only when the bar was actually down (the ordinary pointer route logs
+        // its own 'dispatched on' line as before).
+        //
+        // THE FALSIFIER, and it is the one the brief asked for by name. A CHANGE-TRIGGERED line
+        // would be silent both when the fix works and when the feature never ran, so this is not
+        // change-triggered: it fires on every off-bar press. The reading that means THE FIX IS
+        // INERT is the OTHER line — 'MAP TABLE BUTTON … is INACTIVE, so no pointer event can be
+        // delivered' — still appearing for a Merchant/Temple/Trainer/Enchantress/TownRecords cap,
+        // because that now means this button's OWN GameObject was off, i.e. Deliverable() let a
+        // press through for a LOCKED mode and the discriminator is wrong. The reading that means THE
+        // CAPS ARE STILL GREYING is neither line present at all while a quest is selected, together
+        // with no cap press in the log for that interval: that is Deliverable() still answering
+        // false, i.e. the collider never came back. And 'modeBefore' is the field that says whether
+        // the press did anything: modeBefore == this cap's own mode means UpdateCurrentMode
+        // early-returned (:437-440) and the press was a no-op, which is a defect in the close path
+        // above this, not here.
+        VRLog.Note(Scope, $"MAP TABLE BUTTON DELIVERED OFF-BAR: '{mode}' pressed ({source}) while the "
+                          + "game has its whole option bar OFF THE SCREEN, and the press LANDED. "
+                          + "USER RULING (item 4, 2026-09-05): 'Alle Buttons wie Händler und co. "
+                          + "sollen drückbar bleiben bis zum point of no return. Aktuell grauen alle "
+                          + "buttons aus wenn eine Quest ausgewählt ist.' HOW: not a pointer event — "
+                          + "ExecuteEvents refuses an inactive target — but the game's own public "
+                          + "UIGuildmasterButton.Select(), which is what a real click ends in "
+                          + "(toggle.SetValue(true), RefreshSelected, OnSelected.Invoke -> "
+                          + "UIGuildmasterHUD.UpdateCurrentMode -> the old mode's Exit and this "
+                          + $"mode's Enter). {deselected} sibling toggle(s) were turned off by hand "
+                          + $"first{(deselected > 0 ? " (" + turnedOff + ")" : string.Empty)}, because "
+                          + "uGUI's ToggleGroup notification is skipped while the group's own object "
+                          + "is inactive and the bar is where the group lives. NOTHING WAS WRITTEN TO "
+                          + "THE GAME'S UI STATE: optionsContainer is not touched, "
+                          + "disableOptionsRequests is not read or removed from, and the player's map "
+                          + "selection is NOT dropped — the ModBuild 200 reveal that did drop it is "
+                          + "gone and is not coming back. THE ONE THING THIS ROUTE CANNOT DO is play "
+                          + "the game's own press sound, which its pointer handlers own. "
+                          + $"physical={physical} (false is the mod's own dispatch — the game-side "
+                          + "half of a close through ReturnHome, or a peer's surface mirror; that is "
+                          + "the case the 447 host log dropped on the floor at line 84182).");
     }
 
     private static string CapName(Cap? c, UIGuildmasterButton button) =>

@@ -676,8 +676,11 @@ internal static partial class ModalFallback
                                       + "no exclusion matched, so the mod judges this window safe to "
                                       + "close: hiding it strands nothing that cannot be reopened. "
                                       + $"ESCAPE POLICY escapeKeyAction={EscapePolicyOf(window)} (the "
-                                      + "game's own ESC verdict for this window; None would mean the "
-                                      + "game refuses to close it and this line is then the bug). "
+                                      + "game's own ESC verdict for this window; None means the game "
+                                      + "would not close it on ESC, which since 2026-09-05 is NOT on "
+                                      + "its own a reason to withhold the cross — see the "
+                                      + "MODAL WINDOW X RESTORED line, and IsMandatoryDecision's "
+                                      + "second exemption, for the two windows that answer it). "
                                       + "TERMS TESTED, all false here: results panel, story box, "
                                       + "reward showcase, level message, hover card, map-room "
                                       + "permanent, transient announcement, loadout screen, mandatory "
@@ -685,6 +688,45 @@ internal static partial class ModalFallback
                                       + "an X' line are exhaustive over converted windows — a window "
                                       + "that appears in NEITHER was never converted at all, which is "
                                       + "a different question from whether it got a cross.");
+                if (MapRoom.MapRoomDriver.Active && MapRoom.GuildmasterDestinations.IsDestination(window))
+                    // HW-VERIFY
+                    // ITEM 3, 2026-09-05 — THE ANSWER LINE, and it is deliberately its OWN token
+                    // rather than a clause inside the census above, because the census answers "which
+                    // windows got a cross" and this answers "did the ONE change of this round reach
+                    // the ONE family it was made for". One line per destination conversion (two or
+                    // three in a session's worth of map room), never per frame.
+                    //
+                    // THE FALSIFIER, and it is not "this line is absent". Absent means the merchant
+                    // was never converted at all this session, which is a different failure and is
+                    // read off the 'floats WITHOUT an X' census. The reading that means THE FIX IS
+                    // INERT is this window still appearing on the 'floats WITHOUT an X' line with
+                    // the derived-net reason ("the GAME ITSELF refuses to close this window on
+                    // ESC"), because that is the exemption not firing. The reading that means THE
+                    // FIX IS WRONG is this line present and a MODAL CLOSE (X button) on it followed
+                    // by the party display's character slots staying dead — that would be the
+                    // ModBuild 184 strand, i.e. LeaveMode's dispatch not landing, and its own line
+                    // is 'MAP TABLE BUTTON … is INACTIVE'.
+                    VRLog.Note("WorldUI", $"MODAL WINDOW X RESTORED: '{name}' (ID {window.ID}) is a "
+                                          + "GUILDMASTER DESTINATION (matched by component off "
+                                          + "UIGuildmasterHUD's own serialized references, not by name "
+                                          + "and not by containment) and it now carries a close cross "
+                                          + "again — user item 3, 2026-09-05: 'Der Händler und co. "
+                                          + "haben kein X mehr zum schließen. Will ich aber haben.' "
+                                          + $"ESCAPE POLICY escapeKeyAction={EscapePolicyOf(window)}: "
+                                          + "the derived net that used to withhold the cross fires for "
+                                          + "EVERY window in this room, so it could never separate this "
+                                          + "family from the encounter window. WHAT MAKES IT SAFE IS "
+                                          + "NOT AN ARGUMENT BUT SHIPPED CODE: the cross runs "
+                                          + "ModalFallback.CloseFloatedWindow, which is the SAME close "
+                                          + "the mode's own table cap performs on a second press and "
+                                          + "the SAME close the point-of-no-return sweep performs on "
+                                          + "all five destinations — float released, the mode's own "
+                                          + "Exit run through GuildmasterDestinations.LeaveMode (which "
+                                          + "is what takes the party display back out of selection "
+                                          + "mode), then the game window hidden. NOTHING GOES ON THE "
+                                          + "WIRE: closing a window is local presentation, and the "
+                                          + "purchase, blessing or enhancement this destination may "
+                                          + "have committed was committed by ITS own button.");
             }
             else
                 // HW-VERIFY
