@@ -433,7 +433,62 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 450;
+    public const ushort ModBuild = 451;
+    // Build 451: an audit and a picture. No hardware round behind this one, and no behaviour moves.
+    //   * PLAYING WITH FLAT PLAYERS WORKS, and the audit says so by enumeration rather than by
+    //     recall: TWENTY features that change the game's flow of control in multiplayer, each read
+    //     in four directions (host flat / peer flat / what the flat player sees / verdict). Eleven
+    //     WORK, nine DEGRADE, and NONE BREAK — nobody is stranded, desynchronised, shown a wrong
+    //     state or unable to proceed.
+    //     The encounter gate turns out to be a CAMPAIGN-KILLER GUARD, not a preference. Verified
+    //     end to end: a side action leaves SupplementaryDataIDMed at 0, vanilla
+    //     UIEventPanel.ClientContinueRoadEvent reads exactly that field and throws "No button with
+    //     ID 0 found", and ActionProcessor's catch turns the throw into HandleDesync and rethrows.
+    //     Sending an encounter answer to an unmodded host would kill the session for everybody.
+    //     HostCanHonourRequests gates the UNLOCK as well as the send, so the button is never
+    //     pressable-but-dead. The Continue cap's sentinel is safer still: ActionProcessor reaches
+    //     Execute() only for TargetPlayerID == 0 or == MyPlayer.PlayerID, and int.MaxValue is
+    //     neither. Both gates are demonstrably LIVE, not merely present — the 448 logs carry the
+    //     armed line on the client and the request line on the host.
+    //     MY OWN HYPOTHESIS WAS FALSE EVERYWHERE: no coroutine in this mod is started by a local
+    //     action and completed by a remote message, so "a receiver waits forever" has no instance.
+    //     Every follow-a-peer path is adopt-if-published with a local default and a staleness
+    //     backstop; the only unbounded wait in the tree waits on a VANILLA side action a flat
+    //     player sends normally.
+    //     TWO THINGS THE AUDIT FOUND THAT NOBODY HAD LOOKED FOR. A flat receiver does not silently
+    //     ignore our packets — ProcessSideAction spawns a coroutine BEFORE the TargetPlayerID test,
+    //     so our 15 Hz cosmetic stream spawns ~15/second there during a flat client's join window;
+    //     bounded and transient, but not "ignored". And the caps disarmed SILENTLY: NoteArmState
+    //     was change-gated on a bool that never moved against a flat host, so a flat-host session
+    //     printed NOTHING about the missing cap, and the encounter side's only line lived in a
+    //     press handler a locked button can never reach. The standing rule that a disabled feature
+    //     must disable VISIBLY was being violated by omission. MIXED SESSION CENSUS now names every
+    //     player as MODDED (with build) or FLAT on every join, leave, first packet and flat-net
+    //     choice, and states the consequence.
+    //     Named and NOT fixed, because they cannot be: readiness withdrawal reaches only modded
+    //     players, so a flat player keeps a stale readiness (the party simply does not launch until
+    //     the modded player re-readies); and our scenario-entry deadlock repair runs on the machine
+    //     it is installed on, so a flat player hit by the same lost-message race still hangs with no
+    //     way out. Cost stated rather than hidden: ~25 KB/s per modded player that flat peers
+    //     receive and discard.
+    //   * THE BOARD DIAGRAM MOVED TO THE PLAYING GUIDE AND PUT ITS NAMES ON THE PICTURE. Ten
+    //     callouts, each in its marker's colour, with leader lines for everything inside the wood —
+    //     the user's point being that the colour was the ONLY bridge to the legend, so reading the
+    //     picture began with a lookup. The room came entirely from the vertical: every apparent
+    //     margin was already a dock (the objectives column mounts at -0.592 against a -0.600 window
+    //     edge), and widening the window would have shrunk the board, which is the subject.
+    //     The engraved round readout covers the WHOLE key column in x, so no leader reaches a key
+    //     from above; the three keys are named from below, which pushed the rod's name under the rod
+    //     and the fan down with it. The two leaders that do come from above go down the seam between
+    //     two initiative tiles, and that seam is arithmetic on the tile pitch, asserted rather than
+    //     chosen. German is guarded on ROWS as well as width — a string that wraps to an extra line
+    //     grows into the fan and is invisible to a width check — and both languages are checked
+    //     before either file is written, so a German failure can no longer leave a fresh English
+    //     picture beside a stale German one.
+    //     'Kartenmulden', not 'Kartenfächer': correct German for a compartment and the wrong word
+    //     here, because 'Fächer' is what the user calls the fanned-out hand in every report he has
+    //     written, and 'Deine Handkarten' names that very thing in the same picture.
+    // Wire: nothing. DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 450: two user rulings and two documentation pictures — no hardware round behind this one.
     //   * A SHARED WINDOW IS THE SAME SIZE FOR EVERY PLAYER ("Gewährleiste das"). The cause was
     //     systemic: the two test machines have different authored canvases (host 1920x1080, peer
