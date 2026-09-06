@@ -55,7 +55,7 @@ Auf dem Brett neben dir liegen außerdem Rückgängig, die Marken für kurze und
 Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett oder in der Handfläche.
 
 <p align="center">
-  <img src="img/board-de.png" width="860" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenmulden, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände sowie deine Handkarten">
+  <img src="img/board-de.png" width="860" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenmulden, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände, die Matrix deiner aktiven Karten sowie deine Handkarten">
 </p>
 
 ---

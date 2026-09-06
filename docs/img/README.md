@@ -619,6 +619,16 @@ Three things in the script are load-bearing:
   markers are drawn from, and the script refuses to build if one fails. It exists because **the
   first render of this board was mirrored** and looked completely plausible until you noticed
   CONFIRM on the left.
+- **`DOCK_CLAIMS` is the same idea for the zones that have no anchor empty.** `ORIENTATION` can
+  check the seven recesses because the FBX carries an empty for each one. The active-card matrix
+  carries none, so its nine claims are checked against the constants they were retyped from
+  instead: the mount is `BoardW/2 + 0.012 + ActiveMountOffsetX`, it is outboard of the pile mount,
+  it is three cards per row, the grid is symmetric about the mount in both axes, the rows overlap
+  (`0.70` of a card height) while the columns do not (`1.06` of a card width), the whole zone is
+  off the plate, it clears the pile plate by at least 8 mm, and it is inside the window. Two of
+  those are worth the trouble on their own: **the column count was retyped as `2` in the peer
+  mirror and stood for months** (`RemoteActiveCards`, fixed 2026-09-05), and a matrix drawn one
+  size too large silently straddles the pile plate.
 
 **The explanations came from the SOURCE, not from the docs** -- `Cards/Tray/PlayTray.*.cs`,
 `Cards/BoardAnchors.cs`, `Cards/Caps/RestControls.cs`, `Cards/Piles/PileViewer.cs`,
@@ -630,19 +640,28 @@ labels would have been stale on arrival if they had not been:
   under `Cards/Tray/`, and `CapRole` has no entry for one.
 - **the native short-rest widget does not dock on the board.** `TrayControlDockSurface` hardcodes
   `ShortRestDocked => false`, so the mod's own left-hand pad is the only short-rest control.
+- **the active matrix's own collision note is stale on all three of its inputs.**
+  `PlayTray.1.Core.cs:1009-1014` works out where that zone lands and concludes it leaves *"a clear
+  gap past the pile column"*. It puts the mount at `0.34 + 0.17 = 0.51` (`ActiveMountBase` is
+  `0.502`), it uses `ActivePileViewer.CardScale` ~ `0.82` (`Defaults.Cards.cs:534` ships
+  `ActiveCardScale_Oak = 1f`), and it lays the cards *"at mount-local x = 0"* (`Columns` has been
+  `3` since `85bbb8ca`). Redone with the shipped numbers, a full three-wide row spans board-local
+  **0.40294 .. 0.60106** against the pile slabs' right edge at **0.40170**: the clearance is
+  **1.2 mm**, not the ~76 mm the comment's arithmetic implies. The conclusion survives; the margin
+  does not, and the diagram had to be laid out around that.
 
-**On the file size, so nobody tries to "fix" it.** `board-en.png` is 293 kB and `board-de.png` is
-307 kB, against the controls diagram's 81 / 87 kB. **The palette is not the cause and lowering it does
+**On the file size, so nobody tries to "fix" it.** `board-en.png` is 256 kB and `board-de.png` is
+268 kB, against the controls diagram's 81 / 87 kB. **The palette is not the cause and lowering it does
 nothing**: 200, 160 and 128 colours, FASTOCTREE and MEDIANCUT, all land within 1 kB of each other,
 because the cost is the OAK GRAIN -- spatial noise a PNG's row filters cannot predict -- and not the
 colour count. The controls artwork is flat plastic and quantises to almost nothing; this one cannot.
 It is in the same league as `styles-boards.png` (354 kB), which is the same wood.
 
 **Where the callout room came from, and why it is not width.** The x range of the picture is set by
-the content: the objectives column mounts at board-local -0.592 and the pile stacks reach +0.432, so
-there is no horizontal gutter to put a label in, and widening the window would shrink the board --
-which is the subject. So the room is bought in **y**, where it is free: a band above the initiative
-dock and a band below the grab rod. Three markers live inside the board's silhouette and are joined
+the content: the objectives column mounts at board-local -0.592 and the active-card matrix reaches
++0.559, so there is no horizontal gutter to put a label in, and widening the window shrinks the
+board -- which is the subject. So the room is bought in **y**, where it is free: a band above the
+initiative dock and a band below the grab rod. Three markers live inside the board's silhouette and are joined
 to their names by leaders. The two named from ABOVE drop through a **gap between two tiles** of the
 initiative dock rather than across a tile face -- board-local 0.000 is the dock's own centre seam and
 0.20557 is the seam between its fifth and sixth tiles -- and the script asserts both, because that
@@ -651,22 +670,47 @@ keys are named from BELOW instead, because the round readout sits directly over 
 covers the whole key column in x: there is no lane from above that reaches a key without crossing
 it.
 
-The German guard rail is two checks, not one, because German fails these in two different ways. A
-word WIDER than its gap survives wrapping and paints over its neighbour -- that is the width check.
-A string that is merely long does not overrun at all: it grows DOWNWARD, into the card fan or off
-the bottom of the picture, which no width check can see -- so every callout also declares how many
-lines its gap can absorb, and two of them declare `rows=1` for exactly that reason. Both run as a
-`check_callouts()` **preflight over every language before a single file is written**, because the
-two languages are built one after the other and a failure found while drawing German would
-otherwise have left a new English file on disk beside a stale German one.
+The German guard rail is three checks, not one, because German fails these in three different ways.
+A word WIDER than its gap survives wrapping and paints over its neighbour -- that is the width
+check. A string that is merely long does not overrun at all: it grows DOWNWARD, into the card fan or
+off the bottom of the picture, which no width check can see -- so every callout also declares how
+many lines its gap can absorb, and three of them declare `rows=1` for exactly that reason. And a
+label that passes **both** of those can still be printed somewhere wrong, because a budget describes
+a gap and says nothing about where the resulting block lands -- so the preflight also **measures
+every block, in both languages, in canvas pixels**, and refuses if one leaves the picture, lies on
+the board's own silhouette, lies on a ghost plate that is not its own, or overlaps another block.
+The leader ends are checked the same way: each one has to land **inside the part it names**, with
+3 mm of tolerance for the two that deliberately touch a rim.
+
+All of it runs as a `check_callouts()` **preflight over every language before a single file is
+written**, because the two languages are built one after the other and a failure found while drawing
+German would otherwise have left a new English file on disk beside a stale German one. The canvas
+frame (`W`, `MARGIN`, `TOP`, `PPM`, `X()`, `Y()`) is module level for the same reason: a preflight
+measuring its own copy of the frame can pass while the picture is wrong.
 
 **Half of the picture is drawn, and that is the honest part.** The initiative track, the objectives
 panel, the element chips and the three card stacks are the game's own converted canvases docked
 around the tray -- no render of the mod's asset can contain them. The script draws them as light
 ghost plates at the mounts the code gives them (`PlayTray.3.Pose.cs`'s `*MountBase` constants), at a
-lighter weight than the markers on the board itself, so the board stays the subject. Deliberately
-**not** drawn, to keep the picture readable: the decision drawer, the active-cards column, the
-item-use berth, the pin toggle and the pick-progress placard.
+lighter weight than the markers on the board itself, so the board stays the subject.
+
+**The active-card matrix, and the four zones still left off.** Five parts were left out when this
+diagram was built, to keep it readable. The user asked for one of them by name on 2026-09-06 --
+*"Beim Board in der README fehlt im Bild das Areal wo die aktiven Karten angegeben sind"* -- so the
+**active-card matrix** is now drawn, off the right edge past the pile stacks, sharing RED with them
+because the picture groups by ZONE and not by function (the same way GOLD covers the objectives
+panel and the element chips, and PURPLE the initiative track and the round readout). A ninth hue
+beside the eight already there would be told apart by nobody. Still deliberately **not** drawn: the
+**decision drawer**, the **item-use berth**, the **pin toggle** and the **pick-progress placard**. A
+crowded diagram is the failure this design was fighting; adding one of the four is a decision, not
+a chore.
+
+**The matrix is the one part drawn at a scale rather than at its size**, and the script says so out
+loud. Everything that tells a reader where it is and how it works is the shipped number -- the mount
+at 0.502, three cards to a row, the 1.06 column gap, the 0.70 row overlap -- but the card SIZE is
+halved. At full size a three-wide row starts 1.2 mm past the pile slabs, and this picture draws
+those slabs as a plate roughly 1.7x their real width, so a to-scale matrix would be drawn straddling
+that plate and would read as a mistake in the drawing rather than as the tight fit it is.
 
 ### `install-tree-{en,de}.png` -- "did it land in the right place?"
 

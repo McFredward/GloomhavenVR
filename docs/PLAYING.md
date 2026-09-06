@@ -55,7 +55,7 @@ recess for using items, and the discard, burnt and item piles — each opens as 
 above the board or in your palm.
 
 <p align="center">
-  <img src="img/board-en.png" width="860" alt="The control board with every part labelled: the two card recesses, the three keys on the right, the two rest keys on the left, the grab rod, the initiative track, the objectives and elements, the discard, burnt and item stacks, and your hand of cards">
+  <img src="img/board-en.png" width="860" alt="The control board with every part labelled: the two card recesses, the three keys on the right, the two rest keys on the left, the grab rod, the initiative track, the objectives and elements, the discard, burnt and item stacks, the matrix of the cards you have active, and your hand of cards">
 </p>
 
 ---

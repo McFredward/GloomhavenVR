@@ -44,6 +44,13 @@ below re-derives each one from the board-local mapping and refuses to draw if th
 re-render that is mirrored, rotated or framed differently fails loudly instead of shipping a
 diagram whose labels point at the wrong side of the board.
 
+WHAT IS DELIBERATELY NOT ON THE PICTURE. A crowded diagram is the failure this design was fighting,
+so five parts of the board were left off when it was built: the decision drawer, the active-card
+matrix, the item-use berth, the pin toggle and the pick-progress placard. The user asked for the
+ACTIVE-CARD MATRIX by name on 2026-09-06 ("Beim Board in der README fehlt im Bild das Areal wo die
+aktiven Karten angegeben sind"), so that one is now drawn — see ACTIVE_* below. The other four are
+still off, still on purpose, and adding one is a decision, not a chore.
+
 THE EXPLANATIONS BELOW COME FROM THE SOURCE, NOT FROM THE DOCS. See the citations on each entry; if
 you change one, change the citation with it. Two of them contradict older prose in the repo and are
 the source's word, not the doc's:
@@ -54,6 +61,14 @@ the source's word, not the doc's:
   * the native "short rest" widget is documented in places as docking on the board. It does not:
     WorldUI's TrayControlDockSurface hardcodes ShortRestDocked => false, so the mod's own left-hand
     pad is the only short-rest control (Cards/Caps/RestControls.cs:11-16).
+  * PlayTray.1.Core.cs:1009-1014 works out where the active-card matrix lands and says it leaves
+    "a clear gap past the pile column". Its three inputs are all stale: it puts the mount at
+    0.34 + 0.17 = 0.51 (ActiveMountBase is BoardW/2 + 0.012 + 0.17 = 0.502), it uses
+    ActivePileViewer.CardScale ~ 0.82 (Defaults.Cards.cs:534 ships ActiveCardScale_Oak = 1f) and it
+    lays the cards "at mount-local x = 0" (ActivePileViewer.Columns has been 3 since 85bbb8ca). The
+    real numbers are worked out at ACTIVE_TRUE_* below: a full three-wide row starts 1.2 mm past
+    the pile slabs' right edge, not the ~76 mm the comment's arithmetic implies. The gap is real
+    but it is a millimetre, and this diagram had to be laid out around that.
 
 Usage:  python3 docs/img/build-board-diagram.py
 """
@@ -83,7 +98,12 @@ ORANGE = (217, 94, 20)     # the two rest pads on the left — ONE colour for bo
 CYAN   = (10, 133, 160)    # the grab rod
 PURPLE = (124, 58, 237)    # the top edge: initiative track + round readout
 GOLD   = (161, 118, 10)    # left of the board: objectives panel + element chips
-RED    = (200, 45, 45)     # right of the board: discard / burnt / items stacks
+RED    = (200, 45, 45)     # right of the board: the discard / burnt / items stacks AND the
+                           # active-card matrix further out — ONE colour for one EDGE, the way
+                           # GOLD covers the objectives panel and the element chips on the left
+                           # and PURPLE covers the initiative track and the round readout on
+                           # top. Grouping here is by ZONE, not by function, and a ninth hue
+                           # beside these eight would be told apart by nobody.
 PINK   = (190, 24, 120)    # your hand of cards
 
 # ---------------------------------------------------------------------------------------------
@@ -176,11 +196,19 @@ ORIENTATION = [
 # the subject of the picture and the docks read as the places things arrive.
 #
 # THE WINDOW IS TALLER THAN THE CONTENT ON PURPOSE. The x range is set by the content — the
-# objectives column at -0.592 and the pile stacks at +0.432 leave no horizontal gutter at all, and
-# widening it would shrink the board, which is the subject. So the CALLOUT ROOM is bought in y,
-# where it is free: a band above the initiative dock and a band below the grab rod. Everything a
-# reader has to be told sits in one of those two bands, or on a dock plate itself.
-WIN_X0, WIN_X1 = -0.600, 0.440
+# objectives column at -0.592 and the active-card matrix out at +0.559 leave no horizontal gutter
+# at all, and widening it further would shrink the board, which is the subject. So the CALLOUT
+# ROOM is bought in y, where it is free: a band above the initiative dock and a band below the
+# grab rod. Everything a reader has to be told sits in one of those two bands, or on a plate.
+#
+# X1 WAS 0.440 UNTIL THE ACTIVE-CARD MATRIX WAS DRAWN. That zone mounts at board-local 0.502 —
+# 57 % of the board's own half-width past its right edge — so it does not fit the old window at
+# any scale, and the window had to grow by 0.148 m. The cost is real and was paid deliberately:
+# the board is 54 % of the picture's width where it used to be 62 %. What is NOT paid in TYPE is
+# the canvas WIDTH, which stays 1720: the guides show this file at width=860, so every callout
+# still lands at the same 14.5 device px it did before. Growing W instead would have shrunk the
+# type at the reader, which is the one thing this diagram may not do.
+WIN_X0, WIN_X1 = -0.600, 0.588
 WIN_Y0, WIN_Y1 = -0.445, 0.410
 
 # The docked panels, at their own mount bases. Each is (x0, y0, x1, y1) in board-local metres.
@@ -205,6 +233,115 @@ PILE_Y          = (0.058, -0.058, -0.174)   # discard, burnt, items — PileView
 # position and not a mount the code gives: it sits low enough to leave the strip under the grab rod
 # free for the rod's own callout. (Cards/CardFan.cs, PalmGate.cs.)
 FAN_CENTRE      = (0.050, -0.330)
+
+# ---------------------------------------------------------------------------------------------
+# THE ACTIVE-CARD MATRIX, one zone further out on the right edge again — the small grid holding the
+# cards you have active RIGHT NOW (round-long and persistent). Cards/Piles/ActivePileViewer.cs; the
+# peer mirror of the same block is Net/Remote/RemoteActiveCards.cs.
+#
+#   mount   ActiveMountBase = (BoardW/2 + 0.012 + ActiveMountOffsetX, 0, -0.004) = (0.502, 0, ...)
+#           — PlayTray.3.Pose.cs:506 and PlayTray.1.Core.cs:441. Oak's per-board ActiveOffset is
+#           (0, 0, 0), so on the shipped board the mount IS the base (Defaults.Cards.cs:531).
+#   grid    up to ActivePileViewer.Columns = 3 cards per row, symmetric about the mount x and
+#           centred in y (ActivePileViewer.Relayout). The steps are CardWidth x ActiveCardScale x
+#           ActiveGridSpacing.x across and CardHeight x ActiveCardScale x ActiveGridSpacing.y down.
+#   Oak     CardWidth 0.0635 (Defaults.Cards.cs:24), CardHeight = width x 88/63.5 = 0.0880
+#           (CardsConfig.cs:1944), ActiveCardScale_Oak 1.0 (Defaults.Cards.cs:534),
+#           ActiveGridSpacing_Oak (1.06, 0.70) (Defaults.Cards.cs:327).
+ACTIVE_MOUNT = (0.5020, 0.0000)
+ACTIVE_COLS, ACTIVE_ROWS = 3, 2                 # 3 is the code's own column count; 2 rows is what
+                                                # the picture shows, and the column is uncapped
+ACTIVE_TRUE_CARD = (0.0635, 0.0880)
+ACTIVE_TRUE_STEP = (0.0635 * 1.06, 0.0880 * 0.70)   # = (0.067310, 0.061600)
+
+# THE MATRIX IS DRAWN AT HALF THE REAL CARD, and that is the one place this picture SCALES a part
+# instead of measuring it. Say so out loud rather than let a reader assume otherwise.
+#
+# A REAL three-wide row spans board-local x 0.40294 .. 0.60106 (mount 0.502, one step 0.06731 each
+# way, half a card 0.03175 beyond that). The pile slabs' real right edge is 0.382 + CardWidth x
+# PileStack.SlabFactor(0.62) / 2 = 0.40170 — so on the real board the two zones clear each other by
+# 1.2 MM. This diagram, meanwhile, draws the pile stacks as a PLATE from 0.332 to 0.432, roughly
+# 1.7x their real slab, because a 40 mm ghost would vanish next to the board. A to-scale matrix
+# would therefore be drawn straddling that plate and would read as a mistake in the drawing.
+#
+# So the card SIZE is halved and NOTHING ELSE IS: the mount centre, the column count, the 1.06
+# column gap and the 0.70 row overlap are all the shipped numbers, and DOCK_CLAIMS below asserts
+# each of them. That is exactly the licence the pile slabs and the objectives plate already take.
+ACTIVE_SCALE = 0.50
+ACTIVE_CARD  = (ACTIVE_TRUE_CARD[0] * ACTIVE_SCALE, ACTIVE_TRUE_CARD[1] * ACTIVE_SCALE)
+ACTIVE_STEP  = (ACTIVE_CARD[0] * 1.06, ACTIVE_CARD[1] * 0.70)
+ACTIVE_PAD   = 0.0070                            # the plate's own breathing room around the grid
+
+
+def _active_dock():
+    """DOCK_ACTIVE, derived from the grid rather than typed — a plate that no longer wraps its
+    own content is the failure mode a literal here would hide."""
+    hx = (ACTIVE_COLS - 1) * 0.5 * ACTIVE_STEP[0] + ACTIVE_CARD[0] * 0.5 + ACTIVE_PAD
+    hy = (ACTIVE_ROWS - 1) * 0.5 * ACTIVE_STEP[1] + ACTIVE_CARD[1] * 0.5 + ACTIVE_PAD
+    return (ACTIVE_MOUNT[0] - hx, ACTIVE_MOUNT[1] - hy,
+            ACTIVE_MOUNT[0] + hx, ACTIVE_MOUNT[1] + hy)
+
+
+DOCK_ACTIVE = _active_dock()
+
+# THE DOCK GUARD. ORIENTATION above asserts what the SOURCE says about the seven recesses; this is
+# the same idea for the zone that was added last and has no anchor empty of its own to be checked
+# against. Every entry is a claim some file makes, checked against the constants right above it, so
+# a wrong retype fails the build instead of shipping a matrix drawn in the wrong place, at the wrong
+# column count, or on top of the pile plate.
+DOCK_CLAIMS = [
+    ("the active matrix docks to the RIGHT of the pile stacks — ActiveMountBase.x = 0.502 against "
+     "PileMountBase.x = 0.332 (PlayTray.3.Pose.cs:503 and :506, PlayTray.1.Core.cs:441)",
+     lambda: ACTIVE_MOUNT[0] > DOCK_PILES[2]),
+    ("the mount is BoardW/2 + 0.012 + ActiveMountOffsetX(0.17), and Oak's ActiveOffset is zero "
+     "(PlayTray.3.Pose.cs:506, Defaults.Cards.cs:531)",
+     lambda: abs(ACTIVE_MOUNT[0] - (BOARD_W * 0.5 + 0.012 + 0.170)) < 1e-9),
+    ("three cards per row — ActivePileViewer.Columns = 3, and Net/Remote/RemoteActiveCards mirrors "
+     "it (it carried its own 2 until 2026-09-05 and every teammate read a different block)",
+     lambda: ACTIVE_COLS == 3),
+    ("the grid is symmetric about the mount x and centred in y (ActivePileViewer.Relayout)",
+     lambda: abs((DOCK_ACTIVE[0] + DOCK_ACTIVE[2]) * 0.5 - ACTIVE_MOUNT[0]) < 1e-9
+             and abs((DOCK_ACTIVE[1] + DOCK_ACTIVE[3]) * 0.5 - ACTIVE_MOUNT[1]) < 1e-9),
+    ("the ROWS OVERLAP: the row step is 0.70 of a card height, so a lower row covers the tops of "
+     "the row above (ActivePileViewer's grid comment, ActiveGridSpacing_Oak.y = 0.70)",
+     lambda: ACTIVE_STEP[1] < ACTIVE_CARD[1] and ACTIVE_TRUE_STEP[1] < ACTIVE_TRUE_CARD[1]),
+    ("the COLUMNS DO NOT: the column step is 1.06 of a card width, so neighbours never overlap "
+     "horizontally (ActiveGridSpacing_Oak.x = 1.06)",
+     lambda: ACTIVE_STEP[0] > ACTIVE_CARD[0] and ACTIVE_TRUE_STEP[0] > ACTIVE_TRUE_CARD[0]),
+    ("the zone is entirely OFF the 0.640 x 0.320 m plate — nothing about it is carved into the "
+     "board (PlayTray.1.Core.cs:1006-1014)",
+     lambda: DOCK_ACTIVE[0] > BOARD_W * 0.5),
+    ("the plate this diagram draws for it clears the plate this diagram draws for the pile stacks "
+     "by at least 8 mm, so the two zones read as two",
+     lambda: DOCK_ACTIVE[0] - DOCK_PILES[2] >= 0.008),
+    ("the whole zone, and the room its callout needs above it, are inside the picture's window",
+     lambda: DOCK_ACTIVE[2] < WIN_X1 and DOCK_ACTIVE[3] < WIN_Y1),
+]
+
+# ---------------------------------------------------------------------------------------------
+# THE CANVAS, and the mapping from board-local metres onto it. MODULE level, not build()-local,
+# because check_layout() has to measure the very pixels build() will draw: a preflight working from
+# its own copy of the frame is a preflight that can pass while the picture is wrong.
+W       = 1720
+MARGIN  = 56
+TOP     = 40
+BLOCK_W = W - 2 * MARGIN
+PPM     = BLOCK_W / (WIN_X1 - WIN_X0)           # canvas pixels per board-local metre
+BLOCK_H = round((WIN_Y1 - WIN_Y0) * PPM)
+
+
+def X(x):
+    return MARGIN + (x - WIN_X0) * PPM
+
+
+def Y(y):
+    return TOP + (WIN_Y1 - y) * PPM
+
+
+def box(b):
+    """A board-local (x0, y0, x1, y1) as a canvas (left, top, right, bottom)."""
+    return (X(b[0]), Y(b[3]), X(b[2]), Y(b[1]))
+
 
 # ---------------------------------------------------------------------------------------------
 # THE CALLOUTS — a short name beside every marker, so the picture answers "what is that thing"
@@ -260,11 +397,29 @@ CALLOUT_GEOM = {
                        lead=[(0.38200, 0.11200)]),
     # your hand: directly under the fan, touching it
     "hand":       dict(colour=PINK,   at=(0.05000, -0.39846), align="c", maxw=320, rows=1, lead=None),
+    # the active-card matrix: centred over its own grid, WHERE THE COLUMN'S REAL CAPTION SITS —
+    # ActivePileViewer builds a TextMeshPro "ACTIVE" at column-local (0, +0.075) — with a tick down
+    # onto the VISIBLE band of the top-middle card (the lower row is drawn OVER the upper one, so
+    # that card's own centre is buried). It sits ABOVE y 0.116, the top of the pile plate, so the
+    # label and that plate cannot touch however wide a translation of it gets; rows=1 because a
+    # second line would grow down into the matrix it is naming.
+    "active":     dict(colour=RED,    at=(0.50200, 0.15600), align="c", maxw=200, rows=1,
+                       lead=[(0.50200, 0.02500)]),
 }
 
 # The objectives panel and the element strip carry their names INSIDE their own ghost plates, where
 # a real panel carries its title. They are the only two that need neither room nor a line.
-PLATE_CALLOUT_MAXW = 366
+#
+# THEIR BUDGET IS THE PLATE, NOT A NUMBER. It was a flat 366 px, which was 91 % of the objectives
+# plate and 129 % OF THE ELEMENT PLATE at the window this diagram used to have — a German title that
+# used its whole budget would have been checked against a gap it does not have, and the width guard
+# would have passed it. Deriving it from the plate is also what keeps it honest through a window
+# change: widening WIN_X1 for the active matrix moved every plate's pixel width.
+PLATE_CALLOUT_INSET = 18
+
+
+def plate_callout_maxw(dock):
+    return (dock[2] - dock[0]) * PPM - 2 * PLATE_CALLOUT_INSET
 
 LABELS = {
     "en": {
@@ -278,6 +433,7 @@ LABELS = {
             "round":      "Round",
             "piles":      "Discard · burnt · items",
             "hand":       "Your hand of cards",
+            "active":     "Active cards",
             "objectives": "Objectives",
             "elements":   "Elements",
         },
@@ -324,10 +480,13 @@ LABELS = {
             ]),
             # Cards/Piles/PileViewer.cs:212-243 and :1005-1025, PileBrowser.cs:9-27,
             # Piles/ItemsPile.cs:14-55.
-            (RED, "Right — discard, burnt, items", [
+            # Cards/Piles/ActivePileViewer.cs (the matrix), PlayTray.3.Pose.cs:506 (its mount).
+            (RED, "Right — the stacks and your active cards", [
                 "Three stacks, top to bottom, each carrying its own live count.",
                 "Tap one and it fans out above the board so you can read it.",
                 "Items can be taken out of the fan; the other two are for reading.",
+                "Further out: the cards you have active right now, three to a row.",
+                "Pull one out to read it and it goes back on its own.",
             ]),
             # Cards/CardFan.cs, Hands/Interact/PalmGate.cs,
             # CardsDriver.2.Update.cs:1219-1300 (the gate), .3.Laser.cs:150-177 (the pluck).
@@ -355,6 +514,7 @@ LABELS = {
             "round":      "Runde",
             "piles":      "Ablage · Verbrannt · Gegenstände",
             "hand":       "Deine Handkarten",
+            "active":     "Aktive Karten",
             "objectives": "Aufgaben",
             "elements":   "Elemente",
         },
@@ -389,10 +549,12 @@ LABELS = {
                 "Feuer, Eis, Luft, Erde, Licht und Dunkel, in dieser Reihenfolge.",
                 "Ein Element, das du dort nicht siehst, ist nicht infundiert.",
             ]),
-            (RED, "Rechts — Ablage, Verbrannt, Gegenstände", [
+            (RED, "Rechts — die Stapel und deine aktiven Karten", [
                 "Drei Stapel von oben nach unten, jeder mit seiner eigenen Anzahl.",
                 "Tippe einen an, und er fächert sich über dem Brett zum Lesen auf.",
                 "Gegenstände kannst du herausnehmen; die anderen beiden sind zum Nachschauen.",
+                "Weiter außen: deine gerade aktiven Karten, drei pro Reihe.",
+                "Zieh eine heraus, um sie zu lesen — sie kehrt von selbst zurück.",
             ]),
             (PINK, "Deine Handkarten", [
                 "Dreh deine freie Hand mit der Handfläche zu dir — der Fächer geht auf.",
@@ -484,25 +646,154 @@ def fit(d, lang, key, f, maxw, rows):
     return lines
 
 
+def callout_frames():
+    """Every callout's DRAWING FRAME in canvas pixels — the anchor, alignment and budget build()
+    hands to callout(), for all twelve of them in one place.
+
+    The two plate callouts are placed by the plate that carries them rather than by CALLOUT_GEOM,
+    so their frames are derived from exactly the expressions the draw uses. If those two ever drift
+    apart, the preflight below measures a box the picture does not have, which is worse than no
+    preflight at all.
+    """
+    frames = dict((k, dict(x=X(g["at"][0]), y=Y(g["at"][1]), align=g["align"],
+                           maxw=g["maxw"], rows=g["rows"], colour=g["colour"]))
+                  for k, g in CALLOUT_GEOM.items())
+    frames["objectives"] = dict(x=X(DOCK_OBJECTIVES[0]) + PLATE_CALLOUT_INSET,
+                                y=Y(DOCK_OBJECTIVES[3]) + 14, align="l",
+                                maxw=plate_callout_maxw(DOCK_OBJECTIVES), rows=1, colour=GOLD)
+    frames["elements"] = dict(x=X(DOCK_ELEMENTS[0]) + PLATE_CALLOUT_INSET,
+                              y=Y(DOCK_ELEMENTS[3]) + 12, align="l",
+                              maxw=plate_callout_maxw(DOCK_ELEMENTS), rows=1, colour=GOLD)
+    return frames
+
+
+def text_box(probe, lang, key, f, frame):
+    """The pixel rectangle one callout's TEXT occupies, by the same arithmetic callout() draws it
+    with. Returned as (left, top, right, bottom)."""
+    lines = fit(probe, lang, key, f, frame["maxw"], frame["rows"])
+    wmax = max(probe.textlength(ln, font=f) for ln in lines)
+    if frame["align"] == "c":
+        bx0 = frame["x"] - wmax / 2.0
+    elif frame["align"] == "r":
+        bx0 = frame["x"] - wmax
+    else:
+        bx0 = frame["x"]
+    return (bx0, frame["y"], bx0 + wmax, frame["y"] + CALL_LH * len(lines) - 6)
+
+
+def _hits(a, b, slack=0.0):
+    """Do two (l, t, r, b) rectangles overlap, allowing `slack` px of touching?"""
+    return (a[0] < b[2] - slack and b[0] < a[2] - slack
+            and a[1] < b[3] - slack and b[1] < a[3] - slack)
+
+
 def check_callouts():
     """Measure EVERY callout in EVERY language before a single file is written.
 
     Not folded into the draw: the languages are built one after another, so a failure discovered
     while drawing German would already have left a new English file on disk beside a stale German
     one. A preflight fails with both files untouched.
+
+    THREE THINGS ARE CHECKED, and the third is the one that was missing. fit() proves a label fits
+    its gap in WIDTH and in ROWS. What no budget can see is where the resulting BLOCK lands: a
+    label that fits its own gap perfectly can still be printed across the label beside it, off the
+    bottom of the picture, or over the board it is pointing at — and German, 15-30 % longer than
+    the English it is set beside, is what discovers that. So every block is measured, in both
+    languages, against the picture's own frame, against the board silhouette, against every ghost
+    plate that is not its own, and against every other block.
     """
     probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
     f = font("Inter-SemiBold.otf", CALL_SIZE)
-    budgets = dict((k, (g["maxw"], g["rows"])) for k, g in CALLOUT_GEOM.items())
-    budgets["objectives"] = (PLATE_CALLOUT_MAXW, 1)
-    budgets["elements"] = (PLATE_CALLOUT_MAXW, 1)
+
+    for claim, holds in DOCK_CLAIMS:
+        if not holds():
+            raise SystemExit(
+                "THE DOCKS do not describe the board the source describes.\n"
+                "  FAILED: %s\n"
+                "The constants this checks are ACTIVE_* and DOCK_* — fix those, and the citation "
+                "beside them, before touching the drawing." % claim)
+
+    frames = callout_frames()
     for lang in LABELS:
         named = set(LABELS[lang]["callouts"])
-        if named != set(budgets):
+        if named != set(frames):
             raise SystemExit("'%s' names %s and the layout knows %s — every callout needs both."
-                             % (lang, sorted(named), sorted(budgets)))
-        for key, budget in budgets.items():
-            fit(probe, lang, key, f, budget[0], budget[1])
+                             % (lang, sorted(named), sorted(frames)))
+
+    # The picture's own block, the board's silhouette, and the ghost plates, all in canvas pixels.
+    # The legend rule is drawn 34 px BELOW the block, so "inside the block" is also "clear of the
+    # rule and of every legend cell under it".
+    block = (MARGIN, TOP, W - MARGIN, TOP + BLOCK_H)
+    silhouette = box((-BOARD_W * 0.5, -BOARD_H * 0.5, BOARD_W * 0.5, BOARD_H * 0.5))
+    plates = {"objectives": DOCK_OBJECTIVES, "elements": DOCK_ELEMENTS,
+              "initiative": DOCK_INITIATIVE, "piles": DOCK_PILES, "active": DOCK_ACTIVE}
+    # Only these two are drawn ON their plate, where a real panel carries its title. The other
+    # three plates are named from OUTSIDE, down a leader, so their name must stay off every plate
+    # including their own — a red name lying on the red plate it names is unreadable, not clearer.
+    plate_titles = ("objectives", "elements")
+
+    for lang in LABELS:
+        boxes = dict((k, text_box(probe, lang, k, f, g)) for k, g in frames.items())
+        for key, b in sorted(boxes.items()):
+            where = "'%s' in '%s' is drawn at (%.0f, %.0f)-(%.0f, %.0f)" % ((key, lang) + b)
+            if not (block[0] <= b[0] and b[2] <= block[2]
+                    and block[1] <= b[1] and b[3] <= block[3]):
+                raise SystemExit(
+                    "%s, outside the picture block (%.0f, %.0f)-(%.0f, %.0f).\nMove its `at` in "
+                    "CALLOUT_GEOM, or shorten the WORDING — the type is already at the floor for a "
+                    "picture shown at half its rendered width." % ((where,) + block))
+            if _hits(b, silhouette):
+                raise SystemExit(
+                    "%s, ON THE BOARD ITSELF (%.0f, %.0f)-(%.0f, %.0f).\nEvery name lives outside "
+                    "the wood and reaches its marker with a leader; that is what the two lanes "
+                    "through the initiative dock are for." % ((where,) + silhouette))
+            if key in plate_titles and not _hits(b, box(plates[key])):
+                raise SystemExit(
+                    "%s, OUTSIDE the '%s' plate it is supposed to be titling." % (where, key))
+            for pname, dock in sorted(plates.items()):
+                if pname == key and key in plate_titles:
+                    continue
+                if _hits(b, box(dock)):
+                    raise SystemExit(
+                        "%s, over the '%s' ghost plate.\nA name printed on a plate that is not "
+                        "its own says the wrong thing in the one colour a reader trusts."
+                        % (where, pname))
+        keys = sorted(boxes)
+        for i, ka in enumerate(keys):
+            for kb in keys[i + 1:]:
+                if _hits(boxes[ka], boxes[kb]):
+                    raise SystemExit(
+                        "'%s' and '%s' are printed over each other in '%s': %s vs %s.\nShorten "
+                        "the WORDING or move one `at` — this is exactly how a translated diagram "
+                        "starts stacking one label on the next."
+                        % (ka, kb, lang, boxes[ka], boxes[kb]))
+
+    # The leaders have to END on the thing they name; a callout that points at nothing is worse
+    # than one with no line at all, and nothing else in this file checks it.
+    for key, g in sorted(CALLOUT_GEOM.items()):
+        if not g["lead"]:
+            continue
+        ex, ey = g["lead"][-1]
+        target = {"recesses": (-0.084 - SLOT_HALF[0], -SLOT_HALF[1],
+                               0.084 + SLOT_HALF[0], SLOT_HALF[1]),
+                  "keys": (0.227 - SEAT_HALF[0], -0.0765 - SEAT_HALF[1],
+                           0.227 + SEAT_HALF[0], 0.0765 + SEAT_HALF[1]),
+                  "rest": (-0.227 - REST_R, -0.0574 - REST_R, -0.227 + REST_R, -0.0574 + REST_R),
+                  "rod": (-BOARD_W * 0.275, -0.207, BOARD_W * 0.275, -0.173),
+                  "initiative": DOCK_INITIATIVE,
+                  "round": (0.183, 0.111, 0.277, 0.141),
+                  "piles": DOCK_PILES,
+                  "active": DOCK_ACTIVE}[key]
+        # 3 mm of tolerance, because two of these END ON A RIM on purpose: the recesses lane lands
+        # on the two slots' top corners so it points at both at once, half a millimetre proud of
+        # the marker. The defect this is looking for is a lane that misses by centimetres.
+        tol = 0.003
+        if not (target[0] - tol <= ex <= target[2] + tol
+                and target[1] - tol <= ey <= target[3] + tol):
+            raise SystemExit(
+                "The '%s' leader ends at board-local (%.5f, %.5f), which is not on the part it "
+                "names (%.3f, %.3f)-(%.3f, %.3f).\nA marker that lands beside its part is the "
+                "defect the first cut of this diagram shipped." % ((key, ex, ey) + target))
 
 
 def build(lang):
@@ -510,21 +801,9 @@ def build(lang):
     art_scale = art.width / ART_NATIVE_W        # the committed artwork is a resized native render
 
     # ---- geometry ------------------------------------------------------------------------
-    W = 1720
-    MARGIN = 56
-    block_w = W - 2 * MARGIN
-    ppm = block_w / (WIN_X1 - WIN_X0)           # canvas pixels per board-local metre
-    block_h = round((WIN_Y1 - WIN_Y0) * ppm)
-    TOP = 40
-
-    def X(x):
-        return MARGIN + (x - WIN_X0) * ppm
-
-    def Y(y):
-        return TOP + (WIN_Y1 - y) * ppm
-
-    def box(b):
-        return (X(b[0]), Y(b[3]), X(b[2]), Y(b[1]))
+    # W, MARGIN, TOP, PPM, X(), Y() and box() are MODULE level, so check_callouts() measures the
+    # very pixels this function draws rather than a copy of the frame that can drift from it.
+    ppm, block_h = PPM, BLOCK_H
 
     for claim, holds in ORIENTATION:
         if not holds(ANCHOR):
@@ -617,14 +896,16 @@ def build(lang):
 
     # objectives: its own name where a real panel carries its title, then four ruled lines
     ox0, oy0, ox1, oy1 = plate(DOCK_OBJECTIVES)
-    callout("objectives", GOLD, ox0 + 18, oy0 + 14, "l", PLATE_CALLOUT_MAXW, rows=1)
+    callout("objectives", GOLD, ox0 + PLATE_CALLOUT_INSET, oy0 + 14, "l",
+            plate_callout_maxw(DOCK_OBJECTIVES), rows=1)
     for i in range(4):
         yy = oy0 + 82 + i * 30
         d.line([(ox0 + 18, yy), (ox1 - (52 if i % 2 else 18), yy)], fill=HINT, width=6)
 
     # elements: its own name, then six chips in the game's own order (RemoteElementStrip.cs:367-372)
     ex0, ey0, ex1, ey1 = plate(DOCK_ELEMENTS)
-    callout("elements", GOLD, ex0 + 18, ey0 + 12, "l", PLATE_CALLOUT_MAXW, rows=1)
+    callout("elements", GOLD, ex0 + PLATE_CALLOUT_INSET, ey0 + 12, "l",
+            plate_callout_maxw(DOCK_ELEMENTS), rows=1)
     step = (ex1 - ex0 - 24) / 6.0
     cr = step * 0.36
     for i in range(6):
@@ -662,6 +943,19 @@ def build(lang):
             o = (2 - s) * 6
             d.rounded_rectangle([cx - hw + o, cy - hh + o, cx + hw + o, cy + hh + o],
                                 radius=7, fill=GHOST, outline=HINT, width=5)
+
+    # the active-card matrix, one zone further out: ACTIVE_ROWS x ACTIVE_COLS card ghosts on the
+    # shipped grid, at half the real card size (see ACTIVE_SCALE). The LOWER row is drawn last
+    # because that is the order the real column stacks them — each row sits nearer the viewer than
+    # the one above and covers its tops, which is what the 0.70 row step is for.
+    ax0, ay0, ax1, ay1 = plate(DOCK_ACTIVE)
+    acw, ach = ACTIVE_CARD[0] * 0.5 * ppm, ACTIVE_CARD[1] * 0.5 * ppm
+    for r in range(ACTIVE_ROWS):
+        for c in range(ACTIVE_COLS):
+            cx = X(ACTIVE_MOUNT[0] + (c - (ACTIVE_COLS - 1) * 0.5) * ACTIVE_STEP[0])
+            cy = Y(ACTIVE_MOUNT[1] + ((ACTIVE_ROWS - 1) * 0.5 - r) * ACTIVE_STEP[1])
+            d.rounded_rectangle([cx - acw, cy - ach, cx + acw, cy + ach], radius=7,
+                                fill=GHOST, outline=HINT, width=5)
 
     # your hand: five cards fanned over the palm that holds them
     fx, fy = X(FAN_CENTRE[0]), Y(FAN_CENTRE[1])
@@ -704,7 +998,7 @@ def build(lang):
 
     # the docks
     for b, colour in ((DOCK_INITIATIVE, PURPLE), (DOCK_OBJECTIVES, GOLD),
-                      (DOCK_ELEMENTS, GOLD), (DOCK_PILES, RED)):
+                      (DOCK_ELEMENTS, GOLD), (DOCK_PILES, RED), (DOCK_ACTIVE, RED)):
         rounded(d, box(b), colour, w=5, r=12, halo=False)
     rounded(d, (fx - 2.15 * cw, fy - 1.15 * ch, fx + 2.15 * cw, fy + 1.0 * ch),
             PINK, w=5, r=12, halo=False)
