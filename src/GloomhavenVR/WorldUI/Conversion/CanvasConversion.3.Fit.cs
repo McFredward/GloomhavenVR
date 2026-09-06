@@ -4695,16 +4695,37 @@ internal static partial class CanvasConversion
             }
         }
 
+        // 6. THE SHARED WINDOW'S DESIGN FRAME (ModBuild 450). Same shape as the height cap above and
+        //    for a stricter reason: that one keeps ONE client's window the same size across opens,
+        //    this one keeps EVERY client's copy of the same window the same size as every other's.
+        //    The two machines in the ModBuild 448 logs run 1920x1080 and 2580x1080 canvases, so a
+        //    canvas-anchored window is authored 660 px wider on one of them and every metre derived
+        //    from it inherits that. Re-pinning the target to the canvas's own referenceResolution
+        //    makes the GAME lay the window out at the design width, which is what puts the content
+        //    fit, the ink bounds, the grab bar and the shared seat on identical inputs.
+        //    It rides `includeHeightCap` for exactly the reason that parameter exists: the cheap
+        //    per-frame guard must not fight a layout component, and the pre-reveal maintenance pass
+        //    and every applied fit both carry it. Anchors are already centred by step 4 above, which
+        //    is what makes sizeDelta a SIZE here rather than an inset.
+        if (includeHeightCap && SharedWindowSize.IsArmed(panel)
+            && SharedWindowSize.Repin(panel, t, out string sharedNote))
+        {
+            sb.Append(sb.Length > 0 ? "; " : string.Empty).Append(sharedNote);
+        }
+
         if (sb.Length == 0)
             return false;
         note = "conversion frame RE-ASSERTED: " + sb;
         if (!panel.FrameDriftLogged)
         {
             panel.FrameDriftLogged = true;
-            VRLog.Warn("WorldUI", $"MODAL FIT: '{panel.HostGo.name}' {note}. The game re-drove the frame " +
-                                  "Convert pinned; everything the content fit measures is expressed in that " +
-                                  "frame, so it is restored before the measure is trusted. (Reported once " +
-                                  "per panel; the fit lines carry the per-apply note.)");
+            VRLog.Warn("WorldUI", $"MODAL FIT: '{panel.HostGo.name}' {note}. Something other than this " +
+                                  "guard owned the frame Convert pinned — usually the game re-driving it, " +
+                                  "and on a SHARED window also this build's own design-frame re-pin (that " +
+                                  "clause names itself in the note above and is a WRITE WE INTEND, not " +
+                                  "drift). Everything the content fit measures is expressed in that frame, " +
+                                  "so it is restored before the measure is trusted. (Reported once per " +
+                                  "panel; the fit lines carry the per-apply note.)");
         }
         return true;
     }

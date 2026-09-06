@@ -1409,6 +1409,10 @@ internal static partial class ModalFallback
         CatchAllWarned.Clear();
         FloatRefusalTable.Reset(); // ModBuild 232 — the refusal table's edge state and lapse counters
         BoardConfirmStandIn.Reset(); // ModBuild 351 — and the board-keycap claimant it now reads
+        // ModBuild 450 — the shared size law's per-window arming latch. Cleared here so a SECOND
+        // session in the same process re-announces which windows the 1:1 guarantee covers instead of
+        // going silent and reading as "the law never armed" ([[held-instrument-reads-as-dead]]).
+        SharedWindowSize.ResetForSession();
         AncestorRefusalWarned.Clear();
         AncestorHeldOutWarned.Clear();
         IntervalAncestorWarned.Clear();

@@ -186,6 +186,22 @@
        dozens of builds. The whole seat is a pure function of the parchment's world bounds, kept in
        a file free of everything but Mathf/Bounds precisely so it can be driven here, bounds by
        bounds, without a headset and without a game. -->
+  <!-- Not a wire file, and the only one on this list that is here BECAUSE it adds no record. A
+       shared window must be the same size for every player (user, 2026-09-06: "Ich möchte das
+       Multiplayerfenster immer die selbe Größe haben bei allen Spielern … Gewährleiste das"), and
+       the ModBuild 448 logs caught it 173 mm out between two machines whose only difference is the
+       shape of their monitors. That failure is invisible from one machine — a window agrees with
+       itself the same way a serializer whose reader and writer are both wrong does — and it took
+       two 100 MB logs and a dedicated instrument to see at all. The arithmetic was written free of
+       Unity beyond Mathf/Vector2, of config and of every game type precisely so the claim "two
+       clients compute the same millimetres" could be decided HERE, on a build machine, with no
+       headset and no second player. SharedWindowSizeVectors also reads the shipped source of the
+       law and its call sites, which is the half that survives the next refactor. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\Modal\SharedWindowSizeLaw.cs" Link="worldui\SharedWindowSizeLaw.cs" />
+    <Compile Include="SharedWindowSizeVectors.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\MapRoom\MapRoomSeat.cs" Link="worldui\MapRoomSeat.cs" />
   </ItemGroup>

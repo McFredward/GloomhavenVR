@@ -78,6 +78,15 @@ internal static class Program
             // failure that kept [Rig] Experimental3DMap unimplemented — and it is decidable from
             // four numbers without a headset.
             MapRoomSeatVectors.Run(t);
+            // A SHARED WINDOW IS THE SAME SIZE FOR EVERY PLAYER (user ruling 2026-09-06,
+            // "Gewährleiste das"). On this list for the reason every entry above it is: the failure
+            // is invisible from one machine. The ModBuild 448 logs had the same story window at
+            // 675 mm tall for the host and 502 mm for the co-player, and the only difference between
+            // the two clients was the SHAPE OF THE MONITOR. Half of this runs the arithmetic against
+            // every display shape and dial setting the config allows; the other half reads the
+            // shipped source of the law and its four call sites, because a future edit that reaches
+            // for a static changes no signature and would break no vector.
+            SharedWindowSizeVectors.Run(t, repoRoot);
             // Which shader property is the mirror, and which way it points. ModBuild 160 writes
             // onto shaders whose property names nobody here has ever read (they ship compiled in
             // the game's bundles), so the one thing holding that up is the invariant that no cap

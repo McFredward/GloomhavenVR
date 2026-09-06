@@ -5315,6 +5315,16 @@ internal static partial class ModalFallback
     /// open). A size that needed a wire field would be a design failure here, not a missing
     /// record.</para>
     ///
+    /// <para><b>ModBuild 450 — AND IT WAS A DESIGN FAILURE, WHICH IS WHY THE LINE GREW A VERDICT.</b>
+    /// The 448 evidence answered the question the paragraph above poses: the AUTHORED frame was NOT
+    /// the same on both machines (1920x1080 against 2580x1080), because the two displays are shaped
+    /// differently and the game's canvas stretches to the display. So a term the line called "a pure
+    /// function of this client's own copy of the window" was a pure function of this client's
+    /// MONITOR. <see cref="SharedWindowSize"/> removes that term at the conversion, and this line now
+    /// carries the terms that PROVE the removal — the design frame, the law's own prediction, and
+    /// whether the committed rect is that frame — so the strongest readings need one log rather than
+    /// two. It still prints every original term, so two logs stay comparable exactly as before.</para>
+    ///
     /// <para><b>THE FALSIFIER.</b> Grep <c>SHARED WINDOW SIZE TERMS</c> on both logs and line up the
     /// two entries for one window at stage RE-PLACE. Equal FITTED px and equal REAL mm =&gt; 1:1
     /// holds. Different FITTED px with equal AUTHORED px =&gt; the content fit measured different
@@ -5338,10 +5348,33 @@ internal static partial class ModalFallback
         float mmPerPx = fitted.y > 0f ? 2f * halfSize.y / fitted.y / rig * 1000f : 0f;
         Vector2 realMm = new(2f * halfSize.x / rig * 1000f, 2f * halfSize.y / rig * 1000f);
 
+        // ModBuild 450 — THE TERMS THAT PROVE THE SIZE IS CLIENT-INDEPENDENT, so that ONE log can
+        // answer the 1:1 question wherever the answer is decidable from one log at all. The law's
+        // prediction is computed here from the same fitted rect the renderer used: LAW and OBSERVED
+        // agreeing is the fix having run, and disagreeing is the fix being BYPASSED by some other
+        // writer of the panel's scale — which no comparison against a peer's log could tell apart.
+        bool armed = SharedWindowSize.IsArmed(panel);
+        Vector2 design = panel != null ? panel.SharedDesignFrame : Vector2.zero;
+        Vector2 lawMm = armed ? SharedWindowSizeLaw.CommittedMm(fitted) : Vector2.zero;
+        string token = armed ? SharedWindowSizeLaw.Token(fitted) : "none";
+        bool lawHolds = armed && Mathf.Abs(lawMm.x - realMm.x) <= 1f
+                              && Mathf.Abs(lawMm.y - realMm.y) <= 1f;
+        bool frameIsDesign = armed && Mathf.Abs(fitted.x - design.x) <= 0.5f
+                                   && Mathf.Abs(fitted.y - design.y) <= 0.5f;
+
         // HW-VERIFY
         VRLog.Note("WorldUI",
             $"SHARED WINDOW SIZE TERMS ({stage}) — '{window.name}' (SharedWindowKind.{kind}): "
-            + $"COMMITTED REAL SIZE {realMm.x:F0} x {realMm.y:F0} mm. THE TERMS IT CAME FROM, in "
+            + $"COMMITTED REAL SIZE {realMm.x:F0} x {realMm.y:F0} mm. 1:1 TOKEN {token}. "
+            + $"SIZE LAW {(armed ? "ARMED" : "NOT ARMED")}"
+            + (armed
+                ? $" — design frame {design.x:F0}x{design.y:F0} px from {panel!.SharedDesignSource}; "
+                  + $"the law predicts {lawMm.x:F0} x {lawMm.y:F0} mm and the window committed "
+                  + $"{realMm.x:F0} x {realMm.y:F0} mm, which {(lawHolds ? "AGREES" : "DISAGREES")}; "
+                  + $"the committed rect {(frameIsDesign ? "IS" : "is a CONTENT FIT of")} the design "
+                  + "frame"
+                : $" — {(panel != null && panel.SharedDesignSource.Length > 0 ? panel.SharedDesignSource : "no design frame was resolved")}")
+            + ". THE TERMS IT CAME FROM, in "
             + "the order they compose: AUTHORED frame (the game's own rect on the conversion "
             + $"target) {authored.x:F0}x{authored.y:F0} px; FITTED host rect (what the content fit "
             + $"wrote, and the only term the world size actually reads) {fitted.x:F0}x{fitted.y:F0} "
@@ -5349,6 +5382,21 @@ internal static partial class ModalFallback
             + $"measuredOnce={(panel != null && panel.FitMeasuredOnce)}; rig scale {rig:F2} world "
             + $"units per tracking metre; {mmPerPx:F3} mm per authored px; world half-size "
             + $"({halfSize.x:F2}, {halfSize.y:F2}) world units. "
+            + "HOW TO READ IT FROM ONE LOG (ModBuild 450). SIZE LAW ARMED + AGREES + rect IS the "
+            + "design frame is the STRONGEST reading available and needs no second log: every term "
+            + "the millimetres came from is then a constant of the build or a serialized design "
+            + "value, so no other client can compute anything else. ARMED + AGREES + rect is a "
+            + "CONTENT FIT means the dials and the display aspect are out of the answer but the "
+            + "game's own painted content is still in it — compare the 1:1 TOKEN with the peer's "
+            + "for that window and stage, and a difference is a CONTENT difference, not a sizing "
+            + "one. NOT ARMED is the guarantee absent for this window: read the reason on the line "
+            + "and treat the millimetres as this client's alone. DISAGREES means the law ran and "
+            + "something else overwrote the scale afterwards — that is a REGRESSION IN THIS FIX and "
+            + "not a peer problem, and it is visible without a second machine. "
+            + "IF NO SHARED WINDOW OPENS ALL SESSION this line is ABSENT, and absence proves "
+            + "NOTHING either way: grep SHARED WINDOW SIZE LAW ARMED, which is printed once per "
+            + "window at CONVERT time and therefore fires even for a window that never reaches a "
+            + "shared seat. Both silent means no shared window was converted at all. "
             + "MULTIPLAYER — THIS IS THE 1:1 LINE. Nothing here is on the wire: every term is a "
             + "pure function of this client's own copy of the window, so line this entry up against "
             + "the peer's entry for the same window at the same STAGE. EQUAL fitted px and equal "

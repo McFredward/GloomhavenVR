@@ -386,7 +386,14 @@ internal static partial class ModalFallback
                 // Unconditional: EVERY window this path floats, with no per-ID whitelist, because
                 // the user's ruling is about spawnable windows as a class and a whitelist would
                 // reproduce the exact failure it is meant to end (a window nobody thought of).
-                flattenWindow: true);
+                flattenWindow: true,
+                // THE SHARED WINDOW SIZE LAW (ModBuild 450, user ruling "Gewährleiste das"). Passing
+                // the window is the WHOLE hook: SharedWindowSize.Arm decides from it whether this
+                // conversion is in the shared population and reads the canvas design frame while the
+                // target is still under its original parent. Unconditional, exactly like
+                // flattenWindow above and for the same reason — the ruling is about a CLASS of
+                // window, and a per-ID whitelist here would reproduce the failure it is meant to end.
+                sharedWindow: window);
 
             if (escMenuWidthHug)
                 VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) is the ESC menu — one-shot " +

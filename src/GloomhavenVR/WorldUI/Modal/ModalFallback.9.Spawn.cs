@@ -1784,6 +1784,24 @@ internal static partial class ModalFallback
         // 1.20 m reading distance, permanently, on a window that is non-closable by user ruling.
         if (CanvasConversion.IsFixedSizeWindow(panel))
             return cap;
+        // ModBuild 450 — A SHARED WINDOW TAKES ITS DIALS FROM THE LAW, NOT FROM THIS CLIENT.
+        // USER RULING (2026-09-06, verbatim): "Ich möchte das Multiplayerfenster immer die selbe
+        // Größe haben bei allen Spielern, damit die 1:1 Regel hier nicht gebrochen wird.
+        // Gewährleiste das." Both terms above are client-local — `legibility` is [WorldUI]
+        // WindowLegibility and `metersPerPixel` is [WorldUI] CanvasScaleMm — so two players at
+        // different settings would draw the same shared window at different sizes even after the
+        // design frame made their PIXELS agree. SharedWindowSizeLaw.ExtraScale is this same
+        // expression evaluated at the SHIPPED defaults, with the live CanvasScaleMm divided back out
+        // because the renderer multiplies by it downstream (CanvasConversion.PlaceHost). At the
+        // shipped defaults it returns exactly what the lines above would have, to the bit — which is
+        // how this change moves nothing the user has already accepted. Placed AFTER the fixed-size
+        // branch so ModBuild 202's ruling about the map room's character screen keeps precedence.
+        if (SharedWindowSize.IsArmed(panel))
+        {
+            Vector2 committedPx = panel.HostRect != null ? panel.HostRect.rect.size
+                                                         : panel.SharedDesignFrame;
+            return SharedWindowSizeLaw.ExtraScale(committedPx, WorldUIConfig.CanvasScaleMm.Value);
+        }
         float boardRelative = ModalTargetWidthMeters * legibility / (widthPx * metersPerPixel);
         return Mathf.Clamp(Mathf.Min(cap, boardRelative), MinWindowScaleFactor, cap);
     }

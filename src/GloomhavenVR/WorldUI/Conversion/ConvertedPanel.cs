@@ -95,6 +95,26 @@ internal sealed class ConvertedPanel
     /// <summary>The window name the height cap was resolved under (cap fallback key).</summary>
     public string FitHeightCapName = string.Empty;
 
+    /// <summary>
+    /// THE SHARED WINDOW'S DESIGN FRAME, in authored pixels — zero when this panel is not under the
+    /// shared size law. See <see cref="SharedWindowSize"/> for the whole design and
+    /// <see cref="SharedWindowSizeLaw"/> for the user ruling it implements.
+    ///
+    /// <para>Non-zero means three things at once, and they are stated together because a reader who
+    /// finds only one of them will re-introduce the defect: (1) the conversion TARGET's rect is
+    /// re-pinned to this frame on every applied fit, so what the game lays out is the same on every
+    /// client; (2) <c>ModalFallback.DeriveWindowScale</c> takes its dials from
+    /// <see cref="SharedWindowSizeLaw"/> instead of from this client's config; (3) the committed
+    /// millimetres are therefore a pure function of the game's own content and of constants, which
+    /// is what makes the window the same size for every player with nothing on the wire.</para>
+    /// </summary>
+    public Vector2 SharedDesignFrame;
+
+    /// <summary>Where <see cref="SharedDesignFrame"/> came from, ready to print. Kept even when the
+    /// frame is zero: "why the law is NOT armed" is the falsifier and is worth more than the
+    /// arming itself.</summary>
+    public string SharedDesignSource = string.Empty;
+
     public bool FitOneShot;
 
     /// <summary>Set true the frame a one-shot fit actually RESIZED the host — the owning modal

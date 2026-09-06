@@ -119,12 +119,18 @@ internal static partial class CanvasConversion
     /// clamps to) makes every open land the same compact height. Width and scale are untouched.
     /// Guarded to full-screen menus by the caller (<c>ModalFallback.IsFullScreenMenu</c>);
     /// normal floated modals/tooltips/cards keep their exact captured size.
+    /// <paramref name="sharedWindow"/> is the game <c>UIWindow</c> this conversion is FOR, passed
+    /// only so <see cref="SharedWindowSize.Arm"/> can decide — while the target is still under its
+    /// original parent, which is the one moment its root canvas is still readable — whether this
+    /// window is in the shared population and what its client-independent DESIGN FRAME is. Null for
+    /// every conversion that is not a game window (tooltips, cards, mod-built panels), and passing
+    /// it changes nothing for a window outside <c>SharedWindowKind</c>.
     /// </summary>
     internal static ConvertedPanel? Convert(RectTransform? target, string name, bool pokeable = true,
         PokeSurfaceTuning? pokeTuning = null, bool? fitContent = null, bool flatten2D = false,
         int sortingOrder = 0, bool diagnostic = false, bool useModLayer = false,
         bool transparentBackground = false, bool fitOneShot = false, bool capHeightToCanvas = false,
-        bool keepBackgroundHidden = false, bool flattenWindow = false)
+        bool keepBackgroundHidden = false, bool flattenWindow = false, UIWindow? sharedWindow = null)
     {
         if (target == null)
         {
@@ -169,11 +175,29 @@ internal static partial class CanvasConversion
             TargetWasPersistent = IsPersistentScene(target.gameObject.scene),
         };
 
+        // THE SHARED WINDOW SIZE LAW IS ARMED HERE AND NOWHERE ELSE (ModBuild 450), for one
+        // ordering reason worth stating: the design frame is read off the target's ROOT CANVAS, and
+        // three statements below the target is reparented under the mod's own world-space host —
+        // after which its root canvas is OURS, which carries no CanvasScaler and would answer
+        // nothing. This is the same constraint ResolveStableHeightCap already lives under. Windows
+        // outside SharedWindowKind (every tooltip, card and mod-built panel, and `sharedWindow`
+        // null) leave the panel's fields at zero and take no branch anywhere downstream.
+        SharedWindowSize.Arm(panel, sharedWindow, target, name);
+
         // Rect size while still under the original (possibly stretch) anchors.
         Vector2 size = target.rect.size;
         bool degenerate = size.x < 1f || size.y < 1f;
         if (degenerate)
             size = new Vector2(Mathf.Max(size.x, 100f), Mathf.Max(size.y, 100f));
+
+        // A SHARED WINDOW IS CAPTURED AT ITS DESIGN FRAME, not at this client's. Doing it here
+        // rather than only in ReassertConversionFrame means the host is born the right size and no
+        // measurement in between ever sees the client-local one — the first content fit, the first
+        // ink sweep and the first grab-bar solve all run on the shared frame. The target's own rect
+        // is re-pinned to match on the first frame maintenance pass, while the window is still
+        // render-hidden, so the player never sees the intermediate.
+        if (SharedWindowSize.IsArmed(panel))
+            size = panel.SharedDesignFrame;
 
         // Bug #7 (pause-menu height): a full-screen menu (ESC / Options family) captures its
         // HEIGHT verbatim from the game window rect here. The scenario ESC menu has a TALL
