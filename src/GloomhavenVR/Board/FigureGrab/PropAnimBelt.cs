@@ -1668,6 +1668,10 @@ internal static class PropAnimBelt
 
         ResolveVerdictMaterials();
         ArmRoster();
+        _pulseAtArm = SweepOverlayPulses(naming: false);
+        _pulseAtClose = 0;
+        _pulseLiveAtClose = 0;
+        PulseNames.Clear();
         // Round nine. After the roster, because the twin is matched against the held prop's first
         // DRAWING renderer that carries a material, which the roster has just resolved.
         FindHomeTwin(go);
@@ -1919,6 +1923,8 @@ internal static class PropAnimBelt
         sb.Append(' ');
 
         AppendRoster(sb);
+        _pulseAtClose = SweepOverlayPulses(naming: true);
+        AppendOverlayCensus(sb);
 
         if (_twinLead == null)
         {
@@ -1984,6 +1990,100 @@ internal static class PropAnimBelt
         // have to write. It must stay at a tier the DEFAULT log level prints (Note/Alert/Error) —
         // scripts/check-hw-verify.py enforces the position of this marker directly above the call.
         VRLog.Note("FigureGrab", sb.ToString());
+    }
+
+
+    // ---- THE OVERLAY-PULSE CENSUS ------------------------------------------------------------------
+    //
+    // THE USER SAYS EVERY TRAP FLASHES WHITE AT ONCE. There is exactly one oscillator in this
+    // repository or in the decompiled game that brightens prop meshes periodically and does it
+    // with NO per-instance phase, and it is OURS:
+    //
+    //     FigureOverlay.cs:1293 — 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * PulseHz * PI * 2f)
+    //
+    // `Time.unscaledTime` with no per-instance offset and no per-instance start time means every
+    // live OverlayPulse in the scene evaluates the IDENTICAL argument on the IDENTICAL frame. They
+    // are in exact lockstep BY CONSTRUCTION, not by coincidence of start times — which is the
+    // shape of "alle Fallen blitzen gleichzeitig" and the only thing in either codebase that has
+    // it. Every other time-driven prop writer found in the game (SpawnObjectAnimateMaterial_SMB,
+    // RFX4_ShaderFloatCurve, RFX4_ShaderColorGradient, RFX4_LightCurves) carries a per-instance
+    // accumulator or start time, and no game code writes a time-varying GLOBAL shader value at all.
+    //
+    // AND THE COLOUR FITS. FigureHighlight.cs:141 GlowTint = (1.00, 0.62, 0.26), drawn ADDITIVE
+    // (FigureHighlight.cs:346) at Floor 0.45 to Ceil 1.0. A warm amber additive pass at full
+    // strength over an already-lit bronze trap washes to IVORY — which is the word the photometry
+    // of the user's video uses.
+    //
+    // THE THING THAT DOES NOT FIT, AND IT IS WHY THIS IS A CENSUS AND NOT A FIX. The overlay is
+    // single-winner: the grab driver suppresses every non-winner, so at most TWO should exist, one
+    // per hand, and ModBuild 454 measured the held prop's own overlay DESTROYED at frame 1 of the
+    // hold and drawing on 0 of 360 frames. For EVERY trap to pulse together, overlays would have to
+    // be LEAKING — one left behind per prop the player has ever hovered, each one then pulsing in
+    // phase because the phase is absolute time. That is a population question with a one-number
+    // answer, and no round has ever asked it.
+    //
+    // AN ASSERTION IN A COMMENT IS A HYPOTHESIS. This paragraph is one. The count below is not.
+    private const int PulseNameCap = 6;
+    private static int _pulseAtArm, _pulseAtClose, _pulseLiveAtClose;
+    private static readonly List<string> PulseNames = new(PulseNameCap);
+
+    /// <summary>Count every live <see cref="OverlayPulse"/> in the scene and name where each one
+    /// hangs. A typed <c>FindObjectsOfType</c> over one of this mod's own components, twice per
+    /// verdict and never per frame — the cost policy this class has followed since a per-frame
+    /// scene sweep cost the project two rounds and one 12.6 ms frame.</summary>
+    private static int SweepOverlayPulses(bool naming)
+    {
+        OverlayPulse[] all = Object.FindObjectsOfType<OverlayPulse>();
+        if (!naming)
+            return all.Length;
+        PulseNames.Clear();
+        _pulseLiveAtClose = 0;
+        for (int i = 0; i < all.Length; i++)
+        {
+            OverlayPulse pulse = all[i];
+            if (pulse == null)
+                continue;
+            bool live = pulse.enabled && pulse.gameObject.activeInHierarchy;
+            if (live)
+                _pulseLiveAtClose++;
+            if (PulseNames.Count >= PulseNameCap)
+                continue;
+            // The PATH, not the name: every one of these objects is called "VRFigureHighlight", so
+            // the only thing that distinguishes a leaked one from the live one is whose child it is.
+            PulseNames.Add($"'{Describe(pulse.transform)}' {(live ? "PULSING" : "inert")}");
+        }
+        return all.Length;
+    }
+
+    /// <summary>
+    /// THE SECTION THAT ASKS WHETHER THE FLASH ON EVERY TRAP IS OURS.
+    /// </summary>
+    private static void AppendOverlayCensus(System.Text.StringBuilder sb)
+    {
+        sb.Append("OVERLAY PULSE CENSUS — IS THE FLASH ON EVERY TRAP OURS? ").Append(_pulseAtArm)
+          .Append(" OverlayPulse component(s) alive in the SCENE when this window armed and ")
+          .Append(_pulseAtClose).Append(" when it closed, of which ").Append(_pulseLiveAtClose)
+          .Append(" were enabled on an active object");
+        if (PulseNames.Count > 0)
+            sb.Append(", named by hierarchy path (up to ").Append(PulseNameCap).Append("): ")
+              .Append(string.Join("; ", PulseNames));
+        sb.Append(". WHY THIS NUMBER DECIDES SOMETHING: OverlayPulse.Update drives an ADDITIVE "
+                  + "warm-amber tint (1.00, 0.62, 0.26 at Floor 0.45 to Ceil 1.0) from "
+                  + "Time.unscaledTime with NO per-instance phase and NO per-instance start "
+                  + "(FigureOverlay.cs:1293), so every live instance pulses in EXACT LOCKSTEP by "
+                  + "construction — and an additive amber pass at full strength over a lit bronze "
+                  + "trap washes to IVORY. It is the only oscillator in this repository or in the "
+                  + "decompiled game that brightens prop meshes with no per-instance phase; every "
+                  + "game-side writer (SpawnObjectAnimateMaterial_SMB, RFX4_ShaderFloatCurve, "
+                  + "RFX4_ShaderColorGradient, RFX4_LightCurves) carries its own accumulator or "
+                  + "start time, and no game code writes a time-varying GLOBAL shader value at "
+                  + "all. THE OVERLAY IS SINGLE-WINNER, so this count should be AT MOST 2 — one "
+                  + "per hand — and 0 during a hold, because OnGrab clears the winner's overlay "
+                  + "before the belt engages. A COUNT ABOVE 2, or any entry in the list above that "
+                  + "hangs off a prop the player is not currently hovering, means overlays are "
+                  + "LEAKING one per prop ever hovered and every one of them is pulsing in phase — "
+                  + "which is the user's 'weisser flash auf allen Fallen', and it would be OURS. A "
+                  + "count of 0 or 1 kills that reading outright and the flash is the game's. ");
     }
 
     /// <summary>Has this prop KIND already spent its budget in <paramref name="roster"/>?</summary>

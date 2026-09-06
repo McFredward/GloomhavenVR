@@ -15,7 +15,17 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
-## START AT §14 — ROUND NINE (2026-09-06): THE USER NAMED THE TRIGGER
+## START AT §14 AND §16 — ROUND NINE (2026-09-06): THE USER NAMED THE TRIGGER
+
+**§16 is the lead.** The user says every trap flashes white at once. A sweep of the game and
+of this mod found exactly ONE oscillator that brightens prop meshes with NO per-instance
+phase, and it is OURS: `OverlayPulse.Update` drives an ADDITIVE warm-amber tint from
+`Time.unscaledTime` (`FigureOverlay.cs:1293`), so every live instance pulses in exact lockstep
+by construction — and additive amber over lit bronze washes to IVORY. It should exist at most
+twice (one per hand). **Read the OVERLAY PULSE CENSUS count first: above 2 means overlays are
+leaking and the flash on every trap is ours; 0 or 1 kills the reading outright.**
+**§15 is the obituary** — every strand and probe deleted on 2026-09-06 and the reading that
+retired it. Do not re-propose one without new evidence.
 
 > *"Das weiße in der Hand tritt immer auf wenn ich die Falle/Truhe aufhebe kurz nachdem der
 > weiße flash auf allen Fallen kam."*
@@ -1556,3 +1566,93 @@ Gates after the pass: `build.sh` 0 warnings, `EXPECT_WARNINGS=0 ci-build.sh`, `c
 `PropGrab.Tick` moved no locked ordering), `patch-inventory.sh check`, `check-hw-verify.py`
 (401 marked sites), `check-instrument-writes.py` (66-field baseline unchanged), `wire-tests.sh`
 (208 006 assertions).
+
+---
+
+## 16. Round nine, addendum — the only oscillator with no per-instance phase is OURS
+
+A sweep of the decompiled game and of this mod, run to answer one question — *what makes every
+trap flash white at the same time?* — returned exactly one mechanism, and it is not the game's.
+
+### 16.1 The finding, verified in our own source rather than taken on report
+
+`OverlayPulse.Update`, `src/GloomhavenVR/Board/FigureGrab/FigureOverlay.cs:1293`:
+
+```csharp
+float s = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * PulseHz * Mathf.PI * 2f);
+float k = Mathf.Lerp(Floor, Ceil, s);
+_mat.color = _base * k;
+```
+
+**`Time.unscaledTime` with no per-instance phase offset and no per-instance start time.** Every live
+`OverlayPulse` anywhere in the scene therefore evaluates the *identical* argument on the *identical*
+frame: they are in **exact lockstep by construction**, not by coincidence of start times.
+
+* `FigureOverlay.cs:1279-1281` — `PulseHz = 0.7f`, `Floor = 0.45f`, `Ceil = 1.0f`.
+* `FigureOverlay.cs:1298` — a second absolute-time term, `mainTextureOffset` scrolled from
+  `Time.unscaledTime * 0.15f`.
+* `FigureHighlight.cs:141` — `GlowTint = new Color(1.0f, 0.62f, 0.26f)`.
+* `FigureHighlight.cs:346` — `MakeOverlayMaterial(GlowTint, additive: true)`.
+* `FigureHighlight.cs:353` — `var root = new GameObject("VRFigureHighlight");`, parented under the
+  prop's visual; `:441` — `root.AddComponent<OverlayPulse>()`.
+
+**A warm amber ADDITIVE pass at full strength over an already-lit bronze trap washes to IVORY** —
+which is the word the photometry of the user's video uses for what he is complaining about.
+
+**And nothing else in either codebase has that shape.** Every time-driven prop writer found in the
+game carries a per-instance accumulator or start time — `SpawnObjectAnimateMaterial_SMB.cs:30`
+(`t += Timekeeper…deltaTime / animTime`), `RFX4_ShaderFloatCurve.cs:77,92` and
+`RFX4_ShaderColorGradient.cs:111` (`startTime = Time.time` seeded in `OnEnable`),
+`RFX4_LightCurves.cs:38`. **No game code writes a time-varying GLOBAL shader value at all**: every
+`Shader.SetGlobal*` in the decompiled tree is a post-FX blit, a wind constant, or the wall-fade
+gate. And the outline system, the obvious "all props at once" candidate, is a **held-key** toggle
+writing a bool — `WorldspaceUITools.cs:93-100,140-154` — with no schedule and no colour.
+
+### 16.2 The thing that does NOT fit, which is why this is a census and not a fix
+
+The overlay is **single-winner**: the grab driver suppresses every non-winner, so at most **two**
+should exist, one per hand. And ModBuild 454 measured the held prop's own overlay
+`DRAWING 0/360, DESTROYED at frame 1` — §14.1 exonerated it *for that hold*, and that reading
+stands.
+
+For **every** trap to pulse together, overlays would have to be **LEAKING** — one left behind per
+prop the player has ever hovered — with each leaked one pulsing in phase because the phase is
+absolute time. Ownership is held by the `GrabbableProp` **component**, not by the visual
+(`FigureHighlight.cs:189`, `public bool Active => _overlayRoot != null;`), while
+`PropVisualLookup.cs` records that `ObjectCacheService._propsCache` is **reference-keyed and
+re-keyed on every state sync**, and `PropGrab.cs:243-247` responds by calling `ReleaseAll()` and
+rebuilding. Any path that replaces the `GrabbableProp` for a still-living visual hands the new
+instance `_overlayRoot == null` while the old `VRFigureHighlight` child is still parented under the
+prop, still pulsing, with nothing left holding a reference to destroy it.
+
+**That is a population question with a one-number answer, and no round has ever asked it.**
+
+### 16.3 What shipped — the census, on the HOME TWIN line
+
+`SweepOverlayPulses` counts every live `OverlayPulse` in the scene when the window arms and again
+when it closes, and names up to six **by hierarchy path** (every one of these objects is called
+`VRFigureHighlight`, so the only thing that distinguishes a leaked one is whose child it is). A
+typed `FindObjectsOfType` over one of this mod's own components, twice per verdict and never per
+frame.
+
+* **IT NAMES THE FLASH AS OURS** if the count is **above 2**, or if any named entry hangs off a prop
+  the player is not currently hovering. Every leaked overlay pulses in phase with every other, which
+  is the user's *"weisser flash auf allen Fallen"* exactly — and it would be this mod's own doing.
+  Then the fix is the leak, not the flash.
+* **IT KILLS THE READING OUTRIGHT** if the count is 0 or 1. The flash on every trap is then the
+  game's, and §14's HOME TWIN comparison beside it says whether it lives on a material.
+
+**An assertion in a comment is a hypothesis.** §16.1 is one, and it is written into the source as
+one. The count is not.
+
+### 16.4 Why no fix shipped for it
+
+The same reason as §14.4, and one more. Destroying leaked overlays before the census has counted
+them makes the census a reading of the post-fix world — and a leak whose *mechanism* is unknown
+cannot be fixed by sweeping up its output: the sweep would run for ever, every session, hiding the
+path that creates them. **Count first, then fix the path.** If the count comes back at 0 or 1 the
+whole reading is dead and nothing was spent on it.
+
+Note also what this does **not** disturb: §11.6 and §14.1 both remain correct that the **held**
+prop's own overlay is destroyed at the grab. This lead is about overlays on the props the player is
+**not** holding.
