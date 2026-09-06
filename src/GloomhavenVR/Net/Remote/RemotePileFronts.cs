@@ -449,6 +449,7 @@ internal sealed class RemotePileFronts
         }
 
         int fronts = 0;
+        int burntLook = 0;
         for (int i = 0; i < _arts.Count; i++)
         {
             RemoteCardArt art = _arts[i];
@@ -480,6 +481,31 @@ internal sealed class RemotePileFronts
                     AbilityCardUI widget = _abilityBuf[i];
                     FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
                     shown = full != null && art.ShowFront(full);
+                    // A CARD IN THE BURNT PILE IS A BURNT CARD, AND IT LOOKS LIKE ONE (2026-09-06
+                    // report, item 9b: "Die verbrannt-animation die über der Karte liegt ist bei
+                    // mir sichtbar aber nicht bei der remote Karte").
+                    //
+                    // The owner's own burnt pile hosts the REAL widget, which the game painted
+                    // through CardEffects.BurnCardTimeline and left in its settled end-state. The
+                    // mirror hosts a CLONE of that widget — and a clone of a widget that never ran
+                    // Initialize on this client carries neither the material state nor the text
+                    // recolour, so the peer's burnt pile was a fan of FRESH cards. Nothing was
+                    // asked for it: SetAbilityBurnProgress had exactly ONE caller in the whole mod
+                    // (RemoteBurnFx, the 2 s flight), so the pile the card lands in never got it.
+                    //
+                    // t = 1 and NOT a ramp, and this is the one place ApplySpentLook's rule applies
+                    // rather than RemoteBurnFx's: a peer's pile fan opens whenever the viewer wants
+                    // to look at it, which is usually long after the owner's timeline ran, and a
+                    // burn STARTING then would be a picture the owner never had. RemoteBurnFx owns
+                    // the animation at the moment of the burn; this owns the settled look for the
+                    // rest of the scenario. The write is idempotent (the same floats, the same
+                    // colours) and the rig itself is built once per clone, so the 4 Hz cadence this
+                    // sits on costs a handful of SetFloat calls per slab and nothing else.
+                    //
+                    // DISCARD IS DELIBERATELY NOT INCLUDED: a discarded card is not burnt and the
+                    // owner's own discard fan shows it fresh.
+                    if (shown && content == Content.Burnt && art.SetAbilityBurnProgress(1f))
+                        burntLook++;
                 }
             }
             if (shown)
@@ -492,6 +518,49 @@ internal sealed class RemotePileFronts
 
         Census(content, fronts, resolved ? Gate.Open : Gate.NoSource);
         Log(content, resolved ? Gate.Open : Gate.NoSource, fronts, actor);
+        if (content == Content.Burnt)
+            LogBurntLook(burntLook, fronts, actor);
+    }
+
+    /// <summary>Change key for <see cref="LogBurntLook"/>: the (looks, fronts) pair plus the
+    /// character, so the line fires on a real edge and not on the 4 Hz cadence.</summary>
+    private (int Key, int ActorId) _loggedBurntLook = (int.MinValue, 0);
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (2026-09-06 report, item 9b): does a peer's BURNT pile fan actually wear the
+    /// burn, or is it a fan of fresh cards? Grep token <c>Remote burnt pile look</c>.
+    ///
+    /// <para>WORKING = <c>looks</c> equal to <c>fronts</c> and both above 0 while the viewer has that
+    /// peer's burnt pile open, beside a <c>Remote BURN look armed</c> line.</para>
+    ///
+    /// <para>INERT = <c>looks=0</c> with <c>fronts</c> above 0. The faces are up and not one of them
+    /// took the look, which is precisely the 457 picture; the reason is then in
+    /// <c>Remote BURN look</c> (REFUSED, or NO CARD-FX MATERIAL).</para>
+    ///
+    /// <para>STILL BEYOND THE INSTRUMENT = <c>looks</c> equal to <c>fronts</c> and the user still
+    /// reports a fresh-looking card. The terms are being written and the divergence is in what they
+    /// PAINT — the fgFx flame quad and the smoke emitter are not reproduced, and this line cannot
+    /// see that.</para>
+    /// </summary>
+    private void LogBurntLook(int looks, int fronts, CPlayerActor? actor)
+    {
+        int key = (looks << 8) | (fronts & 0xFF);
+        int actorId = NetFigures.StableActorId(actor);
+        if (key == _loggedBurntLook.Key && actorId == _loggedBurntLook.ActorId)
+            return;
+        _loggedBurntLook = (key, actorId);
+        // HW-VERIFY: grep token "Remote burnt pile look" — see this method's doc for the three readings.
+        VRLog.Note("Net", $"Remote burnt pile look [player {_owner.PlayerId}]: {looks} of {fronts} "
+                          + $"front(s) carry the settled burn for '{Board.CharacterFocus.Describe(actor)}'. "
+                          + "The owner's own burnt fan hosts the REAL widget the game already painted "
+                          + "through CardEffects.BurnCardTimeline; this fan hosts a CLONE of that widget, "
+                          + "and a clone whose source never ran CardEffects.Initialize on this client "
+                          + "inherits neither the material state nor the text recolour. The settled "
+                          + "end-state is therefore rebuilt here on materials this mod minted "
+                          + "(RemoteCardArt.SetAbilityBurnProgress(1)), never on anything the game owns, "
+                          + "and with NO animation — the owner's timeline ran long before this fan was "
+                          + "opened. looks=0 beside fronts>0 is the defect, and 'Remote BURN look' says "
+                          + "why.");
     }
 
     /// <summary>

@@ -346,7 +346,7 @@ internal sealed class RemoteCardArt
             _clone = clone;
 
             Neutralize(clone);
-            ItemFxRig itemFx = StripFragileEffects(clone);
+            ItemFxRig itemFx = StripFragileEffects(clone, out _burnHeaderText, out _burnInitiativeText);
             if (skinSource != null)
                 TryReapplySkin(skinSource, clone);
             beforeActivate?.Invoke(clone);
@@ -571,17 +571,27 @@ internal sealed class RemoteCardArt
     /// <see cref="ApplySpentLook"/> can reproduce the look on them. Capturing them AFTER the destroy is
     /// impossible and capturing them from the SOURCE would name the game's objects instead of ours.</para>
     /// </summary>
-    private static ItemFxRig StripFragileEffects(GameObject clone)
+    private static ItemFxRig StripFragileEffects(GameObject clone,
+        out TMPro.TextMeshProUGUI? header, out TMPro.TextMeshProUGUI? initiative)
     {
         UnityEngine.UI.Image[]? images = null;
         TMPro.TextMeshProUGUI[]? texts = null;
+        header = null;
+        initiative = null;
         try
         {
             var effects = clone.GetComponentsInChildren<CardEffects>(includeInactive: true);
             for (int i = 0; i < effects.Length; i++)
             {
-                if (effects[i] != null)
-                    Object.DestroyImmediate(effects[i]);
+                if (effects[i] == null)
+                    continue;
+                // THE ABILITY CARD'S TWO NAMED TEXTS, lifted in the same instant and for the same
+                // reason the item rig above lifts imgComp/txtComp: after DestroyImmediate there is
+                // nothing left to ask, and asking the SOURCE would name the game's objects instead
+                // of ours. First component wins — a card carries exactly one CardEffects.
+                if (header == null)
+                    LiftBurnTexts(effects[i], ref header, ref initiative);
+                Object.DestroyImmediate(effects[i]);
             }
             var itemEffects = clone.GetComponentsInChildren<ItemCardEffects>(includeInactive: true);
             for (int i = 0; i < itemEffects.Length; i++)
@@ -603,6 +613,33 @@ internal sealed class RemoteCardArt
             VRLog.Debug("Net", $"RemoteCardArt CardEffects strip skipped: {ex.Message}");
         }
         return new ItemFxRig(images, texts);
+    }
+
+    /// <summary>
+    /// Read <c>CardEffects._header</c> and <c>CardEffects._initiativeText</c> off the CLONE's own
+    /// component. Both are <c>[SerializeField] private</c> (CardEffects.cs:57-75), so
+    /// <c>Object.Instantiate</c> copies them and this is a read of the clone's own state — unlike
+    /// <c>imgComp</c>/<c>txtComp</c>, which <c>Initialize()</c> builds at runtime and a clone
+    /// therefore never has.
+    ///
+    /// <para>Reflection, and only here: the fields are private, the handles are resolved ONCE per
+    /// process, and a rename in a game patch lands on null rather than on a throw — the burnt
+    /// header then falls back to the same mid grey every other text takes, which is the picture
+    /// every build before this one drew.</para>
+    /// </summary>
+    private static void LiftBurnTexts(CardEffects effects,
+        ref TMPro.TextMeshProUGUI? header, ref TMPro.TextMeshProUGUI? initiative)
+    {
+        if (!s_effectFieldsResolved)
+        {
+            s_effectFieldsResolved = true;
+            const System.Reflection.BindingFlags flags =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            s_headerField = typeof(CardEffects).GetField("_header", flags);
+            s_initiativeField = typeof(CardEffects).GetField("_initiativeText", flags);
+        }
+        header = s_headerField?.GetValue(effects) as TMPro.TextMeshProUGUI;
+        initiative = s_initiativeField?.GetValue(effects) as TMPro.TextMeshProUGUI;
     }
 
     // ─────────────────────────────────── the "already used" look on a peer's item card ──────────
@@ -1263,19 +1300,41 @@ internal sealed class RemoteCardArt
     private UnityEngine.UI.Image[]? _burnImages;
     private TMPro.TextMeshProUGUI[]? _burnTexts;
 
-    /// <summary>One-shot latches for the two burn-rig outcomes. Never per card, never per frame.</summary>
+    /// <summary>The clone's own header title, lifted off its <c>CardEffects</c> before the strip.
+    /// Null when the game's field name has moved, which costs the header its burnt tint and
+    /// nothing else.</summary>
+    private TMPro.TextMeshProUGUI? _burnHeaderText;
+
+    /// <summary>The clone's own initiative disc, same seam and same fallback as
+    /// <see cref="_burnHeaderText"/>.</summary>
+    private TMPro.TextMeshProUGUI? _burnInitiativeText;
+
+    /// <summary>The game's own <c>CardEffects.burntTextColor</c> (CardEffects.cs:225), a
+    /// <c>Color32(143, 58, 44, 255)</c> field initialiser and therefore a BUILD FACT of the game,
+    /// not a dial anybody tunes. It is the colour the owner's burnt card title is drawn in and the
+    /// one this overlay owed the peer's.</summary>
+    private static readonly Color BurntTextColor = new Color32(143, 58, 44, byte.MaxValue);
+
+    /// <summary>Cached reflection handles for the two SERIALIZED privates of <c>CardEffects</c> the
+    /// text half needs to name. Looked up once per process, never per clone; a miss leaves both
+    /// null and the look degrades to uniform grey.</summary>
+    private static System.Reflection.FieldInfo? s_headerField;
+    private static System.Reflection.FieldInfo? s_initiativeField;
+    private static bool s_effectFieldsResolved;
+
+    /// <summary>One-shot latches for the three burn-rig outcomes. Never per card, never per frame.</summary>
     private static bool s_burnRigLogged;
     private static bool s_burnRigRefused;
+    private static bool s_burnRigNoFxImages;
 
     /// <summary>
     /// Drive the game's own burn look on the shown ABILITY face at progress
     /// <paramref name="t"/> (0 = untouched, 1 = the timeline's settled end-state).
     ///
     /// <para>Returns true while the look is really being drawn — false means this face carries no
-    /// usable card-FX material (a pooled borrow whose <c>_PosAndBounds</c> is still 0x0, or a
-    /// clone with no FX images at all), and the caller then shows the card WITHOUT the burn rather
-    /// than with a guess. Missing char is a small divergence; a black card on a peer's board is
-    /// not.</para>
+    /// card-FX material at all, or one whose footprint could not be measured, and the caller then
+    /// shows the card WITHOUT the burn rather than with a guess. Missing char is a small
+    /// divergence; a black card on a peer's board is not.</para>
     ///
     /// <para>Never throws: it runs inside the avatar tick.</para>
     /// </summary>
@@ -1302,16 +1361,31 @@ internal sealed class RemoteCardArt
             }
             if (_burnTexts != null)
             {
-                // BurnCardTimeline recolours the affected texts to mid grey while it runs
-                // (CardEffects.cs:583-590). It picks a different colour for the header and the
-                // initiative disc, which is a per-widget field this overlay has no honest way to
-                // read, so the one colour the timeline uses for everything else is used for all.
+                // BurnCardTimeline recolours the affected texts while it runs (CardEffects.cs:583-590):
+                // the HEADER and the INITIATIVE disc take `burntTextColor`, every other affected text
+                // takes mid grey. Both colours are the game's own literals and BOTH are reproduced —
+                // the earlier note here ("a per-widget field this overlay has no honest way to read")
+                // was a hypothesis, and it is false: `_header` and `_initiativeText` are SERIALIZED
+                // privates of CardEffects, so Object.Instantiate copies them onto the clone and
+                // StripFragileEffects lifts them off in the instant before the component dies (the
+                // same seam the item rig already uses). The runtime-built `imgComp`/`txtComp` arrays
+                // really are unreachable — those are built in Initialize() and are not serialized —
+                // which is why the SET of texts is still every TMP on the clone rather than the
+                // game's `txtAffected` subset.
+                //
+                // IT IS THE HALF THE USER ASKED FOR BY NAME (item 9a, "Der Text ist bei mir da, aber
+                // nicht beim remote board sichtbar"): his own burnt card's title is drawn in
+                // burntTextColor over a CHARRED header plate and reads; the peer's clone had a fresh
+                // BLUE plate and no recolour at all, so the two halves of the look disagreed.
                 Color grey = new(0.5f, 0.5f, 0.5f, 1f);
                 for (int i = 0; i < _burnTexts.Length; i++)
                 {
                     TMPro.TextMeshProUGUI text = _burnTexts[i];
-                    if (text != null)
-                        text.color = Color.Lerp(Color.white, grey, k);
+                    if (text == null)
+                        continue;
+                    bool headline = ReferenceEquals(text, _burnHeaderText)
+                                    || ReferenceEquals(text, _burnInitiativeText);
+                    text.color = Color.Lerp(Color.white, headline ? BurntTextColor : grey, k);
                 }
             }
             return true;
@@ -1328,8 +1402,7 @@ internal sealed class RemoteCardArt
     /// <summary>
     /// Collect the shown clone's card-FX Images and mint the materials this overlay will write.
     /// Same discipline as <see cref="ApplySpentLook"/>: the signature test names an FX material
-    /// without naming a shader, the <c>_PosAndBounds</c> extents gate refuses the whole face rather
-    /// than half of it, and every material written is one we own and destroy.
+    /// without naming a shader, and every material written is one we own and destroy.
     ///
     /// <para>THE IMAGES ARE FOUND BY WALKING THE CLONE, not by reading <c>CardEffects.imgComp</c>.
     /// That array is built in <c>Initialize()</c> at runtime and is NOT a serialized field, so
@@ -1339,6 +1412,38 @@ internal sealed class RemoteCardArt
     /// problem; that path exists and this one does not.) The signature walk finds the same set for
     /// the same reason the item bounds gate works: an image the game's FX never paints does not
     /// carry the FX material and is skipped, exactly as the game's own write is inert on it.</para>
+    ///
+    /// <para>─── THE FOOTPRINT IS MEASURED NOW, NOT REFUSED (2026-09-06 report, items 6 and 9) ───
+    /// This method used to REFUSE the whole face when the inherited <c>_PosAndBounds</c> still read
+    /// 0x0, and the hardware logs of ModBuild 457 say that is what happened: <c>Remote BURN look
+    /// REFUSED</c> printed on BOTH clients and <c>Remote BURN look armed</c> printed on NEITHER, so
+    /// not one peer's burning card ever carried a single FX term. That is the whole of "man hört nur
+    /// den Sound - sieht aber die Animation nicht": <see cref="RemoteBurnFx"/> held the card on the
+    /// owner's board for its 2 s char and there was no char, so the card simply LAY there — which is
+    /// also, verbatim, "bleiben die Karten trotzdem auf dem remote board erstmal liegen".</para>
+    ///
+    /// <para>WHY IT WAS ZERO, and why refusing was the wrong answer. <c>CardEffects.Initialize</c>
+    /// runs from <c>Awake</c> and writes the vector; a peer's <c>AbilityCardUI</c> has never been
+    /// active on THIS client, so it never ran and the widget's Images still point at the SHARED
+    /// authored material whose <c>_PosAndBounds</c> is the asset default. The same log proves the
+    /// LOCAL cards are fine — <c>CardHalfTone</c>'s census reads "_PosAndBounds unset on 0/54 (a set
+    /// one reads -611,-316,294x450)" on both machines — so this is a property of the CLONE SOURCE,
+    /// not of the build or of the player's quality settings.</para>
+    ///
+    /// <para>AND THE INHERITED VALUE IS WRONG EVEN WHEN IT IS NON-ZERO. Those census numbers are the
+    /// card's position on the owner's SCREEN-SPACE hand canvas (-611, -316). This clone is centred on
+    /// its own world-space canvas, so an inherited origin two card-widths away saturates the shader's
+    /// card-local coordinate to a constant and the face half of the burn stops varying across the
+    /// card. That is not a new theory: it is the ModBuild 348 item-card defect ("nur ganz leicht am
+    /// Rand sichtbar") word for word, and <see cref="Cards.CardFxBounds"/> is the fix that shipped
+    /// for it. So the footprint is RE-DERIVED here in the space the shader actually reads and written
+    /// into the copy — the same expression, in the same space, on a material this overlay minted and
+    /// destroys. Nothing the game owns is touched.</para>
+    ///
+    /// <para>The DEEP-BLACK guard is not dropped, it is MOVED: a face whose own rect measures under a
+    /// canvas unit is still refused whole (<see cref="ReportBurnRigRefused"/>), because writing a
+    /// degenerate footprint is the failure mode itself. The difference is that the refusal is now
+    /// about a rect we measured rather than about a number the clone inherited.</para>
     /// </summary>
     private void BuildBurnRig()
     {
@@ -1356,18 +1461,22 @@ internal sealed class RemoteCardArt
                 Material? mat = MaterialOf(all[i]);
                 if (mat == null || !IsCardFxMaterial(mat))
                     continue;
-                Vector4 bounds = mat.GetVector(PosAndBoundsId);
-                if (bounds.z == 0f && bounds.w == 0f)
-                {
-                    // ALL OR NOTHING, same as the item look: switching the FX terms on against a
-                    // degenerate footprint is the "card renders DEEP BLACK" failure.
-                    ReportBurnRigRefused();
-                    return;
-                }
                 kept.Add(all[i]);
             }
             if (kept.Count == 0)
+            {
+                ReportBurnRigNoFxImages();
                 return;
+            }
+
+            Vector4 inherited = MaterialOf(kept[0])?.GetVector(PosAndBoundsId) ?? Vector4.zero;
+            if (!TryMeasureFxFootprint(kept, out Vector4 footprint))
+            {
+                // ALL OR NOTHING, same as the item look: switching the FX terms on against a
+                // degenerate footprint is the "card renders DEEP BLACK" failure.
+                ReportBurnRigRefused();
+                return;
+            }
 
             for (int i = 0; i < kept.Count; i++)
             {
@@ -1393,6 +1502,9 @@ internal sealed class RemoteCardArt
                     copy.SetColor(BurnColourTintId, new Color(0.36862746f, 0.14509805f, 0.07450981f, 0.601f));
                 if (copy.HasProperty(AnimNoiseMaskId))
                     copy.SetTextureScale(AnimNoiseMaskId, new Vector2(40f, 40f));
+                // …and the footprint the FX terms are multiplied against, in the space this face is
+                // really drawn in. The signature test above already proved the property exists.
+                copy.SetVector(PosAndBoundsId, footprint);
                 kept[i].material = copy;
                 _ownedMaterials.Add(copy);
             }
@@ -1400,7 +1512,7 @@ internal sealed class RemoteCardArt
             _burnImages = kept.ToArray();
             _burnTexts = _clone.GetComponentsInChildren<TMPro.TextMeshProUGUI>(includeInactive: true);
             _burnRigState = BurnRig.Ready;
-            ReportBurnRigOnce(_burnImages.Length);
+            ReportBurnRigOnce(_burnImages.Length, inherited, footprint);
         }
         catch (System.Exception ex)
         {
@@ -1411,29 +1523,135 @@ internal sealed class RemoteCardArt
         }
     }
 
-    private static void ReportBurnRigOnce(int images)
+    /// <summary>
+    /// THE CARD-FX FOOTPRINT THIS CLONE IS ACTUALLY DRAWN AT, in the ROOT CANVAS's local space —
+    /// which is the space uGUI batches a Graphic's vertices in, and therefore the space the shader
+    /// reconstructs its card-local coordinate from.
+    ///
+    /// <para>It is <c>CardEffects.Initialize</c>'s own expression (CardEffects.cs:311-313 and
+    /// :341-348) evaluated on OUR hierarchy instead of on the hand canvas: the ORIGIN is the card
+    /// root's position (the game reads <c>((RectTransform)transform.parent).anchoredPosition</c>,
+    /// i.e. where the card sits on its canvas — <see cref="FitClone"/> centres this clone, so the
+    /// measurement lands on 0,0 and is computed rather than assumed), and the BOUNDS are the card
+    /// PLATE's rect (the game reads <c>header.rectTransform.rect</c>; <c>header</c> is the
+    /// full-card <c>_headerImage</c>, which is why the census reads 294x450 — a card-sized rect —
+    /// and why the largest FX image is the same object).</para>
+    ///
+    /// <para>Returns false for a rect under a canvas unit, which is the degenerate footprint the
+    /// DEEP-BLACK guard exists for. Same refusal, measured instead of inherited.</para>
+    /// </summary>
+    private bool TryMeasureFxFootprint(List<UnityEngine.UI.Image> fxImages, out Vector4 footprint)
+    {
+        footprint = default;
+        if (_clone == null || _canvas == null)
+            return false;
+        var cardRect = _clone.transform as RectTransform;
+        if (cardRect == null)
+            return false;
+
+        RectTransform? plate = null;
+        float widest = 0f;
+        for (int i = 0; i < fxImages.Count; i++)
+        {
+            RectTransform? r = fxImages[i] != null ? fxImages[i].rectTransform : null;
+            if (r == null)
+                continue;
+            float area = r.rect.width * r.rect.height;
+            if (area > widest)
+            {
+                widest = area;
+                plate = r;
+            }
+        }
+        if (plate == null)
+            return false;
+
+        Vector2 size = plate.rect.size;
+        if (size.x < 1f || size.y < 1f)
+            return false;
+        Vector3 local = _canvas.transform.InverseTransformPoint(cardRect.position);
+        footprint = new Vector4(local.x, local.y, size.x, size.y);
+        return true;
+    }
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (2026-09-06 report, items 6 and 9): the one line that says whether a peer's
+    /// burnt card can carry the char at all. Grep token <c>Remote BURN look</c>, which every one of
+    /// the three outcomes shares, so a single grep says which of them happened.
+    ///
+    /// <para>WORKING = exactly one <c>armed</c> line, with <c>images</c> ≥ 1 and a <c>now</c>
+    /// footprint whose extents are the card's own (roughly 294x450 canvas units, the number
+    /// <c>CardHalfTone</c>'s local census already prints), beside <c>BURN CARD [peer n]</c> lines
+    /// with <c>face=REAL</c>.</para>
+    ///
+    /// <para>INERT = a <c>REFUSED</c> line, or no <c>Remote BURN look</c> line of any kind beside
+    /// <c>BURN CARD [peer n]</c> lines. Both mean zero FX terms were written and the peer's card
+    /// lies on their board for 2 s without charring — which is the 457 picture exactly.</para>
+    ///
+    /// <para>STILL BEYOND THE INSTRUMENT = an <c>armed</c> line whose <c>was</c> and <c>now</c> are
+    /// both non-degenerate and the user still reports no char. That would mean the terms are running
+    /// against a footprint this measurement got RIGHT and the divergence is elsewhere — the fgFx
+    /// flame quad and the smoke emitter, which are deliberately not reproduced, are then the next
+    /// lead, not this vector.</para>
+    /// </summary>
+    private static void ReportBurnRigOnce(int images, Vector4 was, Vector4 now)
     {
         if (s_burnRigLogged)
             return;
         s_burnRigLogged = true;
-        VRLog.Info("Net", $"Remote BURN look armed on {images} card image(s) - a peer's burning card " +
-                          "now carries the game's own grey-out/flow/dissolve ramp, term for term out of " +
-                          "CardEffects.BurnCardTimeline, on materials this overlay minted and destroys " +
-                          "with the clone. The game's CardEffects stays stripped (it cannot run on a " +
-                          "detached clone and running it would write the game's pooled widget); the " +
-                          "smoke emitter and the fgFx flame quad are deliberately not reproduced.");
+        // HW-VERIFY: grep token "Remote BURN look" — see this method's doc for the three readings.
+        VRLog.Note("Net", $"Remote BURN look armed on {images} card image(s): _PosAndBounds was "
+                          + $"({was.x:0.#}, {was.y:0.#}, {was.z:0.#}x{was.w:0.#}) -> now "
+                          + $"({now.x:0.#}, {now.y:0.#}, {now.z:0.#}x{now.w:0.#}). A peer's burning "
+                          + "card now carries the game's own grey-out/flow/dissolve ramp, term for term "
+                          + "out of CardEffects.BurnCardTimeline, on materials this overlay minted and "
+                          + "destroys with the clone. The 'was' half is what the CLONE INHERITED: 0x0 "
+                          + "extents mean the peer's widget never ran CardEffects.Initialize on this "
+                          + "client (it has never been active here), and a large negative origin means "
+                          + "it ran on a SCREEN-SPACE hand canvas and the number is two card-widths "
+                          + "away from this world-space clone. Either way the FX terms would have been "
+                          + "multiplied by a card-local coordinate that does not vary across the card, "
+                          + "which is the ModBuild 348 item-card defect one card type over. The game's "
+                          + "CardEffects stays stripped; the smoke emitter and the fgFx flame quad are "
+                          + "still deliberately not reproduced.");
     }
 
+    /// <summary>
+    /// HARDWARE VERIFICATION: the DEEP-BLACK refusal, now measured rather than inherited. One line per
+    /// process. Reading it means the char is inert and the reason is this clone's own geometry.
+    /// </summary>
     private static void ReportBurnRigRefused()
     {
         if (s_burnRigRefused)
             return;
         s_burnRigRefused = true;
-        VRLog.Warn("Net", "Remote BURN look REFUSED: a card-FX material on this face still carries " +
-                          "_PosAndBounds extents of 0x0, so switching its FX terms on would hand the " +
-                          "shader a degenerate card footprint - the 'card renders DEEP BLACK' failure " +
-                          "mode. The peer's burning card keeps its FRESH face and still flies into the " +
-                          "burnt stack; the missing char is the cheaper divergence.");
+        // HW-VERIFY: grep token "Remote BURN look" — the REFUSED arm of the three outcomes.
+        VRLog.Alert("Net", "Remote BURN look REFUSED: this clone's own card plate measures under a "
+                           + "canvas unit, so the footprint written into _PosAndBounds would be "
+                           + "degenerate - the 'card renders DEEP BLACK' failure mode. The peer's "
+                           + "burning card keeps its FRESH face and still flies into the burnt stack; "
+                           + "the missing char is the cheaper divergence. NOTE this is no longer the "
+                           + "457 refusal, which fired on the INHERITED value: a clone whose source "
+                           + "never ran CardEffects.Initialize now measures its own plate instead.");
+    }
+
+    /// <summary>
+    /// HARDWARE VERIFICATION: the third outcome, which used to be a silent <c>return</c> and is the reason
+    /// a 457 log could show neither an armed line nor a refusal for a given face. One line per
+    /// process.
+    /// </summary>
+    private static void ReportBurnRigNoFxImages()
+    {
+        if (s_burnRigNoFxImages)
+            return;
+        s_burnRigNoFxImages = true;
+        // HW-VERIFY: grep token "Remote BURN look" — the NO-FX-MATERIAL arm of the three outcomes.
+        VRLog.Alert("Net", "Remote BURN look has NO CARD-FX MATERIAL to write: not one Image on this "
+                           + "clone carries the _GreyOut + _PosAndBounds signature, so there is nothing "
+                           + "on this face the game's own burn terms would paint either. The peer's "
+                           + "card burns without the char. If this line appears instead of the 'armed' "
+                           + "one, the signature test has stopped matching the game's material and "
+                           + "CardHalfTone/CardFxBounds use the same pair and are equally blind.");
     }
 
     private void DestroyClone()
@@ -1455,6 +1673,8 @@ internal sealed class RemoteCardArt
         _artWatch.Clear(); // the watched Images belong to the clone that just died
         _burnImages = null;  // the burn rig named the clone's own Images
         _burnTexts = null;
+        _burnHeaderText = null;
+        _burnInitiativeText = null;
         _burnRigState = BurnRig.Unbuilt;
         _shownSourceId = int.MinValue;
     }
