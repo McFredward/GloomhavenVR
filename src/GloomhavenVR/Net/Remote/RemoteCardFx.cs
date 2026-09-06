@@ -243,12 +243,45 @@ internal sealed class RemoteCardFx
         // 'Fly-to-pile' line on the owner with NO line here at all, which is a lost or swallowed
         // event and not a face defect.
         VRLog.Note("Net", $"FLIGHT FACE [player {_owner.PlayerId}]: their {from} -> {to} card "
-            + $"flight is drawn as a {(f.HasFace ? "FRONT" : "BACK")} — {faceRule}. The OWNER always "
+            + $"flight is drawn as a {(f.HasFace ? "FRONT" : "BACK")} — {faceRule}. ORIGIN: this "
+            + $"mirror flew it from {DescribeOrigin(from)}, and that is the seat the OWNER reported "
+            + "leaving — compare their own '[Cards] FLIGHT ORIGIN' line for the same flight, which "
+            + "names the recess their card really left. The OWNER always "
             + "watches a FRONT go into the pile (VRCard.FlyToPile locks the face-up rotation the "
             + "card had in the recess for the whole arc), so a BACK here is the 1:1 breach report "
             + "item 5 names. No card identity crossed the wire: the face is this client's own read "
             + "of the card its OWN mirror was drawing in that recess one tick ago.");
     }
+
+    /// <summary>
+    /// THE ORIGIN, IN WORDS, for the flight line — a recess SEAT, the board centre, or a piece of
+    /// avatar furniture, plus what each one means for report item 5's second half.
+    ///
+    /// <para>IT IS THE OWNER'S ANSWER, NOT THIS CLIENT'S GUESS, and that is the whole point of
+    /// printing it. The anchor arrives on the wire; this mirror resolves it through
+    /// <c>RemoteAvatar.BoardAnchorLocal</c> and flies from whatever it names.
+    /// <c>CardFxAnchor.Board</c> on a turn-clear therefore indicts the SENDER, not the receiver: it
+    /// says that player's client could not name the recess its own card was leaving, which through
+    /// ModBuild 460 it never could (<c>CardsDriver.TryStartFlyToPile</c> read <c>_tray.SlotOf</c>
+    /// off an occupant array the rebuild had already evicted the card from). Two logs, one line
+    /// each, and the pair says which end is at fault.</para>
+    /// </summary>
+    private static string DescribeOrigin(CardFxAnchor from) => from switch
+    {
+        CardFxAnchor.Slot0 => "their round recess 1's rendered card SEAT — the point their own card "
+                              + "left, so this flight is 1:1 in its start as well as its face",
+        CardFxAnchor.Slot1 => "their round recess 2's rendered card SEAT — the point their own card "
+                              + "left, so this flight is 1:1 in its start as well as its face",
+        CardFxAnchor.Board => "their board CENTRE, because the anchor on the wire is "
+                              + "CardFxAnchor.Board — the SENDER could not name the recess its card "
+                              + "was leaving. On a turn-clear that is report item 5's origin half "
+                              + "still standing on THAT machine (a build before ModBuild 461, or a "
+                              + "card whose transform had already left its recess); on a burn with "
+                              + "no live VR card left it is the honest answer and nothing is owed",
+        CardFxAnchor.HandFan => "their non-dominant palm — a fan flight, which has no recess to "
+                                + "leave and is not what report item 5 is about",
+        _ => $"their {from} furniture",
+    };
 
     /// <summary>
     /// Put the REAL card front on <paramref name="f"/> when this client can name the card, and

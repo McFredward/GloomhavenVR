@@ -1617,25 +1617,25 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// CONSUMING: a claimed face is forgotten, so two flights launched by one turn-clear take two
     /// different cards instead of both taking the first.
     ///
-    /// <para>-1 IS THE CASE THAT ACTUALLY HAPPENS TODAY, and the evidence says so rather than the
-    /// design. <c>CardsDriver.TryStartFlyToPile</c> reports its origin as
-    /// <c>SlotAnchor(_tray.SlotOf(card))</c>, and by the time it runs the card has already left the
-    /// tray's occupant array — the flight is launched off <c>_lastHalfCards</c>, the PREVIOUS
-    /// rebuild's dock membership. So <c>SlotOf</c> answers -1 and the anchor on the wire is
-    /// <c>CardFxAnchor.Board</c>, every time: the 2026-09-06 logs contain "Board -&gt; Discard" and
-    /// "Board -&gt; Burnt" and not one "Slot0 -&gt;" or "Slot1 -&gt;" on either machine. Which recess
-    /// a card left is therefore NOT knowable from the event, and the ORIGIN does not need to be —
-    /// both flights start at the same board anchor, so which of the two slabs a face rides is not a
-    /// distinction any viewer can make. The DESTINATION is a different matter and is why it is a
-    /// parameter: see the disambiguation block in the body.</para>
+    /// <para>WHICH BRANCH RUNS IS NOW THE SENDER'S BUILD, and the history matters because the -1
+    /// path used to be the ONLY one. Through ModBuild 460
+    /// <c>CardsDriver.TryStartFlyToPile</c> reported its origin as
+    /// <c>SlotAnchor(_tray.SlotOf(card))</c>, and by the time that ran the card had already been
+    /// evicted from the tray's occupant array — the flight is launched off <c>_lastHalfCards</c>,
+    /// the PREVIOUS rebuild's dock membership — so <c>SlotOf</c> answered -1 and the anchor on the
+    /// wire was <c>CardFxAnchor.Board</c> every single time. That is measured and not inferred: the
+    /// 2026-09-06 logs contain "Board -&gt; Discard" and "Board -&gt; Burnt" and not one
+    /// "Slot0 -&gt;" or "Slot1 -&gt;" on either machine. ModBuild 461 reads the card's PHYSICAL
+    /// recess instead (<c>PlayTray.RecessSeatOfCard</c> — the eviction is bookkeeping and never
+    /// reparents anything), so a current sender names <c>Slot0</c>/<c>Slot1</c> and this method is
+    /// asked about ONE recess.</para>
     ///
-    /// <para>THE SENDER-SIDE HALF OF THIS IS A SEPARATE, UNFIXED DEFECT and is recorded here so it
-    /// is not re-derived: because the origin degrades to <c>Board</c>, a mirrored turn-clear flight
-    /// also STARTS at the board centre while its owner's card starts in its recess. That is a POSE
-    /// divergence in <c>CardsDriver.TryStartFlyToPile</c>, not a face one, and fixing it needs the
-    /// driver to remember the slot a docked card was in across the rebuild that clears the tray.
-    /// This class works either way — a named origin simply makes the claim exact instead of
-    /// destination-disambiguated.</para>
+    /// <para>THE -1 PATH THEREFORE STAYS, AND STAYS EXACTLY AS STRICT. It is what a peer on an older
+    /// build still produces, and what a card whose transform has already left its recess produces on
+    /// any build. A NAMED slot is strictly more precise than the destination test below — it is the
+    /// recess the owner said the card left, so there is nothing to disambiguate and the refusal
+    /// cannot be reached; the destination test guards only the ambiguous case it was written for.
+    /// Making the pose right did not make the identity looser.</para>
     /// </summary>
     internal bool TryTakeDepartedFace(int slot, CardFxAnchor destination, out CAbilityCard? card)
     {
@@ -1662,7 +1662,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         if (b < 0)
             return Take(a, out card);
 
-        // ─── TWO CANDIDATES AND A `Board` ORIGIN: THE DESTINATION DECIDES ───────────────────────
+        // ─── TWO CANDIDATES (ONLY EVER A `Board` ORIGIN): THE DESTINATION DECIDES ──────────────
+        // Unreachable when the sender named a recess — `slot >= 0` admits one candidate at most, so
+        // everything below is the older-sender / unnameable-transform path and nothing here was
+        // loosened to make the origin fix work.
         // A turn-clear can empty BOTH recesses in one frame and send one flight per card, and when
         // one of those is a BURN that RemoteBurnFx presented itself, its event is swallowed and its
         // memory is never claimed — so the discard flight arriving afterwards would find two

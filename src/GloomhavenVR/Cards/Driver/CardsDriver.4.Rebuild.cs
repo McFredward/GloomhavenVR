@@ -2268,7 +2268,36 @@ internal sealed partial class CardsDriver
         // THEIR copy of this player's board pose — 2 bytes, no per-frame transforms. Because the
         // decision above is now the MODEL's, the peer's mirrored flight inherits both halves of the
         // fix: it fires only for a real move, and its destination anchor is the real destination.
-        ReportCardFx(SlotAnchor(_tray.SlotOf(card)), PileAnchor(fate));
+        //
+        // ─── THE ORIGIN WAS ALWAYS `Board` AND IT WAS THIS EXPRESSION (2026-09-06 item 5) ───────
+        // It read SlotAnchor(_tray.SlotOf(card)). SlotOf answers off _occupants — the CardsSelection
+        // round-card bookkeeping — and this method is reached from the rebuild's zone loop for a
+        // card that is in NO current zone, launched off _lastHalfCards, the PREVIOUS rebuild's dock.
+        // By the time it runs, SyncFromGameState has already evicted that card from _occupants, so
+        // SlotOf returns -1 BY CONSTRUCTION and SlotAnchor mapped it to CardFxAnchor.Board on every
+        // single turn-clear. That is measured, not inferred: the 2026-09-06 session's two logs carry
+        // "Board -> Discard" and "Board -> Burnt" and not one "Slot0 ->" or "Slot1 ->" on either
+        // machine. The peer's mirrored flight therefore STARTED AT THE BOARD CENTRE while its owner
+        // watched the same card leave its recess — the half of the 1:1 breach that survived the
+        // face fix of the same round.
+        //
+        // THE EVICTION IS BOOKKEEPING; THE CARD HAS NOT MOVED. Neither ClearSlots nor RemoveCard nor
+        // SyncFromGameState's eviction reparents anything — each of them nulls an occupant entry and
+        // stops — so at this instant the card is still a CHILD of its recess transform, exactly
+        // where its owner is looking at it. PlayTray.RecessSeatOfCard reads that physical truth (and
+        // refuses the beside-slot-2 overflow seat, which is parented to a recess it is not in).
+        // Nothing is guessed and no new anchor value is needed: Slot0/Slot1 already exist and
+        // RemoteControlBoard.AnchorLocalLive resolves both to the rendered card SEAT of whatever
+        // board style the peer runs — they were added for exactly this.
+        //
+        // _tray.SlotOf STAYS as the fallback rather than being replaced outright: it is the answer
+        // for a card the game seated without a VR drop and whose transform a rebuild has already
+        // re-homed, and Board remains the honest last resort for a card in neither.
+        int flightSeat = _tray.RecessSeatOfCard(card);
+        if (flightSeat < 0)
+            flightSeat = _tray.SlotOf(card);
+        Net.CardFxAnchor flightOrigin = SlotAnchor(flightSeat);
+        ReportCardFx(flightOrigin, PileAnchor(fate));
         card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
             _flyingToPile.Remove(flying);
@@ -2282,6 +2311,25 @@ internal sealed partial class CardsDriver
             ? "the board's PICK RECESS (an event discard the game just committed)"
             : "CCharacterClass.RoundAbilityCards/ExtraTurnCards";
         string tag = fate == PileKind.Burnt ? $"BURN ANIM [{origin}]" : $"Fly-to-pile [{origin}]";
+        // HW-VERIFY: report item 5, the ORIGIN half. Grep token: FLIGHT ORIGIN. One line per real
+        // flight (a handful per turn) and at Note tier because it is the OWNER'S half of a pair
+        // whose other half prints on the OTHER machine — read it beside that peer's
+        // '[Net] FLIGHT FACE' line for the same flight, which states the anchor the mirror flew
+        // from. WORKING = "round recess 1"/"round recess 2" here and "Slot0 ->"/"Slot1 ->" there.
+        // INERT = "the board CENTRE (no recess)" here on a turn-clear, which is the pre-461 picture
+        // and means RecessSeatOfCard did not find the card parented at its recess seat. STILL BEYOND
+        // THE INSTRUMENT = this line present with NO FLIGHT FACE line on the peer at all: the event
+        // was dropped or swallowed by the burn mirror, which is not an origin defect.
+        VRLog.Note("Cards", $"FLIGHT ORIGIN [{origin}]: this client's own card left "
+            + (flightSeat >= 0
+                ? $"round recess {flightSeat + 1}, and that seat is what went on the wire "
+                  + $"({flightOrigin}) — every peer's mirrored flight now starts at their copy of "
+                  + "that recess, which is the point this player is watching the card leave"
+                : $"the board CENTRE (no recess — RecessSeatOfCard and SlotOf both answered -1), so "
+                  + $"{flightOrigin} went on the wire and every peer's mirrored flight starts at "
+                  + "their copy of the board centre instead. On a TURN-CLEAR that is the 2026-09-06 "
+                  + "item 5 origin defect still standing")
+            + $", flying to the {fate} stack.");
         VRLog.Info("Cards", $"{tag}: CARD FLIGHT '{CardsGameApi.CardName(card.GameCard!)}' " +
                             $"(owner '{(owner != null ? CardsGameApi.ActorLabel(owner) : "?")}') — WHY: it LEFT " +
                             $"{leftWhat} and ENTERED " +
@@ -2548,9 +2596,12 @@ internal sealed partial class CardsDriver
         // MP parity (report 6): this launch site was the ONE burn flight that never reported —
         // every other pile flight (turn-clear, pile-watch, fallback slab) announces itself, so a
         // peer watching this player's board saw those but missed a burn that fired from the park
-        // sweep. Same 2-byte semantic endpoint pair as the others; peers replay a card-back slab
-        // arcing off this player's board into their burnt stack.
-        ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+        // sweep. Same 2-byte semantic endpoint pair as the others.
+        // …AND IT NAMES THE RECESS when the card is lying in one (item 5's origin half — read the
+        // block at TryStartFlyToPile's ReportCardFx for why a hardcoded Board anchor made every
+        // mirrored flight start at the board centre). `from` above is this same card's real world
+        // position, so both ends of this flight now agree on both machines.
+        ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt);
         LogBurnAttribution(widget, "park-sweep");
         VRCard flying = card;
         card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
@@ -3305,8 +3356,11 @@ internal sealed partial class CardsDriver
             _flyingToPile.Add(card);
             VRCard flying = card;
             // MP parity (report 6): a damage-burn is the most dramatic card animation in the game —
-            // peers replay it as a card arcing off this player's board into their burnt stack.
-            ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+            // peers replay it as a card arcing off this player's board into their burnt stack, and
+            // since ModBuild 461 out of the RECESS it is lying in rather than off the board centre
+            // (item 5's origin half). This branch is reached precisely because the real VR card is
+            // still live at its true board position, so the seat is there to be read.
+            ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt);
             LogBurnAttribution(widget, origin);
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
             {
@@ -3348,8 +3402,12 @@ internal sealed partial class CardsDriver
         float slabArc = Mathf.Max(minArc, Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction);
         BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp, minArc);
         LogBurnAttribution(widget, origin + "/slab");
-        // MP parity (report 6): the fallback slab is the same event on the wire — the peer plays a
-        // back slab either way (they never see faces), so both burn branches read identically.
+        // MP parity (report 6): the fallback slab is the same event on the wire.
+        // Board STAYS HARDCODED HERE, and that is the honest answer rather than the unfixed one:
+        // this branch is reached precisely because there is no live VR card left for the widget
+        // (see the line below), so there is no transform to read a recess off. `fromPos` is a
+        // REMEMBERED last position, not a seat, and naming a recess from it would be exactly the
+        // approximation item 5's fix exists to remove.
         ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
         VRLog.Info("Cards", $"BURN ANIM [{origin}/slab]: '{CardsGameApi.CardName(widget)}' burned — transient card-back slab " +
                             $"from {fromPos} (the burned card's true last position) → Burnt pile " +

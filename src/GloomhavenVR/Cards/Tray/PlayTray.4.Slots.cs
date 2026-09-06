@@ -931,6 +931,39 @@ internal sealed partial class PlayTray
         return -1;
     }
 
+    /// <summary>
+    /// WHICH RECESS <paramref name="card"/> IS ACTUALLY RESTING IN — <see cref="SlotIndexOfCard"/>
+    /// narrowed to a card that is at that recess's OWN seat, or -1.
+    ///
+    /// <para>WHY IT IS NOT JUST <see cref="SlotIndexOfCard"/>. The overflow branch of
+    /// <see cref="PlacePickCard"/> parents a 3rd+ pick candidate to slot 1's transform and then
+    /// pushes it sideways by <c>(index - 1) * CardWidth * 1.15</c>, so it lies BESIDE the board's
+    /// right recess rather than in it. The physical parent would name recess 1 for that card, which
+    /// is a seat it is not in — and a caller that publishes that seat to peers (extension record 39,
+    /// the card-FX origin anchor) would put a mirrored card in a recess its owner has nothing in.
+    /// The X test below is the same measurement in the same frame, not a second opinion: it asks
+    /// whether the card is at the seat this recess homes cards to.</para>
+    ///
+    /// <para>THE TOLERANCE IS HALF A CARD and it is a real number rather than an epsilon: the
+    /// nearest thing this can be confused with is the first overflow seat, a FULL card width and a
+    /// bit (1.15x) away, and the card may be mid-lerp toward its home on the frame it is asked. Half
+    /// a card separates the two with a margin on both sides.</para>
+    ///
+    /// <para>ROUND CARDS NEVER TAKE THE OVERFLOW BRANCH — there are only ever two of them and
+    /// <see cref="PlaceCard"/> homes each to its own recess — so for the caller that matters most
+    /// (the turn-clear flight's origin) this and <see cref="SlotIndexOfCard"/> agree by
+    /// construction. It is the pick flows that need the narrowing.</para>
+    /// </summary>
+    internal int RecessSeatOfCard(VRCard? card)
+    {
+        int slot = SlotIndexOfCard(card);
+        if (slot < 0 || card == null)
+            return -1;
+        float seatX = SlotHomeOffsetFor(slot).x;
+        float tolerance = Mathf.Max(0.001f, CardsConfig.CardWidth.Value * 0.5f);
+        return Mathf.Abs(card.transform.localPosition.x - seatX) <= tolerance ? slot : -1;
+    }
+
     /// <summary>Does <paramref name="slot"/> currently parent a live, un-held VR card? See
     /// <see cref="OccupiedSlotMask"/> for why this is the physical truth rather than a flag. The
     /// slot's own children are the two glow quads plus at most a card, so this loop is tiny.</summary>
