@@ -15,7 +15,33 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
-## START AT §17 — ROUND TEN (2026-09-06): THE MATERIAL CLASS IS OUT
+## START AT §18 — ROUND ELEVEN (2026-09-06): THE "LATCHED VALUE" MODEL IS WRONG
+
+> *"Es ist wie der flash nur deutlich verlangsamt und nicht ganz flüssig wie beim flash auf
+> dem Spielbrett."*
+
+**A latched value cannot stutter.** §14's model — the white is a value frozen at the grab — is
+retired by the user's own observation: the effect still happens in the hand, it is the SAME
+flash, it is distinctly SLOWED, and it is NOT FLUID. Something drives it at a reduced and
+irregular rate, and that is a signature with a NUMBER in it. Every "nothing moved" this file
+has printed proved only that our sampling did not catch movement.
+
+And the user made the methodological correction too: *"dieser Blitz ist ja ein voll spiel
+gewolltes Highlighting … müsstest du es doch auch im originalspiel finden können."* Eleven
+rounds chased instrument readings for a deliberate feature sitting in `decompiled/`.
+**Read the game first.** §18.4 has the three leads that came out of doing so — Chronos
+(with a correction: round one DID measure it, §3, but only downward from the visual, and a
+clock governs from ABOVE), `IdleSMB` stranding `animator.speed` because a disabled Animator
+never fires `OnStateExit`, and a shader phase seeded by a world position that was never
+written. §18.5 names the five arms that measure them, including the first observer in this
+whole investigation that **needs no grab**.
+
+Read [§18](#18-round-eleven--2026-09-06-against-the-modbuild-456-log-the-latched-value-model-is-wrong-and-the-search-moves-into-the-games-own-source)
+first, then **§15, the obituary** of every strand and probe deleted on 2026-09-06.
+
+---
+
+## §17 — ROUND TEN (2026-09-06): THE MATERIAL CLASS IS OUT
 
 ModBuild 455, 194 frames. A trap standing on its own hex runs its ENTIRE animator loop
 (advancing 193/194, fraction 0.001..0.997) and moves **0 of 57 material slots**, on a material
@@ -1828,3 +1854,201 @@ no state. It rides the existing window, which `NetProps` reaches through `PropAn
 (`NetProps.cs:288`) and `Release` (`NetProps.cs:550`) for a REMOTE hold exactly as for a local one.
 **Verified from evidence on the LOCAL side only** — the ModBuild 455 log is a single-player session;
 the mirrored half is reasoned from those two call sites, not measured.
+
+---
+
+## 18. Round eleven — 2026-09-06, against the ModBuild 456 log: the "latched value" model is WRONG, and the search moves into the game's own source
+
+Two user reports arrived this round and each one overturns something.
+
+> **(a)** *"Wenn ich es länger in der Hand halte tritt es auch so auf das der prop weiß wird in der
+> hand. Es ist wie der flash nur deutlich verlangsamt und nicht ganz flüssig wie beim flash auf dem
+> Spielbrett."*
+>
+> **(b)** *"Ich mein dieser 'Blitz' ist ja ein voll spiel gewolltes Highlighting kein Fehler um auf
+> die Fallen und Truhen aufmerksam zu machen. Also müsstest du es doch auch im originalspiel finden
+> können"*
+
+### 18.1 What ModBuild 456 read, and it is the "still beyond the instrument" shape
+
+| arm | reading |
+|---|---|
+| `THE TWIN'S OBJECT GRAPH` | 10 child objects, 2 renderers at arm; counts **10..10** and **2..2**; **CHANGES: 0** |
+| `LIGHTING, HELD vs HOME` | 29 samples; HELD L0 `0.0252` over `0.0252..0.0252`; HOME identical; **WORST DIFFERENCE 0**; reflection probes **0 both sides** |
+| `THE REWIND'S OTHER HALF` | 6 flags read, **0 CHANGED** |
+| `GRAB PHASE` | `normalizedTime 2.2641`, fraction **0.264** (second sample; §17.5's first was 0.341) |
+
+So the object graph is out and lighting is out, on top of §17's material exclusion.
+
+### 18.2 REPORT (a) CONTRADICTS THE MODEL THIS FILE HAS RUN ON SINCE ROUND NINE
+
+Read it term by term, because every term matters and three of them are new:
+
+* **"tritt es auch so auf"** — the effect is **NOT absent** in the hand. It happens.
+* **"wie der flash"** — it is the **same** flash, not a different artefact.
+* **"deutlich verlangsamt"** — **distinctly slowed**. That is a RATE.
+* **"nicht ganz flüssig"** — it **stutters**, where on the board it is smooth.
+
+**A LATCHED VALUE CANNOT STUTTER.** §14.2's model — *"the white is a value latched at the instant of
+the grab, and nothing during the hold either sustains it or removes it"* — is **wrong**. It was the
+best reading available of a room full of zeroes, and the user's own observation retires it.
+Something drives the effect in the hand at a **reduced and irregular update rate**. That is a
+signature with a NUMBER in it.
+
+**And it retires §14's reading of the zeroes with it.** "Nothing moved" is equally consistent with a
+term that moves *between* our sample points, or on a class we sample at a coarser cadence than it
+updates, or on a class we do not sample at all. The zeroes never proved stillness; they proved our
+sampling did not catch movement.
+
+### 18.3 REPORT (b) IS THE METHODOLOGICAL CORRECTION, AND IT IS FAIR
+
+Eleven rounds have tried to catch a **deliberate game feature** with instruments, when the mechanism
+is sitting in `decompiled/`. The game was read this round rather than the logs, and three leads came
+out of it. All three are measured by this build; none is assumed.
+
+**Excluded first, so nothing is spent there:**
+
+* **The hold-to-highlight system is not it.** `WorldspaceUITools.Update:91-99` turns
+  `ActivateAllOutlines(true)` on while `InputManager.GetIsPressed(KeyAction.HIGHLIGHT)` and off on
+  release — a held key with no schedule. And this mod never references `KeyAction.HIGHLIGHT`,
+  `ActivateAllOutlines` or `OutlinesEnabled`; a grep of `src/` returns zero hits, so we are not
+  pressing it either.
+* **No time-varying GLOBAL shader property exists in the game.** Every `Shader.SetGlobal*` in
+  `GH.Runtime` is a texture bind, `ToggleWallFade`, or a grab-texture scale. §16.1's claim holds,
+  verified independently.
+
+### 18.4 The three game-source leads, and a correction to the brief that raised them
+
+**(1) CHRONOS.** `decompiled/ThirdParty/Chronos/` — `Timekeeper`, `Timeline`, `GlobalClock`,
+`AreaClock`, and `AnimatorTimeline` / `AnimationTimeline` / `RewindableParticleSystemTimeline`. It is
+a per-object time-control library and **the only mechanism found anywhere that can make an effect
+run slower and not fluid while nothing about its state changes** — which is report (a) word for word.
+
+**CORRECTION TO THE RECORD: round one DID look at Chronos.** §3 records
+`scene holds 0 AreaClock(s) and 0 Timeline(s)` and `globalClock.timeScale hand=1 home=1` from the
+ModBuild 435 log, and that is why the lead is small rather than new. What that reading did **not**
+cover is a `Timeline` on a **PARENT** of the prop — the census that produced it was rooted at the
+prop's visual, and a Chronos clock governs a subtree **from above**, which is precisely the shape a
+bottom-rooted census cannot see. It was also taken in a different scenario. Both gaps are closed
+this build, by walking **up** with `GetComponentInParent<Timeline>()` on the held prop *and* on the
+twin and printing both clocks side by side.
+
+**(2) `IdleSMB` WRITES `animator.speed`, AND OUR HUSH CAN STRAND IT.**
+`decompiled/GH.Runtime/IdleSMB.cs:30,36,40` — `ChangeSpeed()` writes `m_Animator.speed` from
+`Timekeeper.instance.m_GlobalClock.timeScale` or `1f / GameSpeedIncreaseAmount`; `OnStateEnter`
+calls it; `OnStateExit:50-53` resets `animator.speed = 1f`; and `Awake:11` subscribes to
+`SaveData.Instance.Global.GameSpeedChanged`, so it can write **at any time during a hold**.
+**Disabling an Animator mid-state means `OnStateExit` never fires**, so whatever speed was last
+written stands for the whole hold. §3 measured `speed hand=1 home=1` on ModBuild 435 — *before* the
+hush existed. It is one float, and this build reads it per frame on both sides.
+
+**(3) THE PHASE MAY BE SPATIAL.** The game seeds shader effects from **world position**:
+`ObjectPosToMaterial` (`_ObjPos`, OnEnable only), `PosToMat` (`_ObjPosY`, every frame),
+`ZephyrAnim`, `CustomObjectPositionToChildMaterials` (`_FadeSourcePos`). Their existence is evidence
+that these shaders compute time-varying effects **seeded by a per-object world position**. The trap
+carries `ObjectPosToMaterial`, whose `rendererTypeProjector` path goes through
+`GetComponent<Projector>().material` and **cannot run here — 0 Projectors censused** — and whose
+vector slot ModBuild 454 read as **zero**. A shader phase seeded by a position that was never
+written is invisible to every reading this file has ever taken. `Amp_Char_Shader` is compiled into
+the bundles and its source is not in the repository, so this stays a hypothesis. **One experiment
+distinguishes it: hold the prop DEAD STILL for several seconds, then move it.** If the whiteness
+runs on regardless the phase is a clock (leads 1–2); if it tracks the movement the phase is spatial.
+
+### 18.5 What shipped — five arms, all cheap reads, no capture subsystem
+
+**A. THE RE-ASSERT WATCH.** Per frame over the ledger: did anything this class switched off come
+back **ON**? Every edge is named with its frame and its clock, and the **intervals between rising
+edges** are printed. This tests the first suspect for the stutter, which is **ours**:
+`RescanFrames = 45` re-applies the suppression on a cadence, and a suppression re-applied on a
+cadence against a writer that re-asserts in between **is** a staircase.
+
+**And it closes a hole the §15 cleanup opened.** That pass deleted the per-frame enabled-state counts
+(`_vAnimOnMax`, `_vOutOnMax`, `_vEmitterOnMax`) as spent, on readings that said 0. Those readings
+were correct about the hold **as a whole** and structurally blind to a rising edge between two
+rescans, because *a maximum over a window says nothing about when*. Re-added as **edges with clocks**
+rather than as maxima.
+
+**B. THE STANDING BOARD OBSERVER — `] [Props] BOARD PROP STANDING WATCH`.** Every other arm in this
+file is gated on a **hold** and runs for under three seconds, but the flash is a **board event the
+player watches and then reacts to by grabbing**. **If it recurs less often than the window is long,
+`CHANGES: 0` means "the flash did not happen while we were looking" — an ABSENCE, not an
+EXCLUSION**, and this file has confused those before. The twin found for a comparison is **promoted
+when that window closes** to a standing watch on the same board prop, running 3600 frames (~40 s)
+with **no grab required**. Promotion is free — the prop was already found — and the cost is a handful
+of component reads per frame on one prop. It watches renderer/active state, material identity,
+animator state, child and renderer counts, and **`Outlinable.OutlineParameters.Enabled` and its
+Colour** — the boolean the game writes in nine places, an instantaneous *"Aufblitzen"* rather than a
+curve, which round five killed **on the held prop** (where we disable the component outright) and
+which **has never been measured on a prop standing on the board**. It prints its own frame count and
+duration so **silence cannot be mistaken for a watch that never armed**.
+
+**C. THE KNOWN ASYMMETRIES.** Ten rounds compared what the **game** writes and every one of those now
+reads identical. What has never been printed is the set of differences **we ourselves create**:
+layer, shadow casting, receive shadows, light/reflection probe usage, motion vectors,
+`allowOcclusionWhenDynamic`, `probeAnchor`, material count, `updateWhenOffscreen`,
+`skinnedMotionVectors`, skinning quality, `lossyScale`, bounds size, and the **sign of the
+`localToWorldMatrix` determinant** — a held prop is mirrored for the left hand, and a negative
+determinant flips every normal and every winding. **And the section names the suppression to read
+first:** strand 5 unregisters the held prop from `TilesOcclusionGenerator`, so the prop is no longer
+*drawn into* the global `_ObjectOcclusion` map while it still *samples* it — and if that map darkens,
+a prop absent from it is **undarkened, i.e. brighter than the same prop on the board**. That is a
+whiteness with no material, no component and no lighting behind it, it is **ours**, and it is the
+only asymmetry in the list this class created for a defect it did not fix.
+
+**D. THE CLOCKS AND THE ANIMATOR SPEED** — leads (1) and (2), measured: Timekeeper presence,
+`globalClock.timeScale`, scene-wide `Timeline` and `AreaClock3D` counts, the clock governing the held
+prop and the twin walked **up** from each, and `Animator.speed` per frame on both sides with its
+range and change count.
+
+**E. THE MOTION TRACE** — lead (3) and the hardware experiment: path length, worst single-frame step,
+the **longest run of frames moving under a millimetre** (in frames and in seconds), and the first and
+last world position, so the user's "hold it dead still" report and this log can be lined up.
+
+**AND THE FRAME RATE, printed beside every period.** The game's `IEffectBlink`
+(`GH.Runtime/WorldspaceUI/IEffectBlink.cs`) loops `m_BlinkInterval = 0.5f` through Chronos, and our
+own 45-frame rescan is **0.5 s at 90 Hz** — within a frame or two of each other. Any measured period
+near half a second is therefore ambiguous unless it is reported in **both units**. It is: a period
+locked to **45 frames** as the frame rate varies is **ours**; one locked to **0.5 s** as the frame
+rate varies is the **game's**.
+
+### 18.6 How to read it
+
+**Grep tokens:** `] [Props] HELD-PROP HOME TWIN` (sections `THE RE-ASSERT WATCH`,
+`THE GAME'S OWN MACHINERY`, `THE KNOWN ASYMMETRIES`) and `] [Props] BOARD PROP STANDING WATCH`.
+
+* **WORKING / NAMES THE STUTTER AS OURS** — rising edges in the ledger at intervals locked to 45
+  frames. The fix is then in this file.
+* **WORKING / NAMES A CLOCK** — two different Chronos timelines, or a HELD `Animator.speed` below the
+  HOME speed. Lead (1) or (2), with a number.
+* **WORKING / NAMES THE BOARD FLASH** — non-zero changes on the standing watch. The intervals are
+  **the board flash's own period, measured for the first time**; four rounds assumed the idle clip's
+  ~5 s and §17 proved that clip drives bones. The hand's slowed version can then be stated as a
+  **ratio** against it, which is exactly what report (a) claims.
+* **WORKING / NAMES AN ASYMMETRY** — a differing renderer setting, a negative determinant, or the
+  occlusion registration.
+* **INERT** — no twin (a population fact), no animator on one side, or the standing watch never
+  arming (in which case no line prints at all, which is distinguishable).
+* **STILL BEYOND THE INSTRUMENT** — every arm zero, both clocks `<none>`, both speeds 1, the standing
+  watch silent over 40 s. Then the board flash is not state at all, and the next round measures the
+  **picture**: a sampled read-back of the rendered pixels over the prop, held versus board, at the
+  right stage (after post, not from a camera of our own), asynchronously, on a tight cadence, with
+  **the cost printed rather than asserted**. That is deferred deliberately this round: the period it
+  would serve is obtainable more cheaply from state we already touch, and a new capture subsystem
+  shipped beside four other new arms would be unattributable.
+
+### 18.7 What round eleven did NOT do
+
+* It did **not** ship a remedy. Report (a) says the effect has a **rate**, and no rate has been
+  measured yet; a fix aimed at an unmeasured rate is the shape this document has recorded ten times.
+* It did **not** build the picture read-back — §18.6, last bullet, with its design constraints.
+* It did **not** re-open the material class, the object graph, lighting, the overlay, property
+  blocks, keywords, mip streaming or the occlusion **map** (the occlusion **registration** is named
+  as an asymmetry, which is a different claim). §§13.1, 14.1, 17.1, 17.2, 18.1 close them.
+* It did **not** bump `NetProtocol.ModBuild`.
+
+**Multiplayer.** Nothing on the wire and nothing to mirror: this build reads and prints and writes no
+state. The standing observer runs above the feature gate in `PropGrab.Tick` and watches a board prop
+that is nobody's hand; the hold-gated arms ride the existing window, which `NetProps` reaches through
+`PropAnimBelt.Engage` (`NetProps.cs:288`) and `Release` (`NetProps.cs:550`) for a REMOTE hold exactly
+as for a local one. **Verified from evidence on the LOCAL side only** — the ModBuild 456 log is a
+single-player session; the mirrored half is reasoned from those two call sites, not measured.

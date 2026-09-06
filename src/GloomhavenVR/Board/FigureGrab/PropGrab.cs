@@ -190,6 +190,12 @@ internal static class PropGrab
         // is a single Count compare when nothing is held.
         GrabbableProp.TickHeld();
 
+        // THE STANDING BOARD OBSERVER, and it is above the gate because it needs NO hold at all:
+        // it watches a prop on the board for forty seconds so the flash the player reacts to can
+        // be caught happening, rather than only being looked for during the three seconds he is
+        // holding something. A reference compare per frame when nothing is armed.
+        PropAnimBelt.TickBoard();
+
         // The belt sits above the gate for the same reason, and for one more: a prop still in a
         // hand when GrabProps is toggled off is released by the gate's ReleaseAll on THIS frame,
         // and the culling values it replaced must be handed back on that same frame or they are
