@@ -656,6 +656,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // still name, so emptying them here is what keeps the outgoing wave alive.
         _cards.Clear();
         _seeded.Clear();
+        _bodyWearsBack.Clear();   // index-aligned with _cards; a stale FALSE would skip a body write
         _faces.Clear();
         _builtCount = -1;
         _frontsShown = false;
@@ -999,6 +1000,53 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// This is the same latch <c>MapRoomHand.PrintPendingFaces</c> uses (there it is "does this slot
     /// have a face object yet"), for the same reason.</summary>
     private readonly List<int> _mapPrinted = new(MaxCards);
+
+    /// <summary>What each slab's card BODY is wearing on its FRONT fan (true = the card BACK) —
+    /// INDEX-ALIGNED with <see cref="_cards"/> and cleared everywhere that list is, on exactly the
+    /// convention <see cref="_mapPrinted"/> and <c>_seeded</c> already follow.
+    ///
+    /// <para>USER ITEM 10 (2026-09-06): every remote slab gave BOTH submeshes the card back, while a
+    /// local card's backing wears <c>CardMesh.CreateEdgeMaterial</c> on submesh 0 — the FRONT fan
+    /// plus the rim, i.e. the band that frames the print. So a peer's readable card front was framed
+    /// by the burgundy field and gold diamond lattice of its own BACK, on a board that was not
+    /// fading at all, and the user named it literally: he is seeing the Rückseite.</para>
+    ///
+    /// <para>IT IS AN EDGE GATE AND NOTHING ELSE. <c>CardMesh.SetBodyFrontFace</c> is idempotent, so
+    /// this list buys no correctness — it buys not walking that registry once per slab per frame on
+    /// a fan of up to <see cref="MaxCards"/>. The safe direction of a stale entry is therefore
+    /// <c>true</c>: a stale true costs one redundant write, a stale false would silently skip one,
+    /// which is why every entry is seeded true and the list dies with the slabs it names.</para>
+    /// </summary>
+    private readonly List<bool> _bodyWearsBack = new(MaxCards);
+
+    /// <summary>Tell slab <paramref name="index"/>'s card BODY what its FRONT fan wears — see
+    /// <c>CardMesh.SetBodyFrontFace</c>, which owns the rule and the (fade-aware) write. Idempotent
+    /// all the way down; the edge gate here is what keeps a steady fan off CardMesh's body registry.
+    ///
+    /// <para>MID-FADE: this fan is a <c>PeerBoardFade</c> follower under the <c>WhileOverBoard</c>
+    /// rule, so a ramp can be running while it is parked over its owner's board. That is why the
+    /// write goes through <c>PeerBoardFade.SetSubmeshMaterial</c> — it edits the remembered authored
+    /// array and the installed clone for slot 0 and leaves the ramp alone — and not through
+    /// <c>sharedMaterials</c>, which would destroy those clones. That seam is argued from
+    /// <c>Swap</c>/<c>Restore</c>/<c>SettleDepthState</c> and is NOT hardware-verified.</para>
+    /// </summary>
+    private void SetFrontFace(int index, bool showsBack)
+    {
+        if (index < 0 || index >= _cards.Count)
+            return;
+        // Grown here and nowhere else, always in the SAFE direction: every slab is BUILT wearing the
+        // card back, so an entry this list has never seen is true.
+        while (_bodyWearsBack.Count <= index)
+            _bodyWearsBack.Add(true);
+        if (_bodyWearsBack[index] == showsBack)
+            return; // an EDGE, so a steady fan never walks CardMesh's body registry at all
+        GameObject slab = _cards[index];
+        if (slab == null)
+            return;
+        CardMesh.SetBodyFrontFace(slab.transform, showsBack);
+        _bodyWearsBack[index] = showsBack;
+    }
+
 
     /// <summary>Card count the map loadout was last resolved for (-1 = never), and the next unscaled
     /// time the resolve may run again. The resolve walks the party and is NOT a per-frame cost: it
@@ -1645,6 +1693,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                     if (i < _mapBuffer.Count && PrintMapFace(i, face, _mapBuffer[i]))
                     {
                         frontCount++;
+                        // USER ITEM 10: a front is up, so this body stops wearing the card BACK on
+                        // its FRONT fan — the banner and outer frame the print does not paint now
+                        // read as the owner's own card edge instead of the back's gold lattice.
+                        SetFrontFace(i, showsBack: false);
                         continue;
                     }
                 }
@@ -1655,11 +1707,17 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                     if (full != null && face.ShowFront(full))
                     {
                         frontCount++;
+                        SetFrontFace(i, showsBack: false);   // …and the same on the hand-widget arm
                         continue;
                     }
                 }
             }
             face.HideFront();
+            // …AND THE BACK ARM, WHICH IS THE HALF THAT MUST NOT BE GOT BACKWARDS. A slab drawing a
+            // card back keeps the back on BOTH submeshes; an edge ring around a card back is a new
+            // defect nobody has reported. This is the fall-through of the one front/back decision
+            // above, so there is no second rule.
+            SetFrontFace(i, showsBack: true);
             if (i < _mapPrinted.Count)
                 _mapPrinted[i] = -1;
         }
@@ -1704,7 +1762,17 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             if (!leavingFronts)
             {
                 for (int i = 0; i < _leavingFaces.Count; i++)
+                {
                     _leavingFaces[i]?.HideFront();
+                    // …AND THE BODY, WHICH THE INDEX HELPER CANNOT REACH: a leaving slab left
+                    // _cards carrying whatever front face it had, so a gate that shuts mid-wipe
+                    // would otherwise leave an edge ring around a bare card back for the ~0.4 s of
+                    // the exchange. Called directly rather than through SetFrontFace because these
+                    // slabs are in no index space of _cards; the wave is bounded by the wipe and
+                    // SetBodyFrontFace is idempotent against the authored material.
+                    if (i < _leaving.Count && _leaving[i] != null)
+                        CardMesh.SetBodyFrontFace(_leaving[i].transform, showsBack: true);
+                }
             }
         }
 
@@ -4568,6 +4636,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _faces.Clear();
             _cards.Clear();
             _seeded.Clear();       // index-aligned with _cards; a stale entry would ease a fresh slab out of the root origin
+            _bodyWearsBack.Clear();// index-aligned with _cards; a stale FALSE would skip a body write
             _mapPrinted.Clear();   // index-aligned with _faces; stale entries would claim prints that no longer exist
             // The outgoing wave hung off the same dead root — drop its bookkeeping with the rest, or
             // TickSwap would drive destroyed transforms every frame (the very defect this heal
@@ -4898,6 +4967,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         }
         _cards.Clear();
         _seeded.Clear();
+        _bodyWearsBack.Clear();   // index-aligned with _cards; a stale FALSE would skip a body write
         _frontsShown = false;
         ClearPops(); // a rebuilt fan must never open with a stale card already lifted
 
@@ -5060,7 +5130,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 
         // Drop any cloned fronts so a hidden hand keeps no game-widget clones alive.
         for (int i = 0; i < _faces.Count; i++)
+        {
             _faces[i].HideFront();
+            // …AND THE BODY UNDER IT. A hidden fan that came back with an edge ring around a bare
+            // card back would be user item 10 inverted.
+            SetFrontFace(i, showsBack: true);
+        }
         // …and with the fronts gone, the map-print latch is a lie about what is on the slabs.
         for (int i = 0; i < _mapPrinted.Count; i++)
             _mapPrinted[i] = -1;
@@ -5126,6 +5201,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _faces[i].Destroy();
         _faces.Clear();
         _cards.Clear();
+        _bodyWearsBack.Clear();   // index-aligned with _cards; a stale FALSE would skip a body write
         _handBuffer.Clear();
         _frontsShown = false;
         if (_root != null)

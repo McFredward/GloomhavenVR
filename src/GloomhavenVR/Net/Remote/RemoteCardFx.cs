@@ -103,6 +103,11 @@ internal sealed class RemoteCardFx
         /// ACTIVE MATRIX, or <see cref="int.MinValue"/> for every other flight. See
         /// <see cref="IsFlyingToActive"/>; nothing else reads it.</summary>
         public int ActiveCardId = int.MinValue;
+
+        /// <summary>What this slab's card BODY is wearing on its FRONT fan (true = the card back) —
+        /// the edge gate for <see cref="SetFrontFace"/>. Seeded true because that is what
+        /// <see cref="Acquire"/> builds it with.</summary>
+        public bool WearsBack = true;
     }
 
     private readonly List<Flight> _flights = new(MaxFlights);
@@ -233,6 +238,14 @@ internal sealed class RemoteCardFx
 
         // ─── THE FACE (2026-09-06 report item 5) ────────────────────────────────────────────────
         string faceRule = ResolveFace(f, from, to);
+
+        // …AND WHAT THE BODY UNDER IT WEARS (user item 10, 2026-09-06 late). ResolveFace is this
+        // surface's ONE front/back decision — every arm of it ends with f.HasFace either set or
+        // left false — so this is the single point at which the body can be told, and there is no
+        // second rule to keep in step. CardMesh.SetBodyFrontFace owns the rule and the fade-aware
+        // write; a flight showing a BACK keeps the back on both submeshes, which is the whole of
+        // the "do not put an edge ring around a card back" half.
+        SetFrontFace(f, showsBack: !f.HasFace);
 
         f.Go.transform.SetPositionAndRotation(a, RotationFor(f, a));
         if (!f.Go.activeSelf)
@@ -528,9 +541,36 @@ internal sealed class RemoteCardFx
                 f.HasFace = false;
                 f.ActiveCardId = int.MinValue;   // the card has landed; its cell must draw again
                 f.Art?.HideFront();
+                // …and a parked slab with no print on it goes back to the card BACK on both
+                // submeshes. Play() re-decides on every reuse, so this is belt rather than the
+                // mechanism — but a pooled slab left wearing an edge front fan would show a
+                // frameless back for one frame if a later reuse ever failed before ResolveFace.
+                SetFrontFace(f, showsBack: true);
                 f.Go.SetActive(false);
             }
         }
+    }
+
+    /// <summary>Tell this flight slab's card BODY what its FRONT fan wears — see
+    /// <c>CardMesh.SetBodyFrontFace</c>, which owns the rule and the (fade-aware) write.
+    ///
+    /// <para>EDGE-GATED, like every other caller of that method: a steady flight never walks
+    /// CardMesh's body registry. The gate lives on the Flight rather than on this class because the
+    /// pool runs up to <c>MaxFlights</c> slabs at once and they do not agree — a Slot -&gt; Burnt
+    /// flight can be carrying a real front while a HandFan -&gt; Slot flight beside it is a back.</para>
+    ///
+    /// <para>MID-FADE: this class is a <c>PeerBoardFade</c> follower (<c>Always</c>), so a flight
+    /// really can be in the air while its owner's board ramps. That is exactly why the write goes
+    /// through the seam instead of touching <c>sharedMaterials</c>: <c>SetSubmeshMaterial</c> edits
+    /// the remembered authored array AND the installed clone for slot 0 and leaves the ramp alone.
+    /// That path is argued from <c>Swap</c>/<c>Restore</c>/<c>SettleDepthState</c> and has NOT been
+    /// exercised on hardware — see the commit note.</para></summary>
+    private static void SetFrontFace(Flight f, bool showsBack)
+    {
+        if (f.Go == null || f.WearsBack == showsBack)
+            return;
+        Cards.CardMesh.SetBodyFrontFace(f.Go.transform, showsBack);
+        f.WearsBack = showsBack;
     }
 
     /// <summary>

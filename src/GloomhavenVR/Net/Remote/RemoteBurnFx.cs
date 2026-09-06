@@ -164,6 +164,11 @@ internal sealed class RemoteBurnFx
 
         /// <summary>Has the arc been reported? One line per burn, at the hand-over instant.</summary>
         public bool HandoverLogged;
+
+        /// <summary>What this slab's card BODY is wearing on its FRONT fan (true = the card back) —
+        /// the edge gate for <see cref="SetFrontFace"/>. Seeded true because that is what
+        /// <see cref="Acquire"/> builds it with.</summary>
+        public bool WearsBack = true;
     }
 
     private readonly List<Burn> _burns = new(MaxBurns);
@@ -464,6 +469,13 @@ internal sealed class RemoteBurnFx
         }
         if (!b.HasFace)
             b.Art?.HideFront();
+        // …AND WHAT THE BODY UNDER THE PRINT WEARS (user item 10, 2026-09-06 late). Read off the
+        // SAME expression that decides whether a front is drawn at all — the HideFront above — and
+        // not off b.HasFace later in the flight, because Drive() re-uses that field to mean "the
+        // burn rig is still driving this face" and clears it while the print is still up. One
+        // decision, expressed once. CardMesh.SetBodyFrontFace owns the rule and the fade-aware
+        // write; a burn showing a BACK keeps the back on both submeshes.
+        SetFrontFace(b, showsBack: !b.HasFace);
 
         _played++;
         _lastPresentedAt = Time.unscaledTime;
@@ -591,6 +603,10 @@ internal sealed class RemoteBurnFx
                 b.Active = false;
                 b.Art?.HideFront();
                 b.HasFace = false;
+                // A parked slab with no print on it wears the card BACK again — the state every
+                // path that tears a front down has to leave behind, so a pooled slab can never be
+                // re-shown with an edge ring around a bare back.
+                SetFrontFace(b, showsBack: true);
                 b.Go.SetActive(false);
             }
         }
@@ -625,6 +641,27 @@ internal sealed class RemoteBurnFx
         return true;
     }
 
+    /// <summary>Tell this burn slab's card BODY what its FRONT fan wears — see
+    /// <c>CardMesh.SetBodyFrontFace</c>, which owns the rule and the (fade-aware) write.
+    ///
+    /// <para>EDGE-GATED, like every other caller: a steady burn never walks CardMesh's body
+    /// registry. The gate lives on the Burn because up to <see cref="MaxBurns"/> presentations run
+    /// at once and a damage burn commits two cards in the same frame, one of which may resolve a
+    /// front while the other does not.</para>
+    ///
+    /// <para>MID-FADE: this class is a <c>PeerBoardFade</c> follower (<c>Always</c>) and its slab
+    /// hangs over the owner's board for the whole burn, so a ramp really can be running underneath
+    /// it. The write therefore goes through <c>PeerBoardFade.SetSubmeshMaterial</c>, which edits the
+    /// remembered authored array and the installed clone for slot 0 only. That path is argued from
+    /// <c>Swap</c>/<c>Restore</c>/<c>SettleDepthState</c> and is NOT hardware-verified.</para></summary>
+    private static void SetFrontFace(Burn b, bool showsBack)
+    {
+        if (b.Go == null || b.WearsBack == showsBack)
+            return;
+        CardMesh.SetBodyFrontFace(b.Go.transform, showsBack);
+        b.WearsBack = showsBack;
+    }
+
     private Burn Acquire()
     {
         for (int i = 0; i < _burns.Count; i++)
@@ -642,6 +679,7 @@ internal sealed class RemoteBurnFx
             }
             oldest.Art?.HideFront();
             oldest.HasFace = false;
+            SetFrontFace(oldest, showsBack: true);   // …the same teardown, one recycle earlier
             return oldest;
         }
 
