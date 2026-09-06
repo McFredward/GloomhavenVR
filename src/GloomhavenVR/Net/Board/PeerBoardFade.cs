@@ -997,6 +997,90 @@ internal sealed class PeerBoardFade : MonoBehaviour
     }
 
     /// <summary>
+    /// THE ONE PLACE A PEER-BOARD SURFACE'S MATERIAL SLOT MAY BE REWRITTEN WHILE THIS DRIVER IS
+    /// LIVE. Writes <paramref name="want"/> into slot <paramref name="index"/> of
+    /// <paramref name="r"/> and returns whether anything moved (idempotent: an unchanged slot is
+    /// not written and not reported).
+    ///
+    /// <para><b>WHY IT HAD TO EXIST.</b> <c>Cards/Art/CardMesh.SetBodyFaceHosted</c> states the
+    /// hazard exactly: "anyone writing <c>sharedMaterials</c> while a board is faded would destroy
+    /// those clones and snap the card back to opaque for the rest of the ramp", and concludes that
+    /// a card-side correction must therefore be a MESH swap. That conclusion is right for the
+    /// correction it was written about and wrong as a general rule — it leaves the mod with no way
+    /// at all to change what a mirrored card's FRONT FAN is wearing, which is the surface user
+    /// item 10 photographed (a peer's browse-fan card front framed by the card BACK's gold
+    /// lattice). The hazard is not the write; it is a write that the fade driver does not hear
+    /// about. This is the write it hears about.</para>
+    ///
+    /// <para><b>WHAT IT DOES WHILE SWAPPED.</b> <see cref="Surface.Original"/> is the array this
+    /// class remembers verbatim and hands back in <see cref="Restore"/>, so it is the AUTHORED
+    /// array and the one a caller means. The new material replaces that slot there, its own
+    /// private clone replaces the same slot in <see cref="Surface.Installed"/> (the stale clone is
+    /// destroyed, and only if it really was a clone), and every OTHER slot — and therefore the
+    /// whole rest of the ramp — is untouched. A settled surface is re-settled so the fresh clone
+    /// carries the same depth state its siblings do. Not swapped: a plain write plus a refreshed
+    /// <see cref="Delivery"/> classification, because the new material may need a different one.</para>
+    ///
+    /// <para>A renderer no driver knows — a LOCAL card, a map-room slab, a peer surface on a board
+    /// whose driver has not censused it yet — takes the plain write. That is correct rather than a
+    /// fallback: nothing composites it, so there is nothing to keep in step.</para>
+    /// </summary>
+    internal static bool SetSubmeshMaterial(Renderer? r, int index, Material? want)
+    {
+        if (r == null || want == null || index < 0)
+            return false;
+        for (int i = 0; i < Live.Count; i++)
+        {
+            PeerBoardFade d = Live[i];
+            if (d == null || !d._known.TryGetValue(r, out Surface s))
+                continue;
+            return d.WriteSurfaceMaterial(s, index, want);
+        }
+        Material[] mats = r.sharedMaterials;
+        if (index >= mats.Length || ReferenceEquals(mats[index], want))
+            return false;
+        var next = new Material[mats.Length];
+        System.Array.Copy(mats, next, mats.Length);
+        next[index] = want;
+        r.sharedMaterials = next;
+        return true;
+    }
+
+    /// <summary>The swapped-aware half of <see cref="SetSubmeshMaterial"/> — see its doc.</summary>
+    private bool WriteSurfaceMaterial(Surface s, int index, Material want)
+    {
+        Renderer r = s.Renderer;
+        if (r == null)
+            return false;
+        Material[]? original = s.Original;
+        Material[] authored = original ?? r.sharedMaterials;
+        if (index >= authored.Length || ReferenceEquals(authored[index], want))
+            return false;
+        var nextAuthored = new Material[authored.Length];
+        System.Array.Copy(authored, nextAuthored, authored.Length);
+        nextAuthored[index] = want;
+        if (original == null || s.Installed == null)
+        {
+            r.sharedMaterials = nextAuthored;
+        }
+        else
+        {
+            Material[] installed = s.Installed;
+            Material stale = installed[index];
+            if (stale != null && !ReferenceEquals(stale, original[index]))
+                Object.Destroy(stale);
+            installed[index] = CanBlend(want) ? want : MakeTransparentClone(want);
+            s.Original = nextAuthored;
+            if (s.Settled)
+                SettleDepthState(s, settled: true);
+            r.sharedMaterials = installed;
+        }
+        s.Blendable = CanBlendAll(nextAuthored);
+        s.Kind = HeaviestDelivery(nextAuthored);
+        return true;
+    }
+
+    /// <summary>
     /// Is this driver compositing its set at an alpha below solid RIGHT NOW — or about to be?
     ///
     /// <para>THE BAR IS THIS CLASS'S OWN <see cref="SolidAlpha"/>, NOT A BARE 1, AND THAT IS THE
@@ -2480,6 +2564,122 @@ internal sealed class PeerBoardFade : MonoBehaviour
             $"{(state ? EnterDwellSeconds : dwell):0.0}s of continuous agreement " +
             $"({(armed ? "perspective recently changed" : "head only rotating")}). " +
             "PURELY LOCAL — the owner's board is untouched and nothing went on the wire.");
+        LogTransparencySet(state, alpha);
+    }
+
+    /// <summary>
+    /// THE "ENTWEDER ALLES ODER NICHTS" READING (user item 10, 2026-09-06, verbatim: <i>"wird das
+    /// Board transparent, soll alles mit transparent werden, also entweder alles oder nichts —
+    /// nicht so eine Mischung"</i>).
+    ///
+    /// <para>A peer's board and every surface mounted on it are ONE transparency state. That is a
+    /// rule about a SET, so the instrument reports the SET: the alpha this driver is driving, and
+    /// beside it the alpha every carrier's renderers actually RESOLVE to. It does not leave a
+    /// reader to compare two numbers — it counts the surfaces whose resolved alpha differs from
+    /// the board's and says, in those words, that they are the Mischung the rule forbids.</para>
+    ///
+    /// <para><b>WHAT "RESOLVED" MEANS, because it is not the same as "written".</b>
+    /// <see cref="Apply"/> writes the driven alpha only to surfaces that can carry it. A surface
+    /// that is <c>forceRenderingOff</c> resolves to 0 (the cull, or the fail-safe on a material no
+    /// alpha-capable shader could be installed on). A surface that is neither blendable NOR
+    /// clone-carrying and is NOT hidden resolves to <b>1.000</b> — it is being written an alpha its
+    /// blend state discards, so it draws SOLID in front of a see-through board, and it is exactly
+    /// the picture the user photographed. Those are the two ways a member of the set can leave it
+    /// without anybody being told.</para>
+    ///
+    /// <para><b>AND THE THIRD WAY, WHICH IS NOT A SURFACE AT ALL.</b> A registered
+    /// <see cref="FollowRule.WhileOverBoard"/> root its owner is not currently holding over the
+    /// board is HELD OUT of the census, so none of its renderers appear above at any alpha: it
+    /// draws solid and this line names it separately, by root name, rather than letting it vanish
+    /// into a count. A surface that is on the board and registered NOWHERE cannot be seen from
+    /// here at all — that is the blind spot, and it is stated below rather than left implicit.</para>
+    ///
+    /// <para>Cadence: this rides <see cref="LogStateIfChanged"/>, i.e. one line per real Schmitt
+    /// flip. The two shipped hardware captures hold 29 and 31 flips for a whole session, so the
+    /// cost is two lines per flip and nothing per frame.</para>
+    /// </summary>
+    private void LogTransparencySet(bool seeThrough, float alpha)
+    {
+        float board = Mathf.Clamp01(alpha);
+        int drivenSolid = 0;   // written an alpha their blend state throws away → they draw SOLID
+        int hidden = 0;        // forceRenderingOff: the cull, or the unblendable fail-safe
+        int agree = 0;
+        string? firstOffender = null;
+        for (int i = 0; i < _surfaces.Count; i++)
+        {
+            Surface s = _surfaces[i];
+            Renderer r = s.Renderer;
+            if (r == null)
+                continue;
+            if (r.forceRenderingOff)
+            {
+                hidden++;
+                continue;
+            }
+            if (s.Blendable || s.Installed != null)
+            {
+                agree++;
+                continue;
+            }
+            drivenSolid++;
+            firstOffender ??= $"'{r.name}' (material '{(r.sharedMaterial != null ? r.sharedMaterial.name : "<none>")}', "
+                              + $"queue {(r.sharedMaterial != null ? r.sharedMaterial.renderQueue : -1)}, "
+                              + $"delivery {s.Kind})";
+        }
+
+        var carriers = new System.Text.StringBuilder(256);
+        carriers.Append("board root '").Append(name).Append("'");
+        for (int i = 0; i < _followers.Count; i++)
+        {
+            Transform f = _followers[i];
+            if (f != null)
+                carriers.Append(" + follower '").Append(f.name).Append("'");
+        }
+
+        var heldOut = new System.Text.StringBuilder(64);
+        int held = 0;
+        if (FollowerRoots.TryGetValue(_playerId, out List<FollowerEntry> registered))
+        {
+            for (int i = 0; i < registered.Count; i++)
+            {
+                Transform root = registered[i].Root;
+                if (root == null || WasFollowing(root))
+                    continue;
+                held++;
+                if (held <= 3)
+                    heldOut.Append(held > 1 ? ", " : string.Empty).Append('\'').Append(root.name).Append('\'');
+            }
+        }
+
+        // HW-VERIFY: user item 10 — one transparency state for a peer's board and everything on it.
+        VRLog.Note("Net", $"PEER BOARD TRANSPARENCY SET [player {_playerId}]: the board is now "
+            + (seeThrough ? "SEE-THROUGH" : "SOLID")
+            + $" and DRIVING alpha {board:0.000} ({PeerBoardFadeTuning.Mode}) onto {carriers} — "
+            + $"{_surfaces.Count} renderer(s) plus {_groups.Count} CanvasGroup carrier(s), all off "
+            + $"this one number. RESOLVED: {agree} surface(s) resolve to {board:0.000} — the "
+            + $"board's own — and {hidden} to 0.000 (culled or fail-safe hidden, which is the one "
+            + "irreducible step on a material no alpha-capable shader could be installed on). "
+            + (drivenSolid == 0
+                ? "NO surface resolves to anything else, so the board and everything mounted on it "
+                  + "are one transparency state."
+                : $"{drivenSolid} surface(s) RESOLVE TO 1.000 WHILE THE BOARD IS AT {board:0.000} — "
+                  + "they are being written an alpha their blend state discards, so they draw SOLID "
+                  + "in front of a see-through board. THAT IS THE MISCHUNG user item 10 forbids and "
+                  + $"this line is the defect, not a warning about one. First: {firstOffender}.")
+            + (held == 0
+                ? " No registered root is held out of the set."
+                : $" SEPARATELY: {held} registered root(s) are HELD OUT ({heldOut}) — a "
+                  + "WhileOverBoard follower whose owner is not holding it over the board right "
+                  + "now. Their renderers are in NO count above and they draw solid; that is "
+                  + "correct only while the root really is somewhere else.")
+            + " WORKING = one line per flip with 0 surface(s) at 1.000 and the agree count equal to "
+            + $"{_surfaces.Count} minus the hidden count. INERT = this line never appears in a "
+            + "session in which 'see-through ON' does, which means the flip logger ran and this did "
+            + "not. STILL BEYOND THE INSTRUMENT = a surface drawn over this board that is neither a "
+            + "child of the board root nor a registered follower: it is in no count here at any "
+            + "alpha, so a photograph of a solid card over a faded board WITH this line reading 0 "
+            + "at 1.000 means the surface is not in the set at all — read the census's follower "
+            + "count, not this line.");
     }
 
     /// <summary>Throttled state line while a board is yielding — the numbers that say WHY it is

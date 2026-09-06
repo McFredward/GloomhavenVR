@@ -513,6 +513,72 @@ internal static class CardMesh
     }
 
     /// <summary>
+    /// WHAT A MIRRORED CARD BODY WEARS ON ITS FRONT — the card BACK while it is showing a back, and
+    /// the OWNER'S OWN CARD EDGE (<see cref="FaceGapColor"/>, i.e. <c>CreateEdgeMaterial</c>) the
+    /// moment a real card FRONT is printed over it. Returns the number of bodies re-clothed.
+    ///
+    /// <para><b>THE DEFECT (user item 10, 2026-09-06, verbatim: <i>"Remote Ablage- und
+    /// Verbrannt-Stapel hat so transparente Oberflächen/Ränder und man sieht die Rückseite
+    /// durch"</i>, screenshots transparente_ränder1/2.jpg).</b> Every remote slab in the mod gives
+    /// BOTH submeshes the card back — submesh 0 is the FRONT fan plus the rim wall — while a local
+    /// card's backing wears <see cref="CreateEdgeMaterial(CardBodyKind)"/> there. So the two
+    /// disagree about exactly one thing, and <see cref="FaceGapColor"/>'s own doc block has said so
+    /// since ModBuild 461: what shows wherever the printed face does not paint. On the owner that
+    /// is a warm card edge; on every peer it was this class's burgundy field with the gold diamond
+    /// lattice, 8 cells across — which is what the user photographed FRAMING a perfectly readable
+    /// peer card front, on a board that was not fading at all. He named it exactly: he is seeing
+    /// the Rückseite.</para>
+    ///
+    /// <para><b>WHY IT IS NOT ENOUGH TO WIDEN THE PRINT'S BACKDROP.</b> That was 461's answer and
+    /// it is measurably partial: <c>RemoteCardArt.FitBackdropToCardInterior</c> fits the backdrop
+    /// to the union of the card's two action halves — deliberately, so it cannot paint a brown
+    /// rectangle outside the card's scalloped outline — and the lattice in both screenshots is in
+    /// the BANNER and the outer frame, which are outside that union by construction. A quad sized
+    /// to the interior can never cover the border, and the border is where the report is.</para>
+    ///
+    /// <para><b>WHY A MATERIAL WRITE IS SAFE HERE AND WAS NOT IN <see cref="SetBodyFaceHosted"/>.</b>
+    /// That method's doc names the real hazard — a bare <c>sharedMaterials</c> write destroys
+    /// <c>Net.Board.PeerBoardFade</c>'s installed clones and snaps the card to opaque for the rest
+    /// of the ramp — and concluded that a card-side correction must be a MESH swap. The hazard is
+    /// the write the fade driver never hears about, not the write. This one goes through
+    /// <c>PeerBoardFade.SetSubmeshMaterial</c>, which edits the remembered authored array and the
+    /// installed clone for that ONE slot and leaves the ramp alone. It is idempotent by
+    /// construction: the compare is against the AUTHORED material, so a steady state costs one
+    /// reference compare per body per call and writes nothing.</para>
+    ///
+    /// <para>THE BACK IS KEPT ON SUBMESH 1 IN BOTH STATES. A remote slab does not flip, so its
+    /// front fan is the only face a viewer sees — which is why the front fan, and only the front
+    /// fan, is what this switches.</para>
+    /// </summary>
+    internal static int SetBodyFrontFace(Transform? slabRoot, bool showsBack)
+    {
+        if (slabRoot == null)
+            return 0;
+        int changed = 0;
+        for (int i = _bodies.Count - 1; i >= 0; i--)
+        {
+            MeshFilter filter = _bodies[i].Filter;
+            CardBodyKind kind = _bodies[i].Kind;
+            if (filter == null)
+            {
+                _bodies.RemoveAt(i);
+                continue;
+            }
+            // IDENTITY, not containment — the same test SetBodyFaceHosted makes and for the same
+            // reason: only a MeshFilter that came through AttachBody is a card body.
+            if (!filter.transform.IsChildOf(slabRoot))
+                continue;
+            var mr = filter.GetComponent<MeshRenderer>();
+            if (mr == null)
+                continue;
+            Material want = showsBack ? CreateBackMaterial(kind) : CreateEdgeMaterial(kind);
+            if (Net.PeerBoardFade.SetSubmeshMaterial(mr, 0, want))
+                changed++;
+        }
+        return changed;
+    }
+
+    /// <summary>
     /// WHAT A CARD BODY ACTUALLY IS, at the depth buffer: shader, render queue, ZWrite, cutout mode,
     /// submesh layout, and how many FRONT-FAN triangles the mesh it is wearing still has.
     ///

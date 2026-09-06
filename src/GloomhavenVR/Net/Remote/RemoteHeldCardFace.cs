@@ -135,6 +135,16 @@ internal sealed class RemoteHeldCardFace
             _slab = slab;
             _filter = slab.GetComponent<MeshFilter>();
             _renderer = slab.GetComponent<MeshRenderer>();
+            // USER ITEM 10, "entweder alles oder nichts": a card a peer is holding OVER their board
+            // is one of the surfaces mounted on it, and until now it was the one surface in the
+            // whole mirror that was in NO fade set — RemoteCardArt's own doc block says so
+            // ("that surface is not a PeerBoardFade follower and never fades today"). A solid card
+            // floating in front of a dissolving board IS the Mischung he photographed, so the slab
+            // joins the set under the SAME hand-anchored rule the hand fan uses: it belongs to the
+            // board only while its owner is actually holding it there, never when they raise it
+            // beside their face. Idempotent — Follow dedups on the root.
+            PeerBoardFade.Follow(_owner.PlayerId, slab, PeerBoardFade.FollowRule.WhileOverBoard);
+            _wearsBack = true;
         }
         // THE SILHOUETTE IS THE WIRE'S ANSWER, AND IT IS ANSWERED BEFORE THE FACE IS. Keep the body
         // cut to the rectangle the print paints, every frame this slot is live: the ability box is
@@ -294,6 +304,10 @@ internal sealed class RemoteHeldCardFace
             HideArtKeepResolve();
             return;
         }
+        // USER ITEM 10: a front is up, so this body stops wearing the card BACK on its FRONT fan —
+        // every part of the slab the print does not paint now reads as the owner's own card edge
+        // instead of the back's burgundy/gold lattice. CardMesh.SetBodyFrontFace owns the rule.
+        SetFrontFace(showsBack: false);
         Report(1, 0, $"{source} — resolved {Describe(code, count)} against this client's own copy of "
                    + "that host-replicated list");
         if (!_loggedShown || code != _loggedCode)
@@ -532,7 +546,14 @@ internal sealed class RemoteHeldCardFace
         if (kindChanged)
         {
             Material back = CardMesh.CreateBackMaterial(kind);
-            _renderer.sharedMaterials = new[] { back, back };
+            // THROUGH THE SEAM, NOT A BARE ARRAY WRITE. This slab is a PeerBoardFade follower now
+            // (see Tick's bind), so a raw sharedMaterials write here would destroy the driver's
+            // installed clones mid-ramp and snap a fading card back to opaque — the exact hazard
+            // CardMesh.SetBodyFaceHosted's doc names. SetSubmeshMaterial edits the remembered
+            // authored array AND the matching clone, per slot, and leaves the ramp alone.
+            PeerBoardFade.SetSubmeshMaterial(_renderer, 0, back);
+            PeerBoardFade.SetSubmeshMaterial(_renderer, 1, back);
+            _wearsBack = true;
             // The ART box follows the KIND, so an overlay built for the previous one would keep
             // printing at the wrong aspect. Cheap to drop: the clone is a throwaway either way.
             _art?.Destroy();
@@ -582,9 +603,26 @@ internal sealed class RemoteHeldCardFace
 
     /// <summary>Drop the drawn front but KEEP what was resolved, so the next frame does not re-walk
     /// the peer's lists just because a clone failed to build.</summary>
+    /// <summary>Tell this slab's card BODY what its FRONT fan wears — see
+    /// <c>CardMesh.SetBodyFrontFace</c>, which owns the rule and the (fade-aware) write. Idempotent,
+    /// so it is safe on the per-frame paths that call it.</summary>
+    private void SetFrontFace(bool showsBack)
+    {
+        if (_slab == null || _wearsBack == showsBack)
+            return; // an EDGE: a steady held card never walks CardMesh's body registry
+        CardMesh.SetBodyFrontFace(_slab, showsBack);
+        _wearsBack = showsBack;
+    }
+
+    /// <summary>What this slab's front fan is currently WEARING (true = the card back) — the edge
+    /// gate for <see cref="SetFrontFace"/>. Seeded true because that is what
+    /// <c>RemoteAvatar.BuildCardSlab</c> and <see cref="EnsureBody"/> build the slab with.</summary>
+    private bool _wearsBack = true;
+
     private void HideArtKeepResolve()
     {
         _art?.HideFront();
+        SetFrontFace(showsBack: true);
         if (_loggedShown)
         {
             _loggedShown = false;
@@ -630,6 +668,7 @@ internal sealed class RemoteHeldCardFace
         _resolvedCount = 0;
         _resolvedActor = 0;
         EnsureBody(kind);
+        SetFrontFace(showsBack: true);
         if (_loggedShown)
         {
             _loggedShown = false;

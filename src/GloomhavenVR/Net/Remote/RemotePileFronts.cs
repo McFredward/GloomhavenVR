@@ -128,6 +128,25 @@ internal sealed class RemotePileFronts
     /// <summary>One overlay per slab, index-aligned with the fan's own slab list.</summary>
     private readonly List<RemoteCardArt> _arts = new(16);
 
+    /// <summary>
+    /// The slab ROOTS the overlays are bound to, index-aligned with <see cref="_arts"/> — the
+    /// handle <see cref="SetFrontFace"/> needs, kept here because a slab's own body is
+    /// <c>RemoteCardArt</c>'s business and its material is not.
+    ///
+    /// <para>USER ITEM 10 (2026-09-06): a slab showing a card FRONT must not still be WEARING the
+    /// card back on its front fan, or every part of the slab the print does not paint — the
+    /// banner, the outer frame, the scalloped crest — shows the back's burgundy/gold lattice
+    /// around a readable peer card. See <c>CardMesh.SetBodyFrontFace</c>, which owns the rule and
+    /// the write; this list is only how the rule is told WHICH body.</para>
+    /// </summary>
+    private readonly List<Transform> _slabs = new(16);
+
+    /// <summary>What each seat's front fan is currently WEARING (true = the card back), so the
+    /// per-seat drive below is an EDGE and not a per-frame walk of <c>CardMesh</c>'s body registry.
+    /// Index-aligned with <see cref="_slabs"/>; seeded true because that is what
+    /// <see cref="RemoteBrowserFan"/> and <see cref="RemoteItemFan"/> build their slabs with.</summary>
+    private readonly List<bool> _wearsBack = new(16);
+
     /// <summary>Reused resolve buffers — the per-cadence resolve allocates nothing.</summary>
     private readonly List<AbilityCardUI> _abilityBuf = new(16);
     /// <summary>The ITEM resolve buffer: <c>Inventory.AllItems</c> with its null entries SKIPPED,
@@ -259,6 +278,8 @@ internal sealed class RemotePileFronts
         for (int i = _arts.Count - 1; i >= 0; i--)
             _arts[i].Destroy();
         _arts.Clear();
+        _slabs.Clear();
+        _wearsBack.Clear();
         _frontCount = 0;
         Reset();
 
@@ -267,9 +288,39 @@ internal sealed class RemotePileFronts
         for (int i = 0; i < slabs.Count; i++)
         {
             GameObject slab = slabs[i];
-            if (slab != null)
-                _arts.Add(new RemoteCardArt(slab.transform, cardWidth, cardHeight));
+            if (slab == null)
+                continue;
+            _arts.Add(new RemoteCardArt(slab.transform, cardWidth, cardHeight));
+            _slabs.Add(slab.transform);
+            _wearsBack.Add(true);
         }
+    }
+
+    /// <summary>
+    /// Tell seat <paramref name="index"/>'s card BODY what its front fan is wearing — user item 10.
+    /// Idempotent all the way down (<c>CardMesh.SetBodyFrontFace</c> compares against the authored
+    /// material and writes nothing when it already matches), so it is safe on the per-seat path.
+    /// </summary>
+    private void SetFrontFace(int index, bool showsBack)
+    {
+        if (index < 0 || index >= _slabs.Count || index >= _wearsBack.Count)
+            return;
+        if (_wearsBack[index] == showsBack)
+            return; // an EDGE, so a steady arc never walks CardMesh's body registry at all
+        Transform slab = _slabs[index];
+        if (slab == null)
+            return;
+        CardMesh.SetBodyFrontFace(slab, showsBack);
+        _wearsBack[index] = showsBack;
+    }
+
+    /// <summary>Hand every seat's front fan back to the card BACK — the state a slab with no print
+    /// on it must be in, and therefore the state every path that tears fronts down has to leave
+    /// behind. Named once so the four such paths cannot drift apart.</summary>
+    private void ShowBacksEverywhere()
+    {
+        for (int i = 0; i < _slabs.Count; i++)
+            SetFrontFace(i, showsBack: true);
     }
 
     /// <summary>Hide every face (fan closed / hidden by the remote-board setting) without destroying
@@ -280,6 +331,7 @@ internal sealed class RemotePileFronts
             return; // already quiet — free to call every frame
         for (int i = 0; i < _arts.Count; i++)
             _arts[i].HideFront();
+        ShowBacksEverywhere();
         _frontCount = 0;
         Reset();
     }
@@ -290,6 +342,8 @@ internal sealed class RemotePileFronts
         for (int i = _arts.Count - 1; i >= 0; i--)
             _arts[i].Destroy();
         _arts.Clear();
+        _slabs.Clear();
+        _wearsBack.Clear();
         _abilityBuf.Clear();
         _itemBuf.Clear();
         _frontCount = 0;
@@ -371,6 +425,7 @@ internal sealed class RemotePileFronts
             {
                 for (int i = 0; i < _arts.Count; i++)
                     _arts[i].HideFront();
+                ShowBacksEverywhere();
                 _frontCount = 0;
                 Reset();
             }
@@ -398,6 +453,7 @@ internal sealed class RemotePileFronts
         {
             for (int i = 0; i < _arts.Count; i++)
                 _arts[i].HideFront();
+            ShowBacksEverywhere();
             _frontCount = 0;
         }
         _resolvedContent = contentKey;
@@ -455,6 +511,7 @@ internal sealed class RemotePileFronts
         {
             for (int i = 0; i < _arts.Count; i++)
                 _arts[i].HideFront();
+            ShowBacksEverywhere();
             _frontCount = 0;
             _resolvedCount = _arts.Count;
             Census(content, 0, Gate.CountMismatch);
@@ -535,6 +592,19 @@ internal sealed class RemotePileFronts
                 fronts++;
             else if (drawn)
                 art.HideFront();
+            // USER ITEM 10, per seat and at the same moment the face decision is made: a slab that
+            // is showing a card FRONT stops wearing the card BACK on its front fan, so the parts of
+            // it the print does not paint (the banner, the outer frame, the scalloped crest) read
+            // as the OWNER'S OWN card edge instead of the back's burgundy/gold lattice.
+            //
+            // AN UNDRAWN SEAT IS LEFT ALONE, for the identical reason its FACE is (see the comment
+            // at `drawn` above): RemoteItemFan deactivates the slab of a chip its owner is holding,
+            // so nothing of it is on screen either way — and re-clothing it as a BACK here would
+            // hand the lattice back for the quarter second between the chip returning to the arc
+            // and the next cadence tick re-resolving its front. The material and the print now
+            // follow one condition instead of two.
+            if (drawn)
+                SetFrontFace(i, showsBack: !shown);
         }
         _frontCount = fronts;
         _resolvedCount = _arts.Count;
