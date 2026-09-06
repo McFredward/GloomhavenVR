@@ -1239,7 +1239,14 @@ internal static class PropAnimBelt
                 lead = r;
         }
         if (lead == null)
+        {
+            // No drawing renderer with a material means no twin can be matched, and the graph arm
+            // must be cleared with it: reporting a previous verdict's snapshot against this prop
+            // would be a stale reading wearing a fresh one's clothes.
+            _twinRoot = null;
+            ArmTwinGraph();
             return;
+        }
 
         string wantName = lead.gameObject.name;
         Shader? leadShader = lead.sharedMaterial != null ? lead.sharedMaterial.shader : null;
@@ -1281,7 +1288,11 @@ internal static class PropAnimBelt
             _twinLead = r;
         }
         if (_twinLead == null)
+        {
+            _twinRoot = null;
+            ArmTwinGraph();
             return;
+        }
 
         _twinAnim = _twinLead.GetComponentInParent<Animator>();
         _twinRoot = _twinAnim != null ? _twinAnim.gameObject : _twinLead.gameObject;
@@ -1321,6 +1332,7 @@ internal static class PropAnimBelt
                 _twinInstancedMats++;
         }
         TwinScratch.Clear();
+        ArmTwinGraph();
     }
 
     /// <summary>One frame of the comparison. Called from <see cref="SampleVerdict"/> immediately
@@ -1347,6 +1359,9 @@ internal static class PropAnimBelt
             if (frac > _twinPhaseHi)
                 _twinPhaseHi = frac;
         }
+
+        SampleTwinGraph();
+        SampleLightingCompare();
 
         for (int slot = 0; slot < TwinSlots; slot++)
             TwValid[slot] = false;
@@ -1668,10 +1683,6 @@ internal static class PropAnimBelt
 
         ResolveVerdictMaterials();
         ArmRoster();
-        _pulseAtArm = SweepOverlayPulses(naming: false);
-        _pulseAtClose = 0;
-        _pulseLiveAtClose = 0;
-        PulseNames.Clear();
         // Round nine. After the roster, because the twin is matched against the held prop's first
         // DRAWING renderer that carries a material, which the roster has just resolved.
         FindHomeTwin(go);
@@ -1774,6 +1785,8 @@ internal static class PropAnimBelt
             if (r.isVisible)
                 RVisFrames[i]++;
         }
+
+        _heldLead = lead;
 
         Camera? head = Rig.VRRigDriver.HeadCamera;
         if (head != null && lead != null)
@@ -1923,8 +1936,6 @@ internal static class PropAnimBelt
         sb.Append(' ');
 
         AppendRoster(sb);
-        _pulseAtClose = SweepOverlayPulses(naming: true);
-        AppendOverlayCensus(sb);
 
         if (_twinLead == null)
         {
@@ -1968,6 +1979,8 @@ internal static class PropAnimBelt
 
         AppendTwinMovers(sb);
         AppendTwinDiffs(sb);
+        AppendTwinGraph(sb);
+        AppendLightingCompare(sb);
         AppendTwinRewindState(sb, b);
 
         sb.Append("HOW TO READ IT. IT NAMES THE CHANNEL if any slot DIFFERS between held and home "
@@ -1993,97 +2006,361 @@ internal static class PropAnimBelt
     }
 
 
-    // ---- THE OVERLAY-PULSE CENSUS ------------------------------------------------------------------
-    //
-    // THE USER SAYS EVERY TRAP FLASHES WHITE AT ONCE. There is exactly one oscillator in this
-    // repository or in the decompiled game that brightens prop meshes periodically and does it
-    // with NO per-instance phase, and it is OURS:
-    //
-    //     FigureOverlay.cs:1293 — 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * PulseHz * PI * 2f)
-    //
-    // `Time.unscaledTime` with no per-instance offset and no per-instance start time means every
-    // live OverlayPulse in the scene evaluates the IDENTICAL argument on the IDENTICAL frame. They
-    // are in exact lockstep BY CONSTRUCTION, not by coincidence of start times — which is the
-    // shape of "alle Fallen blitzen gleichzeitig" and the only thing in either codebase that has
-    // it. Every other time-driven prop writer found in the game (SpawnObjectAnimateMaterial_SMB,
-    // RFX4_ShaderFloatCurve, RFX4_ShaderColorGradient, RFX4_LightCurves) carries a per-instance
-    // accumulator or start time, and no game code writes a time-varying GLOBAL shader value at all.
-    //
-    // AND THE COLOUR FITS. FigureHighlight.cs:141 GlowTint = (1.00, 0.62, 0.26), drawn ADDITIVE
-    // (FigureHighlight.cs:346) at Floor 0.45 to Ceil 1.0. A warm amber additive pass at full
-    // strength over an already-lit bronze trap washes to IVORY — which is the word the photometry
-    // of the user's video uses.
-    //
-    // THE THING THAT DOES NOT FIT, AND IT IS WHY THIS IS A CENSUS AND NOT A FIX. The overlay is
-    // single-winner: the grab driver suppresses every non-winner, so at most TWO should exist, one
-    // per hand, and ModBuild 454 measured the held prop's own overlay DESTROYED at frame 1 of the
-    // hold and drawing on 0 of 360 frames. For EVERY trap to pulse together, overlays would have to
-    // be LEAKING — one left behind per prop the player has ever hovered, each one then pulsing in
-    // phase because the phase is absolute time. That is a population question with a one-number
-    // answer, and no round has ever asked it.
-    //
-    // AN ASSERTION IN A COMMENT IS A HYPOTHESIS. This paragraph is one. The count below is not.
-    private const int PulseNameCap = 6;
-    private static int _pulseAtArm, _pulseAtClose, _pulseLiveAtClose;
-    private static readonly List<string> PulseNames = new(PulseNameCap);
 
-    /// <summary>Count every live <see cref="OverlayPulse"/> in the scene and name where each one
-    /// hangs. A typed <c>FindObjectsOfType</c> over one of this mod's own components, twice per
-    /// verdict and never per frame — the cost policy this class has followed since a per-frame
-    /// scene sweep cost the project two rounds and one 12.6 ms frame.</summary>
-    private static int SweepOverlayPulses(bool naming)
+
+    // ---- ROUND TEN: THE TWIN'S OBJECT GRAPH, AND THE LIGHTING COMPARISON ----------------------------
+    //
+    // WHAT ModBuild 455 SETTLED, AND IT KILLED TWO ASSUMPTIONS THAT HAD BEEN LOAD-BEARING SINCE
+    // ROUND SEVEN. Over 194 frames: the twin's material is THE SAME ASSET as the held prop's
+    // (1 shared, 0 instanced), its animator ran a FULL loop (advancing 193 of 194, loop fraction
+    // 0.001..0.997), and across that whole loop **0 of 57 material slots moved** while **0 slots
+    // ever differed** between held and home.
+    //
+    //   1. THE WHOLE MATERIAL CLASS IS OUT. A shared material whose table never moves cannot carry
+    //      a flash, and the held prop's material state is byte-for-byte a board prop's.
+    //   2. **THE ~5 s IDLE LOOP IS NOT THE FLASH.** It advances through its entire range while
+    //      nothing about the material changes, so it is driving BONES on a SkinnedMeshRenderer —
+    //      a bear trap's jaws — not a brightness. Four rounds treated `clipRate 0.202/s` as the
+    //      flash's clock. It is not. Whatever flashes every trap at once has a different cause and
+    //      possibly a different period, and NO ROUND HAS EVER MEASURED THAT PERIOD.
+    //
+    // SO THIS ARM WATCHES THE OBJECT GRAPH OF A PROP THAT IS *NOT* HELD. If the flash is authored
+    // as "switch the glow mesh on", the twin is the one place it is visible and the hushed prop in
+    // the hand is precisely where it is not — and the previous build measured that class only on
+    // the HELD prop, as a two-sample read across the rewind, on an object that was already frozen.
+    // Per frame, on the twin: every renderer's enabled / activeInHierarchy / activeSelf, every
+    // child object's activeSelf, the renderer and node COUNTS (so an object instantiated on the
+    // flash is caught as well as one toggled), and each renderer's material count and material
+    // instance id (a swapped sharedMaterials entry changes nothing in a property table). Every
+    // change is named with its frame AND its timestamp, so the flash's own clock can be read off
+    // the line instead of assumed.
+    private const int TwinNodeCap = 40;
+    private const int TwinRendCap = 16;
+    private const int TwinEventCap = 24;
+
+    private static readonly Transform[] TwNodes = new Transform[TwinNodeCap];
+    private static readonly string[] TwNodeName = new string[TwinNodeCap];
+    private static readonly bool[] TwNodeActive0 = new bool[TwinNodeCap];
+    private static int _twNodeCount, _twNodeFound0, _twNodeCountMin, _twNodeCountMax;
+
+    private static readonly Renderer[] TwRends = new Renderer[TwinRendCap];
+    private static readonly string[] TwRendName = new string[TwinRendCap];
+    private static readonly bool[] TwRendOn0 = new bool[TwinRendCap];
+    private static readonly bool[] TwRendActive0 = new bool[TwinRendCap];
+    private static readonly int[] TwRendMatCount0 = new int[TwinRendCap];
+    private static readonly int[] TwRendMatId0 = new int[TwinRendCap];
+    private static int _twRendCount, _twRendFound0, _twRendCountMin, _twRendCountMax;
+
+    private static readonly List<string> TwEvents = new(TwinEventCap);
+    private static int _twEventsTotal;
+    private static float _twinT0;
+
+    private static readonly List<Transform> TwNodeScratch = new(TwinNodeCap);
+    private static readonly List<Renderer> TwRendScratch = new(TwinRendCap);
+
+    /// <summary>The held prop's first DRAWING renderer this frame, so the lighting comparison can
+    /// read both sides on the same tick.</summary>
+    private static Renderer? _heldLead;
+
+    // ---- the lighting comparison, DELIBERATELY RE-ADDED after the 2026-09-06 cleanup -------------
+    //
+    // The arm deleted there read the light probe DURING THE HOLD ONLY and reported it flat. **Flat
+    // is not the same as CORRECT.** A prop carried to the eye leaves the probe volume it was
+    // authored inside, and a constant-but-wrong ambient is exactly the shape every instrument in
+    // this file is blind to — the same blindness §14.2 named for material values. Read as a
+    // COMPARISON against the twin on the same tick it is a different measurement from the one that
+    // was retired, and it costs one more column on a comparison that already exists.
+    private const int LightProbeEvery = 5;
+    private static int _litProbeAt, _litSamples;
+    private static float _litHeldLo, _litHeldHi, _litTwinLo, _litTwinHi;
+    private static float _litHeldLast, _litTwinLast, _litWorstDiff;
+    private static int _reflHeldMax, _reflTwinMax;
+    private static string _probeUsage = string.Empty;
+    private static readonly List<UnityEngine.Rendering.ReflectionProbeBlendInfo> ReflScratch = new(4);
+
+    /// <summary>Snapshot the twin's object graph when the window arms. Everything after this is a
+    /// comparison against these values.</summary>
+    private static void ArmTwinGraph()
     {
-        OverlayPulse[] all = Object.FindObjectsOfType<OverlayPulse>();
-        if (!naming)
-            return all.Length;
-        PulseNames.Clear();
-        _pulseLiveAtClose = 0;
-        for (int i = 0; i < all.Length; i++)
+        _twNodeCount = _twRendCount = 0;
+        _twNodeFound0 = _twRendFound0 = 0;
+        _twEventsTotal = 0;
+        TwEvents.Clear();
+        _twinT0 = Time.unscaledTime;
+        _litProbeAt = 0;
+        _litSamples = 0;
+        _litHeldLo = _litTwinLo = float.MaxValue;
+        _litHeldHi = _litTwinHi = float.MinValue;
+        _litHeldLast = _litTwinLast = float.NaN;
+        _litWorstDiff = 0f;
+        _reflHeldMax = _reflTwinMax = 0;
+        _probeUsage = string.Empty;
+        for (int i = 0; i < TwinNodeCap; i++)
+            TwNodes[i] = null!;
+        for (int i = 0; i < TwinRendCap; i++)
+            TwRends[i] = null!;
+        if (_twinRoot == null)
         {
-            OverlayPulse pulse = all[i];
-            if (pulse == null)
-                continue;
-            bool live = pulse.enabled && pulse.gameObject.activeInHierarchy;
-            if (live)
-                _pulseLiveAtClose++;
-            if (PulseNames.Count >= PulseNameCap)
-                continue;
-            // The PATH, not the name: every one of these objects is called "VRFigureHighlight", so
-            // the only thing that distinguishes a leaked one from the live one is whose child it is.
-            PulseNames.Add($"'{Describe(pulse.transform)}' {(live ? "PULSING" : "inert")}");
+            _twNodeCountMin = _twNodeCountMax = _twRendCountMin = _twRendCountMax = 0;
+            return;
         }
-        return all.Length;
+
+        TwNodeScratch.Clear();
+        _twinRoot.GetComponentsInChildren(includeInactive: true, TwNodeScratch);
+        _twNodeFound0 = TwNodeScratch.Count;
+        for (int i = 0; i < TwNodeScratch.Count && _twNodeCount < TwinNodeCap; i++)
+        {
+            Transform t = TwNodeScratch[i];
+            if (t == null)
+                continue;
+            TwNodes[_twNodeCount] = t;
+            TwNodeName[_twNodeCount] = t.name;
+            TwNodeActive0[_twNodeCount] = t.gameObject.activeSelf;
+            _twNodeCount++;
+        }
+        TwNodeScratch.Clear();
+
+        TwRendScratch.Clear();
+        _twinRoot.GetComponentsInChildren(includeInactive: true, TwRendScratch);
+        _twRendFound0 = TwRendScratch.Count;
+        for (int i = 0; i < TwRendScratch.Count && _twRendCount < TwinRendCap; i++)
+        {
+            Renderer r = TwRendScratch[i];
+            if (r == null)
+                continue;
+            TwRends[_twRendCount] = r;
+            TwRendName[_twRendCount] = r.gameObject.name + " [" + r.GetType().Name + "]";
+            TwRendOn0[_twRendCount] = r.enabled;
+            TwRendActive0[_twRendCount] = r.gameObject.activeInHierarchy;
+            Material[] mats = r.sharedMaterials;
+            TwRendMatCount0[_twRendCount] = mats.Length;
+            TwRendMatId0[_twRendCount] = mats.Length > 0 && mats[0] != null ? mats[0].GetInstanceID() : 0;
+            _twRendCount++;
+        }
+        TwRendScratch.Clear();
+
+        _twNodeCountMin = _twNodeCountMax = _twNodeFound0;
+        _twRendCountMin = _twRendCountMax = _twRendFound0;
+    }
+
+    /// <summary>Record one change, with the frame AND the clock, so a period can be read off the
+    /// line rather than assumed. Capped, with the total kept beside it — a truncated list is not an
+    /// absence.</summary>
+    private static void TwEvent(string what)
+    {
+        _twEventsTotal++;
+        if (TwEvents.Count >= TwinEventCap)
+            return;
+        TwEvents.Add($"[frame {_vFrames}, t+{(Time.unscaledTime - _twinT0):0.00}s, "
+                     + $"abs {Time.unscaledTime:0.00}] {what}");
+    }
+
+    /// <summary>One frame of the twin's object graph. Allocation-free unless something actually
+    /// changed, which is the point: a quiet prop costs two component walks over a subtree of a
+    /// dozen nodes.</summary>
+    private static void SampleTwinGraph()
+    {
+        if (_twinRoot == null)
+            return;
+
+        TwNodeScratch.Clear();
+        _twinRoot.GetComponentsInChildren(includeInactive: true, TwNodeScratch);
+        int nodes = TwNodeScratch.Count;
+        TwNodeScratch.Clear();
+        if (nodes < _twNodeCountMin)
+        {
+            _twNodeCountMin = nodes;
+            TwEvent($"child object COUNT fell to {nodes} (was {_twNodeFound0} at arm)");
+        }
+        if (nodes > _twNodeCountMax)
+        {
+            _twNodeCountMax = nodes;
+            TwEvent($"child object COUNT rose to {nodes} (was {_twNodeFound0} at arm) — something "
+                    + "was INSTANTIATED under this prop");
+        }
+
+        TwRendScratch.Clear();
+        _twinRoot.GetComponentsInChildren(includeInactive: true, TwRendScratch);
+        int rends = TwRendScratch.Count;
+        TwRendScratch.Clear();
+        if (rends < _twRendCountMin)
+        {
+            _twRendCountMin = rends;
+            TwEvent($"renderer COUNT fell to {rends} (was {_twRendFound0} at arm)");
+        }
+        if (rends > _twRendCountMax)
+        {
+            _twRendCountMax = rends;
+            TwEvent($"renderer COUNT rose to {rends} (was {_twRendFound0} at arm) — a new RENDERER "
+                    + "appeared under this prop");
+        }
+
+        for (int i = 0; i < _twNodeCount; i++)
+        {
+            Transform t = TwNodes[i];
+            if (t == null)
+                continue;
+            bool active = t.gameObject.activeSelf;
+            if (active == TwNodeActive0[i])
+                continue;
+            TwNodeActive0[i] = active;
+            TwEvent($"'{TwNodeName[i]}'.activeSelf → {(active ? "TRUE" : "false")}");
+        }
+
+        for (int i = 0; i < _twRendCount; i++)
+        {
+            Renderer r = TwRends[i];
+            if (r == null)
+                continue;
+            bool on = r.enabled;
+            if (on != TwRendOn0[i])
+            {
+                TwRendOn0[i] = on;
+                TwEvent($"'{TwRendName[i]}'.enabled → {(on ? "TRUE" : "false")}");
+            }
+            bool active = r.gameObject.activeInHierarchy;
+            if (active != TwRendActive0[i])
+            {
+                TwRendActive0[i] = active;
+                TwEvent($"'{TwRendName[i]}'.activeInHierarchy → {(active ? "TRUE" : "false")}");
+            }
+            Material[] mats = r.sharedMaterials;
+            if (mats.Length != TwRendMatCount0[i])
+            {
+                TwEvent($"'{TwRendName[i]}' material COUNT {TwRendMatCount0[i]} → {mats.Length}");
+                TwRendMatCount0[i] = mats.Length;
+            }
+            int id = mats.Length > 0 && mats[0] != null ? mats[0].GetInstanceID() : 0;
+            if (id == TwRendMatId0[i])
+                continue;
+            TwEvent($"'{TwRendName[i]}' material 0 SWAPPED, instance id {TwRendMatId0[i]} → {id} — "
+                    + "a swapped material changes nothing in a property table and is invisible to "
+                    + "every read-back in this file");
+            TwRendMatId0[i] = id;
+        }
     }
 
     /// <summary>
-    /// THE SECTION THAT ASKS WHETHER THE FLASH ON EVERY TRAP IS OURS.
+    /// The per-position lighting the held prop receives against the one a prop of the same kind
+    /// receives on its hex, ON THE SAME TICK. Flat is not the same as correct.
     /// </summary>
-    private static void AppendOverlayCensus(System.Text.StringBuilder sb)
+    private static void SampleLightingCompare()
     {
-        sb.Append("OVERLAY PULSE CENSUS — IS THE FLASH ON EVERY TRAP OURS? ").Append(_pulseAtArm)
-          .Append(" OverlayPulse component(s) alive in the SCENE when this window armed and ")
-          .Append(_pulseAtClose).Append(" when it closed, of which ").Append(_pulseLiveAtClose)
-          .Append(" were enabled on an active object");
-        if (PulseNames.Count > 0)
-            sb.Append(", named by hierarchy path (up to ").Append(PulseNameCap).Append("): ")
-              .Append(string.Join("; ", PulseNames));
-        sb.Append(". WHY THIS NUMBER DECIDES SOMETHING: OverlayPulse.Update drives an ADDITIVE "
-                  + "warm-amber tint (1.00, 0.62, 0.26 at Floor 0.45 to Ceil 1.0) from "
-                  + "Time.unscaledTime with NO per-instance phase and NO per-instance start "
-                  + "(FigureOverlay.cs:1293), so every live instance pulses in EXACT LOCKSTEP by "
-                  + "construction — and an additive amber pass at full strength over a lit bronze "
-                  + "trap washes to IVORY. It is the only oscillator in this repository or in the "
-                  + "decompiled game that brightens prop meshes with no per-instance phase; every "
-                  + "game-side writer (SpawnObjectAnimateMaterial_SMB, RFX4_ShaderFloatCurve, "
-                  + "RFX4_ShaderColorGradient, RFX4_LightCurves) carries its own accumulator or "
-                  + "start time, and no game code writes a time-varying GLOBAL shader value at "
-                  + "all. THE OVERLAY IS SINGLE-WINNER, so this count should be AT MOST 2 — one "
-                  + "per hand — and 0 during a hold, because OnGrab clears the winner's overlay "
-                  + "before the belt engages. A COUNT ABOVE 2, or any entry in the list above that "
-                  + "hangs off a prop the player is not currently hovering, means overlays are "
-                  + "LEAKING one per prop ever hovered and every one of them is pulsing in phase — "
-                  + "which is the user's 'weisser flash auf allen Fallen', and it would be OURS. A "
-                  + "count of 0 or 1 kills that reading outright and the flash is the game's. ");
+        if (Time.frameCount < _litProbeAt || _heldLead == null || _twinLead == null)
+            return;
+        _litProbeAt = Time.frameCount + LightProbeEvery;
+        _litSamples++;
+        if (_probeUsage.Length == 0)
+            _probeUsage = _heldLead.lightProbeUsage + "/" + _heldLead.reflectionProbeUsage
+                          + " held vs " + _twinLead.lightProbeUsage + "/"
+                          + _twinLead.reflectionProbeUsage + " home";
+
+        float held = ProbeLuminance(_heldLead);
+        float twin = ProbeLuminance(_twinLead);
+        _litHeldLast = held;
+        _litTwinLast = twin;
+        if (held < _litHeldLo) _litHeldLo = held;
+        if (held > _litHeldHi) _litHeldHi = held;
+        if (twin < _litTwinLo) _litTwinLo = twin;
+        if (twin > _litTwinHi) _litTwinHi = twin;
+        float diff = Mathf.Abs(held - twin);
+        if (diff > _litWorstDiff)
+            _litWorstDiff = diff;
+
+        int heldProbes = CountReflectionProbes(_heldLead);
+        int twinProbes = CountReflectionProbes(_twinLead);
+        if (heldProbes > _reflHeldMax) _reflHeldMax = heldProbes;
+        if (twinProbes > _reflTwinMax) _reflTwinMax = twinProbes;
+    }
+
+    /// <summary>Rec.709 luminance of the interpolated light probe's L0 (constant) band at a
+    /// renderer's bounds centre — the ambient that surface actually receives, as one number.</summary>
+    private static float ProbeLuminance(Renderer r)
+    {
+        LightProbes.GetInterpolatedProbe(r.bounds.center, r,
+            out UnityEngine.Rendering.SphericalHarmonicsL2 sh);
+        return (0.2126f * sh[0, 0]) + (0.7152f * sh[1, 0]) + (0.0722f * sh[2, 0]);
+    }
+
+    private static int CountReflectionProbes(Renderer r)
+    {
+        ReflScratch.Clear();
+        r.GetClosestReflectionProbes(ReflScratch);
+        int n = ReflScratch.Count;
+        ReflScratch.Clear();
+        return n;
+    }
+
+    /// <summary>The object-graph verdict: what changed on a prop that is NOT held, over a full
+    /// loop, and when.</summary>
+    private static void AppendTwinGraph(System.Text.StringBuilder sb)
+    {
+        sb.Append("THE TWIN'S OBJECT GRAPH — THE ONE CLASS NEVER MEASURED ON AN UNHELD PROP. "
+                  + "ModBuild 455 excluded the whole material class (a SHARED material, 0 of 57 "
+                  + "slots moving across a FULL loop, 0 slots ever differing), which also retires "
+                  + "the assumption that the ~5 s idle clip IS the flash: it sweeps its entire "
+                  + "range while nothing about the material changes, so it drives BONES — a bear "
+                  + "trap's jaws — and not a brightness. If the flash is 'switch the glow mesh "
+                  + "on', THIS is where it shows and a hushed prop in a hand is exactly where it "
+                  + "does not. AT ARM: ").Append(_twNodeFound0).Append(" child object(s) (")
+          .Append(_twNodeCount).Append(" tracked by identity) and ").Append(_twRendFound0)
+          .Append(" renderer(s) (").Append(_twRendCount).Append(" tracked). COUNTS OVER THE WINDOW: "
+                  + "objects ").Append(_twNodeCountMin).Append("..").Append(_twNodeCountMax)
+          .Append(", renderers ").Append(_twRendCountMin).Append("..").Append(_twRendCountMax)
+          .Append(". CHANGES: ").Append(_twEventsTotal);
+        if (_twEventsTotal == 0)
+        {
+            sb.Append(" — NOTHING under an unheld prop of this kind was enabled, disabled, "
+                      + "activated, deactivated, instantiated, destroyed or re-materialled on any "
+                      + "sampled frame, across a full loop of its own animator. TAKEN WITH THE "
+                      + "MATERIAL EXCLUSION ABOVE, NOTHING ABOUT THIS PROP'S OWN OBJECT GRAPH "
+                      + "FLASHES, and the next round must measure the PICTURE rather than the "
+                      + "state — a sampled read-back of the rendered pixels over the prop, held "
+                      + "versus home. Do not invent a tenth state probe. ");
+            return;
+        }
+        sb.Append(", naming up to ").Append(TwinEventCap).Append(" IN ORDER, each with its frame "
+                  + "and its clock so the flash's OWN PERIOD can be read off this line instead of "
+                  + "assumed (the ~5 s figure four rounds used is the idle clip's rate and is now "
+                  + "known not to be the flash's): ").Append(string.Join("; ", TwEvents));
+        if (_twEventsTotal > TwEvents.Count)
+            sb.Append(", and ").Append(_twEventsTotal - TwEvents.Count)
+              .Append(" more counted but not named");
+        sb.Append(". THE INTERVAL BETWEEN REPEATS OF THE SAME EVENT IS THE FLASH'S PERIOD. Compare "
+                  + "the absolute timestamps against another prop kind's line in the same session "
+                  + "to say whether the props change SIMULTANEOUSLY, which is what the user's "
+                  + "'auf allen Fallen' claims. ");
+    }
+
+    /// <summary>The lighting comparison: the same reading on both props, on the same tick.</summary>
+    private static void AppendLightingCompare(System.Text.StringBuilder sb)
+    {
+        sb.Append("LIGHTING, HELD vs HOME ON THE SAME TICK — and this arm was deliberately "
+                  + "RE-ADDED after being deleted, because the deleted one read the probe DURING "
+                  + "THE HOLD ONLY and reported it flat, and FLAT IS NOT THE SAME AS CORRECT. A "
+                  + "prop carried to the eye leaves the probe volume it was authored inside, and a "
+                  + "constant-but-WRONG ambient is invisible to every 'did it move' reading in "
+                  + "this file. ").Append(_litSamples).Append(" sample(s). ");
+        if (_litSamples == 0 || float.IsNaN(_litHeldLast))
+        {
+            sb.Append("NOT TAKEN — no drawing renderer on one side or the other, so this excludes "
+                      + "nothing. ");
+            return;
+        }
+        sb.Append("INTERPOLATED LIGHT PROBE, Rec.709 luminance of the L0 band: HELD last ")
+          .Append(_litHeldLast.ToString("0.####")).Append(" over ")
+          .Append(_litHeldLo.ToString("0.####")).Append("..").Append(_litHeldHi.ToString("0.####"))
+          .Append("; HOME last ").Append(_litTwinLast.ToString("0.####")).Append(" over ")
+          .Append(_litTwinLo.ToString("0.####")).Append("..").Append(_litTwinHi.ToString("0.####"))
+          .Append("; WORST DIFFERENCE on any sampled tick ").Append(_litWorstDiff.ToString("0.####"))
+          .Append(". REFLECTION PROBES influencing the renderer: HELD at most ").Append(_reflHeldMax)
+          .Append(", HOME at most ").Append(_reflTwinMax).Append(" (usage ")
+          .Append(_probeUsage.Length == 0 ? "<unsampled>" : _probeUsage)
+          .Append("). READ IT LIKE THIS: a LARGE worst-difference, or a HOME probe count above a "
+                  + "HELD count of 0, says the prop in the hand is lit by something the same prop "
+                  + "on the board is not — the ivory is then LIGHTING and not paint, which is a "
+                  + "different fix again and one no round has costed. A difference near zero says "
+                  + "both props receive the same ambient and this arm excludes lighting too. ");
     }
 
     /// <summary>Has this prop KIND already spent its budget in <paramref name="roster"/>?</summary>

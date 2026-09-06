@@ -15,7 +15,31 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
-## START AT §14 AND §16 — ROUND NINE (2026-09-06): THE USER NAMED THE TRIGGER
+## START AT §17 — ROUND TEN (2026-09-06): THE MATERIAL CLASS IS OUT
+
+ModBuild 455, 194 frames. A trap standing on its own hex runs its ENTIRE animator loop
+(advancing 193/194, fraction 0.001..0.997) and moves **0 of 57 material slots**, on a material
+asset it **SHARES** with every other trap; the held prop differed on **0 slots, ever**. So:
+
+1. **The whole material class is excluded.** No fix written on a material value can change the
+   picture, and §§3-14's remaining material hypotheses are all dead.
+2. **The ~5 s idle loop is NOT the flash** — carried unexamined for four rounds. It sweeps its
+   full range while nothing about the material changes, so it drives BONES (a bear trap's
+   jaws), not a brightness. `clipRate 0.202/s` is the jaws' clock. **No round has ever
+   measured the flash's period.**
+3. **§16's overlay lead is falsified** by its own key: the census read 1, hanging off the very
+   trap being held. Overlays are not leaking; the flash is not ours.
+
+Round ten watches the UNHELD twin's OBJECT GRAPH per frame — the one class never measured on a
+prop that is not frozen — with every change timestamped so the flash's period can finally be
+read off. **If that reports 0 changes over a full loop, the state-probe era is over and the
+next round must measure the PICTURE, not the state. Do not invent an eleventh state probe.**
+Read [§17](#17-round-ten--2026-09-06-against-the-modbuild-455-log-the-material-class-is-out-the-overlay-lead-is-dead-and-the-5-s-loop-was-never-the-flash) first,
+then **§15, the obituary** of every strand and probe deleted on 2026-09-06.
+
+---
+
+## §14 AND §16 — ROUND NINE (2026-09-06): THE USER NAMED THE TRIGGER
 
 **§16 is the lead.** The user says every trap flashes white at once. A sweep of the game and
 of this mod found exactly ONE oscillator that brightens prop meshes with NO per-instance
@@ -1656,3 +1680,151 @@ whole reading is dead and nothing was spent on it.
 Note also what this does **not** disturb: §11.6 and §14.1 both remain correct that the **held**
 prop's own overlay is destroyed at the grab. This lead is about overlays on the props the player is
 **not** holding.
+
+---
+
+## 17. Round ten — 2026-09-06, against the ModBuild 455 log: the material class is out, the overlay lead is dead, and the ~5 s loop was never the flash
+
+**User, verbatim, after testing ModBuild 455:** *"Problem besteht unverändert weiterhin."*
+
+Both lines fired and both answered. `] [Props] HELD-PROP HOME TWIN for 'Trap' Trap`, 194 frames,
+closed because the prop was put down.
+
+### 17.1 §16's overlay lead is FALSIFIED, by the key §16 shipped with it
+
+```
+OVERLAY PULSE CENSUS: 1 OverlayPulse component(s) alive in the SCENE when this window armed
+and 1 when it closed, of which 1 were enabled on an active object, named by hierarchy path:
+'Maps/J : (2b7572d0-…)/Trap : (efc33169-bc0c-afa1-16c9-3b8cec7433f4)/VRFigureHighlight' PULSING.
+```
+
+One. And the single entry hangs off the very trap the player was hovering — GUID
+`efc33169-…`, the same GUID as roster renderer `[0]`, i.e. the held prop's own overlay and not a
+leaked one. §16.3's key: *"A count of 0 or 1 kills that reading outright."* **It reads 1.**
+
+**Overlays are not leaking and the flash on every trap is not ours.** The reasoning in §16.1 was
+sound and remains true as a fact about `OverlayPulse` — it *is* the only oscillator in either
+codebase with no per-instance phase — but the population it needed does not exist. The census is
+spent and was deleted in the same build; honouring one's own falsifier rather than re-interpreting
+it after the fact is the whole discipline this document exists for.
+
+**One bounded caveat, stated so it is not rediscovered as a loophole:** this session contained a
+single grab, so the census cannot speak to accumulation across a *long* session. If the user ever
+reports the flash getting worse the longer he plays, re-add it deliberately — `git log` has it.
+Nothing in the present evidence suggests that, and it is not a reason to keep the probe.
+
+### 17.2 THE REAL RESULT: the whole material class is excluded
+
+| reading | value |
+|---|---|
+| `SHARED OR INSTANCED` | **1 of the held prop's materials is THE SAME ASSET as the twin's, 0 per-prop instances** |
+| `THE TWIN'S ANIMATOR` | **advancing on 193 of 194 frames, loop fraction swept 0.001..0.997** — a full loop |
+| `WHAT MOVES ON THE UNHELD TWIN` | **0 of 57 tracked slot(s). NOTHING.** |
+| `HELD vs HOME, SAME TICK` | **0 slot(s) EVER DIFFERED** |
+| `THE REWIND'S OTHER HALF` | 6 renderer/object flag(s) read, **0 CHANGED** |
+| twin population | found among **3 candidates** of 7365 renderers scanned |
+
+A trap standing on its own hex — not held, not hushed, not frozen — runs its **entire** loop and
+moves **not one material property**, on a material asset it **shares with every other trap**. And
+the held prop's material state is byte-for-byte a board prop's, on every one of 194 frames.
+
+**The picture is not made of this prop's material values, and no fix written on them can change
+it.** That is the line's own words and it is now a measurement.
+
+### 17.3 TWO ASSUMPTIONS DIE WITH IT, and both were load-bearing since round seven
+
+1. **The whole material class is out.** Every remaining material hypothesis in §§3–14 — a latched
+   slot, a stale bake, a shared-vs-instanced write, a dissolve ramp — is excluded by a single
+   reading taken on a population that was never suppressed.
+
+2. **THE ~5 s IDLE LOOP IS NOT THE FLASH.** This has been carried unexamined for four rounds. The
+   clip advances through its **entire** range (`0.001..0.997`) while **nothing about the material
+   changes**, so what it drives is **BONES on a SkinnedMeshRenderer** — a bear trap's jaws opening
+   and closing — and not a brightness. `clipRate 0.202/s` is the jaws' clock, not the flash's.
+   **Stop treating it as the flash's period.** Whatever flashes every trap at once has a different
+   cause and possibly a different period, and **no round has ever measured that period** — which is
+   why every change the new arm records carries a timestamp.
+
+   This also re-frames round seven retrospectively. Strand 6 (`WriteDefaultValues` before the
+   freeze) was built on the premise that the freeze latches a bright frame of that clip. The clip
+   has no bright frame. Strand 6's `INERT` reading (§14) was correct and now has a reason.
+
+### 17.4 What shipped — the twin's OBJECT GRAPH, per frame, and the lighting comparison
+
+The previous build's own reading key named the next place to look: *"a renderer or child GameObject
+being ENABLED — an animator can drive `m_IsActive` and `m_Enabled`"*. It then measured exactly that
+**on the held prop, across the rewind** — a two-sample read on an object that was already frozen.
+**It has never been measured on the TWIN, over time.** If the flash is authored as *"switch the
+glow mesh on"*, the twin is the one place it is visible and a hushed prop in a hand is precisely
+where it is not.
+
+`AppendTwinGraph` reports, per frame over the whole window, on the **unheld** twin:
+
+* every child object's `activeSelf`, tracked **by identity** and named on change;
+* every renderer's `enabled` and `activeInHierarchy`, likewise;
+* the child-object COUNT and the renderer COUNT, min..max — so an object **instantiated** on the
+  flash is caught as well as one toggled;
+* each renderer's material COUNT and its material 0 **instance id** — a swapped `sharedMaterials`
+  entry changes nothing in a property table and is invisible to every read-back in this file;
+* and **every change is stamped with its frame, its elapsed time and its absolute
+  `Time.unscaledTime`**, so the flash's own clock is read off the line rather than assumed, and two
+  prop kinds' lines in one session can be compared for simultaneity — which is what *"auf allen
+  Fallen"* claims.
+
+`AppendLightingCompare` re-adds an arm deleted in §15, **deliberately, and as a different
+measurement**. The deleted one read the light probe **during the hold only** and reported it flat.
+**Flat is not the same as correct.** A prop carried to the eye leaves the probe volume it was
+authored inside, and a constant-but-*wrong* ambient is invisible to every "did it move" reading in
+this file — the same blindness §14.2 named for material values. Read as a **comparison against the
+twin on the same tick** it costs one more column on a comparison that already exists: the
+interpolated light-probe L0 luminance for both props, their ranges, the worst per-tick difference,
+and the reflection-probe count on each side (the held prop read `at most 0` on ModBuild 454; if the
+twin reads more, the prop in the hand lost a probe when it was carried).
+
+**Grep token:** `] [Props] HELD-PROP HOME TWIN`, sections `THE TWIN'S OBJECT GRAPH` and
+`LIGHTING, HELD vs HOME`.
+
+* **WORKING / IT NAMES THE FLASH** — the graph arm reports a non-zero CHANGES count. The named
+  events say which object, which direction and when; the interval between repeats of the same event
+  **is the flash's period**, measured for the first time.
+* **WORKING / IT NAMES A DIFFERENT FIX** — the lighting arm reports a large worst-difference, or a
+  HOME reflection-probe count above a HELD count of 0. The ivory is then **lighting, not paint**,
+  which no round has costed.
+* **INERT** — no twin was found (a population fact, excluding nothing), or no drawing renderer on
+  one side, in which case the lighting arm says `NOT TAKEN` rather than printing a clean zero.
+* **STILL BEYOND THE INSTRUMENT — and this is the branch that ends the state-probe era.** If the
+  twin's graph reports **0 changes** over a full loop *and* the lighting difference is near zero,
+  then together with §17.2 **nothing about this prop's own object graph or its lighting flashes**.
+  At that point the exclusion is complete and **the next round must measure the PICTURE rather than
+  the state** — a sampled read-back of the rendered pixels over the prop, held versus home. **Do
+  not invent an eleventh state probe.** This document has ten of them and every one reads zero.
+
+### 17.5 Carried forward, and what one sample is worth
+
+* **THE GRAB PHASE recorded its first sample: `normalizedTime 1.3407`, loop fraction `0.341`**, on a
+  hold the user reports as white. **One sample decides nothing** — the field exists to be correlated
+  across sessions, and a single number cannot distinguish a band from a coincidence. Keep printing
+  it. (And note §17.3(2): the loop it is a fraction *of* is the jaws' loop, so this number is only
+  a proxy for "when in the prop's own cycle" and not for "when in the flash".)
+* **The pose control did its job again:** the view angle swept `78.8..133.8 deg` while every value
+  held still. It stays.
+* **The §15 cleanup landed as ModBuild 455 and is not undone.** One arm deleted there was re-added
+  this round — the light probe — and §17.4 says why it is a different measurement rather than a
+  reversal.
+* **The overlay-pulse census was deleted this round**, having answered. §17.1 is its obituary.
+
+### 17.6 What round ten did NOT do
+
+* It did **not** ship a remedy. There is nothing left to write a remedy *on*: the material class is
+  excluded, the object-graph class is unmeasured, and a fix aimed at an unmeasured class is the
+  shape this document has recorded nine times.
+* It did **not** re-open the overlay, the reflection probe as a *during-hold* reading, property
+  blocks, keywords, mip streaming or the occlusion map. §§13.1, 14.1, 17.1 close all of them on
+  measurement.
+* It did **not** bump `NetProtocol.ModBuild`.
+
+**Multiplayer.** Nothing on the wire and nothing to mirror: this build reads and prints and writes
+no state. It rides the existing window, which `NetProps` reaches through `PropAnimBelt.Engage`
+(`NetProps.cs:288`) and `Release` (`NetProps.cs:550`) for a REMOTE hold exactly as for a local one.
+**Verified from evidence on the LOCAL side only** — the ModBuild 455 log is a single-player session;
+the mirrored half is reasoned from those two call sites, not measured.
