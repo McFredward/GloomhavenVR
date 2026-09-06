@@ -209,13 +209,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     private float _captureBodyRadiusReal = float.NaN;
     private float _captureCeilingReal = float.NaN;
 
-    // --- the last held pose this class WROTE, so the animation A/B instrument can tell whether
-    //     anything else rewrote it between our re-asserts. Diagnostic-only (PropAnimWatch reads
-    //     it; nothing else does), and three struct stores on a path that already writes them.
-    private Vector3 _wrotePos;
-    private Quaternion _wroteRot = Quaternion.identity;
-    private Vector3 _wroteScale = Vector3.one;
-
     // --- the pickup info panel (defect (d)).
     private bool _infoShown;
     private string _infoTitle = string.Empty;
@@ -589,8 +582,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         ShowInfo();
         _probeFrame = Time.frameCount + 2; // arm the held-visibility probe (see TickProbe)
         BeginWatch();                      // arm the PER-FRAME hold watch (see BeginWatch)
-        PropAnimWatch.NotifyGrab(_visual, Label); // …and the ANIMATION A/B (see PropAnimWatch)
-        PropAnimBelt.Engage(_visual, Label);       // …and the belt that keeps it animating
+        PropAnimBelt.Engage(_visual, Label);       // …and the hush that holds it still
 
         if (_grabLogsLeft <= 0)
             return;
@@ -667,10 +659,8 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// both the grab-time write and the per-frame re-assert (and that per-frame re-assert is also
     /// what makes the eight [FigureGrab] PropHeld* dials live-tunable without a hook of their own).
     ///
-    /// <para><b>THIS IS THE FIGURE'S <c>ApplyHeldPose</c> — the three POSE WRITES line for line,
-    /// and no longer the whole method</b> (qualified 2026-09-05: the pose-stomp probe below and the
-    /// <c>_wrotePos/_wroteRot/_wroteScale</c> bookkeeping after it are a dozen lines with no figure
-    /// counterpart, and the claim of line-for-line had quietly stopped being true). The offset, the
+    /// <para><b>THIS IS THE FIGURE'S <c>ApplyHeldPose</c> — the three POSE WRITES line for
+    /// line.</b> The offset, the
     /// rotation and the latched scale are the same three expressions, and the rotation is now
     /// literally the same function — <c>HeldPoseMirror.Rotation</c> — on both paths. (User,
     /// defect (b):
@@ -694,16 +684,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         HandSide side = _holder.Side;
         Transform t = _visual.transform;
 
-        // THE POSE-STOMP PROBE (2026-09-03). Before overwriting, ask whether the transform still
-        // holds what WE last wrote. If it does not, something else wrote it between our
-        // re-asserts — which for a prop whose own Animator drives a transform channel means this
-        // very line is erasing the game's animation every frame. Read-only, gated on a watch
-        // actually running, and the answer is reported by PropAnimWatch's one verdict line.
-        if (PropAnimWatch.WatchingHand
-            && (t.localPosition != _wrotePos || t.localScale != _wroteScale
-                || Quaternion.Angle(t.localRotation, _wroteRot) > 0.01f))
-            PropAnimWatch.NotePoseStomp();
-
         // Pinch position: the grab-anchor-local offset toward the thumb-index fingertips, mirrored
         // across the hand frame's left-right axis for the left hand.
         t.localPosition = PropHeldPose.HeldOffsetFor(side);
@@ -719,10 +699,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         // size it entered the hand at" unrecoverable, and the size BOUNDS are stated against the
         // product of the two.
         t.localScale = HeldLocalScale();
-
-        _wrotePos = t.localPosition;
-        _wroteRot = t.localRotation;
-        _wroteScale = t.localScale;
     }
 
     /// <summary>
@@ -741,7 +717,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
                 // re-instantiating Apparance-placed content out from under the hand, which is
                 // the ModBuild 341 question). This used to be silent; the watch is the record.
                 p.EmitWatch("visual DESTROYED mid-hold");
-                PropAnimWatch.NotifyGone(p._visual);
                 Live.RemoveAt(i);
                 continue;
             }
@@ -854,8 +829,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         }
         RestoreLayers();
         HeldProps.Remove(_prop);
-        PropAnimWatch.NotifyLanded(_visual); // the prop is on its hex again — open the HOME window
-        PropAnimBelt.Release(_visual);       // …and hand the culling defaults back, object-for-object
+        PropAnimBelt.Release(_visual); // hand every suppressed value back, object for object
         ScheduleThaw(); // home again — hand MonitorMovement back once the bounds have re-synced
     }
 
@@ -900,8 +874,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         RestoreLayers();
         _holder = null;
         HeldProps.Remove(_prop);
-        PropAnimWatch.NotifyLanded(_visual); // the prop is on its hex again — open the HOME window
-        PropAnimBelt.Release(_visual);       // …and hand the culling defaults back, object-for-object
+        PropAnimBelt.Release(_visual); // hand every suppressed value back, object for object
         ScheduleThaw(); // home again — hand MonitorMovement back once the bounds have re-synced
     }
 
@@ -2303,7 +2276,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         // A new scenario destroys every prop and figure behind the hover records, so the shared
         // walk-in driver must not hold them across the boundary.
         WalkInHighlightEdges.Reset();
-        PropAnimWatch.Reset();
         PropAnimBelt.Reset();
     }
 }

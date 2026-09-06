@@ -19,7 +19,7 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// nullable-<c>Transform</c> plumbing (its root can be torn down mid-glide and
 /// <c>FinishAllGlides</c> needs the null path), its <c>NoteClothScale</c> call — the glide is a
 /// size animation and the cape rides it home — and the prop's layer restore, Apparance thaw and
-/// <c>PropAnimWatch.NotifyLanded</c>. Share the machinery, not the look.</para>
+/// <c>PropAnimBelt.Release</c>. Share the machinery, not the look.</para>
 ///
 /// <para>NO UNITY COMPONENTS in <see cref="Sample"/> and no config: it is <c>Mathf</c> and a
 /// float, so the curve can be driven outside a Unity process. <see cref="WriteEased"/> takes the

@@ -1436,3 +1436,123 @@ no state at all. It rides the existing post-hush window, which `NetProps` reache
 `PropAnimBelt.Engage` (`NetProps.cs:288`) and `Release` (`NetProps.cs:550`) for a REMOTE hold exactly
 as for a local one. **Verified from evidence on the LOCAL side only** — the ModBuild 454 log is a
 single-player session; the mirrored half is reasoned from those two call sites, not measured.
+
+---
+
+## 15. The cleanup — 2026-09-06, what was DELETED and the reading that retired each one
+
+> *"Bitte räume auch direkt den Code auf von allen Versuchen die sich nicht bewahrheitet haben,
+> damit wir den Code sauber halten"*
+
+Nine rounds left `PropAnimBelt.cs` at 3401 lines and `PropAnimWatch.cs` at 1944 — **5345 lines for
+one unresolved defect**, most of it strands that never fired and probes whose questions were
+answered builds ago. After this pass: `PropAnimBelt.cs` **1999 lines**, `PropAnimWatch.cs` **gone**.
+**3786 lines removed, 717 added.**
+
+**This section is the obituary. A strand deleted here must not be re-proposed without new
+evidence** — that is the whole reason the list is written down rather than left to `git log`.
+
+### 15.1 The rule applied
+
+* **DELETE a strand whose live PRE-COUNT is zero on every prop kind ever measured.** It has never
+  had anything to switch off, so by this file's own attribution rule it cannot be why anything
+  changed in either direction.
+* **DELETE every probe that has ANSWERED, in either direction.** A probe that answered is spent;
+  this project has a recorded incident of one blitting every frame for 44,200 ticks after its
+  question was settled. The answers live in this document. **The code is not an archive.**
+* **KEEP a suppression that answers a complaint the user actually made**, even where it is not the
+  painter of the white flash.
+* **KEEP anything a gate, a wire test or another class depends on.** Checked before cutting.
+
+**THE SAFETY RULE, applied to every deletion:** the body of each removed method was grepped for
+writes. This project nearly latched the wall fade off for ever by deleting a spent `Log*` method
+that carried a state write inside it. `PropAnimWatch.cs` was grepped whole for `.enabled =`,
+`.material`, `SetFloat/SetColor/SetVector`, `Destroy(`, `.speed =`, `cullingMode =`,
+`updateWhenOffscreen =`, `.Play(`, `.Stop(`, `SetActive`, `activeSelf`, `transform.` and
+`Shader.Set*`: **not one write**. Its only `transform.` hits are two `r.bounds.center -
+r.transform.position` reads and one `lossyScale.x` read. It is a pure instrument, exactly as its
+header claimed, and `scripts/check-instrument-writes.py` still passes at its 66-field baseline.
+
+### 15.2 STRANDS — kept and deleted
+
+| strand | verdict | the reading |
+|---|---|---|
+| 1 — `Animator.enabled = false` (+ `WriteDefaultValues` first) | **KEEP** | Pre-count `1 under the visual, 1 switched off` on every trap reading. It is also the user's own explicit instruction (§6) and the live latch suspect (§14.2). |
+| 2 — `Outlinable.enabled = false` | **KEEP** | Pre-count `1 Outlinable, 1 switched off`. **And it answers a complaint the user actually made and repeated**: *"Dieser highlighting/Licht effekt von props ist immer noch in der Hand bemerkbar. Wiederholt!"* It is not the painter of the white flash; it stays anyway, because it is a response to a real report. |
+| 3 — `Behaviour`-derived emitters (`Light`, `Projector`, `LensFlare`) | **KEEP, AS A WHOLE CLASS** | The trap reads `0 Light(s) of which 0` on ModBuild 454, but the pre-count is **not** zero on every prop kind: §10.2 records `'GoldPile' MoneyToken` at **3 lights** and §11.1 reads `lights 3 of 3 found, 3 ENABLED before this build wrote anything`. Same user complaint as strand 2. **`Projector` and `LensFlare` have read 0 everywhere and are still kept**, because the class was taken whole on purpose — `Light` derives from `Behaviour` and not from `MonoBehaviour`, ModBuild 151 lost a build to exactly that hole, and re-narrowing the sweep to the one type that has fired so far re-creates it. |
+| 4 — particle systems that were PLAYING | **DELETED** | Its PLAYING pre-count is **0 on every reading ever taken**: ModBuild 447 trap `0 playing at the grab` of 8 systems, ModBuild 448 GoldPile `7 of 7 found, 0 playing`, ModBuild 454 trap `0 under the visual of which 0 were PLAYING`. It only ever writes on a system found playing, so it has **never written anything**. Gone with it: `Belt.Particles`, `ParticlesFound`/`ParticlesPlaying0`, `RestoreForeignParticles` and `ParticleScratch`. |
+| 5 — `ObjectOcclusionVolume` registration | **KEEP** | Pre-count `1 volume of which 1 ENABLED` on the trap — non-zero, so the delete rule does not reach it. It read its WORKING shape (§11–12) and the defect stood, so it is **neither proven nor disproven**; it is one ledgered bool taken through the game's own `OnEnable`/`OnDisable` pair, and removing a suppression that DID fire would reintroduce a wash nobody has re-tested for. Flagged here so round ten can decide deliberately. |
+| — `SkinnedMeshRenderer.updateWhenOffscreen = true` | **KEEP** | Not an animation term at all: it keeps a held prop DRAWN when its stale root-bone bounds leave the frustum. |
+| 6 — the rewind (`Animator.WriteDefaultValues`) | **KEEP the call, DELETE its material measurement** | §14.5: `0 of 67 (material, property) slot(s) changed` cannot distinguish "the clip was at rest" from "the clip drives no material", and §12.4's third reading (the write not landing) is still live. The call stays; `RewindTable`, `RwBefore`/`RwAfter`/`RwValid`/`RwValidAfter`, `MeasureRewind`, `AppendRewind`, `Belt.RewindSlotsRead`/`RewindSlotsChanged`/`RewindNamed` are gone, replaced by the renderer/`activeSelf` half that has not answered. |
+
+### 15.3 PROBES — every one deleted, and what it answered
+
+**`PropAnimWatch.cs` — 1944 lines, deleted whole.** Every question it was built to ask is answered
+and recorded above:
+
+| its question | its answer | recorded in |
+|---|---|---|
+| does the clip run in the hand vs on the hex? | `advancing hand=0/1028 home=359/360`, `anyLayerRate home=0.201/s` | §10, §12.1 |
+| Chronos / `AreaClock` / `Timeline` | `scene holds 0 AreaClock(s) and 0 Timeline(s)`; `globalClock.timeScale hand=1 home=1` | §3 |
+| the SMB `animator.speed` latch | `speed hand=1 home=1` | §3 |
+| pose stomps — is our own per-frame pose write erasing the animation? | `poseStomps=0 of 511` (435) and `0 of 169` (454) | §3 |
+| `lossyScale`, `cullingMode`, `updateMode`, `Renderer.isVisible`, particle scaling modes | all steady; `worst bounds-vs-transform gap hand=0.237 home=0.237 wu`, identical | §4 |
+| its 20-of-57 material table | superseded by the 57/57 read, which then read `0 of 67 moved` | §10.2, §14.1 |
+| its HOME window | **superseded** by the HOME TWIN, which compares a *different instance on the same tick* instead of the *same instance seconds later* — strictly better, because the props are in phase | §14.3 |
+
+Its call sites went with it: `PropGrab.Tick`, and six in `GrabbableProp` (`NotifyGrab`,
+`WatchingHand`/`NotePoseStomp`, `NotifyGone`, two `NotifyLanded`, `Reset`). The pose-stomp probe's
+three write-only fields — `_wrotePos`, `_wroteRot`, `_wroteScale` — went with their only reader.
+
+**Deleted from `PropAnimBelt.cs`:**
+
+| probe | its answer, on which build |
+|---|---|
+| `EmitPostHushVerdict` and every aggregate behind it (`VPrev`/`VSeen`/`VMoves`/`VLo`/`VHi`, `VLight*`, `VAnim*`, `_vAnimOnMax`…`_vLightIntensityMax`, `_vAnimators`/`_vOutlines`/`_vLights`/`_vParticles`) | 448, 450, 453: animators `0 enabled`, outlines `0 enabled`, lights `0 lit` with a non-zero pre-count, particles `0`, `0 of 67 slots moved`. The subtree is dark and it has been said three times. |
+| `AppendOutward` + `SampleOutward` + the occlusion probe state | 450 and 453: `1 volume, 1 enabled beforehand, at most 0 still registered`, `_EnableOcclusionMap 1..1`, `_ObjectOcclusion re-bound on 168 of 169 frames`. Strand 5 reads its working shape; the probe has nothing left to say. **The strand stays; the probe goes.** |
+| `SweepForeignEmitters` (a `FindObjectsOfType<Light>()` per verdict) | 450 and 453: `1 near of 40 in the scene, 1 of them lit`, named — a Forest Imp elite's idle point light **on the board**, not on the hand or the rig. Answered. |
+| the round-8 property-block arm (`RBlock`, `BlkNamed`, `RBlockFrames`, `RBlockOverrideMax`) | 454: `0 of 360 frame(s) had at least one renderer carrying a block, worst frame overrode 0 slot(s)`. |
+| the dissolve-channel arm (`DissolveIds`/`Names`/`Lo`/`Hi`/`Seen`, `AddDissolveChannel`) | 454: all eight channels — `_Cutout`, `_DeathDissolveTop`, `_DeathDissolveBottom`, `_Toggle_Dissolve`, `_Toggle_FlipDissolveDirection`, `_ToggleDissolveFromCenter`, `_DeathDissolvePos`, `_Cutout_Offset` — `seen in a block on 0 frame(s)`. |
+| the shader-keyword arm (`SampleKeywords`, `KwMin`/`KwMax`/`KwFirst`/`KwLast`) | 454: `0 change(s) across all materials`; `mat0 Amp_Char_Shader: 0..0 keyword(s), first [<none>]`. |
+| the lighting-binding arm (`SampleLightingBindings`, `ReflectScratch`, `_sh*`, `_reflect*`) | 454: `at most 0 probe(s) influenced this renderer`, identity changed on 0 samples, light-probe L0 luminance `first 0.0252, last 0.0252, range 0.0252..0.0252`. §12.4's third still-open item, closed. |
+| `AppendStaleAnchors` | 454: `all 1 vector slot(s) are zero, so nothing is baked`. |
+| `AppendTimeline` and the 24-bucket series (`Tl*`, `_tlT0`) | 454: every bucket identical on every column except the pose. A series of one value is not a series. **The pose min/max survives as the CONTROL** — the coordinator's call, and the right one: the 454 sweep of `52.4..130.7 deg` with everything else flat is what proves the video's curve is confounded. |
+| `AppendMipResidency` | 454: `5 texture(s) bound, 5 of them streamed, 5 currently BELOW their desired mip level, worst gap 1`. Recorded in §14.6 as a live contradiction with `] [Perf] TEX`, and handed to the `Perf/TEX` lane. One mip level cannot turn bronze into white. |
+| `EmitRoster`'s own line, `AppendMovers`, `MaxOf`, `Tally` + `TypeNames`/`TypeCounts`/`BehaviourScratch` (the MonoBehaviour histogram) | The histogram answered in §12.5: all 15 distinct types under the trap enumerated, and the one it settled (`CustomObjectPositionToChildMaterials` is NOT on this prop) is written down. |
+
+**What survives of the round-8 roster is its identity half only** — names, shaders, the
+MOD-OWNED/game-owned verdict, drawing/visible frame counts — because *that* has not answered: it is
+how the twin's lead renderer is picked, and identity is what §14 is about.
+
+### 15.4 Instrument surface after the pass
+
+**Two lines, and that is all.**
+
+* `] [Props] HELD-PROP ANIMATION HUSH` — the grab-edge **pre-counts**. Kept because the pre-count is
+  what attributes a strand and what this very section used to decide which strands could go.
+* `] [Props] HELD-PROP HOME TWIN` — the round-nine comparison, carrying the roster, the pose
+  control, the grab phase, the rewind's renderer/active half, and the held-vs-home diff.
+* `] [Props] HELD-PROP HUSH RESTORE` — kept because it **guards a write**, not because it probes the
+  defect. Its three falsifier counts must read 0.
+
+`] [Props] HELD-PROP ANIMATION A/B`, `] [Props] HELD-PROP PAINT AFTER HUSH` and
+`] [Props] HELD-PROP ROSTER` **no longer exist**. A future round grepping for them will find
+nothing; their findings are §§3–14 of this document.
+
+### 15.5 Checked and NOT touched
+
+* **`PropLift.cs`, `HeldProps.cs`, `PropVisualLookup.cs`** — nothing from the flash rounds in them.
+* **`PropGrab.cs`** — one call and its comment removed; the rest is the grab feature.
+* **`GrabbableProp.cs`** — six call sites and the three pose-stomp fields removed. `EmitWatch` /
+  `TickWatch` / `BeginWatch` are the ModBuild 341 **flicker** watch (`] [Props] HOLD WATCH`), a
+  different defect that is SOLVED and whose watch guards a fix; left alone.
+* **Config dials** — `PropAnimWatch` read none (grepped for `Cfg.`, `Config`, `Bind(`,
+  `[FigureGrab]`: no hits). No orphaned key.
+* **Wire fields** — none: nothing in nine rounds ever went on the wire (§8, §10.6).
+* **`docs/`** — untouched; another lane is working there.
+
+Gates after the pass: `build.sh` 0 warnings, `EXPECT_WARNINGS=0 ci-build.sh`, `check-mirrors.sh`,
+`check-frame-order.sh` (11 locked orderings still verify — removing `PropAnimWatch.Tick()` from
+`PropGrab.Tick` moved no locked ordering), `patch-inventory.sh check`, `check-hw-verify.py`
+(401 marked sites), `check-instrument-writes.py` (66-field baseline unchanged), `wire-tests.sh`
+(208 006 assertions).

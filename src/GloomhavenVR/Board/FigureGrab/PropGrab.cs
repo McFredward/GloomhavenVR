@@ -190,12 +190,6 @@ internal static class PropGrab
         // is a single Count compare when nothing is held.
         GrabbableProp.TickHeld();
 
-        // The animation A/B sits above the gate for the same reason the thaw does: its HOME window
-        // opens AFTER the prop has landed, so a dial turned off mid-flight would otherwise strand a
-        // half-taken measurement and cost the round its only reading. One field test in the steady
-        // state, and nothing at all once its two-verdict budget is spent. See PropAnimWatch.
-        PropAnimWatch.Tick();
-
         // The belt sits above the gate for the same reason, and for one more: a prop still in a
         // hand when GrabProps is toggled off is released by the gate's ReleaseAll on THIS frame,
         // and the culling values it replaced must be handed back on that same frame or they are
