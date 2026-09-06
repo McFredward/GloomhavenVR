@@ -2308,7 +2308,10 @@ internal sealed partial class CardsDriver
             _active.SetVisible(false);
             _activeBuffer.Clear();
             _active.SetCards(_activeBuffer); // clear its list so Contains()/park stay accurate
-            _activeShown.Clear();
+            // _activeFlown IS DELIBERATELY NOT CLEARED HERE — that clear WAS the replay defect. See
+            // the field's own note: this gate fires on every turn that is not this character's, so
+            // clearing the "already flown" marks here re-flew every long-lived active card the next
+            // time the column came back up.
             if (_loggedActiveCount != -1)
                 _loggedActiveCount = -1;
             // ZERO IS A READING: the census must carry "this seat drew nothing, and here is the gate
@@ -2324,6 +2327,8 @@ internal sealed partial class CardsDriver
         CardsGameApi.GetActivePileWidgets(hand, _activeWidgetBuffer);
         _activeBuffer.Clear();
         _activeModelBuffer.Clear();
+        _activeFlightBuffer.Clear();
+        _activeIdBuffer.Clear();
         for (int i = 0; i < _activeWidgetBuffer.Count; i++)
         {
             AbilityCardUI widget = _activeWidgetBuffer[i];
@@ -2334,27 +2339,107 @@ internal sealed partial class CardsDriver
             SetActiveHighlight(card, top, bottom); // native game action-region highlight
             _activeBuffer.Add(card);
             _activeModelBuffer.Add(widget.AbilityCard);
+            // THE KEY IS CardInstanceID, NOT CardID. AbilityCardUI.CardID is the card DATA id
+            // (AbilityCardUI.cs:22, and the game itself never trusts it alone — its own membership
+            // tests read `e.ID == CardID && e.CardInstanceID == CardInstanceID`, AbilityCardUI.cs:197).
+            // A data id repeats across scenarios and characters, so a mark left standing when a
+            // scenario ended would silently suppress the SAME card's flight in the next one. The
+            // instance id is the identity RevealGate and RemoteControlBoard's departed-face memory
+            // already key on, so this surface now agrees with them.
+            int instanceId;
+            try { instanceId = widget.AbilityCard.CardInstanceID; }
+            catch { continue; }
+            _activeIdBuffer.Add(instanceId);
 
-            // THE FLIGHT, MIRRORED (user item 8b: "wenn eine Karte aktiviert wurde soll sie
-            // unmittelbar mit einer Animation wie bei den Fächern zum 'Aktiv' Bereich gehen und dort
-            // umfassend synchronisiert sichtbar sein für alle (auch auf dem remote board)"). The
-            // owner already glides: _active.SetCards below relayouts with instant:false, so the card
-            // eases from wherever it sat into its column cell, exactly as a fan does. What peers had
-            // was a card that simply appeared. This is a SECOND CALLER of the existing mirrored
-            // flight machine (Net.NetCardFx -> RemoteCardFx), not a second implementation — the same
-            // one the burn/discard path uses; all it needed was the Active anchor. ReportCardFx is
-            // suppressed under a read-only focus, which is right: those flights belong to the
-            // watched character's board, not to ours.
-            if (!_activeShown.Contains(widget.CardID))
-                ReportCardFx(SlotAnchor(_tray.SlotOf(card)), Net.CardFxAnchor.Active);
+            // ─── THE END-OF-TURN FLIGHT INTO THE ACTIVE COLUMN (user item 7, 2026-09-06 late) ───
+            // "Wenn eine Karte aktiv ist, soll ihre Animation am Ende des Zuges auch in den
+            // Aktiv-Stapel gehen, wo sie dann angezeigt wird (remote und lokal). So wie die anderen
+            // Karten ihre Animation im Abgelegt- oder Verbrannt-Stapel haben."
+            //
+            // THE TRIGGER IS THE GAME'S OWN END-OF-TURN PILE MOVE, not a widget-list edge. The
+            // game's drain is CCharacterClass.DiscardRoundAbilityCards (CCharacterClass.cs:505),
+            // which routes each round card through MoveAbilityCardToPile (CCharacterClass.cs:418);
+            // that method's FIRST test is `if (abilityCard.ActiveBonuses.Count > 0) eCardPile =
+            // Activated`, and the Activated branch moves the card out of RoundAbilityCards into
+            // m_ActivatedCards. The observable, per-card form of exactly that transition is "this
+            // card was lying in one of my board's ROUND RECESSES on the previous rebuild, and the
+            // active list holds it now" — which is what _lastHalfCards (snapshotted at the top of
+            // Rebuild, before any of this pass's zone work) answers.
+            //
+            // IT REPLACES A TRIGGER THAT FIRED ON THE WRONG EVENT AND FIRED IT REPEATEDLY. The
+            // previous test was `!_activeShown.Contains(widget.CardID)`, an edge on the game's
+            // active-pile WIDGET list — and _activeShown was cleared by the turn gate above, which
+            // fires on every turn that is not this character's. So a card that went active once
+            // re-flew every time the column came back up. MEASURED, ModBuild 462, both logs of the
+            // 2026-09-06 session: the host's own board had exactly ONE active card all session
+            // ('ACTIVE SET ... own board [151:ABILITY_CARD_TheMindsWeakness]', the only non-empty
+            // own-board picture in the log), its 'Active cards: N shown' line toggled 1/0 nine
+            // times as the gate opened and shut — and the co-player's log carries THREE
+            // '[Net] Remote card FX [player 1]: Board -> Active playing' events for that one card.
+            // Three flights, one activation. The new trigger cannot repeat: a card is in
+            // _lastHalfCards only for the single rebuild that follows its leaving the dock.
+            //
+            // IT CANNOT COLLIDE WITH THE BURN, and the game guarantees that rather than this code.
+            // MoveAbilityCard (CCharacterClass.cs:273) removes from the source list before adding to
+            // the destination, so ActivatedCards / LostAbilityCards / PermanentlyLostAbilityCards /
+            // DiscardedAbilityCards are mutually exclusive at every instant, and the Activated
+            // branch WINS over the action's own pile while ActiveBonuses stand. A card that burns
+            // only after its effects is therefore in ActivatedCards at end of turn — this flight —
+            // and moves to LostAbilityCards later, when the bonus expires, which is a second,
+            // strictly later transition out of the ACTIVE COLUMN and thus never in _lastHalfCards.
+            // The burn flight is the burn path's (TryStartBurnFly / RemoteBurnFx) and stays there.
+            // Both animations happen, in that order, and never both at once.
+            //
+            // THE ORIGIN ANCHOR IS THE 461 LADDER, term for term. The line here used to read
+            // `SlotAnchor(_tray.SlotOf(card))` — the EXACT expression ModBuild 461 replaced in
+            // TryStartFlyToPile because SlotOf answers off the _occupants bookkeeping the rebuild
+            // has already evicted the card from, so it returns -1 by construction and every flight
+            // went out as CardFxAnchor.Board. That is why all three of 462's mirrored active
+            // flights read 'Board -> Active' on the co-player, and why two of the three drew a card
+            // BACK ('CAUSE = NEVER LATCHED'): RemoteControlBoard.TryTakeDepartedFace gates its live
+            // latch on `slot >= 0`, so a Board origin can never reach the face. Naming the recess
+            // fixes the start point and the face together, with nothing to change on the receiver.
+            bool leftARecess = _lastHalfCards.Contains(card);
+            if (leftARecess && !_activeFlown.Contains(instanceId)
+                && !card.IsHeld && !card.IsFlying && !card.IsVanishing
+                && card.gameObject.activeInHierarchy)
+            {
+                int seat = _tray.RecessSeatOfCard(card);
+                if (seat < 0)
+                    seat = _tray.SlotOf(card);
+                // The card has NOT moved yet — nothing below _active.SetCards has run, and the
+                // eviction that empties _occupants is bookkeeping that reparents nothing — so the
+                // live transform IS the recess seat the owner is looking at. That world pose is the
+                // flight's start; the SEMANTIC anchor beside it is what peers resolve against their
+                // copy of this board.
+                int modelId;
+                string modelName;
+                try
+                {
+                    modelId = widget.AbilityCard.ID;
+                    modelName = widget.AbilityCard.Name ?? "?";
+                }
+                catch { modelId = -1; modelName = "?"; }
+                _activeFlightBuffer.Add(new ActiveFlight(card, modelId, modelName, instanceId,
+                    seat, card.transform.position,
+                    card.transform.lossyScale.x * CardsConfig.CardWidth.Value));
+            }
         }
 
+        // THE HOME CELL FIRST, THEN THE ARC INTO IT. VRCard.FlyFromPile flies to "the home pose the
+        // layout already asserted", so SetCards (which relayouts with instant:false and therefore
+        // calls SetHome on every column card) has to run before the launch below. This ordering is
+        // the same one CardsDriver.4's pick-restart return uses.
         _active.SetCards(_activeBuffer);
         _active.SetVisible(_activeBuffer.Count > 0);
 
-        _activeShown.Clear();
-        for (int i = 0; i < _activeWidgetBuffer.Count; i++)
-            _activeShown.Add(_activeWidgetBuffer[i].CardID);
+        LaunchActiveFlights();
+
+        // ALREADY-FLOWN MARKS SURVIVE THE TURN GATE and are pruned to the cards that are STILL
+        // active. A card that stays active for five rounds keeps its mark through every hide/show,
+        // so it never re-flies; a card that leaves the active pile (its bonus expired and it went
+        // to the lost pile) drops out, so a genuinely new activation of it would fly again.
+        _activeFlown.IntersectWith(_activeIdBuffer);
 
         // The comparable half of the answer: what THIS seat believes is active for THIS character,
         // beside every other seat's belief about the same character. See ActiveCardSet.
@@ -2369,11 +2454,159 @@ internal sealed partial class CardsDriver
         }
     }
 
-    /// <summary>The card ids the active column drew on the previous rebuild — the edge detector for
-    /// the mirrored flight. A card already in this set has flown; a card newly in the active list has
-    /// not. Cleared whenever the column is hidden, so the flight replays when it comes back up.
+    /// <summary>
+    /// The cards whose END-OF-TURN flight into the active column has already been played, keyed on
+    /// <c>CAbilityCard.CardInstanceID</c> (the game's own per-instance identity, not the repeating
+    /// card DATA id), so the flight runs exactly ONCE per activation.
+    ///
+    /// <para>IT REPLACES <c>_activeShown</c>, WHICH WAS CLEARED BY THE TURN GATE AND THEREFORE
+    /// REPLAYED. Its own doc said so in as many words — "Cleared whenever the column is hidden, so
+    /// the flight replays when it comes back up" — and read as a description of intended behaviour
+    /// rather than as the defect it was. UpdateActive's gate hides the column on every turn that is
+    /// not the presented character's, so on a two-player scenario that is every other turn. This set
+    /// is instead PRUNED to the ids still in the active list (see the IntersectWith at the end of
+    /// UpdateActive): a mark is dropped only when the card actually leaves the active pile, which is
+    /// the only event after which a new activation — and so a new flight — is correct.</para>
     /// </summary>
-    private readonly HashSet<int> _activeShown = new(8);
+    private readonly HashSet<int> _activeFlown = new(8);
+
+    /// <summary>The current pass's active card INSTANCE ids, for the prune above. A field rather
+    /// than a local so the per-rebuild walk allocates nothing.</summary>
+    private readonly HashSet<int> _activeIdBuffer = new(8);
+
+    /// <summary>
+    /// One end-of-turn flight into the active column, captured while the card is still sitting in
+    /// its round recess and launched after the column has asserted its home cell.
+    /// </summary>
+    private readonly struct ActiveFlight
+    {
+        public readonly VRCard Card;
+        /// <summary>The game model's own card id and name, captured at the recess rather than read
+        /// inside the log call: <c>ACTIVE SET</c> prints the same <c>id:name</c> pair on every
+        /// client, so this line and a peer's board belief are comparable as literal strings.</summary>
+        public readonly int ModelId;
+        public readonly string Name;
+        /// <summary><c>CAbilityCard.CardInstanceID</c> — the once-per-activation key.</summary>
+        public readonly int CardId;
+        /// <summary>The board recess the card left (0/1), or -1 when neither
+        /// <c>RecessSeatOfCard</c> nor <c>SlotOf</c> could name one.</summary>
+        public readonly int Seat;
+        /// <summary>Where the card physically was when the model moved it — the flight's start.</summary>
+        public readonly Vector3 FromWorld;
+        /// <summary>…and how wide it was drawn there, so the arc's scale ramp starts at the size the
+        /// owner was actually looking at rather than at a nominal.</summary>
+        public readonly float FromWidth;
+
+        public ActiveFlight(VRCard card, int modelId, string name, int cardId, int seat,
+                            Vector3 fromWorld, float fromWidth)
+        {
+            Card = card;
+            ModelId = modelId;
+            Name = name;
+            CardId = cardId;
+            Seat = seat;
+            FromWorld = fromWorld;
+            FromWidth = fromWidth;
+        }
+    }
+
+    /// <summary>The flights captured this pass (almost always 0 or 1; a turn-clear can activate
+    /// both round cards).</summary>
+    private readonly List<ActiveFlight> _activeFlightBuffer = new(2);
+
+    /// <summary>
+    /// Fly each newly-activated card from its round recess into the cell the active column just
+    /// gave it, and tell peers to play the identical arc against their copy of this board.
+    ///
+    /// <para>THE OWNER NOW ARCS, WHICH IS WHAT "so wie die anderen Karten" ASKS FOR. Before this the
+    /// owner's only motion was <c>ActivePileViewer.Relayout</c>'s <c>SetHome(instant: false)</c> —
+    /// the ordinary straight-line home lerp — while every observer played
+    /// <c>RemoteCardFx</c>'s smoothstep chord plus a sine bow along WORLD up. Same 0.4 s, different
+    /// CURVE, so "remote und lokal" was false on the one term the user named. The comment that stood
+    /// here asserted the opposite ("The owner already glides ... exactly as a fan does") and was a
+    /// hypothesis: a fan glide is not a pile arc, and the pile arc is the shape the item compares
+    /// itself to. <see cref="VRCard.FlyFromPile"/> is the existing helper for "arc from a world
+    /// point into the home pose the layout already set" — the same one the pick-restart return and
+    /// the short-rest offer use — so this is a second CALLER, not a second arc.</para>
+    ///
+    /// <para>THE TWO SIDES ARE THE SAME NUMBERS BY CONSTRUCTION: the duration is
+    /// <see cref="FlyToPileSeconds"/> = 0.4 s and <c>NetProtocol.CardFxSeconds</c> = 0.4 s; the bow
+    /// is <c>VRCard.FlyArcHeightFraction</c> = 0.55 and <c>RemoteCardFx.ArcFraction</c> = 0.55, both
+    /// along world up; the floor is <see cref="BoardArcMin"/> and <c>RemoteCardFx</c>'s
+    /// <c>CardHeight × MinArcCardHeights × boardScale</c>, which is the same expression against the
+    /// owner's own synced card height.</para>
+    /// </summary>
+    private void LaunchActiveFlights()
+    {
+        if (_activeFlightBuffer.Count == 0)
+            return;
+        Vector3 arcUp = BoardUp();
+        float minArc = BoardArcMin();
+        for (int i = 0; i < _activeFlightBuffer.Count; i++)
+        {
+            ActiveFlight f = _activeFlightBuffer[i];
+            VRCard card = f.Card;
+            if (card == null || card.IsHeld || card.IsFlying || card.IsVanishing)
+                continue;
+            // Marked BEFORE the launch, so a throw below can never leave the card eligible to fly
+            // again on the very next rebuild — a repeated flight is the defect this replaces.
+            _activeFlown.Add(f.CardId);
+            Net.CardFxAnchor origin = SlotAnchor(f.Seat);
+            card.FlyFromPile(f.FromWorld, f.FromWidth, FlyToPileSeconds, arcUp, minArc);
+            // The SECOND CALLER of the shipped mirrored-flight machine (Net.NetCardFx ->
+            // RemoteCardFx), never a second implementation: the same outbox, the same 2-byte
+            // endpoint pair, the same receiver. CardFxAnchor.Active (ModBuild 462) resolves on the
+            // receiver to RemoteControlBoard.AnchorLocal(...) => layout.ActiveMount — the sender's
+            // own active-matrix mount — and an older peer's NetCardFx.Clamp degrades it to the board
+            // centre rather than dropping the packet. ReportCardFx suppresses the whole thing under
+            // a read-only character focus, which is right: that flight belongs to the watched
+            // character's board, not to ours.
+            ReportCardFx(origin, Net.CardFxAnchor.Active);
+            // HW-VERIFY: user item 7 (2026-09-06 late), the OWNER's half. Grep token: ACTIVE FLIGHT.
+            // Its other half prints on every OTHER machine as '[Net] FLIGHT FACE ... -> Active'.
+            // Read the two side by side — that comparison is the only way "remote und lokal gleich"
+            // is decidable without a video, so the five fields below are the five that line names
+            // too: the CARD, the EVENT that triggered the flight, the ORIGIN anchor, the DESTINATION
+            // anchor, and the FRAME it started.
+            //
+            //  WORKING = "recess 1"/"recess 2" here and "their Slot0 -> Active"/"Slot1 -> Active"
+            //            there, ONE line per card per activation, and that peer's FLIGHT FACE
+            //            reading FRONT. In ModBuild 462 the same session produced 3 wire events for
+            //            1 activation, all "Board -> Active", 2 of 3 drawn as a BACK.
+            //  INERT   = this line absent while '[Cards] Active cards: N shown' rises from 0 — the
+            //            card reached the column without the end-of-turn transition being seen, so
+            //            _lastHalfCards did not hold it (it was not lying in a recess: activated
+            //            from the hand fan, from a pick field, or the column re-populated on a focus
+            //            switch rather than on a turn ending). No flight is CORRECT for those.
+            //  BEYOND  = this line present with NO FLIGHT FACE line on any peer: the event was lost
+            //            on the unreliable extras channel (read '[Net] CARD FX OUTBOX' here against
+            //            that peer's '[Net] CARD FX LOST', which stood at 1 of 7 this session). A
+            //            lost event is a MISSING animation only — the card is already seated in
+            //            every peer's active matrix from the host-replicated ActivatedCards, so
+            //            nothing is stranded mid-flight and nothing is drawn wrongly.
+            VRLog.Note("Cards", $"ACTIVE FLIGHT: card {f.ModelId}:{f.Name} (widget {f.CardId}) "
+                + "went ACTIVE at the END OF THE TURN — the "
+                + "game's own CCharacterClass.DiscardRoundAbilityCards drain moved it out of "
+                + "RoundAbilityCards into ActivatedCards (MoveAbilityCardToPile takes the Activated "
+                + "branch while ActiveBonuses stand), and this client saw that as the card leaving "
+                + "its round recess. ORIGIN "
+                + (f.Seat >= 0
+                    ? $"recess {f.Seat + 1} -> wire anchor {origin}, so every peer's mirrored flight "
+                      + "starts at their copy of that recess — the point this player is watching the "
+                      + "card leave"
+                    : $"the board CENTRE (no recess: RecessSeatOfCard and SlotOf both answered -1) "
+                      + $"-> wire anchor {origin}, which is the honest last resort and not the "
+                      + "pre-461 bookkeeping defect")
+                + $". DESTINATION wire anchor {Net.CardFxAnchor.Active} = this board's active-card "
+                + $"matrix. FRAME {Time.frameCount}, {FlyToPileSeconds:F2}s, arc floor "
+                + $"{minArc:F3} m over the board — the SAME duration (NetProtocol.CardFxSeconds), "
+                + "the SAME 0.55 arc fraction and the SAME world-up bow the receiver replays, so "
+                + "the two machines draw one curve. ONE LINE PER ACTIVATION: the mark is kept "
+                + "across the column's turn gate and dropped only when the card leaves the active "
+                + "pile, which is the replay ModBuild 462 shipped (3 events for 1 activation).");
+        }
+        _activeFlightBuffer.Clear();
+    }
 
     /// <summary>Model-side twin of <c>_activeBuffer</c> — the same cards as <c>CAbilityCard</c>, for
     /// the census (which compares game-card identity across clients, never VR widgets).</summary>
@@ -2584,6 +2817,13 @@ internal sealed partial class CardsDriver
         // return with the next active hand).
         _piles.SetVisible(false);
         _active.SetVisible(false); // feature 6: no active hand → no active-cards area
+        // THE ONE PLACE THE FLOWN MARKS ARE DROPPED WHOLESALE. Unlike UpdateActive's turn gate —
+        // which hides the column every turn that is not this character's and whose clear WAS the
+        // replay defect — this path means there is no hand and no character at all (scenario
+        // teardown, or the board with nobody assigned), so no mark can still be describing a card
+        // that is on a board. Keeping them here is the stale-mark risk the CardInstanceID key
+        // already narrows; clearing them here removes it outright.
+        _activeFlown.Clear();
         _activeBuffer.Clear();
         _active.SetCards(_activeBuffer);
         _loggedActiveCount = int.MinValue;

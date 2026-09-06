@@ -23,6 +23,31 @@ namespace GloomhavenVR.Net;
 /// selection phase a peer's active column shows BACKS — the same stance the round-card slots take.
 /// In practice an active card is public by definition (it was played face-up in front of everybody),
 /// so the gate can only ever be stricter than vanilla, never looser.
+///
+/// <para>OPEN, MEASURED, AND NOT FIXED HERE — THE 0.4 s OVERLAP. Since ModBuild 462 a card going
+/// active also flies a mirrored slab into this column (<c>CardFxAnchor.Active</c>), and this column
+/// is rebuilt from the host-replicated <c>ActivatedCards</c>, which holds the card from the moment
+/// the model moved it. So for the flight's 0.4 s an observer sees the card in its CELL and a second
+/// copy of it in the AIR, while the owner sees exactly one — their flying card IS the cell's card
+/// (<c>ActivePileViewer.Relayout</c> hands it the cell and <c>VRCard</c> ignores its home while
+/// <c>IsFlying</c>), so the owner's cell is empty for the whole arc. Two copies of one card is the
+/// failure this project ranks above a missing animation, and ModBuild 461 hid the flight slab for
+/// the round recesses for exactly this reason.</para>
+///
+/// <para>IT IS NOT FIXED IN THIS FILE BECAUSE THE ONLY EXACT SIGNAL IS IN ANOTHER ONE. Suppressing
+/// the cell needs the IDENTITY of the card currently in the air, and that is resolved inside
+/// <c>RemoteCardFx.ResolveFace</c> (via <c>RemoteAvatar.TryTakeDepartedRecessFace</c>) and kept in
+/// its private <c>Flight</c> pool; nothing on <see cref="RemoteAvatar"/> exposes it. THE EXACT
+/// CHANGE OWED: <c>RemoteCardFx</c> records the claimed <c>CAbilityCard</c>'s
+/// <c>CardInstanceID</c> on the <c>Flight</c> it starts for a <c>-&gt; Active</c> destination and
+/// exposes a <c>bool IsFlyingToActive(int cardInstanceId)</c> that scans its live flights; this
+/// class then blanks that card's cell through the SAME <c>Set(null, showFronts, actor)</c> the
+/// held-seat suppression below already uses — one hiding mechanism, no second one to keep in step.
+/// A DERIVED CLOCK WAS DELIBERATELY REJECTED: this surface refreshes at 4 Hz
+/// (<c>RemoteBoardContent.RefreshSeconds</c>) and the arc lasts 0.4 s, so a timer started from the
+/// arrival this class can see would blank the cell for up to a full arc AFTER the slab had already
+/// landed — a card popping out of the matrix and back, which is worse than the overlap and would be
+/// a second, drifting copy of a fact the flight already knows.</para>
 /// </summary>
 /// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. Source:
 /// <c>CCharacterClass.ActivatedAbilityCards</c> off the host-replicated actor
@@ -265,6 +290,10 @@ internal sealed class RemoteActiveCards
         // logs' lines for one character diff literally. Reported BEFORE the empty early-out below,
         // because an empty active pile is a reading and not an absence.
         Cards.ActiveCardSet.Report(actor, Cards.ActiveCardSet.Belief.RemoteBoard, _buffer);
+        // The observer half of user item 7's animation pair. Reported here for the same reason the
+        // census above is: an EMPTY active pile has to prune the arrival marks, so a card that went
+        // active, expired and went active again flies and reports twice rather than once.
+        ReportArrivals();
         bool any = Count > 0;
         if (_root.gameObject.activeSelf != any)
             _root.gameObject.SetActive(any);
@@ -359,6 +388,93 @@ internal sealed class RemoteActiveCards
     /// <summary>Last logged (count, rows) shape (−1 = never), so the grid diagnostic fires on a real
     /// change and never per refresh.</summary>
     private int _loggedShape = -1;
+
+    // ─── THE OBSERVER'S HALF OF THE END-OF-TURN ACTIVE FLIGHT (user item 7, 2026-09-06 late) ─────
+
+    /// <summary>The cards this column is already drawing, keyed on <c>CardInstanceID</c> — the
+    /// game's own per-instance identity, the one <c>RevealGate</c> and the departed-face memory use.
+    /// (The card DATA id beside it is what gets LOGGED, because that is the field <c>ACTIVE SET</c>
+    /// prints and therefore the one two clients' lines diff on.) An instance not in here and in the
+    /// actor's <c>ActivatedCards</c> arrived since the last pass — the observer's view of the very
+    /// end-of-turn transition the owner flies on.</summary>
+    private readonly HashSet<int> _seatedIds = new(InitialSlots);
+
+    /// <summary>Scratch for this pass's ids, so the prune allocates nothing.</summary>
+    private readonly HashSet<int> _passIds = new(InitialSlots);
+
+    /// <summary>
+    /// THE OBSERVER'S LINE, WRITTEN TO DIFF AGAINST THE OWNER'S. Grep token: ACTIVE ARRIVAL.
+    ///
+    /// <para>User item 7 is a 1:1 claim about an ANIMATION — "remote und lokal" — and an animation
+    /// is the one thing a state census cannot photograph. So the pair is: the owner's
+    /// <c>[Cards] ACTIVE FLIGHT</c> line (which names the card, the end-of-turn transition that
+    /// triggered it, the recess it left, the Active destination and the frame it launched) and this
+    /// one, on every observing machine, naming the SAME card in the SAME <c>id:name</c> form
+    /// <c>ACTIVE SET</c> uses, the frame it seated here, and the cell it took. Two logs, one card
+    /// id, one subtraction — which is what a video would otherwise be needed for.</para>
+    ///
+    /// <para>READ IT WITH the <c>[Net] FLIGHT FACE ... -&gt; Active</c> line this client prints for
+    /// the same peer in the same interval: that one names the ANCHORS this mirror actually flew and
+    /// the face it drew, and it is the line that says whether the flight arrived at all.</para>
+    ///
+    /// <list type="bullet">
+    ///   <item>WORKING = one line here per activation, with a <c>FLIGHT FACE ... their Slot0 -&gt;
+    ///     Active</c> or <c>Slot1 -&gt; Active</c> beside it reading FRONT, and the owner's
+    ///     <c>ACTIVE FLIGHT</c> naming the same card id. ModBuild 462 read 3 flights for 1
+    ///     activation, all <c>Board -&gt; Active</c>, 2 of 3 drawn as a BACK.</item>
+    ///   <item>INERT = this line present with NO <c>FLIGHT FACE ... -&gt; Active</c> in the same
+    ///     interval: the card reached this matrix through the host-replicated model and the wire
+    ///     event never arrived. That is a MISSING animation and nothing more — the card is seated
+    ///     correctly in the cell below, never stranded mid-flight. Read <c>[Net] CARD FX LOST</c>
+    ///     for this peer against their <c>[Net] CARD FX OUTBOX</c>; it stood at 1 of 7 this
+    ///     session.</item>
+    ///   <item>BEYOND THE INSTRUMENT = the OVERLAP. This line says the cell is drawn; it cannot say
+    ///     whether a flight slab was in the air at the same instant, because the in-flight card's
+    ///     identity lives in <c>RemoteCardFx</c> and this surface has no read of it. See the class
+    ///     note above <see cref="Refresh"/> for the exact two-line change that would close it and
+    ///     why it was not made here.</item>
+    /// </list>
+    /// </summary>
+    private void ReportArrivals()
+    {
+        _passIds.Clear();
+        for (int i = 0; i < _buffer.Count; i++)
+        {
+            int id;
+            int instanceId;
+            string name;
+            try
+            {
+                id = _buffer[i].ID;
+                instanceId = _buffer[i].CardInstanceID;
+                name = _buffer[i].Name ?? "?";
+            }
+            catch { continue; }
+            _passIds.Add(instanceId);
+            if (!_seatedIds.Add(instanceId))
+                continue;   // already drawn on an earlier pass — not an arrival
+            // HW-VERIFY: user item 7 (2026-09-06 late), the OBSERVER's half. Grep token:
+            // ACTIVE ARRIVAL. One line per card per activation on a 4 Hz surface, so a settled
+            // board costs nothing. Its counterpart is '[Cards] ACTIVE FLIGHT' on the owner's
+            // machine; the two name the same card id and the same transition.
+            VRLog.Note("Net", $"ACTIVE ARRIVAL [player {_playerId}]: card {id}:{name} is now drawn "
+                + $"in this peer's ACTIVE matrix (cell {i + 1} of {_buffer.Count}) at frame "
+                + $"{Time.frameCount}. THE EVENT is the same one the owner flies on — the game's own "
+                + "CCharacterClass.DiscardRoundAbilityCards end-of-turn drain moved this card out of "
+                + "RoundAbilityCards into ActivatedCards — seen here through the host-replicated "
+                + "model rather than off the wire, which is why this line fires even when the card-FX "
+                + "event is lost. ORIGIN ANCHOR expected on the wire: that peer's Slot0/Slot1 (their "
+                + "round recess); DESTINATION ANCHOR: CardFxAnchor.Active, which this client resolves "
+                + "to RemoteControlBoard.AnchorLocal => layout.ActiveMount — this very column. "
+                + "COMPARE the owner's '[Cards] ACTIVE FLIGHT' line for card id " + id + ": same card, "
+                + "same transition, and its FRAME plus this one's is the end-to-end delay. A "
+                + "'[Net] FLIGHT FACE ... -> Active' line for this peer in the same interval says "
+                + "which anchors the mirror actually flew and whether it drew the FRONT; its ABSENCE "
+                + "means the event was lost and the card simply appeared here, which is a missing "
+                + "animation and never a wrong picture.");
+        }
+        _seatedIds.IntersectWith(_passIds);
+    }
 
     public void SetActive(bool active)
     {
