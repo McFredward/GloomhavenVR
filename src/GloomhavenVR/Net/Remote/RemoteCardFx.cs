@@ -98,6 +98,11 @@ internal sealed class RemoteCardFx
         /// <summary>True while this slab is carrying the real card FRONT rather than a back. It
         /// also decides the slab's ORIENTATION — see the FaceHeadRotation note.</summary>
         public bool HasFace;
+
+        /// <summary><c>CAbilityCard.CardInstanceID</c> of the card this slab is carrying INTO THE
+        /// ACTIVE MATRIX, or <see cref="int.MinValue"/> for every other flight. See
+        /// <see cref="IsFlyingToActive"/>; nothing else reads it.</summary>
+        public int ActiveCardId = int.MinValue;
     }
 
     private readonly List<Flight> _flights = new(MaxFlights);
@@ -193,6 +198,10 @@ internal sealed class RemoteCardFx
         Flight f = Acquire();
         if (f.Go == null)
             return;
+        // A RECYCLED SLAB MUST NOT INHERIT THE LAST CARD'S IDENTITY. Acquire() hands back a parked
+        // flight, and an ActiveCardId left on it would blank a matrix cell for a card that is not in
+        // the air. ResolveFace re-stamps it below when this flight really is one.
+        f.ActiveCardId = int.MinValue;
 
         // The owner's own card size for THIS flight (see the _cardWidth block). Guarded above zero
         // because a wire value is never trusted; the struct's own fallback is already the default.
@@ -338,6 +347,22 @@ internal sealed class RemoteCardFx
                                                   out RemoteControlBoard.DepartedFaceVerdict verdict)
                 || card == null)
                 return $"BACK — no departed face claimable for {from} -> {to}: {Why(verdict)}";
+            // ─── THE ONE FACT THE ACTIVE MATRIX CANNOT GET ANYWHERE ELSE ────────────────────────
+            // Stamped HERE and not in Play(), because this is the only point at which the flying
+            // card has a NAME: the claim above is what resolves it, and it lives in this class's
+            // private pool. RemoteActiveCards is rebuilt from the host-replicated ActivatedCards,
+            // which holds the card from the moment the model moved it — so for the arc's 0.4 s an
+            // observer would draw the card in its CELL and again in the AIR while the owner draws it
+            // once (their flying card IS the cell's card). Two copies of one card is the failure this
+            // project ranks above a missing animation.
+            //
+            // IT IS STAMPED BEFORE THE REVEAL GATE IS ASKED, DELIBERATELY. This is a POSITION fact —
+            // "that card is in the air right now" — and it is true whether the slab ends up carrying
+            // the front or a back. Gating it on the face permission would leave the cell drawn
+            // underneath a card-back slab during a peer's selection window, which is the same double
+            // with one of the two copies anonymous.
+            if (to == CardFxAnchor.Active)
+                f.ActiveCardId = card.CardInstanceID;
             ScenarioRuleLibrary.CPlayerActor? actor =
                 RemoteBoardFocus.DisplayedActor(_owner, out _);
             // THE PERMISSION IS RE-ASKED, not inherited. The memory only ever holds a face this
@@ -447,10 +472,54 @@ internal sealed class RemoteCardFx
             {
                 f.Active = false;
                 f.HasFace = false;
+                f.ActiveCardId = int.MinValue;   // the card has landed; its cell must draw again
                 f.Art?.HideFront();
                 f.Go.SetActive(false);
             }
         }
+    }
+
+    /// <summary>
+    /// Is <paramref name="cardInstanceId"/> in the air on its way into this peer's ACTIVE matrix
+    /// right now? <c>RemoteActiveCards</c> asks so it can blank that card's cell for the length of
+    /// the arc — see its class note, which specifies this method.
+    ///
+    /// <para>THIS EXPOSES A FACT AND SUPPRESSES NOTHING. The blanking is the matrix's, through the
+    /// same <c>Set(null, …)</c> its held-seat suppression already uses — one hiding mechanism with
+    /// two callers rather than two mechanisms to keep in step.</para>
+    ///
+    /// <para>IT CANNOT LATCH A CELL OFF, AND THAT IS THE ONE FAILURE MODE THAT WOULD MATTER. The
+    /// stamp is cleared on three independent paths, none of which is a packet: <see cref="Tick"/>
+    /// clears it when the arc's own local clock reaches 1 (a flight has no completion EVENT to lose
+    /// — its whole duration is <c>NetProtocol.CardFxSeconds</c> counted on this client),
+    /// <see cref="Play"/> clears it on every reuse of a pooled slab, and <see cref="Destroy"/> drops
+    /// the pool. The query then adds a belt of its own: a flight whose elapsed time has run past the
+    /// arc is not answered for even if it is somehow still marked active, so a starved
+    /// <see cref="Tick"/> costs at most one extra arc's worth of blanking and never a permanent
+    /// hole.</para>
+    ///
+    /// <para>AND A LOST <c>-&gt; Active</c> EVENT IS SAFE IN THE OTHER DIRECTION TOO. The extras
+    /// stream is unreliable by contract (<c>CARD FX LOST</c> read 1 of 7 on the host this session);
+    /// a dropped event simply means no flight starts, this answers false, and the matrix draws the
+    /// card in its cell — which is where the model already has it, because that column is a
+    /// zero-wire per-actor mirror. The cost of a lost event is a missing animation, never a stranded
+    /// or a hidden card.</para>
+    /// </summary>
+    public bool IsFlyingToActive(int cardInstanceId)
+    {
+        if (cardInstanceId == int.MinValue)
+            return false;
+        for (int i = 0; i < _flights.Count; i++)
+        {
+            Flight f = _flights[i];
+            if (!f.Active || f.ActiveCardId != cardInstanceId)
+                continue;
+            // THE BELT (see the doc): never answer for an arc that has already outlived itself.
+            if (f.Elapsed > NetProtocol.CardFxSeconds)
+                continue;
+            return true;
+        }
+        return false;
     }
 
     // ------------------------------------------------------------------ anchors --
