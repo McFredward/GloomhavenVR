@@ -2488,7 +2488,7 @@ the whole term gated by `_EnableOcclusionMap`).
    space*. That is the space the map is **authored** in, not the space the shader **fetches** in.
    A camera mismatch shifts the whole lookup; a containment test is blind to a shift.
 
-**AND THE READING THAT MAY MOOT ALL OF IT.** The 464 line says `6 object renderer(s) registered`
+**AND THE READING THAT MAY MOOT ALL OF IT — IT READ THE OTHER WAY. EVERYTHING IN THIS PARAGRAPH IS FALSIFIED BY ModBuild 465 AND IS KEPT ONLY SO THE MISTAKE IS LEGIBLE; see §22.1.** The 464 line says `6 object renderer(s) registered`
 and `self-covering on 0 sample(s)` at **every** rung — including rung 0, where the sample point *is*
 the prop's own bounds centre, so a registered prop would necessarily have covered itself.
 `ObjectOcclusionVolume.OnEnable` is `AddObjectRenderer(GetComponent<MeshRenderer>())` and
@@ -2501,6 +2501,19 @@ registration that never existed**, ModBuild 459's "null perturbation" was null b
 rather than by result, and the occlusion map cannot reach this prop at all.
 
 That is strong but **indirect**, so round fourteen measures it exactly instead of asserting it.
+
+> **ROUND FIFTEEN, THE MEASUREMENT THAT CAME BACK: `renderers under the prop present in
+> m_ObjectRenderers: 1`**, with `'OcclusionVolume' enabled True, MeshRenderer on the same
+> object: YES, present in m_ObjectRenderers: YES`. The paragraph above is **wrong about this
+> prop**. Its rule is true — `AddObjectRenderer` early-returns on null and
+> `TilesOcclusionGenerator.m_ObjectRenderers` is a `List<MeshRenderer>`, so a
+> SkinnedMeshRenderer can never enter it — but the trap does not carry its volume on the
+> skinned body. It carries it on a child of its own,
+> `Trap_BearTrap_PR/OcclusionVolume [MeshRenderer]`, which the HOME TWIN roster has been
+> printing as renderer `[1]` all along. **A rule about where a component usually sits was read
+> as a fact about where this one sits.** Strand 5 is therefore NOT retired by construction, the
+> ModBuild 459 perturbation was NOT null by construction, and the occlusion channel is OPEN.
+> That reading met §21.4's precondition and put the A/B on hardware (§22.3).
 
 ### 21.4 What shipped — two more channels on the same line, and NO render-path change
 
@@ -2568,15 +2581,255 @@ fourteen rounds, because it is a non-zero reading in the wrong direction rather 
 `renderers under the prop present in m_ObjectRenderers: 0`, open with a named next experiment if
 above 0.
 
+> **ANSWERED IN 465: it read 1. The occlusion map is OPEN and the A/B shipped — §22.**
+
 **Open, and untouched by any of this:** the shader's own **view**-dependence. The user's lift is
 not only a translation — it rotates the prop against the eye, and §13.2 is on record that the ring
 reads white face-on and bronze edge-on. If channel 5 closes the occlusion map, this is the last
 candidate standing and the POSE columns on the HOME TWIN line are already the shipped control for
 it.
 
-**A correction to §19 that follows from §21.3 and must not be lost:** if the participation count is
+**A correction to §19 that follows from §21.3 and must not be lost — AND ITS ANTECEDENT IS
+FALSE, SO §19 STANDS UNRETIRED (465 read 1, §22.1):** if the participation count is
 0, then §19's whole account is retired — strand 5 was never removing anything on a skinned prop, its
 "WORKING shape" in round eight was reading volume counts rather than registrations, and the
 ModBuild 459 experiment was a null perturbation in the literal sense.
+
+---
+
+## 22. Round fifteen — 2026-09-07, against the ModBuild 465 log and `falle_aufblitzen.mp4`: the picture was finally measured, and it is a RAMP that adds NEUTRAL light
+
+Round fifteen did three things: it corrected round fourteen's conclusion (which was wrong), it
+measured the user's video photometrically instead of describing it, and it shipped the experiment
+§21.4 pre-registered and made conditional on a reading that has now arrived.
+
+### 22.1 THE CORRECTION OWED, AND IT IS THE WHOLE REASON THIS DEFECT HAS SURVIVED FIFTEEN ROUNDS
+
+Round fourteen concluded the prop registers nothing in the occlusion map because the volume's
+renderer is skinned. **Channel 5 falsifies it:**
+
+```
+renderers under the prop present in m_ObjectRenderers: 1;
+'OcclusionVolume' enabled True, MeshRenderer on the same object: YES,
+present in m_ObjectRenderers: YES
+```
+
+The *rule* round fourteen used is correct and worth keeping: `ObjectOcclusionVolume.OnEnable` is
+`AddObjectRenderer(GetComponent<MeshRenderer>())`, `AddObjectRenderer` early-returns on null, and
+`TilesOcclusionGenerator.m_ObjectRenderers` is declared `List<MeshRenderer>` — a SkinnedMeshRenderer
+can never be in it. What was wrong was applying it to this prop. **The trap does not carry its
+volume on the skinned body.** It carries it on a child object of its own, and that object has its
+own MeshRenderer — `[1] 'Trap_BearTrap_PR/OcclusionVolume [MeshRenderer]'`, which the HOME TWIN
+roster has printed in every log for several rounds, right beside the skinned renderer the argument
+was built on.
+
+**A rule about where a component usually sits was read as a fact about where this one sits.** That
+is the same shape as this project's recorded lesson *an assertion in the source is a hypothesis*,
+except the falsifying reading was not merely available — it was on the adjacent line of the same
+log line. Corrected in `§21.3`, `§21.6`, `PropAnimBelt.PositionSweep.cs` (three sites: the class
+header's channel summary, the channel-5 field summary, and the emitted prose, which now states the
+465 answer rather than only the hypothetical branch).
+
+**Strand 5 is therefore NOT retired**, §19's account stands, and the occlusion channel is open.
+
+### 22.2 THE PICTURE, MEASURED — and four things fall out of it
+
+`.planning/debug/falle_aufblitzen.mp4`, 18.3 s, 1280x720. Frames at 10 Hz; brightness converted to
+**linear light** before any subtraction, because "what was ADDED" is only meaningful there. Boxes on
+the wooden plate and on two parts of the stone ring; the frame at **t = 4.9 s** is the baseline
+(prop normal), against the ramp at **t = 2.8 → 4.2 s**.
+
+**(a) IT IS A RAMP THAT SNAPS OFF, NOT A TOGGLE AND NOT A DECAY.** Near-white pixel count and the
+mean value of the lit pixels, per 0.1 s:
+
+| t (s) | 2.8 | 2.9 | 3.0 | 3.2 | 3.4 | 3.6 | 3.8 | 4.0 | 4.2 | **4.3** |
+|---|---|---|---|---|---|---|---|---|---|---|
+| near-white px | 274 | 5 075 | 12 604 | 49 706 | 68 638 | 75 334 | 84 997 | 85 231 | 85 495 | **0** |
+| mean V of lit px | 132 | 155 | 177 | 206 | 223 | 238 | 245 | 247 | 247 | **100** |
+
+A **saturating (exponentially approaching) rise over ~1.0-1.4 s**, a short plateau, then **complete
+disappearance inside one 0.1 s step**. The second episode (t = 12.9 → 14.2, then 14.3) has the same
+shape. A third begins at t = 17.4 and the clip ends inside it.
+
+**This kills §13.2's reading of the earlier video** — that instrument reported *one monotonic 3.4 s
+ramp downward from the grab*, i.e. the opposite direction. §13.2 was already on record that its own
+curve was a product it could not factor; it is now also on record that the direction was wrong.
+
+**(b) THE LIGHT IT ADDS IS NEUTRAL.** Linear delta over the ramp, normalised to red:
+
+| box | delta ÷ R, at the plateau |
+|---|---|
+| stone ring, lower left (unclipped, the reliable one) | **1.000, 0.995, 1.010** |
+| stone ring, upper right | 1.000, 1.003, 1.012 |
+| wooden plate (clips at the top; warm own albedo) | 1.000, ~0.92, ~0.86 |
+
+For comparison, **the only two overlay tints this mod owns**: `FigureHighlight.GlowTint` amber
+`(1.00, 0.62, 0.26)` → linear `(1.000, 0.342, 0.056)`, and `FigureGhosts.GhostTint` cool blue
+`(0.45, 0.62, 1.00, 0.30)`. **Measured G/R is 0.995 where amber demands 0.342 and B/R is 1.010 where
+amber demands 0.056** — off by a factor of three and of eighteen.
+
+**This excludes the mod's own overlays as the painter, by colour, and it does so positively.** It
+also closes §13.3's second open identity — *"one of the held prop's two materials is THIS MOD'S OWN
+SHADER … rule it in or out by name"* — which §11.6 had only ever answered by assertion. The 465
+roster answers it from the other side too: renderer `[2] '…/VRFigureHighlight/VROverlay'` is
+**`DRAWING on 0/360 frame(s)`, `DESTROYED at frame 1`**. Two independent exclusions, one by colour
+and one by count.
+
+**(c) POSE IS NOT THE TERM, AND §13.2's CORRELATION IS FALSIFIED IN THE DIRECTION IT PREDICTED.**
+§13.2 recorded the ring white FACE-ON and bronze EDGE-ON. In this video the ring is **normal grey
+while a perfect face-on circle** (t = 4.3-12.8, ten seconds of it) and **fully white while a tilted
+ellipse** (t = 13.5-14.2). The decisive pair is t = 4.2 vs t = 4.3: **0.1 s apart, the same pose,
+the same screen position, the same background, the same hand — one white, one not.**
+
+**(d) POSITION IS NOT THE TERM EITHER, AND THIS IS THE ONE THAT HURTS.** The centroid of the lit
+pixels through the whole of episode 1 moves from (720, 381) to (747, 389) — under 30 px on a
+1280-wide frame, i.e. the prop is **essentially stationary through both the ramp AND the cliff**.
+The user's *"wenn ich es physisch nach oben fliegen lasse … entkomme ich dem Weissen"* is a real
+observation of a real event, but **the white also arrives and leaves with the prop standing still**,
+so world position cannot be the whole term and may be none of it. The four-rung POSITION SWEEP was
+built on the premise that it was. It is a good instrument that answered a question the picture does
+not ask.
+
+### 22.3 WHAT SHIPPED — the pre-registered A/B, and why it survived (b) rather than dying with it
+
+`PropOcclusionGate` holds the game's global `_EnableOcclusionMap` at **0** for the duration of the VR
+head camera's own render pass and restores it in `onPostRender`. Behind
+**`[FigureGrab] OcclusionMapOffOnHeadCamera`**, default **false**, named in both languages
+("Test: occlusion map off in VR" / "Test: Verdeckungskarte in VR aus"), re-synced on
+`SettingChanged` so the user can flip it inside the headset and not restart the game.
+
+**Why it is still the leading candidate after 22.2(b).** My first reading of the neutral-white delta
+was that it *killed* the occlusion hypothesis, on the argument that an occlusion term is a multiply
+in [0,1] and cannot brighten. That argument is wrong twice over, and writing it down is the point:
+
+1. In this game's shader family the occlusion term does not dim a lit surface, it drives the
+   **wall-fade** look — a bleach, which is neutral. Nothing about 22.2(b) discriminates against it.
+2. **The measured shape is exactly a wall FINISHING A FADE.** A wall dissolving in front of the prop
+   *from the ScenarioCamera's viewpoint* raises the coverage the prop's (wrongly-offset) lookup
+   fetches, over the fade's own ~1 s; when the wall stops being drawn into the map at all, the term
+   **drops in a single frame**. Ramp in over a second, snap off in one frame, twice in eighteen
+   seconds, with the prop standing still. Nothing else in this file predicts that shape.
+
+It also explains, without a second mechanism, the two things fifteen rounds could not hold together:
+**"der weisse flash auf ALLEN Fallen"** (every prop reading the same offset region flashes together)
+and **every state probe reading zero** (the prop's own state never changes — one of its shader's
+INPUTS does).
+
+**The cost is real and is not hidden from the user.** The gate is global, so while it is down the
+flame and wall-fade shaders lose their occlusion too and flames show through walls. The config
+description says exactly that, in both languages, and asks for one hold.
+
+**Why a missed restore cannot latch:** `SetGlobalFloat(_EnableOcclusionMap, 1f)` is *inside*
+`TilesOcclusionGenerator`'s command buffer (decompiled, line ~191), which re-executes every frame
+the ScenarioCamera renders. The game hands the global back on its own; this class restores it anyway
+and reports the shortfall.
+
+**Why the write in the render phase is allowed:** the `AssertNotInRenderPhase` rule is about
+VISIBILITY and ORDERING — a renderer enabled mid-frame lands in one eye. This brackets a shader
+uniform between `onPreRender` and `onPostRender` of the SAME camera, so every eye pass is covered
+symmetrically. `FlatScreenStereo` already uses that scoping for its per-render material override.
+
+### 22.4 THE GREP TOKEN, AND WHAT EACH READING MEANS IN NUMBERS
+
+```
+grep '^\[Info   :GloomhavenVR\] \[FigureGrab\] \[Props\] OCCLUSION GATE A/B' Player.log
+```
+
+Two lines: `… A/B ARMED` (the dial was on) and `… A/B —` (the result). The result line carries its
+own verdict clause. Read the clause, then the numbers:
+
+| clause on the line | the numbers behind it | what the user's report is then worth |
+|---|---|---|
+| `*** WORKING ***` | `SUPPRESSED N ≥ 120`, `RESTORED = N`, `already 0 on 0 of them`, `READ-BACK … non-zero on 0` | The gate was genuinely down for every head-camera pass. **"White gone" names the painter; "white unchanged" is a real EXCLUSION of the occlusion channel** and the last candidate standing is the shader's own view-dependence. |
+| `*** INERT — THE HOOK NEVER MATCHED A HEAD CAMERA ***` | `SUPPRESSED 0`, `HEAD CAMERA MATCHED: '<none>'` | Nothing was switched off. The session says **nothing** either way. Do not read "unchanged" as an exclusion. |
+| `*** NULL PERTURBATION ***` | `already 0 on N of N` | The global was already 0 before we touched it, so the experiment removed nothing. An ABSENCE, not an EXCLUSION — the exact reading round twelve's experiment turned out to have. |
+| `*** THE WRITE DID NOT TAKE ***` | `READ-BACK … non-zero on K > 0` | `Shader.SetGlobalFloat` ran and did not stick on K passes. Treat any "no change" as INERT. |
+| no result line at all, with `ARMED` present | the session ended without the dial being switched off and without a clean module shutdown (fewer than 120 head-camera passes, or the game was killed) | The window never closed. Not a reading. Switching the dial back off forces the line out, so ask for that before the next report. |
+| no `ARMED` line either | the dial was never switched on | The experiment did not run. Ask again before reading anything into the session. |
+
+**STILL BEYOND THE INSTRUMENT, stated plainly rather than inferred from a sibling.** Nobody has
+shown that **`Amp_Char_Shader` — the shader the trap actually draws on — reads these globals at
+all.** `tools/ShaderDisasm` can answer it and has answered it for four other shaders, but **the
+game's asset bundles are not on this build machine**: `ressources/` holds only `Managed/` (the
+managed DLLs), and there is no `GH_Data`, no `resources.assets` and no `*_assets_all.bundle`
+anywhere on the filesystem. `Amp_Char_Shader` **cannot be dumped here**, and
+`ParticleMasterUnlitAdd_Shd`'s disassembly is **not** its answer. The A/B is the substitute and it
+answers the same question from the outside: at 0 the term is bypassed in *every* shader that reads
+it, whichever those are.
+
+### 22.6 THE READING THAT MAY RETIRE §17 ALTOGETHER — our cached materials may not be the ones that draw
+
+A sweep for "what else adds neutral white with a ~1 s ramp" turned up something better than a
+candidate: **a hole in the instrument that has closed every material candidate since round ten.**
+Verified in our own source, not taken on report.
+
+`ResolveVerdictMaterials` (`PropAnimBelt.cs:1784`) runs **once**, from the arm path at `:1764`, and
+caches `Material` **references** into `VTable.Mats[]`. `FindHomeTwin` does the same into
+`TwinMats[]` (`:1377-1389`). Both are then read every frame for the rest of the 360-frame window.
+
+`Renderer.material`, `Renderer.materials` and any `sharedMaterials =` assignment **instantiate a
+clone and store it back into the renderer**. Anything that touches one of those *after* the arm
+therefore leaves our cached reference pointing at an object **no longer attached to anything** — and
+`VTable.Sample` / `SampleTwin` go on reading it and reporting it **unchanged, forever**.
+
+**That is the exact shape of §17.2's headline**, `WHAT MOVES ON THE UNHELD TWIN: 0 of 57 tracked
+slot(s)`. And `SHARED OR INSTANCED … 0 per-prop instances` is computed from **the same cache**, so
+the instrument's own evidence that nothing was instanced is drawn from the very reference that
+instancing would orphan. **A claim must not measure itself.**
+
+**The comment that protected it is TRUE, which is why it survived.** `ResolveVerdictMaterials` says
+*"once anything has instanced a renderer's material, Unity stores that clone back into the renderer
+and `sharedMaterials` afterwards returns the CLONE"*. Correct — and it only holds **if you call
+`sharedMaterials` again**. Nothing does. A sentence that is true about the API was read as a
+guarantee about a cache.
+
+**Callers that would trigger it are not hypothetical**, and several are reachable on a prop drawing
+on `Amp_Char_Shader`: `GenericHeal_OnEnable.cs:81,92,115,128,137` (`m_rend[j].material`, five
+separate instantiations), `CharacterManager.cs:421-433` (`renderer.materials[j]`),
+`Choreographer.cs:822,1008` (`skinnedMeshRenderer.material = new Material(...)`),
+`VanishAndAppear.cs:66`, `RFX4_ShaderFloatCurve.cs:58`.
+
+`GenericHeal_OnEnable` deserves naming twice over: it targets `_Glow` / `_GlowColor` on **every
+SkinnedMeshRenderer under its parent**, ramps `_Glow` along an `AnimationCurve` over
+**`AnimTime = 1f`**, and writes the original back **in a single frame** at the end. A ~1 s saturating
+ramp, per-renderer, one-frame clear — **the measured shape of §22.2(a)** — driven through a
+`.material` instantiation that would blind our belt to it in the same call. That is a coincidence
+worth measuring rather than a conclusion.
+
+**What shipped:** `SampleMaterialAttachment` — per frame, for both tables, count the cached
+materials no longer present in any of their renderers' live `sharedMaterials`. No
+`GetComponentsInChildren` (both renderer populations were already taken at arm) and no allocation
+(`GetSharedMaterials` fills a reused list), so it is not the per-frame sweep this project's default
+suspicion is about. It prints as the `ARE THOSE READINGS EVEN ATTACHED TO WHAT DRAWS?` clause on the
+HOME TWIN line, **before** every material number it qualifies, and the "0 of 57" sentence beside it
+was reworded from *"That EXCLUDES"* to *"THAT WOULD EXCLUDE … BUT READ THE ATTACHMENT CLAUSE BEFORE
+YOU BELIEVE IT."*
+
+| reading | what it means |
+|---|---|
+| `held prop worst 0 of N, twin worst 0 of N` **on a hold the user saw white** | the cache is the thing that draws; §17 is confirmed properly for the first time, and the material class really is out |
+| **anything above 0** | **§17 is retired.** The round-ten finding, the SHARED-OR-INSTANCED count beside it, and every material candidate closed since are all withdrawn |
+| `0` on a hold with **no** flash | proves nothing. This is a new instrument and its first output is a hypothesis; check it against whether the user saw white on that hold |
+
+This does **not** displace the occlusion A/B — the two are independent and both ride on the same
+hold. If the attachment clause reads non-zero, the next round starts from the material class with a
+correctly-resolved table; if it reads zero on a white hold, §17 finally means what it has been taken
+to mean for five rounds.
+
+### 22.5 What round fifteen did NOT do, and why
+
+* **No render-path change, no fix.** §21.5's two real fixes (mirror the generator onto the head
+  camera; sample in the generator's space) are unchanged in cost and are not justified by a
+  hypothesis this experiment can settle for one float.
+* **No new state probe.** 22.2 is the picture, which is what §17.2 and the STANDING WATCH both said
+  was the only class left. Twelve rounds of state probes were correct and are exhausted.
+* **The POSITION SWEEP is left in place, not deleted**, even though 22.2(d) shows position is not
+  the term. Its channels 5 and 6 are what raised this experiment, it costs one line per hold, and
+  deleting an instrument in the same round its premise died is how this file loses evidence. Delete
+  it when the A/B returns, with the A/B as the reason.
+* **The view-dependence lead is NOT promoted to first place** even though the occlusion channel
+  could still die. 22.2(c) falsified the only correlation ever recorded for it, so if the A/B comes
+  back "unchanged" the honest state of this file is **no candidate standing**, and the next round
+  starts from the ramp's shape rather than from a leftover.
 
 ---

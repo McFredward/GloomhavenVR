@@ -32,6 +32,15 @@ internal static class FigureGrabConfig
     public static ConfigEntry<bool> GrabFigures = null!;
 
     /// <summary>
+    /// ROUND-FIFTEEN EXPERIMENT for the held-prop white flash - hold the game's global
+    /// <c>_EnableOcclusionMap</c> at 0 for the VR head camera's own render pass. OFF by default
+    /// and meant to be on for one hold: see <see cref="PropOcclusionGate"/> for the mechanism,
+    /// the evidence that raised it, and the cost (flames stop being occluded by walls while it
+    /// is on).
+    /// </summary>
+    public static ConfigEntry<bool> OcclusionMapOffOnHeadCamera = null!;
+
+    /// <summary>
     /// How close the PINCH POINT has to come to a figure before it lights up as the grab
     /// candidate, in REAL MILLIMETRES AT THE HAND — see <see cref="PickRadiusRealMeters"/> for
     /// why the unit is the whole fix.
@@ -488,6 +497,16 @@ internal static class FigureGrabConfig
             return;
         ConfigFile config = _file = ModuleConfig.Create("figuregrab");
 
+        OcclusionMapOffOnHeadCamera = config.Bind(
+            "FigureGrab", "OcclusionMapOffOnHeadCamera", Defaults.OcclusionMapOffOnHeadCamera,
+            "DIAGNOSTIC A/B, not a feature - leave this OFF unless you were asked to switch " +
+            "it on. It holds the game's occlusion map switch OFF for the VR view only, to " +
+            "test whether that map is what makes a trap or chest in your hand turn bright " +
+            "white. WHILE IT IS ON YOU WILL SEE A SIDE EFFECT: flames and other effects stop " +
+            "being hidden by walls, because the same switch controls them. Turn it on, pick " +
+            "a trap up once, look at it, turn it off again - and say whether the white was " +
+            "still there. Nothing about the game or your save is changed either way, and " +
+            "other players are unaffected.");
         GrabFigures = config.Bind(
             "FigureGrab", "GrabFigures", Defaults.GrabFigures,
             "Grab a board figure (hero OR monster) into your hand with the TRIGGER to " +

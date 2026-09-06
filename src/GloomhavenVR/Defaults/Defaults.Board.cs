@@ -32,6 +32,10 @@ internal static partial class Defaults
     internal const bool StretchLimits = true;               // => [FigureGrab] StretchLimits
     internal const bool HeldFigureInfo = true;              // => [FigureGrab] HeldFigureInfo
     internal const bool GrabProps = true;                   // => [FigureGrab] GrabProps
+    // Round-fifteen held-prop-flash A/B. OFF: it strips wall occlusion from the flame shaders
+    // for as long as it is on (PropOcclusionGate), so it is a thing the user switches on for
+    // one hold and off again, never a shipped default.
+    internal const bool OcclusionMapOffOnHeadCamera = false; // => [FigureGrab] OcclusionMapOffOnHeadCamera
     internal const bool HighlightWhileWalkIn = false;       // => [FigureGrab] HighlightWhileWalkIn
     internal const bool ClothFollowsFreeHand = true;        // => [FigureGrab] ClothFollowsFreeHand
     internal const float ClothHandReachMillimeters = 250f;  // => [FigureGrab] ClothHandReachMillimeters

@@ -314,6 +314,8 @@ internal static partial class Loc
 
             // ---- [FigureGrab] — grabbing miniatures -----------------------------------------
             ["FigureGrab/GrabFigures"] = Pair("Grab figures", "Figuren greifen"),
+            ["FigureGrab/OcclusionMapOffOnHeadCamera"] =
+                Pair("Test: occlusion map off in VR", "Test: Verdeckungskarte in VR aus"),
             ["FigureGrab/HighlightWhileWalkIn"] =
                 Pair("Figure: glow while inside", "Figur: Leuchten von innen"),
             ["FigureGrab/ClothFollowsFreeHand"] =

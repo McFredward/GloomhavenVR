@@ -76,14 +76,25 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <item><b>WHAT A ZERO MEANS PER CHANNEL, because three of the four can return one for different
 /// reasons.</b> The pixel-set channel cannot fire at all at a per-pixel cap of 0 (464: cap 0) — a
 /// NON-reading. The projector channel contained the prop at no rung, with 1 projector in the
-/// scene. The occlusion channel is decided by the PARTICIPATION clause, not by the coverage count:
-/// <c>ObjectOcclusionVolume.OnEnable</c> passes <c>GetComponent&lt;MeshRenderer&gt;()</c> and
-/// <c>AddObjectRenderer</c> early-returns on null, so a volume on a SKINNED prop registers nothing
-/// while still counting as an enabled volume on the hush line. At 0 registered renderers the map
-/// cannot reach this prop and strand 5 is retired by construction. With all four closed the only
-/// position term left is the shader's own VIEW-dependence — lifting also ROTATES the prop against
-/// the eye, and §13.2 recorded the ring reading white FACE-ON and bronze EDGE-ON; the <c>POSE</c>
-/// columns on the HOME TWIN line are the shipped control.</item>
+/// scene. The occlusion channel is decided by the PARTICIPATION clause, not by the coverage count
+/// — AND THE ModBuild 465 LOG ANSWERED IT: <c>renderers under the prop present in
+/// m_ObjectRenderers: 1</c>, with the volume's own row reading <c>'OcclusionVolume' enabled True,
+/// MeshRenderer on the same object: YES, present in m_ObjectRenderers: YES</c>. <b>THE PROP DOES
+/// PARTICIPATE, AND ROUND FOURTEEN'S CONCLUSION THAT IT COULD NOT WAS WRONG.</b> The rule that
+/// conclusion rested on is true in general — <c>ObjectOcclusionVolume.OnEnable</c> passes
+/// <c>GetComponent&lt;MeshRenderer&gt;()</c>, <c>AddObjectRenderer</c> early-returns on null, and
+/// the generator's list is a <c>List&lt;MeshRenderer&gt;</c>, so a SkinnedMeshRenderer can never
+/// enter it — but it does not apply to this prop, because the trap carries its volume on a CHILD
+/// object of its own (<c>Trap_BearTrap_PR/OcclusionVolume</c>) that has its own MeshRenderer. A
+/// rule about where a component USUALLY sits was read as a fact about where THIS one sits. So
+/// strand 5 is NOT retired by construction, the ModBuild 459 null perturbation was not null by
+/// construction, and the occlusion channel stays OPEN — which is what met the §21.4 precondition
+/// and put <see cref="PropOcclusionGate"/> on hardware. The other position term is the shader's own
+/// VIEW-dependence; §13.2 recorded the ring reading white FACE-ON and bronze EDGE-ON, and the
+/// ModBuild 465 video FALSIFIES that correlation in the direction it predicted (white while
+/// elliptical at t=13.5-14.2 s, normal grey while a full circle at t=4.9 s, and one 0.9 s A/B pair
+/// at the same screen position with opposite colour). The <c>POSE</c> columns on the HOME TWIN line
+/// remain the shipped control, but they are no longer the leading candidate.</item>
 /// <item><b>STILL BEYOND THE INSTRUMENT</b> — <c>SCENE LIGHTS 0</c> (nothing to rank),
 /// <c>GENERATOR: none</c> (the occlusion channel did not run), or <c>SAMPLES 0</c>. Each of those
 /// is printed as its own clause so an untaken channel can never read as a taken one that returned
@@ -189,10 +200,15 @@ internal static partial class PropAnimBelt
     /// registered prop would necessarily have covered itself — and that is strong but INDIRECT.
     /// <c>ObjectOcclusionVolume.OnEnable</c> is
     /// <c>AddObjectRenderer(GetComponent&lt;MeshRenderer&gt;())</c> and <c>AddObjectRenderer</c>
-    /// early-returns on null: a volume sitting on an object whose renderer is a
-    /// <b>SkinnedMeshRenderer</b> registers NOTHING while still counting as an enabled volume.
-    /// The hush line's "1 ObjectOcclusionVolume(s), 1 ENABLED" cannot tell those apart. This
-    /// does.</summary>
+    /// early-returns on null, and the generator's list is a <c>List&lt;MeshRenderer&gt;</c>: a
+    /// volume sitting on an object whose renderer is a <b>SkinnedMeshRenderer</b> registers NOTHING
+    /// while still counting as an enabled volume. The hush line's "1 ObjectOcclusionVolume(s),
+    /// 1 ENABLED" cannot tell those apart. This does — AND IT DID. ModBuild 465 read
+    /// <b>1</b> registered renderer under the trap, with the volume's own MeshRenderer present in
+    /// the list, because the trap's volume sits on its OWN child object rather than on the skinned
+    /// body. The indirect argument above was sound as a rule and wrong about this prop, and the
+    /// round-fourteen conclusion built on it ("the map cannot reach this prop") is withdrawn.
+    /// That is the whole reason a measurement replaced it.</summary>
     private static string _swOccVolumes = string.Empty;
     private static int _swOccPropRenderers = -1;
 
@@ -919,15 +935,24 @@ internal static partial class PropAnimBelt
               .Append(_swOccPropRenderers < 0 ? "<not measured>" : _swOccPropRenderers.ToString())
               .Append("; the volumes themselves — ")
               .Append(_swOccVolumes.Length == 0 ? "<not measured>" : _swOccVolumes)
-              .Append(". READ THAT FIRST AND READ IT BEFORE ANYTHING ELSE ON THIS LINE: "
+              .Append(". READ THAT FIRST AND READ IT BEFORE ANYTHING ELSE ON THIS LINE. "
                       + "ObjectOcclusionVolume.OnEnable is AddObjectRenderer(GetComponent"
-                      + "<MeshRenderer>()) and AddObjectRenderer EARLY-RETURNS ON NULL, so a "
-                      + "volume on an object whose renderer is a SkinnedMeshRenderer registers "
-                      + "NOTHING while still counting as an enabled volume on the hush line. AT "
-                      + "ZERO REGISTERED RENDERERS THE PROP IS NEITHER DRAWN INTO THIS MAP NOR "
-                      + "REMOVABLE FROM IT, which retires strand 5 by construction rather than by "
-                      + "experiment and makes the ModBuild 459 'null perturbation' a test that "
-                      + "could not have had an effect either way. GLOBALS: ")
+                      + "<MeshRenderer>()), AddObjectRenderer EARLY-RETURNS ON NULL, and the "
+                      + "generator's list is a List<MeshRenderer> - so a volume on an object whose "
+                      + "renderer is a SkinnedMeshRenderer registers NOTHING while still counting "
+                      + "as an enabled volume on the hush line. AT ZERO REGISTERED RENDERERS THE "
+                      + "PROP IS NEITHER DRAWN INTO THIS MAP NOR REMOVABLE FROM IT, which would "
+                      + "retire strand 5 by construction and make the ModBuild 459 'null "
+                      + "perturbation' a test that could not have had an effect either way. AT ONE "
+                      + "OR MORE IT DOES PARTICIPATE AND THE CHANNEL IS OPEN. ModBuild 465 READ "
+                      + "1, AND ROUND FOURTEEN'S CONCLUSION THAT IT MUST BE 0 WAS WRONG: the "
+                      + "skinned-renderer rule is true in general and does not apply to this prop, "
+                      + "because the trap carries its volume on a CHILD OBJECT of its own that has "
+                      + "its own MeshRenderer. A rule about where a component usually sits was read "
+                      + "as a fact about where this one sits. That reading is what met the round-"
+                      + "twelve precondition and put the _EnableOcclusionMap A/B "
+                      + "(PropOcclusionGate, [FigureGrab] OcclusionMapOffOnHeadCamera) on "
+                      + "hardware. GLOBALS: ")
               .Append(_swOccGlobals.Length == 0 ? "<not read>" : _swOccGlobals)
               .Append(". ");
         }

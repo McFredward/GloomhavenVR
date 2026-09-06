@@ -1258,6 +1258,18 @@ internal static partial class PropAnimBelt
 
     private static readonly List<Renderer> TwinScratch = new(8);
 
+    /// <summary>The twin's renderers KEPT past <c>FindHomeTwin</c> — <see cref="TwinScratch"/> is
+    /// cleared there, and the attachment check below needs the same population every frame.</summary>
+    private static readonly List<Renderer> TwinRends = new(8);
+
+    /// <summary>Allocation-free destination for <c>Renderer.GetSharedMaterials</c>.</summary>
+    private static readonly List<Material> MatCheckScratch = new(8);
+
+    /// <summary>Cached materials no longer attached to any renderer they were resolved from —
+    /// worst reading over the window, for the held prop and for the twin. See
+    /// <see cref="SampleMaterialAttachment"/>.</summary>
+    private static int _vHeldOrphanMax, _vTwinOrphanMax, _vOrphanFrames;
+
     /// <summary>
     /// Find another instance of the same prop kind that is NOT in a hand, once, when the window
     /// arms.
@@ -1371,6 +1383,8 @@ internal static partial class PropAnimBelt
         // different properties while printing one name.
         TwinScratch.Clear();
         _twinRoot.GetComponentsInChildren(includeInactive: true, TwinScratch);
+        TwinRends.Clear();
+        TwinRends.AddRange(TwinScratch);
         for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
         {
             string want = VTable.ShaderOf(m);
@@ -1408,6 +1422,112 @@ internal static partial class PropAnimBelt
     /// <summary>One frame of the comparison. Called from <see cref="SampleVerdict"/> immediately
     /// after the held table has been read into <c>VNow</c>, so both sides are the SAME TICK — which
     /// is the whole point, because the props are in phase with each other.</summary>
+    /// <summary>
+    /// IS THE MATERIAL WE ARE READING STILL THE MATERIAL THAT DRAWS? — the question fourteen
+    /// rounds of "0 of 57 slots moved" never asked about themselves.
+    ///
+    /// <para><b>THE HOLE.</b> <see cref="ResolveVerdictMaterials"/> runs ONCE, at arm, and caches
+    /// <c>Material</c> REFERENCES into <c>VTable.Mats[]</c>; <c>FindHomeTwin</c> does the same into
+    /// <c>TwinMats[]</c>. Both are then read every frame for the rest of the window.
+    /// <c>Renderer.material</c>, <c>Renderer.materials</c> and any <c>sharedMaterials =</c>
+    /// assignment INSTANTIATE a clone and store it back into the renderer — so anything that
+    /// touches one of those AFTER the arm leaves our cached reference pointing at an object that is
+    /// no longer attached to anything. <b>We then read that detached object every frame and report
+    /// it unchanged, forever.</b></para>
+    ///
+    /// <para><b>AND THE COMMENT THAT PROTECTED IT IS TRUE.</b>
+    /// <see cref="ResolveVerdictMaterials"/> says "once anything has instanced a renderer's
+    /// material, Unity stores that clone back into the renderer and <c>sharedMaterials</c>
+    /// afterwards returns the CLONE". That is correct — and it only holds if you CALL
+    /// <c>sharedMaterials</c> again. Nothing did. A sentence that is true about the API was read as
+    /// a guarantee about a cache, which is this project's recorded shape: an assertion in the
+    /// source is a hypothesis.</para>
+    ///
+    /// <para><b>WHY IT MATTERS MORE THAN ANY OTHER READING IN THIS FILE.</b> §17.2's
+    /// <c>WHAT MOVES ON THE UNHELD TWIN: 0 of 57 tracked slot(s)</c> is the finding every material
+    /// candidate has been closed with since round ten, and <c>SHARED OR INSTANCED … 0 per-prop
+    /// instances</c> is computed from the same cache — so the instrument's own evidence that
+    /// nothing was instanced is drawn from the very reference that instancing would orphan. A claim
+    /// must not measure itself. <b>A non-zero reading here retires §17 and re-opens the whole
+    /// material class</b>; a zero over a window that contained a flash confirms it properly for the
+    /// first time.</para>
+    ///
+    /// <para>Cost: no <c>GetComponentsInChildren</c> (both renderer populations were taken at arm)
+    /// and no allocation (<c>GetSharedMaterials</c> fills a reused list). This project's default
+    /// performance suspect is a per-frame sweep; this is not one.</para>
+    /// </summary>
+    private static void SampleMaterialAttachment()
+    {
+        _vOrphanFrames++;
+        int held = CountOrphans(_vRenderers, VTable.Mats, VTable.MatCount);
+        if (held > _vHeldOrphanMax)
+            _vHeldOrphanMax = held;
+        if (_twinLead != null)
+        {
+            int twin = CountOrphans(TwinRends, TwinMats, VTable.MatCount);
+            if (twin > _vTwinOrphanMax)
+                _vTwinOrphanMax = twin;
+        }
+    }
+
+    /// <summary>How many of <paramref name="cache"/>'s first <paramref name="count"/> entries are no
+    /// longer in ANY of <paramref name="rends"/>' live <c>sharedMaterials</c>.</summary>
+    private static int CountOrphans(IList<Renderer> rends, Material[] cache, int count)
+    {
+        int orphans = 0;
+        for (int m = 0; m < count && m < cache.Length; m++)
+        {
+            Material cached = cache[m];
+            if (cached == null)
+                continue;
+            bool found = false;
+            for (int r = 0; r < rends.Count && !found; r++)
+            {
+                Renderer rend = rends[r];
+                if (rend == null)
+                    continue;
+                rend.GetSharedMaterials(MatCheckScratch);
+                for (int k = 0; k < MatCheckScratch.Count; k++)
+                {
+                    if (ReferenceEquals(MatCheckScratch[k], cached))
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (!found)
+                orphans++;
+        }
+        return orphans;
+    }
+
+    /// <summary>The attachment reading, in the words that say what it is worth. See
+    /// <see cref="SampleMaterialAttachment"/> for why it is the qualifier on every zero above.</summary>
+    private static void AppendAttachment(System.Text.StringBuilder sb)
+    {
+        sb.Append("ARE THOSE READINGS EVEN ATTACHED TO WHAT DRAWS? Over ").Append(_vOrphanFrames)
+          .Append(" sampled frame(s), cached material reference(s) NO LONGER on any renderer they "
+                  + "were resolved from: held prop worst ").Append(_vHeldOrphanMax)
+          .Append(" of ").Append(VTable.MatCount).Append(", twin worst ").Append(_vTwinOrphanMax)
+          .Append(" of ").Append(VTable.MatCount)
+          .Append(". READ IT LIKE THIS, AND READ IT BEFORE EVERY OTHER MATERIAL NUMBER ON THIS "
+                  + "LINE. Both tables cache Material REFERENCES once, at the grab, and are read "
+                  + "every frame afterwards. Renderer.material / .materials / a sharedMaterials "
+                  + "assignment INSTANTIATES a clone and stores it back into the renderer, which "
+                  + "leaves our reference pointing at an object nothing renders any more - and we "
+                  + "go on reading it and reporting it UNCHANGED. AT 0 the cache is still the thing "
+                  + "that draws and every zero above is a real exclusion. AT ANYTHING ABOVE 0 THE "
+                  + "MATERIAL CLASS IS NOT EXCLUDED AND NEVER WAS: the round-ten finding, the "
+                  + "SHARED-OR-INSTANCED count beside it (which is computed from the same cache, so "
+                  + "it cannot report the instancing that orphans it) and every material candidate "
+                  + "closed since are all withdrawn, and the next round re-reads them off "
+                  + "renderer.sharedMaterials re-fetched each frame. THIS IS A NEW INSTRUMENT AND "
+                  + "ITS FIRST OUTPUT IS A HYPOTHESIS: a 0 here on a window that contained NO flash "
+                  + "proves nothing either, so check it against whether the user saw white on this "
+                  + "hold. ");
+    }
+
     private static void SampleTwin()
     {
         if (_twinLead == null)
@@ -1516,11 +1636,14 @@ internal static partial class PropAnimBelt
         if (moved == 0)
         {
             sb.Append(" — NOTHING on a prop of this kind standing on its own hex moved a single "
-                      + "material property on any sampled frame. That EXCLUDES the whole material "
-                      + "class for the flash the user sees on every trap at once, and it does so "
-                      + "with a population that is not hushed, not held and not frozen. ");
+                      + "material property on any sampled frame. THAT WOULD EXCLUDE the whole "
+                      + "material class for the flash the user sees on every trap at once, on a "
+                      + "population that is not hushed, not held and not frozen — BUT READ THE "
+                      + "ATTACHMENT CLAUSE BEFORE YOU BELIEVE IT. ");
+            AppendAttachment(sb);
             return;
         }
+        AppendAttachment(sb);
         sb.Append(", naming up to ").Append(VerdictListCap).Append(": ");
         int listed = 0;
         for (int slot = 0; slot < TwinSlots && listed < VerdictListCap; slot++)
@@ -1762,6 +1885,7 @@ internal static partial class PropAnimBelt
         _poseAngHi = _poseDistHi = float.MinValue;
 
         ResolveVerdictMaterials();
+        _vHeldOrphanMax = _vTwinOrphanMax = _vOrphanFrames = 0;
         ArmRoster();
         // Round nine. After the roster, because the twin is matched against the held prop's first
         // DRAWING renderer that carries a material, which the roster has just resolved.
@@ -1888,6 +2012,11 @@ internal static partial class PropAnimBelt
         }
 
         SampleClocks(b);
+        // ROUND FIFTEEN, AND IT RUNS BEFORE THE READ IT QUALIFIES. See
+        // SampleMaterialAttachment: a cached Material reference can be silently
+        // detached from the renderer that draws, after which every value below is
+        // read off an object nothing renders.
+        SampleMaterialAttachment();
         VTable.Sample(VNow, VNowValid);
         // The twin is read HERE, immediately after VNow, so both sides of the comparison are the
         // same tick — every prop of a kind is in phase with every other, so a comparison taken a

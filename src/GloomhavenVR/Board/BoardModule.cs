@@ -179,6 +179,16 @@ internal sealed class BoardModule : IVRModule
         // later projectors are caught by the creation-site postfix and by the scene-load arm.
         HexHighlightFix.InstallProjectorGuard();
 
+        // ROUND-FIFTEEN HELD-PROP-FLASH A/B, off unless the user switches it on. Armed here
+        // rather than from the figure-grab tick because the flash the user reports FIRST is on
+        // props still standing on the BOARD ("der weisse flash auf ALLEN Fallen"), which no
+        // hold-gated arm can ever be looking at. Re-synced on SettingChanged so flipping the
+        // dial in the VR options menu takes effect on the next frame - a one-hold experiment
+        // the player has to restart the game to start is not one he will run.
+        FigureGrab.PropOcclusionGate.Sync();
+        FigureGrab.FigureGrabConfig.OcclusionMapOffOnHeadCamera.SettingChanged +=
+            (_, _) => FigureGrab.PropOcclusionGate.Sync();
+
         VRLog.Info(Name, "Board targeting installed (pick + cursor + click patches, AoE stick control, figure grab).");
         VRLog.Info(Name, BoardConfig.TouchTilesWithFingertip.Value
             ? "FINGERTIP TILE TOUCH armed: hold the GRIP and put an index fingertip on a hex to commit " +
@@ -210,6 +220,7 @@ internal sealed class BoardModule : IVRModule
             Patches.EnemyInfoPhaseSkip.Reset();
             Patches.PickPhaseInitiativeTrack.Reset();
             Patches.HoverPickPatch.Reset();
+            FigureGrab.PropOcclusionGate.Reset();
         }
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).
     }
