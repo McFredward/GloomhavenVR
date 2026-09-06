@@ -71,7 +71,15 @@ namespace GloomhavenVR.Net;
 internal sealed class RemoteBurnFx
 {
     /// <summary>
-    /// How long the burned card lies on the owner's board before it flies, in seconds.
+    /// CEILING on how long a burned card may be held before it flies, in seconds — NOT a duration
+    /// any more.
+    ///
+    /// <para>IT STOPPED BEING A DURATION IN THIS BUILD, and that is report item 9's third clause.
+    /// The hold now lasts exactly as long as the OWNER's own card is still seated in the recess this
+    /// client mirrors: <see cref="Drive"/> hands over to the arc on the frame that seat empties, and
+    /// a burn this client could never seat flies at once. Both are strictly closer to the owner's
+    /// timing than a fixed two seconds was, because the seat emptying IS his flight starting. What
+    /// this number still does is stop a card being held forever by a recess that never lets go.</para>
     ///
     /// <para>MIRRORED CONSTANT, and the thing it mirrors is the GAME's, not ours:
     /// <c>CardEffects.BurnCardTimeline</c> opens with <c>float burnTime = 2f</c>
@@ -83,6 +91,32 @@ internal sealed class RemoteBurnFx
     /// is what made every burn on ModBuild 447 run the full 3 s.</para>
     /// </summary>
     private const float HoldSeconds = 2f;
+
+    /// <summary>
+    /// Seconds between two walks of the peer's host-replicated Lost pile — THE UPPER BOUND ON HOW
+    /// LATE THIS MIRROR CAN LEARN OF A BURN, and therefore on report item 9's first clause ("Die
+    /// Animation beim remote Board … ist immer noch etwas verzögert").
+    ///
+    /// <para>IT IS NOT <c>RemoteBoardContent.RefreshSeconds</c> ANY MORE, and the two really are
+    /// different questions. That cadence paces a STATE mirror — occupancy, counts, faces — where a
+    /// quarter-second of staleness is invisible because the picture it produces is the same picture
+    /// a moment later. This is an EVENT edge, and the whole of it is WHEN: the ModBuild 462 host log
+    /// carries five mirrored burns and every one of them reports 255-259 ms between the walk that
+    /// found it and the walk before, i.e. the cadence itself was the entire measured delay on every
+    /// burn in the session. Sharing a dial with a state mirror was the reason.</para>
+    ///
+    /// <para>WHAT IT COSTS. The walk is two list scans over lists this client already holds
+    /// (<c>CardsGameApi.GetPileWidgets</c> → <c>AppendPileWidgets</c>, the character's Lost pile
+    /// against <c>hand.cardsUI</c>) plus a hash-set diff — no <c>FindObjectsOfType</c>, no
+    /// allocation, no component search. Three times the rate of a 4 Hz pass on a handful of peers is
+    /// not measurable beside the board pass it used to ride on.</para>
+    ///
+    /// <para>IT DOES NOT SET THE VISIBLE START ANY MORE, WHICH IS WHY IT ONLY HAD TO BE SMALLER AND
+    /// NOT ZERO. Since <see cref="Drive"/> hands over on the recess-emptying edge, a burn discovered
+    /// well before the owner's card leaves its seat costs nothing at all; this number is the delay
+    /// only for a burn that is discovered AFTER the seat has already gone — the short-rest case.</para>
+    /// </summary>
+    private const float WatchSeconds = 0.08f;
 
     /// <summary>Concurrent burn presentations. A two-card damage burn commits both cards in the
     /// SAME frame — the 2026-09-05 host log shows exactly that pair — so one is not enough; beyond
@@ -118,6 +152,18 @@ internal sealed class RemoteBurnFx
         /// It decides both the ORIGIN of the flight and whether this presentation draws a slab at
         /// all during the hold — see <see cref="Drive"/>.</summary>
         public int Recess;
+
+        /// <summary>Card name, kept only so the hand-over line can name the same card the
+        /// <c>BURN CARD</c> line above it named.</summary>
+        public string Name = "?";
+
+        /// <summary>Frames the owner's recess was still DRAWING this card, i.e. the length of the
+        /// hold this presentation actually observed rather than the one it used to run on a clock of
+        /// its own. Zero means the card was never seated where this client could see it.</summary>
+        public int SeatedFrames;
+
+        /// <summary>Has the arc been reported? One line per burn, at the hand-over instant.</summary>
+        public bool HandoverLogged;
     }
 
     private readonly List<Burn> _burns = new(MaxBurns);
@@ -133,7 +179,7 @@ internal sealed class RemoteBurnFx
 
     /// <summary>Unscaled time and frame of the PREVIOUS burnt-pile walk. THE DELAY LIVES HERE and
     /// report item 7 names it ("diese war verzögert"): this class learns of a burn by POLLING the
-    /// host-replicated Lost pile at <c>RemoteBoardContent.RefreshSeconds</c>, so the burn happened
+    /// host-replicated Lost pile at <see cref="WatchSeconds"/>, so the burn happened
     /// somewhere inside the window these two numbers bound. Printed on the BURN CARD line rather
     /// than reasoned about, because "the poll cadence" and "the packet was late" look identical in
     /// a log without them.</summary>
@@ -177,6 +223,16 @@ internal sealed class RemoteBurnFx
     /// <para>Time-boxed on purpose: a claim that outlived its presentation would silently delete a
     /// later burn's animation, and a burn this mirror never saw must still reach the player as the
     /// old back slab.</para>
+    ///
+    /// <para>A LOST <c>CARD FX</c> EVENT CANNOT DELAY OR MISPLACE A BURN, and that is worth stating
+    /// here because the ModBuild 462 host log carries <c>CARD FX LOST … 3 of that peer's
+    /// card-animation event(s) never reached this client (8 seen)</c> beside the burn delay of
+    /// report item 9, and the two look related. They are not. This class is the ONLY producer of a
+    /// mirrored burn and it is driven entirely by <see cref="Watch"/>'s local walk of the peer's
+    /// host-replicated Lost pile; the wire event's sole role is the one this method plays —
+    /// SUPPRESSING a duplicate. A dropped event therefore costs at most a DISCARD flight (which
+    /// <see cref="RemoteCardFx"/> owns), never a burn's timing and never its origin. The extras
+    /// stream's first-of-a-pair gap is real and is somebody else's item; it is not this one.</para>
     /// </summary>
     internal bool ConsumesWireEvent(byte endpoints)
     {
@@ -234,7 +290,7 @@ internal sealed class RemoteBurnFx
         _sinceLastWalk = _lastWalkFrame < 0 ? -1f : Time.unscaledTime - _lastWalkAt;
         _lastWalkAt = Time.unscaledTime;
         _lastWalkFrame = Time.frameCount;
-        _nextWalkAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
+        _nextWalkAt = Time.unscaledTime + WatchSeconds;
 
         CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
         int actorId = NetFigures.StableActorId(actor);
@@ -346,6 +402,9 @@ internal sealed class RemoteBurnFx
             return;
         b.CardId = cardId;
         b.Recess = recess;
+        b.Name = name;
+        b.SeatedFrames = 0;
+        b.HandoverLogged = false;
 
         float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         float cardWidth = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth);
@@ -366,19 +425,15 @@ internal sealed class RemoteBurnFx
         // the whole flight ("orientation locked"). Facing it at the local head instead would be a
         // pose the owner never sees.
         b.Go.transform.SetPositionAndRotation(from, _owner.BoardRotation);
-        // …and it stays HIDDEN while the recess is the one drawing this card. Two copies of one
-        // card is a worse divergence than the one this class was built to fix, and the recess copy
-        // is the better of the two by construction: it is the card the owner is looking at, in the
-        // recess he is looking at, wearing the char RemoteBoardCard.DriveUsedCardFx is ramping on
-        // it. Drive() re-asks every frame and reveals the slab the instant the recess stops.
-        // …AND THE TEST IS "IS THE RECESS DRAWING THIS CARD", NOT "DID WE PLACE IT". Those two came
-        // apart the moment the origin above started INFERRING a seat: a recess drawing an anonymous
-        // back places the card but draws nothing of it, so hiding the slab for it would leave the
-        // viewer with no burning card at all — strictly worse than the board-centre slab item 7
-        // complains about. Drive() re-asks the same question every frame.
-        bool recessDraws = recess >= 0 && _owner.RecessShowingCard(cardId) == recess;
-        if (b.Go.activeSelf != !recessDraws)
-            b.Go.SetActive(!recessDraws);
+        // …AND IT STARTS HIDDEN, ALWAYS. The slab's only appearance is the ARC (report item 9's
+        // third clause — the viewer may never be shown a mini card lying at the flight's origin),
+        // and Drive() is the one place that reveals it, on the frame the recess stops drawing this
+        // card. Two copies of one card is also a worse divergence than the one this class was built
+        // to fix, and the recess copy is the better of the two by construction: it is the card the
+        // owner is looking at, in the recess he is looking at, wearing the char
+        // RemoteBoardCard.DriveUsedCardFx is ramping on it.
+        if (b.Go.activeSelf)
+            b.Go.SetActive(false);
 
         // THE FACE — resolved locally, gated exactly as every other remote card surface is.
         b.HasFace = false;
@@ -463,26 +518,53 @@ internal sealed class RemoteBurnFx
 
             if (b.Elapsed < HoldSeconds)
             {
-                // PHASE 1 — it lies on their board and chars, exactly as it does on theirs.
+                // PHASE 1 — it lies on their board and chars, exactly as it does on theirs, AND THE
+                // ONLY THING THAT MAY DRAW IT IS THEIR OWN RECESS. RemoteBoardCard.DriveUsedCardFx
+                // is ramping the very same RemoteCardArt rig on that seated face, off the owner's
+                // own effect state, so a slab here would be a SECOND copy of one card.
                 //
-                // AND IT LIES IN THEIR RECESS, drawn by the recess itself, for as long as the recess
-                // still has it. RemoteBoardCard.DriveUsedCardFx is ramping the very same
-                // RemoteCardArt rig on that seated face, off the owner's own effect state, so a slab
-                // here would be a SECOND copy of one card. Hidden, not skipped: the moment the
-                // recess stops showing it (their card left early, the reveal gate shut, the face
-                // could not be cloned) the slab comes back at the recess anchor and this phase
-                // finishes the way it always did.
+                // ─── AND WHEN THE RECESS STOPS DRAWING IT, THE CARD FLIES. IT NEVER LIES. ────────
+                // 2026-09-06 late report, item 9, third clause, verbatim: "Ich will aber gar nicht
+                // sehen, wie die Karte in mini auf dem Board liegt (Startposition der Animation),
+                // das soll unmittelbar nach dem Verschwinden geschehen, so wie es lokal auch der
+                // Fall ist, damit der Eindruck entsteht, die Karte würde direkt in den jeweiligen
+                // Stapel gehen." That is a REQUIREMENT and not only a bug: a stationary mini slab at
+                // the flight's origin may never be a picture this class draws.
+                //
+                // WHAT USED TO HAPPEN, and why it read as a delay. The slab was HIDDEN while the
+                // recess drew the card and REVEALED the instant it stopped — at the recess anchor,
+                // stationary, for whatever was left of the two seconds. The recess stops drawing the
+                // card exactly when the owner's occupancy nibble clears, which is exactly when HIS
+                // card leaves the recess, which is exactly when HIS flight starts. So the mirror
+                // was showing a still copy of a card the owner already had in the air, and only then
+                // launching it.
+                //
+                // SO THE HAND-OVER IS THE EDGE, AND THAT IS STRICTLY MORE 1:1, NOT LESS. The hold no
+                // longer runs a clock of its own: it lasts precisely as long as the owner's card is
+                // still seated in the recess this client is mirroring, and the arc begins on the
+                // frame that seat empties. HoldSeconds survives as the CEILING it always was for a
+                // burn whose recess this client could never place (a short rest whose sacrifice had
+                // already left, a hidden board) — and there the flight starts at once, because a
+                // card nobody can seat has nowhere to lie either.
                 bool recessDraws = b.CardId != int.MinValue
                                    && _owner.RecessShowingCard(b.CardId) == b.Recess
                                    && b.Recess >= 0;
-                if (b.Go.activeSelf == recessDraws)
-                    b.Go.SetActive(!recessDraws);
                 if (recessDraws)
+                {
+                    b.SeatedFrames++;
+                    if (b.Go.activeSelf)
+                        b.Go.SetActive(false);
                     continue;
-                b.Go.transform.SetPositionAndRotation(b.From, _owner.BoardRotation);
-                if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(b.Elapsed / HoldSeconds))
-                    b.HasFace = false; // the rig refused: keep the fresh face, keep the flight
-                continue;
+                }
+                // The recess is not drawing it, so nothing may hold it any longer: skip whatever is
+                // left of the hold and fall through into the arc on this very frame.
+                LogHandover(b, b.Elapsed, "their recess stopped drawing that card");
+                b.Elapsed = HoldSeconds;
+            }
+            else
+            {
+                LogHandover(b, HoldSeconds, "the " + HoldSeconds.ToString("F1")
+                    + "s ceiling ran out while their recess was STILL drawing the card");
             }
 
             // THE HAND-OVER. The flight always draws the slab, and it draws it ALREADY CHARRED: a
@@ -673,7 +755,8 @@ internal sealed class RemoteBurnFx
         // CardsDriver.LogBurnAttribution prints, so one grep across the two hardware logs decides
         // the 1:1 question. See this method's doc for the three falsifiers.
         VRLog.Note("Net", $"BURN CARD [peer {_owner.PlayerId}]: that player burned '{name}' — " +
-                          $"showing it {where}, for {HoldSeconds:F1}s while it chars, then flying " +
+                          $"showing it {where}, charring in that seat for as long as their own card " +
+                          $"is still in it (ceiling {HoldSeconds:F1}s), then flying " +
                           $"it into their Burnt stack ({NetProtocol.CardFxSeconds:F2}s). " +
                           $"face={(face ? "REAL" : "BACK")}, revealGate={(fronts ? "open" : "shut")}, " +
                           $"char='{Board.CharacterFocus.Describe(actor)}', burn #{_played}. TIMING: " +
@@ -682,15 +765,70 @@ internal sealed class RemoteBurnFx
                               ? "the FIRST walk for this character (no bound on the wait)"
                               : $"{_sinceLastWalk * 1000f:F0} ms after the previous walk — this " +
                                 "mirror POLLS the host-replicated Lost pile at " +
-                                $"{RemoteBoardContent.RefreshSeconds * 1000f:F0} ms, so that number " +
+                                $"{WatchSeconds * 1000f:F0} ms, so that number " +
                                 "IS the upper bound on the delay report item 7 names; anything much " +
                                 "larger than the cadence is a stalled board pass and not the poll") +
-                          $", then {HoldSeconds:F1}s of hold before the arc. The identity " +
+                          ", then the hold, which ENDS WHEN THEIR RECESS DOES — read the 'BURN " +
+                          "FLIGHT' line beside this one for when the arc actually began. The identity " +
                           "was read from THIS client's own copy of that character's host-replicated " +
                           "LostAbilityCards list (the same CardsGameApi.GetPileWidgets call the mirrored " +
                           "burnt-pile fan uses) — NO card identity crossed the wire and no wire field " +
                           "was added. Compare with the owner's 'BURN CARD [owner/...]' line for the " +
                           "same burn: they must name the same card.");
+    }
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (2026-09-06 late report, item 9): the instant the mirrored burn stops
+    /// being the owner's seated card and becomes a flight, and how long — if at all — a STATIONARY
+    /// slab was visible before it. Grep token <c>BURN FLIGHT</c>. One line per burn, at the
+    /// hand-over, never per frame.
+    ///
+    /// <para>WHY IT IS A SECOND LINE AND NOT A CLAUSE ON <see cref="LogAttribution"/>. That line is
+    /// printed when the burn is DISCOVERED, and everything item 9 asks about happens afterwards: the
+    /// hold's real length is not known until it ends, and the whole question is whether a slab was
+    /// ever shown standing still. A report about a discovery cannot answer a question about a
+    /// hand-over.</para>
+    ///
+    /// <para><b>WORKING</b> = one line per burn reading <c>stationary slab shown for 0.00s</c> — the
+    /// number is a CONSTANT ZERO by construction now (the slab's only appearance is the arc), so any
+    /// other value is a code defect and not a tuning question — with <c>seated for N frame(s)</c>
+    /// non-zero and <c>arc began 0.5s..2.0s after discovery</c> for a card the owner played onto his
+    /// board, beside a <c>BURN CARD</c> line naming a recess.</para>
+    ///
+    /// <para><b>INERT</b> = <c>arc began 0.00s after discovery</c> with <c>seated for 0 frame(s)</c>
+    /// on a burn whose <c>BURN CARD</c> line DID name a recess: the recess never drew the card this
+    /// client placed there, so the viewer got a flight with no char in front of it. The lead is then
+    /// <c>RemoteControlBoard.RecessShowingCard</c> and the <c>ANONYMOUS RECESS</c> line, not this
+    /// class. The same reading on a burn whose <c>BURN CARD</c> line named the board CENTRE is the
+    /// CORRECT outcome, not a defect — a short-rest sacrifice that had already left its seat has
+    /// nowhere to lie, and flying it at once is exactly what item 9 asks for.</para>
+    ///
+    /// <para><b>STILL BEYOND THE INSTRUMENT</b> = every line reading 0.00s stationary and the user
+    /// still reporting a mini card lying on the board. This class would then not be the thing
+    /// drawing it, and the next surface to look at is the RECESS mirror itself
+    /// (<c>RemoteBoardCard</c>), which keeps drawing the burnt card face-up for as long as the
+    /// owner's occupancy nibble says his own card is still seated — a picture the owner has too.</para>
+    /// </summary>
+    private void LogHandover(Burn b, float after, string why)
+    {
+        if (b.HandoverLogged)
+            return;
+        b.HandoverLogged = true;
+        // HW-VERIFY: grep token "BURN FLIGHT" — see this method's doc for the three readings.
+        VRLog.Note("Net", $"BURN FLIGHT [peer {_owner.PlayerId}]: '{b.Name}' leaves for their Burnt " +
+                          $"stack now, {after:F2}s after this mirror discovered the burn, because " +
+                          $"{why}. It was seated in their recess " +
+                          $"{(b.Recess >= 0 ? (b.Recess + 1).ToString() : "(none — board centre)")} " +
+                          $"for {b.SeatedFrames} frame(s) of that, and the STATIONARY SLAB WAS SHOWN " +
+                          "FOR 0.00s — the slab this class owns is only ever revealed by the arc " +
+                          "itself. THAT ZERO IS THE WHOLE OF REPORT ITEM 9's third clause ('Ich " +
+                          "will aber gar nicht sehen, wie die Karte in mini auf dem Board liegt … " +
+                          "das soll unmittelbar nach dem Verschwinden geschehen'): the hold is no " +
+                          "longer a clock of its own, it lasts exactly as long as the OWNER's card " +
+                          "is still seated in the recess this client mirrors, and the arc starts on " +
+                          $"the frame that seat empties. {HoldSeconds:F1}s remains only as the " +
+                          "ceiling for a card that never appears in a recess at all. A non-zero " +
+                          "stationary figure would be a code defect, not a dial.");
     }
 
     /// <summary>

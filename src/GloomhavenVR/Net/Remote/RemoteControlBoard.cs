@@ -325,12 +325,18 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// der Mitte des boards ... statt an der Stelle wo die Karte war". A fallback its author
     /// believed was for "a burn nobody could place" fired on HALF the burns in the round.</para>
     ///
-    /// <para>THE THREE ANSWERS, STRONGEST FIRST, and none of them is a guess between two:</para>
+    /// <para>THE FOUR ANSWERS, STRONGEST FIRST, and none of them is a guess between two:</para>
     /// <list type="number">
     /// <item><description>the recess DRAWING that card's face -- an identification;</description></item>
     /// <item><description>the recess whose departed / already-claimed memory holds that card -- the
     /// card left that seat within the last <see cref="DepartedFaceSeconds"/> seconds, which is a
     /// fact this class recorded itself;</description></item>
+    /// <item><description>the recess that was drawing that card as the SHORT-REST SACRIFICE within
+    /// the same window (<see cref="_sacrificeSeatId"/>). It needs its own arm because the sacrifice
+    /// branch deliberately latches no face, and the departure memory above is a copy of that latch —
+    /// so the one card guaranteed to burn out of a recess was invisible to answers 1 and 2 the
+    /// moment the short rest finalised. That is the 2026-09-06 late report's item 9, second clause,
+    /// and the ModBuild 462 host log's burn #5;</description></item>
     /// <item><description>EXACTLY ONE occupied recess and no other claim on it. One candidate is
     /// not a choice -- the same sentence <see cref="TryTakeDepartedFace"/> is built on. The owner
     /// holds the burning card on his board while the game's burn artwork runs on it, so while one
@@ -368,6 +374,22 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 continue;
             how = $"recess {i + 1} was drawing that card and emptied within the last "
                   + $"{DepartedFaceSeconds:F0}s";
+            return i;
+        }
+        // ─── AND THE SHORT-REST SACRIFICE, WHICH THE MEMORY ABOVE IS BLIND TO BY CONSTRUCTION ────
+        // See _sacrificeSeatId. The sacrifice recess never latches a FACE, so it never stamps a
+        // departure either, so the one card in the game that is guaranteed to burn out of a recess
+        // was the one the strongest three answers could say nothing about. Same horizon, same kind
+        // of claim (a POSITION), asked here because a card that is STILL seated is answered by the
+        // drawing test at the top and this arm is for the one that has just left.
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (_sacrificeSeatId[i] != cardInstanceId
+                || now - _sacrificeSeatAt[i] > DepartedFaceSeconds)
+                continue;
+            how = $"recess {i + 1} was drawing that card as the short-rest SACRIFICE within the "
+                  + $"last {DepartedFaceSeconds:F0}s (a position memory; the sacrifice branch never "
+                  + "latches a face and so never stamps a departure)";
             return i;
         }
         int occupied = _slotOccupiedMask & ((1 << SlotCount) - 1);
@@ -1721,6 +1743,15 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     private readonly int[] _claimedFaceId = { int.MinValue, int.MinValue };
     private readonly float[] _claimedAt = new float[SlotCount];
 
+    /// <summary><c>CardInstanceID</c> of the SHORT-REST SACRIFICE this recess drew, with the time it
+    /// was last seen there. A POSITION memory and nothing else: it is read by
+    /// <see cref="RecessOfBurningCard"/> and by nothing at all in any face path, because the
+    /// sacrifice branch deliberately refuses to latch a FACE for this recess and that refusal is
+    /// correct. Same three-second horizon as <see cref="_departedFace"/>, so nothing latches
+    /// forever.</summary>
+    private readonly int[] _sacrificeSeatId = { int.MinValue, int.MinValue };
+    private readonly float[] _sacrificeSeatAt = new float[SlotCount];
+
     /// <summary>WHICH of the ways a departed face can be answered actually ran — quoted verbatim
     /// into <c>RemoteCardFx</c>'s <c>FLIGHT FACE</c> line so a BACK names its own cause instead of
     /// listing four. See <see cref="TryTakeDepartedFace"/> for each one.</summary>
@@ -2098,6 +2129,16 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             for (int i = 0; i < _latchedFaces.Length; i++)
                 _latchedFaces[i] = null;
         }
+        // THE SACRIFICE SEAT MEMORY FOLLOWS ONLY THE SECOND OF THOSE TWO. It is not gate-scoped —
+        // the sacrifice is drawn face-up WHILE the gate is shut, which is the whole of the carve-out
+        // below, so clearing it on !showFronts would erase it on every frame it is written. It IS
+        // character-scoped, for the same reason the latch is: a seat recorded for one character must
+        // never place another character's burning card.
+        if (!ReferenceEquals(actor, _latchedActor))
+        {
+            for (int i = 0; i < SlotCount; i++)
+                _sacrificeSeatId[i] = int.MinValue;
+        }
         _latchedActor = actor;
 
         if (wire < 0)
@@ -2211,6 +2252,31 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 // of card — it leaves the moment its owner accepts or re-draws, and a latch would
                 // keep a burnt card's front lying in an empty recess for the rest of the phase.
                 _latchedFaces[i] = null;
+                // …BUT ITS SEAT IS REMEMBERED ANYWAY, AND THAT IS A DIFFERENT FACT (2026-09-06 late
+                // report, item 9, second clause: "Beim Test ist es nochmal vorgekommen, dass es auch
+                // von der direkten Mitte aus gestartet ist, als der Mitspieler eine kurze Rast
+                // gemacht und dadurch eine Karte verbrannt hat").
+                //
+                // THE SENTENCE ABOVE WAS TRUE AND STILL COST A BURN ITS ORIGIN. Nulling the latch is
+                // right for a FACE, and NoteRecessDeparture's only argument IS the latch — so a
+                // sacrifice recess emptying stamped nothing, and RecessOfBurningCard, which reads
+                // that memory, had no fact at all about the one card in the game that is guaranteed
+                // to burn out of a recess. The ModBuild 462 host log shows it happening on burn #5
+                // and only on burn #5: "'ABILITY_CARD_SpareDagger' — showing it at their board
+                // CENTRE, because the owner's board reports NO occupied recess". The short rest
+                // finalises and the seat clears within the burn watch's own poll window, so by the
+                // time the burn is discovered the occupancy nibble is already 0 and the strongest
+                // three answers are all silent.
+                //
+                // THIS IS A POSITION, NEVER AN IDENTITY, and that is why it is a separate field
+                // rather than a wider latch. RecessOfBurningCard's own doc draws the line: getting a
+                // POSITION wrong costs a card lifting from the wrong recess 60 mm away, getting a
+                // FACE wrong costs an identity the viewer cannot tell is wrong. Nothing reads this
+                // pair except that method; _departedFace, _latchedFaces and every face path are
+                // untouched, so the burnt front this branch's comment guards against still cannot
+                // come back.
+                _sacrificeSeatId[i] = sacrifice.CardInstanceID;
+                _sacrificeSeatAt[i] = Time.unscaledTime;
                 LogSacrificeSeat(i, sacrifice, actor);
                 continue;
             }

@@ -2556,6 +2556,121 @@ internal sealed class RemoteCardArt
     /// constant used to land on the wrong graphic while the rig reported ARMED.</summary>
     private bool _flameWalkDisagreed;
 
+    /// <summary>
+    /// THE FIRE MUST NOT BE DRAWN UNDER THE CARD IT IS BURNING (2026-09-06 late report, item 8:
+    /// "Das Feuer auf einer verbrannten Karte ist jetzt nur am Rand sichtbar … Wenn das Controlboard
+    /// transparent wird und die Karte mit ihm, sieht man das Feuer gut wie es sein sollte").
+    ///
+    /// <para>WHAT THE TWO PHOTOGRAPHS SAY, TOGETHER. In <c>feuer1.jpg</c> the sheet's picture appears
+    /// ONLY on the stone either side of the card — the ring where its 330x480 rect overhangs the
+    /// 294x450 face — and NOWHERE on the face itself. In <c>feuer2.jpg</c>, the same card while
+    /// <c>Net.Board.PeerBoardFade</c> is holding the board translucent, the fire is over the whole
+    /// card. A term that is INVISIBLE while an occluder is opaque and VISIBLE the moment that
+    /// occluder stops being opaque is a term that is being drawn BEHIND it. So the sheet is not
+    /// mis-written and not mis-textured: the ModBuild 462 <c>PEER CARD FIRE</c> read-back proves
+    /// every constant landed (<c>[Flight]</c> and <c>[Pile]</c> both read the burn's own
+    /// <c>_Glow 3.00</c>, <c>_TintColor RGBA(1.00, 0.30, 0.00, 0.80)</c> and
+    /// <c>T_rect_frame_mask_card_noisy</c>). It is drawn in the wrong ORDER.</para>
+    ///
+    /// <para>AND THE ORDER IS NOT THE HIERARCHY'S, WHICH IS WHAT NARROWS IT TO ONE TERM.
+    /// <c>Object.Instantiate</c> copies the widget's transform tree unchanged and nothing in this
+    /// class reparents anything inside the clone, so the sheet sits at exactly the sibling index the
+    /// artist gave it — the index at which the OWNER's own screen-space canvas draws it correctly,
+    /// on top. What differs between his picture and ours is the CANVAS: his is
+    /// <c>ScreenSpaceOverlay</c>, which draws a canvas's graphics in hierarchy order and ignores
+    /// material render queues entirely; ours is <c>RenderMode.WorldSpace</c>, drawn by a camera,
+    /// where the material's queue orders the draw before hierarchy gets a say. The sheet's authored
+    /// material is <c>GUI/GUI_Shine_Sphere_Blend_Shd</c> at <b>q2000</b> — Geometry, the OPAQUE
+    /// queue, which is what a UI shader with no <c>"Queue"</c> tag falls back to — while the face it
+    /// covers draws through <c>GUI/AbilityCard_Shd</c> in the transparent queue. Geometry first,
+    /// transparent second: the card is painted over the fire, and only the overhang ring survives.
+    /// The same arithmetic is why <c>feuer2</c> works — the fade drops the whole print's alpha, so
+    /// the face stops hiding what was already drawn underneath it.</para>
+    ///
+    /// <para>THE FIX IS THE QUEUE AND ONLY THE QUEUE, on a material this overlay minted and
+    /// destroys. Nothing is reparented (the hierarchy is the owner's and is already right), no
+    /// blend, cull or depth state is touched, and the game's shared asset is never written. The
+    /// target is one above the highest queue any OTHER graphic on this clone draws at — measured,
+    /// not assumed — so the sheet lands immediately after the card it burns and nowhere further, and
+    /// it is clamped below <see cref="FlameQueueCeiling"/> so it can never jump the viewer's own
+    /// ghost hand (renderQueue 3100) or the wrist HUD.</para>
+    ///
+    /// <para>IF THE MEASURED FACE QUEUE COMES BACK EQUAL TO THE SHEET'S OWN, this write is a no-op
+    /// and the queue was NOT the cause — <see cref="ReportFlameDrawnOnce"/> prints both numbers
+    /// precisely so that outcome is readable rather than silent, and the next lead is then the
+    /// sibling ORDER this method deliberately does not touch (the same line prints the sheet's index
+    /// among the clone's graphics and how many of them draw after it).</para>
+    /// </summary>
+    private const int FlameQueueCeiling = 3090;
+
+    /// <summary>The highest render queue any graphic on this clone OTHER than the flame sheet draws
+    /// at, and the material that holds it — measured in <see cref="MeasureFaceQueue"/>.</summary>
+    private int _faceQueue = -1;
+    private string _faceQueueFrom = "(not measured)";
+
+    /// <summary>The sheet's own authored render queue, before <see cref="AdoptFlameQuad"/> moved it,
+    /// and the value it was moved to (equal when the write was a no-op).</summary>
+    private int _flameQueueWas = -1;
+    private int _flameQueueNow = -1;
+
+    /// <summary>The sheet's position in the clone's depth-first graphic order, and how many graphics
+    /// draw AFTER it. In hierarchy order the fire must be last; a non-zero "after" count with the
+    /// queue write already a no-op is the next round's whole lead.</summary>
+    private int _flameGraphicIndex = -1;
+    private int _flameGraphicCount = -1;
+    private int _flameGraphicsAfter = -1;
+
+    /// <summary>
+    /// The highest render queue drawn by any graphic on this clone that is NOT <paramref name="quad"/>,
+    /// with the material that holds it, plus the sheet's own place in the clone's draw order.
+    /// Read-only on every material it touches: it asks for a number and writes nothing.
+    /// </summary>
+    private void MeasureFaceQueue(UnityEngine.UI.Image quad)
+    {
+        _faceQueue = -1;
+        _faceQueueFrom = "(no other graphic on this clone carries a material)";
+        _flameGraphicIndex = -1;
+        _flameGraphicCount = -1;
+        _flameGraphicsAfter = -1;
+        if (_clone == null)
+            return;
+        try
+        {
+            var gs = _clone.GetComponentsInChildren<UnityEngine.UI.Graphic>(includeInactive: true);
+            _flameGraphicCount = gs.Length;
+            for (int i = 0; i < gs.Length; i++)
+            {
+                UnityEngine.UI.Graphic g = gs[i];
+                if (g == null)
+                    continue;
+                if (ReferenceEquals(g, quad))
+                {
+                    _flameGraphicIndex = i;
+                    continue;
+                }
+                Material? mat = null;
+                try
+                {
+                    mat = g.material;
+                }
+                catch (System.Exception)
+                {
+                    continue;
+                }
+                if (mat == null || mat.renderQueue <= _faceQueue)
+                    continue;
+                _faceQueue = mat.renderQueue;
+                _faceQueueFrom = mat.name;
+            }
+            if (_flameGraphicIndex >= 0)
+                _flameGraphicsAfter = _flameGraphicCount - 1 - _flameGraphicIndex;
+        }
+        catch (System.Exception)
+        {
+            // A measurement is never allowed to be the thing that stops the fire being drawn.
+        }
+    }
+
     /// <summary>Mint this overlay's own copy of the sheet's material and write the chosen timeline's
     /// constants into it. One implementation for both routes above, so the named reference and the
     /// fallback walk can never drift into two different arms.</summary>
@@ -2588,6 +2703,13 @@ internal sealed class RemoteCardArt
             : "INACTIVE-ON-CLONE (armed anyway; the source's own overlay is off, so the owner "
               + "sees no fire either and forcing it on here would invent a picture he does not have)";
         WriteFlameConstants(copy, look);
+        // …AND IT IS DRAWN AFTER THE CARD, NOT UNDER IT. See FlameQueueCeiling for the whole
+        // argument and for what the two photographs measured. One number, on our own copy.
+        MeasureFaceQueue(quad);
+        _flameQueueWas = copy.renderQueue;
+        if (_faceQueue >= 0 && copy.renderQueue <= _faceQueue)
+            copy.renderQueue = Mathf.Min(_faceQueue + 1, FlameQueueCeiling);
+        _flameQueueNow = copy.renderQueue;
         // At rest until a progress call moves it - the same value RestoreCard leaves behind.
         copy.SetFloat(FxAnimId, 0f);
     }
@@ -2685,15 +2807,24 @@ internal sealed class RemoteCardArt
             bool drawn = quad.isActiveAndEnabled && c.a > 0.004f && lowestGroup > 0.004f
                          && r.width > 1f && r.height > 1f && particle != null && anim > 0.004f;
 
-            // HW-VERIFY: report item 10. Grep token: PEER CARD FIRE.
-            // WORKING = "DRAWN" with colour alpha and inherited alpha both 1.000, a rect over 100 %
-            // of the face, a named _ParticleTexture and _FXAnim 0.500 — and fire visible on a peer's
-            // burnt card. INERT = this line absent while 'Remote BURN look [Recess] … FIRE=…ARMED'
-            // is present, which means the ramp never reached t = 0.25 on that surface. STILL BEYOND
-            // THE INSTRUMENT = "DRAWN" on every term with no fire on screen, which would leave only
-            // the shader itself and would make the shader name printed here the next round's lead.
-            VRLog.Note("Net", $"PEER CARD FIRE [{Surface}]: {(drawn ? "DRAWN" : "NOT DRAWN")} — "
-                + $"found by {_flameFoundBy}"
+            // HW-VERIFY: report items 10 and 8. Grep token: PEER CARD FIRE.
+            // WORKING = "DRAWN" on the BURN look with colour alpha and inherited alpha both 1.000, a
+            // rect over 100 % of the face, _ParticleTexture=T_rect_frame_mask_card_noisy, _Glow 3.00,
+            // _TintColor RGBA(1.00, 0.30, 0.00, 0.80), _FXAnim 0.500 AND a queue clause reading
+            // "q2000 -> qN (face qN-1 on 'GUI/AbilityCard_Shd')" with N-1 >= 3000 — fire over the
+            // whole card. INERT = this line absent while 'Remote BURN look […] FIRE=…ARMED' is
+            // present, which means the ramp never reached t = 0.25 on that surface. STILL BEYOND THE
+            // INSTRUMENT = "DRAWN" with the queue clause reading "q2000 -> q2000 (no move: the face
+            // already draws at or below it)" and still no fire on the card face — the queue was then
+            // NOT the occluder and the next lead is the sibling order printed beside it.
+            //
+            // READ THE LOOK BEFORE READING THE CONSTANTS. This line latches ONCE per surface, and a
+            // recess whose first settled card was DISCARDED settles on GhostOutOnTimeline's numbers
+            // — _TintColor RGBA(0.80, 0.80, 1.00, 0.60), _Glow 0.00, T_rect_frame_mask_card_wide —
+            // which are the CORRECT values for that card and were misread as a failed burn write
+            // once already. The look is printed first for exactly that reason.
+            VRLog.Note("Net", $"PEER CARD FIRE [{Surface}]: {(drawn ? "DRAWN" : "NOT DRAWN")} on the "
+                + $"{_burnRigLook} look — found by {_flameFoundBy}"
                 + (_flameWalkDisagreed
                     ? " — AND THE ModBuild 461 SIGNATURE WALK NAMED A DIFFERENT IMAGE, which is "
                       + "by itself the whole of item 10: every flame constant that build wrote "
@@ -2705,7 +2836,19 @@ internal sealed class RemoteCardArt
                 + $"RGBA({c.r:F2}, {c.g:F2}, {c.b:F2}, {c.a:F3}); lowest inherited CanvasGroup alpha "
                 + $"{lowestGroup:F3}; rect {r.width:F0}x{r.height:F0} canvas units against a "
                 + $"{face.x:F0}x{face.y:F0} face; shader '{flame.shader?.name ?? "(null)"}' q"
-                + $"{flame.renderQueue}; _ParticleTexture="
+                + $"{flame.renderQueue}; DRAW ORDER: queue {_flameQueueWas} -> {_flameQueueNow} "
+                + (_flameQueueNow > _flameQueueWas
+                    ? $"(moved above the face's own {_faceQueue} on '{_faceQueueFrom}', which is "
+                      + "report item 8's fix: a world-space canvas orders its graphics by material "
+                      + "queue BEFORE hierarchy, so a Geometry-queue sheet was painted over by the "
+                      + "transparent-queue card it burns and only its overhang ring survived)"
+                    : $"(NO MOVE — the highest OTHER graphic on this clone draws at {_faceQueue} on "
+                      + $"'{_faceQueueFrom}', which is not above the sheet, so the queue is NOT what "
+                      + "hid the fire and the sibling order below is the next lead)")
+                + $", sheet is graphic {_flameGraphicIndex} of {_flameGraphicCount} on this clone "
+                + $"with {_flameGraphicsAfter} drawing after it (0 = last, which is where the "
+                + "artist put it and where the owner's own screen-space canvas draws it); "
+                + "_ParticleTexture="
                 + $"{(particle != null ? particle.name + " " + particle.width + "x" + particle.height : "NULL")}, "
                 + $"_FXAnim {anim:F3}, _Glow {glow:F2}, _TintColor RGBA({tint.r:F2}, {tint.g:F2}, "
                 + $"{tint.b:F2}, {tint.a:F2}); _PosAndBounds {bounds}. WHY THIS LINE EXISTS: 'Remote BURN look … FIRE=ARMED' "
@@ -2725,11 +2868,13 @@ internal sealed class RemoteCardArt
                 + "_FXAnim ramp this class reproduces term for term (ToggleEffect — "
                 + "ToggleAdditiveEffect — BurnCard — BurnCardTimeline; HighlightBurnOn/Off "
                 + "are empty bodies). Every remaining step between a correct material and a pixel is "
-                + "named above; the FIRST term that is not at its working value is the cause. If ALL "
-                + "of them read correct, the two survivors are the shader named here and the canvas "
-                + "it is drawn on — a world-space one at ~0.0005 units per canvas unit against "
-                + "the flat game's screen-space one — and the _PosAndBounds field above says "
-                + "whether this shader is even in that family.");
+                + "named above; the FIRST term that is not at its working value is the cause. THE "
+                + "'canvas it is drawn on' SURVIVOR THIS LINE USED TO NAME HAS BEEN ANSWERED and is "
+                + "the DRAW ORDER clause: the ModBuild 462 session read every constant correct on "
+                + "[Flight] and [Pile] while the user photographed fire on the overhang ring ONLY "
+                + "(feuer1.jpg) and over the whole card the moment the peer-board fade dropped the "
+                + "print's alpha (feuer2.jpg) — an occlusion, not a write. What is left after the "
+                + "queue move is the sibling order printed above and the shader named here.");
         }
         catch (System.Exception ex)
         {
@@ -3049,6 +3194,13 @@ internal sealed class RemoteCardArt
         _flameRefusal = "no rig built yet";
         _flameFoundBy = "no rig built yet";
         _flameWalkDisagreed = false;
+        _faceQueue = -1;                 // …and the draw-order measurement was that clone's too
+        _faceQueueFrom = "(not measured)";
+        _flameQueueWas = -1;
+        _flameQueueNow = -1;
+        _flameGraphicIndex = -1;
+        _flameGraphicCount = -1;
+        _flameGraphicsAfter = -1;
         _flameQuadByName = null;         // …the named reference belonged to that clone's CardEffects
         _flameBurnTexture = null;        // …and the textures were lifted off the clone's CardEffects
         _flameGhostTexture = null;
