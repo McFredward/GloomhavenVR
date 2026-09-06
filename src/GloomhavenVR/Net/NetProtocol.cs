@@ -20338,7 +20338,8 @@ internal static class NetProtocol
     ///         the list but not the position"), bits 5..7 the SOURCE LIST
     ///         (<see cref="HeldFaceListNone"/>/<see cref="HeldFaceListHand"/>/
     ///         <see cref="HeldFaceListDiscard"/>/<see cref="HeldFaceListBurnt"/>/
-    ///         <see cref="HeldFaceListItems"/>; 5..7 reserved);</item>
+    ///         <see cref="HeldFaceListItems"/>/<see cref="HeldFaceListMapLoadout"/>/
+    ///         <see cref="HeldFaceListActive"/>; 7 reserved);</item>
     ///   <item>byte 1 — the LENGTH of the list the sender indexed into, clamped to 255.</item>
     /// </list>
     /// Slot 1 is the rig packet's <see cref="FlagHeldCard"/> card, slot 2 is record
@@ -20461,10 +20462,42 @@ internal static class NetProtocol
     /// </summary>
     public const byte HeldFaceListMapLoadout = 5;
 
-    /// <summary>Largest SOURCE LIST id this build defines. A code byte naming 6..7 is a future
+    /// <summary>SOURCE LIST 6: the owner's ACTIVE / PERSISTENT pile —
+    /// <c>CCharacterClass.ActivatedCards</c> narrowed to its <c>CAbilityCard</c> entries, in list
+    /// order. The SAME list, walked by the SAME expression, that a peer's mirrored active matrix is
+    /// already drawn from (<c>Net.RemoteActiveCards.Refresh</c>), so an index in it is a name for a
+    /// card on both machines.
+    ///
+    /// <para>WHAT IT FIXES: 2026-09-06 report item 9, the user verbatim — "wenn ein Spieler eine
+    /// aktive Karte in die Hand nimmt, soll diese auch mit der Vorderseite AUCH in der Auswahlphase
+    /// sichtbar sein. (Aktuell sieht man nur die Rueckseite beim remote Spieler)." The obvious
+    /// reading is that the selection-phase cover was applied to a card it should not have been. That
+    /// is only HALF of it, and the smaller half: an ACTIVE card that its owner picks up has
+    /// <c>AbilityCardUI.CardType == CardPileType.Active</c>, so it is not a
+    /// <c>CardsGameApi.HandFanMember</c>, it has no <c>VRCard.PileOrigin</c>, and it is in neither
+    /// pile arc — every arm of <c>LocalRigSampler.NameHeldCard</c> missed it and the record went out
+    /// as code 0. The receiver then printed the only honest thing it could ("the sender named no seat
+    /// for this card") and drew a back — IN EVERY PHASE, not just the selection window. Naming the
+    /// list is the arithmetic half; <c>RevealGate.IsPubliclyRevealedCard</c> is the policy half.</para>
+    ///
+    /// <para>IT IS NOT A WIDENING OF WHAT MAY BE NAMED. An index in this list can only ever resolve
+    /// to a card that is ALREADY drawn face-up in the peer's active matrix on the receiver's own
+    /// screen — the receiver re-walks its own copy of <c>ActivatedCards</c> and refuses on a length
+    /// disagreement — so a sender naming this list can reveal nothing that the receiver is not
+    /// already being shown. That is why the value costs no new anti-cheat argument, only this
+    /// paragraph.</para>
+    ///
+    /// <para>Same "a value, not a record" reasoning as <see cref="HeldFaceListMapLoadout"/> above:
+    /// the SOURCE-LIST field is bits 5..7 and 6 was one of the reserved values. No new extension
+    /// record, no id, no size change; a peer predating this value sees 6 &gt;
+    /// <see cref="HeldFaceListMax"/> in ITS build and draws the back it drew before.</para>
+    /// </summary>
+    public const byte HeldFaceListActive = 6;
+
+    /// <summary>Largest SOURCE LIST id this build defines. A code byte naming 7 is a future
     /// sender's list; the receiver draws a back for it rather than guessing, which is the same
     /// picture a peer predating the record draws.</summary>
-    public const byte HeldFaceListMax = 5;
+    public const byte HeldFaceListMax = 6;
 
     /// <summary>Pack an <see cref="ExtIdHeldCardFace"/> code byte. An out-of-range index or an
     /// unknown list degrades to a value the receiver renders as a BACK — never to a wrapped index
@@ -20494,12 +20527,15 @@ internal static class NetProtocol
                && HeldFaceIndex(code) != HeldFaceIndexUnknown;
     }
 
-    // ---- record 39: SHORT-REST SACRIFICE SEAT --------------------------------------------------
+    // ---- record 39: A CARD LYING IN A ROUND RECESS THAT RoundAbilityCards CANNOT NAME -----------
 
     /// <summary>
-    /// WHICH CARD A PEER IS SACRIFICING, and in which round recess it is lying — report item 15,
-    /// the user verbatim: "Bei einer kurzen Rast soll es sichtbar sein welche Karte dort liegt -
-    /// ich sehe nur die Rückseite."
+    /// WHICH CARD IS LYING IN A PEER'S ROUND RECESS when their <c>RoundAbilityCards</c> cannot name
+    /// it, and in which recess — the short-rest SACRIFICE (report item 15, the user verbatim: "Bei
+    /// einer kurzen Rast soll es sichtbar sein welche Karte dort liegt - ich sehe nur die
+    /// Rückseite.") and, since ModBuild 461, a card laid down by a modal PICK out of a pile (report
+    /// 2026-09-06 item 7). The name is deliberately about the QUESTION rather than about the first
+    /// flow that asked it: both are one recess drawing an anonymous back for one reason.
     ///
     /// <para>Payload: <c>[code][list length]</c> per ROUND RECESS, in recess order, so 4 bytes for
     /// the two recesses a control board has. The encoding is
@@ -20508,10 +20544,10 @@ internal static class NetProtocol
     /// "undefined is always a back" decode — because it is the same question record 36 answers for
     /// a hand, one surface over, and a second encoding would be a second thing to keep in step.</para>
     ///
-    /// <para>THE LIST IS ALWAYS <see cref="HeldFaceListDiscard"/> TODAY, and the field is a list id
-    /// rather than an implied constant for the reason every other one here is: the receiver
-    /// resolves whatever list the sender names, so a future ruling that lays some other card in a
-    /// recess costs a sender change and no format change.</para>
+    /// <para>THE LIST IS <see cref="HeldFaceListDiscard"/> OR <see cref="HeldFaceListBurnt"/>, and
+    /// the field being a list id rather than an implied constant is what let the second case be
+    /// added for a sender change and no format change. That happened in ModBuild 461 — see the
+    /// "WHAT MAY BE WRITTEN HERE" paragraph, which is the one to read before adding a third.</para>
     ///
     /// <para>THE CARD IS IN THE DISCARD LIST THE WHOLE TIME IT LIES IN THE RECESS, and this record
     /// exists because that fact was measured wrong twice before it was measured right.
@@ -20528,26 +20564,45 @@ internal static class NetProtocol
     /// discard=7, burnt=2 ... DEFERRED: the model already lists discard=8, burnt=2, but 1 discard
     /// ... still ON THEIR WAY". Model 8, wire 7, and the one card on its way IS the sacrifice.</para>
     ///
-    /// <para>WHAT MAY BE WRITTEN HERE, AND IT IS NARROWER THAN "WHAT IS IN THE RECESS". A non-zero
-    /// code is written for a recess ONLY while that recess holds the short-rest sacrifice
-    /// (<c>CardsHandUI.ShortRestedCard</c>). This is not a simplification, it is the anti-cheat
-    /// boundary: the OTHER thing that lies in a round recess during
-    /// <c>SelectAbilityCardsOrLongRest</c> is a PICK CANDIDATE, and which two cards a player is
-    /// about to commit is precisely the secret that phase protects. A record that named "whatever
-    /// occupies the recess" would hand that over. The reveal gate agrees in one named place —
-    /// <c>RevealGate.PeerCardPopulation.SacrificedCard</c> is a carve-out for the sacrifice and for
-    /// nothing else — and the receiver re-checks it rather than trusting the sender.</para>
+    /// <para>WHAT MAY BE WRITTEN HERE, AND IT IS STILL NARROWER THAN "WHAT IS IN THE RECESS". Two
+    /// cases, and no third:</para>
+    /// <list type="bullet">
+    /// <item><description>the SHORT-REST SACRIFICE (<c>CardsHandUI.ShortRestedCard</c>) — the
+    /// original case, list <see cref="HeldFaceListDiscard"/>;</description></item>
+    /// <item><description>a card the owner has LAID INTO THE RECESS as one step of a MODAL PICK and
+    /// which came out of a PILE — the long rest's burn card is the reported one (2026-09-06 item 7,
+    /// "wenn die Karte die man in der langen Rast abwerfen will dann auf das Board legt, sehen alle
+    /// anderen Spieler hier wieder nur die Rueckseite"), and <c>RecoverDiscardedCard</c> /
+    /// <c>RecoverLostCard</c> lay one down the same way. List
+    /// <see cref="HeldFaceListDiscard"/> or <see cref="HeldFaceListBurnt"/>, taken from the widget's
+    /// own <c>CardType</c>.</description></item>
+    /// </list>
+    /// <para>THE THIRD CASE IS THE ANTI-CHEAT BOUNDARY AND IT IS REFUSED IN THREE PLACES. The other
+    /// thing that lies in a round recess during <c>SelectAbilityCardsOrLongRest</c> is a card of the
+    /// TWO-CARD COMMIT, and which two cards a player is about to commit is precisely the secret that
+    /// phase protects. (1) The mod seats those through <c>PlayTray.PlaceCard</c>, never through the
+    /// pick field <c>CardsDriver.PickFieldSeat</c> reports, and that field is only ever filled from
+    /// <c>CardsDriver.HandlePickRelease</c>, which runs under <c>IsPickMode</c> — the five modal
+    /// pick modes and never the ordinary selection. (2) The sampler re-asks that mode itself before
+    /// writing a seat. (3) A commit card is a HAND card, and <see cref="HeldFaceListHand"/> is NOT
+    /// among the two lists this record may name, so it is not expressible in the format at all. A
+    /// pick that draws from the HAND rather than a pile (avoid damage by burning a hand card, the
+    /// card-limit discard) is therefore deliberately left as an anonymous back: that card IS a hand
+    /// card and its identity IS the secret. The reveal gate names both exemptions in one place
+    /// (<c>RevealGate.PeerCardPopulation.SacrificedCard</c> and
+    /// <c>RevealGate.PeerCardPopulation.BoardPickSeat</c>) and the receiver re-checks rather than
+    /// trusting the sender.</para>
     ///
     /// <para>NEVER A CARD ID AND NEVER A CARD NAME. What travels is a POSITION in
-    /// <c>Cards.CardsGameApi.GetPileArcWidgets(hand, burnt: false)</c>, the identical call the
-    /// receiver resolves with and the identical call record 36's discard arm uses. An index is only
+    /// <c>Cards.CardsGameApi.GetPileArcWidgets(hand, burnt)</c>, the identical call the
+    /// receiver resolves with and the identical call record 36's pile arms use. An index is only
     /// a name for a card while both machines build the list with the SAME expression, which is why
     /// there is one method and not two matching loops.</para>
     ///
-    /// <para>Written ONLY while a sacrifice is actually lying in a recess — a handful of seconds
-    /// per short rest, and never at all in a session without one — so every packet of every other
-    /// moment is byte-identical to ModBuild 447's. ADDITIVE TLV: a peer predating the record steps
-    /// over it by its length and draws the anonymous back it drew before.</para>
+    /// <para>Written ONLY while such a card is actually lying in a recess — a handful of seconds
+    /// per short rest or per pick step, and never at all in a session without one — so every packet
+    /// of every other moment is byte-identical to ModBuild 447's. ADDITIVE TLV: a peer predating the
+    /// record steps over it by its length and draws the anonymous back it drew before.</para>
     /// </summary>
     public const byte ExtIdSacrificeSeat = 39;
 
@@ -20555,6 +20610,28 @@ internal static class NetProtocol
     /// A reader requires at least this much before it trusts recess 1, and twice this much before
     /// it trusts recess 2.</summary>
     public const int SacrificeSeatSlotBytes = 2;
+
+    /// <summary>
+    /// May <paramref name="list"/> name a card LYING IN A ROUND RECESS
+    /// (<see cref="ExtIdSacrificeSeat"/>)? Exactly the two PILE arcs, and this is the whole of that
+    /// record's anti-cheat boundary in one expression.
+    ///
+    /// <para>IT IS DELIBERATELY NARROWER THAN <see cref="HeldFaceListMax"/>.
+    /// <see cref="HeldFaceListHand"/> is refused because the other thing that lies in a round recess
+    /// during <c>SelectAbilityCardsOrLongRest</c> is a card of the TWO-CARD COMMIT, which IS a hand
+    /// card and IS the secret that phase protects — refusing it at the DECODE means the format
+    /// cannot express it, rather than merely this build's sampler not writing it.
+    /// <see cref="HeldFaceListItems"/>, <see cref="HeldFaceListMapLoadout"/> and
+    /// <see cref="HeldFaceListActive"/> are refused from the other direction: no card of those lists
+    /// is ever laid in a round recess, so a sender naming one is a sender this receiver should not
+    /// follow.</para>
+    ///
+    /// <para>ASKED AT BOTH ENDS. <c>PresenceSerializer</c> zeroes a recess code that fails it, and
+    /// <c>Net.RemoteControlBoard.TryResolveSacrifice</c> asks the same question again before it
+    /// resolves a seat — one expression, two places, so the two cannot drift.</para>
+    /// </summary>
+    public static bool RecessSeatListAllowed(byte list) =>
+        list == HeldFaceListDiscard || list == HeldFaceListBurnt;
 
     // ---- record 41: WHICH HALF OF A ROUND CARD IS ALREADY SPENT -------------------------------
     //

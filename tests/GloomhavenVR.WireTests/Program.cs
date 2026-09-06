@@ -49,6 +49,7 @@ internal static class Program
             // that is peculiar to it: a 2-byte record is ALWAYS recess 1's, so a sacrifice lying in
             // recess 2 must force the long form or every peer draws its front in the wrong recess.
             SacrificeSeatVectors.Run(t);
+            HeldFaceActiveVectors.Run(t);
             // Which HALF of which round card is already used (41, report item 8). Driven byte by
             // byte because the record's whole job is saying WHICH of four regions is spent: a bit
             // that lands on the wrong recess greys a card its owner can still play, and neither end

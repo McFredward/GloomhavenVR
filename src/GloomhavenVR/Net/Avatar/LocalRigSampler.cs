@@ -529,6 +529,46 @@ internal static class LocalRigSampler
             return;
         }
 
+        // ─── AN ACTIVE / PERSISTENT CARD PICKED UP OUT OF THE MATRIX ────────────────────────────
+        // 2026-09-06 report item 9: "wenn ein Spieler eine aktive Karte in die Hand nimmt, soll
+        // diese auch mit der Vorderseite AUCH in der Auswahlphase sichtbar sein. (Aktuell sieht man
+        // nur die Rueckseite beim remote Spieler)." The obvious reading is that a phase gate covered
+        // it. That is the SMALLER half. An active card has CardType == Active, so it is not a
+        // CardsGameApi.HandFanMember, it has no VRCard.PileOrigin (nothing lent it) and it is in
+        // neither pile arc — every arm above missed it and the loop below found no seat, so this
+        // method returned code 0 IN EVERY PHASE and the receiver drew the only thing it could.
+        //
+        // THE LIST IS THE MODEL'S, NOT A WIDGET LIST, and that is deliberate: the receiver's active
+        // matrix (Net.RemoteActiveCards.Refresh) is drawn from CCharacterClass.ActivatedCards in
+        // list order, so indexing the same host-replicated list is the one expression both machines
+        // already share for this population. Walked raw rather than through the
+        // ActivatedAbilityCards projection, which allocates a fresh List on every call
+        // (CCharacterClass.cs:99) and this runs at the extras rate.
+        if (heldPile == CardPileType.Active)
+        {
+            CCharacterClass? cc = actor.CharacterClass;
+            System.Collections.Generic.List<CBaseCard>? activeCards = cc != null ? cc.ActivatedCards : null;
+            if (activeCards == null)
+                return;
+            int seatActive = -1;
+            int nActive = 0;
+            for (int i = 0; i < activeCards.Count; i++)
+            {
+                if (activeCards[i] is not CAbilityCard ability || ability == null)
+                    continue;
+                if (widget.AbilityCard != null && ability.CardInstanceID == widget.CardInstanceID)
+                    seatActive = nActive;
+                nActive++;
+            }
+            if (seatActive < 0)
+                return;
+            count = (byte)Mathf.Clamp(nActive, 0, 255);
+            code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListActive, seatActive);
+            if (code == 0)
+                count = 0; // could not be seated in five bits — an honest back, never half a thing
+            return;
+        }
+
         System.Collections.Generic.List<AbilityCardUI>? all2 = gameHand.cardsUI;
         if (all2 == null)
             return;
@@ -594,27 +634,85 @@ internal static class LocalRigSampler
         count0 = 0;
         code1 = 0;
         count1 = 0;
+        // ─── CASE 1: THE SHORT-REST SACRIFICE (report item 15) ──────────────────────────────────
         (CardsHandUI? hand, int recess) = Cards.CardsDriver.SacrificeSeat;
-        if (hand == null || recess < 0 || recess >= NetProtocol.BoardUiSlotCount)
-            return;
-        // WHOSE DISCARD LIST — the character the BOARD presents, which is the character the
-        // receiver will resolve this index in. Silence beats a guess at whose list to index.
+        if (hand != null && recess >= 0 && recess < NetProtocol.BoardUiSlotCount
+            && OwnedByPresentedCharacter(hand))
+        {
+            AbilityCardUI? widget = Cards.CardsGameApi.ShortRestedCardWidget(hand);
+            if (widget != null && widget.AbilityCard != null
+                && TrySeatInPileArc(hand, widget, burnt: false, out byte code, out byte count))
+                Write(recess, code, count, ref code0, ref count0, ref code1, ref count1);
+        }
+
+        // ─── CASE 2: A MODAL PICK'S CARD LYING IN A RECESS (2026-09-06 report item 7) ───────────
+        // The long rest's burn card, and every other pick that lays a card down out of a PILE. Asked
+        // per recess, after the sacrifice, and it may not overwrite one: the two never coexist (a
+        // short rest presents into recess 0 and no pick field is up), and where they somehow would,
+        // the sacrifice is the more specific fact.
+        for (int r = 0; r < NetProtocol.BoardUiSlotCount; r++)
+        {
+            if (r == 0 ? code0 != 0 : code1 != 0)
+                continue;
+            (CardsHandUI? pickHand, AbilityCardUI? pickWidget) = Cards.CardsDriver.PickFieldSeat(r);
+            if (pickHand == null || pickWidget == null || pickWidget.AbilityCard == null)
+                continue;
+            if (!OwnedByPresentedCharacter(pickHand))
+                continue;
+            // WHICH PILE THE CARD CAME OUT OF, read off the WIDGET rather than off the pick mode:
+            // the mode says what the game is asking for, the CardType says where this particular
+            // card actually is, and the receiver resolves the arc the card is IN. A card that is in
+            // neither pile arc — a HAND card, which is what an avoid-damage burn or a card-limit
+            // discard lays down — falls through and stays an anonymous back. That is the third of
+            // the three refusals NetProtocol.ExtIdSacrificeSeat's boundary paragraph names, and it
+            // is the one that makes the format itself unable to express the two-card commit.
+            CardPileType pile = pickWidget.CardType;
+            if (pile != CardPileType.Discarded && pile != CardPileType.Lost
+                && pile != CardPileType.Permalost)
+                continue;
+            if (TrySeatInPileArc(pickHand, pickWidget, pile != CardPileType.Discarded,
+                                 out byte pickCode, out byte pickCount))
+                Write(r, pickCode, pickCount, ref code0, ref count0, ref code1, ref count1);
+        }
+    }
+
+    /// <summary>Is <paramref name="hand"/> the character the BOARD presents? The receiver resolves
+    /// every seat this record carries in the presented character's list, so naming a seat in a
+    /// different character's would put a confidently wrong face in a peer's recess. Silence beats a
+    /// guess at whose list to index — the same stance <see cref="NameHeldCard"/> takes.</summary>
+    private static bool OwnedByPresentedCharacter(CardsHandUI hand)
+    {
         CPlayerActor? shown = Cards.ItemsPile.Current?.OwnerActor;
-        if (shown == null || !ReferenceEquals(hand.PlayerActor, shown))
-            return;
-        AbilityCardUI? widget = Cards.CardsGameApi.ShortRestedCardWidget(hand);
-        if (widget == null || widget.AbilityCard == null)
-            return;
-        Cards.CardsGameApi.GetPileArcWidgets(hand, burnt: false, s_heldFaceBuf);
+        return shown != null && ReferenceEquals(hand.PlayerActor, shown);
+    }
+
+    /// <summary>Seat <paramref name="widget"/> in its owner's DISCARD or BURNT arc —
+    /// <c>CardsGameApi.GetPileArcWidgets</c>, the identical call the receiver re-walks — and encode
+    /// it. False (and nothing written) when the card is not in that arc this frame or the seat does
+    /// not fit in five bits: half a thing is worse than an honest back.</summary>
+    private static bool TrySeatInPileArc(CardsHandUI hand, AbilityCardUI widget, bool burnt,
+                                         out byte code, out byte count)
+    {
+        code = 0;
+        count = 0;
+        Cards.CardsGameApi.GetPileArcWidgets(hand, burnt, s_heldFaceBuf);
         int at = s_heldFaceBuf.IndexOf(widget);
         int length = s_heldFaceBuf.Count;
         s_heldFaceBuf.Clear();
         if (at < 0)
-            return; // the sacrifice is not in the discard arc this frame — say nothing
-        byte code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListDiscard, at);
-        if (code == 0)
-            return; // could not be seated in five bits — say nothing rather than half a thing
-        byte count = (byte)Mathf.Clamp(length, 0, 255);
+            return false;
+        byte encoded = NetProtocol.EncodeHeldFace(
+            burnt ? NetProtocol.HeldFaceListBurnt : NetProtocol.HeldFaceListDiscard, at);
+        if (encoded == 0)
+            return false;
+        code = encoded;
+        count = (byte)Mathf.Clamp(length, 0, 255);
+        return true;
+    }
+
+    private static void Write(int recess, byte code, byte count,
+                              ref byte code0, ref byte count0, ref byte code1, ref byte count1)
+    {
         if (recess == 0)
         {
             code0 = code;

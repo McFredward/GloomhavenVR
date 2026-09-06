@@ -539,6 +539,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             NetProtocol.HeldFaceListBurnt => "burnt pile",
             NetProtocol.HeldFaceListItems => "items (AllItems raw index)",
             NetProtocol.HeldFaceListMapLoadout => "map-room loadout",
+            NetProtocol.HeldFaceListActive => "ACTIVE pile (public in every phase)",
             _ => "list " + list,
         };
         byte at = NetProtocol.HeldFaceIndex(code);
@@ -3336,7 +3337,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 + "long as the count above. 'map-room loadout' is the MAP-ROOM list (source id 5, "
                 + "report item 5a): there is no CPlayerActor and no items pile there, so this "
                 + "sampler used to give up and name nothing at all — which is why a card held in "
-                + "the map room could only ever be a back while the fan beside it showed fronts.");
+                + "the map room could only ever be a back while the fan beside it showed fronts. "
+                + "'ACTIVE pile' is source id 6 (report item 9): an active card its owner picks up "
+                + "has CardType==Active, so it is in no hand fan and in no pile arc and this "
+                + "sampler named NOTHING for it in EVERY phase — a 'slot1 nothing' here while a "
+                + "card really is in that fist is the shape that defect took, and the 2026-09-06 "
+                + "session's logs stand at 11 of 22 on the host and 24 of 48 on the co-player.");
         }
 
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately

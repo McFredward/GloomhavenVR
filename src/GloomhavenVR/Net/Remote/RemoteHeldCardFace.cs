@@ -85,6 +85,14 @@ internal sealed class RemoteHeldCardFace
     /// its own faces with.</summary>
     private CAbilityCard? _mapCard;
 
+    /// <summary>The resolved ACTIVE / PERSISTENT card, if any (record 36's
+    /// <see cref="NetProtocol.HeldFaceListActive"/> arm — 2026-09-06 report item 9). A separate
+    /// field from <see cref="_face"/> for the same reason <see cref="_mapCard"/> is: the seat is an
+    /// index into a MODEL list (<c>CCharacterClass.ActivatedCards</c>, which is exactly what a
+    /// peer's mirrored active matrix is drawn from), so what comes back is a <c>CAbilityCard</c> and
+    /// the print goes through <see cref="RemoteAbilityCardSource.ShowFullFace"/>.</summary>
+    private CAbilityCard? _activeCard;
+
     private bool _loggedShown;
     private byte _loggedCode = 0xFF;
 
@@ -184,6 +192,32 @@ internal sealed class RemoteHeldCardFace
             // state rather than a refusal.
             actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
             source = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor);
+            // ─── AN ACTIVE CARD IS PUBLIC WHEREVER IT IS HELD (2026-09-06 report item 9) ────────
+            // "Die aktiven Karten sind immer sichtbar ... d.h. aber auch, dass wenn ein Spieler eine
+            // aktive Karte in die Hand nimmt, soll diese auch mit der Vorderseite AUCH in der
+            // Auswahlphase sichtbar sein." The active MATRIX's exemption is a statement about a
+            // PLACE; the user's point is that the place was never what made the card public — it was
+            // played face-up in front of everybody and picking it up does not un-play it.
+            //
+            // THE CARD'S OWN REVEALED-NESS IS THE TERM, not this surface, which is why it goes
+            // through RevealGate.IsPubliclyRevealedCard and not through a branch here: any other
+            // surface that ever draws the same card gets the same answer by asking. It is asked
+            // ONLY when the population's own answer was already None, and the overload can only
+            // WIDEN, so there is no state in which this hides something.
+            //
+            // The seat is resolved FIRST because the exemption is a fact about a CARD and there is
+            // no card until the seat is read. Reading it is a length-checked list index and nothing
+            // more — no clone, no face object — so the anti-cheat contract of
+            // RemoteAbilityCardSource.ShowFullFace ("only ever call this when the gate is OPEN") is
+            // untouched: the SHOW below still happens only under a non-None source.
+            if (source == RevealGate.CardFaceSource.None
+                && NetProtocol.HeldFaceList(code) == NetProtocol.HeldFaceListActive)
+            {
+                CAbilityCard? peek = TryPeekActiveSeat(actor, code, count);
+                if (peek != null)
+                    source = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
+                                                  peek.CardInstanceID);
+            }
         }
         catch (System.Exception ex)
         {
@@ -215,6 +249,7 @@ internal sealed class RemoteHeldCardFace
             _face = null;
             _item = null;
             _mapCard = null;
+            _activeCard = null;
             try
             {
                 Resolve(actor, source, code, count);
@@ -224,12 +259,13 @@ internal sealed class RemoteHeldCardFace
                 _face = null;
                 _item = null;
                 _mapCard = null;
+                _activeCard = null;
                 VRLog.Warn("Net", $"Remote held card [player {_owner.PlayerId} slot {_slot}]: front "
                                   + $"resolve failed ({ex.Message}) — showing the back.");
             }
         }
 
-        if (_face == null && _item == null && _mapCard == null)
+        if (_face == null && _item == null && _mapCard == null && _activeCard == null)
         {
             Report(0, 1, $"the seat the sender named ({Describe(code, count)}) did not resolve on "
                        + "this client — a list of a different length, or an empty seat");
@@ -248,7 +284,10 @@ internal sealed class RemoteHeldCardFace
             : _mapCard != null
                 ? RemoteAbilityCardSource.ShowFullFace(art, null, _mapCard)
                   != RemoteAbilityCardSource.FacePath.None
-                : art.ShowFront(_face!);
+                : _activeCard != null
+                    ? RemoteAbilityCardSource.ShowFullFace(art, actor, _activeCard)
+                      != RemoteAbilityCardSource.FacePath.None
+                    : art.ShowFront(_face!);
         if (!shown)
         {
             Report(0, 1, "the seat resolved but the face CLONE failed to build");
@@ -317,6 +356,12 @@ internal sealed class RemoteHeldCardFace
         if (actor == null)
             return;
 
+        if (list == NetProtocol.HeldFaceListActive)
+        {
+            _activeCard = TryPeekActiveSeat(actor, code, count);
+            return;
+        }
+
         if (list == NetProtocol.HeldFaceListItems)
         {
             CInventory? inv = actor.Inventory;
@@ -374,6 +419,50 @@ internal sealed class RemoteHeldCardFace
         if (n != count || found == null)
             return;
         _face = found.fullAbilityCard;
+    }
+
+    /// <summary>
+    /// Seat an <see cref="NetProtocol.HeldFaceListActive"/> code in this client's OWN copy of
+    /// <paramref name="actor"/>'s active pile, or null. Report item 9's arithmetic half.
+    ///
+    /// <para>THE LIST IS <c>CCharacterClass.ActivatedCards</c> narrowed to its ability cards, in
+    /// list order — the identical expression <c>Net.RemoteActiveCards.Refresh</c> already builds the
+    /// peer's active MATRIX from and the identical one <c>LocalRigSampler.NameHeldCard</c> indexed.
+    /// One expression, three consumers, nothing to keep in step. The raw backing list is walked
+    /// rather than the <c>ActivatedAbilityCards</c> projection, which allocates a fresh
+    /// <c>List</c> on every call (<c>CCharacterClass.cs:99</c>).</para>
+    ///
+    /// <para>THE LENGTH BELT IS THE FIRST THING IT DOES, exactly as every other arm of
+    /// <see cref="Resolve"/>: an index is only a name for a card while both copies of the list are
+    /// the same length, and the one failure this record must not have is a front drawn on the wrong
+    /// card. It is also what makes the wire list id harmless — a sender naming this list can only
+    /// ever point at a card this client is ALREADY drawing face-up in that peer's active matrix.
+    /// </para>
+    ///
+    /// <para>Const in the sense that matters: it resolves an identity and draws nothing. It is
+    /// called once from the gate (to ask whether the card is exempt) and once from
+    /// <see cref="Resolve"/> (to keep it), and both are on the cadenced path.</para>
+    /// </summary>
+    private static CAbilityCard? TryPeekActiveSeat(CPlayerActor? actor, byte code, byte count)
+    {
+        if (actor == null)
+            return null;
+        CCharacterClass? cc = actor.CharacterClass;
+        List<CBaseCard>? active = cc != null ? cc.ActivatedCards : null;
+        if (active == null)
+            return null;
+        int at = NetProtocol.HeldFaceIndex(code);
+        int n = 0;
+        CAbilityCard? found = null;
+        for (int i = 0; i < active.Count; i++)
+        {
+            if (active[i] is not CAbilityCard ability || ability == null)
+                continue;
+            if (n == at)
+                found = ability;
+            n++;
+        }
+        return n == count ? found : null;
     }
 
     /// <summary>
@@ -536,6 +625,7 @@ internal sealed class RemoteHeldCardFace
         _face = null;
         _item = null;
         _mapCard = null;
+        _activeCard = null;
         _resolvedCode = 0xFF;
         _resolvedCount = 0;
         _resolvedActor = 0;
@@ -587,6 +677,7 @@ internal sealed class RemoteHeldCardFace
             NetProtocol.HeldFaceListBurnt => "burnt pile",
             NetProtocol.HeldFaceListItems => "items (AllItems raw index)",
             NetProtocol.HeldFaceListMapLoadout => "map-room loadout",
+            NetProtocol.HeldFaceListActive => "ACTIVE pile (already public in every phase)",
             _ => "list " + list,
         };
         return $"{where} seat {NetProtocol.HeldFaceIndex(code)} of {count}";

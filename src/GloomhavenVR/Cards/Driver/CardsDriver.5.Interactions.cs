@@ -1487,6 +1487,55 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>
+    /// THE SECOND SEAM RECORD 39 IS SAMPLED FROM (2026-09-06 report item 7, the half that is not the
+    /// fan): the card the owner has LAID INTO round recess <paramref name="recess"/> as one step of
+    /// a MODAL CARD PICK, and the hand it belongs to — a long rest's burn card, a
+    /// <c>RecoverDiscardedCard</c> / <c>RecoverLostCard</c> pick. Null widget when that recess holds
+    /// no pick card.
+    ///
+    /// <para>WHY IT IS NOT <see cref="SacrificeSeat"/> WITH A WIDER BODY. The sacrifice is presented
+    /// BY this driver and tracked in one field; a pick card is put there by the PLAYER and lives in
+    /// <see cref="_fieldCards"/>, whose index-to-recess mapping is
+    /// <see cref="PickSeatOfIndex"/> (the live batch takes recesses 0/1, a LOCKED card goes to the
+    /// beside-slot-2 overflow stack and is therefore NOT in a recess at all). Two different facts,
+    /// two accessors, one record.</para>
+    ///
+    /// <para>IT REPORTS WHAT IS ON THE BOARD AND NOTHING ELSE, exactly as
+    /// <see cref="SacrificeSeat"/> does. <see cref="_fieldCards"/> is filled ONLY from
+    /// <see cref="HandlePickRelease"/>, which the release router reaches only under
+    /// <see cref="IsPickMode"/> — <c>LoseCard</c> / <c>DiscardCard</c> / <c>RecoverDiscardedCard</c>
+    /// / <c>RecoverLostCard</c> / <c>IncreaseCardLimit</c>. The ordinary two-card commit seats its
+    /// cards through <c>PlayTray.PlaceCard</c> and never appears here, which is the first of the
+    /// three places <c>NetProtocol.ExtIdSacrificeSeat</c>'s boundary paragraph is enforced in. A
+    /// HELD card is excluded too: it is in a fist, not in the recess.</para>
+    /// </summary>
+    internal static (CardsHandUI? hand, AbilityCardUI? widget) PickFieldSeat(int recess) =>
+        Instance != null ? Instance.PickFieldSeatNow(recess) : (null, null);
+
+    private (CardsHandUI? hand, AbilityCardUI? widget) PickFieldSeatNow(int recess)
+    {
+        if (recess < 0 || _fieldCards.Count == 0)
+            return (null, null);
+        CardsHandUI? hand = CurrentHand();
+        if (hand == null || !IsPickMode(CardsGameApi.Mode(hand)))
+            return (null, null);
+        for (int i = 0; i < _fieldCards.Count; i++)
+        {
+            VRCard card = _fieldCards[i];
+            if (card == null || card.IsHeld || card.GameCard == null)
+                continue;
+            if (PickSeatOfIndex(i) != recess)
+                continue;
+            // …and it must PHYSICALLY be in that recess right now. PickSeatOfIndex says where the
+            // layout WANTS it; a card mid-flight out of the field (_pickExitFlown) or one the tray
+            // could not seat is not lying there, and a record that named it would put a face in a
+            // recess the owner is looking at an empty one.
+            return _tray.SlotIndexOfCard(card) == recess ? (hand, card.GameCard) : (null, null);
+        }
+        return (null, null);
+    }
+
+    /// <summary>
     /// Present the short-rested card in the LEFT slot recess (test #25, item 1d;
     /// test #28 seating). Adopts the sacrifice widget through the SAME
     /// <see cref="AdoptedCard"/> path as every other physical card and homes it into

@@ -487,6 +487,39 @@ internal static class RevealGate
         /// wire are exactly the two record 43 can say.</para>
         /// </summary>
         PickFan,
+
+        /// <summary>
+        /// A card a peer has LAID INTO A ROUND RECESS as one step of a modal card PICK — the long
+        /// rest's burn card is the one the user reported, and <c>RecoverDiscardedCard</c> /
+        /// <c>RecoverLostCard</c> lay a card down the same way.
+        ///
+        /// <para>USER, VERBATIM (2026-09-06, item 7): "Weiterhin, wenn die Karte die man in der
+        /// langen Rast abwerfen will dann auf das Board legt, sehen alle anderen Spieler hier wieder
+        /// nur die Rueckseite. Wie gesagt - das ist NICHT als Auswahlphase zu klassifizieren, daher
+        /// soll jeder die Karte voll mit der Vorderseite sehen."</para>
+        ///
+        /// <para>IT IS EXEMPT, and by the same argument <see cref="SacrificedCard"/> is — which is
+        /// why it sits beside it rather than inside <see cref="PickFan"/>. The secret
+        /// <c>SelectAbilityCardsOrLongRest</c> protects is a DECISION IN FLIGHT: which two cards a
+        /// player is about to COMMIT. A card laid in a recess by a modal pick is the opposite — it
+        /// is a card being LOST or RECOVERED, drawn out of a pile everyone can already browse, and
+        /// laying it down is the announcement of that loss.</para>
+        ///
+        /// <para>THE BOUNDARY THAT KEEPS IT FROM BEING A LEAK, and it is enforced in three
+        /// independent places rather than asserted here. (1) The mod only ever lays a card in a
+        /// recess this way from <c>CardsDriver.HandlePickRelease</c>, which runs under
+        /// <c>IsPickMode</c> — <c>LoseCard</c>/<c>DiscardCard</c>/<c>RecoverDiscardedCard</c>/
+        /// <c>RecoverLostCard</c>/<c>IncreaseCardLimit</c>, and NEVER the ordinary two-card commit,
+        /// which seats its cards through <c>PlayTray.PlaceCard</c> and is named by
+        /// <c>CCharacterClass.RoundAbilityCards</c> instead. (2) The sender
+        /// (<c>LocalRigSampler.SampleRecessCardSeats</c>) re-asks that mode itself before writing a
+        /// seat. (3) The seat that travels may name ONLY the DISCARD or the BURNT arc — never the
+        /// HAND — so a card of the two-card commit is not expressible in the record at all. A
+        /// hand-pile pick (avoid damage by burning a card from the hand, the card-limit discard)
+        /// therefore keeps its anonymous back, deliberately: that card IS a hand card and its
+        /// identity IS the secret.</para>
+        /// </summary>
+        BoardPickSeat,
     }
 
     /// <summary>
@@ -500,10 +533,69 @@ internal static class RevealGate
     /// member added for a defect that turned out NOT to be a secrecy defect at all, and the next
     /// reader has to be able to see that it grants nothing. See its own doc for the reading that
     /// settled it.</para>
+    ///
+    /// <para><see cref="PeerCardPopulation.BoardPickSeat"/> IS exempt, and its own doc carries the
+    /// three-place boundary that makes the exemption safe — read it before adding a fourth member
+    /// on this side of the expression, because a member added here is exempt by DEFAULT.</para>
     /// </summary>
     public static bool IsPublicPopulation(PeerCardPopulation population) =>
         population != PeerCardPopulation.Selectable
         && population != PeerCardPopulation.PickFan;
+
+    /// <summary>
+    /// IS THIS PARTICULAR CARD'S FACE ALREADY PUBLIC, whatever phase the game is in and whatever
+    /// surface is about to draw it? Today that means exactly one thing: the card is in
+    /// <paramref name="actor"/>'s ACTIVE / persistent pile
+    /// (<c>CCharacterClass.ActivatedCards</c>).
+    ///
+    /// <para>USER, VERBATIM (2026-09-06, item 9): "Die aktiven Karten sind immer sichtbar (was du
+    /// schon gemacht hast) d.h. aber auch, dass wenn ein Spieler eine aktive Karte in die Hand
+    /// nimmt, soll diese auch mit der Vorderseite AUCH in der Auswahlphase sichtbar sein. (Aktuell
+    /// sieht man nur die Rueckseite beim remote Spieler)."</para>
+    ///
+    /// <para>IT IS A PROPERTY OF THE CARD, NOT OF THE SURFACE, and that is the whole reason it is
+    /// a second predicate rather than a sixth <see cref="PeerCardPopulation"/> member. The active
+    /// matrix's exemption (<see cref="PeerCardPopulation.AlreadyPublic"/>) is a statement about a
+    /// PLACE — the small grid beside the control board — and the user's item 9 is the observation
+    /// that the place was never what made the card public: the card was played FACE-UP in front of
+    /// everybody, and picking it up again does not un-play it. A place rule cannot follow the card
+    /// into a fist; this one does, and any future surface that draws somebody else's card gets the
+    /// exemption by asking, without a new member and without a new ruling.</para>
+    ///
+    /// <para>IT READS <c>ActivatedCards</c> AND NOT <c>ActivatedAbilityCards</c> ON PURPOSE. The
+    /// latter is a LINQ projection that allocates a fresh <c>List&lt;CAbilityCard&gt;</c> on every
+    /// single call (<c>CCharacterClass.cs:99</c>); this predicate is asked from per-frame draw
+    /// paths, so it walks the raw backing list and type-tests each entry instead. Same membership,
+    /// zero allocation.</para>
+    ///
+    /// <para>Degrades to FALSE — the answer that shows LESS — for a null actor, a missing character
+    /// class, an unknown instance id, and any throw. That is this file's standing invariant and this
+    /// predicate is on the OPEN side of every expression that uses it, so a "safely false" here
+    /// really does close the gate rather than open it.</para>
+    /// </summary>
+    public static bool IsPubliclyRevealedCard(CPlayerActor? actor, int cardInstanceId)
+    {
+        if (actor == null || cardInstanceId == int.MinValue)
+            return false;
+        try
+        {
+            CCharacterClass? cc = actor.CharacterClass;
+            System.Collections.Generic.List<CBaseCard>? active = cc != null ? cc.ActivatedCards : null;
+            if (active == null)
+                return false;
+            for (int i = 0; i < active.Count; i++)
+            {
+                if (active[i] is CAbilityCard ability && ability != null
+                    && ability.CardInstanceID == cardInstanceId)
+                    return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// WHERE A REMOTE PLAYER'S CARD FACES MAY COME FROM RIGHT NOW — the one call every remote
@@ -585,6 +677,33 @@ internal static class RevealGate
         {
             return CardFaceSource.None;
         }
+    }
+
+    /// <summary>
+    /// THE SAME CALL, WITH THE CARD IN HAND — for a surface that can name the very card it is about
+    /// to draw. Identical to <see cref="CardFaces(PeerCardPopulation, CPlayerActor)"/> except that a
+    /// card whose face is ALREADY PUBLIC (<see cref="IsPubliclyRevealedCard"/>) is answered as
+    /// <see cref="PeerCardPopulation.AlreadyPublic"/> whatever population the surface declared.
+    ///
+    /// <para>THE ORDER OF THE TWO TERMS IS THE POINT. The population's own answer is asked FIRST and
+    /// wins whenever it already says yes, so this overload can only ever WIDEN — it has no branch in
+    /// which a card that would have been shown is hidden. That is what makes it safe to route a
+    /// surface through it unconditionally.</para>
+    ///
+    /// <para><paramref name="cardInstanceId"/> is <c>CAbilityCard.CardInstanceID</c> (or
+    /// <c>AbilityCardUI.CardInstanceID</c>, which is the same number) — never a card ID, which names
+    /// a card TYPE and would exempt a second copy of the same card sitting in a hand.</para>
+    /// </summary>
+    public static CardFaceSource CardFaces(PeerCardPopulation population,
+                                           ScenarioRuleLibrary.CPlayerActor? actor,
+                                           int cardInstanceId)
+    {
+        CardFaceSource byPopulation = CardFaces(population, actor);
+        if (byPopulation != CardFaceSource.None)
+            return byPopulation;
+        return IsPubliclyRevealedCard(actor, cardInstanceId)
+            ? CardFaces(PeerCardPopulation.AlreadyPublic, actor)
+            : CardFaceSource.None;
     }
 
     // ============================================================================================

@@ -68,6 +68,24 @@ internal static class PeerCardFaceCensus
         /// <summary><c>RemotePileFronts</c> driving <c>RemoteItemFan</c> — a peer's equipped items.
         /// </summary>
         ItemFan,
+
+        /// <summary><c>RemoteCardFx</c> — a card in FLIGHT into one of that peer's stacks (2026-09-06
+        /// report item 5). EVENT-DRIVEN, not sampled: it reports once per flight, so its row's tick
+        /// count is a count of FLIGHTS in the interval and its live front/back split is the LAST
+        /// flight, not a standing picture. The interval PEAK is the reading that matters here.
+        /// </summary>
+        FlightSlab,
+
+        /// <summary><c>RemoteControlBoard</c>'s round recesses drawing a card that
+        /// <c>CCharacterClass.RoundAbilityCards</c> cannot name — a short-rest SACRIFICE or a modal
+        /// pick's card LAID ON THE BOARD (2026-09-06 report item 7). Reported separately from
+        /// <see cref="RoundSlots"/> because it is a different question with a different answer: the
+        /// round slots ask the phase, this population is carved out of the phase and asks whether
+        /// extension record 39 named a seat this client could resolve.
+        ///
+        /// <para>KEEP THIS LAST — <see cref="ReportPeerGone"/> walks the enum by ordinal.</para>
+        /// </summary>
+        BoardPickSeat,
     }
 
     private struct Entry
@@ -119,7 +137,7 @@ internal static class PeerCardFaceCensus
     /// stale row cannot outlive the player it describes.</summary>
     internal static void ReportPeerGone(int playerId)
     {
-        for (int s = 0; s <= (int)Surface.ItemFan; s++)
+        for (int s = 0; s <= (int)Surface.BoardPickSeat; s++)
             s_entries.Remove(Key((Surface)s, playerId));
     }
 
@@ -191,15 +209,35 @@ internal static class PeerCardFaceCensus
         int totalFronts = 0;
         int totalBacks = 0;
         int worstBacks = 0;
+        int staleRows = 0;
         foreach (KeyValuePair<long, Entry> kv in s_entries)
         {
             var surface = (Surface)(byte)(kv.Key & 0xFF);
             int playerId = (int)(kv.Key >> 8);
             Entry e = kv.Value;
-            totalFronts += e.Fronts;
-            totalBacks += e.Backs;
-            if (e.PeakBacks > worstBacks)
-                worstBacks = e.PeakBacks;
+            // ─── A ROW NOBODY REPORTED THIS INTERVAL IS NOT A PICTURE OF THIS INTERVAL ──────────
+            // The live values are deliberately KEPT when a surface stops reporting, so a population
+            // that goes quiet shows its last picture instead of silently reading zero. That is the
+            // right thing on screen and it was WRONG in the arithmetic: those kept numbers were
+            // being added into the totals, so the guarantee counter this file documents
+            // ("grep POLICY=FRONTS | grep -vc 'and 0 showing a BACK right now'") convicted the mod
+            // on rows that were not being drawn at all. It read 75 breaches out of 165 policy-FRONTS
+            // ticks on the host of the 2026-09-06 session and 5 out of 166 on the co-player, and on
+            // the host EVERY ONE of the 75 was one row — "pile browse[p2] 0 FRONT / 1 BACK ... over
+            // 0 tick(s)" — a closed browse fan whose last reading was a legitimate selection-phase
+            // back from minutes earlier. A stale row is now labelled and left OUT of the totals; it
+            // still prints, because "this surface stopped reporting while showing a back" is itself
+            // a reading, and hiding it would be the opposite mistake.
+            bool stale = e.Samples == 0;
+            if (stale)
+                staleRows++;
+            else
+            {
+                totalFronts += e.Fronts;
+                totalBacks += e.Backs;
+                if (e.PeakBacks > worstBacks)
+                    worstBacks = e.PeakBacks;
+            }
             if (sb.Length > 0)
                 sb.Append("; ");
             sb.Append(Name(surface)).Append("[p").Append(playerId).Append("] ")
@@ -208,7 +246,10 @@ internal static class PeerCardFaceCensus
             if (e.PeakBacks > e.Backs)
                 sb.Append(" (worst this interval: ").Append(e.PeakBacks).Append(" BACK — ")
                   .Append(e.PeakRule ?? "(no rule reported)").Append(')');
-            sb.Append(" over ").Append(e.Samples).Append(" tick(s)");
+            sb.Append(stale
+                ? " over 0 tick(s) — STALE, this surface drew NOTHING this interval and the numbers "
+                  + "above are its last picture; excluded from the totals"
+                : " over " + e.Samples + " tick(s)");
         }
 
         // HW-VERIFY: THE line for the 2026-09-05 report item 2 ("Das Anzeigen der remote Karten
@@ -249,10 +290,17 @@ internal static class PeerCardFaceCensus
             + $"this tick — a sample, never a count of events): {PhaseAndPolicy()}. {totalFronts} "
             + $"peer card(s) showing a FRONT and {totalBacks} showing a BACK right now"
             + (worstBacks > totalBacks ? $" (worst reading in the interval: {worstBacks} BACK)" : string.Empty)
+            + (staleRows > 0 ? $" ({staleRows} STALE row(s) excluded — see below)" : string.Empty)
             + $". Per population — {sb}. The rule beside each population is the one that actually "
             + "decided it, so a BACK outside the game's own SelectAbilityCardsOrLongRest window is a "
-            + "defect and the rule names which one. 'active matrix' must NEVER show a BACK in any "
-            + "phase (user ruling 2026-09-05: an active card was played face-up, it is no secret).");
+            + "defect and the rule names which one. A row marked STALE drew nothing this interval "
+            + "and counts toward NOTHING: its numbers are the last picture that surface had, kept so "
+            + "a population that goes quiet does not read as zero. 'active matrix' must NEVER show a "
+            + "BACK in any phase (user ruling 2026-09-05: an active card was played face-up, it is "
+            + "no secret). 'flight slab' is EVENT-DRIVEN — its ticks are FLIGHTS, not samples, so "
+            + "read its interval PEAK and not its live split (report item 5). 'board pick seat' 0 "
+            + "FRONT / n BACK is report item 7's card lying on the board: read the rule, which says "
+            + "whether record 39 named a seat or whether this client could not resolve one.");
 
         // Peaks are per-interval; the live values stay so a population that stops reporting keeps
         // its last picture rather than silently reading zero.
@@ -275,6 +323,8 @@ internal static class PeerCardFaceCensus
         Surface.ActiveMatrix => "active matrix",
         Surface.PileBrowse => "pile browse",
         Surface.ItemFan => "item fan",
+        Surface.FlightSlab => "flight slab",
+        Surface.BoardPickSeat => "board pick seat",
         _ => surface.ToString(),
     };
 }

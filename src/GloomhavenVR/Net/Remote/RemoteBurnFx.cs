@@ -373,6 +373,20 @@ internal sealed class RemoteBurnFx
         _played++;
         _lastPresentedAt = Time.unscaledTime;
         _claims++;
+        // THE SAME CENSUS POPULATION RemoteCardFx REPORTS (2026-09-06 report item 5). A burn IS a
+        // card flying into a stack, and it reaches the viewer through this class instead of that one
+        // only because ConsumesWireEvent swallowed the event — an implementation split, not a
+        // different picture. Reporting from both is what makes "flight slab" a statement about every
+        // mirrored flight rather than about the ones one of the two classes happened to draw.
+        PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.FlightSlab, _owner.PlayerId,
+            b.HasFace ? 1 : 0, b.HasFace ? 0 : 1,
+            b.HasFace
+                ? "BURN: FRONT off this client's own copy of that character's LostAbilityCards"
+                : fronts
+                    ? "BURN: RevealGate was OPEN but the front did not resolve — read the "
+                      + "'BURN CARD [peer n]' line beside this for which half failed"
+                    : "BURN: RevealGate.ShowRoundCardFronts(actor)=false — the game's own secret "
+                      + "SelectAbilityCardsOrLongRest window for a remote character");
         LogAttribution(name, fronts, b.HasFace, actor, recess);
     }
 

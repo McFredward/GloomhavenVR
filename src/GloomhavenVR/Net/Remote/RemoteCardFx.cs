@@ -10,17 +10,31 @@ namespace GloomhavenVR.Net;
 /// Plays a remote player's CARD ANIMATIONS locally (user report 6). One event byte from the extras
 /// packet (<see cref="NetProtocol.FlagCardFx"/>, decoded by <see cref="NetCardFx"/>) says which two
 /// pieces of that player's VR furniture the card travelled between; this class resolves both
-/// anchors against the SENDER'S OWN synced poses and flies a card-BACK slab along the same arc the
+/// anchors against the SENDER'S OWN synced poses and flies a card slab along the same arc the
 /// local <see cref="VRCard.FlyToPile"/> uses — so a peer sees the card slide into their discard /
 /// burnt stack, glide back into their hand fan, or dock into a play slot, at the moment it really
 /// happened.
+///
+/// <para>THE SLAB CARRIES THE CARD'S REAL FRONT when this client can name the card, which since
+/// ModBuild 461 is every flight out of a round recess (2026-09-06 report item 5: "Die Animationen
+/// bei denen die Karten in den jeweiligen Stapel gehen zeigen beim remote board die Karten mit der
+/// Rückseite als Vorderseite, das ist NICHT was der Spieler sieht und ist daher ein 1:1 Bruch").
+/// The owner's own flying card is a live <see cref="VRCard"/> that was lying FACE-UP in the recess,
+/// and <see cref="VRCard.FlyToPile"/> locks that rotation for the whole arc — so a back was a 1:1
+/// breach on both the face and the pose, and both are fixed together (see
+/// <c>RotationFor</c>).</para>
 ///
 /// WHY A LOCAL REPLAY AND NOT A POSE STREAM: the flight lasts ~0.4 s. Streaming it would need the
 /// full 15 Hz pose channel for its whole duration (~20 B per packet) and would still stutter under
 /// loss; replaying it from a 2-byte event costs one packet and is immune to jitter afterwards.
 ///
-/// ANTI-CHEAT: the slab is a BACK on both faces, exactly like <see cref="RemoteHandFan"/>'s default
-/// and the held-card slab. No card identity is ever transmitted or rendered here.
+/// ANTI-CHEAT: NO CARD IDENTITY IS EVER TRANSMITTED, and that is unchanged — the wire payload is
+/// still two semantic anchor ids. What changed in ModBuild 461 is what may be RENDERED: the front is
+/// this client's own read of the card its OWN control-board mirror was already drawing face-up in
+/// that recess, claimed through <c>RemoteControlBoard.TryTakeDepartedFace</c>, which only ever holds
+/// a face this board legitimately showed while <see cref="RevealGate"/> was open — and the gate is
+/// re-asked at flight time on top. A flight this client cannot name that way is the card BACK every
+/// build before it drew, exactly like <see cref="RemoteHandFan"/>'s default and the held-card slab.
 ///
 /// VISIBILITY: gated on <see cref="RemoteBoardGate.ShowBoardSurface"/> (the shared
 /// <see cref="NetModule.RemoteBoards"/> predicate) — every anchor except the hand fan is board
@@ -74,12 +88,16 @@ internal sealed class RemoteCardFx
     private sealed class Flight
     {
         public GameObject? Go;
+        public RemoteCardArt? Art;
         public Vector3 From;
         public Vector3 To;
         public Vector3 ArcUp;
         public float Arc;
         public float Elapsed;
         public bool Active;
+        /// <summary>True while this slab is carrying the real card FRONT rather than a back. It
+        /// also decides the slab's ORIENTATION — see the FaceHeadRotation note.</summary>
+        public bool HasFace;
     }
 
     private readonly List<Flight> _flights = new(MaxFlights);
@@ -95,9 +113,11 @@ internal sealed class RemoteCardFx
     //      PAINTS (SetCanvasSize → CardFace.VisibleFaceRect: 54.04 x 82.72 mm inside the nominal
     //      card), so the owner's card in flight is 54.04 mm wide and this slab was 63.5 — 17.5 %
     //      too wide, the same defect RemoteHandFan fixed for the fan slabs and CardFace.cs
-    //      documents in full. NOTE the difference from that surface: a flight slab wears the card
-    //      BACK on both submeshes, so there is no braid of card back showing around a print here —
-    //      only the SIZE was wrong, and it was wrong at the shipped defaults.
+    //      documents in full. (When this was written a flight slab wore the card BACK on both
+    //      submeshes, so only the SIZE was wrong. Since ModBuild 461 it can host a real print too,
+    //      and the print/body relationship is the one RemoteHeldCardFace.BodyBox/ArtBox sets out —
+    //      the face overlay hangs off the flight ROOT at the NOMINAL box, not off the squashed Body
+    //      child, so RemoteCardArt's own letterbox-and-inset lands it flush on this rect.)
     //   2. THE OWNER'S CARD WIDTH. [Cards] CardWidth rides record 28 and every other remote card
     //      surface reads it; this one held RemoteHandFan.DefaultCardWidth, the NOMINAL, so a peer
     //      who had tuned their cards watched their own card fly at one size and everyone else
@@ -197,13 +217,101 @@ internal sealed class RemoteCardFx
         // Board scale × the owner's card width; the Body child under it carries the printed-face
         // squash (see the _cardWidth block and Acquire).
         f.Go.transform.localScale = Vector3.one * (scale * WidthRatio);
-        f.Go.transform.SetPositionAndRotation(a, FaceHeadRotation(a));
+
+        // ─── THE FACE (2026-09-06 report item 5) ────────────────────────────────────────────────
+        string faceRule = ResolveFace(f, from, to);
+
+        f.Go.transform.SetPositionAndRotation(a, RotationFor(f, a));
         if (!f.Go.activeSelf)
             f.Go.SetActive(true);
 
         _played++;
         VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} playing " +
                           $"({NetProtocol.CardFxSeconds:F2}s, arc {f.Arc:F3} m) — flight #{_played}.");
+        PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.FlightSlab, _owner.PlayerId,
+                                  f.HasFace ? 1 : 0, f.HasFace ? 0 : 1, faceRule);
+        // HW-VERIFY: report item 5 — "Die Animationen bei denen die Karten in den jeweiligen Stapel
+        // gehen zeigen beim remote board die Karten mit der Rückseite als Vorderseite". Grep token:
+        // FLIGHT FACE. One line per mirrored flight (a handful per turn), at Note tier because the
+        // co-player runs at the shipped default level and either machine can be the one watching.
+        // READ IT AGAINST THE OWNER'S OWN 'Fly-to-pile'/'BURN ANIM' line for the same card: the
+        // owner's flying card is a live VRCard that was lying FACE-UP in the recess and whose
+        // rotation VRCard.FlyToPile locks for the whole arc, so a FRONT here is 1:1 and a BACK is
+        // the breach. WORKING = 'FRONT'; INERT = 'BACK — no departed face' on a Slot/Board origin
+        // while the same interval's PEER CARD FACE CENSUS shows 'round slots ... 2 FRONT' (the
+        // recess had the face and the latch did not reach the flight); BEYOND THE INSTRUMENT = a
+        // 'Fly-to-pile' line on the owner with NO line here at all, which is a lost or swallowed
+        // event and not a face defect.
+        VRLog.Note("Net", $"FLIGHT FACE [player {_owner.PlayerId}]: their {from} -> {to} card "
+            + $"flight is drawn as a {(f.HasFace ? "FRONT" : "BACK")} — {faceRule}. The OWNER always "
+            + "watches a FRONT go into the pile (VRCard.FlyToPile locks the face-up rotation the "
+            + "card had in the recess for the whole arc), so a BACK here is the 1:1 breach report "
+            + "item 5 names. No card identity crossed the wire: the face is this client's own read "
+            + "of the card its OWN mirror was drawing in that recess one tick ago.");
+    }
+
+    /// <summary>
+    /// Put the REAL card front on <paramref name="f"/> when this client can name the card, and
+    /// return the short rule that decided it (quoted verbatim into the census and the flight line).
+    ///
+    /// <para>WHERE THE NAME COMES FROM, and why it is not a wire field. A flight out of a round
+    /// recess is a flight of the card this client's OWN mirror was drawing in that recess — an
+    /// identity already resolved here, locally, off the host-replicated model, and one this class
+    /// used to throw away one tick before the flight asked for it.
+    /// <c>RemoteControlBoard.TryTakeDepartedFace</c> is that memory; its doc carries the -1 case and
+    /// the reason the wire's origin anchor is always <c>Board</c> in practice.</para>
+    ///
+    /// <para>ONLY A BOARD-ORIGIN FLIGHT ASKS. A flight OUT OF THE HAND FAN is a card the owner is
+    /// playing, not one leaving a recess, and there is no departed face for it — it falls through to
+    /// the back this class has always drawn, which is also what the owner's own fan card looks like
+    /// to a peer while the selection window is open.</para>
+    /// </summary>
+    private string ResolveFace(Flight f, CardFxAnchor from, CardFxAnchor to)
+    {
+        f.HasFace = false;
+        f.Art?.HideFront();
+        if (from == CardFxAnchor.HandFan)
+            return "a flight out of the peer's HAND FAN — no recess face to inherit, so a back, "
+                 + "which is what its owner's peers see of that card anyway";
+        int slot = from == CardFxAnchor.Slot0 ? 0 : from == CardFxAnchor.Slot1 ? 1 : -1;
+        try
+        {
+            if (!_owner.TryTakeDepartedRecessFace(slot, to, out ScenarioRuleLibrary.CAbilityCard? card)
+                || card == null)
+                return $"BACK — no departed face claimable for {from} -> {to}: this client's mirror "
+                     + "of that recess never drew the card face-up (the reveal gate was shut for it, "
+                     + "or the model could not name it), the flight arrived more than the claim "
+                     + "window after the recess emptied, or TWO recesses emptied at once and this "
+                     + "client's copy of that peer's piles could not say which card landed in this "
+                     + "stack — a back beats a front on the wrong card";
+            ScenarioRuleLibrary.CPlayerActor? actor =
+                RemoteBoardFocus.DisplayedActor(_owner, out _);
+            // THE PERMISSION IS RE-ASKED, not inherited. The memory only ever holds a face this
+            // board drew while the gate was OPEN, so this can hardly refuse — and it is asked anyway
+            // because a face permission that is carried rather than evaluated is the shape of defect
+            // RevealGate's own file note is written about.
+            if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor)
+                == RevealGate.CardFaceSource.None)
+                return "BACK — RevealGate refused the front at flight time: the game's own secret "
+                     + "SelectAbilityCardsOrLongRest window for a remote character";
+            if (f.Art == null)
+                return "BACK — this pooled slab has no face overlay (its GameObject failed to build)";
+            RemoteAbilityCardSource.FacePath path =
+                RemoteAbilityCardSource.ShowFullFace(f.Art, actor, card);
+            if (path == RemoteAbilityCardSource.FacePath.None)
+                return "BACK — the card was named but its face CLONE failed to build "
+                     + "(RemoteAbilityCardSource found neither a live widget nor a poolable one)";
+            f.HasFace = true;
+            return $"FRONT via RemoteAbilityCardSource.{path}, inherited from the round recess this "
+                 + "client's own mirror was drawing that card in one tick ago";
+        }
+        catch (System.Exception ex)
+        {
+            f.HasFace = false;
+            f.Art?.HideFront();
+            return $"BACK — the front resolve threw ({ex.GetType().Name}: {ex.Message}), which is "
+                 + "the picture every build before ModBuild 461 drew";
+        }
     }
 
     // ------------------------------------------------------------------ per frame --
@@ -224,10 +332,12 @@ internal sealed class RemoteCardFx
             // skimming it.
             float e = t * t * (3f - 2f * t);
             Vector3 p = Vector3.Lerp(f.From, f.To, e) + f.ArcUp * (Mathf.Sin(t * Mathf.PI) * f.Arc);
-            f.Go.transform.SetPositionAndRotation(p, FaceHeadRotation(p));
+            f.Go.transform.SetPositionAndRotation(p, RotationFor(f, p));
             if (t >= 1f)
             {
                 f.Active = false;
+                f.HasFace = false;
+                f.Art?.HideFront();
                 f.Go.SetActive(false);
             }
         }
@@ -265,6 +375,25 @@ internal sealed class RemoteCardFx
         return true;
     }
 
+    /// <summary>
+    /// THE SLAB'S ORIENTATION, and it depends on whether this flight is carrying a real face.
+    ///
+    /// <para>A FACELESS slab BILLBOARDS at the local head, as every build before ModBuild 461 did:
+    /// an anonymous card back has no pose of its own to be faithful to, and edge-on it is invisible.
+    /// </para>
+    ///
+    /// <para>A slab carrying the card's own FRONT LIES ON THE OWNER'S BOARD instead. That is not a
+    /// preference, it is the same 1:1 ruling <c>RemoteBurnFx</c> already carries in as many words:
+    /// the owner's card is a live <c>VRCard</c> lying flat in a recess and
+    /// <c>VRCard.FlyToPile</c> LOCKS that rotation for the whole arc ("the card slides in flat, as
+    /// it sat on the board", "orientation locked"), so facing the card at the local head would be a
+    /// pose its owner never sees — a new 1:1 breach introduced by fixing an old one. The board
+    /// rotation is the peer's own synced pose, re-read per frame because a 0.4 s flight over a board
+    /// the owner is dragging must travel with it.</para>
+    /// </summary>
+    private Quaternion RotationFor(Flight f, Vector3 at) =>
+        f.HasFace ? _owner.BoardRotation : FaceHeadRotation(at);
+
     /// <summary>Billboard the slab so its BACK faces the local viewer (the mod's card convention:
     /// +Z points away from the reader). A flying card is only ever seen edge-on otherwise.</summary>
     private static Quaternion FaceHeadRotation(Vector3 at)
@@ -296,6 +425,10 @@ internal sealed class RemoteCardFx
                 if (_flights[i].Elapsed > oldest.Elapsed)
                     oldest = _flights[i];
             }
+            // A recycled slab must not keep the PREVIOUS flight's card on it: the caller re-resolves
+            // a face and a failed resolve has to land on a back, not on somebody else's front.
+            oldest.Art?.HideFront();
+            oldest.HasFace = false;
             return oldest;
         }
 
@@ -327,7 +460,9 @@ internal sealed class RemoteCardFx
                 RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
             var mr = body.AddComponent<MeshRenderer>();
             // Two submeshes (front+rim | back), both wearing the SHARED back material (never ours
-            // to destroy): a flight deliberately shows the BACK on both faces, like the old slab.
+            // to destroy). This is the slab UNDERNEATH: a flight this client cannot name shows the
+            // back on both faces, and a named one gets the real card art hosted on top by the
+            // RemoteCardArt below — the same relationship every other mirrored card surface has.
             Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability);
             mr.sharedMaterials = new[] { back, back };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -335,6 +470,14 @@ internal sealed class RemoteCardFx
             go.SetActive(false);
             VRLayers.Apply(go);
             f.Go = go;
+            // THE FACE OVERLAY hangs off the flight ROOT, at the NOMINAL card box — NOT off the
+            // squashed Body child. RemoteCardArt letterboxes a cloned face into the box it is handed
+            // and insets it by its own BorderFraction, so the nominal box PRINTS exactly the
+            // VisibleFaceRect the Body above is cut to: print and body land flush, with no rim of
+            // card back around the art. That is the arithmetic RemoteHeldCardFace.BodyBox/ArtBox
+            // documents in full, and pointing this at the Body child would apply the squash twice.
+            f.Art = new RemoteCardArt(go.transform, RemoteHandFan.DefaultCardWidth,
+                                      RemoteHandFan.DefaultCardHeight);
         }
         _flights.Add(f);
         return f;
@@ -359,6 +502,8 @@ internal sealed class RemoteCardFx
 
     public void Destroy()
     {
+        for (int i = 0; i < _flights.Count; i++)
+            _flights[i].Art?.Destroy();
         _flights.Clear();
         // Round 17: the body mesh is CardMesh's SHARED cache (AttachBody) — never ours to destroy.
         if (_root != null)

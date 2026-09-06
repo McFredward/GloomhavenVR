@@ -594,6 +594,16 @@ internal sealed class RemoteAvatar
         _controlBoard.RecessShowingCard(cardInstanceId);
 
     /// <summary>
+    /// CLAIM the face that just LEFT one of this peer's round recesses (<paramref name="slot"/> of
+    /// -1 = whichever left first and is still unclaimed) — the identity a mirrored flight into a
+    /// pile needs so it can carry the FRONT its owner is watching (2026-09-06 report item 5).
+    /// Consuming, and time-boxed; see <c>RemoteControlBoard.TryTakeDepartedFace</c> for both.
+    /// </summary>
+    internal bool TryTakeDepartedRecessFace(int slot, CardFxAnchor destination,
+                                            out ScenarioRuleLibrary.CAbilityCard? card) =>
+        _controlBoard.TryTakeDepartedFace(slot, destination, out card);
+
+    /// <summary>
     /// True when the sender broadcasts their live BOARD-UI state (extension record 4): which
     /// controls their own board currently shows + the wanted-slot glow mask. False for peers that
     /// predate the field — <see cref="RemoteBoardFurniture"/> then keeps the legacy always-drawn

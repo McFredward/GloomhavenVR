@@ -96,6 +96,9 @@ internal static class FanSourceVectors
                "the HAND is not — it is the default and is unsayable here (note 1)");
         t.True(!NetProtocol.IsFanSourcePile(NetProtocol.HeldFaceListItems),
                "an item list is not a fan a hand can hold");
+        t.True(!NetProtocol.IsFanSourcePile(NetProtocol.HeldFaceListActive),
+               "the ACTIVE pile is not one either — its cards are drawn in the matrix beside the "
+               + "board, never re-Shown as a hand fan");
         t.True(!NetProtocol.IsFanSourcePile(NetProtocol.HeldFaceListMapLoadout),
                "a map loadout is not a pick fan");
     }
@@ -146,6 +149,7 @@ internal static class FanSourceVectors
             NetProtocol.HeldFaceListHand,
             NetProtocol.HeldFaceListItems,
             NetProtocol.HeldFaceListMapLoadout,
+            NetProtocol.HeldFaceListActive,            // a peer's ACTIVE pile is never a hand fan
             (byte)(NetProtocol.HeldFaceListMax + 1),   // a build that does not exist yet
             0x7F,
         };

@@ -4102,11 +4102,19 @@ internal static class PresenceSerializer
                         // record's bytes happen to say — the same length-gated shape record 20 uses
                         // for its selection edge.
                         //
-                        // A code naming no list (or a list id 5..7 this build does not define)
-                        // decodes to "record absent" for that slot, which is the BACK a peer
-                        // predating the record draws. UNDEFINED IS ALWAYS A BACK here and never a
-                        // guess: the one failure this record must not have is a front drawn on the
-                        // wrong card, and every unknown value is routed to the same safe picture.
+                        // A code naming no list (or a list id past HeldFaceListMax, which since
+                        // ModBuild 461 is only 7) decodes to "record absent" for that slot, which is
+                        // the BACK a peer predating the record draws. UNDEFINED IS ALWAYS A BACK
+                        // here and never a guess: the one failure this record must not have is a
+                        // front drawn on the wrong card, and every unknown value is routed to the
+                        // same safe picture.
+                        //
+                        // NOTE THE CONTRAST WITH RECORD 39 BELOW, which shares this encoding and
+                        // deliberately accepts a NARROWER vocabulary. This record names a card in a
+                        // peer's FIST, and every list is a legitimate place to have plucked one
+                        // from; record 39 names a card lying in a ROUND RECESS, where the HAND list
+                        // would be the two-card commit. Same codec, two vocabularies, and the
+                        // difference is stated at both sites rather than at neither.
                         byte code0 = buffer[i];
                         byte count0 = buffer[i + 1];
                         byte code1 = 0;
@@ -4138,11 +4146,24 @@ internal static class PresenceSerializer
                         // whatever the next record's bytes happen to say — the same length-gated
                         // shape records 20, 36 and 37 use.
                         //
-                        // A code naming no list (or a list id 6..7 this build does not define)
-                        // decodes to "record absent" for that recess, which is the ANONYMOUS BACK a
-                        // peer predating the record draws. UNDEFINED IS ALWAYS A BACK and never a
-                        // guess: a face drawn on the wrong card in a recess is worse than the back
-                        // this record exists to replace, so every unknown value is routed to it.
+                        // A code naming a list this record MAY NOT CARRY decodes to "record
+                        // absent" for that recess, which is the ANONYMOUS BACK a peer predating the
+                        // record draws. UNDEFINED IS ALWAYS A BACK and never a guess: a face drawn
+                        // on the wrong card in a recess is worse than the back this record exists to
+                        // replace, so every value outside the vocabulary is routed to it.
+                        //
+                        // AND THE VOCABULARY IS NARROWER THAN record 36's, WHICH IS THE ANTI-CHEAT
+                        // BOUNDARY ITSELF RATHER THAN A TIDINESS RULE. Only the DISCARD and BURNT
+                        // arcs may name a card lying in a round recess (see
+                        // NetProtocol.ExtIdSacrificeSeat's "WHAT MAY BE WRITTEN HERE" paragraph):
+                        // the other thing that lies in a recess during SelectAbilityCardsOrLongRest
+                        // is a card of the TWO-CARD COMMIT, which is a HAND card, and refusing
+                        // HeldFaceListHand HERE — at the decode, before any consumer sees it — is
+                        // what makes that secret unexpressible in the format instead of merely
+                        // unwritten by this build's sampler. HeldFaceListActive, Items and
+                        // MapLoadout are refused for the same reason in reverse: no card of those
+                        // lists is ever laid in a recess, so a sender naming one is a sender this
+                        // receiver should not follow.
                         byte seatCode0 = buffer[i];
                         byte seatCount0 = buffer[i + 1];
                         byte seatCode1 = 0;
@@ -4152,9 +4173,9 @@ internal static class PresenceSerializer
                             seatCode1 = buffer[i + 2];
                             seatCount1 = buffer[i + 3];
                         }
-                        if (NetProtocol.HeldFaceList(seatCode0) > NetProtocol.HeldFaceListMax)
+                        if (!NetProtocol.RecessSeatListAllowed(NetProtocol.HeldFaceList(seatCode0)))
                             seatCode0 = 0;
-                        if (NetProtocol.HeldFaceList(seatCode1) > NetProtocol.HeldFaceListMax)
+                        if (!NetProtocol.RecessSeatListAllowed(NetProtocol.HeldFaceList(seatCode1)))
                             seatCode1 = 0;
                         if (seatCode0 != 0 || seatCode1 != 0)
                         {

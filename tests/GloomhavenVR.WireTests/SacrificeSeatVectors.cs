@@ -14,10 +14,15 @@
 //      exactly this case, and nothing about that decision is visible at either end: the writer
 //      writes what it has, the reader reads what it is given.
 //
-//   2. UNDEFINED IS ALWAYS A BACK. A list id this build does not define (6..7) must decode to "no
-//      sacrifice here", not to a resolved seat in list 6. This is the one failure the record must
-//      not have — a confidently WRONG face in a peer's recess is worse than the anonymous back the
-//      record replaces, because the player cannot read it as a failure and would act on it.
+//   2. A LIST THIS RECORD MAY NOT CARRY IS ALWAYS A BACK. The recess vocabulary is exactly the two
+//      PILE arcs (NetProtocol.RecessSeatListAllowed) and it is NARROWER than record 36's whole
+//      list space: an undefined id (7) and a DEFINED but forbidden one (the HAND, the ACTIVE pile)
+//      must both decode to "no sacrifice here" rather than to a resolved seat. That is the one
+//      failure the record must not have — a confidently WRONG face in a peer's recess is worse
+//      than the anonymous back the record replaces, because the player cannot read it as a failure
+//      and would act on it — AND it is the anti-cheat boundary: refusing the HAND at the DECODE is
+//      what makes the two-card commit unexpressible in this format rather than merely unwritten by
+//      this build's sampler.
 //
 //   3. ABSENCE HAS TO STAY FREE. A short rest lasts a handful of seconds; every other moment of
 //      every session must emit the bytes ModBuild 447 emitted. The cheapest way to break that is a
@@ -135,21 +140,38 @@ internal static class SacrificeSeatVectors
     }
 
     // ---------------------------------------------------------------------------------------
-    //  39d. UNDEFINED IS ALWAYS A BACK. List ids 6 and 7 fit the three-bit field and are not
-    //       defined by this build. They must read as "no sacrifice", never as a seat.
+    //  39d. A LIST THIS RECORD MAY NOT CARRY IS ALWAYS A BACK. The recess vocabulary is exactly
+    //       the two PILE arcs (NetProtocol.RecessSeatListAllowed) and it is NARROWER than record
+    //       36's: list 7 is undefined everywhere, and list 1 (the HAND) is defined but forbidden
+    //       HERE, because a card of the two-card commit is a hand card and is the one secret
+    //       SelectAbilityCardsOrLongRest exists to keep. Both must read as "no sacrifice", never
+    //       as a seat — and the hand case is the one that makes the secret unexpressible in the
+    //       format rather than merely unwritten by this build's sampler.
     // ---------------------------------------------------------------------------------------
     private static void UndefinedListIsABack(Harness t)
     {
-        t.Case("39d. sacrifice seat, an undefined list id decodes to a back");
+        t.Case("39d. sacrifice seat, a list this record may not carry decodes to a back");
         byte[] packet = Tail(@"
             27 04
-            C3 08            // list 6 (undefined) << 5 | seat 3
-            E5 09            // list 7 (undefined) << 5 | seat 5
+            E3 08            // list 7 (undefined anywhere) << 5 | seat 3
+            E5 09            // list 7 again, other recess     | seat 5
             ");
         t.True(PresenceSerializer.TryRead(packet, packet.Length, out PresenceState got),
                "the record still parses");
         t.True(!got.HasSacrificeSeat,
                "…and neither recess names a card, so both draw the anonymous back");
+
+        // THE ANTI-CHEAT CASE. A sender naming the HAND for a recess is naming a card of the
+        // two-card commit; the DECODE refuses it, so no consumer can be handed one to resolve.
+        byte[] hand = Tail(@"
+            27 04
+            23 08            // list 1 (HAND — defined by record 36, FORBIDDEN here) << 5 | seat 3
+            C5 09            // list 6 (ACTIVE — likewise defined, likewise not a recess list)
+            ");
+        t.True(PresenceSerializer.TryRead(hand, hand.Length, out PresenceState h),
+               "the record still parses");
+        t.True(!h.HasSacrificeSeat,
+               "…and a HAND or ACTIVE seat is refused at the decode, so the recess draws its back");
 
         // A list this build DOES define, at the reserved 'I cannot seat it' index, is also a back —
         // and it is a DISTINCT state from 'no list', which is what lets a log tell them apart.

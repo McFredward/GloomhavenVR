@@ -507,6 +507,17 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// <see cref="_slotOccupiedMask"/> and disjoint from <see cref="_slotFaceMask"/>.</summary>
     private int _slotAnonMask;
 
+    /// <summary>Recesses drawing a card that <c>RoundAbilityCards</c> cannot name but extension
+    /// record 39 CAN — a short-rest sacrifice or a modal pick's card laid on the board. A subset of
+    /// <see cref="_slotFaceMask"/>; its census population is
+    /// <c>PeerCardFaceCensus.Surface.BoardPickSeat</c>.</summary>
+    private int _slotPickSeatMask;
+
+    /// <summary>What decided this frame's <see cref="_slotPickSeatMask"/> / <see cref="_slotAnonMask"/>
+    /// split, in the short form the census quotes verbatim. Set every frame in
+    /// <see cref="SeatSlots"/> so it can never describe an older frame's picture.</summary>
+    private string _pickSeatRule = "no recess needed a record-39 seat this frame";
+
     /// <summary>
     /// ACTION-PHASE FACE LATCH (user report, hardware MP test 2026-08: "Obwohl wir noch in der
     /// Aktionsphase waren … wurden meine Karten den anderen verdeckt angezeigt WÄHREND meines
@@ -764,6 +775,17 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                   + "whose card widget could not be resolved on this client"
                 : "RevealGate.ShowRoundCardFronts(actor)=false — the game's own secret "
                   + "SelectAbilityCardsOrLongRest window, or no character resolved");
+
+        // THE CARD LYING ON THE BOARD THAT RoundAbilityCards CANNOT NAME (report item 7's second
+        // half, and report item 15's). Reported as its OWN population rather than folded into the
+        // round slots above: this one is carved OUT of the phase, so a BACK here is a defect in
+        // EVERY phase, and the rule beside it names which half — a seat the owner never sent, or a
+        // seat this client could not resolve.
+        int pickFronts = CountBits(_slotPickSeatMask);
+        int pickBacks = CountBits(_slotAnonMask);
+        if (pickFronts > 0 || pickBacks > 0)
+            PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.BoardPickSeat, _owner.PlayerId,
+                pickFronts, pickBacks, _pickSeatRule);
 
         // …and the GAME's OWN card plume on those very slabs (wire id 236) — the PLAYED/round-slot
         // half of the bit whose HAND half RemoteHandFan.TickMirroredPlumes already pays. PER FRAME,
@@ -1519,11 +1541,24 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     private bool TryResolveSacrifice(int slot, CPlayerActor? actor, out CAbilityCard? card)
     {
         card = null;
-        if (!RevealGate.IsPublicPopulation(RevealGate.PeerCardPopulation.SacrificedCard))
+        // BOTH carve-outs are asked, because record 39 now carries both populations and the reveal
+        // gate must be able to refuse either one on its own. The BURNT list can only ever be a
+        // BoardPickSeat (a short-rest sacrifice is drawn from the discard pile by the game's own
+        // RNG and is never in the lost pile), and the DISCARD list can be either — which is why the
+        // permission below is the OR of the two rather than a branch on the list id: refusing a
+        // discard-arc pick because the sacrifice rule was asked would put a back where the user
+        // ruled a front, and there is no state in which one of these two is public and the other is
+        // not. If a future ruling ever separates them, the list id is the term to branch on.
+        if (!RevealGate.IsPublicPopulation(RevealGate.PeerCardPopulation.SacrificedCard)
+            && !RevealGate.IsPublicPopulation(RevealGate.PeerCardPopulation.BoardPickSeat))
             return false;
         byte code = _owner.SacrificeSeatCode(slot);
-        if (!NetProtocol.HeldFaceNamesCard(code)
-            || NetProtocol.HeldFaceList(code) != NetProtocol.HeldFaceListDiscard)
+        byte list = NetProtocol.HeldFaceList(code);
+        // THE HAND LIST IS REFUSED HERE TOO, and not merely absent from the sender. This is the
+        // receiver's own copy of NetProtocol.ExtIdSacrificeSeat's boundary: a peer naming
+        // HeldFaceListHand for a recess would be naming a card of the two-card commit, which is the
+        // one secret SelectAbilityCardsOrLongRest exists to keep. Refused rather than trusted.
+        if (!NetProtocol.HeldFaceNamesCard(code) || !NetProtocol.RecessSeatListAllowed(list))
             return false;
         if (actor == null)
             return false;
@@ -1531,13 +1566,185 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         CardsHandUI? hand = manager != null ? manager.GetHand(actor) : null;
         if (hand == null)
             return false;
-        Cards.CardsGameApi.GetPileArcWidgets(hand, burnt: false, s_sacrificeBuf);
+        Cards.CardsGameApi.GetPileArcWidgets(hand, list == NetProtocol.HeldFaceListBurnt,
+                                             s_sacrificeBuf);
         int at = NetProtocol.HeldFaceIndex(code);
         bool ok = s_sacrificeBuf.Count == _owner.SacrificeSeatCount(slot) && at < s_sacrificeBuf.Count;
         AbilityCardUI? widget = ok ? s_sacrificeBuf[at] : null;
         s_sacrificeBuf.Clear();
         card = widget != null ? widget.AbilityCard : null;
         return card != null;
+    }
+
+    // ============================================================================================
+    //  THE DEPARTED FACE — what a recess was legitimately drawing at the instant its card LEFT it.
+    //
+    //  2026-09-06 report item 5: "Die Animationen bei denen die Karten in den jeweiligen Stapel
+    //  gehen zeigen beim remote board die Karten mit der Rückseite als Vorderseite, das ist NICHT
+    //  was der Spieler sieht und ist daher ein 1:1 Bruch." The owner's own flight is a live VRCard
+    //  that was lying FACE-UP in the recess and whose rotation VRCard.FlyToPile locks for the whole
+    //  arc ("the card slides in flat, as it sat on the board") — so the owner watches a FRONT go
+    //  into the pile and every peer watched a card BACK.
+    //
+    //  THE MIRROR COULD NOT NAME THE CARD, and that is why this memory exists rather than a new
+    //  wire field. Net.RemoteCardFx replays a 2-byte semantic event (from-anchor, to-anchor) and no
+    //  identity rides it — deliberately. But the card that is flying out of a round recess is, by
+    //  construction, the card this very board was drawing in that recess one tick ago, and the
+    //  identity of THAT card is already resolved here, locally, off the host-replicated model. The
+    //  flight does not need a new fact; it needs the fact this class had and threw away.
+    //
+    //  IT IS DELIBERATELY A LATCH OF THE *APPROVED* FACE. Only _latchedFaces[i] is remembered —
+    //  the face this recess drew while the reveal gate was OPEN — so the flight can never show a
+    //  front for a card the recess itself was covering. The permission is re-asked at draw time
+    //  anyway (RemoteCardFx routes through RevealGate); this makes it impossible to widen by
+    //  accident even if that call were ever edited.
+    // ============================================================================================
+
+    /// <summary>How long a departed face stays claimable, in seconds. The owner writes the FX event
+    /// in the same frame it launches the flight; the extras stream carries it at 5 Hz plus an
+    /// on-change send, and this client's own recess mirror runs on the 4 Hz board-content cadence —
+    /// so the event can arrive either side of the recess emptying. Sized to cover both plus network
+    /// jitter, and no longer: a slot takes one round card per round, so the only thing a longer
+    /// window could buy is a stale face on a flight the event for was dropped.</summary>
+    private const float DepartedFaceSeconds = 3f;
+
+    private readonly CAbilityCard?[] _departedFace = new CAbilityCard?[SlotCount];
+    private readonly float[] _departedAt = new float[SlotCount];
+
+    /// <summary>
+    /// TAKE the face that left recess <paramref name="slot"/> — or, for <paramref name="slot"/> of
+    /// -1, whichever unclaimed face belongs in the stack <paramref name="destination"/> names.
+    /// CONSUMING: a claimed face is forgotten, so two flights launched by one turn-clear take two
+    /// different cards instead of both taking the first.
+    ///
+    /// <para>-1 IS THE CASE THAT ACTUALLY HAPPENS TODAY, and the evidence says so rather than the
+    /// design. <c>CardsDriver.TryStartFlyToPile</c> reports its origin as
+    /// <c>SlotAnchor(_tray.SlotOf(card))</c>, and by the time it runs the card has already left the
+    /// tray's occupant array — the flight is launched off <c>_lastHalfCards</c>, the PREVIOUS
+    /// rebuild's dock membership. So <c>SlotOf</c> answers -1 and the anchor on the wire is
+    /// <c>CardFxAnchor.Board</c>, every time: the 2026-09-06 logs contain "Board -&gt; Discard" and
+    /// "Board -&gt; Burnt" and not one "Slot0 -&gt;" or "Slot1 -&gt;" on either machine. Which recess
+    /// a card left is therefore NOT knowable from the event, and the ORIGIN does not need to be —
+    /// both flights start at the same board anchor, so which of the two slabs a face rides is not a
+    /// distinction any viewer can make. The DESTINATION is a different matter and is why it is a
+    /// parameter: see the disambiguation block in the body.</para>
+    ///
+    /// <para>THE SENDER-SIDE HALF OF THIS IS A SEPARATE, UNFIXED DEFECT and is recorded here so it
+    /// is not re-derived: because the origin degrades to <c>Board</c>, a mirrored turn-clear flight
+    /// also STARTS at the board centre while its owner's card starts in its recess. That is a POSE
+    /// divergence in <c>CardsDriver.TryStartFlyToPile</c>, not a face one, and fixing it needs the
+    /// driver to remember the slot a docked card was in across the rebuild that clears the tray.
+    /// This class works either way — a named origin simply makes the claim exact instead of
+    /// destination-disambiguated.</para>
+    /// </summary>
+    internal bool TryTakeDepartedFace(int slot, CardFxAnchor destination, out CAbilityCard? card)
+    {
+        card = null;
+        float now = Time.unscaledTime;
+        int a = -1;
+        int b = -1;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (slot >= 0 && i != slot)
+                continue;
+            if (_departedFace[i] == null || now - _departedAt[i] > DepartedFaceSeconds)
+                continue;
+            if (a < 0)
+                a = i;
+            else
+                b = i;
+        }
+        if (a < 0)
+            return false;
+        // ─── ONE CANDIDATE IS NOT A CHOICE ──────────────────────────────────────────────────────
+        // Nothing to disambiguate, so nothing to refuse over. This is the common case: a turn-clear
+        // whose two flights arrive as two separate events, each consuming one memory.
+        if (b < 0)
+            return Take(a, out card);
+
+        // ─── TWO CANDIDATES AND A `Board` ORIGIN: THE DESTINATION DECIDES ───────────────────────
+        // A turn-clear can empty BOTH recesses in one frame and send one flight per card, and when
+        // one of those is a BURN that RemoteBurnFx presented itself, its event is swallowed and its
+        // memory is never claimed — so the discard flight arriving afterwards would find two
+        // unclaimed faces and, taken in departure order, could take the BURNT card's. A front drawn
+        // on the wrong card is the one failure every record in this project is written to avoid, so
+        // the ambiguity is resolved against the peer's OWN host-replicated piles: the card that flew
+        // into their discard stack is the one that is IN their discard list.
+        CAbilityCard? only = null;
+        int onlyIndex = -1;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (i != a && i != b)
+                continue;
+            if (!InDestinationPile(_departedFace[i], destination))
+                continue;
+            if (only != null)
+                return false;   // both are in it — no fact here separates them, so a BACK
+            only = _departedFace[i];
+            onlyIndex = i;
+        }
+        // …AND NEITHER MATCHING IS ALSO A REFUSAL, deliberately. This client's copy of that
+        // character's piles can lag the extras packet by a frame, and "the model has not caught up"
+        // is indistinguishable here from "this face belongs to the other flight". A back is wrong in
+        // a way the player reads as not-loaded-yet; a confident wrong front is not.
+        if (only == null)
+            return false;
+        return Take(onlyIndex, out card);
+
+        bool Take(int index, out CAbilityCard? taken)
+        {
+            taken = _departedFace[index];
+            _departedFace[index] = null;
+            return taken != null;
+        }
+    }
+
+    /// <summary>Is <paramref name="face"/> in the peer's own replicated pile that
+    /// <paramref name="destination"/> names? Read-only, allocation-free (the raw backing lists, not
+    /// the LINQ projections beside them), and false for any anchor that is not a stack.</summary>
+    private bool InDestinationPile(CAbilityCard? face, CardFxAnchor destination)
+    {
+        if (face == null)
+            return false;
+        try
+        {
+            CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+            CCharacterClass? cc = actor != null ? actor.CharacterClass : null;
+            if (cc == null)
+                return false;
+            return destination switch
+            {
+                CardFxAnchor.Discard => Holds(cc.DiscardedAbilityCards, face),
+                CardFxAnchor.Burnt => Holds(cc.LostAbilityCards, face)
+                                      || Holds(cc.PermanentlyLostAbilityCards, face),
+                _ => false,
+            };
+        }
+        catch
+        {
+            return false;
+        }
+
+        static bool Holds(System.Collections.Generic.List<CAbilityCard>? list, CAbilityCard face)
+        {
+            if (list == null)
+                return false;
+            for (int i = 0; i < list.Count; i++)
+                if (list[i] != null && list[i].CardInstanceID == face.CardInstanceID)
+                    return true;
+            return false;
+        }
+    }
+
+    /// <summary>Remember the face recess <paramref name="slot"/> was drawing, at the moment it stops
+    /// drawing it. Called on the EDGE only (the latch it reads is nulled in the same breath), so a
+    /// recess that stays empty does not keep re-stamping its own clock.</summary>
+    private void NoteRecessDeparture(int slot, CAbilityCard? face)
+    {
+        if (face == null)
+            return;
+        _departedFace[slot] = face;
+        _departedAt[slot] = Time.unscaledTime;
     }
 
     /// <summary>Reused widget buffer for <see cref="TryResolveSacrifice"/> — the board's content
@@ -1603,6 +1810,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _slotOccupiedMask = 0;
         _slotFaceMask = 0;
         _slotAnonMask = 0;
+        _slotPickSeatMask = 0;
+        _pickSeatRule = "no recess needed a record-39 seat this frame";
 
         // TWO resets, and only two (see _latchedFaces / _latchedActor):
         //   • the reveal gate closing — the next secret selection phase / scenario end / actor loss
@@ -1684,6 +1893,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 // can no longer name KEEPS the face it legitimately showed", and an EMPTY recess is
                 // not that case, it is the case where there is nothing to keep. There is no state
                 // in which a latched face for an unoccupied recess is wanted.
+                //
+                // …EXCEPT AS THE FACE THAT JUST LEFT. This is the recess-emptying EDGE — the latch
+                // is non-null exactly on the frame it stops being the picture, and that is the one
+                // instant at which this client still knows which card the owner is now flying into
+                // a pile. Report item 5; see the DEPARTED FACE block above for why the flight
+                // cannot ask anywhere else.
+                NoteRecessDeparture(i, _latchedFaces[i]);
                 _latchedFaces[i] = null;
                 continue;
             }
@@ -1703,6 +1919,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             if (TryResolveSacrifice(i, actor, out CAbilityCard? sacrifice) && sacrifice != null)
             {
                 _slotFaceMask |= 1 << i;
+                _slotPickSeatMask |= 1 << i;
+                _pickSeatRule = "extension record 39 named a seat and this client resolved it in "
+                    + "its own copy of that pile arc (RevealGate.PeerCardPopulation."
+                    + "SacrificedCard/BoardPickSeat — carved out of the phase)";
                 _cards[i].Set(sacrifice, front: true, actor);
                 // NOT LATCHED. _latchedFaces exists so a recess whose ROUND card the model has
                 // drained keeps the face it legitimately showed; a sacrifice is the opposite kind
@@ -1742,6 +1962,17 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             if (card == null)
             {
                 _slotAnonMask |= 1 << i;
+                // WHY THIS RECESS IS A BACK, in the form the census quotes. Report item 7's card
+                // lying on the board lands HERE when the owner's record 39 said nothing about it,
+                // and on the other branch when it said something this client could not resolve —
+                // two different fixes, so the rule has to tell them apart.
+                _pickSeatRule = NetProtocol.HeldFaceNamesCard(_owner.SacrificeSeatCode(i))
+                    ? "extension record 39 NAMED a seat for this recess and this client could not "
+                      + "resolve it — the two copies of that pile arc disagree in LENGTH, or there "
+                      + "is no hand for the character (read the owner's own seat line)"
+                    : "extension record 39 named NO seat for this recess, so nothing can name the "
+                      + "card in it: the owner's model does not list it in RoundAbilityCards and "
+                      + "their sampler wrote no pile seat either";
                 _cards[i].SetAnonymousBack();
                 LogAnonymousRecess(i, actor);
                 continue;
@@ -2220,6 +2451,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _slotOccupiedMask = 0;
         _slotFaceMask = 0;
         _slotAnonMask = 0;
+        _slotPickSeatMask = 0;
+        _pickSeatRule = "no recess needed a record-39 seat this frame";
         _loggedContent = string.Empty; // the next visible refresh must re-state what is drawn
     }
 
