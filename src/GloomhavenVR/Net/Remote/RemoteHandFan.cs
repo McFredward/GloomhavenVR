@@ -378,6 +378,20 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private GameObject? _root;              // fan pivot; child of the current hand holder
     private Transform? _holder;            // the holder we are currently parented under
     private readonly List<GameObject> _cards = new(MaxCards);
+
+    /// <summary>
+    /// THE ARC SEATS THE OWNER IS HOLDING IN THEIR FIST — the seats of <see cref="_cards"/> that
+    /// must not be drawn, or -1. Re-resolved every frame by <see cref="ResolveArcHeldSeats"/>;
+    /// never latched, because the owner's fist changes with no edge this fan is told about.
+    /// </summary>
+    private int _arcHeldSeatA = -1;
+
+    /// <inheritdoc cref="_arcHeldSeatA"/>
+    private int _arcHeldSeatB = -1;
+
+    /// <summary>Record 36's list length beside those seats, for the verdict line's membership
+    /// clause. 0 when no seat was named.</summary>
+    private int _arcHeldListLength;
     private readonly List<RemoteCardArt> _faces = new(MaxCards); // per-slab cloned-front overlays (parallel to _cards)
     private int _builtCount = -1;          // how many card slabs currently exist (-1 = never built)
     private bool _poseInit;                // snap (no ease) on the first pose after (re)activation
@@ -1694,6 +1708,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                             : $"RevealGate scenario fronts ({FanListName(_censusList)})");
 
         ReportSeatStackIfChanged(count, frontCount, heldSeatCount);
+        ReportArcMembershipIfChanged(count);
 
         // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
         // The line NAMES the predicate on purpose: the same sentence appears on every other remote
@@ -1998,6 +2013,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// slab short and there is no seat to fly to.</summary>
     private int _fistCount;
 
+    /// <summary>Whether the arc measured in <see cref="_fistCount"/> still CARRIED the held card
+    /// (record 36's list length equalled it) - the mode the release test below is judged in. See
+    /// <see cref="ResolveArcHeldSeats"/> for why both modes are real and which one is steady.
+    /// </summary>
+    private bool _fistArcKeptHeld;
+
     /// <summary>Unscaled time the fist last held a nameable card (0 = never / consumed).</summary>
     private float _fistHeldAt;
 
@@ -2202,6 +2223,81 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private float _lerpSpeed = Defaults.CardLerpSpeed;
 
     /// <summary>
+    /// WHICH SEATS OF THIS ARC THE OWNER IS HOLDING, and therefore which slabs must not be drawn.
+    /// Report item 1 of 2026-09-06, and the FOURTH appearance of one membership defect.
+    ///
+    /// <para>THE PREMISE EVERY EARLIER BUILD REASONED FROM IS FALSE, and the 2026-09-06 host log
+    /// convicts it. Three source blocks in this tree still assert that "plucking an ability card
+    /// runs <c>CardFan.Remove</c>, so the wire count drops and the mirrored fan rebuilds one slab
+    /// shorter for free" (RemoteAvatar's HeldItemSeat block, RemoteItemFan's header, and the motion
+    /// belt in <see cref="TrackFist"/> below). <c>CardFan.Remove</c> does run on the grab
+    /// (CardsDriver.5.Interactions.cs) - and <c>CardsDriver.Rebuild</c> then runs on very nearly
+    /// the next frame, re-fills the fan from the game's own widget list through
+    /// <c>CardsGameApi.HandFanMember</c>, and PUTS THE HELD CARD STRAIGHT BACK: a card in the
+    /// player's fist has not been played, so its <c>CardType</c> is still <c>Hand</c> and it is
+    /// still a member. <c>CardFan.SetCards</c> says so in its own words ("the incoming list
+    /// legitimately still names a held card"), and <c>CardFan.Relayout</c> then does exactly what
+    /// <c>ItemsPile.Relayout</c> and <c>PileBrowser.Relayout</c> do - keeps <c>n =
+    /// _cards.Count</c> and merely declines the held card a POSE. The count on the wire never
+    /// stays down.</para>
+    ///
+    /// <para>THE LOG READING, which is the evidence and not the argument. In the 2026-09-06 host
+    /// session the mirrored fan's own geometry line steps <c>n=8</c>, <c>n=7</c>, <c>n=8</c> across
+    /// a single pluck, twice, WHILE the card is still in the peer's fist - the removal and the
+    /// rebuild's re-add, one frame apart. All 8 <c>FAN RETURN VERDICT</c> refusals in that session
+    /// name <c>term=seatUsable</c> with an 8-card list, i.e. the belt below asking for an arc of 7
+    /// and being handed 8. The observer was drawing what it was sent, and what it was sent still
+    /// contained the card the peer was holding up.</para>
+    ///
+    /// <para>SO THE REMEDY IS THE ONE THE OTHER TWO ARCS ALREADY USE, and it needs no wire field:
+    /// record 36 names the seat, in this arc's own index space, so the slab is simply not drawn
+    /// (<see cref="LayoutCards"/>). It runs with the REVEAL GATE SHUT - hiding a slab resolves no
+    /// widget, reads no <c>fullAbilityCard</c> and prints no face, so a face gate in front of it
+    /// would be a capability test doing duty as a policy. That matters: during the card-selection
+    /// phase every slab is an identical BACK, which is the whole reason the user reports the
+    /// duplicate as absent there ("bei den verdeckten Karten scheint das nicht der Fall zu sein").
+    /// The slab count is identical in both phases - a duplicate back is simply invisible next to
+    /// seven other backs - so there is no face-down code path that was ever correct.</para>
+    ///
+    /// <para>WHICH OF TWO REMEDIES IS OWED IS DECIDED BY THE WIRE'S OWN TWO NUMBERS, never by a
+    /// model list, so the answer is the same with the gate open and shut:</para>
+    /// <list type="bullet">
+    ///   <item><c>listLength == count</c> - the arc STILL CARRIES the held card (the steady state,
+    ///     the one the log shows). Hide those seats here; the face list is left alone, because
+    ///     slab i is still a name for card i and the positional zip is already correct.</item>
+    ///   <item><c>listLength == count + heldSeats</c> - the arc has already dropped it (the one or
+    ///     two frames between <c>CardFan.Remove</c> and the next rebuild). Hide NOTHING: seat k no
+    ///     longer names slab k, and the existing HELD SEAT DROPPED path in <see cref="UpdateFaces"/>
+    ///     is what keeps the faces aligned across that window.</item>
+    ///   <item>anything else - the two numbers do not agree about one hand. Hide nothing; a
+    ///     duplicate is a smaller error than a hidden wrong card.</item>
+    /// </list>
+    /// </summary>
+    private void ResolveArcHeldSeats(int count)
+    {
+        _arcHeldSeatA = -1;
+        _arcHeldSeatB = -1;
+        int held = _owner.HeldHandSeats(out int seatA, out int seatB, out int listLength);
+        _arcHeldListLength = listLength;
+        if (held == 0)
+            return;
+        // TWO POSE SLOTS CANNOT NAME ONE SEAT. A receiver never assumes a sender is well-formed,
+        // and a duplicate would make `held` read 2 against an arc that only lost one card - which
+        // would take the wrong branch below. Collapse it and let the arithmetic judge the result.
+        if (held == 2 && seatA == seatB)
+        {
+            seatB = -1;
+            held = 1;
+        }
+        if (listLength != count)
+            return;   // the arc already dropped them (or the two numbers disagree) - see the doc
+        if (seatA >= 0 && seatA < count)
+            _arcHeldSeatA = seatA;
+        if (seatB >= 0 && seatB < count)
+            _arcHeldSeatB = seatB;
+    }
+
+    /// <summary>
     /// Watch the fist for one frame: resolve what is in it, and on the frame it empties decide
     /// whether the card went into a RECESS (arm the hand-off, item 5) or back to the FAN (start the
     /// mirrored return glide, item 2). See the block above for why each term is here.
@@ -2286,7 +2382,23 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         //
         // That belt is what makes the seat safe to use as an ARC INDEX with the gate shut, and an
         // arc index is all the return glide ever wanted.
-        bool seatUsable = named && seat >= 0 && listLength == count + 1 && seat < listLength;
+        // ...AND IT HAS TWO LEGAL READINGS, NOT ONE. THE SENTENCE ABOVE WAS FALSE FOR THE STEADY
+        // STATE and it cost every return animation in the 2026-09-06 session: all 8 refusals in
+        // that host log read `term=seatUsable` against an 8-card list, because CardsDriver.Rebuild
+        // puts the plucked card straight back into the arc (see ResolveArcHeldSeats for the
+        // n=8/n=7/n=8 reading that convicts it). `listLength == count + 1` is only true in the one
+        // or two frames between CardFan.Remove and that rebuild; the state the peer is actually
+        // looked at for the length of the hold is `listLength == count`.
+        //
+        // BOTH ANSWER THE SAME QUESTION WITH THE SAME NUMBER, which is why widening this is safe
+        // rather than lax: the card comes home to ARC INDEX `seat` either way. When the arc kept
+        // the seat, that index is where the slab already stands (and is hidden); when the arc
+        // dropped it, removing index k from an ordered list and putting it back at k is exactly
+        // what CardFan.Remove + CardFan.Add do. What the belt still refuses is the case it was
+        // written for - two numbers off one packet that do not describe one hand at all.
+        bool arcKeepsHeld = named && listLength == count;
+        bool seatUsable = named && seat >= 0 && seat < listLength
+                          && (listLength == count + 1 || arcKeepsHeld);
 
         CAbilityCard? fist = null;
         if (seatUsable && armed
@@ -2333,6 +2445,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _fistPoseSlot = poseSlot;
             _fistMask = mask;
             _fistCount = count;
+            // WHICH OF THE TWO ARC STATES THIS HOLD IS IN, banked with the count it is measured
+            // against, because the RELEASE test below is a different arithmetic for each: an arc
+            // that kept the seat does not grow when the card comes home, it simply stops being
+            // hidden.
+            _fistArcKeptHeld = arcKeepsHeld;
             _fistHeldAt = now;
             // A belt that failed earlier in THIS hold and has since recovered must not be quoted as
             // the reason a later release was refused. The banked term describes the frame it was
@@ -2386,7 +2503,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             return;
         }
 
-        if (mask != _fistMask || count != _fistCount + 1 || _closeElapsed >= 0f)
+        // WHERE THE ARC MUST BE FOR THIS TO BE A CARD COMING HOME. An arc that carried the held
+        // card all along is unchanged; an arc that had dropped it grows back by the one slab it
+        // lost. Either way a card that went to a PILE leaves the arc one slab SHORT of this, which
+        // is the discrimination this term exists for and which survives the widening intact.
+        int arcHome = _fistArcKeptHeld ? _fistCount : _fistCount + 1;
+        if (mask != _fistMask || count != arcHome || _closeElapsed >= 0f)
         {
             // NAME THE TERM THAT IS REFUSING — but do NOT resolve on it, and do NOT forget the
             // fist. This is the frame-ordering seam the grace window exists for: the wire arc may
@@ -2400,7 +2522,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // the fan is folding away and has no arc seat to fly to.
             if (mask != _fistMask)
                 Bank(RefusalTerm.RecessMask, _fistMask, mask);
-            else if (count != _fistCount + 1)
+            else if (count != arcHome)
                 Bank(RefusalTerm.ArcGrowth, _fistCount, count);
             else
                 Bank(RefusalTerm.FanClosing, 0, 0);
@@ -2476,7 +2598,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             + "so the card did not simply go back into the fan",
         RefusalTerm.ArcGrowth =>
             $"arc growth — the owner's wire arc carried {_refusalA} slab(s) while the card was held "
-            + $"and carries {_refusalB} now, not {_refusalA + 1}. This is the CORRECT refusal for a "
+            + $"and carries {_refusalB} now, not {(_fistArcKeptHeld ? _refusalA : _refusalA + 1)} "
+            + $"(that arc {(_fistArcKeptHeld ? "KEPT the held card's seat, so a homecoming does not "
+                                              + "grow it" : "had already dropped the held card, so a "
+                                              + "homecoming grows it by one")}). This is the CORRECT refusal for a "
             + "card that went to a pile: a burn or a discard leaves the arc one slab short and "
             + "there is no seat to fly to",
         RefusalTerm.FanClosing =>
@@ -2755,6 +2880,107 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <summary>The fan's source list in one word, for a log line. The HAND is the resting answer
     /// and is spelled out rather than left blank: a census row that says nothing about the list is
     /// a row a reader cannot tell from one printed by a build that had no list at all.</summary>
+    /// <summary>Change key for <see cref="ReportArcMembershipIfChanged"/> - the arc length, the
+    /// suppressed seats, the source list and the ORDER FINGERPRINT, so the line fires on a real
+    /// edge (a pluck, a return, a draw, a burn, a REORDER) and never on the frame rate.</summary>
+    private long _loggedArcMembership = long.MinValue;
+
+    /// <summary>
+    /// HARDWARE EVIDENCE for report items 1 and 2 of 2026-09-06. Grep token: MIRRORED ARC ORDER.
+    ///
+    /// <para>WHY IT EXISTS. Item 1 ("die in die Hand genommene Karte bleibt im remote Faecher
+    /// sichtbar") and item 2 ("ganz rechts eine andere Karte gesehen als der Spieler selber") are
+    /// two questions about ONE list, and until this line there was no reading that answered either
+    /// without a screenshot. <c>FAN RETURN VERDICT</c> prints only when the peer LETS GO of a card,
+    /// so a round in which nobody released one says nothing at all; and nothing anywhere printed
+    /// the arc's ORDER, so "exakt an den selben Stellen" could not be checked even in principle.</para>
+    ///
+    /// <para>READ IT LIKE THIS. Five numbers and one hex word:</para>
+    /// <list type="bullet">
+    ///   <item><c>arc=N</c> - slabs this fan built, i.e. the owner's own wire count.</item>
+    ///   <item><c>list=L</c> - record 36's hand-list length, straight off the same packet. 0 means
+    ///     the peer named no held card this frame, which is the resting state.</item>
+    ///   <item><c>held=H suppressed=S</c> - how many seats record 36 named for THIS list, and how
+    ///     many of them this fan is actually refusing to draw. <b>H &gt; 0 with S == 0 is the
+    ///     INERT reading</b> and the arithmetic beside it says which of the two arc states was
+    ///     seen: <c>L == N</c> is the steady one and MUST suppress, <c>L == N + H</c> is the
+    ///     one-or-two-frame window after CardFan.Remove and must NOT.</item>
+    ///   <item><c>right='X'</c> - the RIGHT-MOST card of the mirrored arc, by name. This is the
+    ///     literal object of the user's item-2 complaint, so it is printed as a name and not only
+    ///     folded into the fingerprint.</item>
+    ///   <item><c>fp=xxxxxxxx</c> - an ORDER-SENSITIVE fold over the arc's CardInstanceIDs in draw
+    ///     order. CardInstanceID is host-replicated, so THE SAME HAND IN THE SAME ORDER PRINTS THE
+    ///     SAME WORD ON EVERY MACHINE. Compare it against the owner's own <c>FAN ORDER MIRROR</c>
+    ///     line for that hand: equal means the two players are looking at the same fan, different
+    ///     means item 2 is live and the two clients disagree about the order.</item>
+    /// </list>
+    ///
+    /// <para>AND IT IS NOT THE ONLY WAY TO CONVICT ITEM 2, because the co-player's log may be
+    /// missing - it was this round. The owner-side <c>FAN ORDER MIRROR</c> line compares those two
+    /// orders on ONE machine (the arc as drawn against the arc as any observer re-derives it), so
+    /// the host's log alone can prove the divergence for the HOST's own hand even with no peer log
+    /// at all. This line is what proves it for the PEER's hand once theirs is copied.</para>
+    ///
+    /// <para>fp is computed from identities only and prints no card name but the right-most one -
+    /// it is a fold, not a face, and it runs with the reveal gate SHUT because an order is not an
+    /// identity. Where the gate leaves this client with no resolved model list the fingerprint is
+    /// <c>--------</c> and the line still carries every count, which is the honest answer.</para>
+    /// </summary>
+    private void ReportArcMembershipIfChanged(int count)
+    {
+        int suppressed = (_arcHeldSeatA >= 0 ? 1 : 0) + (_arcHeldSeatB >= 0 ? 1 : 0);
+        int held = _owner.HeldHandSeats(out _, out _, out _);
+
+        // THE ORDER FINGERPRINT. Order-sensitive by construction (the index is folded in), over
+        // CardInstanceID, which is the model's own id and therefore the same integer on both
+        // machines - a GetInstanceID() here would be machine-local and would compare to nothing.
+        uint fp = 2166136261u;
+        bool haveIds = _handBuffer.Count > 0;
+        string rightMost = "?";
+        unchecked
+        {
+            for (int i = 0; i < _handBuffer.Count; i++)
+            {
+                AbilityCardUI? w = _handBuffer[i];
+                int id = w != null ? w.CardInstanceID : 0;
+                if (w == null)
+                    haveIds = false;
+                fp = (fp ^ (uint)i) * 16777619u;
+                fp = (fp ^ (uint)id) * 16777619u;
+            }
+            AbilityCardUI? last = _handBuffer.Count > 0 ? _handBuffer[_handBuffer.Count - 1] : null;
+            if (last != null && !string.IsNullOrEmpty(last.CardName))
+                rightMost = last.CardName;
+        }
+
+        long key = ((long)fp << 24) ^ ((long)count << 12) ^ ((long)suppressed << 8)
+                   ^ ((long)held << 4) ^ _owner.FanSourceList;
+        if (key == _loggedArcMembership)
+            return;
+        _loggedArcMembership = key;
+
+        // HW-VERIFY: report items 1 and 2 (2026-09-06). Grep token: MIRRORED ARC ORDER.
+        VRLog.Note("Net", $"MIRRORED ARC ORDER [player {_owner.PlayerId}]: list="
+            + $"{FanListName(_owner.FanSourceList)} arc={count} model={_handBuffer.Count} "
+            + $"recordListLen={_arcHeldListLength} held={held} suppressed={suppressed} "
+            + $"right='{rightMost}' fp={(haveIds ? fp.ToString("x8") : "--------")}. MEMBERSHIP: "
+            + "held is how many seats record 36 names in THIS fan's list and suppressed is how "
+            + "many slabs this fan is therefore not drawing; held>0 with suppressed=0 is the INERT "
+            + "reading of the item-1 fix and the two lengths beside it say why — recordListLen==arc "
+            + "is the STEADY state (CardsDriver.Rebuild has put the plucked card back in the arc) "
+            + "and MUST suppress, recordListLen==arc+held is the one-or-two-frame window right "
+            + "after CardFan.Remove and must NOT, because seat k has stopped naming slab k there. "
+            + "ORDER: fp is an order-sensitive fold over CardInstanceID, which is host-replicated, "
+            + "so THE SAME HAND IN THE SAME ORDER PRINTS THE SAME WORD ON EVERY MACHINE — compare "
+            + "it with the owner's own 'FAN ORDER MIRROR' line for that hand, and compare 'right' "
+            + "with what they say is at the right edge, which is the literal complaint. A "
+            + "DIFFERENT fp for one hand is report item 2 and nothing else can produce it: this "
+            + "fan draws cardsUI order while the owner's arc draws CardsDriver._fanOrder, their "
+            + "session-only drag-reorder, which is on no wire. '--------' means this client has no "
+            + "resolved model list to fold (the reveal gate, or a lagging model), so the ORDER half "
+            + "of the line proves nothing that frame while every count above still holds.");
+    }
+
     /// <summary>Change key for <see cref="ReportSeatStackIfChanged"/> — the arc length, the front
     /// count and the held-seat count, so the line fires on a real edge and never on the frame rate.
     /// </summary>
@@ -3026,6 +3252,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         if (n <= 0 || _root == null)
             return;
 
+        ResolveArcHeldSeats(n);
+
         float step = n > 1 ? Mathf.Min(_perCardStepDegrees, _arcSweepDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
@@ -3100,6 +3328,25 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 
         for (int i = 0; i < _cards.Count; i++)
         {
+            // ─── THE SEAT IN THE OWNER'S FIST IS NOT DRAWN HERE (report item 1, 2026-09-06) ────
+            // "Wird eine Karte in die Hand genommen vom Mitspieler bleibt die in die Hand
+            // genommene Karte im remote Faecher sichtbar." FOURTH copy of one membership defect,
+            // and the last of the four arcs to be fixed; see ResolveArcHeldSeats for the log
+            // evidence that convicted the premise every earlier build reasoned from.
+            //
+            // THE GAP IS KEPT, NOT CLOSED, exactly as it is for the browse and item arcs and for
+            // the same reason: CardFan.Relayout keeps n = _cards.Count and merely `continue`s past
+            // a held card, so the owner is looking at an arc of n with one seat empty. Hiding the
+            // slab in place and leaving every neighbour's angle alone IS that picture. Re-spacing
+            // would trade one 1:1 breach for a worse one (the ruling ModBuild 459 recorded for the
+            // item arc), and it would also break the positional face zip below, which is what
+            // keeps slab i a name for card i.
+            bool inFist = i == _arcHeldSeatA || i == _arcHeldSeatB;
+            if (_cards[i].activeSelf == inFist)
+                _cards[i].SetActive(!inFist);
+            if (inFist)
+                continue;   // no pose for a card that is not in the arc — the owner gives it none either
+
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
             var pos = new Vector3(Mathf.Sin(rad) * _radius,

@@ -19,7 +19,17 @@ namespace GloomhavenVR.Net;
 ///   anderen Spieler gehört. Die Reihenfolge MUSS zwingend identisch sein wie es der jenige
 ///   Spieler auch sieht."). Three surfaces, three DIFFERENT derivations, none transmitted:
 ///     • the owner's tray seats <c>InitiativeAbilityCard</c> into recess 0
-///       (<c>PlayTray.SyncFromGameState</c>, <c>CardsDriver.ReconcileInitiative</c>);
+///       - CORRECTED 2026-09-06, and the sentence above is kept only so the correction has
+///       something to point at. NEITHER of those two seats the initiative card into recess 0 any
+///       more, and the direction is now the OPPOSITE one: <c>PlayTray.SyncFromGameState</c>
+///       preserves the player's free placement and uses initiative-to-slot-0 purely as the SEED
+///       for a pair neither of whose cards is seated yet ("this no longer FORCES the initiative
+///       card into slot 0", its own doc block), while <c>CardsDriver.ReconcileInitiative</c>
+///       drives the GAME's initiative to follow whatever card the player physically put in
+///       recess 0. Read that second clause twice: it means recess 0 is not a view of the game's
+///       choice, it is the INPUT to it, so anything that seats a card there without the player
+///       having dropped it changes a replicated game fact. See the log lines this file and
+///       <c>PlayTray.PlaceRoundCardIfMissing</c> now print, which name the author of every seat;
 ///     • the owner's ACTION-phase dock and every watcher's focus dock take the iteration order of
 ///       that client's own <c>CardsHandUI.cardsUI</c> list (<c>CardsDriver.CollectRoundCards</c>
 ///       → <c>HalfSelection.SetCards</c>, which docks list index i into recess i) — a list sorted
@@ -100,9 +110,31 @@ internal static class LocalBoardSlots
     /// of the same kind that caused this defect in the first place. One bit against a
     /// client-independent reference cannot inherit the bug it is fixing.</para>
     /// </summary>
-    internal static bool TrySampleSlotOrder(PlayTray? tray, CardsHandUI? hand, out bool swapped)
+    internal static bool TrySampleSlotOrder(PlayTray? tray, CardsHandUI? hand, out bool swapped) =>
+        TrySampleSlotOrder(tray, hand, out swapped, out _, out _);
+
+    /// <summary>
+    /// <inheritdoc cref="TrySampleSlotOrder(PlayTray, CardsHandUI, out bool)"/>
+    ///
+    /// <para>REPORT ITEM 4 OF 2026-09-06 IS WHY THE TWO CARD NAMES COME OUT TOO. The co-player
+    /// reported that he laid his initiative-54 card on the LEFT and that after confirming he had
+    /// the wrong card as his initiative - one he had not put there. Neither log of that session
+    /// could settle it, and the reason is precisely that record 18, and the line that reports it,
+    /// carried only a BIT. That bit asks "does the left recess hold the initiative card", and by
+    /// the time it is sampled the answer is very nearly always yes: CardsDriver.ReconcileInitiative
+    /// drives the GAME's initiative to follow whatever card lies in recess 0, so the bit agrees
+    /// with itself whether the player put that card there or something else did. It printed the
+    /// same sentence for all three of his turns. The CARD NAMES can tell those apart, because the
+    /// player knows which card he meant to lay on the left. Names and numbers only, on the owner's
+    /// own machine, into the owner's own log - nothing new goes on the wire and record 18 stays
+    /// byte-identical.</para>
+    /// </summary>
+    internal static bool TrySampleSlotOrder(PlayTray? tray, CardsHandUI? hand, out bool swapped,
+                                            out string leftName, out string rightName)
     {
         swapped = false;
+        leftName = "?";
+        rightName = "?";
         try
         {
             CAbilityCard? initiative = hand?.PlayerActor?.CharacterClass?.InitiativeAbilityCard;
@@ -110,6 +142,8 @@ internal static class LocalBoardSlots
                 return false;
             CAbilityCard? left = WidgetInSlot(tray, 0)?.abilityCard;
             CAbilityCard? right = WidgetInSlot(tray, 1)?.abilityCard;
+            leftName = SlotCardName(left);
+            rightName = SlotCardName(right);
             if (left == null || right == null)
                 return false; // one recess (or none) — there is no ORDER to state
             if (ReferenceEquals(left, initiative))
@@ -124,6 +158,24 @@ internal static class LocalBoardSlots
         catch (System.Exception)
         {
             return false;     // a card mid-teardown must never take down the extras sender
+        }
+    }
+
+    /// <summary>A round card's name and initiative for the owner's own log line, never null and
+    /// never thrown from - it runs on the extras sender's path. Report item 4 (2026-09-06): the
+    /// number is what the player compares against the card he believes he laid down.</summary>
+    private static string SlotCardName(CAbilityCard? card)
+    {
+        if (card == null)
+            return "<empty>";
+        try
+        {
+            string name = card.Name;
+            return $"{(string.IsNullOrEmpty(name) ? "<unnamed>" : name)}({card.Initiative})";
+        }
+        catch (System.Exception)
+        {
+            return "<unreadable>";
         }
     }
 

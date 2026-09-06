@@ -1264,6 +1264,24 @@ internal sealed partial class CardsDriver
     /// Enforce "slot 0 = initiative": if the game's initiative card is not the slot-0
     /// occupant (e.g. cards were dropped right-to-left), issue the game's own swap.
     /// </summary>
+    /// <summary>A model card's name for a log line, never null and never thrown from.</summary>
+    private static string CardName(CAbilityCard? card)
+    {
+        if (card == null)
+            return "<none>";
+        try { return string.IsNullOrEmpty(card.Name) ? "<unnamed>" : card.Name; }
+        catch (System.Exception) { return "<unreadable>"; }
+    }
+
+    /// <summary>A model card's initiative for a log line, or -1 when it cannot be read.</summary>
+    private static int CardInit(CAbilityCard? card)
+    {
+        if (card == null)
+            return -1;
+        try { return card.Initiative; }
+        catch (System.Exception) { return -1; }
+    }
+
     private void ReconcileInitiative(CardsHandUI hand)
     {
         if (hand == null || hand.PlayerActor == null)
@@ -1274,10 +1292,50 @@ internal sealed partial class CardsDriver
         if (slot0 == null || slot0.GameCard == null)
             return;
         CAbilityCard? initiative = CardsGameApi.InitiativeCard(hand);
-        if (initiative != null && initiative != slot0.GameCard.AbilityCard)
+        CAbilityCard? inSlot0 = slot0.GameCard.AbilityCard;
+        if (initiative != null && initiative != inSlot0)
         {
             if (CardsGameApi.SwapInitiative(hand))
-                VRLog.Debug("Cards", "Initiative reconciled to slot order.");
+            {
+                // HW-VERIFY: report item 4 (2026-09-06). Grep token: INITIATIVE FOLLOWS THE RECESS.
+                //
+                // THIS IS THE MOD WRITING GAME STATE, and the round of 2026-09-06 is the reason it
+                // now says so out loud. CardsGameApi.SwapInitiative calls the game's own
+                // AbilityCardUI.SwapInitiative(), which swaps Initiative/SubInitiative, reverses
+                // RoundAbilityCards, updates the initiative track and NETWORKS the change - so the
+                // card the game treats as leading is decided here, by what is lying in recess 0.
+                // It is deliberate (a VR player expects the card he puts on the left to lead) and
+                // it is phase-guarded to SelectAbilityCardsOrLongRest, so it cannot fire after the
+                // confirm. But it means recess 0 is an INPUT and not a display, and anything that
+                // seats a card there without the player - PlayTray.PlaceRoundCardIfMissing is the
+                // one such path, and it now prints 'RECESS SEATED BY THE MOD' - changes a
+                // replicated gameplay fact.
+                //
+                // THE CO-PLAYER'S CLAIM, verbatim: "nach der Bestaetigung ... er die falsche Karte
+                // als Initiative hat die er dort nicht hingelegt hatte." Promoted from VRLog.Debug
+                // because at the shipped default tier the one line that records the game's
+                // initiative being rewritten was not being written at all: his 2026-09-06 log
+                // carries it once and the host's three times, and only because both were running
+                // with the Cards tier turned up.
+                VRLog.Note("Cards", "INITIATIVE FOLLOWS THE RECESS: the LEFT recess (slot 0) holds "
+                    + $"'{CardName(inSlot0)}' (initiative {CardInit(inSlot0)}) while the game had "
+                    + $"'{CardName(initiative)}' (initiative {CardInit(initiative)}) as the leading "
+                    + "card, so THE GAME WAS REWRITTEN TO FOLLOW THE CARD — AbilityCardUI"
+                    + ".SwapInitiative() swapped Initiative/SubInitiative, reversed "
+                    + "RoundAbilityCards, updated the track and networked it. The physical "
+                    + "placement wins and this player's initiative is now the left recess's "
+                    + "number. THE DIRECTION IS THE WHOLE POINT (report item 4, 2026-09-06): "
+                    + "nothing here reorders the two recesses, so a player who sees his cards "
+                    + "'verdreht' after confirming was not swapped by this line — but if a card he "
+                    + "did not put on the left was sitting there, this is what turned that into "
+                    + "his real initiative. Read it with 'RECESS SEATED BY THE MOD' (did anything "
+                    + "but the player fill that recess?) and 'Slot order SENT' (which two cards "
+                    + "are in the two recesses, by name). This is guarded to the selection phase, "
+                    + "so it can never change an initiative after the confirm. It prints ONLY on "
+                    + "the machine that placed the cards — a watcher's log can never answer the "
+                    + "question, which is why the co-player's own log is the evidence that "
+                    + "settles it.");
+            }
         }
     }
 

@@ -114,6 +114,7 @@ internal sealed partial class CardsDriver
         // Free when nothing moved: LogFanOrder's first act is its own allocation-free signature gate.
         LogFanOrder(OffScenarioFanActive ? "map-room hand" : "scenario hand",
             "a change no publish announced — a card was plucked out of the fan or came home to it");
+        LogFanOrderMirror();
 
         // Only the REAL hand fan reorders (CardsSelection). Pick-mode "fans" (discard/burnt piles)
         // reuse the same _fan but must not telegraph a reorder gap — their releases route through
@@ -281,6 +282,149 @@ internal sealed partial class CardsDriver
             return widget.CardName;
         return card.name;
     }
+
+    /// <summary>Change key for <see cref="LogFanOrderMirror"/> - the pair of fingerprints and the
+    /// pair of lengths, so the line fires on a real order edge and never on the frame rate.
+    /// </summary>
+    private long _lastOrderMirrorKey = long.MinValue;
+
+    /// <summary>
+    /// An ORDER-SENSITIVE fold over a list of ability-card widgets, keyed on
+    /// <c>CardInstanceID</c>. The id is the MODEL's, not a <c>GetInstanceID()</c>, and that is the
+    /// whole point: it is host-replicated, so the same hand in the same order folds to the same
+    /// word on every machine in the session and the two logs compare without arithmetic.
+    /// </summary>
+    private static uint OrderFingerprint(System.Collections.Generic.IReadOnlyList<AbilityCardUI?> list)
+    {
+        uint fp = 2166136261u;
+        unchecked
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                AbilityCardUI? w = list[i];
+                fp = (fp ^ (uint)i) * 16777619u;
+                fp = (fp ^ (uint)(w != null ? w.CardInstanceID : 0)) * 16777619u;
+            }
+        }
+        return fp;
+    }
+
+    /// <summary>Scratch for <see cref="LogFanOrderMirror"/>'s two walks. Reused; the line is
+    /// change-gated and this runs on a per-frame call.</summary>
+    private readonly List<AbilityCardUI?> _orderMirrorDrawn = new(16);
+
+    /// <inheritdoc cref="_orderMirrorDrawn"/>
+    private readonly List<AbilityCardUI?> _orderMirrorDerived = new(16);
+
+    /// <summary>
+    /// HARDWARE EVIDENCE for report item 2 of 2026-09-06. Grep token: FAN ORDER MIRROR.
+    ///
+    /// <para>THE COMPLAINT, verbatim: "Im Test war der remote Faecher anders als der Faecher die er
+    /// gesehen hat, heisst: Ich habe ganz rechts eine andere Karte gesehen als der Spieler selber.
+    /// Das darf niemals passieren. Auch nach umsortieren etc. muessen die Karten exakt an den
+    /// selben Stellen remote zu sehen sein wie lokal beim Spieler."</para>
+    ///
+    /// <para>WHY IT CAN BE ANSWERED FROM ONE LOG, which is what makes this line worth its bytes:
+    /// the co-player's log was not copied this round, and a fingerprint that can only be compared
+    /// against a log that does not exist proves nothing. So this line compares the two orders on
+    /// THIS machine. <c>drawn</c> is the arc this player is actually looking at - the fan's own
+    /// list, which is <see cref="ReorderFanBuffer"/>'s output and therefore carries
+    /// <c>_fanOrder</c>, the player's session-only drag-reorder. <c>derived</c> is the SAME cards
+    /// walked the way EVERY observer re-derives them: <c>CardsHandUI.cardsUI</c> in its own order,
+    /// filtered by <c>CardsGameApi.HandFanMember</c> - which is verbatim what
+    /// <c>Net.RemoteHandFan.FillHandBuffer</c> does on the other machine. If those two differ, every
+    /// other player is drawing this hand in a different order from its owner, and that is item 2
+    /// proven with no peer log at all.</para>
+    ///
+    /// <para>READ IT LIKE THIS.</para>
+    /// <list type="bullet">
+    ///   <item><c>MATCH</c> - the arc this player sees is the arc an observer re-derives. Item 2
+    ///     is not live for this hand at this moment. Note that this is a claim about ORDER only;
+    ///     the length pair beside it is what says whether both lists even hold the same cards.
+    ///     </item>
+    ///   <item><c>DIVERGED</c> - the orders differ, and the two <c>right='X'</c> names say exactly
+    ///     how the user would notice: the right-most card of the fan he is holding against the
+    ///     right-most card every other player sees. THIS IS THE WORKING READING OF THE DEFECT and
+    ///     it needs no screenshot and no second machine.</item>
+    ///   <item><c>n=A/B</c> with A != B - the two walks did not even collect the same number of
+    ///     cards, so the order verdict is not the finding; the MEMBERSHIP is. A held card is the
+    ///     ordinary cause (the fan drops it for one frame on the pluck and CardsDriver.Rebuild puts
+    ///     it back), and a persistent inequality is a filter disagreement, which is report item 5b
+    ///     of the previous round happening again.</item>
+    /// </list>
+    ///
+    /// <para>AND THE DIVERGENCE IS MEASURED, NOT PREDICTED. In the 2026-09-06 session both logs
+    /// carry it: 38 of the co-player's 54 non-empty <c>Fan order [scenario hand]</c> readings say
+    /// NOT SORTED, and 21 of the host's 33 do. NOT SORTED means the arc its owner is looking at is
+    /// not in initiative order - while an observer rebuilds that same hand from
+    /// <c>CardsHandUI.cardsUI</c>, which the game keeps in <c>AbilityCardUI.CompareTo</c> order.
+    /// The two orders therefore differ for most of the session, in BOTH directions, and that is
+    /// report item 2 with a number on it: "ganz rechts eine andere Karte".</para>
+    ///
+    /// <para>NOTHING HERE IS A FIX. The order is NOT on the wire - <c>_fanOrder</c> is
+    /// session-local and no record carries a permutation - so a DIVERGED reading is a defect this
+    /// build reports and does not repair. Closing it needs the owner's arc order transmitted (one
+    /// nibble per seat over record 36's own index space is enough for a 15-card hand); that is a
+    /// wire change and is deliberately not made in the same build as the item-1 membership fix, so
+    /// that this line's verdict cannot be contaminated by it.</para>
+    /// </summary>
+    private void LogFanOrderMirror()
+    {
+        CardsHandUI? hand = CurrentHand();
+        if (hand == null || hand.cardsUI == null)
+            return;
+        CPlayerActor? actor = hand.PlayerActor;
+
+        _orderMirrorDrawn.Clear();
+        IReadOnlyList<VRCard> drawn = _fan.Cards;
+        for (int i = 0; i < drawn.Count; i++)
+            _orderMirrorDrawn.Add(drawn[i] != null ? drawn[i].GameCard : null);
+
+        _orderMirrorDerived.Clear();
+        List<AbilityCardUI> all = hand.cardsUI;
+        for (int i = 0; i < all.Count; i++)
+        {
+            if (CardsGameApi.HandFanMember(all[i], actor))
+                _orderMirrorDerived.Add(all[i]);
+        }
+
+        uint fpDrawn = OrderFingerprint(_orderMirrorDrawn);
+        uint fpDerived = OrderFingerprint(_orderMirrorDerived);
+        long key = ((long)fpDrawn << 32) ^ ((long)fpDerived << 8)
+                   ^ ((long)_orderMirrorDrawn.Count << 4) ^ _orderMirrorDerived.Count;
+        if (key == _lastOrderMirrorKey)
+            return;
+        _lastOrderMirrorKey = key;
+
+        string rightDrawn = _orderMirrorDrawn.Count > 0
+            ? WidgetLabel(_orderMirrorDrawn[_orderMirrorDrawn.Count - 1]) : "<empty>";
+        string rightDerived = _orderMirrorDerived.Count > 0
+            ? WidgetLabel(_orderMirrorDerived[_orderMirrorDerived.Count - 1]) : "<empty>";
+
+        // HW-VERIFY: report item 2 (2026-09-06). Grep token: FAN ORDER MIRROR.
+        VRLog.Note("Cards", $"FAN ORDER MIRROR: {(fpDrawn == fpDerived ? "MATCH" : "DIVERGED")} — "
+            + $"n={_orderMirrorDrawn.Count}/{_orderMirrorDerived.Count}, drawn fp={fpDrawn:x8} "
+            + $"right='{rightDrawn}', derived fp={fpDerived:x8} right='{rightDerived}'. DRAWN is "
+            + "the arc THIS player is looking at (CardFan's own list, i.e. ReorderFanBuffer's "
+            + "output, which carries _fanOrder — their session-only drag-reorder). DERIVED is the "
+            + "same hand walked the way every OBSERVER re-derives it (CardsHandUI.cardsUI in its "
+            + "own order, filtered by CardsGameApi.HandFanMember), which is verbatim what "
+            + "Net.RemoteHandFan does on the other machine. DIVERGED therefore means every other "
+            + "player is drawing this hand in a different order from its owner — report item 2, "
+            + "'ganz rechts eine andere Karte', proven from THIS log with no peer log needed, and "
+            + "the two right='' names are the two cards he would compare. The fingerprint is an "
+            + "order-sensitive fold over CardInstanceID, which is host-replicated, so it is also "
+            + "directly comparable with the peer's 'MIRRORED ARC ORDER' fp for this same hand when "
+            + "their log IS present. n=A/B with A!=B is a MEMBERSHIP disagreement and not an order "
+            + "one: read it first, because the order verdict beside it is then meaningless. THIS "
+            + "BUILD DOES NOT FIX A DIVERGENCE — the arc order is on no wire (_fanOrder is "
+            + "session-local), so closing it needs a new record and that is deliberately not in "
+            + "the same build as the item-1 membership fix.");
+    }
+
+    /// <summary>A widget's card name for a log line, never null.</summary>
+    private static string WidgetLabel(AbilityCardUI? widget)
+        => widget != null && !string.IsNullOrEmpty(widget.CardName) ? widget.CardName : "<unnamed>";
 
     /// <summary>
     /// Print the fan's card list IN DRAW ORDER with each card's initiative, plus the sortedness

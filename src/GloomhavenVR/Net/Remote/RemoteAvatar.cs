@@ -340,14 +340,28 @@ internal sealed class RemoteAvatar
     /// a browse loan does not shrink <c>CardFan.Current.Count</c>, so the lengths do not come out
     /// even and nothing is dropped. The removal is applied only when it makes the two agree.</para>
     /// </summary>
-    internal int HeldHandSeats(out int seatA, out int seatB)
+    internal int HeldHandSeats(out int seatA, out int seatB) =>
+        HeldHandSeats(out seatA, out seatB, out _);
+
+    /// <summary>
+    /// <inheritdoc cref="HeldHandSeats(out int, out int)"/>
+    ///
+    /// <para><paramref name="listLength"/> is record 36's own LIST LENGTH for those seats — the
+    /// length of the sender's hand list at the moment they were named, straight off the same
+    /// packet. It is handed out because "is the plucked card still IN the arc?" cannot be answered
+    /// from the seat alone, and the answer decides which of two remedies the receiver owes (see
+    /// <c>RemoteHandFan.ResolveArcHeldSeats</c>). Reading it here rather than re-deriving it from a
+    /// model list is the whole point: it is GATE-FREE, so the arc stops drawing a duplicate during
+    /// the card-selection phase too, where no identity may be resolved at all.</para>
+    /// </summary>
+    internal int HeldHandSeats(out int seatA, out int seatB, out int listLength)
     {
         // THE LIST THE FAN IS DRAWN FROM, read rather than assumed — the hand unless record 43 says
         // a pile. One expression for one index space; see the doc block above.
         byte fanList = NetProtocol.IsFanSourcePile(FanSourceList)
             ? FanSourceList
             : NetProtocol.HeldFaceListHand;
-        return HeldSeatsIn(fanList, out seatA, out seatB);
+        return HeldSeatsIn(fanList, out seatA, out seatB, out listLength);
     }
 
     /// <summary>
@@ -393,7 +407,7 @@ internal sealed class RemoteAvatar
         // A non-pile list can never name a browse seat, and asking with one would silently match the
         // HAND — the "two literals kept in step by hand" mistake this file has already paid for once.
         return NetProtocol.IsFanSourcePile(pileList)
-            ? HeldSeatsIn(pileList, out seatA, out seatB)
+            ? HeldSeatsIn(pileList, out seatA, out seatB, out _)
             : 0;
     }
 
@@ -401,15 +415,17 @@ internal sealed class RemoteAvatar
     /// <see cref="HeldHandSeats"/> and <see cref="HeldPileSeats"/>. Two callers, one reading of the
     /// wire: a second copy is how the hand fan and the browse arc would come to disagree about what
     /// "in the fist" means, which is the whole class of defect both callers exist to fix.</summary>
-    private int HeldSeatsIn(byte listId, out int seatA, out int seatB)
+    private int HeldSeatsIn(byte listId, out int seatA, out int seatB, out int listLength)
     {
         seatA = -1;
         seatB = -1;
+        listLength = 0;
         int n = 0;
         if (NetProtocol.HeldFaceNamesCard(_heldFaceCode)
             && NetProtocol.HeldFaceList(_heldFaceCode) == listId)
         {
             seatA = NetProtocol.HeldFaceIndex(_heldFaceCode);
+            listLength = _heldFaceCount;
             n++;
         }
         if (NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
@@ -420,6 +436,12 @@ internal sealed class RemoteAvatar
                 seatA = seat;
             else
                 seatB = seat;
+            // BOTH POSE SLOTS NAME ONE LIST, so the two lengths are two readings of the same
+            // number. They can differ by a frame; the LARGER is the safe one to belt against,
+            // because a length that is short by one is exactly what makes "the arc still carries
+            // the held card" look like "the arc already dropped it".
+            if (_secondHeldFaceCount > listLength)
+                listLength = _secondHeldFaceCount;
             n++;
         }
         return n;

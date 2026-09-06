@@ -1334,6 +1334,32 @@ internal sealed partial class PlayTray
         if (slot < 0)
             return false;
         PlaceCard(card, slot);
+        // HW-VERIFY: report item 4 (2026-09-06). Grep token: RECESS SEATED BY THE MOD.
+        //
+        // THE ONLY PATH THAT PUTS A CARD IN A RECESS THE PLAYER DID NOT DROP IT IN, and after
+        // 2026-09-06 that is a claim about GAME STATE and not about a picture. Recess 0 is the
+        // INPUT to the game's initiative choice, not a view of it: CardsDriver.ReconcileInitiative
+        // reads whatever lies there and drives CardsGameApi.SwapInitiative, which calls the game's
+        // own AbilityCardUI.SwapInitiative() - it rewrites CCharacterClass.m_InitiativeAbilityCard,
+        // reverses RoundAbilityCards, updates the track and NETWORKS it. So a seat chosen here and
+        // not by the player can change which card the game treats as leading.
+        //
+        // THE CO-PLAYER'S REPORT IS EXACTLY THAT SHAPE: "nach der Bestaetigung ... er die falsche
+        // Karte als Initiative hat die er dort nicht hingelegt hatte." Neither log of that session
+        // could name the author of the seat, because nothing logged one. This line does. A
+        // `preferred=0` seat in the same second as a Slot order SENT whose LEFT name is not the
+        // card he meant to lay down is the whole defect, in two lines and with no screenshot.
+        VRLog.Note("Cards", $"RECESS SEATED BY THE MOD: round card '{card.name}' was placed into "
+            + $"recess {slot + 1} by PlayTray.SyncFromGameState (preferred recess "
+            + $"{preferSlot + 1}), NOT by the player dropping it there. This fires only for a card "
+            + "the GAME selected with no VR drop behind it — a mode re-entry, an undo, or a pair "
+            + "re-seated after an eviction. IT IS NOT COSMETIC: recess 1 (slot 0) is the INPUT to "
+            + "CardsDriver.ReconcileInitiative, which drives the game's own SwapInitiative and "
+            + "rewrites the replicated initiative card, so a seat this method chose can decide "
+            + "which card leads. Read it against the 'Slot order SENT' line beside it (which now "
+            + "names both recess occupants) and against 'INITIATIVE FOLLOWS THE RECESS'. ZERO of "
+            + "these lines in a session means every recess in it was filled by the player's own "
+            + "hand and report item 4 cannot have this cause.");
         return true;
     }
 

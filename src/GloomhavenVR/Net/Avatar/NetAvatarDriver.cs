@@ -1394,7 +1394,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // cards is physically in the LEFT recess, so no peer has to guess it. A SELECTION-phase
         // read as well as an action-phase one: the recesses are the same two transforms in both.
         bool slotOrder = LocalBoardSlots.TrySampleSlotOrder(
-            trayNow, CardsGameApi.ActiveHand(), out bool slotOrderSwapped);
+            trayNow, CardsGameApi.ActiveHand(), out bool slotOrderSwapped,
+            out string slotLeftName, out string slotRightName);
         int slotOrderNow = slotOrder ? (slotOrderSwapped ? 1 : 0) : -1;
         bool slotOrderChanged = slotOrderNow != _lastSentSlotOrder;
 
@@ -2637,17 +2638,35 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         if (slotOrderChanged)
         {
             _lastSentSlotOrder = slotOrderNow;
-            VRLog.Info("Net", slotOrder
-                ? $"Slot order SENT: LEFT recess (slot 1) holds the " +
-                  $"{(slotOrderSwapped ? "NON-INITIATIVE" : "INITIATIVE")} round card, RIGHT " +
+            // HW-VERIFY: report item 4 (2026-09-06). Grep token: Slot order SENT.
+            //
+            // PROMOTED TO Note AND GIVEN THE TWO CARD NAMES because the BIT alone cannot answer the
+            // question the co-player asked. He reported that after confirming he had the wrong card
+            // as his initiative, one he had not laid on the left. This line printed
+            // "LEFT recess holds the INITIATIVE round card" for all three of his turns in the
+            // 2026-09-06 session and could not have printed anything else: CardsDriver
+            // .ReconcileInitiative drives the GAME's initiative to follow recess 0, so the bit
+            // agrees with itself no matter how the card got there. THE NAMES ARE THE FALSIFIER —
+            // he knows which card he meant to put on the left, and this now says which one is
+            // actually in it. Nothing new is on the wire; record 18 is byte-identical.
+            VRLog.Note("Net", slotOrder
+                ? $"Slot order SENT: LEFT recess (slot 1) holds {slotLeftName} and RIGHT recess "
+                  + $"(slot 2) holds {slotRightName}; the left one is the "
+                  + $"{(slotOrderSwapped ? "NON-INITIATIVE" : "INITIATIVE")} round card, RIGHT " +
                   $"recess (slot 2) the other — extension record 18, one bit against " +
                   "CCharacterClass.InitiativeAbilityCard (a replicated reference every client " +
                   "resolves to the same card, so this is an ORDER and not an identity). Peers stop " +
                   "re-deriving the pair's left/right from their own CardsHandUI.cardsUI sort, which " +
-                  "is what put the two cards the wrong way round on somebody else's screen."
-                : "Slot order SENT: none — record omitted (fewer than two resolvable round cards " +
-                  "in our recesses, or neither is the initiative card). Peers keep their own " +
-                  "initiative-first derivation, exactly as before this record existed.");
+                  "is what put the two cards the wrong way round on somebody else's screen. THE "
+                  + "TWO NAMES ARE THE POINT (report item 4, 2026-09-06): the bit cannot tell a "
+                  + "card the PLAYER dropped in the left recess from one something else seated "
+                  + "there, because ReconcileInitiative then makes the game's initiative follow "
+                  + "whichever it is. Compare the left name with the card the player believes he "
+                  + "laid down; a mismatch is the defect and this line is the only place it shows."
+                : $"Slot order SENT: none — record omitted (recesses hold {slotLeftName} / "
+                  + $"{slotRightName}: fewer than two resolvable round cards, or neither is the "
+                  + "initiative card). Peers keep their own initiative-first derivation, exactly "
+                  + "as before this record existed.");
         }
         // EMPTY-FAN PLACARD (record 14 byte 1 bit 4): the same record, one bit. Setting it also
         // OPENS record 14 when nothing is hovered or selected — that is the write gate's third
