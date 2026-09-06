@@ -115,6 +115,33 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <summary>Card slab height default (CardsConfig.CardHeight ratio over the width).</summary>
     internal const float DefaultCardHeight = DefaultCardWidth * (88f / 63.5f);
 
+    /// <summary>
+    /// THE OWNER'S CARD SIZE AS THE SLAB ROOT'S UNIFORM SCALE — the single place a peer's
+    /// <c>[Cards] CardWidth</c> enters this fan's geometry, and the value three other things in
+    /// this file already assume is on that transform.
+    ///
+    /// <para>WHOSE DIAL: the OWNER'S, off extension record 28 (<c>NetProtocol.TuneCardWidth</c>,
+    /// sampled by the sender from their own <c>CardsConfig.CardWidth</c> and read back as
+    /// <c>BoardTuning.CardWidth</c>). This client's own <c>CardsConfig</c> is never consulted on
+    /// this path, which is the standing rule: a mirror reads the owner's dial and never the
+    /// viewer's, and ANDing the two is a defect this project has already shipped once.</para>
+    ///
+    /// <para>WHY THE WHOLE SUBTREE IS AUTHORED NOMINAL AND THIS CARRIES THE SIZE. The body mesh
+    /// comes out of <c>CardMesh.AttachBody(mf, kind, DefaultCardWidth, DefaultCardHeight)</c>, the
+    /// body's own scale is <c>_visibleFace / Default*</c> where <see cref="SyncFaceRect"/>
+    /// letterboxes into the NOMINAL card, and <see cref="RemoteCardArt"/> is handed
+    /// <c>DefaultCardWidth/Height</c> on purpose ("handing the tuned width here fitted the face a
+    /// second time and squared the ratio"). One uniform scale on the root is therefore the only
+    /// term that may carry the owner's size — and <see cref="FanSweep.StripWidth"/>'s
+    /// <c>cardLocalScale</c> argument is a fourth consumer that divides the arc chord by exactly
+    /// this number to express the borrow collider in the card's own frame.</para>
+    ///
+    /// <para>1 AT THE SHIPPED DEFAULT, by construction: the numerator IS
+    /// <see cref="DefaultCardWidth"/> for a peer who has not moved the dial. The bind's range is
+    /// 0.03-0.15 m against a 0.0635 default, so this spans 0.47x to 2.36x for one who has.</para>
+    /// </summary>
+    private float SlabScale => _cardWidth / DefaultCardWidth;
+
     // ---- THE OWNER'S OWN FAN GEOMETRY (extension record 28) ---------------------------------
     // These were `const`, seeded to the CardsConfig defaults, with a KNOWN-GAP note saying that a
     // sender who retunes their fan "reads slightly differently to others than to themselves". Under
@@ -673,7 +700,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                 Transform tr = slab.transform;
                 tr.localPosition = p;
                 tr.localRotation = Quaternion.Slerp(_leaveRot[i], gatherRot, Mathf.Clamp01(e));
-                tr.localScale = Vector3.one * Mathf.LerpUnclamped(_leaveScale[i], seed, e);
+                // …to SEED x the owner's card size, not to the bare seed: _swapSeedScale is a
+                // FRACTION of a card (0.02-1), and the arriving half multiplies it by SlabScale one
+                // loop over. A leaving slab that gathered to the bare fraction would shrink to a
+                // nominal card's 2 % while its own size is the owner's — the same term this fan
+                // dropped everywhere else.
+                tr.localScale = Vector3.one * Mathf.LerpUnclamped(_leaveScale[i], seed * SlabScale, e);
             }
         }
 
@@ -3189,7 +3221,19 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // pose to ease from (VRCard._instantNext out of the pool — here, a slab Rebuild has
             // just created and could not carry a predecessor into, which sits at the fan root's
             // origin and would otherwise streak out of the middle of the hand).
-            Vector3 want = Vector3.one * (swapScale * (1f + PopScale * popT));
+            // ─── THE OWNER'S CARD SIZE, WHICH THIS STATEMENT USED TO DELETE ────────────────────
+            // Rebuild writes SlabScale onto every fresh slab and this line overwrote it on the very
+            // next statement with a product that had no width term in it — so a peer who had moved
+            // [Cards] CardWidth has never had it reach their mirrored fan, on any build. The two
+            // statements are three lines of execution apart and the comment on the first one
+            // asserts the opposite ("so their ghost cards read the size they see"), which is why it
+            // survived: every reader who checked stopped at the assertion.
+            //
+            // IT IS A PRODUCT OF THREE, and only the first is the size: the owner's card width, the
+            // swap blend's own 0..1 seed ramp, and the hover pop. The two blends are FRACTIONS of a
+            // card, so they multiply the size rather than replace it — which is exactly how VRCard
+            // composes its own (`_homeScale * (1 + PopScale * _pop)`, VRCard.cs:2242).
+            Vector3 want = Vector3.one * (SlabScale * swapScale * (1f + PopScale * popT));
             bool seeded = i < _seeded.Count && _seeded[i];
             if (opening || closing || swapping || !seeded)
             {
@@ -3289,8 +3333,16 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             return;
         Transform t = slab.transform;
         float lossy = t.lossyScale.x;
-        float halfW = _cardWidth * 0.5f * lossy;
-        float halfH = _cardHeight * 0.5f * lossy;
+        // NOMINAL AGAINST THE LIVE LOSSY SCALE, and the change of numerator is the other half of
+        // the SlabScale repair rather than a retune. The slab subtree is authored at the nominal
+        // card and the owner's width now rides the slab root, so it is already inside `lossy`;
+        // multiplying the tuned width by it as well would square the ratio. This line used to read
+        // _cardWidth against a lossy that had had the ratio stripped out of it by LayoutCards, so
+        // it was the one place in the file that came out RIGHT — by cancelling the defect. The
+        // world size it computes is unchanged to the last float: DefaultCardWidth x (rig x ratio)
+        // is the same product as _cardWidth x rig.
+        float halfW = DefaultCardWidth * 0.5f * lossy;
+        float halfH = DefaultCardHeight * 0.5f * lossy;
         if (halfW < 1e-4f || halfH < 1e-4f)
             return;
         if (appear)
@@ -4096,7 +4148,14 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // transform, and a non-uniform scale here would stretch the printed art. The owner's own
             // CardWidth arrives as that uniform scale (record 28), so their ghost cards read the size
             // they see.
-            card.transform.localScale = Vector3.one * (_cardWidth / DefaultCardWidth);
+            //
+            // THAT SENTENCE WAS FALSE FROM THE BUILD THAT WROTE IT UNTIL 2026-09-06, and it is the
+            // reason nobody found the breach: LayoutCards overwrote this the same frame with a
+            // product carrying no width term, so every peer's fan was drawn at the NOMINAL card
+            // however they had tuned it. The seed below is now the pose the layout eases toward
+            // rather than a value it deletes — see SlabScale, which is the same expression and is
+            // what LayoutCards multiplies by.
+            card.transform.localScale = Vector3.one * SlabScale;
 
             // …and the BODY, one level down, carries the non-uniform squash onto the face rect. This
             // is VRCard.SetCanvasSize's backing fit, term for term: the local card scales its backing
@@ -4130,7 +4189,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // never touches game physics and the slab stays a purely cosmetic ghost.
             var borrow = card.AddComponent<BorrowTarget>();
             borrow.Configure(this, i, vis.x, vis.y,
-                FanSweep.StripWidth(count, _radius, stepDegrees, vis.x, _cardWidth / DefaultCardWidth));
+                // The last argument is the CARD's own local scale, which StripWidth divides the arc
+                // chord by to express the collider strip in the card's frame. It has always been
+                // handed SlabScale and the card has not worn SlabScale since this fan was written,
+                // so the borrow strip was off by the ratio for any retuned peer — a third consumer
+                // the overwrite falsified, beside the drawn size and RemoteCardArt's nominal face.
+                FanSweep.StripWidth(count, _radius, stepDegrees, vis.x, SlabScale));
 
             // OLD INDEX OF THE CARD THIS SLAB IS. A pluck at seat k closes the gap, so new i is
             // old i below k and old i+1 at or above it; a release at seat k opens one, so new i is
@@ -4162,10 +4226,13 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             if (!carried)
                 EmitMirroredCardDust(card, appear: true);
             _cards.Add(card);
-            // NOMINAL size, not the owner's tuned one: the slab root ALREADY carries
-            // _cardWidth/DefaultCardWidth, so handing the tuned width here fitted the face a second
-            // time and squared the ratio — invisible at the shipped default (ratio 1), a real
-            // mismatch for any peer who had moved [Cards] CardWidth.
+            // NOMINAL size, not the owner's tuned one: the slab root carries SlabScale, so handing
+            // the tuned width here would fit the face a second time and square the ratio —
+            // invisible at the shipped default (ratio 1), a real mismatch for any peer who had
+            // moved [Cards] CardWidth. THE PREMISE ONLY BECAME TRUE ON 2026-09-06: LayoutCards used
+            // to strip that scale back off the root every frame, so this face was nominal on a
+            // nominal slab and the two agreed by accident. Nothing here changes; it is now right
+            // for the reason it always claimed.
             _faces.Add(new RemoteCardArt(card.transform, DefaultCardWidth, DefaultCardHeight));
         }
 
