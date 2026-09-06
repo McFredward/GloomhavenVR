@@ -1429,6 +1429,12 @@ internal static partial class WallSegmentFade
         // which term did the work rather than only that something did.
         private readonly List<int> _roomTileFootprint = new();  // in-footprint hexes, before playability
         private readonly List<int> _roomTilePlayable = new();   // …of those, the playable ones
+        // ModBuild 466 — playable hexes on the room's WHOLE CMap, before the footprint box.
+        // The difference against _roomTilePlayable is the number the standing "13 revealed
+        // hexes in no denominator" debt is actually about: 13 hexes were dropped, and until
+        // this build nothing said how many of THOSE the playability filter would have cut
+        // anyway. A zero difference settles the debt as FALSE.
+        private readonly List<int> _roomTilePlayableAll = new();
         private readonly List<bool> _roomPlayableUsed = new();  // false = filter held back (see below)
         private readonly List<int> _roomCutEdge = new();        // EFlags.Edge on the hex
         private readonly List<int> _roomCutBlockedFlag = new(); // EFlags.Blocked on the hex
@@ -8443,6 +8449,7 @@ internal static partial class WallSegmentFade
             _roomWholeSet.Clear();
             _roomTileFootprint.Clear();
             _roomTilePlayable.Clear();
+            _roomTilePlayableAll.Clear();
             _roomPlayableUsed.Clear();
             _roomCutEdge.Clear();
             _roomCutBlockedFlag.Clear();
@@ -8477,6 +8484,7 @@ internal static partial class WallSegmentFade
                 _roomWholeSet.Add(false);
                 _roomTileFootprint.Add(0);
                 _roomTilePlayable.Add(0);
+                _roomTilePlayableAll.Add(0);
                 _roomPlayableUsed.Add(false);
                 _roomCutEdge.Add(0);
                 _roomCutBlockedFlag.Add(0);
@@ -8515,11 +8523,27 @@ internal static partial class WallSegmentFade
                     // (below), because then there is no lattice and the filter is the only
                     // thing removing those hexes. The ModBuild 464 log measures the size of it:
                     // room 0 holds 44 hexes on its CMap and 31 inside its own bounds, so 13
-                    // revealed hexes of the room's own CMap are in NO denominator. That is a
-                    // SEPARATE finding from the one this build fixes and it is deliberately not
-                    // touched here — those 13 are the terraced lower level, the room registry
-                    // gave the terrace no entry of its own, and widening a denominator is a
-                    // rule change the user has ruled out. It is reported, not fixed.
+                    // hexes of the room's own CMap are in NO denominator.
+                    //
+                    // MODBUILD 466 CORRECTS WHAT THAT SENTENCE CLAIMED NEXT. It read "13
+                    // REVEALED hexes … those 13 are the terraced lower level", and both halves
+                    // were inferences, not measurements: nothing counted how many of the 13 the
+                    // PLAYABILITY filter would have removed anyway, and a hex the filter removes
+                    // is in no denominator for a reason that has nothing to do with this box.
+                    // The 465 hardware log falsifies the alarming reading. OCCLUDER VERDICTS'
+                    // `hides N counted` is computed over this room's WHOLE CMap hex list with NO
+                    // footprint filter, while `blk N/total` is computed over the filtered
+                    // samples; on a WHOLE SET room the two must therefore differ by exactly the
+                    // dropped hexes a wall hides. Across 302 named verdicts they AGREE on 292,
+                    // and the 10 that differ do so by 1-2 in BOTH directions — one-pass skew,
+                    // not a 13-hex population. So no wall in that session hid a single playable
+                    // dropped hex, and lifting this filter would add 0 to every numerator while
+                    // enlarging every denominator by up to 20: a pure coverage LOSS on the walls
+                    // that currently do fade (EMA 0.61-1.00 on four of them). Still reported,
+                    // still not fixed — and now measured rather than assumed: the census line
+                    // below prints how many of the dropped hexes are playable, and OCCLUDER
+                    // VERDICTS carries a SOLID:FOOTPRINT-DROPPED class that fires only if a wall
+                    // ever hides them. Both must read non-zero before this filter is touched.
                     _tileScratch.Clear();
                     _tilePlayScratch.Clear();
                     // ModBuild 259: same walk, and the playability verdict CollectPlayableTiles
@@ -8529,13 +8553,22 @@ internal static partial class WallSegmentFade
                     for (int t = 0; t < found.Count; t++)
                     {
                         Vector3 h = found[t];
+                        // No verdict list (registry raced the rescan) → treat every hex as
+                        // playable, which is exactly ModBuild 258's set. Fail OPEN, never toward
+                        // a smaller denominator. ModBuild 466 hoisted this read ABOVE the
+                        // footprint test — one read, two tallies — so the census can also count
+                        // the playable hexes on the WHOLE CMap.
+                        byte code = why != null && t < why.Count ? why[t] : HexUnreadable;
+                        // ModBuild 466: the same membership the switch below expresses through
+                        // _tilePlayScratch (HexPlayable via `default`, plus fail-open
+                        // HexUnreadable), taken before the box so the difference of the two
+                        // tallies is exactly "playable hexes the footprint filter dropped".
+                        // Diagnostic only — nothing below reads it, the denominator is unchanged.
+                        if (code == HexPlayable || code == HexUnreadable)
+                            _roomTilePlayableAll[r]++;
                         if (h.x < b.min.x || h.x > b.max.x || h.z < b.min.z || h.z > b.max.z)
                             continue;
                         _tileScratch.Add(h);
-                        // No verdict list (registry raced the rescan) → treat every hex as
-                        // playable, which is exactly ModBuild 258's set. Fail OPEN, never toward
-                        // a smaller denominator.
-                        byte code = why != null && t < why.Count ? why[t] : HexUnreadable;
                         switch (code)
                         {
                             case HexEdgeFlag: _roomCutEdge[r]++; break;
@@ -8977,7 +9010,14 @@ internal static partial class WallSegmentFade
                     sb.Append(": ").Append(_roomTileTotal[r]).Append(" hex(es) on this room's CMap")
                       .Append(_roomTileTotal[r] != foot
                           ? $" → {foot} inside this room's own footprint (the rest sit outside "
-                            + "it — a terraced CMap is two rooms here)"
+                            + "it — a terraced CMap is two rooms here; ModBuild 466 names "
+                            + "what those dropped hexes ARE: "
+                            + (_roomTilePlayableAll[r] - play) + " of the "
+                            + (_roomTileTotal[r] - foot) + " dropped hex(es) are PLAYABLE, and "
+                            + "that number — not 13, not 44 — is the size of the standing "
+                            + "'revealed hexes in no denominator' debt. ZERO means the debt is "
+                            + "FALSE and un-filtering them would add nothing to any numerator "
+                            + "while enlarging every denominator)"
                           : $" → all {foot} inside this room's own footprint")
                       .Append(" → ").Append(play).Append(" PLAYABLE [cut ")
                       .Append(_roomCutEdge[r]).Append(" EDGE-flag + ")
@@ -9668,6 +9708,7 @@ internal static partial class WallSegmentFade
             _roomWholeSet.Clear();
             _roomTileFootprint.Clear();
             _roomTilePlayable.Clear();
+            _roomTilePlayableAll.Clear();
             _roomPlayableUsed.Clear();
             _roomCutEdge.Clear();
             _roomCutBlockedFlag.Clear();
