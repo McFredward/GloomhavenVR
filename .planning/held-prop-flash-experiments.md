@@ -15,7 +15,24 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
-## START AT §13 — ROUND EIGHT (2026-09-06) KILLED TWO LEADS BY MEASUREMENT AND SHIPPED NO FIX
+## START AT §14 — ROUND NINE (2026-09-06): THE USER NAMED THE TRIGGER
+
+> *"Das weiße in der Hand tritt immer auf wenn ich die Falle/Truhe aufhebe kurz nachdem der
+> weiße flash auf allen Fallen kam."*
+
+A white flash runs across EVERY trap at once, and grabbing shortly after it ALWAYS leaves the
+held one white. So the white is a value **latched at the instant of the grab**, and nothing
+during the hold sustains or removes it — which is why every instrument in this file reads zero.
+**They all ask whether something MOVES. None has ever asked whether the value is the RIGHT one,
+and a latched wrong value is constant.** Round nine ships the comparison that discriminates:
+the held table against a prop of the same kind still on its hex, read on the SAME TICK.
+Read [§14](#14-round-nine--2026-09-06-against-the-modbuild-454-log-the-user-named-the-trigger-and-a-room-full-of-zeroes-became-a-finding)
+first. §14.1 closes four leads on measurement (our overlay, the reflection probe, property
+blocks, keywords) and §14.4 names the phase bug in the obvious fix.
+
+---
+
+## §13 — ROUND EIGHT (2026-09-06) KILLED TWO LEADS BY MEASUREMENT AND SHIPPED NO FIX
 
 The ModBuild 453 log falsifies §12's own premise: `REWOUND FIRST` reads `0 of 67 slot(s)
 changed value`, which is strand 6 INERT by the falsifier §12.4 wrote for it, so the freeze was
@@ -1242,3 +1259,180 @@ call site at all).
   second row is the answer. Suppressing it would make the reading that decides it impossible to
   take — see §13.6.
 * It did **not** bump `NetProtocol.ModBuild`; the integrator does that once per build.
+
+---
+
+## 14. Round nine — 2026-09-06, against the ModBuild 454 log: the user named the trigger, and a room full of zeroes became a finding
+
+**User, verbatim, after testing ModBuild 454:**
+
+> *"Tritt immer noch auf. Eventuell wichtiger hinweis: Das weiße in der Hand tritt immer auf wenn ich
+> die Falle/Truhe aufhebe kurz nachdem der weiße flash auf allen Fallen kam. Es hat also sehr sicher
+> was damit zu tun - ist also abhängig zu welchem Zeitpunkt ich es aufhebe."*
+
+Two facts in one sentence, and neither was available to any earlier round. **A white flash runs
+across EVERY trap AT ONCE**, and **grabbing shortly after it ALWAYS** produces the white in the hand.
+
+### 14.1 What ModBuild 454's `] [Props] HELD-PROP ROSTER` says, and it is all zero
+
+One hold, `'Trap' Trap`, 360 frames. Anchored on
+`^\[Info   :GloomhavenVR\] \[FigureGrab\] \[Props\] HELD-PROP ROSTER`.
+
+| reading | value |
+|---|---|
+| renderers named | 3 of 3 |
+| `[0] …/Trap_BearTrap_PR/Beartrap [SkinnedMeshRenderer]`, game-owned, `'Trap_BearTrap_MAT'` on `Amp_Char_Shader` | **DRAWING 360/360**, isVisible 360, block on **0** frames |
+| `[1] …/OcclusionVolume [MeshRenderer]`, game-owned, materials **`<none>`** | DRAWING 0/360 |
+| `[2] …/VRFigureHighlight/VROverlay [SkinnedMeshRenderer]` | **MOD-OWNED**, DRAWING **0/360**, **DESTROYED at frame 1** |
+| property blocks | **0 of 360** frames, worst 0 slots; all 8 dissolve/cutout channels seen in a block on **0** frames |
+| shader keywords | **0 changes** over 24 samples; `mat0 Amp_Char_Shader: 0..0 keyword(s), first [<none>]` |
+| light probe L0 luminance | **flat 0.0252** first, last and both ends of the range, over 72 samples |
+| reflection probe | **at most 0 probes influenced** this renderer; identity changed on 0 samples; usage `BlendProbes / BlendProbes` |
+| stale world anchors | the single vector slot is zero — nothing is baked |
+| pose | view angle swept **52.4..130.7 deg**, head distance 4.696..6.815 wu, while every value above held still |
+
+**Three questions are closed by that table and must not be re-opened.**
+
+1. **Our own overlay is exonerated.** Renderer `[2]` is ours, it drew on **zero** of 360 frames and
+   was **destroyed at frame 1**. §11.6's argument was right and it is now a measurement rather than
+   an argument. Delete the suspicion.
+2. **The trap has exactly ONE drawing renderer with ONE material.** `[1]` is the occlusion volume's
+   proxy `MeshRenderer` and carries **no material at all**, so it can never draw a picture. Whatever
+   the white is, it is on `Trap_BearTrap_MAT` / `Amp_Char_Shader`, or on something feeding that
+   shader, or it is a renderer/child that is not present in this hold.
+3. **The lighting-binding lead (§12.4 item 3) is dead.** `at most 0 probe(s) influenced this
+   renderer` — this renderer has no reflection probe on the hex or in the hand, so nothing is
+   re-picked when it moves, and the light probe is flat to four decimal places across the hold.
+
+**And the pose line did its job.** The angle swept 78 degrees while every value held still, which
+confirms §13.2: the decay in the video is confounded by the object turning. That makes the pose
+line the **control** that lets a real difference be read as a real difference, so it stays.
+
+### 14.2 THE INSIGHT THE USER'S SENTENCE FORCES, AND IT IS THE ONE THIS FILE HAS NEVER HAD
+
+Put the zeroes beside his trigger and they stop being an absence.
+
+The white is **a value LATCHED AT THE INSTANT OF THE GRAB**, and nothing during the hold either
+sustains it or removes it. That is exactly what every reading above describes.
+
+**Every instrument in this file — all nine rounds of them, this lane's included — asks whether
+something MOVES or CHANGES. Not one of them has ever asked whether the value is the RIGHT ONE.** A
+latched wrong value is constant, and constant is what all of them print. `0 of 67 slots moved`,
+`0 blocks`, `0 keyword changes`, `flat 0.0252` — every one of those is exactly what a prop frozen
+white prints, and exactly what a prop frozen correctly prints too. **They do not discriminate.**
+
+That is why round seven's diagnosis (a latch) was right in SHAPE and was then buried by a
+measurement (`0 of 67 changed`) that could not have detected it either way.
+
+### 14.3 What shipped — `] [Props] HELD-PROP HOME TWIN`, a comparison and not a series
+
+The measurement that discriminates is not another series. It is a **comparison**: read the whole
+property table of the **held** prop and of **another instance of the same prop kind still standing
+on its hex**, **in the same frame**.
+
+* Immune to **phase**, because both sides are read on the same tick — and they must be, because
+  every trap is in phase with every other, which is the user's own observation.
+* Immune to **pose**, because a material value has no view angle in it.
+* It is the one comparison eight rounds never took, and it hands over **the value a fix must
+  write** at the same time as it names the channel.
+
+Sections of the new line:
+
+1. **GRAB PHASE.** The frozen animator's `normalizedTime` on the frame this class froze it, captured
+   inside `RewindAndStop` before the disable — a disabled `Animator` reports `layerCount 0`, so that
+   is the only place it can be read at all. This is the axis the user's sentence is about and no
+   round has ever recorded it. Correlated across sessions, a defect that clusters in one band of the
+   loop **is** the latch.
+2. **HOME TWIN identity**, by hierarchy path, with candidates-of-scanned so a truncation or an empty
+   population is visible. Matched on the drawing renderer's **object name and shader**, never on the
+   material name — `Renderer.material` appends `" (Instance)"` to a clone, so a material-name compare
+   would silently refuse the exact case this round exists to detect. Any candidate that is itself
+   under a live belt is refused: a second held prop is hushed and latched the same way, and would
+   make the comparison agree for the wrong reason.
+3. **SHARED OR INSTANCED**, by material instance id. This settles a tension nobody could resolve by
+   argument: if all traps drew one shared asset, freezing our animator could not stop that value
+   moving, yet the held table reads static — so either the material is instanced per prop (and a
+   per-prop latch is possible) or the flash is not on the material at all.
+4. **WHAT MOVES ON THE UNHELD TWIN — the flash itself**, per slot, with move count and the home
+   range, and the held prop's own value printed beside it.
+5. **HELD vs HOME, SAME TICK** — every slot that ever differed, with **both** values and the home
+   range. Each one is a candidate channel carrying its own correct value.
+6. **THE REWIND'S OTHER HALF** (§14.5).
+
+**Grep token:** `] [Props] HELD-PROP HOME TWIN`. Anchor on `] `.
+
+* **IT NAMES THE CHANNEL** if a slot DIFFERS between held and home while the twin's own value MOVES
+  on that same slot: that slot is the flash, the held prop is stuck at one point of it, and the home
+  range gives the value the fix must write.
+* **IT EXCLUDES THE WHOLE MATERIAL CLASS** if nothing on the unheld twin moves either. The flash the
+  user sees on every trap at once is then not a material property, and the next place to look is
+  §14.5 or a global shader value every trap samples.
+* **IT IS INERT** if no twin was found — only one instance of the kind in the scenario, or every
+  other is itself held. That is a population fact and excludes nothing; the line says so in those
+  words rather than printing a clean-looking zero.
+
+### 14.4 A TRAP IN THE OBVIOUS FIX, and it is created by this round's own finding
+
+The natural remedy is "write the home value onto the held prop through the `Engage`/`Release`
+ledger". **It has a phase bug.** Every trap is in phase, so at the instant of a grab **the twin is
+bright too** — copying its current value copies the flash. Writing the twin's value *every frame*
+is worse still: it restores the animation in the hand, which is the thing §6 removed on the user's
+explicit instruction.
+
+The value a fix must write is the twin's **RESTING** value, which is the end of the home range the
+held prop is **not** stuck at — and that requires watching the twin across a full ~5 s loop, which
+is what the new line does. **This is why round nine ships no remedy**: not caution, but that the
+number the remedy needs does not exist yet, and a remedy shipped beside its own instrument makes
+that instrument a reading of the post-remedy world (§13.6).
+
+### 14.5 A HOLE IN THIS FILE'S OWN REWIND MEASUREMENT, closed this build
+
+`MeasureRewind` has counted **(material, property) slots only** for two builds. An `AnimationClip`
+can drive **`GameObject.m_IsActive`** and **`Renderer.m_Enabled`**, so an attention flash authored as
+*"switch the glow mesh on for half a second"* carries **no material property at all** — and
+`0 of 67 (material, property) slot(s) changed` is what that prints, identically to a clip already at
+rest. **That zero has never distinguished the two.** `SnapshotRewindState` / `MeasureRewindState` now
+read every renderer's `enabled` and its object's `activeSelf` either side of `WriteDefaultValues` and
+print `N flag(s) read, M CHANGED` on the HOME TWIN line. A non-zero count names a different fix from
+a material one.
+
+Note this also keeps §12.4's **third** reading of the zero alive and unexcluded: `WriteDefaultValues`
+may simply not be landing as an immediate write, distinguishable by a non-zero `anyLayerRate home`
+— which the A/B line prints as `0.201/s`. Its lever is `Animator.Rebind()`, and `Rebind()` re-enters
+the state machine and fires every `StateMachineBehaviour` on it, which is precisely why §12.3 refused
+`Play(hash, layer, 0f)`. **Do not ship `Rebind()` on a prop whose controller can send a rules
+message** without excluding that path first.
+
+### 14.6 The mip contradiction, recorded and NOT chased
+
+Round eight's two-integer check reads, on the held trap:
+
+```
+5 texture(s) bound, 5 of them streamed, 5 currently BELOW their desired mip level, worst gap 1
+```
+
+Round eight's own key says a streamed count of **0** would close the lead for good. **It is 5.** So
+per-texture streaming is provably active on this prop while `] [Perf] TEX` reports
+`streamingMipmaps=False` because this mod forces it off scene-wide — the same contradiction §13.1(b)
+recorded, now confirmed on the prop itself rather than on the scene.
+
+**It is still not the cause and is not being chased**, for two independent reasons: one mip level of
+gap cannot turn bronze into white, and the user's trigger is a **clock** (the synchronised flash),
+not a load. What it *is* is a live disagreement between two of this repository's own instruments,
+and it belongs to the `Perf/TEX` lane. One caveat on round eight's own figure: it is sampled at the
+CLOSE of the window, several seconds after the grab, so it does not exclude a larger gap at the
+grab itself.
+
+### 14.7 What round nine did NOT do
+
+* It did **not** ship a remedy — §14.4.
+* It did **not** ship `Animator.Rebind()` — §14.5.
+* It did **not** re-open the overlay, the reflection probe, the property block or the keyword
+  leads: §14.1 closes all four on measurement.
+* It did **not** bump `NetProtocol.ModBuild`.
+
+**Multiplayer.** Nothing on the wire and nothing to mirror: this build reads and prints and writes
+no state at all. It rides the existing post-hush window, which `NetProps` reaches through
+`PropAnimBelt.Engage` (`NetProps.cs:288`) and `Release` (`NetProps.cs:550`) for a REMOTE hold exactly
+as for a local one. **Verified from evidence on the LOCAL side only** — the ModBuild 454 log is a
+single-player session; the mirrored half is reasoned from those two call sites, not measured.

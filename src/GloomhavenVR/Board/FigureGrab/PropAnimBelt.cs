@@ -429,6 +429,15 @@ internal static class PropAnimBelt
     /// rewind runs ONCE for the whole set rather than once per animator.</summary>
     private static readonly List<Animator> RewindScratch = new(4);
 
+    /// <summary>Renderers snapshotted either side of the rewind, and their own scratch list so
+    /// nothing shares a buffer with the sweep that called it.</summary>
+    private const int RewindStateCap = 32;
+    private static readonly Renderer[] RwRends = new Renderer[RewindStateCap];
+    private static readonly bool[] RwRendOn = new bool[RewindStateCap];
+    private static readonly bool[] RwActive = new bool[RewindStateCap];
+    private static int _rwStateCount;
+    private static readonly List<Renderer> RwRendScratch = new(16);
+
     /// <summary>Census-only scratch: distinct MonoBehaviour type names under the held prop and how
     /// many of each. Written and read by <see cref="Announce"/> alone.</summary>
     private static readonly List<string> TypeNames = new(32);
@@ -510,6 +519,19 @@ internal static class PropAnimBelt
         /// channels were already at rest at the grab, the strand wrote nothing visible, and it
         /// cannot be why anything got better OR worse.</summary>
         internal int RewindSlotsRead, RewindSlotsChanged;
+
+        /// <summary>Renderer.enabled / GameObject.activeSelf flags read and CHANGED across the
+        /// rewind. An AnimationClip can drive m_IsActive and m_Enabled, so a flash authored as
+        /// "switch the glow mesh on" carries no material property at all and the (material,
+        /// property) count beside this one cannot see it.</summary>
+        internal int RewindStateRead, RewindStateChanged;
+
+        /// <summary>The first frozen animator's normalizedTime on the frame this class froze
+        /// it. The user's own trigger is a phase — "kurz nachdem der weisse flash auf allen
+        /// Fallen kam" — so the phase at the grab is the axis his sentence is about, and it has
+        /// never been recorded.</summary>
+        internal float GrabPhase;
+        internal int GrabPhaseCount;
 
         /// <summary>The properties the rewind moved, named with their before→after VALUES. Six
         /// rounds of this instrument reported MOVEMENT and never once a value, so a term latched
@@ -1067,6 +1089,7 @@ internal static class PropAnimBelt
         // not in the earlier table at all.
         RewindTable.Resolve(go);
         RewindTable.Sample(RwBefore, RwValid);
+        SnapshotRewindState(go);
 
         int rewound = 0;
         for (int i = 0; i < RewindScratch.Count; i++)
@@ -1079,13 +1102,22 @@ internal static class PropAnimBelt
                 b.RewindSkipped++;
                 continue;
             }
+            // THE PHASE AT THE GRAB, captured before anything is written and before the
+            // animator is switched off (a disabled Animator reports layerCount 0, so this is
+            // the only place it can be read at all).
+            if (b.GrabPhaseCount == 0 && a.layerCount > 0)
+                b.GrabPhase = a.GetCurrentAnimatorStateInfo(0).normalizedTime;
+            b.GrabPhaseCount++;
             a.WriteDefaultValues();
             rewound++;
         }
         b.AnimatorsRewound += rewound;
 
         if (rewound > 0)
+        {
             MeasureRewind(b);
+            MeasureRewindState(b);
+        }
 
         // Only now is the picture allowed to stop, so the frame that is frozen is the resting one.
         for (int i = 0; i < RewindScratch.Count; i++)
@@ -1131,6 +1163,46 @@ internal static class PropAnimBelt
         b.RewindSlotsChanged += changed;
         if (b.RewindNamed.Length == 0 && named.Length > 0)
             b.RewindNamed = named.ToString();
+    }
+
+    /// <summary>Remember every renderer flag the rewind could plausibly move, so the write can
+    /// be measured on the class it may actually drive.</summary>
+    private static void SnapshotRewindState(GameObject go)
+    {
+        _rwStateCount = 0;
+        RwRendScratch.Clear();
+        go.GetComponentsInChildren(includeInactive: true, RwRendScratch);
+        for (int i = 0; i < RwRendScratch.Count && _rwStateCount < RewindStateCap; i++)
+        {
+            Renderer r = RwRendScratch[i];
+            if (r == null)
+                continue;
+            RwRends[_rwStateCount] = r;
+            RwRendOn[_rwStateCount] = r.enabled;
+            RwActive[_rwStateCount] = r.gameObject.activeSelf;
+            _rwStateCount++;
+        }
+        RwRendScratch.Clear();
+    }
+
+    /// <summary>Read those flags back. Pure instrument: it writes nothing but the two counts on
+    /// the belt that the HOME TWIN line prints.</summary>
+    private static void MeasureRewindState(Belt b)
+    {
+        for (int i = 0; i < _rwStateCount; i++)
+        {
+            Renderer r = RwRends[i];
+            if (r == null)
+                continue;
+            b.RewindStateRead += 2;
+            if (r.enabled != RwRendOn[i])
+                b.RewindStateChanged++;
+            if (r.gameObject.activeSelf != RwActive[i])
+                b.RewindStateChanged++;
+        }
+        for (int i = 0; i < _rwStateCount; i++)
+            RwRends[i] = null!;
+        _rwStateCount = 0;
     }
 
     /// <summary>Did this slot change? Componentwise for a colour or a vector, EXACT for a texture
@@ -1557,6 +1629,9 @@ internal static class PropAnimBelt
         b.RestoreForeignEmitters = b.RestoreForeignParticles = b.RestoreDead = 0;
         b.RestoreForeignAnimators = 0;
         b.AnimatorsRewound = b.RewindSkipped = 0;
+        b.RewindStateRead = b.RewindStateChanged = 0;
+        b.GrabPhase = 0f;
+        b.GrabPhaseCount = 0;
         b.RewindSlotsRead = b.RewindSlotsChanged = 0;
         b.RewindNamed = string.Empty;
         b.Label = string.Empty;
@@ -1862,6 +1937,9 @@ internal static class PropAnimBelt
         // ROUND EIGHT. Armed AFTER the material table is resolved, because the roster reads
         // the property blocks through that table's ids and the dissolve channels off its names.
         ArmRoster(go);
+        // ROUND NINE. After the roster, because the twin is matched against the held prop's
+        // first DRAWING renderer that carries a material, which the roster has just resolved.
+        FindHomeTwin(go);
     }
 
     /// <summary>
@@ -2105,6 +2183,10 @@ internal static class PropAnimBelt
             if (f > VHi[slot]) VHi[slot] = f;
         }
 
+        // The twin is read HERE, immediately after VNow, so both sides of the comparison are
+        // the same tick — every prop of a kind is in phase with every other, so a comparison
+        // taken a frame apart would compare two different points of the same flash.
+        SampleTwin();
         SampleOutward();
         SampleRoster(b);
 
@@ -2197,6 +2279,7 @@ internal static class PropAnimBelt
             // alone. Anchor every grep on "] " - this file quotes other instruments' tokens
             // inside its own prose and an unanchored grep counts the explanation as a hit.
             EmitRoster(b);
+            EmitHomeTwin(b);
         }
     }
 
@@ -3142,6 +3225,481 @@ internal static class PropAnimBelt
           .Append(" of them streamed, ").Append(behind)
           .Append(" currently BELOW their desired mip level, worst gap ").Append(worstGap)
           .Append(" level(s). A streamed count of 0 closes the lead on this prop for good. ");
+    }
+
+
+    // ---- ROUND NINE: THE HOME TWIN -----------------------------------------------------------------
+    //
+    // THE USER NAMED THE TRIGGER, AND IT TURNS A ROOM FULL OF ZEROES INTO A FINDING.
+    //
+    //   "Das weiße in der Hand tritt immer auf wenn ich die Falle/Truhe aufhebe kurz nachdem der
+    //    weiße flash auf allen Fallen kam. Es hat also sehr sicher was damit zu tun - ist also
+    //    abhängig zu welchem Zeitpunkt ich es aufhebe."
+    //
+    // A white flash runs across EVERY trap AT ONCE, and grabbing shortly after it ALWAYS leaves the
+    // held one white. So the white is a value LATCHED AT THE INSTANT OF THE GRAB, and nothing during
+    // the hold either sustains it or removes it. That is exactly what eight rounds have measured:
+    // ModBuild 454 reads no property block on any of 360 frames, 0 keyword changes, a light-probe
+    // luminance flat to four decimals, no reflection probe at all, and the 453 verdict beside it
+    // reads 0 of 67 material slots moving. **Every instrument in this file asks whether something
+    // MOVES. Not one has ever asked whether the value is the RIGHT one**, and a latched wrong value
+    // is constant — which is what all of them print.
+    //
+    // THE MEASUREMENT IS THEREFORE A COMPARISON AND NOT A SERIES: read the whole property table of
+    // the HELD prop and of another instance of the SAME PROP KIND still standing on its hex, IN THE
+    // SAME FRAME. A slot that differs names the channel the flash lives in and hands over its
+    // correct value at the same time. It is immune to phase (both are read on the same tick), immune
+    // to pose (a material value has no view angle in it), and it is the one comparison eight rounds
+    // have never taken.
+    //
+    // IT ALSO SETTLES THE SHARED-MATERIAL TENSION IN ONE FIELD. If every trap draws ONE material
+    // asset, freezing our animator cannot stop that shared value from moving — yet the held table is
+    // provably static, so the material must be instanced per prop. The twin's material instance ids
+    // are compared against the held prop's and the answer is printed rather than argued.
+    private const int TwinSlots = VerdictMatCap * VerdictPropCap;
+
+    private static Renderer? _twinLead;
+    private static Animator? _twinAnim;
+    private static GameObject? _twinRoot;
+    private static readonly Material[] TwinMats = new Material[VerdictMatCap];
+    private static string _twinPath = string.Empty;
+    private static int _twinScanned, _twinCandidates, _twinSharedMats, _twinInstancedMats;
+    private static int _twinFramesAlive, _twinFramesDrawing, _twinAnimAdvancing, _twinAnimFrames;
+    private static float _twinPhasePrev, _twinPhaseLo, _twinPhaseHi;
+
+    private static readonly Vector4[] TwPrev = new Vector4[TwinSlots];
+    private static readonly Vector4[] TwNow = new Vector4[TwinSlots];
+    private static readonly bool[] TwValid = new bool[TwinSlots];
+    private static readonly bool[] TwSeen = new bool[TwinSlots];
+    private static readonly int[] TwMoves = new int[TwinSlots];
+    private static readonly float[] TwLo = new float[TwinSlots];
+    private static readonly float[] TwHi = new float[TwinSlots];
+    private static readonly int[] DiffFrames = new int[TwinSlots];
+    private static readonly Vector4[] DiffHeld = new Vector4[TwinSlots];
+    private static readonly Vector4[] DiffHome = new Vector4[TwinSlots];
+
+    private static readonly List<Renderer> TwinScratch = new(8);
+
+    /// <summary>
+    /// Find another instance of the same prop kind that is NOT in a hand, once, when the window
+    /// arms.
+    ///
+    /// <para>Matched on the drawing renderer's OBJECT NAME and its SHADER, not on the material
+    /// name: <c>Renderer.material</c> appends " (Instance)" to a clone, so a material-name compare
+    /// silently refuses exactly the case this round exists to detect. One
+    /// <c>FindObjectsOfType</c> at arm and never per frame — the same cost policy
+    /// <see cref="SweepForeignEmitters"/> already follows, and a per-frame scene sweep has cost
+    /// this project two rounds and one 12.6 ms frame.</para>
+    /// </summary>
+    private static void FindHomeTwin(GameObject held)
+    {
+        _twinLead = null;
+        _twinAnim = null;
+        _twinRoot = null;
+        _twinPath = string.Empty;
+        _twinScanned = _twinCandidates = _twinSharedMats = _twinInstancedMats = 0;
+        _twinFramesAlive = _twinFramesDrawing = _twinAnimAdvancing = _twinAnimFrames = 0;
+        _twinPhasePrev = float.NaN;
+        _twinPhaseLo = float.MaxValue;
+        _twinPhaseHi = float.MinValue;
+        for (int i = 0; i < VerdictMatCap; i++)
+            TwinMats[i] = null!;
+        for (int i = 0; i < TwinSlots; i++)
+        {
+            TwSeen[i] = false;
+            TwMoves[i] = 0;
+            DiffFrames[i] = 0;
+            TwLo[i] = float.MaxValue;
+            TwHi[i] = float.MinValue;
+        }
+
+        // The held prop's own drawing renderer is the thing to match. Take the first roster entry
+        // that is drawing AND carries a material — roster entry [1] on the trap is the occlusion
+        // volume's MeshRenderer with no material at all, and matching on that would find nothing.
+        Renderer? lead = null;
+        for (int i = 0; i < _rCount && lead == null; i++)
+        {
+            int src = RSrc[i];
+            if (src < 0 || src >= _vRenderers.Length)
+                continue;
+            Renderer r = _vRenderers[src];
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                continue;
+            if (r.sharedMaterial != null)
+                lead = r;
+        }
+        if (lead == null)
+            return;
+
+        string wantName = lead.gameObject.name;
+        Shader? leadShader = lead.sharedMaterial != null ? lead.sharedMaterial.shader : null;
+        string wantShader = leadShader != null ? leadShader.name : string.Empty;
+        Transform heldT = held.transform;
+
+        Renderer[] all = Object.FindObjectsOfType<Renderer>();
+        _twinScanned = all.Length;
+        for (int i = 0; i < all.Length; i++)
+        {
+            Renderer r = all[i];
+            if (r == null || ReferenceEquals(r, lead))
+                continue;
+            if (!r.enabled || !r.gameObject.activeInHierarchy)
+                continue;
+            // NOT under the held prop, and not under any OTHER hand either: a second held prop is
+            // hushed too and its table would be latched in the same way, which would make the
+            // comparison agree for the wrong reason.
+            if (r.transform.IsChildOf(heldT))
+                continue;
+            if (!string.Equals(r.gameObject.name, wantName, System.StringComparison.Ordinal))
+                continue;
+            Material? m = r.sharedMaterial;
+            Shader? s = m != null ? m.shader : null;
+            if (s == null || !string.Equals(s.name, wantShader, System.StringComparison.Ordinal))
+                continue;
+            _twinCandidates++;
+            if (_twinLead != null)
+                continue;
+            bool hushed = false;
+            for (int k = 0; k < Live.Count; k++)
+            {
+                GameObject? v = Live[k].Visual;
+                if (v != null && r.transform.IsChildOf(v.transform))
+                    hushed = true;
+            }
+            if (hushed)
+                continue;
+            _twinLead = r;
+        }
+        if (_twinLead == null)
+            return;
+
+        _twinAnim = _twinLead.GetComponentInParent<Animator>();
+        _twinRoot = _twinAnim != null ? _twinAnim.gameObject : _twinLead.gameObject;
+        _twinPath = Describe(_twinLead.transform);
+
+        // Bind the twin's materials to the HELD table's slot layout by SHADER, rather than
+        // resolving a second table off the twin. Two independently resolved tables can order their
+        // materials differently and a slot-by-slot compare across them would be comparing two
+        // different properties while printing one name.
+        TwinScratch.Clear();
+        _twinRoot.GetComponentsInChildren(includeInactive: true, TwinScratch);
+        for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+        {
+            string want = VTable.ShaderOf(m);
+            for (int r = 0; r < TwinScratch.Count && TwinMats[m] == null; r++)
+            {
+                Renderer rend = TwinScratch[r];
+                if (rend == null)
+                    continue;
+                Material[] mats = rend.sharedMaterials;
+                for (int k = 0; k < mats.Length; k++)
+                {
+                    Material mat = mats[k];
+                    Shader? sh = mat != null ? mat.shader : null;
+                    if (sh == null || !string.Equals(sh.name, want, System.StringComparison.Ordinal))
+                        continue;
+                    TwinMats[m] = mat!;
+                    break;
+                }
+            }
+            Material held0 = VTable.Mats[m];
+            if (TwinMats[m] == null || held0 == null)
+                continue;
+            if (ReferenceEquals(TwinMats[m], held0))
+                _twinSharedMats++;
+            else
+                _twinInstancedMats++;
+        }
+        TwinScratch.Clear();
+    }
+
+    /// <summary>One frame of the comparison. Called from <see cref="SampleVerdict"/> immediately
+    /// after the held table has been read into <c>VNow</c>, so both sides are the SAME TICK — which
+    /// is the whole point, because the props are in phase with each other.</summary>
+    private static void SampleTwin()
+    {
+        if (_twinLead == null)
+            return;
+        _twinFramesAlive++;
+        if (_twinLead.enabled && _twinLead.gameObject.activeInHierarchy)
+            _twinFramesDrawing++;
+
+        if (_twinAnim != null && _twinAnim.enabled && _twinAnim.layerCount > 0)
+        {
+            _twinAnimFrames++;
+            float t = _twinAnim.GetCurrentAnimatorStateInfo(0).normalizedTime;
+            if (!float.IsNaN(_twinPhasePrev) && Mathf.Abs(t - _twinPhasePrev) > MoveEpsilon)
+                _twinAnimAdvancing++;
+            _twinPhasePrev = t;
+            float frac = t - Mathf.Floor(t);
+            if (frac < _twinPhaseLo)
+                _twinPhaseLo = frac;
+            if (frac > _twinPhaseHi)
+                _twinPhaseHi = frac;
+        }
+
+        for (int slot = 0; slot < TwinSlots; slot++)
+            TwValid[slot] = false;
+        for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+        {
+            Material mat = TwinMats[m];
+            if (mat == null)
+                continue;
+            int n = VTable.PerMat[m];
+            for (int k = 0; k < n; k++)
+            {
+                int slot = (m * VerdictPropCap) + k;
+                int id = VTable.Id[slot];
+                if (!mat.HasProperty(id))
+                    continue;
+                Vector4 v;
+                switch (VTable.Kind[slot])
+                {
+                    case PropTable.KindColor:
+                    {
+                        Color c = mat.GetColor(id);
+                        v = new Vector4(c.r, c.g, c.b, c.a);
+                        break;
+                    }
+                    case PropTable.KindVector:
+                        v = mat.GetVector(id);
+                        break;
+                    case PropTable.KindTexture:
+                    {
+                        Texture? tex = mat.GetTexture(id);
+                        v = new Vector4(tex != null ? tex.GetInstanceID() : 0f, 0f, 0f, 0f);
+                        break;
+                    }
+                    default:
+                        v = new Vector4(mat.GetFloat(id), 0f, 0f, 0f);
+                        break;
+                }
+                TwNow[slot] = v;
+                TwValid[slot] = true;
+            }
+        }
+
+        for (int slot = 0; slot < TwinSlots; slot++)
+        {
+            if (!TwValid[slot])
+                continue;
+            byte kind = VTable.Kind[slot];
+            Vector4 home = TwNow[slot];
+            if (TwSeen[slot] && Moved(kind, TwPrev[slot], home))
+                TwMoves[slot]++;
+            TwPrev[slot] = home;
+            TwSeen[slot] = true;
+            float f = Fold(kind, home);
+            if (f < TwLo[slot])
+                TwLo[slot] = f;
+            if (f > TwHi[slot])
+                TwHi[slot] = f;
+
+            if (!VNowValid[slot] || !Moved(kind, VNow[slot], home))
+                continue;
+            DiffFrames[slot]++;
+            DiffHeld[slot] = VNow[slot];
+            DiffHome[slot] = home;
+        }
+    }
+
+    /// <summary>
+    /// THE LINE ROUND NINE EXISTS FOR: what the held prop is showing that a prop of the same kind
+    /// on its hex is not, read on the same tick.
+    /// </summary>
+    private static void EmitHomeTwin(Belt b)
+    {
+        var sb = new System.Text.StringBuilder(3072);
+        sb.Append("[Props] HELD-PROP HOME TWIN for ").Append(_vLabel).Append(" — ").Append(_vFrames)
+          .Append(" frame(s). WHY: the user named the trigger — \"das weisse in der Hand tritt "
+                  + "immer auf wenn ich die Falle aufhebe kurz nachdem der weisse flash auf ALLEN "
+                  + "Fallen kam\" — so the white is a value LATCHED AT THE GRAB, and every "
+                  + "instrument in this file asks whether something MOVES rather than whether the "
+                  + "value is the RIGHT one. A latched wrong value is constant, which is what all "
+                  + "of them print. This compares the held prop's whole property table against "
+                  + "another instance of the same kind still on its hex, ON THE SAME TICK. ");
+
+        sb.Append("GRAB PHASE (the animator's own normalizedTime on the frame this class froze it, "
+                  + "which is the axis the user's sentence is about): ");
+        if (b.GrabPhaseCount == 0)
+            sb.Append("<no animator was frozen on this prop, so there was no phase to record>");
+        else
+            sb.Append(b.GrabPhaseCount).Append(" animator(s), first at normalizedTime ")
+              .Append(b.GrabPhase.ToString("0.####")).Append(" (fraction of the loop ")
+              .Append((b.GrabPhase - Mathf.Floor(b.GrabPhase)).ToString("0.###"))
+              .Append("). Correlate this number ACROSS SESSIONS with whether the user reports "
+                      + "white: a defect that clusters in one band of the loop is the latch, and "
+                      + "one that does not is not.");
+        sb.Append(' ');
+
+        if (_twinLead == null)
+        {
+            sb.Append("NO HOME TWIN WAS FOUND. ").Append(_twinScanned)
+              .Append(" renderer(s) scanned, ").Append(_twinCandidates)
+              .Append(" matched the held prop's object name AND shader but none was usable (either "
+                      + "there is only one instance of this kind in the scenario, or every other "
+                      + "one is itself in a hand and therefore hushed and latched the same way). "
+                      + "THIS IS A POPULATION FACT AND NOT A NULL READING: the comparison was not "
+                      + "taken, so nothing here excludes anything. ");
+            AppendTwinRewindState(sb, b);
+            // HW-VERIFY: round nine's deliverable, and this branch is the one that says the
+            // comparison could not be taken — which must never be mistaken for a clean reading.
+            // It must stay at a tier the DEFAULT log level prints (Note/Alert/Error).
+            VRLog.Note("FigureGrab", sb.ToString());
+            return;
+        }
+
+        sb.Append("HOME TWIN: '").Append(_twinPath).Append("', found among ").Append(_twinCandidates)
+          .Append(" candidate(s) of ").Append(_twinScanned)
+          .Append(" renderer(s) scanned, alive on ").Append(_twinFramesAlive)
+          .Append(" frame(s) and drawing on ").Append(_twinFramesDrawing).Append(". ");
+
+        sb.Append("SHARED OR INSTANCED, and this settles a tension nobody could resolve by "
+                  + "argument: ").Append(_twinSharedMats)
+          .Append(" of the held prop's material(s) are THE SAME ASSET as the twin's and ")
+          .Append(_twinInstancedMats)
+          .Append(" are per-prop instances. If they were SHARED, freezing our animator could not "
+                  + "stop the shared value from moving and the held table could not read static — "
+                  + "so a non-zero instanced count is what makes a per-prop latch possible at all, "
+                  + "and a non-zero shared count with a static held table means the flash is not "
+                  + "on the material. ");
+
+        sb.Append("THE TWIN'S ANIMATOR: advancing on ").Append(_twinAnimAdvancing).Append(" of ")
+          .Append(_twinAnimFrames).Append(" sampled frame(s)");
+        if (_twinPhaseLo <= _twinPhaseHi)
+            sb.Append(", loop fraction swept ").Append(_twinPhaseLo.ToString("0.###")).Append("..")
+              .Append(_twinPhaseHi.ToString("0.###"));
+        sb.Append(". ");
+
+        AppendTwinMovers(sb);
+        AppendTwinDiffs(sb);
+        AppendTwinRewindState(sb, b);
+
+        sb.Append("HOW TO READ IT. **IT NAMES THE CHANNEL** if any slot DIFFERS between held and "
+                  + "home while the twin's own value MOVES on that same slot: that slot is the "
+                  + "flash, the held prop is stuck at one point of it, and the home range printed "
+                  + "beside it gives the value the fix must write. **IT EXCLUDES THE WHOLE CLASS** "
+                  + "if NOTHING on the unheld twin moves either — the flash the user sees on every "
+                  + "trap at once is then not a material property at all, and the next place to "
+                  + "look is a renderer or child GameObject being ENABLED (an animator can drive "
+                  + "m_IsActive and m_Enabled, and this file's rewind measurement counted only "
+                  + "MATERIAL slots until this build) or a global shader value that every trap "
+                  + "samples. **IT IS INERT** if no twin was found. NOTE THE TRAP IN THE OBVIOUS "
+                  + "FIX: every trap is in PHASE, so at the instant of a grab the twin is bright "
+                  + "too — copying the twin's CURRENT value onto the held prop would copy the "
+                  + "flash. The value a fix must write is the twin's RESTING value, which is the "
+                  + "END of the home range printed above that the held prop is NOT stuck at. ");
+
+        // HW-VERIFY: round nine's whole deliverable. It is the first reading in this file that
+        // asks whether the held prop's value is the RIGHT one rather than whether it MOVED, and it
+        // carries the value a remedy would have to write. It must stay at a tier the DEFAULT log
+        // level prints (Note/Alert/Error) — scripts/check-hw-verify.py enforces the position of
+        // this marker directly above the call.
+        VRLog.Note("FigureGrab", sb.ToString());
+    }
+
+    /// <summary>The slots that MOVE on a prop of this kind standing on its hex. This is the flash
+    /// itself, if the flash is a material property at all.</summary>
+    private static void AppendTwinMovers(System.Text.StringBuilder sb)
+    {
+        int moved = 0, tracked = 0;
+        for (int slot = 0; slot < TwinSlots; slot++)
+        {
+            if (!TwSeen[slot])
+                continue;
+            tracked++;
+            if (TwMoves[slot] > 0)
+                moved++;
+        }
+        sb.Append("WHAT MOVES ON THE UNHELD TWIN — i.e. THE FLASH ITSELF: ").Append(moved)
+          .Append(" of ").Append(tracked).Append(" tracked slot(s)");
+        if (moved == 0)
+        {
+            sb.Append(" — NOTHING on a prop of this kind standing on its own hex moved a single "
+                      + "material property on any sampled frame. That EXCLUDES the whole material "
+                      + "class for the flash the user sees on every trap at once, and it does so "
+                      + "with a population that is not hushed, not held and not frozen. ");
+            return;
+        }
+        sb.Append(", naming up to ").Append(VerdictListCap).Append(": ");
+        int listed = 0;
+        for (int slot = 0; slot < TwinSlots && listed < VerdictListCap; slot++)
+        {
+            if (!TwSeen[slot] || TwMoves[slot] <= 0)
+                continue;
+            if (listed > 0)
+                sb.Append("; ");
+            sb.Append(VTable.Name[slot] ?? "<unnamed>").Append(" (mat")
+              .Append(slot / VerdictPropCap).Append(' ').Append(VTable.ShaderOf(slot / VerdictPropCap))
+              .Append(") moved on ").Append(TwMoves[slot]).Append(" frame(s), home range ")
+              .Append(TwLo[slot].ToString("0.####")).Append("..").Append(TwHi[slot].ToString("0.####"))
+              .Append(", HELD sits at ")
+              .Append(Show(VTable.Kind[slot], VNowValid[slot] ? VNow[slot] : Vector4.zero));
+            listed++;
+        }
+        sb.Append(listed < moved ? ", and the rest are counted but not named. " : ". ");
+    }
+
+    /// <summary>The slots where the held prop and the twin DISAGREE. Each one is a candidate
+    /// channel with its own correct value beside it.</summary>
+    private static void AppendTwinDiffs(System.Text.StringBuilder sb)
+    {
+        int differing = 0;
+        for (int slot = 0; slot < TwinSlots; slot++)
+        {
+            if (DiffFrames[slot] > 0)
+                differing++;
+        }
+        sb.Append("HELD vs HOME, SAME TICK: ").Append(differing).Append(" slot(s) EVER DIFFERED");
+        if (differing == 0)
+        {
+            sb.Append(" — the held prop's material state is IDENTICAL to a prop of the same kind on "
+                      + "its hex, on every sampled frame. If the user still saw white on this hold, "
+                      + "the picture is not made of this prop's material values and no fix written "
+                      + "on them can change it. ");
+            return;
+        }
+        sb.Append(", naming up to ").Append(VerdictListCap).Append(" with BOTH values: ");
+        int listed = 0;
+        for (int slot = 0; slot < TwinSlots && listed < VerdictListCap; slot++)
+        {
+            if (DiffFrames[slot] <= 0)
+                continue;
+            if (listed > 0)
+                sb.Append("; ");
+            byte kind = VTable.Kind[slot];
+            sb.Append(VTable.Name[slot] ?? "<unnamed>").Append(" (mat")
+              .Append(slot / VerdictPropCap).Append(") differed on ").Append(DiffFrames[slot])
+              .Append(" frame(s): HELD ").Append(Show(kind, DiffHeld[slot])).Append(" vs HOME ")
+              .Append(Show(kind, DiffHome[slot])).Append(", home ranged ")
+              .Append(TwLo[slot].ToString("0.####")).Append("..").Append(TwHi[slot].ToString("0.####"));
+            listed++;
+        }
+        sb.Append(listed < differing ? ", and the rest are counted but not named. " : ". ");
+    }
+
+    /// <summary>
+    /// The half of the rewind measurement that has never been taken: whether
+    /// <c>WriteDefaultValues</c> changed a RENDERER or an OBJECT ACTIVE flag.
+    ///
+    /// <para>An <c>AnimationClip</c> can drive <c>GameObject.m_IsActive</c> and
+    /// <c>Renderer.m_Enabled</c>, so an attention flash authored as "switch the glow mesh on for
+    /// half a second" carries NO material property at all — and this file's rewind measurement has
+    /// counted only (material, property) slots for two builds, which is why it reads
+    /// <c>0 of 67 changed</c> either way. That zero has never distinguished "the clip was at rest"
+    /// from "the clip does not drive a material".</para>
+    /// </summary>
+    private static void AppendTwinRewindState(System.Text.StringBuilder sb, Belt b)
+    {
+        sb.Append("THE REWIND'S OTHER HALF (new this build): across Animator.WriteDefaultValues, ")
+          .Append(b.RewindStateRead)
+          .Append(" renderer/object flag(s) were read and ").Append(b.RewindStateChanged)
+          .Append(" CHANGED. An AnimationClip can drive GameObject.m_IsActive and "
+                  + "Renderer.m_Enabled, so a flash authored as 'switch the glow mesh on' carries "
+                  + "no material property at all — and the '0 of N (material, property) slot(s) "
+                  + "changed' this file has printed for two builds could never tell that apart "
+                  + "from a clip already at rest. A non-zero count here says the freeze was "
+                  + "latching a RENDERER STATE and names a different fix from a material one. ");
     }
 
     private static int MaxOf(int[] values, int count)
