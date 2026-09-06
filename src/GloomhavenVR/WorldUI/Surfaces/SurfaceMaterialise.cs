@@ -495,6 +495,156 @@ internal static class SurfaceMaterialise
         }
     }
 
+    // ---- THE RELEASE-EDGE VANISH: every surface the MOD closes ------------------------------------
+    //
+    // USER REPORT (2026-09-06, item 4, verbatim): "Kampflog-Fenster hat keine in Staub verfallen
+    // Animation wenn man es schließt - wie jedes andere Fenster auch, soll das hier auch der Fall
+    // sein."
+    //
+    // IT WAS A MEMBERSHIP DEFECT, AND THE EFFECT WAS NEVER ASKED. <see cref="Arm"/> above had
+    // exactly ONE call site — FloatingDecisionSurface.Place — so the dissolve population of this
+    // whole family was the three FloatingDecisionSurface subclasses and nothing else.
+    // CombatLogSurface is a plain WorldSurface, so its close ran WorldSurface.ReleasePanel's base
+    // body: one bare CanvasConversion.Release, a hard cut with no effect call anywhere in it.
+    //
+    // THE ModBuild 457 LOGS SAY THAT IN THE EFFECT'S OWN FALSIFIER RATHER THAN BY INFERENCE. The
+    // peer closed the combat log with its X ("Combat log hidden (X button)"), and of the 11
+    // 'WINDOW MATERIALISE PLAYOUT' lines on that client — 10 distinct windows, every one a
+    // Panel_Modal_* — not one names CombatLog; the host log agrees at 20 lines and 15 windows.
+    // PlayOut writes that line on EVERY entry, and its own doc states the reading: a window that
+    // left the screen and is named by no line there was never handed to the effect at all.
+    //
+    // WHY THIS IS A SECOND TRIGGER AND NOT A SECOND COPY. There are two kinds of close in this
+    // family, and the difference between them is structural rather than an oversight:
+    //   * THE GAME CLOSES IT (the three decision popups). Their Hide() ends in SetActive(false) —
+    //     a hard cut — so the close edge must be caught one method earlier, which is
+    //     SurfaceCloseEdge's prefix, and the vanish starts there one Update tick BEFORE the
+    //     surface's own release. That is BeginVanish above, and it has to re-derive drawability
+    //     terms of its own because at that instant the window is already mid-teardown.
+    //   * THE MOD CLOSES IT (the combat log's X, which runs SetUserVisible(false) and deliberately
+    //     NOT UIWindow.Escape). Nothing has been torn down: the game's window is still active,
+    //     still populated and still drawing, and THE RELEASE IS ITSELF THE CLOSE EDGE.
+    //
+    // So this entry point needs no close-edge patch and — the load-bearing half — NO drawability
+    // terms of its own. WindowMaterialise.PlayOut already carries exactly the right ones for this
+    // instant, verified in their source rather than quoted from a comment:
+    // ModalFallback.HasNothingToDissolve returns FALSE for any panel `Converted` never held (every
+    // surface panel) and whose ReleaseNothingToDissolveWhy is empty (only the modal
+    // StampReleaseVerdict writes it), and DrawnOnPreviousFrame — the measured stamp rule — passes
+    // because CanvasConversion.Order stamps every panel in `Active`, surfaces included, in the
+    // previous frame's LateUpdate. Re-deriving those here would be the copy; asking PlayOut is the
+    // reuse.
+
+    /// <summary>
+    /// <b>THE SURFACE HAS REACHED A RELEASE THAT IS ALSO ITS CLOSE EDGE — dissolve there.</b>
+    /// Returns true when a vanish now owns <paramref name="release"/>, and false when the caller
+    /// must release in this frame exactly as it did before this feature existed.
+    ///
+    /// <para><b>BOTH ORDERS ARE TOTAL AND THE RELEASE CANNOT BE LOST OR RUN TWICE.</b> PlayOut may
+    /// run its callback SYNCHRONOUSLY — the dial off, a zero length, a dead panel, nothing to
+    /// dissolve, a stray — and that path reaches <see cref="OnEffectDone"/> before the next
+    /// statement here, which removes the record; the hand-off below then finds nothing, returns
+    /// false, and the caller releases inline. When the dissolve really starts, the record is live
+    /// and the hand-off stores the release on it for its one completion path.</para>
+    /// </summary>
+    internal static bool VanishAtRelease(ConvertedPanel? panel, string name, Action release)
+    {
+        if (release == null)
+            throw new ArgumentNullException(nameof(release),
+                "the release must run; a null one would strand the game's window under a mod host.");
+        if (panel == null || !panel.IsAlive || panel.HostGo == null)
+            return false;
+        // A VANISH THE CLOSE EDGE ALREADY STARTED OWNS THIS RELEASE. A surface can have both edges
+        // (a decision popup the game hides, whose release arrives a tick later), and handing over
+        // is the whole point of that record — starting a second cloud over the same panel is the
+        // thing WindowMaterialise.PlayOut's own stray clause exists to refuse.
+        if (HandOffRelease(panel, release))
+            return true;
+        var v = new Vanish { Panel = panel };
+        Vanishing.Add(v);
+        WindowMaterialise.PlayOut(panel, () => OnEffectDone(v));
+        if (HandOffRelease(panel, release))
+        {
+            NoteVanishEdge(name, "STARTED", ReleaseEdgeSees,
+                           "the mod's own close reached the release while the game's window was "
+                           + "still active, still populated and still drawing, so the effect took "
+                           + "it at full strength");
+            return true;
+        }
+        NoteVanishEdge(name, "SKIPPED", ReleaseEdgeSees,
+                       "WindowMaterialise.PlayOut ran its callback synchronously, i.e. it refused "
+                       + "or could not run — the effect's dial is off, its length is zero, the "
+                       + "panel was already gone, it had nothing to dissolve, or the stray rule "
+                       + "found it not drawn on the previous frame. THE PLAYOUT LINE FOR THIS "
+                       + "WINDOW NAMES WHICH, and it is the next thing to read");
+        return false;
+    }
+
+    /// <summary>What the player sees on a release-edge vanish — materially MORE than on a
+    /// close-edge one, and the instrument must not repeat the popup's caveat.</summary>
+    private const string ReleaseEdgeSees =
+        "the FULL element-by-element wipe plus the shard cloud. Unlike the game-closed decision "
+        + "popups, nothing deactivates this window underneath the effect: the mod's own close is a "
+        + "presentation release, and the host stays alive until CanvasConversion.Release runs at "
+        + "the END of the dissolve. So this edge gets exactly what a floated modal window gets";
+
+    // ---- WHICH SURFACES DISSOLVE, PRINTED SO THE NEXT OMISSION NEEDS NO HARDWARE ROUND ------------
+    //
+    // The defect above was invisible because membership was a CALL SITE — you had to notice that a
+    // method was not called from a place. This census makes it a READING: every WorldSurface reports
+    // itself on its first tick, so a surface that does not dissolve is named in the log beside the
+    // ones that do, and the next "window X has no animation" report can be answered from a log
+    // instead of from a hardware round.
+    //
+    // CHANGE-GATED ON THE COMPOSED CENSUS, so the surfaces coming online over the first frames
+    // reprint it as it grows and the LAST line is the complete one.
+    private static readonly SortedDictionary<string, bool> Membership = new(StringComparer.Ordinal);
+
+    private static string _censusPrinted = string.Empty;
+
+    /// <summary>A <see cref="WorldSurface"/> reports its dissolve membership (first tick).</summary>
+    internal static void NoteMembership(string name, bool dissolvesOnRelease)
+    {
+        if (Membership.TryGetValue(name, out bool had) && had == dissolvesOnRelease)
+            return;
+        Membership[name] = dissolvesOnRelease;
+
+        var yes = new List<string>();
+        var no = new List<string>();
+        foreach (KeyValuePair<string, bool> kv in Membership)
+            (kv.Value ? yes : no).Add(kv.Key);
+        string census = string.Join(", ", yes) + " | " + string.Join(", ", no);
+        if (census == _censusPrinted)
+            return;
+        _censusPrinted = census;
+        // HW-VERIFY
+        VRLog.Note(Scope, "SURFACE MATERIALISE CENSUS — which world surfaces dissolve into dust "
+                          + $"when the MOD closes them. DISSOLVES ({yes.Count}): "
+                          + (yes.Count > 0 ? string.Join(", ", yes) : "<none>")
+                          + $". HARD CUT ({no.Count}): "
+                          + (no.Count > 0 ? string.Join(", ", no) : "<none>")
+                          + ". A surface in the HARD CUT list is not broken by that alone — a "
+                          + "tooltip, a dock and a tray-mounted panel are not windows and leave "
+                          + "instantly by design, exactly as WindowMaterialise.IsHoverCard refuses "
+                          + "dust for a map-room hover card. THIS LINE IS THE ANSWER TO 'window X "
+                          + "has no animation': if X is in the HARD CUT list the membership is the "
+                          + "defect and WorldSurface.DissolvesOnRelease is the one place to change; "
+                          + "if X is in the DISSOLVES list the membership is right and the "
+                          + "'WINDOW MATERIALISE PLAYOUT on X' line names what the effect then did. "
+                          + "WHAT THIS LINE DOES NOT COVER, stated so the list is not read as more "
+                          + "than it is: a surface reports on its first tick OR its first release, "
+                          + "so one that has neither ticked nor released yet is simply not here "
+                          + "yet, and the LAST census line in a log is the complete one. A surface "
+                          + "that converts NOTHING (DamagePreview: FindTarget returns null) has no "
+                          + "release edge at all and membership is meaningless for it — but every "
+                          + "surface that ever releases a panel is named here, whatever it does "
+                          + "with Tick. AND THIS IS THE WorldSurface FAMILY ONLY: PropInfo, "
+                          + "StatPanel, Dialog, EnemyReveal, UseBars and TrayControlDock are named "
+                          + "'*Surface' but do NOT derive from WorldSurface — they own their own "
+                          + "CanvasConversion.Release call and are a separate population this line "
+                          + "cannot see, so their absence here is not a verdict about them.");
+    }
+
     // ---- the drawability verdict -------------------------------------------------------------------
     //
     // THERE IS NO COPY HERE ANY MORE (ModBuild 439, survey row R6). This section used to carry
@@ -585,7 +735,24 @@ internal static class SurfaceMaterialise
                           + "lines for that host are the place to look, not this feature.");
     }
 
-    private static void NoteVanish(string name, string outcome, string why)
+    /// <summary>The GAME-closed edge (SurfaceCloseEdge → BeginVanish). Its visible outcome is the
+    /// reduced one, and the clause below is why.</summary>
+    private static void NoteVanish(string name, string outcome, string why) =>
+        NoteVanishEdge(name, outcome,
+                       "the window's own pixels leave on the GAME's frame — its Hide() ends in "
+                       + "window.SetActive(false) and an inactive CanvasRenderer draws nothing — and "
+                       + "a shard cloud, torn while the elements were still active and parented to "
+                       + "the mod-owned host, blows away over the configured vanish length. The "
+                       + "element-by-element wipe a modal window gets is NOT visible here, and "
+                       + "holding the window active to buy it was refused: this popup carries the "
+                       + "ControllerInputAreaLocal that its Hide() destroys, and it is the one four "
+                       + "deadlock reports were about",
+                       why);
+
+    /// <param name="sees">What the player actually gets on this EDGE when the outcome is STARTED.
+    /// The two edges differ materially — see <see cref="ReleaseEdgeSees"/> — and one instrument
+    /// reporting the reduced outcome for both would be lying about the better half.</param>
+    private static void NoteVanishEdge(string name, string outcome, string sees, string why)
     {
         if (outcome == "STARTED")
             _vanishStarted++;
@@ -598,18 +765,12 @@ internal static class SurfaceMaterialise
         // HW-VERIFY
         VRLog.Note(Scope, $"SURFACE MATERIALISE VANISH {outcome} on '{name}': {why}. TALLY this "
                           + $"session: {_vanishStarted} started, {_vanishSkipped} skipped for having "
-                          + "nothing to dissolve. WHAT THE PLAYER SEES WHEN THIS SAYS STARTED: the "
-                          + "window's own pixels leave on the GAME's frame — its Hide() ends in "
-                          + "window.SetActive(false) and an inactive CanvasRenderer draws nothing — "
-                          + "and a shard cloud, torn while the elements were still active and "
-                          + "parented to the mod-owned host, blows away over the configured vanish "
-                          + "length. The element-by-element wipe a modal window gets is NOT visible "
-                          + "here, and holding the window active to buy it was refused: this popup "
-                          + "carries the ControllerInputAreaLocal that its Hide() destroys, and it is "
-                          + "the one four deadlock reports were about. THIS LINE IS THE FALSIFIER: it "
-                          + "is written on every close edge this family publishes, so a decision "
-                          + "window that left the screen and is named by no line here never reached "
-                          + "the effect — read SurfaceCloseEdge's installation line next.");
+                          + $"nothing to dissolve. WHAT THE PLAYER SEES WHEN THIS SAYS STARTED: {sees}. "
+                          + "THIS LINE IS THE FALSIFIER: it is written on every close edge this "
+                          + "family publishes, so a surface window that left the screen and is named "
+                          + "by no line here never reached the effect — read the SURFACE MATERIALISE "
+                          + "CENSUS line first (it says whether this surface is even in the "
+                          + "population), then SurfaceCloseEdge's installation line.");
     }
 
     // ---- the late pump ----------------------------------------------------------------------------

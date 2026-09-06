@@ -118,6 +118,47 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     // because it is a 3D cap on a panel that is routinely up without the control board.
 
     public override string Name => "CombatLog";
+
+    /// <summary>
+    /// <b>IT DISSOLVES INTO DUST WHEN CLOSED, LIKE EVERY OTHER WINDOW.</b> User, 2026-09-06, item 4,
+    /// verbatim: <i>"Kampflog-Fenster hat keine in Staub verfallen Animation wenn man es schließt -
+    /// wie jedes andere Fenster auch, soll das hier auch der Fall sein."</i>
+    ///
+    /// <para>THE EFFECT WAS NEVER BROKEN — THIS WINDOW WAS NOT IN THE POPULATION.
+    /// <c>SurfaceMaterialise.Arm</c> had exactly one call site, inside
+    /// <c>FloatingDecisionSurface.Place</c>, so the surface family's dissolve set was the three
+    /// decision popups and this plain <see cref="WorldSurface"/> took the base release: one bare
+    /// <c>CanvasConversion.Release</c>, a hard cut. The membership now lives on
+    /// <see cref="WorldSurface.DissolvesOnRelease"/> and is printed as a census, so the next window
+    /// left out is a log reading rather than a hardware round.</para>
+    ///
+    /// <para><b>THIS PANEL GETS THE FULL EFFECT, not the decision popups' reduced one, and the
+    /// reason is the close path in this very file.</b> The X runs
+    /// <c>SetUserVisible(false, "X button")</c> — deliberately NOT <c>UIWindow.Escape()</c>, see
+    /// <see cref="AttachPanelChrome"/> — so the GAME never hides anything: the window is still
+    /// active, still populated and still drawing when <c>WorldSurface.Tick</c> reaches the release
+    /// one tick later, and the mod-owned host lives until <c>CanvasConversion.Release</c> runs at
+    /// the END of the dissolve. So the element-by-element wipe plays as well as the shards, which is
+    /// exactly what a floated modal window gets and exactly what "wie jedes andere Fenster" asks
+    /// for.</para>
+    ///
+    /// <para><b>THE ROD AND THE PIN LEAVE ON THE CLOSE FRAME AND THE DUST OUTLIVES THEM, by
+    /// construction rather than by timing.</b> <see cref="Tick"/> deactivates <c>_frame</c> the
+    /// moment <c>Panel</c> is null — and the converted host is POSE-FOLLOWED, never re-parented
+    /// under that frame (<c>CanvasConversion.PlaceHost</c> in <see cref="Place"/>, the mount-seam
+    /// reversibility rule), so deactivating the frame takes the bar and the cap and cannot touch the
+    /// dissolving panel or its shard cloud. That is the same order the decision popups get from
+    /// <c>e.Bar?.SetWithheld(true)</c>: no rod standing in the room over a window that is leaving.</para>
+    ///
+    /// <para><b>MULTIPLAYER: local, and that is the 1:1 answer rather than an exemption.</b> The
+    /// combat log is a PER-PLAYER window — each client floats its own <c>CombatLogHandler</c>
+    /// singleton, its visibility is this surface's own session state, and nothing about it is
+    /// mirrored, shared or sent. There is no owner whose animation another player must match, so
+    /// there is nothing to sync; every write on this edge is a local <c>CanvasRenderer</c> alpha and
+    /// a mod-owned mesh, exactly as <c>SurfaceMaterialise</c>'s class doc states for the decision
+    /// popups. No wire field, no <c>NetProtocol</c> record, no ModBuild implication.</para>
+    /// </summary>
+    internal override bool DissolvesOnRelease => true;
     // ONE ACTION AND ONE PREFERENCE, never one toggle doing both jobs — see the
     // SHOW/HIDE seam below for what this used to be and why it could not work.
     protected override bool ConfigEnabled => _sessionVisible;
