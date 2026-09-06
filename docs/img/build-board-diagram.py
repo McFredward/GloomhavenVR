@@ -347,7 +347,7 @@ LABELS = {
         # the WORDING is shortened — never the type, which is already at the floor for a picture
         # shown at half its rendered width.
         "callouts": {
-            "recesses":   "Kartenfächer",
+            "recesses":   "Kartenmulden",
             "keys":       "Bestätigen · Rückgängig · Überspringen",
             "rest":       "Kurze + lange Rast-Tasten",
             "rod":        "Greifstange",
@@ -359,7 +359,7 @@ LABELS = {
             "elements":   "Elemente",
         },
         "cells": [
-            (BLUE, "Die beiden Kartenfächer", [
+            (BLUE, "Die beiden Kartenmulden", [
                 "Lege deine zwei gewählten Karten hinein. Links liegt deine Initiative.",
                 "Nimm eine Karte wieder heraus; lege sie auf die andere, um zu tauschen.",
                 "Ein langsames grünes Pulsieren zeigt, welches Fach das Spiel erwartet.",
