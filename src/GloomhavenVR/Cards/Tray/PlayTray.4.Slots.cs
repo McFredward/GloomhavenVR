@@ -317,6 +317,10 @@ internal sealed partial class PlayTray
     /// <summary>The driver marks pick flows so CONFIRM accents as the mode's mirrored confirm affordance.</summary>
     internal void SetPickActive(bool active) => _pickActive = active;
 
+    /// <summary>Read-back for the burn flow's teardown census (item 6b) — one of the three symptoms
+    /// the <c>BURN FLOW TEARDOWN</c> line must report as down. Never a gate.</summary>
+    internal bool PickActive => _pickActive;
+
     /// <summary>
     /// Glow frame behind each slot — shown while a HELD card is within snap range
     /// (test #13: telegraph exactly where the card will zap on release). Unlit

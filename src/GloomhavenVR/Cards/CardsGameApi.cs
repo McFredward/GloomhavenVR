@@ -537,10 +537,16 @@ internal static class CardsGameApi
     {
         try
         {
+            if (hand != null)
+            {
+                // SCOPED TO THIS HAND (2026-09-06 item 6b): a co-player's burn opens and closes
+                // CardsHandUI instances on THIS machine too, and both edge patches are on the type.
+                // See Patches.PickFlowWatch's class remarks for the host log that recorded five
+                // foreign edges in a session with zero local picks.
+                return Patches.PickFlowWatch.LiveFor(hand) && hand.MaxSelectedCards > 0;
+            }
             if (!Patches.PickFlowWatch.Live)
                 return false; // no OPEN edge is outstanding — whatever the latches say is leftover
-            if (hand != null)
-                return hand.MaxSelectedCards > 0;
             CardsHandManager manager = CardsHandManager.Instance;
             return manager != null && manager.maxCardsSelected > 0;
         }
@@ -549,6 +555,47 @@ internal static class CardsGameApi
             return false; // a game-side shape change must never fabricate a pick nobody asked for
         }
     }
+
+    /// <summary>
+    /// THE MODAL PICK MODES — <c>LoseCard</c> / <c>DiscardCard</c> / <c>RecoverDiscardedCard</c> /
+    /// <c>RecoverLostCard</c> / <c>IncreaseCardLimit</c>. A MODE, and modes are LATCHES: the game
+    /// writes <c>CardsHandUI.currentMode</c> in exactly one place (<c>UpdateView</c>) and
+    /// <c>TakeDamagePanel.ResetAndHide</c> never touches it, so this answers TRUE for minutes after
+    /// a burn is over. Ask <see cref="PickFlowLive"/> instead wherever the question is "is the game
+    /// asking for a card RIGHT NOW".
+    /// </summary>
+    internal static bool IsPickMode(CardHandMode mode) =>
+        mode == CardHandMode.LoseCard
+        || mode == CardHandMode.DiscardCard
+        || mode == CardHandMode.RecoverDiscardedCard
+        || mode == CardHandMode.RecoverLostCard
+        || mode == CardHandMode.IncreaseCardLimit;
+
+    /// <summary>
+    /// IS A MODAL CARD PICK BEING ASKED OF THIS HAND RIGHT NOW — the ONE authority for the whole
+    /// mod, and the term the user's 2026-09-06 ruling needs: <em>"Gewährleiste, dass der
+    /// Verbrennen-Flow nach dem erfolgreichen Verbrennen einer Karte vollständig endet. Erhält der
+    /// Charakter unmittelbar danach wieder Schaden, ist das eine völlig neue Situation und hat
+    /// NICHTS mehr mit dem davor zu tun."</em>
+    ///
+    /// <para>WHY THIS EXISTS AS ONE METHOD. Before it, the flow's teardown was spread over ten call
+    /// sites and only TWO of them ANDed the mode latch with the liveness edge — <c>UpdatePickStatus</c>
+    /// (the banner) and the fan fill. The other eight read the LATCHED mode raw, so a flow that had
+    /// demonstrably ended still owned the blinking wanted-slot overlay, the armed drop target, the
+    /// drop telegraph, the pile-browse refusal, the mirrored pick-field seat record and the
+    /// empty-hand placard suppression. A flow that ends in three places ends completely in none of
+    /// them; this is the one place, and every gate reads it.</para>
+    ///
+    /// <para>THE 2026-09-06 EVIDENCE, from the co-player's drop (remote/Player.log, ModBuild 462).
+    /// Four <c>PICK GATE</c> lines read <c>pick=CLOSED … openEdgeOutstanding=False</c> while the
+    /// mode was still <c>LoseCard</c> — the teardown worked. Twelve lines later each time, a
+    /// <c>Hand fan WITHHELD by NoCards … boundHand=yes, boundMode=LoseCard</c>: the pick fill
+    /// produced nothing for a dead flow, so the player who DID own a character could not open his
+    /// hand fan (his words: "konnte er seinen Hand-Fächer nicht mehr öffnen"). 15 of that log's 16
+    /// WITHHELD lines read <c>boundHand=yes</c>; exactly one is the sanctioned no-character case.</para>
+    /// </summary>
+    internal static bool PickFlowLive(CardsHandUI? hand) =>
+        hand != null && IsPickMode(Mode(hand)) && PickIsOpen(hand);
 
     /// <summary>
     /// Item 10 measurement only, never a gate: the game's own "this hand is on screen" bit —

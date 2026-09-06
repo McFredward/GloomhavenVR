@@ -2386,8 +2386,10 @@ internal sealed partial class CardsDriver
         // accept rule, haptic tick on edge), but the transient gold glow tracks the
         // wanted (next-empty) pick slot. Only a FRESH candidate telegraphs; a slotted
         // pick card being re-dropped does not (its release stays/unselects directly).
+        // ITEM 6b: LIVE, not the latched mode — a dead flow must not telegraph a drop into a slot
+        // that will refuse it.
         CardsHandUI? pickHand = _fakeActive ? null : CurrentHand();
-        bool pickMode = _tray.IsVisible && pickHand != null && IsPickMode(CardsGameApi.Mode(pickHand));
+        bool pickMode = _tray.IsVisible && PickFlowLive(pickHand);
         if (pickMode)
         {
             VRCard? pickHeld = HeldCard(out VRHand? pickHolder);

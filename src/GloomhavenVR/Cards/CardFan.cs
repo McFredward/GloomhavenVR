@@ -549,20 +549,43 @@ internal sealed class CardFan
     /// alone — mirroring the driver's Rebuild zone loop, which skips held cards outright, and this
     /// class' own layout/raycast/fingertip scans, which all skip <c>IsHeld</c> already.</para>
     ///
-    /// <para>THE ONE EXCEPTION IS A TIGHTENING, never a widening: a held card may still GAIN
-    /// <see cref="VRCard.InspectOnly"/> when the fan is no longer <see cref="FanMode.Interactive"/>.
-    /// That flag only ever REFUSES a placement (<c>CardsDriver.OnCardReleased</c> returns the card
-    /// home before any game seam is reachable), so adding it can never open a path from a VR
-    /// gesture to a game state write — and dropping it could. Clearing it is deliberately NOT done:
-    /// per <see cref="VRCard.InspectOnly"/> the verdict the player saw when they grabbed the card
-    /// is the verdict that decides their release.</para>
+    /// <para>THE ONE EXCEPTION IS THE FAN'S OWN VERDICT, AND IT NOW RUNS IN BOTH DIRECTIONS
+    /// (2026-09-06 item 6a). The paragraph that stood here said the exception was "a TIGHTENING,
+    /// never a widening... Clearing it is deliberately NOT done: per <see cref="VRCard.InspectOnly"/>
+    /// the verdict the player saw when they grabbed the card is the verdict that decides their
+    /// release." The user's report falsifies the second half:</para>
+    /// <para><em>"Wenn ich eine Karte in der Hand hab bevor ich drücke, dass ich den Schaden mit
+    /// Verbrennen negieren möchte (Entscheidungsbutton), dann zappt die Karte nicht an die Stelle
+    /// und ich kann sie im Overlay nicht ablegen. Ich muss sie erst wieder ablegen und dann nochmal
+    /// dorthin zappen, dann funktioniert alles."</em></para>
+    /// <para>THE MECHANISM, and it is this one flag twice. Outside a pick the fan is
+    /// <see cref="FanMode.Inspect"/>, so a card grabbed to be read carries
+    /// <c>InspectOnly = true</c>. Pressing the burn decision opens the pick and
+    /// <c>CardsDriver.Rebuild</c> sets the fan <see cref="FanMode.Interactive"/> — but
+    /// <see cref="SetMode"/>'s re-stamp loop only walks <c>_cards</c>, and a grab has already
+    /// REMOVED the held card from that list, while the <see cref="SetCards"/> that puts it back
+    /// lands HERE and used to tighten only. So the flag survived the whole flow, and it costs the
+    /// player the placement TWICE over: <c>CardsDriver.IsReadOnlyViewerCard</c> tests it, so the
+    /// slot never even GLOWS for the card ("zappt die Karte nicht an die Stelle"), and
+    /// <c>CardsDriver.OnCardReleased</c>'s InspectOnly arm then returns it home without a
+    /// SelectCard ("kann sie im Overlay nicht ablegen"). Dropping and re-grabbing works because the
+    /// re-grab re-stamps the flag from the fan's CURRENT mode — which is exactly what this seam
+    /// should have been doing all along: the flow arms its target only while nothing is held, an
+    /// arming edge the already-held case never crosses.</para>
+    /// <para>WIDENING IT IS SAFE, and the release path is where that is proved rather than
+    /// asserted: <c>OnCardReleased</c> still refuses a browse-loaned card (the PileOrigin arm), a
+    /// card the presented hand does not own (the <c>HandOwnsWidget</c> belt), a placement the board
+    /// is not offering (<c>PlacementIsOffered</c>), a pile the pick may not draw from
+    /// (<c>PickPileIsLegalFor</c>) and a pick that is not live at all
+    /// (<c>CardsGameApi.PickFlowLive</c>). What this restores is only the verdict a re-grab would
+    /// have given the same card in the same frame. The tightening half is unchanged: a fan that
+    /// stops being Interactive still stamps the flag onto a held card.</para>
     /// </summary>
     private void StampMembership(VRCard card)
     {
         if (card.IsHeld)
         {
-            if (Mode != FanMode.Interactive)
-                card.InspectOnly = true;
+            card.InspectOnly = Mode != FanMode.Interactive;
             return;
         }
         // Gate-hand veto seam (general rule 2026-08-04, see VRCard.AllowsGateHand): a card

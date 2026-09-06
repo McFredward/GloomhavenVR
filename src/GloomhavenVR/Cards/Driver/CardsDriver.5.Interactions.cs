@@ -465,9 +465,40 @@ internal sealed partial class CardsDriver
 
         // Pick modes (test #21 B): the drop field is the only target — the slot
         // logic below is CardsSelection-only.
-        if (IsPickMode(CardsGameApi.Mode(gameHand)))
+        // ITEM 6b: LIVE, not the latched mode. A card released after the burn flow ended must fall
+        // through to the ordinary hand routing (which returns it to the fan) instead of being
+        // seated into a pick field nobody is asking to fill.
+        if (PickFlowLive(gameHand))
         {
             HandlePickRelease(card, hand, gameHand);
+            return;
+        }
+
+        // ...AND A PICK MODE WHOSE FLOW IS DEAD ROUTES NOWHERE ELSE. The slot logic below is
+        // CardsSelection's, and it can reach CardsGameApi.SelectCard — so a card the player was
+        // still HOLDING when the burn flow ended (the field occupants are dropped by that same
+        // rebuild, and the zone loop skips held cards, so such a card carries neither a field seat
+        // nor the fan's InspectOnly stamp) would fall through into the ROUND-CARD commit while the
+        // hand's mode is LoseCard. That is a game-state write in a phase nobody is selecting in.
+        // It goes home instead, exactly as the inspect release does, and a rebuild is requested so
+        // the board re-derives the hand from authoritative state.
+        if (CardsGameApi.IsPickMode(CardsGameApi.Mode(gameHand)))
+        {
+            ClearFanInsertion();
+            if (_tray.ContainsCard(card))
+                _tray.RemoveCard(card);
+            if (_fieldCards.Remove(card))
+            {
+                _pickExitFlown.Remove(card);
+                RelayoutField();
+            }
+            _fan.Add(card);
+            _dirty = true;
+            VRLog.Info("Cards", $"Drop ({hand.Side}): '{card.name}' returns HOME — the hand's mode is still " +
+                                $"{CardsGameApi.Mode(gameHand)} but that pick flow has ENDED (the game latches " +
+                                "CardsHandUI.currentMode; CardsGameApi.PickFlowLive is the live term). No " +
+                                "SelectCard, no slot occupancy, nothing on the wire — the round-card commit " +
+                                "below belongs to CardsSelection alone.");
             return;
         }
 
@@ -824,7 +855,9 @@ internal sealed partial class CardsDriver
         // now a gate term, the SECOND reports only.
         VRLog.Note("Cards", $"PICK GATE ({mode}): pick={(pickOpen ? "OPEN" : "CLOSED")} " +
                             $"(the game's own maxCardsSelected = {want}, " +
-                            $"openEdgeOutstanding={flowLive}, gameHandIsPresented={presented}), " +
+                            $"openEdgeOutstanding={flowLive}, flowArmedOn=" +
+                            $"'{Patches.PickFlowWatch.OpenedOnName}', thisHandOwnsTheFlow=" +
+                            $"{Patches.PickFlowWatch.LiveFor(hand)}, gameHandIsPresented={presented}), " +
                             $"refusedFromIllegalPile={refusedPile}, cardsLyingInThePickField=" +
                             $"{_fieldCards.Count}. CLOSED means the hand's mode is " +
                             "still a pick mode but nothing is being asked for - the game leaves " +
@@ -833,7 +866,14 @@ internal sealed partial class CardsDriver
                             "so both read as a live pick for as long as nobody re-Shows the hand. " +
                             "openEdgeOutstanding=False with maxCardsSelected>0 is exactly that leftover " +
                             "and is the reading items 9+10 were fixed by. No candidate is seated on the board and " +
-                            "no banner is raised while this reads CLOSED.");
+                            "no banner is raised while this reads CLOSED — and since item 6b (2026-09-06) the " +
+                            "HAND FAN is shown instead of nothing, so a CLOSED reading may no longer be followed " +
+                            "by 'Hand fan WITHHELD by NoCards'. ONE NEW FALSIFIER, for the ownership test item 6b " +
+                            "added: openEdgeOutstanding=True together with thisHandOwnsTheFlow=False and " +
+                            "maxCardsSelected>0 means the flow was armed on a DIFFERENT CardsHandUI than the one " +
+                            "the board is presenting (flowArmedOn names it) — the pick is then refused on the " +
+                            "safe side (the hand fan shows) but the player cannot place a card, and the fix is in " +
+                            "PickFlowWatch's owner identification, not here.");
     }
 
     /// <summary>
@@ -906,7 +946,7 @@ internal sealed partial class CardsDriver
         CardsHandUI? hand = CurrentHand();
         if (hand == null || _pickReopenBusy || card.GameCard == null)
             return;
-        if (!IsPickMode(CardsGameApi.Mode(hand)))
+        if (!PickFlowLive(hand))
             return;
         if (!CardsGameApi.IsPickConfirmDialogOpen(hand))
             return;
@@ -1516,8 +1556,15 @@ internal sealed partial class CardsDriver
     {
         if (recess < 0 || _fieldCards.Count == 0)
             return (null, null);
+        // ITEM 6b, AND THE ONE PLACE THAT DELIBERATELY KEEPS THE MODE TERM. This tuple becomes the
+        // MIRRORED pick-field seat record, and its own contract two paragraphs up is "it reports
+        // what is ON THE BOARD and nothing else". The board still physically holds the committed
+        // card while its burn plays (see CardsDriver.Rebuild's pickModeSeats), so switching this to
+        // the liveness term would empty every observer's recess ~1 s before the owner's — a 1:1
+        // breach traded for nothing. The three tests below already require a real seat: a live
+        // occupant, its physical slot index, and a non-held card.
         CardsHandUI? hand = CurrentHand();
-        if (hand == null || !IsPickMode(CardsGameApi.Mode(hand)))
+        if (hand == null || !CardsGameApi.IsPickMode(CardsGameApi.Mode(hand)))
             return (null, null);
         for (int i = 0; i < _fieldCards.Count; i++)
         {
@@ -1757,8 +1804,10 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void PollShortRest(CardsHandUI? hand)
     {
+        // ITEM 6b: a pick that has ENDED must not keep the short-rest watchdog switched off — the
+        // guard exists so the two flows never own the slots at once, and a dead one owns nothing.
         CAbilityCard? current = null;
-        if (hand != null && !IsPickMode(CardsGameApi.Mode(hand)))
+        if (hand != null && !PickFlowLive(hand))
             current = CardsGameApi.ShortRestedCard(hand);
         if (!ReferenceEquals(current, _shortRestPresented))
             _dirty = true;

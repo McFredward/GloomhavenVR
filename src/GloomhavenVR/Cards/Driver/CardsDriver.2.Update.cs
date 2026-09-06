@@ -1129,15 +1129,23 @@ internal sealed partial class CardsDriver
         {
             FanBlocker.HandsDown => "the hands/rig anchor is gone (nothing can be drawn at all)",
             FanBlocker.NoGateHand => "the non-dominant VRHand does not exist yet",
-            FanBlocker.NoCards => "the mod built NO fan cards this frame. This is the ONLY sanctioned "
-                                  + "reason (user 2026-09-02: a multiplayer player with no character "
-                                  + "assigned). If this client DOES control a character, the refusal is "
-                                  + "upstream of the gate — Rebuild fills the fan in every CardHandMode, "
-                                  + "so look at CharacterFocus.ResolveHand / the SELECTION GUARD line. "
+            FanBlocker.NoCards => "the mod built NO fan cards this frame. STANDING RULING 2026-09-06: "
+                                  + "\"Der Hand-Fächer soll immer sichtbar sein. Die einzige Ausnahme "
+                                  + "ist, wenn einem Spieler kein Charakter zugewiesen wurde\" — so "
+                                  + "boundHand=NO is the ONE reading of this line that is not a defect, "
+                                  + "and boundHand=yes is ALWAYS one. The refusal is then upstream of the "
+                                  + "gate: Rebuild fills the fan in every CardHandMode, so look at "
+                                  + "CharacterFocus.ResolveHand / the SELECTION GUARD line. "
                                   + $"boundHand={(_boundHand != null ? "yes" : "NO")}, "
                                   + $"boundMode={(_boundHand != null ? CardsGameApi.Mode(_boundHand).ToString() : "none")}"
-                                  + " — in a PICK mode the fan is the CANDIDATE set, not the hand, so a "
-                                  + "fully-satisfied pick empties it by design",
+                                  + $", pickFlowLiveForThisHand={CardsGameApi.PickFlowLive(_boundHand)}"
+                                  + " — the sentence that used to stand here (\"in a PICK mode the fan is "
+                                  + "the CANDIDATE set, not the hand, so a fully-satisfied pick empties it "
+                                  + "by design\") was the defect's own alibi: the 2026-09-06 co-player log "
+                                  + "carries 15 of these lines at boundHand=yes and boundMode=LoseCard, "
+                                  + "each within a dozen lines of a PICK GATE reading pick=CLOSED. A pick "
+                                  + "whose flow has ENDED now falls back to FillHandFan, so boundMode being "
+                                  + "a pick mode is no longer an excuse for an empty fan",
             FanBlocker.GateDisabled => "the VR mode's interactor mask carries no PalmGate — this must "
                                        + "not be reachable while a fan exists; EnsureFanCapability "
                                        + "re-arms it and logs a RE-ARMED line",
@@ -1390,10 +1398,16 @@ internal sealed partial class CardsDriver
     /// true by construction rather than by an up-to-date table — which is precisely what the user
     /// asked for ("egal in welchem Status das Spiel gerade ist").</para>
     ///
-    /// <para>WHY IT IS SAFE. <b>It is gated on the fan actually having cards</b>, so the palm gate
-    /// is never armed for a hand the mod has nothing to show for — the user's one sanctioned
-    /// exception (a multiplayer player with no character assigned) builds no cards and is therefore
-    /// untouched, and the main menu is untouched for the same reason. It grants no INTERACTION:
+    /// <para>WHY IT IS SAFE. <b>It is gated on this client having a local hand at all</b> — cards
+    /// built, or a bound <c>CardsHandUI</c> whose actor is under this client's control. That is
+    /// exactly the shape of the 2026-09-06 STANDING RULING ("Der Hand-Fächer soll immer sichtbar
+    /// sein. Die einzige Ausnahme ist, wenn einem Spieler kein Charakter zugewiesen wurde"): the
+    /// one sanctioned exception has no bound hand, so it is untouched, and so is the main menu.
+    /// The cards term alone was too narrow in one case the ruling names — a local character whose
+    /// hand is genuinely EMPTY built no cards, so the gate stayed disabled, so <c>FanRevealed</c>
+    /// stayed false, so the empty-hand placard's own reveal edge never fired either and the player
+    /// rolling his wrist got nothing at all, not even the "keine Handkarten" plate. It grants no
+    /// INTERACTION:
     /// what a card may DO is decided per card by the rebuild's grabbable/inspect funnel and by
     /// <c>VRCard.CanGrab</c>, both unchanged — the palm gate only decides whether the fan is SEEN.
     /// It cannot fight the mode machine: <c>ApplyMode</c> writes the mask on the mode-change EDGE
@@ -1404,9 +1418,13 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void EnsureFanCapability(PalmGate gate, bool allowFan)
     {
-        if (!allowFan || gate.Enabled)
+        // A LOCAL CHARACTER IS THE TERM, not "cards were built" — see the remarks. _boundHand is
+        // the hand Rebuild last bound, and CurrentHand()/CharacterFocus only ever hand it a hand
+        // this client controls (CardsGameApi.IsLocalHand), so it IS "a character is assigned".
+        bool haveLocalHand = allowFan || _boundHand != null;
+        if (!haveLocalHand || gate.Enabled)
         {
-            if (!allowFan)
+            if (!haveLocalHand)
                 _loggedGateRearmMode = null; // next drop announces itself
             return;
         }
@@ -1460,7 +1478,10 @@ internal sealed partial class CardsDriver
             || _boundHand == null)
             return;
         CardHandMode mode = CardsGameApi.Mode(_boundHand);
-        if (IsPickMode(mode))
+        // ITEM 6b: LIVE. Outcome 3 is true only while a pick is actually being asked for; a pick
+        // whose flow ended shows the HAND again (see the Rebuild fallback), so suppressing the
+        // placard on the LATCHED mode left the player with neither cards nor an explanation.
+        if (PickFlowLive(_boundHand))
             return; // outcome 3 — the fan is a candidate set, not the hand
 
         int inModel = Board.CharacterFocus.ModelHandCardCount(_boundHand);

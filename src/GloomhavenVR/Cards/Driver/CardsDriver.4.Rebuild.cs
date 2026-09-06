@@ -986,6 +986,40 @@ internal sealed partial class CardsDriver
                 // (a fingertip within 8 mm used to fire SelectCard with no board
                 // placement). The only commit path is the deliberate slot drop
                 // (HandlePickRelease → TryCommitPick → CardsHandUI.SelectCard).
+                //
+                // ...BUT ONLY WHILE A PICK IS ACTUALLY BEING ASKED FOR (item 6b, 2026-09-06, and
+                // the new STANDING RULING it enforces: "Der Hand-Fächer soll immer sichtbar sein.
+                // Die einzige Ausnahme ist, wenn einem Spieler kein Charakter zugewiesen wurde").
+                //
+                // WHAT WAS WRONG. This branch is chosen by the game's LATCHED
+                // CardsHandUI.currentMode, which stays LoseCard for minutes after a burn is over —
+                // TakeDamagePanel.ResetAndHide touches no CardsHandUI at all. The candidate loop
+                // below is gated on `pickOpen`, so for a dead flow it added NOTHING and the fan was
+                // published EMPTY. `allowFan` (UpdatePalmGate) then read false, the palm gate
+                // refused, EnsureFanCapability declined to re-arm (it is itself gated on allowFan),
+                // and the empty-hand placard suppressed ITSELF on the same latched mode — so the
+                // player got no cards, no fan and no explanation. That is his report word for word:
+                // "Beim zweiten Schaden, bevor er die Entscheidung getroffen hat, konnte er seinen
+                // Hand-Fächer nicht mehr öffnen."
+                //
+                // THE EVIDENCE, from the co-player's drop (remote/Player.log, ModBuild 462). Four
+                // PICK GATE lines read `pick=CLOSED … openEdgeOutstanding=False` with the mode
+                // still LoseCard — the flow's teardown WORKED. Twelve lines after each of them:
+                // `Hand fan WITHHELD by NoCards … boundHand=yes, boundMode=LoseCard`. Fifteen of
+                // that log's sixteen WITHHELD lines read boundHand=yes; exactly ONE reads
+                // boundHand=NO, which is the ruling's single sanctioned exception.
+                //
+                // SO A DEAD PICK FALLS BACK TO THE HAND. Not grabbable — the fan mode becomes
+                // Inspect, which is what every other non-placing phase already does (the 2026-08-08
+                // ruling): every card can be picked up and read, and the release returns it home
+                // without touching a game seam. Nothing here widens what may be COMMITTED.
+                if (!CardsGameApi.PickIsOpen(hand))
+                {
+                    LogPickFillGate(mode, pickOpen: false, refusedPile: 0, hand);
+                    _fanSourcePile = CardPileType.None;
+                    FillHandFan();
+                    break;
+                }
                 grabbable = true;
                 // Field occupants stay valid only while the game still reports them
                 // selected (an undo / "choose other card" returns them to the fan).
@@ -1162,7 +1196,28 @@ internal sealed partial class CardsDriver
         // are merely watching — the watched character's stale CardsHandUI.currentMode could still
         // read LoseCard from its own last decision. Forcing `pick` false keeps the drop field, the
         // pick-confirm mirror and the short-rest overlay out of a focus view entirely.
-        bool pick = !readOnly && IsPickMode(mode);
+        // ITEM 6b: THE ARMED DROP TARGET DISARMS WITH THE FLOW — and it is deliberately NOT the
+        // same term as the drop field's LIFETIME. Two different questions were sharing one name:
+        //
+        //   `pick`  — "is a pick being asked for RIGHT NOW". Drives everything the board OFFERS:
+        //             the tray's pick state (SetPickActive), the short-rest guard, and through
+        //             CardsGameApi.PickFlowLive the wanted-slot glow, the drop telegraph, the
+        //             release routing and the mirrored PickFieldSeat record. This one has to key
+        //             off the game's own completion, because the LATCHED CardsHandUI.currentMode
+        //             it used to read stays LoseCard for minutes after a burn — the 2026-09-05
+        //             host log runs `Rebuild: mode=LoseCard` unbroken across a player's DEATH and
+        //             into the next round.
+        //   `pickModeSeats` — "may the drop field still hold cards". A card sitting in the recess
+        //             at the commit is the card being BURNED, and its handover to TryStartBurnFly
+        //             is timed by the existing field prune (the IsParked / !IsSelected terms that
+        //             ModBuild 4b89d912 added). Clearing the list at the commit edge would launch
+        //             that flight ~1 s early, while the game's own AnimateCardsLost is still
+        //             playing on the adopted face — a burn FX regression traded for a symptom
+        //             nobody reported. So the seats keep the mode term they always had, and the
+        //             BURN FLOW ARM line reports `inheritedTargetArmed` so a field that ever
+        //             FAILS to drain before the next damage event is one grep away.
+        bool pick = !readOnly && PickFlowLive(hand);
+        bool pickModeSeats = !readOnly && IsPickMode(mode);
 
         // Short-rest sacrifice overlay (test #25, item 1d; test #28 seating): while the
         // game presents the randomly lost card's burn/redraw choice (ShortRestedCard !=
@@ -1184,7 +1239,7 @@ internal sealed partial class CardsDriver
         else
             RemoveShortRestCard();
 
-        if (!pick)
+        if (!pickModeSeats)
         {
             _fieldCards.Clear();
             _pickLockedCount = 0;     // event-discard batching never survives the mode
@@ -2175,9 +2230,12 @@ internal sealed partial class CardsDriver
     /// <c>Unselected</c> (the card-limit pick), several piles at once, or a hand we cannot read.
     /// Failing towards SHOWING is the direction this whole fan is required to fail in.</para>
     /// </summary>
-    private static CardPileType FanPileShowing(CardsHandUI? hand, CardHandMode mode, bool readOnly)
+    private static CardPileType FanPileShowing(CardsHandUI? hand, bool readOnly)
     {
-        if (readOnly || !IsPickMode(mode))
+        // ITEM 6b: a pick whose flow ENDED is filled by FillHandFan (see the LoseCard branch), so
+        // the pile it is showing is the HAND — reading the latched mode here made the model veto
+        // compare the hand fan against the burn pick's declared pile.
+        if (readOnly || !PickFlowLive(hand))
             return CardPileType.Hand;
         try
         {
@@ -2218,7 +2276,7 @@ internal sealed partial class CardsDriver
     {
         if (_fanBuffer.Count == 0)
             return;
-        CardPileType showing = FanPileShowing(hand, mode, readOnly);
+        CardPileType showing = FanPileShowing(hand, readOnly);
         if (showing == CardPileType.None)
             return; // the fan is not showing one nameable pile — nothing to contradict
         for (int i = _fanBuffer.Count - 1; i >= 0; i--)
@@ -2233,7 +2291,7 @@ internal sealed partial class CardsDriver
             if (!ModelContradictsFanPile(showing, exit))
                 continue;
             _fanBuffer.RemoveAt(i);
-            LogFanModelVeto(widget, exit, owner, mode, readOnly, showing);
+            LogFanModelVeto(hand, widget, exit, owner, mode, readOnly, showing);
         }
     }
 
@@ -2260,8 +2318,8 @@ internal sealed partial class CardsDriver
     /// The veto's HW-VERIFY line: what was offered, by WHICH fill, and what the model said instead.
     /// Change-deduped per (card, verdict, expectation) with a running count.
     /// </summary>
-    private void LogFanModelVeto(AbilityCardUI widget, RoundCardExit exit, CPlayerActor? owner,
-        CardHandMode mode, bool readOnly, CardPileType showing)
+    private void LogFanModelVeto(CardsHandUI? hand, AbilityCardUI widget, RoundCardExit exit,
+        CPlayerActor? owner, CardHandMode mode, bool readOnly, CardPileType showing)
     {
         int id = widget.CardID;
         _loggedFanVeto.TryGetValue(id, out (RoundCardExit Exit, CardPileType Expected, int Count) was);
@@ -2273,9 +2331,11 @@ internal sealed partial class CardsDriver
         // WHICH PATH OFFERED IT. The pick fills read the game widget's own isSelectable/
         // IsPickEligible latch; every other fill is FillHandFan. Naming the path is the whole
         // point of this line: a future reappearance is then one grep away from its source.
+        // ITEM 6b: LIVE, not the latched mode — a pick whose flow ENDED is filled by FillHandFan
+        // now, so naming it "the PICK fill" would send the next round to the wrong loop.
         string path = readOnly
             ? "the read-only FOCUS fill (FillHandFan)"
-            : IsPickMode(mode)
+            : PickFlowLive(hand)
                 ? $"the PICK fill (mode={mode} — the game's own AbilityCardUI.isSelectable / " +
                   "IsPickEligible latch, which is written once per SetMode and can be stale)"
                 : $"the hand fill (FillHandFan, mode={mode})";

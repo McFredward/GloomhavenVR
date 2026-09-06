@@ -106,6 +106,17 @@ internal sealed partial class CardsDriver
             _tray.SetWantedSlots(0);
             return;
         }
+        // ITEM 6b (2026-09-06) — A DEAD FLOW MAY NOT PULSE A SLOT. His words: "Beim zweiten Schaden
+        // nach einer direkten Verbrennung hat das Overlay zum Verbrennen schon geblinkt, obwohl die
+        // Entscheidung noch nicht getroffen wurde". The pick branch below used to read IsPickMode
+        // ALONE — the game's LATCHED CardsHandUI.currentMode, which stays LoseCard for minutes after
+        // a burn because TakeDamagePanel.ResetAndHide touches no CardsHandUI at all. So the burn
+        // slot kept pulsing across the whole of the next damage prompt, before that prompt had asked
+        // for anything. The liveness edge is checked ONCE here, for every branch, because the mask
+        // this method writes is also the mask that rides the wire (NetAvatarDriver.TickExtrasSend
+        // reads PlayTray.WantedSlotMask into the board-UI record): a stale pulse on the owner is a
+        // stale pulse on every observer's mirrored board, so gating it here fixes both.
+        bool pickLive = PickFlowLive(hand);
         CardHandMode mode = CardsGameApi.Mode(hand);
         int mask = 0;
         if (mode == CardHandMode.CardsSelection)
@@ -164,7 +175,7 @@ internal sealed partial class CardsDriver
                     mask |= 2;
             }
         }
-        else if (IsPickMode(mode))
+        else if (pickLive)
         {
             // Task #11 (a): glow EVERY still-unfilled pick position — placement order is
             // irrelevant to the game (it only counts selections), so a two-card burn
@@ -210,6 +221,12 @@ internal sealed partial class CardsDriver
     private int _reportedPickFlowEnd;
 
     /// <summary>
+    /// The <see cref="Patches.PickFlowWatch.ArmSeq"/> value this driver has already reported, so
+    /// <see cref="ReportBurnFlowArm"/> prints one ARM line per flow rather than one per frame.
+    /// </summary>
+    private int _reportedPickFlowArm;
+
+    /// <summary>
     /// HARDWARE VERIFICATION (2026-09-05 items 9 + 10). The user's ruling was a TIMING one —
     /// "Wenn der Verbrennen-Flow vorbei ist muss sich das Controllboard zwingend sofort anpassen!"
     /// — so this line records the flow's END EDGE and the board's RE-READ as two separate
@@ -241,12 +258,77 @@ internal sealed partial class CardsDriver
     /// <see cref="CardsGameApi.PickIsOpen"/>, and the gate is too narrow rather than the latch too
     /// wide.</para>
     /// </summary>
+    /// <summary>
+    /// ITEM 6b (2026-09-06) — THE FLOW'S TWO EDGES, EACH WITH ITS THREE SYMPTOMS. His ruling:
+    /// <em>"Gewährleiste, dass der Verbrennen-Flow nach dem erfolgreichen Verbrennen einer Karte
+    /// vollständig endet. Erhält der Charakter unmittelbar danach wieder Schaden, ist das eine
+    /// völlig neue Situation und hat NICHTS mehr mit dem davor zu tun."</em> Grep token:
+    /// <c>BURN FLOW</c>.
+    ///
+    /// <para>He reported the three symptoms TOGETHER — a blinking burn overlay, a burn slot that
+    /// would not take a card, and a hand fan that would not open — and they turned out to be one
+    /// state read by three gates that did not consult the teardown. So one line prints all three
+    /// and the reader never has to correlate: <c>overlayBlinking</c> is the wanted-slot mask this
+    /// board is publishing (it also rides the wire, so it is the OBSERVER's blink as well),
+    /// <c>targetArmed</c> is the tray's pick state plus the drop field's occupancy, and
+    /// <c>fanCards</c> is what the hand fan is holding.</para>
+    ///
+    /// <para>WHAT THE READINGS MEAN. An ARM line must be followed by a TEARDOWN line for the SAME
+    /// hand, and the TEARDOWN line must read <c>overlayBlinking=0 targetArmed=False/0</c> and
+    /// <c>fanCards</c> equal to the character's hand size. A second damage event must then produce
+    /// a FRESH ARM whose <c>armSeq</c> is one higher and which inherits nothing. A TEARDOWN with a
+    /// nonzero overlay mask or an armed target is this defect back, and it names which of the three
+    /// gates leaked. An ARM whose <c>hand</c> is not this player's character is the foreign-edge
+    /// leak <see cref="Patches.PickFlowWatch"/>'s remarks describe, and means the ownership test
+    /// let a co-player's burn through.</para>
+    /// </summary>
+    private void ReportBurnFlowArm()
+    {
+        int arm = Patches.PickFlowWatch.ArmSeq;
+        if (arm == _reportedPickFlowArm)
+            return;
+        _reportedPickFlowArm = arm;
+        // HW-VERIFY: grep token "BURN FLOW ARM". PROOF = one line per damage decision, with an
+        // armSeq one higher than the previous flow's and inheritedOverlay/inheritedTarget both
+        // clear — a new damage event is a new situation. FALSIFIER = an ARM line whose inherited*
+        // fields are nonzero (the previous flow's teardown did not reach that surface), or an ARM
+        // naming a hand this client does not control (a foreign CardsHandUI armed our latch).
+        VRLog.Note("Cards", $"BURN FLOW ARM #{arm}: a modal card pick opened at " +
+                            $"t={Patches.PickFlowWatch.OpenedAt:F3}s (frame " +
+                            $"{Patches.PickFlowWatch.OpenedFrame}) on hand " +
+                            $"'{Patches.PickFlowWatch.OpenedOnName}' — armed by the game's own " +
+                            "CardsHandUI.UpdateView asking for at least one card, which is the ONE " +
+                            "writer of cardHandMode/maxCardsSelected. INHERITED FROM THE PREVIOUS " +
+                            $"FLOW (all three must be clear): inheritedOverlayBlinking=" +
+                            $"{_tray.WantedSlotMask}, inheritedTargetArmed={_fieldCards.Count} " +
+                            $"card(s) in the drop field, inheritedLockedBatches={_pickLockedCount}. " +
+                            "A second damage event immediately after a burn is a COMPLETELY NEW " +
+                            "situation (user ruling 2026-09-06) and must inherit nothing.");
+    }
+
     private void ReportPickFlowEnd()
     {
         int seq = Patches.PickFlowWatch.EndSeq;
         if (seq == _reportedPickFlowEnd)
             return;
         _reportedPickFlowEnd = seq;
+        // HW-VERIFY: grep token "BURN FLOW TEARDOWN". PROOF = one line per flow, immediately after
+        // its BURN FLOW ARM, reading overlayBlinking=0, targetArmed=False/0 cards and fanCards
+        // equal to the character's hand size — the three symptoms he reported, all down, measured
+        // rather than promised. FALSIFIER = any of the three nonzero here: that names exactly which
+        // gate still reads the game's latched CardsHandUI.currentMode instead of
+        // CardsGameApi.PickFlowLive, and it is this defect back.
+        VRLog.Note("Cards", $"BURN FLOW TEARDOWN #{seq} (flow #{Patches.PickFlowWatch.ArmSeq} on " +
+                            $"'{Patches.PickFlowWatch.OpenedOnName}'): torn down by " +
+                            $"{Patches.PickFlowWatch.EndedBy}. ALL THREE SYMPTOMS AFTER THE " +
+                            $"TEARDOWN — overlayBlinking={_tray.WantedSlotMask} (the wanted-slot " +
+                            "mask this board publishes; it rides the board-UI record, so this is " +
+                            "also every observer's mirrored blink), targetArmed=" +
+                            $"{_tray.PickActive}/{_fieldCards.Count} card(s) in the drop field, " +
+                            $"fanCards={_fan.Cards.Count} (the hand fan is NEVER suppressed by this " +
+                            "flow any more — standing ruling 2026-09-06: it is always openable, the " +
+                            "only exception being a player with no character assigned). Zero, " +
+                            "False/0 and the character's hand size are the passing readings.");
         float endedAt = Patches.PickFlowWatch.EndedAt;
         float now = Time.unscaledTime;
         // HW-VERIFY: grep token "PICK FLOW END". PROOF = one line per burn with framesLate 0-1 and
@@ -460,6 +542,13 @@ internal sealed partial class CardsDriver
 
     private void UpdatePickStatus(CardsHandUI? hand)
     {
+        // ITEM 6b: BOTH EDGES ARE REPORTED BEFORE ANY EARLY RETURN. The END report used to sit
+        // inside the "nothing live wants the banner" arm below, so a flow that ended while the
+        // item-surrender or floating-panel banner owned the placard was counted but never printed.
+        // These two are seq-gated (one line per edge, never per frame) and read nothing they do
+        // not print.
+        ReportBurnFlowArm();
+        ReportPickFlowEnd();
         if (UpdateItemDemandStatus(hand))
         {
             _exhaustedStatusKey = null; // another owner holds the placard; re-push ours when it lets go
@@ -482,8 +571,7 @@ internal sealed partial class CardsDriver
         // game's own zero - hardware log 2026-09-05: `Pick banner: "Testo: Waehle 2 Karte(n) zum
         // Verlieren - 1/2 gewaehlt"` with no pick source and no commit anywhere near it, while it
         // was no longer his turn. CardsGameApi.PickIsOpen reads that count RAW, with no floor.
-        if (hand == null || !_tray.IsVisible || !IsPickMode(CardsGameApi.Mode(hand))
-            || !CardsGameApi.PickIsOpen(hand)
+        if (hand == null || !_tray.IsVisible || !PickFlowLive(hand)
             || !PlacementIsOffered(hand))
         {
             if (_pickStatusKey.HasValue)
@@ -491,7 +579,6 @@ internal sealed partial class CardsDriver
                 _pickStatusKey = null;
                 _tray.SetPickStatus(null, null, null);
             }
-            ReportPickFlowEnd();
             // LAST OWNER, AND ONLY WHEN NOTHING LIVE WANTS THE PLACARD: an exhausted character's
             // standing state. Deliberately below every decision above — a live ask always outranks
             // a statement of fact, and this one is true for the rest of the scenario.
@@ -1378,7 +1465,9 @@ internal sealed partial class CardsDriver
         // GameActions); while a >2-card requirement still owes cards it locks the
         // current batch of two instead (pure VR bookkeeping, see TryLockPickBatch).
         CardsHandUI? pickHand = CurrentHand();
-        if (pickHand != null && IsPickMode(CardsGameApi.Mode(pickHand)))
+        // ITEM 6b: LIVE, not merely "the mode is still a pick mode". The board CONFIRM must not
+        // press a commit option — or lock a batch — for a flow that already ended.
+        if (pickHand != null && PickFlowLive(pickHand))
         {
             if (CardsGameApi.IsPickConfirmDialogOpen(pickHand))
             {
@@ -1628,7 +1717,10 @@ internal sealed partial class CardsDriver
     private bool BrowseAllowed(PileKind kind, CardsHandUI? hand, CardHandMode mode, bool readOnly,
                                out string? refusal)
     {
-        if (!readOnly && IsPickMode(mode)
+        // ITEM 6b: the liveness term joins the pile term. A pick whose flow has ENDED owns no
+        // widget, so it may not refuse a browse — and with an empty pick fan `owned >= inPile`
+        // was true for an EMPTY pile, which refused the arc for a dead flow.
+        if (!readOnly && PickFlowLive(hand)
             && PickOwnsPileVisuals(kind, hand, out int owned, out int inPile)
             && owned >= inPile)
         {
@@ -1798,13 +1890,20 @@ internal sealed partial class CardsDriver
                             " Local view only — no game state read or written, nothing on the wire.");
     }
 
-    /// <summary>The modal pick modes (poke-select fan flows; drop-field flows since test #21).</summary>
-    private static bool IsPickMode(CardHandMode mode) =>
-        mode == CardHandMode.LoseCard
-        || mode == CardHandMode.DiscardCard
-        || mode == CardHandMode.RecoverDiscardedCard
-        || mode == CardHandMode.RecoverLostCard
-        || mode == CardHandMode.IncreaseCardLimit;
+    /// <summary>
+    /// The modal pick MODES (poke-select fan flows; drop-field flows since test #21) — a latch the
+    /// game never clears. Forwards to <see cref="CardsGameApi.IsPickMode"/> so the mod has one
+    /// definition. Ask <see cref="PickFlowLive"/> instead wherever the question is "is the game
+    /// asking for a card RIGHT NOW"; this one answers TRUE for minutes after a burn is over.
+    /// </summary>
+    private static bool IsPickMode(CardHandMode mode) => CardsGameApi.IsPickMode(mode);
+
+    /// <summary>
+    /// IS A MODAL PICK LIVE FOR THIS HAND — the one term every gate in this driver reads, so the
+    /// burn flow's teardown reaches all of its surfaces at once rather than three of ten. See
+    /// <see cref="CardsGameApi.PickFlowLive"/> for the mechanism and the hardware evidence.
+    /// </summary>
+    private static bool PickFlowLive(CardsHandUI? hand) => CardsGameApi.PickFlowLive(hand);
 
     private void OnPileTogglePoked(PileKind kind, VRHand hand)
     {

@@ -116,13 +116,42 @@ namespace GloomhavenVR.Cards.Patches;
 /// zeroed without hiding anything, the latch catches the far commoner case of a pick the game
 /// answered and then simply walked away from.</para>
 ///
-/// <para>Session-scoped statics: one pick is modal by construction (the game's confirm popup
-/// locks every card while it is open), so there is never a second flow to keep apart.</para>
+/// <para>SCOPED TO THE HAND THAT OPENED IT (2026-09-06 item 6b). The sentence that stood here read
+/// "one pick is modal by construction (the game's confirm popup locks every card while it is
+/// open), so there is never a second flow to keep apart", and the 2026-09-06 hardware round
+/// falsifies it. Both patches below are on the TYPE, so they fire for EVERY <c>CardsHandUI</c> in
+/// the scene, and in multiplayer this client builds a hand object for every character in the
+/// party, not only its own. The host's log proves the leak on its own terms: it recorded FIVE
+/// <c>PICK FLOW END</c> lines naming TWO different hands (<c>'Player handMindthief'</c> once,
+/// <c>'Player handBrute'</c> four times) in a session in which it ran ZERO picks of its own — its
+/// <c>Pick commit</c>, <c>PICK GATE</c> and <c>Pick fan source</c> counts are all 0. Every one of
+/// those five edges was a FOREIGN character's burn moving this client's single global latch. A
+/// foreign hand hiding could therefore end a live LOCAL pick, and a foreign <c>UpdateView</c>
+/// could arm one where nothing was being asked of this player. So the latch now records WHICH
+/// hand opened it and only that hand's END edges can close it; <see cref="LiveFor"/> is the term
+/// every gate reads.</para>
 /// </summary>
 internal static class PickFlowWatch
 {
     /// <summary>True between the game's OPEN edge and the first of its END edges.</summary>
     private static bool _live;
+
+    /// <summary>
+    /// <c>GetInstanceID</c> of the <c>CardsHandUI</c> whose <c>UpdateView</c> armed the live flow,
+    /// or 0 when the arming hand could not be identified. Only this hand's END edges close the
+    /// flow, and <see cref="LiveFor"/> answers TRUE only for it — see the class remarks for the
+    /// host log that made the global latch a defect.
+    /// </summary>
+    private static int _openedOn;
+
+    /// <summary>Name of <see cref="_openedOn"/> for the log lines (decoration, never a gate).</summary>
+    private static string _openedOnName = "?";
+
+    /// <summary>Bumped once per OPEN edge — the ARM half of the board's one-line-per-edge report.</summary>
+    private static int _armSeq;
+
+    /// <summary><c>Time.frameCount</c> of the most recent OPEN edge.</summary>
+    private static int _openedFrame = -1;
 
     /// <summary>Unscaled time of the OPEN edge that armed the live flow.</summary>
     private static float _openedAt;
@@ -146,8 +175,44 @@ internal static class PickFlowWatch
     /// </summary>
     private static int _endSeq;
 
-    /// <summary>Is a pick flow live right now? The term <see cref="CardsGameApi.PickIsOpen"/> adds.</summary>
+    /// <summary>
+    /// Is a pick flow live right now, for ANY hand? Kept for the one caller that has no hand to ask
+    /// about (<see cref="CardsGameApi.PickIsOpen"/>'s no-hand fallback). Every gate that HAS a hand
+    /// must use <see cref="LiveFor"/> instead — see the class remarks.
+    /// </summary>
     internal static bool Live => _live;
+
+    /// <summary>
+    /// Is a pick flow live FOR THIS HAND? The term every gate reads. False for a hand that did not
+    /// open the flow, so a co-player's burn can neither arm nor disarm this client's board.
+    /// </summary>
+    internal static bool LiveFor(CardsHandUI? hand)
+    {
+        if (!_live)
+            return false;
+        if (_openedOn == 0)
+            return true; // the arming hand could not be identified — fall back to the old global answer
+        try
+        {
+            return hand != null && hand.GetInstanceID() == _openedOn;
+        }
+        catch (Exception)
+        {
+            return false; // a hand mid-teardown owns no flow
+        }
+    }
+
+    /// <summary>The hand that opened the live (or last) flow, for the log lines.</summary>
+    internal static string OpenedOnName => _openedOnName;
+
+    /// <summary>Monotone counter of OPEN edges — the board's "have I reported this ARM yet" key.</summary>
+    internal static int ArmSeq => _armSeq;
+
+    /// <summary><c>Time.frameCount</c> at the last OPEN edge, or -1.</summary>
+    internal static int OpenedFrame => _openedFrame;
+
+    /// <summary>Unscaled time of the last OPEN edge.</summary>
+    internal static float OpenedAt => _openedAt;
 
     /// <summary>Unscaled time of the last END edge, or a negative number if there has been none.</summary>
     internal static float EndedAt => _endedAt;
@@ -170,7 +235,7 @@ internal static class PickFlowWatch
     /// opens one. Re-arming an already-live flow keeps the original open stamp so
     /// <see cref="LastFlowSeconds"/> measures the whole pick and not its last redraw.
     /// </summary>
-    internal static void NoteViewDriven(int maxCardsSelected)
+    internal static void NoteViewDriven(CardsHandUI? hand, int maxCardsSelected)
     {
         if (maxCardsSelected > 0)
         {
@@ -178,24 +243,77 @@ internal static class PickFlowWatch
                 return;
             _live = true;
             _openedAt = Time.unscaledTime;
+            _openedFrame = Time.frameCount;
+            _openedOn = 0;
+            _openedOnName = "?";
+            try
+            {
+                if (hand != null)
+                {
+                    _openedOn = hand.GetInstanceID();
+                    if (hand.gameObject != null)
+                        _openedOnName = hand.gameObject.name;
+                }
+            }
+            catch (Exception)
+            {
+                // an unreadable hand still opened a flow — LiveFor falls back to the global answer
+            }
+            _armSeq++;
             return;
         }
 
+        // A ZERO IS A STAND-DOWN ONLY FOR THE HAND THAT OPENED THE FLOW. Every non-pick Show of
+        // every OTHER character's hand passes maxCardsSelected = 0, so without the ownership test
+        // a co-player's ordinary card-selection redraw ended this player's live burn pick.
+        if (!OwnsLiveFlow(hand))
+            return;
         NoteEnd("the game re-drove the hand's view asking for 0 cards (CardsHandUI.UpdateView)");
     }
 
     /// <summary>END edge (a): the player answered and the game's commit is about to run.</summary>
-    internal static void NoteCommitAccepted(int wanted)
-        => NoteEnd($"the player COMMITTED the pick — CardsHandUI.OnLoseCardClick accepted {wanted} card(s)");
+    internal static void NoteCommitAccepted(CardsHandUI? hand, int wanted)
+    {
+        if (!OwnsLiveFlow(hand))
+            return;
+        NoteEnd($"the player COMMITTED the pick — CardsHandUI.OnLoseCardClick accepted {wanted} card(s)");
+    }
+
+    /// <summary>
+    /// Is this the hand whose OPEN edge armed the live flow? An unidentified owner (<c>_openedOn</c>
+    /// == 0) accepts anything, which is the pre-2026-09-06 behaviour and the only safe fallback: a
+    /// flow whose owner we never learned must still be closable.
+    /// </summary>
+    private static bool OwnsLiveFlow(CardsHandUI? hand)
+    {
+        if (_openedOn == 0)
+            return true;
+        try
+        {
+            return hand != null && hand.GetInstanceID() == _openedOn;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
 
     /// <summary>
     /// END edge (b): the game hid the hand that was answering. For the damage burn this is the
     /// completion callback of <c>AnimateCardsLost</c> (CardsHandUI.cs:2354), i.e. the frame the
     /// card has finished burning — item 9's edge exactly.
     /// </summary>
-    internal static void NoteHandHidden(string who)
-        => NoteEnd($"the game HID the hand '{who}' — CardsHandUI.Hide, which for a damage burn is " +
-                   "AnimateCardsLost's completion callback, i.e. the frame the card finished burning");
+    internal static void NoteHandHidden(CardsHandUI? hand, string who)
+    {
+        // ONLY THE HAND THAT OPENED THE FLOW MAY END IT. In multiplayer this client owns a
+        // CardsHandUI for every character in the party and the patch is on the TYPE, so a
+        // CO-PLAYER's hand being hidden used to close this player's live pick — see the class
+        // remarks for the host log that recorded five of exactly those foreign edges.
+        if (!OwnsLiveFlow(hand))
+            return;
+        NoteEnd($"the game HID the hand '{who}' — CardsHandUI.Hide, which for a damage burn is " +
+                "AnimateCardsLost's completion callback, i.e. the frame the card finished burning");
+    }
 
     private static void NoteEnd(string why)
     {
@@ -207,6 +325,7 @@ internal static class PickFlowWatch
         _endedBy = why;
         _lastFlowSeconds = _endedAt - _openedAt;
         _endSeq++;
+        _openedOn = 0; // the flow is over; nothing may be "its" hand until the next OPEN edge
     }
 
     /// <summary>Module shutdown / hot reload — leave no latch behind for the next session.</summary>
@@ -218,6 +337,10 @@ internal static class PickFlowWatch
         _endedBy = "no pick flow has ended yet this session";
         _lastFlowSeconds = 0f;
         _endSeq = 0;
+        _openedOn = 0;
+        _openedOnName = "?";
+        _armSeq = 0;
+        _openedFrame = -1;
     }
 }
 
@@ -238,8 +361,8 @@ internal static class PickFlowWatch
     typeof(bool), typeof(Action<AbilityCardUI>), typeof(Func<CAbilityCard, bool>))]
 internal static class CardsHandUI_UpdateView_PickFlowOpen
 {
-    private static void Postfix(int maxCardsSelected)
-        => PickFlowWatch.NoteViewDriven(maxCardsSelected);
+    private static void Postfix(CardsHandUI __instance, int maxCardsSelected)
+        => PickFlowWatch.NoteViewDriven(__instance, maxCardsSelected);
 }
 
 /// <summary>
@@ -264,6 +387,6 @@ internal static class CardsHandUI_Hide_PickFlowEnd
         {
             // a destroyed hand still ended its flow — the name is decoration, the edge is not
         }
-        PickFlowWatch.NoteHandHidden(who);
+        PickFlowWatch.NoteHandHidden(__instance, who);
     }
 }

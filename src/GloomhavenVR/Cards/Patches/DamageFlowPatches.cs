@@ -58,7 +58,7 @@ internal static class CardsHandUI_OnLoseCardClick_Gate
             // records this: `cardHandMode` and `maxCardsSelected` both survive the whole flow and
             // stood for ~87 s of the 2026-09-05 hardware round while our banner kept asking for a
             // card. See Patches/PickFlowPatches.cs for the log excerpt and the other two edges.
-            PickFlowWatch.NoteCommitAccepted(need);
+            PickFlowWatch.NoteCommitAccepted(__instance, need);
             return true; // complete selection — run the game's commit unchanged
         }
 
