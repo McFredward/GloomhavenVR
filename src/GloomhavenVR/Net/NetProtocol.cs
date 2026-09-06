@@ -22955,10 +22955,17 @@ internal static class NetProtocol
     /// the receiver's. That is the property that makes the fallback safe: a session either has the
     /// value everywhere or has it nowhere.</para>
     ///
-    /// <para><b>WHAT THE HOST PUBLISHES IS A CONSTANT OF ONE ROOM VISIT, NOT A LIVE MEAN.</b> A value
-    /// that tracked heads would change between two clients' spawns and place the same window twice.
-    /// The host therefore decides ONCE per map-room activation and holds that decision — see
-    /// <c>Net.Remote.RemoteSharedGaze</c> for the latch, its settle delay and the two refusals.</para>
+    /// <para><b>WHAT THE HOST PUBLISHES IS A CONSTANT OF ONE PARTY, NOT A LIVE MEAN.</b> A value that
+    /// tracked heads would change between two clients' spawns and place the same window twice. The
+    /// host therefore decides ONCE per map-room activation and holds that decision — see
+    /// <c>Net.Remote.RemoteSharedGaze</c> for the latch and its settle gate.</para>
+    ///
+    /// <para><b>ModBuild 461 — WHAT THE BYTE MEANS CHANGED; THE WIRE DID NOT.</b> 458 decided it from
+    /// a mean of the party's head FORWARD vectors, which cancels for two people reading one table
+    /// from opposite sides and cost the 2026-09-06 report. It is now the direction that MINIMISES THE
+    /// WORST SEAT'S READING ANGLE over where the party is STANDING — same byte, same record, same
+    /// quantisation, same fallback for an older host. A receiver cannot tell the two apart and does
+    /// not need to: the byte was always "the direction a shared window is seated in".</para>
     /// </summary>
     public const int MapRoomRecordBytesWithGaze = MapRoomRecordBytesWithFan + 1;
 
@@ -23050,9 +23057,11 @@ internal static class NetProtocol
 
     /// <summary>
     /// Map-room flags bit 6: the record's SHARED GAZE YAW byte is meaningful — this sender is the
-    /// host and it has DECIDED where the party is looking. Clear means "no decision", which is the
-    /// state every non-host sender is always in, the state the host is in before its latch settles
-    /// or after it refused, and the state a peer on an older build is in by construction.
+    /// host and it has DECIDED which direction a shared window is seated in. Clear means "no
+    /// decision", which is the state every non-host sender is always in, the state the host is in
+    /// while its settle gate is still open (the party is not assembled, or somebody is still walking
+    /// to their place), the state it is in when it found no head at all, and the state a peer on an
+    /// older build is in by construction.
     ///
     /// <para>THE BIT IS THE ONLY VALIDITY TEST, deliberately. Every one of the byte's 256 values is
     /// a legal direction, so there is no spare value to mean "nothing" — reserving one would make

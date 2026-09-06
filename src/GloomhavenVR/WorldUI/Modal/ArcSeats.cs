@@ -5016,11 +5016,25 @@ internal static partial class ModalFallback
     }
 
     // =============================================================================================
-    //  THE SHARED GAZE YAW — THE HOST'S ONE DECISION ABOUT WHERE THE PARTY IS LOOKING.
+    //  THE SHARED SPAWN DIRECTION — THE HOST'S ONE DECISION ABOUT WHERE THE PARTY IS STANDING.
     //
     //  USER REPORT (2026-09-03, verbatim): "Das Multiplayer-Dialogfenster ist nicht ideal gespawnt,
     //  es wäre trotzdem gut wenn es im Sichtbereich der Spieler spawnt (eventuell Mittelwert der
     //  Blickfelder oder sowas?)."
+    //
+    //  AND THE 2026-09-06 REPORT THAT RE-DECIDED WHAT THE BYTE MEANS: "Im Map Raum hatten wir jetzt
+    //  den Fall das sie ziemlich von uns beiden weggedreht sind … es hat sich völlig an einem
+    //  Spieler orientiert und war dann beim 2. Spieler gegenüber nur von hinten lesbar … Sind zwei
+    //  Spieler gegenüber ist es besser wenn es links oder rechts von uns beiden spawnt zu uns
+    //  gedreht."
+    //
+    //  ModBuild 458 read the request literally and averaged the party's head FORWARD vectors. Two
+    //  people reading one table stand OPPOSITE each other, so those two vectors cancel: the mean's
+    //  direction is tracking noise. The byte is now chosen by SEARCH over where the party is
+    //  STANDING, minimising the WORST seat's reading angle — see Net/Remote/RemoteSharedGaze.cs for
+    //  the objective, why the worst seat and not the mean, and why that produces "links oder rechts
+    //  von uns beiden" for two opposed players without being told to. NOTHING IN THIS FILE CHANGED
+    //  FOR IT: the byte arrives on the same mailbox and is consumed the same way.
     //
     //  WHAT THE TABLE ANCHOR COULD AND COULD NOT DO. It is DETERMINISTIC — a pure function of the
     //  parchment bounds, identical on every client with nothing sent — and that is exactly why it
@@ -5042,8 +5056,14 @@ internal static partial class ModalFallback
     //  the host included — anchors from that one number. Nothing in this file reads a head to place
     //  a shared window, which is the same guarantee the fixed axis gave, arrived at by a different
     //  route: not "everyone computes the same thing" but "one machine decides and nobody else
-    //  computes anything". See Net/Remote/RemoteSharedGaze.cs for the decision, its settle delay,
-    //  its two refusals and the one ≤200 ms interval in which two clients can still disagree.
+    //  computes anything". See Net/Remote/RemoteSharedGaze.cs for the decision, its settle gate, its
+    //  one refusal and the one ≤200 ms interval in which two clients can still disagree.
+    //
+    //  WHAT THIS FILE DOES MEASURE, AND IT NEVER FEEDS THE POSE. LogSharedSeatAngles reads the heads
+    //  this client can see and prints the READING ANGLE each of them has to the window it just
+    //  placed. That is the verdict number for the 2026-09-06 report and it is an INSTRUMENT: the
+    //  pose above is already committed when it runs, so the "never a function of anything
+    //  client-local" rule stands.
     //
     //  ABSENT MEANS TODAY, BIT FOR BIT. With no decision received the two direction vectors below
     //  are the literal Vector3.right / Vector3.forward the previous build used, the extents are the
@@ -5063,6 +5083,23 @@ internal static partial class ModalFallback
     private static string _sharedGazeWhy = "no host decision has been seen in this session";
 
     /// <summary>
+    /// A NEW spawn direction arrived and the windows already standing were seated on the old one.
+    /// Set on the mailbox EDGE, consumed once by <see cref="ConsumePendingSharedReseat"/> on the next
+    /// modal tick.
+    ///
+    /// <para><b>WHY A FLAG AND NOT THE WORK.</b> The mailbox is written from the net receive path.
+    /// Re-placing a window there would run the whole placement pipeline — measurement, fit, pose
+    /// lock — inside a packet handler, and a throw in it would surface as the GAME's
+    /// "Desynchronization occurred" dialog rather than as a mod fault (see
+    /// <c>scripts/check-desync-surface.py</c> for why that distinction is load-bearing here). The
+    /// tick owns the placement pipeline; this only asks it to run.</para>
+    /// </summary>
+    private static bool _sharedReseatPending;
+
+    /// <summary>Why the pending re-place was asked for, quoted into its own log line.</summary>
+    private static string _sharedReseatWhy = string.Empty;
+
+    /// <summary>
     /// THE MAILBOX. The host has decided where the party is looking (or has said it will not), and
     /// <c>Net.Remote.RemoteSharedGaze</c> pushes that here.
     ///
@@ -5080,10 +5117,25 @@ internal static partial class ModalFallback
         _sharedGazeYawDeg = yawDeg;
         _sharedGazeFrom = fromPlayerId;
         _sharedGazeWhy = why;
-        if (valid)
-            _sharedGazeAt = Time.unscaledTime;
         if (!changed)
             return;
+        // STAMPED ON THE EDGE, NOT ON THE PACKET. This mailbox is written at 5 Hz for as long as the
+        // host keeps publishing, so stamping every valid call made the anchor line's "received N s
+        // ago" read 0.0 s at every spawn on the peer's ModBuild 459 log — an age field that could
+        // only ever print zero. It now dates the DECISION, which is the thing the reader wants to
+        // compare a spawn against.
+        if (valid)
+            _sharedGazeAt = Time.unscaledTime;
+        // A NEW DIRECTION MEANS THE WINDOWS ALREADY STANDING ARE ON THE OLD ONE. The user's own
+        // remedy for item 2 is that the spawn point follow the party's FINAL seats ("der spawnpunkt
+        // soll sich an den finalen Spawnpunkt orientieren der Spieler"), and a window that opened
+        // while the party was still assembling can only honour that by being re-placed. Only a
+        // window nobody has dragged moves: the drag spends the anchor and the re-place refuses.
+        if (valid)
+        {
+            _sharedReseatPending = true;
+            _sharedReseatWhy = $"a new shared spawn direction (yaw {yawDeg:F2}°) arrived — {why}";
+        }
         VRLog.Info("WorldUI", "SHARED WINDOW GAZE "
                               + (valid
                                   ? $"RECEIVED — the party's shared spawn direction is yaw "
@@ -5109,6 +5161,132 @@ internal static partial class ModalFallback
         yawDeg = _sharedGazeYawDeg;
         ageSeconds = _sharedGazeValid ? Time.unscaledTime - _sharedGazeAt : 0f;
         return _sharedGazeValid;
+    }
+
+    /// <summary>
+    /// Run the re-place the mailbox asked for, at most once per new direction. Called from
+    /// <c>ModalFallback.Tick</c>, which owns the placement pipeline; the mailbox itself only raises
+    /// the flag (see <see cref="_sharedReseatPending"/> for why).
+    /// </summary>
+    internal static void ConsumePendingSharedReseat()
+    {
+        if (!_sharedReseatPending)
+            return;
+        _sharedReseatPending = false;
+        string why = _sharedReseatWhy;
+        _sharedReseatWhy = string.Empty;
+        ReseatSharedWindowsOnce(why);
+    }
+
+    /// <summary>
+    /// Re-place every SHARED window that is standing and that nobody has moved, on the spawn
+    /// direction that has just been decided.
+    ///
+    /// <para><b>WHY THIS EXISTS (ModBuild 461).</b> USER, 2026-09-06: <i>"Im Test ist das
+    /// Dialogfenster gespawnt bevor alle Spieler am Tisch fertig gesetzt wurden … der spawnpunkt soll
+    /// sich an den finalen Spawnpunkt orientieren der Spieler."</i> The settle gate in
+    /// <c>Net.RemoteSharedGaze</c> is the first half of that: it will not decide until the party is
+    /// assembled and still. This is the second half — a window that opened DURING the settle, or
+    /// before the last player walked in, was seated on the fixed table axis or on an older direction
+    /// and would otherwise keep that pose for as long as it stands.</para>
+    ///
+    /// <para><b>THE THREE REFUSALS ARE THE WHOLE SAFETY ARGUMENT, and each is logged.</b> A kind
+    /// whose anchor is SPENT is not touched — the drag wins, and re-running <c>ComputeHmdPose</c> for
+    /// it would drop through <see cref="TrySharedWindowAnchor"/>'s false return onto the ORDINARY
+    /// per-client placement and move a shared window to a head-relative pose, which is the one thing
+    /// the anchor exists to prevent. A window being HELD, or one a peer has placed, is likewise not
+    /// the mod's to write. Everything else is re-placed through the same funnel a spawn uses, so the
+    /// pose it lands on is the pose a window opening one second later would have got.</para>
+    ///
+    /// <para>1:1 HOLDS BECAUSE THE INPUT IS THE SAME BYTE ON EVERY CLIENT. Both machines receive the
+    /// new direction within the same ≤200 ms interval the class comment in
+    /// <c>Net/Remote/RemoteSharedGaze.cs</c> already states, and both re-place to the same
+    /// frame-local pose. This is strictly better than leaving it alone: today an early window keeps a
+    /// fixed-axis pose while a late one takes the decided direction, so the two disagree with each
+    /// other on the SAME client.</para>
+    /// </summary>
+    internal static void ReseatSharedWindowsOnce(string why)
+    {
+        int seen = 0, moved = 0, refused = 0;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Panel == null || !wp.Panel.IsAlive || wp.Window == null)
+                continue;
+            SharedWindowKind kind = SharedWindows.KindOf(wp.Window);
+            if (kind == SharedWindowKind.None || !SharedWindows.ParticipatesHere(kind))
+                continue;
+            seen++;
+            string name = wp.Window.name;
+            if (SharedAnchorSpent.Contains(kind))
+            {
+                refused++;
+                // HW-VERIFY
+                VRLog.Note("WorldUI", $"SHARED WINDOW RE-SEAT REFUSED — '{name}' ({kind}) is NOT "
+                                      + $"re-placed on the new spawn direction ({why}) because its "
+                                      + "anchor is already SPENT: somebody has moved this window, "
+                                      + "and the anchor is the initial spawn position only (\"ich "
+                                      + "meine nur die initiale Spawnposition\"). THIS LINE IS THE "
+                                      + "EXPECTED ONE after a drag; its absence for a window that "
+                                      + "HAS been dragged would mean the re-place ran over the "
+                                      + "player's own placement.");
+                continue;
+            }
+            GrabbableModal? grab = wp.Grab;
+            if (grab != null && (grab.UserMoved || grab.PeerPlaced || grab.IsGrabbed))
+            {
+                refused++;
+                // HW-VERIFY
+                VRLog.Note("WorldUI", $"SHARED WINDOW RE-SEAT REFUSED — '{name}' ({kind}) is NOT "
+                                      + $"re-placed on the new spawn direction ({why}) because "
+                                      + (grab.IsGrabbed ? "the player is holding it"
+                                          : grab.UserMoved ? "the player moved it"
+                                          : "a peer placed it")
+                                      + ", so its pose is not the mod's to write.");
+                continue;
+            }
+            bool levelMessage = IsLevelMessageWindow(wp.Window);
+            Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
+            bool placed;
+            if (grab != null)
+            {
+                placed = ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half,
+                                        wp.Panel, levelMessage);
+                if (placed)
+                    grab.PlaceFrameAt(pos, rot);
+            }
+            else
+            {
+                placed = PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, levelMessage);
+            }
+            if (placed)
+                moved++;
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"SHARED WINDOW RE-SEATED — '{name}' ({kind}) was standing when a "
+                                  + $"new spawn direction was decided ({why}), so it is placed again "
+                                  + "through the ordinary spawn funnel "
+                                  + (placed
+                                      ? "and its own SHARED WINDOW ANCHOR APPLIED / SHARED WINDOW "
+                                        + "SEAT ANGLES lines below carry the new pose and the worst "
+                                        + "seat's reading angle."
+                                      : "but NO pose could be computed (no shared frame, or no head "
+                                        + "camera), so it keeps the pose it had. The anchor is not "
+                                        + "spent by a failed attempt — the next decision tries "
+                                        + "again."));
+        }
+        if (seen == 0)
+        {
+            VRLog.Info("WorldUI", "SHARED WINDOW RE-SEAT: no shared window was standing when a new "
+                                  + $"spawn direction was decided ({why}) — nothing to re-place, and "
+                                  + "every window that opens from here on takes the new direction at "
+                                  + "spawn.");
+        }
+        else
+        {
+            VRLog.Info("WorldUI", $"SHARED WINDOW RE-SEAT: {seen} shared window(s) were standing "
+                                  + $"({why}); {moved} re-placed, {refused} refused because the pose "
+                                  + "was not the mod's to write.");
+        }
     }
 
     /// <summary>
@@ -5884,12 +6062,14 @@ internal static partial class ModalFallback
                + $"sideways against the table's own {lateralHalf:F3} m half-depth. "
                + "DEAD AHEAD IS "
                + (haveGaze
-                   ? $"THE SHARED GAZE: yaw {gazeYawDeg:F2}°, decided by the HOST and received "
-                     + $"{gazeAgeSeconds:F1} s ago ({_sharedGazeWhy}). This client did NOT compute "
-                     + "it — it is one quantised byte off record 20, so every client in the room "
-                     + "seats this window on the same side of the table. The user's request is "
-                     + "\"im Sichtbereich der Spieler\", and THIS clause is what says the window "
-                     + "was placed against the party's own facing rather than against a table axis"
+                   ? $"THE SHARED SPAWN DIRECTION: yaw {gazeYawDeg:F2}°, decided by the HOST and "
+                     + $"changed {gazeAgeSeconds:F1} s ago ({_sharedGazeWhy}). This client did NOT "
+                     + "compute it — it is one quantised byte off record 20, so every client in the "
+                     + "room seats this window on the same side of the table. The host chose it to "
+                     + "minimise the WORST SEAT'S reading angle over where the party is STANDING "
+                     + "(grep [Net] SHARED SEATS DECIDED on the host's log for the seats and the "
+                     + "angle it predicted); the SHARED WINDOW SEAT ANGLES line below is this "
+                     + "client's own measurement of what that direction actually delivered"
                    : $"THE FIXED TABLE AXIS: the short horizontal axis is {(shortAxisIsX ? "X" : "Z")} "
                      + "and the far end is its POSITIVE one, a constant. No host decision has been "
                      + $"received ({_sharedGazeWhy}), so this is bit for bit the placement every "
@@ -5908,7 +6088,116 @@ internal static partial class ModalFallback
         // carries every map-room window's bar height side by side, so "sind alle gleich hoch?" is
         // one grep and one glance instead of a diff between two placements.
         LogMapRoomBarHeight(window.name, "SHARED", barYm, halfWinYm, barRule);
+        LogSharedSeatAngles(window.name, kind, stage, centre, scale, ahead, worldPos, haveGaze,
+                            gazeYawDeg);
         return true;
+    }
+
+    /// <summary>Scratch for <see cref="LogSharedSeatAngles"/>'s peer-head read, so the instrument
+    /// allocates nothing per placement.</summary>
+    private static readonly List<Vector3> SeatAngleHeads = new(4);
+
+    /// <summary>
+    /// <b>THE VERDICT LINE FOR THE 2026-09-06 REPORT: WHAT ANGLE DOES EACH PLAYER READ THIS WINDOW
+    /// AT?</b> One line per shared seat (spawn and re-place), never per frame.
+    ///
+    /// <para><b>WHY IT HAD TO EXIST.</b> ModBuild 459's anchor line already printed the chosen yaw,
+    /// the ring radius, the frame-local pose and even which END of the table this client stands at —
+    /// and it could still not answer <i>"war dann beim 2. Spieler gegenüber nur von hinten
+    /// lesbar"</i>, because it printed only the head's component ALONG the ring direction and never
+    /// its lateral offset. Two log lines saying "−0.14 m" and "−0.72 m along the short axis" are
+    /// consistent with a window both players read square-on AND with one they read edge-on; the
+    /// number that separates those two pictures was in neither log. It is on this line.</para>
+    ///
+    /// <para><b>WHAT THE NUMBER IS.</b> The window's readable face points along <c>−ahead</c> (a uGUI
+    /// canvas renders its front along −forward and the pose is <c>LookRotation(ahead)</c>). For each
+    /// head this client can see, the READING ANGLE is the horizontal angle between that face and the
+    /// line from the window to the head: <b>0° dead square-on, 90° edge-on, past 90° that player is
+    /// looking at the BACK of the window.</b> WORST SEAT is the largest of them and it is the whole
+    /// verdict — a fix that leaves any seat past ~70° has not worked, and any seat past 90° is the
+    /// report itself.</para>
+    ///
+    /// <para><b>THIS IS AN INSTRUMENT AND NOT AN INPUT, which is why it may read heads at all.</b>
+    /// The placement above uses ONE number, the byte the host decided, and nothing here feeds back
+    /// into it — so the standing rule that a shared window's pose is never a function of anything
+    /// client-local is untouched. Each client measures its OWN picture, which is the point: two logs
+    /// carrying different worst seats for the same window and stage means the two clients disagree
+    /// about where the heads are (interpolation age), while two logs agreeing at a large angle means
+    /// the placement is genuinely bad for somebody.</para>
+    ///
+    /// <para><b>ITS HONEST LIMIT.</b> <c>CollectPeerHeads</c> answers for every peer with an avatar,
+    /// not only for those standing at this table, so a peer who is somewhere else is counted. Each
+    /// head is therefore printed with its own angle beside the maximum ([[one-contributor-is-not-the-
+    /// union]]): a stray head is visible rather than hidden inside a max.</para>
+    /// </summary>
+    private static void LogSharedSeatAngles(string windowName, SharedWindowKind kind, string stage,
+                                            Vector3 centre, float scale, Vector3 ahead,
+                                            Vector3 worldPos, bool haveGaze, float gazeYawDeg)
+    {
+        SeatAngleHeads.Clear();
+        Camera? headCam = CanvasConversion.WorldCamera;
+        int local = 0;
+        if (headCam != null)
+        {
+            SeatAngleHeads.Add(headCam.transform.position);
+            local = 1;
+        }
+        int peers = Net.NetAvatarDriver.CollectPeerHeads(SeatAngleHeads);
+
+        var face = new Vector3(-ahead.x, 0f, -ahead.z);
+        var windowFlat = new Vector3(worldPos.x, 0f, worldPos.z);
+        var centreFlat = new Vector3(centre.x, 0f, centre.z);
+        float inv = 1f / Mathf.Max(scale, 1e-4f);
+        float worst = 0f;
+        var sb = new System.Text.StringBuilder(160);
+        for (int i = 0; i < SeatAngleHeads.Count; i++)
+        {
+            Vector3 head = SeatAngleHeads[i];
+            Vector3 d = new Vector3(head.x, 0f, head.z) - windowFlat;
+            float dist = d.magnitude;
+            float angle = dist > 1e-4f ? Vector3.Angle(face, d / dist) : 180f;
+            if (angle > worst)
+                worst = angle;
+            Vector3 off = (new Vector3(head.x, 0f, head.z) - centreFlat) * inv;
+            if (i > 0)
+                sb.Append("; ");
+            sb.Append(i < local ? "THIS CLIENT" : $"peer #{i - local + 1}");
+            sb.Append($" at ({off.x:F2},{off.z:F2}) m from the table centre, {dist * inv:F2} m from "
+                      + $"the window, reading angle {angle:F1}°");
+        }
+        if (SeatAngleHeads.Count == 0)
+            sb.Append("NO HEAD IS VISIBLE TO THIS CLIENT AT ALL — neither its own camera nor a peer "
+                      + "avatar, so this line has nothing to measure and the WORST SEAT below is not "
+                      + "a reading");
+
+        // HW-VERIFY: the number the 2026-09-06 report is judged on. Under 70° = every player at this
+        // table can read the window; 70-90° = edge-on and legible only by leaning; over 90° = at
+        // least one player is looking at the BACK of it, which IS the report ("nur von hinten
+        // lesbar"). A count of 1 head with two players in the room means the peer avatar was not
+        // there to measure, not that the placement is good.
+        VRLog.Note("WorldUI", $"SHARED WINDOW SEAT ANGLES ({stage}) — '{windowName}' ({kind}): "
+                              + $"WORST SEAT {worst:F1}° over {SeatAngleHeads.Count} head(s) "
+                              + $"({local} local, {peers} peer). 0° is dead square-on, 90° edge-on, "
+                              + "and PAST 90° that player is reading the BACK of the window, which is "
+                              + "the 2026-09-06 report itself (\"nur von hinten lesbar\"). UNDER 70° "
+                              + "IS THE FIX WORKING. Window face points along yaw "
+                              + $"{WorldYawDeg(new Vector3(-ahead.x, 0f, -ahead.z)):F2}°, seated at "
+                              + $"({(worldPos.x - centre.x) / Mathf.Max(scale, 1e-4f):F2},"
+                              + $"{(worldPos.z - centre.z) / Mathf.Max(scale, 1e-4f):F2}) m from the "
+                              + "table centre. DIRECTION SOURCE: "
+                              + (haveGaze
+                                  ? $"the HOST's decided step, yaw {gazeYawDeg:F2}° — grep [Net] "
+                                    + "SHARED SEATS DECIDED on the host's log for the seats it was "
+                                    + "chosen from and the worst seat it PREDICTED; a large "
+                                    + "disagreement between that prediction and this measurement "
+                                    + "means somebody moved after the party settled"
+                                  : "THE FIXED TABLE AXIS — no host decision has been received, so "
+                                    + "nothing here has a term for a human and a large angle below "
+                                    + "is expected rather than a fault of the search")
+                              + $". SEATS: {sb}. This line MEASURES and never DECIDES: the pose above "
+                              + "is a pure function of the one byte the host published, so nothing "
+                              + "client-local reached the placement.");
+        SeatAngleHeads.Clear();
     }
 
     /// <summary>

@@ -2728,6 +2728,14 @@ internal static partial class ModalFallback
         bool inScenario = VRModeStateMachine.TableInFrontOfPlayer;
         EnterPhase(PhasePolls);
 
+        // THE PARTY FINISHED SITTING DOWN AND A NEW SHARED SPAWN DIRECTION ARRIVED — re-place the
+        // shared windows that were already standing on the old one. Change-gated inside (a flag the
+        // net mailbox raises on its own edge), so this is a bool test per frame and a placement at
+        // most once per decision. It runs HERE, inside the polls phase, rather than as a phase of its
+        // own: it is the ordinary spawn funnel called again, not a new stage of the pipeline, and a
+        // new FRAME-ORDER entry would claim otherwise.
+        ConsumePendingSharedReseat();
+
         // LEVEL-MESSAGE CHAIN CONTINUITY (user ruling 2026-08-02): the shared stored
         // window pose is scoped to ONE scenario — outside it there is no chain to continue,
         // and a stale pose must never place the NEXT scenario's first tutorial box (that
