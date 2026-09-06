@@ -687,6 +687,14 @@ internal sealed class RemoteAvatar
     /// <inheritdoc cref="MirroredSlotMask"/>
     internal int FramesSinceSlotMaskChange => _controlBoard.FramesSinceSlotMaskChange;
 
+    /// <summary>How many of this peer's occupied recesses hold a card this client's round-card
+    /// model cannot account for — in practice a HAND card the owner laid down as one step of a
+    /// modal pick, which is missing from their wire fan arc but still present in every client's
+    /// copy of their hand list. A COUNT, never a name. See
+    /// <c>RemoteControlBoard.SeatedHandCardExcess</c> for the chain it un-jams and the residual
+    /// risk it carries.</summary>
+    internal int SeatedHandCardExcess => _controlBoard.SeatedHandCardExcess;
+
     /// <summary>
     /// CLAIM the face that just LEFT one of this peer's round recesses (<paramref name="slot"/> of
     /// -1 = whichever left first and is still unclaimed) — the identity a mirrored flight into a

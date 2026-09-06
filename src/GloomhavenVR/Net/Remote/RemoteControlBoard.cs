@@ -2028,6 +2028,42 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     internal int FramesSinceSlotMaskChange =>
         _lastNotedSlotMask < 0 ? -1 : Time.frameCount - _slotMaskFrame;
 
+    /// <summary>
+    /// HOW MANY OF THE OWNER'S OCCUPIED RECESSES HOLD A CARD THIS CLIENT'S ROUND-CARD MODEL DOES
+    /// NOT ACCOUNT FOR -- 0, 1 or 2. In practice that is a card the owner has laid down out of his
+    /// HAND as one step of a modal pick (avoid damage, card limit, the long rest's burn step): the
+    /// game has not moved it out of <c>HandAbilityCards</c>, so it is still in every client's hand
+    /// list, while the owner's own VR fan has already dropped it.
+    ///
+    /// <para>WHY ANY SURFACE OUTSIDE THIS FILE WANTS IT, and it is not about faces at all. The
+    /// owner's hand-fan SLAB COUNT on the wire is short by exactly this many cards, on top of
+    /// whatever is in his fist. <c>Net.RemoteHandFan</c>'s record-36 seat belt assumed the arc was
+    /// short by the FIST ALONE (<c>listLength == count + 1</c>), so the moment one hand card is
+    /// lying in a recess every subsequent seat is refused -- 8 <c>FAN RETURN VERDICT ... term=
+    /// seatUsable</c> lines in the ModBuild 461 host log, naming seats 0, 1, 4, 6 and 7 of an
+    /// 8-card list. That refusal takes the fist NAME down with it, which takes the recess hand-off
+    /// down with it (6 releases resolved as "the card went into a ROUND RECESS", 0 hand-offs
+    /// armed), which leaves the fan's own length belt with nothing to drop -- and the whole fan
+    /// goes to BACKS for as long as the pick is open. Report item 6's second half, in one chain.
+    /// </para>
+    ///
+    /// <para>IT IS NOT A NEW FACT AND COSTS NO WIRE BYTE: the occupancy nibble is the owner's own
+    /// (extension record 4) and the round-card count is this client's own resolve -- the identical
+    /// pair <see cref="LogCompactionIfChanged"/> already prints. IT IS ALSO NOT A NAME. It says HOW
+    /// MANY, never WHICH, so nothing here can reveal a card the owner is holding secret; the
+    /// anti-cheat boundary for naming a hand card lying in a recess is
+    /// <c>NetProtocol.RecessSeatListAllowed</c>, which refuses <c>HeldFaceListHand</c> AT THE
+    /// DECODE, and this build does not touch it.</para>
+    ///
+    /// <para>RESIDUAL RISK, STATED. If this client's copy of <c>RoundAbilityCards</c> lags while a
+    /// COMMITTED round card sits in the recess, this reads 1 when the true answer is 0 and the seat
+    /// belt admits a seat it should have refused. It cannot by itself paint a wrong face: naming
+    /// the fist ALSO requires <c>listLength == _handBuffer.Count</c>, an independent test against
+    /// the local model. The worst it can do alone is send the return glide to a neighbouring arc
+    /// seat, which the next fan relayout corrects.</para>
+    /// </summary>
+    internal int SeatedHandCardExcess { get; private set; }
+
     private void NoteMirroredSlotMask()
     {
         if (_slotOccupiedMask == _lastNotedSlotMask)
@@ -2044,6 +2080,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // card backs. Forcing the mask to 0 rather than to -1 matters: -1 would fall through to the
         // legacy MODEL derivation, which for a null actor is empty too but for the wrong reason.
         int wire = exhausted ? 0 : _owner.SlotOccupancyKnown ? _owner.BoardSlotMask : -1;
+        SeatedHandCardExcess = 0;   // recomputed below once both counts exist; never stale
         _slotOccupiedMask = 0;
         _slotFaceMask = 0;
         _slotAnonMask = 0;
@@ -2066,7 +2103,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         if (wire < 0)
         {
             // LEGACY sender (no occupancy nibble): the model IS the occupancy, per index, exactly
-            // as every build before this one rendered it.
+            // as every build before this one rendered it — and therefore the seated-hand-card
+            // excess is zero BY CONSTRUCTION, not merely unknown. Set explicitly so a legacy peer
+            // can never inherit a stale count from a modern one on a focus switch.
+            SeatedHandCardExcess = 0;
             for (int i = 0; i < SlotCount; i++)
             {
                 _cards[i].Set(_ordered[i], showFronts, actor);
@@ -2107,6 +2147,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             if (_ordered[i] != null)
                 modelCount++;
         int occupiedCount = CountBits(wire & ((1 << SlotCount) - 1));
+        // See SeatedHandCardExcess: how many occupied recesses this client's round-card model does
+        // not account for. Clamped at zero because the model leading the nibble (a card the model
+        // has already moved into a recess the owner has not reported yet) is lag in the OTHER
+        // direction and says nothing about the owner's hand.
+        SeatedHandCardExcess = Mathf.Clamp(occupiedCount - modelCount, 0, SlotCount);
         bool compact = modelCount == occupiedCount;
         LogCompactionIfChanged(compact, modelCount, occupiedCount);
         // THE HAND-OFF IS A STAND-IN FOR A FACT THAT HAS NOT ARRIVED, so the moment it arrives it

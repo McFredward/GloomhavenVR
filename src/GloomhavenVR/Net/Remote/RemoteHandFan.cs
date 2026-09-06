@@ -1705,8 +1705,22 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.HandFan, _owner.PlayerId,
             frontCount, Mathf.Max(count - frontCount, 0),
             _countBelt != null
+                // THE THIRD NUMBER IS THE DENOMINATOR THIS ROW WAS MISSING (report item 6, second
+                // half). Model-vs-wire alone cannot say WHY they differ, and for a whole session it
+                // read "8 vs 7" with no way to tell "the peer is holding one up" from "the peer has
+                // laid one on their board" from "one of the two lists is simply wrong". The seated
+                // count and the fist count are exactly the two legitimate reasons the arc is
+                // shorter, so model == wire + fist + seated is the equation that should hold, and
+                // a row where it does NOT is the defect. READ IT LIKE THIS: model - wire - fist -
+                // seated == 0 with backs still showing means the belt is not the blocker and the
+                // rule beside it is lying; a non-zero remainder names how many cards left that fan
+                // for a reason this client cannot see at all.
                 ? $"LENGTH BELT: {_countBelt.Value.Model} model card(s) vs {_countBelt.Value.Wire} "
-                  + $"slab(s) on the wire ({FanListName(_censusList)})"
+                  + $"slab(s) on the wire, with {heldSeatCount} in their fist and "
+                  + $"{_owner.SeatedHandCardExcess} hand card(s) lying in their recesses — "
+                  + $"remainder {_countBelt.Value.Model - _countBelt.Value.Wire - heldSeatCount
+                                 - _owner.SeatedHandCardExcess} "
+                  + $"({FanListName(_censusList)})"
                 // ONE STRING USED TO CARRY TWO CAUSES, and it is the string this whole item was read
                 // through: "RevealGate.CardFaces(Selectable) named no source, OR no widget resolved"
                 // cannot tell a SHUT GATE (the game's secret window, which is correct and expected)
@@ -1987,13 +2001,34 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// of it is a frame in which an unrelated recess could fill and be mispaired.</summary>
     private const float HandoffGraceSeconds = 0.25f;
 
-    /// <summary>How long an armed hand-off may stand before it is abandoned. It is a BACKSTOP, not
-    /// the normal exit: <c>RemoteControlBoard.SeatSlots</c> drops it the instant this client's
-    /// model catches up (the walk becomes compactable), and the recess emptying drops it too.
-    /// Without it a hand-off whose model never arrives would keep a face lying in a recess for the
-    /// rest of the session — a stale front, i.e. the very failure the belt exists to prevent.
+    /// <summary>
+    /// WHICH ARRIVAL the standing hand-off belongs to: the value of <see cref="_handoffGains"/> at
+    /// the moment it was armed. A LATER arrival into the same recess retires it.
+    ///
+    /// <para>IT REPLACES A SIX-SECOND WALL CLOCK, AND THE CLOCK WAS THE DEFECT. That constant's own
+    /// doc called itself "a BACKSTOP, not the normal exit" and named the two real exits — the model
+    /// catching up (<c>RemoteControlBoard.SeatSlots</c> calls <see cref="ClearHandoff"/>) and the
+    /// recess emptying (<see cref="ExpireHandoff"/> already tests the occupancy nibble). Both are
+    /// EDGES and both are precise. The clock was neither, and it fired first: the ModBuild 461
+    /// session's avoid-damage pick held one hand card in a recess for the whole window between the
+    /// peer's own `Pick fan source (LoseCard): real hand` at 157886 and its close at 179525 — far
+    /// longer than six seconds — so even an armed hand-off would have gone stale with the card
+    /// still lying there and the fan still needing to drop it.</para>
+    ///
+    /// <para>WHAT THE CLOCK WAS GUARDING IS KEPT, EXACTLY. Its stated fear was a hand-off "whose
+    /// model never arrives" standing forever. The precise version of that fear is not elapsed time,
+    /// it is a DIFFERENT card arriving in the same recess without the mask ever reading empty — a
+    /// turn-clear can do that inside one board pass. That is what this counter refuses, and a
+    /// recess that simply keeps the card it was handed keeps the hand-off, which is the whole point.
+    /// A timer whose normal exit is a timeout is a latch that outlives its edge; this one has no
+    /// exit that is not an edge.</para>
     /// </summary>
-    private const float HandoffHoldSeconds = 6f;
+    private int _handoffGainEpoch = -1;
+
+    /// <summary>Arrivals into each round recess since this fan was built — the per-recess half of
+    /// <see cref="_handoffGains"/>, which is the total. <see cref="_handoffGainEpoch"/> is compared
+    /// against the entry for the hand-off's OWN recess.</summary>
+    private readonly int[] _recessGains = new int[2];
 
     /// <summary>The card in this peer's fist right now, resolved from THIS client's own hand list
     /// through record 36's seat — null whenever the fist is empty, names two cards, the sender's
@@ -2040,6 +2075,17 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// </summary>
     private bool _fistArcKeptHeld;
 
+    /// <summary>Was record 36's seat a valid ARC index for this hold? False whenever a hand card is
+    /// seated on the owner's board, because the arc and the model list then have different
+    /// membership and seat k no longer names slab k. The NAME stays usable in that state — see the
+    /// consumer split in <see cref="TrackFist"/>.</summary>
+    private bool _fistArcSeatUsable;
+
+    /// <summary>The wire arc count this frame, so <see cref="Bank"/> can quote it without every
+    /// call site having to thread it through. Written once at the top of <see cref="TrackFist"/>.
+    /// </summary>
+    private int _bankArcCount;
+
     /// <summary>Unscaled time the fist last held a nameable card (0 = never / consumed).</summary>
     private float _fistHeldAt;
 
@@ -2052,7 +2098,6 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private int _handoffRecess = -1;
 
     /// <summary>Unscaled time the armed hand-off's backstop runs out.</summary>
-    private float _handoffUntil;
 
     /// <summary>Session census: how many times a recess GAINED a card, and how many of those this
     /// client could name. The pair is the falsifier — see <see cref="LogHandoff"/>.</summary>
@@ -2121,6 +2166,19 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <see cref="_refusal"/>, and <see cref="LogReturnVerdict"/> is the only reader.</summary>
     private int _refusalA;
     private int _refusalB;
+
+    /// <summary>Third banked number: how many HAND cards this client could see lying in that
+    /// peer's recesses when the refusal was banked. It is the term the seat belt gained for report
+    /// item 6, and printing it is what tells "the belt is arithmetically right and the card really
+    /// did go to a pile" apart from "the seated term did not see the card on the board".</summary>
+    private int _refusalC;
+
+    /// <summary>Fourth banked number: the owner's own wire ARC count at the moment the refusal was
+    /// banked. It is the term the refusal line was missing — the line named the seat and the LIST
+    /// length and never the arc, so "the arc kept the held card" and "a card is lying on their
+    /// board" printed identically and two lanes read the same eight refusals as two different
+    /// defects.</summary>
+    private int _refusalD;
 
     /// <summary>The vocabulary of things that can refuse a mirrored return flight. Every one of
     /// them names a real expression in <see cref="TrackFist"/> or
@@ -2455,10 +2513,20 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <para>THE LOG READING, which is the evidence and not the argument. In the 2026-09-06 host
     /// session the mirrored fan's own geometry line steps <c>n=8</c>, <c>n=7</c>, <c>n=8</c> across
     /// a single pluck, twice, WHILE the card is still in the peer's fist - the removal and the
-    /// rebuild's re-add, one frame apart. All 8 <c>FAN RETURN VERDICT</c> refusals in that session
-    /// name <c>term=seatUsable</c> with an 8-card list, i.e. the belt below asking for an arc of 7
-    /// and being handed 8. The observer was drawing what it was sent, and what it was sent still
-    /// contained the card the peer was holding up.</para>
+    /// rebuild's re-add, one frame apart. The observer was drawing what it was sent, and what it was
+    /// sent still contained the card the peer was holding up.</para>
+    ///
+    /// <para>SEVEN OF THE EIGHT, NOT ALL EIGHT, AND THE CORRECTION MATTERS BECAUSE TWO LANES CLAIMED
+    /// THE SAME EIGHT. This paragraph read "All 8 FAN RETURN VERDICT refusals in that session name
+    /// term=seatUsable with an 8-card list, i.e. the belt asking for an arc of 7 and being handed
+    /// 8". The refusal line prints the seat and the LIST length and never the ARC count, so it
+    /// cannot say which side the mismatch was on and neither lane could read it off that line. The
+    /// sender's own <c>Fan order [scenario hand] n</c> sequence can, by DWELL TIME: a pluck's n=7
+    /// is back at 8 within 10-30 log lines (nine such blips, peer 85298 through 119735) and seven
+    /// of the refusals sit in that stretch, while inside the <c>Pick fan source (LoseCard): real
+    /// hand</c> window n=7 STANDS for 358, 1625, 2966 and once 14493 lines — and the eighth refusal
+    /// (host 184623) is in there. Two mechanisms, one instrument that could not tell them apart.
+    /// The belt in <see cref="TrackFist"/> now carries both terms and says which is which.</para>
     ///
     /// <para>SO THE REMEDY IS THE ONE THE OTHER TWO ARCS ALREADY USE, and it needs no wire field:
     /// record 36 names the seat, in this arc's own index space, so the slab is simply not drawn
@@ -2500,6 +2568,19 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             seatB = -1;
             held = 1;
         }
+        // …AND NOT WHILE A HAND CARD IS SEATED ON THEIR BOARD. `listLength == count` is only the
+        // "arc kept the held card" state while the arc and the model list have the same MEMBERSHIP.
+        // CardsDriver.FillHandFan drops a hand card the mod has seated in a recess, so during a
+        // modal pick over the real hand the two lists differ by that card and seat k names slab k
+        // only by luck — it is k or k-1 depending on where the seated card sits, and nothing here
+        // can say which. Hiding the wrong slab hides a card the owner IS looking at, which is worse
+        // than the duplicate this method exists to remove, so this refuses rather than compensates:
+        // "a duplicate is a smaller error than a hidden wrong card", the same ruling as the last
+        // arm below. (RemoteControlBoard.SeatedHandCardExcess is a COUNT and never a name, so it
+        // can say THAT the lists differ and never WHICH card differs — which is exactly why the
+        // honest move here is a refusal.)
+        if (_owner.SeatedHandCardExcess != 0)
+            return;
         if (listLength != count)
             return;   // the arc already dropped them (or the two numbers disagree) - see the doc
 
@@ -2563,6 +2644,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// card released back into the fan from one that went to a pile.</param>
     private void TrackFist(bool armed, CPlayerActor? actor, int count)
     {
+        _bankArcCount = count;
         int mask = _owner.SlotOccupancyKnown ? _owner.BoardSlotMask : 0;
         if (!_seenMaskValid)
         {
@@ -2572,7 +2654,22 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         int gainedSinceFrame = mask & ~_seenMask;
         _seenMask = mask;
         if (gainedSinceFrame != 0)
+        {
             _handoffGains += SlotBits(gainedSinceFrame);
+            // PER RECESS, not just the total. A standing hand-off is superseded only by a later
+            // arrival into ITS OWN recess; an arrival into the other one says nothing about it, and
+            // retiring on the total would drop a good hand-off every time the peer filled their
+            // second recess.
+            for (int i = 0; i < 2; i++)
+                if ((gainedSinceFrame & (1 << i)) != 0)
+                    _recessGains[i]++;
+        }
+        // ASKED ON EVERY ARRIVAL, ARMED OR NOT. The arming branch below is reached only when a
+        // tracked release pairs with the arrival; an arrival the fist was never resolved for is
+        // precisely the INERT case the line has to be able to report, so the call cannot live
+        // inside the branch that only runs when it worked. Change-gated on the PAIR inside, so a
+        // settled board still costs nothing.
+        LogHandoff();
 
         float now = Time.unscaledTime;
 
@@ -2623,33 +2720,75 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // That belt is what makes the seat safe to use as an ARC INDEX with the gate shut, and an
         // arc index is all the return glide ever wanted.
         // ...AND IT HAS TWO LEGAL READINGS, NOT ONE. THE SENTENCE ABOVE WAS FALSE FOR THE STEADY
-        // STATE and it cost every return animation in the 2026-09-06 session: all 8 refusals in
-        // that host log read `term=seatUsable` against an 8-card list, because CardsDriver.Rebuild
-        // puts the plucked card straight back into the arc (see ResolveArcHeldSeats for the
-        // n=8/n=7/n=8 reading that convicts it). `listLength == count + 1` is only true in the one
-        // or two frames between CardFan.Remove and that rebuild; the state the peer is actually
-        // looked at for the length of the hold is `listLength == count`.
+        // STATE: CardsDriver.Rebuild puts the plucked card straight back into the arc (see
+        // ResolveArcHeldSeats for the n=8/n=7/n=8 reading that convicts it), so
+        // `listLength == count + 1` is only true in the one or two frames between CardFan.Remove
+        // and that rebuild; the state the peer is actually looked at for the length of the hold is
+        // `listLength == count`. Both answer the same question with the same number: the card comes
+        // home to ARC INDEX `seat` either way.
         //
-        // BOTH ANSWER THE SAME QUESTION WITH THE SAME NUMBER, which is why widening this is safe
-        // rather than lax: the card comes home to ARC INDEX `seat` either way. When the arc kept
-        // the seat, that index is where the slab already stands (and is hidden); when the arc
-        // dropped it, removing index k from an ordered list and putting it back at k is exactly
-        // what CardFan.Remove + CardFan.Add do. What the belt still refuses is the case it was
-        // written for - two numbers off one packet that do not describe one hand at all.
-        bool arcKeepsHeld = named && listLength == count;
-        bool seatUsable = named && seat >= 0 && seat < listLength
-                          && (listLength == count + 1 || arcKeepsHeld);
+        // ─── AND THE ARC IS ALSO SHORT BY ANY HAND CARD LYING ON THEIR BOARD ────────────────────
+        // TWO LANES GAVE THE SAME EIGHT REFUSALS TWO CAUSES, AND THE SENDER'S OWN `Fan order
+        // [scenario hand] n` SEQUENCE SEPARATES THEM BY DWELL TIME. Both are real; neither is the
+        // whole cause:
+        //
+        //   * PLUCK OSCILLATION (the reading above). Peer log, selection phase: n drops 8 -> 7 and
+        //     is back at 8 within 10 to 30 log lines — 85298/85396, 99748/99766, 100700/100725,
+        //     101379/101401, 109635/109649, 117799/117809, 119048/119078, 119724/119735. Nine
+        //     blips, none of them lasting. SEVEN of the session's eight seatUsable refusals sit in
+        //     exactly that stretch (host 108785, 109514, 110204, 117901, 125781, 126831, 127402).
+        //
+        //   * A HAND CARD SEATED ON THE BOARD (this term). Peer log, inside the
+        //     `Pick fan source (LoseCard): real hand` window it opens at 157886 and closes at
+        //     179525: n drops to 7 and STAYS there for 358, 1625, 2966 and once 14493 log lines
+        //     (159292 -> 173785). Three orders of magnitude longer, because CardsDriver.FillHandFan
+        //     drops a hand card the mod has seated in a recess — the `_halfBuffer.Contains(already)`
+        //     arm, a term of the owner's fan SIZE that CardsGameApi.HandFanMember does not carry
+        //     even though its own doc called that predicate the whole of the wire contract. The
+        //     REMAINING refusal (host 184623, seat 4) is in this window, and the host's census reads
+        //     `LENGTH BELT: 8 model card(s) vs 7 slab(s)` in ALL 11 intervals of it: eleven samples
+        //     ten seconds apart cannot all land inside a two-frame blip, so that reading is the
+        //     standing state and the oscillation cannot explain it.
+        //
+        // WHY THE SEATED TERM IS MORE NECESSARY WITH THE TWO READINGS, NOT LESS. Take the moment of
+        // refusal 184623: one card in the fist AND one seated, so listLength(8) == count + 1 + 1 and
+        // count is 6. `arcKeepsHeld` reads 8 == 6, false; `count + 1` reads 8 == 7, false — still
+        // refused, so widening alone does not reach it. And in the neighbouring frames where the arc
+        // KEPT the held card, count is 7 and `listLength == count + 1` reads 8 == 8 and ACCEPTS —
+        // for the wrong reason. It would classify "arc kept the held card, one seated" as "arc
+        // dropped the held card", ResolveArcHeldSeats would then not hide the duplicate slab, and
+        // the HELD SEAT DROPPED path would remove a seat that IS still in the arc: every face after
+        // it shifted by one, drawn confidently. That is the exact failure both belts exist to
+        // prevent, so the seated term is a safety here and not an extra.
+        //
+        // ─── THE BELT IS SPLIT BY CONSUMER, WHICH IS WHAT NEITHER LANE HAD ──────────────────────
+        // The two things a record-36 seat is used for are indexes into DIFFERENT lists, and lumping
+        // them is what jammed the hand-off:
+        //
+        //   * AS A NAME it indexes _handBuffer — this client's own HandFanMember list, length
+        //     `listLength`. That is exact whatever the ARC is doing, so no arc arithmetic belongs in
+        //     front of it. Gating it on the arc belt is why 6 releases into a recess armed ZERO
+        //     hand-offs: the name was thrown away for an arc mismatch it never depended on.
+        //   * AS AN ARC INDEX (the return glide, and the slab-hiding in ResolveArcHeldSeats) it
+        //     indexes the owner's wire arc, and that is only the same index space while the arc and
+        //     the model list have the same MEMBERSHIP. A seated card breaks that: seat k maps to
+        //     arc index k or k-1 depending on where the seated card sits, and nothing here can say
+        //     which. So the arc reading is REFUSED outright when anything is seated, rather than
+        //     arithmetically compensated — a refusal costs a return animation, a wrong arc index
+        //     puts a card home on somebody else's seat.
+        int seatedOnBoard = _owner.SeatedHandCardExcess;
+        bool seatInRange = named && seat >= 0 && seat < listLength;
+        bool arcKeepsHeld = seatInRange && seatedOnBoard == 0 && listLength == count;
+        bool arcSeatUsable = seatInRange && seatedOnBoard == 0
+                             && (listLength == count + 1 || arcKeepsHeld);
+        // THE NAME NEEDS NO ARC TERM AT ALL — only that the two copies of the LIST are the same
+        // length, which is the identical test RemoteHeldCardFace makes before it draws this very
+        // card's own front. Without it a lagging model would name the card beside the right one.
+        bool nameUsable = seatInRange && listLength == _handBuffer.Count
+                          && seat < _handBuffer.Count;
 
         CAbilityCard? fist = null;
-        if (seatUsable && armed
-            // THE LENGTH BELT, ONE SURFACE OVER — and now it belts ONLY the identity. A positional
-            // seat is only a NAME while both copies of the list are the same length, the identical
-            // term RemoteHeldCardFace checks before it draws this very card's own front. Without it
-            // a lagging model would name the card beside the right one and this would paint that
-            // wrong face confidently into a recess, which is exactly the defect the compaction belt
-            // was built to stop. It stays exactly as strict as it was; what changed is that a
-            // failure here no longer takes the MOTION down with the name.
-            && listLength == _handBuffer.Count && seat < _handBuffer.Count)
+        if (nameUsable && armed)
         {
             AbilityCardUI? w = _handBuffer[seat];
             fist = w != null ? w.AbilityCard : null;
@@ -2661,11 +2800,14 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // the old one rather than dropping it: every edge counted has to end in exactly one of
             // the three buckets or the line's own arithmetic stops being checkable.
             ResolveRelease(armed: false, recess: false, RefusalTerm.Regrabbed);
-            if (!seatUsable)
+            if (!nameUsable && !arcSeatUsable)
             {
-                // A card IS in their fist and the wire's own two numbers do not agree about which
-                // seat it left. Not a release: forget everything so nothing stale can be handed
-                // over or flown, keep the mask moving, and let the next frame try again.
+                // A card IS in their fist and NOTHING about it is usable — neither the name nor the
+                // arc index. Not a release: forget everything so nothing stale can be handed over or
+                // flown, keep the mask moving, and let the next frame try again. A frame where only
+                // ONE of the two is usable no longer lands here: the name and the arc index are
+                // independent facts and refusing both because one failed is what left six recess
+                // arrivals unnamed.
                 _fistCard = null;
                 _fistSeat = -1;
                 _fistMask = mask;
@@ -2690,6 +2832,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // that kept the seat does not grow when the card comes home, it simply stops being
             // hidden.
             _fistArcKeptHeld = arcKeepsHeld;
+            // …and whether the seat is an ARC index at all this hold. The return glide asks this
+            // rather than assuming _fistSeat is one, because a seated card makes the seat a valid
+            // NAME and an invalid arc index in the same frame.
+            _fistArcSeatUsable = arcSeatUsable;
             _fistHeldAt = now;
             // A belt that failed earlier in THIS hold and has since recovered must not be quoted as
             // the reason a later release was refused. The banked term describes the frame it was
@@ -2734,9 +2880,9 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             {
                 _handoffRecess = (gained & 1) != 0 ? 0 : 1;
                 HandoffCard = _fistCard;
-                _handoffUntil = now + HandoffHoldSeconds;
+                _handoffGainEpoch = _recessGains[_handoffRecess];
                 _handoffArmed++;
-                LogHandoff();
+                LogHandoff();   // the ARMED edge; the arrival edge above may have printed already
             }
             _fistCard = null;
             _fistSeat = -1;
@@ -2778,7 +2924,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // is not there. (…and not while the fan is FOLDING AWAY: the collapse path hands this method
         // `_cards.Count` instead of the wire count, so that equality can be satisfied by the fold
         // rather than by a card coming home, and a collapsing fan has no arc seat to fly to anyway.)
-        bool flew = BeginReturnGlide(_fistSeat, _fistPoseSlot);
+        // …AND ONLY IF THE SEAT IS AN ARC INDEX. See the split above: with a hand card seated on
+        // their board the arc and the model list have different membership, so this seat names a
+        // card correctly and names a SLAB incorrectly. Refuse the motion, keep the name.
+        bool flew = _fistArcSeatUsable && BeginReturnGlide(_fistSeat, _fistPoseSlot);
         ResolveRelease(flew, recess: false, _refusal);
         _fistCard = null;
         _fistSeat = -1;
@@ -2818,6 +2967,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         _refusal = term;
         _refusalA = a;
         _refusalB = b;
+        _refusalC = _owner.SeatedHandCardExcess;
+        _refusalD = _bankArcCount;
     }
 
     /// <summary>The banked refusal as the sentence the log prints. Called once per release, never
@@ -2826,8 +2977,17 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     {
         RefusalTerm.SeatBelt =>
             $"seatUsable — record 36 named hand seat {_refusalA} of a {_refusalB}-card list while "
-            + "the owner's own wire arc did not carry exactly one slab fewer, so this client could "
-            + "not tell which arc index the card would come home to",
+            + $"their wire arc carried {_refusalD} slab(s) — THE ARC COUNT IS THE NUMBER THIS LINE "
+            + "USED TO OMIT, and omitting it is why two lanes read the same eight refusals as two "
+            + "different defects: list minus arc equal to 1 is a pluck the rebuild has not undone "
+            + "yet, 0 is the steady state where the arc kept the held card, and 2 or more means a "
+            + "card is also lying on their board. "
+            + "the owner's own wire arc did not carry one slab fewer per card out of their fan "
+            + $"(fist + {_refusalC} hand card(s) this client can see lying in their recesses), so "
+            + "it could not tell which arc index the card would come home to. THE SEATED TERM IS "
+            + "THE ONE ADDED FOR REPORT ITEM 6: if this line still fires with that number reading "
+            + "0 while a card is visibly on their board, the excess is not being seen and "
+            + "RemoteControlBoard.SeatedHandCardExcess is the place to look, not this belt",
         RefusalTerm.NeverTracked =>
             "seatUsable — no seat was tracked at any point while the card was in their fist, so "
             + "there was nothing to fly. On ModBuild 459 a shut RevealGate landed here for "
@@ -2862,14 +3022,15 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// </summary>
     private static int SlotBits(int mask) => ((mask & 1) != 0 ? 1 : 0) + ((mask & 2) != 0 ? 1 : 0);
 
-    /// <summary>Drop an armed hand-off whose recess has emptied or whose backstop has run out.
-    /// </summary>
+    /// <summary>Drop an armed hand-off whose recess has emptied, or which a LATER arrival into that
+    /// same recess has superseded. Both are edges; see <see cref="_handoffGainEpoch"/> for why the
+    /// wall clock that used to stand here was the defect rather than the safety.</summary>
     private void ExpireHandoff(int mask, float now)
     {
         if (HandoffCard == null)
             return;
         bool occupied = _handoffRecess >= 0 && (mask & (1 << _handoffRecess)) != 0;
-        if (!occupied || now > _handoffUntil)
+        if (!occupied || _recessGains[_handoffRecess] != _handoffGainEpoch)
             ClearHandoff();
     }
 
@@ -2883,14 +3044,15 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     {
         HandoffCard = null;
         _handoffRecess = -1;
-        _handoffUntil = 0f;
+        _handoffGainEpoch = -1;
     }
 
     /// <summary>The card this client saw handed into round recess <paramref name="recess"/>, or
     /// null. Read by <c>RemoteControlBoard.SeatSlots</c> only where its own walk and its own face
     /// latch have both come up empty, so a resolved model always wins.</summary>
     internal CAbilityCard? HandoffFor(int recess)
-        => recess >= 0 && recess == _handoffRecess && Time.unscaledTime <= _handoffUntil
+        => recess >= 0 && recess == _handoffRecess
+           && _recessGains[_handoffRecess] == _handoffGainEpoch
             ? HandoffCard
             : null;
 
@@ -3065,14 +3227,41 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// </summary>
     private void LogHandoff()
     {
-        if (_loggedHandoff == _handoffArmed)
+        // THE GATE WAS ON THE WRONG NUMBER, AND IT MADE THE FALSIFIER UNFIREABLE. This method's own
+        // doc says the pair to read is "M arrivals, N armed" and that "arrivals with 0 armed means
+        // this is inert" — and it was change-gated on _handoffArmed ALONE, which is exactly the
+        // number that does not move in the inert case. In the ModBuild 461 host log 6 releases
+        // resolved as "the card went into a ROUND RECESS" and this line printed ZERO times, so the
+        // one reading it exists to produce could not be read. Gated on the PAIR now: an arrival
+        // that arms nothing prints, and says why.
+        int key = _handoffGains * 1000 + _handoffArmed;
+        if (_loggedHandoff == key)
             return;
-        _loggedHandoff = _handoffArmed;
+        _loggedHandoff = key;
+        if (_handoffArmed < _handoffGains || HandoffCard == null || _handoffRecess < 0)
+        {
+            // HW-VERIFY: report item 6, the INERT reading. Grep token: RECESS HAND-OFF. This is the
+            // branch that could not print before. WORKING = the armed line below, with
+            // armed == arrivals; INERT = this line, arrivals climbing while armed stands still.
+            VRLog.Note("Net", $"RECESS HAND-OFF [player {_owner.PlayerId}]: NOT ARMED — "
+                + $"{_handoffGains} recess arrival(s) this session and only {_handoffArmed} of them "
+                + "named a card, so the recess draws an anonymous back and the fan has nothing to "
+                + "drop from its own length. The name comes from record 36's seat, resolved one "
+                + "frame before the wire stopped naming it, so a nameless arrival means the fist "
+                + "was never resolved — read the 'FAN RETURN VERDICT' line beside this one, and if "
+                + "it says term=seatUsable read the seated-hand-card number in it: that is the term "
+                + "added for report item 6 and a 0 there while a card is visibly on their board "
+                + "means RemoteControlBoard.SeatedHandCardExcess is not seeing it.");
+            return;
+        }
         // HW-VERIFY: report item 5. Grep token: RECESS HAND-OFF.
         VRLog.Note("Net", $"RECESS HAND-OFF [player {_owner.PlayerId}]: round recess "
             + $"{_handoffRecess + 1} just took the card this peer was holding at hand seat "
             + $"{_fistSeat} of {_handBuffer.Count} — armed {_handoffArmed} of {_handoffGains} "
-            + "recess arrival(s) this session. The recess draws that card's OWN front for the "
+            + "recess arrival(s) this session, and it now stands for as long as that recess keeps "
+            + "the card (a per-recess arrival EDGE, not the six-second wall clock it used to be — "
+            + "which expired mid-pick and is why report item 6's fan stayed face-down). It was "
+            + "The recess draws that card's OWN front for the "
             + "length of the slide-in instead of an anonymous back, and the fan drops it from its "
             + "own length so every OTHER face in the fan keeps its front too. NOTHING NEW IS ON "
             + "THE WIRE: record 36 already named which seat of this client's hand list was in "

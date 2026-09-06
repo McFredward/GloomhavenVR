@@ -409,7 +409,22 @@ internal static class CardsGameApi
 
     /// <summary>
     /// THE HAND FAN'S MEMBERSHIP TEST — is this <c>cardsUI</c> entry one of the cards the owner's VR
-    /// hand fan holds? Exactly this predicate decides the fan's SIZE, and that size is what travels.
+    /// hand fan holds?
+    ///
+    /// <para>IT IS NOT, ON ITS OWN, THE SIZE THAT TRAVELS, AND THIS SENTENCE USED TO SAY IT WAS.
+    /// The claim here read "Exactly this predicate decides the fan's SIZE, and that size is what
+    /// travels", and it was protecting a live defect for report item 6's second half.
+    /// <c>CardsDriver.FillHandFan</c> applies a SECOND term after this one — it skips a widget whose
+    /// <c>VRCard</c> is already in <c>_halfBuffer</c>, i.e. a card the mod has seated in a round
+    /// recess — and that term is pure client-local mod state which no peer can evaluate. So during
+    /// any modal pick that lays a HAND card on the board (avoid damage, the card limit, the long
+    /// rest's burn step) the owner's arc is one shorter than this predicate's count while every
+    /// peer's rebuild of it is not, and every belt downstream refuses. The peer side compensates
+    /// with a COUNT it derives from the occupancy nibble
+    /// (<c>Net.RemoteControlBoard.SeatedHandCardExcess</c>) rather than by re-deriving a term it
+    /// cannot see; the equation the two ends now share is
+    /// <c>this predicate's count == wire arc + cards in the fist + cards seated in recesses</c>,
+    /// and the hand fan's census row prints all four so a future disagreement names itself.</para>
     ///
     /// <para>IT IS A WIRE CONTRACT WITH THREE PARTIES, which is why it is one expression and not
     /// three that happen to agree:

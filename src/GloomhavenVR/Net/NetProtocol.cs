@@ -20744,13 +20744,51 @@ internal static class NetProtocol
     /// <c>CardsDriver.HandlePickRelease</c>, which runs under <c>IsPickMode</c> — the five modal
     /// pick modes and never the ordinary selection. (2) The sampler re-asks that mode itself before
     /// writing a seat. (3) A commit card is a HAND card, and <see cref="HeldFaceListHand"/> is NOT
-    /// among the two lists this record may name, so it is not expressible in the format at all. A
-    /// pick that draws from the HAND rather than a pile (avoid damage by burning a hand card, the
-    /// card-limit discard) is therefore deliberately left as an anonymous back: that card IS a hand
-    /// card and its identity IS the secret. The reveal gate names both exemptions in one place
+    /// among the two lists this record may name, so it is not expressible in the format at all. The
+    /// reveal gate names both exemptions in one place
     /// (<c>RevealGate.PeerCardPopulation.SacrificedCard</c> and
     /// <c>RevealGate.PeerCardPopulation.BoardPickSeat</c>) and the receiver re-checks rather than
     /// trusting the sender.</para>
+    ///
+    /// <para>THAT LAST CLAUSE USED TO GO ONE STEP FURTHER THAN IT COULD SUPPORT, AND THE STEP WAS
+    /// WRONG. It read: "A pick that draws from the HAND rather than a pile (avoid damage by burning
+    /// a hand card, the card-limit discard) is therefore deliberately left as an anonymous back:
+    /// that card IS a hand card and its identity IS the secret." The first half is a statement about
+    /// THIS RECORD and stands — a hand card is not expressible here and must not become so. The
+    /// second half is a statement about the PICTURE, and this record does not get to make it. What
+    /// decides whether a card lying in a recess shows its front is the reveal gate, and the term
+    /// that matters is the PHASE: an avoid-damage or card-limit pick runs in the ACTION phase,
+    /// where the two-card-commit secret does not exist and the standing ruling is that a front is
+    /// never drawn as a back. Measured, 2026-09-06: the observer's census reads
+    /// <c>PHASE=Action, POLICY=FRONTS EVERYWHERE</c> and
+    /// <c>round slots[pN] 0 FRONT / 1 BACK - RevealGate.ShowRoundCardFronts(actor)=true - a seated
+    /// slot with no face is one whose card widget could not be resolved on this client</c>, for the
+    /// whole of the pick. THE GATE WAS OPEN. The card was a back because nothing could NAME it, not
+    /// because anything refused it — and the user's ruling for report item 6 ("Beim Verbrennen EGAL
+    /// AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar sein") is about exactly
+    /// that picture.</para>
+    ///
+    /// <para>SO THE NAME COMES FROM SOMEWHERE ELSE, AND NOT FROM A NEW LIST ID HERE. The card was
+    /// observed leaving the owner's fist into that recess, so record 36's hand seat already names it
+    /// in this client's own copy of that hand — <c>Net.RemoteHandFan</c>'s recess HAND-OFF, resolved
+    /// locally, with no card identity on any wire. That path existed and never armed: the seat belt
+    /// in front of it was gated on ARC arithmetic the name never depended on (see
+    /// <c>RemoteHandFan.TrackFist</c>'s consumer split). With it un-jammed the recess draws that
+    /// card under the ordinary <c>showFronts</c> rule — a front in the action phase, a back inside
+    /// <c>SelectAbilityCardsOrLongRest</c> — and the moment it BURNS,
+    /// <c>RevealGate.IsPubliclyRevealedCard</c> makes it public whatever the phase. This record's
+    /// vocabulary is unchanged and <see cref="RecessSeatListAllowed"/> still refuses
+    /// <see cref="HeldFaceListHand"/> at the decode, which is right: a SENDER-ASSERTED seat into a
+    /// pile arc is not how a hand card should ever be named.</para>
+    ///
+    /// <para>AND THE CARD ON THE BOARD IS REVERSIBLE WHILE THE PICK IS OPEN, WHICH IS WHY THE
+    /// SELECTION-PHASE HALF OF THE BOUNDARY IS STILL RIGHT. The 2026-09-06 host log shows the
+    /// occupancy nibble across one avoid-damage pick going empty, 0x1 at 167182, back to empty at
+    /// 182000, 0x1 again at 182726, empty at 184225, 0x1 at 184633, and only then the burn. Three
+    /// placements, TWO take-backs, one commit: a player laying a card down has not decided anything
+    /// yet. That is exactly why a hand-sourced pick INSIDE the selection window must still show a
+    /// back — there the card he is turning over in his hands is the secret the phase protects — and
+    /// the phase term already says so without this record needing to.</para>
     ///
     /// <para>NEVER A CARD ID AND NEVER A CARD NAME. What travels is a POSITION in
     /// <c>Cards.CardsGameApi.GetPileArcWidgets(hand, burnt)</c>, the identical call the
