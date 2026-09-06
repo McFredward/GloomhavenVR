@@ -136,12 +136,19 @@ internal sealed class RemoteCardArt
     /// </summary>
     private UnityEngine.UI.Image? _backdrop;
 
-    /// <summary>How far the backdrop is inset inside the print rect, as a fraction of each side.
-    /// The print is already fitted to <c>(1 - BorderFraction)</c> of the card box, so its rect
-    /// corners sit close to the card's ROUNDED outline; an edge-to-edge quad would square them off
-    /// against a body whose silhouette is punched out. This keeps the backdrop strictly inside the
-    /// printed picture, where the holes are — an action half's background is a large interior
-    /// rectangle — and never near the outline.</summary>
+    /// <summary>How far the backdrop is inset inside the print rect, as a fraction of each side —
+    /// the SEED rect, and the final one only for a clone that is not an ability card.
+    ///
+    /// <para>THE CLAIM THAT USED TO STAND HERE WAS FALSE AND IT WAS PROTECTING A LIVE DEFECT. It read
+    /// "this keeps the backdrop strictly inside the printed picture, where the holes are". It does
+    /// not: a Gloomhaven ability card's top is a scalloped banner and its bottom a notch, so the
+    /// drawn art leaves the 294 × 450 face rect empty for far more than 4 % (18 px) at both ends, and
+    /// the quad showed there as a flat brown rectangle cutting across the card's own curved outline
+    /// — user item 5 of 2026-09-06, "auch der braune Overlay ist dann als Rechteck visibel".
+    /// <see cref="FitBackdropToCardInterior"/> now MEASURES the interior off the clone's own action
+    /// halves instead, and this number survives only as the pre-measurement seed and as the rect a
+    /// peer's ITEM chip keeps (a rounded rectangle with no scallop, and not the reported
+    /// surface).</para></summary>
     private const float BackdropInset = 0.04f;
 
     /// <summary>Unscaled time the backdrop was first seen covering a hole that no load was still
@@ -612,6 +619,7 @@ internal sealed class RemoteCardArt
             int zeroAlpha = 0;
             int images = 0;
             int noSprite = 0;
+            int noSpriteDrawing = 0;
             int imageDisabled = 0;
             int texts = 0;
             float minGroup = 1f;
@@ -641,7 +649,16 @@ internal sealed class RemoteCardArt
                     {
                         images++;
                         if (img.sprite == null)
+                        {
                             noSprite++;
+                            // THE COLUMN THAT ACTUALLY DECIDES ANYTHING. A null sprite on an
+                            // inactive or disabled Image is a FullAbilityCard's unused icon slot
+                            // and paints nothing; a null sprite on one that is DRAWING is art that
+                            // should be there and is not. Reading the first number as the second is
+                            // what made the ModBuild 461 face-gap verdict fire on every card.
+                            if (img.isActiveAndEnabled)
+                                noSpriteDrawing++;
+                        }
                         if (!img.enabled)
                             imageDisabled++;
                     }
@@ -682,7 +699,8 @@ internal sealed class RemoteCardArt
             sb.Append(" + a uGUI print of ").Append(graphics).Append(" Graphic(s) — ")
               .Append(drawing).Append(" drawing, ").Append(zeroAlpha)
               .Append(" at colour alpha 0, the rest inactive; of those ").Append(images)
-              .Append(" are Images (").Append(noSprite).Append(" with a NULL SPRITE, ")
+              .Append(" are Images (").Append(noSprite).Append(" with a NULL SPRITE, of which ")
+              .Append(noSpriteDrawing).Append(" are DRAWING; ")
               .Append(imageDisabled).Append(" disabled) and ").Append(texts)
               .Append(" are TMP texts. ").Append(groupCount)
               .Append(" live CanvasGroup(s), lowest alpha ").Append(minGroup.ToString("F3"))
@@ -692,9 +710,16 @@ internal sealed class RemoteCardArt
               .Append(". HOW TO READ IT. The mesh above wears CardMesh's procedural card BACK — the "
                     + "gold diamond lattice, 8 cells across a card — on BOTH submeshes, and the "
                     + "print stands 0.6 mm in front of it, so anything that stops the print painting "
-                    + "puts that lattice on a peer's card FRONT. NULL SPRITE > 0 with 0 still "
-                    + "loading is the CANCELLED-LOAD defect the PEER CARD ART HEAL line repairs "
-                    + "(the ModBuild 459 logs carry 202 'Load of asset is Canceled!' on the host). "
+                    + "puts that lattice on a peer's card FRONT. READ THE 'DRAWING' SUB-COUNT AND "
+                    + "NOT THE NULL SPRITE TOTAL: a FullAbilityCard is mostly conditional icon "
+                    + "slots and a card that does not use one leaves it inactive with no sprite, so "
+                    + "the total reads ~30 of 45 on a perfectly readable card — bit-identical on "
+                    + "both machines in the ModBuild 461 session, which is what proves it is the "
+                    + "widget's resting state and not a defect. DRAWING > 0 with 0 still loading is "
+                    + "the CANCELLED-LOAD defect the PEER CARD ART HEAL line repairs (the ModBuild "
+                    + "461 session carries 759 'Load of asset is Canceled!' on the host AND 356 on "
+                    + "the owner's own machine, so the cancelling is the game's streaming, not the "
+                    + "mirror). "
                     + "Lowest group alpha below 1.000 is a veil instead, and a lowest of 0.000 with "
                     + "loaders still counting is simply art in flight, which is not a defect at all. "
                     + "Every Image holding a sprite, no loader counting and a lowest alpha of 1.000 "
@@ -744,15 +769,43 @@ internal sealed class RemoteCardArt
             }
             bool hole = false;
             bool arriving = false;
+            int holes = 0;
+            var names = new System.Text.StringBuilder(96);
+            // ─── THE POPULATION, AND THE OLD ONE WAS WRONG BY CONSTRUCTION ──────────────────────
+            // ModBuild 461 asked this over EVERY Image on the clone, includeInactive, and called a
+            // null sprite OR a disabled component a hole. A FullAbilityCard is mostly conditional
+            // icon slots — element infusions, conditions, XP, the second action's default plate —
+            // and a card that does not use one leaves it switched OFF with no sprite. So the
+            // predicate was true for every card ever printed, which is exactly what the 461 logs
+            // say: 314 OPEN, 186 STUCK and ZERO CLOSED on the host, 183 / 64 / 0 on the peer, on
+            // two machines whose SEAT STACK censuses are bit-identical (57 Graphics, 45 Images, 30
+            // with a null sprite, 21-22 drawing) while the user's own photographs show fully
+            // readable card fronts. A verdict that can never reach CLOSED is not measuring a defect.
+            //
+            // A HOLE IS A GRAPHIC THAT IS SWITCHED ON AND PAINTS NO PICTURE. An Image on an inactive
+            // GameObject, or one whose component is disabled, draws nothing and is the widget's
+            // normal "this slot is unused" state — never a hole. An Image that IS active and enabled
+            // and has no sprite draws a flat white quad where art belongs, and that is the thing the
+            // backdrop was built to stand behind.
             var images = _host.GetComponentsInChildren<UnityEngine.UI.Image>(includeInactive: true);
             for (int i = 0; i < images.Length; i++)
             {
                 UnityEngine.UI.Image img = images[i];
                 if (img == null || ReferenceEquals(img, _backdrop))
                     continue;
-                if (img.sprite == null || !img.enabled)
-                    hole = true;
+                if (!img.isActiveAndEnabled || img.sprite != null)
+                    continue;
+                hole = true;
+                holes++;
+                if (holes <= 6)
+                {
+                    if (names.Length > 0)
+                        names.Append(", ");
+                    names.Append('\'').Append(img.name).Append('\'');
+                }
             }
+            if (holes > 6)
+                names.Append(" +").Append(holes - 6).Append(" more");
             var loaders = _host.GetComponentsInChildren<ImageAddressableLoader>(includeInactive: true);
             for (int i = 0; i < loaders.Length; i++)
             {
@@ -768,8 +821,8 @@ internal sealed class RemoteCardArt
                     // HW-VERIFY: report item 6, the "what if it never arrives" half. Grep token:
                     // PEER CARD FACE GAP. This is the RECOVERY edge — the art landed after all.
                     VRLog.Note("Net", $"PEER CARD FACE GAP on slab '{_slab.name}': CLOSED after "
-                        + $"{now - _gapSince:F1}s — every Image in this peer's print holds a sprite "
-                        + "again and no loader is still counting, so the backdrop is covering "
+                        + $"{now - _gapSince:F1}s — every DRAWING Image in this peer's print holds a "
+                        + "sprite again and no loader is still counting, so the backdrop is covering "
                         + "nothing and the card is drawing its real face.");
                 }
                 _gapSince = -1f;
@@ -786,25 +839,34 @@ internal sealed class RemoteCardArt
             if (state == _gapReported)
                 return;
             _gapReported = state;
-            // HW-VERIFY: report item 6, the "what if it never arrives" half. Grep token:
-            // PEER CARD FACE GAP. WORKING = this line present and saying BACKDROP, with no card-back
-            // lattice on screen; INERT = the line absent while a peer's card visibly carries the
-            // lattice, which means the backdrop was never built (DescribeStack then reads
-            // 'backdrop=MISSING'); STILL BEYOND THE INSTRUMENT = 'STUCK' lines that keep appearing
-            // for new cards every round, which is the addressable loader cancelling and is not
-            // something this class can fix — that is a report about the game's streaming.
-            VRLog.Note("Net", $"PEER CARD FACE GAP on slab '{_slab.name}': at least one Image in this "
-                + $"peer's printed face has no sprite (or is disabled) and NO loader is still "
-                + $"counting, {held:F1}s so far — "
+            // HW-VERIFY: report item 6 / 2026-09-06 item 10's shared root. Grep token:
+            // PEER CARD FACE GAP. IT NOW COUNTS ONLY DRAWING IMAGES — see the population note above
+            // for why the ModBuild 461 wording could never reach CLOSED. WORKING = the counts here
+            // are small (single digits) and CLOSED lines appear when art lands; INERT = the line
+            // absent while a peer's card visibly carries the card-back lattice, which means the
+            // backdrop was never built (DescribeStack then reads 'backdrop=MISSING'); STILL BEYOND
+            // THE INSTRUMENT = 'STUCK' lines that keep appearing for new cards every round with a
+            // NAMED image list, which is the addressable loader cancelling and is not something this
+            // class can fix. A reading of ZERO of these lines across a session means the 461 verdict
+            // was measuring the widget's unused icon slots and nothing was ever wrong.
+            VRLog.Note("Net", $"PEER CARD FACE GAP on slab '{_slab.name}': {holes} DRAWING Image(s) "
+                + $"in this peer's printed face hold no sprite and NO loader is still counting, "
+                + $"{held:F1}s so far — "
                 + (state == 2
                     ? "STUCK. CardArtGuard's heal budget for this print is spent, so this card will "
                       + "stay BLANK where the art belongs for the life of the print"
                     : "OPEN. A heal may still land; this is the window, not yet a verdict")
-                + ". BACKDROP: the hole shows the OWNER's own card-edge colour "
-                + "(CardMesh.FaceGapColor), NOT the slab's card back — so the picture is a blank "
-                + "card and never a face-DOWN one. Read the SEAT STACK line beside this for which "
-                + "Images are missing, and the peer's own 'Load of asset is Canceled!' count for "
-                + "why.");
+                + $". THE IMAGES: {names}. BACKDROP: the hole shows the OWNER's own card-edge colour "
+                + "(CardMesh.FaceGapColor) over the card's INTERIOR only (PEER CARD BACKDROP RECT), "
+                + "NOT the slab's card back — so the picture is a blank card and never a face-DOWN "
+                + "one. COUNT ONLY WHAT DRAWS: an Image on an inactive GameObject, or a disabled "
+                + "one, paints nothing and is a FullAbilityCard's normal unused icon slot — the "
+                + "ModBuild 461 predicate counted those and so reported 314 OPEN / 186 STUCK / 0 "
+                + "CLOSED on the host and 183 / 64 / 0 on the peer for cards the user could read "
+                + "perfectly. Read the SEAT STACK line beside this for the whole population, and the "
+                + "'Load of asset is Canceled!' count on BOTH machines for why — 759 on the host and "
+                + "356 on the owner in the same session, i.e. cancellation is a property of the "
+                + "game's streaming and not of being a mirrored clone.");
         }
         catch (System.Exception ex)
         {
@@ -1360,6 +1422,153 @@ internal sealed class RemoteCardArt
         cloneRect.localScale = Vector3.one;
         if (!cloneRect.gameObject.activeSelf)
             cloneRect.gameObject.SetActive(true);
+
+        // …and only now, with the clone centred at unit scale on this canvas, is the backdrop's own
+        // rectangle knowable: it is measured off the clone's action halves, in the clone's frame.
+        FitBackdropToCardInterior(cloneRect);
+    }
+
+    /// <summary>
+    /// PUT THE BACKDROP INSIDE THE PRINTED PICTURE, MEASURED OFF THE CARD RATHER THAN GUESSED.
+    ///
+    /// <para>THE DEFECT (2026-09-06 report item 5, second clause, verbatim: "auch der braune Overlay
+    /// ist dann als Rechteck visibel"). <see cref="_backdrop"/> shipped in ModBuild 461 as a quad
+    /// stretched to the whole canvas rect and pulled in by a flat <see cref="BackdropInset"/> of 4 %,
+    /// and its own doc claimed that "keeps the backdrop strictly inside the printed picture". THAT
+    /// SENTENCE IS FALSE and the user photographed it: a Gloomhaven ability card is not a rectangle.
+    /// Its top is a scalloped banner and its bottom a wide notch, so the drawn art leaves the 294 ×
+    /// 450 face rect EMPTY for far more than 4 % (18 px) at both ends. The backdrop filled that empty
+    /// margin with a flat warm-brown quad whose edges are straight — which is exactly a brown
+    /// RECTANGLE showing through the card's own curved outline, on every mirrored card, permanently,
+    /// with or without a hole to cover. Compare größe_stimmt_nicht.jpg against the owner's own card
+    /// in vergleich_verbrannte_karten.jpg: the tan band under the initiative disc is on one and not
+    /// the other.</para>
+    ///
+    /// <para>THE RECTANGLE THE BACKDROP ACTUALLY NEEDS is the card's INTERIOR — its own doc says so
+    /// in the same breath ("an action half's background is a large interior rectangle"), because that
+    /// is where a cancelled sprite load leaves a hole. So it is now the union of the clone's two
+    /// <c>FullAbilityCardAction</c> rects, measured in the clone's own frame. That rectangle is
+    /// inside the drawn card BY CONSTRUCTION — the halves are the plates the art is painted on — so
+    /// no fraction has to be tuned and no future card layout can push it back outside.</para>
+    ///
+    /// <para>A CLONE THAT IS NOT AN ABILITY CARD (a peer's item chip) keeps the 4 % rect it had:
+    /// an item card's outline is a plain rounded rectangle with no scallop, the reported picture is
+    /// not on that surface, and changing it here would be a change with no evidence behind it.
+    /// A clone that IS an ability card but whose halves cannot be measured gets NO backdrop at all
+    /// and says so once — a missing backdrop is the pre-461 picture, which is a rarer defect than a
+    /// permanent brown rectangle on every card.</para>
+    /// </summary>
+    private void FitBackdropToCardInterior(RectTransform cloneRect)
+    {
+        if (_backdrop == null)
+            return;
+        try
+        {
+            var full = cloneRect.GetComponent<FullAbilityCard>();
+            if (full == null)
+            {
+                // Not an ability face — leave the stretched 4 % rect exactly as EnsureHost built it.
+                if (!_backdrop.enabled)
+                    _backdrop.enabled = true;
+                return;
+            }
+
+            bool any = false;
+            float xMin = float.MaxValue, yMin = float.MaxValue;
+            float xMax = float.MinValue, yMax = float.MinValue;
+            AddHalfRect(full.topActionButton, cloneRect, ref any, ref xMin, ref yMin, ref xMax, ref yMax);
+            AddHalfRect(full.bottomActionButton, cloneRect, ref any, ref xMin, ref yMin, ref xMax, ref yMax);
+
+            var rect = (RectTransform)_backdrop.transform;
+            if (!any || xMax - xMin < 1f || yMax - yMin < 1f)
+            {
+                _backdrop.enabled = false;
+                ReportBackdropInteriorOnce(false, 0f, 0f);
+                return;
+            }
+
+            // The clone is centred on this canvas at unit scale (the block above), so a clone-local
+            // rectangle IS a canvas-local one and the backdrop can take it as a centred anchor pair.
+            var center = new Vector2(0.5f, 0.5f);
+            rect.anchorMin = center;
+            rect.anchorMax = center;
+            rect.pivot = center;
+            rect.sizeDelta = new Vector2(xMax - xMin, yMax - yMin);
+            rect.anchoredPosition = new Vector2((xMin + xMax) * 0.5f, (yMin + yMax) * 0.5f);
+            if (!_backdrop.enabled)
+                _backdrop.enabled = true;
+            ReportBackdropInteriorOnce(true, xMax - xMin, yMax - yMin);
+        }
+        catch (System.Exception ex)
+        {
+            // A backdrop we could not place is a backdrop we do not draw: a wrong rectangle is the
+            // defect this method exists to remove.
+            if (_backdrop != null)
+                _backdrop.enabled = false;
+            VRLog.Warn("Net", $"Peer card backdrop could not be fitted ({ex.GetType().Name}) — it is "
+                              + "switched off for this print rather than drawn at a guessed size.");
+        }
+    }
+
+    /// <summary>Grow the running union by one action half's rect, expressed in the CLONE's frame.
+    /// Inactive halves are included deliberately: the rectangle is a LAYOUT question, and a card
+    /// whose bottom half is switched off still has its plate in the same place.</summary>
+    private static void AddHalfRect(FullAbilityCardAction? half, RectTransform cloneRect,
+                                    ref bool any, ref float xMin, ref float yMin,
+                                    ref float xMax, ref float yMax)
+    {
+        RectTransform? r = half != null ? half.transform as RectTransform : null;
+        if (r == null)
+            return;
+        Rect local = r.rect;
+        for (int i = 0; i < 4; i++)
+        {
+            var corner = new Vector3(
+                i is 0 or 1 ? local.xMin : local.xMax,
+                i is 0 or 3 ? local.yMin : local.yMax, 0f);
+            Vector3 p = cloneRect.InverseTransformPoint(r.TransformPoint(corner));
+            if (p.x < xMin) xMin = p.x;
+            if (p.x > xMax) xMax = p.x;
+            if (p.y < yMin) yMin = p.y;
+            if (p.y > yMax) yMax = p.y;
+            any = true;
+        }
+    }
+
+    /// <summary>One line per process for the backdrop's rectangle — see
+    /// <see cref="FitBackdropToCardInterior"/>.</summary>
+    private static bool s_loggedBackdropInterior;
+
+    private static void ReportBackdropInteriorOnce(bool fitted, float w, float h)
+    {
+        if (s_loggedBackdropInterior)
+            return;
+        s_loggedBackdropInterior = true;
+        Vector2 face = Cards.CardFace.ObservedFacePixels;
+        // HW-VERIFY: report item 5, second clause. Grep token: PEER CARD BACKDROP RECT.
+        // WORKING = "FITTED" with a width well under the face width and no brown band visible under
+        // a peer's initiative disc. INERT = the line absent, which means FitBackdropToCardInterior
+        // never ran and the 4 % canvas-stretch rect from ModBuild 461 is still being drawn.
+        // STILL BEYOND THE INSTRUMENT = "NO HALVES" lines, i.e. peers' cards now carry no backdrop
+        // at all and a cancelled load would once again show the slab through the hole.
+        VRLog.Note("Net", fitted
+            ? $"PEER CARD BACKDROP RECT: FITTED to the card's INTERIOR — {w:F0}x{h:F0} canvas units "
+              + $"inside a {face.x:F0}x{face.y:F0} px face, measured as the union of the clone's two "
+              + "FullAbilityCardAction rects. ModBuild 461 stretched this quad across the WHOLE face "
+              + "rect and pulled it in by a flat 4 %, and claimed in its own doc that this 'keeps the "
+              + "backdrop strictly inside the printed picture'. It does not: an ability card's top is "
+              + "a scalloped banner and its bottom a notch, so the drawn art leaves the face rect "
+              + "empty for much more than 18 px at both ends and the quad showed there as a flat "
+              + "brown RECTANGLE cutting across the card's own curved outline — user item 5, 'auch "
+              + "der braune Overlay ist dann als Rechteck visibel'. The halves are the plates the "
+              + "card art is painted on, so this rectangle is inside the drawn picture by "
+              + "construction and no fraction is being tuned."
+            : "PEER CARD BACKDROP RECT: NO HALVES — this ability clone exposes no measurable "
+              + "FullAbilityCardAction rects, so the face-gap backdrop is SWITCHED OFF for it rather "
+              + "than drawn at a guessed size. That is the pre-ModBuild-461 picture: a cancelled "
+              + "sprite load would show the slab's card back through the hole again (report item 6). "
+              + "Reading this line means the interior measurement failed, not that the backdrop was "
+              + "never built.");
     }
 
     /// <summary>
@@ -1958,7 +2167,14 @@ internal sealed class RemoteCardArt
             // is a picture the owner never has.
             Material? flame = MaterialOf(_flameQuad);
             if (flame != null)
+            {
                 flame.SetFloat(FxAnimId, Mathf.Clamp(k * 4f, 0f, 1f) / 2f);
+                // …and, the first time this surface reaches the settled 0.5, say whether the sheet
+                // is actually being DRAWN. See ReportFlameDrawnOnce for why an arming report was
+                // not enough to answer report item 10.
+                if (k >= 0.25f)
+                    ReportFlameDrawnOnce(flame);
+            }
             if (look == CardFxLook.Ghost && _burnTexts != null && _burnTextColours != null)
             {
                 // GhostOutOnTimeline's text rule (CardEffects.cs:700-708) and it is a DIFFERENT rule,
@@ -2191,9 +2407,17 @@ internal sealed class RemoteCardArt
     ///
     /// <para>THE SHEET IS INERT AT REST. <c>RestoreCard</c> leaves the overlay ACTIVE and simply
     /// zeroes <c>_FXAnim</c> (CardEffects.cs:488-491), and <c>BurnCardTimeline</c> - unlike
-    /// <c>GhostOutOnTimeline</c> (:624-626) - never switches the GameObject on at all, which is the
-    /// proof that it is authored ON. So this method writes <c>_FXAnim = 0</c> into the fresh copy
-    /// and the card looks exactly as it did before until a progress call moves it.</para>
+    /// <c>GhostOutOnTimeline</c> (:624-626) - never switches the GameObject on at all. So this method
+    /// writes <c>_FXAnim = 0</c> into the fresh copy and the card looks exactly as it did before
+    /// until a progress call moves it.</para>
+    ///
+    /// <para>AN EARLIER VERSION OF THIS PARAGRAPH CALLED THAT ASYMMETRY "the proof that it is
+    /// authored ON". IT IS NOT A PROOF, it is a hypothesis: the only thing the two timelines differ
+    /// in is that one of them takes the trouble to activate, and a defensive activation reads the
+    /// same in a decompile as a required one. Nothing in <c>CardEffects</c> ever switches the object
+    /// OFF, so its resting state is scene data this mod cannot read from source at all — which is
+    /// precisely why the state is now MEASURED at the settled point of the ramp instead
+    /// (<see cref="ReportFlameDrawnOnce"/>) rather than argued about here.</para>
     /// </summary>
     private void BuildFlameQuad(UnityEngine.UI.Image[] all, CardFxLook look)
     {
@@ -2250,6 +2474,124 @@ internal sealed class RemoteCardArt
             // At rest until a progress call moves it - the same value RestoreCard leaves behind.
             copy.SetFloat(FxAnimId, 0f);
             return;
+        }
+    }
+
+    /// <summary>One line per (surface) for the flame sheet's DRAWN state — see
+    /// <see cref="ReportFlameDrawnOnce"/>.</summary>
+    private static readonly bool[] s_flameDrawnLogged = new bool[4];
+
+    /// <summary>
+    /// SAY WHETHER THE FIRE IS BEING DRAWN, at the instant its own timeline has settled — the
+    /// question ModBuild 461's arming line does NOT answer.
+    ///
+    /// <para>THE REPORT (2026-09-06 item 10, verbatim): "Die Feueranimation auf der remote Karten in
+    /// den Mulden nach dem Verbrennen ist immer noch nicht sichtbar. Nur bei sich selber lokal." And
+    /// the 461 falsifier says the rig ARMED on both <c>[Recess]</c> and <c>[Flight]</c>, with a
+    /// non-degenerate footprint and no refusal clause. So every term that line measures is correct
+    /// and the picture is still missing, which means the line is measuring the WRONG THING: it is a
+    /// report about a WRITE (a material minted, nine constants set, an <c>_FXAnim</c> ramp attached)
+    /// and the user's complaint is about a PICTURE.</para>
+    ///
+    /// <para>THREE HYPOTHESES ARE ALREADY DEAD, and none of them needs measuring again.
+    /// (1) "An Image with no sprite draws nothing." FALSE, and it is false in this very file: with
+    /// <c>sprite == null</c> <c>Image.OnPopulateMesh</c> falls through to <c>Graphic</c>'s, which
+    /// fills the whole rect with <c>color</c> against <c>Graphic.s_WhiteTexture</c> — which is
+    /// exactly how <see cref="_backdrop"/>, a sprite-less flat quad, paints at all. The overlay is
+    /// authored sprite-less BY DESIGN; its picture comes from <c>_ParticleTexture</c>.
+    /// (2) "The peer's card art never loads." FALSE for this surface: see
+    /// <see cref="TickBackdropVerdict"/>'s population note — the 461 verdict counted a
+    /// FullAbilityCard's unused icon slots and the two machines' censuses are bit-identical.
+    /// (3) "_PosAndBounds is wrong on the flame material." NOT APPLICABLE:
+    /// <c>CardEffects.Initialize</c> writes that vector to <c>imgComp</c> only (CardEffects.cs
+    /// :338-347) and never to <c>fgFx</c>, so the sheet does not read it.</para>
+    ///
+    /// <para>WHAT IS LEFT IS EVERYTHING BETWEEN A CORRECT MATERIAL AND A PIXEL, and this line names
+    /// each of them: whether the quad is active IN HIERARCHY (the arming line checks only its OWN
+    /// <c>activeSelf</c>, so an inactive ANCESTOR on the clone is invisible to it) and which
+    /// ancestor is off if it is not; the Image's own vertex COLOUR, which every uGUI shader
+    /// multiplies by and which the ModBuild 461 SEAT STACK census reports two active graphics
+    /// sitting at zero; the lowest inherited <c>CanvasGroup</c> alpha over the same chain; the rect
+    /// it covers as a percentage of the print, because a zero rect draws nothing; the shader NAME
+    /// and render queue actually bound; and a read-back of the four properties that decide the look,
+    /// including whether <c>_ParticleTexture</c> really took the authored frame.</para>
+    ///
+    /// <para>Latched per SURFACE and never per card, on the same discipline as the arming line.</para>
+    /// </summary>
+    private void ReportFlameDrawnOnce(Material flame)
+    {
+        int s = (int)Surface;
+        if (s < 0 || s >= s_flameDrawnLogged.Length || s_flameDrawnLogged[s] || _flameQuad == null)
+            return;
+        s_flameDrawnLogged[s] = true;
+        try
+        {
+            UnityEngine.UI.Image quad = _flameQuad;
+            var rt = quad.rectTransform;
+            Rect r = rt.rect;
+            Vector2 face = _clone != null && _clone.transform is RectTransform cr
+                ? cr.rect.size
+                : Vector2.zero;
+
+            // The chain from the quad up to the host: the first ancestor that is switched OFF is the
+            // whole answer when one is, and the lowest CanvasGroup alpha over the same walk is the
+            // other half a per-object check cannot see.
+            string offAt = "none";
+            float lowestGroup = 1f;
+            Transform? t = quad.transform;
+            while (t != null)
+            {
+                if (!t.gameObject.activeSelf && offAt == "none")
+                    offAt = t.name;
+                var cg = t.GetComponent<CanvasGroup>();
+                if (cg != null && cg.isActiveAndEnabled && cg.alpha < lowestGroup)
+                    lowestGroup = cg.alpha;
+                if (_host != null && ReferenceEquals(t.gameObject, _host))
+                    break;
+                t = t.parent;
+            }
+
+            Texture? particle = flame.HasProperty(ParticleTextureId)
+                ? flame.GetTexture(ParticleTextureId) : null;
+            Color tint = flame.HasProperty(TintColorId) ? flame.GetColor(TintColorId) : default;
+            float anim = flame.HasProperty(FxAnimId) ? flame.GetFloat(FxAnimId) : -1f;
+            float glow = flame.HasProperty(OverlayGlowId) ? flame.GetFloat(OverlayGlowId) : -1f;
+            Color c = quad.color;
+            bool drawn = quad.isActiveAndEnabled && c.a > 0.004f && lowestGroup > 0.004f
+                         && r.width > 1f && r.height > 1f && particle != null && anim > 0.004f;
+
+            // HW-VERIFY: report item 10. Grep token: PEER CARD FIRE.
+            // WORKING = "DRAWN" with colour alpha and inherited alpha both 1.000, a rect over 100 %
+            // of the face, a named _ParticleTexture and _FXAnim 0.500 — and fire visible on a peer's
+            // burnt card. INERT = this line absent while 'Remote BURN look [Recess] … FIRE=…ARMED'
+            // is present, which means the ramp never reached t = 0.25 on that surface. STILL BEYOND
+            // THE INSTRUMENT = "DRAWN" on every term with no fire on screen, which would leave only
+            // the shader itself and would make the shader name printed here the next round's lead.
+            VRLog.Note("Net", $"PEER CARD FIRE [{Surface}]: {(drawn ? "DRAWN" : "NOT DRAWN")} — "
+                + $"'{quad.name}' activeInHierarchy={quad.gameObject.activeInHierarchy}, "
+                + $"enabled={quad.enabled}, first ancestor switched OFF: {offAt}; vertex colour "
+                + $"RGBA({c.r:F2}, {c.g:F2}, {c.b:F2}, {c.a:F3}); lowest inherited CanvasGroup alpha "
+                + $"{lowestGroup:F3}; rect {r.width:F0}x{r.height:F0} canvas units against a "
+                + $"{face.x:F0}x{face.y:F0} face; shader '{flame.shader?.name ?? "(null)"}' q"
+                + $"{flame.renderQueue}; _ParticleTexture="
+                + $"{(particle != null ? particle.name + " " + particle.width + "x" + particle.height : "NULL")}, "
+                + $"_FXAnim {anim:F3}, _Glow {glow:F2}, _TintColor RGBA({tint.r:F2}, {tint.g:F2}, "
+                + $"{tint.b:F2}, {tint.a:F2}). WHY THIS LINE EXISTS: 'Remote BURN look … FIRE=ARMED' "
+                + "is a report about a WRITE — a material minted and nine constants set — and item "
+                + "10 is a report about a PICTURE, so the two can both be true. THREE LEADS ARE "
+                + "ALREADY DEAD and must not be re-run: a sprite-less Image DOES draw (Graphic's own "
+                + "OnPopulateMesh fills the rect against the white texture — it is how this class's "
+                + "own FaceGapBackdrop paints), the peer's card art is NOT missing (the face-gap "
+                + "verdict was counting a FullAbilityCard's unused icon slots), and the sheet does "
+                + "not read _PosAndBounds (CardEffects writes that vector to imgComp only, never to "
+                + "fgFx). Every remaining step between a correct material and a pixel is named "
+                + "above; the FIRST term that is not at its working value is the cause, and if all "
+                + "of them are, the lead is the shader named here.");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Net", $"PEER CARD FIRE [{Surface}]: reading failed ({ex.GetType().Name}) — "
+                              + "the flame material is unaffected; only this reading is missing.");
         }
     }
 

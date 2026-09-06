@@ -58,6 +58,44 @@ internal sealed class RemoteBoardCard
     private readonly float _width;
     private readonly float _height;
 
+    /// <summary>
+    /// THE CARD BODY'S REAL RECTANGLE — <c>CardFace.VisibleFaceRect(_width, _height)</c>, i.e. the
+    /// rectangle the printed face actually paints inside the nominal <see cref="_width"/> ×
+    /// <see cref="_height"/> card box, and therefore the rectangle the OWNER's own card body is
+    /// scaled to (<c>VRCard.SetCanvasSize</c> fits its backing to exactly this product).
+    ///
+    /// <para>WHY THIS FIELD EXISTS (2026-09-06 report item 5, verbatim: "Die Größe der visiblen
+    /// Karten auf dem remote board ist falsch (das mesh ist größer), dadurch bekommt die Karte auf
+    /// dem Board so einen Rand und auch der braune Overlay ist dann als Rechteck visibel").
+    /// This slot used to build its quad at the FULL nominal card box and let
+    /// <see cref="RemoteCardArt"/> letterbox the cloned face inside it. The game's ability face is
+    /// 294 × 450 px — aspect 0.6533 — against the card's 63.5 : 88, i.e. 0.7216, so a Min() fit
+    /// leaves the print 85.1 % of the box WIDE and 94.0 % of it TALL: a rim of bare body on every
+    /// side, four times wider at the sides than at the ends. On the shipped numbers of this
+    /// session's logs (extension record 11, "Slot-card size RECEIVED from player 2: card 156.8 mm")
+    /// that is a 156.8 × 217.3 mm slab around a 133.4 × 204.3 mm print — 11.7 mm of rim per side.
+    /// The owner's own slot card has no rim at all, because his body IS the 133.4 × 204.3 mm print
+    /// rect; both clients' logs state that number in the same words ("the face PAINTS
+    /// 54.04x82.72 mm — which is the size every card BODY … is scaled to").</para>
+    ///
+    /// <para>IT IS THE THIRD INSTANCE OF ONE DEFECT, and that is why the number is read from
+    /// <c>CardFace</c> rather than spelled here: <c>VRCard</c> fixed it for the local card,
+    /// <c>RemoteHandFan</c> for the peer's hand (user report 12 of 2026-08-15, the same picture on
+    /// a different surface), and this slot was simply never converted. Every other mirrored card
+    /// surface in the mod already asks <c>CardFace.VisibleFaceRect</c>; this one now does too.</para>
+    /// </summary>
+    private Vector2 _bodyRect;
+
+    /// <summary>The <c>CardFace.FacePixelsRevision</c> <see cref="_bodyRect"/> was computed at.
+    /// Revision-gated rather than value-compared for the same reason <c>RemoteHandFan.SyncFaceRect</c>
+    /// is: this client learns the real 294 × 450 face size the first time it hosts an ability card of
+    /// its own, which may be AFTER a spectator has already seen a peer's board.</summary>
+    private int _bodyRectRevision = int.MinValue;
+
+    /// <summary>One line per process for the recess body rect (see <see cref="SyncBodyRect"/>).
+    /// STATIC: one line means "at least one recess reached this size", never "exactly one did".</summary>
+    private static bool s_loggedBodyRect;
+
     private int _shownId = int.MinValue;
     private bool _shownFront;
     private bool _shownEmpty = true;
@@ -149,15 +187,22 @@ internal sealed class RemoteBoardCard
         CardMesh.BindSilhouette(_faceMat, CardBodyKind.Ability, CardMesh.SilhouetteLayer.Mask);
         CardMesh.BindSilhouette(_bodyMat, CardBodyKind.Ability, CardMesh.SilhouetteLayer.Mask);
 
-        _bg = BoardVisual.Quad(_root.transform, "Face", new Vector2(width, height), _backMat);
+        // THE BODY IS THE PRINT'S OWN RECTANGLE, NOT THE NOMINAL CARD BOX — see _bodyRect. The quad
+        // is built at unit size and SyncBodyRect carries the rect on its localScale, so the same one
+        // expression serves the build and the (rare) later revision.
+        _bg = BoardVisual.Quad(_root.transform, "Face", Vector2.one, _backMat);
+        SyncBodyRect();
+        Vector2 body = _bodyRect;
 
+        // The fallback parchment panel rides the BODY, not the nominal box: it is drawn on this same
+        // quad, so a label sized to the box would overhang the card it is printed on.
         _initLabel = RemoteBoardContent.Label(_root.transform, "Initiative",
-            new Vector3(0f, height * 0.34f, -0.001f),
-            new Vector2(width * 0.9f, height * 0.28f), 0.09f,
+            new Vector3(0f, body.y * 0.34f, -0.001f),
+            new Vector2(body.x * 0.9f, body.y * 0.28f), 0.09f,
             new Color(0.12f, 0.10f, 0.08f), TextAlignmentOptions.Center, FontStyles.Bold);
         _nameLabel = RemoteBoardContent.Label(_root.transform, "Name",
-            new Vector3(0f, -height * 0.12f, -0.001f),
-            new Vector2(width * 0.86f, height * 0.5f), 0.045f,
+            new Vector3(0f, -body.y * 0.12f, -0.001f),
+            new Vector2(body.x * 0.86f, body.y * 0.5f), 0.045f,
             new Color(0.14f, 0.11f, 0.09f), TextAlignmentOptions.Center, FontStyles.Normal, wrap: true);
 
         // The ramp's own clock — only for a recess that has one (see the constructor doc), so the
@@ -181,7 +226,53 @@ internal sealed class RemoteBoardCard
     /// the user reported on remote cards. Called by the owners on their 4 Hz content cadence;
     /// self-early-returns while no front is up, so it is free on backs/empty slots.
     /// </summary>
-    public void MaintainMips() => _art?.MaintainMipBake();
+    public void MaintainMips()
+    {
+        SyncBodyRect();
+        _art?.MaintainMipBake();
+    }
+
+    /// <summary>
+    /// Scale the body quad to the rectangle the print actually paints — see <see cref="_bodyRect"/>
+    /// for the defect and the arithmetic. One int compare while nothing has moved, which is what
+    /// makes it safe on the board's 4 Hz cadence and in the constructor alike.
+    /// </summary>
+    private void SyncBodyRect()
+    {
+        if (_bodyRectRevision == CardFace.FacePixelsRevision && _bodyRect.x > 0f)
+            return;
+        _bodyRectRevision = CardFace.FacePixelsRevision;
+        Vector2 vis = CardFace.VisibleFaceRect(_width, _height);
+        if (vis.x <= 0f || vis.y <= 0f)
+            return;
+        _bodyRect = vis;
+        if (_bg != null)
+            _bg.transform.localScale = new Vector3(vis.x, vis.y, 1f);
+        if (s_loggedBodyRect)
+            return;
+        s_loggedBodyRect = true;
+        // HW-VERIFY: report item 5. Grep token: REMOTE RECESS CARD RECT.
+        // WORKING = "rim 0.0 x 0.0 mm" and the three sizes equal. INERT = the line absent while a
+        // peer's board card still shows a rim (this method never ran). STILL BEYOND THE INSTRUMENT =
+        // a non-zero rim, which means the print is NOT being fitted by CardFace's own product and
+        // the lead is RemoteCardArt.FitClone rather than this quad.
+        VRLog.Note("Net", "REMOTE RECESS CARD RECT: this peer's board recess is drawn at "
+            + $"nominal card box {_width * 1000f:F1}x{_height * 1000f:F1} mm (slot-root local, "
+            + "extension record 11 — the owner's own slot-card size), the game's ability face is "
+            + $"{CardFace.ObservedFacePixels.x:F0}x{CardFace.ObservedFacePixels.y:F0} px, so the "
+            + $"PRINT is fitted to {vis.x * 1000f:F1}x{vis.y * 1000f:F1} mm and the card BODY is now "
+            + $"scaled to exactly that — rim {(_width - vis.x) * 500f:F1} x "
+            + $"{(_height - vis.y) * 500f:F1} mm per side. WHY THE THREE NUMBERS: the face's aspect "
+            + "(0.653 on the shipped 294x450 widget) is not the card's (63.5:88 = 0.722), so a "
+            + "Min() letterbox leaves the print 85 % of the box wide and 94 % of it tall. Until "
+            + "ModBuild 462 this quad was built at the NOMINAL box and the difference showed as a "
+            + "rim of bare card body four times wider at the sides than at the ends — user item 5, "
+            + "'das mesh ist größer … dadurch bekommt die Karte so einen Rand'. The OWNER has no "
+            + "rim because VRCard.SetCanvasSize fits his backing to this same product; his own log "
+            + "states it as the [Cards] CARD FACE RECT line ('the face PAINTS 54.04x82.72 mm — "
+            + "which is the size every card BODY … is scaled to'). A rim above 0.1 mm here means "
+            + "the two builders have drifted again, which is what this line exists to catch.");
+    }
 
     /// <summary>
     /// Show <paramref name="card"/> face-up when <paramref name="front"/> — as the REAL game card
@@ -1550,9 +1641,14 @@ internal sealed class RemoteBoardCard
     /// <summary>Build the two glow quads + capture their materials (lazy — first hover/click).</summary>
     private void BuildHalfGlows()
     {
-        var size = new Vector3(_width * Cards.HalfSelection.ZoneWidthFrac,
-                               _height * Cards.HalfSelection.ZoneHeightFrac, 1f);
-        float centerY = _height * Cards.HalfSelection.ZoneCenterYFrac;
+        // FRACTIONS OF THE CARD, AND THE CARD IS THE BODY RECT (see _bodyRect). HalfSelection's
+        // three fractions are measured against the owner's own card, whose backing is fitted to the
+        // printed rect — taking them against the nominal box instead would put a peer's half glow
+        // 17.5 % wide of the half it is supposed to be lighting.
+        Vector2 body = _bodyRect;
+        var size = new Vector3(body.x * Cards.HalfSelection.ZoneWidthFrac,
+                               body.y * Cards.HalfSelection.ZoneHeightFrac, 1f);
+        float centerY = body.y * Cards.HalfSelection.ZoneCenterYFrac;
         const float glowZ = -0.004f; // in front of the face art's ~1.4 mm standoff
         _halfGlowTop = CardGlow.CreateGlowQuad("HalfHoverTop", _root.transform,
             size, new Vector3(0f, centerY, glowZ), GlowGold);
@@ -1910,8 +2006,10 @@ internal sealed class RemoteBoardCard
             return;
         Transform t = _root.transform;
         float lossy = t.lossyScale.x;
-        float halfW = _width * 0.5f * lossy;
-        float halfH = _height * 0.5f * lossy;
+        // THE DUST IS EMITTED OVER THE CARD, and the card is the BODY rect (see _bodyRect): the
+        // owner's own puff spans his backing, which is that rectangle and not the nominal box.
+        float halfW = _bodyRect.x * 0.5f * lossy;
+        float halfH = _bodyRect.y * 0.5f * lossy;
         if (halfW < 1e-4f || halfH < 1e-4f)
             return;
         if (appear)

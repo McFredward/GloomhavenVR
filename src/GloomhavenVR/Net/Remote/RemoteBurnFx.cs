@@ -571,11 +571,22 @@ internal sealed class RemoteBurnFx
             go.transform.SetParent(_root.transform, worldPositionStays: false);
             float w = RemoteHandFan.DefaultCardWidth;
             float h = RemoteHandFan.DefaultCardHeight;
-            var filter = go.AddComponent<MeshFilter>();
+            // THE BODY IS SIZED TO THE FACE IT WILL WEAR, one level down, exactly as
+            // RemoteHandFan builds its slabs (2026-09-06 report item 5, the third instance of one
+            // defect). The flight slab used to carry the mesh on the ROOT at the full nominal
+            // 63.5 x 88 mm while RemoteCardArt letterboxed the 294 x 450 px print inside it, so a
+            // burning card flew across the table with 17.5 % more body than print at the sides.
+            // The root STAYS uniform — Fly() writes its localScale and the print's world-space
+            // canvas hangs off it, so a non-uniform scale here would stretch the art.
+            var body = new GameObject("Body");
+            body.transform.SetParent(go.transform, worldPositionStays: false);
+            Vector2 vis = CardFace.VisibleFaceRect(w, h);
+            body.transform.localScale = new Vector3(vis.x / w, vis.y / h, 1f);
+            var filter = body.AddComponent<MeshFilter>();
             // The owner's punched-out ABILITY body, out of CardMesh's shared cache (never ours to
             // destroy) — the same body every other mirrored card slab wears.
             CardMesh.AttachBody(filter, CardBodyKind.Ability, w, h);
-            var renderer = go.AddComponent<MeshRenderer>();
+            var renderer = body.AddComponent<MeshRenderer>();
             Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability);
             renderer.sharedMaterials = new[] { back, back };
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
