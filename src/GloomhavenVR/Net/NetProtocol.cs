@@ -433,7 +433,60 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 449;
+    public const ushort ModBuild = 450;
+    // Build 450: two user rulings and two documentation pictures — no hardware round behind this one.
+    //   * A SHARED WINDOW IS THE SAME SIZE FOR EVERY PLAYER ("Gewährleiste das"). The cause was
+    //     systemic: the two test machines have different authored canvases (host 1920x1080, peer
+    //     2580x1080), the game's canvas scaler matches on HEIGHT, and the mod pins physical WIDTH —
+    //     so both clients agreed on the width and THE HEIGHT ABSORBED THE WHOLE ASPECT DIFFERENCE.
+    //     Two of the four shared windows were already broken, not one: Map Story 1200x675 vs
+    //     1200x502 mm, and the encounter window 842x132 vs 1200x502. The quest popup was 1:1 only
+    //     because it is a fixed-size card AND both players were on default dials.
+    //     PUTTING THE OWNER'S NUMBER ON THE WIRE IS IMPOSSIBLE, not merely worse: a converted panel
+    //     draws at a UNIFORM scale, so its size is rectPx * k for one scalar — adopt the owner's
+    //     width and the heights still differ, adopt the height and the widths do. Two rects of
+    //     different aspect cannot be reconciled by any scalar. The divergence had to leave the RECT,
+    //     so a client-independent DESIGN FRAME is resolved inside Convert, at the one moment the
+    //     target's root canvas is still the game's. Stated cost, and it is real: the legibility and
+    //     canvas-scale dials no longer move those four windows — they cannot, because the moment one
+    //     player moves one it is no longer the same window.
+    //     Guaranteed by a wire-test SOURCE GATE that fails the build on any of fifteen client-local
+    //     tokens in the law, and asserts the population enum's member count so a fifth shared window
+    //     cannot appear without someone deciding its frame.
+    //   * AND THE RESIZE IS SHARED TOO, LIVE ("alle Spieler sehen wie es skalliert"). My brief said
+    //     the two-hand resize was unshared; THAT WAS FALSE and the lane corrected it — records 19
+    //     and 21 have carried the grab factor since ModBuild 226, published mid-drag at the 15 Hz
+    //     rig rate while a hand is on it. What was not shared was one word: EXAKT. The publisher
+    //     rounds to hundredths and every follower stands on that 0.01 grid, while the PULLER kept
+    //     the unrounded pinch float — a permanent residual of up to half a code, 6 mm on the
+    //     1200 mm story window, with no edge left to heal it because the absolute re-send keeps
+    //     saying the same byte. The puller now stands on the wire's own grid: the quantiser is
+    //     literally Decode(Encode(x)) against the shipped codec, so there is no second constant to
+    //     drift and the clamp question answers itself.
+    //     It also caught a false alarm baked into yesterday's instrument: SHARED WINDOW SIZE TERMS
+    //     would have printed DISAGREES for every resized shared window, because realMm contains the
+    //     grab factor and lawMm did not — and that line's own text reads a disagreement as "some
+    //     other writer is bypassing the fix".
+    //   * THE README'S CONTROLLER IS A QUEST 3 NOW, and the caption stops lying. The old picture was
+    //     generic while the caption said "A Quest 3 is shown". The decisive feature is one nobody
+    //     recalls correctly and no written description produced: the top of a Touch Plus is a matte
+    //     CHARCOAL-BLACK OVAL PLATE overhanging a WHITE body. Four candidates prompted from a careful
+    //     spec all came out uniformly light grey, like the artwork they were replacing; only the
+    //     reference photographs fixed it, and they also corrected the face layout the diagram's rings
+    //     are anchored to. Winner picked by measured proportion, not by taste.
+    //   * AND THE CONTROL BOARD IS EXPLAINED THE SAME WAY, in both READMEs and both playing guides.
+    //     The grab rod is a procedural mesh with no FBX, so the artwork is a straight-on render
+    //     through the real BoardLit from the station that already does the styles matrix. Two near
+    //     misses worth keeping: the prefab's anchor transforms carry a ~1.30x scale the board mesh
+    //     does not (markers landed a centimetre outboard of recesses plainly visible in the picture),
+    //     and the first render was MIRRORED and looked entirely plausible — so markers are placed
+    //     from board-local metres and a guard asserts seven source claims against them and refuses
+    //     to build on failure. Two stale labels were found while reading the source and left
+    //     unlabelled: a settings gear the code still lists but no longer builds, and a short-rest
+    //     widget a comment says docks on the board and does not.
+    // Wire: NOTHING new. The shared resize rides the sizeCode byte records 19 and 21 already carry.
+    // Documented worst case stays 1735; MaxSize stays 2100.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 449: fifteen reported items, eleven lanes. THE THEME: this round is almost entirely
     // SENTENCES THIS PROJECT WROTE ABOUT ITSELF AND NEVER RE-READ — six defects were each held in
     // place by a comment asserting the very thing the hardware falsified.
