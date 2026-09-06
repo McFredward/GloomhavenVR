@@ -721,6 +721,11 @@ internal sealed partial class CardsDriver
 
         _fanBuffer.Clear();
         _halfBuffer.Clear();
+        // The fan's SOURCE PILE is rewritten by whichever branch below fills the fan, so it starts
+        // every rebuild at "nothing is being fanned". Only the modal-pick branch ever sets it to a
+        // pile: an ordinary hand fan is the DEFAULT and is deliberately left unsaid, which is what
+        // keeps the wire record it feeds absent on every packet of every player who is not mid-pick.
+        _fanSourcePile = CardPileType.None;
 
         // Test #15: the tray is the central DASHBOARD — visible for the whole
         // scenario (initiative track, objectives, confirm/undo, settings), not only
@@ -935,6 +940,12 @@ internal sealed partial class CardsDriver
                 }
                 LogPickFillGate(mode, pickOpen, refusedPile, hand);
                 LogPickSource(mode, pickSource);
+                // THE SAME VALUE THE LINE ABOVE PRINTS, PUBLISHED RATHER THAN RE-DERIVED. A peer
+                // mirroring this fan has no way to compute it (see _fanSourcePile) and every other
+                // way of guessing it — matching lengths against the candidate piles — can be
+                // confidently wrong, which is the one failure a card face must not have. Read by
+                // Net.LocalRigSampler.SampleFanSource for extension record 43.
+                _fanSourcePile = pickSource;
                 RelayoutField();
                 break;
 

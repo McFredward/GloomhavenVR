@@ -505,6 +505,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// never ran", and those are different defects.</summary>
     private int _lastSentSpentMask = -1;
 
+    /// <summary>Change gate for the FAN SOURCE line (record 43). -1 so the first sample prints
+    /// whatever it is, the ordinary "my fan is my hand" reading included — a first line that states
+    /// the resting value is what makes a later silence readable as "nothing changed" rather than as
+    /// "the instrument never ran".</summary>
+    private int _lastSentFanSource = -1;
+
     /// <summary>Popcount of a 16-bit mask — how many items record 35 is framing. Used by the edge
     /// log only; the wire carries the mask itself.</summary>
     private static int CountBits(ushort mask)
@@ -3259,6 +3265,57 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 + "bytes. The BURN half of item 8 is a different mechanism and is already shipped: "
                 + "RemoteBurnFx resolves the burnt card out of the host-replicated LostAbilityCards "
                 + "and replays the game's own char ramp on it — grep BURN CARD, not this token.");
+        }
+        // WHICH PILE THE FAN THIS PLAYER IS HOLDING UP IS DRAWN FROM (record 43, report item 7).
+        // Sampled here beside the held-card face because the two describe ONE arc: the card in the
+        // fist came out of the fan beside it, and before this build the two disagreed about which
+        // list that was.
+        byte fanSource = LocalRigSampler.SampleFanSource();
+        if (NetProtocol.IsFanSourcePile(fanSource))
+        {
+            extras.HasFanSource = true;
+            extras.FanSourceList = fanSource;
+        }
+        if (fanSource != _lastSentFanSource)
+        {
+            _lastSentFanSource = fanSource;
+            // HW-VERIFY: report item 7, the SENDER edge. Grep token: FAN SOURCE. Note tier because
+            // either tester can be the one long-resting and the co-player runs at the shipped
+            // default level; the RECEIVER prints the same token, so one grep across BOTH logs
+            // settles it with no arithmetic.
+            //
+            // WORKING = a "FAN SOURCE SENT: the DISCARD pile" line at the start of a long rest burn
+            // step, the observer naming DISCARD in its own FAN SOURCE line within a packet or two,
+            // and a PEER CARD FACE CENSUS whose hand-fan row then reads N FRONT / 0 BACK with the
+            // rule naming a PICK FAN.
+            //
+            // INERT = this line stays on "the HAND" for the whole of a long rest whose burn step is
+            // in the same log ("Long rest: BURN step active"). Then CardsDriver never wrote
+            // _fanSourcePile, the record is empty by construction, and the SAMPLER is the half that
+            // failed rather than the mirror.
+            //
+            // STILL BEYOND THE INSTRUMENT = this line names DISCARD, the receiver names DISCARD,
+            // and the census STILL reads BACKs with LENGTH BELT beside them. Then the two clients
+            // disagree about the CONTENTS of that pile rather than about which pile it is, the belt
+            // is doing exactly its job, and the two counts it prints are the next reading — no part
+            // of this record can move them.
+            VRLog.Note("Net", "FAN SOURCE SENT: "
+                + (NetProtocol.IsFanSourcePile(fanSource)
+                    ? (fanSource == NetProtocol.HeldFaceListBurnt ? "the BURNT pile" : "the DISCARD pile")
+                      + " - this player's fan is a MODAL PICK over that pile right now (a long "
+                      + "rest's burn step, an avoid-damage burn, a card-limit discard, a recover), "
+                      + "not their hand"
+                    : "the HAND - the ordinary fan, which is the default every receiver already "
+                      + "resolves, so NO record is written for it and this packet is byte-identical "
+                      + "to ModBuild 458's")
+                + " (record 43, one list-id byte). NO card identity: it names a LIST, never a card "
+                + "and never a position in one. Peers resolve every face out of THEIR OWN copy of "
+                + "that host-replicated pile, refuse it unless their copy is exactly as long as the "
+                + "fan on the wire, and ask RevealGate first with the SAME phase term a hand fan "
+                + "gets (RevealGate.PeerCardPopulation.PickFan). Before this record every observer "
+                + "resolved this arc as the HAND, which during a long rest is a list of a different "
+                + "length - the length belt then refused every face in the fan and the whole arc "
+                + "went to BACKS, which is report item 7.");
         }
         if (faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1)
         {

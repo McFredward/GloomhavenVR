@@ -20489,6 +20489,81 @@ internal static class NetProtocol
         return bit != 0 && (mask & bit) != 0;
     }
 
+    // ---- record 43: FAN SOURCE PILE ----------------------------------------------------------
+    //
+    // Id 43 by ASSIGNMENT, and the same rule as record 41 above: 38, 40 and 42 are unclaimed holes
+    // left by parallel development of the 2026-09-05 and 2026-09-06 rounds and are deliberately NOT
+    // reused. A shipped record id can never be renumbered, and a lane taking "the next free number"
+    // is exactly the habit that produced this file's one id collision (see the note above record 22)
+    // — which is why this one takes the number the round's shared brief NAMED as free rather than
+    // the smallest unused byte it could find.
+
+    /// <summary>
+    /// WHICH PILE THE SENDER'S HAND FAN IS DRAWN FROM RIGHT NOW — one list-id byte, in the SAME
+    /// vocabulary <see cref="ExtIdHeldCardFace"/> already uses (<see cref="HeldFaceListDiscard"/> /
+    /// <see cref="HeldFaceListBurnt"/>). Absent means the HAND, which is what every fan was before
+    /// this record and what every sender predating it still means.
+    ///
+    /// <para>THE DEFECT IT CLOSES — user, 2026-09-06, item 7, verbatim: "Bei einer langen Rast
+    /// werden bei dem betroffenen Spieler die Handkarten zu den abgeworfenen Karten. Diese sollen
+    /// auch mit der Vorderseite sichtbar sein für alle Spieler. Aktuell ist der Fächer als auch die
+    /// Karte in der Hand des Spielers wieder nur die Rückseite obwohl es sich hier nicht um die
+    /// Auswahlphase handelt."</para>
+    ///
+    /// <para>AND IT IS NOT THE PHASE, WHICH IS THE FIRST THING TO SAY ABOUT IT, because the obvious
+    /// reading of that report is that something classified the long rest as the selection phase. It
+    /// did not. The host's own census stands at <c>RevealGate.ShowRoundCardFronts(actor)=true</c>
+    /// for the whole of the co-player's long rest, and the hand fan's rule beside it reads
+    /// <c>LENGTH BELT: 6 model card(s) vs 2 slab(s) on the wire</c>. The reveal gate was OPEN; what
+    /// was shut was the ARITHMETIC. During a long rest's burn step the game re-Shows the owner's
+    /// hand over the DISCARD pile (<c>CardHandMode.LoseCard</c>, the co-player's own log:
+    /// <c>Pick fan source (LoseCard): discard pile</c>), so the arc the owner holds up is their
+    /// discard pile — while every observer resolved it as the HAND
+    /// (<c>CardsGameApi.HandFanMember</c>), got a list of a different length, and had
+    /// <c>Net.RemoteHandFan</c>'s length belt refuse every face in it.</para>
+    ///
+    /// <para>WHY IT HAS TO TRAVEL AT ALL, against this protocol's standing preference for a value
+    /// both clients compute. The CONTENTS of every candidate pile are host-replicated and both
+    /// clients hold them; WHICH of them is being fanned is not. It is decided by
+    /// <c>CardsHandUI.Show(..., selectableCardType, ...)</c> and read back off
+    /// <c>AbilityCardUI.IsSelectable</c> — local UI state on the picking player's machine, which no
+    /// other client's copy of the model reflects. The one alternative — accepting whichever
+    /// candidate pile happens to match the slab count — is a guess, and a guess here draws a
+    /// CONFIDENTLY WRONG face, which is the single failure every card-face path in this protocol is
+    /// written to avoid.</para>
+    ///
+    /// <para>NO CARD IDENTITY. The byte names a LIST, not a card and not a position in one. The
+    /// receiver still resolves every face out of its own copy of that host-replicated list, still
+    /// refuses unless its length matches the slab count on the wire, and still asks
+    /// <c>Net.RevealGate</c> for permission first — with the same phase term a hand fan gets (see
+    /// <c>RevealGate.PeerCardPopulation.PickFan</c>). This record widens no secret.</para>
+    ///
+    /// <para>Written ONLY while the fan really is a pile — i.e. while a modal pick is up, a handful
+    /// of seconds per long rest or burn — so every other packet is byte-identical to ModBuild 458's.
+    /// ADDITIVE TLV: a peer predating the record steps over it by its length and resolves the hand,
+    /// which is exactly the picture it drew before.</para>
+    /// </summary>
+    public const byte ExtIdFanSource = 43;
+
+    /// <summary>Payload length of <see cref="ExtIdFanSource"/>: one list-id byte.</summary>
+    public const int FanSourceRecordBytes = 1;
+
+    /// <summary>
+    /// Is <paramref name="list"/> a pile this record may name? Exactly
+    /// <see cref="HeldFaceListDiscard"/> and <see cref="HeldFaceListBurnt"/> — the two piles a modal
+    /// pick can fan.
+    ///
+    /// <para>EVERY OTHER VALUE IS "ABSENT", AND THAT IS THE WHOLE VALIDATION. The hand
+    /// (<see cref="HeldFaceListHand"/>) is the DEFAULT and is never written, so an explicit hand id
+    /// and no record at all must decode alike or a mirror would tell two spellings of one state
+    /// apart. <see cref="HeldFaceListItems"/> and <see cref="HeldFaceListMapLoadout"/> are lists a
+    /// hand fan is never drawn from, and a value past <see cref="HeldFaceListMax"/> belongs to a
+    /// build that does not exist yet. All of them degrade to the HAND — the picture this receiver
+    /// draws today, and the only degradation that cannot put a wrong face on a card.</para>
+    /// </summary>
+    public static bool IsFanSourcePile(byte list) =>
+        list == HeldFaceListDiscard || list == HeldFaceListBurnt;
+
     // ---- record 25: USE BARS ------------------------------------------------------------------
 
     // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------

@@ -72,6 +72,51 @@ internal sealed partial class CardsDriver : MonoBehaviour
     /// across the whole rebuild, while this is read from the per-frame poll.</summary>
     private readonly List<AbilityCardUI> _handSigBuffer = new(24);
     private readonly List<VRCard> _fanBuffer = new(24);
+
+    /// <summary>
+    /// WHICH PILE THE FAN THIS DRIVER IS HOLDING UP IS DRAWN FROM: the DISCARD or LOST pile while
+    /// the game has this player stepping through a modal card pick (a long rest's burn step, an
+    /// avoid-damage burn, a card-limit discard, a recover), and <see cref="CardPileType.None"/>
+    /// otherwise. Rewritten on every rebuild from the very widgets that became
+    /// <see cref="_fanBuffer"/>, so it can never describe a fan that is no longer up.
+    ///
+    /// <para>NONE RATHER THAN HAND FOR THE ORDINARY CASE, and the two are not interchangeable here.
+    /// An ordinary hand fan and NO FAN AT ALL are one answer on purpose, because the wire record
+    /// this feeds is written only for a pile: making "the hand" sayable would give one picture two
+    /// spellings, and the receiver would then have to tell them apart to no purpose. See
+    /// <c>Net.NetProtocol.IsFanSourcePile</c>.</para>
+    ///
+    /// <para>IT EXISTS BECAUSE A PEER CANNOT DERIVE IT. Everything else a mirrored fan needs is
+    /// host-replicated model state both clients already hold; this one is not. The pile a pick fan
+    /// is drawn from is decided by <c>CardsHandUI.Show(..., selectableCardType, ...)</c> and read
+    /// back off <c>AbilityCardUI.IsSelectable</c> — LOCAL UI state on the picking player's machine,
+    /// which no other client's copy of the model reflects. Without it every observer resolves a
+    /// peer's fan as their HAND (<c>CardsGameApi.HandFanMember</c>), which during a long rest is a
+    /// list of a different length than the arc the owner is actually holding, and
+    /// <c>Net.RemoteHandFan</c>'s length belt correctly refuses the whole fan and draws BACKS. That
+    /// is the 2026-09-06 report item 7 in one sentence, and its evidence is one census line on the
+    /// host: <c>hand fan[p2] 0 FRONT / 2 BACK — LENGTH BELT: 6 model card(s) vs 2 slab(s) on the
+    /// wire</c> standing for the whole of the co-player's long rest, with
+    /// <c>RevealGate.ShowRoundCardFronts(actor)=true</c> beside it — an OPEN gate and a shut
+    /// arithmetic.</para>
+    ///
+    /// <para>NOT A SECRECY TERM AND NEVER TO BE MADE ONE. It names a POPULATION, not a permission:
+    /// <c>Net.RevealGate</c> alone decides whether a front may be drawn, and it is asked with the
+    /// same phase test for a pick fan as for a hand fan (see
+    /// <c>RevealGate.PeerCardPopulation.PickFan</c>).</para>
+    /// </summary>
+    private CardPileType _fanSourcePile = CardPileType.None;
+
+    /// <summary>
+    /// <see cref="_fanSourcePile"/> for the Net layer's sampler, static for the same reason
+    /// <see cref="SacrificeSeat"/> is: the driver instance is a private of this class and the Net
+    /// layer must not thread through it. Answers <see cref="CardPileType.None"/> with no driver,
+    /// which the sampler writes as "no record" — i.e. exactly what every client before ModBuild 459
+    /// sends, and what an observer already renders.
+    /// </summary>
+    internal static CardPileType FanSourcePile =>
+        Instance != null ? Instance._fanSourcePile : CardPileType.None;
+
     private readonly List<VRCard> _halfBuffer = new(4);
     private readonly List<VRCard> _browseBuffer = new(16);
     private readonly List<VRCard> _activeBuffer = new(8);

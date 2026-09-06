@@ -252,6 +252,34 @@ internal static class LocalRigSampler
     }
 
     /// <summary>
+    /// WHICH PILE THE LOCAL FAN IS DRAWN FROM — extension record
+    /// <see cref="NetProtocol.ExtIdFanSource"/>'s whole payload, as one list id. Answers
+    /// <see cref="NetProtocol.HeldFaceListNone"/> for an ordinary hand fan and for no fan at all,
+    /// and the writer then omits the record entirely.
+    ///
+    /// <para>THE HAND IS DELIBERATELY UNSAYABLE. It is what every receiver already resolves and
+    /// what every sender predating this record means, so "my fan is my hand" and "no record" have
+    /// to be ONE state — two spellings of one picture is how a mirror latches, which is the lesson
+    /// record 41's own vectors are written around.</para>
+    ///
+    /// <para>IT IS READ, NOT RE-DERIVED. <c>Cards.CardsDriver.FanSourcePile</c> is assigned from the
+    /// very widgets that became the fan, inside the rebuild that built it, so this cannot describe a
+    /// fan that is no longer up or a pile the fan was never filled from. Re-deriving it here out of
+    /// the game's <c>selectableCardType</c> would be a second expression for one fact — precisely
+    /// the defect <see cref="NameHeldCard"/>'s own block below is written about.</para>
+    ///
+    /// <para>ROUND, ACTIVE and the rest of <c>CardPileType</c> are not expressible and fall through
+    /// to "the hand": a fan is only ever the hand, the discard pile or the lost pile, and a value
+    /// this record cannot say is better absent than guessed at.</para>
+    /// </summary>
+    public static byte SampleFanSource() => Cards.CardsDriver.FanSourcePile switch
+    {
+        CardPileType.Discarded => NetProtocol.HeldFaceListDiscard,
+        CardPileType.Lost or CardPileType.Permalost => NetProtocol.HeldFaceListBurnt,
+        _ => NetProtocol.HeldFaceListNone,
+    };
+
+    /// <summary>
     /// WHICH CARD EACH HELD-CARD POSE SLOT IS SHOWING — extension record
     /// <see cref="NetProtocol.ExtIdHeldCardFace"/>'s whole payload, as a <c>[code][list length]</c>
     /// pair per slot. A code of 0 means "this slot names nothing", and when BOTH are 0 the writer
@@ -460,6 +488,46 @@ internal static class LocalRigSampler
         // a list it is not in.
         if (origin != null)
             return;
+
+        // ─── A CARD OUT OF A PICK FAN IS NOT A HAND CARD, AND HAS NO PileOrigin EITHER ──────────
+        // 2026-09-06 report item 7, the HELD half of it: "Aktuell ist der Faecher als auch die
+        // Karte in der Hand des Spielers wieder nur die Rueckseite." While the game has the owner
+        // stepping through a modal pick it re-Shows their hand over another PILE, so the card they
+        // pluck out of the arc is a DISCARD or LOST widget that was never loaned from a pile browse
+        // — PileOrigin is null (nothing lent it) and CardsGameApi.HandFanMember is false (its
+        // CardType is not Hand). The loop below therefore found no seat, this method returned code
+        // 0, and the receiver printed the only thing it could: "the sender named no seat for this
+        // card (record 36 code 0) — nothing this receiver can do". That line stands 5 times in the
+        // host's census during the co-player's long rest and is the whole evidence for this branch.
+        //
+        // THE PILE ARM ALREADY EXISTS AND IS ALREADY CORRECT — the receiver's Discard/Burnt branch
+        // (Net.RemoteHeldCardFace.Resolve) walks GetPileArcWidgets against the presented character
+        // and length-checks it, exactly as it does for a browse loan. All that was missing is that
+        // this sampler only reached it through PileOrigin. Reading the WIDGET'S OWN CardType covers
+        // both ways a card can be in a pile and needs no new wire field: record 36 has carried a
+        // list id since it shipped.
+        //
+        // It falls through to the hand arm for every other CardType, which is the picture this
+        // sampler drew before — a card whose pile this record cannot name stays a BACK rather than
+        // being seated in a list it is not in.
+        CardPileType heldPile = widget.CardType;
+        if (heldPile == CardPileType.Discarded || heldPile == CardPileType.Lost
+            || heldPile == CardPileType.Permalost)
+        {
+            bool burnt = heldPile != CardPileType.Discarded;
+            Cards.CardsGameApi.GetPileArcWidgets(gameHand, burnt, s_heldFaceBuf);
+            int atPile = s_heldFaceBuf.IndexOf(widget);
+            count = (byte)Mathf.Clamp(s_heldFaceBuf.Count, 0, 255);
+            s_heldFaceBuf.Clear();
+            if (atPile < 0)
+            {
+                count = 0;
+                return;
+            }
+            code = NetProtocol.EncodeHeldFace(
+                burnt ? NetProtocol.HeldFaceListBurnt : NetProtocol.HeldFaceListDiscard, atPile);
+            return;
+        }
 
         System.Collections.Generic.List<AbilityCardUI>? all2 = gameHand.cardsUI;
         if (all2 == null)

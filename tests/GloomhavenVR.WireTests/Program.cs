@@ -55,6 +55,13 @@ internal static class Program
             // can see the swap. Half the byte is also unassigned, so the strip that keeps a future
             // field from dimming a half this build has no name for is asserted here too.
             SpentHalfVectors.Run(t);
+            // WHICH PILE the sender's fan is drawn from (43, report item 7). Driven byte by byte
+            // for the reason record 41 is: the HAND is the DEFAULT and is deliberately unsayable,
+            // so "my fan is my hand" and "no record" must stay one state or a fan that stopped
+            // being a pick keeps resolving against the discard list — every face in it then a
+            // confidently wrong card. And an id this build cannot name must degrade to the HAND
+            // rather than to a pile, which is the only degradation that cannot mislead.
+            FanSourceVectors.Run(t);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
             HeldPoseMirrorVectors.Run(t, repoRoot);

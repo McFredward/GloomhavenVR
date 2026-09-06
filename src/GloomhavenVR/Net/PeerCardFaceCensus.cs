@@ -124,6 +124,52 @@ internal static class PeerCardFaceCensus
     }
 
     /// <summary>
+    /// THE PHASE AND THE FACE POLICY IT SELECTS, in one clause the next round can grep instead of
+    /// asking again.
+    ///
+    /// <para>WHY IT IS HERE AND NOT LEFT TO A READER. The user asked, in as many words, whether it
+    /// can be GUARANTEED that he never sees a back outside the selection phase — left hand, right
+    /// hand, handing over, opening or closing the fan while holding, on the map. Every log this
+    /// project has produced answers that question with silence: the census counted BACKs beautifully
+    /// and named NEITHER the phase they happened in nor the rule the phase selects, so "a BACK
+    /// outside the selection window is a defect" was a sentence no reader could evaluate. Two
+    /// rounds were spent on item 7 partly for that reason — the reveal gate was open the whole time
+    /// and nothing in either 62 MB log said so in a form a grep could reach.</para>
+    ///
+    /// <para>IT READS THE GAME'S OWN AUTHORITY and nothing of the mod's:
+    /// <c>PhaseManager.PhaseType</c> is a static read of <c>s_CurrentPhase.Type</c> that answers
+    /// <c>PhaseType.None</c> with no phase object, so it cannot throw and cannot be starved by a
+    /// half-loaded save (see <see cref="RevealGate.IsSecretSelectionPhase"/>'s own note). The
+    /// try/catch is for <c>FFSNetwork.IsOnline</c>'s Bolt read, not for the phase.</para>
+    /// </summary>
+    private static string PhaseAndPolicy()
+    {
+        try
+        {
+            ScenarioRuleLibrary.CPhase.PhaseType phase = ScenarioRuleLibrary.PhaseManager.PhaseType;
+            bool secret = RevealGate.IsSecretSelectionPhase;
+            bool online = FFSNetwork.IsOnline;
+            return $"PHASE={phase}, online={online}, POLICY="
+                 + (secret && online
+                     ? "BACKS ARE LAWFUL for a remote character's hand, held card, round slots, "
+                       + "pile arcs and item fan — this IS the game's own "
+                       + "SelectAbilityCardsOrLongRest window and the two-card commit it protects "
+                       + "is in flight. The active matrix and a short-rest sacrifice are carved out "
+                       + "of even this and must still read 0 BACK"
+                     : "FRONTS EVERYWHERE — no secret is in flight, so ANY non-zero BACK below is a "
+                       + "defect and the rule beside it names which one. A long rest is an ACTION "
+                       + "and lands here, not in the window above, whichever phase it resolves in");
+        }
+        catch (System.Exception ex)
+        {
+            // A phase we cannot read is not a phase we may claim. Say so rather than printing a
+            // policy nobody measured.
+            return $"PHASE=unreadable ({ex.GetType().Name}), POLICY=unknown — read no guarantee "
+                 + "out of the counts below";
+        }
+    }
+
+    /// <summary>
     /// Drive the cadence — called once per frame from the avatar tick, after every surface has had
     /// its say. Prints nothing while no peer card has been drawn at all.
     /// </summary>
@@ -166,7 +212,28 @@ internal static class PeerCardFaceCensus
         }
 
         // HW-VERIFY: THE line for the 2026-09-05 report item 2 ("Das Anzeigen der remote Karten
-        // funktioniert immer noch nicht"). Grep token: PEER CARD FACE CENSUS. It is a SAMPLER on a
+        // funktioniert immer noch nicht") and, since ModBuild 459, THE answer to the user's standing
+        // guarantee question ("Gewaehrleiste das ausserhalb der Auswahlphase NIEMALS Rueckseiten auf
+        // Vorderseiten angezeigt werden ... IMMER OHNE AUSNAHME"). Grep token:
+        // PEER CARD FACE CENSUS.
+        //
+        // HOW TO ANSWER THE GUARANTEE FROM A LOG, with no arithmetic and no screenshot. The
+        // DENOMINATOR — every sampled tick in which no secret was in flight, so every tick the
+        // guarantee is a claim about:
+        //     grep -a '\] \[Net\] PEER CARD FACE CENSUS' Player.log | grep -c 'POLICY=FRONTS'
+        // and the NUMERATOR — the ticks in which it was BROKEN:
+        //     grep -a '\] \[Net\] PEER CARD FACE CENSUS' Player.log \
+        //       | grep 'POLICY=FRONTS' | grep -vc 'and 0 showing a BACK right now'
+        // A zero numerator against a non-zero denominator IS the guarantee, measured rather than
+        // asserted; a zero DENOMINATOR means the session never left the selection phase with a peer
+        // card on screen and this log says nothing about it either way. Every line the numerator
+        // counts carries the per-population rule that decided it, and that rule names which of the
+        // five causes it was — a SHUT gate (which POLICY=FRONTS says is impossible, so it would
+        // indict the gate itself), an OPEN gate with nothing resolved, the length belt, a seat the
+        // sender could not name, or a board that is not being drawn. Those five used to be four
+        // strings, two of which shared one sentence; see RemoteHandFan._censusGateShut.
+        //
+        // It is a SAMPLER on a
         // fixed cadence, not a change edge, so a population that is uniformly wrong prints here
         // every ten seconds instead of printing nothing at all — which is exactly how the previous
         // round's evidence went silent. READ IT LIKE THIS: outside the secret selection phase, any
@@ -179,8 +246,8 @@ internal static class PeerCardFaceCensus
         // defect moved; a line in which those populations never appear at all means the census is
         // not being reached and nothing here has been measured.
         VRLog.Note("Net", $"PEER CARD FACE CENSUS (every {CensusSeconds:F0} s, the LIVE picture at "
-            + $"this tick — a sample, never a count of events): {totalFronts} peer card(s) showing a "
-            + $"FRONT and {totalBacks} showing a BACK right now"
+            + $"this tick — a sample, never a count of events): {PhaseAndPolicy()}. {totalFronts} "
+            + $"peer card(s) showing a FRONT and {totalBacks} showing a BACK right now"
             + (worstBacks > totalBacks ? $" (worst reading in the interval: {worstBacks} BACK)" : string.Empty)
             + $". Per population — {sb}. The rule beside each population is the one that actually "
             + "decided it, so a BACK outside the game's own SelectAbilityCardsOrLongRest window is a "

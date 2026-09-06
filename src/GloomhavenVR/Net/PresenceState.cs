@@ -559,6 +559,24 @@ internal struct PresenceState
     /// </summary>
     public byte RoundHalfSpentMask;
 
+    /// <summary>
+    /// True when the fan this player is holding up is drawn from a PILE rather than from their
+    /// hand, and this packet therefore carries the fan-source record
+    /// (<see cref="NetProtocol.ExtIdFanSource"/>). False for an ordinary hand fan and for no fan at
+    /// all — the two states in which the hand is the right answer and the record is omitted, which
+    /// keeps every packet outside a modal card pick byte-identical to ModBuild 458's.
+    /// </summary>
+    public bool HasFanSource;
+
+    /// <summary>
+    /// WHICH pile, as one of the <c>NetProtocol.HeldFaceList*</c> ids —
+    /// <see cref="NetProtocol.HeldFaceListDiscard"/> during a long rest's burn step or a
+    /// burn-two-discarded, <see cref="NetProtocol.HeldFaceListBurnt"/> during a recover-lost. Any
+    /// other value (the hand included) means "no record": see
+    /// <see cref="NetProtocol.IsFanSourcePile"/> for why the hand is deliberately unsayable here.
+    /// </summary>
+    public byte FanSourceList;
+
     /// <summary>Slot 2's code byte — the card in record
     /// <see cref="NetProtocol.ExtIdSecondHeldCard"/>'s slot, the one
     /// <see cref="NetProtocol.HeldCardGripSecondBit"/> describes. 0 means "this slot names
@@ -1521,6 +1539,16 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>1735 -> 1738 on 2026-09-06, in the same round: the FAN SOURCE PILE record (43) adds
+    /// 3 bytes flat — <c>[id][len]</c> plus its single list-id byte — and that is in force only
+    /// while the sender's fan really is a pile rather than their hand, i.e. for the few seconds of
+    /// a long rest's burn step or an avoid-damage pick. Every other packet, from every player, is
+    /// byte-identical to ModBuild 458's. <see cref="MaxSize"/> is UNCHANGED at 2100: the margin is
+    /// 362 bytes, still more than the largest single record (257, board tuning), so the rule below
+    /// is satisfied without a raise. Computed on top of 1735 and NOT on top of 1732 — the sum has
+    /// now moved three times in two days, which is exactly how the consumer literal in
+    /// <c>HeldPropVectors</c> went stale once already, and it is updated in this same commit.</para>
+    ///
     /// <para>1732 -> 1735 on 2026-09-06: the SPENT-HALF record (41) adds 3 bytes flat — <c>[id][len]</c>
     /// plus its single mask byte — and even that is in force only while at least one half of the
     /// sender's two round cards is actually drawn dimmed, so a round before anything is played
@@ -1835,6 +1863,12 @@ internal static class PresenceSerializer
                           // for no picture. Same rule as the three records above it.
                           || (state.HasRoundHalfSpent
                               && (state.RoundHalfSpentMask & NetProtocol.RoundHalfSpentMaskBits) != 0)
+                          // A fan-source record naming anything but a PILE says nothing: the hand
+                          // is the default every receiver already resolves, so "my fan is my hand"
+                          // and "no record" are one state and must stay one state. Same rule as the
+                          // four records above it, and it is what keeps every packet outside the
+                          // seconds of an actual modal card pick byte-identical to 458's.
+                          || (state.HasFanSource && NetProtocol.IsFanSourcePile(state.FanSourceList))
                           // STORY WINDOW SYNC (19): same rule as the test-force record — the
                           // emptiness test lives in the SAMPLER (RemoteStorySync.Sample), which
                           // sets this flag only while a story box is really up here or the single
@@ -2886,6 +2920,29 @@ internal static class PresenceSerializer
                         buffer[i++] = (byte)(state.SecondHeldPropStretchCode & 0xFF);
                         buffer[i++] = (byte)(state.SecondHeldPropStretchCode >> 8);
                     }
+                    records++;
+                }
+                if (state.HasFanSource && NetProtocol.IsFanSourcePile(state.FanSourceList)
+                    && i + 2 + NetProtocol.FanSourceRecordBytes <= buffer.Length)
+                {
+                    // WHICH PILE THE SENDER'S FAN IS DRAWN FROM (43): one list-id byte, in record
+                    // 36's own vocabulary. NO CARD IDENTITY — it names a LIST, not a card and not a
+                    // position in one, and every face a receiver draws from it still comes out of
+                    // that receiver's own copy of the same host-replicated pile, still length-
+                    // checked, and still only after RevealGate has said yes.
+                    //
+                    // APPENDED LAST, and that is placement rather than tidiness: this tail is
+                    // written in its historical APPEND order and not in id order (record 37 already
+                    // sits behind 41), so a new record anywhere but the end would move every byte
+                    // after it and break golden vectors that describe packets this record is not
+                    // even in.
+                    //
+                    // Written only for a PILE. The hand is the default and is unsayable here, so a
+                    // player whose fan is their hand — which is every player who is not mid-pick —
+                    // emits the exact bytes ModBuild 458 emitted.
+                    buffer[i++] = NetProtocol.ExtIdFanSource;
+                    buffer[i++] = (byte)NetProtocol.FanSourceRecordBytes;
+                    buffer[i++] = state.FanSourceList;
                     records++;
                 }
                 buffer[countAt] = records;
@@ -4126,6 +4183,24 @@ internal static class PresenceSerializer
                         {
                             state.HasRoundHalfSpent = true;
                             state.RoundHalfSpentMask = spent;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdFanSource
+                             && len >= NetProtocol.FanSourceRecordBytes)
+                    {
+                        // WHICH PILE THE SENDER'S FAN IS DRAWN FROM: one list id. VALIDATED AGAINST
+                        // THE TWO PILES A FAN CAN ACTUALLY BE, and everything else — the hand, an
+                        // item list, a map loadout, an id from a build that does not exist yet —
+                        // decodes to "record absent", i.e. THE HAND. That is the picture this
+                        // receiver drew before the record existed, so an unknown value costs a peer
+                        // nothing it was not already living with; and it is the only degradation
+                        // that cannot put a face from one pile onto a card from another, which is
+                        // the single failure every card-face path here is written to avoid.
+                        byte list = buffer[i];
+                        if (NetProtocol.IsFanSourcePile(list))
+                        {
+                            state.HasFanSource = true;
+                            state.FanSourceList = list;
                         }
                     }
                     else if (id == NetProtocol.ExtIdSlotCardSize

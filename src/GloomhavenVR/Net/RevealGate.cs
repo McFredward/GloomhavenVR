@@ -415,15 +415,95 @@ internal static class RevealGate
         /// the exemption is too wide and this is the member to narrow.</para>
         /// </summary>
         DecisionRowWording,
+
+        /// <summary>
+        /// A peer's fan while the game has them stepping through a MODAL CARD PICK — the arc is
+        /// their DISCARD or LOST pile rather than their hand, because the game re-Showed the hand
+        /// over that pile (<c>CardHandMode.LoseCard</c> / <c>DiscardCard</c> /
+        /// <c>RecoverDiscardedCard</c> / <c>RecoverLostCard</c> / <c>IncreaseCardLimit</c>).
+        ///
+        /// <para>USER, VERBATIM (2026-09-06, item 7): "Bei einer langen Rast werden bei dem
+        /// betroffenen Spieler die Handkarten zu den abgeworfenen Karten. Diese sollen auch mit der
+        /// Vorderseite sichtbar sein fuer alle Spieler. Aktuell ist der Faecher als auch die Karte
+        /// in der Hand des Spielers wieder nur die Rueckseite obwohl es sich hier nicht um die
+        /// Auswahlphase handelt. Auch wenn hier eine Auswahl getroffen wird handelt es sich NICHT
+        /// um die Auswahlphase sondern die Lange Rast ist eine Aktion und das auswaehlen einer
+        /// Karte nur Teil dieser Aktion."</para>
+        ///
+        /// <para>IT IS NOT AN EXEMPTION, AND SAYING SO IS THE POINT OF THE MEMBER.
+        /// <see cref="IsPublicPopulation"/> answers FALSE for it, exactly as for
+        /// <see cref="Selectable"/>: a pick fan gets the same phase term every other secret
+        /// population gets. Nobody has ruled that a peer's discard pile is public during the
+        /// selection window (the <see cref="AlreadyPublic"/> member says so in as many words), and
+        /// this file's standing invariant is to show LESS where nobody has ruled. What the member
+        /// exists for is to make the CALL SITE and the hardware log say WHICH population a surface
+        /// drew, which is the same reason the three exemptions above are members rather than
+        /// booleans.</para>
+        ///
+        /// <para>THE PHASE WAS NEVER THE BLOCKER, AND THE EVIDENCE SAYS SO IN ONE LINE. The obvious
+        /// reading of item 7 is that something classified the long rest as the selection phase. It
+        /// did not: on the observing host, through the whole of the co-player's long rest, the
+        /// census stands at <c>round slots[p2] ... RevealGate.ShowRoundCardFronts(actor)=true</c>
+        /// while the hand fan beside it reads <c>0 FRONT / 2 BACK - LENGTH BELT: 6 model card(s) vs
+        /// 2 slab(s) on the wire</c>. The gate was OPEN; the ARITHMETIC was shut, because the
+        /// observer resolved a DISCARD arc as a HAND (<c>CardsGameApi.HandFanMember</c>) and got a
+        /// list of the wrong length. Extension record 43 is what tells it which list to walk; this
+        /// member is what names the population it walked.</para>
+        ///
+        /// <para>THE FLOWS THAT PICK A CARD OUTSIDE THE SELECTION PHASE, ENUMERATED, with the face
+        /// each one must show. Every row is a flow in which the game asks its owner to choose a
+        /// card while <see cref="IsSecretSelectionPhase"/> may be either open or shut, and the
+        /// column that matters is that NONE of them is the two-card commit the secret protects:</para>
+        /// <list type="bullet">
+        /// <item><description>LONG REST, burn step (<c>CardHandMode.LoseCard</c> over the DISCARD
+        /// pile; the owner's own log line is <c>Pick fan source (LoseCard): discard pile</c>). The
+        /// user's ruling is explicit and it is this member's reason for existing: FRONTS. Resolved
+        /// through record 43 as <see cref="NetProtocol.HeldFaceListDiscard"/>.</description></item>
+        /// <item><description>AVOID DAMAGE by burning / losing a card (<c>LoseCard</c> over the
+        /// REAL HAND — <c>Pick fan source (LoseCard): real hand</c> in both logs of the 457
+        /// session). FRONTS whenever the phase allows, i.e. the ordinary hand-fan rule, and NO
+        /// record 43 is written: the fan already is the hand.</description></item>
+        /// <item><description>CARD-LIMIT discard (<c>DiscardCard</c> / <c>IncreaseCardLimit</c>) —
+        /// the hand again, same rule, no record.</description></item>
+        /// <item><description>RECOVER a discarded card (<c>RecoverDiscardedCard</c>) — the DISCARD
+        /// pile, record 43 as <see cref="NetProtocol.HeldFaceListDiscard"/>.</description></item>
+        /// <item><description>RECOVER a lost card (<c>RecoverLostCard</c>) — the LOST pile, record
+        /// 43 as <see cref="NetProtocol.HeldFaceListBurnt"/>.</description></item>
+        /// <item><description>SHORT REST sacrifice — already carved out, and by a different
+        /// mechanism: the card lies in a round RECESS rather than in a fan, it is named by record
+        /// 39, and <see cref="SacrificedCard"/> is its population. It is the ONE of these flows that
+        /// is genuinely exempt from the phase, because it runs INSIDE
+        /// <c>SelectAbilityCardsOrLongRest</c> and would otherwise never be visible at all.
+        /// </description></item>
+        /// <item><description>ITEM USE / item surrender — items are not ability cards and never
+        /// carried the selection-phase secret; they are drawn by <c>RemoteItemFan</c> through
+        /// <see cref="ShowRoundCardFronts"/> and are untouched by this member.</description></item>
+        /// </list>
+        ///
+        /// <para>WHY THE LIST IS HERE AND NOT AT A CALL SITE. Item 7 is the third round in which a
+        /// choosing flow outside the two-card commit drew backs, and each time the fix named the
+        /// flow that was reported. A rule written per flow is a rule the NEXT flow is not covered
+        /// by; the rows above are the whole population, and the two that need a pile named on the
+        /// wire are exactly the two record 43 can say.</para>
+        /// </summary>
+        PickFan,
     }
 
     /// <summary>
     /// Is <paramref name="population"/> exempt from the selection-phase carve-out? ONE expression,
-    /// so three named members cannot answer it three ways — the members exist to make a call site
-    /// and a hardware log say WHICH exemption is being claimed, never to compute a different answer.
+    /// so a named member cannot answer it two ways — the members exist to make a call site and a
+    /// hardware log say WHICH population is being drawn (and, for the exempt ones, which exemption
+    /// is being claimed), never to compute a different answer.
+    ///
+    /// <para><see cref="PeerCardPopulation.PickFan"/> IS NOT EXEMPT, and it is listed on the
+    /// non-exempt side explicitly rather than by falling off the end of the expression: it is a
+    /// member added for a defect that turned out NOT to be a secrecy defect at all, and the next
+    /// reader has to be able to see that it grants nothing. See its own doc for the reading that
+    /// settled it.</para>
     /// </summary>
     public static bool IsPublicPopulation(PeerCardPopulation population) =>
-        population != PeerCardPopulation.Selectable;
+        population != PeerCardPopulation.Selectable
+        && population != PeerCardPopulation.PickFan;
 
     /// <summary>
     /// WHERE A REMOTE PLAYER'S CARD FACES MAY COME FROM RIGHT NOW — the one call every remote

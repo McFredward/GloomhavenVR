@@ -838,6 +838,31 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// BACKS line can name the blocker rather than list the candidates — see the log block.</summary>
     private (int Model, int Wire)? _countBelt;
 
+    /// <summary>Change gate for the FAN SOURCE receiver line. 0xFF rather than 0 so the FIRST
+    /// sample prints, including the ordinary "their fan is their hand" reading: a line that states
+    /// the resting value once is what makes a later silence readable as "nothing changed" rather
+    /// than as "this surface never ran" — the failure mode that made the held card produce exactly
+    /// zero lines in two 100 MB logs.</summary>
+    private byte _loggedFanList = 0xFF;
+
+    /// <summary>Which list this frame's fan was resolved from (record 43), for the census line.
+    /// <see cref="NetProtocol.HeldFaceListNone"/> is the HAND, which is the resting value and the
+    /// one every sender predating ModBuild 459 means.</summary>
+    private byte _censusList;
+
+    /// <summary>
+    /// TRUE only when the reveal gate itself is what refused this frame's fronts — i.e. a scenario
+    /// is running, a character resolved, and <see cref="RevealGate.ShowRoundCardFronts"/> said no.
+    ///
+    /// <para>IT EXISTS BECAUSE ONE CENSUS STRING WAS CARRYING TWO CAUSES, and that ambiguity is what
+    /// report item 7 was read through for a round. "RevealGate.CardFaces(Selectable) named no
+    /// source, or no widget resolved" is true of a SHUT GATE (the game's own secret window — correct
+    /// and expected) and of an OPEN GATE with nothing to resolve (a defect, every time), and a
+    /// reader counting BACKs against it is counting two populations with one number. The remedy is
+    /// not a better sentence, it is a second term.</para>
+    /// </summary>
+    private bool _censusGateShut;
+
     // ---- THE MAP PHASE (report 4, 2026-08-22) -------------------------------------------------
     //
     // "Handkarten sind nicht sichtbar im Multiplayer im Map-Bereich. Das soll nicht sein, die
@@ -1290,10 +1315,69 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // The scenario branch's InScenario term was never an anti-cheat term — it is a
             // CAPABILITY test for ResolveHandFronts, whose clone widget lifecycle depends on
             // scenario singletons — and that distinction now lives in RevealGate, stated once.
-            switch (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor))
+            //
+            // ...AND THE FAN IS NOT ALWAYS THE HAND (2026-09-06, report item 7). While the game has
+            // the owner stepping through a modal card pick it re-Shows their hand over another
+            // PILE — the long rest's burn step fans the DISCARD pile, a recover-lost fans the LOST
+            // one — and the arc the owner is physically holding up is then that pile. Extension
+            // record 43 is the only way this client can know which: the pile is chosen by
+            // CardsHandUI.Show's selectableCardType and read back off AbilityCardUI.IsSelectable,
+            // both of them LOCAL UI state on the picking player's machine that no copy of the
+            // replicated model reflects. Absent record == the HAND, which is what every sender
+            // before ModBuild 459 means and what this surface has always resolved.
+            byte fanList = _owner.FanSourceList;
+            bool pickFan = NetProtocol.IsFanSourcePile(fanList);
+            _censusList = fanList;
+            // WHY there is no source, when there is none. CardFaces answers None for three different
+            // states and the census has to tell them apart: this term is TRUE for exactly one of
+            // them — a running scenario, a resolved character, and the secrecy predicate itself
+            // saying no. The other two (no character to resolve against; neither a scenario nor a
+            // map) leave it false and the line then says the gate was OPEN, which for item 7 was the
+            // whole of the answer and the string could not say it.
+            _censusGateShut = RevealGate.InScenario && actor != null
+                              && !RevealGate.ShowRoundCardFronts(actor);
+            if (fanList != _loggedFanList)
+            {
+                _loggedFanList = fanList;
+                // HW-VERIFY: report item 7, the RECEIVER edge. Grep token: FAN SOURCE — the SAME
+                // token the owner's "FAN SOURCE SENT" line carries, so one grep across both logs
+                // settles the 1:1 question with no arithmetic. Change-gated on the list, so it is
+                // one line per pick opening and one per pick closing, not a flood.
+                //
+                // WORKING = this line naming the DISCARD pile within a packet or two of the owner's,
+                // followed by a PEER CARD FACE CENSUS whose hand-fan row reads N FRONT / 0 BACK.
+                //
+                // INERT = the owner's line names DISCARD and this one still says the HAND: the
+                // record did not arrive (a sender predating ModBuild 459, or a dropped packet) and
+                // nothing on this client can fix it.
+                //
+                // STILL BEYOND THE INSTRUMENT = both lines name DISCARD and the census still reads
+                // BACKs with LENGTH BELT beside them. The two clients then disagree about the
+                // CONTENTS of that pile, not about which pile it is; the belt's two counts are the
+                // next reading and this record cannot move them.
+                VRLog.Note("Net", $"FAN SOURCE [player {_owner.PlayerId}]: this peer's fan is "
+                    + $"{FanListName(fanList)} (record 43). Their faces are resolved out of THIS "
+                    + "client's own copy of that host-replicated list and refused unless it is "
+                    + "exactly as long as the arc on the wire, so nothing here can print a face "
+                    + "from one pile onto a card from another. NOT a secrecy term: RevealGate is "
+                    + "asked the SAME phase question for a pick fan as for a hand fan — see "
+                    + "RevealGate.PeerCardPopulation.PickFan, which also enumerates every flow that "
+                    + "picks a card outside the selection phase and the face each one owes. Before "
+                    + "this record a long rest's discard arc was resolved as the HAND, the lengths "
+                    + "disagreed, and the length belt drew the whole fan as BACKS (report item 7).");
+            }
+            // THE POPULATION IS NAMED, AND IT CHANGES NO ANSWER. PickFan is NOT exempt from the
+            // selection-phase carve-out (RevealGate.IsPublicPopulation answers false for it, the
+            // same as for Selectable), so this asks the identical secrecy question either way; what
+            // the member buys is that the census line below, and the next hardware round's grep,
+            // can say WHICH arc was drawn. See RevealGate.PeerCardPopulation.PickFan for the whole
+            // enumeration of choosing flows and the face each one owes.
+            switch (RevealGate.CardFaces(pickFan
+                                             ? RevealGate.PeerCardPopulation.PickFan
+                                             : RevealGate.PeerCardPopulation.Selectable, actor))
             {
                 case RevealGate.CardFaceSource.Scenario:
-                    ResolveHandFronts(actor!);  // fills _handBuffer with the actor's HAND-pile widgets
+                    ResolveHandFronts(actor!, fanList);  // fills _handBuffer with the fanned list
                     showFronts = _handBuffer.Count > 0;
                     break;
                 case RevealGate.CardFaceSource.MapLoadout:
@@ -1311,6 +1395,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // ANY failure → no fronts, backs only (fail-safe = no cheat).
             showFronts = false;
             mapFronts = false;
+            _censusGateShut = false;   // a THROWN gate is not a shut gate, and the line must not say it was
             _handBuffer.Clear();
             ClearMapFronts();
             VRLog.Warn("Net", $"RemoteHandFan front gate errored ({ex.Message}) — showing backs.");
@@ -1553,14 +1638,27 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             frontCount, Mathf.Max(count - frontCount, 0),
             _countBelt != null
                 ? $"LENGTH BELT: {_countBelt.Value.Model} model card(s) vs {_countBelt.Value.Wire} "
-                  + "slab(s) on the wire"
+                  + $"slab(s) on the wire ({FanListName(_censusList)})"
+                // ONE STRING USED TO CARRY TWO CAUSES, and it is the string this whole item was read
+                // through: "RevealGate.CardFaces(Selectable) named no source, OR no widget resolved"
+                // cannot tell a SHUT GATE (the game's secret window, which is correct and expected)
+                // from an OPEN GATE with nothing to resolve (a defect, every time). A reader
+                // counting BACKs against that rule is measuring two populations with one number —
+                // and for report item 7 the honest answer was "the gate was open", which the line
+                // was incapable of saying. They are two branches now, and the census line quotes
+                // whichever one actually decided.
                 : !showFronts
-                    ? "RevealGate.CardFaces(Selectable) named no source, or no widget resolved"
+                    ? (_censusGateShut
+                        ? "RevealGate SHUT — the game's own secret SelectAbilityCardsOrLongRest "
+                          + $"window for a remote character ({FanListName(_censusList)})"
+                        : "RevealGate OPEN but NO widget resolved on this client — the gate is not "
+                          + $"the blocker here ({FanListName(_censusList)})")
                     : mapFronts
                         ? "RevealGate map-phase fronts (peer's replicated map loadout)"
                         : heldSeatCount > 0
-                            ? $"RevealGate scenario fronts, {heldSeatCount} held seat(s) dropped"
-                            : "RevealGate scenario fronts");
+                            ? $"RevealGate scenario fronts ({FanListName(_censusList)}), "
+                              + $"{heldSeatCount} held seat(s) dropped"
+                            : $"RevealGate scenario fronts ({FanListName(_censusList)})");
 
         // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
         // The line NAMES the predicate on purpose: the same sentence appears on every other remote
@@ -1592,7 +1690,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             else if (nowFronts)
             {
                 VRLog.Info("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: FRONTS — " +
-                    $"content=HAND, {frontCount} card(s), gate: " +
+                    $"content={FanListName(_censusList)}, {frontCount} card(s), gate: " +
                     "RevealGate.ShowRoundCardFronts(actor)=true.");
             }
             else
@@ -1606,24 +1704,37 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                     // of the peer's hand catches up. A line that STANDS is the real defect: the two
                     // sides have drifted apart on what counts as a hand card again.
                     VRLog.Note("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: BACKS — "
-                        + $"content=HAND, and the reveal gate was OPEN. The fronts were refused by "
-                        + $"the LENGTH BELT: this client resolves {_countBelt.Value.Model} hand "
-                        + $"card(s) for that character while the owner's own fan reports "
-                        + $"{_countBelt.Value.Wire} slab(s) on the wire. Slab i is only a name for "
-                        + "card i while those two agree, so a front here would be the wrong card's "
-                        + "face — a back is the safe direction. Both sides compute membership from "
-                        + "the one shared expression (CardsGameApi.HandFanMember), so a BRIEF "
-                        + "disagreement around a burn or a played card is this client's copy of the "
-                        + "peer's hand lagging a choreographer turn and will clear itself. A "
-                        + "disagreement that STANDS means the two sides have drifted apart on what "
-                        + "counts as a hand card, which is the defect this belt exists to make "
-                        + "visible rather than to hide.");
+                        + $"content={FanListName(_censusList)}, and the reveal gate was OPEN. The "
+                        + $"fronts were refused by the LENGTH BELT: this client resolves "
+                        + $"{_countBelt.Value.Model} card(s) in that list for that character while "
+                        + $"the owner's own fan reports {_countBelt.Value.Wire} slab(s) on the wire. "
+                        + "Slab i is only a name for card i while those two agree, so a front here "
+                        + "would be the wrong card's face — a back is the safe direction. Both sides "
+                        + "compute membership from one shared expression per list "
+                        + "(CardsGameApi.HandFanMember for the hand, CardsGameApi.GetPileArcWidgets "
+                        + "for a pick fan's pile), so a BRIEF disagreement around a burn or a played "
+                        + "card is this client's copy of the peer's model lagging a choreographer "
+                        + "turn and will clear itself. A disagreement that STANDS while the content "
+                        + "reads THE HAND means the two sides have drifted apart on what counts as a "
+                        + "hand card; one that stands while it reads a PICK FAN means they disagree "
+                        + "about that pile's contents, and record 43 has already done all it can — "
+                        + "it names the list, not what is in it.");
                 }
                 else
                 {
+                    // TWO CAUSES, TWO SENTENCES. This line used to say "gate=false ... OR no
+                    // widget resolved", which is the same ambiguity the census row carried and the
+                    // one report item 7 was read through: a SHUT gate is the game's own secret
+                    // window and is correct, an OPEN gate with nothing resolved is a defect every
+                    // time, and one string cannot be evidence for either.
                     VRLog.Info("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: BACKS — "
-                        + "content=HAND, gate: RevealGate.ShowRoundCardFronts(actor)=false (the game's "
-                        + "own secret SelectAbilityCardsOrLongRest phase) or no hand widget resolved."
+                        + $"content={FanListName(_censusList)}, "
+                        + (_censusGateShut
+                            ? "gate SHUT: RevealGate.ShowRoundCardFronts(actor)=false — the game's "
+                              + "own secret SelectAbilityCardsOrLongRest window for a remote "
+                              + "character, which is the one phase in which this is correct."
+                            : "the gate was OPEN and NO widget resolved on this client, so the gate "
+                              + "is NOT the blocker here.")
                         + (RevealGate.InScenario
                             ? string.Empty
                             : " OFF-SCENARIO, so the MAP-PHASE path is the one that answered: "
@@ -2175,14 +2286,39 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             + "takes the 'RECESS HAND-OFF' branch instead and never reaches here.");
     }
 
+    /// <summary>The fan's source list in one word, for a log line. The HAND is the resting answer
+    /// and is spelled out rather than left blank: a census row that says nothing about the list is
+    /// a row a reader cannot tell from one printed by a build that had no list at all.</summary>
+    private static string FanListName(byte list) => list switch
+    {
+        NetProtocol.HeldFaceListDiscard => "pick fan: the DISCARD pile",
+        NetProtocol.HeldFaceListBurnt => "pick fan: the BURNT pile",
+        _ => "hand fan: the HAND",
+    };
+
     /// <summary>
-    /// Fill <see cref="_handBuffer"/> with the remote actor's live HAND-pile card widgets, in hand
-    /// order — the exact set the local fan draws (<c>widget.CardType == CardPileType.Hand</c>). Read
-    /// straight off the game's own <c>CardsHandManager.GetHand(actor).cardsUI</c> (publicized). This
-    /// deliberately EXCLUDES Round/Discard/Lost/Active piles, so the secret round-selection cards are
-    /// never even candidates for a front here. Cleared + refilled each call; no allocation.
+    /// Fill <see cref="_handBuffer"/> with the widgets of the list the remote actor is ACTUALLY
+    /// FANNING, in that list's own order — the exact set their local fan draws. Read straight off
+    /// the game's own <c>CardsHandManager.GetHand(actor)</c> (publicized). Cleared + refilled each
+    /// call; no allocation.
+    ///
+    /// <para>WHICH LIST IS <paramref name="fanList"/>'S TO SAY, and it is the correction of 2026-09-06
+    /// (report item 7). This method used to be unconditionally the HAND pile
+    /// (<c>widget.CardType == CardPileType.Hand</c>) and its own doc block asserted that excluding
+    /// Round/Discard/Lost/Active was what kept the round-selection secret safe. THE SECOND HALF OF
+    /// THAT SENTENCE WAS NEVER TRUE — the secret is kept by <see cref="RevealGate"/>, which is asked
+    /// before this method is ever called and is asked the SAME question for every population — and
+    /// the first half stopped being true the moment the game re-Showed a peer's hand over their
+    /// DISCARD pile for a long rest's burn step. The list was then wrong, its length disagreed with
+    /// the arc on the wire, and the caller's belt drew the whole fan as backs.</para>
+    ///
+    /// <para>ROUND AND ACTIVE ARE STILL UNREACHABLE HERE, which is the part of the old claim that
+    /// survives: <see cref="NetProtocol.IsFanSourcePile"/> admits only the discard and lost lists, so
+    /// a round-card slot can never become a fan seat by way of this argument. Those two populations
+    /// have surfaces of their own (<c>RemoteControlBoard</c>, <c>RemoteActiveCards</c>) with rules of
+    /// their own.</para>
     /// </summary>
-    private void ResolveHandFronts(CPlayerActor actor)
+    private void ResolveHandFronts(CPlayerActor actor, byte fanList)
     {
         _handBuffer.Clear();
         CardsHandManager manager = CardsHandManager.Instance;
@@ -2191,6 +2327,31 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         CardsHandUI hand = manager.GetHand(actor);
         if (hand == null)
             return;
+        // ─── THE FAN IS A PILE, AND THE WIRE SAID SO (report item 7) ─────────────────────────────
+        // During a modal card pick the owner's arc is their DISCARD or LOST pile rather than their
+        // hand, and extension record 43 names which. Resolve it out of THE SAME EXPRESSION the pile
+        // arc's own wire index space is built from (CardsGameApi.GetPileArcWidgets — the one record
+        // 36's held-card seat and record 39's sacrifice seat are both indexed into), so the fan, the
+        // card plucked out of it, and the browse arc beside it are three views of ONE list rather
+        // than three filters that happen to agree.
+        //
+        // THE LENGTH BELT STILL HAS THE LAST WORD. All this branch does is choose WHICH list to
+        // walk; the caller still refuses every face unless this client's copy of it is exactly as
+        // long as the arc on the wire, so a pile the two clients disagree about draws the same
+        // BACKS it drew before this record existed. Nothing here can put a face from one pile onto
+        // a card from another.
+        //
+        // AN UNKNOWN OR ABSENT LIST IS THE HAND, decided in NetProtocol.IsFanSourcePile: a value
+        // this build cannot name degrades to the picture it drew before, which is the only
+        // degradation that cannot mislead.
+        if (NetProtocol.IsFanSourcePile(fanList))
+        {
+            CardsGameApi.GetPileArcWidgets(hand, fanList == NetProtocol.HeldFaceListBurnt,
+                                           _handBuffer);
+            if (_handBuffer.Count > MaxCards)
+                _handBuffer.RemoveRange(MaxCards, _handBuffer.Count - MaxCards);
+            return;
+        }
         List<AbilityCardUI> cards = hand.cardsUI; // publicized private field
         if (cards == null)
             return;

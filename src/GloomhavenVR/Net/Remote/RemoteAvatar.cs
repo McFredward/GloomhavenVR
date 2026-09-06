@@ -318,25 +318,46 @@ internal sealed class RemoteAvatar
     /// symptoms, exactly as the report describes them.</para>
     ///
     /// <para>NO NEW WIRE FIELD IS OWED: the seat is already here. Record 36 exists to draw the front
-    /// of the held card and names the same index space the fan resolves in
-    /// (<c>CardsGameApi.HandFanMember</c> on both machines), so the receiver can simply take those
-    /// seats OUT of its model list and get back a list the wire count agrees with — and one whose
-    /// positions still line up, because removing seat k from an ordered list is exactly what the
-    /// owner's own fan did to produce the arc.</para>
+    /// of the held card and names the same index space the fan resolves in, so the receiver can
+    /// simply take those seats OUT of its model list and get back a list the wire count agrees with
+    /// — and one whose positions still line up, because removing seat k from an ordered list is
+    /// exactly what the owner's own fan did to produce the arc.</para>
+    ///
+    /// <para>"THE FAN'S LIST" IS NOT ALWAYS THE HAND (2026-09-06, report item 7). This used to
+    /// filter on <see cref="NetProtocol.HeldFaceListHand"/> as a literal, which was right for as
+    /// long as a fan could only be a hand. During a modal card pick the owner's arc is a PILE
+    /// (<see cref="FanSourceList"/>, extension record 43), the card they pluck out of it is named in
+    /// THAT pile's index space, and a literal Hand filter therefore threw the seat away — leaving
+    /// the belt looking at N model cards against N-1 slabs and refusing the whole fan for as long as
+    /// the card was up, which is report item 2c happening again one flow over. The filter now names
+    /// the list the FAN is drawn from, so the two can no longer be different lists by construction
+    /// rather than by a reader keeping two literals in step.</para>
+    ///
+    /// <para>A SEAT IN A LIST THE FAN IS NOT DRAWING IS STILL DISCARDED, and that still matters: a
+    /// card on loan from a pile BROWSE arc carries the same list id as a pick fan over the same
+    /// pile, and it never left the hand fan's arc, so removing its seat would shift every face after
+    /// it. What separates them is the belt, unchanged and doing exactly the job it was written for:
+    /// a browse loan does not shrink <c>CardFan.Current.Count</c>, so the lengths do not come out
+    /// even and nothing is dropped. The removal is applied only when it makes the two agree.</para>
     /// </summary>
     internal int HeldHandSeats(out int seatA, out int seatB)
     {
         seatA = -1;
         seatB = -1;
         int n = 0;
+        // THE LIST THE FAN IS DRAWN FROM, read rather than assumed — the hand unless record 43 says
+        // a pile. One expression for one index space; see the doc block above.
+        byte fanList = NetProtocol.IsFanSourcePile(FanSourceList)
+            ? FanSourceList
+            : NetProtocol.HeldFaceListHand;
         if (NetProtocol.HeldFaceNamesCard(_heldFaceCode)
-            && NetProtocol.HeldFaceList(_heldFaceCode) == NetProtocol.HeldFaceListHand)
+            && NetProtocol.HeldFaceList(_heldFaceCode) == fanList)
         {
             seatA = NetProtocol.HeldFaceIndex(_heldFaceCode);
             n++;
         }
         if (NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
-            && NetProtocol.HeldFaceList(_secondHeldFaceCode) == NetProtocol.HeldFaceListHand)
+            && NetProtocol.HeldFaceList(_secondHeldFaceCode) == fanList)
         {
             int seat = NetProtocol.HeldFaceIndex(_secondHeldFaceCode);
             if (n == 0)
@@ -712,6 +733,21 @@ internal sealed class RemoteAvatar
     /// The one question <see cref="RemoteBoardCard.SetSpentHalves"/> asks of the wire.</summary>
     public bool RoundHalfIsSpent(int slot, bool top)
         => NetProtocol.RoundHalfIsSpent(RoundHalfSpentMask, slot, top);
+
+    /// <summary>
+    /// WHICH LIST THIS PLAYER'S FAN IS DRAWN FROM — extension record
+    /// <see cref="NetProtocol.ExtIdFanSource"/>. <see cref="NetProtocol.HeldFaceListNone"/> means
+    /// THE HAND, which is the reading for an ordinary fan, for no fan at all, and for every sender
+    /// predating ModBuild 459 alike; the two piles a modal pick can fan are
+    /// <see cref="NetProtocol.HeldFaceListDiscard"/> and <see cref="NetProtocol.HeldFaceListBurnt"/>.
+    ///
+    /// <para>IT IS A POPULATION, NOT A PERMISSION. <c>RevealGate</c> alone decides whether a front
+    /// may be drawn at all, and it is asked the same phase question for a pick fan as for a hand
+    /// fan. All this says is WHICH host-replicated list the faces come out of once the answer is
+    /// yes — see <c>RemoteHandFan.ResolveHandFronts</c>, which still refuses unless this client's
+    /// own copy of that list is exactly as long as the fan on the wire.</para>
+    /// </summary>
+    public byte FanSourceList { get; private set; }
 
     /// <summary>The list length beside <see cref="SacrificeSeatCode"/>.</summary>
     public byte SacrificeSeatCount(int slot) =>
@@ -1279,6 +1315,10 @@ internal sealed class RemoteAvatar
         // so the two MUST decode alike or a peer would keep a stale dim across the round boundary
         // that clears it — the same rule every other omit-when-empty record here follows.
         RoundHalfSpentMask = p.HasRoundHalfSpent ? p.RoundHalfSpentMask : (byte)0;
+        // Item 7: absent record == THE HAND. The sender never writes the hand (it is the default
+        // every receiver already resolves), so absence and "my fan is my hand" have to decode alike
+        // or a fan that stopped being a pick would keep resolving against the discard list.
+        FanSourceList = p.HasFanSource ? p.FanSourceList : NetProtocol.HeldFaceListNone;
         SacrificeSeatCode1 = p.HasSacrificeSeat ? p.SacrificeSeatCode1 : (byte)0;
         SacrificeSeatCount1 = p.HasSacrificeSeat ? p.SacrificeSeatCount1 : (byte)0;
 
