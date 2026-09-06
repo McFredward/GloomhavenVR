@@ -433,7 +433,93 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 465;
+    public const ushort ModBuild = 466;
+    // Build 466: two lanes, no fade decision changed, and the round in which the flash's PICTURE
+    //   was finally measured — killing the position premise this build's own predecessor was
+    //   built on, and turning up a hole that may invalidate every material exclusion since round
+    //   ten.
+    //   * THE WHITE FLASH — THE VIDEO WAS PHOTOMETERED AND IT KILLED THE POSITION PREMISE. Ten Hz
+    //     in linear light on the user's own clip: near-white pixels ramp 274 -> 85,495 over
+    //     t=2.8..4.2 s and then fall to ZERO at t=4.3 — a slow ramp in and a ONE-FRAME cliff out.
+    //     That is the opposite direction to the decay section 13.2 recorded. And the term the
+    //     search has been built on is not there: THE PROP'S CENTROID MOVES UNDER 30 PX across both
+    //     the ramp and the cliff. The user's "I escape it by lifting" is not reproduced in his own
+    //     video — the white comes and goes while the prop is effectively still. The POSITION SWEEP
+    //     was built on that premise and is nevertheless KEPT, because deleting an instrument in the
+    //     round its premise dies is how this file has lost evidence before.
+    //     TWO MORE CANDIDATES CLOSED BY COLOUR AND BY POSE. The added light is NEUTRAL — delta
+    //     divided by R reads 1.000, 0.995, 1.010 on the stone ring, where this mod's own GlowTint
+    //     amber demands 1.000, 0.342, 0.056 — so the mod's overlays are excluded by MEASUREMENT
+    //     where section 11.6 had only ever excluded them by assertion. And pose is not the term:
+    //     grey through ten seconds of a face-on circle, white while a tilted ellipse, and t=4.2
+    //     against t=4.3 is the SAME pose at the SAME screen position, 0.1 s apart, one white and
+    //     one not.
+    //     THE LANE CORRECTED ITSELF ON THE RECORD. It first read the neutral delta as killing the
+    //     occlusion hypothesis; that was wrong twice over, because in this shader family the term
+    //     drives the wall-fade BLEACH, which is neutral, and because a wall FINISHING a fade
+    //     produces exactly the measured shape — a ramp over the fade and a drop in one frame when
+    //     it stops being drawn into the map. It is also the only account that holds "der weisse
+    //     flash auf ALLEN Fallen" and twelve rounds of zero state readings together.
+    //     AND ROUND FOURTEEN'S CONCLUSION WAS WRONG: channel 5 reads 1. The RULE was right — a
+    //     skinned renderer can never enter a List<MeshRenderer> — but the trap carries its volume
+    //     on its own child, `Trap_BearTrap_PR/OcclusionVolume [MeshRenderer]`, which the HOME TWIN
+    //     roster has been printing as renderer [1] for rounds. Strand 5 is NOT retired and ModBuild
+    //     459 was NOT null by construction. Corrected in three doc sections and three source sites.
+    //     SHIPPED, AND THE PRECONDITION IS NOW MET: `PropOcclusionGate` holds `_EnableOcclusionMap`
+    //     at 0 for the head camera's pass and restores it in `onPostRender`, behind
+    //     `[FigureGrab] OcclusionMapOffOnHeadCamera`, default FALSE, named in EN and DE, live on
+    //     SettingChanged. Camera-wide scope was kept over a per-renderer property block because the
+    //     global is the delivery path the GAME itself uses, and an unproven path returning "no
+    //     change" is this file's recurring trap. A missed restore cannot latch: the generator
+    //     re-publishes the global from inside its command buffer every frame. The cost — flames
+    //     drawn unoccluded while it is on — is stated to the user in both languages.
+    //     AND `Amp_Char_Shader` CANNOT BE DUMPED ON THIS MACHINE, verified rather than assumed:
+    //     `tools/ShaderDisasm` works and has produced real DXBC for four shaders, but `ressources/`
+    //     holds only `Managed/` — no GH_Data, no resources.assets, no asset bundle anywhere. A
+    //     sibling shader's disassembly is not this shader's answer, and the shipped line says so.
+    //   * THE FINDING THAT MAY MATTER MORE THAN THE FLASH: EVERY MATERIAL EXCLUSION SINCE ROUND TEN
+    //     MAY HAVE BEEN BLIND. `ResolveVerdictMaterials` runs ONCE at the grab and caches Material
+    //     REFERENCES. Anything that touches `Renderer.material` afterwards swaps a fresh clone into
+    //     the renderer and ORPHANS that cache — after which this file reads a detached object and
+    //     reports it unchanged forever. That is the exact shape of section 17.2's `0 of 57 tracked
+    //     slot(s)`, the reading every material candidate has been closed with for five rounds. And
+    //     it compounds: `SHARED OR INSTANCED` is computed from the SAME cache, so the instrument's
+    //     evidence that nothing was instanced comes from the very reference instancing would
+    //     orphan. The protecting comment is TRUE — `sharedMaterials` does return the clone, IF YOU
+    //     CALL IT AGAIN — and nothing does.
+    //     `SampleMaterialAttachment` now counts orphaned cached materials per frame for both
+    //     tables, allocation-free and with no new `GetComponentsInChildren`. Above 0 on a white
+    //     hold retires section 17 outright; 0 on a white hold confirms it properly for the first
+    //     time; 0 on a hold with no flash proves nothing, and the clause says that about itself.
+    //     NOTED AS A NAMED SUSPECT WITH A MATCHING SIGNATURE: `GenericHeal_OnEnable` ramps `_Glow`
+    //     along a curve over AnimTime = 1 s and restores it in ONE FRAME, through a `.material`
+    //     instantiation that would blind the belt in the same call — a ramp-in and a one-frame
+    //     cliff, which is the shape the photometry measured.
+    //   * THE HOUSE WALL — THE OBVIOUS FIX WAS REFUSED WITH NUMBERS, and that is the result. The
+    //     previous round's "13 revealed hexes in no denominator" is NOT this viewpoint's cause. The
+    //     two counters on the verdict line are computed differently — `blk` over the filtered
+    //     samples, `hides counted` over the room's WHOLE hex list with no footprint filter — so on
+    //     a whole-set room they must differ by exactly the dropped hexes a wall hides. Over 302
+    //     named verdicts they agree EXACTLY on 292, and the ten that differ do so by 1-2 in BOTH
+    //     directions (5 each way), which is one-pass skew and not a population difference. So no
+    //     wall in the session hid a single playable footprint-dropped hex: lifting the filter adds
+    //     ZERO to every numerator and enlarges every denominator from 24 toward 44, a coverage loss
+    //     of up to 45 % on the four walls that DO fade. Upward crossings 0, downward potentially
+    //     all of them — exactly the regression the user forbade twice.
+    //     THE IN-FRUSTUM CEILING IS ALSO FALSIFIED, and it was this file's standing hypothesis #2:
+    //     it really does bite, on 103 of 302 verdicts, but re-normalising on blocked/visible
+    //     instead of blocked/total flips 0 of 302 across the bar, because every low-visibility
+    //     verdict also reads blk 0. Recorded so it is not re-chased.
+    //     WHAT ACTUALLY STOPPED THE ROUND WAS AN INSTRUMENT BLIND SPOT: every verdict identifies a
+    //     wall by name and instance id only, and the names repeat across map tiles, so the lane
+    //     spent the round matching a video frame to a wall number by pixel. Now every entry carries
+    //     its anchor's WORLD POSITION, there is a fourth `hides` class for a hex the footprint box
+    //     cut (so the debt is readable rather than inferred), and `SOLID:CLEAR` — 70 of 302
+    //     verdicts, six or seven walls a pass, never once identified — is named at last, because
+    //     "the house reads CLEAR" is precisely the reading that moves the search upstream of the
+    //     coverage rule.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 465: the house wall FIXED, and the white flash's light hypothesis KILLED by a reading
     //   that points the wrong way. Two lanes, one behaviour change, and three of the integrator's
     //   own readings corrected by the lanes that received them.
