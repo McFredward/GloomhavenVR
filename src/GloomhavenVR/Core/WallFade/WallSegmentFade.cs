@@ -1438,10 +1438,15 @@ internal static partial class WallSegmentFade
         private readonly List<float> _roomSnapMax = new();      // worst lattice→hex move, wu (diag)
         private readonly List<float> _roomSnapSum = new();      // summed move, wu (diag → mean)
         private readonly List<bool> _roomTileGrid = new();      // false = fell back to the bounding box
+        // ModBuild 465: true = the room's WHOLE playable hex set became the sample set, so the
+        // lattice (and its snapping) never ran for this room. See RebuildSamples.
+        private readonly List<bool> _roomWholeSet = new();
         private int _sampleGridCells;                           // grid*grid this rescan (diag)
         private int _tilesResolved, _tilesUnkeyed;              // hex census this rescan (diag)
         private bool _tileSourceLive;                           // the game's tile registry answered
         private string _lastSampleCensus = string.Empty;        // change-gated census line
+        private string _lastHexResolution = string.Empty;       // change-gated HEX RESOLUTION line
+        private readonly System.Text.StringBuilder _noteScratch = new();
         // GENERALITY INSTRUMENTS (ModBuild 262 lane F — measurement only, no fade behaviour
         // touched). Reused scratch so the census allocates nothing per rescan: one set for
         // "which CMaps of the registry actually got a sample grid" (F8), one set + histogram
@@ -8435,6 +8440,7 @@ internal static partial class WallSegmentFade
             _roomSnapMax.Clear();
             _roomSnapSum.Clear();
             _roomTileGrid.Clear();
+            _roomWholeSet.Clear();
             _roomTileFootprint.Clear();
             _roomTilePlayable.Clear();
             _roomPlayableUsed.Clear();
@@ -8468,6 +8474,7 @@ internal static partial class WallSegmentFade
                 _roomSnapMax.Add(0f);
                 _roomSnapSum.Add(0f);
                 _roomTileGrid.Add(false);
+                _roomWholeSet.Add(false);
                 _roomTileFootprint.Add(0);
                 _roomTilePlayable.Add(0);
                 _roomPlayableUsed.Add(false);
@@ -8498,10 +8505,21 @@ internal static partial class WallSegmentFade
                     // logical rooms here — CommitRoomRegistry keys them by (CMap, anchor height)
                     // precisely because a terraced room must not share one sample plane — and
                     // both would otherwise be handed the CMap's whole hex list, so the upper
-                    // level could snap its samples onto the lower level's tiles in XZ. The
+                    // level could snap its samples onto the lower level's tiles in XZ. Not a
+                    // tuning: no margin, no radius, just the room's own bounds.
+                    //
+                    // ModBuild 465 CORRECTS THIS COMMENT'S JUSTIFICATION. It used to read "the
                     // footprint is the same box the lattice is drawn over, so a hex outside it
-                    // is one the lattice never reached anyway. Not a tuning: no margin, no
-                    // radius, just the room's own bounds.
+                    // is one the lattice never reached anyway" — true of the snapped lattice,
+                    // and no longer the whole story now that a room can take its hex set WHOLE
+                    // (below), because then there is no lattice and the filter is the only
+                    // thing removing those hexes. The ModBuild 464 log measures the size of it:
+                    // room 0 holds 44 hexes on its CMap and 31 inside its own bounds, so 13
+                    // revealed hexes of the room's own CMap are in NO denominator. That is a
+                    // SEPARATE finding from the one this build fixes and it is deliberately not
+                    // touched here — those 13 are the terraced lower level, the room registry
+                    // gave the terrace no entry of its own, and widening a denominator is a
+                    // rule change the user has ruled out. It is reported, not fixed.
                     _tileScratch.Clear();
                     _tilePlayScratch.Clear();
                     // ModBuild 259: same walk, and the playability verdict CollectPlayableTiles
@@ -8567,6 +8585,103 @@ internal static partial class WallSegmentFade
                 }
 
                 _roomTileGrid[r] = true;
+
+                // ── EVERY PLAYABLE HEX WHEN THE BUDGET CAN HOLD IT (ModBuild 465) ───────────
+                // THE LATTICE IS A SUBSAMPLER, and it was subsampling a room that did not need
+                // it. `grid` above is capped at 4 by the ladder's own top rung, so a scenario
+                // with ONE room spends 16 of the 96-sample budget and leaves 80 unspent — and
+                // then min(grid², hex set) throws away 9 of the 25 playable hexes it already
+                // holds. The 2026-09-06 hardware log (ModBuild 464, hauswand.mp4) measures the
+                // cost directly, because OCCLUDER VERDICTS prints BOTH estimators of the same
+                // fraction under the same ray acceptance: `blk N/16` over the lattice, and
+                // `hides N counted` over the full playable hex set. Across the 119 named
+                // per-wall verdicts they disagree by more than one lattice cell on 13, and on
+                // FOUR the lattice reads below the 0.35 enter bar while the full hex set reads
+                // at or above it — 'Wall 8' blk5/16 = 0.31 against 11 of 25 = 0.44, 'Wall 7'
+                // blk4/16 = 0.25 against 10 of 25 = 0.40, 'Wall 1' blk5/16 = 0.31 against 10
+                // of 25 = 0.40 and 9 of 25 = 0.36. 'Wall 7' spent all 19 of its verdicts
+                // BELOW-BAR with its EMA pinned at 0.30-0.31 and never once reached OCCLUDER,
+                // and 'Wall 1'#-19032 likewise — one lattice cell short of a bar the full hex
+                // set says they are genuinely above. The identification of those two as the
+                // house in hauswand.mp4 is BY COVERAGE, not by pixel: they are the only walls
+                // in the session that stayed solid while hiding a third of the visible floor.
+                //
+                // The snapping is what loses it. Each of the 16 lattice positions is drawn over
+                // the room's bounds BOX and dragged to the nearest unclaimed hex — max 3.05 wu
+                // in this log, against a ~1.72 wu hex pitch, which this file's own census names
+                // as the defect condition ("a room whose worst lattice position sits more than a
+                // hex pitch from any tile had lattice cells in dead space"). The survivors are
+                // not a uniform subsample of the hexes: they favour the middle of the box, so a
+                // wall standing over a dense cluster at the room's near edge hides many hexes
+                // and few lattice positions.
+                //
+                // So: when the room's own hex set already fits, sample it WHOLE. There is
+                // nothing left to subsample, the snap distance is zero by construction, and
+                // `blk/total` becomes numerically identical to `hides N counted` — the two
+                // estimators the instrument prints side by side reconcile instead of
+                // contradicting each other.
+                //
+                // WHAT THIS DOES NOT CHANGE, because the user's ruling is that only revealed
+                // hexes may cause a fade and the rest of the tuning is good:
+                //   • The HEX SET is untouched. `hexes` is the same list either branch takes —
+                //     this room's own CMap, inside its own footprint, ClassifyHex-playable.
+                //     A hex on an un-gridded CMap stays OFF-GRID and still causes no fade.
+                //   • WallFadeTuning.On / .Off (0.35 / 0.20) and the EMA are untouched. Only the
+                //     resolution at which coverage is measured changes.
+                //   • The playability filter is untouched: the branch is gated on
+                //     _roomPlayableUsed[r], i.e. it fires ONLY where the filter is already in
+                //     force, so it can never demote a room to the wider in-footprint set.
+                //
+                // REGRESSION ENVELOPE — reservations, not a guess. THREE terms gate it:
+                //   • `owed` holds back grid² for every room STILL TO COME, so this room can
+                //     never push a later one over the budget into RoomSampleCount 0 — the cliff
+                //     where a room gets no grid and its walls are held solid forever.
+                //   • The running `AllSamples.Count` term keeps the hard bound: AllSamples is
+                //     walked against arrays sized MaxTotalSamples.
+                //   • The last term reserves grid² for every OTHER room, EARLIER ONES INCLUDED.
+                //     Without it, whether this room refines would depend on how many hexes the
+                //     rooms before it happened to have — a hidden ordering dependence, and
+                //     exactly the shape of surprise this change must not introduce. With it,
+                //     firing is a pure function of (room count, this room's hex count):
+                //
+                //       rooms  grid²   fires only for a room with grid² < hexes ≤ cap
+                //         1      16                    16 < hexes ≤ 96
+                //         2      16                    16 < hexes ≤ 80
+                //         3      16                    16 < hexes ≤ 64
+                //         4      16                    16 < hexes ≤ 48
+                //         5      16                    16 < hexes ≤ 32
+                //         6      16    IMPOSSIBLE — the ladder already spends 6 × 16 = 96
+                //        7-10     9                     9 < hexes ≤ 96 − (rooms−1)·9
+                //       11-24     4    …and IMPOSSIBLE at 24, where 24 × 4 = 96
+                //
+                //     So a scenario at either of the ladder's saturation points (6 rooms, 24
+                //     rooms) is BIT-IDENTICAL for every hex distribution, and so is any room
+                //     with no more playable hexes than grid².
+                //
+                // And the direction is one-way. A room's denominator can only GROW, never
+                // shrink, so no wall loses resolution it has today and no room is newly
+                // starved. Measured on the ModBuild 464 log itself: of the 119 named verdicts,
+                // 4 cross the 0.35 enter bar UPWARD (a wall held solid becomes eligible) and
+                // ZERO cross it downward — no wall that fades today stops fading. That is the
+                // whole argument for "no regressions", and it is a count, not an opinion.
+                int owed = (rooms - r - 1) * grid * grid;
+                if (_roomPlayableUsed[r] && hexes.Count > grid * grid
+                    && _live.AllSamples.Count + hexes.Count + owed <= MaxTotalSamples
+                    && hexes.Count + (rooms - 1) * grid * grid <= MaxTotalSamples)
+                {
+                    for (int t = 0; t < hexes.Count; t++)
+                    {
+                        // Same frame guarantee as the snapped path: the hex gives XZ, Y stays
+                        // the room's tile-anchored sample plane.
+                        _live.AllSamples.Add(new Vector3(hexes[t].x, y, hexes[t].z));
+                    }
+                    _roomWholeSet[r] = true;
+                    _roomSnapMax[r] = 0f;
+                    _roomSnapSum[r] = 0f;
+                    _live.RoomSampleCount.Add(hexes.Count);
+                    continue;
+                }
+
                 _tileTaken.Clear();
                 for (int t = 0; t < hexes.Count; t++)
                     _tileTaken.Add(false);
@@ -8858,6 +8973,7 @@ internal static partial class WallSegmentFade
                     // denominator. The denominator is min(grid-squared, this set), which is
                     // exactly `cells`, and it is printed under its own label below.
                     int hexSet = _roomPlayableUsed[r] ? play : foot;
+                    bool wholeSet = r < _roomWholeSet.Count && _roomWholeSet[r];
                     sb.Append(": ").Append(_roomTileTotal[r]).Append(" hex(es) on this room's CMap")
                       .Append(_roomTileTotal[r] != foot
                           ? $" → {foot} inside this room's own footprint (the rest sit outside "
@@ -8889,9 +9005,20 @@ internal static partial class WallSegmentFade
                             + " cell(s) — that is a bar re-derivation, and this build does not "
                             + "make it")
                       .Append("; DENOMINATOR IN FORCE = ").Append(cells)
-                      .Append(" sample(s) = min(grid² ").Append(_sampleGridCells)
-                      .Append(", hex set ").Append(hexSet)
-                      .Append("), so the quantum below is 1/").Append(cells)
+                      .Append(wholeSet
+                          ? " sample(s) = THE WHOLE HEX SET (ModBuild 465): the lattice never "
+                            + "ran for this room, because " + hexSet + " playable hex(es) fit "
+                            + "the " + MaxTotalSamples + "-sample budget with grid² "
+                            + _sampleGridCells + " reserved for every other room, so every "
+                            + "playable hex IS a sample and the snap distance is 0 by "
+                            + "construction. Read this beside the OCCLUDER VERDICTS line: "
+                            + "'blk N/" + cells + "' and 'hides N counted' are now the SAME "
+                            + "measurement and must agree exactly — they are the two estimators "
+                            + "that disagreed by up to 0.13 (blk5/16 = 0.31 against 11 of 25 = "
+                            + "0.44) in the ModBuild 464 log"
+                          : " sample(s) = min(grid² " + _sampleGridCells
+                            + ", hex set " + hexSet + ")")
+                      .Append(", so the quantum below is 1/").Append(cells)
                       .Append(" and NOT 1/").Append(hexSet)
                       .Append(". ModBuild 262 lane F fix: this clause used to print the hex-set "
                           + "size under the word DENOMINATOR, which is the number that reached "
@@ -8901,9 +9028,10 @@ internal static partial class WallSegmentFade
                           + "header of this file had the right relation min(grid², hexes) all "
                           + "along. FALSIFIER for this fix: the quantum printed below must "
                           + "equal 1/DENOMINATOR IN FORCE to four decimals. ")
-                      .Append(cells).Append(" of ").Append(_sampleGridCells)
+                      .Append(cells).Append(" of ")
+                      .Append(wholeSet ? cells : _sampleGridCells)
                       .Append(" lattice position(s) kept ON A TILE (")
-                      .Append(_sampleGridCells - cells)
+                      .Append(wholeSet ? 0 : _sampleGridCells - cells)
                       .Append(" dropped — a lattice position is only dropped when the room has "
                           + "fewer hexes than positions, never for being off-tile: off-tile "
                           + "positions are MOVED to the nearest unclaimed hex), moved max ")
@@ -9041,6 +9169,12 @@ internal static partial class WallSegmentFade
                         ? " — NOTHING MEASURED: the tile registry holds no CMap this rescan, so "
                           + "this clause has compared nothing and is not an all-clear."
                         : " — every CMap the registry knows is in some room's denominator.");
+            int wholeSetRooms = 0;
+            for (int r = 0; r < _roomWholeSet.Count; r++)
+            {
+                if (_roomWholeSet[r])
+                    wholeSetRooms++;
+            }
             string line =
                 $"SAMPLE GRID: {TilesetLabel()}; {tileRooms} room(s) on the PLAYABLE-TILE "
                 + $"denominator, {boxRooms} "
@@ -9054,6 +9188,18 @@ internal static partial class WallSegmentFade
                 + $"{_live.RoomSampleCount.Count} room(s) — grid is 4 up to 6 rooms, 3 up to 10, 2 up "
                 + $"to 24 and 1 beyond, against the {MaxTotalSamples}-sample budget, so ROOM "
                 + "COUNT alone moves every room's quantum and both Schmitt bars in cell terms. "
+                + $"ModBuild 465: {wholeSetRooms} room(s) took THE WHOLE PLAYABLE HEX SET "
+                + "instead of that lattice, which is what the ladder's top rung of 4 was "
+                + $"leaving on the table — {_live.AllSamples.Count} of the {MaxTotalSamples} "
+                + "sample(s) are now spent, against "
+                + $"{_live.RoomSampleCount.Count * _sampleGridCells} under the ladder alone. A "
+                + "whole-set room has snap distance 0 and its quantum is 1/hex-set, so it is "
+                + "the only kind of room where 'blk N/total' and OCCLUDER VERDICTS' 'hides N "
+                + "counted' are the same number; a disagreement between those two on a "
+                + "whole-set room falsifies this fix. Zero here means the ladder was already "
+                + "spending the budget (6 rooms × 16 and 24 rooms × 4 are its two saturation "
+                + "points, where the surplus is exactly 0 and this build is bit-identical to "
+                + "ModBuild 464) or no room has more playable hexes than grid². "
                 + $"{roomsNoGrid} room(s) got NO grid at all (their walls are held solid and can "
                 + $"never fade), {roomsBarsCollapsed} have the two bars COLLAPSED onto the same "
                 + $"cell count, {roomsBarsOneApart} have them ONE cell apart, and "
@@ -9076,6 +9222,69 @@ internal static partial class WallSegmentFade
                 return;
             _lastSampleCensus = line;
             VRLog.Info(Name, line);
+            LogWholeHexSet(wholeSetRooms);
+        }
+
+        /// <summary>
+        /// THE ANSWER LINE FOR ModBuild 465 — the sampling resolution the coverage metric
+        /// actually got, at Note tier, because the census above is Debug tier and the reading
+        /// that decides the house-wall report is one number per room.
+        ///
+        /// <para>Grep <c>] [WallSegmentFade] HEX RESOLUTION</c>. Change-gated on its own text
+        /// (the rescan is every 2 s), so ONE line is not one rescan — it reprints when any
+        /// number in it moves, which includes a room revealing.</para>
+        ///
+        /// <para>HOW TO READ IT, in numbers, on the scenario of hauswand.mp4 (1 room, 25
+        /// playable hexes, 96-sample budget):</para>
+        /// <list type="bullet">
+        ///   <item><b>WORKING</b> — <c>1 room(s) WHOLE SET</c> and <c>25 sample(s)</c> for
+        ///   room 0, snap 0.00 wu. Then OCCLUDER VERDICTS must print <c>blk N/25</c> and its
+        ///   <c>hides N counted</c> must be the SAME N on every named entry: the two
+        ///   estimators are one measurement now. ModBuild 464 read <c>blk 5/16</c> beside
+        ///   <c>hides 11 counted</c> — 0.31 against 0.44 across a 0.35 bar.</item>
+        ///   <item><b>INERT</b> — <c>0 room(s) WHOLE SET</c> with a non-zero surplus. The
+        ///   branch was reachable and did not fire; read the per-room rows of SAMPLE GRID for
+        ///   which term refused it (PLAYABLE FILTER HELD BACK, or a hex set no larger than
+        ///   grid²). A scenario at 6, 10 or 24 rooms has surplus 0 BY DESIGN and reading 0
+        ///   there is correct, not inert.</item>
+        ///   <item><b>STILL BEYOND THE INSTRUMENT</b> — whether a wall now CROSSES the 0.35
+        ///   enter bar. This line reports resolution, not verdicts. The 4 upward crossings and
+        ///   0 downward ones are what the ModBuild 464 log's own two estimators imply for that
+        ///   one head path; they are not a prediction for a head pose nobody stood in. The
+        ///   verdict itself is OCCLUDER VERDICTS' job and 'Wall 7'#-19128 going from 19
+        ///   BELOW-BAR / 0 OCCLUDER to any OCCLUDER at all is the reading that settles it.
+        ///   Also beyond it: the 34 hexes on the second CMap, which have no grid because that
+        ///   CMap has no logical room — they stay OFF-GRID and this fix does not touch
+        ///   them.</item>
+        /// </list>
+        /// </summary>
+        private void LogWholeHexSet(int wholeSetRooms)
+        {
+            _noteScratch.Clear();
+            for (int r = 0; r < _live.RoomSampleCount.Count; r++)
+            {
+                if (_noteScratch.Length > 0)
+                    _noteScratch.Append(", ");
+                _noteScratch.Append("room ").Append(r).Append(' ')
+                    .Append(_live.RoomSampleCount[r]).Append(" sample(s) ")
+                    .Append(r < _roomWholeSet.Count && _roomWholeSet[r]
+                        ? "WHOLE SET"
+                        : r < _roomTileGrid.Count && _roomTileGrid[r] ? "lattice" : "box")
+                    .Append(" snap ")
+                    .Append((r < _roomSnapMax.Count ? _roomSnapMax[r] : 0f).ToString("F2"))
+                    .Append(" wu");
+            }
+            string line = $"HEX RESOLUTION: {wholeSetRooms} of "
+                + $"{_live.RoomSampleCount.Count} room(s) WHOLE SET; "
+                + $"{_live.AllSamples.Count}/{MaxTotalSamples} sample(s) spent (lattice alone "
+                + $"would spend {_live.RoomSampleCount.Count * _sampleGridCells}); "
+                + $"{_noteScratch}. A WHOLE SET room's blk N/total and OCCLUDER VERDICTS' "
+                + "'hides N counted' are the same measurement and must print the same N.";
+            if (line == _lastHexResolution)
+                return;
+            _lastHexResolution = line;
+            // HW-VERIFY
+            VRLog.Note(Name, line);
         }
 
         /// <summary>
@@ -9456,6 +9665,7 @@ internal static partial class WallSegmentFade
             _roomSnapMax.Clear();
             _roomSnapSum.Clear();
             _roomTileGrid.Clear();
+            _roomWholeSet.Clear();
             _roomTileFootprint.Clear();
             _roomTilePlayable.Clear();
             _roomPlayableUsed.Clear();
