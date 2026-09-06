@@ -433,7 +433,40 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 452;
+    public const ushort ModBuild = 453;
+    // Build 453: THE WHITE FLASH ON A HELD PROP, SEVENTH ROUND — AND THE PAINTER IS US.
+    //   Animator.enabled = false does not undo a clip. It stops the clip WHERE IT IS. ModBuild 445's
+    //   very first hush strand froze the trap's ~5 s attention loop at whatever frame the hand
+    //   closed on, so grabbing during the bright part of that loop LATCHES the bright part for the
+    //   whole hold, and grabbing anywhere else looks fine.
+    //   That is the report term for term. "MANCHMAL" is the phase of the grab. "WEISS", a word the
+    //   user only started using AFTER the hush shipped, is an absolute state rather than the
+    //   "Schimmer" and "Licht-Effekt" of the rounds before it.
+    //   AND IT WAS INVISIBLE TO EVERY READING IN THAT FILE BY CONSTRUCTION, because all of them ask
+    //   DID ANYTHING MOVE. "0 of 96 slots moved on any frame" is exactly what a prop frozen white
+    //   prints. Six rounds of correct zeroes were every one of them consistent with it. The A/B line
+    //   shipped in 448 had already said so and nobody read it as a lead: advancing hand=0/1028
+    //   home=359/360 at 0.201/s — the clip runs on the hex and is stopped dead in the hand.
+    //   THE FIX IS ONE CALL: WriteDefaultValues() before the disable, so the frozen frame is the
+    //   RESTING one. Deliberately not Play(state, 0f) — replaying re-enters the state and fires
+    //   every StateMachineBehaviour, which is how DelayedDeactivatePropAnimSMB sends a rules
+    //   message. WriteDefaultValues touches no state machine, fires no behaviour or animation event,
+    //   and returns EVERY channel at once, which is the right shape when we cannot say which channel
+    //   the flash lives in. There is no snapshot to restore: handing `enabled` back gives the
+    //   channels to the animator, which re-drives them on its first frame.
+    //   MY OWN LEAD WAS WRONG, and the lane killed it with the census rather than with an argument:
+    //   the trap carries NO CustomObjectPositionToChildMaterials — the grab-edge census enumerates
+    //   all fifteen of its distinct MonoBehaviour types and it is not among them. The one feeder it
+    //   does carry writes in OnEnable only, through a Projector, and the prop has zero Projectors.
+    //   So _FadeSourcePos had no writer here at all. The vector/texture read-back shipped anyway
+    //   because it closes a named blind spot cheaply, but it is instrumentation and not the fix.
+    //   THREE MORE INSTRUMENT DEFECTS FOUND ON THE WAY, all of the same family this project keeps
+    //   paying for: the verdict built ONE property table from the first material's shader and read
+    //   every other material through it, silently skipping every id that shader does not declare,
+    //   while printing "2 material(s) on shader X" as though both shared it; the material count had
+    //   no sampled-of-found beside it; and the feeder gate was narrower than the histogram standing
+    //   next to it. Caps 4 -> 16 and 64 -> 96, per-material own-shader tables, counts beside them.
+    // Wire: nothing. DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 452: THE WELL, and it was refused by a term the user himself asked for.
     //   The 450 census kept one sentence deliberately outside its sample cap and it named the whole
     //   defect: "REFUSED as unliftable: 'OneHexObstacle' Obstacle - hasHealth=NO
