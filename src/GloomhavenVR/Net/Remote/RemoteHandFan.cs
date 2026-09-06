@@ -1862,6 +1862,22 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     //   fan slab appeared at its arc slot: the destination matched and the MOTION did not, which
     //   the 1:1 ruling counts as not done.
     //
+    //   ...AND THE FIRST FIX FOR IT WAS ONLY 4/11 OF ONE (item 3, 2026-09-06): "Animation, dass die
+    //   Karte zurueck in den Faecher geht fehlt beim remote spieler wenn der Faecher beim remote
+    //   Spieler auch offen ist." The machinery below was shipped and correct and simply could not
+    //   RUN: TrackFist wrote _fistSeat only where it could also NAME the card, so a fist this
+    //   client could not name was a fist it did not track, and the release edge never fired. THE
+    //   HOST LOG SAYS IT IN TWO GREPS. The peer's arc dipped by one and came back 11 times
+    //   (Player.log 'geometry: n=' at 100373/100414, 100966/101014, 104266/104291, 115418/115432,
+    //   117165/117185, 163674/163698, 230283/230306 and the four in 267814-269327); only 4 'FAN
+    //   RETURN FLIGHT' lines exist. Every dip that flew has a 'Remote hand fan faces ... FRONTS'
+    //   line beside it; not one of the six in 100373-101014 and 267814-269327 does, and that census
+    //   line is change-gated against a _frontsShown that Rebuild zeroes on every count change — so
+    //   its ABSENCE across a count change is positive evidence the fan was drawing BACKS. Backs
+    //   means RevealGate.ShowRoundCardFronts was false, which is the `armed` argument, which was
+    //   the term. The seat needed no gate to be safe: record 36's own list length and the sender's
+    //   own arc count belt it (listLength == count + 1) with two numbers off one packet.
+    //
     // WHY THE BELT IS NOT LOOSENED, for item 5. The belt exists because the alternative was a
     // CONFIDENTLY WRONG FACE — the user reported that twice — and nothing here weakens it: the
     // walk is still refused on a length disagreement, and what this adds is a SEPARATE, non-
@@ -1909,17 +1925,31 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private const float HandoffHoldSeconds = 6f;
 
     /// <summary>The card in this peer's fist right now, resolved from THIS client's own hand list
-    /// through record 36's seat — null whenever the fist is empty, names two cards, or the sender's
-    /// list length disagrees with this client's.</summary>
+    /// through record 36's seat — null whenever the fist is empty, names two cards, the sender's
+    /// list length disagrees with this client's, OR the reveal gate is shut.
+    ///
+    /// <para>IDENTITY ONLY, AND THAT IS THE CORRECTION OF 2026-09-06 (report item 3). This field
+    /// used to be the whole fist: <see cref="_fistSeat"/> was written beside it and cleared with
+    /// it, so a fist this client could not NAME was a fist it did not TRACK. The return-to-fan
+    /// glide needs no name — it moves an anonymous back slab from a pose to a seat — but it was
+    /// standing behind this null and could therefore never arm in the secret card-selection phase,
+    /// which is the one phase in which a player fans their hand out and puts cards back. See the
+    /// evidence block above <see cref="TrackFist"/>. The two facts are now tracked apart: this one
+    /// gates the RECESS HAND-OFF, which does need a name, and nothing else.</para></summary>
     private CAbilityCard? _fistCard;
 
-    /// <summary>The pose slot <see cref="_fistCard"/> is held in (1 or 2), so the return glide can
+    /// <summary>The pose slot the fist's card is held in (1 or 2), so the return glide can
     /// read the slab it was released at.</summary>
     private int _fistPoseSlot;
 
-    /// <summary>The hand seat <see cref="_fistCard"/> came out of — the arc index the card returns
+    /// <summary>The hand seat the fist's card came out of — the arc index the card returns
     /// to when it is released into the void, because <c>CardFan.Add</c> re-inserts at
-    /// <c>HomeIndexFor</c>, i.e. its OWN place and not the right-hand end.</summary>
+    /// <c>HomeIndexFor</c>, i.e. its OWN place and not the right-hand end.
+    ///
+    /// <para>Written off THE WIRE ALONE (record 36's seat, belted by the sender's own two numbers —
+    /// see <c>seatUsable</c> in <see cref="TrackFist"/>), never off this client's model, so it
+    /// survives a shut reveal gate. It is an INDEX, not an identity: nothing it reaches can print a
+    /// face.</para></summary>
     private int _fistSeat = -1;
 
     /// <summary>The occupancy mask as it stood while the card was still in their fist. The GAIN is
@@ -1982,6 +2012,92 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private int _returnsPlayed;
     private int _loggedReturns = -1;
 
+    /// <summary>How many times the WIRE said this peer let go of a hand card this session — every
+    /// true-to-false edge of <c>RemoteAvatar.SingleHeldHandSeat</c>, counted BEFORE any belt, any
+    /// reveal gate and any destination test.
+    ///
+    /// <para>THE DENOMINATOR HAS TO BE GATE-FREE OR IT MEASURES THE FIX WITH THE FIX. The defect
+    /// this counter exists to convict was exactly that every refusal happened where nothing was
+    /// counted, so "no line" and "no release" were the same reading. <c>SingleHeldHandSeat</c> is
+    /// pure record 36, so this number is the same on a client whose reveal gate never opens.</para>
+    /// </summary>
+    private int _releaseEdges;
+
+    /// <summary>Release edges that correctly produced no flight because the card went into a ROUND
+    /// RECESS — the hand-off branch. Subtracted from the denominator when reading the verdict line:
+    /// a card laid on the board owes no fan flight.</summary>
+    private int _releaseToRecess;
+
+    /// <summary>Release edges this mirror REFUSED to fly.</summary>
+    private int _releaseRefused;
+
+    /// <summary>WHICH named expression is refusing the release currently in flight, as a code.
+    ///
+    /// <para>A CODE AND NOT A SENTENCE, because this is written on a per-frame path: the belt
+    /// branches run every frame the peer holds a card, and composing the refusal prose there would
+    /// allocate a string per peer per frame for as long as somebody is reading a card. The sentence
+    /// is built once, inside <see cref="LogReturnVerdict"/>, out of this code and
+    /// <see cref="_refusalA"/>/<see cref="_refusalB"/>.</para></summary>
+    private RefusalTerm _refusal;
+
+    /// <summary>The two numbers the refusal sentence quotes — what each one means depends on
+    /// <see cref="_refusal"/>, and <see cref="LogReturnVerdict"/> is the only reader.</summary>
+    private int _refusalA;
+    private int _refusalB;
+
+    /// <summary>The vocabulary of things that can refuse a mirrored return flight. Every one of
+    /// them names a real expression in <see cref="TrackFist"/> or
+    /// <see cref="BeginReturnGlide"/> — a refusal that could not name its term is the failure this
+    /// enum exists to make impossible, and it has cost this project two shipped-inert fixes.
+    /// </summary>
+    private enum RefusalTerm
+    {
+        /// <summary>Nothing has refused anything yet this release.</summary>
+        None = 0,
+
+        /// <summary><c>seatUsable</c>: record 36's seat/length and the wire arc count did not read
+        /// <c>listLength == count + 1</c>. A = the seat, B = the sender's list length.</summary>
+        SeatBelt,
+
+        /// <summary>No seat was tracked at all while the card was held.</summary>
+        NeverTracked,
+
+        /// <summary>The recess occupancy mask moved, so this release is not a plain return to the
+        /// fan. A = the mask while held, B = the mask now.</summary>
+        RecessMask,
+
+        /// <summary>The wire arc did not grow back by exactly one — a burn or a discard, which
+        /// correctly owes no flight. A = the arc while held, B = the arc now.</summary>
+        ArcGrowth,
+
+        /// <summary>The fan is folding away and has no arc seat to fly to.</summary>
+        FanClosing,
+
+        /// <summary>This peer has no mirrored held-card slab, so there is no released pose to glide
+        /// from. A = the pose slot that was asked for.</summary>
+        NoHeldSlab,
+
+        /// <summary>Their fist filled again before the release could be judged.</summary>
+        Regrabbed,
+
+        /// <summary>The retry window ran out with none of the above resolving it.</summary>
+        GraceExpired,
+    }
+
+    /// <summary>Last release-edge count stated in the log, so the verdict line fires once per
+    /// release rather than per frame.</summary>
+    private int _loggedVerdictEdge = -1;
+
+    /// <summary>Whether the wire named a hand card in this peer's fist on the previous tick — the
+    /// edge <see cref="_releaseEdges"/> counts. Off the wire alone, like the counter.</summary>
+    private bool _fistNamedLast;
+
+    /// <summary>A counted release edge that has not yet been given a verdict. It stays up across
+    /// the <see cref="HandoffGraceSeconds"/> retry window, because the destination branches
+    /// deliberately fall through and try again while the arc count catches up with the held
+    /// flag.</summary>
+    private bool _releasePending;
+
     /// <summary>The exponential rate the OWNER's own released card flies home at
     /// (<c>[Cards] CardLerpSpeed</c>, off <see cref="RemoteAvatar.BoardTuning"/>) — theirs and
     /// never this client's, so the mirrored glide settles on the owner's clock. Falls back to the
@@ -1995,9 +2111,19 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// mirrored return glide, item 2). See the block above for why each term is here.
     /// </summary>
     /// <param name="armed">Whether the front path resolved a hand list this frame. With the reveal
-    /// gate shut there is no <see cref="_handBuffer"/> to name a seat in, so nothing arms — and
-    /// nothing should: a recess filling during the secret selection phase draws a back on every
-    /// client by RevealGate's ruling, which this must not and does not widen.</param>
+    /// gate shut there is no <see cref="_handBuffer"/> to name a seat in, so no IDENTITY is
+    /// resolved and the RECESS HAND-OFF does not arm — and nothing should: a recess filling during
+    /// the secret selection phase draws a back on every client by RevealGate's ruling, which this
+    /// must not and does not widen.
+    ///
+    /// <para>IT NO LONGER GATES THE MOTION, and that is report item 3 of 2026-09-06. The
+    /// return-to-fan glide moves an anonymous BACK slab from a pose to an arc index; it resolves no
+    /// widget, reads no <c>fullAbilityCard</c> and prints no face, so a face gate standing in front
+    /// of it was a capability test doing duty as a policy. It cost the whole card-SELECTION phase,
+    /// which is the one phase in which a player fans their hand out and puts cards back — the exact
+    /// case the user reported twice. The precedent is one file over: the fan EXCHANGE animation
+    /// deliberately plays inside the same secret window off the RAW record-22 id, drawing
+    /// backs.</para></param>
     /// <param name="actor">The character this fan is DISPLAYING, resolved once per tick by the
     /// caller and handed in — the same answer <see cref="UpdateFaces"/> resolved the arc from, so
     /// the seat and the character can never be about two different hands.</param>
@@ -2037,14 +2163,45 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // physically in their hand. So the record's own "a hand card is held" verdict gates the
         // branch, and the RESOLVE only decides whether we can name what is in there.
         bool named = _owner.SingleHeldHandSeat(out int seat, out int listLength, out int poseSlot);
+
+        // THE RELEASE EDGE, COUNTED OFF THE WIRE AND NOTHING ELSE — the denominator of the verdict
+        // line. Read before every belt below, because a belt that refuses is precisely what this
+        // has to be able to say happened.
+        if (_fistNamedLast && !named)
+        {
+            _releaseEdges++;
+            // PENDING, NOT RESOLVED. The verdict is not owed on this frame: the branches below
+            // deliberately fall through and RETRY for HandoffGraceSeconds, because the arc count
+            // and the held flag ride the same packet only in the normal case. Resolving on the edge
+            // frame would refuse every release whose two facts arrive one frame apart — which is
+            // the grace window's entire reason for existing.
+            _releasePending = true;
+        }
+        _fistNamedLast = named;
+
+        // ─── THE MOTION BELT IS THE SENDER'S OWN TWO NUMBERS, AND IT IS NOT THE IDENTITY BELT ───
+        // While a hand card is in the peer's fist their hand LIST still holds it (the card has not
+        // been played) and their fan ARC does not (CardFan.Remove ran on the pluck). So the sender's
+        // own record-36 list length and their own HandCardCount byte have to read
+        // `listLength == count + 1` — two values off ONE packet, neither of which is this client's
+        // model and neither of which asks a reveal gate. Verified against the 2026-09-06 host log:
+        // every 'Remote held card FRONT ... hand fan seat k of L' line sits one line from a
+        // 'geometry: n=L-1' line, for all five hand plucks in that session.
+        //
+        // That belt is what makes the seat safe to use as an ARC INDEX with the gate shut, and an
+        // arc index is all the return glide ever wanted.
+        bool seatUsable = named && seat >= 0 && listLength == count + 1 && seat < listLength;
+
         CAbilityCard? fist = null;
-        if (named && armed
-            // THE LENGTH BELT, ONE SURFACE OVER. A positional seat is only a NAME while both copies
-            // of the list are the same length — the identical term RemoteHeldCardFace checks before
-            // it draws this very card's own front. Without it a lagging model would name the card
-            // beside the right one and this would paint that wrong face confidently into a recess,
-            // which is exactly the defect the compaction belt was built to stop.
-            && listLength == _handBuffer.Count && seat >= 0 && seat < _handBuffer.Count)
+        if (seatUsable && armed
+            // THE LENGTH BELT, ONE SURFACE OVER — and now it belts ONLY the identity. A positional
+            // seat is only a NAME while both copies of the list are the same length, the identical
+            // term RemoteHeldCardFace checks before it draws this very card's own front. Without it
+            // a lagging model would name the card beside the right one and this would paint that
+            // wrong face confidently into a recess, which is exactly the defect the compaction belt
+            // was built to stop. It stays exactly as strict as it was; what changed is that a
+            // failure here no longer takes the MOTION down with the name.
+            && listLength == _handBuffer.Count && seat < _handBuffer.Count)
         {
             AbilityCardUI? w = _handBuffer[seat];
             fist = w != null ? w.AbilityCard : null;
@@ -2052,20 +2209,27 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 
         if (named)
         {
-            if (fist == null)
+            // Their fist has filled again while a release was still waiting for its verdict. Close
+            // the old one rather than dropping it: every edge counted has to end in exactly one of
+            // the three buckets or the line's own arithmetic stops being checkable.
+            ResolveRelease(armed: false, recess: false, RefusalTerm.Regrabbed);
+            if (!seatUsable)
             {
-                // A card IS in their fist and this client cannot name it. Not a release: forget the
-                // identity so nothing stale can be handed over, keep the mask moving, and let the
-                // next frame try again.
+                // A card IS in their fist and the wire's own two numbers do not agree about which
+                // seat it left. Not a release: forget everything so nothing stale can be handed
+                // over or flown, keep the mask moving, and let the next frame try again.
                 _fistCard = null;
                 _fistSeat = -1;
                 _fistMask = mask;
+                Bank(RefusalTerm.SeatBelt, seat, listLength);
                 ExpireHandoff(mask, now);
                 return;
             }
-            // Still holding, and named: refresh the memory AND the two baselines the release edge
-            // is measured against. A new card in the fist also retires any standing hand-off — one
-            // fist, one event.
+            // Still holding: refresh BOTH memories and the two baselines the release edge is
+            // measured against. A new card in the fist also retires any standing hand-off — one
+            // fist, one event. `fist` may be null here (the reveal gate is shut, or this client's
+            // hand list is a beat behind): that costs the hand-off, which needs a name, and costs
+            // the return glide nothing, which needs only the seat.
             if (!ReferenceEquals(fist, _fistCard))
                 ClearHandoff();
             _fistCard = fist;
@@ -2074,11 +2238,17 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _fistMask = mask;
             _fistCount = count;
             _fistHeldAt = now;
+            // A belt that failed earlier in THIS hold and has since recovered must not be quoted as
+            // the reason a later release was refused. The banked term describes the frame it was
+            // banked on, so a frame that resolves cleanly retires it.
+            _refusal = RefusalTerm.None;
             return;
         }
 
-        if (_fistCard == null)
+        if (_fistSeat < 0)
         {
+            ResolveRelease(armed: false, recess: false,
+                           _refusal != RefusalTerm.None ? _refusal : RefusalTerm.NeverTracked);
             ExpireHandoff(mask, now);
             return;
         }
@@ -2091,6 +2261,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // happens to move.
             _fistCard = null;
             _fistSeat = -1;
+            ResolveRelease(armed: false, recess: false,
+                           _refusal != RefusalTerm.None ? _refusal : RefusalTerm.GraceExpired);
             ExpireHandoff(mask, now);
             return;
         }
@@ -2099,37 +2271,131 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         int lost = _fistMask & ~mask;
         if (gained != 0 && lost == 0 && SlotBits(gained) == 1)
         {
-            // INTO A RECESS (item 5).
-            _handoffRecess = (gained & 1) != 0 ? 0 : 1;
-            HandoffCard = _fistCard;
-            _handoffUntil = now + HandoffHoldSeconds;
-            _handoffArmed++;
-            LogHandoff();
+            // INTO A RECESS (item 5) — and this branch is the one that genuinely needs a NAME, so
+            // it is the one that keeps the identity gate. A card laid on the board owes no fan
+            // flight either way, so a nameless hand-over is counted as a correct non-flight rather
+            // than as a refusal: what this verdict line is read against is releases that OWED a
+            // flight.
+            ResolveRelease(armed: false, recess: true, RefusalTerm.None);
+            if (_fistCard != null)
+            {
+                _handoffRecess = (gained & 1) != 0 ? 0 : 1;
+                HandoffCard = _fistCard;
+                _handoffUntil = now + HandoffHoldSeconds;
+                _handoffArmed++;
+                LogHandoff();
+            }
             _fistCard = null;
             _fistSeat = -1;
             return;
         }
 
-        if (mask == _fistMask && _fistSeat >= 0 && count == _fistCount + 1 && _closeElapsed < 0f)
+        if (mask != _fistMask || count != _fistCount + 1 || _closeElapsed >= 0f)
         {
-            // (…and not while the fan is FOLDING AWAY. The collapse path hands this method
-            // `_cards.Count` instead of the wire count, so the equality above can be satisfied by
-            // the fold rather than by a card coming home, and a fan that is collapsing has no arc
-            // seat to fly to anyway.)
-            // BACK TO THE FAN (item 2) — no recess changed AND the owner's own arc grew back by
-            // exactly the one slab it lost when they plucked the card out, so the card was released
-            // into the void and CardFan.Add is carrying it home to its authored seat right now.
-            // The count term is what tells this apart from a card that went to a PILE: a burn or a
-            // discard leaves the arc one slab SHORT and must not be mirrored as a flight to a seat
-            // that is not there.
-            BeginReturnGlide(_fistSeat, _fistPoseSlot);
-            _fistCard = null;
-            _fistSeat = -1;
+            // NAME THE TERM THAT IS REFUSING — but do NOT resolve on it, and do NOT forget the
+            // fist. This is the frame-ordering seam the grace window exists for: the wire arc may
+            // still be a packet behind the held flag. The term is BANKED and the grace branch above
+            // prints it if the retry never succeeds, so a release that is genuinely never flown
+            // still says which of the three expressions was standing in the way.
+            //
+            // Three can, and they mean three different things: the recess mask moved in a shape
+            // this client cannot pair, the arc did NOT grow back by the one slab the pluck took (a
+            // burn or a discard, which correctly owes no flight to a seat that is not there), or
+            // the fan is folding away and has no arc seat to fly to.
+            if (mask != _fistMask)
+                Bank(RefusalTerm.RecessMask, _fistMask, mask);
+            else if (count != _fistCount + 1)
+                Bank(RefusalTerm.ArcGrowth, _fistCount, count);
+            else
+                Bank(RefusalTerm.FanClosing, 0, 0);
+            ExpireHandoff(mask, now);
             return;
         }
 
-        ExpireHandoff(mask, now);
+        // BACK TO THE FAN (item 2, and item 3 of 2026-09-06) — no recess changed AND the owner's own
+        // arc grew back by exactly the one slab it lost when they plucked the card out, so the card
+        // was released into the void and CardFan.Add is carrying it home to its authored seat right
+        // now. The count term is what tells this apart from a card that went to a PILE: a burn or a
+        // discard leaves the arc one slab SHORT and must not be mirrored as a flight to a seat that
+        // is not there. (…and not while the fan is FOLDING AWAY: the collapse path hands this method
+        // `_cards.Count` instead of the wire count, so that equality can be satisfied by the fold
+        // rather than by a card coming home, and a collapsing fan has no arc seat to fly to anyway.)
+        bool flew = BeginReturnGlide(_fistSeat, _fistPoseSlot);
+        ResolveRelease(flew, recess: false, _refusal);
+        _fistCard = null;
+        _fistSeat = -1;
     }
+
+    /// <summary>
+    /// Close the ONE pending release edge with the bucket it belongs in, and print its verdict.
+    /// Idempotent: a frame that resolves nothing costs a bool test.
+    ///
+    /// <para>EVERY EDGE ENDS IN EXACTLY ONE BUCKET, which is what makes <c>armed + refused +
+    /// recess == release(s)</c> a checkable claim rather than three unrelated counters. A reader
+    /// who finds the sum short has found a path out of <see cref="TrackFist"/> that drops a release
+    /// silently — the same class of hole this whole instrument was written for.</para>
+    /// </summary>
+    private void ResolveRelease(bool armed, bool recess, RefusalTerm term)
+    {
+        if (!_releasePending)
+            return;
+        _releasePending = false;
+        if (!armed)
+        {
+            if (recess)
+                _releaseToRecess++;
+            else
+                _releaseRefused++;
+        }
+        _refusal = term;
+        LogReturnVerdict(armed, recess);
+        _refusal = RefusalTerm.None;
+    }
+
+    /// <summary>Bank the term that is refusing this release, with the two numbers its sentence
+    /// quotes. Three field writes, no allocation — see <see cref="_refusal"/> for why that
+    /// matters on this path.</summary>
+    private void Bank(RefusalTerm term, int a, int b)
+    {
+        _refusal = term;
+        _refusalA = a;
+        _refusalB = b;
+    }
+
+    /// <summary>The banked refusal as the sentence the log prints. Called once per release, never
+    /// per frame.</summary>
+    private string RefusalSentence() => _refusal switch
+    {
+        RefusalTerm.SeatBelt =>
+            $"seatUsable — record 36 named hand seat {_refusalA} of a {_refusalB}-card list while "
+            + "the owner's own wire arc did not carry exactly one slab fewer, so this client could "
+            + "not tell which arc index the card would come home to",
+        RefusalTerm.NeverTracked =>
+            "seatUsable — no seat was tracked at any point while the card was in their fist, so "
+            + "there was nothing to fly. On ModBuild 459 a shut RevealGate landed here for "
+            + "every release in the card-selection phase; if it still does, the identity/motion "
+            + "split did not take",
+        RefusalTerm.RecessMask =>
+            $"recess mask — it read {_refusalA} while the card was held and reads {_refusalB} now, "
+            + "so the card did not simply go back into the fan",
+        RefusalTerm.ArcGrowth =>
+            $"arc growth — the owner's wire arc carried {_refusalA} slab(s) while the card was held "
+            + $"and carries {_refusalB} now, not {_refusalA + 1}. This is the CORRECT refusal for a "
+            + "card that went to a pile: a burn or a discard leaves the arc one slab short and "
+            + "there is no seat to fly to",
+        RefusalTerm.FanClosing =>
+            "_closeElapsed — the fan is folding away, so it has no arc seat to fly to and the "
+            + "collapse is the animation the owner is watching instead",
+        RefusalTerm.NoHeldSlab =>
+            $"RemoteAvatar.HeldSlab({_refusalA}) — this peer has no mirrored held-card slab, so "
+            + "there is no released pose to seed the glide from",
+        RefusalTerm.Regrabbed =>
+            "their fist filled again before this release could be judged",
+        RefusalTerm.GraceExpired =>
+            $"HandoffGraceSeconds — the {HandoffGraceSeconds:F2}s retry window ran out with no "
+            + "recess gain and no arc growth, so the card went somewhere this client cannot see",
+        _ => "unnamed — and a refusal that names no term is the defect, not the reading",
+    };
 
     /// <summary>Population of a two-bit recess mask — the recesses are two, so this is two tests.
     /// </summary>
@@ -2174,11 +2440,18 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// to its arc slot on the standing home-lerp — so the slab starts exactly where their card was
     /// hanging and eases in on THEIR rate, never a tween of our own invention.
     /// </summary>
-    private void BeginReturnGlide(int seat, int poseSlot)
+    private bool BeginReturnGlide(int seat, int poseSlot)
     {
         Transform? slab = _owner.HeldSlab(poseSlot);
         if (slab == null)
-            return;
+        {
+            // The one refusal left, and it used to be the silent one: this peer's held-card slab
+            // has never been built, so there is no pose to fly FROM. RemoteAvatar builds it lazily
+            // on the first frame the wire says they hold something, so this can only be a peer
+            // whose hold this client never saw at all.
+            Bank(RefusalTerm.NoHeldSlab, poseSlot, 0);
+            return false;
+        }
         _returnIndex = seat;
         _returnGlide = ReleaseGlideSeconds;
         _returnSeedPending = true;
@@ -2199,6 +2472,67 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         }
         _returnsPlayed++;
         LogReturnGlide();
+        return true;
+    }
+
+    /// <summary>
+    /// HARDWARE EVIDENCE for report item 3 (2026-09-06). Grep token: FAN RETURN VERDICT.
+    ///
+    /// <para>ONE LINE PER RELEASE, on the OBSERVER, whether or not a flight was armed — which is
+    /// the whole reason it exists. Every refusal on this path used to be silent, so a log with no
+    /// <c>FAN RETURN FLIGHT</c> line in it could not be told apart from a session in which nobody
+    /// ever put a card back, and that ambiguity is what let the defect survive a shipped fix: the
+    /// 2026-09-06 host log contains 4 <c>FAN RETURN FLIGHT</c> lines against 11 arc dip-and-return
+    /// events, and nothing anywhere said what refused the other 7.</para>
+    ///
+    /// <para>READ IT LIKE THIS. The line carries three session counts —
+    /// <c>armed N, refused R, to a recess C, of M release(s)</c> — and the arithmetic is
+    /// <c>N + R + C == M</c>:</para>
+    /// <list type="bullet">
+    ///   <item><c>M == 0</c> — the wire never once said this peer let go of a hand card. The round
+    ///     says NOTHING about item 3, and the silence of <c>FAN RETURN FLIGHT</c> proves nothing.
+    ///     M is counted off <c>RemoteAvatar.SingleHeldHandSeat</c> alone, before every belt and
+    ///     every reveal gate, precisely so it can be non-zero on a client that refuses everything.
+    ///     </item>
+    ///   <item><c>M &gt; 0</c> and <c>N == 0</c> — the fix is INERT. The <c>term=</c> clause names
+    ///     the expression that refused the most recent one; that literal is the next thing to
+    ///     read, not this count.</item>
+    ///   <item><c>R &gt; 0</c> with <c>term=arc growth</c> — those releases went to a PILE, not to
+    ///     the fan, and owed no flight. They are refusals of the right kind.</item>
+    ///   <item><c>N &gt; 0</c> and the user still sees the card pop — the glide ARMED and was
+    ///     overwritten. Read <c>FAN RETURN FLIGHT</c> beside the fan's own geometry line for a
+    ///     count change inside the same 0.35 s, which now re-seeds the glide onto the rebuilt slab
+    ///     rather than losing it.</item>
+    /// </list>
+    ///
+    /// <para>THE VALUE THAT CONVICTS THIS FIX is <c>N == 0 with M &gt; 0</c> on a round in which the
+    /// user reports having put cards back during the CARD-SELECTION phase. That is the exact case
+    /// the identity/motion split was made for, and if it still reads that way the split did not
+    /// take.</para>
+    /// </summary>
+    private void LogReturnVerdict(bool armed, bool recess = false)
+    {
+        if (_loggedVerdictEdge == _releaseEdges)
+            return;
+        _loggedVerdictEdge = _releaseEdges;
+        string verdict = armed
+            ? "ARMED"
+            : recess
+                ? "no flight owed (the card went into a ROUND RECESS)"
+                : "REFUSED, term=" + RefusalSentence();
+        // HW-VERIFY: report item 3 (2026-09-06). Grep token: FAN RETURN VERDICT.
+        VRLog.Note("Net", $"FAN RETURN VERDICT [player {_owner.PlayerId}]: this peer let go of a "
+            + $"hand card and the mirrored return flight was {verdict}. Session: armed "
+            + $"{_returnsPlayed}, refused {_releaseRefused}, to a recess {_releaseToRecess}, of "
+            + $"{_releaseEdges} release(s) the WIRE reported — the three add up to the fourth. THE "
+            + "DENOMINATOR IS GATE-FREE on purpose: it counts record 36's held-hand-seat going "
+            + "away, before the reveal gate, before the length belt and before any destination "
+            + "test, so a client that refuses every flight still says how many it refused. 0 "
+            + "release(s) means nobody put a card back and the round proves nothing; release(s) "
+            + "with 0 armed and 0 to a recess means this is INERT and the term above is the "
+            + "blocker. NOTHING NEW IS ON THE WIRE for any of it: the seat is record 36's, the "
+            + "seed pose is the mirrored held slab's own last pose, and no card identity is read "
+            + "or drawn on this path — which is why it now runs with the reveal gate SHUT.");
     }
 
     /// <summary>Abandon a return glide (fan closed, rebuilt, or the slab count moved under it).
@@ -2258,14 +2592,15 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <summary>
     /// HARDWARE EVIDENCE for report item 2. Grep token: FAN RETURN FLIGHT.
     ///
-    /// <para>FALSIFIERS. (1) This line absent all session: either no peer ever released a card back
-    /// into their fan, or the fist was never NAMED — record 36's 'Remote held card FRONT' line for
-    /// that player tells the two apart, and its absence means this could not have armed, so the
-    /// silence proves nothing about the flight. (2) The line present and the user still sees the
-    /// card pop: the glide ran and was overwritten — read the fan's own geometry line for a REBUILD
-    /// inside the same 0.35 s, which drops the seed. (3) The count climbing far past the number of
-    /// releases the player remembers: the fist is being read as empty mid-hold and the returning
-    /// slab is being seeded from a stale pose.</para>
+    /// <para>FALSIFIERS. (1) This line absent all session: READ 'FAN RETURN VERDICT' INSTEAD, which
+    /// exists because this one's silence was ambiguous for two rounds — it prints on every release
+    /// the wire reports, armed or not, and names the term that refused. (2) The line present and the
+    /// user still sees the card pop: the glide ran and was overwritten. A count change inside the
+    /// same 0.35 s no longer drops it (Rebuild now banks the slab's live world pose and re-seeds the
+    /// replacement), so the next suspect is the fan being HIDDEN mid-glide, which clears it by
+    /// design. (3) The count climbing far past the number of releases the player remembers: the fist
+    /// is being read as empty mid-hold and the returning slab is being seeded from a stale pose —
+    /// the verdict line's release(s) count is the number to compare it against.</para>
     /// </summary>
     private void LogReturnGlide()
     {
@@ -3414,6 +3749,33 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// (cheap). Re-applies the mod layer so the owned head camera renders the new slabs.</summary>
     private void Rebuild(int count)
     {
+        // ─── CARRY A LIVE RETURN GLIDE ACROSS THE TEARDOWN (report item 3, 2026-09-06) ──────────
+        // The slab this glide is moving is about to be DESTROYED, and its replacement is created at
+        // the arc seat the glide was easing toward. Without this the flight silently became a lerp
+        // from the destination to the destination — no motion, no line, and it self-cleared 0.35 s
+        // later as if it had played. The count moving mid-flight is not exotic: a release IS a count
+        // change, and the owner's own Rebuild re-applies their session fan order right behind it.
+        //
+        // The owner's card does not stop when their fan re-lays out — CardFan.Relayout hands every
+        // card a new home and VRCard's standing lerp keeps carrying it — so the mirror must not
+        // stop either. The pose is banked in WORLD space (the fan root is re-posed every frame off
+        // a moving hand) and re-stamped by LayoutCards onto whichever slab lands at that index.
+        if (_returnIndex >= 0 && _returnGlide > 0f)
+        {
+            if (_returnIndex >= count)
+            {
+                // The seat the glide was flying to no longer exists — the hand shrank under it.
+                ClearReturnGlide();
+            }
+            else if (!_returnSeedPending && _returnIndex < _cards.Count && _cards[_returnIndex] != null)
+            {
+                Transform live = _cards[_returnIndex].transform;
+                _returnSeedPos = live.position;
+                _returnSeedRot = live.rotation;
+                _returnSeedPending = true;
+            }
+        }
+
         // A BORROWED COPY MUST NEVER OUTLIVE THE SLABS IT WAS READ FROM (report 7). The hand it
         // came from is being replaced — a card was played, burnt, drawn, or the owner switched
         // character — so the slot index it names stops meaning what it meant. It glides back and
@@ -3591,6 +3953,14 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // still-committed side simply eases out from centre on the next frame, which is the intent.
         _gazeBiasYaw = 0f;
         _loggedCount = -1;
+        // A hidden fan does not tick, so the fist edge it was measuring stops being measured. Drop
+        // the memory of it rather than counting the next un-held frame as a release the peer never
+        // made — a denominator that inflates while the fan is DOWN would make the verdict line read
+        // as refusals on a surface that was not even up.
+        _fistNamedLast = false;
+        _fistCard = null;
+        _fistSeat = -1;
+        ClearReturnGlide();
     }
 
     public void Destroy()
