@@ -300,6 +300,103 @@ internal sealed class RemoteDecisionWidgets
     /// </summary>
     public bool Refresh(RemoteAvatar owner)
     {
+        bool mirrored = RefreshCore(owner);
+        NoteShortRestOneToOne(owner, mirrored);
+        return mirrored;
+    }
+
+    /// <summary>
+    /// THE OBSERVER'S HALF OF THE SHORT-REST 1:1 LINE — the counterpart of
+    /// <c>WorldUI.Surfaces.DecisionDockSurface.NoteShortRestOneToOne</c>, printed with the SAME
+    /// token, the SAME fields, in the SAME order and the SAME units, so the two logs diff directly.
+    ///
+    /// <para>User item 11 of 2026-09-06: "Das Dialogfeld der kurzen Rast sieht nicht 1:1 gleich aus
+    /// wie es beim Spieler angezeigt wird." The reason it did not could be read off the ModBuild 459
+    /// logs — the owner published two <c>DecisionRoleUnknown</c>s and this class fell back to the
+    /// mod-drawn plates — but it took two lines in two files to see it. This is one line, on both
+    /// machines, that states the whole claim.</para>
+    ///
+    /// <para>READING IT. <c>FALLBACK</c> in place of the geometry means the game's dialog is NOT
+    /// being mirrored and the reason is quoted verbatim: that alone is the 1:1 breach, whatever the
+    /// numbers would have said. Otherwise <c>px</c> / <c>mount</c> / <c>world</c> / <c>mountScale</c>
+    /// must equal the owner's field for field; <c>graphics</c> and <c>texts</c> say whether the two
+    /// subtrees hold the same children (<c>words</c> deliberately need NOT match — each client
+    /// letters its own copy in its own language, which is the design); and <c>roles</c> / <c>states</c>
+    /// are what actually arrived over the wire.</para>
+    ///
+    /// <para>Change-gated on its own text and cleared whenever the prompt is not a short rest, so a
+    /// second short rest states itself again even at byte-identical geometry.</para>
+    /// </summary>
+    private void NoteShortRestOneToOne(RemoteAvatar owner, bool mirrored)
+    {
+        if (owner.DecisionLines == null
+            || owner.DecisionPromptKind != NetProtocol.DecisionKindShortRestYesNo)
+        {
+            _lastShortRestNote = string.Empty;
+            return;
+        }
+        try
+        {
+            byte[]? roles = owner.DecisionRoles;
+            byte[]? states = owner.DecisionOptionStates;
+            int count = roles != null ? roles.Length : states != null ? states.Length : 0;
+            if (states != null && states.Length > count)
+                count = states.Length;
+            string note;
+            if (!mirrored)
+            {
+                note = $"FALLBACK (mod-drawn plates): {Reason} | "
+                     + WorldUI.Surfaces.DecisionDockSurface.DescribeWireOptions(roles, states, count);
+            }
+            else
+            {
+                Vector2 px = _mirror.MeasuredSizePx;
+                Vector2 mount = _mirror.FittedSize;
+                float worldScale = _frame != null ? _frame.lossyScale.x : _dockScale;
+                Transform? clone = _mirror.CloneOf(_boundSource);
+                note = $"src='{(_boundSource != null ? _boundSource.name : "?")}' | "
+                     + $"px={px.x:F0}x{px.y:F0} | mount={mount.x:F4}x{mount.y:F4} m | "
+                     + $"world={mount.x * worldScale * 1000f:F1}x{mount.y * worldScale * 1000f:F1} mm | "
+                     + $"mountScale={worldScale:F4} density="
+                     + $"{Cards.PlayTray.TrayPixelsPerMeter * WorldUI.Surfaces.DecisionDockSurface.DensityScale:F1} | "
+                     + WorldUI.Surfaces.DecisionDockSurface.SubtreeInventory(clone) + " | "
+                     + WorldUI.Surfaces.DecisionDockSurface.DescribeWireOptions(roles, states, count)
+                     + $" | labelRGB=({_ownerLabelColor.r:F3},{_ownerLabelColor.g:F3},{_ownerLabelColor.b:F3})";
+            }
+            if (note == _lastShortRestNote)
+                return;
+            _lastShortRestNote = note;
+            // HW-VERIFY
+            VRLog.Note("Net", $"SHORT REST DIALOG 1:1 [MIRROR player {owner.PlayerId}] " + note
+                       + " — diff this against the '[OWNER]' line in THAT player's own log: same "
+                       + "token, same fields, same order. FALLBACK anywhere in this line IS the 1:1 "
+                       + "breach — the peer is looking at mod-made plates, not the owner's dialog. "
+                       + "`words` may differ (each client letters its own copy in its own language, "
+                       + "by design); `px`, `mount`, `world`, `mountScale`, `graphics` and `texts` "
+                       + "may not.");
+        }
+        catch (System.Exception e)
+        {
+            _lastShortRestNote = string.Empty;
+            VRLog.Warn("Net", $"Short-rest 1:1 line failed ({e.Message}) — the mirror itself is "
+                              + "unaffected; only this diagnostic is missing for this tick.");
+        }
+    }
+
+    /// <summary>The 1:1 line's own change gate — see <see cref="NoteShortRestOneToOne"/>.</summary>
+    private string _lastShortRestNote = string.Empty;
+
+    /// <summary>The subtree <see cref="RefreshCore"/> last cloned FROM, held so the 1:1 line can
+    /// census the clone that is actually on the board (never a second resolve, which could answer
+    /// about a different object — the same race <see cref="_boundDialog"/> exists for).</summary>
+    private RectTransform? _boundSource;
+
+    /// <summary>The body of <see cref="Refresh"/> — split out only so that EVERY exit of it,
+    /// including the eight <see cref="Down"/> refusals, passes through the 1:1 line above. A
+    /// diagnostic that only prints on the success path cannot report the failure it exists to
+    /// report.</summary>
+    private bool RefreshCore(RemoteAvatar owner)
+    {
         try
         {
             byte[]? roles = owner.DecisionRoles;
@@ -323,6 +420,7 @@ internal sealed class RemoteDecisionWidgets
                             "this build's sampler could not attribute)");
 
             RectTransform? source = ResolveSourceRow(kind, owner);
+            _boundSource = source;
             if (source == null)
                 return Down(kind switch
                 {

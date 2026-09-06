@@ -364,6 +364,18 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// host rect does). Zero until the first successful fit, which reads as "nothing to back".</summary>
     private Vector2 _backingSizePx;
 
+    /// <summary>
+    /// The AUTHORED PIXEL SIZE the last applied fit measured — the number <see cref="Fit"/> divides
+    /// the mount budget by, i.e. the emulated host rect (union, framed and padded exactly as
+    /// <c>CanvasConversion.TryMeasureContent</c> would). Zero until the first successful fit.
+    ///
+    /// <para>Published so an instrument can state it beside <see cref="FittedSize"/> and be diffed
+    /// against the OWNER's own <c>px</c> / <c>mount</c> pair — see the short-rest 1:1 line in
+    /// <see cref="RemoteDecisionWidgets"/>. Read-only: nothing outside this class may write a
+    /// measure.</para>
+    /// </summary>
+    public Vector2 MeasuredSizePx => _backingSizePx;
+
     /// <summary>Set by <see cref="Destroy"/> — the ONLY prune signal MrBacking honours, because a
     /// null host legitimately means "not built yet" for a mirror registered in its constructor.</summary>
     private bool _destroyed;

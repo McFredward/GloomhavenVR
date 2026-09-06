@@ -140,6 +140,14 @@ internal sealed class DecisionDockSurface : WorldSurface
     private const string TakeDamagePromptName = "TakeDamagePanel";
 
     /// <summary>
+    /// The registry name of the SHORT-REST CONFIRMATION prompt — the one prompt whose docked target
+    /// is a whole dialog BOX that the dock reparents off its own window root, which is why
+    /// <see cref="SampleOptionRole"/> may not reach its <c>YesNoDialog</c> through the hierarchy.
+    /// Named once here for the same reason <see cref="TakeDamagePromptName"/> is.
+    /// </summary>
+    private const string ShortRestPromptName = "YesNoDialog";
+
+    /// <summary>
     /// How long the row waits for the prompt TEXT to publish its measured bottom edge before
     /// seating itself as if the prompt had no line (see <see cref="Place"/>). The text converts one
     /// tick after the row docks — <see cref="DamageTooltipSurface.WantConverted"/> gates on
@@ -407,6 +415,11 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <summary>The prompt currently docked (or being docked); null while none is open.</summary>
     private ModalFallback.DecisionDock.Prompt? _active;
 
+    /// <summary>The short-rest 1:1 line's own change gate — see
+    /// <see cref="NoteShortRestOneToOne"/>. Cleared with the row, so a second short rest states
+    /// itself again even at byte-identical geometry.</summary>
+    private string _lastShortRestNote = string.Empty;
+
     /// <summary>The active prompt's window (open-state + suppression target).</summary>
     private UIWindow? _activeWindow;
 
@@ -514,6 +527,98 @@ internal sealed class DecisionDockSurface : WorldSurface
     private static bool _takeDamageDumped;
     private static readonly List<Selectable> SelectableScratch = new(8);
     private static readonly List<TMP_Text> TextScratch = new(8);
+
+    /// <summary>Walk buffer for <see cref="SubtreeInventory"/> (a diagnostic on a change gate, not
+    /// a per-frame path — but a shared buffer costs nothing and allocates nothing).</summary>
+    private static readonly List<Graphic> InventoryScratch = new(16);
+
+    /// <summary>
+    /// THE CHILD INVENTORY of one prompt subtree, as one clause that can be DIFFED against the same
+    /// clause taken on another machine: how many drawable graphics stand under it, how many of those
+    /// are text, and what those texts say.
+    ///
+    /// <para>WHY IT IS HERE AND NOT IN THE MIRROR. Both ends of the short-rest 1:1 claim print it —
+    /// the OWNER over their docked dialog box (<see cref="Place"/>) and the OBSERVER over the clone
+    /// (<c>Net.RemoteDecisionWidgets</c>) — and a census the two sides counted two ways would agree
+    /// or disagree for reasons that had nothing to do with the boards. One counter, one rule.</para>
+    ///
+    /// <para><c>TMP_SubMeshUI</c> is EXCLUDED. TextMeshPro spawns one per extra font atlas or sprite
+    /// asset a string touches, so counting them would make the census a function of the WORDING
+    /// rather than of the widget tree — and the two machines letter the same dialog in their own
+    /// languages by design. What is counted is the authored children.</para>
+    /// </summary>
+    internal static string SubtreeInventory(Transform? root)
+    {
+        if (root == null)
+            return "graphics=? texts=? words=\"\"";
+        try
+        {
+            InventoryScratch.Clear();
+            root.GetComponentsInChildren(includeInactive: false, InventoryScratch);
+            int graphics = 0, texts = 0;
+            var words = new System.Text.StringBuilder(64);
+            for (int i = 0; i < InventoryScratch.Count; i++)
+            {
+                Graphic g = InventoryScratch[i];
+                if (g == null || g is TMP_SubMeshUI || !g.enabled || !g.gameObject.activeInHierarchy)
+                    continue;
+                graphics++;
+                if (g is not TMP_Text t)
+                    continue;
+                texts++;
+                string w = (t.text ?? string.Empty).Replace('\n', ' ').Replace('\r', ' ').Trim();
+                if (w.Length == 0)
+                    continue;
+                if (words.Length > 0)
+                    words.Append('|');
+                words.Append(w.Length > 28 ? w.Substring(0, 28) : w);
+            }
+            InventoryScratch.Clear();
+            return $"graphics={graphics} texts={texts} words=\"{words}\"";
+        }
+        catch (System.Exception)
+        {
+            InventoryScratch.Clear();
+            return "graphics=? texts=? words=\"\"";
+        }
+    }
+
+    /// <summary>
+    /// The published roles / states of the docked row, as the two bracketed lists both ends of the
+    /// short-rest 1:1 line print. Formatted here so the owner's line and the observer's are the same
+    /// shape by construction, never by two format strings agreeing.
+    ///
+    /// <para>THE POINTER BITS ARE MASKED OFF, and that is a cadence decision, not an oversight. Both
+    /// callers gate their line on its own text; the owner's runs inside a PER-FRAME <see cref="Place"/>,
+    /// and hover/press move at 90 Hz by design (see <c>PointerBitsMoved</c>), so leaving them in would
+    /// turn a once-per-dock verdict into a ninety-line-per-second flood — precisely the flood
+    /// ModBuild 331 removed. What the pointer is doing already has two instruments of its own
+    /// ("Decision state RECEIVED", "Remote decision row PAINTED"); what THIS line answers is whether
+    /// the two machines are drawing the same widget at the same size, which no pointer bit moves.</para>
+    /// </summary>
+    internal static string DescribeWireOptions(byte[]? roles, byte[]? states, int count)
+    {
+        const byte pointerBits = NetProtocol.DecisionOptionHoveredBit | NetProtocol.DecisionOptionPressedBit;
+        var sb = new System.Text.StringBuilder(48);
+        sb.Append("roles=[");
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0)
+                sb.Append(',');
+            sb.Append(roles != null && i < roles.Length ? roles[i] : 0);
+        }
+        sb.Append("] states=[");
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0)
+                sb.Append(',');
+            byte st = states != null && i < states.Length ? states[i] : (byte)0;
+            sb.Append("0x").Append(((byte)(st & ~pointerBits)).ToString("X2"));
+        }
+        sb.Append("] (pointer bits masked)");
+        return sb.ToString();
+    }
+
     private static readonly List<Graphic> GraphicScratch = new(16);
     private static readonly List<RectTransform> WidgetRectScratch = new(4);
     private static readonly Vector3[] CornerScratch = new Vector3[4];
@@ -797,6 +902,10 @@ internal sealed class DecisionDockSurface : WorldSurface
             }
             RowBottomUpMeters = null; // no docked row → the bar stack falls back to the zone top
             RowTopUpMeters = null;    // …and any prompt text falls back to the computed seat
+            // The 1:1 line's gate is cleared with the row, so the NEXT short rest states itself
+            // even when it docks at byte-identical geometry. A change-gated instrument that goes
+            // silent because nothing changed is indistinguishable from one that stopped running.
+            _lastShortRestNote = string.Empty;
             if (hadPanel)
             {
                 UnregisterDeliberateCanvas();
@@ -1084,6 +1193,62 @@ internal sealed class DecisionDockSurface : WorldSurface
                                   "number must read the same for the initiative-boots bar and for the damage " +
                                   "decision.");
         }
+
+        NoteShortRestOneToOne(rect, Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale) / density,
+                              scale, trayScale);
+    }
+
+    /// <summary>
+    /// THE OWNER'S HALF OF THE SHORT-REST 1:1 LINE — user item 11 of 2026-09-06 ("Das Dialogfeld
+    /// der kurzen Rast sieht nicht 1:1 gleich aus … Ich will das 1:1 genau gleich aussieht beim
+    /// remote board!").
+    ///
+    /// <para>It is written to be DIFFED, field for field, against
+    /// <c>Net.RemoteDecisionWidgets</c>'s <c>[MIRROR]</c> line in another player's log. Same token,
+    /// same fields, same order, same units. Two lines that must be identical and a reader who can
+    /// see at a glance that they are not is the whole point — every adjective about "looking the
+    /// same" has cost this project a round.</para>
+    ///
+    /// <para>READING IT: <c>px</c> is the fitted host rect the density fit divides into;
+    /// <c>mount</c> is the product of that fit and MUST match the mirror's to the millimetre (it is
+    /// the number both sides compute from the same formula); <c>world</c> is what the eye sees and
+    /// differs from <c>mount</c> only by <c>mountScale</c>, so a matching <c>mount</c> beside a
+    /// differing <c>world</c> convicts the board scale rather than the fit. <c>roles</c> is the
+    /// defect this line was written for: two ZEROES there mean the sampler could not attribute the
+    /// yes/no buttons and every peer is drawing mod-made plates.</para>
+    ///
+    /// <para>Change-gated on its own text, so a docked dialog states itself once and a re-fit or a
+    /// state change states itself again.</para>
+    /// </summary>
+    private void NoteShortRestOneToOne(Rect rect, float mountMetersPerPx, float worldMetersPerPx,
+                                       float trayScale)
+    {
+        if (_active == null || _active.Name != ShortRestPromptName || Panel == null)
+        {
+            _lastShortRestNote = string.Empty;
+            return;
+        }
+        RectTransform? target = Panel.Target;
+        string note =
+            $"src='{(target != null ? target.name : "?")}' | px={rect.width:F0}x{rect.height:F0} | "
+            + $"mount={rect.width * mountMetersPerPx:F4}x{rect.height * mountMetersPerPx:F4} m | "
+            + $"world={rect.width * worldMetersPerPx * 1000f:F1}x{rect.height * worldMetersPerPx * 1000f:F1} mm | "
+            + $"mountScale={trayScale:F4} density={PlayTray.TrayPixelsPerMeter * DensityScale:F1} | "
+            + SubtreeInventory(target) + " | "
+            + DescribeWireOptions(_wireOptionRoles, _wireOptionStates, _wireOptionCount)
+            + $" | labelRGB=({NativeButtonSkin.LabelColor.r:F3},{NativeButtonSkin.LabelColor.g:F3},"
+            + $"{NativeButtonSkin.LabelColor.b:F3})";
+        if (note == _lastShortRestNote)
+            return;
+        _lastShortRestNote = note;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", "SHORT REST DIALOG 1:1 [OWNER] " + note
+                   + " — diff this against the '[MIRROR player N]' line in every OTHER player's log: "
+                   + "same token, same fields, same order. `mount` is the fit product and must match "
+                   + "to the millimetre; `world` differs from it only by `mountScale`. TWO ZEROES IN "
+                   + "`roles` MEAN THE MIRROR IS DEAD — the peers are drawing mod-made plates, not "
+                   + "this dialog (the ModBuild 301..459 defect: the sampler reached the YesNoDialog "
+                   + "through a hierarchy the dock had already reparented it out of).");
     }
 
     /// <summary>
@@ -1260,6 +1425,13 @@ internal sealed class DecisionDockSurface : WorldSurface
             RectTransform? root = Panel?.Target;
             if (root != null)
             {
+                // THE DOCKED SHORT-REST DIALOG, RESOLVED ONCE PER WALK AND NOT PER WIDGET. It is
+                // resolved HERE, from the registry's own accessor, because by the time this walk
+                // runs the dialog's `box` has been REPARENTED onto our host — see
+                // SampleOptionRole for the defect that cost.
+                YesNoDialog? dockedDialog = _active != null && _active.Name == ShortRestPromptName
+                    ? CardsGameApi.ShortRestDialog()
+                    : null;
                 SelectableScratch.Clear();
                 root.GetComponentsInChildren(includeInactive: false, SelectableScratch);
                 WireLinesScratch.Length = 0;
@@ -1284,7 +1456,7 @@ internal sealed class DecisionDockSurface : WorldSurface
                         // is no second walk that could disagree about what "option 2" is, which is
                         // exactly the property a receiver needs to resolve the role against its own
                         // copy of the game widget.
-                        _wireOptionRoles[options] = SampleOptionRole(sel);
+                        _wireOptionRoles[options] = SampleOptionRole(sel, dockedDialog);
                         _wireOptionWidgets[options] = sel;
                         _wireOptionStates[options++] = SampleOptionState(sel, root);
                     }
@@ -1407,7 +1579,10 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// the receiver falls back to the mod-drawn plate with record 12's wording — the pre-record
     /// look, which is the safe direction.</para>
     /// </summary>
-    private static byte SampleOptionRole(Selectable sel)
+    /// <param name="dockedDialog">The short-rest <c>YesNoDialog</c> whose box is docked right now,
+    /// resolved once per walk by the caller from the SAME accessor the dock registry docks it with
+    /// (<c>CardsGameApi.ShortRestDialog</c>), or null for every other prompt.</param>
+    private static byte SampleOptionRole(Selectable sel, YesNoDialog? dockedDialog)
     {
         try
         {
@@ -1427,17 +1602,36 @@ internal sealed class DecisionDockSurface : WorldSurface
                     return NetProtocol.DecisionRoleTakeDamage;
             }
 
-            // THE SHORT-REST CONFIRMATION (ModBuild 301). The dialog is reached from the WIDGET
-            // rather than from the active hand, and that matters: GetComponentInParent answers
-            // "this Selectable is inside a YesNoDialog", which is CONTAINMENT and not identity —
-            // so it is used only to find the dialog, and the two roles are then decided by
-            // REFERENCE against that dialog's own serialized yesButton / noButton. A third button
-            // someone adds to the prefab would be unattributable rather than mis-attributed.
+            // THE SHORT-REST CONFIRMATION (ModBuild 301, REPAIRED HERE). The two roles are decided
+            // by REFERENCE against the dialog's own serialized yesButton / noButton, so a third
+            // button someone adds to the prefab is unattributable rather than mis-attributed. What
+            // changed is HOW THE DIALOG IS REACHED.
             //
-            // Reaching it from the widget also side-steps a question this method must not have to
-            // answer: WHICH hand's dialog is docked. The docked row is the one being sampled, so
-            // the dialog above the option IS the docked dialog, by construction.
-            YesNoDialog? dialog = sel.GetComponentInParent<YesNoDialog>();
+            // IT USED TO BE `sel.GetComponentInParent<YesNoDialog>()`, under a comment claiming
+            // "the dialog above the option IS the docked dialog, by construction". THERE IS NO
+            // DIALOG ABOVE THE OPTION. This walk runs over `Panel.Target` — the dialog's `box`,
+            // which the dock REPARENTED onto our own converted host (ModalFallback.DecisionDock's
+            // YesNoDialog entry says so in those words). YesNoDialog is
+            // [RequireComponent(UIWindow)] and therefore sits on the WINDOW ROOT, which the box no
+            // longer descends from, so the parent walk left the window behind and returned null for
+            // every option, on every tick, for every short rest.
+            //
+            // THE FALSIFYING READING WAS IN THE MODBUILD 459 LOGS AND NOBODY GREPPED IT. Owner
+            // (co-player log): "Decision widgets SENT: 2 role(s) [#0=0, #1=0]" for prompt kind 2 —
+            // role 0 IS DecisionRoleUnknown. Observer (host log), two lines later: "Remote decision
+            // row: NOT mirroring the game's own widgets — no widget roles on the wire". So the
+            // short-rest dialog has never once been mirrored since 301: every peer saw two
+            // mod-drawn plates and a locally composed sentence where the owner saw the game's own
+            // dialog box.
+            //
+            // The dialog now comes from the CALLER, which resolved it from the registry's own
+            // accessor before the hierarchy question could arise — the same object the registry
+            // docked, so the two cannot disagree about which hand's dialog is on the board. The
+            // parent walk is kept as a SECOND attempt only: it is still the right answer for a
+            // widget that has not been reparented, and it can no longer be the only one.
+            YesNoDialog? dialog = dockedDialog != null
+                ? dockedDialog
+                : sel.GetComponentInParent<YesNoDialog>();
             if (dialog != null)
             {
                 if (dialog.yesButton != null
