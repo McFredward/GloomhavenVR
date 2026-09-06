@@ -100,6 +100,17 @@ internal sealed class RemoteCardArt
     private int _shownSourceId = int.MinValue; // GetInstanceID of the source fullAbilityCard shown
     private float _nextMipRescan;   // unscaled time of the next cadenced mip-bake rescan
 
+    /// <summary>The CLONE's own <c>FullAbilityCard</c>, cached at print time — the object
+    /// <see cref="Cards.CardArtGuard.TickModOwnedClone"/> repairs. Null for an item face and for a
+    /// clone whose root carries no such component, which is why every use is null-guarded rather
+    /// than asserted.</summary>
+    private FullAbilityCard? _cloneFace;
+
+    /// <summary>Unscaled time of the next card-art heal for <see cref="_cloneFace"/>. The cadence is
+    /// <c>CardArtGuard.TickIntervalSeconds</c> — the OWNER's own, read from there rather than spelled
+    /// again, because a peer's card must repair on the same clock the owner's does.</summary>
+    private float _nextArtHeal;
+
     /// <summary>Is the slab's card body currently serving its FACE-HOSTED mesh — i.e. has this
     /// overlay told <see cref="CardMesh.SetBodyFaceHosted"/> that its print covers the body's front
     /// face? Held here so the cadenced re-ask in <see cref="MaintainBodyFaceHosting"/> costs nothing
@@ -344,6 +355,11 @@ internal sealed class RemoteCardArt
             var clone = Object.Instantiate(sourceGo, _host.transform, worldPositionStays: false);
             clone.name = "FrontArtClone";
             _clone = clone;
+            // The clone's own FullAbilityCard, for the card-art heal in MaintainMipBake. Read HERE,
+            // once per clone, and never per frame: this is the only moment the object is known to be
+            // fresh. An item face has none and answers null, which every use is guarded for.
+            _cloneFace = clone.GetComponent<FullAbilityCard>();
+            _nextArtHeal = Time.unscaledTime + Cards.CardArtGuard.TickIntervalSeconds;
 
             Neutralize(clone);
             ItemFxRig itemFx = StripFragileEffects(clone, out _burnHeaderText, out _burnInitiativeText,
@@ -433,6 +449,19 @@ internal sealed class RemoteCardArt
             // already clipped at the build seam costs one early-out.
             _nextMipRescan = Time.unscaledTime + MipRescanInterval;
         }
+        // THE CARD-ART HEAL A PEER'S CARD NEVER HAD (2026-09-06 report items 6 and 7a). The owner's
+        // own face gets this from CardFace.Maintain on exactly this cadence; a clone got nothing, so
+        // an action half whose addressable sprite load was CANCELLED stayed art-less for the life of
+        // the print and the slab's card BACK showed through where the art belonged. Bounded inside
+        // the guard (3 attempts per clone, and only while no load is in flight), so the steady state
+        // is one component walk every 0.25 s per printed card and no work at all once the art is up.
+        float now = Time.unscaledTime;
+        if (_cloneFace != null && now >= _nextArtHeal)
+        {
+            _nextArtHeal = now + Cards.CardArtGuard.TickIntervalSeconds;
+            Cards.CardArtGuard.TickModOwnedClone(_cloneFace);
+        }
+
         if (Time.unscaledTime < _nextMipRescan)
             return;
         RescanMips();
@@ -523,7 +552,14 @@ internal sealed class RemoteCardArt
             int graphics = 0;
             int drawing = 0;
             int zeroAlpha = 0;
-            float groupAlpha = 1f;
+            int images = 0;
+            int noSprite = 0;
+            int imageDisabled = 0;
+            int texts = 0;
+            float minGroup = 1f;
+            int groupCount = 0;
+            int loaded = 0;
+            int inFlight = 0;
             if (_host != null)
             {
                 var gs = _host.GetComponentsInChildren<UnityEngine.UI.Graphic>(includeInactive: true);
@@ -531,7 +567,25 @@ internal sealed class RemoteCardArt
                 for (int i = 0; i < gs.Length; i++)
                 {
                     UnityEngine.UI.Graphic g = gs[i];
-                    if (g == null || !g.isActiveAndEnabled)
+                    if (g == null)
+                        continue;
+                    // AN IMAGE WITH NO SPRITE IS THE WHOLE QUESTION, so it is counted separately
+                    // from a Graphic that is merely switched off: the two look identical on screen
+                    // (nothing is painted) and have completely different causes — a cancelled
+                    // addressable load against a group somebody alpha-0'd.
+                    if (g is UnityEngine.UI.Image img)
+                    {
+                        images++;
+                        if (img.sprite == null)
+                            noSprite++;
+                        if (!img.enabled)
+                            imageDisabled++;
+                    }
+                    else if (g is TMPro.TextMeshProUGUI)
+                    {
+                        texts++;
+                    }
+                    if (!g.isActiveAndEnabled)
                         continue;
                     if (g.color.a <= 0.004f)
                         zeroAlpha++;
@@ -541,22 +595,46 @@ internal sealed class RemoteCardArt
                 var groups = _host.GetComponentsInChildren<CanvasGroup>(includeInactive: true);
                 for (int i = 0; i < groups.Length; i++)
                 {
-                    if (groups[i] != null && groups[i].isActiveAndEnabled)
-                        groupAlpha *= Mathf.Clamp01(groups[i].alpha);
+                    if (groups[i] == null || !groups[i].isActiveAndEnabled)
+                        continue;
+                    groupCount++;
+                    float a = Mathf.Clamp01(groups[i].alpha);
+                    if (a < minGroup)
+                        minGroup = a;
+                }
+                // THE LOADER'S OWN COUNTER, which is what alpha-0s the hide-while-loading groups and
+                // holds an Image disabled: a non-zero reading here says the art is still ARRIVING
+                // and this seat is not yet evidence of anything.
+                var loaders = _host.GetComponentsInChildren<ImageAddressableLoader>(includeInactive: true);
+                for (int i = 0; i < loaders.Length; i++)
+                {
+                    if (loaders[i] == null)
+                        continue;
+                    loaded++;
+                    if (loaders[i].ReferenceCount > 0)
+                        inFlight++;
                 }
             }
             sb.Append(" + a uGUI print of ").Append(graphics).Append(" Graphic(s) — ")
               .Append(drawing).Append(" drawing, ").Append(zeroAlpha)
-              .Append(" at colour alpha 0, the rest inactive — under a CanvasGroup product of ")
-              .Append(groupAlpha.ToString("F3"))
-              .Append(", face-hosted=").Append(_bodyFaceHosted ? "YES" : "no")
-              .Append(". TWO SURFACES AT ONE SEAT IS THE OVERLAY: the mesh above wears the card BACK "
-                    + "on BOTH submeshes and the print stands 0.6 mm in front of it, so anything "
-                    + "that stops the print being opaque puts the card back's gold lattice on a "
-                    + "peer's card FRONT. A product below 1.000, or 'drawing' far short of the "
-                    + "Graphic total, IS the reported defect and names which of the two it is; "
-                    + "1.000 with nearly every Graphic drawing means the print is opaque and the "
-                    + "lattice is coming from somewhere other than this seat.");
+              .Append(" at colour alpha 0, the rest inactive; of those ").Append(images)
+              .Append(" are Images (").Append(noSprite).Append(" with a NULL SPRITE, ")
+              .Append(imageDisabled).Append(" disabled) and ").Append(texts)
+              .Append(" are TMP texts. ").Append(groupCount)
+              .Append(" live CanvasGroup(s), lowest alpha ").Append(minGroup.ToString("F3"))
+              .Append("; ").Append(loaded).Append(" ImageAddressableLoader(s), ").Append(inFlight)
+              .Append(" still loading. face-hosted=").Append(_bodyFaceHosted ? "YES" : "no")
+              .Append(". HOW TO READ IT. The mesh above wears CardMesh's procedural card BACK — the "
+                    + "gold diamond lattice, 8 cells across a card — on BOTH submeshes, and the "
+                    + "print stands 0.6 mm in front of it, so anything that stops the print painting "
+                    + "puts that lattice on a peer's card FRONT. NULL SPRITE > 0 with 0 still "
+                    + "loading is the CANCELLED-LOAD defect the PEER CARD ART HEAL line repairs "
+                    + "(the ModBuild 459 logs carry 202 'Load of asset is Canceled!' on the host). "
+                    + "Lowest group alpha below 1.000 is a veil instead, and a lowest of 0.000 with "
+                    + "loaders still counting is simply art in flight, which is not a defect at all. "
+                    + "Every Image holding a sprite, no loader counting and a lowest alpha of 1.000 "
+                    + "means the print is complete and the lattice is coming from somewhere OTHER "
+                    + "than this seat — then the lead is the slab, not the print.");
             return sb.ToString();
         }
         catch (System.Exception ex)
@@ -2259,6 +2337,11 @@ internal sealed class RemoteCardArt
 
     private void DestroyClone()
     {
+        // Drop the heal budget with the clone that spent it: the guard keys on instance id, and an
+        // id Unity is free to reuse must never inherit a spent budget from a face that is gone.
+        Cards.CardArtGuard.NoteReleased(_cloneFace);
+        _cloneFace = null;
+        _nextArtHeal = 0f;
         if (_clone != null)
         {
             Object.Destroy(_clone);

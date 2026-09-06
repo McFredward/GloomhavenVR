@@ -101,6 +101,12 @@ internal static class CardArtGuard
 
     private static bool s_suppressLogged;
     private static bool s_healLogged;
+
+    /// <summary>One-shot latch for the MOD-OWNED clone heal — separate from
+    /// <see cref="s_healLogged"/> on purpose: the two populations fail for different reasons and a
+    /// shared latch would let whichever happened first hide the other for the whole session.
+    /// </summary>
+    private static bool s_cloneHealLogged;
     private static bool s_errorLogged;
 
     /// <summary>Scratch for the loader walk (no steady-state allocation).</summary>
@@ -194,7 +200,42 @@ internal static class CardArtGuard
     /// suppressed call, or (b) an action half is sitting on a null sprite (the white state) —
     /// both only once the loader is quiet, so the repair cannot itself become the storm.
     /// </summary>
-    internal static void Tick(FullAbilityCard? card)
+    internal static void Tick(FullAbilityCard? card) => Heal(card, adopted: true);
+
+    /// <summary>
+    /// THE SAME HEAL, FOR A FACE THE MOD BUILT RATHER THAN ADOPTED (2026-09-06 report items 6/7a).
+    ///
+    /// <para>WHY A PEER'S CARD NEEDED ITS OWN ENTRY POINT AND DID NOT JUST GET REGISTERED. Every
+    /// remote card surface prints a throwaway <c>Object.Instantiate</c> of a borrowed widget
+    /// (<c>Net.RemoteCardArt</c>), never an adoption — <see cref="NoteAdopted"/> has exactly one
+    /// caller, <c>CardFace.Adopt</c>, and <see cref="Tick"/> exactly one, <c>CardFace.Maintain</c>.
+    /// So the owner's own card has had both halves of this guard since the class was written and a
+    /// peer's copy of the SAME card has had neither: no suppression, and — the half that shows —
+    /// nothing that ever repairs an action half left on a null sprite. That is a 1:1 breach in the
+    /// subsystem whose failure mode is "the card's art is absent while its text draws", which is
+    /// exactly the picture in stapel_abgeworfene_karten.jpg: title, initiative and both action texts
+    /// legible, every painted surface gone, and the slab's own card-back lattice showing through
+    /// where the art should be.</para>
+    ///
+    /// <para>ADDING THE CLONE TO <see cref="s_adopted"/> WAS THE OBVIOUS FIX AND IT IS WRONG.
+    /// <see cref="IsAdopted"/> is published for a SECOND consumer — <c>CardHalfTone.IsModOwnedCopy</c>
+    /// returns false for an adopted face, because a widget the game still holds must never be
+    /// written to. Registering every peer clone would therefore have silently switched OFF the
+    /// half-tone normalisation on every remote card in the mod, trading one defect for another that
+    /// nobody would have connected to this change. The registry stays exactly what it says it is.</para>
+    ///
+    /// <para>ONLY THE HEAL, NOT THE SUPPRESSION, AND THAT IS DELIBERATE. The suppression exists
+    /// because <c>AbilityCardUI.UpdateView → ToggleFullCard(false)</c> fights <c>CardFace.Maintain</c>
+    /// over a LIVE widget and restarts its loader faster than it can finish. A clone is detached and
+    /// nothing toggles it, so there is no storm to suppress — and a <c>ShowCard()</c> Harmony prefix
+    /// that started refusing calls on mod-owned copies would be a new behaviour on a path this
+    /// change has no reading for. The heal is bounded by the same
+    /// <see cref="MaxHealsPerAdoption"/> budget; call <see cref="NoteReleased"/> when the clone dies
+    /// so the budget cannot outlive it.</para>
+    /// </summary>
+    internal static void TickModOwnedClone(FullAbilityCard? clone) => Heal(clone, adopted: false);
+
+    private static void Heal(FullAbilityCard? card, bool adopted)
     {
         if (card == null)
             return;
@@ -205,7 +246,9 @@ internal static class CardArtGuard
                 return; // let it land — see SuppressShowCard
             s_inFlightSince.Remove(id);
 
-            bool owed = s_deferred.Remove(id);
+            // A clone is never suppressed (see TickModOwnedClone), so it can never owe a replay;
+            // asking the deferred set for one would be a lookup that can only answer false.
+            bool owed = adopted && s_deferred.Remove(id);
             bool white = ArtMissing(card);
             if (white)
             {
@@ -228,13 +271,40 @@ internal static class CardArtGuard
                 s_replaying = false;
             }
 
-            if (white && !s_healLogged)
+            if (white && adopted && !s_healLogged)
             {
                 s_healLogged = true;
                 VRLog.Info("Cards", "CARD ART GUARD: an adopted card face had an action half with a NULL " +
                                     "background sprite and no load in flight (the white-card state) — " +
                                     "re-ran FullAbilityCard.ShowCard() to restart the addressable load. " +
                                     "Self-healing, throttled to the face maintenance cadence.");
+            }
+            else if (white && !adopted && !s_cloneHealLogged)
+            {
+                s_cloneHealLogged = true;
+                // HW-VERIFY: report items 6 and 7a. Grep token: PEER CARD ART HEAL.
+                VRLog.Note("Cards", "PEER CARD ART HEAL: a MOD-BUILT card face (a peer's mirrored "
+                    + "front, or a map-room hand card) had an action half sitting on a NULL "
+                    + "background sprite with no load in flight, and this build re-ran the game's own "
+                    + "FullAbilityCard.ShowCard() on it to restart the addressable load — the "
+                    + "identical repair an ADOPTED face has had since this guard was written. THAT "
+                    + "ASYMMETRY IS THE DEFECT this line convicts: CardArtGuard.NoteAdopted is called "
+                    + "only from CardFace.Adopt and CardArtGuard.Tick only from CardFace.Maintain, so "
+                    + "a peer's card — which is always an Object.Instantiate clone and never an "
+                    + "adoption — got neither, and an action half whose sprite load was CANCELLED "
+                    + "stayed art-less for the whole life of the clone. The ModBuild 459 logs carry "
+                    + "202 'Load of asset is Canceled!' warnings on the host and 28 on the co-player, "
+                    + "every one of them Canceled and none of them anything else. With the art gone "
+                    + "the only thing left painting that rectangle is the slab's own body, which "
+                    + "wears CardMesh's procedural card BACK on both submeshes — the gold diamond "
+                    + "lattice the user photographed OVER a readable card front. WORKING = this line "
+                    + "appears at most a handful of times and the peer's card fronts are complete; "
+                    + "INERT = it never appears while a peer's card front is drawn with missing art, "
+                    + "which means the halves DO have sprites and the art is being lost somewhere "
+                    + "other than the addressable loader — read the PEER FAN SEAT STACK line's "
+                    + "Graphic counts next. Bounded to " + MaxHealsPerAdoption + " attempts per clone: "
+                    + "a half the game deliberately leaves sprite-less must not become a loader storm "
+                    + "of our own making.");
             }
         }
         catch (System.Exception ex)

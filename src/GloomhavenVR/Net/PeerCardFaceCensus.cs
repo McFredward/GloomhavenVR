@@ -98,14 +98,27 @@ internal static class PeerCardFaceCensus
         public int Samples;
     }
 
-    /// <summary>Keyed by (surface, player id) so two peers never overwrite each other's reading —
-    /// a fan that works for one player and not for the other is precisely the shape this has to be
-    /// able to show. Small and bounded: populations x peers.</summary>
+    /// <summary>Keyed by (surface, player id, SLOT) so two peers never overwrite each other's
+    /// reading — a fan that works for one player and not for the other is precisely the shape this
+    /// has to be able to show. Small and bounded: populations x peers x slots.
+    ///
+    /// <para>THE SLOT WAS ADDED 2026-09-06 AND IT IS A BUG FIX, NOT A REFINEMENT. A peer has TWO
+    /// hands, and <c>RemoteHeldCardFace.Report</c> is called once per frame PER SLOT. Both calls
+    /// landed on one key, so the second one — slot 2, which is empty almost all the time — silently
+    /// overwrote the first. 175 of the 195 census lines in the ModBuild 459 host log therefore read
+    /// "held card[p2] 0 FRONT / 0 BACK — slot 2: nothing in this hand" and said NOTHING WHATEVER
+    /// about the hand that was actually holding a card. Only the PeakBacks term survived the clobber,
+    /// which is why the one thing the log did show about slot 1 was a worst-case count with no live
+    /// reading beside it. An instrument that always reports the empty half of a two-sided population
+    /// is worse than no instrument, because its zeros read as health.</para></summary>
     private static readonly Dictionary<long, Entry> s_entries = new(16);
 
     private static float s_nextPrintAt = -1f;
 
-    private static long Key(Surface surface, int playerId) => ((long)playerId << 8) | (byte)surface;
+    /// <summary>Slot ids are 1 and 2 (a peer's two hands); 0 means "this population has only one
+    /// reporter" and is what every surface but the held card passes.</summary>
+    private static long Key(Surface surface, int playerId, int slot) =>
+        ((long)playerId << 16) | ((long)(byte)slot << 8) | (byte)surface;
 
     /// <summary>
     /// Report this frame's verdict for one peer's one population. <paramref name="rule"/> is the
@@ -113,9 +126,10 @@ internal static class PeerCardFaceCensus
     /// quoted verbatim into the line — it is the half of the census that says WHY, and a caller that
     /// passes a vague one makes the next hardware round unreadable.
     /// </summary>
-    internal static void Report(Surface surface, int playerId, int fronts, int backs, string rule)
+    internal static void Report(Surface surface, int playerId, int fronts, int backs, string rule,
+                                int slot = 0)
     {
-        long key = Key(surface, playerId);
+        long key = Key(surface, playerId, slot);
         s_entries.TryGetValue(key, out Entry e);
         e.Fronts = fronts;
         e.Backs = backs;
@@ -137,8 +151,17 @@ internal static class PeerCardFaceCensus
     /// stale row cannot outlive the player it describes.</summary>
     internal static void ReportPeerGone(int playerId)
     {
+        // EVERY SURFACE AND EVERY SLOT. Two independent fixes of 2026-09-06 meet here and both
+        // bounds are load-bearing: the surface bound must reach the LAST enum member (the enum's
+        // own doc keeps BoardPickSeat there for exactly this walk), and the slot bound exists
+        // because the held-card population reports under slots 1 and 2 — a single-slot sweep left
+        // rows that outlived the player they describe, which is the stale reading this method
+        // exists to prevent. Both bounds are stated here rather than discovered by a reader.
         for (int s = 0; s <= (int)Surface.BoardPickSeat; s++)
-            s_entries.Remove(Key((Surface)s, playerId));
+        {
+            for (int slot = 0; slot <= 2; slot++)
+                s_entries.Remove(Key((Surface)s, playerId, slot));
+        }
     }
 
     /// <summary>
@@ -213,7 +236,8 @@ internal static class PeerCardFaceCensus
         foreach (KeyValuePair<long, Entry> kv in s_entries)
         {
             var surface = (Surface)(byte)(kv.Key & 0xFF);
-            int playerId = (int)(kv.Key >> 8);
+            int slot = (int)((kv.Key >> 8) & 0xFF);
+            int playerId = (int)(kv.Key >> 16);
             Entry e = kv.Value;
             // ─── A ROW NOBODY REPORTED THIS INTERVAL IS NOT A PICTURE OF THIS INTERVAL ──────────
             // The live values are deliberately KEPT when a surface stops reporting, so a population
@@ -240,7 +264,10 @@ internal static class PeerCardFaceCensus
             }
             if (sb.Length > 0)
                 sb.Append("; ");
-            sb.Append(Name(surface)).Append("[p").Append(playerId).Append("] ")
+            sb.Append(Name(surface)).Append("[p").Append(playerId);
+            if (slot > 0)
+                sb.Append("/slot").Append(slot);
+            sb.Append("] ")
               .Append(e.Fronts).Append(" FRONT / ").Append(e.Backs).Append(" BACK — ")
               .Append(e.Rule ?? "(no rule reported)");
             if (e.PeakBacks > e.Backs)

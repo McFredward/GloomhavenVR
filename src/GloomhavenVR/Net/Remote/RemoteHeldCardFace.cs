@@ -663,7 +663,7 @@ internal sealed class RemoteHeldCardFace
     /// this exact surface.</summary>
     private void Report(int fronts, int backs, string rule) =>
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.HeldCard, _owner.PlayerId,
-                                  fronts, backs, $"slot {_slot}: {rule}");
+                                  fronts, backs, $"slot {_slot}: {rule}", _slot);
 
     /// <summary>One slot as a log phrase — the LIST and the SEAT, never a card. Deliberately the
     /// same wording the sender's edge log uses, so the two lines can be read as a pair.</summary>
