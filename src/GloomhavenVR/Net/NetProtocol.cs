@@ -433,7 +433,88 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 464;
+    public const ushort ModBuild = 465;
+    // Build 465: the house wall FIXED, and the white flash's light hypothesis KILLED by a reading
+    //   that points the wrong way. Two lanes, one behaviour change, and three of the integrator's
+    //   own readings corrected by the lanes that received them.
+    //   * THE HOUSE WALL — THE COVERAGE METRIC THREW AWAY 9 OF THE 25 HEXES IT WAS HOLDING, and
+    //     BOTH candidate readings from ModBuild 464 were wrong. The off-grid denominator is NOT the
+    //     defect and repairing it would have been exactly the regression the user forbade: the
+    //     un-gridded CMap's 34 hexes belong to a tile logging `vis=Preview`, `child 'Full' self=OFF
+    //     hier=OFF`, drawing only 69 flat `EN_Unseen_FloorHex_*` preview renderers — those hexes
+    //     are UNREVEALED, and `SOLID:OFF-GRID` was refusing them correctly. The integrator's
+    //     "zero renderers therefore phantom hexes" reading was a `busy=True` MID-BUILD SNAPSHOT of
+    //     that same tile, which elsewhere logs `children 1/2 active, 182 renderer(s)`. And
+    //     `NO-BOUNDS` is real but is not this wall: all five boundless segments are that preview
+    //     tile's four plus a map-tile ROOT registered as a segment, none of them drawn.
+    //     THE INSTRUMENT WAS PRINTING THE ANSWER TWICE AND CONTRADICTING ITSELF. It carries two
+    //     estimators of one fraction under the same ray acceptance — `blk N/16` over the sample
+    //     lattice and `hides N counted` over the full playable hex set. Across 119 named verdicts
+    //     they differ by more than one lattice cell on 13, and on FOUR the lattice reads below the
+    //     0.35 enter bar while the hex set reads at or above it: 'Wall 8' `blk 5/16` = 0.31 against
+    //     11 of 25 = 0.44. `RebuildSamples` caps the grid at 4, so a ONE-ROOM scenario spends 16 of
+    //     its 96-sample budget and leaves 80 unspent, then `min(grid^2, hexSet)` DISCARDS 9 of the
+    //     25 playable hexes it already holds — and the 16 survivors are snapped from a lattice
+    //     drawn over the room's BOUNDS BOX, a maximum move of 3.05 wu against a ~1.72 wu hex pitch,
+    //     which is the exact condition this file's own census names as the defect. 'Wall 7' has 19
+    //     verdicts, all BELOW-BAR, its EMA pinned at 0.30-0.31, and was never once an OCCLUDER.
+    //     THE FIX IS RESOLUTION AND NOTHING ELSE: when a room's playable hex set fits the budget,
+    //     sample it whole and skip the lattice. Hex set unchanged, bars unchanged at 0.35/0.20, EMA
+    //     unchanged, the off-grid refusal unchanged. The user asked for a targeted change and no
+    //     regressions and this is the whole of it.
+    //     REGRESSION EVIDENCE, because he named it as the requirement: firing is a pure function of
+    //     (room count, that room's hex count) with no dependence on any other room's size; 6-room
+    //     and 24-room scenarios are bit-identical for every hex distribution, as is any room whose
+    //     hex count is already at or below grid^2. Exhaustively simulated over 1-39 rooms x 2000
+    //     random distributions: the budget is never exceeded, no per-room count ever decreases, no
+    //     room is newly starved. On this log the 119 verdicts cross the enter bar UPWARD 4 times
+    //     and DOWNWARD 0 — nothing that fades today stops.
+    //   * THE WHITE FLASH, ROUND FOURTEEN — THE LIGHT HYPOTHESIS IS DEAD, AND IT DIED THE STRONG
+    //     WAY. The user performed his own experiment on instruction: hold until the white shows,
+    //     then lift. 36 samples. The ladder rises monotonically — 2.3579 / 2.6301 / 3.1286 / 3.3029
+    //     over +0 / +0.5 / +1 / +2 m, `LUMINANCE RATIO rung 0 : top rung = 0.629`. HE LIFTS THE
+    //     PROP INTO 1.6x MORE LIGHT AND THE WHITE GOES AWAY.
+    //     THE LANE RETRACTED ITS OWN PRE-REGISTERED READING RATHER THAN CLAIMING THE POSITIVE. It
+    //     had written "escapes above 0 — that light IS the flash"; the log shows 23 escaped and 33
+    //     entered, because with 21 active lights of range 1.5-7 wu a 2 m translation changes set
+    //     membership in BOTH directions by construction. The escape count is not a diagnostic; the
+    //     DIRECTION is. And the summary was checked rather than defended: the per-pixel cap is 0 so
+    //     the surface gets a vertex+SH fold rather than a sum of attenuations, but EVERY monotone
+    //     summary of "light here" is larger at the top rung because more lights reach it and they
+    //     are closer. A wrong-direction result survives the choice of estimate.
+    //     AND CHASING THE CAMERA MISMATCH TURNED UP SOMETHING THAT MAY EXPLAIN SIX BUILDS. The map
+    //     is authored by `ScenarioCamera` (deferred) and sampled by `GloomhavenVR.HeadCamera`
+    //     (forward) — confirmed independently against ModBuild 253's own camera census. But
+    //     `self-covering 0 of 36` at rung 0, where the sample point IS the prop's own bounds
+    //     centre, means a registered prop failed to cover itself, which is impossible. The reason
+    //     is in the game's own code: `ObjectOcclusionVolume.OnEnable` passes
+    //     `GetComponent<MeshRenderer>()` and `AddObjectRenderer` early-returns on null — AND THE
+    //     TRAP IS SKINNED. If that holds, strand 5 spent six builds unregistering a registration
+    //     that never existed, and section 19.4's precondition counted VOLUMES where it needed
+    //     REGISTRATIONS.
+    //     Decided next log by two one-shot channels rather than by a render-path change: channel 5
+    //     asks, per volume, whether its object carries a MeshRenderer and whether that renderer is
+    //     actually in the generator's list; channel 6 asks, per rung, whether the head-camera
+    //     viewport UV LEFT the 0..1 frame — because if it leaves at the top rung and not at rung 0
+    //     then "lifting escapes it" and "the sample point left the screen" are one event. The
+    //     decisive A/B (`_EnableOcclusionMap` = 0) is DELIBERATELY WITHHELD: that global is the
+    //     shader-side master gate, so it would also strip the occlusion term from the flame and
+    //     wall-fade shaders, and it is worth one float only once channel 5 reports a non-zero
+    //     registered count.
+    //     STATUS AFTER FOURTEEN ROUNDS. Closed: light reaching the prop (directional), projectors
+    //     (1 in scene, contains it at no rung). A NON-READING that excludes nothing: the per-pixel
+    //     light set, whose cap is 0 and which therefore cannot fire. Open and decidable by one
+    //     number: the occlusion map. Open and untouched: the shader's own VIEW-dependence — a lift
+    //     also rotates the prop against the eye, and section 13.2 already has the ring reading
+    //     white face-on and bronze edge-on.
+    // REPORTED, NOT FIXED, both awaiting the user's word: 13 of room 0's own 44 CMap hexes are
+    // dropped for lying outside the room's BOUNDS BOX (a terrace the registry made no second room
+    // entry for) — revealed hexes in no denominator, and widening a denominator is the rule change
+    // he ruled out; and a `ThickDoor` is classified as a fadeable wall while two ThinDoors are
+    // correctly DOORWAY/GATE — it already fades today so this build did not change it, but it may
+    // contradict the doors-never-fade ruling.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 464: two items, two lanes, NO BEHAVIOUR CHANGE AT ALL — this build ships two
     //   measurements and three corrections to instruments that were lying. Both lanes were told
     //   to prefer an honest instrument over a guessed fix and both did.
