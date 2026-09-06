@@ -433,7 +433,78 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 463;
+    public const ushort ModBuild = 464;
+    // Build 464: two items, two lanes, NO BEHAVIOUR CHANGE AT ALL — this build ships two
+    //   measurements and three corrections to instruments that were lying. Both lanes were told
+    //   to prefer an honest instrument over a guessed fix and both did.
+    //   * THE HELD-PROP WHITE FLASH, ROUND THIRTEEN, AND LIGHTING WAS NEVER EXCLUDED. The user
+    //     supplied the first new term in months: lifting the held prop UPWARD makes the white go
+    //     away. That is a TRANSLATION, so world position is an input, and after twelve rounds of
+    //     state probes it is the one axis nobody had tested. `BOARD PROP STANDING WATCH` read
+    //     1796 frames / CHANGES: 0 again this session and its verdict stands — FOR STATE. It says
+    //     nothing about the prop's INPUTS: a light, a projector or a screen-space map the prop
+    //     merely SAMPLES hangs off no object in its hierarchy, so every animator, material,
+    //     property-block and object-graph probe reads zero while the picture changes.
+    //     THE LIGHTING EXCLUSION WAS FALSE AND IT COST TWELVE ROUNDS. `LIGHTING, HELD vs HOME`
+    //     reads 0.0252 against 0.0252 with WORST DIFFERENCE 0 across 72 samples at two positions
+    //     more than a metre apart — a value that never moves between distant points is a CONSTANT,
+    //     and `LightProbes.GetInterpolatedProbe` was falling back to `RenderSettings.ambientProbe`
+    //     with no baked set. Worse, the quantity is a BAKED AMBIENT term that could never see a
+    //     realtime light in the first place. Its own sentence claimed the zero "excludes lighting
+    //     too". That is the fifteenth false assertion this project has found in its own source and
+    //     the most expensive: it removed an entire class of cause from the search space for a year
+    //     of rounds. Corrected, with the probe count now printed so an empty set can never again
+    //     read as a measurement.
+    //     AND ROUND TWELVE'S EXPERIMENT WAS NOT READABLE. `Retire` reset the Light, Projector and
+    //     LensFlare counters and never the occlusion pair, so they accumulated across pooled belts
+    //     for the whole session — the log prints `0 ObjectOcclusionVolume(s) … of which 59 are
+    //     ENABLED`, a sentence that contradicts itself. Only the FIRST hold of a session was ever
+    //     readable, and a non-zero found count is the stated precondition of the strand-5 A/B whose
+    //     result was reported to the user as sound. One line in `Retire`.
+    //     SHIPPED: `] [Props] HELD-PROP POSITION SWEEP` samples the prop's INPUTS at FOUR heights
+    //     on ONE frame (+0, +0.5, +1, +2 m) — four rungs and not two, so a light that drops out
+    //     BETWEEN rungs names its own range — across four channels: realtime lights with range,
+    //     intensity, mask and attenuated contribution; the per-pixel light cap and the top-N set
+    //     Unity actually picks from the renderer's position; an analytic reconstruction of which
+    //     registered occlusion renderers cover each rung in the generator camera's screen space;
+    //     and every Projector whose frustum contains the rung. A difference between rungs names the
+    //     cause; an EMPTY difference is a real finding and moves the lead to the shader's own
+    //     view-dependence. No fix, no second hush, and the sweep writes nothing.
+    //   * THE HOUSE WALL THAT NEVER FADES — 44 % OF THE LEVEL IS IN NO WALL'S DENOMINATOR. Height
+    //     was NOT the term: its neighbours read wall crests of 6.8-7.6 wu on the same lines, so the
+    //     two-storey house is not out of band and the integrator's first hypothesis is dead. The
+    //     log already carried the mechanism and nobody had subtracted it: `REGISTRY COVERAGE: 1 of
+    //     2 distinct CMap(s) got a sample grid, covering 44 of 78 keyed hex(es) — ALARM: 1 CMap /
+    //     34 hex(es) are in the registry and in NO room's denominator.` All nine deciding walls
+    //     bind to the one room that HAS a grid, so a wall standing between the head and those 34
+    //     hexes measures `blk 0/16` and its coverage is 0.00 BY CONSTRUCTION — no bar can move it.
+    //     From the other side the same wall hides counted hexes and fades. One mechanism produces
+    //     all four of the user's facts including the mirrored twin, and the ModBuild 263 ALARM text
+    //     predicted this exact arm.
+    //     AND NO EXISTING LINE COULD HAVE NAMED THE WALL, for three independently verified reasons:
+    //     `diag:` prints only the top 3 by smoothed fraction, and a wall stuck at 0.00 is precisely
+    //     the one it never prints; `PER-WALL` named eight of nine and ended `| +1 more`, so one
+    //     deciding wall appeared on NO line of the session; and both identify a wall by
+    //     `Anchor.name`, which is not unique — the two map tiles each carry their own 'Wall 1',
+    //     which in a mirror-symmetric level is exactly the reported pair.
+    //     SHIPPED: `] [WallSegmentFade] OCCLUDER VERDICTS` classifies EVERY segment (never a
+    //     top-N), ids each by anchor INSTANCE ID, and for every wall that came out solid counts the
+    //     playable hexes it actually hides from the live head using the same acceptance the
+    //     coverage rule uses, split into counted / OFF-GRID / other-room. It expresses three
+    //     verdicts no existing line can: SOLID:OFF-GRID (the mechanism above), SOLID:CEILING (the
+    //     room's own visible/total is under the enter bar, so no wall of that room can fade this
+    //     frame whatever it hides — a second live candidate the instrument separates from the
+    //     first), and NOT-CONSIDERED with a reason, so a segment that appears in no coverage line
+    //     is visibly absent instead of silently missing.
+    //     THE REPAIR NEEDS A USER RULING AND WAS NOT SHIPPED BLIND. Giving the un-gridded CMap its
+    //     own grid is the obvious fix and it is a GAME-RULE question: that CMap is a PREVIEW /
+    //     unrevealed map tile, so counting it would let walls fade for a room the game has
+    //     deliberately not revealed. And the grid ladder steps 4->3->2->1 on ROOM COUNT against a
+    //     96-sample budget, so adding rooms silently coarsens the quantum and both Schmitt bars for
+    //     every other room in scenarios with more rooms than this one. Shipping it blind would
+    //     trade a named defect for an unnamed one across every scenario.
+    // Wire: nothing. No record, no field, no byte. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 463: the sixth big multiplayer round — eleven items, eight lanes, and the round in
     //   which THREE OF THE INTEGRATOR'S OWN PREMISES WERE KILLED BY THE LANES THAT RECEIVED THEM,
     //   one user premise turned out to be false, and one lane corrected another lane's finding.
