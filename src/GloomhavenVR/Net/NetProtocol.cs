@@ -433,7 +433,44 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 451;
+    public const ushort ModBuild = 452;
+    // Build 452: THE WELL, and it was refused by a term the user himself asked for.
+    //   The 450 census kept one sentence deliberately outside its sample cap and it named the whole
+    //   defect: "REFUSED as unliftable: 'OneHexObstacle' Obstacle - hasHealth=NO
+    //   disallowMoveOrDestroy=YES (game flags it OverrideDisallowDestroyAndMove)". Exactly ONE prop
+    //   of 22 on that board was refused, all session. That is the well, and the refusing term is
+    //   ModBuild 350's, written on his own ruling: "exkludiere solche Obstacles die man nicht
+    //   zerstoeren kann ... wie zB die 'DarkPitObstacles'". He has now reversed that criterion, and
+    //   confirmed it is the CLASS and not the one prop: "Aehnliche props wie der Brunnen (echtes
+    //   Hinderniss, aber unzuerstoerbar) sollen auch grabable sein."
+    //   THE TERM IS DELETED, NOT EXEMPTED, and this file got SMALLER. The only object the 350 report
+    //   ever named is refused by the OTHER term anyway: six EPropType values route into the Obstacle
+    //   bucket, SolidObstacleTypes whitelists five, and the sixth is DarkPitObstacle. Five solid
+    //   masses on a hex; one hole cut in the floor. That is the whole of the difference and it is
+    //   the difference he named both times.
+    //   AND THE FLAG WAS NEVER THE RIGHT QUESTION FOR A HAND. OverrideDisallowDestroyAndMove is a
+    //   RULES bit - what CAbilityDestroyObstacle, CAbilityMoveObstacle, CAbilityMoveTrap and
+    //   CAttackEffect consult before a CARD moves or destroys a prop. A VR lift does neither: the
+    //   visual rides the hand and glides home, no rule-library call is made, and the tile, the
+    //   pathing blockers, the line of sight and the activation state are exactly what they were.
+    //   What the game thinks happened: nothing. The well stays immovable to every ability while
+    //   being liftable by a hand.
+    //   Highlight, release glide, wall-fade exemption and the peer mirror all came free - the log
+    //   already shows every one of them for this family. The mirror rides record 37 with ZERO new
+    //   bytes: the predicate only decides whether a GrabbableProp is constructed, and both its
+    //   inputs are game state the game itself diffs, so both peers reach the same verdict with
+    //   nothing sent.
+    //   MY OWN TWO HYPOTHESES WERE BOTH WRONG. Not a resolution failure - resolution is healthy
+    //   this round (13 grabbable, 0 unresolved, and 0 cache re-keys). And "Failed to find prop"
+    //   fires 22 times, not the 250 I quoted: I counted lines, not events, and none of them is ours.
+    //   The disabled-collider ClosestPoint trap I asked to be checked is not implicated either -
+    //   the two dead pick shapes in the log are both GoldPile, and ModBuild 445's renderer-bounds
+    //   stand-in covers them generically.
+    //   Reported rather than decided: an indestructible CHEST or TRAP becomes liftable too, since
+    //   the term covered every whitelisted import type. On this board the widening adds exactly the
+    //   well. TerrainWater and PressurePlate were never candidates and cannot become any - they map
+    //   to their own import types and the type whitelist never accepted them.
+    // Wire: nothing. DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 451: an audit and a picture. No hardware round behind this one, and no behaviour moves.
     //   * PLAYING WITH FLAT PLAYERS WORKS, and the audit says so by enumeration rather than by
     //     recall: TWENTY features that change the game's flow of control in multiplayer, each read
