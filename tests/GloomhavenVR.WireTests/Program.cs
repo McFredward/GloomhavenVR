@@ -181,6 +181,13 @@ internal static class Program
             // merchant and the temple still stood open together. Nothing in this repository could
             // have noticed. The member pin makes the next widening fail here instead.
             MandatoryDecisionTermVectors.Run(t, repoRoot);
+            // WHERE A MIRRORED CARD FLIGHT LANDS. Two endpoints share ONE byte's two nibbles, and
+            // the receiver may be a different build from the sender — so the enum's width and
+            // NetCardFx.Clamp's bound are a sender/receiver contract no single end can observe.
+            // The active-matrix anchor (user item 8b) is the first value added since that codec
+            // shipped; these vectors pin the nibble, the transposition, and the older-build
+            // degradation the addition relies on.
+            ActiveAnchorVectors.Run(t);
         }
         catch (Exception e)
         {

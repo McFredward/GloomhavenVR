@@ -95,5 +95,5 @@ internal static class NetCardFx
     /// <summary>Clamp an unknown wire id to a safe anchor (a future sender may use ids we do not
     /// know yet — degrade to the board centre rather than misplacing the flight).</summary>
     private static CardFxAnchor Clamp(byte id) =>
-        id <= (byte)CardFxAnchor.Board ? (CardFxAnchor)id : CardFxAnchor.Board;
+        id <= (byte)CardFxAnchor.Active ? (CardFxAnchor)id : CardFxAnchor.Board;
 }

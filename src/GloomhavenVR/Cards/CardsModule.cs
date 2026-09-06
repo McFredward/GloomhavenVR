@@ -113,6 +113,9 @@ internal sealed class CardsModule : IVRModule
         CardArtPrewarm.Reset();
         CardArtPin.ReleaseAll("the cards module was torn down");
         CardHalfTone.Reset();
+        // ActiveCardSet's census is deliberately NOT reset from here — it forgets its own rows on
+        // silence (ActiveCardSet.RowForgetSeconds), so no mechanism path reads instrument state and
+        // the whole census stays retirable in one piece. See that constant's note.
         PickFlowWatch.Reset();
         PokePads.Reset();
         // Harmony patches are removed collectively by Plugin.OnDestroy (UnpatchSelf).

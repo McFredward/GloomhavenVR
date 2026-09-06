@@ -804,6 +804,12 @@ internal sealed partial class CardsDriver
         if (_tray.IsVisible)
             _piles.TickItemDemand(_fakeActive ? null : hand);
         UpdateInitiativeTodo(); // item 6: glow the initiative-order characters who still owe cards
+        // Item 8b: the cross-client "which card is active" census. DELIBERATELY OUTSIDE the
+        // _tray.IsVisible gate above — the whole point of the line is that a seat which is drawing
+        // NOTHING still reports, and a board that is not up is exactly such a seat. Per-frame and
+        // self-throttling: it prints on a change and otherwise once every ActiveCardSet.
+        // RestateSeconds.
+        ActiveCardSet.PrintIfDue();
 
         TickPickReturnSettle(); // pick restart: re-arm the returned cards once the reverse flight lands
         PollShortRest(_fakeActive ? null : hand); // redraw-swaps ShortRestedCard with no mode change

@@ -2162,22 +2162,39 @@ internal sealed partial class CardsDriver
     {
         // #5: while ANOTHER actor is taking its turn (an enemy, or another character), the control board
         // shows NO cards — only the cards of the character whose turn it currently is. The active pile is
-        // otherwise drawn every frame regardless of turn; gate it on this being the local character's own
-        // action turn OR the shared card-selection phase (where everyone picks at once). The round/played
-        // cards are already gated the same way (IsActionTurn, CardsDriver Rebuild ActionSelection case).
-        if (!CardsGameApi.IsActionTurn(hand) && !CardsGameApi.IsSelectionPhase(hand))
+        // otherwise drawn every frame regardless of turn; gate it on it being the PRESENTED character's
+        // own action turn OR the shared card-selection phase (where everyone picks at once).
+        //
+        // THE GATE READ A CONTROL TERM AND THIS IS A DISPLAY SURFACE (user item 8b, 2026-09-06). It
+        // used to be CardsGameApi.IsActionTurn, whose last clause is `!FFSNetwork.IsOnline ||
+        // cur.IsUnderMyControl` — false for EVERY teammate's character, even while the Choreographer
+        // is standing on exactly that character. This method is handed
+        // CharacterFocus.ResolveHand(CurrentHand()), so the moment the board was focused on a peer
+        // the column hid itself and reported nothing: "Wenn ich auf meinem board seinen character
+        // gewechselt hab - habe ich die Aktive Karte auch nicht gesehen". IsPresentedActorTurn is
+        // the same test with the control clause dropped and nothing else changed; IsActionTurn keeps
+        // every one of its own callers, which are all asking the control question.
+        if (!CardsGameApi.IsPresentedActorTurn(hand) && !CardsGameApi.IsSelectionPhase(hand))
         {
             _active.SetVisible(false);
             _activeBuffer.Clear();
             _active.SetCards(_activeBuffer); // clear its list so Contains()/park stay accurate
+            _activeShown.Clear();
             if (_loggedActiveCount != -1)
                 _loggedActiveCount = -1;
+            // ZERO IS A READING: the census must carry "this seat drew nothing, and here is the gate
+            // that did it" rather than leaving the last non-empty picture standing and reading as
+            // agreement.
+            ActiveCardSet.ReportSuppressed(hand.PlayerActor, ActiveCardSet.Belief.OwnBoard,
+                "not this character's action turn and not the selection phase — "
+                + "CardsDriver.UpdateActive's turn gate");
             return;
         }
 
         _active.EnsureBuilt(_tray);
         CardsGameApi.GetActivePileWidgets(hand, _activeWidgetBuffer);
         _activeBuffer.Clear();
+        _activeModelBuffer.Clear();
         for (int i = 0; i < _activeWidgetBuffer.Count; i++)
         {
             AbilityCardUI widget = _activeWidgetBuffer[i];
@@ -2187,18 +2204,51 @@ internal sealed partial class CardsDriver
             CardsGameApi.GetActiveHalves(hand, widget.AbilityCard, out bool top, out bool bottom);
             SetActiveHighlight(card, top, bottom); // native game action-region highlight
             _activeBuffer.Add(card);
+            _activeModelBuffer.Add(widget.AbilityCard);
+
+            // THE FLIGHT, MIRRORED (user item 8b: "wenn eine Karte aktiviert wurde soll sie
+            // unmittelbar mit einer Animation wie bei den Fächern zum 'Aktiv' Bereich gehen und dort
+            // umfassend synchronisiert sichtbar sein für alle (auch auf dem remote board)"). The
+            // owner already glides: _active.SetCards below relayouts with instant:false, so the card
+            // eases from wherever it sat into its column cell, exactly as a fan does. What peers had
+            // was a card that simply appeared. This is a SECOND CALLER of the existing mirrored
+            // flight machine (Net.NetCardFx -> RemoteCardFx), not a second implementation — the same
+            // one the burn/discard path uses; all it needed was the Active anchor. ReportCardFx is
+            // suppressed under a read-only focus, which is right: those flights belong to the
+            // watched character's board, not to ours.
+            if (!_activeShown.Contains(widget.CardID))
+                ReportCardFx(SlotAnchor(_tray.SlotOf(card)), Net.CardFxAnchor.Active);
         }
 
         _active.SetCards(_activeBuffer);
         _active.SetVisible(_activeBuffer.Count > 0);
 
+        _activeShown.Clear();
+        for (int i = 0; i < _activeWidgetBuffer.Count; i++)
+            _activeShown.Add(_activeWidgetBuffer[i].CardID);
+
+        // The comparable half of the answer: what THIS seat believes is active for THIS character,
+        // beside every other seat's belief about the same character. See ActiveCardSet.
+        ActiveCardSet.Report(hand.PlayerActor, ActiveCardSet.Belief.OwnBoard, _activeModelBuffer);
+
         if (_loggedActiveCount != _activeBuffer.Count)
         {
             _loggedActiveCount = _activeBuffer.Count;
             VRLog.Info("Cards", $"Active cards: {_activeBuffer.Count} shown in the ACTIVE area " +
-                                "(authoritative CardPileType.Active pile; active halves highlighted).");
+                                "(authoritative CCharacterClass.ActivatedCards, via ActiveCardSet; " +
+                                "active halves highlighted).");
         }
     }
+
+    /// <summary>The card ids the active column drew on the previous rebuild — the edge detector for
+    /// the mirrored flight. A card already in this set has flown; a card newly in the active list has
+    /// not. Cleared whenever the column is hidden, so the flight replays when it comes back up.
+    /// </summary>
+    private readonly HashSet<int> _activeShown = new(8);
+
+    /// <summary>Model-side twin of <c>_activeBuffer</c> — the same cards as <c>CAbilityCard</c>, for
+    /// the census (which compares game-card identity across clients, never VR widgets).</summary>
+    private readonly List<CAbilityCard> _activeModelBuffer = new(8);
 
     /// <summary>
     /// Drive the NATIVE game action-region highlight on a card's active half/halves
@@ -2263,15 +2313,24 @@ internal sealed partial class CardsDriver
         }
     }
 
-    /// <summary>Cheap change-gate hash of the active-card set (ids) + round. 0 = none.</summary>
+    /// <summary>
+    /// Cheap change-gate hash of the active-card set (ids) + round. 0 = none.
+    ///
+    /// <para>IT HASHES THE MODEL NOW, NOT THE WIDGETS — and that is the other half of the
+    /// "unmittelbar" defect (user item 8b). It used to call <c>GetActivePileWidgets</c> and hash
+    /// <c>AbilityCardUI.CardID</c>, which back then meant hashing the widgets whose
+    /// <c>CardType</c> cache the game had already re-stamped. A watchdog whose signature is
+    /// downstream of the very refresh it is supposed to trigger cannot fire until that refresh has
+    /// happened: on the owner's own board it fired LATE, and on a focused peer's hand — whose 2D
+    /// view no client but the owner ever refreshes — it never fired at all. <c>ActiveCardSet</c>
+    /// reads <c>CCharacterClass.ActivatedCards</c>, which the rules append to at the instant of
+    /// activation, so the dirty edge now lands on the frame the card went active.</para>
+    /// </summary>
     private int ActiveSignature(CardsHandUI? hand)
     {
         if (hand == null)
             return 0;
-        CardsGameApi.GetActivePileWidgets(hand, _activeWidgetBuffer);
-        int sig = 17;
-        for (int i = 0; i < _activeWidgetBuffer.Count; i++)
-            sig = sig * 31 + _activeWidgetBuffer[i].CardID;
+        int sig = ActiveCardSet.Signature(hand.PlayerActor);
         // Bonus half-activity can shift at a round boundary without the card set changing.
         sig = sig * 31 + CardsGameApi.RoundNumber();
         return sig;

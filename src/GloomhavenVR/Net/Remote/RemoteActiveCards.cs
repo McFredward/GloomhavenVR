@@ -149,20 +149,30 @@ internal sealed class RemoteActiveCards
         _buffer.Clear();
         try
         {
-            CCharacterClass cc = actor.CharacterClass;
-            List<CAbilityCard>? active = cc?.ActivatedAbilityCards;
+            // THE RAW FIELD, VIA THE ONE ACCESSOR EVERY SEAT NOW ASKS (ActiveCardSet). It used to be
+            // `cc?.ActivatedAbilityCards`, which is correct and allocating: that property is a LINQ
+            // projection that materialises a NEW list on every read (CCharacterClass.cs:99) and this
+            // is a per-rebuild path. ActiveCardSet.ActivatedCards hands back m_ActivatedCards itself.
+            // The behaviour is unchanged — the projection's only work was the CAbilityCard filter,
+            // which is the `is CAbilityCard` test below.
+            List<CBaseCard>? active = Cards.ActiveCardSet.ActivatedCards(actor);
             if (active != null)
             {
                 // UNCAPPED, like the owner's own list: a 7th active card used to be dropped here
                 // and drawn there — see InitialSlots.
                 for (int i = 0; i < active.Count; i++)
-                    if (active[i] != null)
-                        _buffer.Add(active[i]);
+                    if (active[i] is CAbilityCard card)
+                        _buffer.Add(card);
             }
         }
         catch { _buffer.Clear(); }
 
         Count = _buffer.Count;
+        // The comparable half of item 8b's answer: what THIS client believes is active for THAT
+        // player, in the same format and the same sort order the owner's own board reports, so two
+        // logs' lines for one character diff literally. Reported BEFORE the empty early-out below,
+        // because an empty active pile is a reading and not an absence.
+        Cards.ActiveCardSet.Report(actor, Cards.ActiveCardSet.Belief.RemoteBoard, _buffer);
         bool any = Count > 0;
         if (_root.gameObject.activeSelf != any)
             _root.gameObject.SetActive(any);

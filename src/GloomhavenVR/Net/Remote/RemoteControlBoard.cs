@@ -267,6 +267,12 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             CardFxAnchor.Discard => pile + new Vector3(0f, step * 0.5f, 0f),
             CardFxAnchor.Burnt => pile + new Vector3(0f, -step * 0.5f, 0f),
             CardFxAnchor.Items => pile + new Vector3(0f, -step * 1.5f, 0f),
+            // The ACTIVE-card matrix (item 8b's flight destination). THE SAME EXPRESSION the mirror
+            // seats its column at — RemoteActiveCards' root is `layout.ActiveMount` verbatim — so
+            // the flight lands exactly where the card is then drawn, by construction rather than by
+            // two formulas that have to agree. The matrix is centred on its mount, so the mount IS
+            // the block's midpoint and a one-card column lands dead on its own cell.
+            CardFxAnchor.Active => layout.ActiveMount,
             _ => new Vector3(0f, 0f, ProudZ), // Board (and any unknown future id)
         };
     }

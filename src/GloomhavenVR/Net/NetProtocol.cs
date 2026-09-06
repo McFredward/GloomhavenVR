@@ -23383,4 +23383,18 @@ internal enum CardFxAnchor : byte
 
     /// <summary>The sender's control board in general (origin unknown/board centre).</summary>
     Board = 6,
+
+    /// <summary>
+    /// The sender's ACTIVE-CARD matrix, off the far right edge past the pile stacks (user item 8b,
+    /// 2026-09-06: "wenn eine Karte aktiviert wurde soll sie unmittelbar mit einer Animation wie bei
+    /// den Fächern zum 'Aktiv' Bereich gehen … AUCH auf dem remote board").
+    ///
+    /// <para>NOT A NEW WIRE FIELD — a new VALUE in the existing endpoint byte's nibble, so nothing
+    /// about record widths, the documented worst case or <c>PresenceSerializer.MaxSize</c> moves. It
+    /// also degrades correctly on an OLDER receiver by construction: <c>NetCardFx.Clamp</c> maps any
+    /// id it does not know to <see cref="Board"/>, so a peer on a build before this one plays the
+    /// flight to their mirror of the sender's board centre instead of misplacing it or dropping the
+    /// packet. A FLAT (unmodded) player parses no extension record at all and is unaffected.</para>
+    /// </summary>
+    Active = 7,
 }

@@ -67,6 +67,14 @@
          packets") is not observable from either end alone. Written free of Unity, config and the
          game model precisely so it could be linked in here and driven byte by byte. -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Board\BoardTunePages.cs" Link="wire\BoardTunePages.cs" />
+    <!-- The card-FX endpoint CODEC (2026-09-06, user item 8b). Two anchors are packed into one
+         byte's two nibbles and unpacked by a receiver that may be a DIFFERENT BUILD from the
+         sender: NetCardFx.Clamp is the only thing standing between an id this build has never
+         heard of and a card arcing to a place that does not exist. That is a sender-and-receiver
+         property no single end can observe, which is exactly this project's definition of a wire
+         format. It links cleanly because it is free of Unity and the game model — its only
+         dependency is the VRLog shim beside this list. -->
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetCardFx.cs" Link="wire\NetCardFx.cs" />
   </ItemGroup>
 
   <!-- Not a wire file, same reasoning: the preloader's relaunch command is built at the one moment
@@ -447,6 +455,10 @@
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\Modal\MandatoryDecisionTerm.cs" Link="worldui\MandatoryDecisionTerm.cs" />
     <Compile Include="MandatoryDecisionTermVectors.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="ActiveAnchorVectors.cs" />
   </ItemGroup>
 
   <ItemGroup>

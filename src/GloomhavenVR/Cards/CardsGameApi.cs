@@ -222,6 +222,34 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// Is <paramref name="hand"/>'s character the one whose ACTION TURN it is — asked as a DISPLAY
+    /// question, with no term for whether this client controls them.
+    ///
+    /// <para>WHY IT IS NOT <see cref="IsActionTurn"/> (user item 8b, 2026-09-06: "Wenn ich auf
+    /// meinem board seinen character gewechselt hab — habe ich die Aktive Karte auch nicht
+    /// gesehen"). <see cref="IsActionTurn"/> ends with <c>!FFSNetwork.IsOnline ||
+    /// cur.IsUnderMyControl</c>, and that clause is a CONTROL term: it answers "may I drive this
+    /// hand", which is the right question for a select/commit seam and the wrong one for a piece of
+    /// furniture that only draws. Online it is false for every teammate's character even while the
+    /// Choreographer is standing on exactly that character — so the moment the board was focused on
+    /// a peer, the active column's own gate hid it, and the user's third symptom is that gate and
+    /// nothing else.</para>
+    ///
+    /// <para>It is deliberately a SECOND method rather than a relaxation of the first: every other
+    /// caller of <see cref="IsActionTurn"/> (the item pile's activatable chips, the rest controls,
+    /// the pile viewers) is asking the control question and must keep the control answer.</para>
+    /// </summary>
+    internal static bool IsPresentedActorTurn(CardsHandUI? hand)
+    {
+        if (hand == null || hand.PlayerActor == null)
+            return false;
+        Choreographer c = Choreographer.s_Choreographer;
+        if (c == null || !(c.CurrentActor is CPlayerActor cur))
+            return false;
+        return ReferenceEquals(cur, hand.PlayerActor);
+    }
+
+    /// <summary>
     /// True when we may drive this hand. Verified: <c>public static bool
     /// FFSNetwork.IsOnline</c>; <c>CPlayerActor.IsUnderMyControl</c> (used the same
     /// way throughout CardsHandUI, e.g. RefreshValidCards, CardsHandUI.cs:1635).
@@ -3633,28 +3661,55 @@ internal static class CardsGameApi
     // -------------------------------------------------------------- active cards --
 
     /// <summary>
-    /// Fill <paramref name="buffer"/> with the live widgets of the ACTIVE pile — the
-    /// character's currently-active ability cards (round-long or persistent). Mirrors
-    /// <see cref="GetPileWidgets"/> but sourced from the active pile: the exact
-    /// membership test the 2D hand uses to tag its widgets is
-    /// <c>AbilityCardUI.CardType == CardPileType.Active</c> (the filter
-    /// <c>CardsHandUI.GetActiveAbilityCards</c> uses, CardsHandUI.cs:1285-1288), which
-    /// tracks the model list <c>CCharacterClass.ActivatedAbilityCards</c>. Resolved
-    /// straight off <c>cardsUI</c> (one AbilityCardUI per card of EVERY pile) so no LINQ
-    /// list is allocated. Read-only: no game state is touched. No allocation — caller
-    /// owns the buffer.
+    /// Fill <paramref name="buffer"/> with the live widgets of the ACTIVE pile — the character's
+    /// currently-active ability cards (round-long or persistent). Resolved straight off
+    /// <c>cardsUI</c> (one AbilityCardUI per card of EVERY pile) so no LINQ list is allocated.
+    /// Read-only: no game state is touched. No allocation — caller owns the buffer.
+    ///
+    /// <para>MEMBERSHIP COMES FROM THE MODEL, NOT FROM THE WIDGET — and that change is user item 8b
+    /// ("Jederzeit muss synchron bleiben welche Karte aktiv ist … und das unmittelbar"). This method
+    /// used to test <c>AbilityCardUI.CardType == CardPileType.Active</c>, which reads like the
+    /// game's own answer (it is the filter <c>CardsHandUI.GetActiveAbilityCards</c> uses,
+    /// CardsHandUI.cs:1285-1288) and is not one. <c>AbilityCardUI.cardType</c> is a PRESENTATION
+    /// CACHE with exactly one gameplay writer: <c>CardsHandUI.UpdateCard</c> (CardsHandUI.cs:
+    /// 1433-1439) via <c>UpdateCards</c>, reached only when the game refreshes that hand's own 2D
+    /// view (<c>UpdateView</c>/<c>SetMode</c>). The only other two <c>SetType(CardPileType.Active)</c>
+    /// call sites in the whole game are <c>AbilityCardUI.EditorInit</c> and <c>CreateCardsInit</c>,
+    /// neither of which runs in a scenario. So the widget lags <c>CCharacterClass.ActivateCard</c>
+    /// (CCharacterClass.cs:362) by however long it takes the game to next refresh that view — and
+    /// for a PEER's hand on an observer's client, where the game never drives that view at all, it
+    /// lags forever. The peer's mirror (<c>Net.RemoteActiveCards</c>) always read the model, which
+    /// is precisely why the user saw the active card on the remote board and the owner did not see
+    /// it on their own. One source now, for every seat: <see cref="ActiveCardSet"/>.</para>
     /// </summary>
     internal static void GetActivePileWidgets(CardsHandUI hand, List<AbilityCardUI> buffer)
     {
         buffer.Clear();
-        if (hand.PlayerActor == null)
+        CPlayerActor? actor = hand.PlayerActor;
+        if (actor == null)
+            return;
+        List<CBaseCard>? active = ActiveCardSet.ActivatedCards(actor);
+        if (active == null || active.Count == 0)
             return;
         List<AbilityCardUI> cards = hand.cardsUI;
-        for (int i = 0; i < cards.Count; i++)
+        // Widget order follows the MODEL's order, not cardsUI's, so the owner's column and every
+        // mirror of it lay the same cards out in the same cells — RemoteActiveCards walks the same
+        // list in the same direction. The inner sweep is over a few dozen widgets against at most a
+        // handful of active cards, on a change-gated rebuild path.
+        for (int i = 0; i < active.Count; i++)
         {
-            AbilityCardUI card = cards[i];
-            if (card != null && card.AbilityCard != null && card.CardType == CardPileType.Active)
-                buffer.Add(card);
+            CBaseCard? want = active[i];
+            if (want == null)
+                continue;
+            for (int j = 0; j < cards.Count; j++)
+            {
+                AbilityCardUI card = cards[j];
+                if (card != null && card.AbilityCard != null && ReferenceEquals(card.AbilityCard, want))
+                {
+                    buffer.Add(card);
+                    break;
+                }
+            }
         }
     }
 
