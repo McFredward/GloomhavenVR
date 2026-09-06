@@ -103,7 +103,8 @@ namespace GloomhavenVR.Net;
 /// soll sich an den finalen Spawnpunkt orientieren der Spieler" cannot be honoured by a value
 /// latched before the last player walked in. So a seat set that GAINS or LOSES a player re-opens
 /// the decision; a seat set that merely MOVES does not, because that would be the per-frame value
-/// the freeze exists to prevent. The change must HOLD for <see cref="MembershipHoldSeconds"/> first
+/// the freeze exists to prevent — unless it has moved somewhere the standing answer is BROKEN, which
+/// is the second trigger below. The change must HOLD for <see cref="MembershipHoldSeconds"/> first
 /// — <c>NetAvatarDriver.TryGetPeerHeadHolder</c> answers false for a head holder that is momentarily
 /// inactive, and a blinking avatar would otherwise re-place every standing window twice a second —
 /// and the settle gate then re-runs from a clock that starts AT the re-open, so a re-decision is
@@ -111,6 +112,21 @@ namespace GloomhavenVR.Net;
 /// standing are re-placed on the new decision through
 /// <c>ModalFallback.ReseatSharedWindowsOnce</c> — only those nobody has dragged, because the drag
 /// still wins and spends the anchor.</para>
+///
+/// <para><b>AND IT REOPENS A SECOND WAY, WHICH IS THE 2026-09-06 ITEM 1 FIX.</b> Membership was the
+/// only trigger through ModBuild 462, and a player ALONE at the table has no membership change
+/// available to him: his round-1 direction, chosen at the 20 s cap while he was still walking in
+/// from 2.47 m out, stood for the entire room visit and seated every quest popup back-first once he
+/// took his real place — <c>SHARED WINDOW SEAT ANGLES</c> 121.5°, 145.5° and 119.1° over ONE head in
+/// that build's host log, against 25-26° for the same session's two-player windows. His own words
+/// are "spawnt das Multiplayer-Fenster falsch herum, also weg von einem gewandt … wenn ein weiterer
+/// Spieler dazu kommt, spawnt es so wie gewollt": the joining player was never the cure, the
+/// re-decision the join forced was. So a STANDING direction whose worst seat has gone past
+/// <see cref="StaleReadingDegrees"/> for <see cref="MembershipHoldSeconds"/>, AND which a
+/// re-decision would improve by at least <see cref="StaleImprovementDegrees"/>, re-opens too. See
+/// <see cref="StaleDirectionReopen"/> for why those two guards mean this is not the per-frame value
+/// the freeze forbids. A re-open of EITHER kind keeps the published byte until the new decision
+/// lands, so no client is dropped onto the humanless fixed axis while the settle gate runs.</para>
 ///
 /// <para><b>THE ONE INTERVAL IN WHICH TWO CLIENTS CAN STILL DISAGREE, stated rather than hidden:</b>
 /// the ≤200 ms between the host latching and its next extras packet arriving, and the ≤200 ms after
@@ -167,6 +183,24 @@ internal static class RemoteSharedGaze
     /// candidate 0° — it is square-on precisely because it is in the way. See the class comment.
     /// </summary>
     private const float MinReadingMeters = 0.35f;
+
+    /// <summary>The reading angle at which a STANDING decision counts as stale rather than merely
+    /// imperfect: past this the window's face is turned so far from a seat that the player is behind
+    /// it, which is the user's "spawnt weg von einem gewandt" in one number. Below it the decision is
+    /// left alone however old it is, because a freeze that re-opens on small change is the per-frame
+    /// value the freeze exists to prevent. Deliberately the BROKEN bar and not the WORKING bar: the
+    /// instrument's own working bar is 70°, and re-opening at 70° would churn on a table that is
+    /// merely awkward.</summary>
+    private const float StaleReadingDegrees = 90f;
+
+    /// <summary>How much better the best available direction must be than the standing one before a
+    /// stale decision re-opens. THE ANTI-OSCILLATION GUARD: a party can stand in a way whose OPTIMUM
+    /// worst seat is itself past <see cref="StaleReadingDegrees"/> (four players round a small
+    /// table), and re-deciding there would re-place every window once a second forever while landing
+    /// on the same byte. A re-open must buy a real improvement or it does not happen. After a
+    /// re-decision the standing worst IS the best, so the improvement is 0 and the trigger cannot
+    /// immediately re-arm.</summary>
+    private const float StaleImprovementDegrees = 25f;
 
     /// <summary>What one peer last said about their map room, reduced to the two facts this class
     /// needs. Fed from the same packet <c>RemoteMapRoom.Observe</c> reads, so there is never a second
@@ -230,7 +264,9 @@ internal static class RemoteSharedGaze
 
     /// <summary>Whether a decision for THIS room visit stands. Set for a refusal too: a refusal that
     /// re-tried on its own would be a value that changes during a room visit, which is the divergence
-    /// this class exists to prevent. It is re-opened only by a MEMBERSHIP change.</summary>
+    /// this class exists to prevent. It is re-opened by a MEMBERSHIP change or by the standing
+    /// direction going STALE against where the party now is — see <see cref="ReopenDecision"/>.
+    /// </summary>
     private static bool _decided;
 
     /// <summary>The decided yaw's byte, meaningful only while <see cref="_decidedValid"/>.</summary>
@@ -242,7 +278,9 @@ internal static class RemoteSharedGaze
 
     /// <summary>The membership the standing decision was taken from — the seat ids folded, and
     /// NOTHING about where they were. A change here re-opens the decision; a seat that merely moved
-    /// does not, because re-deciding on movement is the per-frame value the freeze forbids.</summary>
+    /// does not, because re-deciding on movement is the per-frame value the freeze forbids. A seat
+    /// that moved somewhere the standing direction is BROKEN for is a different question and is
+    /// answered by <see cref="StaleDirectionReopen"/>, not here.</summary>
     private static int _decidedMembership;
 
     /// <summary>How many times this room visit has decided, for the log only.</summary>
@@ -268,6 +306,17 @@ internal static class RemoteSharedGaze
     /// samples at the 5 Hz extras cadence.</summary>
     private const float MembershipHoldSeconds = 1f;
 
+    /// <summary>When the standing decision was first observed to be STALE — worst seat past
+    /// <see cref="StaleReadingDegrees"/> with a materially better direction available — or −1 while
+    /// it is not. Its own clock, separate from <see cref="_pendingMembershipSince"/>, so a party that
+    /// is both changing and badly seated cannot have one trigger reset the other's hold.</summary>
+    private static float _staleSince = -1f;
+
+    /// <summary>Which term last blocked the settle gate, so the refusal can be logged on its EDGE
+    /// instead of at the 5 Hz sample rate: 0 nothing, 1 the floor, 2 a roster player with no record,
+    /// 3 a seat still moving. Reset per decision round.</summary>
+    private static int _gateBlockClass;
+
     /// <summary>Drop everything on session end / shutdown. Nothing here owns a GameObject, so this
     /// IS the teardown.</summary>
     internal static void Reset()
@@ -284,6 +333,8 @@ internal static class RemoteSharedGaze
         _decidedMembership = 0;
         _pendingMembership = 0;
         _pendingMembershipSince = -1f;
+        _staleSince = -1f;
+        _gateBlockClass = 0;
         _decisionRound = 0;
         WorldUI.ModalFallback.NoteSharedGazeYaw(false, 0f, 0, "the net session ended");
     }
@@ -359,23 +410,145 @@ internal static class RemoteSharedGaze
                               + "seats. Windows already standing that nobody has dragged are "
                               + "re-placed on the new answer; a dragged window keeps its pose, "
                               + "because the drag still spends the anchor.");
-            _decided = false;
-            _decidedValid = false;
-            _decidedYaw = 0;
-            _gateClockAt = Time.unscaledTime;      // the gate measures the RE-OPEN, not the room's age
-            _pendingMembershipSince = -1f;
+            ReopenDecision();
         }
+
+        // THE SECOND RE-OPEN, AND THE ONE A SOLO PARTY DEPENDS ON. A membership fold cannot fire for
+        // a player who is alone at the table, so a direction chosen while he was still walking in
+        // stood for the whole room visit — see StaleDirectionReopen for the reading that convicts it.
+        StaleDirectionReopen();
 
         if (!_decided)
         {
             if (!SettleGateOpen(out bool settled, out string gateWhy))
-                return 0;
+            {
+                // THE GATE IS SHUT, WHICH IS NOT A REASON TO PUBLISH NOTHING. A re-open keeps the
+                // byte that already stands (see ReopenDecision), so this interval publishes the
+                // direction the party has been using rather than dropping every client onto the
+                // fixed table axis for as long as 20 s. On the FIRST decision of a room visit
+                // nothing stands, _decidedValid is false, and this is bit for bit the old answer.
+                valid = _decidedValid;
+                return _decidedValid ? _decidedYaw : (byte)0;
+            }
             _decisionRound++;
+            _gateBlockClass = 0;
             Decide(membership, settled, gateWhy);
         }
 
         valid = _decidedValid;
         return _decidedValid ? _decidedYaw : (byte)0;
+    }
+
+    /// <summary>
+    /// RE-OPEN THE FROZEN DECISION, from either trigger, in ONE place.
+    ///
+    /// <para><b>THE PUBLISHED BYTE SURVIVES THE RE-OPEN.</b> Clearing it here would put every client
+    /// in the session on the fixed table axis — a direction with no term for a human in it — for the
+    /// 2 s to 20 s the settle gate then takes, and a window spawning in that interval would be seated
+    /// worse than by the answer that was already standing. The old byte is a legal placement made for
+    /// this party; it is replaced when <see cref="Decide"/> overwrites it, and every window seated on
+    /// it is re-placed by <c>ModalFallback.ReseatSharedWindowsOnce</c> on the new one.</para>
+    /// </summary>
+    private static void ReopenDecision()
+    {
+        _decided = false;
+        _gateClockAt = Time.unscaledTime;      // the gate measures the RE-OPEN, not the room's age
+        _pendingMembershipSince = -1f;
+        _staleSince = -1f;
+        _gateBlockClass = 0;
+    }
+
+    /// <summary>
+    /// <b>THE 2026-09-06 ITEM 1 FIX: A FROZEN DIRECTION THAT NOW SHOWS SOMEBODY ITS BACK RE-OPENS.</b>
+    ///
+    /// <para><b>THE READING THAT NAMES IT.</b> In the ModBuild 462 host log the sole player's round-1
+    /// decision was taken at the 20 s cap ("1 of 1 seat(s) still moving") from a seat 2.47 m out on
+    /// the +X side of the table, and predicted a worst seat of 0.2° — a correct search over a seat he
+    /// was walking through. He then took his real place 3.2 m away on the opposite side, and every
+    /// quest popup that followed was seated 0.06 m from his face with its back to him: SHARED WINDOW
+    /// SEAT ANGLES read 121.5°, 145.5° and 119.1° over ONE head. Nothing re-opened, because a
+    /// membership fold was the only trigger there was and a solo party's membership never changes.
+    /// When the second player joined, the fold changed, round 2 ran with both of them actually at the
+    /// table, and the same session's readings drop to 25-26° — which is exactly the user's "wenn ein
+    /// weiterer Spieler dazu kommt, spawnt es so wie gewollt". The join was never the cure; the
+    /// RE-DECISION the join happened to force was.</para>
+    ///
+    /// <para><b>WHY IT IS NOT THE PER-FRAME VALUE THE FREEZE FORBIDS.</b> Three terms have to hold
+    /// together. The standing direction must be past <see cref="StaleReadingDegrees"/> for some seat
+    /// (not merely imperfect — turned away); a re-decision must buy at least
+    /// <see cref="StaleImprovementDegrees"/> on that worst seat (so a party whose optimum is itself
+    /// bad cannot make the room churn, and so the trigger cannot re-arm on its own answer); and it
+    /// must hold for <see cref="MembershipHoldSeconds"/>, the same hold a membership change serves.
+    /// A party that merely MOVED still does not re-open anything — a party that moved somewhere the
+    /// standing answer is broken for does.</para>
+    ///
+    /// <para>The full 256-step search only runs once the cheap standing-direction score has already
+    /// failed, so a well-seated table costs <c>Seats.Count</c> dot products per extras sample.</para>
+    /// </summary>
+    private static void StaleDirectionReopen()
+    {
+        if (!_decided || !_decidedValid || Seats.Count == 0)
+        {
+            _staleSince = -1f;
+            return;
+        }
+        if (!TryPrepareSearch(out Vector3 centreFlat, out float radiusWorld, out float minReadWorld,
+                              out _))
+        {
+            _staleSince = -1f;
+            return;
+        }
+
+        float standingRad = NetProtocol.DecodeMapRoomGazeYaw(_decidedYaw) * Mathf.Deg2Rad;
+        var standingAhead = new Vector3(Mathf.Sin(standingRad), 0f, Mathf.Cos(standingRad));
+        ScoreDirection(centreFlat, standingAhead, radiusWorld, minReadWorld, out float standingWorst,
+                       out _);
+        if (standingWorst < StaleReadingDegrees)
+        {
+            _staleSince = -1f;
+            return;
+        }
+
+        SearchBestDirection(centreFlat, radiusWorld, minReadWorld, out byte bestStep,
+                            out float bestWorst, out _, out _);
+        if (standingWorst - bestWorst < StaleImprovementDegrees)
+        {
+            // The table cannot be served materially better than it already is. Say nothing and
+            // change nothing: this is the guard that keeps a party whose own optimum is bad from
+            // re-placing every window once a second onto the byte it already has.
+            _staleSince = -1f;
+            return;
+        }
+
+        if (_staleSince < 0f)
+        {
+            _staleSince = Time.unscaledTime;
+            return;
+        }
+        if (Time.unscaledTime - _staleSince < MembershipHoldSeconds)
+            return;
+
+        // HW-VERIFY: the standing direction had turned its back on somebody and a better one existed.
+        // At most once per re-open — the hold clock is cleared by ReopenDecision and the improvement
+        // guard means the trigger cannot re-arm on its own answer — so a BURST of these is that guard
+        // failing. Its ABSENCE on a one-seat table whose SHARED WINDOW SEAT ANGLES reads past 90° for
+        // more than one spawn is this fix failing to run at all.
+        VRLog.Note(Scope, "SHARED SEATS — the standing spawn direction has gone STALE against where "
+                          + $"the party is now: worst seat {standingWorst:F1}° over {Seats.Count} "
+                          + $"seat(s) against the {bestWorst:F1}° available from step {bestStep}, "
+                          + $"held past {StaleReadingDegrees:F0}° for {MembershipHoldSeconds:F1} s. "
+                          + "Past 90° that player is reading the BACK of the window, which is the "
+                          + "2026-09-06 report's item 1 (\"spawnt das Multiplayer-Fenster falsch "
+                          + "herum, also weg von einem gewandt\"). THE DECISION IS RE-OPENED. This is "
+                          + "the trigger a SOLO party depends on: a membership fold cannot change for "
+                          + "a player who is alone at the table, so before this a direction chosen "
+                          + "while he was still walking in stood for the whole room visit and only a "
+                          + "second player joining could dislodge it. The published byte is KEPT "
+                          + $"until the new decision lands (step {_decidedYaw} stays on the wire), so "
+                          + "nothing falls back to the fixed table axis in the meantime. Windows "
+                          + "already standing that nobody has dragged are re-placed on the new "
+                          + "answer; a dragged window keeps its pose.");
+        ReopenDecision();
     }
 
     /// <summary>
@@ -464,6 +637,8 @@ internal static class RemoteSharedGaze
         _decidedMembership = 0;
         _pendingMembership = 0;
         _pendingMembershipSince = -1f;
+        _staleSince = -1f;
+        _gateBlockClass = 0;
         _decisionRound = 0;
         Seats.Clear();
         SeatMotion.Clear();
@@ -533,6 +708,7 @@ internal static class RemoteSharedGaze
         if (elapsed < MinSettleSeconds)
         {
             why = $"the room has stood {elapsed:F1} s of the {MinSettleSeconds:F0} s floor";
+            NoteGateBlocked(1, why);
             return false;
         }
 
@@ -578,12 +754,44 @@ internal static class RemoteSharedGaze
             why = $"{missing} roster player(s) have published no map-room record and {moving} of "
                   + $"{Seats.Count} seat(s) are still moving, at {elapsed:F1} s of the "
                   + $"{MaxSettleSeconds:F0} s cap";
+            NoteGateBlocked(missing > 0 ? 2 : 3, why);
             return false;
         }
         settled = true;
         why = $"every roster player has a map-room record and all {Seats.Count} seat(s) have held "
               + $"within {SeatStillMeters:F2} m for {SeatStillSeconds:F1} s, at {elapsed:F1} s";
         return true;
+    }
+
+    /// <summary>
+    /// Say WHICH term is holding the settle gate shut, once per change of term rather than at the
+    /// 5 Hz sample rate.
+    ///
+    /// <para><b>WHY IT HAD TO EXIST.</b> Both decision rounds in the ModBuild 462 host log were taken
+    /// on the 20 s cap — "1 of 1 seat(s) still moving" and then "2 of 2 seat(s) still moving" — so in
+    /// two rounds on two machines the gate has never once been observed to OPEN. That is either a
+    /// party that genuinely never stood still or a stillness term that cannot be satisfied, and
+    /// nothing in either log could tell those apart, because a refusal returned false and printed
+    /// nothing. This line is the difference: a run whose last gate line is class 3 and which then
+    /// decides SETTLED proves the term is reachable.</para>
+    /// </summary>
+    private static void NoteGateBlocked(int blockClass, string why)
+    {
+        if (blockClass == _gateBlockClass)
+            return;
+        _gateBlockClass = blockClass;
+        // HW-VERIFY: at most three of these per decision round (one per blocking term), and the LAST
+        // one before a SHARED SEATS DECIDED line names what the gate was waiting on. Its total
+        // absence in a room visit means the gate opened on the first sample past the floor.
+        VRLog.Note(Scope, "SHARED SEATS — the settle gate is SHUT and the host has not decided a "
+                          + $"spawn direction yet: {why}. Blocking term {blockClass} of 3 (1 = the "
+                          + $"{MinSettleSeconds:F0} s floor, 2 = a roster player with no map-room "
+                          + "record, 3 = a head that has not held still). Printed on the term's EDGE "
+                          + "and never per sample. A room visit that reaches a SHARED SEATS DECIDED "
+                          + "line saying SETTLE GATE OPENED proves every term here is reachable; one "
+                          + "whose gate lines end at term 3 and then decides on the cap has a "
+                          + "stillness test the party never satisfied, and THAT is the reading that "
+                          + "would justify widening SeatStillMeters rather than guessing at it.");
     }
 
     // ---- the decision itself ---------------------------------------------------------------------
@@ -607,8 +815,8 @@ internal static class RemoteSharedGaze
         _decidedYaw = 0;
         _decidedMembership = membership;
 
-        if (!MapRoomDriver.TryGetParchmentFrame(out Vector3 centre, out float frameScale)
-            || frameScale <= 0f)
+        if (!TryPrepareSearch(out Vector3 centreFlat, out float radiusWorld, out float minReadWorld,
+                              out float frameScale))
         {
             // HW-VERIFY: the host could not decide at all because the shared frame is not there. Once
             // per decision round; its presence means every client in this session is on the fixed
@@ -634,41 +842,10 @@ internal static class RemoteSharedGaze
             return;
         }
 
-        // The ring the anchor will seat this window on, in WORLD units, so the score is measured
-        // against the place the window actually goes. ModalFallback.TrySharedAnchorOnTable builds the
-        // same point: centre + ahead × radius, at the frame's own scale. The LATERAL step a second or
-        // third window takes is not modelled here — it is a per-window half-width and this decision
-        // is one direction for the whole room; the anchor's own SHARED WINDOW SEAT ANGLES line
-        // measures the delivered angle per window, lateral step included, which is where a
-        // disagreement between this prediction and the picture would show up.
-        float radiusMeters = WorldUIConfig.SharedWindowArcRadiusMeters != null
-            ? WorldUIConfig.SharedWindowArcRadiusMeters.Value
-            : Defaults.SharedWindowArcRadiusMeters;
-        float radiusWorld = Mathf.Max(radiusMeters, 0.05f) * frameScale;
-        float minReadWorld = MinReadingMeters * frameScale;
-        var centreFlat = new Vector3(centre.x, 0f, centre.z);
+        SearchBestDirection(centreFlat, radiusWorld, minReadWorld, out byte bestStep,
+                            out float bestWorst, out float bestMean, out float worstPossible);
 
-        int bestStep = 0;
-        float bestWorst = float.MaxValue;
-        float bestMean = float.MaxValue;
-        float worstPossible = 0f;
-        for (int step = 0; step < NetProtocol.MapRoomGazeYawSteps; step++)
-        {
-            float rad = NetProtocol.DecodeMapRoomGazeYaw((byte)step) * Mathf.Deg2Rad;
-            var ahead = new Vector3(Mathf.Sin(rad), 0f, Mathf.Cos(rad));
-            ScoreDirection(centreFlat, ahead, radiusWorld, minReadWorld, out float worst,
-                           out float mean);
-            if (worst > worstPossible)
-                worstPossible = worst;
-            if (worst < bestWorst - 0.01f || (worst < bestWorst + 0.01f && mean < bestMean - 0.01f))
-            {
-                bestStep = step;
-                bestWorst = worst;
-                bestMean = mean;
-            }
-        }
-
-        _decidedYaw = (byte)bestStep;
+        _decidedYaw = bestStep;
         _decidedValid = true;
         float yawDeg = NetProtocol.DecodeMapRoomGazeYaw(_decidedYaw);
 
@@ -693,15 +870,98 @@ internal static class RemoteSharedGaze
                           + $". SETTLE GATE: {gateWhy}. THE HOST DECIDES AND EVERY CLIENT OBEYS — "
                           + "this is what makes a shared window 1:1 here, not several machines "
                           + "searching over their own interpolated copies of the same heads and "
-                          + "hoping. The step is FROZEN for this membership and re-opens only when a "
-                          + "player joins or leaves the table, never when one moves.");
+                          + "hoping. The step is FROZEN for this membership: it re-opens when a "
+                          + "player joins or leaves the table, and — since ModBuild 463 and the "
+                          + "2026-09-06 item 1 — when the standing direction has turned its back on "
+                          + $"a seat ({StaleReadingDegrees:F0}°) and a re-decision would buy at least "
+                          + $"{StaleImprovementDegrees:F0}° back. It never re-opens merely because "
+                          + "somebody moved.");
 
         // The host never receives its own record, so it feeds its own decision in directly. Without
         // this the one client that MADE the decision would be the only one not using it.
         WorldUI.ModalFallback.NoteSharedGazeYaw(
             true, yawDeg, 0,
-            $"this client is the host and chose step {_decidedYaw} from {Seats.Count} seat(s), "
-            + $"worst seat {bestWorst:F1}°, party {(settled ? "SETTLED" : "STILL MOVING")}");
+            $"this client is the HOST and decided in round {_decisionRound}: step {_decidedYaw} "
+            + $"SCORED OVER {Seats.Count} SEAT(S), predicted worst seat {bestWorst:F1}°, SETTLE GATE "
+            + (settled
+                ? $"OPENED (all {Seats.Count} seat(s) held still and every roster player was present)"
+                : $"TIMED OUT AT THE {MaxSettleSeconds:F0} s CAP, so the party was STILL MOVING and "
+                  + "this direction was the best answer available rather than the right one"));
+    }
+
+    /// <summary>
+    /// The geometry every score is measured in: the table centre flattened, the ring radius the
+    /// anchor will actually seat a window on, and the reading-distance floor — all in WORLD units at
+    /// the shared frame's own scale. Answers false when the parchment frame is not there, which is
+    /// the one condition under which no direction can be chosen at all.
+    ///
+    /// <para>It exists as its own method so that <see cref="Decide"/> and
+    /// <see cref="StaleDirectionReopen"/> cannot drift apart: a staleness test measured against a
+    /// different radius from the one the decision used would arm on the difference between two
+    /// geometries rather than on the party having moved.</para>
+    /// </summary>
+    private static bool TryPrepareSearch(out Vector3 centreFlat, out float radiusWorld,
+                                         out float minReadWorld, out float frameScale)
+    {
+        centreFlat = Vector3.zero;
+        radiusWorld = 0f;
+        minReadWorld = 0f;
+        if (!MapRoomDriver.TryGetParchmentFrame(out Vector3 centre, out frameScale)
+            || frameScale <= 0f)
+            return false;
+
+        // The ring the anchor will seat this window on, in WORLD units, so the score is measured
+        // against the place the window actually goes. ModalFallback.TrySharedAnchorOnTable builds the
+        // same point: centre + ahead × radius, at the frame's own scale. The LATERAL step a second or
+        // third window takes is not modelled here — it is a per-window half-width and this decision
+        // is one direction for the whole room; the anchor's own SHARED WINDOW SEAT ANGLES line
+        // measures the delivered angle per window, lateral step included, which is where a
+        // disagreement between this prediction and the picture would show up.
+        float radiusMeters = WorldUIConfig.SharedWindowArcRadiusMeters != null
+            ? WorldUIConfig.SharedWindowArcRadiusMeters.Value
+            : Defaults.SharedWindowArcRadiusMeters;
+        radiusWorld = Mathf.Max(radiusMeters, 0.05f) * frameScale;
+        minReadWorld = MinReadingMeters * frameScale;
+        centreFlat = new Vector3(centre.x, 0f, centre.z);
+        return true;
+    }
+
+    /// <summary>
+    /// THE SEARCH, unchanged and in ONE place: over the 256 yaws the wire byte can represent, the
+    /// candidate whose WORST seat is best off, ties broken on the mean. <paramref name="worstPossible"/>
+    /// is the worst any candidate scored, which is what a direction chosen from one player's glance
+    /// could have cost.
+    ///
+    /// <para>Lifted out of <see cref="Decide"/> verbatim so <see cref="StaleDirectionReopen"/> asks
+    /// the SAME question the decision answers. Nothing about the objective, the tie-break or the
+    /// 0.01° epsilons changed when it moved, and it has no term for how many seats there are: one
+    /// seat, two adjacent, two opposed, three and four all fall out of the same loop, and zero seats
+    /// never reaches it (both callers return before this on an empty seat list).</para>
+    /// </summary>
+    private static void SearchBestDirection(Vector3 centreFlat, float radiusWorld, float minReadWorld,
+                                            out byte bestStep, out float bestWorst,
+                                            out float bestMean, out float worstPossible)
+    {
+        int best = 0;
+        bestWorst = float.MaxValue;
+        bestMean = float.MaxValue;
+        worstPossible = 0f;
+        for (int step = 0; step < NetProtocol.MapRoomGazeYawSteps; step++)
+        {
+            float rad = NetProtocol.DecodeMapRoomGazeYaw((byte)step) * Mathf.Deg2Rad;
+            var ahead = new Vector3(Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            ScoreDirection(centreFlat, ahead, radiusWorld, minReadWorld, out float worst,
+                           out float mean);
+            if (worst > worstPossible)
+                worstPossible = worst;
+            if (worst < bestWorst - 0.01f || (worst < bestWorst + 0.01f && mean < bestMean - 0.01f))
+            {
+                best = step;
+                bestWorst = worst;
+                bestMean = mean;
+            }
+        }
+        bestStep = (byte)best;
     }
 
     /// <summary>

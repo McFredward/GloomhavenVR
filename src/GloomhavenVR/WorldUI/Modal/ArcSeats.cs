@@ -5153,6 +5153,25 @@ internal static partial class ModalFallback
                               + "else did.");
     }
 
+    /// <summary>
+    /// WHERE THE STANDING DIRECTION CAME FROM, in the decider's own words, for the verdict line.
+    ///
+    /// <para>On the HOST this is the decision's full provenance — the round, how many SEATS the
+    /// search scored, the worst seat it predicted, and whether the settle gate OPENED or TIMED OUT —
+    /// because <c>RemoteSharedGaze.Decide</c> writes its own mailbox with that text. On a PEER it is
+    /// the step number and nothing else, because that is the whole of what record 20 carries: one
+    /// yaw byte and one valid bit. Saying so is the point — a peer line that printed "1 seat" would
+    /// be inventing a number the wire never sent ([[a-producer-checks-presence]]), and adding a wire
+    /// field to carry a diagnostic the host's own log already has would cost the record 20 budget for
+    /// nothing.</para>
+    /// </summary>
+    private static string SharedGazeProvenance()
+        => _sharedGazeFrom == 0
+            ? _sharedGazeWhy
+            : _sharedGazeWhy + " — THE SEAT COUNT THE SEARCH SCORED AND THE SETTLE GATE'S OUTCOME "
+              + "ARE NOT ON THE WIRE and are only on the HOST's log (grep [Net] SHARED SEATS "
+              + "DECIDED); record 20 carries one yaw byte and one valid bit and nothing else";
+
     /// <summary>The direction a shared window is seated in, and whether it came from the host or
     /// from the fixed table axis. <paramref name="yawDeg"/> is only meaningful when this returns
     /// true.</summary>
@@ -6194,7 +6213,19 @@ internal static partial class ModalFallback
                                   : "THE FIXED TABLE AXIS — no host decision has been received, so "
                                     + "nothing here has a term for a human and a large angle below "
                                     + "is expected rather than a fault of the search")
-                              + $". SEATS: {sb}. This line MEASURES and never DECIDES: the pose above "
+                              + $". DECISION PROVENANCE: {SharedGazeProvenance()}. SEATS: {sb}."
+                              + (SeatAngleHeads.Count == 1
+                                  ? " ONE HEAD AT THIS TABLE, WHICH IS THE 2026-09-06 ITEM 1 CASE "
+                                    + "(\"obwohl sonst noch niemand im Spiel ist\"): a single seat "
+                                    + "has no compromise to make, so the search's optimum for it is "
+                                    + "dead square-on and the WORST SEAT above should be a SMALL "
+                                    + "number. Over 90° here means the frozen direction was decided "
+                                    + "from a seat this player has since left — grep [Net] SHARED "
+                                    + "SEATS for the STALE re-open that is supposed to have caught "
+                                    + "that, whose ABSENCE beside a second line like this one is the "
+                                    + "fix not running."
+                                  : string.Empty)
+                              + " This line MEASURES and never DECIDES: the pose above "
                               + "is a pure function of the one byte the host published, so nothing "
                               + "client-local reached the placement.");
         SeatAngleHeads.Clear();
