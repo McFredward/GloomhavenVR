@@ -433,7 +433,66 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 456;
+    public const ushort ModBuild = 457;
+    // Build 457: the held-prop white flash, ROUND ELEVEN. The user made two points and both landed.
+    //   * "NICHT GANZ FLUESSIG" RETIRES OUR MODEL. His report: "Wenn ich es laenger in der Hand
+    //     halte tritt es auch so auf das der prop weiss wird in der hand. Es ist wie der flash nur
+    //     deutlich verlangsamt und nicht ganz fluessig wie beim flash auf dem Spielbrett." A LATCHED
+    //     VALUE CANNOT STUTTER. The effect still happens in the hand, it is the SAME flash, it is
+    //     slowed, and it steps. So round nine's model — a value frozen at the grab — is dead by
+    //     observation, and it takes the reading of every zero with it: "nothing moved" only ever
+    //     proved our SAMPLING did not catch movement, never that the thing was still.
+    //   * AND HIS METHODOLOGICAL POINT WAS FAIR: "dieser Blitz ist ja ein voll spiel gewolltes
+    //     Highlighting … also muesstest du es doch auch im originalspiel finden koennen." Eleven
+    //     rounds chased instrument readings for a deliberate feature sitting in decompiled/. This
+    //     round reads the GAME. Excluded there, by reading rather than by measuring: the
+    //     hold-to-highlight-everything system (WorldspaceUITools.Update turns every registered
+    //     Outlinable on while KeyAction.HIGHLIGHT is held and off on release — a held key with no
+    //     schedule, and this mod references none of those three symbols anywhere); and any
+    //     time-varying GLOBAL shader value (every Shader.SetGlobal* in GH.Runtime is a texture bind,
+    //     ToggleWallFade, or a grab-texture scale).
+    //   * A CORRECTION TO THE INTEGRATOR'S BRIEF, ON THE RECORD: round ONE did look at Chronos —
+    //     section 3 records "scene holds 0 AreaClock(s) and 0 Timeline(s)" and "globalClock.timeScale
+    //     hand=1 home=1" from ModBuild 435. But that census was rooted at the prop's VISUAL, and a
+    //     Chronos clock governs a subtree FROM ABOVE, so a Timeline on a PARENT was never covered.
+    //     Closed now by walking UP with GetComponentInParent<Timeline>() on both props and printing
+    //     the two clocks side by side. The stronger half of that lead is IdleSMB: a
+    //     StateMachineBehaviour on idle states whose OnStateEnter writes m_Animator.speed from
+    //     Timekeeper.instance.m_GlobalClock.timeScale and whose OnStateExit writes it back to 1 —
+    //     and a DISABLED Animator never fires OnStateExit, so a stranded speed stands for the whole
+    //     hold. Section 3's "speed hand=1 home=1" predates the hush entirely and cannot answer it.
+    //   * FIVE CHEAP ARMS. (1) THE RE-ASSERT WATCH: every rising edge over the ledger named with its
+    //     frame and clock, intervals printed, which tests RescanFrames = 45 by measurement instead
+    //     of by suspicion — and it closes a hole ModBuild 455's own cleanup opened, because that
+    //     pass deleted the per-frame enabled counts as spent and A MAXIMUM OVER A WINDOW SAYS
+    //     NOTHING ABOUT WHEN. Re-added as EDGES, not maxima. (2) '] [Props] BOARD PROP STANDING
+    //     WATCH', and it is the most important: the FIRST observer in this investigation that needs
+    //     NO GRAB. The twin is promoted when its window closes to a 40-second standing watch, and it
+    //     watches OutlineParameters.Enabled AND its colour — the boolean the game writes in nine
+    //     places, killed in round five ON THE HELD PROP where we disable the component, and never
+    //     once measured on a prop standing on the board. It prints its own frame count so silence is
+    //     distinguishable from never-armed. (3) THE KNOWN ASYMMETRIES — what WE make different,
+    //     never printed in eleven rounds, including the SIGN of the localToWorldMatrix determinant,
+    //     because a held prop is mirrored for the left hand. It names the one to read first, and it
+    //     points at us: STRAND 5 UNREGISTERS THE HELD PROP FROM THE OCCLUSION MAP WHILE IT STILL
+    //     SAMPLES IT, so if that map darkens, a prop absent from it is UNDARKENED — brighter than
+    //     the same prop on the board, with no material, no component and no lighting behind it.
+    //     (4) The clocks and the animator speed. (5) A MOTION TRACE: path length, worst step, and
+    //     the longest run of frames moving under a millimetre, in frames AND seconds, so the user's
+    //     "hold it dead still" experiment can be lined up against the log.
+    //   * FRAME RATE IS PRINTED BESIDE EVERY PERIOD, and the reason is a real ambiguity: the game's
+    //     own WorldspaceUI/IEffectBlink loops on Timekeeper.WaitForSeconds with m_BlinkInterval =
+    //     0.5f, and 0.5 s is within a frame or two of our RescanFrames = 45 at 90 Hz. A period
+    //     locked to 45 FRAMES as the frame rate varies is OURS; one locked to 0.5 SECONDS is the
+    //     game's. Without the frame rate on the line those two are the same number.
+    //   * NO REMEDY, AND THE PICTURE READ-BACK IS DEFERRED ONE ROUND DELIBERATELY: the period it
+    //     would serve is obtainable more cheaply from state this build already touches, and a
+    //     capture subsystem shipped beside four new arms would be unattributable. Its constraints
+    //     (right pipeline stage, async, cost measured not asserted) are written into section 18.6 so
+    //     it can ship directly if these arms read silent.
+    // Wire: nothing. No state written, nothing to mirror.
+    // Documented worst case stays 1735; MaxSize stays 2100.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 456: the held-prop white flash, ROUND TEN. Two leads dead, and one ASSUMPTION dead that
     //   had been load-bearing since round seven.
     //   * OUR OVERLAY IS EXONERATED BY ITS OWN CENSUS. 455's count read 1 at arm and 1 at close,
