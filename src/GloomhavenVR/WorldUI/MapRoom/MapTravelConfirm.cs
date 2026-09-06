@@ -808,6 +808,12 @@ internal static class MapTravelConfirm
     private static int _anchorButtonSkipped;
     private static int _anchorButtonClipped;
 
+    /// <summary>How many Graphics the information sweep refused because THIS MOD PARKS THEM FROM
+    /// THIS VERY MEASUREMENT (ModBuild 459) — today that is the adopted ready-tracker row, whose top
+    /// edge is placed ON the zero this sweep produces. Printed on the placement line, because a zero
+    /// here on a card that carries the row is this exclusion being inert.</summary>
+    private static int _anchorInfoParked;
+
     /// <summary>Why the last refresh did not produce an anchor, or "resolved". Printed, so "the zero
     /// could not be measured" and "the zero is stale" are different lines in a log.</summary>
     private static string _anchorWhy = "never measured yet";
@@ -1880,6 +1886,7 @@ internal static class MapTravelConfirm
         _anchorButtonCounted = 0;
         _anchorButtonSkipped = 0;
         _anchorButtonClipped = 0;
+        _anchorInfoParked = 0;
         _anchorLastMoveY = 0f;
         _anchorWhy = why;
     }
@@ -1912,20 +1919,45 @@ internal static class MapTravelConfirm
             return;
         _anchorNextRefreshAt = now + AnchorRefreshIntervalSeconds;
 
-        if (!TryContentBounds(win, rect, excludeRoot: null, out Rect btn,
+        if (!TryContentBounds(win, rect, excludeRoot: null, excludeParked: null, out Rect btn,
                               out int btnCounted, out int btnSkipped, out int btnClipped,
-                              out int btnTransient, out int _))
+                              out int btnTransient, out int _, out int _))
         {
             _anchorWhy = "the container has no visible Graphic this tick (the game usually has it "
                          + "switched off when no location is staged) — the previous zero is kept";
             return;
         }
-        if (!TryContentBounds(win, win, excludeRoot: rect, out Rect infoRaw,
+        // ---- ModBuild 459 - THE SECOND EXCLUSION, AND IT IS THE SAME LOAD-BEARING ONE. ----------
+        //
+        // WHAT THIS SWEEP MUST NOT SEE IS "CONTENT THIS MEASUREMENT PLACED". The confirm container
+        // has been excluded since 197 for exactly that reason (see the class doc on
+        // TryContentBounds: "the answer would chase itself"). Since ModBuild 423 a SECOND object is
+        // placed from this same zero and was NOT excluded: MapQuestReadyRoster parks the game's own
+        // UIReadyTrackerBar into this card with its painted TOP edge ON info.yMin, and the bar is a
+        // sibling of the container, not a child of it, so `excludeRoot: rect` never covered it.
+        //
+        // THE LOOP THAT PRODUCED, and the numbers are the mod's own from the ModBuild 457 pair:
+        // zero -> row ink top = zero, row ink bottom = zero - 80.0 px (MAP QUEST READY CARD:
+        // "row ink 80.0 px tall") -> next sweep counts the row, so zero' = zero - 80.0. Five
+        // refreshes at 0.2 s and the frame clamp saturates at the card's own bottom edge y=-510.5.
+        // Both machines then read RAW union bottom y=-590.50 (= -510.5 - 80.0) with the confirm's
+        // painted top at y=-605.81 (= -510.5 - 95.3, the reserved height), while the SAME window
+        // measured y=-145.55 on the tick before the row was parked. That is 365 px = 383 mm of
+        // empty card between the drawn rewards panel and the icons — questfenster_abstand.jpg.
+        //
+        // NOT A NEW MEASUREMENT AND NOT A NAME TEST. MapQuestReadyRoster.HeldRow already exists for
+        // this exact purpose and LoadoutConfirmPark already asks it (two call sites) because that
+        // site hit the same feedback loop on the x axis; CanvasConversion's fit asks it too. The
+        // roster's own doc claimed "the quest site does not need this" — it did, and this is the
+        // one place that had not asked. Being OURS is not the test: mod-AUTHORED content is ink
+        // (ModBuild 242). Being PLACED BY THIS SWEEP is the test.
+        if (!TryContentBounds(win, win, excludeRoot: rect,
+                              excludeParked: MapQuestReadyRoster.HeldRow, out Rect infoRaw,
                               out int infoCounted, out int infoSkipped, out int infoClipped,
-                              out int infoTransient, out int infoTransientMask))
+                              out int infoTransient, out int infoTransientMask, out int infoParked))
         {
-            _anchorWhy = "the quest window has no visible Graphic outside the button itself — the "
-                         + "previous zero is kept";
+            _anchorWhy = "the quest window has no visible Graphic outside the button itself and the "
+                         + "row this measurement places — the previous zero is kept";
             return;
         }
 
@@ -1991,8 +2023,35 @@ internal static class MapTravelConfirm
         _anchorButtonClipped = btnClipped;
         _anchorInfoTransient = infoTransient;
         _anchorInfoTransientMask = infoTransientMask;
+        _anchorInfoParked = infoParked;
         _anchorButtonTransient = btnTransient;
         _anchorWhy = "resolved";
+    }
+
+    /// <summary>
+    /// THE ONE-LINE VERDICT ON THE questfenster_abstand.jpg GAP, handed to the roster's own
+    /// <c>VRLog.Note</c> report so the answer does not live only on a Debug-tier line.
+    ///
+    /// <para>Three numbers and nothing derived: the RAW information union's bottom edge, the same
+    /// edge after the frame clamp (which IS the zero the confirm group is seated from), and how many
+    /// graphics the sweep refused because this mod parks them from that measurement. Read together
+    /// with the card's own bottom edge, which the caller already has, they say whether the ModBuild
+    /// 459 exclusion is doing anything: a raw bottom ABOVE the card's bottom edge with a non-zero
+    /// refusal count is the fix working; a raw bottom AT the card's bottom edge minus the row's own
+    /// ink height with a ZERO refusal count is the ModBuild 423 feedback loop still running.</para>
+    ///
+    /// <para>Both edges are in the QUEST WINDOW's own local units — the same frame every other
+    /// number on the roster's report line is already in, so they can be compared without
+    /// conversion.</para>
+    /// </summary>
+    /// <returns>False when no zero has been measured for the current parking, in which case the
+    /// three values are meaningless and the caller must say so rather than print them.</returns>
+    internal static bool TryAnchorVerdict(out float rawBottom, out float zero, out int parkedRefused)
+    {
+        rawBottom = _anchorInfoRaw.yMin;
+        zero = _anchorInfo.yMin;
+        parkedRefused = _anchorInfoParked;
+        return _anchorValid;
     }
 
     /// <summary>
@@ -2277,13 +2336,20 @@ internal static class MapTravelConfirm
     private static bool TryContentBounds(RectTransform frame, Transform sweepRoot,
                                          Transform? excludeRoot, out Rect content,
                                          out int counted, out int skipped, out int clipped) =>
-        TryContentBounds(frame, sweepRoot, excludeRoot, out content, out counted, out skipped,
-                         out clipped, out _, out _);
+        TryContentBounds(frame, sweepRoot, excludeRoot, excludeParked: null, out content,
+                         out counted, out skipped, out clipped, out _, out _, out _);
 
+    /// <param name="excludeParked">A second subtree to refuse, counted separately — the content this
+    /// mod parks FROM this very measurement. See the ModBuild 459 block at the info-sweep call site
+    /// for why it is a second parameter and not a widened <paramref name="excludeRoot"/>: the two
+    /// exclusions answer the same question but the counts have to stay tellable apart, because a
+    /// zero on this one is the difference between "the row is not in the card" and "the row is in
+    /// the card and sizing the information again".</param>
     private static bool TryContentBounds(RectTransform frame, Transform sweepRoot,
-                                         Transform? excludeRoot, out Rect content,
+                                         Transform? excludeRoot, Transform? excludeParked,
+                                         out Rect content,
                                          out int counted, out int skipped, out int clipped,
-                                         out int transient, out int transientMask)
+                                         out int transient, out int transientMask, out int parked)
     {
         content = default;
         counted = 0;
@@ -2291,6 +2357,7 @@ internal static class MapTravelConfirm
         clipped = 0;
         transient = 0;
         transientMask = 0;
+        parked = 0;
         TransientMemo.Clear();
         ContentGraphics.Clear();
         sweepRoot.GetComponentsInChildren(includeInactive: false, ContentGraphics);
@@ -2331,6 +2398,12 @@ internal static class MapTravelConfirm
             if (excludeRoot != null && rt.IsChildOf(excludeRoot))
             {
                 skipped++;
+                continue;
+            }
+            // PLACED BY THIS MEASUREMENT, so it cannot be an input to it (ModBuild 459).
+            if (excludeParked != null && rt.IsChildOf(excludeParked))
+            {
+                parked++;
                 continue;
             }
             // ---- ModBuild 448 - DRAWN, BUT NOT ALLOWED TO DECIDE WHERE THE BUTTON GOES. ----------
@@ -2567,27 +2640,40 @@ internal static class MapTravelConfirm
               + "game faded out with a CanvasGroup on a tab switch or a scroll view no longer sizes "
               + "this rect. A jump in this count with no change to the quest is that fade arriving, "
               + "and before 439 it moved the bottom edge instead. "
-              + $"TRANSIENT REFUSALS (ModBuild 448): {_anchorInfoTransient} graphic(s) refused from "
-              + $"THIS rect and {_anchorButtonTransient} from the button's own, from "
-              + $"{TransientFamilies.Describe(_anchorInfoTransientMask)}. A NON-ZERO COUNT NAMING "
-              + "THE UIFX EFFECT FAMILY IS THE abstand2.jpg FIX DOING ITS WORK: that is the "
-              + "animated 'UIFX_Wave' quad which used to drag this rect's BOTTOM EDGE to the card's "
-              + "own bottom edge and hang the confirm button 266 px under the drawn rewards panel. "
-              + "A ZERO COUNT ON THE MAP-ROOM QUEST CARD STILL MEANS THE FIX IS INERT, AND ON THE "
-              + "ModBuild 448 PAIR IT READ ZERO ON BOTH MACHINES AND EVERY SAMPLE — 448's family 7 "
-              + "is a SUBTREE test whose guard refuses whenever the UIFX controller paints or owns "
-              + "its MainIcon, which is this card's authoring. ModBuild 449 therefore asks the "
-              + "controller about ONE GRAPHIC instead (TransientFamilies.IsDeclaredEffectQuad: is "
-              + "this Image in the controller's own MainIconFX / MainIcon2FX / TextAndSubIconFX / "
-              + "ActivateFX list?), which is strictly narrower and cannot take a label. SO THE "
-              + "FALSIFIER IS NOW SHARPER: a zero count here on ModBuild 449 or later means the wave "
-              + "quad is not in ANY of those four lists either — i.e. it is animated by something "
-              + "that is not this controller — and the next round must NAME its animator rather than "
-              + "widen a family. In that case the gap is not the wave and this line's RAW-vs-CLAMPED "
-              + "pair names whatever is. THE POSITIVE READING: a non-zero count naming the UIFX "
-              + "effect family, with this rect's RAW union bottom coming UP off the card's own bottom "
-              + "edge (it sat at y=-590.50, clamped to y=-510.5, on both machines at 448)"
-            : "NOT MEASURABLE — no visible Graphic in the quest window outside the button itself";
+              + "PARKED-CONTENT REFUSALS (ModBuild 459 — THE questfenster_abstand.jpg TERM): "
+              + $"{_anchorInfoParked} graphic(s) refused from THIS rect because THIS MOD PARKS THEM "
+              + "FROM THIS VERY MEASUREMENT, i.e. the adopted 'UI Multiplayer Ready Tracker Bar' "
+              + "whose painted TOP edge MapQuestReadyRoster puts ON the bottom edge printed above. "
+              + "HOW TO READ IT, IN NUMBERS. WORKING: on an ONLINE tick whose MAP QUEST READY CARD "
+              + "line says ICON ROW=YES, this count is the row's own drawn cell count (6 on the "
+              + "ModBuild 457 pair) AND this rect's RAW union bottom is ABOVE the card's own "
+              + "bottom edge, so the CLAMP does not bite and the two rects above are equal. INERT: "
+              + "this count is 0 while that same line says ICON ROW=YES — the row is in the card and "
+              + "is sizing the information again, which is the ModBuild 423 feedback loop and is "
+              + "exactly what the 457 pair measured (RAW bottom y=-590.50 = the card's bottom edge "
+              + "-510.5 minus the row's own 80.0 px of ink, on BOTH machines and every online "
+              + "sample, against y=-145.55 measured on the tick before the row was parked). BEYOND "
+              + "THE INSTRUMENT: this count is non-zero and the RAW bottom is STILL below the card — "
+              + "then a THIRD thing is reaching past the frame, the clamp is saturating on it, and "
+              + "the RAW-vs-CLAMPED pair above is the only thing that names it; do not widen this "
+              + "exclusion, name that graphic. 0 with ICON ROW=NO is the honest offline reading and "
+              + "means nothing at all. "
+              + $"TRANSIENT REFUSALS (ModBuild 448/449): {_anchorInfoTransient} graphic(s) refused "
+              + $"from THIS rect and {_anchorButtonTransient} from the button's own, from "
+              + $"{TransientFamilies.Describe(_anchorInfoTransientMask)}. THIS TERM IS NOT THE GAP "
+              + "AND 448/449 SAID IT WAS. Both builds blamed the animated 'Button_FX/UIFX_Wave (1)' "
+              + "quad for the RAW bottom of y=-590.50; both shipped this counter as the falsifier; "
+              + "it read 0 on both machines on every sample of 448 AND of 457, and 459 has the "
+              + "arithmetic that settles it — -590.50 is -510.5 minus the ready row's 80.0 px to "
+              + "the tenth of a pixel, and the same window read -145.55 one tick before that row was "
+              + "parked. WHERE THAT QUAD ACTUALLY IS was never established and is NOT claimed here; "
+              + "what IS established is that it is not what this rect's bottom edge was made of, and "
+              + "on the 457 pair GRAB BAR CLEARS THE INK never named it the lowest graphic in this "
+              + "window on any sample either. The exclusion is KEPT because it is narrow and correct "
+              + "for a quad that is genuinely animated, but a zero here is now the EXPECTED reading "
+              + "and is no longer a lead."
+            : "NOT MEASURABLE — no visible Graphic in the quest window outside the button "
+              + "itself and the ready row this measurement places";
         string measuredHow = _anchorValid
             ? $"{_anchorWhy}, {measuredAgeMs:F0} ms ago (re-measured at most every "
               + $"{AnchorRefreshIntervalSeconds:F2} s). Taken in Update from GetWorldCorners, i.e. "
@@ -2724,17 +2810,34 @@ internal static class MapTravelConfirm
         // The residual: where the button would still have to go to be exactly under the information,
         // expressed in the dials' own unit. Under the ModBuild 197 anchor this is (0,0) by
         // construction at any dial setting — see the doc above.
+        //
+        // ModBuild 459 — THE RESERVATION IS PART OF THE CLAIM, AND FOR 36 BUILDS IT WAS NOT.
+        // ApplyPose has subtracted MapQuestReadyRoster.ReservedHeight() from the written pose since
+        // ModBuild 423; this check did not, so every ONLINE sample printed "RESIDUAL … REPORT THIS
+        // LINE" with a value that was exactly the reservation (0.093 window heights = 95.3 local
+        // units on the whole ModBuild 457 pair, host and co-player, every sample). An instrument
+        // that cries fault on the correct state cannot be used to confirm a fix, and it was drowning
+        // the one number that WOULD have named the gap. The term is exactly the one ApplyPose wrote,
+        // read from the same accessor, so it is 0 offline and the offline check is unchanged.
+        float reserved = MapQuestReadyRoster.ReservedHeight();
         float residualX = dials.x + (info.center.x - btnContent.center.x) / windowHeight;
-        float residualY = dials.y + (info.yMin - btnContent.yMax) / windowHeight;
+        float residualY = dials.y + (info.yMin - reserved - btnContent.yMax) / windowHeight;
         bool clean = Mathf.Abs(residualX) * windowHeight <= OffsetEpsilon
                      && Mathf.Abs(residualY) * windowHeight <= OffsetEpsilon;
+        string reservedHow = reserved > 0f
+            ? $" The icon row above the button is reserving {reserved:F1} local unit(s) and that "
+              + "term is INSIDE the residual (ModBuild 459), so the pair below is the confirm GROUP "
+              + "— row and button together — against the information's bottom edge, which is what "
+              + "the zero has meant since ModBuild 423."
+            : " Nothing is reserved above the button this tick, so the pair below is the button "
+              + "itself against the information's bottom edge.";
         if (clean)
             return Head + "PASS — the button's painted content is exactly where the dials say it "
                    + "should be relative to the quest information (residual "
                    + $"{residualX:F3}, {residualY:F3} window heights, i.e. under half a uGUI unit on "
                    + "both axes). At 0/0 that means its top edge is ON the information's bottom edge "
                    + "and it is centred on it; at any other dial pair it means the offset from that "
-                   + "point is exactly the pair you set.";
+                   + "point is exactly the pair you set." + reservedHow;
         return Head + "RESIDUAL — the button is NOT where the measured zero plus the dials say it "
                + $"should be: it is still {residualX:F3} window heights "
                + $"({residualX * windowHeight:F1} local units) sideways and {residualY:F3} "
@@ -2746,7 +2849,7 @@ internal static class MapTravelConfirm
                + "(look at the 'zero' line's age above; it settles on the next refresh), or the "
                + "container's own internal layout changed because the button's label did (Reisen vs "
                + "Quest erneut spielen; that settles in one step too). A residual that PERSISTS "
-               + "across several lines is a real fault — REPORT THIS LINE.";
+               + "across several lines is a real fault — REPORT THIS LINE." + reservedHow;
     }
 
     /// <summary>World units per real metre at the current rig scale, or 1 when there is no rig.

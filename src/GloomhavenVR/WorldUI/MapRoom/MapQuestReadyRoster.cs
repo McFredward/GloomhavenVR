@@ -450,6 +450,11 @@ internal static class MapQuestReadyRoster
     private static int _reportLit;
     private static ReadyRosterSite _reportSite;
     private static bool _reportInkValid;
+
+    /// <summary>Whether the confirm parker's information union was still reaching the card's own
+    /// bottom edge on the last reported tick — 0 no zero, 1 clamp biting, 2 free. In the change gate
+    /// because it can flip with every other term unchanged (ModBuild 459).</summary>
+    private static int _reportGapState;
     private static string _reportNotice = string.Empty;
     private static bool _reportEver;
 
@@ -638,8 +643,20 @@ internal static class MapQuestReadyRoster
     /// everything else and follows the control. Counting it would push the control right, which would
     /// pull the row right, which would push the control right again — a feedback loop wearing a
     /// measurement's clothes. Excluding it is what keeps the solve the fixed point its own comment
-    /// claims it is. The quest site does not need this: its zero is the information's BOTTOM edge and
-    /// <c>MapTravelConfirm</c> measures that with the container excluded already.</para>
+    /// claims it is.</para>
+    ///
+    /// <para><b>THE SENTENCE THAT USED TO END THIS COMMENT WAS FALSE, AND IT COST TWO BUILDS.</b> It
+    /// read: "The quest site does not need this: its zero is the information's BOTTOM edge and
+    /// <c>MapTravelConfirm</c> measures that with the container excluded already." The container is
+    /// excluded; THIS ROW IS NOT THE CONTAINER — it is a sibling of it under the same card, so
+    /// <c>excludeRoot: rect</c> never covered it, and the quest site had the identical loop on the Y
+    /// axis: row top placed ON the zero, row counted as information, zero drops by the row's 80.0 px
+    /// of ink every 0.2 s until the frame clamp saturates it at the card's own bottom edge. The
+    /// ModBuild 457 pair measured the fixed point on BOTH machines — raw union bottom y=-590.50
+    /// against a card that ends at y=-510.5, with the same window reading y=-145.55 on the tick
+    /// before this row was parked — and that is questfenster_abstand.jpg. ModBuild 459 passes this
+    /// property as the info sweep's second exclusion. The lesson is the general one: a claim written
+    /// in a comment is a hypothesis, and this one was falsifiable from the log the whole time.</para>
     /// </summary>
     internal static Transform? HeldRow => _row != null ? _row.transform : null;
 
@@ -1406,9 +1423,35 @@ internal static class MapQuestReadyRoster
         int hostId = host != null ? host.GetInstanceID() : 0;
         int confirmId = parkedConfirm != null ? parkedConfirm.GetInstanceID() : 0;
         int rowId = _row != null ? _row.GetInstanceID() : 0;
+
+        // ---- ModBuild 459 - THE questfenster_abstand.jpg VERDICT, AND IT IS IN THE GATE. ---------
+        //
+        // The gap the user photographed twice is decided by ONE comparison, and until now it lived
+        // only on MapTravelConfirm's Debug-tier placement line: does the information union that
+        // seats this whole group end where the card's INK ends, or at the card's own bottom edge?
+        // On the ModBuild 457 pair it ended at the bottom edge on every online sample, because the
+        // row this class parks was still an input to the measurement that places it.
+        //
+        // IT IS A GATE TERM AND NOT ONLY A CLAUSE. This line prints on change; the clamp can start
+        // or stop biting with every id, cell count and notice unchanged (the quest text grows, the
+        // exclusion starts working), and a verdict that can only be seen on a tick something ELSE
+        // moved is a line that reads as dead. The three numbers are READ FROM THE PARKER and never
+        // re-measured here - a second sweep would be a second answer to the same question.
+        int gapState = 0;                       // 0 = no zero measured, 1 = clamp biting, 2 = free
+        float rawBottom = 0f, zero = 0f, cardBottom = 0f;
+        int parkedRefused = 0;
+        if (_site == ReadyRosterSite.Quest && host != null
+            && host.transform is RectTransform hostRect
+            && MapTravelConfirm.TryAnchorVerdict(out rawBottom, out zero, out parkedRefused))
+        {
+            cardBottom = hostRect.rect.yMin;
+            gapState = zero <= cardBottom + PlaceEpsilonPx ? 1 : 2;
+        }
+
         if (_reportEver && hostId == _reportHostId && confirmId == _reportConfirmId
             && rowId == _reportRowId && cells == _reportCells && lit == _reportLit
             && _site == _reportSite && _inkValid == _reportInkValid
+            && gapState == _reportGapState
             && string.Equals(_noticeText, _reportNotice, StringComparison.Ordinal))
             return;
         _reportEver = true;
@@ -1419,6 +1462,7 @@ internal static class MapQuestReadyRoster
         _reportLit = lit;
         _reportSite = _site;
         _reportInkValid = _inkValid;
+        _reportGapState = gapState;
         _reportNotice = _noticeText;
 
         // Each clause is built into its own local FIRST. Nesting an interpolated string inside an
@@ -1471,6 +1515,25 @@ internal static class MapQuestReadyRoster
               + $"({_lastDelta.x:F2}, {_lastDelta.y:F2}) px"
             : $"NOT PLACED — {_inkWhy}; nothing was written and nothing was reserved, so the confirm "
               + "keeps the seat its own parker gave it";
+        string gapClause = gapState == 0
+            ? "<no zero measured by the confirm parker for this card>"
+            : $"information union bottom RAW y={rawBottom:F1}, after the card clamp y={zero:F1}, "
+              + $"against the card's own bottom edge y={cardBottom:F1}; {parkedRefused} graphic(s) "
+              + "of this row refused from that union because the union PLACES them (ModBuild 459). "
+              + (gapState == 1
+                 ? "THE CLAMP IS BITING - the information union reaches the card's own bottom edge, "
+                   + "so this group is seated at the LOWEST place the card admits and every pixel "
+                   + "between the drawn quest text and these icons is empty card. A refusal count "
+                   + "of 0 here while ICON ROW=YES above is the ModBuild 423 feedback loop with the "
+                   + "459 exclusion INERT (the 457 pair read RAW y=-590.50 = the card's -510.5 less "
+                   + "this row's own 80.0 px of ink, on both machines, against y=-145.55 measured "
+                   + "one tick before the row was parked); a NON-ZERO count here means a THIRD "
+                   + "graphic reaches past the frame and the RAW-vs-CLAMPED pair is the only thing "
+                   + "that names it - name that graphic, do not widen the exclusion"
+                 : "THE CLAMP IS NOT BITING - the information ends inside the card and this group "
+                   + "follows it, which is the state ModBuild 459 restores and what "
+                   + "questfenster_abstand.jpg was missing");
+
         // THE TWO NUMBERS THAT MEAN DIFFERENT THINGS, PRINTED TOGETHER. anchoredPosition runs to the
         // rect's OWN pivot and the centre runs to the parent's frame, so a rect authored with a
         // foreign pivot makes them disagree — printing the offset is what lets that rect name itself
@@ -1486,7 +1549,12 @@ internal static class MapQuestReadyRoster
         // HW-VERIFY: reports (a) and (b) of 2026-09-05 — "Beim 'Verlies betreten' Button will ich
         // auch die Symbole sehen vom Spiel, wer schon akzeptiert hat und wer nicht" and "Der
         // vertikale Abstand zwischen der Anzeige wer schon akzeptiert hat im Questfenster ist zu
-        // groß, siehe Abstand_Quest.jpg".
+        // groß, siehe Abstand_Quest.jpg"; and report 3 of 2026-09-06, "Der vertikale Abstand (diese
+        // Lücke) beim Questfenster ist nach wie vor da! Siehe questfenster_abstand.jpg. Die Icons
+        // und button soll direkt unter den Questinfos angezeigt werden ohne so ein riesen Abstand"
+        // ("that vertical gap in the quest window is still there — the icons and the button should
+        // be shown directly under the quest information without such a huge gap"), which is the
+        // VERTICAL GAP clause below.
         VRLog.Note(Scope,
             "MAP QUEST READY CARD: what this client is drawing beside the confirm right now. "
             + $"ticks={_ticks} (LIVENESS — counted before any early return, so a small number here "
@@ -1494,7 +1562,7 @@ internal static class MapQuestReadyRoster
             + $"CONFIRMATION={siteClause}; card='{cardName}'; CONFIRM={confirmClause}; "
             + $"ICON ROW={rowClause}; SOURCE={adoptClause}; GEOMETRY={geometryClause}; "
             + $"FRAMES={frameClause}; reserved {ReservedHeight():F1} window-local unit(s) above the "
-            + $"confirm; NOTICE={noticeClause}. "
+            + $"confirm; VERTICAL GAP={gapClause}; NOTICE={noticeClause}. "
             + "READ IT WITH 'MAP TRAVEL CONFIRM ONLINE STAND-BY': that line carries the game's own "
             + "UIReadyToggle terms and the evaluated DetermineHostToggleInteractability sub-terms, "
             + "and this line carries what the player can see as a result. A CONFIRM=NO with a NOTICE "
