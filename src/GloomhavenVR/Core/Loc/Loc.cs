@@ -1327,6 +1327,13 @@ internal static partial class Loc
         // cap's other state reads "Auswahl beenden", so this wording keeps the pair one toggle
         // on the same noun and names the effect (user report 2026-08-08).
         ["confirm_unready"] = Pair("Change selection", "Auswahl ändern"),
+        // A DEAD CHARACTER'S CONTROL BOARD SAYS SO (user report 2026-09-06 #9). His cards, his rest
+        // discs and his card-selection commit are all withdrawn by rules of their own, which leaves
+        // the scenario dashboard and reads as "empty" — this placard is what tells an empty board
+        // apart from a broken one. {0} is the character name. Shown on the owner's board and,
+        // verbatim in the owner's language, on every peer's mirror of it (wire record 7).
+        ["board_exhausted"] = Pair("{0} is exhausted — no cards, no turn, no selection.",
+                                   "{0} ist erschöpft — keine Karten, kein Zug, keine Auswahl."),
         // Cap label while a placed item still owes its element choice (the picker is docked in
         // the decision area under the board); pressing USE afterwards confirms it.
         ["item_choose_element"] = Pair("CHOOSE ELEMENT", "ELEMENT WÄHLEN"),

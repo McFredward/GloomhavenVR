@@ -246,6 +246,11 @@ internal sealed partial class PlayTray
             // revoke (confirmed). Otherwise HIDE it (not merely disable), so an unpressable
             // button never appears; it returns the instant the action becomes possible.
             bool show = canConfirm || confirmed;
+            // A DEAD CHARACTER HAS NO SELECTION TO END OR TO CHANGE (user 2026-09-06 #9). The one
+            // subtraction from `show`, and it can only ever hide — see the method for the rule,
+            // its phase fence and the interlock that keeps it from ever stranding a player.
+            if (show && SelectionCapRefusedByDeath(hand, confirmed))
+                show = false;
             _confirm.SetVisible(show);
             if (show)
             {
@@ -339,6 +344,168 @@ internal sealed partial class PlayTray
                 _skip.SetLabel(CardsGameApi.SkipLabel());
             }
         }
+
+        // LAST, deliberately: every cap above has finished deciding, so the line below reports the
+        // RENDERED set rather than a re-derivation of it.
+        NoteDeadOwnerBoard(hand);
+    }
+
+    // ---------------------------------------------------- a dead character's control board --
+
+    /// <summary>
+    /// Must the board's CONFIRM keycap withhold the CARD-SELECTION commit because the character it
+    /// is presenting is dead?
+    ///
+    /// <para>THE REPORT (user, hardware MP test 2026-09-06, item 9, verbatim): "Mein Character ist
+    /// im Test tot und das Controlboard leer außer eine 'Auswahl ändern' Button - dieser Button
+    /// darf in dem Fall bei toten Characteren nicht auftauchen. Nur der Fortfahren Button nach der
+    /// Gegnerinfo darf da noch angezeigt werden bei dem entsprechenden Character."</para>
+    ///
+    /// <para>THE EVIDENCE, from the ModBuild 461 host log the report was written against. The
+    /// Mindthief 'Testo' (actor -827733410) was killed at <c>Player.log:237035</c> ("Gedankendiebin
+    /// stirbt", then <c>EXHAUSTED BOARD: CLEARED (local)</c>). 1773 lines later the SAME board sent
+    /// <c>Cap labels SENT: confirm='Auswahl ändern'</c> with <c>Board UI SENT: buttons=0x01
+    /// (confirm=True …)</c>, and again 20861 lines later — so the corpse's board offered the
+    /// ready-REVOKE to its owner and to every peer's mirror of it, twice, for the rest of the
+    /// session. In between, at +7144, the same cap correctly read <c>'Fortfahren'</c> for the
+    /// enemy-information reveal of round 3 and was pressed at +8216. Those two are the whole item:
+    /// one wording must go, the other must stay.</para>
+    ///
+    /// <para>THE MECHANISM. <c>CardsDriver.CurrentHand()</c> keeps resolving a killed character's
+    /// hand (the same re-derivation <c>RestControls.RestUiOffered</c> was fixed for), and neither
+    /// term of this cap's visibility has a life in it: <see cref="CardsGameApi.IsConfirmed"/> reads
+    /// the ready TOGGLE, which is keyed by <c>NetworkPlayer</c> and not by character
+    /// (<c>UIReadyToggle.PlayersReady</c>), and <see cref="CardsGameApi.ReadyToggleAvailable"/>
+    /// reads that toggle's <c>IsInteractable</c>. Both are true for a player whose character is a
+    /// corpse. WORSE THAN CLUTTER: the log shows the game AUTO-READIED the seat the moment the next
+    /// selection opened ("Readied McFredward. Players Ready Count: 1" at +1748, twenty-five lines
+    /// before the cap lettered itself 'Auswahl ändern', with no mod cap press anywhere in the
+    /// window), so the only thing the button could still do was UN-ready a player who has nothing
+    /// left to select — the party would then have waited on a ready that could never come.</para>
+    ///
+    /// <para>THE FENCE IS THE PHASE, and it is what keeps the user's exception intact. Both
+    /// selection terms are hard-gated on <c>SelectAbilityCardsOrLongRest</c> inside CardsGameApi,
+    /// so refusing the cap in exactly that phase removes the ready/unready pair ("Auswahl beenden"
+    /// ⇄ "Auswahl ändern", and offline's own END SELECTION through <c>CanConfirm</c>) and NOTHING
+    /// else. The enemy-information "Fortfahren" — <c>CanConfirm()</c> / <c>EnemyInfoContinue
+    /// .LocalPressIsRequest()</c> in the reveal phase — and every other party-wide step advance sit
+    /// outside the fence and are untouched.</para>
+    ///
+    /// <para>THE INTERLOCK. A cap that is already CONFIRMED can always be taken away: the player is
+    /// ready, the round proceeds without him, and hiding a revoke cannot strand anybody. An
+    /// UN-confirmed commit is different — if this were the player's last board, hiding it would be
+    /// the deadlock the old blanket refusal in <c>CharacterFocus</c> feared. So that case is hidden
+    /// only while <see cref="Board.CharacterFocus.AnyLivingOwnedCharacter"/> proves the same
+    /// party-wide commit is offered on another board of his, and it fails CLOSED (keeps the cap).
+    /// Same shape as this file's <see cref="ConfirmCapsForeignView"/>: never remove the way
+    /// forward, only move it.</para>
+    ///
+    /// <para>THE MIRROR NEEDS NO SECOND DECISION, AND THAT IS MEASURED, NOT ARGUED. Peers draw this
+    /// cap from <see cref="ConfirmControlShown"/>/<see cref="ConfirmControlLabel"/>, which read the
+    /// keycap's own <c>LogicalVisible</c>/<c>CurrentLabel</c> — the rendered state, not a
+    /// re-derivation — and <c>Net.Remote.RemoteBoardFurniture</c> applies
+    /// <c>owner.BoardButtonsMask</c> verbatim with no local test of its own. The co-player's ModBuild
+    /// 461 log proves it end to end: aligning the two logs on the game's own replicated combat-log
+    /// line "Gedankendiebin stirbt" (host <c>Player.log:237021</c> ↔ peer
+    /// <c>remote/Player.log:230380</c>, a constant offset of +6641 lines), the host's
+    /// <c>Cap labels SENT: confirm='Auswahl ändern'</c> + <c>CAP STATES = 0x16</c> at host 238808
+    /// lands on the peer as <c>Cap labels RECEIVED from player 1: confirm='Auswahl ändern'</c>,
+    /// <c>Cap states RECEIVED from player 1: 0x16</c> and <c>Remote cap states applied: 0x16 —
+    /// confirm=CONFIRMED</c> at peer 232045-232048, and the second occurrence (host 257896) again at
+    /// peer 251080-251083. Same button, same wording, same gold state, both machines, both times: one
+    /// verdict repeated, so hiding it here drops it there in the same frame. (The peer's
+    /// <c>EXHAUSTED BOARD [1]</c> verdict does flip True→False at peer 244048 and back at 250998 —
+    /// that is NOT drift: it tracks the host focusing his living teammate at host +13465 and the
+    /// focus clearing at host +20764, which is <c>RemoteBoardFocus</c>' documented "a living focus
+    /// target wins over the owner's own death".)</para>
+    ///
+    /// <para>Nothing new goes on the wire, and a FLAT (unmodded) player is unaffected: he receives no
+    /// extension records at all, has no mirrored board, and his own 2D ready toggle is the game's,
+    /// which this never touches.</para>
+    /// </summary>
+    private bool SelectionCapRefusedByDeath(CardsHandUI? hand, bool confirmed)
+    {
+        // Alive, or nothing presented — the pre-existing logic decides, byte for byte.
+        if (hand == null || Board.CharacterFocus.BoardCarriesCards(hand))
+            return false;
+        // Outside card selection this cap is the party-wide continue the user explicitly kept.
+        if (PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+            return false;
+        // An un-confirmed commit is only withdrawn where the player still has a living board to
+        // press it on; a confirmed one is a revoke and is always safe to withdraw.
+        return confirmed || Board.CharacterFocus.AnyLivingOwnedCharacter();
+    }
+
+    // Change-gate for the dead-owner board line: the last (actor, phase, drawn-cap mask) tuple
+    // logged. Null = nothing logged yet, and a LIVING owner resets it so the next death re-reports
+    // instead of being swallowed as "unchanged".
+    private (int actor, CPhase.PhaseType phase, int caps)? _deadBoardKey;
+
+    /// <summary>
+    /// The one answer-bearing line for user item 9: what a board whose character the GAME considers
+    /// dead decided to draw. Emitted on the EDGE of (character, phase, drawn caps) only — never per
+    /// frame — and cleared the moment a living character is presented, so a second death in the
+    /// same session reports again.
+    /// </summary>
+    private void NoteDeadOwnerBoard(CardsHandUI? hand)
+    {
+        if (hand == null || Board.CharacterFocus.BoardCarriesCards(hand))
+        {
+            _deadBoardKey = null;
+            return;
+        }
+
+        CPlayerActor? actor = hand.PlayerActor;
+        bool confirmCap = _confirm != null && _confirm.LogicalVisible;
+        bool undoCap = _undo != null && _undo.LogicalVisible;
+        bool skipCap = _skip != null && _skip.LogicalVisible;
+        int caps = (confirmCap ? 1 : 0) | (undoCap ? 2 : 0) | (skipCap ? 4 : 0)
+                   | (_itemUseActive ? 8 : 0)
+                   | (RestControls.ShortRestShown ? 16 : 0)
+                   | (RestControls.LongRestShown ? 32 : 0);
+        int actorId = actor != null ? Net.NetFigures.StableActorId(actor) : 0;
+        var key = (actorId, PhaseManager.PhaseType, caps);
+        if (_deadBoardKey.HasValue && _deadBoardKey.Value.Equals(key))
+            return;
+        _deadBoardKey = key;
+
+        string label = confirmCap && _confirm != null ? _confirm.CurrentLabel ?? "?" : "-";
+        // HW-VERIFY: grep DEAD OWNER BOARD — the board knew its character was dead, and this is the
+        // control set it drew as a result. READ THE MASK, NOT THE PROSE.
+        //   WORKING: every line whose phase is SelectAbilityCardsOrLongRest has caps & 0x01 == 0
+        //            (bit 0 is the confirm cap). Bits 1..5 — undo, skip, itemUse, shortRest,
+        //            longRest — must be 0 in EVERY phase; ModBuild 461 already had all five at 0
+        //            across all 7 of its post-death board records, so a 1 there is a REGRESSION in
+        //            somebody else's rule, not this one.
+        //   INERT:   any line in SelectAbilityCardsOrLongRest with caps & 0x01 == 1. Its confirm
+        //            label then names which half leaked ("Auswahl ändern"/"Change selection" is the
+        //            revoke, "Auswahl beenden"/"END SELECTION" the commit).
+        //   EXPECTED, NOT A FAULT: caps & 0x01 == 1 in any OTHER phase — that is the enemy-
+        //            information "Fortfahren" the user asked to keep.
+        //   STILL BEYOND THIS INSTRUMENT: it reads THIS tray's own keycaps. It does not see the
+        //            docked NATIVE Continue widget (TrayControlDockSurface), the decision-dock row,
+        //            or what a PEER's mirror actually drew — for those, read '[Net] Board UI SENT'
+        //            and '[Net] Cap labels SENT' on the owner and '[Net] Remote board content' on
+        //            the viewer. NO LINE AT ALL while a character is dead means this method never
+        //            ran and the item is unverified, which is a broken build, not a quiet success.
+        VRLog.Note("Cards", $"DEAD OWNER BOARD: '{Board.CharacterFocus.Describe(actor)}' "
+                            + $"(actor {actorId}) is DEAD (CActor.CauseOfDeath != StillAlive — the "
+                            + "game's own signal, the same one CScenario.RemovePlayer acts on), "
+                            + $"phase {PhaseManager.PhaseType}. CAPS DRAWN = 0x{caps:X2}: "
+                            + $"confirm={confirmCap} [{label}], undo={undoCap}, skip={skipCap}, "
+                            + $"itemUse={_itemUseActive}, shortRest={RestControls.ShortRestShown}, "
+                            + $"longRest={RestControls.LongRestShown}. THE RULE (user "
+                            + "2026-09-06 #9): a dead character's board offers NO card-selection "
+                            + "commit or revoke — the party-wide continue (the enemy-information "
+                            + "'Fortfahren', every step advance outside the selection phase) is the "
+                            + "ONLY confirm it may still show. So a confirm=True in phase "
+                            + "SelectAbilityCardsOrLongRest is the defect; a confirm=True in any "
+                            + "other phase is the exception working. The cards are already gone by "
+                            + "a separate rule (EXHAUSTED BOARD), the rests by a third "
+                            + "(RestUiOffered), and the board is not left blank: the pick-status "
+                            + "placard above it says the character is exhausted. Peers mirror this "
+                            + "exact set — the wire reads the keycaps' own LogicalVisible, so there "
+                            + "is no second verdict to disagree with this one.");
     }
 
     /// <summary>

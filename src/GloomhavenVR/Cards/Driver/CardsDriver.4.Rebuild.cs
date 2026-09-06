@@ -521,9 +521,12 @@ internal sealed partial class CardsDriver
             + "A BEFORE that is already all-zero means the board was empty anyway and this line "
             + "proves the RULE ran, not that it removed anything. tray=up in the AFTER reading is "
             + "CORRECT and required: the board is the scenario dashboard (initiative track, "
-            + "objectives, element strip, CONFIRM/rest keycaps) and a just-killed player still "
-            + "needs it — the confirm is party-wide whenever nobody is at turn, so taking the "
-            + "keycaps away here would deadlock the scenario. Cards only.");
+            + "objectives, element strip) and a just-killed player still needs it. THIS RULE IS "
+            + "CARDS ONLY, and it is not the whole story any more: the rest discs are withdrawn "
+            + "by RestControls.RestUiOffered, the CARD-SELECTION confirm/revoke by "
+            + "PlayTray.SelectionCapRefusedByDeath (user 2026-09-06 #9), and what remains of the "
+            + "confirm is the party-wide continue only. Grep 'DEAD OWNER BOARD' for the control "
+            + "set this board actually drew.");
     }
 
     /// <summary>Per-scenario latch for the ARMED line (see <see cref="NoteExhaustedRuleArmed"/>).</summary>

@@ -461,9 +461,15 @@ internal sealed partial class CardsDriver
     private void UpdatePickStatus(CardsHandUI? hand)
     {
         if (UpdateItemDemandStatus(hand))
-            return; // the item-surrender demand owns the banner while its picker is open
+        {
+            _exhaustedStatusKey = null; // another owner holds the placard; re-push ours when it lets go
+            return;                     // the item-surrender demand owns the banner while its picker is open
+        }
         if (UpdatePanelDecisionStatus())
-            return; // a floating-panel decision (doom / distribute) owns the banner
+        {
+            _exhaustedStatusKey = null;
+            return;                     // a floating-panel decision (doom / distribute) owns the banner
+        }
         // THE PICK OVERLAY IS SHOWN ONLY WHERE A CARD CAN ACTUALLY BE LAID DOWN (user report
         // 2026-08-24) — see PlacementIsOffered for the rule and its evidence. The banner, the
         // CONFIRM/UNDO keycap overrides and the recess hint all stand or fall together: they are
@@ -486,9 +492,14 @@ internal sealed partial class CardsDriver
                 _tray.SetPickStatus(null, null, null);
             }
             ReportPickFlowEnd();
+            // LAST OWNER, AND ONLY WHEN NOTHING LIVE WANTS THE PLACARD: an exhausted character's
+            // standing state. Deliberately below every decision above — a live ask always outranks
+            // a statement of fact, and this one is true for the rest of the scenario.
+            UpdateExhaustedStatus(hand);
             return;
         }
 
+        _exhaustedStatusKey = null; // a live card pick owns the placard from here on
         CardHandMode mode = CardsGameApi.Mode(hand);
         int total = CardsGameApi.PickCardsWanted();
         int locked = Mathf.Clamp(_pickLockedCount, 0, _fieldCards.Count);
@@ -552,6 +563,66 @@ internal sealed partial class CardsDriver
 
         static string Compose(string who, string line) =>
             who.Length > 0 ? who + ": " + line : line;
+    }
+
+    // Change-gate for the exhausted placard: (actor, language, tray instance). Null = we are not
+    // holding the placard, which is also what makes the release below fire exactly once.
+    private (int actor, string lang, int trayId)? _exhaustedStatusKey;
+
+    /// <summary>
+    /// AN EMPTY BOARD MUST SAY WHY IT IS EMPTY (user 2026-09-06 #9, and the standing rule that
+    /// there is never an empty window). A dead character's board has had its cards taken by
+    /// <c>CharacterFocus.BoardCarriesCards</c>, its rest discs by <c>RestControls.RestUiOffered</c>
+    /// and — new this build — its card-selection commit by
+    /// <c>PlayTray.SelectionCapRefusedByDeath</c>. What is left is the scenario dashboard, which is
+    /// correct and which the user read as "leer": a board that is legitimately empty because its
+    /// owner is dead looks exactly like a board that failed to populate. This placard is the
+    /// difference, and it is the whole reason the three subtractions above are allowed to be
+    /// silent.
+    ///
+    /// <para>IT RIDES THE EXISTING SEAM ON PURPOSE. <c>PlayTray.SetPickStatus</c> is the board's one
+    /// placard, and its text is already sent verbatim as extension record
+    /// <c>NetProtocol.ExtIdPickBanner</c> in the OWNER's language
+    /// (<c>Net.Remote.RemotePickBanner</c>) — so every peer's mirror of this board carries the same
+    /// sentence in the same place with no new wire field and no second verdict to drift. A FLAT
+    /// (unmodded) player receives no extension record at all and is unaffected.</para>
+    ///
+    /// <para>PRECEDENCE: last. Every live decision above owns the placard first; those all clear
+    /// <see cref="_exhaustedStatusKey"/> so this re-pushes the moment they let go.</para>
+    /// </summary>
+    private void UpdateExhaustedStatus(CardsHandUI? hand)
+    {
+        bool exhausted = _tray.IsVisible && hand != null
+                         && !Board.CharacterFocus.BoardCarriesCards(hand);
+        if (!exhausted)
+        {
+            if (_exhaustedStatusKey.HasValue)
+            {
+                _exhaustedStatusKey = null;
+                _tray.SetPickStatus(null, null, null);
+            }
+            return;
+        }
+
+        CPlayerActor? actor = hand!.PlayerActor;
+        var key = (actor != null ? Net.NetFigures.StableActorId(actor) : 0,
+                   Core.Loc.CurrentLanguage,
+                   _tray.Root != null ? _tray.Root.GetInstanceID() : 0);
+        if (_exhaustedStatusKey.HasValue && _exhaustedStatusKey.Value.Equals(key))
+            return; // already saying exactly this — SetPickStatus would no-op anyway
+        _exhaustedStatusKey = key;
+
+        string who = actor != null ? CardsGameApi.ActorLabel(actor) : string.Empty;
+        string line;
+        try
+        {
+            line = string.Format(Core.Loc.Mod("board_exhausted"), who);
+        }
+        catch (System.FormatException)
+        {
+            line = Core.Loc.Mod("board_exhausted"); // a malformed Loc entry must never kill the tick
+        }
+        _tray.SetPickStatus(line, null, null);
     }
 
     // ------------------------------------------------------- initiative to-do (item 6) --

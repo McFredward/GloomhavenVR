@@ -853,12 +853,22 @@ internal static class CharacterFocus
     // ... slots=3 (slot1=card, slot2=card)" for the remaining two rounds, to the session's last line.
     //
     // WHAT DELIBERATELY STAYS. The BOARD itself, and everything on it that is not a card: the
-    // initiative track, the objectives panel, the element strip, the status readouts and the
-    // CONFIRM / rest keycaps. Rebuild's clear arm keeps the tray up inside a scenario for exactly
-    // that reason ("the dashboard"), and the keycaps must not be taken away here: the confirm is
-    // party-wide whenever nobody is at turn (PlayTray.5.Status' attribution clause), so hiding it
-    // on the only board a just-killed player still has would deadlock the scenario. The report is
-    // about CARDS lying on a dead character's board, and that is exactly what this removes.
+    // initiative track, the objectives panel, the element strip and the status readouts.
+    // Rebuild's clear arm keeps the tray up inside a scenario for exactly that reason
+    // ("the dashboard"). The report is about CARDS lying on a dead character's board, and that is
+    // exactly what this removes.
+    //
+    // AND ONE SENTENCE THAT USED TO STAND HERE IS NOW FALSE, corrected rather than deleted because
+    // it was protecting a live defect. It read: "…and the CONFIRM / rest keycaps [must not be
+    // taken away here]: the confirm is party-wide whenever nobody is at turn, so hiding it on the
+    // only board a just-killed player still has would deadlock the scenario." The REST half was
+    // already withdrawn in the same round (Cards/Caps/RestControls.RestUiOffered). The CONFIRM half
+    // is withdrawn now, and only for the CARD-SELECTION commit — see
+    // PlayTray.SelectionCapRefusedByDeath for the rule, the deadlock interlock that replaces the
+    // blanket refusal, and the ModBuild 461 log evidence that a corpse was offered "Auswahl
+    // ändern". The party-wide continue (the enemy-information reveal's "Fortfahren", every step
+    // advance outside the selection phase) is untouched and still shows on a dead character's
+    // board, which is exactly what the user asked for.
 
     /// <summary>
     /// May the board this hand feeds carry CARDS at all? False for an EXHAUSTED character — see
@@ -876,6 +886,53 @@ internal static class CharacterFocus
             return true;
         try { return !actor.IsDead; }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Is there still a LIVING character under local control — i.e. another board of this
+    /// player's on which the party-wide card-selection commit is offered?
+    ///
+    /// <para>THE DEADLOCK INTERLOCK for <c>PlayTray.SelectionCapRefusedByDeath</c>, and the same
+    /// shape <see cref="CanFocus"/> already serves for <c>ConfirmCapsForeignView</c>: a control may
+    /// only be taken off a board when the player demonstrably still has somewhere to press it.
+    /// Read ONLY on the rare frames where a dead character's board would otherwise draw an
+    /// un-confirmed selection commit, never per frame in the steady state.</para>
+    ///
+    /// <para>LIFE AND OWNERSHIP ARE ASKED SEPARATELY AND BOTH ARE ASKED. <c>PlayerActors</c> is the
+    /// game's LIVING set — <c>GameState.KillActorInternal</c> → <c>CScenario.RemovePlayer</c> moves
+    /// a killed character to <c>ExhaustedPlayers</c> the moment it dies, and
+    /// <c>CScenario.AllPlayers</c> is the concatenation of the two — so the list is already
+    /// filtered; <c>IsDead</c> is re-asked anyway because "it is in that list" is a containment
+    /// statement and this needs an identity one. <c>IsUnderControlOrSingle</c> is the game's own
+    /// ownership predicate (<c>CPlayerActorExtensions</c>: <c>IsUnderMyControl</c> online, TRUE
+    /// offline), so a single-player seat answers for every character it drives.</para>
+    ///
+    /// <para>FAILS CLOSED — no scenario, no list, or an actor that throws mid-teardown all answer
+    /// "no living character", which makes the caller KEEP its keycap. That is the safe direction:
+    /// the worst case is the button the user asked us to remove surviving one more frame, not a
+    /// player who can never end the selection.</para>
+    /// </summary>
+    internal static bool AnyLivingOwnedCharacter()
+    {
+        List<CPlayerActor>? players = ScenarioManager.Scenario?.PlayerActors;
+        if (players == null)
+            return false;
+        for (int i = 0; i < players.Count; i++)
+        {
+            CPlayerActor player = players[i];
+            if (player == null)
+                continue;
+            try
+            {
+                if (!player.IsDead && player.IsUnderControlOrSingle())
+                    return true;
+            }
+            catch
+            {
+                // A mid-teardown actor is not a living character for this question.
+            }
+        }
+        return false;
     }
 
     /// <summary>
