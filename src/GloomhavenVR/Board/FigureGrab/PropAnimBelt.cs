@@ -421,6 +421,10 @@ internal static class PropAnimBelt
         _verdictsLeft = VerdictBudget;
         VerdictKindsDone.Clear();
         _restoreLogsLeft = RestoreLogBudget;
+        // EMIT BEFORE CLEARING. A scenario change used to drop a part-finished observation with
+        // no line at all, which reads exactly like a watch that never armed — the one confusion
+        // this observer exists to prevent.
+        EmitBoard("the scenario ended");
         _boardLeft = BoardBudget;
         _boardArmed = false;
         _boardLead = null;
@@ -548,7 +552,25 @@ internal static class PropAnimBelt
         // generator REBUILD its command buffer without this prop; restoring `enabled` runs OnEnable
         // and puts it back. So the ledger below is the whole of the change and the whole of the
         // undo, no game state is written, and a prop whose volume was ALREADY off is left alone.
-        b.OcclusionFound = TakeEmitters<ObjectOcclusionVolume>(b, go, ref b.OcclusionOn0);
+        // ---- STRAND 5 IS **OFF** IN THIS BUILD, AND THAT IS THE EXPERIMENT ----
+        //
+        // It unregistered the held prop from TilesOcclusionGenerator for the length of the hold, so
+        // the prop was no longer DRAWN INTO the global _ObjectOcclusion map while it went on
+        // SAMPLING that map. **A prop absent from a darkening map is UNDARKENED** — brighter than
+        // the same prop standing on the board, with no material, no component and no lighting
+        // behind the difference. It is the only asymmetry in this whole investigation that this mod
+        // created itself, for a defect it did not fix.
+        //
+        // NOTHING IT WAS INTRODUCED FOR WAS EVER CONFIRMED. Round six's "the painter is a camera"
+        // was a hypothesis; round eight read strand 5's own WORKING shape (1 volume, 1 enabled
+        // beforehand, 0 still registered, the map live on 168 of 169 frames) and the defect stood.
+        // So switching it off risks nothing that has ever been demonstrated, and this project's own
+        // discipline is to TEST THE NULL PERTURBATION rather than argue about it.
+        //
+        // The volumes are still COUNTED, because the pre-count is what proves the experiment ran on
+        // a prop that actually had one. They are not written and not ledgered, so the restore has
+        // nothing to hand back.
+        b.OcclusionFound = CountEmitters<ObjectOcclusionVolume>(go, ref b.OcclusionOn0);
     }
 
     /// <summary>Switch off every <typeparamref name="T"/> under <paramref name="go"/> that is not
@@ -556,6 +578,36 @@ internal static class PropAnimBelt
     /// were FOUND and adds how many were LIVE to <paramref name="liveBefore"/> — the pre-state
     /// counts that let a round with two new suppressions still say which one had anything to
     /// do.</summary>
+    /// <summary>Count how many <typeparamref name="T"/> exist under <paramref name="go"/> and how
+    /// many are LIVE, and write NOTHING. This is the shape a suppression takes when it is switched
+    /// off for an experiment: the pre-count still proves the strand had something to do, so a
+    /// reader can tell "the experiment ran on a prop that carried one" from "this prop never had
+    /// one", which are different readings and must never collapse into the same zero.</summary>
+    private static int CountEmitters<T>(GameObject go, ref int liveBefore) where T : Behaviour
+    {
+        BehaviourScratchOf<T>().Clear();
+        var list = BehaviourScratchOf<T>();
+        go.GetComponentsInChildren(includeInactive: true, list);
+        int found = list.Count;
+        for (int i = 0; i < list.Count; i++)
+        {
+            T c = list[i];
+            if (c != null && c.enabled)
+                liveBefore++;
+        }
+        list.Clear();
+        return found;
+    }
+
+    /// <summary>One reusable list per element type, so the count above allocates nothing on a path
+    /// that runs at every rescan.</summary>
+    private static List<T> BehaviourScratchOf<T>() where T : Behaviour => TypedScratch<T>.List;
+
+    private static class TypedScratch<T> where T : Behaviour
+    {
+        internal static readonly List<T> List = new(8);
+    }
+
     private static int TakeEmitters<T>(Belt b, GameObject go, ref int liveBefore) where T : Behaviour
     {
         // The ARRAY overload rather than the shared-list one: a List<T> scratch cannot be shared
@@ -1337,6 +1389,9 @@ internal static class PropAnimBelt
         }
         TwinScratch.Clear();
         ArmTwinGraph();
+        // Armed HERE and not when the hold's window closes: a hold that ends the session would
+        // otherwise never promote at all, which is what happened on ModBuild 457.
+        PromoteTwinToBoardWatch();
     }
 
     /// <summary>One frame of the comparison. Called from <see cref="SampleVerdict"/> immediately
@@ -1637,11 +1692,20 @@ internal static class PropAnimBelt
           .Append(" were ENABLED, ").Append(b.ProjectorsFound).Append(" Projector(s) of which ")
           .Append(b.ProjectorsOn0).Append(" enabled, ").Append(b.FlaresFound)
           .Append(" LensFlare(s) of which ").Append(b.FlaresOn0)
-          .Append(" enabled. SCREEN-SPACE OCCLUSION REGISTRATION: ").Append(b.OcclusionFound)
-          .Append(" ObjectOcclusionVolume(s) of which ").Append(b.OcclusionOn0)
-          .Append(" were ENABLED and are unregistered for the hold — ObjectOcclusionVolume's "
-                  + "OnDisable IS TilesOcclusionGenerator.RemoveObjectRenderer, so this is taken "
-                  + "through the game's own lifecycle and writes no game state. NOT SUPPRESSED — "
+          .Append(" enabled. *** STRAND 5 OFF - NULL PERTURBATION *** the screen-space "
+                  + "occlusion registration is NOT suppressed in this build and this clause is how "
+                  + "a reader confirms which build they are testing: ").Append(b.OcclusionFound)
+          .Append(" ObjectOcclusionVolume(s) under the visual of which ").Append(b.OcclusionOn0)
+          .Append(" are ENABLED, and 0 of them were switched off. Until this build the hold "
+                  + "unregistered the prop from TilesOcclusionGenerator, so it was no longer DRAWN "
+                  + "INTO the global _ObjectOcclusion map while it went on SAMPLING it — and a "
+                  + "prop absent from a DARKENING map is UNDARKENED, i.e. brighter than the same "
+                  + "prop on the board, with no material, no component and no lighting behind the "
+                  + "difference. That was the only asymmetry this mod created itself, it shipped "
+                  + "in ModBuild 449, and nothing it was introduced for was ever confirmed. IF THE "
+                  + "WHITE IS GONE FOR THE USER ON THIS BUILD, THAT STRAND WAS THE PAINTER AND "
+                  + "ELEVEN ROUNDS END; IF IT IS UNCHANGED, THE STRAND IS EXCLUDED BY EXPERIMENT "
+                  + "RATHER THAN BY ARGUMENT AND IS DELETED OUTRIGHT. NOT SUPPRESSED — "
                   + "SkinnedMeshRenderer.updateWhenOffscreen: ").Append(b.Skins.Count)
           .Append(" set true, ").Append(b.SkinsAlready)
           .Append(" already true; that is not an animation term at all, it keeps a held prop DRAWN "
@@ -1680,6 +1744,7 @@ internal static class PropAnimBelt
         _vLabel = label;
         _vFrames = 0;
         _vEndFrame = Time.frameCount + VerdictFrames;
+        _raT0 = Time.unscaledTime;
         _vRenderers = Take(go.GetComponentsInChildren<Renderer>(true), out _vFoundRenderers);
 
         _poseAngLo = _poseDistLo = float.MaxValue;
@@ -1687,7 +1752,6 @@ internal static class PropAnimBelt
 
         ResolveVerdictMaterials();
         ArmRoster();
-        ArmReAssert(b);
         // Round nine. After the roster, because the twin is matched against the held prop's first
         // DRAWING renderer that carries a material, which the roster has just resolved.
         FindHomeTwin(go);
@@ -1809,7 +1873,6 @@ internal static class PropAnimBelt
             }
         }
 
-        SampleReAssert(b);
         SampleClocks(b);
         VTable.Sample(VNow, VNowValid);
         // The twin is read HERE, immediately after VNow, so both sides of the comparison are the
@@ -1830,9 +1893,6 @@ internal static class PropAnimBelt
         _vBelt = null;
         if (_vFrames > 0)
             EmitHomeTwin(b, why);
-        // The twin outlives the hold. Every other arm here is gated on a grab and runs for under
-        // three seconds; the flash is a BOARD event the player watches BEFORE he grabs.
-        PromoteTwinToBoardWatch();
     }
 
     /// <summary>Append the renderer roster and the pose control — the identity half, which has not
@@ -1957,7 +2017,6 @@ internal static class PropAnimBelt
                       + "one is itself in a hand and therefore hushed and latched the same way). "
                       + "THIS IS A POPULATION FACT AND NOT A NULL READING: the comparison was not "
                       + "taken, so nothing here excludes anything. ");
-            AppendReAssert(sb, b);
             AppendClocks(sb, b);
             AppendTwinRewindState(sb, b);
             // HW-VERIFY: this branch says the comparison could NOT be taken, which must never be
@@ -1994,7 +2053,6 @@ internal static class PropAnimBelt
         AppendTwinDiffs(sb);
         AppendTwinGraph(sb);
         AppendLightingCompare(sb);
-        AppendReAssert(sb, b);
         AppendClocks(sb, b);
         AppendAsymmetries(sb, b);
         AppendTwinRewindState(sb, b);
@@ -2410,147 +2468,10 @@ internal static class PropAnimBelt
     private const int ReAssertCap = 24;
     private const int ReEventCap = 20;
 
-    private static readonly bool[] RaAnimWas = new bool[ReAssertCap];
-    private static readonly bool[] RaOutWas = new bool[ReAssertCap];
-    private static readonly bool[] RaEmitWas = new bool[ReAssertCap];
-    private static readonly List<string> RaEvents = new(ReEventCap);
-    private static int _raEventsTotal, _raRisingTotal, _raRescansSeen;
-    private static float _raT0, _raLastRisingT;
-    private static readonly List<float> RaRisingGaps = new(ReEventCap);
-    private static readonly List<int> RaRescanFrames = new(8);
-
-    /// <summary>Snapshot the ledger's live state when the window arms. Everything after is an EDGE
-    /// against this, not a maximum over it.</summary>
-    private static void ArmReAssert(Belt b)
-    {
-        RaEvents.Clear();
-        RaRisingGaps.Clear();
-        RaRescanFrames.Clear();
-        _raEventsTotal = _raRisingTotal = 0;
-        _raRescansSeen = b.Rescans;
-        _raT0 = Time.unscaledTime;
-        _raLastRisingT = float.NaN;
-        for (int i = 0; i < ReAssertCap; i++)
-        {
-            RaAnimWas[i] = i < b.Animators.Count && b.Animators[i] != null && b.Animators[i].enabled;
-            RaOutWas[i] = i < b.Outlines.Count && b.Outlines[i] != null && b.Outlines[i].enabled;
-            RaEmitWas[i] = i < b.Emitters.Count && b.Emitters[i] != null && b.Emitters[i].enabled;
-        }
-    }
-
-    private static void RaEvent(string what, bool rising)
-    {
-        _raEventsTotal++;
-        if (rising)
-        {
-            _raRisingTotal++;
-            float now = Time.unscaledTime;
-            if (!float.IsNaN(_raLastRisingT) && RaRisingGaps.Count < ReEventCap)
-                RaRisingGaps.Add(now - _raLastRisingT);
-            _raLastRisingT = now;
-        }
-        if (RaEvents.Count >= ReEventCap)
-            return;
-        RaEvents.Add($"[frame {_vFrames}, t+{(Time.unscaledTime - _raT0):0.000}s] {what}");
-    }
-
-    /// <summary>
-    /// One frame of the re-assert watch: did anything this class switched off come back ON between
-    /// two rescans? A RISING EDGE here is a foreign writer fighting the hush, and the interval
-    /// between edges is the stutter's period.
-    /// </summary>
-    private static void SampleReAssert(Belt b)
-    {
-        if (b.Rescans != _raRescansSeen)
-        {
-            _raRescansSeen = b.Rescans;
-            if (RaRescanFrames.Count < 8)
-                RaRescanFrames.Add(_vFrames);
-        }
-
-        for (int i = 0; i < b.Animators.Count && i < ReAssertCap; i++)
-        {
-            Animator a = b.Animators[i];
-            bool on = a != null && a.enabled;
-            if (on != RaAnimWas[i])
-            {
-                RaEvent($"animator '{(a != null ? a.gameObject.name : "<dead>")}'.enabled "
-                        + $"→ {(on ? "TRUE — SOMEBODY ELSE RE-ENABLED IT" : "false (our rescan)")}", on);
-                RaAnimWas[i] = on;
-            }
-        }
-        for (int i = 0; i < b.Outlines.Count && i < ReAssertCap; i++)
-        {
-            Outlinable o = b.Outlines[i];
-            bool on = o != null && o.enabled;
-            if (on != RaOutWas[i])
-            {
-                RaEvent($"outline '{(o != null ? o.gameObject.name : "<dead>")}'.enabled "
-                        + $"→ {(on ? "TRUE — SOMEBODY ELSE RE-ENABLED IT" : "false (our rescan)")}", on);
-                RaOutWas[i] = on;
-            }
-        }
-        for (int i = 0; i < b.Emitters.Count && i < ReAssertCap; i++)
-        {
-            Behaviour e = b.Emitters[i];
-            bool on = e != null && e.enabled;
-            if (on == RaEmitWas[i])
-                continue;
-            RaEvent($"{(e != null ? e.GetType().Name : "emitter")} "
-                    + $"'{(e != null ? e.gameObject.name : "<dead>")}'.enabled "
-                    + $"→ {(on ? "TRUE — SOMEBODY ELSE RE-ENABLED IT" : "false (our rescan)")}", on);
-            RaEmitWas[i] = on;
-        }
-    }
-
-    /// <summary>The staircase, if there is one: every edge with its clock, and the intervals
-    /// between rising edges divided by the rescan cadence.</summary>
-    private static void AppendReAssert(System.Text.StringBuilder sb, Belt b)
-    {
-        sb.Append("THE RE-ASSERT WATCH — IS THE STUTTER OURS? The user's ModBuild 456 report is "
-                  + "\"wie der flash nur deutlich verlangsamt und nicht ganz flüssig\", and A "
-                  + "LATCHED VALUE CANNOT STUTTER, so something updates at a reduced, irregular "
-                  + "rate. This class re-applies its suppression every ").Append(RescanFrames)
-          .Append(" frames, and a suppression re-applied on a cadence against a writer that "
-                  + "re-asserts in between IS a staircase at that cadence. ").Append(b.Rescans)
-          .Append(" rescan(s) ran during this window");
-        if (RaRescanFrames.Count > 0)
-            sb.Append(" (at window frames ").Append(string.Join(",", RaRescanFrames)).Append(')');
-        sb.Append(". LEDGER EDGES: ").Append(_raEventsTotal).Append(" total, of which ")
-          .Append(_raRisingTotal).Append(" were RISING — an object this class had switched off "
-                  + "found back ON, i.e. a foreign writer fighting the hush");
-        if (_raEventsTotal == 0)
-        {
-            sb.Append(". NOTHING in the ledger changed state on any sampled frame, so nothing "
-                      + "re-enables what this class switches off and the stutter is NOT our rescan "
-                      + "fighting a writer. That does not clear the rescan itself: it clears the "
-                      + "WRITE WAR. ");
-            return;
-        }
-        sb.Append(", naming up to ").Append(ReEventCap).Append(" IN ORDER: ")
-          .Append(string.Join("; ", RaEvents));
-        if (_raEventsTotal > RaEvents.Count)
-            sb.Append(", and ").Append(_raEventsTotal - RaEvents.Count).Append(" more counted");
-        if (RaRisingGaps.Count > 0)
-        {
-            sb.Append(". INTERVALS BETWEEN RISING EDGES, in seconds: ");
-            for (int i = 0; i < RaRisingGaps.Count; i++)
-            {
-                if (i > 0)
-                    sb.Append(", ");
-                sb.Append(RaRisingGaps[i].ToString("0.000"));
-            }
-            sb.Append(" — DIVIDE THESE BY THE RESCAN CADENCE. An interval at or near ")
-              .Append(RescanFrames).Append(" frames, or a harmonic of it, NAMES OUR OWN RESCAN and "
-                      + "the fix is in this file. An interval unrelated to it names a game-side "
-                      + "throttle, and the next question is what throttles it — the HELD? line "
-                      + "reads a held prop at over twenty world units from the head camera, so any "
-                      + "game budget keyed on camera DISTANCE, screen size, visibility or LOD "
-                      + "would starve a prop that is in the player's palm but far away in world "
-                      + "units. ");
-        }
-        sb.Append(' ');
-    }
+    /// <summary>The window's own start clock. It outlived the re-assert watch that introduced it
+    /// because the measured frame rate is computed from it, and every period on this line has to be
+    /// readable in frames AND in seconds.</summary>
+    private static float _raT0;
 
     // ---- THE KNOWN ASYMMETRIES ---------------------------------------------------------------------
     //
@@ -2629,16 +2550,16 @@ internal static class PropAnimBelt
         sb.Append("AND THE SUPPRESSIONS, WHICH ARE ASYMMETRIES BY DESIGN: this class has switched "
                   + "off ").Append(b.Animators.Count).Append(" animator(s), ")
           .Append(b.Outlines.Count).Append(" outline(s) and ").Append(b.Emitters.Count)
-          .Append(" emitter(s) on the held prop (of which ").Append(b.OcclusionFound)
-          .Append(" are ObjectOcclusionVolume registrations, ").Append(b.OcclusionOn0)
-          .Append(" of them live beforehand) while the twin keeps all of them. **THE OCCLUSION ONE "
-                  + "IS THE ONE TO READ FIRST**: strand 5 unregisters the held prop from "
-                  + "TilesOcclusionGenerator, so the prop is no longer DRAWN INTO the global "
-                  + "_ObjectOcclusion map while it still SAMPLES that map — and if the prop shader "
-                  + "uses the map to DARKEN, a prop absent from it is UNDARKENED, i.e. brighter "
-                  + "than the same prop on the board. That is a whiteness with no material, no "
-                  + "component and no lighting behind it, it is OURS, and it is the only "
-                  + "asymmetry in this list that this class created for a defect it did not fix. ");
+          .Append(" emitter(s) on the held prop while the twin keeps all of them. AND THE ONE "
+                  + "THAT MATTERS THIS BUILD — **ObjectOcclusionVolume registrations SUPPRESSED: "
+                  + "0** of ").Append(b.OcclusionFound).Append(" found, ").Append(b.OcclusionOn0)
+          .Append(" of them live. THAT ZERO IS HOW A READER CONFIRMS THE EXPERIMENT RAN: strand 5 "
+                  + "is switched off in this build, so the held prop stays registered with "
+                  + "TilesOcclusionGenerator and goes on being DRAWN INTO the same "
+                  + "_ObjectOcclusion map it SAMPLES, exactly as a prop on the board does. A "
+                  + "non-zero suppressed count here would mean the strand is still running and "
+                  + "the experiment did NOT happen. The found count must be non-zero too — a prop "
+                  + "with no volume at all could not have been affected either way. ");
 
         sb.Append("SETTINGS THAT DIFFER: ").Append(differ);
         if (differ == 0)
@@ -2670,16 +2591,20 @@ internal static class PropAnimBelt
     // before ("the blind spot is the lead": 8 clean scans meant the defect was in what no scan
     // covered).
     //
-    // So this observer OUTLIVES THE HOLD. The twin found for a comparison is promoted, when that
-    // window closes, to a standing watch on the same board prop that runs for
-    // <see cref="BoardFrames"/> frames with no grab needed — long enough to contain several
+    // So this observer OUTLIVES THE HOLD. The twin found for a comparison is promoted, the
+    // moment it is found, to a standing watch on the same board prop that runs for
+    // <see cref="BoardSeconds"/> SECONDS with no grab needed — long enough to contain several
     // repeats of anything periodic. Promotion is free: the twin was already found, so no scene
     // sweep is spent, and the whole cost is a handful of component reads per frame on ONE prop.
     //
     // SILENCE MUST BE DISTINGUISHABLE FROM NOT-RUNNING. The line prints its own frame count and
     // its own duration whether or not it saw anything, so "0 changes over 3600 frames" and "the
     // observer never armed" cannot be confused — the second prints no line at all.
-    private const int BoardFrames = 3600;
+    /// <summary>Seconds, NOT frames. ModBuild 457's watch was 3600 frames chosen against an
+    /// assumed 90 Hz; the rig measured 38.5 fps on the same line, so the window was 93 s and the
+    /// session ended before it closed. A frame budget is a time budget with an unstated assumption
+    /// about the frame rate inside it.</summary>
+    private const float BoardSeconds = 20f;
 
     /// <summary>Standing observations per session. Two: one to measure and one to confirm.</summary>
     private const int BoardBudget = 2;
@@ -2696,7 +2621,7 @@ internal static class PropAnimBelt
     private static GameObject? _boardRoot;
     private static Animator? _boardAnim;
     private static Outlinable? _boardOutline;
-    private static int _boardFrames, _boardEndFrame, _boardEventsTotal;
+    private static int _boardFrames, _boardEventsTotal;
     private static string _boardPath = string.Empty;
     private static float _boardT0, _boardLastEventT;
     private static readonly List<string> BoardEvents = new(BoardEventCap);
@@ -2726,7 +2651,6 @@ internal static class PropAnimBelt
         _boardFrames = 0;
         _boardEventsTotal = 0;
         _bdAnimAdvancing = 0;
-        _boardEndFrame = Time.frameCount + BoardFrames;
         _boardT0 = Time.unscaledTime;
         _boardLastEventT = float.NaN;
         BoardEvents.Clear();
@@ -2867,7 +2791,7 @@ internal static class PropAnimBelt
             _bdRendCount = rends;
         }
 
-        if (Time.frameCount >= _boardEndFrame)
+        if (Time.unscaledTime - _boardT0 >= BoardSeconds)
             EmitBoard("the standing window ran to its full length");
     }
 
@@ -2882,6 +2806,10 @@ internal static class PropAnimBelt
         _boardRoot = null;
         _boardAnim = null;
         _boardOutline = null;
+        // ZEROED HERE, not by the next arm: Reset also calls this method, and a stale frame count
+        // left behind by a window that already reported would make it print the same observation
+        // twice with the same numbers.
+        _boardFrames = 0;
         if (frames <= 0)
             return;
 
@@ -2894,9 +2822,13 @@ internal static class PropAnimBelt
                   + "WATCHES and then reacts to by grabbing. A hold-gated zero therefore means "
                   + "'the flash did not happen while we were looking', which is an ABSENCE and not "
                   + "an EXCLUSION — this file has confused those before. This observer needs no "
-                  + "grab, runs for ").Append(BoardFrames)
-          .Append(" frames, and prints its own frame count so silence cannot be mistaken for a "
-                  + "watch that never armed. THE ANIMATOR advanced on ").Append(_bdAnimAdvancing)
+                  + "grab, runs for ").Append(BoardSeconds.ToString("0"))
+          .Append(" s of wall clock — IN SECONDS AND NOT FRAMES, because ModBuild 457's version "
+                  + "was 3600 frames against an assumed 90 Hz on a rig that measured 38.5 fps, so "
+                  + "its window was 93 s, the session ended first, and it printed NOTHING AT ALL. "
+                  + "It also arms the moment a twin is found rather than when the hold's window "
+                  + "closes, and a scenario change now emits before it clears. THE ANIMATOR "
+                  + "advanced on ").Append(_bdAnimAdvancing)
           .Append(" of those frames. CHANGES: ").Append(_boardEventsTotal);
         if (_boardEventsTotal == 0)
         {

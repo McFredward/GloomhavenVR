@@ -15,7 +15,34 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
-## START AT §18 — ROUND ELEVEN (2026-09-06): THE "LATCHED VALUE" MODEL IS WRONG
+## START AT §19 — ROUND TWELVE (2026-09-06): THIS BUILD IS AN EXPERIMENT, NOT A PROBE
+
+**STRAND 5 IS OFF.** For twelve rounds this mod unregistered a held prop from
+`TilesOcclusionGenerator`, so the prop was no longer DRAWN INTO the global `_ObjectOcclusion`
+map while it went on SAMPLING it — **and a prop absent from a darkening map is UNDARKENED,
+i.e. brighter than the same prop on the board**, with no material, no component and no
+lighting behind the difference. All three of those are now measured IDENTICAL (§17.2, §18.1),
+which is what leaves this standing. It is the only asymmetry this mod created itself, it
+shipped in ModBuild 449 (`30058ced` → `d9005f02`, verified from `git log`), and nothing it was
+introduced for was ever confirmed.
+
+**Confirm which build you are testing with one grep:**
+`] [Props] HELD-PROP ANIMATION HUSH` containing `STRAND 5 OFF - NULL PERTURBATION`.
+
+**§19.4 writes the three expected outcomes down BEFORE the test** — gone, unchanged, or worse
+— and what each one means. Read it before reading the next log.
+
+Also closed this round: the **write war** (0 ledger edges over 4 rescans), the **mirroring**
+hypothesis (determinant 1 vs 1), and **why the standing board watch printed nothing** — my own
+defect, a 3600-FRAME window on a rig running 38.5 fps, i.e. 93 s (§19.2). `updateWhenOffscreen`
+is the only other asymmetry left and §19.5 says plainly that it cannot brighten anything.
+
+Read [§19](#19-round-twelve--2026-09-06-against-the-modbuild-457-log-an-experiment-not-a-probe-strand-5-is-off)
+first, then **§15, the obituary** of every strand and probe deleted on 2026-09-06.
+
+---
+
+## §18 — ROUND ELEVEN (2026-09-06): THE "LATCHED VALUE" MODEL IS WRONG
 
 > *"Es ist wie der flash nur deutlich verlangsamt und nicht ganz flüssig wie beim flash auf
 > dem Spielbrett."*
@@ -2052,3 +2079,142 @@ that is nobody's hand; the hold-gated arms ride the existing window, which `NetP
 `PropAnimBelt.Engage` (`NetProps.cs:288`) and `Release` (`NetProps.cs:550`) for a REMOTE hold exactly
 as for a local one. **Verified from evidence on the LOCAL side only** — the ModBuild 456 log is a
 single-player session; the mirrored half is reasoned from those two call sites, not measured.
+
+---
+
+## 19. Round twelve — 2026-09-06, against the ModBuild 457 log: an EXPERIMENT, not a probe. Strand 5 is OFF.
+
+**User, after testing ModBuild 457:** *"Tritt immer noch auf."*
+
+Twelve rounds of instruments have excluded every class they could reach. This round stops measuring
+the one asymmetry **we created ourselves** and **removes it**, with the expected outcomes written
+down here *before* the test.
+
+### 19.1 What the five arms returned, and what each one closes
+
+| arm | reading | verdict |
+|---|---|---|
+| `THE RE-ASSERT WATCH` | 4 rescans (window frames 45, 90, 135, 180); **LEDGER EDGES 0 total, 0 RISING** | **THE WRITE WAR IS CLEARED.** Nothing re-enables what the hush switches off, so the stutter is not our rescan fighting a foreign writer. It clears the *war*, not the *cadence*. **ANSWERED — retired this build.** |
+| frame rate | **38.5 fps measured**, so 45 frames = **1.168 s** | The `IEffectBlink` ambiguity (§18.5) dissolves at this rate: 0.5 s and 1.168 s are not confusable. Printing the rate was the thing that settled it. |
+| `THE KNOWN ASYMMETRIES` | `lossyScale` 1,1,1 both sides; **determinant 1 vs 1**; bounds 1.124 vs 1.33 wu; **SETTINGS THAT DIFFER: 1**, namely `updateWhenOffscreen held=True home=False` | **THE MIRRORING HYPOTHESIS IS DEAD** — no negative determinant, so no flipped normals and no flipped winding. |
+| `MOTION` | 188 samples, path 6.308 wu, worst step 0.7837 wu, **longest sub-millimetre run = 2 frames (0.05 s)** | **The user never held it still**, so his experiment did not happen and the clock-versus-spatial question (§18.4 lead 3) is **still open**. Nothing may be read into this. |
+| `] [Props] BOARD PROP STANDING WATCH` | **NOT ONE LINE IN THE LOG** | §19.2. |
+
+### 19.2 WHY THE STANDING WATCH NEVER PRINTED, AND IT IS MY OWN DEFECT
+
+It armed. `PropAnimBelt.TickBoard()` is wired into `PropGrab.Tick` (line 197) and the twin was
+found. **What it never did was CLOSE.** The window was `BoardFrames = 3600`, and 3600 frames was
+chosen against an assumed **90 Hz**. The rig measured **38.5 fps** *on the very same log line*, so
+the window was **93 seconds** — and the session ended first. Every escape path then discarded the
+observation **silently**: `Reset` cleared `_boardArmed`/`_boardLead` without emitting.
+
+**That is exactly the failure the arm was written to prevent**, committed inside the arm itself. A
+frame budget is a time budget with an unstated assumption about the frame rate inside it.
+
+Three fixes, all the same lesson:
+
+1. **The window is in SECONDS now** — `BoardSeconds = 20f`, frame-rate independent.
+2. **It arms at TWIN-FIND, not at window close.** Waiting for the verdict to close means a hold that
+   ends the session never promotes at all.
+3. **`Reset` emits before it clears**, and `EmitBoard` zeroes its own frame count so a later `Reset`
+   cannot print a stale observation twice.
+
+The line itself now states all of this, so the next reader does not have to rediscover it.
+
+### 19.3 THE EXPERIMENT: STRAND 5 IS OFF
+
+**What strand 5 did.** For the length of a hold it unregistered the prop from
+`TilesOcclusionGenerator` (through `ObjectOcclusionVolume.enabled = false`, whose `OnDisable` *is*
+`RemoveObjectRenderer`). So the held prop was **no longer DRAWN INTO** the global
+`_ObjectOcclusion` map while it went on **SAMPLING** that map. **A prop absent from a darkening map
+is UNDARKENED — brighter than the same prop standing on the board**, with no material, no
+component and no lighting behind the difference. Every one of those three has now been measured
+identical (§17.2, §18.1), which is what leaves this standing.
+
+**It is the only asymmetry in this investigation that this mod created itself**, it is live on the
+trap (pre-count 1 volume, 1 enabled), and it was created for a defect it did not fix.
+
+**THE ATTRIBUTION, VERIFIED FROM `git log` RATHER THAN ASSUMED.** `30058ced`
+*"fix(props): the held-prop light effect is painted by a camera, not by the prop"* was authored
+against `ModBuild = 448` and shipped to hardware in `d9005f02`, **ModBuild 449**.
+
+**THE VOCABULARY CORRELATION, STATED PRECISELY RATHER THAN FLATTERINGLY.** Against 447 the user
+wrote *"die Spiel-Highlighting Animation von Fallen und Truhen (dieser **weisse Schimmer**)"*;
+against 448, *"dieser **highlighting/Licht effekt** … Wiederholt!"*; and after 449 shipped, the
+first single-player test produced *"Fallen und Truhen **werden** immer noch manchmal **weiß**"*.
+The word *weiss* is present at 447 — as an **adjective on a shimmer**, i.e. a movement. What
+changes after 449 is the grammar: the props **become white**, a **state**. That is a real shift and
+it is worth recording; **it is a correlation and not a proof**, and it would be worth exactly
+nothing without the mechanism above.
+
+**WHY SWITCHING IT OFF RISKS NOTHING THAT HAS EVER BEEN DEMONSTRATED.** Round six's *"the painter is
+a camera"* was a hypothesis. Round eight read strand 5's own **WORKING** shape — `1 volume, 1
+enabled beforehand, at most 0 still registered`, the map live on 168 of 169 frames — **and the
+defect stood**. Nothing it was introduced for was ever confirmed.
+
+**HOW IT IS OFF.** Not behind a dial the user has to find, and not as an instrument: `Apply` now
+calls `CountEmitters<ObjectOcclusionVolume>` instead of `TakeEmitters<…>`. The volumes are still
+**counted** — the pre-count is what proves the experiment ran on a prop that actually had one — and
+they are **not written and not ledgered**, so the restore has nothing to hand back and cannot leave
+anything behind.
+
+**THE SINGLE LINE A READER GREPS TO CONFIRM IT:**
+
+```
+grep '^\[Info   :GloomhavenVR\] \[FigureGrab\] \[Props\] HELD-PROP ANIMATION HUSH' Player.log \
+  | grep 'STRAND 5 OFF - NULL PERTURBATION'
+```
+
+The clause reads `*** STRAND 5 OFF - NULL PERTURBATION ***` and states the found/enabled counts and
+that **0** were switched off. The asymmetry section on the HOME TWIN line carries the same fact from
+the other side: **`ObjectOcclusionVolume registrations SUPPRESSED: 0`** of N found.
+
+### 19.4 THE EXPECTED OUTCOMES, WRITTEN DOWN BEFORE THE TEST
+
+| what the user reports | what it means | what happens next |
+|---|---|---|
+| **the white is GONE** | strand 5 was the painter. A prop unregistered from a darkening map is undarkened, and that is the whole defect. | Twelve rounds end. Strand 5 is deleted permanently, with §19 as the reason, and §11's account is corrected: the occlusion map was not the painter *on the board* — **removing the prop from it was the painter in the hand**. |
+| **the white is UNCHANGED** | strand 5 is excluded **by experiment** rather than by argument. | It is deleted outright under §15.1's rule ("a strand whose live pre-count is zero on every prop kind" does not reach it, but "a probe that answered" does — and an experiment that returns *no effect* answers). The search then moves to the **picture** (§18.6, last bullet), which is now the only unexhausted class. |
+| **the white is WORSE, or appears where it did not** | strand 5 was masking something. | That is information too, and it is the only outcome that argues for keeping the strand. Say so; do not quietly revert. |
+
+**A precondition on all three:** the hush line must read a **non-zero found count**. A prop that
+never carried an `ObjectOcclusionVolume` could not have been affected either way, and a report about
+such a prop says nothing about the experiment. The 457 log reads `1` for the trap, so the trap is a
+valid subject.
+
+### 19.5 `updateWhenOffscreen` — the other asymmetry, and it cannot brighten anything
+
+`SETTINGS THAT DIFFER: 1, namely updateWhenOffscreen held=True home=False`. This is the last
+remaining thing we make different, so it deserves a plain answer rather than a hanging thread.
+
+**It cannot brighten anything.** `SkinnedMeshRenderer.updateWhenOffscreen` changes how the renderer's
+**bounds** are computed — from the true skinned vertices every frame instead of from the root bone's
+authored bounds. Bounds feed **culling**: whether the renderer is submitted at all. They do not feed
+shading, lighting, materials, keywords or any shader input, and a renderer that *is* drawn is drawn
+with identical shading either way. That is also exactly why it is set: it keeps a held prop DRAWN
+when its stale root-bone bounds leave the frustum, and a frozen animator makes those bounds staler
+still. The `bounds 1.124 vs 1.33 wu` difference on the same line is the *consequence* of that
+setting and is consistent with it.
+
+**One caveat, and it is already measured:** bounds also decide the point at which light-probe and
+reflection-probe selection is sampled. The lighting comparison reads `WORST DIFFERENCE on any
+sampled tick 0` with `0` reflection probes on both sides, so that path is closed too.
+
+### 19.6 What round twelve did NOT do
+
+* It did **not** build the picture read-back. The experiment supersedes it this round: if the white
+  goes, no picture is needed; if it stays, the picture is the next round with its constraints
+  already written in §18.6.
+* It did **not** put strand 5 behind a config dial. An experiment the user has to opt into is an
+  experiment that does not get run.
+* It did **not** delete strand 5 outright yet. Deleting before the result would make the result
+  unreadable — "we removed it and also removed the ability to tell whether removing it mattered".
+* It did **not** widen the standing watch's trigger blindly: §19.2 names the actual cause.
+* It did **not** bump `NetProtocol.ModBuild`.
+
+**Multiplayer.** Strand 5 going quiet reaches a peer's mirrored copy **by construction** and needs no
+wire field: `NetProps` calls `PropAnimBelt.Engage` (`NetProps.cs:288`) and `Release`
+(`NetProps.cs:550`) for a REMOTE hold, so a mirrored prop goes through the same `Apply` and simply
+has one fewer thing done to it. There is nothing to keep in step because there is now nothing
+written. **Verified from evidence on the LOCAL side only** — the ModBuild 457 log is single-player;
+the mirrored half is reasoned from those two call sites.
