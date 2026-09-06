@@ -456,18 +456,59 @@ have to be regenerated per language by that same model, and a binding that moves
 corrected without redrawing the controllers. With the split, German is one more pass over the same
 artwork and a moved binding is a one-line edit in `LABELS`.
 
+**The callouts on the picture do NOT break that rule** -- the same reading `board-*.png` sets out.
+What is forbidden is a word BAKED INTO THE GENERATED BITMAP; `CALLOUT_GEOM` is real Inter text drawn
+by the script, per language, anchored to the same coordinates the rings are, each one a one-line
+edit. They exist because the user asked for them in the same words he used for the board: *"Ich will
+es auch so gestalten das eine Beschriftung im Bild schon vorhanden ist und man auf einem Blick schon
+das meiste sieht so wie du es beim board auch gemacht hast."* The colour was the only bridge from a
+ring to a legend cell, and a colour lookup is not a glance. The colour coding stays and each callout
+wears its ring's colour, so the picture and the legend reinforce each other instead of being two
+halves of a lookup. **Do not "fix" them back out.**
+
 **The bindings in that script came from the SOURCE, not from the docs** -- `Rig/Comfort.cs`,
 `Rig/WorldGrab.cs`, `Rig/SnapTurn.cs`, `Rig/Flight.cs`, `Board/BoardPing.cs`,
-`WorldUI/Options/OptionsToggle.cs`, `Defaults/Defaults.Rig.cs` -- because the docs were stale in
-three places when this was drawn. If a binding moves, re-read the source.
+`WorldUI/Options/OptionsToggle.cs`, `WorldUI/Grab/NonDominantHold.cs`, `Defaults/Defaults.Rig.cs` --
+because the docs were stale in three places when this was drawn, and a fourth was found when the
+callouts went on: **X opens the game's PAUSE screen, not an "options menu"**
+(`OptionsToggle.cs:11-15`; the mod's options are one button inside it). If a binding moves, re-read
+the source.
 
-Two things in the script are load-bearing:
+Five things in the script are load-bearing:
 
 - **The feature coordinates** (`L` and `R`) are pixel positions in `controllers-artwork.png`, read
-  off the render and verified by overlaying probe dots. Regenerating the artwork moves all twelve --
-  re-probe, never guess.
+  off the render and verified by overlaying probe dots. Regenerating the artwork moves all ten --
+  re-probe, never guess. Callouts and leaders are anchored in the **same** artwork pixel space
+  (`AX` / `AY`), so they move with the rings when the page geometry changes and only a NEW ARTWORK
+  moves them apart.
 - **Both thumbstick entries share ONE colour.** A second colour on one physical stick read as a
-  second button rather than as a second gesture; that was tried and it was worse.
+  second button rather than as a second gesture; that was tried and it was worse. The picture
+  instead gives that one ring **two callouts** in the one colour -- the push, named per hand outside,
+  and the click, named once above -- so it can never imply the stick has a single action.
+- **Every binding is named exactly ONCE, and the PLACE of the name is information.** Every part of a
+  controller pair exists twice, and writing "Trigger" and "Grip" once per hand says nothing except
+  that a pair is a pair. So: a binding that is that hand's alone (either stick's push, X, A) is named
+  **outside**, beside its own controller; a binding that is identical on both (the stick click, the
+  Y+B chord, the grip) is named **once in the lane between them, with a leader running to each
+  hand** -- two lines out of one name is the picture saying "same control, both hands". The trigger
+  is the single exception and the reason is geometric, not editorial: **both lane placements were
+  built and both were rejected by the guard.** Level with the trigger the lane is at its narrowest,
+  because the plates bulge inward above the necks, and the words land ON a controller; lower down,
+  where they fit, the leader reaching back up to the trigger passes through the **grip** ring. So it
+  is named beside the left hand and its WORDS carry the "either hand" its lines cannot.
+- **`GAP` is 180 px because the lane carries words.** It was 28 px while every word lived in the
+  legend, which is all the room a leader needs and nowhere near enough for a name.
+- **`check_geometry()` is a guard, not documentation**, and it refuses to write either file if a
+  claim fails -- both languages are measured before the first `.save()`, so a German failure can
+  never leave a fresh English picture beside a stale German one. It asserts, in four families:
+  the artwork is still 980x729 and **every ring still lands on the part it names** (probed out of the
+  bitmap: the plate features must be dark under the ring, the trigger and grip light); the pair is
+  laid out the way the callouts assume (mirrored halves, stick outboard of the lettered buttons, grip
+  inboard of the trigger); every callout fits its gap in width **and in rows**, and the block it
+  occupies stays on the page, clear of the legend rule, of the LEFT / RIGHT captions, of every ring,
+  of every other callout and **off the controller silhouette itself** (a leader may cross the plate,
+  a name may not); and **no leader passes through a ring it does not name**, which together with the
+  silhouette check is what settled where the trigger's name goes.
 
 #### The artwork must be a REAL Quest 3 controller -- 2026-09-06
 
@@ -553,7 +594,7 @@ wrong for a labelled diagram.
 Three things in the script are load-bearing:
 
 - **The marker coordinates are BOARD-LOCAL METRES, not pixels read off the render.** The controls
-  script has to re-probe twelve pixel positions whenever its artwork is regenerated; here the
+  script has to re-probe ten pixel positions whenever its artwork is regenerated; here the
   artwork's own frame is published by the renderer (`ortho 0.64960 x 0.37343 m`, centre printed at
   F5), so a re-render at another resolution needs no re-probe at all.
 - **Read the anchors from the FBX, not from the Unity prefab.** The prefab's anchor transforms come
@@ -591,7 +632,7 @@ labels would have been stale on arrival if they had not been:
   `ShortRestDocked => false`, so the mod's own left-hand pad is the only short-rest control.
 
 **On the file size, so nobody tries to "fix" it.** `board-en.png` is 293 kB and `board-de.png` is
-307 kB, against the controls diagram's 78 kB. **The palette is not the cause and lowering it does
+307 kB, against the controls diagram's 81 / 87 kB. **The palette is not the cause and lowering it does
 nothing**: 200, 160 and 128 colours, FASTOCTREE and MEDIANCUT, all land within 1 kB of each other,
 because the cost is the OAK GRAIN -- spatial noise a PNG's row filters cannot predict -- and not the
 colour count. The controls artwork is flat plastic and quantises to almost nothing; this one cannot.

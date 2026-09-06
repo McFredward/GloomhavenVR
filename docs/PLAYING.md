@@ -13,7 +13,7 @@ Not installed yet? → [install guide](../INSTALL.md)
 ## The controls
 
 <p align="center">
-  <img src="img/controls-en.png" width="860" alt="A Quest 3 controller pair with every binding labelled: thumbstick, trigger, grip, X, A and the Y+B chord">
+  <img src="img/controls-en.png" width="860" alt="A Quest 3 controller pair, every binding named on the picture: left stick to fly, right stick to turn or reel a window in, click a stick in to pull yourself along, X for the pause menu, A to ping a hex, hold Y+B to recentre, and the trigger and grip that work in either hand">
 </p>
 
 **You do not have to learn this.** The tutorial turns your hands into the controller you are actually

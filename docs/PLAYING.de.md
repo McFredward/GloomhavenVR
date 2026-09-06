@@ -13,7 +13,7 @@ Noch nicht installiert? → [Installationsanleitung](../INSTALL.de.md)
 ## Die Steuerung
 
 <p align="center">
-  <img src="img/controls-de.png" width="860" alt="Ein Quest-3-Controllerpaar mit allen Belegungen: Thumbstick, Trigger, Grip, X, A und der Griff Y+B">
+  <img src="img/controls-de.png" width="860" alt="Ein Quest-3-Controllerpaar, jede Belegung direkt im Bild benannt: linker Stick zum Fliegen, rechter Stick zum Drehen und Heranholen von Fenstern, Stick eindrücken zum Heranziehen, X für das Pause-Menü, A zum Markieren eines Feldes, Y+B halten zum Neuzentrieren, dazu Trigger und Grip, die in beiden Händen gleich sind">
 </p>
 
 **Du musst das nicht lernen.** Das Tutorial macht aus deinen Händen den Controller, den du
@@ -46,7 +46,7 @@ Auf dem Brett neben dir liegen außerdem Rückgängig, die Marken für kurze und
 Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett oder in der Handfläche.
 
 <p align="center">
-  <img src="img/board-de.png" width="860" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenfächer, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände sowie deine Handkarten">
+  <img src="img/board-de.png" width="860" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenmulden, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände sowie deine Handkarten">
 </p>
 
 ---
