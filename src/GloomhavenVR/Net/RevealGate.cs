@@ -544,9 +544,9 @@ internal static class RevealGate
 
     /// <summary>
     /// IS THIS PARTICULAR CARD'S FACE ALREADY PUBLIC, whatever phase the game is in and whatever
-    /// surface is about to draw it? Today that means exactly one thing: the card is in
-    /// <paramref name="actor"/>'s ACTIVE / persistent pile
-    /// (<c>CCharacterClass.ActivatedCards</c>).
+    /// surface is about to draw it? Two lists answer yes: <paramref name="actor"/>'s ACTIVE /
+    /// persistent pile (<c>CCharacterClass.ActivatedCards</c>) and their BURNT piles
+    /// (<c>LostAbilityCards</c> + <c>PermanentlyLostAbilityCards</c>).
     ///
     /// <para>USER, VERBATIM (2026-09-06, item 9): "Die aktiven Karten sind immer sichtbar (was du
     /// schon gemacht hast) d.h. aber auch, dass wenn ein Spieler eine aktive Karte in die Hand
@@ -568,6 +568,29 @@ internal static class RevealGate
     /// paths, so it walks the raw backing list and type-tests each entry instead. Same membership,
     /// zero allocation.</para>
     ///
+    /// <para>THE BURNT LISTS WERE ADDED ON THE USER'S OWN RULING (2026-09-06, report item 6), and
+    /// he stated it in the strongest terms he has used for any face: "Wenn ein Mitspieler eine Karte
+    /// verbrennt sehe ich wieder nur die Rueckseite auf dem Board. Beim Verbrennen EGAL AUS WELCHEM
+    /// GRUND muss die Karte immer mit der Vorderseite sichtbar sein. Es gibt keinen Grund warum sie
+    /// nicht sichtbar sein sollte." There is no phase, no pile and no anti-cheat argument that
+    /// outranks it, and the game agrees with him: a burn is COMMITTED into
+    /// <c>LostAbilityCards</c> before the burn artwork starts (<c>CardEffects.BurnCardTimeline</c>,
+    /// which is why the owner's own <c>CardsDriver.TickBurnToPile</c> has to hold the card on the
+    /// board at all), that list is host-replicated to every client, and the card never comes back
+    /// from it by any ordinary route. It is the SACRIFICE argument one list over: a card LEAVING a
+    /// player's resources, permanently, in front of everybody — the opposite of the decision-in-
+    /// flight the selection window protects. Knowing which card a peer just destroyed says nothing
+    /// about the two cards they are about to commit.</para>
+    ///
+    /// <para>WHY HERE AND NOT AS A SIXTH <see cref="PeerCardPopulation"/>. Item 6 names three
+    /// surfaces at once — the card charring in the recess, the slab <c>Net.RemoteBurnFx</c> flies,
+    /// and the <c>Slot -&gt; Burnt</c> flight <c>Net.RemoteCardFx</c> draws when that mirror could
+    /// not present one — and a burn can also be watched from the burnt-pile fan. A PLACE rule would
+    /// have to be repeated on each, and the fourth surface added later would not have it. This is a
+    /// property of the CARD, so every surface that can name the card it is drawing gets the ruling
+    /// by asking, which is the same argument item 9's active-card-in-a-fist exemption is written
+    /// under two paragraphs above.</para>
+    ///
     /// <para>Degrades to FALSE — the answer that shows LESS — for a null actor, a missing character
     /// class, an unknown instance id, and any throw. That is this file's standing invariant and this
     /// predicate is on the OPEN side of every expression that uses it, so a "safely false" here
@@ -580,21 +603,45 @@ internal static class RevealGate
         try
         {
             CCharacterClass? cc = actor.CharacterClass;
-            System.Collections.Generic.List<CBaseCard>? active = cc != null ? cc.ActivatedCards : null;
-            if (active == null)
+            if (cc == null)
                 return false;
-            for (int i = 0; i < active.Count; i++)
+            System.Collections.Generic.List<CBaseCard>? active = cc.ActivatedCards;
+            if (active != null)
             {
-                if (active[i] is CAbilityCard ability && ability != null
-                    && ability.CardInstanceID == cardInstanceId)
-                    return true;
+                for (int i = 0; i < active.Count; i++)
+                {
+                    if (active[i] is CAbilityCard ability && ability != null
+                        && ability.CardInstanceID == cardInstanceId)
+                        return true;
+                }
             }
-            return false;
+            // The two BURNT lists, walked raw for the same allocation reason as ActivatedCards
+            // above. PermanentlyLostAbilityCards is included because the user's ruling says "EGAL
+            // AUS WELCHEM GRUND": a card lost to a scenario effect is as burned, and as public, as
+            // one its owner chose to burn.
+            return HoldsAbility(cc.LostAbilityCards, cardInstanceId)
+                   || HoldsAbility(cc.PermanentlyLostAbilityCards, cardInstanceId);
         }
         catch
         {
             return false;
         }
+    }
+
+    /// <summary>Membership of <paramref name="cardInstanceId"/> in one raw ability-card list, with
+    /// no LINQ projection and no allocation — the predicate above is asked from per-frame draw
+    /// paths.</summary>
+    private static bool HoldsAbility(System.Collections.Generic.List<CAbilityCard>? list,
+                                     int cardInstanceId)
+    {
+        if (list == null)
+            return false;
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (list[i] != null && list[i].CardInstanceID == cardInstanceId)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

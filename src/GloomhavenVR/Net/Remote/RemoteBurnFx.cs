@@ -131,6 +131,20 @@ internal sealed class RemoteBurnFx
     private bool _seeded;
     private float _nextWalkAt;
 
+    /// <summary>Unscaled time and frame of the PREVIOUS burnt-pile walk. THE DELAY LIVES HERE and
+    /// report item 7 names it ("diese war verzögert"): this class learns of a burn by POLLING the
+    /// host-replicated Lost pile at <c>RemoteBoardContent.RefreshSeconds</c>, so the burn happened
+    /// somewhere inside the window these two numbers bound. Printed on the BURN CARD line rather
+    /// than reasoned about, because "the poll cadence" and "the packet was late" look identical in
+    /// a log without them.</summary>
+    private float _lastWalkAt = float.NegativeInfinity;
+    private int _lastWalkFrame = -1;
+
+    /// <summary>Seconds between the walk that found the current burn and the one before it (-1 on
+    /// the very first walk) — the upper bound on how long this mirror sat on a burn it had not
+    /// looked for yet.</summary>
+    private float _sinceLastWalk = -1f;
+
     /// <summary>Unscaled time of the most recent presentation start — the claim window for
     /// <see cref="ConsumesWireEvent"/>.</summary>
     private float _lastPresentedAt = float.NegativeInfinity;
@@ -217,6 +231,9 @@ internal sealed class RemoteBurnFx
     {
         if (Time.unscaledTime < _nextWalkAt)
             return;
+        _sinceLastWalk = _lastWalkFrame < 0 ? -1f : Time.unscaledTime - _lastWalkAt;
+        _lastWalkAt = Time.unscaledTime;
+        _lastWalkFrame = Time.frameCount;
         _nextWalkAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
 
         CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
@@ -296,15 +313,23 @@ internal sealed class RemoteBurnFx
             return;
         }
 
-        // ─── WHERE THE OWNER'S CARD ACTUALLY IS (2026-09-06 follow-up) ───────────────────────────
+        // ─── WHERE THE OWNER'S CARD ACTUALLY IS (2026-09-06 follow-up, corrected for item 7) ─────
         // It is in a RECESS, not at the board centre: CardsDriver holds the played card on its slot
         // anchor while the game's burn artwork runs on it and only then flies it to the stack. This
         // mirror used to present at CardFxAnchor.Board because nothing named the recess — but this
         // client SEATED that card there itself, so it can simply ask. No wire field is owed: the
         // anchor vocabulary already has Slot0/Slot1 and RemoteControlBoard.AnchorLocalLive resolves
         // both to the rendered card SEAT of whatever board style the peer runs.
+        //
+        // IT ASKS RecessOfBurningCard, NOT RecessShowingCard, AND THAT WAS THE WHOLE OF ITEM 7.
+        // RecessShowingCard answers "which recess is drawing this card's FACE", which is an
+        // IDENTITY question standing in for a POSITION one — so a recess that is occupied but
+        // drawing an anonymous back places the card nowhere. The ModBuild 461 log has exactly two
+        // mirrored burns and that happened on ONE of them: 'BURN CARD ... at their board CENTRE'
+        // beside 'round-card faces=anon-back/empty, slot-occupancy=0x1'. A fallback documented as
+        // being for "a burn nobody could place" fired on half the burns in the round.
         int cardId = CardInstanceIdOf(widget);
-        int recess = _owner.RecessShowingCard(cardId);
+        int recess = _owner.RecessOfBurningCard(cardId, out string recessHow);
         CardFxAnchor origin = recess == 0 ? CardFxAnchor.Slot0
             : recess == 1 ? CardFxAnchor.Slot1
             : CardFxAnchor.Board;
@@ -346,7 +371,12 @@ internal sealed class RemoteBurnFx
         // is the better of the two by construction: it is the card the owner is looking at, in the
         // recess he is looking at, wearing the char RemoteBoardCard.DriveUsedCardFx is ramping on
         // it. Drive() re-asks every frame and reveals the slab the instant the recess stops.
-        bool recessDraws = recess >= 0;
+        // …AND THE TEST IS "IS THE RECESS DRAWING THIS CARD", NOT "DID WE PLACE IT". Those two came
+        // apart the moment the origin above started INFERRING a seat: a recess drawing an anonymous
+        // back places the card but draws nothing of it, so hiding the slab for it would leave the
+        // viewer with no burning card at all — strictly worse than the board-centre slab item 7
+        // complains about. Drive() re-asks the same question every frame.
+        bool recessDraws = recess >= 0 && _owner.RecessShowingCard(cardId) == recess;
         if (b.Go.activeSelf != !recessDraws)
             b.Go.SetActive(!recessDraws);
 
@@ -355,7 +385,17 @@ internal sealed class RemoteBurnFx
         bool fronts = false;
         try
         {
-            fronts = actor != null && RevealGate.ShowRoundCardFronts(actor);
+            // THE BURN CARVE-OUT (2026-09-06 report item 6). The user's ruling is absolute — "Beim
+            // Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar
+            // sein" — and it is implemented ONCE, in RevealGate.IsPubliclyRevealedCard, which now
+            // answers TRUE for a card in either of that character's burnt lists. This surface gets
+            // it by asking the card-aware overload instead of the bare phase predicate; so does the
+            // Slot -> Burnt flight in RemoteCardFx and any surface added later. The old expression
+            // (ShowRoundCardFronts alone) drew a BACK for the whole of a burn that happened inside
+            // the peer's own selection window, which is exactly what he reported.
+            fronts = actor != null
+                     && RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor, cardId)
+                        != RevealGate.CardFaceSource.None;
             FullAbilityCard? full = fronts && widget != null ? widget.fullAbilityCard : null;
             if (full != null && b.Art != null)
                 b.HasFace = b.Art.ShowFront(full);
@@ -387,7 +427,7 @@ internal sealed class RemoteBurnFx
                       + "'BURN CARD [peer n]' line beside this for which half failed"
                     : "BURN: RevealGate.ShowRoundCardFronts(actor)=false — the game's own secret "
                       + "SelectAbilityCardsOrLongRest window for a remote character");
-        LogAttribution(name, fronts, b.HasFace, actor, recess);
+        LogAttribution(name, fronts, b.HasFace, actor, recess, recessHow);
     }
 
     /// <summary>Advance every live presentation: hold with the burn ramping on, then the arc.</summary>
@@ -609,14 +649,15 @@ internal sealed class RemoteBurnFx
     /// reason. (3) The right card with <c>face=BACK</c>: the reveal gate or the clone refused, and
     /// only the FACE half of the fix is inert; the flight and the timing are still right.</para>
     /// </summary>
-    private void LogAttribution(string name, bool fronts, bool face, CPlayerActor? actor, int recess)
+    private void LogAttribution(string name, bool fronts, bool face, CPlayerActor? actor, int recess,
+                                string recessHow)
     {
         string where = recess >= 0
-            ? $"in their round recess {recess + 1} — the seat this client already put that card in, "
-              + "so the char is drawn BY that recess (see its RECESS CARD FX line) and this flight "
-              + "leaves from there rather than from the board centre"
-            : "at their board CENTRE, because no recess on this client is drawing that card's face "
-              + "right now; that is the pre-2026-09-06 picture and the fallback, not the intent";
+            ? $"in their round recess {recess + 1} ({recessHow}) — so this presentation holds and "
+              + "flies from the seat their own card is lying in, not from the board centre"
+            : $"at their board CENTRE, because {recessHow}; that is the pre-2026-09-06 picture and "
+              + "the fallback, not the intent — it is report item 7's symptom and any occurrence "
+              + "of it is a finding";
         // HW-VERIFY: grep token "BURN CARD" — the same token the OWNER's
         // CardsDriver.LogBurnAttribution prints, so one grep across the two hardware logs decides
         // the 1:1 question. See this method's doc for the three falsifiers.
@@ -624,7 +665,16 @@ internal sealed class RemoteBurnFx
                           $"showing it {where}, for {HoldSeconds:F1}s while it chars, then flying " +
                           $"it into their Burnt stack ({NetProtocol.CardFxSeconds:F2}s). " +
                           $"face={(face ? "REAL" : "BACK")}, revealGate={(fronts ? "open" : "shut")}, " +
-                          $"char='{Board.CharacterFocus.Describe(actor)}', burn #{_played}. The identity " +
+                          $"char='{Board.CharacterFocus.Describe(actor)}', burn #{_played}. TIMING: " +
+                          $"found on the burnt-pile walk at frame {_lastWalkFrame}, " +
+                          (_sinceLastWalk < 0f
+                              ? "the FIRST walk for this character (no bound on the wait)"
+                              : $"{_sinceLastWalk * 1000f:F0} ms after the previous walk — this " +
+                                "mirror POLLS the host-replicated Lost pile at " +
+                                $"{RemoteBoardContent.RefreshSeconds * 1000f:F0} ms, so that number " +
+                                "IS the upper bound on the delay report item 7 names; anything much " +
+                                "larger than the cadence is a stalled board pass and not the poll") +
+                          $", then {HoldSeconds:F1}s of hold before the arc. The identity " +
                           "was read from THIS client's own copy of that character's host-replicated " +
                           "LostAbilityCards list (the same CardsGameApi.GetPileWidgets call the mirrored " +
                           "burnt-pile fan uses) — NO card identity crossed the wire and no wire field " +

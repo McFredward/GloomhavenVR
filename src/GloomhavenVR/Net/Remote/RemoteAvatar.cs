@@ -594,14 +594,35 @@ internal sealed class RemoteAvatar
         _controlBoard.RecessShowingCard(cardInstanceId);
 
     /// <summary>
+    /// WHERE A BURNING CARD OF THIS PEER IS LYING, in recesses -- 0, 1, or -1 when nothing on this
+    /// client places it. Strictly wider than <see cref="RecessShowingCard"/> and for a different
+    /// question: that one asks which recess is DRAWING a face, this one asks where the card IS.
+    /// See <c>RemoteControlBoard.RecessOfBurningCard</c> for the three answers, the measurement
+    /// that made the second and third necessary (report item 7), and why a POSITION may be inferred
+    /// where a FACE may not.
+    /// </summary>
+    internal int RecessOfBurningCard(int cardInstanceId, out string how) =>
+        _controlBoard.RecessOfBurningCard(cardInstanceId, out how);
+
+    /// <summary>The recess occupancy this client's own MIRROR is drawing for this peer, and how
+    /// many frames it has stood -- the two numbers that say whether a flight arrived before or
+    /// after this client saw the recess empty. See
+    /// <c>RemoteControlBoard.FramesSinceSlotMaskChange</c>.</summary>
+    internal int MirroredSlotMask => _controlBoard.MirroredSlotMask;
+
+    /// <inheritdoc cref="MirroredSlotMask"/>
+    internal int FramesSinceSlotMaskChange => _controlBoard.FramesSinceSlotMaskChange;
+
+    /// <summary>
     /// CLAIM the face that just LEFT one of this peer's round recesses (<paramref name="slot"/> of
     /// -1 = whichever left first and is still unclaimed) — the identity a mirrored flight into a
     /// pile needs so it can carry the FRONT its owner is watching (2026-09-06 report item 5).
     /// Consuming, and time-boxed; see <c>RemoteControlBoard.TryTakeDepartedFace</c> for both.
     /// </summary>
     internal bool TryTakeDepartedRecessFace(int slot, CardFxAnchor destination,
-                                            out ScenarioRuleLibrary.CAbilityCard? card) =>
-        _controlBoard.TryTakeDepartedFace(slot, destination, out card);
+                                            out ScenarioRuleLibrary.CAbilityCard? card,
+                                            out RemoteControlBoard.DepartedFaceVerdict verdict) =>
+        _controlBoard.TryTakeDepartedFace(slot, destination, out card, out verdict);
 
     /// <summary>
     /// True when the sender broadcasts their live BOARD-UI state (extension record 4): which

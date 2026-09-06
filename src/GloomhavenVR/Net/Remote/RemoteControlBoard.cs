@@ -309,6 +309,84 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         return -1;
     }
 
+    /// <summary>
+    /// WHICH RECESS A BURNING CARD IS LYING IN, for a mirror that has to draw the burn SOMEWHERE
+    /// (<c>Net.RemoteBurnFx</c>) -- 0, 1, or -1 when no fact on this client places it.
+    ///
+    /// <para>WHY <see cref="RecessShowingCard"/> ALONE WAS NOT ENOUGH, measured. It answers "which
+    /// recess is drawing this card's FACE", which conflates a POSITION question with an IDENTITY
+    /// one. In the ModBuild 461 host log exactly two burns were mirrored and it answered -1 for
+    /// ONE of them -- <c>BURN CARD [peer 2] ... 'ABILITY_CARD_WardingStrength' ... at their board
+    /// CENTRE</c> -- while the board-content line beside it read
+    /// <c>round-card faces=anon-back/empty, slot-occupancy=0x1</c>. The recess was occupied and
+    /// this client simply could not NAME the card in it, so a burn whose face it could name
+    /// perfectly well (that same line reads <c>face=REAL</c>) was drawn at the board centre for the
+    /// whole 2 s hold. That is report item 7 verbatim: "eine kurze Zeit eine kleine mini Karte in
+    /// der Mitte des boards ... statt an der Stelle wo die Karte war". A fallback its author
+    /// believed was for "a burn nobody could place" fired on HALF the burns in the round.</para>
+    ///
+    /// <para>THE THREE ANSWERS, STRONGEST FIRST, and none of them is a guess between two:</para>
+    /// <list type="number">
+    /// <item><description>the recess DRAWING that card's face -- an identification;</description></item>
+    /// <item><description>the recess whose departed / already-claimed memory holds that card -- the
+    /// card left that seat within the last <see cref="DepartedFaceSeconds"/> seconds, which is a
+    /// fact this class recorded itself;</description></item>
+    /// <item><description>EXACTLY ONE occupied recess and no other claim on it. One candidate is
+    /// not a choice -- the same sentence <see cref="TryTakeDepartedFace"/> is built on. The owner
+    /// holds the burning card on his board while the game's burn artwork runs on it, so while one
+    /// recess is occupied and a burn is being presented, that recess is where his card is.
+    /// </description></item>
+    /// </list>
+    ///
+    /// <para>TWO occupied recesses with no identification answers -1 and the caller falls back to
+    /// the board centre, deliberately: naming one of two would be a coin flip. NOTE THE ASYMMETRY
+    /// WITH A FACE -- this method answers a POSITION. Getting it wrong costs the viewer a card
+    /// lifting from the neighbouring recess ~60 mm away; getting a FACE wrong costs him a card
+    /// identity he cannot tell is wrong, which is why the face path refuses where this one
+    /// infers.</para>
+    /// </summary>
+    internal int RecessOfBurningCard(int cardInstanceId, out string how)
+    {
+        how = "no recess on this client places that card";
+        if (cardInstanceId == int.MinValue)
+            return -1;
+        int drawn = RecessShowingCard(cardInstanceId);
+        if (drawn >= 0)
+        {
+            how = $"recess {drawn + 1} is DRAWING that card's own face right now";
+            return drawn;
+        }
+        float now = Time.unscaledTime;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            bool remembered = _departedFace[i] != null
+                              && _departedFace[i]!.CardInstanceID == cardInstanceId
+                              && now - _departedAt[i] <= DepartedFaceSeconds;
+            bool claimed = _claimedFaceId[i] == cardInstanceId
+                           && now - _claimedAt[i] <= DepartedFaceSeconds;
+            if (!remembered && !claimed)
+                continue;
+            how = $"recess {i + 1} was drawing that card and emptied within the last "
+                  + $"{DepartedFaceSeconds:F0}s";
+            return i;
+        }
+        int occupied = _slotOccupiedMask & ((1 << SlotCount) - 1);
+        if (occupied == 1 || occupied == 2)
+        {
+            int only = occupied == 1 ? 0 : 1;
+            how = $"recess {only + 1} is the ONLY occupied one on the owner's board and no recess "
+                  + "names the card, so that is where his burning card is lying (one candidate is "
+                  + "not a choice); it is a POSITION inferred from the occupancy nibble, never an "
+                  + "identity";
+            return only;
+        }
+        how = occupied == 0
+            ? "the owner's board reports NO occupied recess, so his card has already left it"
+            : "BOTH of the owner's recesses are occupied and none of them names this card, so "
+              + "picking one would be a coin flip";
+        return -1;
+    }
+
     internal Vector3 AnchorLocalLive(CardFxAnchor anchor)
     {
         // THE TWO SLOTS RETURN THE CARD'S SEAT, not the bare recess anchor (2026-08-27). This is a
@@ -755,6 +833,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // that mask is the last one they sent while alive, and a latched wire fact is exactly how
         // a "cleared" board keeps two card backs (see ApplyExhaustedCardRule).
         SeatSlots(actor, showFronts, exhausted);
+        NoteMirroredSlotMask();
 
         // THE STANDING PICTURE for the per-population census (see Net/PeerCardFaceCensus): how many
         // of this peer's round-card recesses are showing a real front and how many a back, every
@@ -1617,13 +1696,63 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// <summary>How long a departed face stays claimable, in seconds. The owner writes the FX event
     /// in the same frame it launches the flight; the extras stream carries it at 5 Hz plus an
     /// on-change send, and this client's own recess mirror runs on the 4 Hz board-content cadence —
-    /// so the event can arrive either side of the recess emptying. Sized to cover both plus network
-    /// jitter, and no longer: a slot takes one round card per round, so the only thing a longer
-    /// window could buy is a stale face on a flight the event for was dropped.</summary>
+    /// so the event can arrive either side of the recess emptying.
+    ///
+    /// <para>THIS COMMENT USED TO CLAIM THE WINDOW WAS "sized to cover both" SIDES, AND IT WAS
+    /// FALSE. An expiry is one-sided by construction: it covers an event arriving LATE and covers
+    /// an event arriving EARLY by exactly zero. In the ModBuild 461 host log EVERY flight arrived
+    /// early -- all four FLIGHT FACE lines are followed by a board-content line still reporting
+    /// slot-occupancy=0x3 -- so this constant never once decided anything and the whole feature was
+    /// inert. The EARLY side is now covered by the LIVE LATCH branch in
+    /// <see cref="TryTakeDepartedFace"/>, not by widening this number, which would only ever buy a
+    /// stale face on a flight whose event was dropped.</para></summary>
     private const float DepartedFaceSeconds = 3f;
 
     private readonly CAbilityCard?[] _departedFace = new CAbilityCard?[SlotCount];
     private readonly float[] _departedAt = new float[SlotCount];
+
+    /// <summary><c>CardInstanceID</c> of the face a flight has ALREADY claimed out of recess i,
+    /// with the time it was claimed (<see cref="int.MinValue"/> = none). It exists only because the
+    /// claim may now run BEFORE the recess-emptying edge (see the LIVE LATCH block in
+    /// <see cref="TryTakeDepartedFace"/>): without it the edge would afterwards stamp the very card
+    /// that has already flown into <see cref="_departedFace"/>, where a second, unrelated flight
+    /// could take it. Same three-second horizon as the memory it guards, so nothing latches
+    /// forever.</summary>
+    private readonly int[] _claimedFaceId = { int.MinValue, int.MinValue };
+    private readonly float[] _claimedAt = new float[SlotCount];
+
+    /// <summary>WHICH of the ways a departed face can be answered actually ran — quoted verbatim
+    /// into <c>RemoteCardFx</c>'s <c>FLIGHT FACE</c> line so a BACK names its own cause instead of
+    /// listing four. See <see cref="TryTakeDepartedFace"/> for each one.</summary>
+    internal enum DepartedFaceVerdict
+    {
+        /// <summary>The recess-emptying EDGE had already stamped this face and the flight took it —
+        /// the path ModBuild 461 built and the only one it had.</summary>
+        DepartedMemory,
+
+        /// <summary>The flight beat the edge: nothing was stamped yet, so the face came straight
+        /// off the recess's LIVE approved latch. Same card, one board pass earlier.</summary>
+        LiveLatch,
+
+        /// <summary>Neither memory nor live latch: this recess never drew that card face-up on this
+        /// client at all (the reveal gate was shut for it, the compaction belt refused the walk, or
+        /// the recess was drawing an anonymous back). The defect, if any, is UPSTREAM of the
+        /// claim — read <c>ROUND SLOT COMPACTION REFUSED</c> and <c>ANONYMOUS RECESS</c>.</summary>
+        NothingLatched,
+
+        /// <summary>A face was stamped for this recess and is older than
+        /// <see cref="DepartedFaceSeconds"/>. The event was lost or arrived very late.</summary>
+        WindowExpired,
+
+        /// <summary>Two recesses emptied at once and this client's copy of that peer's piles holds
+        /// BOTH faces in the destination stack. A deliberate refusal, not a failure.</summary>
+        AmbiguousBothInPile,
+
+        /// <summary>Two recesses emptied at once and NEITHER face is in the destination stack on
+        /// this client yet. Also a deliberate refusal: the model has not caught up and a confident
+        /// wrong front is worse than a back.</summary>
+        AmbiguousNeitherInPile,
+    }
 
     /// <summary>
     /// TAKE the face that left recess <paramref name="slot"/> — or, for <paramref name="slot"/> of
@@ -1651,16 +1780,21 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// cannot be reached; the destination test guards only the ambiguous case it was written for.
     /// Making the pose right did not make the identity looser.</para>
     /// </summary>
-    internal bool TryTakeDepartedFace(int slot, CardFxAnchor destination, out CAbilityCard? card)
+    internal bool TryTakeDepartedFace(int slot, CardFxAnchor destination, out CAbilityCard? card,
+                                      out DepartedFaceVerdict verdict)
     {
         card = null;
+        verdict = DepartedFaceVerdict.NothingLatched;
         float now = Time.unscaledTime;
         int a = -1;
         int b = -1;
+        int expired = 0;
         for (int i = 0; i < SlotCount; i++)
         {
             if (slot >= 0 && i != slot)
                 continue;
+            if (_departedFace[i] != null && now - _departedAt[i] > DepartedFaceSeconds)
+                expired++;
             if (_departedFace[i] == null || now - _departedAt[i] > DepartedFaceSeconds)
                 continue;
             if (a < 0)
@@ -1669,12 +1803,53 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 b = i;
         }
         if (a < 0)
+        {
+            // --- THE LIVE LATCH: THE CLAIM RUNS BEFORE THE MEMORY IS WRITTEN --------------------
+            // MEASURED, NOT ARGUED (ModBuild 461 host log, ALL FOUR of the session's FLIGHT FACE
+            // lines): each one is followed by a 'Remote board content' line still reporting
+            // slot-occupancy=0x3 with round-card faces=LiveWidget/LiveWidget, and the nibble only
+            // falls to 0x0 on the NEXT board pass. The recess had the face, the flight asked for
+            // it, and the memory that was supposed to hand it over had not been written yet.
+            //
+            // THE COMMENT ON DepartedFaceSeconds WAS THE DEFECT and is corrected there. It said the
+            // window is "sized to cover both" sides of the recess emptying. An EXPIRY covers only
+            // the LATE side: an event arriving before this client's own 4 Hz board pass notices the
+            // nibble clear finds _departedFace[slot] null, refuses, and the edge then stamps a
+            // memory nobody ever comes back for. Four of four flights this session took that path.
+            //
+            // IT IS THE SAME VALUE, ONE BOARD PASS EARLIER, and therefore not one grain looser:
+            // NoteRecessDeparture's only argument IS _latchedFaces[i], so the memory is a copy of
+            // this field taken at the edge. _latchedFaces is filled only under showFronts, cleared
+            // the frame the gate shuts or the displayed character changes, and nulled by both the
+            // empty and the sacrifice branch -- so a non-null entry here is a face THIS board is
+            // drawing, face-up and approved, in THAT recess, right now. RemoteCardFx re-asks
+            // RevealGate on top regardless.
+            //
+            // ONLY FOR A NAMED RECESS. slot < 0 is the legacy / unnameable-transform path, where
+            // "which recess emptied" is the very thing that is not known; reaching into both live
+            // latches there would be the guess the destination test below exists to refuse. The
+            // deliberate refusals below are untouched: with slot >= 0 they were already unreachable.
+            if (slot >= 0 && slot < SlotCount && _latchedFaces[slot] != null)
+            {
+                card = _latchedFaces[slot];
+                _claimedFaceId[slot] = card!.CardInstanceID;
+                _claimedAt[slot] = now;
+                verdict = DepartedFaceVerdict.LiveLatch;
+                return true;
+            }
+            verdict = expired > 0
+                ? DepartedFaceVerdict.WindowExpired
+                : DepartedFaceVerdict.NothingLatched;
             return false;
+        }
         // ─── ONE CANDIDATE IS NOT A CHOICE ──────────────────────────────────────────────────────
         // Nothing to disambiguate, so nothing to refuse over. This is the common case: a turn-clear
         // whose two flights arrive as two separate events, each consuming one memory.
         if (b < 0)
+        {
+            verdict = DepartedFaceVerdict.DepartedMemory;
             return Take(a, out card);
+        }
 
         // ─── TWO CANDIDATES (ONLY EVER A `Board` ORIGIN): THE DESTINATION DECIDES ──────────────
         // Unreachable when the sender named a recess — `slot >= 0` admits one candidate at most, so
@@ -1696,7 +1871,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             if (!InDestinationPile(_departedFace[i], destination))
                 continue;
             if (only != null)
+            {
+                verdict = DepartedFaceVerdict.AmbiguousBothInPile;
                 return false;   // both are in it — no fact here separates them, so a BACK
+            }
             only = _departedFace[i];
             onlyIndex = i;
         }
@@ -1705,7 +1883,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // is indistinguishable here from "this face belongs to the other flight". A back is wrong in
         // a way the player reads as not-loaded-yet; a confident wrong front is not.
         if (only == null)
+        {
+            verdict = DepartedFaceVerdict.AmbiguousNeitherInPile;
             return false;
+        }
+        verdict = DepartedFaceVerdict.DepartedMemory;
         return Take(onlyIndex, out card);
 
         bool Take(int index, out CAbilityCard? taken)
@@ -1760,8 +1942,20 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     {
         if (face == null)
             return;
+        // ...AND NOT IF IT HAS ALREADY FLOWN. Since the LIVE LATCH branch in TryTakeDepartedFace, a
+        // flight can claim this recess's face BEFORE the edge fires -- which the 461 logs say is
+        // the ORDINARY ordering, not the rare one. Stamping it into the memory afterwards would
+        // leave a face that is already on a slab sitting there for up to three seconds, where a
+        // legacy `slot = -1` claim could take it a second time and draw one card on two flights.
+        float now = Time.unscaledTime;
+        if (_claimedFaceId[slot] == face.CardInstanceID
+            && now - _claimedAt[slot] <= DepartedFaceSeconds)
+        {
+            _claimedFaceId[slot] = int.MinValue;
+            return;
+        }
         _departedFace[slot] = face;
-        _departedAt[slot] = Time.unscaledTime;
+        _departedAt[slot] = now;
     }
 
     /// <summary>Reused widget buffer for <see cref="TryResolveSacrifice"/> — the board's content
@@ -1814,6 +2008,32 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             + "their 'SHORT REST SACRIFICE' line: two "
             + "different names for one rest is the 1:1 failure and means the two machines have "
             + "stopped building that list with the same expression.");
+    }
+
+    /// <summary>Frame on which <see cref="MirroredSlotMask"/> last CHANGED, and the previous mask,
+    /// so a flight can say whether it beat this client's own recess mirror. See
+    /// <see cref="FramesSinceSlotMaskChange"/>.</summary>
+    private int _slotMaskFrame;
+    private int _lastNotedSlotMask = -1;
+
+    /// <summary>The occupancy this mirror is actually DRAWING (bit0 = recess 1) -- not the raw wire
+    /// nibble: an exhausted owner is forced empty and a legacy sender is derived from the model.
+    /// </summary>
+    internal int MirroredSlotMask => _slotOccupiedMask;
+
+    /// <summary>Frames since <see cref="MirroredSlotMask"/> last changed, or -1 before the first
+    /// board pass. IT IS THE RACE, IN ONE NUMBER: a flight whose recess is still marked occupied
+    /// here arrived BEFORE this client saw the recess empty, which is what made ModBuild 461's
+    /// departed-face memory inert on all four of its flights.</summary>
+    internal int FramesSinceSlotMaskChange =>
+        _lastNotedSlotMask < 0 ? -1 : Time.frameCount - _slotMaskFrame;
+
+    private void NoteMirroredSlotMask()
+    {
+        if (_slotOccupiedMask == _lastNotedSlotMask)
+            return;
+        _lastNotedSlotMask = _slotOccupiedMask;
+        _slotMaskFrame = Time.frameCount;
     }
 
     private void SeatSlots(CPlayerActor? actor, bool showFronts, bool exhausted)
@@ -1994,8 +2214,23 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 LogAnonymousRecess(i, actor);
                 continue;
             }
-            _cards[i].Set(card, showFronts, actor);
-            if (showFronts)
+            // ─── THE BURN CARVE-OUT REACHES THE RECESS TOO (2026-09-06 report item 6) ──────────
+            // "Wenn ein Mitspieler eine Karte verbrennt sehe ich wieder nur die Rueckseite auf dem
+            // Board. Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der
+            // Vorderseite sichtbar sein." A burn lands in the owner's LostAbilityCards BEFORE the
+            // game starts the burn artwork that holds the card in this very recess, so for the
+            // whole of the picture he is complaining about, the card is already in a host-
+            // replicated list this client walks. RevealGate.IsPubliclyRevealedCard owns that ruling
+            // for every surface; this is the one that draws the card while it chars.
+            //
+            // IT WIDENS AND NEVER NARROWS: showFronts still decides on its own for every card that
+            // is not already public, so the selection-phase secret is untouched. The LATCH follows
+            // the picture deliberately — a face this recess legitimately showed is exactly what the
+            // latch is for, and a flight out of this recess (TryTakeDepartedFace) must be able to
+            // inherit a burning card's front or item 6's first half comes straight back.
+            bool front = showFronts || RevealGate.IsPubliclyRevealedCard(actor, card.CardInstanceID);
+            _cards[i].Set(card, front, actor);
+            if (front)
             {
                 _slotFaceMask |= 1 << i;
                 _latchedFaces[i] = card; // remember the approved face for this recess

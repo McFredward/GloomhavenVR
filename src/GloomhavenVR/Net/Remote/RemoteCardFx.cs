@@ -156,6 +156,10 @@ internal sealed class RemoteCardFx
     /// </summary>
     public void Play(byte endpoints)
     {
+        // THE WIRE FRAME. Play is called synchronously from RemoteAvatar's packet apply the moment
+        // the FX sequence changes, so this IS the frame the wire named the flight — see the TIMING
+        // clause of the FLIGHT FACE line for what a non-zero difference would mean.
+        int wireFrame = Time.frameCount;
         CardFxAnchor from = NetCardFx.From(endpoints);
         CardFxAnchor to = NetCardFx.To(endpoints);
 
@@ -230,27 +234,48 @@ internal sealed class RemoteCardFx
                           $"({NetProtocol.CardFxSeconds:F2}s, arc {f.Arc:F3} m) — flight #{_played}.");
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.FlightSlab, _owner.PlayerId,
                                   f.HasFace ? 1 : 0, f.HasFace ? 0 : 1, faceRule);
-        // HW-VERIFY: report item 5 — "Die Animationen bei denen die Karten in den jeweiligen Stapel
-        // gehen zeigen beim remote board die Karten mit der Rückseite als Vorderseite". Grep token:
-        // FLIGHT FACE. One line per mirrored flight (a handful per turn), at Note tier because the
-        // co-player runs at the shipped default level and either machine can be the one watching.
-        // READ IT AGAINST THE OWNER'S OWN 'Fly-to-pile'/'BURN ANIM' line for the same card: the
-        // owner's flying card is a live VRCard that was lying FACE-UP in the recess and whose
-        // rotation VRCard.FlyToPile locks for the whole arc, so a FRONT here is 1:1 and a BACK is
-        // the breach. WORKING = 'FRONT'; INERT = 'BACK — no departed face' on a Slot/Board origin
-        // while the same interval's PEER CARD FACE CENSUS shows 'round slots ... 2 FRONT' (the
-        // recess had the face and the latch did not reach the flight); BEYOND THE INSTRUMENT = a
-        // 'Fly-to-pile' line on the owner with NO line here at all, which is a lost or swallowed
-        // event and not a face defect.
+        // HW-VERIFY: report items 5, 6 and 8 — "Die Animationen bei denen die Karten in den
+        // jeweiligen Stapel gehen zeigen beim remote board die Karten mit der Rückseite als
+        // Vorderseite". Grep token: FLIGHT FACE. One line per mirrored flight (a handful per turn),
+        // at Note tier because the co-player runs at the shipped default level and either machine
+        // can be the one watching.
+        //
+        // THREE READINGS, IN NUMBERS.
+        //  WORKING  = 'FRONT via' on every Slot -> Discard/Burnt flight, and 'FRONT via ... LiveLatch'
+        //             on the ones whose 'mirror mask' still shows the recess OCCUPIED. In the
+        //             ModBuild 461 log that was 0 of 4; anything above 0 is this build's fix landing.
+        //  INERT    = 'BACK ... CAUSE = NEVER LATCHED' while the same interval's PEER CARD FACE
+        //             CENSUS reads 'round slots[pN] 2 FRONT' — the recess had the face and no path
+        //             carried it to the flight. That is the reading 461 shipped and it fired 4/4.
+        //  BEYOND   = 'CAUSE = A DELIBERATE REFUSAL' (both ambiguity verdicts). Those are the safety
+        //             working, they are only reachable from a legacy sender that names no recess,
+        //             and a build that makes them FRONT has traded a visible defect for an
+        //             invisible one. Also beyond: an owner '[Cards] FLIGHT ORIGIN' line with NO
+        //             line here at all — a lost or swallowed event, not a face defect.
+        //
+        // THE TWO ANCHORS ARE ITEM 7. 'wire anchor' is what the sender named; 'flown from' is what
+        // this mirror resolved it to. They agree by construction for Slot0/Slot1 (461 fixed the
+        // sender and its FLIGHT ORIGIN line named a real seat on all 5 of its flights) — a
+        // 'wire anchor Board' here means the SENDER could not name the recess, and a flown-from
+        // that reads ~0 mm from the board CENTRE is the "mini card in the middle of the board" the
+        // user reported. THE DELAY, ALSO IN NUMBERS: Play() runs synchronously inside the packet
+        // apply and writes the slab's transform before returning, so the wire frame and the first
+        // drawn frame below are the SAME frame by construction. A non-zero difference would be a
+        // new defect; the delay item 7 names belongs to RemoteBurnFx's pile POLL, not here.
         VRLog.Note("Net", $"FLIGHT FACE [player {_owner.PlayerId}]: their {from} -> {to} card "
-            + $"flight is drawn as a {(f.HasFace ? "FRONT" : "BACK")} — {faceRule}. ORIGIN: this "
-            + $"mirror flew it from {DescribeOrigin(from)}, and that is the seat the OWNER reported "
-            + "leaving — compare their own '[Cards] FLIGHT ORIGIN' line for the same flight, which "
-            + "names the recess their card really left. The OWNER always "
+            + $"flight is drawn as a {(f.HasFace ? "FRONT" : "BACK")} — {faceRule}. ANCHORS: wire "
+            + $"anchor {from}, flown from {DescribeFlownAnchor(from)} — {DescribeOrigin(from)}. "
+            + $"TIMING: wire frame {wireFrame}, first drawn frame {Time.frameCount} "
+            + $"(+{Time.frameCount - wireFrame}); this client's own recess mirror stands at mask "
+            + $"0x{_owner.MirroredSlotMask:X} and has done for {_owner.FramesSinceSlotMaskChange} "
+            + "frame(s) — a mask that still marks THIS recess occupied means the flight beat the "
+            + "mirror, which is the race that made the departed-face memory inert on all four of "
+            + "ModBuild 461's flights. Compare the owner's own '[Cards] FLIGHT ORIGIN' line for the "
+            + "same flight, which names the recess their card really left. The OWNER always "
             + "watches a FRONT go into the pile (VRCard.FlyToPile locks the face-up rotation the "
-            + "card had in the recess for the whole arc), so a BACK here is the 1:1 breach report "
-            + "item 5 names. No card identity crossed the wire: the face is this client's own read "
-            + "of the card its OWN mirror was drawing in that recess one tick ago.");
+            + "card had in the recess for the whole arc), so a BACK here is a 1:1 breach. No card "
+            + "identity crossed the wire: the face is this client's own read of the card its OWN "
+            + "mirror was drawing in that recess.");
     }
 
     /// <summary>
@@ -309,24 +334,30 @@ internal sealed class RemoteCardFx
         int slot = from == CardFxAnchor.Slot0 ? 0 : from == CardFxAnchor.Slot1 ? 1 : -1;
         try
         {
-            if (!_owner.TryTakeDepartedRecessFace(slot, to, out ScenarioRuleLibrary.CAbilityCard? card)
+            if (!_owner.TryTakeDepartedRecessFace(slot, to, out ScenarioRuleLibrary.CAbilityCard? card,
+                                                  out RemoteControlBoard.DepartedFaceVerdict verdict)
                 || card == null)
-                return $"BACK — no departed face claimable for {from} -> {to}: this client's mirror "
-                     + "of that recess never drew the card face-up (the reveal gate was shut for it, "
-                     + "or the model could not name it), the flight arrived more than the claim "
-                     + "window after the recess emptied, or TWO recesses emptied at once and this "
-                     + "client's copy of that peer's piles could not say which card landed in this "
-                     + "stack — a back beats a front on the wrong card";
+                return $"BACK — no departed face claimable for {from} -> {to}: {Why(verdict)}";
             ScenarioRuleLibrary.CPlayerActor? actor =
                 RemoteBoardFocus.DisplayedActor(_owner, out _);
             // THE PERMISSION IS RE-ASKED, not inherited. The memory only ever holds a face this
             // board drew while the gate was OPEN, so this can hardly refuse — and it is asked anyway
             // because a face permission that is carried rather than evaluated is the shape of defect
             // RevealGate's own file note is written about.
-            if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor)
+            //
+            // …AND IT IS ASKED WITH THE CARD IN HAND (2026-09-06 report item 6). The three-argument
+            // overload widens and never narrows: a card whose face is ALREADY PUBLIC is answered as
+            // AlreadyPublic whatever population the surface declared, and since this build a BURNED
+            // card is one of those — the user's ruling, verbatim, is "Beim Verbrennen EGAL AUS
+            // WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar sein". That is why the
+            // instance id is passed rather than the bare population: a Slot -> Burnt flight during
+            // the peer's own selection window must still carry the front.
+            if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
+                                     card.CardInstanceID)
                 == RevealGate.CardFaceSource.None)
                 return "BACK — RevealGate refused the front at flight time: the game's own secret "
-                     + "SelectAbilityCardsOrLongRest window for a remote character";
+                     + "SelectAbilityCardsOrLongRest window for a remote character, and this card "
+                     + "is in neither their active nor their burnt piles, so nothing exempts it";
             if (f.Art == null)
                 return "BACK — this pooled slab has no face overlay (its GameObject failed to build)";
             RemoteAbilityCardSource.FacePath path =
@@ -345,6 +376,52 @@ internal sealed class RemoteCardFx
             return $"BACK — the front resolve threw ({ex.GetType().Name}: {ex.Message}), which is "
                  + "the picture every build before ModBuild 461 drew";
         }
+    }
+
+    /// <summary>
+    /// WHICH OF THE FOUR CAUSES produced a faceless flight, in the words the FLIGHT FACE line
+    /// quotes. It used to list all four in one sentence, which made every BACK read the same and
+    /// cost a round: the ModBuild 461 log's four BACKs were all the SAME cause and the line could
+    /// not say so.
+    /// </summary>
+    private static string Why(RemoteControlBoard.DepartedFaceVerdict verdict) => verdict switch
+    {
+        RemoteControlBoard.DepartedFaceVerdict.NothingLatched =>
+            "CAUSE = NEVER LATCHED. This client's mirror of that recess never drew the card "
+            + "face-up, so there was never a face to inherit — the reveal gate was shut for it, the "
+            + "compaction belt refused the positional walk, or the recess was drawing an anonymous "
+            + "back. THE DEFECT IS UPSTREAM OF THIS CLAIM: read 'ROUND SLOT COMPACTION REFUSED' and "
+            + "'ANONYMOUS RECESS' for the same peer, not this line",
+        RemoteControlBoard.DepartedFaceVerdict.WindowExpired =>
+            "CAUSE = WINDOW EXPIRED. A face WAS remembered for that recess and is older than the "
+            + "claim window, so the wire event was dropped or arrived seconds late. Nothing on this "
+            + "client can fix that; read the owner's own '[Cards] FLIGHT ORIGIN' timing",
+        RemoteControlBoard.DepartedFaceVerdict.AmbiguousBothInPile =>
+            "CAUSE = A DELIBERATE REFUSAL. Two recesses emptied at once and BOTH their faces are in "
+            + "the destination stack on this client, so no fact here says which card this flight "
+            + "carries. A back beats a front on the wrong card and this refusal is the safety "
+            + "working — do NOT loosen it",
+        RemoteControlBoard.DepartedFaceVerdict.AmbiguousNeitherInPile =>
+            "CAUSE = A DELIBERATE REFUSAL. Two recesses emptied at once and NEITHER face has "
+            + "reached the destination stack in this client's copy of that peer's piles yet, which "
+            + "is indistinguishable from 'this face belongs to the other flight'. The refusal is "
+            + "the safety working — do NOT loosen it",
+        _ => $"CAUSE = {verdict} (unexpected on a refusal path — read this method)",
+    };
+
+    /// <summary>
+    /// THE ANCHOR THE MIRROR REALLY FLEW FROM, beside the one the wire carried — report item 7 in
+    /// one line. The two disagree exactly when this client cannot resolve the seat the sender
+    /// named, and the difference is printed in BOARD-LOCAL millimetres from the board CENTRE so a
+    /// "the card came out of the middle of the board" report is decidable without a screenshot.
+    /// </summary>
+    private string DescribeFlownAnchor(CardFxAnchor from)
+    {
+        Vector3 local = _owner.BoardAnchorLocal(from);
+        Vector3 centre = RemoteControlBoard.AnchorLocal(CardFxAnchor.Board);
+        float offMm = (local - centre).magnitude * 1000f;
+        return $"board-local {local:F3} m, {offMm:F0} mm from the board CENTRE "
+               + $"({centre:F3} m)";
     }
 
     // ------------------------------------------------------------------ per frame --
