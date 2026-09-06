@@ -19,7 +19,16 @@ Noch nicht installiert? → [Installationsanleitung](../INSTALL.de.md)
 **Du musst das nicht lernen.** Das Tutorial macht aus deinen Händen den Controller, den du
 tatsächlich hältst, und lässt für jede der vierzehn Steuerungen die passende Taste aufleuchten — in
 der Reihenfolge, in der sie nützlich werden. Abschalten unter **Komfort ▸ Hände & Zielen**.
-*(Ein Steam Frame bekommt einen neutralen Controller gezeigt — Valve verteilt kein Modell davon.)*
+
+<!-- VIDEO PLACEHOLDER: tutorial.mp4
+     WHAT IT SHOWS: the tutorial doing its work. The player's hands turn into the controller he is
+     actually holding and one key after another lights up as each control becomes useful.
+     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
+     then delete this line and the closing marker.
+<p align="center">
+  <a href="img/tutorial.mp4"><img src="img/tutorial-poster.jpg" width="560" alt="Das Tutorial lässt eine Taste auf dem Controller in deiner Hand aufleuchten"></a>
+</p>
+-->
 
 Drei Sachen, die das Bild nicht zeigen kann:
 
@@ -68,6 +77,19 @@ mit Absicht: so wählt eine Hand, die nur über das Brett streicht, nie etwas au
 
 ## Fenster
 
+<!-- VIDEO PLACEHOLDER: windows.mp4 + grab-rod.mp4
+     WHAT IT SHOWS: everything in the room hangs from a rod you take hold of. A game window grabbed
+     by its bar, moved, resized, reeled closer with the stick and closed with its X; then the
+     control board carried to a new place by its rod, by hand and by the laser from across the
+     table.
+     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
+     then delete this line and the closing marker.
+<p align="center">
+  <a href="img/windows.mp4"><img src="img/windows-poster.jpg" width="420" alt="Ein Fenster bewegen und in der Größe ändern"></a>
+  <a href="img/grab-rod.mp4"><img src="img/grab-rod-poster.jpg" width="420" alt="Das Kontrollbrett an seiner Stange tragen"></a>
+</p>
+-->
+
 Die Fenster des Spiels — Charakterbögen, Händler, Dialoge, die Geschichte — werden zu **Tafeln im
 Raum**. Greif die Stange oben, um eine zu bewegen, ihre Größe zu ändern oder sie über ihr X zu
 schließen, und hol sie mit dem Stick näher heran oder schieb sie weg, während der Laser sie hält. Wo
@@ -83,7 +105,8 @@ du eine hinstellst, da bleibt sie.
 
 Zwischen den Szenarien ist die Karte ein **Raum mit einem Tisch darin**. Die Gildenmeister-Tasten
 sind echte Kappen am Tischrand, zeig auf einen Ort, um sein Auftragsschild zu sehen, und dein
-Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte? `[Rig] Vanilla2DMap = true`.
+Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte?
+**Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte**.
 
 ---
 
@@ -93,6 +116,17 @@ Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte? `[Ri
   <img src="img/env-cellar.jpg" width="420" alt="Der Keller">
   <img src="img/env-forest.jpg" width="420" alt="Der Nachtwald">
 </p>
+
+<!-- VIDEO PLACEHOLDER: environments.mp4
+     WHAT IT SHOWS: what a still cannot: the rooms in motion. Firelight and drips in the cellar,
+     foliage and moonbeams in the forest, an element infusion fading the room over, and the
+     environment switched in the settings.
+     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
+     then delete this line and the closing marker.
+<p align="center">
+  <a href="img/environments.mp4"><img src="img/environments-poster.jpg" width="560" alt="Keller und Wald in Bewegung"></a>
+</p>
+-->
 
 Ein kerzenbeleuchteter **Keller**, ein **Nachtwald** unter einem echten Sternkatalog, der
 **Standard**-Look des Spiels oder **Aus (schwarz)**. Beide gebauten Räume haben Feuerschein,
@@ -106,6 +140,17 @@ unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
 ---
 
 ## Mehrspieler
+
+<!-- VIDEO PLACEHOLDER: multiplayer.mp4
+     WHAT IT SHOWS: the table from the other side. A second player's mask and hands, their control
+     board mirrored beside them, a miniature they lift, a shared window one of them drags across
+     the room.
+     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
+     then delete this line and the closing marker.
+<p align="center">
+  <a href="img/multiplayer.mp4"><img src="img/multiplayer-poster.jpg" width="560" alt="Zwei Spieler am selben Tisch"></a>
+</p>
+-->
 
 - **Alle in einer VR-Sitzung brauchen dieselbe Version.** Passt sie nicht, blockiert die Mod mit
   einem Hinweis, statt die Sitzung still schiefgehen zu lassen —

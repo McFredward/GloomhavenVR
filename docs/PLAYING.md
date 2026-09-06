@@ -18,8 +18,17 @@ Not installed yet? → [install guide](../INSTALL.md)
 
 **You do not have to learn this.** The tutorial turns your hands into the controller you are actually
 holding and lights up the key for each of the fourteen controls, in the order they become useful.
-Switch it off under **Comfort ▸ Hands & aiming**. *(A Steam Frame is shown a neutral controller —
-Valve does not distribute a model of theirs.)*
+Switch it off under **Comfort ▸ Hands & aiming**.
+
+<!-- VIDEO PLACEHOLDER: tutorial.mp4
+     WHAT IT SHOWS: the tutorial doing its work. The player's hands turn into the controller he is
+     actually holding and one key after another lights up as each control becomes useful.
+     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
+     then delete this line and the closing marker.
+<p align="center">
+  <a href="img/tutorial.mp4"><img src="img/tutorial-poster.jpg" width="560" alt="The tutorial lighting up a key on the controller in your hand"></a>
+</p>
+-->
 
 Three more that the picture cannot show:
 
@@ -68,6 +77,19 @@ sweeps across the board never selects anything.
 
 ## Windows
 
+<!-- VIDEO PLACEHOLDER: windows.mp4 + grab-rod.mp4
+     WHAT IT SHOWS: everything in the room hangs from a rod you take hold of. A game window grabbed
+     by its bar, moved, resized, reeled closer with the stick and closed with its X; then the
+     control board carried to a new place by its rod, by hand and by the laser from across the
+     table.
+     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
+     then delete this line and the closing marker.
+<p align="center">
+  <a href="img/windows.mp4"><img src="img/windows-poster.jpg" width="420" alt="Moving and resizing a window"></a>
+  <a href="img/grab-rod.mp4"><img src="img/grab-rod-poster.jpg" width="420" alt="Carrying the control board by its rod"></a>
+</p>
+-->
+
 The game's windows — character sheets, the merchant, dialogs, the story — become **panels in the
 room**. Grab the bar at the top to move one, resize it, or close it with its X, and reel it closer
 and further with the stick while the laser holds it. Where you put one is where it stays.
@@ -82,7 +104,7 @@ and further with the stick while the laser holds it. Where you put one is where 
 
 Between scenarios the map is a **room with a table in it**. The guildmaster buttons are physical
 caps on the table rim, point at a location to see its quest placard, and your party token walks the
-route it travels. Prefer the original flat map? `[Rig] Vanilla2DMap = true`.
+route it travels. Prefer the original flat map? **World & sound ▸ Campaign map ▸ Original 2D map**.
 
 ---
 
@@ -92,6 +114,17 @@ route it travels. Prefer the original flat map? `[Rig] Vanilla2DMap = true`.
   <img src="img/env-cellar.jpg" width="420" alt="The cellar">
   <img src="img/env-forest.jpg" width="420" alt="The night forest">
 </p>
+
+<!-- VIDEO PLACEHOLDER: environments.mp4
+     WHAT IT SHOWS: what a still cannot: the rooms in motion. Firelight and drips in the cellar,
+     foliage and moonbeams in the forest, an element infusion fading the room over, and the
+     environment switched in the settings.
+     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
+     then delete this line and the closing marker.
+<p align="center">
+  <a href="img/environments.mp4"><img src="img/environments-poster.jpg" width="560" alt="The cellar and the forest in motion"></a>
+</p>
+-->
 
 A candle-lit **cellar**, a **moonlit forest** under a real star catalogue, the game's own **Default**
 look, or **Off (black)**. Both built rooms have firelight, drips, moonbeams and quiet spatial
@@ -105,6 +138,17 @@ that choice is yours alone.
 ---
 
 ## Multiplayer
+
+<!-- VIDEO PLACEHOLDER: multiplayer.mp4
+     WHAT IT SHOWS: the table from the other side. A second player's mask and hands, their control
+     board mirrored beside them, a miniature they lift, a shared window one of them drags across
+     the room.
+     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
+     then delete this line and the closing marker.
+<p align="center">
+  <a href="img/multiplayer.mp4"><img src="img/multiplayer-poster.jpg" width="560" alt="Two players at the same table"></a>
+</p>
+-->
 
 - **Everyone in a VR session must run the same version.** A mismatch is blocked with a dialog rather
   than allowed to go quietly wrong — [update together](../INSTALL.md#updating).

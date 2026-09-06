@@ -59,21 +59,15 @@ Alles andere steckt schon in diesem Zip.
    SPIEL UND GEHT VON SELBST WIEDER AUF — EINMAL. Das soll so sein. Es ist
    kein Absturz.
 
-   Die Mod schaltet eine Geschwindigkeits-Einstellung ein, die das Spiel nur
-   beim Hochfahren liest — sie kann also nie in dem Durchlauf wirken, der
-   sie einschaltet. Auf dem Testrechner waren das ruckelige 45 Bilder pro
-   Sekunde gegen glatte 90. In einer Schleife kann es nicht hängenbleiben,
-   und kein Spielstand wird angefasst.
+   Deine Spielstände und deine Einstellungen bleiben unangetastet.
 
-   Das ist die EINZIGE Spieldatei, die die Mod jemals verändert: zwei
-   Zeilen in GH_Data\boot.config, das Original wird als
-   boot.config.gloomhavenvr-backup daneben gesichert. Falls das Spiel
-   irgendwann gar nicht mehr startet, kopier dieses Backup zurück über
-   boot.config.
+   Die Mod schreibt genau EINE Spieldatei: GH_Data\boot.config. Das
+   Original liegt als boot.config.gloomhavenvr-backup daneben. Falls das
+   Spiel irgendwann gar nicht mehr startet, kopier dieses Backup zurück
+   über boot.config.
 
-   Willst du den Neustart nicht? In BepInEx\config\dev.gloomhavenvr.cfg
-   unter [Core] AutoRestartForGraphicsJobs = false setzen. Dann bittet dich
-   das Spiel stattdessen, es selbst neu zu starten.
+   Warum sie neu startet und wie du das vermeidest, steht auf der oben
+   verlinkten Projektseite.
 
 
 EINSTELLUNGEN

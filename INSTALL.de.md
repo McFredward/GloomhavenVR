@@ -69,18 +69,14 @@ Headset auf, Gloomhaven starten wie immer. Du stehst am Tisch.
 > **Beim ersten Start nach dem Installieren oder Updaten schließt sich das Spiel und geht von selbst
 > wieder auf — einmal.** Das soll so sein. Es ist kein Absturz.
 
-Die Mod schaltet dabei eine Windows-Rendering-Einstellung ein, die die Engine nur beim Hochfahren
-liest — auf dem Testrechner der Unterschied zwischen festgenagelten 45 Hz und sauberen 90. In einer
-Schleife kann es nicht hängenbleiben, und es passiert, bevor irgendein Spielstand angefasst wird.
+Deine Spielstände, deine Kampagne und deine Einstellungen bleiben unangetastet.
 
-**Das ist die einzige Spieldatei, die die Mod jemals schreibt:** zwei Zeilen in
-`GH_Data/boot.config`, das Original liegt als `boot.config.gloomhavenvr-backup` daneben. Falls das
-Spiel irgendwann gar nicht mehr startet, kopier dieses Backup zurück über `boot.config`.
+**Die Mod schreibt genau eine Spieldatei:** `GH_Data/boot.config`. Das Original liegt als
+`boot.config.gloomhavenvr-backup` daneben — falls das Spiel irgendwann gar nicht mehr startet,
+kopier es zurück über `boot.config`.
 
-Lieber selbst machen? Entweder `[Core] AutoRestartForGraphicsJobs = false` in
-`BepInEx/config/dev.gloomhavenvr.cfg` setzen und neu starten, wenn das Log darum bittet — oder
-`[Core] EnableGraphicsJobs = false` setzen und `-force-gfx-jobs native` in die Startoptionen des
-Spiels eintragen; das wirkt ab dem allerersten Start und schreibt gar keine Spieldatei.
+<sub>Warum sie neu startet und wie du es vermeidest:
+[docs/DEVELOPING.md](docs/DEVELOPING.md#the-restart-on-the-first-start) (nur auf Englisch)</sub>
 
 ---
 
@@ -119,9 +115,9 @@ Pausenmenü — und geh auf den Reiter **VR Optionen**. Änderungen wirken sofor
 Der Text der Mod folgt der Sprache des Spiels: **Englisch und Deutsch**; alles andere fällt auf
 Englisch zurück.
 
-Jede Einstellung gibt es auch als Textdatei unter `BepInEx/config/` (`dev.gloomhavenvr*.cfg`), jede
-mit ihrer eigenen Erklärung. Brauchen solltest du sie nicht. **Um eine Weile völlig unverändert zu
-spielen**, setz dort `[General] Enabled = false` — besser als deinstallieren.
+**Um eine Weile völlig unverändert zu spielen**, setz `[General] Enabled = false` in
+`BepInEx/config/dev.gloomhavenvr.cfg` — besser als deinstallieren. Jede Einstellung gibt es auch als
+Textdatei in diesem Ordner; brauchen solltest du sie nicht.
 
 ---
 

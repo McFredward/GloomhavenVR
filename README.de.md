@@ -37,6 +37,18 @@
 
 ---
 
+<!-- VIDEO PLACEHOLDER: overview.mp4
+     WHAT IT SHOWS: the hero shot. Standing at the table in a lit scenario, then dragging, rotating
+     and zooming the whole board with the two-handed world grab.
+     Full brief: docs/VIDEO-SHOTLIST.md. Record it, upload the mp4 through a GitHub
+     comment box (docs/img/README.md explains how), paste the returned
+     user_attachments URL below, then delete this line and the closing marker. The same
+     URL goes into the other language page at the same spot.
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+</p>
+-->
+
 ### Deine Karten und dein Brett
 
 <table>
@@ -67,6 +79,19 @@ Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Hochgehob
 verschobene Fenster und zeigende Finger sehen alle, und wer kein Headset hat, spielt am flachen
 Bildschirm in derselben Partie mit.
 
+<!-- VIDEO PLACEHOLDER: multiplayer.mp4
+     WHAT IT SHOWS: the table from the other side. A second player's mask and hands, their control
+     board mirrored beside them, a miniature they lift, a shared window one of them drags across
+     the room.
+     Full brief: docs/VIDEO-SHOTLIST.md. Record it, upload the mp4 through a GitHub
+     comment box (docs/img/README.md explains how), paste the returned
+     user_attachments URL below, then delete this line and the closing marker. The same
+     URL goes into the other language page at the same spot.
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+</p>
+-->
+
 ## Assets der Mod
 
 Drei Handpaare, drei Masken, drei Kontrollbretter — je ein Dropdown, mitten in der Sitzung
@@ -90,8 +115,8 @@ Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen.
   <img src="docs/img/env-forest.jpg" width="345" alt="Der Nachtwald">
 </p>
 
-**Mixed Reality** ersetzt den Himmel durch eine Chroma-Key-Farbe, damit das Brett über dein echtes
-Zimmer gelegt werden kann.
+**Mixed Reality** blendet den Himmel aus, damit deine Streaming-App den Tisch in dein echtes Zimmer
+stellen kann.
 
 ### Wirkung der Elemente
 

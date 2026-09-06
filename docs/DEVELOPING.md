@@ -16,6 +16,34 @@ HarmonyX against Gloomhaven (digital) v1.1.8307.0 on Unity 2021.3.5f1. No game f
 except two `key=value` lines in `GH_Data/boot.config` (graphics jobs — the preloader writes them and
 keeps a backup). Everything else lives under `BepInEx/`.
 
+### The restart on the first start
+
+The player docs carry three sentences about this and nothing more: the game closes and reopens
+itself once, that is meant to happen, and here is how to put the original `boot.config` back. The
+mechanism lives here, one link away from [`INSTALL.md`](../INSTALL.md). A player installing a mod
+needs to know what will happen, whether it is normal, and what to do if it goes wrong; nothing else
+on that page may compete with those three.
+
+Unity reads the graphics-jobs flags out of `GH_Data/boot.config` **while it is starting up**, so the
+run that switches them on can never be the run that benefits. The preloader therefore writes the two
+lines, keeps the original as `boot.config.gloomhavenvr-backup`, and restarts the game once. On the
+test machine that is a locked 45 Hz becoming a clean 90. It cannot loop, and it happens before any
+save is touched.
+
+Two ways to skip the restart, both in `BepInEx/config/dev.gloomhavenvr.cfg`:
+
+| Setting | Effect |
+|---|---|
+| `[Core] AutoRestartForGraphicsJobs = false` | the file is still written; the log asks you to restart the game yourself |
+| `[Core] EnableGraphicsJobs = false` **plus** `-force-gfx-jobs native` in the game's launch options | works from the very first start and writes no game file at all |
+
+### Controller models in the tutorial
+
+The in-headset tutorial draws the controller the player is actually holding. **A Steam Frame is
+shown a neutral controller** — Valve does not distribute a model of theirs. This used to be a
+parenthesis in [`PLAYING.md`](PLAYING.md); it is a fact about one headset's asset availability, not
+something a player has to know to play, so it lives here.
+
 ## Requirements
 
 - **.NET SDK 8+**
@@ -301,6 +329,7 @@ is otherwise unverified. Both fired during the restructure and both were right.
 | [`ASSET-GUIDE-MITWIRKENDE.md`](ASSET-GUIDE-MITWIRKENDE.md) | the brief for the external 3D artist who edits the meshes and textures; file names, paths and bone/anchor names are contracts. German on purpose — it has exactly one reader and he works in German |
 | [`PLAYING.md`](PLAYING.md) / [`PLAYING.de.md`](PLAYING.de.md) | player-facing; listed here so you know to change both and to run `check-docs-i18n.py` after |
 | [`img/README.md`](img/README.md) | how every image and clip in the README was produced |
+| [`VIDEO-SHOTLIST.md`](VIDEO-SHOTLIST.md) | the clips that still have to be recorded — one row each, with the target filename and the spot in the docs that is already prepared for it |
 | [`../.planning/`](../.planning/) | STATE.md, architecture, roadmap, game-API research |
 
 ## Licence

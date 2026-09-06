@@ -54,19 +54,14 @@ Everything else is already inside this zip.
    THE FIRST TIME AFTER INSTALLING OR UPDATING, THE GAME CLOSES AND REOPENS
    BY ITSELF — ONCE. That is meant to happen. It is not a crash.
 
-   It switches on a speed setting the game only reads while starting up, so
-   it can never take effect on the run that switches it on. On the test
-   machine that was a stuttery 45 frames per second becoming a smooth 90.
-   It cannot get stuck in a loop, and no save game is touched.
+   Your save games and your settings are not touched.
 
-   This is the ONLY game file the mod ever changes: two lines added to
-   GH_Data\boot.config, with the original saved next to it as
-   boot.config.gloomhavenvr-backup. If the game ever refuses to start, copy
-   that backup back over boot.config.
+   The mod writes exactly ONE game file: GH_Data\boot.config. The original
+   is kept next to it as boot.config.gloomhavenvr-backup. If the game ever
+   refuses to start, copy that backup back over boot.config.
 
-   Don't want the restart? In BepInEx\config\dev.gloomhavenvr.cfg, under
-   [Core], set AutoRestartForGraphicsJobs = false. The game will then ask
-   you to restart it yourself.
+   Why it restarts, and how to avoid it, is on the project page linked at
+   the top of this file.
 
 
 SETTINGS

@@ -37,6 +37,18 @@
 
 ---
 
+<!-- VIDEO PLACEHOLDER: overview.mp4
+     WHAT IT SHOWS: the hero shot. Standing at the table in a lit scenario, then dragging, rotating
+     and zooming the whole board with the two-handed world grab.
+     Full brief: docs/VIDEO-SHOTLIST.md. Record it, upload the mp4 through a GitHub
+     comment box (docs/img/README.md explains how), paste the returned
+     user_attachments URL below, then delete this line and the closing marker. The same
+     URL goes into the other language page at the same spot.
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+</p>
+-->
+
 ### Your cards and your board
 
 <table>
@@ -66,6 +78,19 @@ Every VR player has a mask, hands and their own control board. Lifted miniatures
 pointing fingers are visible to everyone, and players without a headset join the same game on a flat
 screen.
 
+<!-- VIDEO PLACEHOLDER: multiplayer.mp4
+     WHAT IT SHOWS: the table from the other side. A second player's mask and hands, their control
+     board mirrored beside them, a miniature they lift, a shared window one of them drags across
+     the room.
+     Full brief: docs/VIDEO-SHOTLIST.md. Record it, upload the mp4 through a GitHub
+     comment box (docs/img/README.md explains how), paste the returned
+     user_attachments URL below, then delete this line and the closing marker. The same
+     URL goes into the other language page at the same spot.
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+</p>
+-->
+
 ## Mod assets
 
 Three pairs of hands, three masks, three control boards — one dropdown each, changeable mid-session,
@@ -89,8 +114,7 @@ with firelight, ambient sound and rare events.
   <img src="docs/img/env-forest.jpg" width="345" alt="The night forest">
 </p>
 
-**Mixed reality** replaces the sky with a chroma-key colour so the board can be composited over your
-real room.
+**Mixed reality** drops the sky, so your streaming app can put the table in your real room.
 
 ### Elemental changes
 

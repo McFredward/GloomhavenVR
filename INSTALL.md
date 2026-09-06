@@ -68,18 +68,14 @@ Headset on, launch the game the way you always do. You are at the table.
 > **On the first start after installing or updating, the game closes and reopens itself — once.**
 > That is meant to happen. It is not a crash.
 
-It switches on one Windows rendering setting the engine only reads while starting up — worth a
-locked 45 Hz becoming a clean 90 on the test machine. It cannot loop, and it happens before any save
-is touched.
+Your saves, your campaign and your settings are not touched.
 
-**This is the only game file the mod ever writes:** two lines added to `GH_Data/boot.config`, with
-the original kept beside it as `boot.config.gloomhavenvr-backup`. If the game ever refuses to start,
-copy that backup back over `boot.config`.
+**The mod writes exactly one game file:** `GH_Data/boot.config`. The original is kept beside it as
+`boot.config.gloomhavenvr-backup` — if the game ever refuses to start, copy that back over
+`boot.config`.
 
-Rather do it yourself? Either set `[Core] AutoRestartForGraphicsJobs = false` in
-`BepInEx/config/dev.gloomhavenvr.cfg` and restart when the log asks, or set
-`[Core] EnableGraphicsJobs = false` and add `-force-gfx-jobs native` to the game's launch options —
-that works from the very first start and writes no game file at all.
+<sub>Why it restarts, and how to avoid it:
+[docs/DEVELOPING.md](docs/DEVELOPING.md#the-restart-on-the-first-start)</sub>
 
 ---
 
@@ -118,9 +114,9 @@ menu — and pick the **VR Options** tab. Changes apply live and are saved for y
 The mod's text follows the game's language: **English and German**; anything else falls back to
 English.
 
-Every setting is also a plain text file under `BepInEx/config/` (`dev.gloomhavenvr*.cfg`), each with
-its own explanation. You should not need them. **To play completely unmodified for a while**, set
-`[General] Enabled = false` there — better than uninstalling.
+**To play completely unmodified for a while**, set `[General] Enabled = false` in
+`BepInEx/config/dev.gloomhavenvr.cfg` — better than uninstalling. Every setting is also a text file
+in that folder; you should not need them.
 
 ---
 

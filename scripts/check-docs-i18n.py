@@ -36,7 +36,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # The user-facing set. Adding a doc a PLAYER reads means adding it here and writing the twin.
 # Everything not listed is developer- or AI-facing and is English-only ON PURPOSE:
-# docs/CAMERA-POLICY.md, docs/CI-CD.md, docs/DEVELOPING.md, docs/INTERFACES-*.md,
+# docs/CAMERA-POLICY.md, docs/CI-CD.md, docs/DEVELOPING.md, docs/VIDEO-SHOTLIST.md,
+# docs/INTERFACES-*.md,
 # docs/NET-ACTION-SURFACE.md, docs/PATCH-INVENTORY.md (generated), docs/PATCH-NOTES.md,
 # docs/TESTING-*.md, docs/img/README.md, packaging/release-highlights/README.md,
 # packaging/THIRD-PARTY.txt, LICENSE, .planning/**, unity/**.
