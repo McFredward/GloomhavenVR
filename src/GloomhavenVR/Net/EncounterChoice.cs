@@ -159,8 +159,66 @@ internal static class EncounterChoice
     /// <summary>The whole unlock predicate, kept as one named thing so the patch body reads as the
     /// question it asks: leave the game's client lock in place UNLESS this is an encounter option
     /// AND there is a host on the far side that would honour the press.</summary>
-    internal static bool MayUnlock(ClientButtonLocker? locker) =>
-        IsEncounterOptionButton(locker) && HostCanHonourRequests();
+    internal static bool MayUnlock(ClientButtonLocker? locker)
+    {
+        if (!IsEncounterOptionButton(locker))
+            return false;   // not our button; the game's own lock decides, and there is nothing to say
+        bool may = HostCanHonourRequests();
+        NoteUnlockVerdict(may);
+        return may;
+    }
+
+    /// <summary>Change-gate for <see cref="NoteUnlockVerdict"/>. <c>TryLockButton</c> runs on every
+    /// encounter option button's <c>OnEnable</c> — four or so per screen, every screen of every
+    /// encounter — so the verdict may only print on a TRANSITION. Paired with
+    /// <see cref="VersionGuard.SessionEpoch"/> so a second session in the same process re-states
+    /// its own verdict instead of inheriting the first one's silence.</summary>
+    private static bool _unlockVerdict;
+    private static int _unlockVerdictEpoch = -1;
+
+    /// <summary>
+    /// SAY WHY THE ENCOUNTER OPTIONS ARE, OR ARE NOT, PRESSABLE ON THIS CLIENT.
+    ///
+    /// <para><b>THE REFUSAL USED TO BE INVISIBLE, AND IT IS THE FLAT-HOST CASE.</b> Against an
+    /// unmodded host <see cref="HostCanHonourRequests"/> is false, so this method's caller leaves
+    /// the game's own <c>ClientButtonLocker</c> in place and the buttons stay dead — correctly. But
+    /// the only line this file had was inside <see cref="OnLocalPress"/>, which a LOCKED button can
+    /// never reach, so the whole session said nothing at all about a control the player can see and
+    /// not press. This is the observation half; <c>VersionGuard</c>'s MIXED SESSION CENSUS is the
+    /// roster half, and neither is derived from the other.</para>
+    /// </summary>
+    private static void NoteUnlockVerdict(bool may)
+    {
+        if (_unlockVerdictEpoch == VersionGuard.SessionEpoch && _unlockVerdict == may)
+            return;
+        _unlockVerdictEpoch = VersionGuard.SessionEpoch;
+        _unlockVerdict = may;
+        // HW-VERIFY: were this client's encounter option buttons given back, and if not, by which
+        // term? THE FALSIFIER: in a MODDED-ONLY session this must read UNLOCKED — a LOCKED verdict
+        // there means the host's handshake is not arriving, which is a bug and not a flat player.
+        // Absent altogether means no encounter option button was ever built on this machine this
+        // session, which proves nothing either way. Change-gated on the verdict, so it is at most a
+        // couple of lines per session and never one per button.
+        VRLog.Note(Scope, may
+            ? "ENCOUNTER OPTION UNLOCK: this CLIENT's encounter option buttons are UNLOCKED — the "
+              + "mod skips the game's own ClientButtonLocker for them because the HOST is a modded "
+              + "peer that will honour a request. A press advances NOTHING locally; it travels to "
+              + "the host, which presses its own copy and broadcasts the game's real "
+              + "GameActionType.ContinueRoadEvent to everyone."
+            : "ENCOUNTER OPTION UNLOCK: REFUSED — this CLIENT's encounter option buttons keep the "
+              + "game's own client lock (ClientButtonLocker.TryLockButton runs unmodified), by "
+              + "term: "
+              + (NetSession.FlatNetMode
+                  ? "NetSession.FlatNetMode — this player chose to join as a flat player, so every "
+                    + "mod net path is off"
+                  : $"the HOST (player {PlayerRegistry.HostPlayerID}) is not a modded peer — it is "
+                    + "running the unmodded game, which would read our request's unset "
+                    + "SupplementaryDataIDMed as option 0 and throw 'No button with ID 0 found' "
+                    + "straight into FFSNetwork.HandleDesync, killing the session for everybody")
+              + ". THIS IS NOT A STALL AND NOT A DEAD CONTROL: the buttons are visibly greyed, "
+              + "exactly as in the unmodded game, and the host answers the encounter for the table "
+              + "as it always did.");
+    }
 
     /// <summary>
     /// Does this dispatched action carry a VR client's option request rather than the game's own

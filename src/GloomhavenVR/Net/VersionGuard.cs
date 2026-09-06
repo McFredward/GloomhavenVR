@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
+using FFSNet;              // PlayerRegistry.HostPlayerID — a plain int static, no Bolt type
 using GloomhavenVR.Core;
 using HarmonyLib;
 
@@ -66,6 +68,18 @@ internal static class VersionGuard
     private static bool _wasOnline;
     private static bool _mismatchLogged;
 
+    /// <summary>Change-gate for <see cref="NoteMixedSession"/>: a fold of the roster's player ids
+    /// with each one's modded/flat verdict, the host's id and <see cref="NetSession.FlatNetMode"/>.
+    /// The census is read once per frame from <see cref="Tick"/>, so it may only print on a
+    /// TRANSITION — a join, a leave, a peer's first mod packet, or the flat-net choice.</summary>
+    private static int _censusSignature;
+    private static bool _censusKnown;
+
+    /// <summary>Reused by <see cref="NoteMixedSession"/> so the per-frame signature fold allocates
+    /// nothing in the steady state (the census itself runs at most a handful of times a session,
+    /// but the fold that decides whether to run it does not).</summary>
+    private static readonly List<(int Id, string? Account, string? Name)> CensusRoster = new();
+
     /// <summary>Our own version, formatted once for the dialog/log.</summary>
     private static string OurVersion => $"{MyPluginInfo.PLUGIN_VERSION} (Build {NetProtocol.ModBuild})";
 
@@ -100,6 +114,18 @@ internal static class VersionGuard
     /// (any valid mod packet seen). Flat players are never in here.</summary>
     internal static bool IsModdedPeer(int playerId) => Peers.ContainsKey(playerId);
 
+    /// <summary>
+    /// WHICH MULTIPLAYER SESSION THIS IS, as a number that changes when one ends.
+    ///
+    /// <para>Bumped by <see cref="Reset"/>, i.e. exactly when the peer registry is cleared. A
+    /// once-per-session verdict that is change-gated on its own value alone goes SILENT in the
+    /// second session of a process whenever the answer happens to repeat — the same class of
+    /// held-instrument defect this project has already paid for. Folding this int into such a gate
+    /// fixes that with one static read and no reset call reaching back into this class, so the
+    /// dependency stays one-directional.</para>
+    /// </summary>
+    internal static int SessionEpoch { get; private set; }
+
     // ---- per-frame ----------------------------------------------------------------------
 
     internal static void Tick(INetTransport transport)
@@ -116,6 +142,14 @@ internal static class VersionGuard
             return;
         }
         _wasOnline = true;
+
+        // BEFORE the dialog and before BOTH early returns below, on purpose. This is not part of
+        // the guard's DECISION — it decides nothing and shows nothing — it is the log's answer to
+        // "who am I actually playing with", and the two states in which that answer matters most
+        // are exactly the two the returns below take: flat-net mode, and the off-switch. An
+        // instrument that goes quiet in the session it exists to describe is the failure this
+        // project keeps paying for.
+        NoteMixedSession();
 
         Dialog.Tick();
 
@@ -147,6 +181,117 @@ internal static class VersionGuard
         Dialog.Close();
         NetSession.Reset();
         _mismatchLogged = false;
+        _censusKnown = false;
+        _censusSignature = 0;
+        unchecked { SessionEpoch++; }
+    }
+
+    // ---- the mixed-session census -------------------------------------------------------
+
+    /// <summary>
+    /// WHO IS ACTUALLY IN THIS SESSION, AND WHAT THAT MEANS FOR THE TWO FEATURES THAT DEPEND ON
+    /// THE HOST BEING MODDED.
+    ///
+    /// <para><b>WHY IT EXISTS.</b> Playing with FLAT players — players without the mod — is a
+    /// standing requirement, and both host-dependent features degrade to the flat game's behaviour
+    /// when the host is one: <see cref="EncounterChoice.MayUnlock"/> leaves the game's own client
+    /// lock in place, and <see cref="EnemyInfoContinue"/> does not offer the 'Fortfahren' cap. Both
+    /// of those are SILENCES. The encounter's refusal line only prints for a press that got as far
+    /// as <c>OnLocalPress</c>, which a locked button never does; the reveal's DISARMED line is
+    /// change-gated, and against a flat host the arm state never changes at all. So a session with
+    /// a flat host used to produce no statement anywhere about why either control was missing, and
+    /// "the gate is correct" was indistinguishable from "the gate never ran".</para>
+    ///
+    /// <para><b>IT DECIDES NOTHING.</b> The verdicts printed here are read off
+    /// <see cref="IsModdedPeer"/> and <see cref="EncounterChoice.HostCanHonourRequests"/>, the same
+    /// terms the features themselves ask; nothing is cached for them and no behaviour depends on
+    /// this method having run. A peer is MODDED from the first valid GVR1 packet
+    /// (<see cref="NotePacket"/>), so a peer named FLAT here is one nothing has ever arrived
+    /// from.</para>
+    ///
+    /// <para>Change-gated on <see cref="_censusSignature"/>: at most one line per join, per leave,
+    /// per first-packet, and per flat-net choice.</para>
+    /// </summary>
+    private static void NoteMixedSession()
+    {
+        CensusRoster.Clear();
+        NetPlayerActors.CollectRoster(CensusRoster);
+        if (CensusRoster.Count == 0)
+            return;   // the registry is not readable yet; say nothing rather than say "solo"
+
+        int hostId = PlayerRegistry.HostPlayerID;
+        bool flatNet = NetSession.FlatNetMode;
+
+        int signature = flatNet ? 17 : 3;
+        int flatCount = 0;
+        for (int i = 0; i < CensusRoster.Count; i++)
+        {
+            int id = CensusRoster[i].Id;
+            bool modded = IsModdedPeer(id) || id == NetPlayerActors.LocalPlayerId();
+            if (!modded)
+                flatCount++;
+            unchecked { signature = signature * 31 + (id * 2 + (modded ? 1 : 0)); }
+        }
+        if (_censusKnown && signature == _censusSignature)
+            return;
+        _censusKnown = true;
+        _censusSignature = signature;
+
+        var who = new StringBuilder();
+        int localId = NetPlayerActors.LocalPlayerId();
+        for (int i = 0; i < CensusRoster.Count; i++)
+        {
+            (int Id, string? Account, string? Name) row = CensusRoster[i];
+            bool isLocal = row.Id == localId && localId > 0;
+            bool modded = isLocal || IsModdedPeer(row.Id);
+            Peers.TryGetValue(row.Id, out PeerInfo info);
+            who.Append(" · player ").Append(row.Id)
+               .Append(" '").Append(string.IsNullOrEmpty(row.Name) ? "?" : row.Name).Append('\'')
+               .Append(row.Id == hostId ? " (HOST)" : string.Empty)
+               .Append(isLocal ? " (THIS CLIENT)" : string.Empty)
+               .Append(modded
+                    ? isLocal
+                        ? $" = MODDED, {OurVersion}"
+                        : info.Build > 0
+                            ? $" = MODDED, Build {info.Build}"
+                            : " = MODDED (a GVR1 packet has arrived, no version record yet)"
+                    : " = FLAT — no GVR1 packet has EVER arrived from this player, so they are "
+                      + "running the unmodded game");
+        }
+
+        bool hostHonours = EncounterChoice.HostCanHonourRequests();
+
+        // HW-VERIFY: the answer to "what happens when I play with flat players", printed by the
+        // session itself instead of inferred afterwards. FALSIFIER: in a MODDED-ONLY session every
+        // row must read MODDED and the consequence clause must read OFFERED — if a row there says
+        // FLAT, the handshake is not arriving and the two features are off for a reason that is a
+        // BUG rather than a flat player. The line's absence while `] [Net] RX ` lines are present
+        // means the census never ran at all, which is a different defect from a wrong verdict.
+        VRLog.Note("Net", $"MIXED SESSION CENSUS: {CensusRoster.Count} player(s), "
+                        + $"{flatCount} of them FLAT.{who} — "
+                        + (hostHonours
+                            ? "THE HOST RUNS THE MOD, so this client's encounter option buttons are "
+                              + "UNLOCKED and the enemy-information 'Fortfahren' cap is OFFERED; "
+                              + "both presses travel to the host as side actions and the host "
+                              + "presses its own button."
+                            : flatNet
+                                ? "NetSession.FlatNetMode — this player chose to join as a flat "
+                                  + "player, so every mod net path is off for the rest of the "
+                                  + "session and BOTH host-dependent features are off with it."
+                                : "THE HOST IS NOT A MODDED PEER, so BOTH host-dependent features "
+                                  + "are OFF on this client BY DESIGN: the encounter option buttons "
+                                  + "keep the game's own client lock (an unmodded host would read "
+                                  + "the request's unset SupplementaryDataIDMed as option 0 and "
+                                  + "throw into FFSNetwork.HandleDesync), and the 'Fortfahren' cap "
+                                  + "is not drawn. The host presses; everyone follows. This is the "
+                                  + "flat game's behaviour and it is not a stall.")
+                        + " WHAT A FLAT PLAYER COSTS, STATED RATHER THAN HIDDEN: they publish no "
+                        + "mod records at all, so for them there is no VR avatar, no mirrored "
+                        + "control board, no shared window pose and no shared story page — they "
+                        + "click their own story dialog through at their own pace, exactly as the "
+                        + "unmodded game does. NOTHING ON THIS CLIENT WAITS FOR A PACKET THEY "
+                        + "CANNOT SEND: every follow-the-peer path here is adopt-if-published with "
+                        + "a local default, never a precondition.");
     }
 
     // ---- mismatch dialog ----------------------------------------------------------------

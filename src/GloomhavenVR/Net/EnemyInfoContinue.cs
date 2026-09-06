@@ -125,10 +125,44 @@ internal static class EnemyInfoContinue
     /// says REFUSED, and this number is what separates them.</summary>
     private static int _pressesSeen;
 
+    /// <summary>
+    /// WHY THE CAP IS OR IS NOT OFFERED, as a small closed set — and the change-gate is on THIS
+    /// rather than on the bare armed/not-armed bool.
+    ///
+    /// <para><b>THE BOOL WENT SILENT IN THE ONE SESSION THIS FEATURE HAD TO EXPLAIN ITSELF IN.</b>
+    /// Against a FLAT host the predicate answers false outside the reveal (<see cref="NotAClient"/>)
+    /// and false inside it (<see cref="HostNotModded"/>), so the bool never transitions, so nothing
+    /// printed — for the whole session. "The gate refused, correctly" and "the gate never ran" were
+    /// the same reading. Capping per VERDICT CLASS instead of per verdict is this project's own
+    /// standing answer to that, and the set is closed and tiny, so the cadence is still at most a
+    /// couple of lines per reveal and never one per frame: the free-text
+    /// <see cref="ArmedContinueButton"/> reasons all fold into <see cref="ControlNotStanding"/> and
+    /// cannot chatter.</para>
+    /// </summary>
+    private enum ArmClass
+    {
+        /// <summary>Not an online client inside the enemy-information reveal — the ordinary state.</summary>
+        NotAClient,
+
+        /// <summary>The user chose to join as a flat player, so every mod net path is off.</summary>
+        FlatNetMode,
+
+        /// <summary>The host has never sent a GVR1 packet, i.e. it is running the unmodded game.</summary>
+        HostNotModded,
+
+        /// <summary>The reveal's shared Continue control is not standing on this machine.</summary>
+        ControlNotStanding,
+
+        /// <summary>The cap is offered and a press will travel to the host.</summary>
+        Armed,
+    }
+
     /// <summary>Change-gate for the ARMED/DISARMED line. The availability predicate is read once
-    /// per frame by <c>PlayTray.TickStatus</c>, so the line may only print on a TRANSITION.</summary>
-    private static bool _armState;
-    private static bool _armStateKnown;
+    /// per frame by <c>PlayTray.TickStatus</c>, so the line may only print on a TRANSITION. Paired
+    /// with <see cref="VersionGuard.SessionEpoch"/> so a second session in the same process
+    /// re-states its own verdict instead of inheriting the first one's silence.</summary>
+    private static ArmClass _armClass;
+    private static int _armEpoch = -1;
 
     // ---------------------------------------------------------------------------- the predicate --
 
@@ -209,45 +243,58 @@ internal static class EnemyInfoContinue
     private static bool LocalPressIsRequestCore()
     {
         if (!FFSNetwork.IsOnline || !FFSNetwork.IsClient || !InEnemyInfoPhase())
-            return NoteArmState(false, "this seat is not an online client inside the "
-                                     + "enemy-information reveal");
+            return NoteArmState(ArmClass.NotAClient, "this seat is not an online client inside the "
+                                                   + "enemy-information reveal");
         if (!EncounterChoice.HostCanHonourRequests())
-            return NoteArmState(false, NetSession.FlatNetMode
-                ? "NetSession.FlatNetMode — this player chose to join as a flat player, so every "
-                  + "mod net path is off"
+            return NetSession.FlatNetMode
+                ? NoteArmState(ArmClass.FlatNetMode,
+                    "NetSession.FlatNetMode — this player chose to join as a flat player, so every "
+                    + "mod net path is off")
                 // A constant string, not an interpolation: this branch can hold for the whole
                 // length of a reveal (an unmodded host), and it is read once per frame.
-                : "the HOST is not a modded peer (VersionGuard.IsModdedPeer("
-                  + "PlayerRegistry.HostPlayerID) is false), so nothing on the far side would "
-                  + "honour a request and the cap must not be offered");
+                : NoteArmState(ArmClass.HostNotModded,
+                    "the HOST is not a modded peer (VersionGuard.IsModdedPeer("
+                    + "PlayerRegistry.HostPlayerID) is false) — it is running the unmodded game, so "
+                    + "nothing on the far side would honour a request and the cap must not be "
+                    + "offered. THIS IS THE FLAT-HOST CASE AND IT IS NOT A STALL: the host's own "
+                    + "Continue works exactly as vanilla and this machine follows its "
+                    + "ConfirmAction, which is what the unmodded game does for every client");
         // requireInteractable: false — see ArmedContinueButton. The client's own button is dead by
         // the game's design and this feature exists BECAUSE of that; what is asked here is whether
         // the reveal is standing in front of this player.
         ReadyButton? button = ArmedContinueButton(requireInteractable: false, out string why);
-        return button != null ? NoteArmState(true, "") : NoteArmState(false, why);
+        return button != null
+            ? NoteArmState(ArmClass.Armed, "")
+            : NoteArmState(ArmClass.ControlNotStanding, why);
     }
 
     /// <summary>
-    /// The change-gated half of <see cref="LocalPressIsRequest"/>. Returns its argument so the
-    /// caller reads as one expression.
+    /// The change-gated half of <see cref="LocalPressIsRequest"/>. Returns whether the cap is
+    /// armed, so the caller reads as one expression.
     /// </summary>
-    private static bool NoteArmState(bool armed, string why)
+    private static bool NoteArmState(ArmClass cls, string why)
     {
-        if (_armStateKnown && _armState == armed)
+        bool armed = cls == ArmClass.Armed;
+        int epoch = VersionGuard.SessionEpoch;
+        if (_armEpoch == epoch && _armClass == cls)
             return armed;
-        bool first = !_armStateKnown;
-        _armStateKnown = true;
-        _armState = armed;
-        // The very first evaluation of a session is always "not armed" and says nothing; only an
-        // arming edge, and a disarming edge that FOLLOWS one, are worth a line.
-        if (first && !armed)
+        bool first = _armEpoch != epoch;
+        _armEpoch = epoch;
+        _armClass = cls;
+        // The very first evaluation of a session is the ORDINARY state — no session, or a seat
+        // outside the reveal — and says nothing. Every other class does print, including the two
+        // that used to be swallowed because the bool they folded into had not moved: a flat host
+        // and flat-net mode both hold "not armed" from before the reveal to after it.
+        if (first && cls == ArmClass.NotAClient)
             return armed;
         // HW-VERIFY: does the Continue cap exist on THIS client's control board at all? Grep both
         // logs for ENEMY-INFO CONTINUE ARMED — the peer must print it once per reveal. THE
         // FALSIFIER: its absence while the same machine's [EnemyInfo] ENEMY-INFO PHASE line IS
         // present means the feature never armed there, and the DISARMED line's term says which
-        // clause refused. Change-gated on the arm state, so this is at most two lines per reveal
-        // and never one per frame.
+        // clause refused. In a MODDED-ONLY session the classes seen are NotAClient → Armed →
+        // NotAClient per reveal; a DISARMED line naming the HOST term in such a session means the
+        // handshake is not arriving, which is a bug and not a flat player. Change-gated on the
+        // VERDICT CLASS, so this is at most a couple of lines per reveal and never one per frame.
         VRLog.Note(Scope, armed
             ? $"ENEMY-INFO CONTINUE ARMED: this CLIENT (player {NetPlayerActors.LocalPlayerId()}) "
               + "is inside the enemy-information reveal "
