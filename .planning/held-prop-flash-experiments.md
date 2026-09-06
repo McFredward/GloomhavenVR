@@ -15,6 +15,38 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
+## START AT §21 — ROUND FOURTEEN (2026-09-06): THE SWEEP ANSWERED AND IT **KILLED THE LIGHT**
+
+The user did the lift **while the white was showing**. `] [Props] HELD-PROP POSITION SWEEP`, 36
+samples, ModBuild 464 log line 5635.
+
+**The light channel is CLOSED, and closed the strong way — a non-zero reading pointing the WRONG
+DIRECTION.** Escapes 23, enters 33 (so the escape count is not a diagnostic and §20.2's clause
+saying it was is struck), but the ladder rises monotonically — **2.3579 / 2.6301 / 3.1286 /
+3.3029**, `LUMINANCE RATIO 0.629`. He lifts the prop into **1.6x MORE light and the white goes
+away.** Every monotone summary of "light at this point" is larger at the top rung, so the result
+survives the choice of estimate: it is not that the estimate is wrong, it is that the hypothesis is.
+
+**Projectors: closed** (1 in the scene, contains the prop at no rung). **Per-pixel light set: a
+NON-reading** — the cap in force is 0, so it cannot fire.
+
+**The one live lead, and it came out of the line's own structure:** the map is rendered from
+`ScenarioCamera` (deferred) and sampled in `GloomhavenVR.HeadCamera`'s screen space (forward) —
+confirmed independently by ModBuild 253's camera census in `NetProtocol.cs:2117`. §21.3 says what
+that does and does NOT establish. **But `self-covering on 0 of 36` at rung 0 — where the sample
+point IS the prop's own bounds centre — says the prop may not be in that map at all**, because
+`ObjectOcclusionVolume.OnEnable` passes `GetComponent<MeshRenderer>()` and the trap is SKINNED.
+If so, **strand 5 spent six builds unregistering a registration that never existed.**
+
+Round fourteen ships two more channels on the same line to decide it in one number
+(§21.4) and **no render-path change** (§21.5 costs the two real fixes and names the cheap A/B that
+is deliberately held back). §21.6 is the plain statement of what is closed and what is open.
+
+Read [§21](#21-round-fourteen--2026-09-06-against-the-modbuild-464-log-the-sweep-answered-and-it-killed-the-light)
+first, then §20, then **§15, the obituary**.
+
+---
+
 ## START AT §20 — ROUND THIRTEEN (2026-09-06): THE FIRST GENUINELY NEW TERM IN MONTHS IS **WORLD POSITION**
 
 > *"Wenn das weiße Highlighting in der Hand auftritt und ich es physisch nach oben fliegen lasse in
@@ -2367,5 +2399,184 @@ nothing to keep in step and no wire field. `NetProps` drives `PropAnimBelt.Engag
 remote hold, so a mirrored prop arms the same window and prints its own line on the peer's machine.
 Verified from evidence on the local side only — the 463 log is single-player-shaped; the mirrored
 half is reasoned from those two call sites.
+
+---
+
+## 21. Round fourteen — 2026-09-06, against the ModBuild 464 log: THE SWEEP ANSWERED, AND IT KILLED THE LIGHT
+
+The user performed the lift **while the white was showing**. `] [Props] HELD-PROP POSITION SWEEP`,
+36 samples, one hold on a `BearTrap`, Player.log:5635.
+
+### 21.1 THE LIGHT CHANNEL IS CLOSED — by a non-zero reading pointing the WRONG WAY
+
+```
+LIGHTS THAT THE LIFT ESCAPES: 23        LIGHTS THE LIFT WALKS INTO: 33
++0.0 m  luminance 2.3579      +0.5 m  2.6301      +1.0 m  3.1286      +2.0 m  3.3029
+LUMINANCE RATIO rung 0 : top rung = 0.629
+```
+
+**First, my own pre-registered clause was wrong and the log corrected it.** §20.2 said *"'lights
+that the lift escapes' above 0 — that light IS the flash"*. In a room with 21 active lights of
+range 1.5–7 wu, a 2 m translation changes set membership in **both** directions by construction:
+23 out, 33 in. A non-zero escape count means only that lights have ranges. **The escape/enter
+counts are not diagnostic. The DIRECTION is.**
+
+And the direction is unambiguous. The white **goes away** when he lifts. A model in which light
+arriving at the prop paints it white requires the light to **fall** with height. It rises
+monotonically across all four rungs, and he lifts the prop into **1.6x more light**. The lights he
+escapes are two `coinpile/Point Light` (range 1.5, contribution 0.12–0.14) and four
+`CR_INT_Lantern_Fixture/Point Light` (range 7, ~0.25 each); the ones he enters are
+`TO_EXT_House_{03,05,11}_Top_PR_LIT/Point Light` (range 3–4, intensity 7, 0.20–0.29 each). More
+light, less white.
+
+**Is the sum the wrong summary?** It is an imperfect one, and the reason is on the same line:
+`PER-PIXEL LIGHT CAP IN FORCE: 0`. At that cap **no light in this scene is rendered per-pixel at
+all** — the built-in forward base pass folds up to four lights per-vertex and the rest into SH, so
+the surface does not receive the sum of point attenuations. But this does not rescue the
+hypothesis, and the reason is that **every** monotone summary of "how much light is at this point"
+— the sum, the maximum single contributor, a per-vertex fold, an SH fold — is larger at the top
+rung than at rung 0, because *more lights reach it and they are closer*. A wrong-direction result
+survives the choice of summary. So the answer to "does this kill the light hypothesis or is the
+estimate the wrong summary" is: **it kills the hypothesis.** Not "no lights changed" — the
+stronger form: *the lights changed, and they changed the other way*.
+
+Closed: **light reaching the prop**. NOT closed by this: the shader's own **view**-dependence,
+because a lift also rotates the prop against the eye and §13.2 already recorded the ring reading
+white FACE-ON and bronze EDGE-ON.
+
+### 21.2 The other three channels, and what each zero is worth
+
+| channel | reading | status |
+|---|---|---|
+| per-pixel light set | flipped on **0 of 36** — but `PER-PIXEL LIGHT CAP IN FORCE: 0` | **NON-READING.** At a cap of 0 nothing is ever promoted to per-pixel, so this channel cannot fire. It excludes nothing and the line says so itself. |
+| projectors | `PROJECTORS CONTAINING THE PROP: none at any rung`, 1 projector in the scene | **CLOSED** for this scene. One projector exists and it contains the prop at no rung. |
+| occlusion coverage | differed on **0 of 36**, with **0 of 144 rungs behind the camera** | the channel demonstrably RAN. But see §21.3 — the containment test was the wrong test. |
+
+### 21.3 THE STRUCTURAL FINDING NOBODY ASKED FOR, AND WHAT IT IS AND IS NOT
+
+```
+OCCLUSION MAP: generator camera 'ScenarioCamera', head camera 'GloomhavenVR.HeadCamera',
+SAME CAMERA: False
+```
+
+**The mismatch is real and it is independently confirmed.** ModBuild 253's camera census, quoted in
+`NetProtocol.cs:2117`, read off the live cameras: *"head path=Forward mask=0xFFFFFFFF; game
+'ScenarioCamera' path=DeferredShading mask=0x700FFF17 commandBuffers=2"*. `TilesOcclusionGenerator`
+attaches its buffer at `CameraEvent.BeforeGBuffer` on the camera it sits on
+(`TilesOcclusionGenerator.cs:48,192`) — the ScenarioCamera, which **is** deferred, so the buffer
+runs there — and it publishes `_ObjectOcclusion`, `_TilesOcclusionMap` and
+`_EnableOcclusionMap = 1` as **globals**. Any shader that samples one of them on the head camera
+does so through `ComputeScreenPos`, i.e. **in the head camera's screen space**, against a map
+authored in the ScenarioCamera's. This is proven for `ParticleMasterUnlitAdd_Shd` by disassembly
+(`tools/ShaderDisasm/FINDINGS.md`: `sample r3, r2.yzyy, t0` at the screen-space projective UV,
+the whole term gated by `_EnableOcclusionMap`).
+
+**Three things that are NOT established, and the round would be dishonest without them.**
+
+1. **Nobody has shown the prop's shader samples any of these globals.** The trap draws on
+   `Amp_Char_Shader` (§14). The disassembly evidence in `tools/ShaderDisasm/evidence/` covers
+   `ParticleMasterUnlitAdd`, `SimpleParticleAlphaDFade`, `OmniDecal_Shd` and `UI_Default` — **not
+   `Amp_Char_Shader`**, and the game data needed to dump it is not on this machine. So "the prop
+   samples the wrong screen" is an inference from a sibling shader, not a reading.
+2. **The mismatch is a CONSTANT of the frame.** It is identical for the prop on its hex and in the
+   hand, and identical while the prop is white and while it is not. On its own it cannot produce a
+   flash that comes and goes; it can only produce a *standing* wrong lookup. It becomes an
+   explanation for the user's lift only through a second step — that the lift moves the head-screen
+   UV out of whatever the map holds — and that second step was **never measured**.
+3. **My analytic coverage channel could not have seen it, and the coordinator is right about why.**
+   It reconstructs which registered renderers' extents *contain the rung in the generator camera's
+   space*. That is the space the map is **authored** in, not the space the shader **fetches** in.
+   A camera mismatch shifts the whole lookup; a containment test is blind to a shift.
+
+**AND THE READING THAT MAY MOOT ALL OF IT.** The 464 line says `6 object renderer(s) registered`
+and `self-covering on 0 sample(s)` at **every** rung — including rung 0, where the sample point *is*
+the prop's own bounds centre, so a registered prop would necessarily have covered itself.
+`ObjectOcclusionVolume.OnEnable` is `AddObjectRenderer(GetComponent<MeshRenderer>())` and
+`AddObjectRenderer` **early-returns on null**. The trap's drawing renderer is a
+**SkinnedMeshRenderer** (`updateWhenOffscreen` is set on it every hold). A volume on a skinned prop
+therefore registers **nothing** while still counting as *"1 ObjectOcclusionVolume, 1 ENABLED"* on
+the hush line — which is the exact figure §19.4 made the **precondition** of the round-twelve
+experiment. If that is what is happening, then **strand 5 spent six builds unregistering a
+registration that never existed**, ModBuild 459's "null perturbation" was null by construction
+rather than by result, and the occlusion map cannot reach this prop at all.
+
+That is strong but **indirect**, so round fourteen measures it exactly instead of asserting it.
+
+### 21.4 What shipped — two more channels on the same line, and NO render-path change
+
+Both are one-shot reads inside the arm that already exists. Nothing new is walked per frame.
+
+* **CHANNEL 5 — PARTICIPATION.** Per `ObjectOcclusionVolume` under the prop: its name, its
+  `enabled`, **whether its own object carries a `MeshRenderer`**, and **whether that renderer is
+  actually in `TilesOcclusionGenerator.m_ObjectRenderers`**; plus the count of renderers under the
+  prop present in that list, and the globals read back (`_EnableOcclusionMap`, and the bound
+  dimensions of `_ObjectOcclusion` / `_TilesOcclusionMap` — with a null recorded as *"does not
+  prove unbound"*, because a CommandBuffer temporary-RT id need not resolve through
+  `Shader.GetGlobalTexture`).
+  **`renderers under the prop present in m_ObjectRenderers: 0` retires strand 5 by construction**
+  and closes the occlusion channel for this prop. Any number above 0 keeps it open and makes the
+  next experiment worth running.
+* **CHANNEL 6 — THE TWO SCREEN SPACES.** Per rung: the **head-camera viewport UV** (the coordinate
+  a screen-space sampler actually fetches), how many samples it fell **outside the 0..1 frame**, and
+  the **UV gap** to the generator camera's UV for the same world point. That last number is the
+  camera mismatch expressed as a quantity rather than a sentence. And the off-frame count is the
+  direct test of the lift: **if the head UV leaves the frame at the top rung and not at rung 0, then
+  "lifting escapes it" and "the sample point left the screen" are the same event.** If the UV stays
+  inside the frame at every rung, that coincidence does not exist.
+
+The pre-registered reading on the line and in `PropAnimBelt.PositionSweep.cs`'s header is corrected
+in place: the escape/enter counts are struck as diagnostics and the LUMINANCE DIRECTION replaces
+them, with 464's own numbers written in as the worked example.
+
+### 21.5 Is the camera mismatch fixable, and what it would cost
+
+Two shapes, and neither should ship on today's evidence.
+
+1. **Render the map from the head camera** (the deleted `TilesOcclusionMirror`'s approach: replicate
+   the generator's command buffer on the head camera). Correct, and **expensive**: the buffer draws
+   every revealed room renderer and every registered object renderer **with no frustum test**, plus
+   six blits, and on the head camera it runs **once per eye pass**. `PerfSceneProfile`'s own note
+   says exactly this — *"whether that buffer is attached to the MOD's head camera or only to the
+   game's ScenarioCamera decides whether VR pays for it twice per frame"* — on a rig measured at
+   **38.5 fps** against an 11.11 ms budget. This project has a standing finding against calling such
+   a sweep near-free.
+2. **Sample in the generator camera's space** — impossible without editing the game's compiled
+   shaders; the UV is computed in the shader from `ComputeScreenPos`.
+
+There is a third, much smaller option that is an **experiment rather than a fix**:
+`Shader.SetGlobalFloat("_EnableOcclusionMap", 0)` around the head camera's pass only
+(`Camera.onPreRender` / `onPostRender`). The disassembly proves that global is the **master gate** —
+at 0 the whole occlusion term is forced to 1 and bypassed. One float, exact undo, no render-path
+change, and it decides the question outright.
+
+**It is deliberately NOT shipped this round**, for a reason that is a number and not caution: the
+gate is global, so switching it off on the head camera also disables the occlusion term for every
+*other* shader that reads it — the flame and wall-fade path `ParticleMasterUnlitAdd_Shd` among them
+— and would change the picture in ways the user did not ask about, on a hypothesis that channel 5
+may retire outright in one more log. **Run it only if channel 5 reports a non-zero registered
+count.** If it reports 0, the occlusion channel is closed for this prop and the A/B is pointless.
+
+### 21.6 WHERE THE INVESTIGATION STANDS, PLAINLY
+
+**Closed this round:** *light reaching the prop* (directional, §21.1) — the strongest exclusion in
+fourteen rounds, because it is a non-zero reading in the wrong direction rather than a zero.
+**Projectors** (none contain the prop at any rung, 1 in the scene).
+
+**Non-readings, excluding nothing:** the per-pixel light set (cap 0).
+
+**Open, and now decided by one number in the next log:** the occlusion map — closed outright if
+`renderers under the prop present in m_ObjectRenderers: 0`, open with a named next experiment if
+above 0.
+
+**Open, and untouched by any of this:** the shader's own **view**-dependence. The user's lift is
+not only a translation — it rotates the prop against the eye, and §13.2 is on record that the ring
+reads white face-on and bronze edge-on. If channel 5 closes the occlusion map, this is the last
+candidate standing and the POSE columns on the HOME TWIN line are already the shipped control for
+it.
+
+**A correction to §19 that follows from §21.3 and must not be lost:** if the participation count is
+0, then §19's whole account is retired — strand 5 was never removing anything on a skinned prop, its
+"WORKING shape" in round eight was reading volume counts rather than registrations, and the
+ModBuild 459 experiment was a null perturbation in the literal sense.
 
 ---

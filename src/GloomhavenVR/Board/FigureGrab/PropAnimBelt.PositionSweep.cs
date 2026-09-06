@@ -63,19 +63,27 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <list type="bullet">
 /// <item><b>WORKING</b> — the line appears once per hold with <c>SAMPLES</c> ≥ 1 and
 /// <c>SCENE LIGHTS</c> ≥ 1. Below that it measured nothing and excludes nothing.</item>
-/// <item><b>THE ANSWER IS A NON-EMPTY DIFFERENCE.</b> <c>LIGHTS THAT THE LIFT ESCAPES: n</c> above
-/// 0 names, per light, the range and the two distances — that light is the flash, and the fix is a
-/// lighting fix. Equally decisive: <c>TOP-N PIXEL SET FLIPPED on k of m sample(s)</c> above 0, or a
-/// total attenuated luminance at rung 0 more than <b>2.0x</b> the value at rung +2 m
-/// (<c>LUMINANCE RATIO</c>), or <c>OCCLUSION COVERAGE</c> differing by ≥ 1 renderer between rungs,
-/// or <c>PROJECTORS CONTAINING</c> differing by ≥ 1.</item>
-/// <item><b>AN EMPTY DIFFERENCE IS ALSO A FINDING.</b> All four channels identical across a 2 m
-/// lift, over every sample, means position is NOT an input through lights, the pixel-light cap, the
-/// occlusion map or a projector — and the lead moves to the only position term left, which is the
-/// shader's own VIEW-dependence: lifting a prop in a hand also rotates it against the eye, and this
-/// file has already recorded (§13.2) that the ring reads white FACE-ON and bronze EDGE-ON. The
-/// <c>POSE</c> columns on the HOME TWIN line are the control for that, and they are already
-/// shipped.</item>
+/// <item><b>THE DIAGNOSTIC IS THE DIRECTION, NOT THE COUNT — and the ModBuild 464 log corrected
+/// this bullet.</b> The first version said <c>LIGHTS THAT THE LIFT ESCAPES</c> above 0 named the
+/// flash. 464 read <b>escapes 23 and enters 33</b>: in a 21-light room a 2 m translation changes
+/// set membership in both directions, so a non-zero escape count means only that lights have
+/// ranges. What discriminates is <c>LUMINANCE RATIO</c>. The user's white GOES AWAY on the lift, so
+/// a light-arriving-at-the-prop model needs the luminance to FALL with height — ratio above
+/// <b>2.0</b>. 464 measured <b>0.629</b> on a monotonically RISING ladder (2.3579 / 2.6301 /
+/// 3.1286 / 3.3029): he lifts the prop into 1.6x MORE light and the white goes.
+/// <b>THE LIGHT CHANNEL IS CLOSED</b>, and closed by a non-zero reading pointing the wrong way,
+/// which is stronger than a zero.</item>
+/// <item><b>WHAT A ZERO MEANS PER CHANNEL, because three of the four can return one for different
+/// reasons.</b> The pixel-set channel cannot fire at all at a per-pixel cap of 0 (464: cap 0) — a
+/// NON-reading. The projector channel contained the prop at no rung, with 1 projector in the
+/// scene. The occlusion channel is decided by the PARTICIPATION clause, not by the coverage count:
+/// <c>ObjectOcclusionVolume.OnEnable</c> passes <c>GetComponent&lt;MeshRenderer&gt;()</c> and
+/// <c>AddObjectRenderer</c> early-returns on null, so a volume on a SKINNED prop registers nothing
+/// while still counting as an enabled volume on the hush line. At 0 registered renderers the map
+/// cannot reach this prop and strand 5 is retired by construction. With all four closed the only
+/// position term left is the shader's own VIEW-dependence — lifting also ROTATES the prop against
+/// the eye, and §13.2 recorded the ring reading white FACE-ON and bronze EDGE-ON; the <c>POSE</c>
+/// columns on the HOME TWIN line are the shipped control.</item>
 /// <item><b>STILL BEYOND THE INSTRUMENT</b> — <c>SCENE LIGHTS 0</c> (nothing to rank),
 /// <c>GENERATOR: none</c> (the occlusion channel did not run), or <c>SAMPLES 0</c>. Each of those
 /// is printed as its own clause so an untaken channel can never read as a taken one that returned
@@ -175,6 +183,32 @@ internal static partial class PropAnimBelt
     private static int _swOccRegistered, _swOccRoom;
     private static bool _swGenSeen;
 
+    /// <summary>ROUND FOURTEEN, CHANNEL 5 — DOES THE PROP PARTICIPATE IN THE OCCLUSION MAP AT
+    /// ALL? Measured exactly, because the ModBuild 464 sweep read <c>self-covering on 0 of 36
+    /// sample(s)</c> at rung 0 — where the sample point IS the prop's own bounds centre, so a
+    /// registered prop would necessarily have covered itself — and that is strong but INDIRECT.
+    /// <c>ObjectOcclusionVolume.OnEnable</c> is
+    /// <c>AddObjectRenderer(GetComponent&lt;MeshRenderer&gt;())</c> and <c>AddObjectRenderer</c>
+    /// early-returns on null: a volume sitting on an object whose renderer is a
+    /// <b>SkinnedMeshRenderer</b> registers NOTHING while still counting as an enabled volume.
+    /// The hush line's "1 ObjectOcclusionVolume(s), 1 ENABLED" cannot tell those apart. This
+    /// does.</summary>
+    private static string _swOccVolumes = string.Empty;
+    private static int _swOccPropRenderers = -1;
+
+    /// <summary>The globals the occlusion term is gated on, read back rather than assumed.</summary>
+    private static string _swOccGlobals = string.Empty;
+
+    /// <summary>ROUND FOURTEEN, CHANNEL 6 — THE TWO SCREEN SPACES, PER RUNG. The map is authored in
+    /// the GENERATOR camera's screen space and sampled in the HEAD camera's, so the gap between the
+    /// two UVs is the camera mismatch expressed as a number instead of a sentence.</summary>
+    private static readonly float[] SwHeadUvYLo = new float[4];
+    private static readonly float[] SwHeadUvYHi = new float[4];
+    private static readonly float[] SwHeadUvXLo = new float[4];
+    private static readonly float[] SwHeadUvXHi = new float[4];
+    private static readonly float[] SwUvGapHi = new float[4];
+    private static readonly int[] SwHeadOffScreen = new int[4];
+
     private static int _swLayer = -1;
     private static string _swLayerName = string.Empty;
     private static int _swPixelCap;
@@ -219,7 +253,14 @@ internal static partial class PropAnimBelt
             SwLumLast[r] = 0f;
             SwLumLo[r] = float.MaxValue;
             SwLumHi[r] = float.MinValue;
+            SwHeadUvXLo[r] = SwHeadUvYLo[r] = float.MaxValue;
+            SwHeadUvXHi[r] = SwHeadUvYHi[r] = float.MinValue;
+            SwUvGapHi[r] = 0f;
+            SwHeadOffScreen[r] = 0;
         }
+        _swOccVolumes = string.Empty;
+        _swOccGlobals = string.Empty;
+        _swOccPropRenderers = -1;
     }
 
     /// <summary>One sample: the prop's inputs at every rung, on the SAME frame. Called from
@@ -500,8 +541,13 @@ internal static partial class PropAnimBelt
             _swGenCamera = cam.name;
         _swGenIsHead = head != null && ReferenceEquals(cam, head);
 
+        if (_swOccGlobals.Length == 0)
+            _swOccGlobals = DescribeOcclusionGlobals();
+
         List<MeshRenderer> reg = gen.m_ObjectRenderers;
         _swOccRegistered = reg != null ? reg.Count : 0;
+        if (_swOccPropRenderers < 0 && visual != null)
+            MeasureOcclusionParticipation(visual, reg);
         _swOccRoom = gen.m_RoomRenderers != null ? gen.m_RoomRenderers.Count : 0;
         if (reg == null || reg.Count == 0)
             return;
@@ -512,6 +558,31 @@ internal static partial class PropAnimBelt
         {
             Vector3 p = basePos + (Vector3.up * SweepRungs[r]);
             Vector3 vp = cam.WorldToViewportPoint(p);
+            // CHANNEL 6, and it is taken even when the generator's own projection fails: what a
+            // screen-space sampler actually fetches is the HEAD camera's UV, and that number is
+            // worth having whether or not the map's own camera can see the point.
+            if (head != null)
+            {
+                Vector3 hv = head.WorldToViewportPoint(p);
+                if (hv.z > 0f)
+                {
+                    if (hv.x < SwHeadUvXLo[r]) SwHeadUvXLo[r] = hv.x;
+                    if (hv.x > SwHeadUvXHi[r]) SwHeadUvXHi[r] = hv.x;
+                    if (hv.y < SwHeadUvYLo[r]) SwHeadUvYLo[r] = hv.y;
+                    if (hv.y > SwHeadUvYHi[r]) SwHeadUvYHi[r] = hv.y;
+                    if (hv.x < 0f || hv.x > 1f || hv.y < 0f || hv.y > 1f)
+                        SwHeadOffScreen[r]++;
+                    if (vp.z > 0f)
+                    {
+                        float gap = new Vector2(hv.x - vp.x, hv.y - vp.y).magnitude;
+                        if (gap > SwUvGapHi[r]) SwUvGapHi[r] = gap;
+                    }
+                }
+                else
+                {
+                    SwHeadOffScreen[r]++;
+                }
+            }
             if (vp.z <= 0f)
             {
                 _swOccOffScreen++;
@@ -545,6 +616,84 @@ internal static partial class PropAnimBelt
         }
         if (cover0 != coverT)
             _swOccDiffs++;
+    }
+
+    /// <summary>Name every <c>ObjectOcclusionVolume</c> under the prop and say, for each, whether
+    /// it actually registered anything: the component's own object must carry a
+    /// <see cref="MeshRenderer"/>, because <c>OnEnable</c> passes
+    /// <c>GetComponent&lt;MeshRenderer&gt;()</c> and <c>AddObjectRenderer</c> early-returns on
+    /// null. Then count how many renderers under the prop are genuinely in the generator's list.
+    /// Taken ONCE per window: the answer is a property of the prefab, not of the frame.</summary>
+    private static void MeasureOcclusionParticipation(GameObject visual, List<MeshRenderer>? reg)
+    {
+        var sb = new StringBuilder(256);
+        var vols = new List<ObjectOcclusionVolume>(4);
+        visual.GetComponentsInChildren(true, vols);
+        int registered = 0;
+        for (int i = 0; i < vols.Count && i < SweepNameCap; i++)
+        {
+            ObjectOcclusionVolume v = vols[i];
+            if (v == null)
+                continue;
+            var mr = v.GetComponent<MeshRenderer>();
+            bool inList = mr != null && reg != null && reg.Contains(mr);
+            if (inList)
+                registered++;
+            if (sb.Length > 0)
+                sb.Append("; ");
+            sb.Append('\'').Append(v.name).Append("' enabled ").Append(v.enabled)
+              .Append(", MeshRenderer on the same object: ").Append(mr != null ? "YES" : "**NO**")
+              .Append(", present in m_ObjectRenderers: ").Append(inList ? "YES" : "**NO**");
+        }
+        if (vols.Count == 0)
+            sb.Append("none under this prop");
+        else if (vols.Count > SweepNameCap)
+            sb.Append("; and ").Append(vols.Count - SweepNameCap).Append(" more not named");
+        _swOccVolumes = sb.ToString();
+
+        int under = 0;
+        if (reg != null)
+        {
+            var rends = new List<MeshRenderer>(8);
+            visual.GetComponentsInChildren(true, rends);
+            for (int i = 0; i < rends.Count; i++)
+            {
+                if (rends[i] != null && reg.Contains(rends[i]))
+                    under++;
+            }
+        }
+        _swOccPropRenderers = under;
+    }
+
+    /// <summary>The occlusion globals, read back. <c>_EnableOcclusionMap</c> is the shader-side
+    /// MASTER GATE — proven by disassembly for <c>ParticleMasterUnlitAdd_Shd</c>
+    /// (<c>tools/ShaderDisasm/FINDINGS.md</c>): the whole occlusion term is wrapped in
+    /// <c>movc r0.x, (_EnableOcclusionMap != 0), computed, 1</c>, so at 0 it is bypassed
+    /// entirely. The texture dimensions are the space the lookup is authored in, which is what
+    /// makes the camera mismatch a number rather than a sentence.</summary>
+    private static string DescribeOcclusionGlobals()
+    {
+        var sb = new StringBuilder(192);
+        sb.Append("_EnableOcclusionMap=")
+          .Append(Shader.GetGlobalFloat("_EnableOcclusionMap").ToString("0.###"));
+        AppendGlobalTexture(sb, "_ObjectOcclusion");
+        AppendGlobalTexture(sb, "_TilesOcclusionMap");
+        return sb.ToString();
+    }
+
+    private static void AppendGlobalTexture(StringBuilder sb, string name)
+    {
+        Texture? t = Shader.GetGlobalTexture(name);
+        sb.Append(", ").Append(name).Append('=');
+        if (t == null)
+        {
+            // NOT proof of absence: a texture bound through a CommandBuffer temporary-RT id may
+            // not resolve through this accessor. Say so rather than let a null read as unbound.
+            sb.Append("<null through Shader.GetGlobalTexture, which does NOT prove unbound — a "
+                      + "CommandBuffer temporary RT id need not resolve here>");
+            return;
+        }
+        sb.Append(t.width).Append('x').Append(t.height);
     }
 
     /// <summary>Does the screen-space extent of <paramref name="b"/> contain the viewport point
@@ -765,7 +914,22 @@ internal static partial class PropAnimBelt
             sb.Append(". This is an ANALYTIC reconstruction of which registered renderers' "
                       + "screen-space extents contain the rung, NOT a texture read-back — a "
                       + "read-back is a subsystem, and this file has already photographed a buffer "
-                      + "it empties itself. ");
+                      + "it empties itself. **DOES THIS PROP PARTICIPATE IN THE MAP AT ALL?** "
+                      + "renderers under the prop present in m_ObjectRenderers: ")
+              .Append(_swOccPropRenderers < 0 ? "<not measured>" : _swOccPropRenderers.ToString())
+              .Append("; the volumes themselves — ")
+              .Append(_swOccVolumes.Length == 0 ? "<not measured>" : _swOccVolumes)
+              .Append(". READ THAT FIRST AND READ IT BEFORE ANYTHING ELSE ON THIS LINE: "
+                      + "ObjectOcclusionVolume.OnEnable is AddObjectRenderer(GetComponent"
+                      + "<MeshRenderer>()) and AddObjectRenderer EARLY-RETURNS ON NULL, so a "
+                      + "volume on an object whose renderer is a SkinnedMeshRenderer registers "
+                      + "NOTHING while still counting as an enabled volume on the hush line. AT "
+                      + "ZERO REGISTERED RENDERERS THE PROP IS NEITHER DRAWN INTO THIS MAP NOR "
+                      + "REMOVABLE FROM IT, which retires strand 5 by construction rather than by "
+                      + "experiment and makes the ModBuild 459 'null perturbation' a test that "
+                      + "could not have had an effect either way. GLOBALS: ")
+              .Append(_swOccGlobals.Length == 0 ? "<not read>" : _swOccGlobals)
+              .Append(". ");
         }
 
         sb.Append("PROJECTORS CONTAINING THE PROP");
@@ -777,6 +941,7 @@ internal static partial class PropAnimBelt
                   + "PROP; a projector painting ONTO it is a different object and could never have "
                   + "appeared in that count. ");
 
+        AppendScreenSpaces(sb);
         AppendSweepVerdict(sb);
 
         // HW-VERIFY: this is the first reading in this investigation that measures the prop's
@@ -786,6 +951,48 @@ internal static partial class PropAnimBelt
         // stay at a tier the DEFAULT log level prints — scripts/check-hw-verify.py enforces the
         // position of this marker directly above the call.
         VRLog.Note("FigureGrab", sb.ToString());
+    }
+
+    /// <summary>CHANNEL 6 — the coordinate a screen-space sampler ACTUALLY fetches, per rung,
+    /// beside the coordinate the map is AUTHORED in.</summary>
+    private static void AppendScreenSpaces(StringBuilder sb)
+    {
+        sb.Append("THE TWO SCREEN SPACES, PER RUNG — because a screen-space lookup does not "
+                  + "sample where the object IS, it samples where the object LANDS ON A SCREEN, "
+                  + "and this build has two of them. HEAD-CAMERA viewport UV is what any shader "
+                  + "reading a global occlusion texture through ComputeScreenPos actually fetches; "
+                  + "UV GAP is its distance from the GENERATOR camera's UV for the same world "
+                  + "point, i.e. the camera mismatch as a number: ");
+        for (int r = 0; r < SweepRungs.Length; r++)
+        {
+            if (r > 0)
+                sb.Append(" | ");
+            bool taken = SwHeadUvXLo[r] != float.MaxValue;
+            sb.Append('+').Append(SweepRungs[r].ToString("0.#")).Append(" m: ");
+            if (!taken)
+            {
+                sb.Append("never in front of the head camera on any sample");
+                continue;
+            }
+            sb.Append("head UV x ").Append(SwHeadUvXLo[r].ToString("0.###")).Append("..")
+              .Append(SwHeadUvXHi[r].ToString("0.###")).Append(", y ")
+              .Append(SwHeadUvYLo[r].ToString("0.###")).Append("..")
+              .Append(SwHeadUvYHi[r].ToString("0.###")).Append(", OUTSIDE the 0..1 frame on ")
+              .Append(SwHeadOffScreen[r]).Append(" of ").Append(_swSamples)
+              .Append(" sample(s), worst UV gap to the generator camera ")
+              .Append(SwUvGapHi[r].ToString("0.###"));
+        }
+        sb.Append(". READ IT LIKE THIS: a UV GAP near 0 would mean the two cameras agree and the "
+                  + "mismatch is harmless; a gap of order 0.5 or more means the shader fetches a "
+                  + "part of the map that belongs to a DIFFERENT PART OF THE WORLD, and it does so "
+                  + "for every fragment of every shader that reads one of these globals — a real "
+                  + "defect whether or not it is this one. AND THE SECOND NUMBER IS THE ONE THAT "
+                  + "TESTS THE USER'S LIFT DIRECTLY: if the head UV leaves the 0..1 frame at the "
+                  + "top rung and not at rung 0, then 'lifting escapes it' and 'the sample point "
+                  + "left the screen' are the SAME EVENT, and the occlusion channel survives the "
+                  + "light channel's death. If the head UV is inside the frame at every rung, that "
+                  + "coincidence does not exist and the lift is not moving the lookup out of "
+                  + "anything. ");
     }
 
     private static void AppendSweepRungs(StringBuilder sb)
@@ -823,20 +1030,28 @@ internal static partial class PropAnimBelt
 
         sb.Append("LUMINANCE RATIO rung 0 : top rung = ")
           .Append(float.IsPositiveInfinity(ratio) ? "infinite (the top rung is lit by NOTHING)" : ratio.ToString("0.###"))
-          .Append(". HOW TO READ THIS LINE, PRE-REGISTERED: the answer is the DIFFERENCE between "
-                  + "the rungs, and it is POSITIVE if ANY of these four holds — 'lights that the "
-                  + "lift escapes' above 0 (that light IS the flash and the fix is a lighting "
-                  + "fix); the top-N pixel set flipping on 1 or more samples (the prop re-ranks its "
-                  + "own per-pixel lights by MOVING, which is a brightness change with no state "
-                  + "behind it anywhere); a luminance ratio above 2.0 (the same lights, twice the "
-                  + "light, purely from height); or occlusion coverage or projector containment "
-                  + "differing by 1 or more between the rungs. IT IS NEGATIVE — and that is a real "
-                  + "finding, not a failed round — if the escape and enter counts are BOTH 0, the "
-                  + "flip count is 0, the ratio is within 0.5..2.0, and the coverage and projector "
-                  + "counts are equal on every rung: position is then NOT an input through lights, "
-                  + "the per-pixel cap, the occlusion map or a projector, and the only position "
-                  + "term left is the shader's own VIEW-dependence, for which §13.2 already "
-                  + "recorded that the ring reads white FACE-ON and bronze EDGE-ON and for which "
-                  + "the POSE columns on the HOME TWIN line are the shipped control. ");
+          .Append(". HOW TO READ THIS LINE, AND THE ModBuild 464 LOG CORRECTED IT: the ESCAPE "
+                  + "AND ENTER COUNTS ARE NOT DIAGNOSTIC AND THE FIRST VERSION OF THIS SENTENCE "
+                  + "SAID THEY WERE. 464 read escapes 23 and enters 33 on a 2 m lift through a "
+                  + "21-light room; in any lit scene a translation of that size changes set "
+                  + "membership in BOTH directions and a non-zero escape count means only that "
+                  + "lights have ranges. **THE DIAGNOSTIC IS THE DIRECTION.** The user's white GOES "
+                  + "AWAY when he lifts, so a model in which light arriving at the prop paints it "
+                  + "requires the luminance to FALL with height, i.e. a LUMINANCE RATIO above 1 "
+                  + "and materially so — the bar is 2.0. 464 measured 0.629: the ladder rises "
+                  + "monotonically (2.3579, 2.6301, 3.1286, 3.3029) and he lifts the prop into "
+                  + "1.6x MORE light while the white goes. THAT CLOSES THE LIGHT CHANNEL, and it "
+                  + "closes it in the strongest way available — not by a zero, but by a non-zero "
+                  + "reading pointing the wrong way. It closes 'light reaching the prop'; it does "
+                  + "not touch the shader's own VIEW-dependence (§13.2: the ring reads white "
+                  + "FACE-ON and bronze EDGE-ON, and lifting a prop in a hand also ROTATES it "
+                  + "against the eye), for which the POSE columns on the HOME TWIN line are the "
+                  + "shipped control. THE OTHER CHANNELS: the pixel-set channel cannot fire at a "
+                  + "per-pixel cap of 0 and its zero is a NON-READING; the projector channel "
+                  + "contained the prop at no rung; and the occlusion channel is now decided by "
+                  + "the PARTICIPATION clause above rather than by the coverage count — at 0 "
+                  + "registered renderers under the prop it cannot reach this prop at all, and at "
+                  + "1 or more the UV gap and the off-frame counts in THE TWO SCREEN SPACES are "
+                  + "what say whether the lift moves the lookup. ");
     }
 }
