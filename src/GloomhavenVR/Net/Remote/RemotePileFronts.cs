@@ -208,8 +208,24 @@ internal sealed class RemotePileFronts
             content == Content.Items
                 ? PeerCardFaceCensus.Surface.ItemFan
                 : PeerCardFaceCensus.Surface.PileBrowse,
-            _owner.PlayerId, fronts, System.Math.Max(_arts.Count - fronts, 0),
+            _owner.PlayerId, fronts, System.Math.Max(DrawnSlabs() - fronts, 0),
             $"{content}: {Reason(gate)}");
+
+    /// <summary>How many of this fan's slabs are actually ON SCREEN. It used to be
+    /// <c>_arts.Count</c> inline, which was the same number until <c>RemoteItemFan</c> gained a
+    /// reason to deactivate one (the chip in the owner's fist, 2026-09-06 report item 5): a slab
+    /// nobody can see is neither a front nor a back, and counting it as a BACK would have this
+    /// census reporting a 1:1 breach that does not exist. Bounded by the arc size.</summary>
+    private int DrawnSlabs()
+    {
+        int n = 0;
+        for (int i = 0; i < _arts.Count; i++)
+        {
+            if (_arts[i].HostDrawn)
+                n++;
+        }
+        return n;
+    }
 
     internal RemotePileFronts(RemoteAvatar owner, string surface)
     {
@@ -437,7 +453,22 @@ internal sealed class RemotePileFronts
         {
             RemoteCardArt art = _arts[i];
             bool shown = false;
-            if (resolved)
+            // A SLAB THAT IS NOT DRAWN IS NOT PART OF THIS COUNT. RemoteItemFan deactivates the slab
+            // of a chip the owner is holding in their fist, so that slot is on nobody's screen;
+            // resolving a face onto it would cost a clone for nothing and — the reason this test is
+            // here rather than left implicit — would be counted by Census below, making the one
+            // instrument that measures the 1:1 face rule report a card the player cannot see.
+            //
+            // ITS EXISTING FACE IS LEFT ALONE, DELIBERATELY. Tearing it down would be free while the
+            // host is hidden and expensive the moment it comes back: this resolve runs on the
+            // board-content cadence, so a chip released back into the arc would GLIDE HOME AS A BACK
+            // for up to a quarter of a second before the next tick re-clothed it, in an arc of
+            // fronts. The clone is invisible under an inactive host either way, and index i names
+            // the same item for as long as the count is stable — which is precisely when a rebuild
+            // does not happen. Secrecy is untouched: a shut gate still tears every face down above,
+            // before this loop is reached.
+            bool drawn = art.HostDrawn;
+            if (resolved && drawn)
             {
                 if (content == Content.Items)
                 {
@@ -453,7 +484,7 @@ internal sealed class RemotePileFronts
             }
             if (shown)
                 fronts++;
-            else
+            else if (drawn)
                 art.HideFront();
         }
         _frontCount = fronts;
@@ -602,8 +633,36 @@ internal sealed class RemotePileFronts
     /// exception to. Nothing is written; every read is null-guarded.</para>
     /// </summary>
     internal static bool TryResolveItemSpentFlags(RemoteAvatar owner, List<bool> into)
+        => TryResolveItemArc(owner, into, null, out _);
+
+    /// <summary>
+    /// THE ONE WALK OF A PEER'S EQUIPPED ITEMS, and the ONE definition of the arc's index space.
+    /// Fills <paramref name="spentInto"/> with one SPENT flag per arc slab (see
+    /// <see cref="TryResolveItemSpentFlags"/> above for that half in full) and/or
+    /// <paramref name="rawInto"/> with the RAW <c>AllItems</c> index each arc slab was built from,
+    /// and reports the raw list's own length in <paramref name="rawLength"/>. Either output may be
+    /// null; both are cleared first.
+    ///
+    /// <para>WHY THE RAW INDEX IS HANDED OUT AT ALL: two facts about a peer's items arrive in the
+    /// RAW index space — record 35's usable mask and record 36's held-item seat — while the arc,
+    /// on both machines, is the COMPACTED one. Every consumer therefore needs the same
+    /// raw-to-arc translation, and the doc above records what happened the last time two of them
+    /// spelled that rule out separately: the tap landed on the chip below the right one for as
+    /// long as any null sat before it. <paramref name="rawInto"/><c>[arc]</c> is that mapping,
+    /// inverted by the caller with a scan over a list bounded by
+    /// <c>ItemsPile.UsableMaskBits</c>.</para>
+    ///
+    /// <para><paramref name="rawLength"/> is the belt, not decoration: a sender's seat is only a
+    /// name for a card while both machines' copies of the list have the same length, which is the
+    /// identical argument record 36's own length byte is built on
+    /// (<see cref="RemoteHeldCardFace"/>). A caller that skips it can hide the wrong chip.</para>
+    /// </summary>
+    internal static bool TryResolveItemArc(RemoteAvatar owner, List<bool>? spentInto,
+                                          List<int>? rawInto, out int rawLength)
     {
-        into.Clear();
+        spentInto?.Clear();
+        rawInto?.Clear();
+        rawLength = 0;
         if (owner == null)
             return false;
         try
@@ -613,6 +672,7 @@ internal sealed class RemotePileFronts
             List<CItem>? all = inv != null ? inv.AllItems : null;
             if (all == null)
                 return false;
+            rawLength = all.Count;
             // ONE FLAG PER CHIP, NOT ONE PER INVENTORY ENTRY — nulls skipped, exactly as Resolve
             // above and Cards.ItemsPile.Populate skip them. This walked the RAW index while every
             // arc on both machines is the compacted one, so a single null anywhere but the end of
@@ -621,16 +681,20 @@ internal sealed class RemotePileFronts
             // the same translation done deliberately for record 35's mask.
             for (int i = 0; i < all.Count; i++)
             {
-                if (all[i] != null)
-                    into.Add(all[i].SlotState == CItem.EItemSlotState.Spent);
+                if (all[i] == null)
+                    continue;
+                spentInto?.Add(all[i].SlotState == CItem.EItemSlotState.Spent);
+                rawInto?.Add(i);
             }
             return true;
         }
         catch (System.Exception ex)
         {
-            into.Clear();
-            VRLog.Debug("Net", $"Remote item fan spent-state read failed ({ex.Message}) — no chip " +
-                               "is drawn tapped this cadence.");
+            spentInto?.Clear();
+            rawInto?.Clear();
+            rawLength = 0;
+            VRLog.Debug("Net", $"Remote item fan inventory read failed ({ex.Message}) — no chip " +
+                               "is drawn tapped, and none is taken out of the arc, this cadence.");
             return false;
         }
     }

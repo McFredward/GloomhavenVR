@@ -241,6 +241,51 @@ internal sealed class RemoteItemFan
     /// as "not spent", which is the upright default.</summary>
     private bool IsSpent(int i) => i >= 0 && i < _spent.Count && _spent[i];
 
+    // ---- WHICH CHIP IS IN THE OWNER'S FIST (record 36) -----------------------------------------
+    // 2026-09-06 report item 5: "zB im Itemfächer sehe ich das item das der Spieler in der Hand hat
+    // trotzdem nochmal." One card, drawn twice on the peer's screen — once on the slab in the
+    // avatar's hand and once still sitting in the mirrored arc — which is a straight 1:1 breach:
+    // the owner's own arc has a HOLE where that chip was from the instant they pluck it.
+    //
+    // WHY THE ABILITY FAN NEVER HAD THIS AND THIS ONE DOES. Plucking an ability card runs
+    // CardFan.Remove, which drops it out of the fan's list, so the count on the wire falls by one
+    // and the mirrored fan simply rebuilds one slab shorter (RemoteHandFan's HeldHandSeats fixes
+    // only the FACE list, never the population). ItemsPile keeps a held chip in _chips and merely
+    // declines to give it an arc pose — "A HELD chip rides a hand and a CLIPPED chip lies in the
+    // board's use recess: neither is at an arc position, so neither may be given one" — so
+    // ItemsPile.Chips.Count, which is what NetAvatarDriver broadcasts, does not move at all. The
+    // count is right; the MEMBERSHIP is not, and it has to be subtracted here.
+    //
+    // AND THE ARC MUST NOT CLOSE THE GAP. The owner's Relayout `continue`s past the held chip and
+    // gives every OTHER chip the angle for its own unchanged index i, so the arc keeps its full
+    // spread with a hole in it. Removing the slab from the count instead would re-space the whole
+    // arc on this client and on no other, which trades one 1:1 breach for a worse one. The slab is
+    // therefore DEACTIVATED in place and every neighbour keeps its seat.
+    //
+    // ONE SOURCE OF TRUTH: the seat is record 36's, the very seat RemoteHeldCardFace draws that
+    // card's front from — see RemoteAvatar.HeldItemSeat. Zero new wire bytes.
+    private readonly List<int> _arcRaw = new(MaxCards);  // arc slab i -> RAW AllItems index
+    private int _arcRawLength;                           // this client's AllItems.Count (the belt)
+    private int _heldArcA = -1;                          // arc slab held in pose slot 1, -1 = none
+    private int _heldArcB = -1;                          // arc slab held in pose slot 2, -1 = none
+    private int _loggedHeldKey = -1;                     // change gate for the line in SyncHeldSeats
+
+    /// <summary>True iff arc slab <paramref name="i"/> is the chip the owner has in a fist, and so
+    /// is not at an arc position on their machine either.</summary>
+    private bool IsHeldOut(int i) => i >= 0 && (i == _heldArcA || i == _heldArcB);
+
+    /// <summary>Forget which slabs were taken out of the arc. Called wherever the SLAB SET itself
+    /// is replaced or torn down: these are positions in <see cref="_cards"/>, so carrying them
+    /// across a rebuild would hide whichever card lands at that index next. The arc's own
+    /// <c>_clipIndex</c>/<c>_returnIndex</c> are dropped at exactly the same places and for exactly
+    /// the same reason.</summary>
+    private void ClearHeldOut()
+    {
+        _heldArcA = -1;
+        _heldArcB = -1;
+        _loggedHeldKey = -1;
+    }
+
     /// <summary>Re-read the peer's per-item spent flags on the board-content cadence, or at once
     /// when the arc's slab count has changed under them.</summary>
     private void SyncSpentStates(int count)
@@ -249,7 +294,12 @@ internal sealed class RemoteItemFan
             return;
         _nextSpentResolveAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
         _spentResolvedCount = count;
-        RemotePileFronts.TryResolveItemSpentFlags(_owner, _spent);
+        // ONE WALK, BOTH PROJECTIONS. The spent flags and the raw-index mapping are two readings of
+        // the same list under the same membership rule, and the doc on TryResolveItemArc records
+        // what it cost the last time that rule was spelled out twice. The mapping rides this
+        // cadence for the same reason the flags do — it only moves when the peer's INVENTORY does,
+        // which is human-paced — while the seat it is applied to is read off the wire every frame.
+        RemotePileFronts.TryResolveItemArc(_owner, _spent, _arcRaw, out _arcRawLength);
 
         int tapped = 0;
         for (int i = 0; i < _spent.Count && i < count; i++)
@@ -265,6 +315,108 @@ internal sealed class RemoteItemFan
                           "requirement 3). Read from the peer's host-replicated Inventory.AllItems " +
                           "index-aligned with the fan — zero wire bytes, no item identity, and no " +
                           "RevealGate involvement: a slot state is not a card face.");
+    }
+
+    /// <summary>
+    /// WHICH ARC SLABS ARE IN THE OWNER'S FISTS this frame — record 36's raw seats translated into
+    /// this arc's compacted index space, and the release GLIDE armed on the falling edge. Called
+    /// every frame (the wire moves at packet rate; only the mapping behind it is on a cadence) and
+    /// before <see cref="Layout"/>, which is the code that may not write a pose for a slab that is
+    /// not at an arc position.
+    ///
+    /// <para>THE TWO BELTS. A positional seat is a name for a card only while both copies of the
+    /// list agree, and this receiver hides a slab on the strength of one, so it refuses on any
+    /// disagreement rather than guessing: the sender's <c>AllItems</c> LENGTH must equal this
+    /// client's, and the compacted arc must be exactly as long as the slab count the owner is
+    /// broadcasting. Failing either draws the card twice for a frame or two — the picture before
+    /// this build — which is the safe direction; hiding the WRONG chip is not, because the player
+    /// would read it as the item having been used.</para>
+    ///
+    /// <para>THE RELEASE IS A GLIDE, NOT A POP. The owner's chip does not teleport back into the
+    /// arc when they let go — <c>ItemChip</c> eases it home on <c>CardLerpSpeed</c> — so the slab
+    /// is re-activated AT THE WORLD POSE OF THE AVATAR'S HELD-CARD SLAB (which
+    /// <c>RemoteAvatar.UpdateCardSlab</c> leaves standing exactly where the card last was, for
+    /// precisely this purpose) and handed to the take-back glide the recess path already uses. The
+    /// same shape as <c>RemoteHandFan.BeginReturnGlide</c>, on the same seed, for the same
+    /// reason.</para>
+    /// </summary>
+    private void SyncHeldSeats(int count)
+    {
+        int wasA = _heldArcA;
+        int wasB = _heldArcB;
+        _heldArcA = ResolveHeldArcSeat(1, count);
+        _heldArcB = ResolveHeldArcSeat(2, count);
+        // TWO POSE SLOTS CANNOT NAME ONE CHIP, but this is a value off the wire and a receiver never
+        // assumes a sender is well-formed. Collapsing the duplicate costs nothing and keeps the
+        // release edge below from arming the same slab twice.
+        if (_heldArcB >= 0 && _heldArcB == _heldArcA)
+            _heldArcB = -1;
+        if (wasA >= 0 && wasA != _heldArcA && wasA != _heldArcB)
+            BeginReturnFromFist(wasA, 1);
+        if (wasB >= 0 && wasB != _heldArcA && wasB != _heldArcB)
+            BeginReturnFromFist(wasB, 2);
+        int key = ((_heldArcA + 1) << 8) | (_heldArcB + 1);
+        if (key == _loggedHeldKey)
+            return;
+        _loggedHeldKey = key;
+        if (_heldArcA < 0 && _heldArcB < 0)
+            return;
+        string slabs = _heldArcA >= 0 && _heldArcB >= 0 ? $"{_heldArcA} and {_heldArcB}"
+                     : _heldArcA >= 0 ? _heldArcA.ToString()
+                     : _heldArcB.ToString();
+        // HW-VERIFY: 2026-09-06 report item 5, first half. This is the line that says a peer's item
+        // is no longer drawn twice. Change-gated on WHICH seats are in a fist rather than on an
+        // event — it is a per-frame condition for as long as the card is up, so an event line would
+        // be a flood, and the seats themselves are human-paced. The PEER CARD FACE CENSUS carries
+        // the standing picture (its item-fan row now counts the DRAWN slabs, so a chip taken out of
+        // the arc is neither a FRONT nor a BACK there): that row falling from N to N-1 while this
+        // line prints is the whole verification, and the row NOT falling means this receiver hid
+        // nothing.
+        VRLog.Note("Net", $"Remote ITEM fan [player {_owner.PlayerId}]: HELD CHIP TAKEN OUT OF THE "
+            + $"ARC — slab {slabs} of {count} is the item this peer has in their fist (record 36, "
+            + "the same seat their held card's own front is drawn from), so it is not drawn in the "
+            + "arc — exactly as the owner's own ItemsPile.Relayout declines to give a held chip an "
+            + "arc pose. The arc does NOT close the gap, because theirs does not either: every "
+            + "other slab keeps the angle for its own index. Before this build the item was on "
+            + "screen twice at once, in the fist and in the fan (report item 5). No new wire field.");
+    }
+
+    /// <summary>Record 36's item seat for one pose slot, translated into an arc index — or -1 when
+    /// this slot names no item, when the belts disagree, or when the raw seat is a null inventory
+    /// entry (which has no chip on either machine). See <see cref="SyncHeldSeats"/>.</summary>
+    private int ResolveHeldArcSeat(int poseSlot, int count)
+    {
+        if (!_owner.HeldItemSeat(poseSlot, out int raw, out int listLength))
+            return -1;
+        if (listLength != _arcRawLength || _arcRaw.Count != count)
+            return -1;
+        for (int i = 0; i < _arcRaw.Count; i++)
+        {
+            if (_arcRaw[i] == raw)
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>Put arc slab <paramref name="i"/> back on screen at the pose the peer's fist left it
+    /// at and glide it home — see <see cref="SyncHeldSeats"/>'s release note.</summary>
+    private void BeginReturnFromFist(int i, int poseSlot)
+    {
+        if (i < 0 || i >= _cards.Count || _root == null)
+            return;
+        GameObject card = _cards[i];
+        if (card == null)
+            return;
+        card.SetActive(true);
+        Transform? from = _owner.HeldSlab(poseSlot);
+        if (from != null)
+            card.transform.SetPositionAndRotation(from.position, from.rotation);
+        // …unless the recess already owns this slab (the owner laid the card straight into their
+        // use slot): that path has its own settle and must not be overwritten with an arc glide.
+        if (i == _clipIndex)
+            return;
+        _returnIndex = i;
+        _returnGlide = ReleaseGlideSeconds;
     }
 
     /// <summary>Change key for the <c>REMOTE ITEM CUT</c> diagnostic — the box height it last
@@ -604,6 +756,11 @@ internal sealed class RemoteItemFan
         ResolveClip();
         // …and WHICH chips lie tapped, before the layout that rolls them (see SyncSpentStates).
         SyncSpentStates(count);
+        // …and WHICH chip is in the owner's fist, for the same reason one line up: the layout must
+        // know which slab it may not place, because that chip is not at an arc position on the
+        // owner's machine either. AFTER the rebuild above, so a fresh arc is never drawn with the
+        // held chip in it for one frame (see SyncHeldSeats, report item 5).
+        SyncHeldSeats(count);
         Layout(count, dt);
         TickClipSettle(dt);
 
@@ -722,6 +879,20 @@ internal sealed class RemoteItemFan
 
         for (int i = 0; i < _cards.Count; i++)
         {
+            // THE CHIP IN THE OWNER'S FIST IS NOT IN THIS ARC EITHER, and unlike the recess card it
+            // is not anywhere else in this fan's hierarchy: the mirrored card is the slab on the
+            // avatar's hand, so this one is simply not drawn. Deactivated rather than skipped,
+            // because a skipped slab would go on standing at the pose it last had — which is the
+            // arc slot, i.e. exactly the duplicate the report names. See SyncHeldSeats.
+            //
+            // The gap it leaves stays OPEN: every other slab below keeps `start + step * i` for its
+            // own unchanged index, which is term for term what ItemsPile.Relayout does for the
+            // owner. Re-spacing the arc here would be a divergence nobody asked for.
+            bool heldOut = IsHeldOut(i);
+            if (_cards[i] != null && _cards[i].activeSelf == heldOut)
+                _cards[i].SetActive(!heldOut);
+            if (heldOut)
+                continue;
             // The slab lying in the owner's use recess is NOT in this arc: it is a child of the
             // mirrored recess and its pose is the recess's own frame (see ResolveClip /
             // TickClipSettle). Writing an arc slot over it here would be the second, disagreeing
@@ -1256,6 +1427,7 @@ internal sealed class RemoteItemFan
         _loggedClip = -2;
         _returnIndex = -1;
         _returnGlide = 0f;
+        ClearHeldOut();
         _collapseElapsed = -1f;
         if (_root != null && _root.activeSelf)
             _root.SetActive(false);
@@ -1645,6 +1817,7 @@ internal sealed class RemoteItemFan
         _clipSettle = 0f;
         _returnIndex = -1;
         _returnGlide = 0f;
+        ClearHeldOut();
         _loggedClip = -2;
         for (int i = _cards.Count - 1; i >= 0; i--)
         {
@@ -1900,6 +2073,7 @@ internal sealed class RemoteItemFan
         _soloElapsed = -1f;
         _returnIndex = -1;
         _returnGlide = 0f;
+        ClearHeldOut();
         _cards.Clear();
         ClearCollapseCapture();
         _builtCount = -1;

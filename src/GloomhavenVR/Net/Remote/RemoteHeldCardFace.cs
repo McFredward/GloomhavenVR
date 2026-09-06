@@ -60,8 +60,12 @@ internal sealed class RemoteHeldCardFace
 
     /// <summary>The body kind the slab's mesh currently wears. An ITEM card is nearly square and an
     /// ability card is tall; drawing an item face on the ability silhouette letterboxes it, which is
-    /// the same "wrong-aspect box" defect <see cref="RemoteItemFan"/>'s own note records. The body
-    /// is therefore swapped with the face and swapped back when the card is put down.</summary>
+    /// the same "wrong-aspect box" defect <see cref="RemoteItemFan"/>'s own note records.
+    ///
+    /// <para>CHOSEN FROM THE WIRE, NOT FROM THE RESOLVED FACE — see <see cref="KindOf"/>. It used to
+    /// be swapped WITH the face and swapped back when the card was put down, which meant a card
+    /// whose front is refused (the game's own secret selection window) wore the ability shape no
+    /// matter what it was: 2026-09-06 report item 5, second half.</para></summary>
     private CardBodyKind _bodyKind = CardBodyKind.Ability;
 
     // What we last RESOLVED, so the walk over the peer's lists runs on an edge + a cadence rather
@@ -115,18 +119,6 @@ internal sealed class RemoteHeldCardFace
             Hide();
             return;
         }
-        if (!NetProtocol.HeldFaceNamesCard(code))
-        {
-            // A CARD IS IN THEIR FIST AND THE RECORD NAMES NO SEAT FOR IT — the state the 2026-09-05
-            // evidence turned out to be made of, and the one state the old code reported as if
-            // nothing were being drawn at all. It is a BACK on screen, so it is a BACK in the census,
-            // and the rule names the SENDER rather than this receiver: no amount of work here can
-            // draw a face for a seat nobody named.
-            Report(0, 1, "the sender named no seat for this card (record 36 code 0) — nothing this "
-                       + "receiver can do; read the owner's 'Held-card face SENT' line");
-            Hide();
-            return;
-        }
         if (!ReferenceEquals(slab, _slab))
         {
             // A rebuilt slab (the avatar's slab is lazily built once, but a torn-down peer can
@@ -136,11 +128,41 @@ internal sealed class RemoteHeldCardFace
             _filter = slab.GetComponent<MeshFilter>();
             _renderer = slab.GetComponent<MeshRenderer>();
         }
-        // Keep the body cut to the rectangle the print paints, every frame this slot is live: the
-        // ability box is derived from an OBSERVED face size that changes once per session, so a
-        // one-shot cut at build time would leave the cold-start guess standing. Two int compares in
-        // the steady state (see EnsureBody).
-        EnsureBody(_bodyKind);
+        // THE SILHOUETTE IS THE WIRE'S ANSWER, AND IT IS ANSWERED BEFORE THE FACE IS. Keep the body
+        // cut to the rectangle the print paints, every frame this slot is live: the ability box is
+        // derived from an OBSERVED face size that changes once per session, so a one-shot cut at
+        // build time would leave the cold-start guess standing. Two int compares in the steady
+        // state (see EnsureBody).
+        //
+        // …AND IT IS CUT ON EVERY PATH FROM HERE DOWN, INCLUDING THE ONES THAT DRAW A BACK, which is
+        // the 2026-09-06 report's item 5, second half: "Weiterhin in der Auswahlphase wenn der
+        // Spieler eine Itemkarte nimmt (und man nur die Rückseite sieht) ist die Karteform/Mesh die
+        // einer Handkarte in der Hand statt die Viereckige Form der Itemkarte." The kind used to be
+        // read off the RESOLVED face (`_item != null ? Item : Ability`), which is a fact that only
+        // exists once a FRONT has been resolved — so every back was an ability silhouette by
+        // construction, and a card whose front is refused on purpose (the game's own secret
+        // SelectAbilityCardsOrLongRest window, exactly the phase he names) could never be anything
+        // else. The wire has always known better: record 36's code byte carries the SOURCE LIST in
+        // bits 5..7, and HeldFaceListItems IS "this is an item card". No new field, and no face has
+        // to be resolvable for the shape to be right.
+        //
+        // Reading the LIST rather than HeldFaceNamesCard on purpose: a sender that knows the list
+        // but could not seat the card (HeldFaceIndexUnknown) still knows it is an item, and the
+        // shape of the back is not a secret in any phase — it is the same silhouette the owner and
+        // every onlooker can see in his hand.
+        EnsureBody(KindOf(code));
+        if (!NetProtocol.HeldFaceNamesCard(code))
+        {
+            // A CARD IS IN THEIR FIST AND THE RECORD NAMES NO SEAT FOR IT — the state the 2026-09-05
+            // evidence turned out to be made of, and the one state the old code reported as if
+            // nothing were being drawn at all. It is a BACK on screen, so it is a BACK in the census,
+            // and the rule names the SENDER rather than this receiver: no amount of work here can
+            // draw a face for a seat nobody named.
+            Report(0, 1, "the sender named no seat for this card (record 36 code 0) — nothing this "
+                       + "receiver can do; read the owner's 'Held-card face SENT' line");
+            HideKeepBody(code);
+            return;
+        }
 
         CPlayerActor? actor = null;
         RevealGate.CardFaceSource source = RevealGate.CardFaceSource.None;
@@ -173,7 +195,11 @@ internal sealed class RemoteHeldCardFace
         {
             Report(0, 1, "RevealGate.CardFaces(Selectable) named no source — the game's own secret "
                        + "SelectAbilityCardsOrLongRest window, or no context to resolve a face in");
-            Hide();
+            // A BACK, BUT STILL AN ITEM-SHAPED BACK. This branch is the report's second half almost
+            // word for word — "in der Auswahlphase … man nur die Rückseite sieht" — and it used to
+            // call Hide(), which resets the silhouette to ABILITY. The gate governs the FACE; it
+            // has nothing to say about the outline. See the EnsureBody call above.
+            HideKeepBody(code);
             return;
         }
 
@@ -211,7 +237,11 @@ internal sealed class RemoteHeldCardFace
             return;
         }
 
-        EnsureBody(_item != null ? CardBodyKind.Item : CardBodyKind.Ability);
+        // The kind is already cut from the wire list at the top of Tick — this is the belt that says
+        // the two agree. They cannot disagree by construction (only HeldFaceListItems resolves an
+        // _item, and only the other lists resolve a face), and if a future list ever breaks that the
+        // WIRE is the answer, because it is the one both a front and a back can be drawn from.
+        EnsureBody(KindOf(code));
         RemoteCardArt art = EnsureArt();
         bool shown = _item != null
             ? RemoteItemCardSource.ShowFace(art, _item)
@@ -420,10 +450,18 @@ internal sealed class RemoteHeldCardFace
             _art = null;
         }
         _bodyKind = kind;
-        VRLog.Info("Net", $"Remote held card [player {_owner.PlayerId} slot {_slot}]: body -> "
+        // HW-VERIFY: 2026-09-06 report item 5, second half. This line names the SILHOUETTE the peer
+        // is looking at and the fact it was chosen from, so a square item back reads as "body ->
+        // Item" here and a wrong-shaped one reads as "body -> Ability" beside a 'Held-card face
+        // SENT' line that says items. Change-gated on the kind and on the observed face-pixel
+        // revision, i.e. a couple of lines per slot per session, and it must print on the machine
+        // WATCHING the other player — so it is at Note, not Info.
+        VRLog.Note("Net", $"Remote held card [player {_owner.PlayerId} slot {_slot}]: body -> "
             + $"{kind} at {box.x * 1000f:F2}x{box.y * 1000f:F2} mm — an item card is nearly square "
-            + "and an ability card is tall, so the silhouette follows the face instead of "
-            + "letterboxing it; and the ABILITY box is CardFace.VisibleFaceRect, i.e. the rectangle "
+            + "and an ability card is tall, so the silhouette follows record 36's SOURCE LIST (the "
+            + "wire's own answer, available on a BACK too) instead of the resolved face, which only "
+            + "exists once a FRONT has been drawn and left every covered item card wearing the "
+            + "ability shape; and the ABILITY box is CardFace.VisibleFaceRect, i.e. the rectangle "
             + "the print actually paints, so no card back shows around it (report item 1).");
     }
 
@@ -468,9 +506,31 @@ internal sealed class RemoteHeldCardFace
         }
     }
 
-    /// <summary>Nothing is held in this slot (or the secret window is open): drop the front,
-    /// restore the ability body, and forget the resolve so the next hold starts clean.</summary>
-    internal void Hide()
+    /// <summary>
+    /// WHICH BODY A HELD CARD WEARS, from record 36's code byte alone — the SOURCE LIST is the kind.
+    /// This is the whole of the 2026-09-06 report item 5's second half: it is the one answer that
+    /// exists on every path, including the ones on which no face may be resolved, whereas the
+    /// resolved <see cref="_item"/> it replaced exists only after a FRONT has been drawn.
+    ///
+    /// <para>Deliberately total: an unknown or reserved list, and a code naming nothing at all,
+    /// answer ABILITY — which is the silhouette this surface drew before record 36 existed, and the
+    /// one an ability card (much the commoner case) actually needs.</para>
+    /// </summary>
+    private static CardBodyKind KindOf(byte code)
+        => NetProtocol.HeldFaceList(code) == NetProtocol.HeldFaceListItems
+            ? CardBodyKind.Item
+            : CardBodyKind.Ability;
+
+    /// <summary>Drop the front and the resolve, but cut the body to the kind
+    /// <paramref name="code"/> names — the BACK paths taken while a card really is in this peer's
+    /// fist. See <see cref="KindOf"/>.</summary>
+    private void HideKeepBody(byte code) => Hide(KindOf(code));
+
+    /// <summary>Nothing is held in this slot: drop the front, restore the ability body, and forget
+    /// the resolve so the next hold starts clean.</summary>
+    internal void Hide() => Hide(CardBodyKind.Ability);
+
+    private void Hide(CardBodyKind kind)
     {
         _art?.HideFront();
         _face = null;
@@ -479,7 +539,7 @@ internal sealed class RemoteHeldCardFace
         _resolvedCode = 0xFF;
         _resolvedCount = 0;
         _resolvedActor = 0;
-        EnsureBody(CardBodyKind.Ability);
+        EnsureBody(kind);
         if (_loggedShown)
         {
             _loggedShown = false;

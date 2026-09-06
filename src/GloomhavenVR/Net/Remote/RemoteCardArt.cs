@@ -254,6 +254,15 @@ internal sealed class RemoteCardArt
     public bool ShowsKey(int key) => _clone != null && _host != null && _shownSourceId == key;
 
     /// <summary>
+    /// Is the SLAB this overlay hangs on being drawn at all? A front printed onto a deactivated
+    /// host is on nobody's screen, and the point of asking is the CENSUS: a caller that counts it
+    /// as a front makes the one instrument that measures the 1:1 face rule report a card the player
+    /// cannot see. <c>RemoteItemFan</c> deactivates the slab of a chip the owner has in their fist
+    /// (2026-09-06 report item 5), which is the first surface for which this is not always true.
+    /// </summary>
+    public bool HostDrawn => _slab != null && _slab.gameObject.activeInHierarchy;
+
+    /// <summary>
     /// Show the cloned face of <paramref name="source"/> (a remote hand card's live
     /// <c>fullAbilityCard</c>). Dedups by instance id — a no-op if the same source is already shown.
     /// Any failure clears the front (fail-safe to the slab back). Returns true iff a front is shown.

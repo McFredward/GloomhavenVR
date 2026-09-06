@@ -349,6 +349,49 @@ internal sealed class RemoteAvatar
     }
 
     /// <summary>
+    /// WHICH ITEM THIS PEER IS HOLDING, for pose slot <paramref name="poseSlot"/> (1 or 2) — record
+    /// 36's seat filtered to <see cref="NetProtocol.HeldFaceListItems"/>, handed back as the RAW
+    /// <c>CInventory.AllItems</c> index the sender named plus the LENGTH it said that list had.
+    /// False when this slot names no item.
+    ///
+    /// <para>WHY <see cref="RemoteItemFan"/> NEEDS IT — 2026-09-06 report item 5, the user verbatim:
+    /// "Wenn aus dem Fächer eine Karte genommen wird, ist beim Spieler die entsprechende Karte so
+    /// lange sie in der Hand ist nicht mehr im Fächer sichtbar … Beim remote Fächer aber schon noch
+    /// … zB im Itemfächer sehe ich das item das der Spieler in der Hand hat trotzdem nochmal."
+    /// The item arc is NOT the ability arc and that is the whole of it: plucking an ability card
+    /// runs <c>CardFan.Remove</c>, so the wire count drops and the mirrored fan rebuilds one slab
+    /// shorter for free (which is why <see cref="HeldHandSeats"/> only has to fix the FACE list).
+    /// An item chip is never removed from <c>ItemsPile._chips</c> while it is held — Relayout
+    /// simply declines to give it an arc pose ("A HELD chip rides a hand … so neither may be given
+    /// one") — so the count the sender broadcasts (<c>ItemsPile.Chips.Count</c>) is unchanged and
+    /// the receiver draws a full arc with the held card still in it. The peer therefore sees the
+    /// same item twice, which is the breach.</para>
+    ///
+    /// <para>NO NEW WIRE FIELD IS OWED, for the same reason the hand fan needed none: record 36
+    /// already names this exact chip so that its own front can be drawn on the slab in the peer's
+    /// fist. It is the one source of truth for "this card is in a hand" and both surfaces now read
+    /// it.</para>
+    ///
+    /// <para>THE INDEX SPACE IS RAW AND THE ARC IS COMPACTED, and the caller must translate rather
+    /// than assume: <c>LocalRigSampler.NameHeldCard</c> writes <c>AllItems.IndexOf(item)</c> with
+    /// nulls counted (the index space record 35's usable mask uses), while both machines' arcs are
+    /// built by <c>ItemsPile.Populate</c>, which skips null entries. See
+    /// <c>RemotePileFronts.TryResolveItemArc</c>, the one walk that owns that translation.</para>
+    /// </summary>
+    internal bool HeldItemSeat(int poseSlot, out int rawSeat, out int listLength)
+    {
+        rawSeat = -1;
+        listLength = 0;
+        byte code = poseSlot == 1 ? _heldFaceCode : poseSlot == 2 ? _secondHeldFaceCode : (byte)0;
+        if (!NetProtocol.HeldFaceNamesCard(code)
+            || NetProtocol.HeldFaceList(code) != NetProtocol.HeldFaceListItems)
+            return false;
+        rawSeat = NetProtocol.HeldFaceIndex(code);
+        listLength = poseSlot == 1 ? _heldFaceCount : _secondHeldFaceCount;
+        return true;
+    }
+
+    /// <summary>
     /// The ONE hand seat this peer's fist names right now, together with the LENGTH the sender
     /// said that list had — false when no pose slot names a hand card, or when BOTH do.
     ///
