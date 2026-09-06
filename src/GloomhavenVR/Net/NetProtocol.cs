@@ -433,7 +433,111 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 458;
+    public const ushort ModBuild = 459;
+    // Build 459: the third big multiplayer round — nine items, seven lanes, and four defects whose
+    //   cause was a definition rather than a bug.
+    //   * ITEMS 1+2, AND THE MOD'S DEFINITION OF 'POINT OF NO RETURN' WAS NOT THE USER'S. The code
+    //     read it as 'the story curtain stands OR the loadout screen is open'; item 2 states his
+    //     definition in his own words — "Beim point-of-no-return (Quest bestaetigt)". Between the
+    //     two moments the 457 logs show ~8900 FRAMES, about two minutes, of committed journey in
+    //     which the mod closed nothing. The peer's shop window floats past the confirm by 349 log
+    //     lines and leaves only when a HAND presses its X. Both gate lines read 'CLOSED 3 of 8 …
+    //     LOCKED 7' — the sweep and the named set were CORRECT and simply ran too late. Fixed by
+    //     moving the edge to the confirm the QuestJourneyCurtain has measured since ModBuild 238,
+    //     not by adding a rule.
+    //     ITEM 2'S REGRESSION HAS TWO CAUSES AND BOTH WERE THINGS THE USER ASKED FOR, so neither is
+    //     reverted: a22c2894 narrowed the stickiness release to fix his own 'mehrere Fenster
+    //     parallel offen' report and the quest popup lost its release with it; 75d7a499 gave it a
+    //     new one that asks 'is there still a selection for this to be a view of', which is still
+    //     true at the confirm. And the popup never came BACK because RaiseCurtain freezes the set of
+    //     everything floating at the curtain's edge, so a popup still open then became a frozen
+    //     member for the rest of the interval. Closing at the confirm removes it from that snapshot,
+    //     and the game's own re-open then floats normally onto the right-hand corner.
+    //     'UI Event Window' is deliberately NOT a member: it is the encounter panel and the only
+    //     sender of ContinueRoadEvent is a button press, so closing it would strand every remote
+    //     client.
+    //   * ITEM 3 IS A FEEDBACK LOOP AND BOTH HALVES ARE OURS. The quest card's zero is the painted
+    //     bottom of everything it draws OUTSIDE the confirm container — that container is excluded
+    //     precisely so the answer cannot chase itself. Since ModBuild 423 a SECOND object is seated
+    //     from the same zero, and it is a SIBLING of the container, not a child, so the exclusion
+    //     never covered it: every 0.2 s refresh counted the ready row as quest information and
+    //     dropped the zero by the row's own ink height until it pinned against the frame clamp. The
+    //     arithmetic closes to a tenth of a pixel from two independent instruments on both machines.
+    //     Gap 383 mm -> 0 mm; content-to-button 483 mm -> the intended 100 mm.
+    //     AND THE PREVIOUS ATTEMPT'S OWN FALSIFIER SAID IT WAS INERT, TWICE. ModBuilds 448 and 449
+    //     blamed an animated UIFX_Wave quad and shipped a TRANSIENT REFUSALS counter to convict
+    //     themselves; it read 0 on both machines on every sample of 448 and again of 457, and nobody
+    //     read it. Three rounds went to a graphic that was never the cause. ZeroCheck was lying in
+    //     the other direction — it never carried the ReservedHeight term ApplyPose has written since
+    //     423, so it printed 'RESIDUAL … REPORT THIS LINE' on every online sample of the round.
+    //   * ITEM 4 WAS A POPULATION OF ONE. SurfaceMaterialise.Arm had exactly ONE call site, so the
+    //     dissolve population was the three decision popups and nothing else; the combat log's close
+    //     ran the base ReleasePanel body, one bare Release, a hard cut. The bookkeeping moves DOWN
+    //     into WorldSurface's single release seam and a window opts in with one property, so no
+    //     second call site exists to forget it. A census now prints which windows dissolve and which
+    //     hard-cut, so the next omission is visible without a hardware round.
+    //   * ITEM 5. The ability fan was already right — plucking runs CardFan.Remove and the wire count
+    //     falls. THE ITEM FAN IS THE EXCEPTION: ItemsPile.Relayout only declines to give a held chip
+    //     an ARC POSE, so the chip stays in the list, the broadcast count never moves, and the peer
+    //     drew a full arc with the held card still in it. The count was right and the MEMBERSHIP was
+    //     not. And the held card's BACK was ability-shaped BY CONSTRUCTION: the body was chosen from
+    //     the RESOLVED face, a fact that only exists after a FRONT has been drawn, and the shut-gate
+    //     path reset to Ability explicitly. The kind now comes from record 36's source list, before
+    //     the reveal branch. No wire field.
+    //   * ITEM 7, AND THE INTEGRATOR'S BRIEF WAS FALSIFIED BY THE LOGS. This was NOT a phase
+    //     misclassification: RevealGate read the phase correctly and 7 of 7 census ticks inside the
+    //     peer's long rest carry ShowRoundCardFronts=true — THE GATE WAS OPEN AND THE ARITHMETIC WAS
+    //     SHUT. A long rest re-Shows the owner's hand over the DISCARD pile ('Pick fan source
+    //     (LoseCard): discard pile'), every observer resolved that arc as the HAND, and the length
+    //     belt correctly refused every face: '6 model card(s) vs 2 slab(s) on the wire'. Which pile
+    //     is being fanned is the one fact neither client can compute — the contents are replicated,
+    //     the CHOICE is local UI state — so it travels as NEW EXTENSION RECORD 43 (ExtIdFanSource),
+    //     one list-id byte. The belt is untouched and still has the last word. PeerCardPopulation
+    //     gains PickFan, which grants nothing, and its doc enumerates every choosing flow with the
+    //     face each owes.
+    //   * ITEM 8 WAS A PLACEHOLDER NOBODY EVER REPLACED. The objectives container is pinned at the
+    //     100 px degenerate-rect placeholder CanvasConversion writes; the WIDTH half has been
+    //     replaced every tick since round 3 and the HEIGHT half never by anything. A
+    //     VerticalLayoutGroup shorter than its content does not overflow, it SHRINKS — and each row's
+    //     own ContentSizeFitter then puts its height straight back around a cursor computed for the
+    //     squeezed value, seating row two ~24 px too high. Language-independent; German only made
+    //     this scenario long enough. The root is now sized from its own content, and the same write
+    //     runs on the MIRRORED copy, which re-runs layout locally and would not have inherited it.
+    //   * ITEMS 6+9, AND THE ANSWER TO HIS FOLLOW-UP QUESTION. BuildBurnRig refused to write a single
+    //     FX term whenever the clone's inherited _PosAndBounds read 0x0 — 1 REFUSED and 0 ARMED on
+    //     each machine. So the burn was WORKING (right card, right timing, real face) and then held a
+    //     fresh, uncharred card for its 2 s. That is both 'man hoert nur den Sound' AND 'die Karten
+    //     bleiben trotzdem liegen': one mechanism, two reports. The vector was zero because
+    //     CardEffects.Initialize runs from Awake and a peer's card widget was never active here; and
+    //     it is WRONG even when non-zero, being a screen-space hand-canvas position two card widths
+    //     from a clone centred on its own world-space canvas. Footprint re-derived in the space the
+    //     shader reads. The burnt PILE never asked at all — SetAbilityBurnProgress had one caller.
+    //     9a and 9b are different causes, separated by measurement rather than assumed: the peer's
+    //     burnt card body text measures (167,192,212) against (167,197,221) on an UNBURNT card on the
+    //     same board — identical, so no recolour ran at all — while the owner's reads (197,183,180).
+    //     A comment claiming the header colour had 'no honest way to be read' was a hypothesis and is
+    //     false; the fields are serialized and copied by Instantiate.
+    //     THEN HE ASKED FOR THE RECESS, and he was right about the picture: the game's own
+    //     TryPlayBurnAnimation(actionType) picks between TWO CardEffects timelines by the CardPile of
+    //     the action that was USED — a resolved LOST action gets the warm char, everything else the
+    //     cold grey-out — and BOTH PAINT THE WHOLE CARD, header included. The peer's recess had
+    //     neither, because StripFragileEffects destroys CardEffects on every clone. Calling the
+    //     game's method on a clone is refused by four named terms (a null cardEffects, Initialize's
+    //     screen-space material swap, a Choreographer coroutine on the global clock, and a
+    //     RestoreCard that would repaint the SHARED authored material), so the RIG is generalised
+    //     instead: the two timelines are one machine differing in six constants, the readable one
+    //     being _Burn_ColourTint, warm (0.369,0.145,0.075) against cold (0.243,0.282,0.341). One
+    //     implementation, two tables, three surfaces — recess, flight, pile — and the flight slab is
+    //     hidden while the recess draws the card, because two copies of one card is worse than the
+    //     defect. No new anchor id: CardFxAnchor.Slot0/Slot1 already resolve to the card seat.
+    //     AND THE 'PER HALF' QUESTION IS ANSWERED BY THE GAME: a half-dimmed card IS a real owner
+    //     state mid-turn (Pick1stTarget and Select2ndCard use the per-actionType overload), and the
+    //     457 host log walks it — SPENT HALF masks 0x00 -> 0x09 -> 0x0B -> 0x0F -> 0x00 in one turn.
+    //     Only Finish() and AfterItemUseAtEndOfTurn() call the parameterless SetInteractable(false),
+    //     which greys BOTH halves. Two flags kept, and the finding written into the doc.
+    // Wire: NEW extension record 43 = ExtIdFanSource, one list-id byte. Documented worst case
+    // 1735 -> 1738; PresenceSerializer.MaxSize stays 2100. 44 is now the next free id.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 458: the held-prop white flash, ROUND TWELVE — AND THIS BUILD IS AN EXPERIMENT, NOT A
     //   PROBE. One of OUR OWN suppressions is switched off, and the next hardware report decides it.
     //   * STRAND 5 IS OFF. This mod stopped unregistering the held prop from
