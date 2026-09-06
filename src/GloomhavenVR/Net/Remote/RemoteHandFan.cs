@@ -1660,6 +1660,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                               + $"{heldSeatCount} held seat(s) dropped"
                             : $"RevealGate scenario fronts ({FanListName(_censusList)})");
 
+        ReportSeatStackIfChanged(count, frontCount, heldSeatCount);
+
         // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
         // The line NAMES the predicate on purpose: the same sentence appears on every other remote
         // card surface ("Remote pile browse fan faces", "Remote item fan faces", the board's
@@ -2624,6 +2626,61 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <summary>The fan's source list in one word, for a log line. The HAND is the resting answer
     /// and is spelled out rather than left blank: a census row that says nothing about the list is
     /// a row a reader cannot tell from one printed by a build that had no list at all.</summary>
+    /// <summary>Change key for <see cref="ReportSeatStackIfChanged"/> — the arc length, the front
+    /// count and the held-seat count, so the line fires on a real edge and never on the frame rate.
+    /// </summary>
+    private int _reportedSeatStack = int.MinValue;
+
+    /// <summary>
+    /// THE OVERLAY READING FOR THIS FAN (2026-09-06 report item 7a, the user verbatim: "Dieses
+    /// Rückseiten Raster ist auch auf den Handfächer bei einer langen Rast beim remote Spieler zu
+    /// sehen — man sieht die Karten im Fächer und in der Hand … aber mit diesem Rückseiten Raster
+    /// darauf drübergelegt").
+    ///
+    /// <para>WHY IT IS OWED HERE SPECIFICALLY. A long rest re-Shows the owner's hand over their
+    /// DISCARD pile, so the arc the report is about is THIS one drawing a pile
+    /// (<c>FanListName</c> = "pick fan: the DISCARD pile"), not the browse arc beside it. Every
+    /// existing line on this surface measures the FACE POLICY — front or back, and which rule
+    /// decided it — and none of them can say anything at all about a front that IS being drawn and
+    /// is being painted over. The seat stack is that missing half, and it is
+    /// <see cref="RemoteCardArt.DescribeStack"/> so this fan, the browse arc and the item arc quote
+    /// one implementation rather than three walks that would drift.</para>
+    ///
+    /// <para>WORKING / INERT / BEYOND: a CanvasGroup product of 1.000 with the drawing count within
+    /// a card's worth of the Graphic total is an opaque print and the lattice cannot be this seat's
+    /// doing; a product below 1.000, or a drawing count far short of the total, IS the defect and
+    /// says which of the two mechanisms it is. The line never appearing while a peer fans a hand
+    /// means no front was ever printed here and NOTHING has been measured — read the census row
+    /// beside it before concluding anything from silence.</para>
+    /// </summary>
+    private void ReportSeatStackIfChanged(int count, int frontCount, int heldSeatCount)
+    {
+        if (frontCount <= 0)
+            return;
+        int key = (count * 397 + frontCount) * 397 + heldSeatCount * 31 + _censusList;
+        if (key == _reportedSeatStack)
+            return;
+        _reportedSeatStack = key;
+        RemoteCardArt? seat = null;
+        for (int i = 0; i < _faces.Count && seat == null; i++)
+        {
+            if (_faces[i] != null && _faces[i].HostDrawn)
+                seat = _faces[i];
+        }
+        if (seat == null)
+            return;
+        // HW-VERIFY: report item 7a. Grep token: PEER FAN SEAT STACK.
+        VRLog.Note("Net", $"PEER FAN SEAT STACK [player {_owner.PlayerId}]: source "
+            + $"{FanListName(_censusList)}; the WIRE asked for {count} slab(s), {frontCount} of them "
+            + $"are showing a FRONT, and the owner has {heldSeatCount} of this list's card(s) in "
+            + "their fist (those seats are dropped from the FACE list, never from the arc). "
+            + seat.DescribeStack()
+            + " Read it beside the PEER CARD FACE CENSUS line, which says front-or-back, and "
+            + "the PEER BROWSE ARC line, which says the same two things for the pile arc — both "
+            + "named without their log anchors, so an anchored grep for either does not count THIS "
+            + "line as one of them.");
+    }
+
     private static string FanListName(byte list) => list switch
     {
         NetProtocol.HeldFaceListDiscard => "pick fan: the DISCARD pile",

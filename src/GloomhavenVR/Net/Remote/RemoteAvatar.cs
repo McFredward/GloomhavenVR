@@ -342,22 +342,78 @@ internal sealed class RemoteAvatar
     /// </summary>
     internal int HeldHandSeats(out int seatA, out int seatB)
     {
-        seatA = -1;
-        seatB = -1;
-        int n = 0;
         // THE LIST THE FAN IS DRAWN FROM, read rather than assumed — the hand unless record 43 says
         // a pile. One expression for one index space; see the doc block above.
         byte fanList = NetProtocol.IsFanSourcePile(FanSourceList)
             ? FanSourceList
             : NetProtocol.HeldFaceListHand;
+        return HeldSeatsIn(fanList, out seatA, out seatB);
+    }
+
+    /// <summary>
+    /// WHICH SEATS OF THIS PEER'S <b>BROWSE ARC</b> ARE IN THEIR FIST — record 36's seats filtered to
+    /// the pile the arc is showing (<see cref="NetProtocol.HeldFaceListDiscard"/> /
+    /// <see cref="NetProtocol.HeldFaceListBurnt"/>), in <c>CardsGameApi.GetPileArcWidgets</c> order.
+    ///
+    /// <para>WHY <c>Net.RemoteBrowserFan</c> NEEDS IT — 2026-09-06 report item 6, the user verbatim:
+    /// "Es gibt nur eine Karte die der Spieler in der Hand hat und trotzdem wird sie im Fächer noch
+    /// dargestellt." This is the THIRD copy of one membership defect and the last of the three arcs
+    /// to be fixed. Plucking a card out of the owner's HAND fan runs <c>CardFan.Remove</c>, so the
+    /// count on the wire falls by one and the mirror rebuilds one slab shorter. Plucking one out of
+    /// the owner's BROWSE arc does NOT: the grab choke point (<c>CardsDriver.OnCardGrabbed</c>)
+    /// removes from <c>_fan</c> only, <c>PileBrowser.Relayout</c> merely <c>continue</c>s past a held
+    /// card without giving it an arc pose, and the number <c>NetAvatarDriver</c> broadcasts is
+    /// <c>PileBrowser.Cards.Count</c> — which never moved. The receiver therefore built a full arc
+    /// with the plucked card still seated in it, so the peer saw the same card twice: once in the
+    /// owner's fist and once in the arc. Byte for byte the shape ModBuild 459 fixed for
+    /// <c>ItemsPile</c> — and the commit that fixed it asserted in passing that "PileBrowser.Remove /
+    /// CardFan.Remove drop the browse and hand counts on the pluck". Only the second half of that
+    /// sentence is true: <c>PileBrowser.Remove</c>'s one caller is the widget-recycled-mid-browse
+    /// path, never the grab. An assertion in a commit message is a hypothesis.</para>
+    ///
+    /// <para>NO NEW WIRE FIELD IS OWED and no third index space is invented: record 36 already names
+    /// this exact card, in this exact list, so that its own front can be drawn on the slab in the
+    /// peer's fist — and <c>Net.RemotePileFronts</c> fills its model buffer from
+    /// <c>CardsGameApi.GetPileWidgets</c> narrowed by <c>CardsGameApi.PileWidgetIsArcMember</c>,
+    /// which IS <c>GetPileArcWidgets</c>. Seat k of record 36 is slab k of the browse arc by
+    /// construction, and the fronts driver's own length belt is what proves it before anything is
+    /// hidden.</para>
+    ///
+    /// <para>THE ARC DOES NOT CLOSE THE GAP, because the owner's does not either:
+    /// <c>PileBrowser.Relayout</c> keeps <c>n = _cards.Count</c> and gives every other card the angle
+    /// for its own unchanged index, so the owner is looking at an arc of n with one seat empty. The
+    /// mirror hides the slab in place and leaves every neighbour's angle alone, which is that same
+    /// picture. Re-spacing would trade one 1:1 breach for a worse one — the ruling ModBuild 459
+    /// recorded for the item arc.</para>
+    /// </summary>
+    internal int HeldPileSeats(byte pileList, out int seatA, out int seatB)
+    {
+        seatA = -1;
+        seatB = -1;
+        // A non-pile list can never name a browse seat, and asking with one would silently match the
+        // HAND — the "two literals kept in step by hand" mistake this file has already paid for once.
+        return NetProtocol.IsFanSourcePile(pileList)
+            ? HeldSeatsIn(pileList, out seatA, out seatB)
+            : 0;
+    }
+
+    /// <summary>Record 36's two pose slots, filtered to ONE list id — the single expression behind
+    /// <see cref="HeldHandSeats"/> and <see cref="HeldPileSeats"/>. Two callers, one reading of the
+    /// wire: a second copy is how the hand fan and the browse arc would come to disagree about what
+    /// "in the fist" means, which is the whole class of defect both callers exist to fix.</summary>
+    private int HeldSeatsIn(byte listId, out int seatA, out int seatB)
+    {
+        seatA = -1;
+        seatB = -1;
+        int n = 0;
         if (NetProtocol.HeldFaceNamesCard(_heldFaceCode)
-            && NetProtocol.HeldFaceList(_heldFaceCode) == fanList)
+            && NetProtocol.HeldFaceList(_heldFaceCode) == listId)
         {
             seatA = NetProtocol.HeldFaceIndex(_heldFaceCode);
             n++;
         }
         if (NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
-            && NetProtocol.HeldFaceList(_secondHeldFaceCode) == fanList)
+            && NetProtocol.HeldFaceList(_secondHeldFaceCode) == listId)
         {
             int seat = NetProtocol.HeldFaceIndex(_secondHeldFaceCode);
             if (n == 0)

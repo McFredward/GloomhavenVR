@@ -584,8 +584,32 @@ internal sealed class RemoteBrowserFan
         if (hovered < 0 || hovered >= _cards.Count)
             hovered = -1;
 
+        // ─── THE SEAT THAT IS IN THE OWNER'S FIST IS NOT DRAWN HERE (report item 6, 2026-09-06) ──
+        // "Es gibt nur eine Karte die der Spieler in der Hand hat und trotzdem wird sie im Fächer
+        // noch dargestellt." Third and last copy of one membership defect: the owner's browse arc
+        // never removes a plucked card from PileBrowser._cards — Relayout only declines to give it
+        // an arc POSE — and the count NetAvatarDriver broadcasts is that list's Count, so this fan
+        // built a slab for a card the owner is holding up and the peer saw it twice. Record 36
+        // already names the seat, in this arc's own index space; see RemoteAvatar.HeldPileSeats.
+        //
+        // THE GAP IS KEPT, NOT CLOSED: n above is the wire count and every other slab keeps the
+        // angle for its own unchanged index, which is exactly the arc the owner is looking at (their
+        // Relayout `continue`s past the held card and re-spaces nothing). RemotePileFronts reads
+        // HostDrawn and so neither prints a face onto a hidden slab nor counts it in the census.
+        int heldSeats = _owner.HeldPileSeats(PileListFor(_shownKind), out int heldSeatA, out int heldSeatB);
+        ReportMembershipIfChanged(n, heldSeats, heldSeatA, heldSeatB);
+
         for (int i = 0; i < _cards.Count; i++)
         {
+            // Asserted every frame rather than latched: Rebuild mints fresh (active) GameObjects and
+            // the owner's fist changes without any edge this fan is told about.
+            bool inFist = i == heldSeatA || i == heldSeatB;
+            GameObject slab = _cards[i];
+            if (slab.activeSelf == inFist)
+                slab.SetActive(!inFist);
+            if (inFist)
+                continue;   // no pose for a card that is not in the arc — the owner gives it none either
+
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
             var pos = new Vector3(Mathf.Sin(rad) * _radius,
@@ -957,6 +981,75 @@ internal sealed class RemoteBrowserFan
         float bs = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         world = _owner.BoardPosition + _owner.BoardRotation * (_owner.BoardAnchorLocal(AnchorFor(kind)) * bs);
         return true;
+    }
+
+    /// <summary>The browsed pile as a record-36 LIST ID — the one translation between the wire's
+    /// pile-browse kind and the wire's held-face list, so no caller spells the pairing out twice.
+    /// The ITEMS browse answers <see cref="NetProtocol.HeldFaceListNone"/> on purpose: a held item is
+    /// named in the RAW <c>CInventory.AllItems</c> index space, which is not this arc's, and
+    /// <c>RemoteItemFan</c> owns that translation (<c>RemotePileFronts.TryResolveItemArc</c>).
+    /// </summary>
+    private static byte PileListFor(int kind) => kind switch
+    {
+        NetProtocol.PileBrowseKindDiscard => NetProtocol.HeldFaceListDiscard,
+        NetProtocol.PileBrowseKindBurnt => NetProtocol.HeldFaceListBurnt,
+        _ => NetProtocol.HeldFaceListNone,
+    };
+
+    /// <summary>Change key for <see cref="ReportMembershipIfChanged"/> — the arc length and the two
+    /// seats, so the line fires on a real edge and never on the frame rate.</summary>
+    private int _reportedMembership = int.MinValue;
+
+    /// <summary>
+    /// THE OBSERVER'S OWN READING OF A PEER'S BROWSE ARC (2026-09-06 report items 6 and 7a). One
+    /// line, on the machine that DRAWS the arc, naming every term the two defects are made of: which
+    /// list the arc is, what the wire asked for, how many slabs this client built, how many it is
+    /// actually drawing, how many of them the owner has in their fist — and the RENDERER STACK at
+    /// one seat, because two surfaces at one seat IS the reported overlay.
+    ///
+    /// <para>WHY THE STACK IS IN THIS LINE AND NOT IN ITS OWN. The user reported the duplicate card
+    /// and the card-back lattice over its face as ONE symptom in ONE screenshot, and the two are
+    /// decided by the same object: the slab. A remote card is deliberately two coincident surfaces —
+    /// an opaque MeshRenderer wearing <c>CardMesh</c>'s procedural card BACK on both submeshes, and a
+    /// world-space uGUI print 0.6 mm in front of it (see <c>RemoteCardArt</c>). If the print draws
+    /// opaque, the lattice cannot be seen; if it draws at an alpha below 1, or if its own Graphics do
+    /// not draw at all, the lattice behind it is exactly what fills the card. This line measures that
+    /// rather than asserting it: the mesh's material names and render queues, the number of uGUI
+    /// Graphics under the print, how many of them are actually drawing, and the print's accumulated
+    /// CanvasGroup alpha.</para>
+    /// </summary>
+    private void ReportMembershipIfChanged(int wireCount, int heldSeats, int heldSeatA, int heldSeatB)
+    {
+        int key = (wireCount * 397 + heldSeats) * 397 + (heldSeatA + 2) * 31 + (heldSeatB + 2);
+        if (key == _reportedMembership)
+            return;
+        _reportedMembership = key;
+        int drawn = 0;
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            if (_cards[i] != null && _cards[i].activeSelf)
+                drawn++;
+        }
+        // HW-VERIFY: report items 6 + 7a. Grep token: PEER BROWSE ARC.
+        VRLog.Note("Net", $"PEER BROWSE ARC [player {_owner.PlayerId}]: source "
+            + $"{KindName(_shownKind)} (record-36 list id {PileListFor(_shownKind)}); the WIRE asked "
+            + $"for {wireCount} card(s); this client BUILT {_cards.Count} slab(s) and is DRAWING "
+            + $"{drawn}; the owner has {heldSeats} of this arc's card(s) in their fist"
+            + (heldSeats > 0
+                ? $" at seat(s) {heldSeatA}{(heldSeatB >= 0 ? ", " + heldSeatB.ToString() : string.Empty)}, "
+                  + "whose slab(s) are hidden IN PLACE so every neighbour keeps its own angle — "
+                  + "which is the arc their owner is looking at, because PileBrowser.Relayout also "
+                  + "leaves the gap"
+                : string.Empty)
+            + $". WORKING = drawn == built - {heldSeats}; the DEFECT this replaces is drawn == built "
+            + "with a card ALSO drawn in the peer's fist, i.e. the same card twice. INERT = this line "
+            + "never appears while a peer browses a pile, which means the arc is not being drawn here "
+            + "at all and nothing has been measured. "
+            + _fronts.DescribeFirstDrawnSeat()
+            + " Read it beside the PEER CARD FACE CENSUS line (the front/back split) and the "
+            + "MIRRORED SURFACE DEPTH line (whether the front fan was dropped) — named without "
+            + "their log anchors on purpose, so an anchored grep for either does not count THIS "
+            + "line as one of them.");
     }
 
     private static CardFxAnchor AnchorFor(int kind) => kind switch

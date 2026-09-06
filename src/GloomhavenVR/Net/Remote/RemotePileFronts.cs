@@ -227,6 +227,20 @@ internal sealed class RemotePileFronts
         return n;
     }
 
+    /// <summary>The renderer stack at this fan's first DRAWN seat — see
+    /// <see cref="RemoteCardArt.DescribeStack"/>, which is the one implementation of that walk. The
+    /// arc's own log line quotes it, so the membership reading and the overlay reading arrive in one
+    /// line for one seat rather than as two lines a reader has to pair up by timestamp.</summary>
+    internal string DescribeFirstDrawnSeat()
+    {
+        for (int i = 0; i < _arts.Count; i++)
+        {
+            if (_arts[i].HostDrawn)
+                return _arts[i].DescribeStack();
+        }
+        return "SEAT STACK: no drawn seat in this arc.";
+    }
+
     internal RemotePileFronts(RemoteAvatar owner, string surface)
     {
         _owner = owner;

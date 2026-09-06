@@ -467,6 +467,104 @@ internal sealed class RemoteCardArt
         ReleaseBodyFaceHosting();
     }
 
+    /// <summary>
+    /// THE RENDERER STACK AT THIS ONE CARD SEAT, in words — the measurement the 2026-09-06 report's
+    /// items 6 and 7a turn on ("Abgeworfene Karten sieht man teilweise noch die Rückseite … durch-
+    /// scheinen", "mit diesem Rückseiten Raster darauf drübergelegt").
+    ///
+    /// <para>WHY IT LIVES HERE AND NOWHERE ELSE. This class IS the thing that knows a peer's card is
+    /// two coincident surfaces: an opaque <c>MeshRenderer</c> whose two submeshes BOTH wear
+    /// <c>CardMesh</c>'s procedural card BACK — a gold diamond lattice, 8 cells across a card, on a
+    /// deep burgundy field — and a world-space uGUI print standing
+    /// <see cref="FrontStandoff"/> in front of it. Three surfaces host that pair (the hand fan, the
+    /// two pile arcs, the held card) and a copy of this walk in each of them is exactly how the
+    /// three would come to answer the same question differently. One implementation, three callers.
+    /// </para>
+    ///
+    /// <para>WHAT IT DECIDES. The lattice can only reach the player's eye if the print in front of
+    /// it is not opaque, so the line separates the three ways that can happen, by number:
+    /// a CanvasGroup product below 1.000 (something is compositing the whole print — the peer board
+    /// fade, or a group the game left at 0 while an addressable load was in flight); a Graphic count
+    /// whose DRAWING half is far short of its total (the print's Images are not painting at all, and
+    /// only its TMP text is); or neither, in which case the print is opaque and whatever is painting
+    /// the lattice is NOT this seat. It states the mesh's material names and render queues beside
+    /// them so a draw-ORDER cause is visible in the same line rather than inferred from its absence.
+    /// </para>
+    ///
+    /// <para>Never throws and never allocates on a steady frame: every caller is change-gated, and a
+    /// diagnostic may never be the thing that breaks the render path it is describing.</para>
+    /// </summary>
+    internal string DescribeStack()
+    {
+        try
+        {
+            if (_slab == null)
+                return "SEAT STACK: no slab.";
+            var sb = new System.Text.StringBuilder(320);
+            var meshes = _slab.GetComponentsInChildren<MeshRenderer>(includeInactive: true);
+            sb.Append("SEAT STACK ('").Append(_slab.name).Append("'): ").Append(meshes.Length)
+              .Append(" MeshRenderer(s) wearing [");
+            int slot = 0;
+            for (int i = 0; i < meshes.Length; i++)
+            {
+                if (meshes[i] == null)
+                    continue;
+                Material[] mats = meshes[i].sharedMaterials;
+                for (int j = 0; j < mats.Length; j++)
+                {
+                    if (slot++ > 0)
+                        sb.Append(", ");
+                    sb.Append(mats[j] != null ? mats[j].name : "(null)")
+                      .Append(" q").Append(mats[j] != null ? mats[j].renderQueue : -1);
+                }
+            }
+            sb.Append(']');
+
+            int graphics = 0;
+            int drawing = 0;
+            int zeroAlpha = 0;
+            float groupAlpha = 1f;
+            if (_host != null)
+            {
+                var gs = _host.GetComponentsInChildren<UnityEngine.UI.Graphic>(includeInactive: true);
+                graphics = gs.Length;
+                for (int i = 0; i < gs.Length; i++)
+                {
+                    UnityEngine.UI.Graphic g = gs[i];
+                    if (g == null || !g.isActiveAndEnabled)
+                        continue;
+                    if (g.color.a <= 0.004f)
+                        zeroAlpha++;
+                    else
+                        drawing++;
+                }
+                var groups = _host.GetComponentsInChildren<CanvasGroup>(includeInactive: true);
+                for (int i = 0; i < groups.Length; i++)
+                {
+                    if (groups[i] != null && groups[i].isActiveAndEnabled)
+                        groupAlpha *= Mathf.Clamp01(groups[i].alpha);
+                }
+            }
+            sb.Append(" + a uGUI print of ").Append(graphics).Append(" Graphic(s) — ")
+              .Append(drawing).Append(" drawing, ").Append(zeroAlpha)
+              .Append(" at colour alpha 0, the rest inactive — under a CanvasGroup product of ")
+              .Append(groupAlpha.ToString("F3"))
+              .Append(", face-hosted=").Append(_bodyFaceHosted ? "YES" : "no")
+              .Append(". TWO SURFACES AT ONE SEAT IS THE OVERLAY: the mesh above wears the card BACK "
+                    + "on BOTH submeshes and the print stands 0.6 mm in front of it, so anything "
+                    + "that stops the print being opaque puts the card back's gold lattice on a "
+                    + "peer's card FRONT. A product below 1.000, or 'drawing' far short of the "
+                    + "Graphic total, IS the reported defect and names which of the two it is; "
+                    + "1.000 with nearly every Graphic drawing means the print is opaque and the "
+                    + "lattice is coming from somewhere other than this seat.");
+            return sb.ToString();
+        }
+        catch (System.Exception ex)
+        {
+            return $"SEAT STACK unreadable ({ex.GetType().Name}).";
+        }
+    }
+
     public void Destroy()
     {
         DestroyClone();
