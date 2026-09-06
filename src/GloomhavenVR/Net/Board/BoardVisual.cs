@@ -220,7 +220,15 @@ internal static class BoardVisual
         {
             if (c == null || IsUnder(c.transform, excludedSubtree, boardRoot))
                 continue;
-            sweep.Adopt(TierOn(boardRoot, c.transform), anchor, null, c);
+            // A NESTED canvas that opted into overrideSorting is a POPUP a dock opened, not a dock:
+            // it hangs out of its host's rect across the board face, so its seat's depth says
+            // nothing about what it has to cover. See PopupOverlayTier. Every HOST canvas on a
+            // peer's board is a root world-space canvas (RemoteWidgetMirror.Neutralize destroys
+            // every cloned Canvas, so nothing here has one by accident), and Unity ignores
+            // overrideSorting on a root canvas — so this test names exactly the surfaces that
+            // deliberately asked to sort for themselves and nothing else.
+            sweep.Adopt(c.overrideSorting ? PopupOverlayTier : TierOn(boardRoot, c.transform),
+                        anchor, null, c);
         }
         return sweep;
     }
@@ -284,8 +292,35 @@ internal static class BoardVisual
     /// <summary>The cluster tier of <paramref name="node"/> on <paramref name="boardRoot"/>: its
     /// own position expressed in board-local metres (scale-free - InverseTransformPoint undoes the
     /// board's synced scale), quantized by <see cref="TierForDepth"/>.</summary>
-    private static int TierOn(Transform boardRoot, Transform node) =>
+    internal static int TierOn(Transform boardRoot, Transform node) =>
         TierForDepth(boardRoot.InverseTransformPoint(node.position).z);
+
+    /// <summary>
+    /// The tier a POPUP OVERLAY takes: the top slot a cluster entry may hold, i.e. above every
+    /// other surface on that board and still below every converted panel genuinely in front of it.
+    ///
+    /// <para>WHY DEPTH IS THE WRONG QUESTION FOR ONE (user report 2026-09-06 item 11, "Die
+    /// Gegnerinfo beim laser-mouseover hat eine andere Tiefe beim remote board als beim lokalen
+    /// eigenen Board"). <see cref="TierForDepth"/> answers "how proud of the board face is the seat
+    /// this surface was DOCKED at", which is right for a dock and wrong for something the dock
+    /// opens that hangs OUT of the dock's own rect across the board face. The mirrored initiative
+    /// track's enemy-info popup is exactly that: the dock ships at
+    /// <c>Defaults.InitiativeOffset_*</c> z = -0.009 on all three boards, i.e. tier 0 — TIED with
+    /// the board face, the recess card faces and their art — so the tie fell to Unity's distance
+    /// tie-break, the recess cards' canvases measured nearer than the track's canvas above the
+    /// board's top edge, and they painted over the popup. That is what the screenshot shows: the
+    /// popup draws OVER the opaque stone (an opaque queue draws before any transparent one) and
+    /// UNDER two cards that are recessed BEHIND that stone, which no depth test can produce.
+    ///
+    /// <para>THE LOCAL BOARD'S OWN TERM, MIRRORED. On the local board the initiative track is a
+    /// board-DOCKED converted panel, and <c>CanvasConversion.9.Furniture</c> pins the whole
+    /// furniture band under the lowest ladder slot any same-board panel holds ("rigid sub-ladder:
+    /// band must stay below this slot"). So locally the popup — drawn inside that panel — is above
+    /// every piece of that board's furniture at every angle, by construction and not by distance.
+    /// A peer's board has no panels, only cluster entries, so this constant is the same contract
+    /// expressed in the cluster's own vocabulary.</para></para>
+    /// </summary>
+    internal const int PopupOverlayTier = WorldUI.CanvasConversion.FurnitureClusterTopOffset;
 
     /// <summary>True while <paramref name="node"/> lies inside <paramref name="excluded"/>. Walks
     /// UP and stops at <paramref name="stopAt"/> (the board root), so the cost is the node's depth

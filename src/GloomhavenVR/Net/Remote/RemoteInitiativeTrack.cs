@@ -153,6 +153,12 @@ internal sealed class RemoteInitiativeTrack
     private const int MaxChips = 8;
 
     private readonly Transform _root;
+
+    /// <summary>The peer's board root — the frame <see cref="SeatPopupOverlay"/> expresses the
+    /// mirror's own cluster tier in, so the popup's slot is derived from the host's LIVE slot and
+    /// never from a copy of the band arithmetic.</summary>
+    private readonly Transform _boardRoot;
+
     private readonly Transform _fallbackRoot;
     private readonly RemoteWidgetMirror _mirror;
     private readonly Chip[] _chips = new Chip[MaxChips];
@@ -193,6 +199,7 @@ internal sealed class RemoteInitiativeTrack
 
         _root = new GameObject("InitiativeTrack").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
+        _boardRoot = boardRoot;
         // The mount convention (PlayTray: bottom-centre of the initiative panel, grows UP above the
         // board's top edge) is reproduced verbatim — the mirror grows up from here, and so do the
         // fallback chips.
@@ -1538,6 +1545,11 @@ internal sealed class RemoteInitiativeTrack
                 // is only taken when the rebuild could really run.
                 if (wantPopup && !node.PopupLaidOut && node.Popup.activeInHierarchy)
                 {
+                    // ...and out of the board FACE's draw tier, before it is ever presented. Seated
+                    // first so the popup's first frame is already in front of the recess cards —
+                    // the layout call below can refuse and be retried, and a retry must not mean a
+                    // frame of the reported picture. See SeatPopupOverlay.
+                    SeatPopupOverlay(node.ActorId, node.Popup);
                     node.PopupLaidOut = LayoutMirroredPopup(node.ActorId, node.Popup);
                     _hoverNodes[i] = node;
                 }
@@ -1618,6 +1630,161 @@ internal sealed class RemoteInitiativeTrack
     private int _popupLayoutDone;       // popups laid out under the CURRENT clone
     private int _popupLayoutCollapsed;  // ...of which arrived with a collapsed caption
     private int _popupLayoutLogged;     // ...of which got a line
+
+    /// <summary>Per-clone cap on <see cref="SeatPopupOverlay"/>'s line — the same shape and the same
+    /// reason as <see cref="PopupLayoutLogCap"/>: the running totals ride every line, so the cap
+    /// costs detail and never the fact.</summary>
+    private const int PopupOrderLogCap = 4;
+
+    /// <summary>Clone the counters below belong to (<c>RemoteWidgetMirror.RebuildStamp</c>;
+    /// <c>int.MinValue</c> = never), so a fresh clone starts the tally again.</summary>
+    private int _popupOrderStamp = int.MinValue;
+    private int _popupOrderSeated;  // popups lifted out of the face tier under the CURRENT clone
+    private int _popupOrderLogged;  // ...of which got a line
+
+    /// <summary>
+    /// LIFT THE MIRRORED ENEMY-INFO POPUP OUT OF THE BOARD FACE'S DRAW TIER.
+    ///
+    /// <para><b>THE DEFECT</b> (user report 2026-09-06 item 11, <c>gegeninfo_mouseoer_tiefen&#8203;problem.jpg</c>):
+    /// "Die Gegnerinfo beim laser-mouseover hat eine andere Tiefe beim remote board als beim lokalen
+    /// eigenen Board … Wie beim lokalen board auch soll die Gegnerinfo über dem board und den Karten
+    /// darauf sichtbar sein." The green monster-ability popup hanging off the mirrored track was cut
+    /// by BOTH round-recess card faces and readable only in the gap between them.</para>
+    ///
+    /// <para><b>IT IS DRAW ORDER, NOT DEPTH, AND THE SCREENSHOT PROVES IT ON ITS OWN.</b> The popup
+    /// draws OVER the board's stone top rail — the most proud opaque geometry on the board, drawn in
+    /// the opaque pass before any transparent surface — and UNDER two card faces that are RECESSED
+    /// behind that rail. A depth test cannot produce that pair: anything that beats the rail beats
+    /// the cards. What produced it is a TIE. Every mod-owned canvas on a peer's board is adopted
+    /// into the board's draw-order cluster at the tier its board-local depth earns
+    /// (<c>BoardVisual.AdoptBoardOrder</c> / <c>TierForDepth</c>, 2 cm per tier), and the initiative
+    /// dock ships at <c>Defaults.InitiativeOffset_{Oak,Steel,Bronze}</c> z = -0.009 on all three
+    /// boards — tier 0, the SAME tier as the board face and every hosted card face on it. Equal
+    /// sortingOrder falls back to Unity's distance tie-break, the recess cards' canvases sit nearer
+    /// the eye than this track's canvas above the board's top edge, and they painted last. The
+    /// ModBuild-461 sweep lines carry the reading: <c>0:137 (board face) … 2:0 (docks) 3:0 (deep
+    /// dock)</c> on every one of them.</para>
+    ///
+    /// <para><b>WHY THE LOCAL BOARD IS RIGHT, AND WHAT WAS COPIED FROM IT.</b> Locally the
+    /// initiative track is a board-DOCKED converted panel and the popup is drawn inside it, and
+    /// <c>CanvasConversion.9.Furniture</c> pins that board's whole furniture band strictly under the
+    /// lowest ladder slot any same-board panel holds ("rigid sub-ladder: band must stay below this
+    /// slot"). So on the owner's own board the popup is above every piece of that board's furniture
+    /// at every angle, BY CONSTRUCTION AND NOT BY DISTANCE. A peer's board has no panels, only
+    /// cluster entries, so the same contract is expressed here in the cluster's vocabulary: the
+    /// popup gets a canvas of its own with <c>overrideSorting</c>, and the sweep seats every such
+    /// canvas at <see cref="BoardVisual.PopupOverlayTier"/> — the top slot a cluster entry may hold,
+    /// still below every converted panel genuinely in front of the board. NOTHING is moved, resized
+    /// or re-posed: 1:1 is untouched and the fix survives the recess card geometry changing size,
+    /// which it is doing in this same round.</para>
+    ///
+    /// <para><b>ONE WRITER.</b> The sweep is the permanent owner of this canvas's sortingOrder, like
+    /// every other entry on the board. The seed written here is the same number the sweep will
+    /// write (the host's live slot minus the host's own tier plus the popup tier), so the popup's
+    /// FIRST frame is already correct instead of waiting out the board's 4 Hz content cadence.
+    /// RESIDUE, STATED HONESTLY: a ladder RE-RANK landing inside that window moves the band and not
+    /// this seed, so the popup can tie with the face for up to one content tick. It was tied 100 %
+    /// of the time before.</para>
+    /// </summary>
+    private void SeatPopupOverlay(int actorId, GameObject popup)
+    {
+        Canvas? host = _mirror.HostCanvas;
+        if (host == null || _boardRoot == null)
+            return;
+        try
+        {
+            if (_popupOrderStamp != _mirror.RebuildStamp)
+            {
+                _popupOrderStamp = _mirror.RebuildStamp;
+                _popupOrderSeated = 0;
+                _popupOrderLogged = 0;
+            }
+
+            int hostTier = BoardVisual.TierOn(_boardRoot, host.transform);
+            int bandBase = host.sortingOrder - hostTier;
+            int want = bandBase + BoardVisual.PopupOverlayTier;
+
+            var overlay = popup.GetComponent<Canvas>();
+            if (overlay == null)
+                overlay = popup.AddComponent<Canvas>();
+            if (!overlay.overrideSorting)
+                overlay.overrideSorting = true;
+            if (overlay.sortingLayerID != host.sortingLayerID)
+                overlay.sortingLayerID = host.sortingLayerID;
+            if (overlay.sortingOrder != want)
+                overlay.sortingOrder = want;
+            _popupOrderSeated++;
+
+            // WHAT IT IS COMPETING WITH, MEASURED rather than assumed: the other canvases this
+            // board draws, their highest order and their deepest board-local seat. The recess card
+            // faces are in this population, and the reported picture IS this comparison.
+            int rivals = 0, rivalMaxOrder = int.MinValue;
+            float rivalDeepestZ = 0f;
+            foreach (Canvas c in _boardRoot.GetComponentsInChildren<Canvas>(includeInactive: false))
+            {
+                if (c == null || ReferenceEquals(c, overlay))
+                    continue;
+                rivals++;
+                if (c.sortingOrder > rivalMaxOrder)
+                    rivalMaxOrder = c.sortingOrder;
+                float z = _boardRoot.InverseTransformPoint(c.transform.position).z;
+                if (z < rivalDeepestZ)
+                    rivalDeepestZ = z;
+            }
+
+            if (_popupOrderLogged >= PopupOrderLogCap)
+                return;
+            _popupOrderLogged++;
+            float popupZ = _boardRoot.InverseTransformPoint(popup.transform.position).z;
+
+            // HW-VERIFY: grep MIRRORED ENEMY INFO ORDER — one line per enemy popup per clone
+            // rebuild, and it is written to be diffed against the LOCAL board's own answer, which is
+            // the TOOLTIP ORDER (board-owned) / FURNITURE ORDER pair: locally the popup is inside a
+            // board-DOCKED converted panel and the board's furniture band is pinned strictly under
+            // that panel's ladder slot, so the same relation reads there as "band top < panel slot".
+            // WORKING = popup order EXCEEDS 'board's highest other canvas' by
+            // BoardVisual.PopupOverlayTier (3) — e.g. popup 258 against face 255.
+            // INERT = the two orders are EQUAL: the overrideSorting canvas did not take, or the
+            //   sweep re-adopted it at its depth tier; the board's own draw-order cluster line then
+            //   still reads `3:0 (deep dock)` while this popup is up.
+            // STILL BEYOND THE INSTRUMENT = popup order strictly greater AND the headset still shows
+            //   a card over the popup. Then it is not this cluster: look for a CONVERTED PANEL
+            //   ranked in front of the whole board (order >= PanelOrderBase + rank*Step, i.e. a
+            //   number 16 or more above this one) or for an OPAQUE card mesh (renderQueue <= 2500,
+            //   which the sweep skips by design and which would depth-reject the popup instead).
+            VRLog.Note("Net", $"MIRRORED ENEMY INFO ORDER: actor {actorId}'s info popup lifted out of "
+                            + $"the board FACE tier — popup canvas sortingOrder {want} = band base "
+                            + $"{bandBase} + popup tier {BoardVisual.PopupOverlayTier}, against the "
+                            + $"dock's own host canvas at {host.sortingOrder} (tier {hostTier} from "
+                            + $"board-local z {_root.localPosition.z:F3}) and the highest of this "
+                            + $"board's {rivals} other canvas(es) at "
+                            + $"{(rivalMaxOrder == int.MinValue ? bandBase : rivalMaxOrder)}. Popup "
+                            + $"plane sits at board-local z {popupZ:F3} (the board face is -0.004 and "
+                            + $"the deepest other canvas on this board is {rivalDeepestZ:F3}), so "
+                            + "DEPTH does not separate it from the recess cards and never did — the "
+                            + "term that decided used to be Unity's distance tie-break inside one "
+                            + "tier and is now BoardVisual.PopupOverlayTier, the mirror of the local "
+                            + "board's 'furniture band stays below every same-board docked panel'. "
+                            + "THE LOCAL HALF TO DIFF THIS AGAINST is the OWNER's own TOOLTIP ORDER "
+                            + "(board-owned) line, which names both sides of the same relation on "
+                            + "the machine where it works: ModBuild 461 read "
+                            + "'GloomhavenVR.Panel_InitiativeTrack' (order 260) against "
+                            + "'control board (cluster)' (order 255) — the docked panel that draws "
+                            + "the owner's popup is a full band above every card face on their own "
+                            + "board, which is the gap this line must now also show. "
+                            + $"{_popupOrderSeated} popup(s) seated under this clone"
+                            + (_popupOrderLogged >= PopupOrderLogCap
+                                ? " (line cap reached — the total still counts every one)"
+                                : string.Empty) + ".");
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Net", $"Mirrored enemy-info popup order seat threw for actor {actorId} "
+                            + $"({e.GetType().Name}: {e.Message}) — the popup keeps the host canvas's "
+                            + "own cluster slot, which is the board FACE tier and is what every build "
+                            + "before this one drew.");
+        }
+    }
 
     /// <summary>
     /// MAKE THE MIRRORED POPUP RESOLVE ITS OWN LAYOUT, the first frame it is really on screen.

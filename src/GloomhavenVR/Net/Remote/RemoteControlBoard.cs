@@ -982,11 +982,25 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             if (sweep.Signature != _loggedOrderSweep)
             {
                 _loggedOrderSweep = sweep.Signature;
+                // The old text of this line claimed "a proud dock (the initiative mirror) always
+                // covers a shallower one (the synced tooltip)". Its OWN numbers falsified it in
+                // every ModBuild-461 sweep: `2:0 (docks) 3:0 (deep dock)` on all 15 lines, because
+                // Defaults.InitiativeOffset_{Oak,Steel,Bronze} all ship z = -0.009 today, which
+                // TierForDepth rounds to tier 0, while the tooltip's -0.02 is tier 1. The dock has
+                // been UNDER the hint on every board since those offsets converged, i.e. the exact
+                // relation of user report #5 of 2026-08-09; only the initiative popup was lifted
+                // out of the tie (BoardVisual.PopupOverlayTier) and the track/hint inversion is
+                // still standing. The line now states the tiers it actually produced.
                 VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] draw-order cluster: {sweep}. " +
                                   "The whole board ranks against the converted-panel ladder as one " +
-                                  "unit; inside it the tier is the element's own board-local depth, " +
-                                  "so a proud dock (the initiative mirror) always covers a shallower " +
-                                  "one (the synced tooltip) and never the other way round.");
+                                  "unit; inside it the tier is the element's own board-local depth " +
+                                  "(BoardVisual.TierForDepth, 2 cm per tier), EXCEPT a popup an " +
+                                  "overrideSorting canvas asked to sort for itself, which takes the " +
+                                  "cluster's top tier " +
+                                  $"({BoardVisual.PopupOverlayTier}) so it covers this board's whole " +
+                                  "face the way a local board-docked panel covers that board's " +
+                                  "furniture. A tier-3 count of 0 while an enemy-info popup is up " +
+                                  "means the lift did not reach it.");
             }
         }
     }

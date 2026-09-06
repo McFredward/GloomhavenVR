@@ -404,6 +404,13 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// with the board on the distance ladder.</summary>
     int WorldUI.MrBacking.IBackedSurface.BackingOrder => _canvas != null ? _canvas.sortingOrder : 0;
 
+    /// <summary>The ONE world-space canvas that draws this mirror's whole clone (see
+    /// <see cref="Neutralize"/>: every cloned Canvas is destroyed, so there is exactly one). Read
+    /// only — the board's cluster sweep is its single writer. Exposed so a caller that must seat a
+    /// POPUP of its own relative to this mirror's live cluster slot can read that slot rather than
+    /// guess at it (<c>RemoteInitiativeTrack.SeatPopupOverlay</c>).</summary>
+    internal Canvas? HostCanvas => _canvas;
+
     /// <summary>
     /// Content-cadence entry point: (re)build the clone when <paramref name="source"/> changed
     /// identity or shape, then re-fit it. Returns true iff the real widget is being mirrored — a

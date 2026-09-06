@@ -339,12 +339,26 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
     /// decimals, so a walk over the prefab clone alone would return the constant and move nothing.
     /// It is the board's own DOCKS, which hang off the board root on the owner's board and on this
     /// mirror alike: the discard/burnt/item stacks reach x ~ 0.408 board-local (the number
-    /// <c>PlayTray.BuildMounts</c>' own collision note carries), and the active-card column is
-    /// docked further out again at <c>ActiveMountBase.x</c> = 0.502, its cards reaching x ~ 0.53.
-    /// The measurement is on |x|, so a dock on the RIGHT widens the LEFT corner too: 0.408 - 0.320
-    /// = 88 mm off the pile stacks, which are always drawn, and ~210 mm while the owner has a
-    /// persistent card in the active column. The owner's hint has been reading that corner since
-    /// the fix; a peer's was still reading the plate.</para>
+    /// <c>PlayTray.BuildMounts</c>' own collision note carries), and the active-card MATRIX is
+    /// docked further out again at <c>ActiveMountBase.x</c> = 0.502.</para>
+    ///
+    /// <para>THAT MATRIX IS THREE COLUMNS WIDE, NOT ONE. This paragraph said "its cards reaching
+    /// x ~ 0.53", which is the arithmetic for a single card centred on the mount
+    /// (0.502 + CardWidth/2 = 0.534) — and <c>ActivePileViewer.Columns</c> has been 3 since
+    /// 85bbb8ca, with <c>RemoteActiveCards</c> reading it rather than its own hand-typed 2 since
+    /// ModBuild 461. The grid is CENTRED on the mount, so a full row of three puts the rightmost
+    /// card's centre one column step out: colStep = CardWidth x ActiveGridSpacing.x =
+    /// 0.0635 x 1.06 = 0.0673 m at the shipped dials, and the card's right edge lands at
+    /// 0.502 + 0.0673 + 0.0318 = <b>x ~ 0.601</b>. (Two cards in the row reach 0.567; one still
+    /// reaches 0.534, which is why the old number looked right whenever it was checked against a
+    /// single persistent card.) Well inside <c>MeasureBoardLocalExtents</c>' ceiling of
+    /// 0.320 + 0.35 = 0.670, so none of it is clamped away.</para>
+    ///
+    /// <para>The measurement is on |x|, so a dock on the RIGHT widens the LEFT corner too: 0.408 -
+    /// 0.320 = 88 mm off the pile stacks, which are always drawn, and up to 0.601 - 0.320 =
+    /// <b>281 mm</b> while the owner has a full row of three active cards (214 mm with a single
+    /// one — the number this note used to quote as the maximum). The owner's hint has been reading
+    /// that corner since the fix; a peer's was still reading the plate.</para>
     ///
     /// <para>SCOPE -- THE WHOLE BOARD ROOT, BECAUSE THAT IS THE OWNER'S SCOPE, not a wider one:
     /// <c>WorldTooltips.TryGetBoardRoot</c> hands the measurement <c>PlayTray.Root</c>, whose
