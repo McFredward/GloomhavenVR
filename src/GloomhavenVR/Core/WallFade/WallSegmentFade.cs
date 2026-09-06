@@ -2556,6 +2556,14 @@ internal static partial class WallSegmentFade
                 LogDiagnostic(headPos, visibleCount);
             }
 
+            // OCCLUDER VERDICTS (user report 2026-09-06, hauswand1.jpg). Deliberately NOT behind
+            // PerfConfig.Quiet and deliberately not on the diag cadence: it is the answer-bearing
+            // line of an open hardware round, it carries its own change gate and heartbeat, and
+            // the diag line above cannot be read as evidence about the wall he is pointing at —
+            // diag names the three widest-covering segments and a wall stuck at 0.00 is the one
+            // it never prints. See WallSegmentFade.OccluderVerdict.cs.
+            LogOccluderVerdicts(head, headPos, now);
+
             // The INSIDE falsifier, on the same cadence and only while the rule is IN FORCE —
             // its edges print unthrottled from UpdateInsideBoard, and the BOARD VOLUME line
             // proves the rule was armed even in a session where the player never went in.
