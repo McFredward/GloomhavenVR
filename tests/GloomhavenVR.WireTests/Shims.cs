@@ -57,6 +57,12 @@ namespace GloomhavenVR.Core
     {
         internal static void Warn(string scope, string message) { _ = scope; _ = message; }
         internal static void Info(string scope, string message) { _ = scope; _ = message; }
+
+        // Note is the SHIPPED-DEFAULT tier and the one an answer-bearing line must use, so a wire
+        // file that gains a `// HW-VERIFY` line gains a Note call and stops linking here. Added
+        // 2026-09-06 for NetCardFx's CARD FX OUTBOX / CARD FX LOST counters. Keeping all three
+        // shapes present means this shim fails on a SIGNATURE change and never on a tier choice.
+        internal static void Note(string scope, string message) { _ = scope; _ = message; }
     }
 }
 

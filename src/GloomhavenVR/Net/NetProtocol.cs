@@ -433,7 +433,176 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 461;
+    public const ushort ModBuild = 462;
+    // Build 462: the fifth big multiplayer round — eleven items, six lanes, and the round in which
+    //   the instruments themselves were the largest single source of wrong answers. Three of this
+    //   tree's own falsifiers were lying, two hypotheses from the integrator were killed by the
+    //   lanes that received them, and one lane retracted its own finding after checking it.
+    //   * ITEM 1 WAS THE FOURTH COPY OF ONE MEMBERSHIP BUG, AND THE PREMISE EVERY ROUND REASONED
+    //     FROM WAS FALSE. Three source blocks assert that plucking runs CardFan.Remove so the wire
+    //     count drops. It does — FOR ONE FRAME. CardsDriver.Rebuild then re-fills the fan from the
+    //     widget list through CardsGameApi.HandFanMember, and a card in the fist is still
+    //     CardType.Hand, so it goes straight back in. The sender's own `Fan order` n-sequence runs
+    //     8 7 8 7 8 7 for the whole selection phase and the mirrored geometry steps n=8 -> n=7 ->
+    //     n=8 across one pluck. All 8 FAN RETURN VERDICT refusals read term=seatUsable against an
+    //     8-card list. The user's own observation — that face-DOWN cards look fine — was the
+    //     halving clue: the slab count is identical in both phases, a duplicate back is simply
+    //     invisible beside seven other backs. Fixed the way the item fan (459) and the pile browser
+    //     (461) already were, and the sweep that found it enumerated FOURTEEN surfaces; the
+    //     active-card matrix was the FIFTH copy and is fixed too. The map-room loadout fan is the
+    //     sixth, is worse (no length belt at all, every compensating clause behind !mapFronts, so
+    //     it fails UNSAFELY with shifted fronts), and is deliberately left for its own build with a
+    //     dated note where the next reader will hit it.
+    //   * ITEM 2 — THE FAN'S ORDER HAS NEVER BEEN ON THE WIRE AT ALL. The owner's arc order lives
+    //     in CardsDriver._fanOrder, the drag-reorder, which is session-local; every observer
+    //     rebuilds from cardsUI in the GAME's order. Measured: 38 of 54 readings on one machine and
+    //     21 of 33 on the other say NOT SORTED. The user ruled on it mid-round — "jegliche
+    //     Umsortierungen die ein Spieler tätigt MÜSSEN zwingend auch so von allen anderen Spielern
+    //     gesehen werden. Das ist NICHT optional." — so NEW EXTENSION RECORD 44 (ExtIdFanArcOrder)
+    //     carries [count][packed nibbles], 3-9 bytes, an ORDER and never an identity, sampled in
+    //     the same line that reads the arc so the two cannot describe different instants. It fails
+    //     CLOSED for the pixels (count must equal the receiver's own list length, every index in
+    //     range, none twice — a plausible-but-wrong permutation would drop one card, duplicate
+    //     another and draw a confident wrong face at every later seat) and VISIBLY in the log, which
+    //     separates "that peer CANNOT send one" from "they can and already agree" from "they sent
+    //     something that is not a permutation". A FLAT player and any peer below 462 cannot send it
+    //     and their fan will diverge until they update; that is a stated limit, not a silent one.
+    //     AND IT SAVED ITEM 1's FIX: record 36 names a seat in the HAND LIST while the slab being
+    //     hidden is an ARC seat. Those were the same index only while the two orders agreed — so
+    //     the membership fix would have hidden the WRONG card in exactly the reordered fan the user
+    //     called most important.
+    //   * ITEM 4 — THE MIRROR IS EXONERATED AND THE ANSWER IS THE VR INPUT ITSELF. His initiative
+    //     really was 64 (144 replicated readings, cross-checked against his other two turns), the
+    //     screenshot is a true picture of his own board, and OrderRoundCards applied the owner's
+    //     stated bit and never once inverted it. CardsDriver.ReconcileInitiative reads whatever lies
+    //     in tray recess 0 and drives the game's own AbilityCardUI.SwapInitiative — so the recess is
+    //     the INPUT to the initiative choice, not a view of it. Phase-guarded to
+    //     SelectAbilityCardsOrLongRest, so nothing can move after the confirm. WHAT COULD NOT BE
+    //     ESTABLISHED, and was not guessed: whether his card reached recess 0 by his own drop or by
+    //     PlayTray.PlaceRoundCardIfMissing. Nothing logged the AUTHOR of a seat and record 18's bit
+    //     structurally cannot say — ReconcileInitiative makes it true whatever put the card there.
+    //     Three new owner-side lines name the author from now on.
+    //   * ITEMS 6a + 8 WERE A RACE, NOT A WRONG IDEA. 461's face claim was sound and its ORDERING
+    //     was not: the FX event rides the 5 Hz extras stream, the memory it claims from is stamped
+    //     by a 4 Hz board pass, so the event arrives FIRST. Verified 4 of 4 — the census reads
+    //     `round slots 2 FRONT` immediately before each flight and the occupancy nibble is still
+    //     0x3 immediately after. The deliberate ambiguity refusal is innocent and untouched; both
+    //     its branches require slot < 0, which 461's sender fix already made unreachable.
+    //     DepartedFaceSeconds' doc claimed its window was "sized to cover both" sides of the
+    //     departure — an expiry is one-sided by construction, so it covers LATE and EARLY by zero,
+    //     and every flight arrived early. It never decided anything.
+    //   * ITEM 7 WAS A POSITION QUESTION ANSWERED BY AN IDENTITY TEST. RemoteBurnFx asked which
+    //     recess is DRAWING this card's face; the Board-centre fallback its author reserved for "a
+    //     burn nobody could place" fired on HALF the burns in the round, because the recess was
+    //     occupied and this client merely could not NAME the card in it. A position may be inferred
+    //     where a face may not.
+    //   * ITEM 6b — A NAMING FAILURE, NOT A PERMISSION FAILURE, and the two lanes that met here
+    //     disagreed about the same eight refusals until dwell time separated them: SEVEN are lane
+    //     A's pluck oscillation (n=7 dwelling 10-30 log lines, nine blips, in the selection phase),
+    //     ONE is a hand card seated on the board (n=7 dwelling 358/1625/2966/14493 lines, inside the
+    //     LoseCard pick). Eleven census intervals ten seconds apart cannot all land inside a
+    //     two-frame blip. Both terms survive, each governing what it can answer: as a NAME the seat
+    //     indexes the model list and no arc arithmetic belongs in front of it; as an ARC INDEX it is
+    //     refused outright when anything is seated, because seat k maps to k or k-1 and nothing
+    //     local can say which. THE USER'S RULING — "beim Verbrennen EGAL AUS WELCHEM GRUND … immer
+    //     mit der Vorderseite" — overturned a boundary paragraph WE had written, and the deciding
+    //     term turned out to be the PHASE: avoid-damage runs in the ACTION phase where the
+    //     two-card-commit secret does not exist. The recess draws that card as a FRONT with no card
+    //     identity on any wire. The selection-phase half of the boundary stays, and is measured: the
+    //     occupancy nibble across one pick reads three placements, TWO TAKE-BACKS and one commit, so
+    //     a player laying a card down there has not decided anything.
+    //   * ITEM 5 — THE MIRRORED BOARD CARD WAS 17.5 % WIDER THAN ITS OWN PRINT. Owner's card body
+    //     133.4 x 204.3 mm against a mirrored slab mesh of 156.8 x 217.3 mm: an 11.7 mm rim per
+    //     side. Predicted print/slab 0.851 x 0.940, measured off his screenshot 0.849 x 0.936. Third
+    //     instance of one defect — VRCard fixed it locally, RemoteHandFan for the peer's hand, and
+    //     RemoteBoardCard plus the flight slab were never converted. AND "DER BRAUNE OVERLAY" IS OUR
+    //     OWN FIX FROM 461, whose doc claimed a flat 4 % inset "keeps the backdrop strictly inside
+    //     the printed picture" — false, because an ability card's top is a scalloped banner and its
+    //     bottom a notch, so the quad painted a straight-edged warm-brown rectangle across a curved
+    //     outline on every card, permanently. Now fitted to the union of the two action rects, the
+    //     card's own interior.
+    //   * ITEM 9 WAS WORSE THAN CLUTTER. The game AUTO-READIES a dead seat — `Readied McFredward.
+    //     Players Ready Count: 1` twenty-five lines before the cap lettered itself 'Auswahl ändern',
+    //     with no press in the window — so the only thing that button could still do was UN-READY a
+    //     player with nothing left to select. Across the seven post-death Board UI records the
+    //     confirm cap was the ONLY control ever drawn, so the rest of the enumeration was already
+    //     correct. The mirror applies the owner's mask verbatim, so this is one verdict repeated and
+    //     not two that could drift. Death is read as CActor.IsDead, and because he described the
+    //     board as leer it now says so in EN and DE instead of being silently bare.
+    //   * ITEM 11 WAS DRAW ORDER, NOT DEPTH, AND THE SCREENSHOT PROVES IT ALONE: the popup draws
+    //     OVER the board's opaque stone top rail and UNDER two cards recessed behind it. No depth
+    //     test produces that pair. Both contestants are uGUI at the same sorting order, so Unity's
+    //     distance tie-break hands it to the nearer cards. On the owner's own board the conversion
+    //     pins furniture strictly under the lowest ladder slot any same-board panel holds, so his
+    //     popup sits a full band above every card face BY CONSTRUCTION. The mirror now gets that
+    //     same term — no offset, no re-pose, and no dependence on card geometry, which mattered
+    //     because another lane changed exactly that geometry in this build.
+    //   * ITEM 3 — AND THE MIRROR HYPOTHESIS WAS FALSIFIED BY THE PEER'S OWN LOG. The held-prop
+    //     exemption already existed and already covered a peer's hand; TEN adoption sites in the
+    //     wall subsystem ask it. The ELEVENTH lane — asset siblings — asks nobody, and all 18 fade
+    //     writes on 'PR_Tree_3Hex_Leafless' carry its tag while record 37 had that prop in player
+    //     2's right hand. But the owner's own machine shows the same failure during his own LOCAL
+    //     hold: 60 enable/disable transitions over 8 renderers, 304 frames undrawn, with the line's
+    //     own reading key excluding both the Apparance rebuild and re-instantiation. THE LOCAL
+    //     EXEMPTION WAS NOT HOLDING EITHER — a fix aimed only at the observer would have passed its
+    //     own test with half the defect shipped. Enforced at the FOUR fade-write primitives, the
+    //     same argument the FLOOR NEVER FADES rule makes, and this round is its evidence.
+    //     A SEPARATE FINDING WAS RETRACTED BY ITS OWN AUTHOR after I asked for it: FindAssetRoot
+    //     does NOT resolve to the scenario root and structurally cannot (it stops at 4 levels and
+    //     returns null above 16 renderers); the lane had read a wall-component NAME field as a
+    //     hierarchy path. The tree is a genuine asset sibling of its own prop's rubble, which is
+    //     authored on the game's WallFade shader family — the same relation as the standing ivy
+    //     ruling. 18 of 2,425 asset-sibling fade rows are that tree; the rest is wall ivy, verge
+    //     grass, vines and bushes, which is what the lane exists for.
+    //   * ITEM 10 IS THE ONE ITEM THAT ENDS UNCONVICTED, and two hypotheses died on the way. The
+    //     integrator's — "an Image with no sprite draws nothing" — is FALSE: with a null sprite
+    //     Image.OnPopulateMesh falls through to Graphic's and fills the rect with `color` against
+    //     s_WhiteTexture, which is how this mod's own sprite-less backdrop paints at all. And the
+    //     missing-art story that the integrator had already reported to the user was A FALSE
+    //     POSITIVE OF OUR OWN INSTRUMENT: TickBackdropVerdict asked `sprite == null || !enabled`
+    //     over EVERY Image on the clone including inactive ones, and an ability card is mostly
+    //     conditional icon slots, so it was true for every card that has ever existed — which is why
+    //     it could never reach CLOSED. Both machines read an identical 30-of-45 census and the
+    //     owner's own machine cancels loads at a comparable rate (356 against 759), so cancellation
+    //     is the game's streaming and not a property of being a clone. 461's heal did not fail to
+    //     land; there was nothing wrong for it to heal.
+    //     WHAT WAS FOUND INSTEAD, statically and without hardware: the game's fire is the SERIALIZED
+    //     REFERENCE CardEffects._uiFxOverlay, one object the artist named. This mod was picking "the
+    //     first Image whose material carries three properties" over a GetComponentsInChildren order
+    //     nothing guarantees. If those name different objects, every flame constant lands on a
+    //     graphic never meant to carry the fire, the real sheet is never touched, AND THE RIG
+    //     REPORTS ARMED — item 10 word for word. The named reference is primary now, the signature
+    //     walk is the fallback, and the log says which route answered and whether they agreed. Three
+    //     other candidates were eliminated on the way: the texture (a public serialized field that
+    //     survives Instantiate), the strip pass (UIFX_Overlay appears in exactly one decompiled file
+    //     and the only SetActive on it is SetActive(true)), and _PosAndBounds (written to imgComp
+    //     only, never to fgFx, so the owner's sheet carries the asset default exactly as ours does).
+    //   * THE CARD-FX EVENT STREAM LOSES A THIRD OF ITS EVENTS, MEASURED AND DELIBERATELY NOT
+    //     REPAIRED. The owner logged six flight events and the host played four; in both losses it
+    //     was the FIRST of a pair. The transport is Bolt UNRELIABLE by choice — the reliable channel
+    //     exists and is used where loss is unacceptable — so redundancy is the intended answer and
+    //     its one-event memo is the defect, which makes NetAvatarDriver's "a single lost packet
+    //     still lands within 200 ms" false whenever anything is queued behind. NOT FIXED, because
+    //     the failure modes are not symmetric: a LOST event is a missing animation and nothing is
+    //     drawn wrongly, while a DUPLICATED or late-replayed one flies a card out of an
+    //     already-empty recess — which is item 7's own symptom, fixed in this same build. Today
+    //     fails in the safe direction. The three remedies and their costs are recorded at the seam.
+    //     The measurement needed no new byte: the dispatch counter was already dense on the wire and
+    //     nobody had read it, so the arrival gap IS the loss. This round's rate was 2 of 6 = 33 %.
+    //   * FOUR MORE FALSE SOURCE COMMENTS, on top of the five of ModBuild 461: HandFanMember's "this
+    //     predicate decides the fan's SIZE and that size is what travels" (FillHandFan applies a
+    //     second, client-local term after it); FigureRendererGuard's "every mod sweep has to ask";
+    //     IsFigureOrActorRenderer's "checked by EVERY adoption sweep, enforced retroactively"
+    //     (both halves false); and EnsureDissolveChannel's "figures can never get here". ONE
+    //     ACCUSATION WAS REFUSED BY THE LANE THAT RECEIVED IT, correctly: PlayTray's "the game does
+    //     NOT care which VR slot a card sits in" is TRUE of vanilla and merely omits that this mod
+    //     makes the slot matter — clarified rather than corrected, on the grounds that reporting a
+    //     true sentence as false is its own kind of error.
+    // Wire: NEW extension record 44 = ExtIdFanArcOrder, [count][ceil(count/2) packed nibbles],
+    // 3-9 bytes. Documented worst case 1738 -> 1747; PresenceSerializer.MaxSize stays 2100.
+    // 45 is now the next free id. A peer below 462 cannot send record 44 and its absence is a
+    // named, logged limitation rather than a silent divergence.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 461: the fourth big multiplayer round — eleven items, nine lanes, and a recurring
     //   theme worth naming up front: FIVE claims written confidently in this tree's own source
     //   comments were false, and each one was protecting a live defect. They are called out
