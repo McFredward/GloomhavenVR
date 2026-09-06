@@ -857,6 +857,11 @@ internal static partial class Loc
         // The board family on the "Objekt: Wirkung" colon pattern (2026-08 naming pass, audit
         // 05 §3): "Brettgröße" / "Brett folgt dir" / "Brett-Bewegung" mixed compound, sentence
         // and hyphen forms for one object.
+        // THE RECOVERY BUTTON, not a dial: the first row of Brett & Karten ▸ Steuerbrett calls
+        // CardsDriver.RequestBoardRecall. The caption has to read as an ACTION in both languages
+        // ("hol es zurück", not "Rückholen: an/aus") because it sits directly above three rows
+        // that ARE dials, and the player pressing it has just lost their board.
+        ["vr_o_boardrecall"] = Pair("Board: bring it back to me", "Brett: zu mir zurückholen"),
         ["vr_o_trayscale"] = Pair("Board: size", "Brett: Größe"),
         ["vr_o_trayfollow"] = Pair("Board: follows you", "Brett: folgt dir"),
         // Item 12: the control-board movement scheme row + its three dropdown choices. The

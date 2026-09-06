@@ -72,8 +72,14 @@ internal sealed partial class PlayTray
     // nothing parented to it renders, and it can never heal by itself — plus the pose-PRESERVING
     // pin housekeeping. The user-facing recovery is meant to be the explicit one, "Board
     // zurückholen" (CardsDriver.RequestBoardRecall → _recallBoard), which is a deliberate action
-    // and therefore always allowed — but note it has NO button wired to it yet, so today the
-    // non-finite verdict is in practice the only automatic recovery left.
+    // and therefore always allowed. IT HAS A BUTTON SINCE 2026-09-06 — the first row of
+    // Brett & Karten ▸ Steuerbrett in the VR settings menu, reached from the PAUSE menu and
+    // therefore not from the board itself, which is the whole point when the board is what is
+    // missing. Until that build the sentence here read "it has NO button wired to it yet, so
+    // today the non-finite verdict is in practice the only automatic recovery left", and it was
+    // true for five weeks: the 2026-09-06 multiplayer session put a co-player's board under the
+    // map with a perfectly FINITE transform, both logs contain ZERO "CONTROL BOARD RECOVERED"
+    // lines, and his report was "wir konnten es nicht mehr finden".
     // THE PINNED POSE'S ORIGIN VERSION AND ITS RIG-RELATIVE CACHE NOW LIVE IN FollowPinAnchor.
     // <see cref="VRRigDriver.RigPoseVersion"/> bumps ONLY on a rig (re)build or a deliberate
     // recentre — i.e. exactly the tracking-origin changes that move the player without moving the
@@ -232,7 +238,13 @@ internal sealed partial class PlayTray
         // Re-author the pinned world pose against the CURRENT tracking origin so the next
         // recentre carries it instead of stranding it again.
         _anchor.ReauthorOrigin();
-        VRLog.Info("Cards", $"CONTROL BOARD RECOVERED — {why}. Was at {before}, re-homed to " +
+        // PROMOTED FROM VRLog.Info (2026-09-06). The doc above calls this "the line to grep for
+        // after an incident", which it could not be: VRLog.Info is the DEBUG tier despite its
+        // name, so on a shipped default install the one line that says a recovery happened did
+        // not print at all. Not per-frame — a recovery is an edge (non-finite verdict, or a
+        // deliberate press), so the marker is not rebuilding the ModBuild 331 flood.
+        // HW-VERIFY
+        VRLog.Note("Cards", $"CONTROL BOARD RECOVERED — {why}. Was at {before}, re-homed to " +
                             $"{_root.position} in front of the player. The board must never be " +
                             "unreachable; report this line with the surrounding log.");
     }

@@ -71,17 +71,67 @@ internal sealed partial class CardsDriver
     /// rule), which also sanctions the move for the issue-C pose watchdog. No-op with no live
     /// driver (no scenario / hands down).
     ///
-    /// <para>NOT WIRED TO A BUTTON YET (verified: this is the only mention of it in <c>src/</c>).
-    /// The options tab exposes config DIALS, not actions, so the "Komfort ▸ Neu zentrieren · Board
-    /// zurückholen" row of <c>.planning/refactor/MENU-STRUCTURE.md</c> is still a proposal. Kept
-    /// deliberately: it is the receiving half of an approved feature, and the watchdog notes in
-    /// <c>PlayTray.2.Watchdog.cs</c> name this as the user-facing recovery. Do not delete it as
-    /// dead code — wire it.</para>
+    /// <para><b>WIRED SINCE 2026-09-06</b>, and the two claims this paragraph used to make were
+    /// both false by then. It said "NOT WIRED TO A BUTTON YET" and it said "the options tab exposes
+    /// config DIALS, not actions" — but <c>VROptionsTab</c> has carried ACTION rows since the
+    /// combat-log spawn button (<c>CuratedEntry.Press</c>, <c>VROptionsTab.4.Curated.cs</c>), so
+    /// nothing was ever blocking. The caller is now the first row of <b>Brett &amp; Karten ▸
+    /// Steuerbrett</b>, above the board's own dials: that is the page a player opens when the
+    /// control board is the problem, and it is reached from the PAUSE MENU (<c>VRMenuEntry</c>),
+    /// which is a controller button and not a thing on the board — so the recovery is reachable in
+    /// exactly the state it exists for, a board that cannot be found.</para>
+    ///
+    /// <para>The <c>.planning/refactor/MENU-STRUCTURE.md</c> row this used to cite ("Komfort ▸ Neu
+    /// zentrieren · Board zurückholen") is a proposal against <c>SettingsPanel.*</c>, a menu that no
+    /// longer exists, and its "Neu zentrieren" half was NOT built: recentring is a controller chord
+    /// (<c>VRRigDriver.RequestRecenter</c>), not a menu row, so there was no neighbour to sit
+    /// beside.</para>
+    ///
+    /// <para><b>MULTIPLAYER: THIS IS NOT CLIENT-LOCAL</b>, checked on the send path rather than
+    /// assumed. <c>NetAvatarDriver</c> samples the live board transform every packet
+    /// (<c>extras.Board.Position/Rotation</c> + <c>BoardScale</c>) and <c>RemoteControlBoard</c>
+    /// seats each peer's mirror at exactly that world pose, so a recall MOVES THE BOARD FOR
+    /// EVERYONE, the same way a hand grab does. That is the 1:1 ruling working, not a leak: it
+    /// needs no wire field, no new record and no gate, because the pose is already on the wire.
+    /// </para>
     /// </summary>
     internal static void RequestBoardRecall()
     {
-        if (Instance != null)
-            Instance._recallBoard = true;
+        CardsDriver? driver = Instance;
+        if (driver == null)
+        {
+            // A PRESS THAT LEAVES NO TRACE IS THE ONE THING THIS LOG MAY NOT DO
+            // (the "all off" row of VROptionsTab.9.TestTriggers.cs, verbatim, and it applies here
+            // for the same reason): the row is reachable from the MAIN MENU, where there is no
+            // driver and the
+            // press is correctly inert. Without this line "I pressed it and nothing happened" and
+            // "the button is broken" produce the same empty log.
+            // HW-VERIFY
+            VRLog.Note("Cards", "BOARD RECALL PRESSED — NO LIVE DRIVER (no scenario, or the hands "
+                                + "are down), so the press is a NO-OP: no pose is written and "
+                                + "nothing goes on the wire. This is the CORRECT reading in the "
+                                + "main menu; the same line during a scenario is the defect.");
+            return;
+        }
+
+        // Read-only, all of it — the pose write happens in Update (P2 threading rule), and an
+        // instrument that moved the board would be measuring itself.
+        Transform? root = driver._tray.Root;
+        Vector3 seat = CardsConfig.TrayOffset
+                       + CardsConfig.BoardPosOffset(CardsConfig.CurrentBoard).Value;
+        // HW-VERIFY
+        VRLog.Note("Cards", "BOARD RECALL PRESSED — a live driver took it; the re-home runs in the "
+                            + "next Update. Board was at "
+                            + (root != null ? root.position.ToString("F2") : "NO ROOT (no board built yet)")
+                            + $", mode {(CardsConfig.TrayFollow.Value ? "FOLGEN" : "FIXIERT")}. It will be "
+                            + $"re-seated at the saved head-relative layout ({seat.x:F2} m right, "
+                            + $"{-seat.y:F2} m down, {seat.z:F2} m forward) — TrayOffset plus this "
+                            + "board's BoardPosOffset, i.e. what PlaceAtHead uses for every seat "
+                            + "except the very first of a session — in front of the "
+                            + "player; the resolved world pose is on the 'CONTROL BOARD RECOVERED' "
+                            + "line of the SAME frame, and its absence there means the request was "
+                            + "swallowed between here and Update.");
+        driver._recallBoard = true;
     }
 
     /// <summary>
@@ -599,7 +649,8 @@ internal sealed partial class CardsDriver
         }
 
         // User escape hatch "Board zurückholen": an explicit, always available "bring it back"
-        // that does not wait for the watchdog dwell timer. No caller yet — see RequestBoardRecall.
+        // that does not wait for the watchdog dwell timer. The caller is the first row of
+        // Brett & Karten ▸ Steuerbrett — see RequestBoardRecall for why the menu is the surface.
         if (_recallBoard)
         {
             _recallBoard = false;

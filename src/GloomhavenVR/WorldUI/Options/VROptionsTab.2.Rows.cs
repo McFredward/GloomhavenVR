@@ -292,7 +292,9 @@ internal static partial class VROptionsTab
     /// '...'". The ellipsis was not ours: the caption inherits the GAME row template's TMP
     /// settings, and that template ellipsizes. A truncated name is strictly worse than a small
     /// one — "Fächer: Winkel je…" identifies nothing — so the caption now behaves like the action
-    /// rows already do (see the BuildActionRow branch, which learned this first): no wrapping,
+    /// rows already do (see <see cref="BuildLinkRow"/>'s <c>asAction</c> branch, which learned this
+    /// first — there has been no method called <c>BuildActionRow</c> since that path was folded
+    /// into the link row, and this cross-reference pointed at nothing): no wrapping,
     /// overflow instead of ellipsis, and auto-sizing that shrinks the text a little rather than
     /// cutting it. The floor is 78% of the sampled size, which is still comfortably readable at
     /// arm's length; anything that does not fit even then is LOGGED by name (see

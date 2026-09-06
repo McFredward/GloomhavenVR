@@ -85,9 +85,29 @@ internal static partial class VROptionsTab
             OnPress = onPress;
         }
 
+        private CuratedEntry(string captionKey, System.Action onPress)
+        {
+            Section = string.Empty;
+            Key = string.Empty;
+            CaptionKey = captionKey;
+            En = string.Empty;
+            De = string.Empty;
+            OnPress = onPress;
+        }
+
         /// <summary>An action row: caption in both languages, and what pressing it does.</summary>
         internal static CuratedEntry Press(string en, string de, System.Action onPress) =>
             new(en, de, onPress);
+
+        /// <summary>
+        /// An action row whose caption lives in <c>Loc.cs</c> instead of on the entry — the form to
+        /// prefer whenever the label names a THING the player knows rather than the shape of this
+        /// file's tree (see <see cref="Say"/> for the case the local pair exists for).
+        /// <see cref="Caption"/> falls through to <c>Loc.Mod(CaptionKey)</c> because <see cref="En"/>
+        /// is empty, so the row follows a language switch like every other row on the page.
+        /// </summary>
+        internal static CuratedEntry Press(string captionKey, System.Action onPress) =>
+            new(captionKey, onPress);
 
         /// <summary>True for a row with no ConfigEntry behind it — see <see cref="OnPress"/>.</summary>
         internal bool IsAction => OnPress != null;
@@ -959,6 +979,33 @@ internal static partial class VROptionsTab
                     LocKey = "vr_sec_controlboard",
                     Entries = new CuratedEntry[]
                     {
+                        // THE RECOVERY, FIRST, and it is the only row on this page a player can
+                        // need while UNABLE TO SEE WHAT IT ACTS ON. Incident 2026-09-06 (co-player,
+                        // verbatim): an external SteamVR overlay flipped his playspace, "dadurch
+                        // ist das Controlboard auch einmal unter die Map geglitched und wir konnten
+                        // es nicht mehr finden." That last clause was literally true — the standing
+                        // ruling of 2026-08-03 removed the automatic distance/visibility recall
+                        // ("das Controllboard muss immer wie angewurzelt an der Position sein"), the
+                        // only automatic verdict left is NON-FINITE, and a board under the map has a
+                        // perfectly finite transform. Both logs of that session carry ZERO
+                        // "CONTROL BOARD RECOVERED" lines.
+                        //
+                        // THE RULING IS NOT WEAKENED BY THIS ROW, and that is why it is a BUTTON
+                        // rather than a revived envelope: the ruling forbids the board moving BY
+                        // ITSELF ("es darf niemals (egal was passiert) eine Position plötzlich
+                        // wechseln"), and PlayTray.2.Watchdog.cs names this deliberate press as the
+                        // recovery it leaves room for. Nothing fires unless a hand presses it.
+                        //
+                        // WHY HERE AND NOT ON THE BOARD. The board is what is missing, so a keycap
+                        // on it is unreachable in exactly the state this exists for. The VR settings
+                        // window is opened from the PAUSE MENU and the main menu (VRMenuEntry — the
+                        // only two callers of VROptionsTab.Open) and is floated in front of the
+                        // player, so it is reachable from a controller button with the board nowhere
+                        // in sight. Within the menu this is the page a player opens when the control
+                        // board is the problem — the same rule that put "Kampflog jetzt einblenden"
+                        // on Tafeln rather than under Erweitert — and it goes ABOVE the board's
+                        // dials because a dial is no use on a board you cannot find.
+                        CuratedEntry.Press("vr_o_boardrecall", Cards.CardsDriver.RequestBoardRecall),
                         new("Cards", "Board", "control_board"),
                         new("Cards", "TrayScale", "vr_o_trayscale"),
                         new("Cards", "TrayFollow", "vr_o_trayfollow"),
