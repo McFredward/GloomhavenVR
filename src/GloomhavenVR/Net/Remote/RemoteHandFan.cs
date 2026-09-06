@@ -614,6 +614,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // Hand the slabs over WITHOUT destroying them: Rebuild only ever destroys what these lists
         // still name, so emptying them here is what keeps the outgoing wave alive.
         _cards.Clear();
+        _seeded.Clear();
         _faces.Clear();
         _builtCount = -1;
         _frontsShown = false;
@@ -2100,6 +2101,67 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// flag.</summary>
     private bool _releasePending;
 
+    // ────────────────────────────── THE ARC REFLOW (report item 3, second half) ────────────────
+    //
+    // WHAT THE OWNER ACTUALLY SEES, read off their own code and not approximated. Plucking a card
+    // runs CardFan.Remove -> Relayout(instant: false); releasing it runs CardFan.Add ->
+    // Relayout(instant: false). Relayout hands EVERY card a new home (CardFan.cs:2021,
+    // `card.SetHome(_root, pos, rot, scale, instant || opening || swapping)`) and VRCard's standing
+    // home-lerp carries each of them there — VRCard.cs:2253, `1 - exp(-CardLerpSpeed * dt)` on
+    // localPosition, localRotation AND localScale. So the neighbours that closed over the gap on
+    // the pluck GLIDE back open while the released card glides in: one continuous motion of the
+    // whole arc.
+    //
+    // WHAT THE MIRROR DID INSTEAD. LayoutCards wrote `t.localPosition = pos` with no easing at all,
+    // and Rebuild destroys and recreates every slab whenever the count changes — which a pluck and
+    // a release both are. Seven cards teleported while one slid. The user's ruling this round is
+    // that a partial mirror of an animation is not done: "Es soll nicht fehlen. Fuer 1:1 Regel soll
+    // es voll gleich da sein."
+    //
+    // THE STAND-DOWN TERM IS THE OWNER'S OWN, VERBATIM. `instant || opening || swapping` is the
+    // fifth argument of the SetHome call above, and CardFan's collapse writes instant: true at
+    // CardFan.cs:2218. Its comment says why: "instant is forced so VRCard tracks the blend exactly
+    // (its own home-lerp would double-smooth the motion)". Those three animations compute an
+    // explicit blend that must be written, not eased toward — so the reflow ease stands down for
+    // exactly the three the owner stands it down for, and for nothing else.
+    //
+    // AND A SLAB THAT WAS JUST BORN MUST SNAP, which is the fourth term and also the owner's:
+    // VRCard._instantNext, set by SetHome(instant: true) out of the pool. A fresh slab is parented
+    // with worldPositionStays:false, i.e. at the fan root's ORIGIN, so easing it would streak every
+    // new card out of the middle of the fan. _seeded is that flag, per slab.
+
+    /// <summary>Per-slab "this slab already has a pose to ease FROM", index-aligned with
+    /// <see cref="_cards"/>. False for a slab Rebuild has just created with nothing carried into
+    /// it; the first <see cref="LayoutCards"/> pass writes such a slab instantly and sets it. The
+    /// mirror of <c>VRCard._instantNext</c>.</summary>
+    private readonly List<bool> _seeded = new(MaxCards);
+
+    /// <summary>Slab poses banked by <see cref="Rebuild"/> from the set it is about to destroy, in
+    /// FAN-ROOT-LOCAL space — the root object survives a Rebuild (only <see cref="_cards"/> is torn
+    /// down), so local is both correct and free of the moving-hand term a world pose would carry.
+    /// </summary>
+    private readonly List<Vector3> _carryPos = new(MaxCards);
+    private readonly List<Quaternion> _carryRot = new(MaxCards);
+    private readonly List<float> _carryScale = new(MaxCards);
+
+    /// <summary>Session census of the reflow, for the verdict line: slabs that were carried across
+    /// a rebuild and therefore EASED to their new seat, against slabs that were born at the seat
+    /// and therefore TELEPORTED to it.</summary>
+    private int _reflowEased;
+    private int _reflowSnapped;
+
+    /// <summary>The last rebuild's own two numbers — how many of that rebuild's slabs were carried,
+    /// out of how many it built. Quoted by the verdict line so a reader can see whether the OTHER
+    /// slabs moved on the same release the returning card did.</summary>
+    private int _lastCarried;
+    private int _lastBuilt;
+
+    /// <summary>Unscaled time of that rebuild. The verdict line quotes the pair ONLY when the
+    /// rebuild belongs to the release being judged — a refused release whose arc count never moved
+    /// has no rebuild of its own, and printing the last one that happened to occur would be a
+    /// number from a different event dressed as this one's.</summary>
+    private float _lastRebuildAt = float.NegativeInfinity;
+
     /// <summary>The exponential rate the OWNER's own released card flies home at
     /// (<c>[Cards] CardLerpSpeed</c>, off <see cref="RemoteAvatar.BoardTuning"/>) — theirs and
     /// never this client's, so the mirrored glide settles on the owner's clock. Falls back to the
@@ -2507,10 +2569,31 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     ///     rather than losing it.</item>
     /// </list>
     ///
+    /// <para>AND THE SECOND CLAUSE ANSWERS THE OTHER SLABS, which is a different question with a
+    /// different failure. <c>arc reflow: E of B slab(s) carried</c> is THIS release's rebuild: B is
+    /// how many slabs it built, E is how many of them were handed the pose of the slab that stood
+    /// for the same card a frame earlier and therefore EASED to their new seat. The rest were born
+    /// at the seat and teleported to it.</para>
+    /// <list type="bullet">
+    ///   <item><c>E == B - 1</c> on a release (the returning card is seeded from the FIST, not from
+    ///     the old arc, so it is never one of the carried) — the whole arc reflowed. This is the
+    ///     working reading.</item>
+    ///   <item><c>E == 0</c> with <c>B &gt; 0</c> — the arc TELEPORTED and only the returning card
+    ///     moved. That is precisely "the fix worked and the symptom stayed": <c>armed</c> will read
+    ///     healthy while the picture is still wrong, and it is the one combination that would
+    ///     otherwise look like success. The key is record 36's seat; a pluck whose seat could not be
+    ///     belted lands here.</item>
+    ///   <item>Session <c>eased/snapped</c> beside them is every rebuild, not just releases — a
+    ///     draw, a burn and a character exchange have no key and correctly snap, so this pair is
+    ///     expected to carry a healthy snapped count. Compare the PER-RELEASE numbers, not the
+    ///     session ones.</item>
+    /// </list>
+    ///
     /// <para>THE VALUE THAT CONVICTS THIS FIX is <c>N == 0 with M &gt; 0</c> on a round in which the
     /// user reports having put cards back during the CARD-SELECTION phase. That is the exact case
     /// the identity/motion split was made for, and if it still reads that way the split did not
-    /// take.</para>
+    /// take. THE VALUE THAT CONVICTS THE REFLOW is <c>E == 0</c> on a release whose <c>armed</c>
+    /// climbed.</para>
     /// </summary>
     private void LogReturnVerdict(bool armed, bool recess = false)
     {
@@ -2534,7 +2617,21 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             + "with 0 armed and 0 to a recess means this is INERT and the term above is the "
             + "blocker. NOTHING NEW IS ON THE WIRE for any of it: the seat is record 36's, the "
             + "seed pose is the mirrored held slab's own last pose, and no card identity is read "
-            + "or drawn on this path — which is why it now runs with the reveal gate SHUT.");
+            + "or drawn on this path — which is why it now runs with the reveal gate SHUT. "
+            + (Time.unscaledTime - _lastRebuildAt <= HandoffGraceSeconds + ReleaseGlideSeconds
+                ? $"ARC REFLOW on this release: {_lastCarried} of {_lastBuilt} slab(s) carried, so "
+                  + $"{Mathf.Max(0, _lastBuilt - _lastCarried)} were born at their seat and "
+                  + "TELEPORTED to it; "
+                : "ARC REFLOW on this release: the arc never rebuilt, so no slab moved seat at all "
+                  + "and there was nothing to reflow — which for a REFUSED release is the expected "
+                  + "reading and not a second defect; ")
+            + $"session {_reflowEased} eased / {_reflowSnapped} snapped. The owner's own "
+            + "CardFan.Add hands EVERY card a new home and VRCard's standing lerp glides all of "
+            + "them, so a release that carried none of them is the 1:1 breach even when the "
+            + "returning card flew: read that number and not this line's 'armed' when the user "
+            + "says the fan still pops. A rebuild with no record-36 seat to key on (a draw, a "
+            + "burn, a character exchange) carries nothing BY DESIGN and is the reason the session "
+            + "pair is expected to show snaps.");
     }
 
     /// <summary>Abandon a return glide (fan closed, rebuilt, or the slab count moved under it).
@@ -3052,13 +3149,20 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             if (popT > 0f)
                 pos += rot * new Vector3(0f, PopUp * popT, -_popForward * popT);
             // ─── THE RETURN FLIGHT (report item 2) ──────────────────────────────────────────────
-            // The mirror of VRCard's own home-lerp, not a tween of ours: the slab is STAMPED once
-            // at the world pose their card was released at (the held slab's last pose, carried as
-            // a world pose because the slab list is rebuilt between the release and this frame),
-            // and from there it eases toward its arc seat on the OWNER's [Cards] CardLerpSpeed —
-            // the identical `1 - exp(-speed * dt)` VRCard.UpdateBody runs, for the identical
-            // ReleaseGlideSeconds window. Everything else in this loop is unchanged, so a slab
-            // that is not the returning one is laid out exactly as before.
+            // ALL THIS DOES NOW IS SEED, and that is the correction the arc reflow brought with it.
+            // The slab is STAMPED once at the world pose their card was released at (the held
+            // slab's last pose, carried as a world pose because it comes from under the AVATAR's
+            // hand holder, not from this fan's root), and the standing ease below carries it home
+            // from there — which is exactly the division of labour on the owner's side, where
+            // VRCard.OnRelease only re-applies the world pose and sets _releaseGlide while the
+            // ordinary home-lerp does the moving. It used to run a SECOND lerp of its own here,
+            // byte-identical to the one below; that was the only easing this loop had, so it read
+            // as the mechanism rather than as the duplicate it now is.
+            //
+            // _returnGlide therefore no longer gates any motion. It is the window in which a seed
+            // may still be pending (the wire count can grow a frame after the fist empties), which
+            // is the last thing VRCard's own _releaseGlide is still for once its unscaled-dt job
+            // is moot — this whole class already ticks on unscaled time.
             if (i == _returnIndex && _returnGlide > 0f)
             {
                 if (_returnSeedPending)
@@ -3066,19 +3170,57 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                     _returnSeedPending = false;
                     t.position = _returnSeedPos;
                     t.rotation = _returnSeedRot;
+                    // A seeded slab HAS a pose to ease from, whatever Rebuild decided about it.
+                    if (i < _seeded.Count)
+                        _seeded[i] = true;
                 }
                 _returnGlide -= Mathf.Max(dt, 0f);
-                float rk = 1f - Mathf.Exp(-_lerpSpeed * Mathf.Max(dt, 0f));
-                pos = Vector3.Lerp(t.localPosition, pos, rk);
-                rot = Quaternion.Slerp(t.localRotation, rot, rk);
                 if (_returnGlide <= 0f)
-                    ClearReturnGlide(); // landed: the plain assignment below owns the seat again
+                    ClearReturnGlide();
             }
-            t.localPosition = pos;
-            t.localRotation = rot;
+
+            // ─── THE WRITE, AND THE OWNER'S OWN RULE FOR WHICH KIND OF WRITE IT IS ──────────────
+            // CardFan.cs:2021 is `card.SetHome(_root, pos, rot, scale, instant || opening ||
+            // swapping)`, and CardFan.cs:2218 (the collapse) passes instant: true. Its comment says
+            // why the three are exempt: "instant is forced so VRCard tracks the blend exactly (its
+            // own home-lerp would double-smooth the motion)". Those three compute a blend that must
+            // be WRITTEN; everything else is a home that must be EASED TOWARD. This is that
+            // expression, term for term, plus the fourth case the owner also snaps: a slab with no
+            // pose to ease from (VRCard._instantNext out of the pool — here, a slab Rebuild has
+            // just created and could not carry a predecessor into, which sits at the fan root's
+            // origin and would otherwise streak out of the middle of the hand).
             Vector3 want = Vector3.one * (swapScale * (1f + PopScale * popT));
-            if (t.localScale != want)
-                t.localScale = want;
+            bool seeded = i < _seeded.Count && _seeded[i];
+            if (opening || closing || swapping || !seeded)
+            {
+                if (i < _seeded.Count)
+                    _seeded[i] = true;
+                t.localPosition = pos;
+                t.localRotation = rot;
+                if (t.localScale != want)
+                    t.localScale = want;
+                continue;
+            }
+
+            // VRCard.cs:2253 verbatim — `1 - exp(-CardLerpSpeed * dt)` on all three channels, on
+            // the OWNER's CardLerpSpeed off record 27 and never this client's. The pop is inside
+            // the target rather than added after it, exactly as VRCard folds it into `target`
+            // before the lerp, so a lifting card rises on the same curve it slides on.
+            //
+            // dt IS THIS CLASS'S OWN unscaled tick (NetAvatarDriver.cs:854), the same clock the
+            // open, close and swap animations beside this line already run on. The owner's
+            // ordinary reflow runs on scaled time and their release glide forces unscaled; a
+            // mirror cannot see a peer's timeScale, so one clock for all four of this fan's
+            // animations is the only self-consistent answer and it is the one already shipped.
+            float k = 1f - Mathf.Exp(-_lerpSpeed * Mathf.Max(dt, 0f));
+            t.localPosition = Vector3.Lerp(t.localPosition, pos, k);
+            t.localRotation = Quaternion.Slerp(t.localRotation, rot, k);
+            Vector3 scaled = Vector3.Lerp(t.localScale, want, k);
+            // Settle onto the exact value rather than approaching it forever: an exponential never
+            // arrives, and a per-frame transform write on a fan nobody is touching is the kind of
+            // cost this class counts. The position and rotation writes above are unconditional
+            // because the arc itself moves with the owner's gaze every frame anyway.
+            t.localScale = (scaled - want).sqrMagnitude < 1e-8f ? want : scaled;
         }
 
         LogGeometry(n, apex, maxToeDeg, haveHead);
@@ -3599,6 +3741,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                 _faces[i].Destroy();
             _faces.Clear();
             _cards.Clear();
+            _seeded.Clear();       // index-aligned with _cards; a stale entry would ease a fresh slab out of the root origin
             _mapPrinted.Clear();   // index-aligned with _faces; stale entries would claim prints that no longer exist
             // The outgoing wave hung off the same dead root — drop its bookkeeping with the rest, or
             // TickSwap would drive destroyed transforms every frame (the very defect this heal
@@ -3833,6 +3976,71 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             }
         }
 
+        // ─── AND CARRY EVERY OTHER SLAB'S POSE ACROSS THE SAME TEARDOWN ─────────────────────────
+        // The owner's arc does not blink when a card leaves or joins it: CardFan.Remove/Add hand
+        // every card a new home and VRCard's standing lerp glides it there. This mirror throws its
+        // slabs away and builds new ones, so the ONLY way the reflow can ease is for a fresh slab
+        // to start where the slab representing the same card ended. That needs an index map, and
+        // the map needs a key.
+        //
+        // THE KEY IS RECORD 36's HELD SEAT, and it is the only thing on the wire that says WHICH
+        // arc position changed. It is stable in the sense that matters here: it is the sender's own
+        // index into the sender's own hand list, belted by the sender's own two numbers
+        // (listLength == arc + 1 — see TrackFist), and it is the identical key BeginReturnGlide
+        // already flies the returning card on. Nothing else on the wire distinguishes a pluck from
+        // a draw, so nothing else could carry this.
+        //
+        // TWO TRANSITIONS ONLY, AND EVERY OTHER ONE SNAPS. A count that moved for any other reason
+        // — a card drawn, a card burnt, a character exchange, a card-size rebuild — has no key, and
+        // guessing one is exactly the "confidently wrong" failure this file's belts exist to
+        // refuse. Those keep today's picture, and the verdict line counts them so the gap is
+        // readable rather than assumed.
+        int carryFrom = -1;   // pluck: the seat that LEFT the arc
+        int carryInto = -1;   // release: the seat that REJOINED it
+        if (_builtCount > 0 && _cards.Count == _builtCount)
+        {
+            if (count == _builtCount - 1
+                && _owner.SingleHeldHandSeat(out int liveSeat, out int liveLen, out _)
+                && liveSeat >= 0 && liveLen == count + 1 && liveSeat <= _builtCount)
+            {
+                carryFrom = liveSeat;
+            }
+            else if (count == _builtCount + 1 && _fistSeat >= 0 && _fistSeat <= _builtCount
+                     && _fistCount == _builtCount)
+            {
+                carryInto = _fistSeat;
+            }
+            else if (count == _builtCount)
+            {
+                carryFrom = count;   // identity map: a size-only rebuild keeps every slab in place
+            }
+        }
+
+        _carryPos.Clear();
+        _carryRot.Clear();
+        _carryScale.Clear();
+        if (carryFrom >= 0 || carryInto >= 0)
+        {
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                if (_cards[i] == null)
+                {
+                    // A dead slab has no pose to carry, and a partial carry must not shift the map
+                    // under the survivors — refuse the whole thing, which lands on today's snap.
+                    _carryPos.Clear();
+                    _carryRot.Clear();
+                    _carryScale.Clear();
+                    carryFrom = -1;
+                    carryInto = -1;
+                    break;
+                }
+                Transform t = _cards[i].transform;
+                _carryPos.Add(t.localPosition);
+                _carryRot.Add(t.localRotation);
+                _carryScale.Add(t.localScale.x);
+            }
+        }
+
         // A BORROWED COPY MUST NEVER OUTLIVE THE SLABS IT WAS READ FROM (report 7). The hand it
         // came from is being replaced — a card was played, burnt, drawn, or the owner switched
         // character — so the slot index it names stops meaning what it meant. It glides back and
@@ -3863,6 +4071,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                 Object.Destroy(_cards[i]);
         }
         _cards.Clear();
+        _seeded.Clear();
         _frontsShown = false;
         ClearPops(); // a rebuilt fan must never open with a stale card already lifted
 
@@ -3923,7 +4132,35 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             borrow.Configure(this, i, vis.x, vis.y,
                 FanSweep.StripWidth(count, _radius, stepDegrees, vis.x, _cardWidth / DefaultCardWidth));
 
-            EmitMirroredCardDust(card, appear: true);
+            // OLD INDEX OF THE CARD THIS SLAB IS. A pluck at seat k closes the gap, so new i is
+            // old i below k and old i+1 at or above it; a release at seat k opens one, so new i is
+            // old i below k, the RETURNING card at k (seeded from the fist by BeginReturnGlide,
+            // never from this list) and old i-1 above it.
+            int from = carryFrom >= 0
+                ? (i < carryFrom ? i : i + 1)
+                : carryInto >= 0
+                    ? (i < carryInto ? i : i == carryInto ? -1 : i - 1)
+                    : -1;
+            bool carried = from >= 0 && from < _carryPos.Count;
+            if (carried)
+            {
+                card.transform.localPosition = _carryPos[from];
+                card.transform.localRotation = _carryRot[from];
+                card.transform.localScale = Vector3.one * _carryScale[from];
+                _reflowEased++;
+            }
+            else
+            {
+                _reflowSnapped++;
+            }
+            _seeded.Add(carried);
+            // …AND A CARD THAT IS CONTINUING DOES NOT APPEAR. The dust is the mirror of the owner's
+            // card-appear puff, and the owner's cards do not appear when somebody picks one out of
+            // the fan — they stay put and slide. Emitting it for a carried slab would puff every
+            // card in the hand on every pluck, which is a divergence this reflow would otherwise
+            // have made far more visible.
+            if (!carried)
+                EmitMirroredCardDust(card, appear: true);
             _cards.Add(card);
             // NOMINAL size, not the owner's tuned one: the slab root ALREADY carries
             // _cardWidth/DefaultCardWidth, so handing the tuned width here fitted the face a second
@@ -3933,6 +4170,14 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         }
 
         _builtCount = count;
+        _lastCarried = 0;
+        for (int i = 0; i < _seeded.Count; i++)
+        {
+            if (_seeded[i])
+                _lastCarried++;
+        }
+        _lastBuilt = count;
+        _lastRebuildAt = Time.unscaledTime;
 
         // Owned head camera renders the mod layer only; put the whole fan subtree on it (no-op
         // when VR is not running, exactly like the local fan/hands).
