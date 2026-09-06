@@ -146,6 +146,48 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// remember what it was, write it back" is ONE restore, and a second copy of it would be a second
 /// place for the next fix to land on only one of.</para>
 ///
+/// <para><b>ROUND SEVEN, AND STRAND 6 IS THIS CLASS TURNED ON ITSELF.</b> ModBuild 450 read the
+/// WORKING shape of strand 5 for the trap — one volume, two enabled beforehand, zero still
+/// registered, the map live on 359 of 360 frames — and the user still reported it, in new words:
+/// <i>"Fallen und Truhen werden immer noch manchmal WEISS wegen dieser Aufblitzen-Animation wenn
+/// sie in der Hand sind."</i> Read the two halves of that sentence against the log and they name a
+/// mechanism this file had never considered, because the mechanism is OURS.</para>
+///
+/// <para><c>Animator.enabled = false</c> does not undo a clip, it stops the clip WHERE IT IS. The
+/// trap's idle is one looping clip advancing at 0.202 normalized/s on 359 of 360 frames while it
+/// stands on its hex (the ModBuild 447 A/B line), i.e. a ~5 s cycle, and an attention flash is a
+/// short bright part of such a cycle. Grab during the bright part and the ModBuild 445 hush LATCHES
+/// the bright part for the whole hold; grab anywhere else and it does not. That is the user's
+/// <i>manchmal</i>, it is <i>weiß</i> rather than a shimmer because it is a HELD value rather than
+/// an animation, and — this is the part that cost six rounds — it is invisible to every reading
+/// this file has ever taken, because all of them measure whether something MOVED and a latched
+/// value does not move. "0 of 96 slots moved on any frame" is exactly what a prop frozen white
+/// prints.</para>
+///
+/// <para>THE REMEDY IS ONE CALL, AND IT IS DELIBERATELY NOT <c>Play(state, layer, 0f)</c>: replaying
+/// a state RE-ENTERS it and re-entering fires every <c>StateMachineBehaviour</c> on it, which on
+/// these props is how <c>DelayedDeactivatePropAnimSMB</c> sends a rules message. <see
+/// cref="RewindAndStop"/> calls <c>Animator.WriteDefaultValues</c> instead — the values the
+/// animator recorded when it bound the controller, written to every channel the controller
+/// animates, touching no state machine, firing no behaviour and no animation event — and only then
+/// switches the animator off, so the frozen frame is the resting one. Nothing here needs to know
+/// WHICH channel the flash lives in, and that is the point: the 450 read-back proves it is none of
+/// the 48 float/range/colour properties while the clip advances on 359 of 360 home frames, so it is
+/// something else the clip drives, and one call returns all of them at once.</para>
+///
+/// <para>THE RESTORE IS THE GAME'S OWN WRITER AND NOT A REMEMBERED COPY. <see cref="Restore"/>
+/// hands the <c>enabled</c> flag back; the animator resumes from the state it retained and drives
+/// every one of those channels itself on the first frame it evaluates, over our defaults. So the
+/// highlight returns exactly as before by construction, and there is no saved value that could be
+/// restored over somebody else's write — the recorded incident this project has already paid for
+/// once. Its falsifier is counted rather than asserted, in
+/// <see cref="Belt.RestoreForeignAnimators"/>.</para>
+///
+/// <para>IT REACHES THE MIRRORED COPY BY CONSTRUCTION, like every other strand: <c>NetProps</c>
+/// calls <see cref="Engage"/> and <see cref="Release"/> for a REMOTE hold too, so a peer's mirrored
+/// prop goes through the same <see cref="Apply"/>, the same ledger and the same restore. No wire
+/// field, no second code path.</para>
+///
 /// <para>AND THE INSTRUMENT NOW LOOKS OUTWARD TOO (<see cref="AppendOutward"/>), because a fix
 /// aimed outside the subtree cannot be verified by a census rooted inside it. The post-hush
 /// verdict reports whether this prop is still IN the generator's list, whether the map is still
@@ -332,15 +374,17 @@ internal static class PropAnimBelt
     /// <summary>How many post-hush verdicts a session prints IN TOTAL, at most one per prop kind.</summary>
     private const int VerdictBudget = 3;
 
-    /// <summary>Materials whose FULL property table is read back per frame.</summary>
-    private const int VerdictMatCap = 4;
+    /// <summary>Materials whose FULL property table is read back per frame. Sixteen, not four: the
+    /// old line printed "N material(s) on shader 'X'" with no population beside N, so a prop
+    /// carrying a fifth material read as a prop carrying four.</summary>
+    private const int VerdictMatCap = 16;
 
-    /// <summary>Properties tracked per material. Sixty-four, not twenty, and the number is the
-    /// finding: <c>PropAnimWatch</c> tracks 20 of the 57 <c>Amp_Char_Shader</c> declares, and
-    /// ModBuild 151 already lost a build to a 24-property cap on a shader with 24 interesting
-    /// properties. The declared count is printed beside the tracked count either way, so a
-    /// truncation is visible rather than silent.</summary>
-    private const int VerdictPropCap = 64;
+    /// <summary>Properties tracked per material. Ninety-six, not twenty and not sixty-four, and the
+    /// number is the finding: <c>PropAnimWatch</c> tracks 20 of the 57 <c>Amp_Char_Shader</c>
+    /// declares, and ModBuild 151 already lost a build to a 24-property cap on a shader with 24
+    /// interesting properties. The declared count is printed beside the tracked count per material
+    /// either way, so a truncation is visible rather than silent.</summary>
+    private const int VerdictPropCap = 96;
 
     /// <summary>How many MOVING properties / lights the verdict names before it stops naming
     /// them. The totals are printed either way.</summary>
@@ -364,6 +408,11 @@ internal static class PropAnimBelt
     private static readonly List<MonoBehaviour> BehaviourScratch = new(16);
     private static readonly List<ParticleSystem> ParticleScratch = new(8);
     private static readonly List<Renderer> RendScratch = new(16);
+
+    /// <summary>The animators strand 6 is about to rewind and then stop. Held between the two
+    /// halves of <see cref="Apply"/>'s animator pass so the property read-back either side of the
+    /// rewind runs ONCE for the whole set rather than once per animator.</summary>
+    private static readonly List<Animator> RewindScratch = new(4);
 
     /// <summary>Census-only scratch: distinct MonoBehaviour type names under the held prop and how
     /// many of each. Written and read by <see cref="Announce"/> alone.</summary>
@@ -429,11 +478,36 @@ internal static class PropAnimBelt
         /// counts, same attribution rule as the other classes.</summary>
         internal int OcclusionFound, OcclusionOn0;
 
-        /// <summary>How many emitters and particle systems were found in a state this class did
-        /// NOT leave them in when <see cref="Restore"/> ran — i.e. somebody else wrote them during
-        /// the hold. Zero is the expected reading and a non-zero one is the falsifier for the
-        /// restore: it means the value handed back is being handed back over a foreign write.</summary>
-        internal int RestoreForeignEmitters, RestoreForeignParticles, RestoreDead;
+        /// <summary>STRAND 6 — THE REWIND, and it is the first strand this class has ever aimed at
+        /// its OWN side effect rather than at the game's. Switching an <c>Animator</c> off leaves
+        /// every channel that clip drives LATCHED at whatever value it happened to hold on the
+        /// frame of the grab; on a prop whose idle is a ~5 s attention flash that is a coin toss
+        /// between "resting" and "at the peak of the flash", and the peak is what the user calls
+        /// <i>weiß</i>. <see cref="AnimatorsRewound"/> is how many animators were taken back to
+        /// their bound default values before being stopped; <see cref="RewindSkipped"/> is how many
+        /// could not be (inactive object, or no controller to have defaults from).</summary>
+        internal int AnimatorsRewound, RewindSkipped;
+
+        /// <summary>THE PRE-COUNT FOR STRAND 6, AND IT IS WHAT MAKES IT ATTRIBUTABLE. How many
+        /// (material, property) slots under the prop were READ across the rewind and how many
+        /// actually CHANGED value because of it. Changed &gt; 0 says the freeze really was latching
+        /// a non-default picture and this strand had work to do; changed == 0 says the animator's
+        /// channels were already at rest at the grab, the strand wrote nothing visible, and it
+        /// cannot be why anything got better OR worse.</summary>
+        internal int RewindSlotsRead, RewindSlotsChanged;
+
+        /// <summary>The properties the rewind moved, named with their before→after VALUES. Six
+        /// rounds of this instrument reported MOVEMENT and never once a value, so a term latched
+        /// at a wrong constant read exactly like a term that was correct. This is the value
+        /// print.</summary>
+        internal string RewindNamed = string.Empty;
+
+        /// <summary>How many emitters, particle systems and animators were found in a state this
+        /// class did NOT leave them in when <see cref="Restore"/> ran — i.e. somebody else wrote
+        /// them during the hold. Zero is the expected reading and a non-zero one is the falsifier
+        /// for the restore: it means the value handed back is being handed back over a foreign
+        /// write.</summary>
+        internal int RestoreForeignEmitters, RestoreForeignParticles, RestoreForeignAnimators, RestoreDead;
 
         internal int NextScanFrame;
         internal int Rescans;
@@ -479,19 +553,16 @@ internal static class PropAnimBelt
     private static Renderer[] _vRenderers = System.Array.Empty<Renderer>();
     private static int _vFoundAnimators, _vFoundOutlines, _vFoundLights, _vFoundParticles, _vFoundRenderers;
 
-    /// <summary>The materials whose whole property table is read back, and the table itself. The
-    /// table is resolved ONCE when the window arms — <c>Shader.GetPropertyName</c> allocates a
-    /// string, and doing that per frame would be an instrument that costs more than the thing it
-    /// measures.</summary>
-    private static readonly Material[] VMats = new Material[VerdictMatCap];
-    private static int _vMatCount;
-    private static readonly int[] VPropId = new int[VerdictPropCap];
-    private static readonly string[] VPropName = new string[VerdictPropCap];
-    private static readonly bool[] VPropIsColor = new bool[VerdictPropCap];
-    private static int _vPropCount, _vPropDeclared;
-    private static string _vShader = "<none>";
+    /// <summary>The materials whose whole property table is read back, and the table itself —
+    /// float, range, int, colour, VECTOR and TEXTURE, and each material read through the property
+    /// table of ITS OWN shader. The table is resolved ONCE when the window arms
+    /// (<c>Shader.GetPropertyName</c> allocates a string, and doing that per frame would be an
+    /// instrument that costs more than the thing it measures).</summary>
+    private static readonly PropTable VTable = new(VerdictMatCap, VerdictPropCap);
 
-    private static readonly float[] VPrev = new float[VerdictMatCap * VerdictPropCap];
+    private static readonly Vector4[] VPrev = new Vector4[VerdictMatCap * VerdictPropCap];
+    private static readonly Vector4[] VNow = new Vector4[VerdictMatCap * VerdictPropCap];
+    private static readonly bool[] VNowValid = new bool[VerdictMatCap * VerdictPropCap];
     private static readonly bool[] VSeen = new bool[VerdictMatCap * VerdictPropCap];
     private static readonly int[] VMoves = new int[VerdictMatCap * VerdictPropCap];
     private static readonly float[] VLo = new float[VerdictMatCap * VerdictPropCap];
@@ -671,6 +742,7 @@ internal static class PropAnimBelt
             return;
 
         AnimScratch.Clear();
+        RewindScratch.Clear();
         go.GetComponentsInChildren(includeInactive: true, AnimScratch);
         for (int i = 0; i < AnimScratch.Count; i++)
         {
@@ -691,9 +763,15 @@ internal static class PropAnimBelt
             if (!a.enabled)
                 b.AnimatorsAlreadyOff++;
             else
-                a.enabled = false;
+                // NOT SWITCHED OFF HERE ANY MORE. An animator this class stops is first taken back
+                // to its bound defaults (strand 6) and only then disabled, and the rewind has to be
+                // measured across the whole set at once or the per-material read-back would run
+                // once per animator. RewindAndStop does both, below.
+                RewindScratch.Add(a);
         }
         AnimScratch.Clear();
+        RewindAndStop(b, go);
+        RewindScratch.Clear();
 
         OutlineScratch.Clear();
         go.GetComponentsInChildren(includeInactive: true, OutlineScratch);
@@ -828,6 +906,413 @@ internal static class PropAnimBelt
         return found != null && found.Length > 0;
     }
 
+    // ---- STRAND 6: the rewind ---------------------------------------------------------------------
+
+    /// <summary>
+    /// TAKE EVERY ANIMATOR THIS CLASS IS ABOUT TO STOP BACK TO ITS BOUND DEFAULTS FIRST, THEN STOP
+    /// IT — and measure what that changed.
+    ///
+    /// <para><b>WHY, AND IT IS THIS CLASS'S OWN SIDE EFFECT.</b> <c>Animator.enabled = false</c>
+    /// does not undo a clip; it stops the clip WHERE IT IS. Every channel the clip drives —
+    /// a material colour, an emissive boost, a dissolve amount, a renderer's own enabled flag, a
+    /// bone — keeps the value it happened to hold on the frame of the grab, for the whole hold. The
+    /// trap's idle is a single looping clip running at 0.202 normalized/s (ModBuild 447's A/B line,
+    /// <c>advancing home=359/360</c>), i.e. a ~5 s cycle, and an attention flash is a short bright
+    /// part of such a cycle. Grabbing during the bright part therefore LATCHES the bright part for
+    /// as long as the prop is held, and grabbing anywhere else does not. That is
+    /// "<i>manchmal</i> weiß" exactly, it is a state and not a movement, and it is invisible to
+    /// every reading this file has ever taken because all of them measure whether something MOVED.
+    /// A latched value does not move.</para>
+    ///
+    /// <para><b><c>WriteDefaultValues</c>, not <c>Play(state, layer, 0f)</c>.</b> Replaying a state
+    /// from its start re-enters it, and re-entering a state fires every <c>StateMachineBehaviour</c>
+    /// on it — on these props that is how <c>DelayedDeactivatePropAnimSMB</c> sends a rules message
+    /// and raises a global "deactivations in progress" flag, and this lane does not write game
+    /// state. <c>Animator.WriteDefaultValues</c> writes the values the animator recorded when it
+    /// bound the controller, touches no state machine, fires no behaviour and no animation event,
+    /// and does it for EVERY channel the controller animates — which matters because nothing in
+    /// this file knows WHICH channel the flash lives in (the 448/450 read-backs say it is not any
+    /// of the 48 float/range/colour properties, and the clip still advances on 359 of 360 home
+    /// frames, so it is something else the clip drives).</para>
+    ///
+    /// <para><b>THE RESTORE IS THE GAME'S OWN WRITER.</b> <see cref="Restore"/> hands the
+    /// <c>enabled</c> flag back and the animator resumes from the state it retained; on the first
+    /// frame it evaluates, it drives every one of those channels itself, over our defaults. So the
+    /// highlight comes back exactly as before by construction rather than by a remembered copy —
+    /// there is no second snapshot to restore over somebody else's write, which is the recorded
+    /// incident this project already paid for once. The falsifier is counted rather than asserted:
+    /// <see cref="Belt.RestoreForeignAnimators"/> is how many animators were found ENABLED at the
+    /// landing although this class had switched them off.</para>
+    ///
+    /// <para><b>Refused, not forced, on an animator that cannot have defaults:</b> an inactive
+    /// object (the animator was never initialised) or a null controller. Those are counted in
+    /// <see cref="Belt.RewindSkipped"/> and simply stopped the way ModBuild 445 stopped them.</para>
+    /// </summary>
+    private static void RewindAndStop(Belt b, GameObject go)
+    {
+        if (RewindScratch.Count == 0)
+            return;
+
+        // The table is resolved against the prop's CURRENT materials every time, because a rescan
+        // can find an animator on a subtree that was inactive at the grab and whose materials were
+        // not in the earlier table at all.
+        RewindTable.Resolve(go);
+        RewindTable.Sample(RwBefore, RwValid);
+
+        int rewound = 0;
+        for (int i = 0; i < RewindScratch.Count; i++)
+        {
+            Animator a = RewindScratch[i];
+            if (a == null)
+                continue;
+            if (!a.gameObject.activeInHierarchy || a.runtimeAnimatorController == null)
+            {
+                b.RewindSkipped++;
+                continue;
+            }
+            a.WriteDefaultValues();
+            rewound++;
+        }
+        b.AnimatorsRewound += rewound;
+
+        if (rewound > 0)
+            MeasureRewind(b);
+
+        // Only now is the picture allowed to stop, so the frame that is frozen is the resting one.
+        for (int i = 0; i < RewindScratch.Count; i++)
+        {
+            Animator a = RewindScratch[i];
+            if (a != null)
+                a.enabled = false;
+        }
+    }
+
+    /// <summary>Read the table back after the rewind and record how many slots the rewind actually
+    /// moved, naming the first few with their before→after values. Pure instrument: nothing outside
+    /// the report reads what it writes.</summary>
+    private static void MeasureRewind(Belt b)
+    {
+        RewindTable.Sample(RwAfter, RwValidAfter);
+
+        int read = 0, changed = 0;
+        var named = new System.Text.StringBuilder(256);
+        int listed = 0;
+        for (int slot = 0; slot < RewindTable.Capacity; slot++)
+        {
+            if (!RwValid[slot] || !RwValidAfter[slot])
+                continue;
+            read++;
+            Vector4 before = RwBefore[slot], after = RwAfter[slot];
+            if (!Moved(RewindTable.Kind[slot], before, after))
+                continue;
+            changed++;
+            if (listed >= VerdictListCap)
+                continue;
+            if (listed > 0)
+                named.Append("; ");
+            named.Append(RewindTable.Name[slot] ?? "<unnamed>").Append(" (mat")
+                 .Append(slot / RewindTable.PropCap).Append(' ')
+                 .Append(RewindTable.ShaderOf(slot / RewindTable.PropCap)).Append(") ")
+                 .Append(Show(RewindTable.Kind[slot], before)).Append('→')
+                 .Append(Show(RewindTable.Kind[slot], after));
+            listed++;
+        }
+
+        b.RewindSlotsRead += read;
+        b.RewindSlotsChanged += changed;
+        if (b.RewindNamed.Length == 0 && named.Length > 0)
+            b.RewindNamed = named.ToString();
+    }
+
+    /// <summary>Did this slot change? Componentwise for a colour or a vector, EXACT for a texture
+    /// (the value is a texture instance id and a "close" id means nothing), epsilon for a
+    /// float.</summary>
+    private static bool Moved(byte kind, Vector4 a, Vector4 c)
+    {
+        if (kind == PropTable.KindTexture)
+            return a.x != c.x;
+        if (kind == PropTable.KindFloat)
+            return Mathf.Abs(a.x - c.x) > MoveEpsilon;
+        return Mathf.Abs(a.x - c.x) > MoveEpsilon || Mathf.Abs(a.y - c.y) > MoveEpsilon
+            || Mathf.Abs(a.z - c.z) > MoveEpsilon || Mathf.Abs(a.w - c.w) > MoveEpsilon;
+    }
+
+    /// <summary>A slot's value, printed the way its own class reads: one number for a float, four
+    /// for a colour or a vector, a texture instance id for a texture.</summary>
+    private static string Show(byte kind, Vector4 v)
+    {
+        if (kind == PropTable.KindTexture)
+            return v.x == 0f ? "<no texture>" : $"tex#{(int)v.x}";
+        if (kind == PropTable.KindFloat)
+            return v.x.ToString("0.####");
+        return $"({v.x:0.###},{v.y:0.###},{v.z:0.###},{v.w:0.###})";
+    }
+
+    /// <summary>A single comparable number per slot, for the min/max range the movement report
+    /// prints: the value itself for a float, the mean of r/g/b for a colour, the magnitude for a
+    /// vector, the instance id for a texture.</summary>
+    private static float Fold(byte kind, Vector4 v)
+    {
+        if (kind == PropTable.KindColor)
+            return (v.x + v.y + v.z) * (1f / 3f);
+        if (kind == PropTable.KindVector)
+            return Mathf.Sqrt((v.x * v.x) + (v.y * v.y) + (v.z * v.z) + (v.w * v.w));
+        return v.x;
+    }
+
+    // ---- the property table -----------------------------------------------------------------------
+
+    /// <summary>
+    /// THE MATERIALS UNDER ONE PROP AND, PER MATERIAL, THE PROPERTY TABLE OF *ITS OWN* SHADER —
+    /// float, range, int, colour, VECTOR and TEXTURE.
+    ///
+    /// <para><b>Two defects in the old read-back this type exists to remove.</b> (1) It built ONE
+    /// property table, from <c>VMats[0]</c>'s shader, and then read every other material through
+    /// it; every id that material's own shader does not declare was silently skipped by
+    /// <c>HasProperty</c>, and the line still printed "N material(s) on shader 'X'" as though all
+    /// of them were X. (2) It tracked float, range and colour only, so a VECTOR or a TEXTURE
+    /// property could be rewritten every frame and the line would say "nothing moved" — which the
+    /// ModBuild 450 line names as its own blind spot in so many words.</para>
+    ///
+    /// <para><b><c>sharedMaterials</c>, NEVER <c>material</c>.</b> <c>Renderer.material</c>
+    /// INSTANTIATES a clone the first time it is touched, which is a permanent change to the scene
+    /// made by an instrument. Once anything has instanced a renderer's material Unity stores the
+    /// clone back into the renderer, so <c>sharedMaterials</c> returns the instanced values without
+    /// ever creating one.</para>
+    /// </summary>
+    private sealed class PropTable
+    {
+        internal const byte KindFloat = 0, KindColor = 1, KindVector = 2, KindTexture = 3;
+
+        private readonly int _matCap;
+        private readonly int _propCap;
+        private readonly List<Renderer> _rends = new(16);
+
+        internal readonly Material[] Mats;
+        internal readonly int[] Id;
+        internal readonly string[] Name;
+        internal readonly byte[] Kind;
+
+        /// <summary>Properties tracked for material <c>m</c>, and the shader it actually uses.</summary>
+        internal readonly int[] PerMat;
+        internal readonly string[] Shader;
+        internal readonly int[] DeclaredPerMat;
+
+        /// <summary>Distinct materials KEPT, and distinct materials FOUND. A truncated list is not
+        /// an absence and both numbers are printed.</summary>
+        internal int MatCount, MatFound;
+
+        internal PropTable(int matCap, int propCap)
+        {
+            _matCap = matCap;
+            _propCap = propCap;
+            Mats = new Material[matCap];
+            Shader = new string[matCap];
+            PerMat = new int[matCap];
+            DeclaredPerMat = new int[matCap];
+            Id = new int[matCap * propCap];
+            Name = new string[matCap * propCap];
+            Kind = new byte[matCap * propCap];
+        }
+
+        internal int PropCap => _propCap;
+
+        internal int Capacity => _matCap * _propCap;
+
+        /// <summary>Total (material, property) slots this table populates.</summary>
+        internal int Slots
+        {
+            get
+            {
+                int n = 0;
+                for (int m = 0; m < MatCount; m++)
+                    n += PerMat[m];
+                return n;
+            }
+        }
+
+        /// <summary>Properties declared across every material this table kept — the population the
+        /// tracked count is a fraction OF.</summary>
+        internal int Declared
+        {
+            get
+            {
+                int n = 0;
+                for (int m = 0; m < MatCount; m++)
+                    n += DeclaredPerMat[m];
+                return n;
+            }
+        }
+
+        /// <summary>True when a material's own table hit the per-material cap, so a zero below it
+        /// is a truncation rather than an absence.</summary>
+        internal bool Truncated
+        {
+            get
+            {
+                if (MatFound > MatCount)
+                    return true;
+                for (int m = 0; m < MatCount; m++)
+                {
+                    if (PerMat[m] >= _propCap && DeclaredPerMat[m] > PerMat[m])
+                        return true;
+                }
+                return false;
+            }
+        }
+
+        internal string ShaderOf(int mat) => mat >= 0 && mat < MatCount ? Shader[mat] : "<none>";
+
+        /// <summary>Per-material "'shader' D declared / T tracked", so a line can never again claim
+        /// one shader for materials that do not share one.</summary>
+        internal string Describe()
+        {
+            var sb = new System.Text.StringBuilder(128);
+            for (int m = 0; m < MatCount; m++)
+            {
+                if (m > 0)
+                    sb.Append("; ");
+                sb.Append("mat").Append(m).Append(" '").Append(Shader[m]).Append("' ")
+                  .Append(DeclaredPerMat[m]).Append(" declared / ").Append(PerMat[m])
+                  .Append(" tracked");
+            }
+            return sb.Length == 0 ? "no material" : sb.ToString();
+        }
+
+        internal void Resolve(GameObject go)
+        {
+            MatCount = 0;
+            MatFound = 0;
+            for (int i = 0; i < _matCap; i++)
+            {
+                Mats[i] = null!;
+                Shader[i] = "<none>";
+                PerMat[i] = 0;
+                DeclaredPerMat[i] = 0;
+            }
+
+            _rends.Clear();
+            go.GetComponentsInChildren(includeInactive: true, _rends);
+            for (int r = 0; r < _rends.Count; r++)
+            {
+                Renderer rend = _rends[r];
+                if (rend == null)
+                    continue;
+                Material[] mats = rend.sharedMaterials;
+                for (int m = 0; m < mats.Length; m++)
+                {
+                    Material mat = mats[m];
+                    if (mat == null)
+                        continue;
+                    bool dup = false;
+                    for (int k = 0; k < MatCount; k++)
+                        dup |= ReferenceEquals(Mats[k], mat);
+                    if (dup)
+                        continue;
+                    MatFound++;
+                    if (MatCount >= _matCap)
+                        continue;
+                    Mats[MatCount++] = mat;
+                }
+            }
+            _rends.Clear();
+
+            for (int m = 0; m < MatCount; m++)
+            {
+                Material mat = Mats[m];
+                Shader? sh = mat != null ? mat.shader : null;
+                if (sh == null)
+                    continue;
+                Shader[m] = sh.name;
+                int declared = sh.GetPropertyCount();
+                DeclaredPerMat[m] = declared;
+                int kept = 0;
+                for (int i = 0; i < declared && kept < _propCap; i++)
+                {
+                    UnityEngine.Rendering.ShaderPropertyType t = sh.GetPropertyType(i);
+                    byte kind;
+                    switch (t)
+                    {
+                        case UnityEngine.Rendering.ShaderPropertyType.Color: kind = KindColor; break;
+                        case UnityEngine.Rendering.ShaderPropertyType.Vector: kind = KindVector; break;
+                        case UnityEngine.Rendering.ShaderPropertyType.Texture: kind = KindTexture; break;
+                        case UnityEngine.Rendering.ShaderPropertyType.Float:
+                        case UnityEngine.Rendering.ShaderPropertyType.Range:
+                        case UnityEngine.Rendering.ShaderPropertyType.Int: kind = KindFloat; break;
+                        default: continue;
+                    }
+                    int slot = (m * _propCap) + kept;
+                    Id[slot] = sh.GetPropertyNameId(i);
+                    Name[slot] = sh.GetPropertyName(i);
+                    Kind[slot] = kind;
+                    kept++;
+                }
+                PerMat[m] = kept;
+            }
+        }
+
+        /// <summary>Read every slot's current value. Allocation-free: the caller owns both arrays
+        /// and every getter returns a struct or a reference.</summary>
+        internal void Sample(Vector4[] into, bool[] valid)
+        {
+            for (int slot = 0; slot < into.Length; slot++)
+                valid[slot] = false;
+            for (int m = 0; m < MatCount; m++)
+            {
+                Material mat = Mats[m];
+                if (mat == null)
+                    continue;
+                int n = PerMat[m];
+                for (int k = 0; k < n; k++)
+                {
+                    int slot = (m * _propCap) + k;
+                    int id = Id[slot];
+                    if (!mat.HasProperty(id))
+                        continue;
+                    Vector4 v;
+                    switch (Kind[slot])
+                    {
+                        case KindColor:
+                        {
+                            Color c = mat.GetColor(id);
+                            v = new Vector4(c.r, c.g, c.b, c.a);
+                            break;
+                        }
+                        case KindVector:
+                            v = mat.GetVector(id);
+                            break;
+                        case KindTexture:
+                        {
+                            Texture? tex = mat.GetTexture(id);
+                            v = new Vector4(tex != null ? tex.GetInstanceID() : 0f, 0f, 0f, 0f);
+                            break;
+                        }
+                        default:
+                            v = new Vector4(mat.GetFloat(id), 0f, 0f, 0f);
+                            break;
+                    }
+                    into[slot] = v;
+                    valid[slot] = true;
+                }
+            }
+        }
+    }
+
+    /// <summary>Materials a prop may carry before the rewind's read-back truncates. Generous on
+    /// purpose: this number existing at all is what cost ModBuild 151 and 448 a build each.</summary>
+    private const int RewindMatCap = 16;
+
+    /// <summary>Properties per material for the rewind's read-back. <c>Amp_Char_Shader</c> declares
+    /// 57; ninety-six leaves room for a shader half again as large before the word TRUNCATED can
+    /// appear in the line.</summary>
+    private const int RewindPropCap = 96;
+
+    private static readonly PropTable RewindTable = new(RewindMatCap, RewindPropCap);
+    private static readonly Vector4[] RwBefore = new Vector4[RewindMatCap * RewindPropCap];
+    private static readonly Vector4[] RwAfter = new Vector4[RewindMatCap * RewindPropCap];
+    private static readonly bool[] RwValid = new bool[RewindMatCap * RewindPropCap];
+    private static readonly bool[] RwValidAfter = new bool[RewindMatCap * RewindPropCap];
+
     /// <summary>Give every replaced value back, object for object. A destroyed object is skipped
     /// rather than written — Unity's <c>!= null</c> answers that — and the lists are cleared by
     /// <see cref="Retire"/> whatever happens here.</summary>
@@ -836,8 +1321,17 @@ internal static class PropAnimBelt
         for (int i = 0; i < b.Animators.Count && i < b.AnimEnabled0.Count; i++)
         {
             Animator a = b.Animators[i];
-            if (a != null)
-                a.enabled = b.AnimEnabled0[i];
+            if (a == null)
+                continue;
+            // THE FALSIFIER FOR STRAND 6'S RESTORE, counted the same way the emitters' is. This
+            // class left every animator it wrote at enabled=false; finding one ENABLED means
+            // somebody else turned it back on during the hold, and the value about to be handed
+            // back is being handed back over their write. The rewind itself needs no restore — the
+            // animator re-drives every channel it owns on the first frame it evaluates, so the
+            // highlight returns because its own writer takes it back, not because we kept a copy.
+            if (b.AnimEnabled0[i] && a.enabled)
+                b.RestoreForeignAnimators++;
+            a.enabled = b.AnimEnabled0[i];
         }
         for (int i = 0; i < b.Outlines.Count && i < b.OutlineEnabled0.Count; i++)
         {
@@ -952,6 +1446,10 @@ internal static class PropAnimBelt
         b.FlaresFound = b.FlaresOn0 = 0;
         b.ParticlesFound = b.ParticlesPlaying0 = 0;
         b.RestoreForeignEmitters = b.RestoreForeignParticles = b.RestoreDead = 0;
+        b.RestoreForeignAnimators = 0;
+        b.AnimatorsRewound = b.RewindSkipped = 0;
+        b.RewindSlotsRead = b.RewindSlotsChanged = 0;
+        b.RewindNamed = string.Empty;
         b.Label = string.Empty;
         b.Rescans = 0;
         b.NextScanFrame = 0;
@@ -1052,7 +1550,18 @@ internal static class PropAnimBelt
           .Append(" LEFT RUNNING on purpose because their controller carries ")
           .Append("DelayedDeactivatePropAnimSMB, which sends a rules message for a sprung trap and ")
           .Append("holds a global 'deactivations in progress' flag — freezing that one would stall ")
-          .Append("game state, and this lane does not write game state. SUPPRESSED — OUTLINES: ")
+          .Append("game state, and this lane does not write game state. REWOUND FIRST (strand 6, ")
+          .Append("new 2026-09-06): ").Append(b.AnimatorsRewound)
+          .Append(" of them were taken back to their BOUND DEFAULT VALUES with ")
+          .Append("Animator.WriteDefaultValues BEFORE being switched off, and ")
+          .Append(b.RewindSlotsChanged).Append(" of ").Append(b.RewindSlotsRead)
+          .Append(" (material, property) slot(s) changed value because of it — a non-zero ")
+          .Append("count there says the grab caught the clip AWAY from rest and that ")
+          .Append("stopping the animator would have LATCHED that picture for the whole hold, ")
+          .Append("which is a state and not a movement and is therefore invisible to every ")
+          .Append("'did anything move' reading this file has ever taken. ")
+          .Append(b.RewindSkipped).Append(" could not be rewound (inactive object or no ")
+          .Append("controller). SUPPRESSED — OUTLINES: ")
           .Append(b.Outlines.Count).Append(" EPOOutline.Outlinable under the visual, ")
           .Append(outlineOff).Append(" switched off, ").Append(b.OutlinesAlreadyOff)
           .Append(" already off. That count is itself an ANSWER: no round has ever measured ")
@@ -1357,53 +1866,12 @@ internal static class PropAnimBelt
     /// </summary>
     private static void ResolveVerdictMaterials()
     {
-        _vMatCount = 0;
-        _vPropCount = 0;
-        _vPropDeclared = 0;
-        _vShader = "<none>";
-        for (int i = 0; i < VerdictMatCap; i++)
-            VMats[i] = null!;
-
-        for (int r = 0; r < _vRenderers.Length && _vMatCount < VerdictMatCap; r++)
-        {
-            Renderer rend = _vRenderers[r];
-            if (rend == null)
-                continue;
-            Material[] mats = rend.sharedMaterials;
-            for (int m = 0; m < mats.Length && _vMatCount < VerdictMatCap; m++)
-            {
-                Material mat = mats[m];
-                if (mat == null)
-                    continue;
-                bool dup = false;
-                for (int k = 0; k < _vMatCount; k++)
-                    dup |= ReferenceEquals(VMats[k], mat);
-                if (dup)
-                    continue;
-                VMats[_vMatCount++] = mat;
-            }
-        }
-
-        if (_vMatCount == 0)
+        GameObject? go = _vBelt != null ? _vBelt.Visual : null;
+        if (go == null)
             return;
-
-        Shader? shader = VMats[0] != null ? VMats[0].shader : null;
-        if (shader == null)
-            return;
-        _vShader = shader.name;
-        _vPropDeclared = shader.GetPropertyCount();
-        for (int i = 0; i < _vPropDeclared && _vPropCount < VerdictPropCap; i++)
-        {
-            UnityEngine.Rendering.ShaderPropertyType t = shader.GetPropertyType(i);
-            bool isColor = t == UnityEngine.Rendering.ShaderPropertyType.Color;
-            if (!isColor && t != UnityEngine.Rendering.ShaderPropertyType.Float
-                         && t != UnityEngine.Rendering.ShaderPropertyType.Range)
-                continue;
-            VPropId[_vPropCount] = shader.GetPropertyNameId(i);
-            VPropName[_vPropCount] = shader.GetPropertyName(i);
-            VPropIsColor[_vPropCount] = isColor;
-            _vPropCount++;
-        }
+        // Walked off the PROP, not off the capped renderer array the other strands sample: a
+        // renderer past VerdictObjCap still draws, and its material still paints.
+        VTable.Resolve(go);
     }
 
     /// <summary>One frame of the post-hush window. No allocation: every buffer is static and the
@@ -1506,34 +1974,23 @@ internal static class PropAnimBelt
         if (drawing > _vRendDrawMax) _vRendDrawMax = drawing;
         if (visible > _vRendVisMax) _vRendVisMax = visible;
 
-        for (int m = 0; m < _vMatCount; m++)
+        // EVERY property class, not float/range/colour only. A VECTOR or a TEXTURE rewritten
+        // every frame is what the ModBuild 450 line named as its own blind spot, and a term that
+        // is LATCHED rather than moving is why the min/max range beside each mover matters as much
+        // as the count.
+        VTable.Sample(VNow, VNowValid);
+        for (int slot = 0; slot < VTable.Capacity; slot++)
         {
-            Material mat = VMats[m];
-            if (mat == null)
+            if (!VNowValid[slot])
                 continue;
-            for (int k = 0; k < _vPropCount; k++)
-            {
-                int slot = (m * VerdictPropCap) + k;
-                int id = VPropId[k];
-                if (!mat.HasProperty(id))
-                    continue;
-                float v;
-                if (VPropIsColor[k])
-                {
-                    Color c = mat.GetColor(id);
-                    v = (c.r + c.g + c.b) * (1f / 3f);
-                }
-                else
-                {
-                    v = mat.GetFloat(id);
-                }
-                if (VSeen[slot] && Mathf.Abs(v - VPrev[slot]) > MoveEpsilon)
-                    VMoves[slot]++;
-                VPrev[slot] = v;
-                VSeen[slot] = true;
-                if (v < VLo[slot]) VLo[slot] = v;
-                if (v > VHi[slot]) VHi[slot] = v;
-            }
+            Vector4 v = VNow[slot];
+            if (VSeen[slot] && Moved(VTable.Kind[slot], VPrev[slot], v))
+                VMoves[slot]++;
+            VPrev[slot] = v;
+            VSeen[slot] = true;
+            float f = Fold(VTable.Kind[slot], v);
+            if (f < VLo[slot]) VLo[slot] = f;
+            if (f > VHi[slot]) VHi[slot] = f;
         }
 
         SampleOutward();
@@ -1689,18 +2146,27 @@ internal static class PropAnimBelt
           .Append(_vFoundRenderers).Append(" found, at most ").Append(_vRendDrawMax)
           .Append(" drawing and ").Append(_vRendVisMax).Append(" reported isVisible. ");
 
-        sb.Append("MATERIAL PROPERTIES, READ WHOLE THIS TIME: ").Append(_vMatCount)
-          .Append(" material(s) on shader '").Append(_vShader).Append("', ").Append(_vPropDeclared)
-          .Append(" propert(y/ies) declared and ").Append(_vPropCount)
-          .Append(" float/range/colour tracked");
-        if (_vPropCount >= VerdictPropCap && _vPropDeclared > _vPropCount)
-            sb.Append(" — THE TABLE IS STILL TRUNCATED at this class's own cap of ")
-              .Append(VerdictPropCap).Append(", raise it before believing a zero below");
-        sb.Append(". PropAnimWatch tracks TWENTY of Amp_Char_Shader's fifty-seven, which is why "
-                  + "four rounds read 'not one tracked slot moved' and meant nothing by it — "
-                  + "ModBuild 151 lost a build to exactly this cap, on exactly this shader. ");
+        sb.Append("MATERIAL PROPERTIES, READ WHOLE AND NOW INCLUDING VECTORS AND TEXTURES: ")
+          .Append(VTable.MatCount).Append(" material(s) sampled of ").Append(VTable.MatFound)
+          .Append(" found, EACH READ THROUGH ITS OWN SHADER'S TABLE (")
+          .Append(VTable.Describe()).Append("), ").Append(VTable.Slots)
+          .Append(" slot(s) of ").Append(VTable.Declared).Append(" declared property/ies tracked");
+        if (VTable.Truncated)
+            sb.Append(" — THE TABLE IS TRUNCATED at this class's own caps of ")
+              .Append(VerdictMatCap).Append(" material(s) x ").Append(VerdictPropCap)
+              .Append(" propert(y/ies), raise them before believing a zero below");
+        sb.Append(". Two things changed here on 2026-09-06 and both were named as blind spots by "
+                  + "the line they replace: VECTOR and TEXTURE properties are tracked now, and each "
+                  + "material is read through the property table of ITS OWN shader instead of "
+                  + "through the first material's — the old line printed 'N material(s) on shader "
+                  + "X' for materials that need not have shared X, and every id X did not declare "
+                  + "was skipped in silence. PropAnimWatch still tracks TWENTY of "
+                  + "Amp_Char_Shader's fifty-seven, which is why four rounds read 'not one tracked "
+                  + "slot moved' and meant nothing by it. ");
         AppendMovers(sb, "PROPERTIES THAT MOVED AFTER THE HUSH", VMoves, VLo, VHi,
-                     _vMatCount * VerdictPropCap, _vMatCount * _vPropCount, VPropName);
+                     VTable.Capacity, VTable.Slots, VTable.Name);
+
+        AppendRewind(sb, b);
 
         AppendOutward(sb, b);
 
@@ -1712,25 +2178,33 @@ internal static class PropAnimBelt
                   + "produced exactly that reading on BOTH machines and the user still reported "
                   + "the effect, which is why the OUTWARD section above now exists: every "
                   + "pre-count was non-zero, so the strands ran, and every after-count was zero, "
-                  + "so the subtree really is dark. THE NEW FIX IS WORKING if occlusion-volumes "
+                  + "so the subtree really is dark. STRAND 5 IS WORKING if occlusion-volumes "
                   + "found is non-zero, of which a non-zero number were ON before this build "
-                  + "wrote anything, AND still-registered-on-any-frame is 0. THE NEW FIX IS "
-                  + "INERT if occlusion-volumes-found is 0 — this prop kind never registered, so "
-                  + "strand 5 wrote nothing and cannot be why anything changed either way. AND "
-                  + "THIS IS THE READING THAT WOULD MEAN THE PAINTER IS SOMEWHERE EVEN THIS "
-                  + "INSTRUMENT CANNOT SEE, because it is the one that has ended five of the last "
-                  + "five rounds: occlusion volumes found and taken (a real pre-count), "
-                  + "still-registered 0, the occlusion map still BOUND and REBINDING every frame "
-                  + "so the term is live, foreign lights near the prop 0, every subtree class 0 — "
-                  + "and the effect still reported. That combination excludes the prop's subtree, "
-                  + "excludes its contribution to the occlusion map and excludes every lamp within "
-                  + "reach of it, and what is left is a painter with NO Light, NO Renderer under "
-                  + "or beside the prop and NO global slot named here: a replacement-shader or "
-                  + "post pass drawing the whole frame, or a term inside the prop's own shader fed "
-                  + "by global state this line does not read. The next round must then measure the "
-                  + "PICTURE — a per-eye frame difference with the prop held still versus moving — "
-                  + "because at that point every state probe in this repository has been exhausted "
-                  + "and state probes cannot see sampling. ")
+                  + "wrote anything, AND still-registered-on-any-frame is 0; it is INERT if "
+                  + "occlusion-volumes-found is 0. ModBuild 450 read exactly the WORKING shape for "
+                  + "the trap (1 volume, 2 on beforehand, 0 still registered) and the user "
+                  + "reported the defect unchanged, so strand 5 is not the painter either. "
+                  + "STRAND 6 — THE ONE THIS ROUND EXISTS FOR — IS WORKING if animators-rewound "
+                  + "is non-zero AND the slots-changed count beside it is non-zero: that pair says "
+                  + "the freeze really was latching a non-resting picture, which is a STATE and "
+                  + "therefore invisible to every 'did anything move' reading above it. It is "
+                  + "INERT if animators-rewound is 0 (nothing to stop on this prop) or if "
+                  + "slots-changed is 0 (the clip was already at rest at the grab). AND THIS IS "
+                  + "THE READING THAT WOULD MEAN THE PAINTER IS STILL BEYOND THIS INSTRUMENT: "
+                  + "animators rewound with a NON-ZERO slots-changed count — so the latch existed "
+                  + "and has been removed — occlusion volumes taken and still-registered 0, no "
+                  + "material property of ANY class (float, colour, VECTOR or TEXTURE) moving, no "
+                  + "foreign lamp near the prop, every subtree class 0, AND THE PROP STILL "
+                  + "REPORTED WHITE. That combination has removed the last state this file can "
+                  + "reach, and what is left is what no state probe can see: a "
+                  + "MaterialPropertyBlock written per frame (the HELD? probe samples blocks ONCE, "
+                  + "two frames after the grab, and read 0 for the trap), a shader KEYWORD, the "
+                  + "per-renderer light-probe SH and reflection probe Unity re-picks when a "
+                  + "renderer moves across the room, or a replacement-shader/post pass drawing the "
+                  + "whole frame. The round after that must measure the PICTURE — a per-eye frame "
+                  + "difference with the prop held still versus moving, and with the prop grabbed "
+                  + "at two different phases of its idle loop — because state probes cannot see "
+                  + "sampling. ")
           .Append(_verdictsLeft).Append(" more post-hush verdict(s) this session, at most one per prop kind.");
 
         // HW-VERIFY: this line is the round-five deliverable and the falsifier for the ModBuild 445
@@ -1797,16 +2271,73 @@ internal static class PropAnimBelt
             sb.Append("NAMED BY HIERARCHY PATH (up to ").Append(ForeignNameCap).Append("): ")
               .Append(string.Join("; ", VForeignNames)).Append(". ");
 
-        sb.Append("PROPERTY CLASSES THIS READ-BACK STILL CANNOT SEE, stated so the next round does "
-                  + "not read a zero as an absence: the table above tracks float/range/colour "
-                  + "only, so VECTOR and TEXTURE properties are untracked — and "
-                  + "CustomObjectPositionToChildMaterials writes the VECTOR _FadeSourcePos into "
-                  + "every child material EVERY FRAME from a moving actor's world position "
-                  + "(decompiled GH.Runtime/CustomObjectPositionToChildMaterials.cs:70-100), which "
-                  + "is a live per-frame material writer on a held prop that would report as "
-                  + "'nothing moved' here. The grab-edge census's feeder count names "
-                  + "ObjectPosToMaterial and PosToMat and does NOT name that type, so a prop "
-                  + "carrying one reads x0 on a line standing next to its own histogram. ");
+        sb.Append("PROPERTY CLASSES THIS READ-BACK CAN NOW SEE, AND THE ONES IT STILL CANNOT, "
+                  + "stated so the next round does not read a zero as an absence. CLOSED on "
+                  + "2026-09-06: VECTOR and TEXTURE properties are tracked, so a per-frame writer "
+                  + "such as CustomObjectPositionToChildMaterials — which pushes the VECTOR "
+                  + "_FadeSourcePos into every child material EVERY FRAME from a moving actor's "
+                  + "world position (decompiled GH.Runtime/CustomObjectPositionToChildMaterials"
+                  + ".cs:70-100) — would now show as a mover rather than as 'nothing moved'; and "
+                  + "the grab-edge census's feeder count names that type too. STILL OPEN, in "
+                  + "descending order of how much of the picture they own: (1) a "
+                  + "MaterialPropertyBlock overrides a material value at DRAW time and appears in "
+                  + "neither material nor sharedMaterial — the grab-edge HELD? probe counts the "
+                  + "blocks and is the only reading on it, and it is a SNAPSHOT two frames after "
+                  + "the grab rather than a per-frame one; (2) shader KEYWORDS, which switch whole "
+                  + "branches on and off with no property moving at all; (3) per-renderer lighting "
+                  + "bindings Unity re-picks when a renderer MOVES — light probe SH and the "
+                  + "reflection probe — which change for a prop carried across the room and for no "
+                  + "other reason; (4) any global slot not named in the OUTWARD section above. ");
+    }
+
+    /// <summary>
+    /// STRAND 6'S OWN SECTION - what the hush was LATCHING, in values rather than in movement
+    /// counts.
+    ///
+    /// <para>This is the reading six rounds did not have. Every material report in this file until
+    /// now answered "did anything MOVE?", and a channel frozen by our own <c>Animator.enabled =
+    /// false</c> does not move: it sits at whatever the clip happened to be showing on the frame of
+    /// the grab, for the whole hold. The numbers here are the ones that decide it - how many
+    /// (material, property) slots the rewind to bound defaults actually CHANGED, and which, with
+    /// before-and-after values.</para>
+    /// </summary>
+    private static void AppendRewind(System.Text.StringBuilder sb, Belt b)
+    {
+        sb.Append(" THE FREEZE'S OWN LATCH (strand 6, new 2026-09-06, and it is the first thing "
+                  + "this class has ever suppressed that this class itself caused): ")
+          .Append(b.AnimatorsRewound)
+          .Append(" animator(s) were taken back to their BOUND DEFAULT VALUES with "
+                  + "Animator.WriteDefaultValues before being switched off, ").Append(b.RewindSkipped)
+          .Append(" could not be (inactive object or no controller, so they were stopped the way "
+                  + "ModBuild 445 stopped them). ACROSS THAT REWIND, ").Append(b.RewindSlotsChanged)
+          .Append(" of ").Append(b.RewindSlotsRead)
+          .Append(" (material, property) slot(s) CHANGED VALUE");
+        if (b.RewindNamed.Length > 0)
+            sb.Append(", naming up to ").Append(VerdictListCap).Append(": ").Append(b.RewindNamed);
+        sb.Append(". READ IT LIKE THIS AND IN THIS ORDER. A NON-ZERO changed count is the whole "
+                  + "finding: it says the prop's picture at the instant of the grab was NOT its "
+                  + "resting picture, that stopping the animator would have latched that picture "
+                  + "for the length of the hold, and that whether it looked wrong depended on WHEN "
+                  + "in the loop the player grabbed it - which is the user's word 'manchmal', and "
+                  + "it is a STATE and not a movement, so every 'nothing moved' this file has ever "
+                  + "printed is consistent with it. A ZERO changed count with a non-zero rewound "
+                  + "count means the animator's channels were already at rest at the grab, this "
+                  + "strand wrote nothing visible on this hold, and it can be neither the cause of "
+                  + "an improvement nor of a regression here. A ZERO REWOUND count means the prop "
+                  + "carried no animator this class stops, and the strand is INERT for this prop "
+                  + "kind. Note what the changed count does NOT depend on: nothing here needs to "
+                  + "know WHICH channel the flash lives in, and that is the point - the ModBuild "
+                  + "450 read-back proves it is none of the 48 float/range/colour properties while "
+                  + "the clip advanced on 359 of 360 frames on the hex, so it is something else "
+                  + "the clip drives, and WriteDefaultValues returns all of them at once. ONE MORE "
+                  + "WAY TO READ A ZERO, and it names a different fix rather than a dead lead: a "
+                  + "zero changed count on a prop whose clip was DEMONSTRABLY advancing on its hex "
+                  + "(read anyLayerRate home on the ANIMATION A/B line for the same prop kind) does "
+                  + "NOT say the clip was at rest — it says WriteDefaultValues did not land as an "
+                  + "immediate write, because this class disables the animator in the same call and "
+                  + "a deferred write would then never be evaluated. The lever for that reading is "
+                  + "Animator.Rebind() before WriteDefaultValues, and the two readings are told "
+                  + "apart by exactly that home rate. ");
     }
 
     /// <summary>Name the entries that MOVED, with the range each one covered, capped and with the
@@ -1836,8 +2367,9 @@ internal static class PropAnimBelt
             if (listed > 0)
                 sb.Append(", ");
             if (names != null)
-                sb.Append(names[i % VerdictPropCap] ?? "<unnamed>").Append(" (mat")
-                  .Append(i / VerdictPropCap).Append(')');
+                sb.Append(names[i] ?? "<unnamed>").Append(" (mat")
+                  .Append(i / VerdictPropCap).Append(' ').Append(VTable.ShaderOf(i / VerdictPropCap))
+                  .Append(')');
             else
                 sb.Append('#').Append(i);
             sb.Append(" moved on ").Append(moves[i]).Append(" frame(s), ")
@@ -1900,8 +2432,20 @@ internal static class PropAnimBelt
                   + "restarting one that has been recycled into another effect would be this lane "
                   + "spawning a foreign effect on release); ").Append(b.RestoreDead)
           .Append(" object(s) had been destroyed under the ledger and were skipped rather than "
-                  + "written. All three are expected to read 0; any of them above 0 is the reading "
-                  + "that says the prop did NOT come back exactly as the game left it. ")
+                  + "written; and ").Append(b.RestoreForeignAnimators)
+          .Append(" animator(s) were found ENABLED at the landing although this class had switched "
+                  + "them off. All four are expected to read 0; any of them above 0 is the reading "
+                  + "that says the prop did NOT come back exactly as the game left it. "
+                  + "HOW STRAND 6'S REWIND IS RESTORED, AND IT IS NOT BY A REMEMBERED COPY: ")
+          .Append(b.AnimatorsRewound)
+          .Append(" animator(s) were written back to their bound defaults before being stopped, "
+                  + "and nothing here writes those values back — handing the enabled flag back "
+                  + "gives the channels to the animator, which drives every one of them itself on "
+                  + "the first frame it evaluates. That is why the highlight returns exactly as "
+                  + "before: its own writer takes it back, so there is no saved value that could "
+                  + "be restored over somebody else's write, which is the recorded incident this "
+                  + "project has already paid for once. The animator count above is the falsifier "
+                  + "for it. ")
           .Append(_restoreLogsLeft).Append(" more restore line(s) this session, at most one per prop kind.");
 
         // HW-VERIFY: the standing requirement on this feature is that a prop put back down looks

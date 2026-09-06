@@ -314,7 +314,7 @@ internal static class PropAnimWatch
     //     object's world position into a shader uniform and then stop (ZephyrAnim.cs:41-55,
     //     ObjectPosToMaterial.cs:15-25) — PropAnimBelt re-runs them while the prop is off its hex,
     //     and this counts them so a log with 0 of each says that strand made no writes at all.
-    private static int _zephyrAnims, _objPosToMats, _posToMats;
+    private static int _zephyrAnims, _objPosToMats, _posToMats, _customObjPos;
 
     // --- the SCENE census, taken once per session on the first arm (see CensusScene).
     private static bool _sceneCensusDone;
@@ -884,6 +884,7 @@ internal static class PropAnimWatch
         _zephyrAnims = 0;
         _objPosToMats = 0;
         _posToMats = 0;
+        _customObjPos = 0;
         BehaviourScratch.Clear();
         go.GetComponentsInChildren(includeInactive: true, BehaviourScratch);
         for (int i = 0; i < BehaviourScratch.Count; i++)
@@ -897,6 +898,12 @@ internal static class PropAnimWatch
                 _objPosToMats++;
             else if (c is PosToMat)
                 _posToMats++;
+            // A GATE NARROWER THAN ITS CHOKE POINT, CLOSED. Until 2026-09-06 this counter named
+            // three types while the histogram twenty words later in the same line named
+            // CustomObjectPositionToChildMaterials — a per-frame VECTOR writer of the same family
+            // — so a prop carrying one read x0 on a line standing next to its own evidence.
+            else if (c is CustomObjectPositionToChildMaterials)
+                _customObjPos++;
         }
         BehaviourScratch.Clear();
     }
@@ -1646,7 +1653,14 @@ internal static class PropAnimWatch
           .Append(" ObjectPosToMaterial (pushes it in OnEnable and NEVER again — "
                   + "ObjectPosToMaterial.cs:15-25), ")
           .Append(_posToMats)
-          .Append(" PosToMat (pushes _ObjPosY every frame and needs no help — PosToMat.cs:5-11). "
+          .Append(" PosToMat (pushes _ObjPosY every frame and needs no help — PosToMat.cs:5-11), ")
+          .Append(_customObjPos)
+          .Append(" CustomObjectPositionToChildMaterials (pushes the VECTOR _FadeSourcePos into "
+                  + "EVERY child material EVERY frame from a moving actor's world position — "
+                  + "CustomObjectPositionToChildMaterials.cs:70-100; named here from 2026-09-06 "
+                  + "because this counter listed three types while the MonoBehaviour histogram in "
+                  + "this same line listed a fourth of the same family, and a gate narrower than "
+                  + "its choke point is how that survived six rounds). "
                   + "The flat game never moved a prop off its hex, so 'written once at spawn' was "
                   + "always true there; this mod moves it into a palm, and a shader term anchored at "
                   + "a uniform still naming the HEX would arrive late and end early on a mesh a "
@@ -1655,8 +1669,10 @@ internal static class PropAnimWatch
                   + "2026-09-06 when the remedy was inverted into a suppression, because its whole "
                   + "purpose was to make a sweep look right in the hand and there is no longer a "
                   + "sweep to make look right. The counts above are therefore a pure census now. "
-                  + "PosToMat is the one worth reading: a non-zero count is a live per-frame "
-                  + "material writer on a held prop that no round has ruled in or out");
+                  + "PosToMat and CustomObjectPositionToChildMaterials are the two worth reading: "
+                  + "a non-zero count on either is a live per-frame material writer on a held prop, "
+                  + "and PropAnimBelt's post-hush verdict now tracks VECTOR and TEXTURE properties "
+                  + "so such a writer shows up there as a mover instead of as 'nothing moved'");
     }
 
     /// <summary>

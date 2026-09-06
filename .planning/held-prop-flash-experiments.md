@@ -15,13 +15,19 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
-## START AT §11 — ROUND SIX (2026-09-06) NAMED THE PAINTER, AND IT IS NOT IN THIS PROP
+## START AT §12 — ROUND SEVEN (2026-09-06) FOUND THE PAINTER IS **US**
 
-Everything between here and §10 is a census **rooted at the prop**, and ModBuild 448 proved that
-shape exhausted: 358 frames, every class zero, non-zero pre-counts, effect unchanged. The painter
-is `ObjectOcclusionVolume` → `TilesOcclusionGenerator` — a **camera's** command buffer publishing
-the **global** texture `_ObjectOcclusion`. Read [§11](#11-round-six--2026-09-06-against-the-modbuild-448-log-the-falsifier-fired-and-the-painter-is-a-camera)
-first, including §11.6, which lists the four candidates a seventh round must not re-open.
+§11's occlusion strand read its own WORKING shape on the ModBuild 450 log for the trap and the user
+reported the defect unchanged, so it is not the painter either. Round seven stopped looking for a
+foreign painter and read the symptom: *"werden manchmal **weiß**"* is a **state**, not a movement,
+and every reading in §§3–11 measures whether something MOVED. **`Animator.enabled = false` does not
+undo a clip; it stops the clip where it is** — so the ModBuild 445 hush latches whatever the ~5 s
+attention loop happened to be showing on the frame of the grab, for the whole hold.
+Read [§12](#12-round-seven--2026-09-06-against-the-modbuild-450-log-the-painter-is-our-own-freeze)
+first.
+
+§11 (below) is still the correct account of the occlusion strand and of the four candidates a later
+round must not re-open (§11.6); only its "the painter is a camera" verdict is superseded.
 
 ---
 
@@ -772,3 +778,215 @@ clean pre-count, and shipping two remedies at once is how a round loses the abil
   internal `OnBecameVisible/OnBecameInvisible` hook and paints nothing.
 * **The "Hovering" layer.** Layer 15, not the layer 8 the `HELD?` line reports; and `ParkLayers`
   already moves the visual and every collider host to Ignore Raycast for the hold.
+
+---
+
+## 12. Round seven — 2026-09-06, against the ModBuild 450 log: the painter is OUR OWN FREEZE
+
+**User, verbatim:** *"Fallen und Truhen werden immer noch manchmal weiß wegen dieser
+Aufblitzen-Animation wenn sie in der Hand sind. Problem ist also nicht behoben."*
+
+Two words in that sentence are the whole round. **"manchmal"** — intermittent, so a window that
+sampled a normal hold says nothing. **"weiß"** — the asset *is* white, an absolute state, where six
+rounds of reporting used the words *Schimmer*, *highlighting* and *Licht-Effekt*, i.e. movement. The
+word changed after the hush shipped.
+
+### 12.1 What the ModBuild 450 log actually says, and what it excludes
+
+`] [Props] HELD-PROP PAINT AFTER HUSH for 'Trap' Trap`, 360 sampled frames with the suppression in
+place:
+
+| class | pre-count | after |
+|---|---|---|
+| animators | 1 of 1 | **0 enabled**, advancing on 0 frames |
+| outlines | 1 of 1 | **0 enabled** |
+| lights | **0 of 0 found** | 0 lit |
+| particles | 0 of 0 | 0 playing |
+| renderers | 3 of 3 | at most **1** drawing |
+| material properties | 2 materials, `Amp_Char_Shader`, 57 declared, 48 tracked | **0 of 96 slots moved** |
+| screen-space occlusion | 1 volume, **2 ENABLED before this build wrote anything** | **0 still registered**, map re-bound on **359 of 360** frames |
+| foreign lamps | — | 1 lit Light 1.14 wu away (a Forest Imp elite's idle effect) |
+
+So strand 5 read its **WORKING** shape — real pre-count, zero still registered — and the defect
+stood. The occlusion map is not the painter.
+
+**And the A/B line beside it is the one that matters.**
+`] [Props] HELD-PROP ANIMATION A/B for 'Trap' Trap`:
+
+```
+'Trap_BearTrap_PR'  advancing hand=0/1028  home=359/360
+                    anyLayerRate hand=n/a  home=0.201/s
+MATERIAL PROPERTIES … NOT ONE of the 20 tracked property slot(s) changed value in EITHER window
+```
+
+Read those two together. On its hex the prop runs **one continuous looping clip, ~5 s per cycle,
+advancing on 359 of 360 frames**. In the hand it is **stopped dead** — the hush doing exactly what
+it was written to do. And **no tracked material property moves in either window**, so whatever that
+clip drives is not one of the 20 (or, per the post-hush line, the 48) float/range/colour properties:
+it is something else — a texture, a vector, a renderer flag, a bone.
+
+### 12.2 THE PAINTER, NAMED
+
+| | |
+|---|---|
+| **object** | the prop's own visual root — `Trap_BearTrap_PR` and its 3 renderers |
+| **the component** | its own `Animator`, running one looping ~5 s attention clip |
+| **the property** | *whichever channel that clip drives* — and the point is that nobody needs to know which |
+| **the painter** | **`PropAnimBelt`'s own `a.enabled = false`** (ModBuild 445, strand 1) |
+
+`Animator.enabled = false` does not undo a clip. It stops the clip **where it is**. Every channel
+the clip drives keeps the value it happened to hold on the frame of the grab, for as long as the
+prop is held. On a ~5 s loop whose bright part is a fraction of the cycle, that is a coin toss:
+
+* grab during the bright part → the prop stays **white for the whole hold**;
+* grab anywhere else → the prop looks right.
+
+That is **"manchmal"** exactly. It is **"weiß"** rather than a shimmer because it is a *held value*
+rather than an animation. And it is **invisible to every reading in this file**, because all of them
+ask "did anything MOVE?" and a latched value does not move. **`0 of 96 slots moved on any frame` is
+precisely what a prop frozen white prints.** Six rounds of flawless zeroes were all consistent with
+it.
+
+The instrument said so about itself and nobody read it as a lead — `PropAnimWatch`'s own header:
+*"THIS CLASS IS STILL USEFUL, BUT ONLY FOR A HOLD THAT VISIBLY FLASHES. A verdict from a hold in
+which nothing flashed is not evidence about the hand."* The 450 A/B line says it outright: *"this
+window did not contain the thing the report is about."*
+
+### 12.3 The fix — strand 6, one call, and it is deliberately not `Play(state, layer, 0f)`
+
+`PropAnimBelt.RewindAndStop`: every animator this class is about to switch off is first taken back
+to its **bound default values** with `Animator.WriteDefaultValues()`, and only then disabled — so
+the frozen frame is the resting one.
+
+* **Not `Play(hash, layer, 0f)`.** Replaying a state RE-ENTERS it, and re-entering fires every
+  `StateMachineBehaviour` on it. On these props that is how `DelayedDeactivatePropAnimSMB` sends a
+  rules message and raises a global "deactivations in progress" flag. This lane does not write game
+  state. `WriteDefaultValues` touches no state machine, fires no behaviour and no animation event.
+* **It does not need to know which channel the flash lives in**, which is the whole reason it is the
+  right shape: the 450 read-back proves it is none of the 48 float/range/colour properties while the
+  clip advances on 359 of 360 home frames. One call returns **all** the controller's channels at
+  once.
+* **Refused, not forced**, on an animator that cannot have defaults — an inactive object or a null
+  controller. Those are counted in `RewindSkipped` and stopped the way ModBuild 445 stopped them.
+* **The rules exception is untouched.** An animator carrying `DelayedDeactivatePropAnimSMB` is not
+  in the ledger at all, so it is neither rewound nor stopped.
+
+**The restore, and how it was verified.** `Restore` hands the `enabled` flag back. The animator
+resumes from the state it retained and **drives every one of those channels itself on the first
+frame it evaluates**, over our defaults — so the highlight returns exactly as before *by
+construction*, not by a remembered copy. That matters here specifically: this project has a recorded
+incident (["a hide saved a foreign value"]) where a snapshot was restored over another system's
+restore, and strand 6 creates **no snapshot to restore**. Its falsifier is counted rather than
+asserted: `Belt.RestoreForeignAnimators` is how many animators were found ENABLED at the landing
+although this class had switched them off, printed on `] [Props] HELD-PROP HUSH RESTORE` and
+expected to read 0.
+
+**Multiplayer.** Nothing new was needed and no wire field was taken. `NetProps` calls
+`PropAnimBelt.Engage`/`Release` for a REMOTE hold too, so the peer's mirrored copy goes through the
+same `Apply`, the same ledger and the same restore — strand 6 reaches it by construction.
+**Verified from evidence on the LOCAL side only: the ModBuild 450 log is a single-player session.**
+The mirrored half is reasoned from the call sites (`NetProps.cs` `Engage`/`Release`), not measured.
+
+**A held prop is never scenery.** Nothing here touches `Renderer.enabled`, `GameObject.activeSelf`
+or any layer.
+
+### 12.4 The instrument — values, not movement; and vectors and textures
+
+Six rounds reported **movement counts and never once a value**, which is why a term latched at a
+wrong constant read exactly like a term that was correct. Four changes:
+
+1. **Strand 6's pre-count is a VALUE difference.** The whole property table under the prop is read
+   immediately before and immediately after the rewind, and the line reports **how many
+   (material, property) slots the rewind actually CHANGED**, naming the first six with
+   `before→after` values.
+2. **VECTOR and TEXTURE properties are tracked** (plus `Int`), closing the blind spot the 450 line
+   named about itself. A per-frame vector writer such as `CustomObjectPositionToChildMaterials`
+   (`_FadeSourcePos`) would now show as a mover instead of as "nothing moved".
+3. **Each material is read through the property table of ITS OWN shader.** The old code built one
+   table from `VMats[0]`'s shader and read every other material through it, skipping in silence
+   every id that material's shader does not declare — while printing "N material(s) on shader 'X'"
+   as though all of them were X. The line now prints `mat0 'shader' D declared / T tracked` per
+   material, plus **sampled-of-found** for the material count itself. Caps raised 4→16 materials and
+   64→96 properties.
+4. **The feeder census can name its own family.** `PropAnimWatch`'s world-anchor counter listed
+   `ZephyrAnim`, `ObjectPosToMaterial` and `PosToMat` while the MonoBehaviour histogram twenty words
+   later in the same line could name `CustomObjectPositionToChildMaterials` — a gate narrower than
+   its choke point. That type is counted and named now.
+
+**Grep token:** `] [Props] HELD-PROP PAINT AFTER HUSH`, section `THE FREEZE'S OWN LATCH`. It is also
+printed at the grab edge on `] [Props] HELD-PROP ANIMATION HUSH`, section `REWOUND FIRST`.
+
+**THE FIX IS WORKING** if `animator(s) were taken back to their BOUND DEFAULT VALUES` is non-zero
+**and** the `slot(s) CHANGED VALUE` count beside it is non-zero: that pair says the grab really did
+catch the clip away from rest and that the old build would have latched that picture.
+
+**THE FIX IS INERT** if the rewound count is 0 (this prop carries no animator this class stops) or
+if the changed count is 0 (the clip was already at rest at every sampled grab) — in which case it
+can be neither the cause of an improvement nor of a regression, and the round says nothing either
+way. Note that a single hold's changed count of 0 is *expected* some of the time: the defect is
+phase-dependent, so the number to read across the session is whether it is EVER non-zero.
+
+**AND THERE IS A THIRD READING OF A ZERO, which names a different fix rather than a dead lead.** A
+changed count of 0 on a prop whose clip was *demonstrably* advancing on its hex — read
+`anyLayerRate home` on the `ANIMATION A/B` line for the same prop kind; for the trap it is
+`0.201/s` — does **not** say the clip was at rest. It says `WriteDefaultValues` did not land as an
+*immediate* write: this class disables the animator in the same call, so a write deferred to the
+next evaluation would never happen. The lever for that reading is `Animator.Rebind()` before
+`WriteDefaultValues`, and the two readings are told apart by exactly that home rate.
+
+**THE READING THAT WOULD MEAN THE PAINTER IS STILL BEYOND THE INSTRUMENT** — stated plainly, because
+it has ended six of the last six rounds: **animators rewound with a NON-ZERO slots-changed count**
+(so the latch existed and has been removed), occlusion volumes taken and still-registered 0, **no
+material property of ANY class — float, colour, VECTOR or TEXTURE — moving**, no foreign lamp near
+the prop, every subtree class 0, **and the prop still reported white**. That combination removes the
+last state this file can reach. What would be left is what no state probe can see:
+
+* a **`MaterialPropertyBlock`** written per frame — the `HELD?` probe samples blocks **once**, two
+  frames after the grab, and read `0 carry a MaterialPropertyBlock` for the trap, so this is a
+  snapshot and not a per-frame reading;
+* a **shader keyword**, which switches a whole branch with no property moving;
+* the **per-renderer light-probe SH and reflection probe** Unity re-picks when a renderer MOVES,
+  which change for a prop carried across the room and for no other reason;
+* a **replacement-shader or post pass** drawing the whole frame.
+
+At that point the next round must measure the **picture**: a per-eye frame difference with the prop
+held still versus moving, **and with the prop grabbed at two different phases of its idle loop** —
+that second axis is new and is the one that distinguishes a latch from a painter.
+
+### 12.5 Where round six's brief was wrong, and it is worth recording
+
+The seventh round was briefed to chase `CustomObjectPositionToChildMaterials` writing the vector
+`_FadeSourcePos`. **The trap does not carry one.** The ModBuild 450 grab-edge census enumerates
+*all* 15 distinct MonoBehaviour types under it — `ApparanceEntity`, `ProceduralStyle`,
+`ProceduralProp`, `UnityGameEditorObject`, `UnityGameEditorTrapProp`, `PropParent`,
+`TimelineAssets`, `SpawnProp`, `Outlinable`, `OutlineWrapper`, `MaterialLoader`,
+`ObjectPosToMaterial`, `TargetStateListener` x2, `ObjectOcclusionVolume`, `OverlayPulse` — and that
+type is not among them. The one feeder it *does* carry, `ObjectPosToMaterial`, writes **only in
+`OnEnable`** and through `GetComponent<Projector>()`, and the census counts **0 Projectors** under
+this prop. So there was no live vector writer on the trap at all. The vector/texture read-back
+shipped anyway, because it closes a named blind spot cheaply — but it is instrumentation, not the
+fix.
+
+### 12.6 Candidates checked again this round and still dead
+
+* **`ObjectOcclusionVolume` / `TilesOcclusionGenerator`** (§11) — strand 5 read its WORKING shape on
+  the trap and the defect stood.
+* **`OverlayPulse` / `FigureHighlight`**, the mod's own additive pre-grab glow. Still not the
+  painter *during a hold*: the post-hush verdict found **3 renderers and 2 materials, both on
+  `Amp_Char_Shader`**, so no `GloomhavenVR/Overlay` material was drawing. (The third renderer in the
+  belt's count against `PropAnimWatch`'s 2 is the overlay clone caught in its deferred-`Destroy`
+  frame, which is consistent with §11.6's account rather than against it.)
+* **`MaterialPropertyBlock`** — `0 carry a MaterialPropertyBlock, 0 of those with
+  `_Toggle_Dissolve` ON` for the trap, so `WallSegmentFade` is not writing this prop. Snapshot only;
+  listed above as still-open for that reason.
+* **The foreign lamp.** The one lit Light within 1.5 wu is a Forest Imp elite's idle-effect point
+  light, intensity 0.5, range 3, on the board — not on the hand or the rig. Recorded, not promoted.
+
+### 12.7 What round seven did NOT do, and why
+
+* It did **not** ship the per-eye picture difference. §11.4's prescription makes it conditional on
+  every state probe being exhausted, and this round found an unexhausted one — the difference
+  between a value and its movement — inside the existing instrument. Shipping a frame-capture rig
+  next to an untested one-call fix would also make the next round unable to attribute.
+* It did **not** touch the animators carrying `DelayedDeactivatePropAnimSMB`, or add any second
+  suppression. One remedy per round, with a pre-count.
