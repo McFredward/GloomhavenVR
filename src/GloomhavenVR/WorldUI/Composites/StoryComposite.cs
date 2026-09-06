@@ -66,6 +66,33 @@ namespace GloomhavenVR.WorldUI;
 /// to restore.</para>
 ///
 /// <para>=====================================================================================
+/// ModBuild 459 — THE EDGE WAS TWO MINUTES LATE, AND THE USER HAD ALREADY NAMED THE RIGHT ONE
+/// =====================================================================================</para>
+///
+/// <para>Everything below about the SHAPE of the gate stands. What changed is WHEN it fires.
+/// <see cref="PointOfNoReturn"/> gains a third and earliest term — the QUEST CONFIRM, read from
+/// <see cref="QuestJourneyCurtain.PartyCommitted"/> — because that is the instant the user means:
+/// <i>"Beim point-of-no-return (Quest bestätigt)"</i>. Up to 458 the sweep waited for the
+/// quest-start story message or the loadout screen, and the ModBuild 457 logs put a number on the
+/// gap: confirm at HOST <c>Player.log:29962</c> / PEER <c>remote/Player.log:22011</c>, sweep at
+/// <c>:40747</c> / <c>:32722</c> — ~8900 frames, about two minutes. Both gate lines read
+/// <c>CLOSED 3 of 8 NAMED member(s) … (5 member(s) were neither open nor floated)</c>: the sweep
+/// was CORRECT and simply ran too late to see the peer's merchant, which floated at
+/// <c>remote:16136</c>, stood through the whole journey and left only when a hand pressed its X at
+/// <c>remote:23681</c>. <i>"Beim Mitspieler blieb der Händler offen nach dem point of no return —
+/// ALLE Fenster sollen sich da schließen."</i></para>
+///
+/// <para><b>AND MOVING THE EDGE IS ALSO WHAT GIVES THE QUEST INFO WINDOW BACK.</b>
+/// <see cref="RaiseCurtain"/> freezes the set of everything the mod is floating at the CURTAIN's
+/// edge, and in 457 'UI Quest Popup' was still floating then, so it became a frozen member and was
+/// refused for the rest of the interval — including when the game re-opened it for the
+/// private-quest step (<c>Player.log:44367</c>, <c>ActiveDisplay=BATTLE_GOALS</c> at <c>:44723</c>,
+/// <c>MUTUAL HOLD MEASURED</c> at <c>:44401</c>). Closed at the confirm, it is not floating when the
+/// curtain freezes, so it cannot be a member and the game's own re-open floats normally onto the
+/// map table's right far corner. <i>"Es ist dann wieder aufgetaucht sobald die private quests
+/// ausgewählt werden sollen in der rechten Ecke des Tischs."</i></para>
+///
+/// <para>=====================================================================================
 /// SECTION 2 — THE SHAPE OF THE GATE NOW
 /// =====================================================================================</para>
 /// <list type="number">
@@ -964,7 +991,48 @@ internal static class StoryComposite
     /// self-limiting: the curtain lapses with its own bounds. This property is still a pure read of
     /// state — it closes nothing and holds nothing.</para>
     /// </summary>
-    internal static bool PointOfNoReturn => _curtainStanding || LoadoutScreenOpen;
+    /// <para><b>ModBuild 459 WIDENS IT AGAIN, AND THE NEW TERM IS THE EARLIEST OF THE THREE.</b>
+    /// <see cref="QuestJourneyCurtain.PartyCommitted"/> — the QUEST CONFIRM, i.e.
+    /// <c>MapChoreographer.OnMoveClick</c> measured through its own three game terms. That class
+    /// has owned this measurement since ModBuild 238 and this property simply reads it, so there is
+    /// still one owner and no second timing rule. <b>The user's point of no return is the confirm:</b>
+    /// <i>"Beim point-of-no-return (Quest bestätigt) hat sich auch das Questfenster geschlossen"</i>,
+    /// and in the same round <i>"Beim Mitspieler blieb der Händler offen nach dem point of no return
+    /// - ALLE Fenster sollen sich da schließen"</i>. The ModBuild 457 logs measure the cost of the
+    /// old level exactly: the confirm is at HOST <c>Player.log:29962</c> (frame 24903) and PEER
+    /// <c>remote/Player.log:22011</c> (frame 13797), the story-curtain edge that actually ran
+    /// <see cref="OpenGate"/> is at <c>:40747</c> / <c>:32722</c> — ~8900 frames, about two minutes,
+    /// later — and for the whole of that interval the peer's merchant ('UI Shop Item Window',
+    /// floated <c>remote:16136</c>) stood open until a HAND press on its X took it away
+    /// (<c>remote:23681</c>). Both gate lines read <c>CLOSED 3 of 8 NAMED member(s) … (5 member(s)
+    /// were neither open nor floated)</c>: the sweep was correct and it simply ran too late to see
+    /// the shop.</para>
+    ///
+    /// <para><b>AND IT IS WHAT PUTS THE QUEST INFO WINDOW BACK FOR THE PRIVATE QUESTS.</b> With the
+    /// sweep at the confirm, 'UI Quest Popup' is closed there and is NOT floating when
+    /// <see cref="RaiseCurtain"/> freezes its member set, so the curtain cannot refuse it later. In
+    /// the 457 log it WAS in that frozen set, the game re-opened it for the battle-goal step
+    /// (<c>Player.log:44367</c>, with <c>ActiveDisplay=BATTLE_GOALS</c> at <c>:44723</c>) and
+    /// <c>MUTUAL HOLD MEASURED</c> at <c>:44401</c> records the curtain withholding it for the rest
+    /// of the interval — <i>"spawnt dann später gar nicht mehr bei den privaten Quests"</i>.</para>
+    ///
+    /// <para><b>THE UNION STILL PRODUCES ONE RISING EDGE PER QUEST</b>, which is the property the
+    /// whole gate rests on: the commit level is raised once per commit and holds until the map is
+    /// unlocked with neither story nor loadout for the bridge, and the two later terms rise while it
+    /// is still standing, so they can never open a second gate.</para>
+    internal static bool PointOfNoReturn => QuestJourneyCurtain.PartyCommitted || StoryOrLoadoutStanding;
+
+    /// <summary>
+    /// THE ModBuild 234 LEVEL, TERM FOR TERM — <c>_curtainStanding || LoadoutScreenOpen</c>, i.e.
+    /// exactly what <see cref="PointOfNoReturn"/> was up to ModBuild 458.
+    ///
+    /// <para>It exists because <see cref="QuestJourneyCurtain"/> is now a TERM of
+    /// <see cref="PointOfNoReturn"/> and also a READER of it: every clause in that class that used
+    /// to read the union reads this instead, so the commit level can never become its own reason to
+    /// stand [[a-claim-must-not-measure-itself]]. Nothing about the meaning of those clauses
+    /// changes — this property is the value they were reading.</para>
+    /// </summary>
+    internal static bool StoryOrLoadoutStanding => _curtainStanding || LoadoutScreenOpen;
 
     /// <summary>The ModBuild 233 level, unchanged and still the clause that holds the gate up for the
     /// whole pre-scenario interval.</summary>
@@ -3257,6 +3325,43 @@ internal static class StoryComposite
     /// singleton, so reaching it would need the scene sweep this method exists to avoid. If the user
     /// wants it shut at the point of no return that is a change to the PERMANENCE ruling, made by
     /// him, not a fourth mechanism bolted on here.</para>
+    ///
+    /// <para><b>ModBuild 459 — THE FULL ENUMERATION, BECAUSE THE USER WIDENED THE RULING TO "ALLE
+    /// FENSTER" AND A MEMBER NOT NAMED HERE IS THE NEXT REPORT.</b> Every window the 3D map room can
+    /// have standing, and where each one is decided:</para>
+    /// <list type="number">
+    /// <item><b>The five guildmaster destinations</b> — merchant, temple, trainer, enchantress, town
+    /// records. MEMBERS, above. (<c>UIGuildmasterHUD.shopWindow / templeWindow / trainerWindow /
+    /// enhancementWindow / townRecordsWindow</c>, :77-89 — the five serialized fields are the whole
+    /// family, so there is no sixth destination to miss.)</item>
+    /// <item><b>The three quest popups</b> — <c>selectedQuestPopup</c>, <c>multiplayerQuestPopup</c>,
+    /// <c>questPreviewPopup</c>. MEMBERS, above. The first two are the user's "Questfenster".</item>
+    /// <item><b>The quest log</b> — NOT a member, withheld instead by
+    /// <see cref="QuestJourneyCurtain"/> over exactly this interval, for the three reasons in the
+    /// paragraph above. Its verdict has its own grep line, so it is enforced and measured, not
+    /// forgotten.</item>
+    /// <item><b>'New Party display' (the character UI), the loadout screen, the story box and the
+    /// battle-goal picker</b> — out BY CONSTRUCTION: the pre-scenario sequence needs every one of
+    /// them, and none is reachable from the two singletons this method walks.</item>
+    /// <item><b>'UI Event Window' (<c>UIEventPanel</c>, ID <c>EventsPanel</c>) — DELIBERATELY NOT A
+    /// MEMBER, and this is the one exclusion that is a RULE rather than a construction.</b> It is a
+    /// <c>MandatoryDecisionTerm.EncounterPanel</c>: the only sender of
+    /// <c>GameActionType.ContinueRoadEvent</c> is an <c>EventButton</c> press (UIEventPanel.cs:606,
+    /// :610, :724), so closing it sends NOTHING and leaves every remote client's event window open
+    /// forever at <c>ProcessOneAndHalt</c>. It is also a legitimate part of the journey the commit
+    /// begins — the ModBuild 457 peer log has the road event SHOWN at <c>remote/Player.log:22532</c>,
+    /// 521 lines after the commit — so a sweep that took it would be closing the very window the
+    /// player has to answer to get to the scenario. What the gate does do about the encounter is the
+    /// game's own request-counted <c>UIGuildmasterHUD.DisableCityEncounter</c>, which stops a NEW one
+    /// being opened from the HQ button; see <see cref="SetDestinationsLocked"/>.</item>
+    /// <item><b>The hover preview and the local tooltips</b> — never sticky at all
+    /// (<c>ModalFallback.IsMapRoomHoverCard</c>); they leave with the hover and there is nothing for
+    /// a sweep to close.</item>
+    /// <item><b>The player's own menus</b> — the ESC menu and the mod's VR options window. NOT
+    /// members: they are opened by the player's own key and belong to him, the options key owns
+    /// their lifetime by a standing ruling, and pulling a menu out from under a hand is not what
+    /// "alle anderen Fenster" asks for.</item>
+    /// </list>
     /// </summary>
     private static void CollectNamedSet()
     {
@@ -3375,21 +3480,33 @@ internal static class StoryComposite
         // leaves the machine at home and the lock a pure presentation change on top of it.
         int caps = SetDestinationsLocked(true, loadout);
 
-        string edge = _curtainStanding
+        string edge = QuestJourneyCurtain.PartyCommitted
+            ? "the QUEST CONFIRM (ModBuild 459) — MapChoreographer.OnMoveClick has run, measured by "
+              + "QuestJourneyCurtain's own three game terms (a location had been selected, "
+              + "AdventureMapUIManager.LocationToTravel is null again, AdventureMapUIManager.IsLocked "
+              + "is true). THIS IS THE EARLIEST OF THE THREE EDGES AND THE ONE THE USER NAMES: \"Beim "
+              + "point-of-no-return (Quest bestätigt)\". Up to 458 the sweep waited for the story "
+              + "curtain, about two minutes and ~8900 frames later, and the ModBuild 457 peer log has "
+              + "the merchant standing open across the whole of that gap"
+            : _curtainStanding
             ? "the STORY CURTAIN (ModBuild 234) — the game has hidden the rest of its own UI for the "
               + "quest-start message chain (MapStoryController.isVisibleOtherUI is false), which is "
               + $"the moment the user named. {CurtainMembers.Count} floated window(s) are held out by "
               + $"the curtain's frozen member set [{_curtainNames}]"
             : "the PRE-SCENARIO LOADOUT SCREEN (UILoadoutManager.IsOpen) — this quest played no "
-              + "full-attention story message, so the ModBuild 233 edge is the one that fired and the "
-              + "curtain is not standing";
+              + "full-attention story message and no commit was measured, so the ModBuild 233 edge is "
+              + "the one that fired and the curtain is not standing";
 
         VRLog.Info(Scope, $"POINT OF NO RETURN OPENED at edge: {edge}. So the party has committed to a "
                           + "quest. THIS IS A ONE-SHOT AT THE RISING EDGE: there is no level-triggered "
                           + "sweep in this build and nothing in StoryComposite closes a window after this "
                           + "line. GREP THIS STRING: it must appear EXACTLY ONCE per quest start — the "
-                          + "gate's level is the UNION of the curtain and the loadout screen precisely so "
-                          + "that the two halves of one commitment cannot produce two edges. CLOSED "
+                          + "gate's level is the UNION of the QUEST CONFIRM (ModBuild 459), the curtain "
+                          + "and the loadout screen precisely so that the three halves of one commitment "
+                          + "cannot produce three edges — the confirm rises first and holds while the "
+                          + "other two rise inside it. IF THIS LINE APPEARS TWICE FOR ONE QUEST, the "
+                          + "commit level let go mid-journey and PARTY COMMIT LEVEL LAPSED above names "
+                          + "the term that let it. CLOSED "
                           + $"{_closedAtOpen} of {NamedSet.Count} NAMED member(s) [{names}] "
                           + $"({skipped} member(s) were neither open nor floated and were left alone) and "
                           + $"LOCKED {caps} guildmaster destination(s) plus the city encounter. THE SET IS "
@@ -3408,6 +3525,30 @@ internal static class StoryComposite
                           + "ist der 'Point of Return' schon überschritten, d.h. zB Händler und co. darf "
                           + "man zu diesem Zeitpunkt nicht mehr öffnen können … Alle anderen Fenster sollen "
                           + "dabei dann geschlossen werden.\"");
+
+        // ModBuild 459 — THE ANSWER-BEARING LINE, AT THE SHIPPED DEFAULT TIER. The account above is
+        // VRLog.Info, i.e. Debug-gated, and the question this round asks — "did EVERY window go, on
+        // BOTH machines, at the moment the user calls the point of no return" — has to be readable
+        // without it. It is a one-shot at the gate's rising edge, so it costs one line per quest.
+        // HW-VERIFY
+        VRLog.Note(Scope, $"POINT OF NO RETURN CLOSED THE ROOM: {_closedAtOpen} of {NamedSet.Count} "
+                          + $"named window(s) were standing and went [{names}]; {caps} guildmaster "
+                          + $"destination(s) plus the city encounter are now LOCKED. EDGE: "
+                          + $"{(QuestJourneyCurtain.PartyCommitted ? "the QUEST CONFIRM"
+                                                                   : _curtainStanding ? "the STORY CURTAIN"
+                                                                   : "the LOADOUT SCREEN")}. THE "
+                          + "SET IS THE WHOLE OF WHAT THE ROOM OPENS FROM ITS CAPS AND ITS MAP: the "
+                          + "five guildmaster destinations (merchant, temple, trainer, enchantress, "
+                          + "town records) off UIGuildmasterHUD's own serialized references, plus "
+                          + "UIQuestPopupManager's three quest popups. THE QUEST LOG IS NOT IN IT AND "
+                          + "IS NOT A GAP: it is the map room's permanent window by an earlier ruling "
+                          + "and QuestJourneyCurtain withholds its float over exactly this interval "
+                          + "— grep QUEST LOG GONE AT THE POINT OF NO RETURN for its verdict. READ "
+                          + "IT LIKE THIS: this line must appear ONCE per quest start on EVERY "
+                          + "client, and a window the user reports still standing afterwards is "
+                          + "either in the bracket above (it was closed and the game re-opened it) "
+                          + "or it is not in this set at all — the second case is the one that needs "
+                          + "a new member, and the bracket is what tells the two apart.");
     }
 
     /// <summary>

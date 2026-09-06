@@ -212,7 +212,25 @@ namespace GloomhavenVR.WorldUI;
 /// edge cannot contain a window that is converted afresh 318 s later, which is precisely what
 /// happened here. A reference to ONE named instance can.</para>
 ///
-/// <para>GREP: <c>QUEST JOURNEY CURTAIN RAISED</c> / <c>LAPSED</c> — the edges.
+/// <para>=====================================================================================
+/// ModBuild 459 — THIS CLASS NOW PUBLISHES THE COMMIT, AND THE WHOLE ROOM READS IT
+/// =====================================================================================</para>
+///
+/// <para>Nothing about the refusal below changes. What is new is that the three-term measurement it
+/// has owned since ModBuild 238 is now published as <see cref="PartyCommitted"/> and is a term of
+/// <see cref="StoryComposite.PointOfNoReturn"/>, so the room's close sweep and the guildmaster
+/// lock-out fire at the CONFIRM instead of at the story message roughly two minutes later. That is
+/// the user's own instant — <i>"Beim point-of-no-return (Quest bestätigt)"</i> — and the argument,
+/// the evidence and the exclusions are in <see cref="PartyCommitted"/>'s own doc and in
+/// <c>StoryComposite.CollectNamedSet</c>'s enumeration. The one mechanical consequence inside this
+/// file is that every clause which used to read <c>StoryComposite.PointOfNoReturn</c> now reads
+/// <c>StoryComposite.StoryOrLoadoutStanding</c>, which is that property's pre-459 value term for
+/// term: a class that is a term of a union may not also be a reader of it
+/// [[a-claim-must-not-measure-itself]].</para>
+///
+/// <para>GREP: <c>PARTY COMMITTED TO A QUEST</c> / <c>PARTY COMMIT LEVEL LAPSED</c> — the ModBuild
+/// 459 level's own edges, at the shipped default tier and on BOTH clients.
+/// <c>QUEST JOURNEY CURTAIN RAISED</c> / <c>LAPSED</c> — the edges.
 /// <c>QUEST JOURNEY CURTAIN AUDIT</c> — the ModBuild 243 falsifier: the point-of-no-return terms,
 /// whether the refusal is ARMED, how many cadence samples it has WITHHELD on, and the names of the
 /// windows that floated while it was armed. An unarmed refusal and an armed one that never fires
@@ -252,6 +270,58 @@ internal static class QuestJourneyCurtain
     private static int _cycles;
     private static bool _capReported;
     private static float _heldAt;
+
+    /// <summary>
+    /// HAS THE PARTY COMMITTED TO A QUEST? — the level, published for
+    /// <see cref="StoryComposite.PointOfNoReturn"/>, and the ONE place in the mod that owns this
+    /// measurement.
+    ///
+    /// <para><b>USER RULING (2026-09-06), the two halves of one sentence:</b>
+    /// <i>"Beim Mitspieler blieb der Händler offen nach dem point of no return - ALLE Fenster sollen
+    /// sich da schließen"</i> and, naming the same instant in the item beside it,
+    /// <i>"Beim point-of-no-return (Quest bestätigt) hat sich auch das Questfenster geschlossen"</i>.
+    /// <b>The user's point of no return is the QUEST CONFIRM.</b> Up to ModBuild 458
+    /// <see cref="StoryComposite.PointOfNoReturn"/> was <c>_curtainStanding || LoadoutScreenOpen</c>
+    /// — the quest-start story message, or the loadout screen — and the ModBuild 457 logs measure
+    /// the gap between the two moments on both machines: the confirm is at HOST Player.log:29962
+    /// (frame 24903) / PEER remote/Player.log:22011 (frame 13797), and the story curtain that
+    /// actually ran the close sweep is at :40747 / :32722, ~8900 frames — about two minutes — later.
+    /// For the whole of that interval the peer's merchant ('UI Shop Item Window', floated
+    /// remote:16136) and an event window stood open, and only a hand press on the merchant's X
+    /// (remote:23681) took it away. Nothing in the mod would have.</para>
+    ///
+    /// <para><b>THE TERMS ARE THE THREE THIS CLASS ALREADY MEASURES</b>, and they are the game's own:
+    /// a location had been selected, <c>AdventureMapUIManager.LocationToTravel</c> is null again
+    /// (<c>HideTravelOption</c>, MapChoreographer.cs:1448) and
+    /// <c>AdventureMapUIManager.IsLocked</c> is true (<c>LockOptionsInteraction</c>, :1449). They are
+    /// the same three the class doc argues for at length and the same three
+    /// <see cref="Report"/> has always used STANDALONE for its <c>QUEST LOG GONE AT THE POINT OF NO
+    /// RETURN</c> verdict, so this level is not a fourth timing rule — it is the one already there,
+    /// published.</para>
+    ///
+    /// <para><b>WHAT IT DELIBERATELY DOES NOT REQUIRE, and why that is not a widening of the
+    /// three-term measurement.</b> The RAISE below additionally demands that the mod be floating a
+    /// quest log the game has closed. That term is about the SUBJECT of this class's refusal, not
+    /// about the commit: a party that commits with no quest log floated has committed just as hard,
+    /// and gating the room's close sweep on the presence of one window's float would be exactly the
+    /// [[gated-remedy-never-ran]] shape. The seven other writers of
+    /// <c>AdventureMapUIManager.IsLocked</c> are still excluded by the terms that do the separating —
+    /// the multiplayer ready-up locks with a location still SELECTED, and reward distribution, a map
+    /// transition and an FTUE lock all run with <see cref="_selectionSeen"/> false, because it is
+    /// refilled only when the map is at rest and cleared outright when the room stands down.</para>
+    ///
+    /// <para><b>IT LAPSES ON THE SAME BRIDGE AS THE REFUSAL and never on its own say-so</b>
+    /// [[a-claim-must-not-measure-itself]]: while the game has the map options locked, or the story
+    /// curtain stands, or the loadout screen is up, <see cref="_heldAt"/> is refreshed; when none of
+    /// those holds for <see cref="JourneyBridgeSeconds"/> the commit is dropped, and it is dropped
+    /// outright the moment the map room stands down.</para>
+    /// </summary>
+    internal static bool PartyCommitted => _committed;
+
+    private static bool _committed;
+
+    /// <summary>The frame the commit level turned, for the falsifier. Never read as policy.</summary>
+    private static int _commitFrame = -1;
 
     /// <summary>The quest-log window INSTANCE frozen at the rising edge. The refusal is a reference
     /// compare against this and nothing else, so a quest log that opens later — or a different
@@ -368,6 +438,8 @@ internal static class QuestJourneyCurtain
         if (!MapRoomDriver.Active)
         {
             Drop("the 3D map room stood down");
+            DropCommit("the 3D map room stood down, so there is no room for a commit to be about "
+                       + "— the scenario is loading, or the player has left the map");
             _selectionSeen = false;
             _cycles = 0;
             _capReported = false;
@@ -389,9 +461,19 @@ internal static class QuestJourneyCurtain
         // THE HOLD'S TWO REAL REASONS, and the bridge clock is reset by those and never by this class
         // itself. A latch that is its own reason to latch is not a level at all —
         // StoryComposite.TickCurtain's rule, for its reason.
-        bool realReason = locked || StoryComposite.PointOfNoReturn;
+        //
+        // ModBuild 459 — IT READS StoryOrLoadoutStanding AND NO LONGER PointOfNoReturn, AND THAT IS
+        // A CYCLE BREAK RATHER THAN A CHANGE OF MEANING. StoryComposite.PointOfNoReturn is now the
+        // union of THIS class's PartyCommitted with that property, so reading the union here would
+        // make the commit level its own reason to stand [[a-claim-must-not-measure-itself]].
+        // StoryOrLoadoutStanding IS the pre-459 PointOfNoReturn, term for term — `_curtainStanding
+        // || UILoadoutManager.IsOpen` — so every clause in this file that reads it behaves exactly
+        // as it did in 458.
+        bool realReason = locked || StoryComposite.StoryOrLoadoutStanding;
         if (realReason)
             _heldAt = Time.unscaledTime;
+
+        TickCommitLevel(map, locked, selectionPending, realReason);
 
         if (_standing)
         {
@@ -433,7 +515,7 @@ internal static class QuestJourneyCurtain
         {
             // RESTING: back at HQ with the map unlocked and nothing selected. Refill the budget here
             // and only here, from the game's own level rather than from a timer.
-            if (!locked && !selectionPending && !StoryComposite.PointOfNoReturn)
+            if (!locked && !selectionPending && !StoryComposite.StoryOrLoadoutStanding)
             {
                 _cycles = 0;
                 _capReported = false;
@@ -463,11 +545,13 @@ internal static class QuestJourneyCurtain
         // for a story message), an OPEN quest log is no longer evidence that the game wants it: it
         // is the ModBuild 242 symptom. In that state the level may take the window back.
         //
-        // WHY THIS CLAUSE AND NOT A WIDER ONE: StoryComposite.PointOfNoReturn is
+        // WHY THIS CLAUSE AND NOT A WIDER ONE: StoryComposite.StoryOrLoadoutStanding is
         // `_curtainStanding || UILoadoutManager.IsOpen`, and neither is true during reward
         // distribution, a map transition, an FTUE lock or a multiplayer ready-up — the other things
-        // that write AdventureMapUIManager.IsLocked. So the widening cannot reach them.
-        bool reRaise = _cycles > 0 && StoryComposite.PointOfNoReturn;
+        // that write AdventureMapUIManager.IsLocked. So the widening cannot reach them. (ModBuild
+        // 459: it was written as PointOfNoReturn, whose terms were exactly those two; it now names
+        // them directly so this clause cannot silently inherit the commit level it feeds.)
+        bool reRaise = _cycles > 0 && StoryComposite.StoryOrLoadoutStanding;
         if (log == null || (log.IsOpen && !reRaise))
         {
             // Nothing to withhold: either the mod is not floating a quest log at all, or the game has
@@ -500,6 +584,90 @@ internal static class QuestJourneyCurtain
         }
         Raise(log, map, reRaise);
         Report(map, locked, selectionPending);
+    }
+
+    /// <summary>
+    /// THE COMMIT LEVEL, KEPT SEPARATELY FROM THE REFUSAL THAT RIDES ON IT. See
+    /// <see cref="PartyCommitted"/> for why it exists and why it drops the refusal's fourth term.
+    ///
+    /// <para>It is stepped BEFORE the <c>_standing</c> branch below, because
+    /// <see cref="StoryComposite.Tick"/> reads <see cref="StoryComposite.PointOfNoReturn"/> — of
+    /// which this is now a term — later in the SAME tick, and a level that settled after its reader
+    /// would cost the close sweep one whole tick on the edge it exists for.</para>
+    ///
+    /// <para>Nothing here writes to the game and nothing goes on the wire: three reads of
+    /// <c>AdventureMapUIManager</c>'s own public properties, and each client reaches its own verdict
+    /// from its own singletons. That is not a multiplayer gap — <c>OnMoveClick</c> runs on BOTH
+    /// clients (MapChoreographer.cs:3146/:3591 is the all-ready callback) and the ModBuild 457 logs
+    /// have this measurement turning on each machine independently, HOST Player.log:29962 and PEER
+    /// remote/Player.log:22011.</para>
+    /// </summary>
+    private static void TickCommitLevel(AdventureMapUIManager? map, bool locked,
+                                        bool selectionPending, bool realReason)
+    {
+        bool committedNow = _selectionSeen && !selectionPending && locked;
+        if (committedNow)
+        {
+            if (!_committed)
+                RaiseCommit(map);
+            return;
+        }
+        if (!_committed)
+            return;
+        // THE BRIDGE, AND IT IS THE REFUSAL'S OWN CLOCK RATHER THAN A SECOND ONE. `_heldAt` is
+        // refreshed above on every tick that has a real reason, so this measures exactly "the game
+        // has had the map options unlocked, no story message owning the screen and no loadout
+        // screen, for JourneyBridgeSeconds".
+        if (realReason || Time.unscaledTime - _heldAt <= JourneyBridgeSeconds)
+            return;
+        DropCommit($"the game unlocked the map options and no story message or loadout screen "
+                   + $"followed within {JourneyBridgeSeconds:F0} s, so this was not a quest commit "
+                   + "after all");
+    }
+
+    private static void RaiseCommit(AdventureMapUIManager? map)
+    {
+        _committed = true;
+        _commitFrame = Time.frameCount;
+        // HW-VERIFY
+        VRLog.Note(Scope, "PARTY COMMITTED TO A QUEST — the point of no return has begun, at the "
+                          + $"CONFIRM and not at the story. Frame {_commitFrame}. THE MEASUREMENT, "
+                          + "ALL THREE TERMS THE GAME'S OWN AND NONE OF THEM WRITTEN BY THIS MOD: a "
+                          + $"map location had been selected ('{_selectionName}'), "
+                          + "AdventureMapUIManager.LocationToTravel is null again (HideTravelOption, "
+                          + "MapChoreographer.cs:1448) and AdventureMapUIManager.IsLocked is "
+                          + $"{(map != null ? map.IsLocked.ToString() : "<no map manager>")} "
+                          + "(LockOptionsInteraction, :1449). OnMoveClick is the single method every "
+                          + "confirm path funnels into — the travel button, the gamepad long press, "
+                          + "the second click on a selected location and the multiplayer all-ready "
+                          + "callback — so this line must appear on BOTH clients, ONCE per quest "
+                          + "start. WHAT IT NOW DRIVES: StoryComposite.PointOfNoReturn is the union "
+                          + "of this level with the story curtain and the loadout screen, so the "
+                          + "room's close sweep and the guildmaster lock-out run FROM HERE. Look for "
+                          + "POINT OF NO RETURN CLOSED THE ROOM on the next line for what was "
+                          + "standing and what went. USER RULING THIS ANSWERS: \"Beim Mitspieler "
+                          + "blieb der Händler offen nach dem point of no return - ALLE Fenster "
+                          + "sollen sich da schließen erstmal auch das Questfenster das offen "
+                          + "geblieben ist.\" AND: \"Beim point-of-no-return (Quest bestätigt) hat "
+                          + "sich auch das Questfenster geschlossen.\" NOTHING IS WRITTEN TO THE "
+                          + "GAME BY THIS LEVEL and nothing goes on the wire; each client measures "
+                          + "it from its own singletons.");
+    }
+
+    private static void DropCommit(string why)
+    {
+        if (!_committed)
+            return;
+        _committed = false;
+        // HW-VERIFY
+        VRLog.Note(Scope, $"PARTY COMMIT LEVEL LAPSED — {why}. It stood from frame {_commitFrame} to "
+                          + $"{Time.frameCount}. StoryComposite.PointOfNoReturn loses this term now; "
+                          + "if the story curtain or the loadout screen is still up the gate stays "
+                          + "open on that term alone, and if neither is, the gate closes and the "
+                          + "guildmaster destinations are restored to the state they were MEASURED "
+                          + "in. Nothing that was closed at the edge is re-opened — the player "
+                          + "closed nothing and the game re-shows whatever it still wants, which is "
+                          + "how the quest info window comes back for the private-quest step.");
     }
 
     private static void Raise(UIWindow log, AdventureMapUIManager? map, bool reRaise)
@@ -848,6 +1016,13 @@ internal static class QuestJourneyCurtain
             return;
 
         bool ponr = StoryComposite.PointOfNoReturn;
+        // ModBuild 459 — THE TIER DECISION BELOW KEEPS THE 458 TERM AND ON PURPOSE. `ponr` is now
+        // the union of this class's own commit level with the story/loadout level, so a tier gated
+        // on it would print case (3)'s WARNING for the ordinary state "the party has committed and
+        // the mod is floating no quest log at all", which is not the ModBuild 242 bug case (3) is
+        // about. The bug case (3) names is a refusal that let go INSIDE the story/loadout interval,
+        // so that is the term the tier still reads. Both are printed.
+        bool storyOrLoadout = StoryComposite.StoryOrLoadoutStanding;
         bool armed = Standing;
         bool refuses = _member != null && FloatRefusalTable.Refuses(_member);
         bool memberOpen = _member != null && _member.IsOpen;
@@ -856,7 +1031,7 @@ internal static class QuestJourneyCurtain
         // THE CHANGE GATE FIRST, THEN THE STRING [[one-line-owned-the-frame]]. The key carries every
         // term whose change is worth a line; the sample counters are deliberately NOT in it, or the
         // line would print at the cadence.
-        string key = $"{armed}|{refuses}|{ponr}|{locked}|{selectionPending}|{committed}|"
+        string key = $"{armed}|{refuses}|{ponr}|{storyOrLoadout}|{locked}|{selectionPending}|{committed}|"
                      + $"{memberOpen}|{floatedLog != null}|{_cycles}|{_lifted}|{_capReported}";
         bool changed = key != _auditKey;
         if (!changed && now - _lastAuditAt < AuditHeartbeatSeconds)
@@ -879,7 +1054,10 @@ internal static class QuestJourneyCurtain
         string line =
             $"QUEST JOURNEY CURTAIN AUDIT: {why}. "
             + $"POINT-OF-NO-RETURN STATE: StoryComposite.PointOfNoReturn={ponr} "
-            + "(= the story curtain standing OR UILoadoutManager.IsOpen); "
+            + "(ModBuild 459: = THIS CLASS'S PartyCommitted OR the story curtain standing OR "
+            + $"UILoadoutManager.IsOpen); of those, PartyCommitted={_committed} (turned at frame "
+            + $"{(_commitFrame >= 0 ? _commitFrame.ToString() : "<never>")}) and "
+            + $"StoryComposite.StoryOrLoadoutStanding={storyOrLoadout}; "
             + $"AdventureMapUIManager.IsLocked={locked}; LocationToTravel="
             + $"{(selectionPending ? "still selected" : "null")}; a location had been "
             + $"selected={_selectionSeen} ('{_selectionName}'); COMMIT MEASUREMENT HOLDS={committed}; "
@@ -902,14 +1080,17 @@ internal static class QuestJourneyCurtain
             + "(2) ARMED with LEAKED climbing means the level is right and a float path is not "
             + "listening: read the NOT ACHIEVED line, which names the three paths and the release "
             + "loop's backstop. "
-            + "(3) NOT ARMED while the point-of-no-return state above is TRUE is the ModBuild 242 "
+            + "(3) NOT ARMED while StoryOrLoadoutStanding above is TRUE is the ModBuild 242 "
             + "bug — the level let go inside the interval; the LAPSED line names the term. "
-            + "(4) NOT ARMED with the point-of-no-return state FALSE is correct and expected: the "
+            + "(4) NOT ARMED with StoryOrLoadoutStanding FALSE is correct and expected: the "
             + "map is the ordinary map again and the quest log is the map room's permanent window. "
+            + "NOT ARMED while PartyCommitted alone is TRUE is ALSO ordinary — it means the party "
+            + "has committed and the mod is floating no quest log for this class to withhold, which "
+            + "says nothing about the room's close sweep; that one is StoryComposite's. "
             + "NOTHING HERE IS WRITTEN TO THE GAME AND NOTHING GOES ON THE WIRE: every term is a "
             + "local read, and a peer's client reaches its own verdict from its own singletons.";
 
-        if (armed || !ponr)
+        if (armed || !storyOrLoadout)
             VRLog.Info(Scope, line);
         else
             VRLog.Warn(Scope, line);   // case (3): the interval stands and the refusal does not
@@ -920,6 +1101,8 @@ internal static class QuestJourneyCurtain
     internal static void Reset()
     {
         Drop("module teardown");
+        DropCommit("module teardown");
+        _commitFrame = -1;
         _member = null;
         _lifted = false;
         _cycles = 0;
