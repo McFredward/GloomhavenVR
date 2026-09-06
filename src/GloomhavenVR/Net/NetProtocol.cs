@@ -433,7 +433,61 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 455;
+    public const ushort ModBuild = 456;
+    // Build 456: the held-prop white flash, ROUND TEN. Two leads dead, and one ASSUMPTION dead that
+    //   had been load-bearing since round seven.
+    //   * OUR OVERLAY IS EXONERATED BY ITS OWN CENSUS. 455's count read 1 at arm and 1 at close,
+    //     and the single entry hangs off GUID efc33169-… — the very trap being hovered, the same
+    //     GUID as roster renderer [0]. The key said 0 or 1 kills the reading outright, so the census
+    //     was DELETED in this build rather than re-read after the fact; that is the discipline this
+    //     file exists to keep. One bounded caveat recorded: a single-grab session cannot speak to
+    //     accumulation over a long one, so if the user ever reports the flash getting WORSE the
+    //     longer he plays, re-add it deliberately from git log.
+    //   * THE WHOLE MATERIAL CLASS IS OUT, on a population that is not hushed, not held and not
+    //     frozen. All traps share ONE material asset (1 same asset, 0 per-prop instances, which is
+    //     what MaterialLoaderData's sharedMaterials assignment predicts). A trap standing on its own
+    //     hex swept its animator through 0.001..0.997 — a FULL loop — and moved 0 of 57 tracked
+    //     material slots. And held-versus-home on the SAME TICK differed on 0 slots, ever. The white
+    //     is not made of this prop's material values, and no fix written on them can change it.
+    //   * AND THE ~5 s LOOP WAS NEVER THE FLASH. It runs its whole range while nothing about the
+    //     material changes, so it drives BONES on a SkinnedMeshRenderer — a bear trap's jaws — not
+    //     a brightness. Four rounds treated clipRate 0.202/s as the flash's clock. It is not, the
+    //     flash's own period has never been measured, and this also explains strand 6's INERT
+    //     reading retrospectively: the clip has no bright frame to latch, so ModBuild 453's premise
+    //     was wrong at the root rather than merely unmeasurable.
+    //   * SO THIS BUILD WATCHES THE PROP THE FLASH IS ACTUALLY ON. Every instrument for nine rounds
+    //     watched the prop in the HAND — the one object whose animation this mod switches off. The
+    //     user sees the flash on the BOARD. The twin's object graph is now read PER FRAME: every
+    //     child's activeSelf and every renderer's enabled/activeInHierarchy tracked BY IDENTITY,
+    //     child and renderer COUNTS min..max so an object INSTANTIATED on the flash is caught as
+    //     well as one toggled, and each renderer's material count and material-0 instance id,
+    //     because a swapped sharedMaterials entry is invisible to a property table. Every change
+    //     carries its frame, its elapsed time and its absolute Time.unscaledTime, so the flash's
+    //     PERIOD is read off the line instead of assumed and two prop kinds in one session can be
+    //     checked for simultaneity — which is the user's 'auf ALLEN Fallen' turned into a number.
+    //   * PLUS THE LIGHTING COMPARISON, re-added deliberately after 455 deleted it, because it is a
+    //     DIFFERENT measurement from the one that was deleted. That arm read the probe during the
+    //     hold only and called it flat; FLAT IS NOT CORRECT. Both props' interpolated light-probe L0
+    //     luminance on the SAME TICK, their ranges, the worst per-tick difference, and the
+    //     reflection-probe count each side — the held prop read 'at most 0 influencing' on 454, so
+    //     a twin reading more means the prop LOST a probe when it was carried to the eye. A large
+    //     difference means the ivory is LIGHTING and not paint, which is a different fix again, and
+    //     with the material class excluded it is the most likely remaining candidate.
+    //   * HOW TO READ IT. NAMES THE FLASH: non-zero changes on the graph arm — and the interval
+    //     between repeats of an event IS the period, measured for the first time. NAMES A DIFFERENT
+    //     FIX: a large lighting worst-difference, or a HOME probe count above a HELD 0. INERT: no
+    //     twin found, or no drawing renderer on one side (the arm prints NOT TAKEN rather than a
+    //     clean zero, so an absence cannot read as a measurement). STILL BEYOND THE INSTRUMENT:
+    //     graph 0 changes over a full loop AND a lighting difference near zero — and in that case
+    //     nothing about the prop's object graph or its lighting flashes, so the next round must
+    //     MEASURE THE PICTURE AND NOT THE STATE. That branch is written into the log line and the
+    //     doc banner in those words: do not invent an eleventh state probe.
+    //   * GRAB PHASE took its first sample — normalizedTime 1.3407, fraction 0.341, on a hold the
+    //     user reports as white. One sample decides nothing, and the loop it is a fraction OF is the
+    //     jaws' loop, so it proxies 'when in the prop's cycle' and not 'when in the flash'.
+    // Wire: nothing. No state written, nothing to mirror.
+    // Documented worst case stays 1735; MaxSize stays 2100.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 455: the held-prop white flash, ROUND NINE — and 3786 lines of falsified strands and
     //   spent probes deleted on the user's instruction ("raeume auch direkt den Code auf von allen
     //   Versuchen die sich nicht bewahrheitet haben").
