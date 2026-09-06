@@ -50,15 +50,20 @@ PURPLE = (124, 58, 237)    # Y + B  (the mod's own accent, as on the README vers
 
 # Feature centres in controllers-artwork.png pixel space, read off the render and verified by
 # overlaying probe dots. If the artwork is ever regenerated these all move — re-probe, do not guess.
-L = {"stick": (126, 76), "Y": (112, 162), "X": (172, 194), "trigger": (133, 324), "grip": (242, 421)}
-R = {"stick": (715, 72), "B": (671, 148), "A": (731, 189), "trigger": (718, 324), "grip": (601, 421)}
+# The layout is the real Touch Plus one: the thumbstick sits at the OUTER top of the black plate,
+# the two lettered buttons run down its INNER side, and the unbound button (menu on the left, Meta
+# on the right) sits below the stick. The two halves are exact mirrors about x = 490.
+L = {"stick": (144, 106), "Y": (285, 113), "X": (248, 181), "trigger": (224, 345), "grip": (296, 393)}
+R = {"stick": (836, 106), "B": (695, 113), "A": (732, 181), "trigger": (756, 345), "grip": (684, 393)}
 
 # Canvas. Rendered at 1720 px and shown at 860, so every size here is twice its on-page size.
 W, H     = 1720, 1600   # H is an upper bound; the canvas is cropped to what the legend uses
 ART_TOP  = 44
-SCALE    = 0.74        # the artwork is drawn at its own resolution; this is how big it lands
-GAP_ADD  = 40          # extra air pushed between the two controllers so the rings do not collide
-SPLIT_X  = 421         # column in the artwork that falls in the gap between the two controllers
+SCALE    = 0.76        # the artwork is drawn at its own resolution; this is how big it lands
+GAP_ADD  = 28          # extra air pushed between the two controllers so the rings do not collide
+SPLIT_X  = 490         # column in the artwork that falls in the gap between the two controllers
+                       # — exactly half of it, because each controller is packed centred in its
+                       # own half. That is what lets LEFT / RIGHT below centre with no fudge.
 
 LABELS = {
     "en": {
@@ -179,7 +184,7 @@ def build(lang):
     # --- LEFT / RIGHT under each controller -----------------------------------------------
     f_hand = font("Inter-SemiBold.otf", 30)
     hand_y = ty + art.height + 6
-    for label, cx in ((txt["left"], lx + split // 2 + 20), (txt["right"], rx + (art.width - split) // 2)):
+    for label, cx in ((txt["left"], lx + split // 2), (txt["right"], rx + (art.width - split) // 2)):
         spaced = " ".join(label)
         w = d.textlength(spaced, font=f_hand)
         d.text((cx - w / 2, hand_y), spaced, font=f_hand, fill=INK_SOFT)

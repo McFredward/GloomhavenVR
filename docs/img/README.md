@@ -447,7 +447,7 @@ about 250 words of the old `PLAYING.md`.
 
 | Layer | Where it comes from |
 |---|---|
-| `controllers-artwork.png` | **generated** -- a transparent render of a ring-less controller pair with completely BLANK buttons, made with OpenAI `gpt-image-2` (first attempt; the layout came out correct -- stick, two diagonal face buttons, an inner oval, trigger, grip, correctly mirrored). Quantised to 200 colours: 543 kB to 75 kB, no visible loss at diagram size. |
+| `controllers-artwork.png` | **generated** -- a transparent render of a Meta Quest Touch Plus pair with completely BLANK buttons, made with OpenAI `gpt-image-2`. Redrawn on 2026-09-06 (see below). 980x729, quantised to 200 colours: 427 kB to 52 kB, no visible loss at diagram size. |
 | every ring, every word | **drawn by the script**, as real text in Inter |
 
 **Never ask the generator for the labels.** A model cannot spell reliably, a labelled bitmap would
@@ -467,6 +467,49 @@ Two things in the script are load-bearing:
   re-probe, never guess.
 - **Both thumbstick entries share ONE colour.** A second colour on one physical stick read as a
   second button rather than as a second gesture; that was tried and it was worse.
+
+#### The artwork must be a REAL Quest 3 controller -- 2026-09-06
+
+The first artwork was generic, and the caption under the diagram said *"A Quest 3 is shown" /
+"Abgebildet ist eine Quest 3"*. The picture contradicted the sentence, so one of the two was a lie;
+the user asked for the picture to be fixed, because the Quest 3 is the most widespread headset.
+
+**Prompt from photographs, not from memory.** The decisive feature is one nobody recalls correctly:
+the top of a Touch Plus is a big matte **charcoal-black oval plate** overhanging a **white** body.
+The old artwork, and the first four candidates generated from a written description, all made the
+whole controller light grey -- which is the single most visible way to get a Touch Plus wrong. The
+references used were the Wikimedia Commons photographs `Controller of Meta Quest 3 (left).jpg` and
+`(right).jpg`; they also settle the face layout, which the diagram's rings are anchored to:
+
+> thumbstick at the **outer** top of the plate; the two lettered buttons (X/Y left, A/B right) down
+> its **inner** side on a diagonal; the unbound button -- menu on the left, Meta on the right --
+> **below the thumbstick**; the index trigger on the front of the neck; the squeeze button a small
+> protruding white nub on the **inner** side of the handle. No tracking ring: Touch Plus dropped it.
+
+Seven candidates were generated and the winner picked by measurement, not by taste -- black plate
+width as a fraction of the controller's own width (the plate is the widest part of the real thing),
+face-button diameter as a fraction of plate width (~0.165 on the reference), and whether the trigger
+and the grip nub are distinct enough to carry a ring. The chosen render is an exact mirror pair:
+both halves came out with identical bounding boxes.
+
+**Three preparation steps stand between the raw render and the committed artwork**, and a
+regenerated artwork needs all three again:
+
+1. **Clean the alpha.** `gpt-image-2` wraps the subject in a broad low-alpha white glow and reaches
+   alpha 254 at most, never 255. Remap alpha linearly so everything under 60 becomes 0 and
+   everything over 230 becomes 255; the silhouette's antialias ramp survives.
+2. **Re-centre the halves.** Cut the two controllers apart and re-paste each one *centred in its own
+   half* of the output. That is why `SPLIT_X` is now exactly half the artwork width, and why the
+   `LEFT` / `RIGHT` captions no longer need the fudge offset they used to carry.
+3. **Roll the highlights off.** The render's body tops out near luminance 245 on a 255 paper, and at
+   diagram size the lower half of the handle dissolves into the page. Compressing 190..255 into
+   190..230 keeps the controller off-white -- which is truthful, the real one is white -- while
+   giving the silhouette an edge that survives the downscale to 860 px.
+
+What is still not exact: the plate is rendered as a near-circle where the real one is a slightly
+teardrop-shaped oval, and the handle is a little longer and glossier than the real part. The caption
+stays because the claim it makes is one the picture keeps -- a reader holding a Quest 3 can match
+every marked control on it, one for one.
 
 ### `install-tree-{en,de}.png` -- "did it land in the right place?"
 
