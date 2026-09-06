@@ -3,9 +3,21 @@ using UnityEngine;
 namespace GloomhavenVR.Core;
 
 /// <summary>
-/// "IS THIS RENDERER A FIGURE, AN ACTOR, OR A THING IN THE PLAYER'S HAND?" — the exemption every
-/// mod sweep that may hide a foreign renderer has to ask, and the only place its clause list is
-/// written down.
+/// "IS THIS RENDERER A FIGURE, AN ACTOR, OR A THING IN THE PLAYER'S HAND?" — the exemption a mod
+/// sweep that may hide a foreign renderer is SUPPOSED to ask, and the only place its clause list
+/// is written down.
+///
+/// <para><b>"HAS TO ASK" WAS THE WORDING HERE UNTIL 2026-09-06, AND IT WAS A HYPOTHESIS DRESSED
+/// AS A CONTRACT.</b> Nothing makes a sweep ask this; the ModBuild 461 host log names one that
+/// did not. <c>WallSegmentFade.CollectAdoptedSiblings</c> hand-rolls its own exclusion list
+/// (ProceduralWall / ActorBehaviour / TileBehaviour / UnityGameEditorDoorProp, a floor band and a
+/// water term), never calls anything in this type, and therefore faded a TREE in a peer's hand to
+/// 1.00 — eighteen FADE WRITE lines, all eighteen attributed to the <c>asset sibling</c> lane,
+/// while record 37 had that prop in player 2's right hand. Ten other sites in that subsystem DID
+/// ask; being the tenth caller is not a guarantee about the eleventh lane. The held half of this
+/// rule is therefore ALSO enforced at the wall system's four fade-WRITE primitives, where a lane
+/// cannot route around it — see <c>Core/WallFade/WallSegmentFade.Held.cs</c>. This type stays the
+/// clause list and the adoption-time exemption; it is not, and never was, a choke point.</para>
 ///
 /// <para><b>WHY THIS TYPE EXISTS (redundancy survey R9, 2026-09-05).</b> The list was written
 /// twice. <c>WallSegmentFade</c> had FIVE clauses; <c>MixedReality</c> had a hand copy with FOUR,

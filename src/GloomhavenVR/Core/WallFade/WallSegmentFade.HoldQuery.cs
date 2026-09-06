@@ -91,6 +91,12 @@ internal static partial class WallSegmentFade
             // either: we did not hide it, so no restore path may ever claim we did.
             if (FloorNeverFades(r))
                 return;
+            // A PROP IN A HAND NEVER FADES (user 2026-09-06) - write primitive 3 of 4. Same
+            // contract as the floor term above, including the part that is easy to miss: nothing
+            // is added to the ledger either, because we did not hide it and no restore path may
+            // ever claim we did.
+            if (HeldNeverFades(r))
+                return;
             if (r.enabled)
                 r.enabled = false;
             _hidByEnable.Add(r);

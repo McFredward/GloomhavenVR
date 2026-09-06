@@ -162,23 +162,34 @@ internal static class HeldProps
     /// and the state this is called in ~3000 times per wall rescan. While a prop IS held it is an
     /// ancestor walk against at most two roots, and it terminates at the scene root.</para>
     /// </summary>
-    internal static bool OwnsRendererOf(Transform? t)
+    internal static bool OwnsRendererOf(Transform? t) =>
+        LocalOwnsRendererOf(t) || NetHeldProps.OwnsRendererOf(t);
+
+    /// <summary>
+    /// THE LOCAL HALF OF <see cref="OwnsRendererOf"/>, ON ITS OWN - "is this renderer part of a
+    /// prop in one of THIS client's hands?", with no remote term.
+    ///
+    /// <para>Split out (2026-09-06) for ONE caller and one purpose: the wall system's held-prop
+    /// census has to say WHOSE hand granted the exemption, because "the local hand is exempt and
+    /// a peer's is not" and "neither is" produce the same picture on this machine - a tree
+    /// dissolving - and they are not the same defect. No POLICY may branch on this: the user's
+    /// ruling is that a prop in ANY hand is never sight-blocking, so every refusal still asks
+    /// <see cref="OwnsRendererOf"/>. This one is for the sentence, not for the decision.</para>
+    /// </summary>
+    internal static bool LocalOwnsRendererOf(Transform? t)
     {
-        if (t == null)
+        if (t == null || Visuals.Count == 0)
             return false;
-        if (Visuals.Count > 0)
+        for (Transform? cur = t; cur != null; cur = cur.parent)
         {
-            for (Transform? cur = t; cur != null; cur = cur.parent)
+            for (int i = 0; i < Visuals.Count; i++)
             {
-                for (int i = 0; i < Visuals.Count; i++)
-                {
-                    GameObject v = Visuals[i];
-                    if (v != null && ReferenceEquals(v.transform, cur))
-                        return true;
-                }
+                GameObject v = Visuals[i];
+                if (v != null && ReferenceEquals(v.transform, cur))
+                    return true;
             }
         }
-        return NetHeldProps.OwnsRendererOf(t);
+        return false;
     }
 
     /// <summary>

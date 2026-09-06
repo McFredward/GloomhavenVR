@@ -130,6 +130,40 @@ internal static class PropGrab
     internal static bool IsRegistered(CObjectProp? prop) => prop != null && Registry.ContainsKey(prop);
 
     /// <summary>
+    /// IS THIS RENDERER PART OF A BOARD PROP THE PLAYER CAN PICK UP AT ALL? Read-only, and it
+    /// exists for ONE consumer: the wall system's held-prop falsifier
+    /// (<c>Core/WallFade/WallSegmentFade.Held.cs</c>).
+    ///
+    /// <para><b>WHY THE FALSIFIER MAY NOT ASK THE HELD REGISTRY.</b> The rule it is testing is
+    /// "a prop in a hand is never faded", and that rule's own term is
+    /// <see cref="HeldProps.OwnsRendererOf"/>. A counter built on the same term can only ever
+    /// agree with the rule - it would report zero leaks in exactly the case the rule is blind
+    /// (a hold this mod does not know about), which is the failure this repository calls a claim
+    /// measuring itself. So the falsifier counts over a DIFFERENT population: every renderer of
+    /// every prop that is grabbable at all, held or not. A fade written on one of those while it
+    /// is airborne is the shape of the defect whether or not any hand was recorded.</para>
+    ///
+    /// <para>Bounded by construction: the registry is the board's liftable props (17-38 in the
+    /// ModBuild 461 log, of which 12-22 liftable), and the walk stops at the scene root. The
+    /// caller memoises the verdict per renderer for its census window.</para>
+    /// </summary>
+    internal static bool OwnsRendererOf(Transform? t)
+    {
+        if (t == null || Registry.Count == 0)
+            return false;
+        for (Transform? cur = t; cur != null; cur = cur.parent)
+        {
+            foreach (GrabbableProp g in Registry.Values)
+            {
+                GameObject v = g.Visual;
+                if (v != null && ReferenceEquals(v.transform, cur))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// The collider this prop actually REGISTERED against, or null if it is not registered — read
     /// by the <c>[Props]</c> census's REACHHEXES column so the line measures the shape the hands
     /// are really being tested against, not the shape this file believes it built.

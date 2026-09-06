@@ -1229,6 +1229,23 @@ internal static partial class WallSegmentFade
             // whatever it was last driven to — the rule would then be the thing keeping it faded.
             if (fade > 0f && FloorNeverFades(r))
                 return;
+            // A PROP IN A HAND NEVER FADES (user 2026-09-06, "ich hatte den Fall das ein Baum beim
+            // Test wegfaded ist") - write primitive 2 of 4, and THE ONE THE TREE CAME THROUGH: the
+            // ModBuild 461 log attributes all eighteen of its fade writes to the asset-sibling
+            // lane, which delivers here like every other dressing lane.
+            //
+            // AND IT RESTORES RATHER THAN ONLY REFUSING. The tree was adopted while it STOOD on
+            // the board and was picked up afterwards, so a refusal alone would leave it invisible
+            // in the hand until the next rescan - up to two seconds of exactly the reported
+            // picture. RestoreHeldProp is edge-gated on the RENDERER's own state, so a piece that
+            // is already as authored writes nothing and a hold of any length costs one hand-back.
+            // See WallSegmentFade.Held.cs. Only a non-zero fade is refused, for the same reason
+            // the floor rule gives above: DriveProp(p, 0f) is the write that puts a piece BACK.
+            if (fade > 0f && HeldNeverFades(r))
+            {
+                RestoreHeldProp(p, r);
+                return;
+            }
             if (p.NativeFade)
             {
                 // Round 15: the piece runs the game's own masonry fade branch — either on its

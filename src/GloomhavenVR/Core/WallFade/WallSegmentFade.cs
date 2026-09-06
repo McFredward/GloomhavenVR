@@ -1944,6 +1944,7 @@ internal static partial class WallSegmentFade
             _shaderVerdict.Clear(); // scene shaders died with their bundles — no dead keys
             _shaderWaterVerdict.Clear(); // …and so did the water shaders (PERF S2)
             ResetFloorSceneState(); // …and every floor verdict was measured in the OLD scene
+            ResetHeldSceneState();  // …and the held rule's chain memo names renderers that died
             AbandonRescanCycle();   // a census of the OLD scene may never commit into the new one
             _live.SplitAnchors.Clear();
             _runs.Clear();          // …and so do the split-run verdicts keyed off those anchors
@@ -2594,7 +2595,17 @@ internal static partial class WallSegmentFade
             // is what sets _floorHeldInFadingSegments, and this line is the only place it is
             // read, so the two must be in this order to speak about the same pass.
             using (Phase(TickPhase.FloorAudit))
+            {
                 LogFloorGuardCensus(now);
+                // A PROP IN A HAND NEVER FADES - the third "this can never occlude" rule, and it
+                // rides the floor rule's phase bucket for the reason WallSegmentFade.Floor.cs
+                // gives for not splitting one out: CommitPhase/TickPhase are COST buckets for the
+                // budget line, and a bucket of its own for one rate-limited census would buy a
+                // narrower number and a shifted enum for nothing. Called on EVERY tick, not only
+                // when the line prints: its held-population sample is taken before the cadence
+                // gate. See WallSegmentFade.Held.cs.
+                LogHeldGuardCensus(now);
+            }
             // Regenerated shell pieces (Apparance churn) must be re-hidden faster than the
             // 2s rescan — see the fast-reclaim doc in WallSegmentFade.Stacked.cs.
             using (Phase(TickPhase.FastReclaim))
@@ -4445,6 +4456,18 @@ internal static partial class WallSegmentFade
                 if (FloorNeverFades(r))
                 {
                     r.SetPropertyBlock(null);
+                    continue;
+                }
+                // A PROP IN A HAND NEVER FADES (user 2026-09-06) - write primitive 1 of 4. Same
+                // placement and same shape as the floor rule one line up, and the enable is put
+                // back too: this loop is the only primitive whose renderers can be hidden by a
+                // path that does not carry a MountedProp, so without the ShowIfWeHid a wall-shader
+                // renderer that ended up in a hand would stay switched off with nothing to hand it
+                // back. ShowIfWeHid is ledgered - a renderer the GAME switched off stays off.
+                if (HeldNeverFades(r))
+                {
+                    r.SetPropertyBlock(null);
+                    ShowIfWeHid(r);
                     continue;
                 }
                 r.SetPropertyBlock(_mpb);
@@ -6802,6 +6825,20 @@ internal static partial class WallSegmentFade
                             // and this pass hand-rolls three of that predicate's terms and omits
                             // the Animator one, which is exactly the term a door leaf relies on.
                             //
+                            // AND IT OMITS THE HELD ONE, WHICH IS THE OTHER HALF OF THE SAME
+                            // SENTENCE AND COST A ROUND (user 2026-09-06: "ich hatte den Fall das
+                            // ein Baum beim Test wegfaded ist"). The ModBuild 461 host log carries
+                            // eighteen FADE WRITE lines naming 'PR_Tree_3Hex_Leafless' under
+                            // 'ThreeHexObstacle : (f8c8bc14-…)' at fade 1.00 and attributes every
+                            // one of them to THIS lane, while [Net] [Props] HELD-PROP MIRROR had
+                            // that prop (616057776) in player 2's RIGHT hand and the tree's anchor
+                            // read 2.92 wu over the floor. No term is added here on purpose: a
+                            // rule written into this loop would fix the lane the log happens to
+                            // name and leave the twelfth lane to be written without one. The
+                            // refusal lives on the four fade-WRITE primitives instead
+                            // (WallSegmentFade.Held.cs), which is where the floor rule already
+                            // learnt to live for exactly this reason.
+                            //
                             // What it could do to an adopted leaf is the whole of ApplySiblings:
                             // swap its authored materials for masonry-fade copies, drive _Cutoff /
                             // _Toggle_Dissolve / _InvisibilityControl to invisible, and finally
@@ -7205,10 +7242,22 @@ internal static partial class WallSegmentFade
         ///   (ModBuild 340) — see the block in the body for why the four tests above
         ///   cannot cover it and why this one is not memoised.</item>
         /// </list>
-        /// Checked by EVERY adoption sweep (stack candidates + adoption + fast reclaim, wall
-        /// body, mounted dressing, corner pieces) and enforced retroactively by
-        /// <see cref="PurgeFigureRenderers"/> each rescan (restitution: a previously-adopted
-        /// figure renderer is restored the moment this guard classifies it).
+        /// Checked by TEN adoption sites — stack candidates + adoption + fast reclaim, wall
+        /// body, mounted dressing, corner pieces, hanging plants, free-standing units, prop units,
+        /// blockades — and enforced retroactively by <see cref="PurgeFigureRenderers"/> each
+        /// rescan (restitution: a previously-adopted figure renderer is restored the moment this
+        /// guard classifies it).
+        ///
+        /// <para><b>"CHECKED BY EVERY ADOPTION SWEEP" IS WHAT THIS SENTENCE SAID UNTIL
+        /// 2026-09-06, AND IT WAS NOT TRUE OF EITHER OF ITS TWO HALVES.</b>
+        /// <see cref="CollectAdoptedSiblings"/> and the foliage collector adopt renderers and ask
+        /// this guard nowhere, and <see cref="PurgeFigureRenderers"/> sweeps only
+        /// <c>_mountedTouched</c>, so an asset sibling has never been restituted by it at all. A
+        /// tree in a peer's hand went to fade 1.00 through the sibling lane on ModBuild 461 with
+        /// this sentence sitting above the guard that would have refused it. Held-ness is now also
+        /// a WRITE-primitive rule (WallSegmentFade.Held.cs) and does not depend on any collector
+        /// asking; the four figure/actor clauses here remain adoption-time only, so the count in
+        /// the first line is a count and no longer a universal.</para>
         /// </summary>
         private static bool IsFigureOrActorRenderer(Renderer r)
         {

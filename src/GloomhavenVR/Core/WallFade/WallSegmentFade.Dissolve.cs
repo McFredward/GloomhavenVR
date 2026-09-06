@@ -119,8 +119,16 @@ internal static partial class WallSegmentFade
         /// Decide ONCE how this piece dissolves, and put that channel in place. Scope: plain
         /// pieces with no channel of their own — particles, alpha props and Amp-dissolve props
         /// already animate through <see cref="DriveProp"/> and are left exactly as they were.
-        /// Figures can never get here (every collector guards), and the arch/doorway never
-        /// fades at all.
+        /// The arch/doorway never fades at all.
+        ///
+        /// <para><b>"FIGURES CAN NEVER GET HERE (EVERY COLLECTOR GUARDS)" STOOD IN THIS SUMMARY
+        /// UNTIL 2026-09-06 AND WAS FALSE.</b> <c>CollectAdoptedSiblings</c> is a collector and
+        /// guards nothing of the kind: it hand-rolls four ancestor terms and asks
+        /// <c>IsFigureOrActorRenderer</c> nowhere, which is how a tree in a peer's hand reached
+        /// this method and got a swapped masonry copy on ModBuild 461. The sentence was load-
+        /// bearing in the worst way — it is the reason nobody looked here — so it is replaced by
+        /// the guard rather than by a correction: the held term below is a WRITE primitive and
+        /// does not depend on any collector's discipline.</para>
         /// </summary>
         private void EnsureDissolveChannel(MountedProp p)
         {
@@ -135,6 +143,13 @@ internal static partial class WallSegmentFade
             // is marked decided here either, so if the verdict ever changes the piece is still
             // classified normally. See WallSegmentFade.Floor.cs.
             if (FloorNeverFades(r))
+                return;
+            // A PROP IN A HAND NEVER FADES (user 2026-09-06) - write primitive 4 of 4. A material
+            // SWAP is a fade write in disguise for a held prop exactly as it is for a floor tile:
+            // it replaces the authored shader with a WallFade copy, and a prop carrying that copy
+            // is one MPB away from gone. Nothing is marked decided here, so the piece is still
+            // classified normally once it is put down.
+            if (HeldNeverFades(r))
                 return;
 
             // Channels that already animate: leave them alone (and mark them decided, so the
