@@ -78,6 +78,21 @@ internal sealed class RemoteBoardCard
         = RemoteAbilityCardSource.FacePath.None;
 
     /// <summary>
+    /// <c>CAbilityCard.CardInstanceID</c> of the card whose REAL FACE this recess is drawing right
+    /// now, or <see cref="int.MinValue"/> for anything else.
+    ///
+    /// <para>All three qualifiers are load-bearing and the caller (<c>Net.RemoteBurnFx</c>) needs
+    /// every one of them: it hands its own flight over to this recess only while the recess is
+    /// really showing THAT card's face. An empty recess, a face-DOWN one and an anonymous back are
+    /// each a recess that is not showing the card, and answering with the id anyway would hide the
+    /// flight behind a picture that is not there.</para>
+    /// </summary>
+    public int ShownFaceCardInstanceId =>
+        !_shownEmpty && _shownFront && Path != RemoteAbilityCardSource.FacePath.None
+            ? _shownId
+            : int.MinValue;
+
+    /// <summary>
     /// <paramref name="materialiseOwner"/> is the ONE parameter that says WHICH KIND of slot this
     /// is, and it is the call site that says it rather than a branch in here guessing.
     ///
@@ -568,6 +583,12 @@ internal sealed class RemoteBoardCard
         _plumeSource = null;
         _plumeSourceMissing = false;
         _plumeRunning = true;
+        // …and the used-card look's own copy of that reference, so a board that stopped being drawn
+        // holds no game widget alive across a scene change. Its key guard would have re-resolved
+        // anyway; this is hygiene, not correctness.
+        _fxSource = null;
+        _fxSourceMissing = false;
+        _fxSourceKey = int.MinValue;
     }
 
     /// <summary>
@@ -752,6 +773,33 @@ internal sealed class RemoteBoardCard
     /// <para>SELF-HEALING on the same principle as <see cref="ApplyHalf"/>: the write is re-asserted
     /// whenever the clone is rebuilt (a new <c>_faceCardKey</c> clears the applied state), so a
     /// re-pooled or re-instantiated face comes back dimmed rather than silently bright.</para>
+    ///
+    /// <para>─── THE TWO FLAGS STAY TWO, AND THE GAME IS WHY (2026-09-06) ─────────────────────────
+    /// The user reported that "die gesamte Karte" greys, which is true of the END of a turn and
+    /// raised the question of whether a HALF-dimmed peer card is a state its owner never has. It is
+    /// not — the game reaches it deliberately, mid-turn, and it is the more informative half of what
+    /// this record carries:
+    /// <list type="bullet">
+    /// <item><c>CardsActionControlller</c>, <c>Phase.Pick1stTarget</c> (:289-290): the moment the
+    ///   owner picks his first action, the played card's OTHER half is switched off with the
+    ///   per-<c>actionType</c> overload while the half he is playing stays bright. Same again on
+    ///   <c>Phase.Select2ndCard</c> (:305-308) for the second card.</item>
+    /// <item>Only at <c>Finish()</c> (:420-421) and <c>AfterItemUseAtEndOfTurn()</c> (:432-435) does
+    ///   the game call the PARAMETERLESS <c>SetInteractable(false)</c> / both
+    ///   <c>ToggleSideInteractivity</c> calls, i.e. the whole card. That is the picture the user
+    ///   described, and it is the last frame of the sequence, not the only one.</item>
+    /// </list>
+    /// The ModBuild 457 host log walks exactly that sequence: <c>SPENT HALF SENT</c> masks go
+    /// <c>0x00 → 0x09 → 0x0B → 0x0F → 0x00</c> across a turn, and <c>0x09</c> is one half of each
+    /// card. Collapsing the flags would erase the mid-turn state the owner really sees. They also
+    /// cannot invent one: <c>HalfSelection.SpentHalvesOf</c> MEASURES the owner's own rendered
+    /// <c>canvasGroup.alpha</c> per half, so a half-dimmed peer card can only exist while the
+    /// owner's own card is half-dimmed. Verified, not assumed — and left exactly as it was.</para>
+    ///
+    /// <para>WHAT THIS METHOD IS NOT is the whole-card look. These CanvasGroups cover the two action
+    /// halves only; the header, title and initiative disc sit outside them. The look that takes the
+    /// WHOLE card is <c>CardEffects</c>' own timeline, and it is driven from
+    /// <see cref="DriveUsedCardFx"/> below.</para>
     /// </summary>
     public void SetSpentHalves(int playerId, int slot, bool topSpent, bool bottomSpent)
     {
@@ -770,6 +818,11 @@ internal sealed class RemoteBoardCard
             // never see this face as "needs correction" in the window between the clone being
             // rebuilt and the dim being re-applied.
             CardHalfTone.HoldMirroredDim(face, topSpent || bottomSpent);
+
+            // THE WHOLE-CARD LOOK, driven BEFORE the change gate below: it is a RAMP and needs
+            // every frame, while the dimming below is a one-shot write that only has to land on an
+            // edge. Two different cadences, one call site.
+            DriveUsedCardFx(playerId, slot, topSpent, bottomSpent);
 
             if (_appliedSpent.HasValue && _appliedSpent.Value == (topSpent, bottomSpent))
                 return;
@@ -793,8 +846,251 @@ internal sealed class RemoteBoardCard
     private void ReleaseSpentHold()
     {
         _appliedSpent = null;
+        _fxLook = RemoteCardArt.CardFxLook.None;
+        _fxElapsed = 0f;
         if (_faceCard != null)
             CardHalfTone.HoldMirroredDim(_faceCard, false);
+    }
+
+    // ───────────────────── the USED-CARD look, in the recess, on the card that was used ──────────
+
+    /// <summary>How long the game's two card-FX timelines run, in seconds. MIRRORED CONSTANT and it
+    /// is one number for both: <c>CardEffects.BurnCardTimeline</c> opens with
+    /// <c>float burnTime = 2f</c> (CardEffects.cs:516) and <c>GhostOutOnTimeline</c> with
+    /// <c>float animTime = 2f</c> (:629). It is the same duration <c>Net.RemoteBurnFx.HoldSeconds</c>
+    /// mirrors from the other side.</summary>
+    private const float UsedCardFxSeconds = 2f;
+
+    /// <summary>Which look this recess is currently ramping, and how far in. Reset whenever the
+    /// shown card changes (through <see cref="ReleaseSpentHold"/> / <see cref="ClearFace"/>), so a
+    /// new card in the same recess starts clean.</summary>
+    private RemoteCardArt.CardFxLook _fxLook = RemoteCardArt.CardFxLook.None;
+    private float _fxElapsed;
+
+    /// <summary>Change gate for the <c>RECESS CARD FX</c> line: the look, the source and whether the
+    /// write took.</summary>
+    private string _loggedFx = string.Empty;
+
+    /// <summary>
+    /// THE FOLLOW-UP THE USER ASKED FOR IN HIS OWN WORDS (2026-09-06): "Das verkohlen oder ausgrauen
+    /// (verbraucht, verbrannt) soll nicht im Fächer (in der Mitte) des jeweiligen Stapels angezeigt
+    /// werden, sondern auch im remote board direkt in der Mulde wenn eine Karte genutzt wurde …
+    /// nicht nur die Verkohlung bei verbrennen sondern auch das Ausgrauen wenn eine nicht-verbrennen
+    /// Aktion benutzt wurde so wie sie der Spieler dessen Board es ist auch sieht."
+    ///
+    /// <para>WHAT THE OWNER ACTUALLY SEES, read out of the game rather than described. The turn flow
+    /// calls <c>FullAbilityCard.TryPlayBurnAnimation(actionType)</c> on the played card at
+    /// <c>CardsActionControlller.Finish()</c> (:417), <c>AfterItemUseAtEndOfTurn()</c> (:437-439) and
+    /// on entering <c>Phase.Select2ndCard</c> (:298). That method picks between exactly two
+    /// <c>CardEffects</c> timelines by the CardPile of the action that was USED: a LOST action that
+    /// actually resolved gets <c>FXTask.BurnCard</c> (the char), everything else gets
+    /// <c>FXTask.DiscardMode</c> (the grey-out). Both paint the WHOLE card, header included — which
+    /// is why the user says "die gesamte Karte" and why this is a different thing from
+    /// <see cref="SetSpentHalves"/>, whose alpha-0.5 CanvasGroups only touch the two action halves.
+    /// The peer's recess had NEITHER, because <c>RemoteCardArt.StripFragileEffects</c> destroys
+    /// <c>CardEffects</c> on every clone.</para>
+    ///
+    /// <para>WHY THE GAME'S OWN CALL IS NOT MADE HERE, precisely. <c>CardHalfTone</c> can run
+    /// <c>SetInteractable</c> on a mod-owned face because that method is a <c>canvasGroup.alpha</c>
+    /// write on a <c>FullAbilityCardAction</c> the clone STILL HAS.
+    /// <c>TryPlayBurnAnimation</c> is not that kind of call and it fails four separate ways:
+    /// (1) it dereferences <c>cardEffects</c> unconditionally and that component is
+    /// <c>DestroyImmediate</c>d on the clone before it ever activates — an immediate NRE;
+    /// (2) leaving the component alive instead is the hazard the strip exists for —
+    /// <c>ToggleEffect</c> opens with <c>Initialize()</c> (CardEffects.cs:359), which swaps every
+    /// Image to a screen-space <c>_PosAndBounds</c> material computed against OUR world-space
+    /// canvas, the "card renders DEEP BLACK" failure;
+    /// (3) <c>ToggleAdditiveEffect</c> drives the timeline through
+    /// <c>Choreographer.s_Choreographer.StartCoroutine</c> and <c>Timekeeper.instance.m_GlobalClock</c>
+    /// on a detached cosmetic object; and
+    /// (4) <c>ToggleEffect</c>'s own <c>RestoreCard()</c> writes <c>imgComp[i].material</c>, which on
+    /// a clone whose source never ran <c>Initialize</c> is the SHARED AUTHORED
+    /// <c>GUI_CardEffect_Mat</c> — presentation code repainting a game asset for every card in the
+    /// process. So the CALL is refused and the same rig
+    /// <see cref="RemoteCardArt.SetAbilityCardFxProgress"/> already drives for the burnt-pile fan
+    /// and the burn flight is used instead: the game's own numbers, on materials this mod mints.
+    /// One implementation of the look, three surfaces.</para>
+    ///
+    /// <para>THE TRIGGER IS THE OWNER'S OWN EFFECT STATE WHERE IT CAN BE READ. The peer's live
+    /// widget is already resolved on this slot for the plume (<see cref="TickPlume"/>, which reads
+    /// <c>HasEffect</c> off exactly this object under exactly this identity check), so the first
+    /// question asked is the game's own answer. Where that widget cannot be observed the fallback
+    /// re-derives <c>TryPlayBurnAnimation</c>'s own expression from state both clients hold: which
+    /// half was used (record 41 — measured off the owner's rendered alpha, never from rules), that
+    /// action's <c>CardPile</c>, and <c>CBaseCard.ActionHasHappened</c>, which is serialized and is
+    /// compared by the game's own MP state check (CBaseCard.cs:407), so it cannot disagree between
+    /// the two machines. The log line says WHICH of the two answered.</para>
+    ///
+    /// <para>ONLY THE USED CARD. Every term is this slot's own — its shown card, its own spent
+    /// flags, its own widget. A recess whose card nobody has touched resolves to
+    /// <see cref="RemoteCardArt.CardFxLook.None"/> and is never written, which is the user's
+    /// "während die andere Karte so bleibt wie sie ist".</para>
+    /// </summary>
+    private void DriveUsedCardFx(int playerId, int slot, bool topSpent, bool bottomSpent)
+    {
+        RemoteCardArt.CardFxLook want = ResolveUsedCardLook(topSpent, bottomSpent, out string source);
+        if (want != _fxLook)
+        {
+            _fxLook = want;
+            _fxElapsed = 0f;
+        }
+        if (_fxLook == RemoteCardArt.CardFxLook.None || _art == null)
+            return;
+        if (_fxElapsed < UsedCardFxSeconds)
+            _fxElapsed = Mathf.Min(UsedCardFxSeconds, _fxElapsed + Mathf.Max(0f, Time.unscaledDeltaTime));
+        bool took = _art.SetAbilityCardFxProgress(_fxLook, _fxElapsed / UsedCardFxSeconds);
+        LogUsedCardFxIfChanged(playerId, slot, took, source);
+    }
+
+    /// <summary>
+    /// <c>TryPlayBurnAnimation</c>'s verdict for the card lying in this recess: the game's own
+    /// answer when the owner's widget can be observed, and the game's own EXPRESSION over
+    /// host-replicated state when it cannot.
+    /// </summary>
+    private RemoteCardArt.CardFxLook ResolveUsedCardLook(bool topSpent, bool bottomSpent,
+                                                         out string source)
+    {
+        source = "none";
+        CAbilityCard? card = _plumeCard;
+        if (card == null)
+            return RemoteCardArt.CardFxLook.None;
+
+        // ── 1. THE OWNER'S OWN EFFECT STATE ──────────────────────────────────────────────────────
+        // Under the SAME identity check TickPlume applies: the effect may only be read off the very
+        // widget this slab's face was cloned from, or the look would be a different card's.
+        //
+        // ITS OWN CACHE, not the plume's, and that is deliberate. TickPlume's resolve only runs
+        // while the OWNER'S PARTICLE PERMISSION is on (wire id TuneGameCardParticlesOn), and that
+        // bit is about smoke, not about whether a card was used. Sharing the cache would have made
+        // this look silently depend on a dial that has nothing to do with it — the "wrong entry"
+        // mistake, one surface over.
+        try
+        {
+            FullAbilityCard? full = EnsureFxSource(card);
+            CardEffects? fx = full != null && _art != null && _art.ShowsKey(full.GetInstanceID())
+                ? full.cardEffects
+                : null;
+            if (fx != null)
+            {
+                source = "widget";
+                if (fx.HasEffect(CardEffects.FXTask.BurnCard))
+                    return RemoteCardArt.CardFxLook.Burn;
+                if (fx.HasEffect(CardEffects.FXTask.DiscardMode)
+                    || fx.HasEffect(CardEffects.FXTask.LostMode))
+                    return RemoteCardArt.CardFxLook.Ghost;
+                return RemoteCardArt.CardFxLook.None;
+            }
+        }
+        catch (System.Exception)
+        {
+            // fall through to the model — an unreadable widget is not an answer
+        }
+
+        // ── 2. THE MODEL, term for term out of FullAbilityCard.TryPlayBurnAnimation ───────────────
+        if (!topSpent && !bottomSpent)
+            return RemoteCardArt.CardFxLook.None;   // nobody has used this card
+        source = "model";
+        try
+        {
+            // WHICH action was used. Both halves spent is the Finish() state, where the game has
+            // already run TryPlayBurnAnimation for the action that was actually played; a LOST
+            // half anywhere in what was used is what decides the char, which is the same answer
+            // TryPlayBurnAnimation reaches for the played action and the safe one when both are
+            // gone (a card with a lost half that has been used is a card on its way out).
+            bool lost = (topSpent && IsLostPile(card.TopAction))
+                        || (bottomSpent && IsLostPile(card.BottomAction));
+            // …AND THE SECOND TERM OF THAT METHOD, which is easy to drop: a lost action that was
+            // SELECTED but never resolved ghosts rather than chars (FullAbilityCard.cs:585,
+            // `if (abilityCard.ActionHasHappened)` … `else` → FXTask.DiscardMode).
+            // CBaseCard.ActionHasHappened is serialized and is one of the fields the game's own MP
+            // comparison checks (CBaseCard.cs:407), so this reads the same bool the owner reads.
+            return lost && card.ActionHasHappened
+                ? RemoteCardArt.CardFxLook.Burn
+                : RemoteCardArt.CardFxLook.Ghost;
+        }
+        catch (System.Exception)
+        {
+            // A card whose actions cannot be read gets the GHOST, which is the branch
+            // TryPlayBurnAnimation itself falls through to for everything that is not a resolved
+            // lost action — the same safe direction, not a guess.
+            return RemoteCardArt.CardFxLook.Ghost;
+        }
+    }
+
+    /// <summary>The peer's LIVE widget for the card in this recess, resolved once per card and then
+    /// cached. A miss is cached too (<see cref="_fxSourceMissing"/>) so a peer whose hand this
+    /// client does not hold costs one lookup per card and not one per frame. The resolve is
+    /// <c>RemoteAbilityCardSource.TryLiveWidget</c> — the same call that drew the face, so the two
+    /// answers cannot be two different widgets.</summary>
+    private FullAbilityCard? EnsureFxSource(CAbilityCard card)
+    {
+        int key = PlumeKeyOf(card);
+        if (key != _fxSourceKey)
+        {
+            _fxSourceKey = key;
+            _fxSource = null;
+            _fxSourceMissing = false;
+        }
+        if (_fxSource == null && !_fxSourceMissing)
+        {
+            _fxSource = RemoteAbilityCardSource.TryLiveWidget(_plumeOwner, card);
+            _fxSourceMissing = _fxSource == null;
+        }
+        return _fxSource;
+    }
+
+    private FullAbilityCard? _fxSource;
+    private bool _fxSourceMissing;
+    private int _fxSourceKey = int.MinValue;
+
+    /// <summary>Does this action send its card to the burnt pile? The game's own test, spelled the
+    /// game's own way (<c>FullAbilityCard.cs:583</c>).</summary>
+    private static bool IsLostPile(CAction? action) =>
+        action != null && (action.CardPile == CBaseCard.ECardPile.Lost
+                           || action.CardPile == CBaseCard.ECardPile.PermanentlyLost);
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (2026-09-06 follow-up): does the card in a peer's RECESS wear the look its
+    /// owner's does, and which of the two resolvers answered? Grep token <c>RECESS CARD FX</c>.
+    ///
+    /// <para>WORKING = one line per used card naming <c>look=BURN</c> or <c>look=GHOST</c> with
+    /// <c>applied=yes</c>, and NO line for the card beside it while that one is untouched. Read it
+    /// beside the owner's <c>SPENT HALF SENT</c> line for the same recess: the two must agree that
+    /// this slot's card was used.</para>
+    ///
+    /// <para>INERT = <c>applied=no</c>, which means the rig refused this face — the reason is then in
+    /// <c>Remote BURN look</c> (REFUSED, or NO CARD-FX MATERIAL). No line at all beside a
+    /// <c>SPENT HALF</c> line naming that recess means the look resolved to NONE, i.e. neither
+    /// resolver saw a used action, and <c>source=</c> on the neighbouring lines says which resolver
+    /// is even running.</para>
+    ///
+    /// <para>STILL BEYOND THE INSTRUMENT = <c>source=model</c> on every line. That is not a failure —
+    /// the fallback is the game's own expression — but it means the owner's widget could not be
+    /// observed on this client, so the premise <see cref="TickPlume"/> is built on
+    /// ("a peer's widget carries the effect") has never been confirmed on hardware and the two
+    /// resolvers have never been compared against each other. A round with BOTH sources appearing
+    /// is what would settle it.</para>
+    /// </summary>
+    private void LogUsedCardFxIfChanged(int playerId, int slot, bool applied, string source)
+    {
+        string now = $"{_fxLook}|{applied}|{source}|{Path}";
+        if (now == _loggedFx)
+            return;
+        _loggedFx = now;
+        // HW-VERIFY: grep token "RECESS CARD FX" — see this method's doc for the three readings.
+        VRLog.Note("Net", $"RECESS CARD FX [player {playerId}] recess {slot + 1}: look="
+            + $"{_fxLook.ToString().ToUpperInvariant()}, applied={(applied ? "yes" : "no")}, "
+            + $"source={source}, face={Path}. This is the look the GAME puts on the owner's own card "
+            + "the moment he uses an action on it — FullAbilityCard.TryPlayBurnAnimation picks "
+            + "CardEffects.BurnCardTimeline for a resolved LOST action and GhostOutOnTimeline for "
+            + "every other one, and both paint the WHOLE card, not one half. The game's call cannot "
+            + "be made on a mod clone (its CardEffects is stripped, and ToggleEffect would run "
+            + "Initialize against our world-space canvas and write a SHARED authored material), so "
+            + "the same rig the burnt-pile fan and the burn flight already use replays the timeline's "
+            + "own numbers on materials this mod minted. source=widget means the OWNER'S OWN effect "
+            + "flag answered; source=model means it was re-derived from record 41's spent half plus "
+            + "that action's CardPile and CBaseCard.ActionHasHappened, both host-replicated. A recess "
+            + "whose card nobody has used prints NO line at all.");
     }
 
     /// <summary>

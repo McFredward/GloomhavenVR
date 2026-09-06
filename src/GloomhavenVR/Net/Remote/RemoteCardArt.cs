@@ -1284,15 +1284,48 @@ internal sealed class RemoteCardArt
     // owner's own CardsDriver.TickBurnToPile starts its hold. So the two clocks are the game's, not
     // ours, and the ramp is in step by construction.
     //
+    // AND THERE ARE TWO OF THEM, not one (2026-09-06 follow-up, "nicht nur die Verkohlung bei
+    // verbrennen sondern auch das Ausgrauen wenn eine nicht-verbrennen Aktion benutzt wurde").
+    // FullAbilityCard.TryPlayBurnAnimation (FullAbilityCard.cs:577) picks between exactly two
+    // CardEffects timelines by the CardPile of the action that was used: BurnCardTimeline for a
+    // LOST action that actually resolved, GhostOutOnTimeline for everything else. The two are the
+    // SAME machine — same three animated terms, same 2 s, same _Dissolve ceiling of 0.646 — and
+    // differ only in six constants, of which the one that matters is _Burn_ColourTint: a WARM
+    // brown (0.369, 0.145, 0.075) for the char and a COLD blue-grey (0.243, 0.282, 0.341) for the
+    // ghost. So this rig carries a LOOK rather than a single constant set, and "verkohlt" and
+    // "ausgegraut" are one implementation with two tables — which is also why neither is an
+    // approximation of the other.
+    //
     // THE NUMBERS ARE THE GAME'S OWN, term for term out of CardEffects.BurnCardTimeline
-    // (CardEffects.cs:508-618): the constants are set once at t=0 and the three animated terms are
+    // (CardEffects.cs:508-618) and CardEffects.GhostOutOnTimeline (:621-730): the constants are set
+    // once at t=0 and the three animated terms are
     // _GreyOut = t, _Flow = t, _Dissolve = lerp(0, 0.646, t) over burnTime = 2 s. The fgFx overlay
     // quad (the orange flame sheet) is deliberately NOT reproduced, for the reason ApplySpentLook
     // states: it is a second unmeasured material driven by nine more properties drawn over the
     // WHOLE card, and a wrong write there is a full-card artefact. Cost, stated: the peer sees the
     // card char, grey out and dissolve on the owner's clock, without the flame sheen on top.
 
-    /// <summary>How far the burn rig has got. Built ONCE per clone: the walk over the clone's
+    /// <summary>
+    /// WHICH of the game's two card-FX timelines a face is wearing — the same choice
+    /// <c>FullAbilityCard.TryPlayBurnAnimation</c> makes, by the same rule.
+    /// </summary>
+    internal enum CardFxLook
+    {
+        /// <summary>Nothing written. A card nobody has used yet.</summary>
+        None,
+
+        /// <summary><c>CardEffects.BurnCardTimeline</c> — the WARM char. The owner gets it when the
+        /// action he used has <c>CardPile == Lost / PermanentlyLost</c> AND the action actually
+        /// resolved (<c>CBaseCard.ActionHasHappened</c>).</summary>
+        Burn,
+
+        /// <summary><c>CardEffects.GhostOutOnTimeline</c> — the COLD grey-out, the game's
+        /// <c>FXTask.DiscardMode</c>. Every other used action takes this one, which is the whole of
+        /// the user's "das Ausgrauen wenn eine nicht-verbrennen Aktion benutzt wurde".</summary>
+        Ghost,
+    }
+
+    /// <summary>How far the card-FX rig has got. Built ONCE per clone: the walk over the clone's
     /// Images and the material minting must not repeat per frame.</summary>
     private enum BurnRig { Unbuilt, Ready, Refused }
 
@@ -1308,6 +1341,17 @@ internal sealed class RemoteCardArt
     /// <summary>The clone's own initiative disc, same seam and same fallback as
     /// <see cref="_burnHeaderText"/>.</summary>
     private TMPro.TextMeshProUGUI? _burnInitiativeText;
+
+    /// <summary>The colour every watched text had when the rig was built — the clone's copy of the
+    /// game's own <c>txtColourStore</c>, which <c>GhostOutOnTimeline</c> lerps FROM
+    /// (CardEffects.cs:703). Index-aligned with <see cref="_burnTexts"/>. Captured once, because a
+    /// per-frame ramp that read the live colour would lerp from its own previous output and settle
+    /// early.</summary>
+    private Color[]? _burnTextColours;
+
+    /// <summary>Which look the minted materials currently carry. A change rewrites the constant
+    /// half on the copies this overlay already owns — the walk and the minting never repeat.</summary>
+    private CardFxLook _burnRigLook = CardFxLook.None;
 
     /// <summary>The game's own <c>CardEffects.burntTextColor</c> (CardEffects.cs:225), a
     /// <c>Color32(143, 58, 44, 255)</c> field initialiser and therefore a BUILD FACT of the game,
@@ -1327,25 +1371,38 @@ internal sealed class RemoteCardArt
     private static bool s_burnRigRefused;
     private static bool s_burnRigNoFxImages;
 
+    /// <summary>The BURN look at progress <paramref name="t"/> — the shape every existing caller
+    /// uses. See <see cref="SetAbilityCardFxProgress"/>, which it forwards to.</summary>
+    public bool SetAbilityBurnProgress(float t) => SetAbilityCardFxProgress(CardFxLook.Burn, t);
+
     /// <summary>
-    /// Drive the game's own burn look on the shown ABILITY face at progress
+    /// Drive one of the game's two card-FX timelines on the shown ABILITY face at progress
     /// <paramref name="t"/> (0 = untouched, 1 = the timeline's settled end-state).
+    ///
+    /// <para><paramref name="look"/> picks the timeline exactly as
+    /// <c>FullAbilityCard.TryPlayBurnAnimation</c> does — <see cref="CardFxLook.Burn"/> is
+    /// <c>BurnCardTimeline</c>, <see cref="CardFxLook.Ghost"/> is <c>GhostOutOnTimeline</c>. Both
+    /// drive the SAME three animated terms over the same 2 s; only the constant half and the text
+    /// rule differ, so switching look on a face already wearing one costs a rewrite of the
+    /// constants on materials this overlay already minted and nothing else.</para>
     ///
     /// <para>Returns true while the look is really being drawn — false means this face carries no
     /// card-FX material at all, or one whose footprint could not be measured, and the caller then
-    /// shows the card WITHOUT the burn rather than with a guess. Missing char is a small
-    /// divergence; a black card on a peer's board is not.</para>
+    /// shows the card WITHOUT it rather than with a guess. Missing char is a small divergence; a
+    /// black card on a peer's board is not.</para>
     ///
     /// <para>Never throws: it runs inside the avatar tick.</para>
     /// </summary>
-    public bool SetAbilityBurnProgress(float t)
+    public bool SetAbilityCardFxProgress(CardFxLook look, float t)
     {
-        if (_clone == null)
+        if (_clone == null || look == CardFxLook.None)
             return false;
         if (_burnRigState == BurnRig.Unbuilt)
             BuildBurnRig();
         if (_burnRigState != BurnRig.Ready || _burnImages == null)
             return false;
+        if (look != _burnRigLook)
+            RewriteFxConstants(look);
 
         float k = Mathf.Clamp01(t);
         try
@@ -1358,6 +1415,24 @@ internal sealed class RemoteCardArt
                 SetFloatIfPresent(mat, GreyOutId, k);
                 SetFloatIfPresent(mat, FlowId, k);
                 SetFloatIfPresent(mat, DissolveId, Mathf.Lerp(0f, 0.646f, k));
+            }
+            if (look == CardFxLook.Ghost && _burnTexts != null && _burnTextColours != null)
+            {
+                // GhostOutOnTimeline's text rule (CardEffects.cs:700-708) and it is a DIFFERENT rule,
+                // not a different colour: every affected text lerps from the colour it was AUTHORED
+                // in toward pure WHITE, and its vertex gradient is switched off past the halfway
+                // mark. (The burn arm below drives toward two DARK colours instead. That is why the
+                // ghosted card reads as washed out and the burnt one as charred.)
+                for (int i = 0; i < _burnTexts.Length && i < _burnTextColours.Length; i++)
+                {
+                    TMPro.TextMeshProUGUI text = _burnTexts[i];
+                    if (text == null)
+                        continue;
+                    text.color = Color.Lerp(_burnTextColours[i], Color.white, k);
+                    if (k > 0.5f)
+                        text.enableVertexGradient = false;
+                }
+                return true;
             }
             if (_burnTexts != null)
             {
@@ -1385,7 +1460,14 @@ internal sealed class RemoteCardArt
                         continue;
                     bool headline = ReferenceEquals(text, _burnHeaderText)
                                     || ReferenceEquals(text, _burnInitiativeText);
-                    text.color = Color.Lerp(Color.white, headline ? BurntTextColor : grey, k);
+                    // FROM the colour the face was AUTHORED in, not from white: the game jumps
+                    // straight to the target every frame of its loop, so any start colour lands on
+                    // the same place at t = 1, and easing out of the real colour is the only one of
+                    // the two that does not flash a card whose title is not white to begin with.
+                    Color from = _burnTextColours != null && i < _burnTextColours.Length
+                        ? _burnTextColours[i]
+                        : Color.white;
+                    text.color = Color.Lerp(from, headline ? BurntTextColor : grey, k);
                 }
             }
             return true;
@@ -1492,16 +1574,9 @@ internal sealed class RemoteCardArt
                 {
                     continue;
                 }
-                // The constant half of BurnCardTimeline, written once here so the per-frame call
+                // The constant half of the chosen timeline, written once here so the per-frame call
                 // only has to move the three animated terms.
-                SetFloatIfPresent(copy, BurnId, 0.691f);
-                SetFloatIfPresent(copy, FlowOffsetId, 0.03f);
-                SetFloatIfPresent(copy, FlowSpeedId, 0.4f);
-                SetFloatIfPresent(copy, DissolveVerticalGradientId, 0.2f);
-                if (copy.HasProperty(BurnColourTintId))
-                    copy.SetColor(BurnColourTintId, new Color(0.36862746f, 0.14509805f, 0.07450981f, 0.601f));
-                if (copy.HasProperty(AnimNoiseMaskId))
-                    copy.SetTextureScale(AnimNoiseMaskId, new Vector2(40f, 40f));
+                WriteFxConstants(copy, CardFxLook.Burn);
                 // …and the footprint the FX terms are multiplied against, in the space this face is
                 // really drawn in. The signature test above already proved the property exists.
                 copy.SetVector(PosAndBoundsId, footprint);
@@ -1511,7 +1586,14 @@ internal sealed class RemoteCardArt
 
             _burnImages = kept.ToArray();
             _burnTexts = _clone.GetComponentsInChildren<TMPro.TextMeshProUGUI>(includeInactive: true);
+            _burnTextColours = new Color[_burnTexts.Length];
+            for (int i = 0; i < _burnTexts.Length; i++)
+            {
+                if (_burnTexts[i] != null)
+                    _burnTextColours[i] = _burnTexts[i].color;
+            }
             _burnRigState = BurnRig.Ready;
+            _burnRigLook = CardFxLook.Burn;
             ReportBurnRigOnce(_burnImages.Length, inherited, footprint);
         }
         catch (System.Exception ex)
@@ -1521,6 +1603,52 @@ internal sealed class RemoteCardArt
             VRLog.Debug("Net", $"Remote burn rig skipped ({ex.Message}) - the peer's card burns " +
                                "without the char.");
         }
+    }
+
+    /// <summary>
+    /// The CONSTANT half of one of the game's two card-FX timelines, term for term. Six values, and
+    /// the only reason there are two tables instead of one is that the game has two:
+    /// <c>BurnCardTimeline</c> (CardEffects.cs:518-531) and <c>GhostOutOnTimeline</c> (:632-645).
+    /// The tint is the term the eye reads — warm brown for the char, cold blue-grey for the ghost.
+    /// </summary>
+    private static void WriteFxConstants(Material mat, CardFxLook look)
+    {
+        bool burn = look == CardFxLook.Burn;
+        SetFloatIfPresent(mat, BurnId, burn ? 0.691f : 0.7f);
+        SetFloatIfPresent(mat, FlowOffsetId, 0.03f);
+        SetFloatIfPresent(mat, FlowSpeedId, burn ? 0.4f : 0.2f);
+        SetFloatIfPresent(mat, DissolveVerticalGradientId, 0.2f);
+        if (mat.HasProperty(BurnColourTintId))
+        {
+            mat.SetColor(BurnColourTintId, burn
+                ? new Color(0.36862746f, 0.14509805f, 0.07450981f, 0.601f)
+                : new Color(0.24313726f, 24f / 85f, 29f / 85f, 0.5f));
+        }
+        if (mat.HasProperty(AnimNoiseMaskId))
+        {
+            float tile = burn ? 40f : 10f;
+            mat.SetTextureScale(AnimNoiseMaskId, new Vector2(tile, tile));
+        }
+    }
+
+    /// <summary>Switch a face that is already rigged from one look to the other. Only the constant
+    /// half moves: the walk, the minting and the footprint measurement all stand, because the two
+    /// timelines drive the same properties on the same materials.</summary>
+    private void RewriteFxConstants(CardFxLook look)
+    {
+        if (_burnImages == null)
+            return;
+        // THROUGH _burnImages AND NOT _ownedMaterials: that list is the overlay's whole material
+        // ledger and the ITEM path adds its own copies to it (ApplySpentLook). Those are never on
+        // an ability face today, but a rewrite keyed on "everything this overlay owns" would start
+        // repainting them the day one is, which is a defect nobody would look for here.
+        for (int i = 0; i < _burnImages.Length; i++)
+        {
+            Material? mat = MaterialOf(_burnImages[i]);
+            if (mat != null)
+                WriteFxConstants(mat, look);
+        }
+        _burnRigLook = look;
     }
 
     /// <summary>
@@ -1673,9 +1801,11 @@ internal sealed class RemoteCardArt
         _artWatch.Clear(); // the watched Images belong to the clone that just died
         _burnImages = null;  // the burn rig named the clone's own Images
         _burnTexts = null;
+        _burnTextColours = null;
         _burnHeaderText = null;
         _burnInitiativeText = null;
         _burnRigState = BurnRig.Unbuilt;
+        _burnRigLook = CardFxLook.None;
         _shownSourceId = int.MinValue;
     }
 }

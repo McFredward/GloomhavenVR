@@ -109,6 +109,15 @@ internal sealed class RemoteBurnFx
         public Vector3 From;
         public Vector3 To;
         public float Arc;
+
+        /// <summary><c>CAbilityCard.CardInstanceID</c> of the card being burned, so the recess that
+        /// is drawing it can be re-identified every frame rather than once.</summary>
+        public int CardId;
+
+        /// <summary>The recess this card was lying in when the burn was learned about (0/1), or -1.
+        /// It decides both the ORIGIN of the flight and whether this presentation draws a slab at
+        /// all during the hold — see <see cref="Drive"/>.</summary>
+        public int Recess;
     }
 
     private readonly List<Burn> _burns = new(MaxBurns);
@@ -287,7 +296,20 @@ internal sealed class RemoteBurnFx
             return;
         }
 
-        if (!TryAnchor(CardFxAnchor.Board, out Vector3 from)
+        // ─── WHERE THE OWNER'S CARD ACTUALLY IS (2026-09-06 follow-up) ───────────────────────────
+        // It is in a RECESS, not at the board centre: CardsDriver holds the played card on its slot
+        // anchor while the game's burn artwork runs on it and only then flies it to the stack. This
+        // mirror used to present at CardFxAnchor.Board because nothing named the recess — but this
+        // client SEATED that card there itself, so it can simply ask. No wire field is owed: the
+        // anchor vocabulary already has Slot0/Slot1 and RemoteControlBoard.AnchorLocalLive resolves
+        // both to the rendered card SEAT of whatever board style the peer runs.
+        int cardId = CardInstanceIdOf(widget);
+        int recess = _owner.RecessShowingCard(cardId);
+        CardFxAnchor origin = recess == 0 ? CardFxAnchor.Slot0
+            : recess == 1 ? CardFxAnchor.Slot1
+            : CardFxAnchor.Board;
+
+        if (!TryAnchor(origin, out Vector3 from)
             || !TryAnchor(CardFxAnchor.Burnt, out Vector3 to))
         {
             LogSkipped(name, "their board pose has not arrived yet, so there is nowhere to burn it");
@@ -297,6 +319,8 @@ internal sealed class RemoteBurnFx
         Burn b = Acquire();
         if (b.Go == null)
             return;
+        b.CardId = cardId;
+        b.Recess = recess;
 
         float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         float cardWidth = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth);
@@ -317,8 +341,14 @@ internal sealed class RemoteBurnFx
         // the whole flight ("orientation locked"). Facing it at the local head instead would be a
         // pose the owner never sees.
         b.Go.transform.SetPositionAndRotation(from, _owner.BoardRotation);
-        if (!b.Go.activeSelf)
-            b.Go.SetActive(true);
+        // …and it stays HIDDEN while the recess is the one drawing this card. Two copies of one
+        // card is a worse divergence than the one this class was built to fix, and the recess copy
+        // is the better of the two by construction: it is the card the owner is looking at, in the
+        // recess he is looking at, wearing the char RemoteBoardCard.DriveUsedCardFx is ramping on
+        // it. Drive() re-asks every frame and reveals the slab the instant the recess stops.
+        bool recessDraws = recess >= 0;
+        if (b.Go.activeSelf != !recessDraws)
+            b.Go.SetActive(!recessDraws);
 
         // THE FACE — resolved locally, gated exactly as every other remote card surface is.
         b.HasFace = false;
@@ -343,7 +373,7 @@ internal sealed class RemoteBurnFx
         _played++;
         _lastPresentedAt = Time.unscaledTime;
         _claims++;
-        LogAttribution(name, fronts, b.HasFace, actor);
+        LogAttribution(name, fronts, b.HasFace, actor, recess);
     }
 
     /// <summary>Advance every live presentation: hold with the burn ramping on, then the arc.</summary>
@@ -363,7 +393,16 @@ internal sealed class RemoteBurnFx
             // re-resolved every frame against their LIVE synced pose (RemoteCardFx resolves once
             // because its flights last 0.4 s; that shortcut does not survive a 2 s hold). A frame
             // in which the pose cannot be resolved keeps the last one rather than snapping.
-            if (TryAnchor(CardFxAnchor.Board, out Vector3 liveFrom))
+            // …and the ORIGIN is the owner's RECESS whenever this client can still see the card
+            // seated there. Re-asked every frame rather than latched: the recess empties the moment
+            // the owner's occupancy nibble clears, which is the same instant HIS card leaves it, and
+            // that is the hand-over this presentation has to survive. It falls back to the board
+            // centre only for a burn nobody could place — the picture every build before this one
+            // drew.
+            CardFxAnchor origin = b.Recess == 0 ? CardFxAnchor.Slot0
+                : b.Recess == 1 ? CardFxAnchor.Slot1
+                : CardFxAnchor.Board;
+            if (TryAnchor(origin, out Vector3 liveFrom))
                 b.From = liveFrom;
             if (TryAnchor(CardFxAnchor.Burnt, out Vector3 liveTo))
                 b.To = liveTo;
@@ -371,11 +410,35 @@ internal sealed class RemoteBurnFx
             if (b.Elapsed < HoldSeconds)
             {
                 // PHASE 1 — it lies on their board and chars, exactly as it does on theirs.
+                //
+                // AND IT LIES IN THEIR RECESS, drawn by the recess itself, for as long as the recess
+                // still has it. RemoteBoardCard.DriveUsedCardFx is ramping the very same
+                // RemoteCardArt rig on that seated face, off the owner's own effect state, so a slab
+                // here would be a SECOND copy of one card. Hidden, not skipped: the moment the
+                // recess stops showing it (their card left early, the reveal gate shut, the face
+                // could not be cloned) the slab comes back at the recess anchor and this phase
+                // finishes the way it always did.
+                bool recessDraws = b.CardId != int.MinValue
+                                   && _owner.RecessShowingCard(b.CardId) == b.Recess
+                                   && b.Recess >= 0;
+                if (b.Go.activeSelf == recessDraws)
+                    b.Go.SetActive(!recessDraws);
+                if (recessDraws)
+                    continue;
                 b.Go.transform.SetPositionAndRotation(b.From, _owner.BoardRotation);
                 if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(b.Elapsed / HoldSeconds))
                     b.HasFace = false; // the rig refused: keep the fresh face, keep the flight
                 continue;
             }
+
+            // THE HAND-OVER. The flight always draws the slab, and it draws it ALREADY CHARRED: a
+            // fresh card lifting out of a recess the viewer just watched blacken is the one way this
+            // split could read worse than the single slab it replaced. Writing the settled state
+            // every frame of the flight is the same idempotent call the burnt-pile fan makes.
+            if (!b.Go.activeSelf)
+                b.Go.SetActive(true);
+            if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(1f))
+                b.HasFace = false;
 
             // PHASE 2 — the same over-the-board arc every other pile flight uses.
             float t = NetProtocol.CardFxSeconds > 0f
@@ -398,6 +461,23 @@ internal sealed class RemoteBurnFx
     }
 
     // ------------------------------------------------------------------ anchors + pool --
+
+    /// <summary><c>CAbilityCard.CardInstanceID</c> of a pile widget's model card, or
+    /// <see cref="int.MinValue"/> when it has none. It is the key <c>RemoteBoardCard.Set</c> stores
+    /// for the card it seated, so the two surfaces are comparing the same identifier rather than two
+    /// that happen to agree.</summary>
+    private static int CardInstanceIdOf(AbilityCardUI? widget)
+    {
+        try
+        {
+            CAbilityCard? card = widget != null ? widget.AbilityCard : null;
+            return card != null ? card.CardInstanceID : int.MinValue;
+        }
+        catch (System.Exception)
+        {
+            return int.MinValue;
+        }
+    }
 
     private bool TryAnchor(CardFxAnchor anchor, out Vector3 world)
     {
@@ -509,13 +589,19 @@ internal sealed class RemoteBurnFx
     /// reason. (3) The right card with <c>face=BACK</c>: the reveal gate or the clone refused, and
     /// only the FACE half of the fix is inert; the flight and the timing are still right.</para>
     /// </summary>
-    private void LogAttribution(string name, bool fronts, bool face, CPlayerActor? actor)
+    private void LogAttribution(string name, bool fronts, bool face, CPlayerActor? actor, int recess)
     {
+        string where = recess >= 0
+            ? $"in their round recess {recess + 1} — the seat this client already put that card in, "
+              + "so the char is drawn BY that recess (see its RECESS CARD FX line) and this flight "
+              + "leaves from there rather than from the board centre"
+            : "at their board CENTRE, because no recess on this client is drawing that card's face "
+              + "right now; that is the pre-2026-09-06 picture and the fallback, not the intent";
         // HW-VERIFY: grep token "BURN CARD" — the same token the OWNER's
         // CardsDriver.LogBurnAttribution prints, so one grep across the two hardware logs decides
         // the 1:1 question. See this method's doc for the three falsifiers.
         VRLog.Note("Net", $"BURN CARD [peer {_owner.PlayerId}]: that player burned '{name}' — " +
-                          $"showing it on their board for {HoldSeconds:F1}s while it chars, then flying " +
+                          $"showing it {where}, for {HoldSeconds:F1}s while it chars, then flying " +
                           $"it into their Burnt stack ({NetProtocol.CardFxSeconds:F2}s). " +
                           $"face={(face ? "REAL" : "BACK")}, revealGate={(fronts ? "open" : "shut")}, " +
                           $"char='{Board.CharacterFocus.Describe(actor)}', burn #{_played}. The identity " +

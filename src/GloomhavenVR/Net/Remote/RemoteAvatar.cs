@@ -521,6 +521,23 @@ internal sealed class RemoteAvatar
         _controlBoard.AnchorLocalLive(anchor);
 
     /// <summary>
+    /// Which of this peer's two round recesses is drawing the REAL FACE of the card with
+    /// <paramref name="cardInstanceId"/> right now — 0, 1, or -1 for neither. Same shape and same
+    /// reason as <see cref="BoardAnchorLocal"/>: the board owns the answer, the consumers reach it
+    /// through the avatar.
+    ///
+    /// <para>It exists so a burn can be presented WHERE THE OWNER SEES IT. His card chars in its
+    /// recess and only then flies to the burnt stack, so a mirror that holds a second copy at the
+    /// board CENTRE is drawing two cards where he has one. <c>Net.RemoteBurnFx</c> asks this, hides
+    /// its own slab while the recess is showing that card, and starts the flight from that
+    /// recess's <see cref="CardFxAnchor.Slot0"/>/<see cref="CardFxAnchor.Slot1"/> anchor. No wire
+    /// field is owed: the anchor vocabulary already names both recesses and the identity is this
+    /// client's own read of the card it already seated there.</para>
+    /// </summary>
+    internal int RecessShowingCard(int cardInstanceId) =>
+        _controlBoard.RecessShowingCard(cardInstanceId);
+
+    /// <summary>
     /// True when the sender broadcasts their live BOARD-UI state (extension record 4): which
     /// controls their own board currently shows + the wanted-slot glow mask. False for peers that
     /// predate the field — <see cref="RemoteBoardFurniture"/> then keeps the legacy always-drawn

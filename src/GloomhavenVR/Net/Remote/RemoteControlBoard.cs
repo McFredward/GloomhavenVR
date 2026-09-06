@@ -287,6 +287,22 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// −0.040, readout −0.044). Now that <see cref="RemoteBoardLayout"/> applies the real offsets,
     /// the fudge would double-count them.
     /// </summary>
+    /// <summary>
+    /// Which round recess is drawing the REAL FACE of <paramref name="cardInstanceId"/>, or -1.
+    /// See <c>RemoteAvatar.RecessShowingCard</c> for why a burn needs to know.
+    /// </summary>
+    internal int RecessShowingCard(int cardInstanceId)
+    {
+        if (cardInstanceId == int.MinValue)
+            return -1;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (_cards[i] != null && _cards[i].ShownFaceCardInstanceId == cardInstanceId)
+                return i;
+        }
+        return -1;
+    }
+
     internal Vector3 AnchorLocalLive(CardFxAnchor anchor)
     {
         // THE TWO SLOTS RETURN THE CARD'S SEAT, not the bare recess anchor (2026-08-27). This is a
