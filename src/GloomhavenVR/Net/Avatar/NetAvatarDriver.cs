@@ -2974,8 +2974,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         // CARD-FX event (report 6): pop at most one queued animation per packet and stamp it with a
         // fresh sequence. When nothing is queued the LAST event is re-sent unchanged — deliberate
-        // redundancy on an unreliable stream; the receiver only plays on a sequence CHANGE, so a
-        // repeat is free and a single lost packet still lands within 200 ms.
+        // redundancy on an unreliable stream (FfsNetTransport sends with canBeUnreliable: true, and
+        // the reliable channel exists and is used where loss is unacceptable — see
+        // EnemyInfoContinue). The receiver only plays on a sequence CHANGE, so a repeat is free.
+        //
+        // …AND THE SENTENCE THAT USED TO CLOSE THIS PARAGRAPH WAS FALSE. It read "a single lost
+        // packet still lands within 200 ms", which holds only while nothing else is queued behind
+        // the event. _lastFxEndpoints is a ONE-SLOT memory: the next dequeue overwrites it, so an
+        // event that has already been superseded exists nowhere and a lost packet loses it for
+        // good. A turn-clear ALWAYS dispatches two events into consecutive packets, and the FIRST
+        // of that pair is the one the redundancy does not cover.
+        //
+        // MEASURED (ModBuild 461, both hardware logs): six [Cards] FLIGHT ORIGIN events on the
+        // owner, four Remote card FX ... playing on the observer, zero SKIPPED, and in BOTH losses
+        // it was the first of a pair. NOT FIXED HERE — every remedy changes how a shipped field is
+        // consumed on an unreliable channel and risks a duplicate flight or one replayed late out
+        // of an already-empty recess, which is report item 7's own symptom. The loss is now
+        // COUNTED on both ends instead (NetCardFx's CARD FX OUTBOX and RemoteAvatar's CARD FX
+        // LOST), so the remedy can be chosen against a rate rather than against an argument. The
+        // three candidates, with their costs, are in NetCardFx.TryDequeue's doc.
         if (NetCardFx.TryDequeue(out byte fxEndpoints, out byte fxSeq))
         {
             _lastFxEndpoints = fxEndpoints;

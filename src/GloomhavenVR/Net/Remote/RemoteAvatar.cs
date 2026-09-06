@@ -1838,7 +1838,20 @@ internal sealed class RemoteAvatar
             }
             else if (p.FxSeq != _lastFxSeq)
             {
+                // ─── THE LOSS, COUNTED EXACTLY, WITH NO NEW WIRE BYTE ───────────────────────────
+                // NetCardFx stamps the sequence +1 PER DISPATCHED EVENT and wraps at 255, so it is
+                // a DENSE counter and the gap between two arrivals IS the number of events this
+                // client never saw. Byte subtraction handles the wrap; a gap of 1 is the healthy
+                // case. Guarded at a sane ceiling so a peer that resets its counter (a hot reload)
+                // is reported as a resync rather than as hundreds of lost animations.
+                int gap = (byte)(p.FxSeq - _lastFxSeq);
+                if (gap > 1 && gap <= 32)
+                    _fxLost += gap - 1;
+                else if (gap > 32)
+                    _fxResyncs++;
+                _fxSeen++;
                 _lastFxSeq = p.FxSeq;
+                LogCardFxLoss(gap);
                 // ITEM 11a/11b: a BURN this client has already recognised out of the owner's
                 // host-replicated Lost pile is presented on the REAL card by RemoteBurnFx, which
                 // then swallows this event so the same burn cannot also fly as an anonymous back
@@ -1848,6 +1861,62 @@ internal sealed class RemoteAvatar
                     _cardFx.Play(p.FxEndpoints);
             }
         }
+    }
+
+    /// <summary>Card-FX events this client has SEEN arrive from that peer, and how many the
+    /// sequence gap proves it never saw. See <see cref="LogCardFxLoss"/>.</summary>
+    private int _fxSeen;
+    private int _fxLost;
+    private int _fxResyncs;
+    private int _loggedFxLost = -1;
+
+    /// <summary>
+    /// THE RECEIVER'S HALF OF THE CARD-FX LOSS MEASUREMENT. Grep token: CARD FX LOST.
+    ///
+    /// <para>WHY IT EXISTS. The 2026-09-06 round established that two of a peer's six card-animation
+    /// events never reached this client, and it took two logs, two different tokens
+    /// (<c>[Cards] FLIGHT ORIGIN</c> on the owner, <c>Remote card FX ... playing</c> here) and a
+    /// hand correlation across an interpolated line-number alignment to see it. That is an
+    /// inference, not a reading. The sequence number already carries the answer — it advances by
+    /// exactly one per dispatched event — so this counts the gap and states the loss as a number on
+    /// the machine that suffered it.</para>
+    ///
+    /// <para>THE MECHANISM IT MEASURES. The extras stream is Bolt UNRELIABLE by design
+    /// (<c>FfsNetTransport</c> sends with <c>canBeUnreliable: true</c>; the reliable channel exists
+    /// and is used where loss is unacceptable, e.g. <c>EnemyInfoContinue</c>), and the intended
+    /// answer to loss is the sender's redundancy re-send. That re-send has a ONE-EVENT memory:
+    /// <c>NetAvatarDriver</c> keeps only <c>_lastFxEndpoints</c>, so an event already overwritten by
+    /// the next dequeue is gone. A turn-clear dispatches two events into consecutive packets, and
+    /// the first of the pair is the one with no protection — which is exactly the pair-position the
+    /// round's two losses occupied.</para>
+    ///
+    /// <para>READ IT LIKE THIS, IN NUMBERS. WORKING = <c>0 lost</c> with <c>seen</c> equal to the
+    /// sender's own <c>CARD FX OUTBOX</c> dispatched count. THE DEFECT = <c>lost</c> climbing, and
+    /// <c>lost / (seen + lost)</c> is the drop rate; the 461 round's was 2 of 6, 33 %. BEYOND THE
+    /// INSTRUMENT = <c>resyncs</c> non-zero, which means the peer's counter jumped by more than 32
+    /// and this client cannot tell loss from a restart, so that interval's arithmetic is void.
+    /// SILENCE IS NOT SUCCESS: no line at all means no event ever arrived, and the sender's OUTBOX
+    /// line is what says whether any were ever sent.</para>
+    ///
+    /// <para>Change-gated on the LOST count, so a healthy stream costs one line for its first event
+    /// and nothing afterwards, while every lost event costs exactly one line.</para>
+    /// </summary>
+    private void LogCardFxLoss(int gap)
+    {
+        if (_loggedFxLost == _fxLost)
+            return;
+        _loggedFxLost = _fxLost;
+        // HW-VERIFY: the receiver half of the card-FX loss measurement. Grep token: CARD FX LOST.
+        VRLog.Note("Net", $"CARD FX LOST [player {PlayerId}]: {_fxLost} of that peer's card-animation "
+            + $"event(s) never reached this client ({_fxSeen} seen, {_fxResyncs} counter resync(s) "
+            + $"excluded); this arrival's sequence gap was {gap} and a healthy gap is 1. The extras "
+            + "stream is UNRELIABLE by contract and the sender's redundancy re-send is the intended "
+            + "answer to that, but it remembers only the NEWEST dispatched event — so of two events "
+            + "put into consecutive packets, the FIRST has no protection at all, and a turn-clear "
+            + "always dispatches two. Compare that peer's own 'CARD FX OUTBOX' line: its dispatched "
+            + "count minus the 'seen' here IS this number, on two machines, with no correlation by "
+            + "hand. A LOST EVENT IS A MISSING ANIMATION, never a wrong one — the flight simply does "
+            + "not play, so nothing on this client is drawn incorrectly as a result.");
     }
 
     /// <summary>Per-frame interpolation toward the latest target. Call from the driver's Update.</summary>
