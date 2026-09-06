@@ -499,9 +499,18 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// owner's discard pile can grow under a sacrifice that is still lying in the same recess (a
     /// teammate's card landing there does not move it), and an edge on the length would turn one
     /// short rest into a stream of lines. A REDRAW changes the code, so it does print — which is
-    /// the one mid-rest event a hardware log has to be able to see.</summary>
-    private byte _lastSentSeatCode0;
-    private byte _lastSentSeatCode1;
+    /// the one mid-rest event a hardware log has to be able to see.
+    ///
+    /// <para>INITIALISED TO AN IMPOSSIBLE VALUE, LIKE <see cref="_lastSentSpentMask"/> BESIDE IT,
+    /// AND THAT IS A BUG FIX. These were <c>byte</c>s starting at 0 — the SAME value the sampler
+    /// writes when it names nothing — so a sampler that never once succeeded never crossed an edge
+    /// and printed NOTHING AT ALL. The 2026-09-06 session contains a complete short rest and zero
+    /// <c>SHORT REST SEAT</c> lines in either log, which read as "no short rest happened" and was
+    /// really "the instrument goes silent exactly when the thing it measures fails". A first line
+    /// is now unconditional and it carries the sampler's own REASON, so "wrote nothing" is a
+    /// reading instead of a silence.</para></summary>
+    private int _lastSentSeatCode0 = -1;
+    private int _lastSentSeatCode1 = -1;
 
     /// <summary>Change edge for the SPENT-HALF record (41). Initialised to an impossible mask so
     /// the first sample of a session always prints, including the all-zero one — "nothing of mine
@@ -3243,7 +3252,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // their encoder. The occupancy nibble that says a card LIES there is record 4's; this says
         // WHICH card, and only for the one population the reveal gate carves out.
         LocalRigSampler.SampleSacrificeSeats(out byte seatCode0, out byte seatCount0,
-                                             out byte seatCode1, out byte seatCount1);
+                                             out byte seatCode1, out byte seatCount1,
+                                             out string seatReason);
         if (seatCode0 != 0 || seatCode1 != 0)
         {
             extras.HasSacrificeSeat = true;
@@ -3261,17 +3271,20 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             // one resting — one grep across BOTH logs then settles the 1:1 question, because the
             // receiver prints the same token with the card it resolved.
             //
-            // FALSIFIERS. (1) No line at all, all session, and no "SHORT REST SACRIFICE" line
-            // either: no short rest happened and this round says NOTHING about item 15 — silence is
-            // not success. (2) "SHORT REST SACRIFICE" present (the owner really did lay a card in a
-            // recess) while this line is absent or reads 'names nothing': the SAMPLER is the half
-            // that failed — the sacrifice could not be seated in the discard arc, or the board was
-            // presenting another character — and the recess correctly stayed an anonymous back.
-            // (3) This line naming a seat while the receiver's line says nothing: the mirror failed,
-            // not the sampler.
+            // FALSIFIERS, and they are now readable because the line ALWAYS prints once — the
+            // latch starts at -1 rather than at the sampler's own failure value, which is why the
+            // whole 2026-09-06 session produced zero of these lines across a complete short rest.
+            // (1) Exactly ONE line, all session, reading 'names nothing ... SAMPLER SAYS: nothing
+            // was lying in either recess': no short rest and no modal pick happened, and this round
+            // says NOTHING about item 15 — silence is not success, but it is now a stated silence.
+            // (2) A line whose SAMPLER SAYS clause names one of the three refusals while a
+            // "SHORT REST SACRIFICE" line stands beside it: the SAMPLER is the half that failed and
+            // the clause says WHICH term did it. (3) This line naming a seat while the receiver's
+            // census still reads 'record 39 named NO seat': the mirror failed, not the sampler.
             VRLog.Note("Net", "SHORT REST SEAT: "
                 + $"recess1 {DescribeHeldFace(seatCode0, seatCount0)}, "
-                + $"recess2 {DescribeHeldFace(seatCode1, seatCount1)} (record 39) — a source-list id "
+                + $"recess2 {DescribeHeldFace(seatCode1, seatCount1)} — SAMPLER SAYS: {seatReason}. "
+                + "(record 39) — a source-list id "
                 + "plus a POSITION in this character's DISCARD arc, never a card id and never a "
                 + "card name. The sacrifice is in that list the whole time it lies in the recess: "
                 + "CardsHandUI.PerformShortRest indexes DiscardedAbilityCards and removes nothing, "

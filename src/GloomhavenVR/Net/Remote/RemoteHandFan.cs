@@ -1530,8 +1530,18 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // identity a freshly-seated round card has.
         TrackFist(showFronts && !mapFronts, actor, count);
 
+        // ─── THE OWNER'S OWN STATEMENT OF WHAT IS IN THEIR ARC WINS OVER EVERY COUNT BELOW ──────
+        // Record 44 names, per arc seat, the derived index it holds — so a derived card the order
+        // does not name is one the arc does not carry, and dropping it is a NAME and not a guess.
+        // That subsumes both count-based removals below: the held seat (record 36) and the recess
+        // hand-off are two ways of guessing WHICH card left the arc, and this is the owner saying
+        // so. They stay for the peers that state no order — a FLAT player, a peer predating
+        // ModBuild 462, or an arc whose order the sender legitimately omits.
+        CommitFanArcOrder();
+        bool arcNamed = _orderArcValid;
+
         int heldSeatCount = 0;
-        if (showFronts && !mapFronts && _handBuffer.Count != count)
+        if (!arcNamed && showFronts && !mapFronts && _handBuffer.Count != count)
         {
             heldSeatCount = _owner.HeldHandSeats(out int heldSeatA, out int heldSeatB);
             // TWO POSE SLOTS CANNOT NAME ONE SEAT, but this is a value off the wire and a receiver
@@ -1586,7 +1596,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // known member — not a positional guess, which is the thing the belt exists to forbid. If
         // the card is not in the buffer the model has already caught up and nothing is dropped, so
         // the belt still has the last word exactly as before.
-        if (showFronts && !mapFronts && _handBuffer.Count == count + 1 && HandoffCard != null)
+        if (!arcNamed && showFronts && !mapFronts && _handBuffer.Count == count + 1
+            && HandoffCard != null)
         {
             for (int i = 0; i < _handBuffer.Count; i++)
             {
@@ -1737,10 +1748,20 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                           + $"the blocker here ({FanListName(_censusList)})")
                     : mapFronts
                         ? "RevealGate map-phase fronts (peer's replicated map loadout)"
-                        : heldSeatCount > 0
-                            ? $"RevealGate scenario fronts ({FanListName(_censusList)}), "
-                              + $"{heldSeatCount} held seat(s) dropped"
-                            : $"RevealGate scenario fronts ({FanListName(_censusList)})");
+                        // WHICH FACT MADE THE TWO LISTS AGREE, named rather than left to be
+                        // inferred. "arc order (record 44)" is the owner's own statement of the
+                        // arc's membership AND order — the term added for report item 4 — and it is
+                        // what keeps a fan open while a card is in their fist or lying in one of
+                        // their recesses. "held seat(s) dropped" is the older, count-based fallback
+                        // for a peer that states no order. Seeing the second one where the first is
+                        // expected says record 44 was refused, and ARC ORDER NOT APPLIED says why.
+                        : arcNamed
+                            ? $"RevealGate scenario fronts ({FanListName(_censusList)}), arc order "
+                              + "(record 44) named this arc's membership"
+                            : heldSeatCount > 0
+                                ? $"RevealGate scenario fronts ({FanListName(_censusList)}), "
+                                  + $"{heldSeatCount} held seat(s) dropped"
+                                : $"RevealGate scenario fronts ({FanListName(_censusList)})");
 
         ReportSeatStackIfChanged(count, frontCount, heldSeatCount);
         ReportArcMembershipIfChanged(count);
@@ -2340,12 +2361,18 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     ///   <item><c>none stated</c> — no record 44 on the wire. A FLAT player, a peer on an older
     ///     build, or (much the commonest) a peer whose arc is already in this order, which the
     ///     sender deliberately does not spend bytes restating. NOT a defect.</item>
-    ///   <item><c>model length</c> — this client's derived list is not as long as the arc on the
-    ///     wire, so the permutation is not about the list in hand. The ordinary cause is a card in
-    ///     the owner's fist or a model a beat behind; both are transient.</item>
-    ///   <item><c>not a permutation</c> — the wire's own numbers do not form an exact permutation
-    ///     of the seats held: a repeated index, an index out of range, or a count that disagrees.
-    ///     THIS IS THE ONE THAT WOULD HAVE SHIFTED EVERY FACE, and it must never be applied.</item>
+    ///   <item><c>model length</c> — this client's derived list is SHORTER than the arc on the
+    ///     wire, so no index into it can name a slab. The ordinary cause is a model a beat behind
+    ///     and it is transient. A LONGER derived list is no longer a refusal at all: that is a card
+    ///     in the owner's fist or lying in a recess, and the order is what names it (report item 4).
+    ///     </item>
+    ///   <item><c>arc length</c> — the record states a different number of seats than there are
+    ///     slabs on the wire, so it describes a neighbouring moment rather than this fan. Transient
+    ///     around a draw, a burn or a pluck, because the count and the order ride the same packet
+    ///     only in the normal case.</item>
+    ///   <item><c>not a permutation</c> — the wire's own numbers are not distinct indices in range
+    ///     of the list held: a repeated index or one past the end. THIS IS THE ONE THAT WOULD HAVE
+    ///     SHIFTED EVERY FACE, and it must never be applied.</item>
     ///   <item><c>no fronts</c> — there is no resolved list to permute. The slabs are backs and
     ///     their order is unobservable, so nothing is owed.</item>
     /// </list>
@@ -2381,8 +2408,23 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             ReportArcOrderIfChanged(count);
             return;
         }
-        if (_handBuffer.Count != count)
+        // THE ORDER MUST DESCRIBE THIS FAN AND NOT A NEIGHBOURING MOMENT: one entry per SLAB on the
+        // wire. This is the term that used to be spelled `_handBuffer.Count != count` — a test on
+        // the MODEL's length, which refused the record in exactly the state it is most needed
+        // (report item 4: a card in the owner's fist or lying in a recess makes the model longer
+        // than the arc). The arc's own length is the honest denominator; the model's length is now
+        // only a bound on the indices, which ValidateFanArcOrder checks.
+        if (stated != count)
         {
+            _orderRefusal = "arc length";
+            ReportArcOrderIfChanged(count);
+            return;
+        }
+        if (_handBuffer.Count < count)
+        {
+            // The model is SHORTER than the arc — this client has not caught up with the owner's
+            // own fan, and no index into it can name a slab. The old name for this refusal is kept
+            // because a hardware log's reason strings are a vocabulary and not prose.
             _orderRefusal = "model length";
             ReportArcOrderIfChanged(count);
             return;
@@ -2393,17 +2435,47 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             ReportArcOrderIfChanged(count);
             return;
         }
+        // STAGED, NOT COMMITTED — see CommitFanArcOrder for why the swap cannot happen here. The
+        // gather itself is the whole application: entry k names the derived index at arc seat k, so
+        // a derived card the order does not name is one the arc does not carry and is dropped BY
+        // NAME rather than by any arithmetic on lengths.
         _orderScratch.Clear();
         for (int k = 0; k < stated; k++)
             _orderScratch.Add(_handBuffer[order[k]]);
-        _handBuffer.Clear();
-        for (int k = 0; k < _orderScratch.Count; k++)
-            _handBuffer.Add(_orderScratch[k]);
-        _orderScratch.Clear();
         _orderRefusal = string.Empty;
         _orderArcValid = true;
         _orderApplied++;
         ReportArcOrderIfChanged(count);
+    }
+
+    /// <summary>
+    /// Swap the staged record-44 gather into <see cref="_handBuffer"/>, or leave the buffer alone
+    /// when no order applied this frame.
+    ///
+    /// <para>WHY THE GATHER IS STAGED AND COMMITTED AT TWO DIFFERENT POINTS OF THE FRAME. Between
+    /// <see cref="ApplyFanArcOrder"/> and here sits <see cref="TrackFist"/>, and that method reads
+    /// <see cref="_handBuffer"/> as THIS CLIENT'S WHOLE DERIVED MODEL LIST — record 36's held seat
+    /// indexes that list, not the arc, and its own belt is <c>listLength == _handBuffer.Count</c>.
+    /// Committing the gather before it would shorten the buffer under a seat that is not an index
+    /// into the shortened list, which costs the fist its NAME and with it the recess hand-off. The
+    /// two facts want the buffer in two states, so the frame gives them one each: the model list
+    /// while the fist is being tracked, the ARC afterwards.</para>
+    ///
+    /// <para>This was a no-op before the injection widening, because an order that applied was
+    /// always a permutation and a permutation never changes a list's LENGTH — which is exactly why
+    /// the ordering could be ignored until now.</para>
+    /// </summary>
+    private void CommitFanArcOrder()
+    {
+        if (!_orderArcValid)
+        {
+            _orderScratch.Clear();
+            return;
+        }
+        _handBuffer.Clear();
+        for (int k = 0; k < _orderScratch.Count; k++)
+            _handBuffer.Add(_orderScratch[k]);
+        _orderScratch.Clear();
     }
 
     /// <summary>Change key for <see cref="ReportArcOrderIfChanged"/> — the verdict and the reason,
@@ -2436,14 +2508,18 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     ///     the bytes were saved. Distinguished from the line above precisely so that "he never sent
     ///     it" is never mistaken for "he cannot".</item>
     ///   <item><c>reason=not a permutation</c> — THE SERIOUS ONE. The record arrived and its own
-    ///     numbers were self-contradictory (a repeated index, one out of range, a count that
-    ///     disagrees). Nothing was applied, deliberately: a wrong permutation shifts every face
-    ///     after the first mistake, which is a worse lie than the divergence it would fix. If this
-    ///     ever appears, the SENDER is at fault and LocalRigSampler.SampleFanArcOrder is the file.
+    ///     numbers were self-contradictory (a repeated index, or one past the end of the list this
+    ///     client holds). Nothing was applied, deliberately: a wrong order shifts every face after
+    ///     the first mistake, which is a worse lie than the divergence it would fix. If this ever
+    ///     appears, the SENDER is at fault and LocalRigSampler.SampleFanArcOrder is the file.
     ///     </item>
-    ///   <item><c>reason=model length</c> / <c>reason=no fronts</c> — ordinary transients: a card in
-    ///     the owner's fist, a burn, a model a beat behind, or a shut reveal gate leaving no list to
-    ///     permute. Expected to appear and disappear; a PERSISTENT one is the finding.</item>
+    ///   <item><c>reason=model length</c> / <c>reason=arc length</c> / <c>reason=no fronts</c> —
+    ///     ordinary transients: a model a beat behind its own fan, a count and an order that rode
+    ///     different packets around a burn, or a shut reveal gate leaving no list to permute.
+    ///     Expected to appear and disappear; a PERSISTENT one is the finding. NOTE that a card in
+    ///     the owner's FIST or lying in one of their RECESSES is no longer any of these: since
+    ///     ModBuild 463 the order is an INJECTION and states exactly that, which is what lets the
+    ///     fan keep its fronts through a pick (report item 4).</item>
     /// </list>
     /// </summary>
     private void ReportArcOrderIfChanged(int count)
@@ -2482,8 +2558,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
               + "the record arrived and its own numbers did not form an exact permutation of the "
               + "seats held, so nothing was applied on purpose (a wrong order shifts every face "
               + "after the first mistake, a worse lie than the gap it would close) and the SENDER "
-              + "is at fault. 'model length' and 'no fronts' are transients around a held card, a "
-              + "burn or a shut gate — a PERSISTENT one of those is the finding, not the noise.");
+              + "is at fault. 'model length', 'arc length' and 'no fronts' are transients around a "
+              + "burn, a packet boundary or a shut gate — a PERSISTENT one of those is the finding, "
+              + "not the noise. A card in the owner's FIST or lying in one of their RECESSES is NOT "
+              + "one of them any more: the order is an INJECTION and names exactly which derived "
+              + "cards the arc does not hold, which is what keeps this fan's fronts through a pick "
+              + "(2026-09-06 report item 4).");
     }
 
     /// <summary>True while the order applied this frame is a validated permutation — the term

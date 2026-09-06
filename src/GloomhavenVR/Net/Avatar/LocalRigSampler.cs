@@ -623,14 +623,29 @@ internal static class LocalRigSampler
     ///   <item>no open fan, or no hand to derive the index space from;</item>
     ///   <item>a hand past <see cref="NetProtocol.FanArcOrderMaxSeats"/>, which a 4-bit index
     ///     cannot name;</item>
-    ///   <item>the two lists differing in length, which means one of them is a beat behind;</item>
+    ///   <item>the derived list being SHORTER than the arc, which means this client's own model is
+    ///     a beat behind its own fan and no index into it names the arc;</item>
     ///   <item>an arc card the derived walk does not contain — a browse loan, or a modal PICK fan
     ///     drawn over a pile (record 43), where the arc is not the hand at all and an index into
     ///     the hand would be a confident lie;</item>
-    ///   <item><b>the arc already being in the derived order</b>, which is the common case and the
-    ///     reason an ordinary player's packet stays byte-identical to ModBuild 461's. The record
-    ///     exists to state a DIFFERENCE; identity is what its absence already means.</item>
+    ///   <item><b>the arc already being in the derived order AND holding every member of it</b>,
+    ///     which is the common case and the reason an ordinary player's packet stays byte-identical
+    ///     to ModBuild 461's. The record exists to state a DIFFERENCE; identity is what its absence
+    ///     already means.</item>
     /// </list>
+    ///
+    /// <para>A SHORTER ARC IS NOT A REFUSAL ANY MORE, AND THAT IS 2026-09-06 REPORT ITEM 4. The
+    /// derived list being LONGER than the arc is the normal, expected state whenever this player is
+    /// holding a card up or has laid a hand card in one of their round recesses: their own
+    /// <c>CardFan</c> has dropped it and <c>CardsGameApi.HandFanMember</c> has not, because the card
+    /// has not been played. This method used to refuse there — "the two lists differing in length"
+    /// — and the consequence was measured on the far end: the watcher's length belt had no statement
+    /// of which cards the arc held, so it refused every front and the whole fan went to BACKS for as
+    /// long as the pick stood (host census, eleven consecutive ticks at <c>8 model card(s) vs 7
+    /// slab(s) ... remainder 0</c>). What travels now is an INJECTION: <c>count</c> entries naming
+    /// distinct derived indices, so the receiver learns both the order AND which derived cards the
+    /// arc does not hold. Still no card identity — every entry is a position in a list the receiver
+    /// builds itself, from the same expression, off host-replicated state.</para>
     /// </summary>
     internal static bool SampleFanArcOrder(CardsHandUI? hand, int[] order, out int count)
     {
@@ -653,15 +668,19 @@ internal static class LocalRigSampler
                 if (Cards.CardsGameApi.HandFanMember(all[i], actor))
                     s_fanOrderDerived.Add(all[i]);
             }
-            // THE LENGTHS MUST AGREE BEFORE A PERMUTATION MEANS ANYTHING. They can differ for a
-            // frame around a draw or a burn, and they differ permanently while the fan is drawing
-            // a PILE rather than the hand — in both cases an index into the hand list would name
-            // the wrong card, so say nothing.
-            if (s_fanOrderDerived.Count != n)
+            // THE DERIVED LIST MAY BE LONGER THAN THE ARC AND MUST NEVER BE SHORTER. Longer is the
+            // ordinary state of a card in this player's fist or lying in one of their recesses, and
+            // it is exactly the state the injection below exists to describe. SHORTER means this
+            // client's own model has not caught up with its own fan, and then no index into it names
+            // the arc at all — say nothing. A hand the 4-bit index cannot span is refused for the
+            // same reason it is refused above.
+            if (s_fanOrderDerived.Count < n
+                || s_fanOrderDerived.Count > NetProtocol.FanArcOrderMaxSeats)
             {
                 s_fanOrderDerived.Clear();
                 return false;
             }
+            bool shorterArc = s_fanOrderDerived.Count != n;
 
             bool identity = true;
             for (int k = 0; k < n; k++)
@@ -679,7 +698,12 @@ internal static class LocalRigSampler
                     identity = false;
             }
             s_fanOrderDerived.Clear();
-            if (identity)
+            // IDENTITY IS ONLY SILENCE WHEN THE ARC HOLDS THE WHOLE LIST. With a shorter arc the
+            // entries can still read 0,1,2,… and the record is anything but redundant: it is the
+            // only thing that says the derived members past `n` are NOT in the arc. Omitting it
+            // there is exactly what the receiver reads as "the two lists agree", which is the
+            // reading that drew a whole fan of backs.
+            if (identity && !shorterArc)
                 return false;       // nothing to state: absence already means "this order"
             count = n;
             return true;
@@ -724,21 +748,48 @@ internal static class LocalRigSampler
     /// other packet the whole body is one null check.</para>
     /// </summary>
     public static void SampleSacrificeSeats(out byte code0, out byte count0,
-                                            out byte code1, out byte count1)
+                                            out byte code1, out byte count1, out string reason)
     {
         code0 = 0;
         count0 = 0;
         code1 = 0;
         count1 = 0;
+        reason = "nothing was lying in either recess that this record can name";
         // ─── CASE 1: THE SHORT-REST SACRIFICE (report item 15) ──────────────────────────────────
         (CardsHandUI? hand, int recess) = Cards.CardsDriver.SacrificeSeat;
-        if (hand != null && recess >= 0 && recess < NetProtocol.BoardUiSlotCount
-            && OwnedByPresentedCharacter(hand))
+        if (hand != null && recess >= 0 && recess < NetProtocol.BoardUiSlotCount)
         {
-            AbilityCardUI? widget = Cards.CardsGameApi.ShortRestedCardWidget(hand);
-            if (widget != null && widget.AbilityCard != null
-                && TrySeatInPileArc(hand, widget, burnt: false, out byte code, out byte count))
-                Write(recess, code, count, ref code0, ref count0, ref code1, ref count1);
+            // EVERY REFUSAL FROM HERE ON NAMES ITSELF. A short rest IS mid-choice and the card IS
+            // lying in a recess — so from this point a zero code is a defect and not a quiet
+            // no-op, and the whole reason this record read INERT for a 2 h two-player session is
+            // that nothing said which of the three terms below refused it.
+            if (!OwnedByPresentedCharacter(hand))
+            {
+                reason = "a short rest IS mid-choice, but the sacrificing hand is not the character "
+                       + "this client's board presents — the receiver resolves every seat in the "
+                       + "presented character's list, so naming one here would be a wrong face";
+            }
+            else
+            {
+                AbilityCardUI? widget = Cards.CardsGameApi.ShortRestedCardWidget(hand);
+                if (widget == null || widget.AbilityCard == null)
+                {
+                    reason = "a short rest IS mid-choice and the board recess holds its card, but "
+                           + "CardsGameApi.ShortRestedCardWidget resolved no widget this frame";
+                }
+                else if (!TrySeatInPileArc(hand, widget, burnt: false,
+                                           out byte code, out byte count))
+                {
+                    reason = "a short rest IS mid-choice and its widget resolved, but the card is "
+                           + "not in this character's DISCARD arc this frame "
+                           + "(CardsGameApi.GetPileArcWidgets) or its seat does not fit in 5 bits";
+                }
+                else
+                {
+                    Write(recess, code, count, ref code0, ref count0, ref code1, ref count1);
+                    reason = $"SHORT-REST SACRIFICE seated in recess {recess + 1}";
+                }
+            }
         }
 
         // ─── CASE 2: A MODAL PICK'S CARD LYING IN A RECESS (2026-09-06 report item 7) ───────────
@@ -765,20 +816,62 @@ internal static class LocalRigSampler
             CardPileType pile = pickWidget.CardType;
             if (pile != CardPileType.Discarded && pile != CardPileType.Lost
                 && pile != CardPileType.Permalost)
+            {
+                reason = $"a PICK card lies in recess {r + 1} and its pile is {pile}, which this "
+                       + "record may not name — a HAND card in a recess is the two-card commit's "
+                       + "own population and stays an anonymous back by construction";
                 continue;
+            }
             if (TrySeatInPileArc(pickHand, pickWidget, pile != CardPileType.Discarded,
                                  out byte pickCode, out byte pickCount))
+            {
                 Write(r, pickCode, pickCount, ref code0, ref count0, ref code1, ref count1);
+                reason = $"MODAL PICK card seated in recess {r + 1} out of the {pile} arc";
+            }
+            else
+            {
+                reason = $"a PICK card lies in recess {r + 1} out of the {pile} arc and could not "
+                       + "be seated in it this frame (CardsGameApi.GetPileArcWidgets), so it stays "
+                       + "an anonymous back rather than a guessed seat";
+            }
         }
     }
 
-    /// <summary>Is <paramref name="hand"/> the character the BOARD presents? The receiver resolves
-    /// every seat this record carries in the presented character's list, so naming a seat in a
-    /// different character's would put a confidently wrong face in a peer's recess. Silence beats a
-    /// guess at whose list to index — the same stance <see cref="NameHeldCard"/> takes.</summary>
+    /// <summary>
+    /// Is <paramref name="hand"/> the character the BOARD presents? The receiver resolves every seat
+    /// this record carries in the presented character's list, so naming a seat in a different
+    /// character's would put a confidently wrong face in a peer's recess. Silence beats a guess at
+    /// whose list to index.
+    ///
+    /// <para>THE ITEM PILE WAS THE WRONG SOURCE AND THIS RECORD HAS NEVER ONCE WORKED BECAUSE OF IT.
+    /// <c>Cards.ItemsPile.Current</c> is published by the ITEM ARC and only while it is open
+    /// (<c>ItemsPile.Open</c> assigns it, <c>Close</c> nulls it) — a player raises that arc for a
+    /// few seconds a session, and every other frame this read answered null and the whole record was
+    /// omitted. That is the identical defect <see cref="SampleHeldCardFaces"/> was fixed for one
+    /// method over, and the sentence that used to stand here — "the same stance
+    /// <c>NameHeldCard</c> takes" — became FALSE the moment that fix landed and was still being
+    /// cited as the justification.</para>
+    ///
+    /// <para>THE EVIDENCE IS TOTAL, and it is a silence that had to be counted rather than read. In
+    /// the 2026-09-06 two-player session — which contains a complete short rest, its sacrifice
+    /// presented and REDRAWN, on the co-player's own log — the <c>SHORT REST SEAT</c> sender line
+    /// appears ZERO times in either 50-85 MB log, and every single <c>board pick seat</c> row of the
+    /// receiver's census on both machines reads "extension record 39 named NO seat for this recess"
+    /// (134 host rows, 155 peer rows, no other text). The owner's own line said so from the other
+    /// end: "peers draw: ANONYMOUS BACK ... identity replicated=False".</para>
+    ///
+    /// <para>THE FALLBACK IS THE RECEIVER'S OWN QUESTION ASKED ON THIS SIDE.
+    /// <c>Board.CharacterFocus.PresentedActor</c> is what extension record 22 carries and what
+    /// <c>Net.RemoteBoardFocus.DisplayedActor</c> resolves the seat against, so the two ends name the
+    /// same list by construction rather than by coincidence. Guarded on
+    /// <c>RevealGate.InScenario</c> for the same reason the held-card sampler guards it: a presented
+    /// actor left standing after a finished scenario must not name a list nobody is holding.</para>
+    /// </summary>
     private static bool OwnedByPresentedCharacter(CardsHandUI hand)
     {
         CPlayerActor? shown = Cards.ItemsPile.Current?.OwnerActor;
+        if (shown == null && RevealGate.InScenario)
+            shown = Board.CharacterFocus.PresentedActor;
         return shown != null && ReferenceEquals(hand.PlayerActor, shown);
     }
 

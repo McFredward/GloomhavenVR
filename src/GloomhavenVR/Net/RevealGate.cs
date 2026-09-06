@@ -450,6 +450,19 @@ internal static class RevealGate
         /// list of the wrong length. Extension record 43 is what tells it which list to walk; this
         /// member is what names the population it walked.</para>
         ///
+        /// <para>AND THE ARITHMETIC HAD A SECOND CAUSE THAT RECORD 43 CANNOT REACH — 2026-09-06
+        /// report item 4, one round later. Naming the right LIST does not make the two copies of it
+        /// the same LENGTH: the owner's arc drops a card they are holding up or have laid in a round
+        /// recess, and the observer's walk of the same list does not, because the card has not been
+        /// played. The host census then read <c>hand fan[p2] 0 FRONT / 7 BACK - LENGTH BELT: 8 model
+        /// card(s) vs 7 slab(s) on the wire, with 0 in their fist and 1 hand card(s) lying in their
+        /// recesses - remainder 0</c> for eleven consecutive ticks with the gate open: the belt's own
+        /// remainder said the difference was fully explained and it refused the fronts anyway,
+        /// because a COUNT can say THAT two lists differ and never WHICH card differs. The fix is
+        /// extension record 44 carrying an INJECTION rather than a permutation — the owner stating
+        /// which members of the derived list their arc holds. Neither of these two causes is a
+        /// secrecy term and neither is this member; that is still the point of it.</para>
+        ///
         /// <para>THE FLOWS THAT PICK A CARD OUTSIDE THE SELECTION PHASE, ENUMERATED, with the face
         /// each one must show. Every row is a flow in which the game asks its owner to choose a
         /// card while <see cref="IsSecretSelectionPhase"/> may be either open or shut, and the
@@ -511,9 +524,12 @@ internal static class RevealGate
         /// <c>IsPickMode</c> — <c>LoseCard</c>/<c>DiscardCard</c>/<c>RecoverDiscardedCard</c>/
         /// <c>RecoverLostCard</c>/<c>IncreaseCardLimit</c>, and NEVER the ordinary two-card commit,
         /// which seats its cards through <c>PlayTray.PlaceCard</c> and is named by
-        /// <c>CCharacterClass.RoundAbilityCards</c> instead. (2) The sender
-        /// (<c>LocalRigSampler.SampleRecessCardSeats</c>) re-asks that mode itself before writing a
-        /// seat. (3) The seat that travels may name ONLY the DISCARD or the BURNT arc — never the
+        /// <c>CCharacterClass.RoundAbilityCards</c> instead. (2) The accessor the sender reads
+        /// (<c>CardsDriver.PickFieldSeat</c>, called from <c>LocalRigSampler.SampleSacrificeSeats</c>
+        /// — the name <c>SampleRecessCardSeats</c> that stood here has never existed) re-asks
+        /// <c>IsPickMode</c> itself, and additionally requires the card to be PHYSICALLY seated in
+        /// that recess this frame. (3) The seat that travels may name ONLY the DISCARD or the BURNT
+        /// arc — never the
         /// HAND — so a card of the two-card commit is not expressible in the record at all. A
         /// hand-pile pick (avoid damage by burning a card from the hand, the card-limit discard)
         /// therefore keeps its anonymous back, deliberately: that card IS a hand card and its

@@ -341,12 +341,37 @@ internal sealed class RemoteCardFx
             return "a flight out of the peer's HAND FAN — no recess face to inherit, so a back, "
                  + "which is what its owner's peers see of that card anyway";
         int slot = from == CardFxAnchor.Slot0 ? 0 : from == CardFxAnchor.Slot1 ? 1 : -1;
+        // ─── A FLIGHT INTO A RECESS IS THE OTHER DIRECTION AND HAS ITS OWN NAME ─────────────────
+        // 2026-09-06 report item 4. The departed-face memory answers "what LEFT recess i", and for a
+        // Discard -> Slot0 flight — a short rest's sacrifice flying out of the pile onto the board —
+        // that memory holds the card that was there BEFORE. It correctly refused (both of the host
+        // session's two remaining BACKs read `Discard -> Slot0 ... CAUSE = WINDOW EXPIRED`), and no
+        // widening of that window could ever have been right. The arriving card is not a memory: it
+        // is extension record 39, on the wire, right now, for exactly this recess.
+        int arriving = to == CardFxAnchor.Slot0 ? 0 : to == CardFxAnchor.Slot1 ? 1 : -1;
         try
         {
+            if (slot < 0 && arriving >= 0
+                && _owner.TryNameArrivingRecessFace(arriving,
+                                                    out ScenarioRuleLibrary.CAbilityCard? incoming)
+                && incoming != null)
+            {
+                string? arrivalRule = DressFace(f, incoming,
+                    $"the card record 39 says is arriving in their round recess {arriving + 1}");
+                if (arrivalRule != null)
+                    return arrivalRule;
+            }
             if (!_owner.TryTakeDepartedRecessFace(slot, to, out ScenarioRuleLibrary.CAbilityCard? card,
                                                   out RemoteControlBoard.DepartedFaceVerdict verdict)
                 || card == null)
-                return $"BACK — no departed face claimable for {from} -> {to}: {Why(verdict)}";
+                return $"BACK — no departed face claimable for {from} -> {to}: {Why(verdict)}"
+                     + (arriving >= 0
+                         ? ". THIS IS AN ARRIVAL, NOT A DEPARTURE — the memory quoted above is about "
+                           + "the card that LEFT that recess and is the wrong question here; the "
+                           + "right one is extension record 39, and it named no seat for that recess "
+                           + "(read the owner's own 'SHORT REST SEAT' line and its SAMPLER SAYS "
+                           + "clause)"
+                         : string.Empty);
             // ─── THE ONE FACT THE ACTIVE MATRIX CANNOT GET ANYWHERE ELSE ────────────────────────
             // Stamped HERE and not in Play(), because this is the only point at which the flying
             // card has a NAME: the claim above is what resolves it, and it lives in this class's
@@ -401,6 +426,35 @@ internal sealed class RemoteCardFx
             return $"BACK — the front resolve threw ({ex.GetType().Name}: {ex.Message}), which is "
                  + "the picture every build before ModBuild 461 drew";
         }
+    }
+
+    /// <summary>
+    /// Put <paramref name="card"/>'s real front on <paramref name="f"/>, asking the reveal gate and
+    /// the clone builder in the same order the departure path does, and return the rule string —
+    /// or <c>null</c> when the gate or the builder refused, so the caller falls through to its own
+    /// answer rather than reporting an arrival refusal for a departure it has not tried yet.
+    ///
+    /// <para>Shared with the departure path on purpose: two copies of "ask the gate, then build the
+    /// clone" is exactly how one surface ends up with a permission the other does not have, which is
+    /// the defect <c>RevealGate.CardFaces</c>'s own file note is written about.</para>
+    /// </summary>
+    private string? DressFace(Flight f, ScenarioRuleLibrary.CAbilityCard card, string origin)
+    {
+        ScenarioRuleLibrary.CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+        // THE ARRIVING CARD IS A PILE CARD BY CONSTRUCTION — record 39's vocabulary cannot express a
+        // hand seat — so the population it is asked under is the one the user carved the recess out
+        // for, and the three-argument overload can only widen it further for a burned or active card.
+        if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.BoardPickSeat, actor,
+                                 card.CardInstanceID) == RevealGate.CardFaceSource.None)
+            return null;
+        if (f.Art == null)
+            return null;
+        RemoteAbilityCardSource.FacePath path =
+            RemoteAbilityCardSource.ShowFullFace(f.Art, actor, card);
+        if (path == RemoteAbilityCardSource.FacePath.None)
+            return null;
+        f.HasFace = true;
+        return $"FRONT via RemoteAbilityCardSource.{path}, from {origin}";
     }
 
     /// <summary>

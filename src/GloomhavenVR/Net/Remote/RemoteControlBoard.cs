@@ -1786,6 +1786,43 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     }
 
     /// <summary>
+    /// NAME THE CARD THAT IS ARRIVING IN ROUND RECESS <paramref name="slot"/> — the other direction
+    /// of a recess flight, and the one the departed-face memory was never built for.
+    ///
+    /// <para>2026-09-06 report item 4, the half the FLIGHT FACE instrument found on its own. Of the
+    /// host's five mirrored flights that session, three drew a FRONT and the two BACKs are both
+    /// <c>Discard -&gt; Slot0</c> — a card flying OUT of a pile INTO a recess, which is what a short
+    /// rest's sacrifice does. <see cref="TryTakeDepartedFace"/> answers that with
+    /// <c>CAUSE = WINDOW EXPIRED</c>, and it is right to refuse: what it remembers for recess 0 is
+    /// the card that was there BEFORE, and inheriting that would put a confidently wrong face on the
+    /// flight. The arriving card is not a memory at all — it is a fact the wire is carrying right
+    /// now.</para>
+    ///
+    /// <para>IT IS RECORD 39 AND NOTHING ELSE. <see cref="TryResolveSacrifice"/> is the one resolve
+    /// for "which card is lying in this recess that the round-card model cannot name", it asks the
+    /// reveal gate over the two carved-out populations itself, and its list vocabulary refuses the
+    /// HAND — so the card of a two-card commit is not expressible here even in principle. Nothing is
+    /// consumed and nothing is latched: this is a read of the current packet, so a flight that asks
+    /// twice gets the same answer and a flight that asks before the record arrives gets none.</para>
+    /// </summary>
+    internal bool TryNameArrivingRecessFace(int slot, out CAbilityCard? card)
+    {
+        card = null;
+        if (slot < 0 || slot >= SlotCount)
+            return false;
+        try
+        {
+            CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+            return TryResolveSacrifice(slot, actor, out card) && card != null;
+        }
+        catch
+        {
+            card = null;
+            return false;   // a cosmetic flight never takes the board down with it
+        }
+    }
+
+    /// <summary>
     /// TAKE the face that left recess <paramref name="slot"/> — or, for <paramref name="slot"/> of
     /// -1, whichever unclaimed face belongs in the stack <paramref name="destination"/> names.
     /// CONSUMING: a claimed face is forgotten, so two flights launched by one turn-clear take two

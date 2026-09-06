@@ -21213,19 +21213,35 @@ internal static class NetProtocol
     ///
     /// <para>IT MUST FAIL CLOSED AND IT DOES. A missing order is a cosmetic divergence; a WRONG
     /// order applied is a lie about which card is where, and it would shift every face — the exact
-    /// catastrophic mode the fan's length belt exists to prevent. So the receiver applies the
-    /// permutation only when it is an EXACT permutation of the seats it actually holds: the count
-    /// must equal its own derived list length, every index must be in range, and no index may
-    /// repeat (<see cref="ValidateFanArcOrder"/>). Anything else — a short record, a peer on an
-    /// older build, a FLAT player, a model that is a beat behind — and the receiver keeps the
-    /// game's own order, which is precisely the picture every build before this one drew.</para>
+    /// catastrophic mode the fan's length belt exists to prevent. So the receiver applies the order
+    /// only when its entries are DISTINCT indices in range of the list it actually holds, and only
+    /// when there are exactly as many of them as there are slabs on the wire
+    /// (<see cref="ValidateFanArcOrder"/>, plus <c>RemoteHandFan.ApplyFanArcOrder</c>'s own arc-count
+    /// test). Anything else — a short record, a peer on an older build, a FLAT player, a model that
+    /// is a beat behind — and the receiver keeps the game's own order, which is precisely the
+    /// picture every build before this one drew.</para>
+    ///
+    /// <para>IT IS ALSO THE ARC'S MEMBERSHIP, NOT ONLY ITS ORDER, AND THAT IS THE 2026-09-06 ITEM 4
+    /// FIX. Until this build both ends demanded a PERMUTATION — the same number of entries as the
+    /// receiver's derived hand list — which is precisely the test that fails in the one state the
+    /// user reports: a card in the owner's fist, or a hand card lying in one of their round
+    /// recesses, makes their arc SHORTER than that list. The record then said nothing, the receiver
+    /// had no statement of which cards the arc holds, and its length belt drew the whole fan as
+    /// BACKS (host census, eleven consecutive ticks: <c>hand fan[p2] 0 FRONT / 7 BACK — LENGTH
+    /// BELT: 8 model card(s) vs 7 slab(s) ... remainder 0</c>, the discrepancy fully explained and
+    /// the fronts refused anyway). An INJECTION says both things at once: entry k names the derived
+    /// index at arc seat k, and every derived index the order does NOT name is a card the arc does
+    /// not carry. The receiver drops exactly those, by name, from its own list — never by
+    /// arithmetic, never by position.</para>
     ///
     /// <para>WRITTEN ONLY WHEN IT SAYS SOMETHING. The sender omits the record whenever the arc is
-    /// already in the derived order — the common case for a player who has never dragged a card —
-    /// so those packets stay byte-identical to ModBuild 461's. It also omits it whenever it cannot
-    /// answer honestly: no open fan, a hand longer than the cap, or an arc card the derived walk
-    /// does not contain (a browse loan, a pick fan over a pile). Silence always means "use the
-    /// order you already had".</para>
+    /// already in the derived order AND holds every member of it — the common case for a player who
+    /// has never dragged a card — so those packets stay byte-identical to ModBuild 461's. When the
+    /// arc is SHORTER the record is always written, identity or not: there the order is what names
+    /// the missing card, and its absence would be read as "the two lists agree". It is still
+    /// omitted whenever the sender cannot answer honestly: no open fan, a hand longer than the cap,
+    /// or an arc card the derived walk does not contain (a browse loan, a pick fan over a pile).
+    /// Silence always means "use the order you already had".</para>
     /// </summary>
     public const byte ExtIdFanArcOrder = 44;
 
@@ -21261,22 +21277,47 @@ internal static class NetProtocol
     }
 
     /// <summary>
-    /// Is <paramref name="order"/> (its first <paramref name="count"/> entries) an EXACT
-    /// permutation of 0..<paramref name="listLength"/>-1? The whole fail-closed contract of
+    /// Are <paramref name="order"/>'s first <paramref name="count"/> entries DISTINCT indices into
+    /// 0..<paramref name="listLength"/>-1? The whole fail-closed contract of
     /// <see cref="ExtIdFanArcOrder"/> in one expression, so the sender and the receiver cannot
     /// hold two opinions of what "valid" means.
     ///
     /// <para>A receiver never trusts the wire, and the failure it is guarding against is not a
-    /// crash: a permutation that is merely PLAUSIBLE — right length, indices in range, one of them
+    /// crash: an order that is merely PLAUSIBLE — right length, indices in range, one of them
     /// repeated — would drop a card and duplicate another, drawing a confident wrong face at every
     /// seat after it. That is strictly worse than the divergence this record exists to fix, so
-    /// anything short of an exact permutation is refused and the receiver keeps the order it
+    /// anything short of an exact injection is refused and the receiver keeps the order it
     /// already had.</para>
+    ///
+    /// <para>IT ACCEPTS AN INJECTION AND NO LONGER DEMANDS A PERMUTATION, and that widening IS the
+    /// 2026-09-06 report item 4 fix rather than a relaxation of it. <c>count == listLength</c> — the
+    /// test this used to make — is exactly the case in which the owner's arc and the receiver's
+    /// derived hand list hold the SAME cards, which is the one case in which nothing downstream was
+    /// ever refusing a face. The case the user reports is the other one: the owner has a card in
+    /// their fist or lying in a round recess, their arc is SHORTER than the derived list by exactly
+    /// those cards, and the count test refused the record — after which the fan had no statement of
+    /// its own membership left, and <c>Net.RemoteHandFan</c>'s length belt drew every slab as a
+    /// BACK. Measured on the 2026-09-06 host: ELEVEN consecutive census ticks reading <c>hand
+    /// fan[p2] 0 FRONT / 7 BACK — LENGTH BELT: 8 model card(s) vs 7 slab(s) on the wire, with 0 in
+    /// their fist and 1 hand card(s) lying in their recesses — remainder 0</c>. Remainder 0 says the
+    /// difference was FULLY explained by one seated card and the fronts were refused anyway: the
+    /// reveal gate was open and the arithmetic was shut.</para>
+    ///
+    /// <para>NOTHING ABOUT THE SAFETY ARGUMENT CHANGES. The dangerous failure was never "the counts
+    /// differ", it was "two entries name one card": a repeated index still fails here, an index out
+    /// of range still fails here, and a caller that needs the order to match the ARC's own length
+    /// checks that itself (<c>RemoteHandFan.ApplyFanArcOrder</c> refuses unless <paramref
+    /// name="count"/> equals the slab count on the wire). What an injection adds is the ability to
+    /// say WHICH members of the derived list the arc holds — the fact the receiver was missing and
+    /// could not derive, because a COUNT can say THAT two lists differ and never WHICH card differs.
+    /// </para>
     /// </summary>
     public static bool ValidateFanArcOrder(int[] order, int count, int listLength)
     {
-        if (order == null || count <= 0 || count != listLength || count > FanArcOrderMaxSeats)
+        if (order == null || count <= 0 || count > listLength || count > FanArcOrderMaxSeats)
             return false;
+        if (listLength > FanArcOrderMaxSeats)
+            return false;   // a 4-bit index cannot name every member of a longer list
         if (count > order.Length)
             return false;
         int seen = 0;

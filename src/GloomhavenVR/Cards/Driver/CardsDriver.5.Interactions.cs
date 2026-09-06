@@ -1691,15 +1691,27 @@ internal sealed partial class CardsDriver
     /// client can evaluate about ITSELF, so it states them rather than leaving them to be
     /// correlated:</para>
     /// <list type="number">
-    /// <item>THE REVEAL GATE — <see cref="Net.RevealGate.PeersSeeOurCardFronts"/>, which is
-    /// <c>!(online &amp;&amp; IsSecretSelectionPhase)</c>. Every short rest happens inside
-    /// <c>SelectAbilityCardsOrLongRest</c> (<c>CardsHandUI.UpdateShortRest</c> only shows the button
-    /// in that phase), so online this is ALWAYS false here and peers draw backs by rule.</item>
-    /// <item>THE IDENTITY — a watcher names a card in a recess only out of the replicated
-    /// <c>CCharacterClass.RoundAbilityCards</c> (<c>RemoteControlBoard.OrderRoundCards</c>). The
-    /// sacrifice is a DISCARDED card chosen by this client's own RNG draw, so it is in no
-    /// replicated list and no wire record carries its key — a watcher could not name it even with
-    /// the gate wide open. That is why the line prints both: fixing one alone changes nothing.</item>
+    /// <item>THE REVEAL GATE, AND IT IS NOT THE ONE THIS LINE USED TO NAME.
+    /// <see cref="Net.RevealGate.PeersSeeOurCardFronts"/> is the rule for a card of the TWO-CARD
+    /// COMMIT and it IS always false here — every short rest runs inside
+    /// <c>SelectAbilityCardsOrLongRest</c> (<c>CardsHandUI.UpdateShortRest</c> only shows the
+    /// button in that phase; the 2026-09-06 host census reads <c>PHASE=SelectAbilityCardsOrLongRest
+    /// </c> for all thirteen ticks of the co-player's rest). But the sacrifice is not that
+    /// population: it is
+    /// <see cref="Net.RevealGate.PeerCardPopulation.SacrificedCard"/>, which the user carved OUT of
+    /// the phase in this very report, and the watcher asks
+    /// <c>RevealGate.IsPublicPopulation</c> over that member and nothing else
+    /// (<c>RemoteControlBoard.TryResolveSacrifice</c>). Printing the commit's gate here made this
+    /// line say "backs by rule" about a card the rule permits — the instrument was quoting a term
+    /// its own subject does not use.</item>
+    /// <item>THE IDENTITY, and the second half of the sentence that stood here was FALSE. The card
+    /// is not in <c>CCharacterClass.RoundAbilityCards</c> — that much is true, and it is why the
+    /// recess drew an anonymous back before ModBuild 462 — but "no wire record carries its key" has
+    /// not been true since: extension record 39 (<c>NetProtocol.ExtIdSacrificeSeat</c>) names WHICH
+    /// recess holds it and WHERE it sits in this character's DISCARD arc, which the card never
+    /// leaves while it lies here. Whether that record actually WROTE anything is a fact about this
+    /// client and is reported by its own sender line, grep token <c>SHORT REST SEAT</c> — read that
+    /// line, not this one, to learn whether the identity travelled.</item>
     /// </list>
     ///
     /// <para>Change-gated by its caller (present / redraw-swap only), so a short rest costs one or
@@ -1709,24 +1721,35 @@ internal sealed partial class CardsDriver
                                               AbilityCardUI widget, bool swap)
     {
         bool online = FFSNetwork.IsOnline;
-        bool peersSeeFronts = Net.RevealGate.PeersSeeOurCardFronts;
-        bool named = CardsGameApi.IsInRound(hand, lost);
+        // THE POPULATION'S OWN PERMISSION, not the two-card commit's. This used to read
+        // PeersSeeOurCardFronts, which is the phase rule for a HAND card and is false for the whole
+        // of every short rest by construction — so the line reported "ANONYMOUS BACK ... backs by
+        // rule" about the one card the user's 2026-09-05 item 15 ruling explicitly carved out of
+        // that phase, and it said so with a term the watcher does not consult.
+        bool populationPublic =
+            Net.RevealGate.IsPublicPopulation(Net.RevealGate.PeerCardPopulation.SacrificedCard);
+        bool inRound = CardsGameApi.IsInRound(hand, lost);
         // HW-VERIFY: grep SHORT REST SACRIFICE — the card this player is deciding about, the face
         // THEY see, and the face every watcher draws for the same recess, with the term that
-        // decided it. FALSIFIER: a line reading `peers draw: FRONT` while a watcher's screenshot
-        // still shows the lattice back means the defect is downstream of both terms named here
-        // (RemoteControlBoard.SeatSlots / RemoteBoardCard), not in the gate or the identity.
+        // decided it. FALSIFIER: a line reading `peers draw: FRONT (if record 39 seated it)` while
+        // the watcher's census still reads `board pick seat ... record 39 named NO seat` means the
+        // SENDER refused — read this client's own 'SHORT REST SEAT' line, whose SAMPLER SAYS clause
+        // names which term did it. A watcher census reading a FRONT here settles item 15.
         VRLog.Note("Cards", $"SHORT REST SACRIFICE: {(swap ? "REDREW —" : "presenting")} " +
             $"'{CardsGameApi.CardName(widget)}' in the LEFT recess, FRONT up, display-only " +
             "(burn/redraw commits via the docked choice). " +
-            $"peers draw: {(online ? (peersSeeFronts && named ? "FRONT" : "ANONYMOUS BACK") : "n/a (offline)")}" +
-            $" — RevealGate.PeersSeeOurCardFronts={peersSeeFronts} (false ⇒ backs by rule: every " +
-            "short rest runs inside the secret SelectAbilityCardsOrLongRest window), " +
-            $"identity replicated={named} (false ⇒ the card is a DISCARDED one drawn by this " +
-            "client's own RNG, so it is in no RoundAbilityCards list a watcher can read and no " +
-            "wire record carries its key — a watcher draws 'anon-back' whatever the gate says). " +
-            "Read against the watcher's own '[Net] Remote board content … round-card faces=' for " +
-            "the same moment; BOTH terms must move before a peer can see this card.");
+            $"peers draw: {(online ? (populationPublic ? "FRONT, if record 39 seated it" : "ANONYMOUS BACK") : "n/a (offline)")}" +
+            $" — RevealGate.IsPublicPopulation(SacrificedCard)={populationPublic}, which is the ONLY " +
+            "secrecy term the watcher asks for this recess (RemoteControlBoard.TryResolveSacrifice). " +
+            "PeersSeeOurCardFronts is deliberately NOT quoted here: it is the two-card commit's rule, " +
+            "it is false for the whole of every short rest, and quoting it made this line report a " +
+            "back for a card the rule permits. " +
+            $"in RoundAbilityCards={inRound} (false is EXPECTED and is not the blocker: the " +
+            "sacrifice is a DISCARDED card the game's own RNG picked and PerformShortRest removes " +
+            "nothing, so it stays in DiscardedAbilityCards the whole time it lies here — which is " +
+            "exactly the list extension record 39 seats it in). " +
+            "Read against the watcher's own '[Net] PEER CARD FACE CENSUS' board-pick-seat row for " +
+            "the same moment, and against this client's own 'SHORT REST SEAT' line.");
     }
 
     /// <summary>

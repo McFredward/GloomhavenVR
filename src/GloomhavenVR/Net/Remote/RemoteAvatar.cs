@@ -707,6 +707,14 @@ internal sealed class RemoteAvatar
         _controlBoard.TryTakeDepartedFace(slot, destination, out card, out verdict);
 
     /// <summary>
+    /// NAME the card ARRIVING in one of this peer's round recesses — the opposite direction of the
+    /// claim above, for a flight that flies INTO a recess out of a pile (a short rest's sacrifice, a
+    /// recovered card). Non-consuming; see <c>RemoteControlBoard.TryNameArrivingRecessFace</c>.
+    /// </summary>
+    internal bool TryNameArrivingRecessFace(int slot, out ScenarioRuleLibrary.CAbilityCard? card) =>
+        _controlBoard.TryNameArrivingRecessFace(slot, out card);
+
+    /// <summary>
     /// True when the sender broadcasts their live BOARD-UI state (extension record 4): which
     /// controls their own board currently shows + the wanted-slot glow mask. False for peers that
     /// predate the field — <see cref="RemoteBoardFurniture"/> then keeps the legacy always-drawn

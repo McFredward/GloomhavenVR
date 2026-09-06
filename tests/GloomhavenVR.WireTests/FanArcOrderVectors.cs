@@ -28,12 +28,22 @@
 //      would silently invent a thirteenth seat or drop the last real one.
 //
 //   3. IT MUST FAIL CLOSED, AND ONLY ON A REAL FAULT. ValidateFanArcOrder is the whole safety
-//      contract: a repeated index, an index out of range, or a count that disagrees with the
-//      receiver's own list length must all be REFUSED — because a permutation that is merely
-//      plausible would drop one card and duplicate another, drawing a confident wrong face at every
-//      seat after it. That is strictly worse than the divergence the record fixes. Equally, a
-//      VALID permutation must be accepted, or the feature is dead and the log would say "refused"
-//      forever.
+//      contract: a repeated index, or an index out of range of the receiver's own list, must be
+//      REFUSED — because an order that is merely plausible would drop one card and duplicate
+//      another, drawing a confident wrong face at every seat after it. That is strictly worse than
+//      the divergence the record fixes. Equally, a VALID order must be accepted, or the feature is
+//      dead and the log would say "refused" forever.
+//
+//      SINCE ModBuild 463 A SHORTER ORDER IS VALID — an INJECTION, not a permutation — and that is
+//      the load-bearing change of 2026-09-06 report item 4. `count < listLength` is the owner
+//      saying "my arc holds these members of your derived list and not the rest", which is exactly
+//      the state of a card in their fist or lying in one of their round recesses. The old test
+//      refused it, so the record went silent in the one state it was needed, the receiver's length
+//      belt had no statement of membership left, and the whole fan drew BACKS (host census, eleven
+//      consecutive ticks at "8 model card(s) vs 7 slab(s) ... remainder 0"). What must still be
+//      refused is the dangerous shape, and it is a DIFFERENT shape: a repeat, or an index past the
+//      end. `count > listLength` — more arc seats than the receiver holds cards — stays refused
+//      too, because no injection into a shorter list exists.
 //
 //   4. IDENTITY MUST STAY UNSAYABLE. The sender omits the record when its arc already equals the
 //      derived order, so "my order is the derived one" and "no record at all" have to be ONE state.
@@ -140,7 +150,7 @@ internal static class FanArcOrderVectors
     // ---------------------------------------------------------------------------------------
     private static void ValidationFailsClosed(Harness t)
     {
-        t.Case("44c. fan arc order — only an EXACT permutation is accepted, and one IS accepted");
+        t.Case("44c. fan arc order — only DISTINCT in-range seats are accepted, and they ARE");
 
         // The good case first. A validator that refuses everything is trivially "safe" and
         // completely useless, and its log would read 'refused' forever.
@@ -160,9 +170,26 @@ internal static class FanArcOrderVectors
                "an index PAST the receiver's list is refused");
         t.True(!NetProtocol.ValidateFanArcOrder(new[] { 0, 1, 2, -1 }, 4, 4),
                "a negative index is refused");
-        t.True(!NetProtocol.ValidateFanArcOrder(good, 4, 5),
-               "a count that disagrees with the receiver's OWN list length is refused — the two "
-               + "sides are not looking at the same hand and no seat mapping is meaningful");
+        // ─── THE INJECTION, WHICH IS 2026-09-06 REPORT ITEM 4's WHOLE FIX ──────────────────────
+        // A SHORTER order is not a disagreement, it is a statement: the arc holds these members of
+        // the receiver's derived list and not the rest. It is the ordinary state of a card in the
+        // owner's fist or lying in one of their round recesses, and refusing it is what left the
+        // receiver with nothing but a length to reason from — after which its belt drew the whole
+        // fan as BACKS for as long as the pick stood.
+        t.True(NetProtocol.ValidateFanArcOrder(good, 4, 5),
+               "FOUR arc seats naming distinct members of a FIVE-card derived list are ACCEPTED — "
+               + "the owner is holding one of those five up, or has laid it in a recess, and this "
+               + "is the record saying WHICH four the arc carries");
+        t.True(NetProtocol.ValidateFanArcOrder(new[] { 4, 0 }, 2, 5),
+               "and the surviving members need not be a prefix — the dropped card can be anywhere");
+        t.True(!NetProtocol.ValidateFanArcOrder(new[] { 0, 5 }, 2, 5),
+               "an index past the derived list is still refused inside an injection");
+        t.True(!NetProtocol.ValidateFanArcOrder(new[] { 2, 2 }, 2, 5),
+               "so is a repeat — that is the shape that draws a confident wrong face, and it is the "
+               + "one this validator has always existed for");
+        t.True(!NetProtocol.ValidateFanArcOrder(good, 4, 3),
+               "MORE arc seats than the receiver holds cards is refused: no injection into a "
+               + "shorter list exists, and this is the model lagging its own fan");
         t.True(!NetProtocol.ValidateFanArcOrder(good, 5, 5),
                "a count past the array is refused rather than read off the end");
         t.True(!NetProtocol.ValidateFanArcOrder(null!, 4, 4), "no order at all is refused");
@@ -172,11 +199,19 @@ internal static class FanArcOrderVectors
             tooMany[k] = k;
         t.True(!NetProtocol.ValidateFanArcOrder(tooMany, tooMany.Length, tooMany.Length),
                "a hand past the 12-seat clamp is refused — a 4-bit index cannot name seat 12");
+        t.True(!NetProtocol.ValidateFanArcOrder(new[] { 0, 1 }, 2, NetProtocol.FanArcOrderMaxSeats + 1),
+               "and so is a SHORT order into a list past the clamp — an injection whose codomain a "
+               + "4-bit index cannot span is no safer than a permutation of one");
     }
 
     // ---------------------------------------------------------------------------------------
-    //  44d. IDENTITY IS UNSAYABLE. Note 4: absence IS "the derived order", so an ordinary
-    //       player's packet must be byte-identical to the previous build's.
+    //  44d. IDENTITY IS UNSAYABLE — WHEN THE ARC HOLDS THE WHOLE LIST. Note 4: absence IS "the
+    //       derived order", so an ordinary player's packet must be byte-identical to the previous
+    //       build's. It is NOT unsayable when the arc is short: there the entries can still read
+    //       0,1,2,… and the record is the only thing saying that the members past the count are
+    //       absent, so LocalRigSampler.SampleFanArcOrder writes it anyway. That asymmetry is a
+    //       property of the SENDER and is asserted at its own site; what this case pins is the
+    //       serializer half — a flag with nothing to say still costs nothing.
     // ---------------------------------------------------------------------------------------
     private static void AbsenceIsTheDerivedOrder(Harness t)
     {

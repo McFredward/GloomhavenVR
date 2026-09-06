@@ -30,8 +30,17 @@ namespace GloomhavenVR.Net;
 /// no peer held a card this interval, and "held card 0 FRONT / 1 BACK" means one did and lost.</para>
 ///
 /// <para>NOTHING HERE IS A DECISION. Surfaces report what they already computed; this class stores
-/// integers and formats a string. It writes no game state, allocates only its own small dictionary,
-/// and a surface that never reports simply never appears.</para>
+/// integers and formats a string. It writes no game state and allocates only its own small
+/// dictionary.</para>
+///
+/// <para>AND A SURFACE THAT NEVER REPORTS NO LONGER SIMPLY NEVER APPEARS — that sentence stood here
+/// as a reassurance and it described the defect. Every member of <see cref="Surface"/> is named on
+/// every line now: one that has reported and gone quiet prints its last picture marked STALE, and
+/// one that has NEVER reported since this client started is listed under NEVER ASKED with what that
+/// means. The difference is the whole point. A missing row and a healthy row are indistinguishable
+/// to a reader, and three rounds running the finding has been a surface nobody had on their list —
+/// most recently the recess pick seat, whose 2026-09-06 rows say a wire record has never once worked
+/// and which only said so because it happened to report at all.</para>
 /// </summary>
 internal static class PeerCardFaceCensus
 {
@@ -43,8 +52,13 @@ internal static class PeerCardFaceCensus
 
     /// <summary>The populations a peer's cards can be drawn in. Every site that decides FRONT or
     /// BACK for somebody else's card reports as exactly one of these — the enumeration IS the list
-    /// of such sites, so a surface missing from a hardware log is a surface that never reported and
-    /// therefore one nobody has proved anything about.</summary>
+    /// of such sites, and a member that never reports is printed under NEVER ASKED rather than being
+    /// absent, so "nobody has proved anything about this surface" is a sentence in the log instead
+    /// of a gap a reader has to notice.
+    ///
+    /// <para>ADDING A MEMBER IS THEREFORE A CLAIM YOU OWE A CALL SITE FOR: a member with no
+    /// <see cref="Report"/> caller will name itself on every census tick until one exists. That is
+    /// deliberate and it is the direction this instrument is required to fail in.</para></summary>
     internal enum Surface
     {
         /// <summary><c>RemoteHandFan</c> — the arc floating off a peer's non-dominant hand.</summary>
@@ -115,6 +129,23 @@ internal static class PeerCardFaceCensus
 
     private static float s_nextPrintAt = -1f;
 
+    /// <summary>
+    /// One bit per <see cref="Surface"/> that has reported AT LEAST ONCE since this client started —
+    /// the term that turns a missing row into a stated reading.
+    ///
+    /// <para>WHY IT IS A DELIVERABLE AND NOT A FLOURISH. This class's own header already says that
+    /// "a surface that never reports simply never appears", and treated that as harmless. It is not:
+    /// a row that is absent and a row that reads 0 BACK look identical to a reader, and this is the
+    /// third round in a row in which the finding was a surface nobody had on their list. The
+    /// 2026-09-06 session is the proof — for the WHOLE session, on BOTH machines, every 'board pick
+    /// seat' row read "extension record 39 named NO seat", which is the strongest possible statement
+    /// that a wire record has never once worked, and it was reachable only because that surface
+    /// happened to report. Had it been one branch further up it would have printed nothing at all
+    /// and the silence would have read as health. So the line now names EVERY member of the enum on
+    /// every tick, and a member with no bit here is printed as NEVER ASKED with what that means.
+    /// </para></summary>
+    private static int s_everReported;
+
     /// <summary>Slot ids are 1 and 2 (a peer's two hands); 0 means "this population has only one
     /// reporter" and is what every surface but the held card passes.</summary>
     private static long Key(Surface surface, int playerId, int slot) =>
@@ -135,6 +166,7 @@ internal static class PeerCardFaceCensus
         e.Backs = backs;
         e.Rule = rule;
         e.Samples++;
+        s_everReported |= 1 << (int)surface;
         // The interval's WORST reading, kept beside the live one: a surface that is correct at the
         // moment the cadence happens to fire, and wrong for the second the player was looking at it,
         // must not read as healthy. Ties keep the FIRST rule seen, so a peak carries the reason it
@@ -279,6 +311,25 @@ internal static class PeerCardFaceCensus
                 : " over " + e.Samples + " tick(s)");
         }
 
+        // ─── AND THE SURFACES THAT PRODUCED NO ROW AT ALL ───────────────────────────────────────
+        // An absent population used to be silence, and silence is the one reading a hardware log
+        // cannot distinguish from health. Every member of the enum is named on every tick now: one
+        // that has never reported since this client started says so in those words, so "we have
+        // measured nothing about this surface" is a sentence a grep can find instead of an absence
+        // a reader has to notice. See s_everReported for the round this cost.
+        int neverAsked = 0;
+        for (int surfaceId = 0; surfaceId <= (int)Surface.BoardPickSeat; surfaceId++)
+        {
+            if ((s_everReported & (1 << surfaceId)) != 0)
+                continue;
+            if (neverAsked++ == 0)
+                sb.Append("; NEVER ASKED (no site has reported these since this client started, so "
+                          + "NOTHING has been measured about them and their absence is not a pass): ");
+            else
+                sb.Append(", ");
+            sb.Append(Name((Surface)surfaceId));
+        }
+
         // HW-VERIFY: THE line for the 2026-09-05 report item 2 ("Das Anzeigen der remote Karten
         // funktioniert immer noch nicht") and, since ModBuild 459, THE answer to the user's standing
         // guarantee question ("Gewaehrleiste das ausserhalb der Auswahlphase NIEMALS Rueckseiten auf
@@ -322,7 +373,11 @@ internal static class PeerCardFaceCensus
             + "decided it, so a BACK outside the game's own SelectAbilityCardsOrLongRest window is a "
             + "defect and the rule names which one. A row marked STALE drew nothing this interval "
             + "and counts toward NOTHING: its numbers are the last picture that surface had, kept so "
-            + "a population that goes quiet does not read as zero. 'active matrix' must NEVER show a "
+            + "a population that goes quiet does not read as zero. A surface listed under NEVER "
+            + "ASKED is a different and worse reading than a STALE one: STALE means it reported "
+            + "earlier and has gone quiet, NEVER ASKED means no code path has ever handed this "
+            + "census a verdict for it and this log therefore proves nothing about it either way — "
+            + "which is exactly how a whole surface hid for two rounds. 'active matrix' must NEVER show a "
             + "BACK in any phase (user ruling 2026-09-05: an active card was played face-up, it is "
             + "no secret). 'flight slab' is EVENT-DRIVEN — its ticks are FLIGHTS, not samples, so "
             + "read its interval PEAK and not its live split (report item 5). 'board pick seat' 0 "
