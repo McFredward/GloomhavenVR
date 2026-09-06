@@ -433,7 +433,58 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 457;
+    public const ushort ModBuild = 458;
+    // Build 458: the held-prop white flash, ROUND TWELVE — AND THIS BUILD IS AN EXPERIMENT, NOT A
+    //   PROBE. One of OUR OWN suppressions is switched off, and the next hardware report decides it.
+    //   * STRAND 5 IS OFF. This mod stopped unregistering the held prop from
+    //     TilesOcclusionGenerator. The mechanism that made it the prime suspect: the strand takes
+    //     the prop OUT of the global _ObjectOcclusion map while the prop's shader still SAMPLES that
+    //     map, so if the map DARKENS, a prop absent from it is UNDARKENED — brighter than the same
+    //     prop on the board, with no material, no component and no lighting behind it. It is ours,
+    //     it was live (pre-count 1 on the trap), and it was created for a defect it did not fix.
+    //     Grep to confirm the experiment actually ran: '] [Props] HELD-PROP ANIMATION HUSH'
+    //     containing '*** STRAND 5 OFF - NULL PERTURBATION ***', which states found/enabled counts
+    //     and 0 switched off; the HOME TWIN line carries the same fact from the other side as
+    //     'ObjectOcclusionVolume registrations SUPPRESSED: 0' of N found. A NON-ZERO FOUND COUNT IS
+    //     A PRECONDITION — a prop that never carried a volume says nothing either way.
+    //     THE OUTCOMES ARE WRITTEN DOWN BEFORE THE TEST (experiments doc section 19.4): white GONE
+    //     means strand 5 was the painter and twelve rounds end; white UNCHANGED means it is excluded
+    //     BY EXPERIMENT rather than by argument and it gets deleted outright; white WORSE is the one
+    //     outcome that argues for keeping it, and it must be said rather than quietly reverted. The
+    //     strand is deliberately NOT deleted yet: deleting before the result would remove the
+    //     ability to tell whether removing it mattered.
+    //     Attribution verified rather than recalled: 30058ced was authored at ModBuild 448 and
+    //     shipped as ModBuild 449. And the integrator's vocabulary argument is TRIMMED on the
+    //     record — 'weiss' is already present at 447 as an ADJECTIVE ON A SHIMMER; what changes
+    //     after 449 is the GRAMMAR, the props BECOME white, a state rather than a movement. A real
+    //     shift, a correlation, and worth nothing without the mechanism.
+    //   * THE STANDING WATCH NEVER PRINTED A LINE IN 457, AND THE CAUSE IS THE ARM'S OWN DEFECT. It
+    //     DID arm and the twin WAS found; it never CLOSED, because its window was 3600 FRAMES chosen
+    //     against an assumed 90 Hz on a rig that measured 38.5 fps ON THE SAME LOG LINE — a
+    //     93-second window the session ended before reaching, discarded silently by Reset. A FRAME
+    //     BUDGET IS A TIME BUDGET WITH AN UNSTATED FRAME RATE INSIDE IT, and that is exactly the
+    //     failure the arm exists to catch, committed inside the arm. Fixed three ways: the window is
+    //     now BoardSeconds = 20f; it arms at TWIN-FIND rather than at window close; and Reset emits
+    //     before clearing, with EmitBoard zeroing its own frame count so a later Reset cannot
+    //     reprint a stale observation.
+    //   * updateWhenOffscreen — the only other setting we make different — IS ANSWERED PLAINLY
+    //     RATHER THAN LEFT HANGING: it cannot brighten anything. It changes how BOUNDS are computed,
+    //     bounds feed CULLING, and culling decides whether a renderer is SUBMITTED, not how it is
+    //     SHADED. The 'bounds 1.124 vs 1.33 wu' difference on the same line is its consequence, not
+    //     a second finding. The one caveat is already measured: bounds also decide where probe
+    //     selection samples, and the lighting comparison reads worst-difference 0 with 0 reflection
+    //     probes on both sides.
+    //   * TWO MORE CLOSED. THE WRITE WAR: 4 rescans ran at window frames 45/90/135/180 and the
+    //     ledger recorded 0 edges, 0 of them rising — nothing re-enables what the hush switches off,
+    //     so the stutter is not our rescan fighting a writer. That clears the WAR, not the cadence,
+    //     and the arm has answered and is retired. THE MIRRORING HYPOTHESIS: determinant 1 vs 1, so
+    //     no flipped normals and no reversed winding.
+    //   * STILL OPEN AND STATED AS SUCH: the user's stillness experiment has not happened. The
+    //     motion trace reads a longest sub-millimetre run of 2 FRAMES — 0.05 s — so the
+    //     clock-versus-spatial question is untouched and nothing is read into it.
+    // Wire: nothing. No state written, nothing to mirror.
+    // Documented worst case stays 1735; MaxSize stays 2100.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 457: the held-prop white flash, ROUND ELEVEN. The user made two points and both landed.
     //   * "NICHT GANZ FLUESSIG" RETIRES OUR MODEL. His report: "Wenn ich es laenger in der Hand
     //     halte tritt es auch so auf das der prop weiss wird in der hand. Es ist wie der flash nur
