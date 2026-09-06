@@ -433,7 +433,69 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 459;
+    public const ushort ModBuild = 460;
+    // Build 460: documentation only — no C# behaviour changes at all. Two lanes, three user asks.
+    //   * THE USER DOCS WERE WRITTEN FOR THE WRONG READER IN PLACES, and he named the passage:
+    //     everything after "the game closes and reopens itself — once. That is meant to happen. It
+    //     is not a crash." — "da steigt er wieder aus". The note itself is unchanged in all FOUR
+    //     places it appears (both INSTALL pages and both packaged INSTALL text files). What went is
+    //     the mechanism after it: a Windows rendering setting the engine reads at startup, a locked
+    //     45 Hz becoming 90, "it cannot loop", the two boot.config lines, and a "rather do it
+    //     yourself?" paragraph naming two config keys and a launch flag. All of it now lives in
+    //     docs/DEVELOPING.md, one small-type link away.
+    //     THE RULE APPLIED, not the single fix: a player needs to know WHAT WILL HAPPEN, WHETHER IT
+    //     IS NORMAL, and WHAT TO DO IF IT GOES WRONG — never the mechanism. Four more passages fell
+    //     to it: a config key the playing guide told the player to hand-edit for the 2D campaign map
+    //     (now the menu path he can actually click, verified against the curated options tree); a
+    //     parenthesis explaining that one headset gets a neutral controller because its maker
+    //     distributes no model; the README explaining ENVIRONMENTS by mechanism ("replaces the sky
+    //     with a chroma-key colour so the board can be composited") instead of by outcome; and a
+    //     Settings paragraph that led with its justification instead of its action.
+    //     KEPT DELIBERATELY, because they are recovery and not explanation: the mod writes exactly
+    //     ONE game file and where its backup is; what to do if the game refuses to start; that a
+    //     failed update changes nothing and where the old version is kept; that everyone in a
+    //     multiplayer session needs the same version. The fact stays, the reason goes.
+    //     REVIEWED AND LEFT ALONE, and flagged rather than silently kept: the playing guide's KNOWN
+    //     LIMITATIONS list. It is the "is this a bug?" reference and every entry is a symptom the
+    //     player can see — but it is the most jargon-heavy prose left in the user set.
+    //   * SIX VIDEO CLIPS, TWELVE PREPARED SPOTS, ONE CHECKLIST. He asked for placeholders he can
+    //     fill himself, so docs/VIDEO-SHOTLIST.md gives each clip a filename, a length, its spot,
+    //     what it shows and what a viewer should know afterwards: overview, multiplayer (the only
+    //     README section with no media at all), tutorial, windows, grab-rod and environments. Four
+    //     names deliberately match an older wishlist so nothing is recorded twice under two names.
+    //     EACH PLACEHOLDER IS ITS FINISHED MARKUP INSIDE AN HTML COMMENT, so a missing .mp4 renders
+    //     NOTHING rather than a broken image on GitHub or in a browser; publishing a clip is
+    //     dropping the file in and deleting two markers. The image README's own wishlist is replaced
+    //     by a pointer to the new list — it had gone stale twice over, still asking for a clip that
+    //     shipped under another name and still claiming the READMEs carry no placeholders.
+    //   * THE BOARD DIAGRAM GAINS THE ACTIVE-CARD MATRIX, which he reported missing. It wears the
+    //     pile stacks' RED rather than a ninth hue, because this picture groups by ZONE and not by
+    //     function (gold already covers objectives AND elements, purple the initiative track AND the
+    //     round readout), and a ninth colour beside eight would be told apart by nobody. The window
+    //     had to widen — the zone mounts at board-local 0.502 and does not fit the old frame at any
+    //     scale — so the board is now 54 % of the picture width where it was 62 %; the canvas WIDTH
+    //     is unchanged on purpose, because the guides show the file at width=860 and growing it
+    //     would have shrunk the type at the reader.
+    //     AND THE GUARD NOW MEASURES THE PICTURE INSTEAD OF THE BUDGETS. The old preflight only ever
+    //     proved a label fits its gap in width and rows, and neither of those can see WHERE the
+    //     resulting block lands. It now computes every callout's pixel box in both languages and
+    //     refuses if it leaves the picture block, lies on the board silhouette, lies on a ghost
+    //     plate that is not its own, or overlaps another callout; leader ends must land inside the
+    //     part they name; and nine source claims are asserted for a zone that has no FBX anchor to
+    //     check against. Run against TEN deliberate breakages, all ten refused with both PNGs left
+    //     untouched.
+    //     THREE STALE SOURCE CLAIMS FOUND WHILE READING, reported and NOT silently carried forward:
+    //     PlayTray's arithmetic for where the active matrix lands is stale in all three inputs (the
+    //     mount, the card scale and a one-column layout that has been three columns since 85bbb8ca)
+    //     — redone with shipped numbers the clearance past the pile column is 1.2 mm, not the ~76 mm
+    //     the old arithmetic implies; the conclusion survives, the margin does not. RemoteBoardTooltip
+    //     carries the same single-column assumption. Both are C# and are left for a code round.
+    //     THE FOUR REMAINING OMISSIONS stay out, each with its reason recorded: the decision drawer
+    //     and the pick-progress placard have no room the design can give them, the item-use berth
+    //     would cost an existing callout its place, and the pin toggle is the only cheap one.
+    // Wire: nothing. No C# touched. Documented worst case stays 1738; MaxSize stays 2100.
+    // DLL-only in the sense that nothing in the DLL changed — this build is the docs.
+    // Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 459: the third big multiplayer round — nine items, seven lanes, and four defects whose
     //   cause was a definition rather than a bug.
     //   * ITEMS 1+2, AND THE MOD'S DEFINITION OF 'POINT OF NO RETURN' WAS NOT THE USER'S. The code

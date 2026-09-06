@@ -411,20 +411,24 @@ get a nicer frame; fifty review frames hang off each one.
 
 ## Still missing
 
-There are **no placeholders in the README** for these — an earlier arrangement put an
-`<!-- VIDEO: … -->` comment at each spot and that is gone; `grep -n "VIDEO:" README.md README.de.md`
-returns nothing. Adding one of these means writing its block into both READMEs by hand, next to the
-clips that are already there, and keeping the two language pages in step.
+**The shot list moved.** What is still to be recorded, where each clip goes, how long it should be
+and what a viewer should understand afterwards now live in ONE place:
+**[`docs/VIDEO-SHOTLIST.md`](../VIDEO-SHOTLIST.md)**. Keeping a second list here is how the two
+drifted apart — the table that stood here still asked for `map-room.mp4`, which shipped as
+`map-interaction.mp4` and has been in the playing guide ever since, and it still said there were no
+placeholders in the READMEs, which stopped being true when the six spots below were prepared.
 
-| File | What it should show |
-|---|---|
-| `overview.mp4` | The hero shot: standing at the table in a lit scenario, then dragging, rotating and zooming the board with the two-handed world grab. This is the one that has to sell it in three seconds. |
-| `multiplayer.mp4` | **The one that matters most now.** Two players at the same table: masks and hands, a miniature lifted and seen by both, a shared window dragged to a new place in the room. It needs two headsets, which is why it is not here yet. |
-| `windows.mp4` | A window opens in front of the player, is grabbed by its bar, moved and resized, then reeled closer with the thumbstick. |
-| `map-room.mp4` | The 3D campaign map room: pressing a table-rim cap, pointing at a location, the party token walking its route. |
-| `environments.mp4` | The cellar and the night forest — firelight, the night sky, foliage moving, an element infusion changing the room, switching environments in the settings. The three stills already ship (see above); what a clip adds that they cannot is the MOTION: the drip, the rat, the shafts, and an element fading in over its second. |
+**There ARE placeholders now, and they render nothing until the file exists.** Each prepared spot
+holds its finished markup inside an HTML comment, so a missing `.mp4` is never a broken image on
+GitHub or in a browser. Find them with:
 
-Each new clip needs a poster beside it, same name plus `-poster.jpg`.
+```bash
+grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING.de.md
+```
+
+Six clips, twelve markers (both languages). To publish one: drop the file in, delete the two comment
+markers around its block, and keep the two language pages in step. Every clip except the two README
+ones also needs a poster beside it, same name plus `-poster.jpg`.
 
 ## The three built diagrams -- `controls-*.png`, `board-*.png` and `install-tree-*.png`
 
