@@ -142,6 +142,63 @@ internal static class NetProps
 
     private static bool _loggedMirror;
 
+    // ---- the deferred thaw (the trap-spawn sound, 2026-09-06) ---------------------------------
+    //
+    // A prop's ApparanceEntity is the thing that re-generates its content, and the decompiled
+    // plugin says exactly when: ApparanceEntity.CheckEntity calls MonitorBounds(force_apply:false)
+    // EVERY tick regardless of MonitorMovement, and that fires when
+    //   force_apply || m_BoundsComponent.transform.hasChanged || centre moved || size changed
+    // whereupon SetProcedureBoundsFromEntityBounds ALWAYS clears
+    // `m_BoundsComponent.transform.hasChanged = false` and re-syncs m_EntityBounds, but only sets
+    // `m_RequestRefresh = true` when its `allow_refresh` argument is true — and that argument IS
+    // `MonitorMovement`. A refresh re-runs CreateInstance, i.e.
+    // `Object.Instantiate(template, position, rotation, parent)` for every placed object under the
+    // prop, and each fresh clone runs Awake/OnEnable. A trap's placed content carries SFXOnEnable
+    // (`AudioController.Play(m_AudioEvent)` one Update after OnEnable) and
+    // ParticleSystem_OnEnable_Default — so a refresh REPLAYS THE PROP'S SPAWN EFFECT, sound
+    // included. That is the user's report of 2026-09-06 verbatim: "Wenn ein Mitspieler eine Falle
+    // in die Hand nimmt und dann loslässt, wird der Sound abgespielt, der auch kommt, wenn Gegner
+    // eine neue Falle spawnen."
+    //
+    // The home-pose write in RestoreHome sets hasChanged, so handing MonitorMovement back in the
+    // same call is what let the very next MonitorBounds request that refresh. Waiting instead lets
+    // the next tick consume the flag while allow_refresh is still false — the bounds re-sync to the
+    // HOME pose, hasChanged is cleared, and nothing is pending when monitoring resumes. It is the
+    // rule GrabbableProp.ThawDelayFrames already implements for a LOCAL release, which is why the
+    // user hears this on a peer's release and never on his own.
+
+    /// <summary>Frames between a remotely-held prop landing on its hex and its
+    /// <c>MonitorMovement</c> going back on — <c>GrabbableProp.ThawDelayFrames</c> itself and not a
+    /// second copy of the number, because the two paths must never drift apart on the one constant
+    /// that decides whether a released prop re-spawns.</summary>
+    private static int ThawDelayFrames => GrabbableProp.ThawDelayFrames;
+
+    /// <summary>A prop whose remote hold has ended and whose <c>MonitorMovement</c> is still
+    /// suppressed, with the frame its restore falls due.</summary>
+    private sealed class PendingThaw
+    {
+        public GameObject? Visual;
+        public ApparanceEntity[] Entities = System.Array.Empty<ApparanceEntity>();
+        public bool[] Monitor = System.Array.Empty<bool>();
+        public int DueFrame;
+        public string Label = "'?'";
+        public bool PoseWritten;
+    }
+
+    /// <summary>Remote holds whose <c>MonitorMovement</c> restore is pending. One per hand per peer
+    /// at the very worst, and empty in the steady state.</summary>
+    private static readonly List<PendingThaw> _thawing = new(2);
+
+    /// <summary>How many thaw verdicts a session prints PER VERDICT CLASS. Two classes, capped
+    /// separately, because a cap shared between "it worked" and "it did not" goes silent on the
+    /// answer that matters as soon as the other one fills it.</summary>
+    private const int ThawLogBudget = 3;
+
+    private static int _thawSuppressed;   // handed back with hasChanged already consumed ⇒ no rebuild
+    private static int _thawStillArmed;   // handed back with hasChanged STILL true ⇒ a rebuild follows
+    private static int _thawLoggedOk;
+    private static int _thawLoggedArmed;
+
     // ---- send ---------------------------------------------------------------------------
 
     /// <summary>
@@ -364,10 +421,12 @@ internal static class NetProps
             RestoreHome(player.Primary);
             RestoreHome(player.Secondary);
         }
+        FlushThaws(); // the deferral must never outlive the driver that would have completed it
         _byPlayer.Clear();
         _propById.Clear();
         _visualById.Clear();
         _loggedMirror = false; // a new session earns its own HW-VERIFY line
+        _thawSuppressed = _thawStillArmed = _thawLoggedOk = _thawLoggedArmed = 0;
         NetHeldProps.Clear();
     }
 
@@ -380,6 +439,7 @@ internal static class NetProps
     /// held and no thaw is pending.</summary>
     public static void Tick()
     {
+        TickThaws(); // ABOVE the gate: a thaw falls due exactly as the last hold is forgotten
         if (_byPlayer.Count == 0)
             return;
 
@@ -532,16 +592,27 @@ internal static class NetProps
     /// undo. A release path that skipped it would leave a peer's chest hanging in the air where
     /// their hand was, for the rest of the scenario.</para>
     ///
-    /// <para><b>THE THAW IS IMMEDIATE HERE, unlike the local hold's</b>, and the difference is the
-    /// glide. <c>GrabbableProp.ScheduleThaw</c> waits three frames because a locally released prop
-    /// keeps MOVING — it eases home — so handing <c>MonitorMovement</c> back at once would re-arm
-    /// the rebuild trigger in the middle of that motion. A remote release is ONE write of the home
-    /// pose and then nothing, so there is no settling to wait for, and waiting would cost more than
-    /// it saves: the local player can grab the very prop a peer just put down within those three
-    /// frames (the remote grab-lock lifts on this same call), and <c>FreezeApparance</c> would then
-    /// capture the SUPPRESSED value as if it were the authored one and hand back <c>false</c> for
-    /// ever — a prop that can never rebuild again for the rest of the session. One rebuild on the
-    /// cell is the price of not having that race, and it is the right one.</para>
+    /// <para><b>THE THAW IS DEFERRED HERE, exactly as the local hold's is</b> (2026-09-06). Until
+    /// this build it was immediate, and the comment that stood here argued the wait was pointless
+    /// because "a remote release is ONE write of the home pose and then nothing, so there is no
+    /// settling to wait for". That reasoning was wrong about what the wait is FOR. It is not
+    /// settling: it is the one tick in which Apparance consumes the home write's
+    /// <c>Transform.hasChanged</c> while <c>allow_refresh</c> is still false. Handing
+    /// <c>MonitorMovement</c> back in the same call left that flag armed, so the next
+    /// <c>MonitorBounds</c> set <c>m_RequestRefresh</c> and the prop re-generated its placed content
+    /// on its hex — which replays the trap's <c>SFXOnEnable</c> spawn sound and its spawn particle
+    /// burst on every observer. The old comment named the cost itself ("one rebuild on the cell is
+    /// the price") without noticing that a rebuild IS a re-spawn. See the deferred-thaw block above
+    /// for the decompiled chain.</para>
+    ///
+    /// <para><b>AND THE RACE THAT WAIT WAS AVOIDING IS CLOSED BY NAME, not by not waiting.</b> The
+    /// local player can grab the very prop a peer just put down inside those three frames (the
+    /// remote grab-lock lifts on this same call), and a freeze that ran first would capture the
+    /// SUPPRESSED <c>false</c> as if it were the authored value and hand it back for ever — a prop
+    /// unable to rebuild for the rest of the session. Both freezes now complete a pending thaw
+    /// before they capture anything: <see cref="CompletePendingThaw"/> from
+    /// <c>GrabbableProp.FreezeApparance</c>, and <c>GrabbableProp.CompletePendingThaw</c> from
+    /// <see cref="Freeze"/> for the mirror image of the same race.</para>
     /// </summary>
     private static void RestoreHome(RemoteHeld? rec)
     {
@@ -560,7 +631,7 @@ internal static class NetProps
             t.localRotation = rec.HomeLocalRot;
             t.localScale = rec.HomeLocalScale;
         }
-        Thaw(rec);
+        ScheduleThaw(rec);
     }
 
     /// <summary>
@@ -574,6 +645,13 @@ internal static class NetProps
     {
         if (rec.Frozen != null || rec.Visual == null)
             return;
+        // A FREEZE MUST NEVER CAPTURE A SUPPRESSED VALUE. Both deferred thaws are completed first —
+        // this module's (a peer put the prop down and picked it straight back up) and the local
+        // hold's (the local player put it down and a peer grabbed it inside the same three frames).
+        // Whichever one is pending owns the AUTHORED MonitorMovement, and reading the field before
+        // it has handed that back is how a prop gets stranded unable to rebuild for the session.
+        CompletePendingThaw(rec.Visual);
+        GrabbableProp.CompletePendingThaw(rec.Visual);
         ApparanceEntity[] entities = rec.Visual.GetComponentsInChildren<ApparanceEntity>(includeInactive: true);
         rec.Frozen = entities;
         rec.FrozenMonitor = new bool[entities.Length];
@@ -587,21 +665,121 @@ internal static class NetProps
         }
     }
 
-    /// <summary>Hand every captured <c>MonitorMovement</c> back. Idempotent.</summary>
-    private static void Thaw(RemoteHeld rec)
+    /// <summary>Move this hold's <c>MonitorMovement</c> ledger onto the pending-thaw list, due
+    /// <see cref="ThawDelayFrames"/> frames from now. Idempotent, and a no-op for a hold that never
+    /// froze anything (a prop with no <c>ApparanceEntity</c> — a plain prefab).</summary>
+    private static void ScheduleThaw(RemoteHeld rec)
     {
         ApparanceEntity[]? entities = rec.Frozen;
         bool[]? monitor = rec.FrozenMonitor;
         rec.Frozen = null;
         rec.FrozenMonitor = null;
-        if (entities == null || monitor == null)
+        if (entities == null || monitor == null || entities.Length == 0)
             return;
-        for (int i = 0; i < entities.Length && i < monitor.Length; i++)
+
+        // One pending thaw per visual. A second release of the same object before the first came
+        // due would otherwise hand the field back twice, and the second ledger's captured value is
+        // the SUPPRESSED one.
+        CompletePendingThaw(rec.Visual);
+        _thawing.Add(new PendingThaw
         {
-            ApparanceEntity e = entities[i];
-            if (e != null)
-                e.MonitorMovement = monitor[i];
+            Visual = rec.Visual,
+            Entities = entities,
+            Monitor = monitor,
+            DueFrame = Time.frameCount + ThawDelayFrames,
+            Label = Label(rec.Prop),
+            PoseWritten = rec.PoseTouched,
+        });
+    }
+
+    /// <summary>One call per frame from <see cref="Tick"/>, ABOVE its "nothing held" gate for the
+    /// same reason <c>GrabbableProp.TickThaws</c> sits above the feature gate: a thaw falls due
+    /// precisely when the last remote hold has just been forgotten, and a pending restore must
+    /// never outlive the driver that would have completed it.</summary>
+    private static void TickThaws()
+    {
+        for (int i = _thawing.Count - 1; i >= 0; i--)
+        {
+            if (Time.frameCount >= _thawing[i].DueFrame)
+                Complete(_thawing[i], "settled");
         }
+    }
+
+    /// <summary>
+    /// Complete the pending thaw for <paramref name="visual"/> NOW, if there is one. Called by every
+    /// path that is about to CAPTURE <c>MonitorMovement</c> on that object — this module's
+    /// <see cref="Freeze"/> and <c>GrabbableProp.FreezeApparance</c> — so a capture can never read
+    /// the value this module suppressed and hand it back as the authored one.
+    /// </summary>
+    internal static void CompletePendingThaw(GameObject? visual)
+    {
+        if (visual == null || _thawing.Count == 0)
+            return;
+        for (int i = _thawing.Count - 1; i >= 0; i--)
+        {
+            if (ReferenceEquals(_thawing[i].Visual, visual))
+                Complete(_thawing[i], "re-grabbed");
+        }
+    }
+
+    /// <summary>Hand every pending <c>MonitorMovement</c> back IMMEDIATELY — scenario teardown,
+    /// driver teardown, module shutdown. One rebuild on the cell is the price of not stranding a
+    /// prop that can never rebuild again, and here it is the right one.</summary>
+    private static void FlushThaws()
+    {
+        for (int i = _thawing.Count - 1; i >= 0; i--)
+            Complete(_thawing[i], "flushed");
+        _thawing.Clear();
+    }
+
+    /// <summary>Hand one ledger back and report what the deferral bought. Idempotent by removal.</summary>
+    private static void Complete(PendingThaw p, string why)
+    {
+        _thawing.Remove(p);
+
+        // THE FALSIFIER, READ BEFORE THE WRITE AND NEVER CLEARED BY IT. `hasChanged` on the entity's
+        // own transform is the exact term ApparanceEntity.MonitorBounds tests, and
+        // SetProcedureBoundsFromEntityBounds is the only thing that clears it. TRUE here means the
+        // next MonitorBounds runs with allow_refresh=true and requests the refresh that re-spawns
+        // the prop's content; FALSE means a tick already consumed it while refreshing was still
+        // disallowed, so no rebuild — and no spawn sound — can follow.
+        int armed = 0, live = 0;
+        for (int i = 0; i < p.Entities.Length && i < p.Monitor.Length; i++)
+        {
+            ApparanceEntity e = p.Entities[i];
+            if (e == null)
+                continue;
+            live++;
+            if (e.transform.hasChanged)
+                armed++;
+            e.MonitorMovement = p.Monitor[i];
+        }
+
+        if (armed > 0) _thawStillArmed++; else _thawSuppressed++;
+
+        bool print = armed > 0 ? _thawLoggedArmed < ThawLogBudget : _thawLoggedOk < ThawLogBudget;
+        if (!print)
+            return;
+        if (armed > 0) _thawLoggedArmed++; else _thawLoggedOk++;
+
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Net", $"[Props] REMOTE RELEASE THAW ({why}) for {p.Label}: the peer's hold ended, "
+            + $"this client wrote the prop's home pose ({(p.PoseWritten ? "yes" : "no — never moved")}) "
+            + $"and handed MonitorMovement back to {live} live ApparanceEntity(s) after a deferral of "
+            + $"{ThawDelayFrames} frame(s). REBUILD TRIGGER STILL ARMED ON {armed} OF THEM. "
+            + "THAT COUNT IS THE WHOLE ANSWER, and the term it names is Transform.hasChanged: "
+            + "ApparanceEntity.MonitorBounds fires on it every tick and passes MonitorMovement in as "
+            + "`allow_refresh`, so a flag still set when the field goes back true makes the next tick "
+            + "request a refresh — and a refresh re-runs CreateInstance (Object.Instantiate) for "
+            + "every placed object under the prop, whose Awake/OnEnable REPLAY the prop's spawn "
+            + "effect: a trap's SFXOnEnable plays the very sound the game plays when an enemy spawns "
+            + "a new trap, plus ParticleSystem_OnEnable_Default's burst. 0 armed = the deferral "
+            + "consumed the flag while refreshing was disallowed and the sound cannot follow; any "
+            + "non-zero count = this fix is INERT on this prop and the sound is still coming. "
+            + $"Session totals: {_thawSuppressed} release(s) landed with the trigger consumed, "
+            + $"{_thawStillArmed} with it still armed. At most {ThawLogBudget} line(s) per verdict "
+            + "class, counted separately so the answer that matters cannot be crowded out.");
     }
 
     private static string Label(CObjectProp? prop)

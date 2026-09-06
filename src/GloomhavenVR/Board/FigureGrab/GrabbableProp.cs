@@ -1870,7 +1870,11 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// HOME pose, the flag is cleared, and nothing is left pending when monitoring resumes. Two
     /// frames is the minimum that can do it; three is the margin.</para>
     /// </summary>
-    private const int ThawDelayFrames = 3;
+    /// <remarks>Internal since 2026-09-06: <c>Net.NetProps</c> defers a REMOTE release's thaw by the
+    /// same number of frames and reads it from here rather than restating it, so the constant that
+    /// decides whether a released prop re-spawns its content cannot drift between the two
+    /// paths.</remarks>
+    internal const int ThawDelayFrames = 3;
 
     /// <summary>Props whose <c>MonitorMovement</c> restore is pending. Never more than two.</summary>
     private static readonly List<GrabbableProp> Thawing = new(2);
@@ -1889,6 +1893,14 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _thawFrame = 0;
         if (_frozenEntities != null || _visual == null)
             return;
+
+        // A FREEZE MUST NEVER CAPTURE A SUPPRESSED VALUE (2026-09-06). A peer's release defers its
+        // own MonitorMovement restore by the same three frames this class does, and the remote
+        // grab-lock lifts on that same call — so the local player really can grab a prop whose
+        // authored value is still parked in Net.NetProps. Reading the field first would record
+        // `false` as if it were authored and hand it back for ever, leaving a prop that can never
+        // rebuild again for the rest of the session.
+        Net.NetProps.CompletePendingThaw(_visual);
 
         EntityScratch.Clear();
         _visual.GetComponentsInChildren(includeInactive: true, EntityScratch);
@@ -1967,6 +1979,25 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         {
             GrabbableProp p = Thawing[i];
             if (Time.frameCount >= p._thawFrame)
+                p.ThawApparance();
+        }
+    }
+
+    /// <summary>
+    /// Complete the pending thaw for <paramref name="visual"/> NOW, if this class owns one — the
+    /// mirror image of <c>Net.NetProps.CompletePendingThaw</c>, called from that module's own
+    /// freeze. A peer can grab the very prop the local player put down inside the three frames
+    /// before its <c>MonitorMovement</c> goes back on, and a capture that ran first would take the
+    /// SUPPRESSED value for the authored one.
+    /// </summary>
+    internal static void CompletePendingThaw(GameObject? visual)
+    {
+        if (visual == null || Thawing.Count == 0)
+            return;
+        for (int i = Thawing.Count - 1; i >= 0; i--)
+        {
+            GrabbableProp p = Thawing[i];
+            if (ReferenceEquals(p._visual, visual))
                 p.ThawApparance();
         }
     }
