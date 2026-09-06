@@ -15,7 +15,22 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
-## START AT §12 — ROUND SEVEN (2026-09-06) FOUND THE PAINTER IS **US**
+## START AT §13 — ROUND EIGHT (2026-09-06) KILLED TWO LEADS BY MEASUREMENT AND SHIPPED NO FIX
+
+The ModBuild 453 log falsifies §12's own premise: `REWOUND FIRST` reads `0 of 67 slot(s)
+changed value`, which is strand 6 INERT by the falsifier §12.4 wrote for it, so the freeze was
+latching nothing. Texture mip streaming — the lead round eight was briefed to test — is dead
+too, killed by this repo's own `] [Perf] TEX` line (`streamingMipmaps=False`, forced off by
+this mod). Every state probe in this file reads dark over 169 frames while the user's video
+shows a real decay. **And the photometry of that video is itself partly a movement artefact —
+the ring is white when seen FACE-ON and bronze when seen EDGE-ON, so nothing shipped so far
+can tell a TIME ramp from a POSE ramp.** Round eight shipped one instrument and no remedy;
+read [§13](#13-round-eight--2026-09-06-against-the-modbuild-453-log-and-the-users-video-two-leads-killed-by-measurement-and-every-remaining-reading-is-an-identity-a-count-cannot-give)
+first, then §12 for what strand 6 has left to answer.
+
+---
+
+## §12 — ROUND SEVEN (2026-09-06) THOUGHT THE PAINTER WAS **US** (superseded by §13)
 
 §11's occlusion strand read its own WORKING shape on the ModBuild 450 log for the trap and the user
 reported the defect unchanged, so it is not the painter either. Round seven stopped looking for a
@@ -990,3 +1005,240 @@ fix.
   next to an untested one-call fix would also make the next round unable to attribute.
 * It did **not** touch the animators carrying `DelayedDeactivatePropAnimSMB`, or add any second
   suppression. One remedy per round, with a pre-count.
+
+---
+
+## 13. Round eight — 2026-09-06, against the ModBuild 453 log and the user's video: two leads killed by measurement, and every remaining reading is an identity a COUNT cannot give
+
+**User, verbatim, after testing ModBuild 453:** *"Das weisse aufblitzen ist nach wie vor in der Hand
+zu sehen. In der Hand ist es allerdings deutlich langsamer als wäre es zeitlupe."*
+
+This round shipped **NO REMEDY**. It is instrument-only, and §13.6 says why that is forced rather
+than cautious.
+
+### 13.1 The two things the ModBuild 453 log settles, and both are negative
+
+Anchored on `^\[Info   :GloomhavenVR\] \[FigureGrab\] \[Props\] HELD-PROP ` and
+`^\[Info   :GloomhavenVR\] \[Perf\] TEX `. Single-player session, `Player.log` line 40 reads
+`[Core] GloomhavenVR ModBuild 453`. Two `Trap` grabs and one `OneHexObstacle` grab.
+
+**(a) STRAND 6 IS INERT BY ITS OWN FALSIFIER, so ModBuild 453's premise is dead on measurement as
+well as on the video.** `ANIMATION HUSH`, section `REWOUND FIRST`, for the trap:
+
+```
+1 of them were taken back to their BOUND DEFAULT VALUES … and 0 of 67 (material, property)
+slot(s) changed value because of it.   0 could not be rewound.
+```
+
+§12.4 wrote the reading of that zero in advance: rewound non-zero **and** changed **zero** is INERT
+— the clip was already at rest at the grab, so the freeze was latching nothing and removing the
+latch can be neither an improvement nor a regression. §12.4 also named a *third* reading of that
+zero (`WriteDefaultValues` not landing as an immediate write, distinguishable by a non-zero
+`anyLayerRate home`), and the 453 `ANIMATION A/B` line reads `anyLayerRate home=0.201/s` — so that
+third reading is **live and unexcluded**. It does not matter for this round, because the picture in
+the video is a ramp and a latch is a constant either way, but it is the one thing strand 6 has left
+to answer and `Animator.Rebind()` is still its lever.
+
+**(b) TEXTURE MIP STREAMING IS FALSIFIED, and by an instrument that was already in this repository.**
+Round eight was briefed to test mip streaming as its lead — a monotonic multi-second settle, local
+to one object, beginning when that object suddenly fills the eye, is the classic shape. It is not
+what is happening here. `] [Perf] TEX`, six lines this session, verbatim:
+
+```
+masterTextureLimit=0 (FULL — mip 0 is live, so no global mip drop is in play …)
+streamingMipmaps=False (off BECAUSE THIS MOD TURNED IT OFF — [RenderQuality]
+   ForceTextureStreamingOff, asserted per frame by Rig/RenderQuality.ApplyTextureStreaming …)
+```
+
+That is exactly the reading the brief named as the one that kills the lead: nothing streams, so
+nothing can settle. **Do not re-propose it, do not pin `requestedMipmapLevel`, and do not touch a
+global streaming or quality dial — that is a user dial.**
+
+**BUT RECORD THIS, BECAUSE THE SAME LINE CONTRADICTS ITSELF.** Its prose asserts *"Every mipped
+texture is resident in full here"* while its own population clause, twenty words later in the same
+string, counts:
+
+```
+STREAMING: 68 of them are streamed, 68 currently BELOW their desired mip level
+   ⇒ EVERY STREAMED TEXTURE IN VIEW IS BEHIND
+```
+
+One of those two is wrong. The prose is an **assertion in a log string** and the 68 is a
+**measurement**, and this project's own standing rule is that the first is a hypothesis. Neither is
+a reading of the held prop. Round eight therefore closes it *locally* with two integers on the new
+line (§13.5) rather than by argument, and the whole-scene question is left where it belongs, with
+the `Perf/TEX` lane.
+
+**(c) Every state probe in this file is dark, over 169 frames, while the video shows a ramp.**
+`PAINT AFTER HUSH for 'Trap' Trap`, 169 frames, closed because the prop was put down: animators
+`at most 0 enabled`, outlines `at most 0 enabled`, lights `0 of 0`, particles `0 of 0`, occlusion
+`1 volume, 1 enabled beforehand, at most 0 still registered` with `_ObjectOcclusion re-bound … on
+168 frame(s)`, material properties `2 material(s) … 67 slot(s) … 0 — NONE of the 67 slot(s) moved
+on any frame`. That is the "STILL BEYOND THE INSTRUMENT" branch the 453 commit names for itself.
+
+### 13.2 A CORRECTION TO THE PHOTOMETRY THAT BRIEFED THIS ROUND, and it changes what must be measured
+
+The brief's reading of `.planning/debug/fallen_weisses_aufblitzen.mp4` is **ONE MONOTONIC ~3.4 s RAMP
+from over-bright white down to no glow, beginning at the grab**, measured as the percentage of
+pixels with Y>175 inside a *fixed* 520x520 window. The decay is real. **The curve is not
+trustworthy as a curve, because that instrument measures a product and reports one factor.**
+
+Open the crops in order. At **t=1.8, 2.2, 2.6, 3.0, 3.6** the trap's jaw ring is unambiguously
+ivory white. At **t=4.4** the brightness fraction has fallen to 0.32 % — a factor of fifteen below
+the peak — and the ring **is still ivory white in the picture**; what changed is that the hand has
+rotated and the ring now occupies a fraction of the window it filled at 2.6. By **t=5.4** it is
+dark bronze. So the fraction fell for two reasons at once and the line cannot separate them, which
+is this project's recorded shape: *a diagnostic modelling a SUBSET of what the eye sees agrees with
+the eye and names the wrong cause.*
+
+**And there is a second term in the same pictures that nobody has proposed.** The ring is white when
+it is seen **face-on** (a full circle, t=2.0–3.6) and bronze when it is seen **edge-on** (an
+ellipse, t=5.4–6.6). A view-angle-dependent term — a specular lobe, a fresnel/rim, a reflection
+probe — produces exactly that and produces it with **no clock in it at all**. The transition in the
+mosaic tracks the wrist, not the second hand.
+
+**So the round-eight question is not "what ramps over 3.4 s".** It is: *is the decay a function of
+TIME or of POSE?* Nothing shipped in seven rounds can tell those apart, and picking a remedy before
+that is settled is picking between two different fixes by coin toss. The new line prints the view
+angle and the head distance **on the same quarter-second timebase as the photometry**, which is the
+whole point.
+
+### 13.3 THE TWO NUMBERS IN THE 453 LOG THAT ARE IDENTITIES, NOT QUANTITIES
+
+Both are printed by instruments this file already ships, both are non-zero, and neither has ever
+been chased — because a count cannot answer either of them.
+
+| the reading | why a count cannot answer it |
+|---|---|
+| `RENDERERS: 3 sampled of 3 found, at most 1 drawing and 1 reported isVisible` (169 frames), and `HELD? two frames after the grab: 1 of 2 renderer(s) are actually drawing (2 on active objects)` | Two of the prop's renderers never drew. **Which two?** The `HELD?` line's own prose says *"drawn < total on renderers this class never touched means something DISABLED them, and the only thing in this mod that disables airborne scenery is WallSegmentFade"* — that falsifier has been firing in every log for several rounds and nobody read it, because the line prints a fraction and not a name. It may also be perfectly normal (a bear trap prefab has an armed mesh and a sprung mesh). Only a name settles it. |
+| `mat1 'GloomhavenVR/Overlay' 10 declared / 10 tracked` | **One of the held prop's two materials is THIS MOD'S OWN SHADER**, and `OverlayPulse x1` is in the prop's MonoBehaviour histogram. §11.6 argues it is the pre-grab `FigureHighlight` clone caught in its deferred-`Destroy` frame and therefore already condemned. That argument is **an assertion in a comment**, and this project has three recorded incidents of its own machinery being the churn it was measuring. Its colour did not move on any of 169 frames — but a *static* additive overlay is still a white wash, and "nothing moved" is exactly what one prints. Rule it in or out by name. |
+
+The recorded lesson is the title of one of this project's own memory entries: **name the blocker,
+not the number** — six rounds once tuned a coverage FRACTION where one field naming WHICH renderer
+would have ended it. That is what shipped.
+
+### 13.4 What shipped — `] [Props] HELD-PROP ROSTER`, and it is an instrument, not a fix
+
+A second `VRLog.Note` line beside `PAINT AFTER HUSH`, emitted from `CloseVerdict`, with its own grep
+token so a hardware round can pull it alone. Sampled every frame of the same post-hush window.
+Sections:
+
+1. **ROSTER.** Every renderer under the prop by **hierarchy path** and component type, with each
+   material's name and shader, a `MOD-OWNED` / `game-owned` verdict taken from the shader
+   namespace (`GloomhavenVR/`), and per renderer: frames DRAWING, frames `isVisible`, frames
+   carrying a `MaterialPropertyBlock`, worst overridden-slot count, and the frame it was
+   destroyed at. Each entry carries the index it was taken from, so a null at arm time cannot
+   shift the roster against the array it reads (a set that shrank under a per-entry read is a
+   recorded incident here).
+2. **PROPERTY BLOCKS, READ EVERY FRAME.** Section-5 item 1 of the brief, and the 453 verdict's own
+   first still-open item. The existing `HELD?` probe reads blocks **once**, two frames after the
+   grab, and a snapshot cannot see a ramp. This asks each block, every frame, which of the
+   shader's own properties it overrides, names them, and reads the **dissolve channels by name and
+   by value** — every declared property whose name contains *dissolve* or *cutout*, plus
+   `_Toggle_Dissolve` and `_Dissolve` whether or not the shader declares them, because a block can
+   carry an id the material never had. A dissolve **is** a ramp, which is the one shape the video
+   shows.
+3. **SHADER KEYWORDS**, on a 15-frame cadence because `Material.shaderKeywords` allocates. Section-5
+   item 2. A keyword switches a whole branch with no property moving, so *"none of the 67 slots
+   moved"* is not evidence that the shader did the same thing on every frame.
+4. **LIGHTING BINDINGS UNITY RE-PICKS WHEN A RENDERER MOVES.** Section-5 item 3. The interpolated
+   light probe at the drawing renderer's bounds centre (`LightProbes.GetInterpolatedProbe`, printed
+   as the Rec.709 luminance of the L0 band, first / last / range) and the reflection probe
+   (`Renderer.GetClosestReflectionProbes` — count, closest by hierarchy path and weight, and how
+   many times the bound probe **changed identity**), plus both usage enums. Neither is a component,
+   a material property or a global, so every instrument in this file is blind to both by
+   construction — and a metal ring that leaves its authored probe volume and starts reflecting the
+   ambient is bright, view-dependent, and correct again the moment it turns away.
+5. **STALE WORLD ANCHORS.** Every VECTOR slot's value against the prop's live world position, with
+   the distance between them. See §13.7 — this is a correction to §12.5.
+6. **THE POSE CONFOUND**, §13.2: head-to-prop distance and the angle between the drawing renderer's
+   own forward axis and the view ray.
+7. **THE TIMELINE.** Quarter-second buckets, twenty-four of them, printing probe luminance, view
+   angle, head distance, renderers drawing and block-overridden slots **as a series**. This is the
+   half no earlier round had: the user's word is *zeitlupe* and his video is a ramp, and a single
+   aggregate per hold can neither agree nor disagree with a ramp.
+8. **MIP RESIDENCY ON THIS PROP'S OWN TEXTURES** — two integers, closing §13.1(b) locally.
+
+### 13.5 The grep token and how to read it
+
+```
+grep -n '^\[Info   :GloomhavenVR\] \[FigureGrab\] \[Props\] HELD-PROP ROSTER' Player.log
+```
+
+Anchor on `] `. This file quotes other instruments' tokens inside its own prose and an unanchored
+grep counts the explanation as an occurrence; the integrator made exactly that mistake on this file.
+
+* **IT NAMES THE PAINTER** if a `MOD-OWNED` renderer drew for a stretch of the window, or a property
+  block overrode a slot on a stretch of it, or a dissolve channel carried a value that **walked**.
+* **IT NAMES A BINDING** if the light-probe luminance or the reflection probe identity changed
+  across the window while nothing else did.
+* **IT KILLS THIS ROUND'S OWN LEADS** if every renderer that drew is game-owned with no block, no
+  keyword changed, the probe luminance is flat and the reflection probe never re-bound. In that
+  case read the POSE line and the TIMELINE together: **if the view angle swept while every value
+  above held still, the decay in the video is the object TURNING**, and the next round must ask the
+  user to grab a trap and hold it **dead still** before it measures anything at all — which is a
+  test instruction, not a build.
+* **IT IS INERT** only if no renderer ever drew (`_rCount` 0 or every DRAWING count 0), in which
+  case the window did not contain a held prop and says nothing either way.
+
+### 13.6 Why no remedy shipped this round, and it is forced rather than cautious
+
+Every candidate left is measured *by* the thing that would fix it. Pin a mip and the mip reading is
+of the pinned state. Suppress our overlay and the roster reads a subtree with the overlay already
+gone. Clear a property block and the per-frame block reading is of a cleared block. This project's
+recorded rule is that **a fix gated behind the instrument shipped to test it never runs, so "no
+improvement" carries no information** — and the symmetric failure is just as fatal: a remedy
+shipped *beside* its own instrument makes that instrument a reading of the post-remedy world.
+Round 1 took the same decision in the same words: *"I DID NOT PIN THE CAUSE, SO I SHIPPED NOTHING
+THAT CLAIMS TO FIX IT."*
+
+**Multiplayer.** No wire field, no second code path, no per-sub-feature sync setting. This is a
+read-and-print instrument that writes nothing at all, so there is nothing to mirror; it rides the
+existing post-hush window, which `NetProps` reaches through `PropAnimBelt.Engage` (`NetProps.cs:288`)
+and `Release` (`NetProps.cs:550`) for a REMOTE hold exactly as a local one. **Verified from evidence
+on the LOCAL side only — the ModBuild 453 log is a single-player session; the mirrored half is
+reasoned from those two call sites, not measured.**
+
+### 13.7 A correction to §12.5, and the candidates a decompiled sweep turned up
+
+**§12.5 dismissed `ObjectPosToMaterial` on half of it.** It says the trap's one feeder *"writes only
+in `OnEnable` and through `GetComponent<Projector>()`, and the census counts 0 Projectors under this
+prop"*. `ObjectPosToMaterial` has **two** branches: `:29` is the Projector one and **`:34` is a
+`SkinnedMeshRenderer` branch**, and the 453 hush census reads `2 skin(s)` under this trap. The
+`OnEnable`-only part still stands, so it is not a live per-frame writer — but what it bakes is the
+object's **world position** into a shader vector, once. A bake taken on the hex and carried into a
+palm is a **constant wrong value**: it never moves, so every "did anything move" reading in this
+file is consistent with it, which is the same blind spot strand 6 was built for. Section 5 of the
+new line measures it, against the prop's live position, in world units.
+
+Other mechanisms found in the decompiled tree with the right *shape* (a multi-second, self-correcting
+appearance change on a prop) and their distinguishing facts, none of them yet ruled in or out for
+this trap:
+
+| candidate | file:line | what distinguishes it |
+|---|---|---|
+| `RFX4_ReplaceMaterialByTime` | `GH.Runtime/RFX4_ReplaceMaterialByTime.cs:29-30,36` | Restores the original material and re-arms `Invoke("ReplaceObject", TimeDelay)` on **every `OnEnable`** — a literal "wrong material for N seconds, then correct" machine. **Not in the trap's 15-type histogram**, so it needs a subtree the census did not reach to be live here. It would show on the new line as a **shader/material name change between the roster (arm) and the material table**. |
+| `MaterialLoaderData` | `GH.Runtime/MaterialLoaderData.cs:36,71-72` | `Renderer.enabled = false` at `:36`, `sharedMaterials` + `enabled = true` at `:71-72`. Its failure mode is **invisible, never white** — it never shows a placeholder. It is the best explanation on offer for `1 of 2 renderer(s) drawing`, and the roster names which one. |
+| mod-side `MaterialLoaderHeal` | `src/GloomhavenVR/Core/MaterialLoaderHeal.cs:435,442,1076` | `ScanInterval=1f` + `MinStuckSeconds=3f` ⇒ a **~4 s** heal latency, which is a suspiciously exact match for the video. But it assigns real loaded materials and carries no white fallback, so it can produce a **dark→correct** settle and not a **white→correct** one. Timing coincidence unless the roster puts the white renderer under a `MaterialLoaderData` entry. |
+| `Bootstrap.cs:30` `Texture.streamingTextureDiscardUnusedMips = true` | `GH.Runtime/Bootstrap.cs:30` | The game evicts unused mips process-wide. It is the mechanism that would have made the mip lead right — and it is **moot while this mod forces streaming off**, §13.1(b). Recorded so the next reader does not find it and think it is new. |
+
+**Ruled out by that sweep, with what was grepped:** realtime GI convergence (`DynamicGI`,
+`UpdateGIMaterials`, `realtimeLightmap` — none game-side), light-probe re-tetrahedralisation
+(`Tetrahedralize` — zero hits tree-wide; `CreateLightProbes.cs:13` runs once per scene load from
+`UnityGameEditorRuntime.cs:185`), runtime reflection-probe rendering with time slicing
+(`timeSlicingMode` — none; the two `RenderProbe` call sites are unused Rene-Fx demo assets), and
+`requestedMipmapLevel` / `ClearRequestedMipmapLevel` / `QualitySettings.streamingMipmaps*` (no game
+call site at all).
+
+### 13.8 What round eight did NOT do, and why
+
+* It did **not** build a mip instrument or pin a mip level — §13.1(b) killed the lead by
+  measurement before a line was written.
+* It did **not** ship the per-eye picture difference §11.4 prescribes. That prescription is
+  conditional on every state probe being exhausted, and this round found three unexhausted ones
+  inside the existing window (per-frame blocks, keywords, lighting bindings) plus an identity
+  question (§13.3) that no picture can answer.
+* It did **not** suppress the mod's own overlay on a held prop, which is the obvious move if §13.3's
+  second row is the answer. Suppressing it would make the reading that decides it impossible to
+  take — see §13.6.
+* It did **not** bump `NetProtocol.ModBuild`; the integrator does that once per build.

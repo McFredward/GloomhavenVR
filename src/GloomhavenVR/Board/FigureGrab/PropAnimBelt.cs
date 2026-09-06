@@ -329,6 +329,21 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// two props a pair of hands can hold. <see cref="Tick"/> is a <c>Count</c> compare when nothing is
 /// held and one frame-counter compare per held prop otherwise. No allocation on the per-frame path.
 /// </para>
+///
+/// <para><b>ROUND EIGHT, 2026-09-06 — READ .planning/held-prop-flash-experiments.md §13 BEFORE
+/// TOUCHING ANY STRAND HERE. STRAND 6 IS INERT AND THE STREAMING LEAD IS DEAD.</b> The ModBuild
+/// 453 log reads <c>0 of 67 (material, property) slot(s) changed value</c> across the rewind,
+/// which is strand 6 INERT by the falsifier <see cref="AppendRewind"/> prints for itself: the
+/// clip was already at rest at the grab, so the freeze was latching nothing. This repo's own
+/// <c>] [Perf] TEX</c> line reads <c>streamingMipmaps=False</c> (this mod forces it off), so
+/// texture mip streaming cannot be the settle either. Every class this file suppresses reads
+/// dark over 169 frames and the user still sees the white. What is left is not a component
+/// state at all but three identities a COUNT cannot give — WHICH renderer of three is the one
+/// drawing, whether the <c>GloomhavenVR/Overlay</c> material on the held prop is ours painting
+/// it, and whether the decay in his video is a function of TIME or of the POSE of the thing in
+/// his hand. <see cref="EmitRoster"/> is that reading and it writes nothing; round eight
+/// shipped NO remedy on purpose, because every candidate left is measured by the thing that
+/// would fix it (§13.6).</para>
 /// </summary>
 internal static class PropAnimBelt
 {
@@ -620,6 +635,100 @@ internal static class PropAnimBelt
 
     private static int _vForeignFound, _vForeignNear, _vForeignOn;
     private static readonly List<string> VForeignNames = new(ForeignNameCap);
+
+    // ---- ROUND EIGHT: THE ROSTER AND THE TIMELINE -------------------------------------------------
+    //
+    // WHY THIS BLOCK EXISTS, AND IT IS A LESSON THIS PROJECT HAS ALREADY PAID FOR ONCE. Every
+    // reading above is a COUNT. The ModBuild 453 log says, for the held trap, "RENDERERS: 3
+    // sampled of 3 found, at most 1 drawing and 1 reported isVisible" and "2 material(s) sampled
+    // of 2 found (mat0 'Amp_Char_Shader' …; mat1 'GloomhavenVR/Overlay' …)". Two of the prop's
+    // three renderers never drew for 169 frames and one of its two materials is THIS MOD'S OWN
+    // SHADER — and not one line in this file says WHICH renderer drew, WHICH one was dark, or
+    // whether the material the player is looking at is the game's or ours. The recorded lesson is
+    // "name the blocker, not the number": six rounds once tuned a coverage FRACTION where one
+    // field naming WHICH renderer would have ended it.
+    //
+    // AND THE SECOND HALF IS TIME. The user's own words for the ModBuild 453 build are "deutlich
+    // langsamer als wäre es zeitlupe", and the photometry of his video (.planning/debug/
+    // fallen_weisses_aufblitzen.mp4) shows the held trap decaying from ivory white to its correct
+    // bronze over roughly three and a half seconds and then staying correct. A ramp is a series of
+    // VALUES; every instrument in this file reports one aggregate per hold. So everything sampled
+    // here is also accumulated into quarter-second buckets and printed as a series, on the same
+    // timebase as the video, so a curve can be compared with a curve.
+    private const int RosterCap = 8;
+
+    /// <summary>Quarter-second buckets, twenty-four of them: six seconds, which covers the ~3.4 s
+    /// ramp measured in the user's video with room either side.</summary>
+    private const int TimelineBuckets = 24;
+    private const float TimelineBucketSeconds = 0.25f;
+
+    /// <summary>Frames between the two sampled readings that are not free: the interpolated light
+    /// probe (a tetrahedron lookup) and the reflection probe list. ~18 Hz at 90 fps, which is more
+    /// than the four samples per bucket the timeline can show.</summary>
+    private const int ProbeEvery = 5;
+
+    /// <summary>Frames between keyword reads. <c>Material.shaderKeywords</c> ALLOCATES a string[],
+    /// so this one is deliberately slower than the rest and is the only allocating read here.</summary>
+    private const int KeywordEvery = 15;
+    private const int KeywordNameCap = 10;
+
+    private static readonly string[] RName = new string[RosterCap];
+    private static readonly string[] RShaders = new string[RosterCap];
+    private static readonly bool[] RMine = new bool[RosterCap];
+    private static readonly int[] RDrawFrames = new int[RosterCap];
+    private static readonly int[] RVisFrames = new int[RosterCap];
+    private static readonly int[] RBlockFrames = new int[RosterCap];
+    private static readonly int[] RBlockOverrideMax = new int[RosterCap];
+    private static readonly int[] RDeadAtFrame = new int[RosterCap];
+
+    /// <summary>The index in <c>_vRenderers</c> each roster entry was taken from. The roster
+    /// SKIPS nulls, so the two arrays are only aligned when nothing was null at arm time;
+    /// carrying the source index is what keeps a per-frame reading on the object it names.
+    /// A set that shrank under a per-entry read is a recorded incident in this project.</summary>
+    private static readonly int[] RSrc = new int[RosterCap];
+    private static int _rCount, _rFound;
+
+    /// <summary>Reused for every <c>GetPropertyBlock</c>: the read is per renderer per FRAME, which
+    /// is the whole point — the grab-edge HELD? probe reads blocks ONCE, two frames after the grab,
+    /// and a single sample cannot see a ramp.</summary>
+    private static readonly MaterialPropertyBlock RBlock = new();
+    private static int _blkOverrideWorst;
+    private static int _blkFramesAny;
+    private static readonly List<string> BlkNamed = new(8);
+
+    /// <summary>Every property in the table whose NAME contains "dissolve", plus the two channels
+    /// named in this mod's own <c>WallSegmentFade</c> path whether or not the shader declares them.
+    /// A dissolve IS a ramp, which is why it is read by name rather than left inside an aggregate.</summary>
+    private const int DissolveCap = 8;
+    private static readonly int[] DissolveIds = new int[DissolveCap];
+    private static readonly string[] DissolveNames = new string[DissolveCap];
+    private static int _dissolveCount;
+    private static readonly float[] DissolveLo = new float[DissolveCap];
+    private static readonly float[] DissolveHi = new float[DissolveCap];
+    private static readonly int[] DissolveSeen = new int[DissolveCap];
+
+    private static readonly int[] KwMin = new int[VerdictMatCap];
+    private static readonly int[] KwMax = new int[VerdictMatCap];
+    private static readonly string[] KwFirst = new string[VerdictMatCap];
+    private static readonly string[] KwLast = new string[VerdictMatCap];
+    private static int _kwProbeAt, _kwProbes, _kwChanges;
+
+    private static int _probeAt, _probeSamples;
+    private static float _shLo, _shHi, _shFirst, _shLast;
+    private static int _reflectId, _reflectChanges, _reflectCountMax;
+    private static string _reflectName = "<none>";
+    private static string _probeUsage = string.Empty;
+    private static readonly List<UnityEngine.Rendering.ReflectionProbeBlendInfo> ReflectScratch = new(4);
+
+    private static float _poseAngLo, _poseAngHi, _poseDistLo, _poseDistHi;
+    private static float _tlT0;
+    private static readonly int[] TlN = new int[TimelineBuckets];
+    private static readonly float[] TlSh = new float[TimelineBuckets];
+    private static readonly float[] TlAng = new float[TimelineBuckets];
+    private static readonly float[] TlDist = new float[TimelineBuckets];
+    private static readonly int[] TlDraw = new int[TimelineBuckets];
+    private static readonly int[] TlBlk = new int[TimelineBuckets];
+    private static readonly int[] TlShN = new int[TimelineBuckets];
 
     /// <summary>
     /// Suppress a prop entering a hand. Idempotent per visual: a re-grab during the release glide
@@ -1750,6 +1859,9 @@ internal static class PropAnimBelt
         SweepForeignEmitters(go);
 
         ResolveVerdictMaterials();
+        // ROUND EIGHT. Armed AFTER the material table is resolved, because the roster reads
+        // the property blocks through that table's ids and the dissolve channels off its names.
+        ArmRoster(go);
     }
 
     /// <summary>
@@ -1994,6 +2106,7 @@ internal static class PropAnimBelt
         }
 
         SampleOutward();
+        SampleRoster(b);
 
         if (Time.frameCount >= _vEndFrame)
             CloseVerdict(b, "the window ran to its full length with the prop still in the hand");
@@ -2077,7 +2190,14 @@ internal static class PropAnimBelt
             return;
         _vBelt = null;
         if (_vFrames > 0)
+        {
             EmitPostHushVerdict(b, why);
+            // A SECOND LINE AND NOT A SECOND SECTION, on purpose: the verdict above is already
+            // ten kilobytes and this one has its own grep token so a hardware round can pull it
+            // alone. Anchor every grep on "] " - this file quotes other instruments' tokens
+            // inside its own prose and an unanchored grep counts the explanation as a hit.
+            EmitRoster(b);
+        }
     }
 
     /// <summary>
@@ -2377,6 +2497,651 @@ internal static class PropAnimBelt
             listed++;
         }
         sb.Append(listed < moved ? ", and the rest are counted but not named." : ".");
+    }
+
+
+    // ---- ROUND EIGHT: the roster, the per-frame property block, and the timeline -------------------
+
+    /// <summary>
+    /// Name every renderer under the held prop, once, when the window arms.
+    ///
+    /// <para>THE READING THAT MADE THIS NECESSARY. ModBuild 453, held bear trap, 169 frames:
+    /// <c>RENDERERS: 3 sampled of 3 found, at most 1 drawing and 1 reported isVisible</c>, and
+    /// <c>2 material(s) … mat0 'Amp_Char_Shader' … mat1 'GloomhavenVR/Overlay'</c>. Two of three
+    /// renderers never drew and one of the two materials is OURS. Neither fact is attributable
+    /// from a count: the line cannot say which renderer is dark, and it cannot say whether the
+    /// surface the player is looking at is the game's or this mod's overlay clone. This project
+    /// has three recorded incidents of its own machinery being the churn it was measuring, so
+    /// "our shader is on the held prop" is ruled in or out here by name, not by assumption.</para>
+    /// </summary>
+    private static void ArmRoster(GameObject go)
+    {
+        _rCount = 0;
+        _rFound = _vRenderers.Length;
+        for (int i = 0; i < RosterCap; i++)
+        {
+            RName[i] = string.Empty;
+            RShaders[i] = string.Empty;
+            RMine[i] = false;
+            RDrawFrames[i] = RVisFrames[i] = RBlockFrames[i] = RBlockOverrideMax[i] = 0;
+            RDeadAtFrame[i] = -1;
+            RSrc[i] = -1;
+        }
+        for (int i = 0; i < _vRenderers.Length && _rCount < RosterCap; i++)
+        {
+            Renderer r = _vRenderers[i];
+            if (r == null)
+                continue;
+            int k = _rCount++;
+            RSrc[k] = i;
+            RName[k] = Describe(r.transform) + " [" + r.GetType().Name + "]";
+            Material[] mats = r.sharedMaterials;
+            var names = new System.Text.StringBuilder(64);
+            for (int m = 0; m < mats.Length; m++)
+            {
+                Material mat = mats[m];
+                if (m > 0)
+                    names.Append(" + ");
+                if (mat == null)
+                {
+                    names.Append("<null slot>");
+                    continue;
+                }
+                Shader? sh = mat.shader;
+                string shName = sh != null ? sh.name : "<no shader>";
+                names.Append('\'').Append(mat.name).Append("' on ").Append(shName);
+                // OURS or THEIRS. Every shader this mod bundles is namespaced GloomhavenVR/, so the
+                // test is exact rather than a name guess.
+                if (shName.StartsWith("GloomhavenVR/", System.StringComparison.Ordinal))
+                    RMine[k] = true;
+            }
+            RShaders[k] = names.ToString();
+        }
+
+        // The dissolve channels, by NAME. A dissolve IS a ramp — it drives a cutout from 0 to 1
+        // over time — which is the one shape the user's video shows and the one shape a single
+        // snapshot two frames after the grab can never see. Read from the table so a shader that
+        // spells it differently is still caught, plus the two this mod's own WallSegmentFade path
+        // writes whether or not the shader declares them.
+        _dissolveCount = 0;
+        for (int slot = 0; slot < VTable.Capacity && _dissolveCount < DissolveCap; slot++)
+        {
+            string? n = VTable.Name[slot];
+            if (string.IsNullOrEmpty(n))
+                continue;
+            if (n!.IndexOf("dissolve", System.StringComparison.OrdinalIgnoreCase) < 0
+                && n.IndexOf("cutout", System.StringComparison.OrdinalIgnoreCase) < 0)
+                continue;
+            bool dup = false;
+            for (int d = 0; d < _dissolveCount; d++)
+                dup |= DissolveIds[d] == VTable.Id[slot];
+            if (dup)
+                continue;
+            DissolveIds[_dissolveCount] = VTable.Id[slot];
+            DissolveNames[_dissolveCount] = n;
+            _dissolveCount++;
+        }
+        AddDissolveChannel("_Toggle_Dissolve");
+        AddDissolveChannel("_Dissolve");
+        for (int d = 0; d < DissolveCap; d++)
+        {
+            DissolveLo[d] = float.MaxValue;
+            DissolveHi[d] = float.MinValue;
+            DissolveSeen[d] = 0;
+        }
+
+        _blkOverrideWorst = 0;
+        _blkFramesAny = 0;
+        BlkNamed.Clear();
+
+        for (int m = 0; m < VerdictMatCap; m++)
+        {
+            KwMin[m] = int.MaxValue;
+            KwMax[m] = -1;
+            KwFirst[m] = string.Empty;
+            KwLast[m] = string.Empty;
+        }
+        _kwProbeAt = 0;
+        _kwProbes = _kwChanges = 0;
+
+        _probeAt = 0;
+        _probeSamples = 0;
+        _shLo = float.MaxValue;
+        _shHi = float.MinValue;
+        _shFirst = _shLast = float.NaN;
+        _reflectId = 0;
+        _reflectChanges = 0;
+        _reflectCountMax = 0;
+        _reflectName = "<none>";
+        _probeUsage = string.Empty;
+
+        _poseAngLo = _poseDistLo = float.MaxValue;
+        _poseAngHi = _poseDistHi = float.MinValue;
+        _tlT0 = Time.unscaledTime;
+        for (int i = 0; i < TimelineBuckets; i++)
+        {
+            TlN[i] = TlDraw[i] = TlBlk[i] = TlShN[i] = 0;
+            TlSh[i] = TlAng[i] = TlDist[i] = 0f;
+        }
+    }
+
+    /// <summary>Add a channel this mod writes even when the shader does not declare it — a
+    /// <c>MaterialPropertyBlock</c> can carry an id the material never had.</summary>
+    private static void AddDissolveChannel(string name)
+    {
+        if (_dissolveCount >= DissolveCap)
+            return;
+        int id = Shader.PropertyToID(name);
+        for (int d = 0; d < _dissolveCount; d++)
+        {
+            if (DissolveIds[d] == id)
+                return;
+        }
+        DissolveIds[_dissolveCount] = id;
+        DissolveNames[_dissolveCount] = name;
+        _dissolveCount++;
+    }
+
+    /// <summary>
+    /// One frame of the roster, the property blocks and the timeline.
+    ///
+    /// <para>The property block read is the point. <c>MaterialPropertyBlock</c> overrides a value
+    /// at DRAW time and appears in neither <c>material</c> nor <c>sharedMaterial</c>, so it is
+    /// invisible to every material read-back in this file; the only reading this project has ever
+    /// taken on it is a SNAPSHOT two frames after the grab, and a snapshot cannot see a ramp. This
+    /// asks the block itself, every frame, which of the shader's own properties it is overriding
+    /// and what value it is carrying.</para>
+    /// </summary>
+    private static void SampleRoster(Belt b)
+    {
+        int bucket = (int)((Time.unscaledTime - _tlT0) / TimelineBucketSeconds);
+        if (bucket < 0)
+            bucket = 0;
+        if (bucket >= TimelineBuckets)
+            bucket = TimelineBuckets - 1;
+
+        int drawing = 0, blocksThisFrame = 0, overridesThisFrame = 0;
+        Renderer? lead = null;
+        for (int i = 0; i < _rCount; i++)
+        {
+            int src = RSrc[i];
+            Renderer r = src >= 0 && src < _vRenderers.Length ? _vRenderers[src] : null!;
+            if (r == null)
+            {
+                if (RDeadAtFrame[i] < 0)
+                    RDeadAtFrame[i] = _vFrames;
+                continue;
+            }
+            bool on = r.enabled && r.gameObject.activeInHierarchy;
+            if (on)
+            {
+                RDrawFrames[i]++;
+                drawing++;
+                lead ??= r;
+            }
+            if (r.isVisible)
+                RVisFrames[i]++;
+            if (!r.HasPropertyBlock())
+                continue;
+            RBlockFrames[i]++;
+            blocksThisFrame++;
+            r.GetPropertyBlock(RBlock);
+            int overrides = 0;
+            // The POPULATED slots only. VTable.Capacity is matCap x propCap = 1536 and the trap's
+            // real table is 67; walking the capacity would be 1536 iterations per renderer per
+            // frame for nothing. This project has a recorded 12.6 ms frame owned by one line.
+            for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+            {
+                int perMat = VTable.PerMat[m];
+                for (int k = 0; k < perMat; k++)
+                {
+                    int slot = (m * VerdictPropCap) + k;
+                    string? n = VTable.Name[slot];
+                    if (string.IsNullOrEmpty(n))
+                        continue;
+                    int id = VTable.Id[slot];
+                    bool has;
+                    switch (VTable.Kind[slot])
+                    {
+                        case PropTable.KindColor: has = RBlock.HasColor(id); break;
+                        case PropTable.KindVector: has = RBlock.HasVector(id); break;
+                        case PropTable.KindTexture: has = RBlock.HasTexture(id); break;
+                        default: has = RBlock.HasFloat(id) || RBlock.HasInt(id); break;
+                    }
+                    if (!has)
+                        continue;
+                    overrides++;
+                    if (BlkNamed.Count < VerdictListCap && !BlkNamed.Contains(n!))
+                        BlkNamed.Add(n!);
+                }
+            }
+            // The dissolve channels are read BY NAME and by VALUE, whether or not the count above
+            // saw them: the id may not be declared by this material's shader at all.
+            for (int d = 0; d < _dissolveCount; d++)
+            {
+                int id = DissolveIds[d];
+                if (!RBlock.HasFloat(id))
+                    continue;
+                float v = RBlock.GetFloat(id);
+                DissolveSeen[d]++;
+                if (v < DissolveLo[d])
+                    DissolveLo[d] = v;
+                if (v > DissolveHi[d])
+                    DissolveHi[d] = v;
+            }
+            if (overrides > RBlockOverrideMax[i])
+                RBlockOverrideMax[i] = overrides;
+            overridesThisFrame += overrides;
+        }
+        if (blocksThisFrame > 0)
+            _blkFramesAny++;
+        if (overridesThisFrame > _blkOverrideWorst)
+            _blkOverrideWorst = overridesThisFrame;
+
+        // THE POSE CONFOUND, and it is this round's own falsifier. The photometry of the user's
+        // video measures the bright-pixel FRACTION inside a FIXED window while the prop is being
+        // turned over in the hand, so a term that fades as the object rotates away from the eye
+        // and a term that fades with the CLOCK produce the same curve. Printing the angle and the
+        // distance on the same timebase is what tells them apart, and nothing else in this file
+        // can. This project has a recorded incident for exactly this shape: a diagnostic modelling
+        // a SUBSET of what the eye sees agrees with the eye and names the wrong cause.
+        float ang = float.NaN, dist = float.NaN;
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        if (head != null && lead != null)
+        {
+            Transform ht = head.transform;
+            Vector3 toProp = lead.bounds.center - ht.position;
+            dist = toProp.magnitude;
+            if (dist > 1e-4f)
+                ang = Vector3.Angle(lead.transform.forward, -toProp.normalized);
+        }
+        if (!float.IsNaN(ang))
+        {
+            if (ang < _poseAngLo)
+                _poseAngLo = ang;
+            if (ang > _poseAngHi)
+                _poseAngHi = ang;
+            TlAng[bucket] += ang;
+        }
+        if (!float.IsNaN(dist))
+        {
+            if (dist < _poseDistLo)
+                _poseDistLo = dist;
+            if (dist > _poseDistHi)
+                _poseDistHi = dist;
+            TlDist[bucket] += dist;
+        }
+        TlN[bucket]++;
+        TlDraw[bucket] += drawing;
+        TlBlk[bucket] += overridesThisFrame;
+
+        if (Time.frameCount >= _probeAt && lead != null)
+        {
+            _probeAt = Time.frameCount + ProbeEvery;
+            SampleLightingBindings(lead, bucket);
+        }
+        if (Time.frameCount >= _kwProbeAt)
+        {
+            _kwProbeAt = Time.frameCount + KeywordEvery;
+            SampleKeywords();
+        }
+    }
+
+    /// <summary>
+    /// The two per-renderer lighting bindings Unity RE-PICKS when a renderer moves, and which
+    /// therefore change for a prop carried across the room and for no other reason: the
+    /// interpolated light probe and the reflection probe. Neither is a component, a material
+    /// property or a global, so every instrument in this file is blind to both by construction.
+    /// </summary>
+    private static void SampleLightingBindings(Renderer lead, int bucket)
+    {
+        _probeSamples++;
+        if (_probeUsage.Length == 0)
+            _probeUsage = lead.lightProbeUsage + " / " + lead.reflectionProbeUsage;
+
+        LightProbes.GetInterpolatedProbe(lead.bounds.center, lead,
+            out UnityEngine.Rendering.SphericalHarmonicsL2 sh);
+        // The L0 (constant) band IS the ambient the surface receives from the probe. Rec. 709
+        // luminance of it, so one number can be put on a timeline beside a brightness curve.
+        float lum = (0.2126f * sh[0, 0]) + (0.7152f * sh[1, 0]) + (0.0722f * sh[2, 0]);
+        if (float.IsNaN(_shFirst))
+            _shFirst = lum;
+        _shLast = lum;
+        if (lum < _shLo)
+            _shLo = lum;
+        if (lum > _shHi)
+            _shHi = lum;
+        TlSh[bucket] += lum;
+        TlShN[bucket]++;
+
+        ReflectScratch.Clear();
+        lead.GetClosestReflectionProbes(ReflectScratch);
+        if (ReflectScratch.Count > _reflectCountMax)
+            _reflectCountMax = ReflectScratch.Count;
+        int id = 0;
+        if (ReflectScratch.Count > 0)
+        {
+            ReflectionProbe? p = ReflectScratch[0].probe;
+            if (p != null)
+            {
+                id = p.GetInstanceID();
+                _reflectName = Describe(p.transform) + ", weight "
+                               + ReflectScratch[0].weight.ToString("0.###");
+            }
+        }
+        if (_reflectId != 0 && id != _reflectId)
+            _reflectChanges++;
+        _reflectId = id;
+        ReflectScratch.Clear();
+    }
+
+    /// <summary>Shader keywords, on a slow cadence because <c>Material.shaderKeywords</c>
+    /// ALLOCATES. A keyword switches a whole shader branch on or off with NO property moving at
+    /// all, which is why "not one of 67 slots moved" is not evidence that the shader did the same
+    /// thing on every frame.</summary>
+    private static void SampleKeywords()
+    {
+        _kwProbes++;
+        for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+        {
+            Material mat = VTable.Mats[m];
+            if (mat == null)
+                continue;
+            string[] kws = mat.shaderKeywords;
+            int n = kws.Length;
+            if (n < KwMin[m])
+                KwMin[m] = n;
+            if (n > KwMax[m])
+                KwMax[m] = n;
+            string joined = n == 0
+                ? "<none>"
+                : string.Join(",", kws, 0, n < KeywordNameCap ? n : KeywordNameCap);
+            if (KwFirst[m].Length == 0)
+                KwFirst[m] = joined;
+            else if (!string.Equals(KwLast[m], joined, System.StringComparison.Ordinal))
+                _kwChanges++;
+            KwLast[m] = joined;
+        }
+    }
+
+    /// <summary>
+    /// THE LINE ROUND EIGHT EXISTS FOR. Everything above it in this file reports a COUNT over a
+    /// whole hold; this one names the objects and prints VALUES on the same quarter-second
+    /// timebase as the user's video.
+    /// </summary>
+    private static void EmitRoster(Belt b)
+    {
+        var sb = new System.Text.StringBuilder(4096);
+        sb.Append("[Props] HELD-PROP ROSTER for ").Append(_vLabel).Append(" — ").Append(_vFrames)
+          .Append(" frame(s). WHY THIS LINE EXISTS: every reading on the PAINT AFTER HUSH line "
+                  + "beside it is a COUNT over the whole hold, and the ModBuild 453 log's two "
+                  + "unexplained numbers are both identity questions a count cannot answer — "
+                  + "'at most 1 drawing' of 3 renderers, and one of the prop's two materials on "
+                  + "OUR OWN shader 'GloomhavenVR/Overlay'. The recorded lesson is 'name the "
+                  + "blocker, not the number'. The second half is TIME: the user's word for "
+                  + "ModBuild 453 is 'zeitlupe' and his video shows a ~3.4 s decay from ivory "
+                  + "white to the correct bronze, so everything here is also bucketed at ")
+          .Append(TimelineBucketSeconds.ToString("0.##"))
+          .Append(" s and printed as a series. ");
+
+        sb.Append("ROSTER — EVERY RENDERER UNDER THE PROP, BY HIERARCHY PATH, WITH ITS MATERIALS "
+                  + "AND SHADERS: ").Append(_rCount).Append(" named of ").Append(_rFound)
+          .Append(" sampled. ");
+        for (int i = 0; i < _rCount; i++)
+        {
+            sb.Append('[').Append(i).Append("] '").Append(RName[i]).Append("' ")
+              .Append(RMine[i]
+                  ? "MOD-OWNED (a GloomhavenVR/ shader — this renderer is OURS)"
+                  : "game-owned")
+              .Append(", materials ").Append(RShaders[i].Length == 0 ? "<none>" : RShaders[i])
+              .Append(", DRAWING on ").Append(RDrawFrames[i]).Append('/').Append(_vFrames)
+              .Append(" frame(s), isVisible on ").Append(RVisFrames[i])
+              .Append(", carried a MaterialPropertyBlock on ").Append(RBlockFrames[i])
+              .Append(" frame(s) (worst ").Append(RBlockOverrideMax[i])
+              .Append(" overridden slot(s))");
+            if (RDeadAtFrame[i] >= 0)
+                sb.Append(", DESTROYED at frame ").Append(RDeadAtFrame[i]).Append(" of the window");
+            sb.Append(". ");
+        }
+        sb.Append("READ IT LIKE THIS: a MOD-OWNED renderer with a non-zero DRAWING count is this "
+                  + "mod painting the prop the player is holding, and three separate incidents in "
+                  + "this project's record are of exactly that shape ('we were the churn'). A "
+                  + "game-owned renderer at DRAWING 0 for the whole window is a mesh somebody "
+                  + "switched off; whether that is normal for this prop is answered by the HOME "
+                  + "column of the ANIMATION A/B line, not here. ");
+
+        sb.Append("PROPERTY BLOCKS, READ EVERY FRAME AND NOT ONCE — this closes the blind spot "
+                  + "the ModBuild 453 verdict named first about itself: ").Append(_blkFramesAny)
+          .Append(" of ").Append(_vFrames)
+          .Append(" frame(s) had at least one renderer carrying a block, worst frame overrode ")
+          .Append(_blkOverrideWorst).Append(" slot(s)");
+        if (BlkNamed.Count > 0)
+            sb.Append(", naming: ").Append(string.Join(", ", BlkNamed));
+        sb.Append(". A block overrides a material value AT DRAW TIME and appears in neither "
+                  + "material nor sharedMaterial, so a zero on the material read-back is "
+                  + "consistent with a block painting the whole hold. THE DISSOLVE CHANNELS, BY "
+                  + "NAME AND BY VALUE, because a dissolve IS a ramp and a ramp is what the video "
+                  + "shows: ");
+        if (_dissolveCount == 0)
+            sb.Append("<no dissolve/cutout channel is declared by any material on this prop and "
+                      + "neither of the two this mod writes was found in any block>");
+        for (int d = 0; d < _dissolveCount; d++)
+        {
+            if (d > 0)
+                sb.Append("; ");
+            sb.Append(DissolveNames[d]).Append(" seen in a block on ").Append(DissolveSeen[d])
+              .Append(" frame(s)");
+            if (DissolveSeen[d] > 0)
+                sb.Append(", value ").Append(DissolveLo[d].ToString("0.###")).Append("..")
+                  .Append(DissolveHi[d].ToString("0.###"));
+        }
+        sb.Append(". ");
+
+        sb.Append("SHADER KEYWORDS, sampled every ").Append(KeywordEvery)
+          .Append(" frame(s) (").Append(_kwProbes)
+          .Append(" sample(s)) — a keyword switches a whole shader BRANCH with no property moving "
+                  + "at all, so 'not one slot moved' is not evidence the shader did the same "
+                  + "thing every frame: ").Append(_kwChanges)
+          .Append(" change(s) observed across all materials. ");
+        for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+        {
+            sb.Append("mat").Append(m).Append(' ').Append(VTable.ShaderOf(m)).Append(": ");
+            if (KwMax[m] < 0)
+                sb.Append("<never sampled>; ");
+            else
+                sb.Append(KwMin[m]).Append("..").Append(KwMax[m]).Append(" keyword(s), first [")
+                  .Append(KwFirst[m]).Append("], last [").Append(KwLast[m]).Append("]; ");
+        }
+
+        sb.Append("LIGHTING BINDINGS UNITY RE-PICKS WHEN A RENDERER MOVES, and this is the third "
+                  + "still-open item the 453 verdict named about itself — neither is a component, "
+                  + "a material property or a global, so nothing else in this file can see them: ")
+          .Append(_probeSamples)
+          .Append(" sample(s). INTERPOLATED LIGHT PROBE at the drawing renderer's bounds centre, "
+                  + "Rec.709 luminance of the L0 band: ");
+        if (_probeSamples == 0 || float.IsNaN(_shFirst))
+            sb.Append("<never sampled — no renderer was drawing>");
+        else
+            sb.Append("first ").Append(_shFirst.ToString("0.####")).Append(", last ")
+              .Append(_shLast.ToString("0.####")).Append(", range ")
+              .Append(_shLo.ToString("0.####")).Append("..").Append(_shHi.ToString("0.####"));
+        sb.Append(". REFLECTION PROBE: at most ").Append(_reflectCountMax)
+          .Append(" probe(s) influenced this renderer, the closest was '").Append(_reflectName)
+          .Append("', and the bound probe CHANGED IDENTITY on ").Append(_reflectChanges)
+          .Append(" sample(s). Usage (lightProbe / reflectionProbe): ")
+          .Append(_probeUsage.Length == 0 ? "<unsampled>" : _probeUsage)
+          .Append(". A prop lifted off its hex and carried to the eye leaves the probe volume it "
+                  + "was authored inside; a metal surface that then reflects the ambient/skybox "
+                  + "instead of the room is bright, view-dependent and correct again the moment "
+                  + "the object turns away — which is a shape no state probe can distinguish from "
+                  + "a clock. ");
+
+        AppendStaleAnchors(sb, b);
+
+        sb.Append("THE POSE CONFOUND — THIS ROUND'S OWN FALSIFIER, and it is aimed at the "
+                  + "photometry that briefed it. The bright-pixel fraction in the user's video is "
+                  + "measured inside a FIXED window while the prop is being turned over in the "
+                  + "hand, so a term that fades because the object ROTATES AWAY and a term that "
+                  + "fades with the CLOCK draw the same curve. Head-to-prop distance ranged ");
+        if (_poseDistLo > _poseDistHi)
+            sb.Append("<never sampled>");
+        else
+            sb.Append(_poseDistLo.ToString("0.###")).Append("..")
+              .Append(_poseDistHi.ToString("0.###")).Append(" wu");
+        sb.Append("; the angle between the drawing renderer's own forward axis and the view ray "
+                  + "ranged ");
+        if (_poseAngLo > _poseAngHi)
+            sb.Append("<never sampled>");
+        else
+            sb.Append(_poseAngLo.ToString("0.#")).Append("..").Append(_poseAngHi.ToString("0.#"))
+              .Append(" deg");
+        sb.Append(". ");
+
+        AppendTimeline(sb);
+        AppendMipResidency(sb);
+
+        sb.Append("HOW TO READ THE WHOLE LINE. IT NAMES THE PAINTER if a MOD-OWNED renderer drew "
+                  + "for a stretch of the window, or if a property block overrode a slot on a "
+                  + "stretch of it, or if a dissolve channel carried a value that WALKED. IT "
+                  + "NAMES A BINDING if the light-probe luminance or the reflection probe changed "
+                  + "across the window while nothing else did. IT KILLS THIS ROUND'S OWN LEADS if "
+                  + "every renderer that drew is game-owned with no block, no keyword changed, the "
+                  + "probe luminance is flat and the reflection probe never re-bound — and in that "
+                  + "case read the POSE line: if the view angle swept while every value above held "
+                  + "still, the decay in the video is the object TURNING and not anything this "
+                  + "process writes, which means the next round must grab the prop and hold it "
+                  + "DEAD STILL before it measures anything at all. ");
+
+        // HW-VERIFY: this line is round eight's whole deliverable. Seven rounds each ended on a
+        // count that could not name an object; this one names every renderer and prints values on
+        // the same timebase as the user's video. It must stay at a tier the DEFAULT log level
+        // prints (Note/Alert/Error) — scripts/check-hw-verify.py enforces the position of this
+        // marker directly above the call.
+        VRLog.Note("FigureGrab", sb.ToString());
+    }
+
+    /// <summary>
+    /// STALE WORLD ANCHORS. <c>ObjectPosToMaterial</c> bakes the object's WORLD POSITION into a
+    /// shader vector in <c>OnEnable</c> and never again (decompiled
+    /// <c>GH.Runtime/ObjectPosToMaterial.cs:29,34</c>), and the ModBuild 453 census counts one on
+    /// this trap. A bake taken on the hex and carried into a palm is a CONSTANT wrong value: it
+    /// never moves, so every "did anything move" reading in this file is consistent with it, which
+    /// is the same shape strand 6 was built for and the same reason it could not be seen.
+    ///
+    /// <para>(§12.5 of the experiments file dismissed this component because it goes through
+    /// <c>GetComponent&lt;Projector&gt;()</c> and the census counts 0 Projectors. That reads only
+    /// the first of its two branches — <c>:34</c> is a SkinnedMeshRenderer branch and this prop
+    /// carries two skins. An assertion in a comment is a hypothesis; this measures it.)</para>
+    /// </summary>
+    private static void AppendStaleAnchors(System.Text.StringBuilder sb, Belt b)
+    {
+        Vector3 here = b.Visual != null ? b.Visual.transform.position : Vector3.zero;
+        sb.Append("STALE WORLD ANCHORS — every VECTOR slot on this prop's materials, against where "
+                  + "the prop ACTUALLY IS (").Append(here.x.ToString("0.00")).Append(',')
+          .Append(here.y.ToString("0.00")).Append(',').Append(here.z.ToString("0.00"))
+          .Append("): ");
+        int listed = 0, vectors = 0;
+        for (int slot = 0; slot < VTable.Capacity && listed < VerdictListCap; slot++)
+        {
+            if (!VSeen[slot] || VTable.Kind[slot] != PropTable.KindVector)
+                continue;
+            vectors++;
+            Vector4 v = VPrev[slot];
+            var p = new Vector3(v.x, v.y, v.z);
+            if (p.sqrMagnitude < 1e-6f)
+                continue;
+            float d = Vector3.Distance(p, here);
+            sb.Append(VTable.Name[slot] ?? "<unnamed>").Append(" (mat")
+              .Append(slot / VerdictPropCap).Append(") = ").Append(v.x.ToString("0.00"))
+              .Append(',').Append(v.y.ToString("0.00")).Append(',').Append(v.z.ToString("0.00"))
+              .Append(",w=").Append(v.w.ToString("0.00")).Append(" — ").Append(d.ToString("0.00"))
+              .Append(" wu from the prop; ");
+            listed++;
+        }
+        if (vectors == 0)
+            sb.Append("<no vector slot on any material>");
+        else if (listed == 0)
+            sb.Append("all ").Append(vectors).Append(" vector slot(s) are zero, so nothing is baked");
+        sb.Append(". A LARGE distance on a slot named for a position is a shader still being "
+                  + "evaluated where the prop USED TO BE. ");
+    }
+
+    /// <summary>The series, on the same quarter-second timebase as the photometry of the user's
+    /// video, so a curve can be compared with a curve instead of with an aggregate.</summary>
+    private static void AppendTimeline(System.Text.StringBuilder sb)
+    {
+        sb.Append("TIMELINE, ").Append(TimelineBucketSeconds.ToString("0.##"))
+          .Append(" s buckets from the grab (t=probe-luminance | ang=view angle deg | d=head "
+                  + "distance wu | draw=renderers drawing | blk=block-overridden slots), and it is "
+                  + "the half no earlier round had — the user's report is 'zeitlupe' and his video "
+                  + "is a RAMP, so a single aggregate per hold cannot agree or disagree with it: ");
+        int shown = 0;
+        for (int i = 0; i < TimelineBuckets; i++)
+        {
+            if (TlN[i] == 0)
+                continue;
+            float t = i * TimelineBucketSeconds;
+            sb.Append(t.ToString("0.00")).Append("s ");
+            sb.Append(TlShN[i] > 0 ? (TlSh[i] / TlShN[i]).ToString("0.###") : "-").Append(" | ");
+            sb.Append((TlAng[i] / TlN[i]).ToString("0.#")).Append(" | ");
+            sb.Append((TlDist[i] / TlN[i]).ToString("0.##")).Append(" | ");
+            sb.Append(((float)TlDraw[i] / TlN[i]).ToString("0.##")).Append(" | ");
+            sb.Append(((float)TlBlk[i] / TlN[i]).ToString("0.##")).Append("   ");
+            shown++;
+        }
+        if (shown == 0)
+            sb.Append("<no bucket was sampled>");
+        sb.Append(". ");
+    }
+
+    /// <summary>
+    /// The mip residency of THIS PROP'S OWN textures — two integers, not an instrument.
+    ///
+    /// <para>Texture streaming was proposed as this round's lead and is already falsified
+    /// SCENE-WIDE by this repository's own <c>] [Perf] TEX</c> line, which reads
+    /// <c>streamingMipmaps=False</c> because this mod forces it off. It is recorded here only
+    /// because the SAME line contradicts itself: its prose says "every mipped texture is resident
+    /// in full" while its population clause counts "68 of them are streamed, 68 currently BELOW
+    /// their desired mip level". One of those two is wrong, and neither is a reading of THIS prop.
+    /// These figures settle it locally and cost two property reads at the close of the window.</para>
+    /// </summary>
+    private static void AppendMipResidency(System.Text.StringBuilder sb)
+    {
+        int textures = 0, streamed = 0, behind = 0, worstGap = 0;
+        for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+        {
+            Material mat = VTable.Mats[m];
+            if (mat == null)
+                continue;
+            int n = VTable.PerMat[m];
+            for (int k = 0; k < n; k++)
+            {
+                int slot = (m * VerdictPropCap) + k;
+                if (VTable.Kind[slot] != PropTable.KindTexture || !mat.HasProperty(VTable.Id[slot]))
+                    continue;
+                if (mat.GetTexture(VTable.Id[slot]) is not Texture2D tex || tex == null)
+                    continue;
+                textures++;
+                if (!tex.streamingMipmaps)
+                    continue;
+                streamed++;
+                int gap = tex.loadedMipmapLevel - tex.desiredMipmapLevel;
+                if (gap <= 0)
+                    continue;
+                behind++;
+                if (gap > worstGap)
+                    worstGap = gap;
+            }
+        }
+        sb.Append("MIP RESIDENCY ON THIS PROP'S OWN TEXTURES (two integers, not an instrument — "
+                  + "the streaming lead is already falsified SCENE-WIDE by this repo's own "
+                  + "'] [Perf] TEX' line, which reads streamingMipmaps=False because this mod "
+                  + "forces it off; it is measured here only because that same line's prose and "
+                  + "its own population clause CONTRADICT each other, and neither is a reading of "
+                  + "this prop): ").Append(textures).Append(" texture(s) bound, ").Append(streamed)
+          .Append(" of them streamed, ").Append(behind)
+          .Append(" currently BELOW their desired mip level, worst gap ").Append(worstGap)
+          .Append(" level(s). A streamed count of 0 closes the lead on this prop for good. ");
     }
 
     private static int MaxOf(int[] values, int count)
