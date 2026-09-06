@@ -433,7 +433,80 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 454;
+    public const ushort ModBuild = 455;
+    // Build 455: the held-prop white flash, ROUND NINE — and 3786 lines of falsified strands and
+    //   spent probes deleted on the user's instruction ("raeume auch direkt den Code auf von allen
+    //   Versuchen die sich nicht bewahrheitet haben").
+    //   * THE USER NAMED THE TRIGGER, AND IT REFRAMES NINE ROUNDS: "Das weisse in der Hand tritt
+    //     IMMER auf wenn ich die Falle/Truhe aufhebe kurz nachdem der weisse flash auf ALLEN Fallen
+    //     kam." A flash across every trap AT ONCE, and grabbing just after it always latches the
+    //     white. Put that beside 454's ROSTER — 360 frames in which the held prop is drawn with a
+    //     completely static state: no property block on any frame, all eight dissolve channels 0,
+    //     0 keyword changes, light-probe L0 flat at 0.0252, reflection probe never re-bound, every
+    //     vector slot zero, and 453's 0 of 67 material slots moved — and the absence becomes the
+    //     finding. THE VALUE IS LATCHED AT THE INSTANT OF THE GRAB and nothing during the hold
+    //     either sustains or removes it. EVERY INSTRUMENT THIS FILE HAS EVER SHIPPED ASKS WHETHER
+    //     SOMETHING MOVES. None has ever asked whether the value is RIGHT, and a latched wrong
+    //     value is constant — which is exactly what all of them printed.
+    //   * SO ROUND NINE SHIPS A COMPARISON, NOT A SERIES. '] [Props] HELD-PROP HOME TWIN' reads the
+    //     whole property table of the held prop and of another instance of the same kind still on
+    //     its hex AT THE SAME TICK, and prints the slots that DIFFER with both values. Immune to
+    //     phase and immune to pose, the two confounds that ended rounds seven and eight. It also
+    //     records the GRAB PHASE (the frozen animator's normalizedTime — the axis the user's
+    //     sentence is about, and no round has ever written it down), whether the material is shared
+    //     or instanced by material id, and the rewind's OTHER half: Renderer.enabled / activeSelf,
+    //     because an AnimationClip can drive m_IsActive and '0 of 67 material slots changed' never
+    //     distinguished "the clip was at rest" from "the clip drives no material property at all".
+    //   * NO REMEDY, AND THE REASON IS ITSELF A FINDING: copying the twin's value has a PHASE BUG.
+    //     Every trap is in phase, so at the instant of the grab the twin is bright too. What a fix
+    //     needs is the twin's RESTING value, and that does not exist until the line has watched a
+    //     full loop.
+    //   * THE ADDENDUM IS THE LEAD, AND IT POINTS AT US A FOURTH TIME. A sweep of the decompiled
+    //     game AND this mod asking only "what makes every trap flash at once?" returns EXACTLY ONE
+    //     mechanism with no per-instance phase, and it is ours: FigureOverlay's OverlayPulse is
+    //     0.5 + 0.5*Sin(Time.unscaledTime * PulseHz * 2PI) — an ABSOLUTE clock with no per-instance
+    //     offset and no per-instance start, so every live pulse is in exact lockstep BY
+    //     CONSTRUCTION. Its tint (1.00, 0.62, 0.26) is drawn ADDITIVE at 0.45..1.0, and warm amber
+    //     added over lit bronze washes to IVORY — the word the video photometry uses. Nothing else
+    //     in either codebase has that shape: every game-side time-driven prop writer carries its
+    //     own accumulator or start time, no game code writes a time-varying GLOBAL shader value at
+    //     all, and the outline system is a held-key bool with no schedule.
+    //     WHAT DOES NOT FIT, STATED RATHER THAN SMOOTHED: the overlay is single-winner (at most 2
+    //     alive), and 454 measured the held prop's own overlay DESTROYED at frame 1 of the window.
+    //     For every trap to pulse, overlays must be LEAKING — ownership sits on the GrabbableProp
+    //     COMPONENT while the cache is reference-keyed and re-keyed on every state sync, so a
+    //     replaced GrabbableProp leaves its old VRFigureHighlight parented, still pulsing and
+    //     unreferenced. That is why this build ships a CENSUS and not a fix. A live count above 2,
+    //     or an entry hanging off an unhovered prop, means the flash on every trap is ours; 0 or 1
+    //     kills the lead outright.
+    //   * THE CLEANUP: 3786 lines removed and no measurement added in that commit. DELETED —
+    //     PropAnimWatch.cs whole (1944 lines; every question it asked is answered and its HOME
+    //     window is superseded by HOME TWIN), the particle strand (PLAYING pre-count 0 on every
+    //     reading ever taken: 447 '0 of 8', 448 '0 of 7', 454 '0 of 0' — it has never written
+    //     anything), the post-hush verdict, the outward occlusion probe, its per-verdict
+    //     FindObjectsOfType<Light>, and round eight's block / dissolve / keyword / lighting /
+    //     stale-anchor / timeline / mip arms. KEPT — the animator hush; Outlinable.enabled, because
+    //     it answers a complaint the user actually made and repeated ("Dieser highlighting/Licht
+    //     effekt von props ist immer noch in der Hand bemerkbar. Wiederholt!"); the whole
+    //     Behaviour-emitter class, because the trap reads 0 lights but GoldPile reads 3 of 3 found
+    //     and 3 ENABLED, and re-narrowing that sweep would re-open the ModBuild 151 type hole;
+    //     ObjectOcclusionVolume (pre-count 1, neither proven nor disproven); updateWhenOffscreen.
+    //     Every removed body was grepped for writes BEFORE deletion — this project nearly latched
+    //     the wall fade off for ever by deleting a spent Log* method that carried a state write.
+    //     PropAnimWatch.cs contained not one write; its only transform. hits are two bounds reads
+    //     and a lossyScale read. check-instrument-writes stays at its 66-field baseline.
+    //     ANIMATION A/B, PAINT AFTER HUSH and ROSTER no longer exist; the instrument surface is two
+    //     lines plus the restore falsifier, and .planning/held-prop-flash-experiments.md section 15
+    //     is their obituary so none can be re-proposed without new evidence.
+    //   * RECORDED, NOT CHASED: 454's mip pair read '5 streamed, 5 BELOW desired' where its own
+    //     reading key said 0 would close the lead — streaming is provably active on this prop while
+    //     '] [Perf] TEX' says the mod forces it off scene-wide. One mip level cannot turn bronze
+    //     into white and the user's trigger is a clock, so this is a live disagreement between two
+    //     of our own instruments and it belongs to the Perf/TEX side (section 14.6).
+    // Wire: nothing. No state written, nothing to mirror; the census and the twin comparison ride
+    // the window NetProps already opens for a remote hold.
+    // Documented worst case stays 1735; MaxSize stays 2100.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 454: the held-prop white flash, ROUND EIGHT. No remedy in this build on purpose — both
     //   of the round's candidate causes died by measurement, and what is left is an IDENTITY
     //   question that no line in this repository can currently answer. Shipping a fix would have
