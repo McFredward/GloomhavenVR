@@ -324,15 +324,21 @@ internal static class PropGrab
             if (_refusalLogsLeft <= 0)
                 continue;
             _refusalLogsLeft--;
-            // HW-VERIFY: this line is the ONLY place the shipped log says WHICH term refused a prop —
-            // the game's authored OverrideDisallowDestroyAndMove flag, or the solid-obstacle family
-            // test. It must stay at a tier the DEFAULT log level prints (Note/Alert/Error).
+            // HW-VERIFY: this line names WHICH term refused ONE prop, at the instant it was refused.
+            // The per-kind roll-up is the `PROP LIFT LEDGER` line below. It must stay at a tier the
+            // DEFAULT log level prints (Note/Alert/Error).
             VRLog.Note("FigureGrab",
                 $"[Props] NOT LIFTABLE: '{prop.PrefabName}' {prop.ObjectType} — {why}. It is not "
                 + "registered as grabbable at all, so it gets no hover glow, no pick collider, no "
                 + "ghost and no info panel; the hand passes straight over it. (User, ModBuild 350: "
                 + "\"Bitte exkludiere solche Obstacles die man nicht zerstören kann bei dem Greifen "
-                + "wie zB die 'DarkPitObstacles' diese soll erst garnicht aufnehmbar sein.\") "
+                + "wie zB die 'DarkPitObstacles' diese soll erst garnicht aufnehmbar sein.\" "
+                + "ModBuild 450 NARROWED that to the pit and nothing else: the destructibility term "
+                + "is GONE, because the user then asked for an indestructible obstacle — the well — "
+                + "to be liftable like any other prop. So the only term that can print here for an "
+                + "Obstacle is the solid-obstacle family test, and an OverrideDisallowDestroyAndMove "
+                + "verdict appearing on this line at all would mean the ModBuild 450 fix is not in "
+                + "this build.) "
                 + $"({_refusalLogsLeft} more refusal lines this scenario.)");
         }
 
@@ -482,6 +488,174 @@ internal static class PropGrab
                 + "REACHHEXES column says whether that landed, per prop.");
         }
 
+        // PHASE 4 — THE PER-KIND LEDGER. Everything above decided per INSTANCE; this rolls the
+        // same walk up per prop KIND so one grep answers the whole family. See ReportLiftLedger.
+        ReportLiftLedger(props);
+    }
+
+    // ---- THE PER-KIND LIFT LEDGER (ModBuild 450) ------------------------------------------
+    //
+    // WHY THIS EXISTS BESIDE THE CENSUS, WHICH ALREADY PRINTS PER-PROP COLUMNS. Because the census
+    // NAMES four props and counts the rest, and this project has already paid twice for reading a
+    // truncated list as a population ("a truncated list is not absence"). The 2026-09-06 well round
+    // was decided by a sentence the census keeps OUTSIDE that cap — `REFUSED as unliftable (1 in
+    // all)` — and the next question is one the census still cannot answer in one read: for EVERY
+    // kind on the board, did it resolve, was it offered to the hand, and if not, which term said
+    // no. Twelve census walks of a 4-sample list cannot say that; a roll-up over the same walk can,
+    // and costs one dictionary hit per prop on a cadence that already runs.
+    //
+    // THE FOUR COLUMNS PARTITION THE KIND EXACTLY: seen = offered + unresolved + refused.
+    //   seen        passed the import-type whitelist (FigureGrabDriver.IsLiftableProp).
+    //   offered     REGISTERED right now, i.e. it carries the hover glow, the pick collider, the
+    //               home ghost, the info card and the grab — the five things that hang off a
+    //               GrabbableProp and off nothing else.
+    //   unresolved  accepted by PropLift and NOT registered: no visual in ObjectCacheService yet,
+    //               or drawing nothing yet, or no believable reach volume. A transient during
+    //               reveal; standing non-zero is a resolve question, and the census `via=` column
+    //               is where it is settled.
+    //   refused     PropLift said no, with the TERM. Since ModBuild 450 there is exactly one term
+    //               that can appear for an obstacle - the solid-obstacle family test - because the
+    //               destructibility term that used to refuse the well is gone.
+    //
+    // CHANGE-GATED, AND THE WALK NUMBER IS PRINTED SO IT CANNOT READ AS DEAD. A line that prints
+    // only on a change looks stopped when the thing it watches is steady, which is a shape this
+    // project has misread before. The walk counter rises on every scan, so a line carrying `walk
+    // 3` beside a census at walk 40 says "the tally has not moved since walk 3", never "the
+    // instrument died".
+
+    /// <summary>One prop kind's tally for the lift ledger.</summary>
+    private struct LiftLedgerRow
+    {
+        internal int Seen;
+        internal int Offered;
+        internal int Unresolved;
+        internal int Refused;
+
+        /// <summary>The first refusal term met for this kind. One is enough: a term refuses a KIND,
+        /// not an instance, so a second copy would be the same string.</summary>
+        internal string Why;
+    }
+
+    private static readonly Dictionary<string, LiftLedgerRow> Ledger = new(8);
+    private static readonly List<string> LedgerKeys = new(8);
+
+    /// <summary>Reused across walks: this runs on a 2 s cadence for the life of a scenario and a
+    /// fresh builder per walk is exactly the "near-free" scan allocation this project has shipped
+    /// as a per-frame cost twice.</summary>
+    private static readonly System.Text.StringBuilder LedgerText = new(256);
+
+    private static string _lastLedgerLine = string.Empty;
+    private static int _ledgerWalk;
+
+    /// <summary>The board this ledger's change gate is armed against. Compared to
+    /// <see cref="_lastState"/>, which <see cref="Scan"/> has already brought up to date by the time
+    /// this runs, so the instrument re-arms ITSELF on a new scenario and no mechanism method has to
+    /// hold a piece of it. That matters twice over: a new board whose tally happens to read exactly
+    /// like the last board's must still print — "the same numbers" and "the same board" are not the
+    /// same claim — and an instrument nothing else writes to is an instrument that can be deleted in
+    /// one piece.</summary>
+    private static object? _ledgerState;
+
+    /// <summary>Roll the walk up per prop kind and print it when it changes.</summary>
+    private static void ReportLiftLedger(List<CObjectProp> props)
+    {
+        if (!ReferenceEquals(_ledgerState, _lastState))
+        {
+            _ledgerState = _lastState;
+            _lastLedgerLine = string.Empty;
+            _ledgerWalk = 0;
+        }
+
+        _ledgerWalk++;
+        Ledger.Clear();
+        LedgerKeys.Clear();
+        for (int i = 0; i < props.Count; i++)
+        {
+            CObjectProp prop = props[i];
+            // The import-type whitelist is the population this ledger is about: doors, pressure
+            // plates, water and the rest of the terrain were never candidates and listing them
+            // would make every row look like a refusal.
+            if (!FigureGrabDriver.IsLiftableProp(prop))
+                continue;
+
+            string key = $"{prop.PrefabName ?? "(unnamed)"}/{prop.ObjectType}";
+            if (!Ledger.TryGetValue(key, out LiftLedgerRow row))
+            {
+                row = new LiftLedgerRow { Why = string.Empty };
+                LedgerKeys.Add(key);
+            }
+            row.Seen++;
+            if (!PropLift.MayBeLifted(prop, out string why))
+            {
+                row.Refused++;
+                if (row.Why.Length == 0)
+                    row.Why = why;
+            }
+            else if (Registry.ContainsKey(prop))
+            {
+                row.Offered++;
+            }
+            else
+            {
+                row.Unresolved++;
+            }
+            Ledger[key] = row;
+        }
+
+        LedgerText.Clear();
+        for (int i = 0; i < LedgerKeys.Count; i++)
+        {
+            LiftLedgerRow row = Ledger[LedgerKeys[i]];
+            if (LedgerText.Length > 0)
+                LedgerText.Append(" | ");
+            LedgerText.Append(LedgerKeys[i]).Append(' ').Append(row.Seen).Append(" seen, ")
+              .Append(row.Offered).Append(" offered, ")
+              .Append(row.Unresolved).Append(" unresolved, ")
+              .Append(row.Refused).Append(" refused");
+            if (row.Refused > 0)
+                LedgerText.Append(" — refused by: ").Append(row.Why);
+        }
+
+        string body = LedgerText.Length == 0
+            ? "no prop of any liftable import type is on this board"
+            : LedgerText.ToString();
+        if (body == _lastLedgerLine)
+            return;
+        _lastLedgerLine = body;
+
+        // HW-VERIFY: THE PROP-FAMILY LINE. One grep for `PROP LIFT LEDGER` gives, per prop KIND and
+        // never sampled, whether it resolved, whether it was offered to the hand, and which term
+        // refused it. It must stay at a tier the DEFAULT log level prints (Note/Alert/Error);
+        // scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab",
+            $"[Props] PROP LIFT LEDGER (walk {_ledgerWalk}): {body}. "
+            + "READ IT LIKE THIS. One row per prop KIND, counted over EVERY prop the import-type "
+            + "whitelist accepted and never sampled, so 'no row' means the board holds none of that "
+            + "kind and NEVER means the gate hid one. seen = offered + unresolved + refused, "
+            + "always. 'offered' is registered as grabbable RIGHT NOW, which is the same thing as "
+            + "carrying the hover glow, the pick collider, the home ghost, the info card and the "
+            + "grab — they all hang off one GrabbableProp. 'unresolved' is accepted-but-not-yet: "
+            + "no visual in ObjectCacheService, nothing drawing yet, or no believable pick shape; "
+            + "it is normal during a reveal and the census 'via=' column settles a standing one. "
+            + "'refused' names the TERM, and since ModBuild 450 an obstacle has only ONE term that "
+            + "can refuse it — the solid-obstacle family test, i.e. a hole in the floor. "
+            + "THIS IS THE 2026-09-06 WELL LINE: the user asked for an INDESTRUCTIBLE obstacle "
+            + "('einen Brunnen ... nicht zerstörbares Hindernis') to be liftable like any other "
+            + "prop, and the ModBuild 350 destructibility term that refused it is gone. So the "
+            + "reading that means the fix landed is an OneHexObstacle row with 0 refused and its "
+            + "wells among the 'offered'; the census line's own 'disallowMoveOrDestroy=YES ... "
+            + "MAYLIFT=yes GRABBABLE=yes' names the well itself. "
+            + "AND THE FALSIFIERS, because this line has two different ways of being inert. "
+            + "(1) A board with NO obstacle at all still prints this line — with rows for the kinds "
+            + "it does hold, or 'no prop of any liftable import type is on this board' if it holds "
+            + "none — so an Obstacle row that is simply absent is evidence about the SCENARIO and "
+            + "not about the gate; do not read it as the fix working. (2) An OneHexObstacle row "
+            + "reading '0 refused' while the user still cannot grab the well means PropLift is no "
+            + "longer the blocker and the search moves DOWNSTREAM to the reach volume and the "
+            + "election — read 'unresolved' first, then the census PICKSHAPE and REACHHEXES "
+            + "columns. It is change-gated: it prints only when a column moves, and the walk "
+            + "number is the proof it is alive, so 'walk 3' beside a much later census means the "
+            + "tally has been STEADY since walk 3, never that the instrument stopped.");
     }
 
     /// <summary>How many props this scenario registered a stand-in box because every collider
@@ -568,6 +742,11 @@ internal static class PropGrab
         _loggedRegistration = false;
         _refusedThisScan = 0;
         _refusalLogsLeft = RefusalLogBudget;
+        // NOTHING OF THE LIFT LEDGER IS RESET HERE, AND THAT IS DELIBERATE. It re-arms itself off
+        // the scenario-state identity it can read for free (see ReportLiftLedger), so that deleting
+        // the instrument is deleting the instrument and this method keeps no piece of it alive —
+        // scripts/check-instrument-writes.py caught the first draft doing exactly that, which is
+        // the shape that once nearly latched the wall fade off forever.
         GrabbableProp.ResetLogBudgets();
     }
 
