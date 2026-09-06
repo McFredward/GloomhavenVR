@@ -433,7 +433,73 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 453;
+    public const ushort ModBuild = 454;
+    // Build 454: the held-prop white flash, ROUND EIGHT. No remedy in this build on purpose — both
+    //   of the round's candidate causes died by measurement, and what is left is an IDENTITY
+    //   question that no line in this repository can currently answer. Shipping a fix would have
+    //   been shipping a guess, and the thing that would verify it is the thing that is missing.
+    //   * STRAND 6, WHICH IS 453's WHOLE FIX, READS INERT BY ITS OWN FALSIFIER. On the trap:
+    //     '1 … taken back to their BOUND DEFAULT VALUES … and 0 of 67 (material, property) slot(s)
+    //     changed value because of it'. Zero of sixty-seven. The clip was ALREADY AT REST at the
+    //     grab, so there was never a bright frame to latch, and 453's premise — grab during the
+    //     bright part of a ~5 s loop and the hush freezes it — is dead on measurement as well as
+    //     on the picture. The call stays: it is correct hygiene and it costs nothing. It is simply
+    //     not the painter. Its one open question is recorded rather than closed: a zero changed
+    //     count is ALSO what WriteDefaultValues not landing as an immediate write would print.
+    //   * THE TEXTURE-STREAMING LEAD IS DEAD, AND THE LINE THAT KILLED IT CONTRADICTS ITSELF.
+    //     '] [Perf] TEX' reads masterTextureLimit=0 and streamingMipmaps=False, so nothing streams
+    //     and no low mip can be on screen. But that same line's PROSE says the mod is not holding
+    //     streaming off while its own clause says the opposite: five of the six copies this session
+    //     read 'off BECAUSE THIS MOD TURNED IT OFF — [RenderQuality] ForceTextureStreamingOff …
+    //     THIS IS NOT THE GAME'S OWN SETTING: the game turns streaming ON at its Fantastic quality
+    //     level', which is the level in force. The integrator quoted the ONE stale variant, having
+    //     read the line with head -1 — this project's own 'read the whole distribution' rule,
+    //     violated by the person who wrote it. And the line asserts 'every mipped texture is
+    //     resident in full' beside a count of '68 … currently BELOW their desired mip level'. An
+    //     assertion and a measurement in one sentence, disagreeing. Neither is a reading of the
+    //     HELD PROP; the new line closes that with two integers.
+    //   * AND THE INTEGRATOR'S PHOTOMETRY WAS HALF AN ARTEFACT. The bright-pixel curve taken off
+    //     the user's video (peak 4.86 % at t=2.63 s falling to 0.15 % at t=6.00 s) was measured in
+    //     a FIXED window while the prop was being turned over in the hand. At t=4.4 the fraction
+    //     has fallen fifteen-fold and the jaw ring IS STILL IVORY WHITE — it has only rotated out
+    //     of the window. The ring reads white seen FACE-ON (t=2.0-3.6) and bronze seen EDGE-ON
+    //     (t=5.4-6.6), which a view-dependent term produces with no clock in it at all. The decay
+    //     is real; the CURVE is a product of two factors, and 'measure the product, not one
+    //     factor' is a rule this project already owns. A TIME ramp and a POSE ramp are two
+    //     different defects with two different fixes, and nothing shipped in seven rounds can tell
+    //     them apart.
+    //   * SO THIS BUILD SHIPS THE INSTRUMENT THAT CAN. '] [Props] HELD-PROP ROSTER', per frame over
+    //     the post-hush window that already exists, bucketed at 0.25 s and printed as a SERIES on
+    //     the video's own timebase: every renderer by HIERARCHY PATH with its materials, shaders
+    //     and a MOD-OWNED / game-owned verdict taken from the shader namespace, plus frames
+    //     drawing / visible / blocked; MaterialPropertyBlocks read EVERY FRAME with overridden
+    //     slots named and dissolve channels read by name and value (the old HELD? probe reads
+    //     blocks ONCE, two frames after the grab, and a single sample cannot see a ramp); shader
+    //     keywords on a cadence; interpolated light-probe L0 luminance and reflection-probe
+    //     identity; every VECTOR slot against the prop's live world position; and HEAD DISTANCE
+    //     AND VIEW ANGLE, which is this round's own falsifier.
+    //   * TWO IDENTITIES IT SETTLES THAT WERE STANDING ON COMMENTS. 'GloomhavenVR/Overlay' — OUR
+    //     OWN shader — is on the held prop's material table for the whole hold, with OverlayPulse
+    //     in its histogram, and the only line that speaks to it says 'at most 1 drawing' of 3
+    //     without naming WHICH one. The roster names it. And ObjectPosToMaterial was dismissed in
+    //     round seven because it writes through GetComponent<Projector>() with 0 Projectors
+    //     censused — that reads one of its TWO branches; the other is a SkinnedMeshRenderer branch
+    //     and this trap carries 2 skins. It is OnEnable-only, so not a live writer, but what it
+    //     BAKES is a world position, and a bake taken on the hex is a constant wrong value that no
+    //     'did anything move' reading can see.
+    //   * HOW TO READ IT. WORKING: a MOD-OWNED renderer with a non-zero drawing count, or a block
+    //     overriding a slot across a stretch of the window, or a dissolve value that WALKS, or a
+    //     probe luminance / reflection-probe identity that changes — any one of those names the
+    //     painter. INERT: no renderer ever drew, i.e. the window held no prop and says nothing.
+    //     STILL BEYOND THE INSTRUMENT: every drawing renderer game-owned, no block, no keyword
+    //     change, flat probe luminance, no probe re-bind — and then the POSE line decides it: if
+    //     the view angle swept while every value held still, the decay is the object TURNING, and
+    //     the next round is a test instruction (hold a trap dead still) rather than a build.
+    // Wire: nothing. No state written, nothing to mirror; it rides the post-hush window NetProps
+    // already opens for a remote hold. Local half verified from the log, mirrored half reasoned
+    // from the call sites, because this round's log is single-player.
+    // Documented worst case stays 1735; MaxSize stays 2100.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 453: THE WHITE FLASH ON A HELD PROP, SEVENTH ROUND — AND THE PAINTER IS US.
     //   Animator.enabled = false does not undo a clip. It stops the clip WHERE IT IS. ModBuild 445's
     //   very first hush strand froze the trap's ~5 s attention loop at whatever frame the hand
