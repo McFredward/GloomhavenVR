@@ -2009,6 +2009,20 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     private ContentSizeFitter? _widthFitter;
     private ContentSizeFitter.FitMode _widthFitterMode;
 
+    /// <summary>The lever's <c>sizeDelta.y</c> as captured — the conversion's 100 px degenerate
+    /// placeholder, handed back verbatim on restore beside the width. See
+    /// <see cref="GloomhavenVR.Core.LayoutContentHeight"/> for why the vertical half of that
+    /// placeholder is the objective-overlap defect and the horizontal half never was.</summary>
+    private float _heightAuthoredY;
+
+    /// <summary>The last <c>sizeDelta.y</c> WE wrote — the guard that makes the vertical restore
+    /// safe, exactly as <see cref="_widthForcedX"/> does for the horizontal one.</summary>
+    private float _heightForcedY = float.NaN;
+
+    /// <summary>Last content height logged, so the re-assert is silent in the steady state and
+    /// speaks only when the row count or the wording actually changes it.</summary>
+    private float _heightAppliedPx = -1f;
+
     private bool _widthCaptured;
     private float _widthAppliedPx = -1f;
     private float _widthVerifyAt;
@@ -2159,23 +2173,31 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
             if (!_widthDumped && _widthDumpAt <= 0f && list != null && list.childCount > 0)
                 _widthDumpAt = Time.unscaledTime + WidthVerifyDelay;
 
-            if (!changed)
-                return;
-
-            // Re-wrap NOW: the layout groups re-run top-down and TMP re-measures at the new column,
-            // so the objectives host is already the right size when the central TickFit next runs.
-            LayoutRebuilder.ForceRebuildLayoutImmediate(lever);
-
-            if (Mathf.Abs(wantPx - _widthAppliedPx) > 0.5f)
+            if (changed)
             {
-                _widthAppliedPx = wantPx;
-                _widthVerifyAt = Time.unscaledTime + WidthVerifyDelay;
-                VRLog.Info("WorldUI", $"OBJECTIVES WIDTH: container root '{lever.name}' forced to " +
-                                      $"{wantPx:F0} px (was {_widthAuthoredX:F0} px authored) for the " +
-                                      $"{MountWidth * 1000f:F0} mm budget at {density:F0} px/m — the two " +
-                                      "VerticalLayoutGroups carry it to every row, the row's " +
-                                      "HorizontalLayoutGroup re-hands the leftover to the TMP text.");
+                // Re-wrap NOW: the layout groups re-run top-down and TMP re-measures at the new
+                // column, so the objectives host is already the right size when the central TickFit
+                // next runs.
+                LayoutRebuilder.ForceRebuildLayoutImmediate(lever);
+
+                if (Mathf.Abs(wantPx - _widthAppliedPx) > 0.5f)
+                {
+                    _widthAppliedPx = wantPx;
+                    _widthVerifyAt = Time.unscaledTime + WidthVerifyDelay;
+                    VRLog.Info("WorldUI", $"OBJECTIVES WIDTH: container root '{lever.name}' forced to " +
+                                          $"{wantPx:F0} px (was {_widthAuthoredX:F0} px authored) for the " +
+                                          $"{MountWidth * 1000f:F0} mm budget at {density:F0} px/m — the two " +
+                                          "VerticalLayoutGroups carry it to every row, the row's " +
+                                          "HorizontalLayoutGroup re-hands the leftover to the TMP text.");
+                }
             }
+
+            // THE HEIGHT IS RE-ASSERTED UNCONDITIONALLY, and that is the whole point of moving the
+            // early return: the column changes when a DIAL moves, but the row count changes when the
+            // GAME does — an objective completed, an objective added, a language switch — and none
+            // of those touch `changed`. Gating the height on a width change is how this defect would
+            // survive its own fix.
+            ApplyContentHeight(lever);
         }
         catch (System.Exception ex)
         {
@@ -2192,6 +2214,77 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     }
 
     /// <summary>
+    /// THE OTHER HALF OF THE CONVERSION PLACEHOLDER — user report 2026-09-06 item 8, "In dem
+    /// getesteten Szenario hat sich Text der Punkte im dem Questziel überlagert"
+    /// (<c>.planning/debug/überschneidender_text.jpg</c>: the third line of one objective drawn
+    /// under the plate of the next one).
+    ///
+    /// <para><see cref="ApplyContentWidth"/> has replaced the horizontal half of
+    /// <c>CanvasConversion</c>'s <c>max(size, 100)</c> placeholder every tick since round 3. The
+    /// VERTICAL half was never replaced by anything, so this panel has been exactly 100 authored px
+    /// tall for its whole life regardless of what it contains — and the shipped OBJECTIVES TREE dump
+    /// of ModBuild 457 says so on BOTH clients: <c>Mission Objective Container 300x100</c>, with a
+    /// <c>Container</c> of 74 px holding two rows that ask for 58 + 40 = 98. A short
+    /// VerticalLayoutGroup does not overflow, it SHRINKS its children and advances its cursor by the
+    /// shrunk size; each row's <c>ContentSizeFitter(vertical = PreferredSize)</c> then re-inflates
+    /// the row to its real height around that cursor, and the rows land on top of each other. The
+    /// full derivation, the log line numbers and the rejected alternatives are on
+    /// <see cref="GloomhavenVR.Core.LayoutContentHeight"/>.</para>
+    ///
+    /// <para>Cheap by construction: in the steady state this is one cached
+    /// <c>LayoutUtility.GetPreferredHeight</c> read and one float compare. It writes only when the
+    /// content's own measure has moved, and it cannot feed back on itself — a row's preferred height
+    /// is a function of its WIDTH and its text, never of the root's height.</para>
+    /// </summary>
+    private void ApplyContentHeight(RectTransform lever)
+    {
+        // THE CHEAP TEST GOES FIRST AND NOTHING ELSE RUNS IN THE STEADY STATE: one pooled
+        // LayoutUtility read and one float compare per tick. The row-guard walk below allocates, and
+        // this method is on the per-tick path — a per-frame GetComponentsInChildren over a subtree
+        // is the shape of defect this file already carries a cadence gate for.
+        if (!LayoutContentHeight.Apply(lever, out float beforePx, out float afterPx))
+            return;
+
+        _heightForcedY = afterPx;
+
+        // The squeeze that was on screen, for free: the room the root was short is exactly the room
+        // it just asked for. No walk needed to establish the BEFORE — only the AFTER.
+        float missBefore = afterPx - beforePx;
+
+        // Re-run the groups at the new room so the row fitters and the cursor that seats them agree
+        // THIS frame, and so the central TickFit measures the settled union rather than a stale one.
+        LayoutRebuilder.ForceRebuildLayoutImmediate(lever);
+
+        float missAfter = LayoutContentHeight.MeasureRowOverflowPx(lever, out string worst);
+
+        // Change-gated on the APPLIED height: this fires when the game adds, completes or re-words
+        // an objective (a handful of times per scenario) and is silent in between. It is not
+        // per-frame — the write above cannot repeat, because the value written is the value read
+        // back.
+        if (Mathf.Abs(afterPx - _heightAppliedPx) <= LayoutContentHeight.DeadBandPx)
+            return;
+        _heightAppliedPx = afterPx;
+
+        float mmPerPx = AppliedMetersPerPixel * 1000f;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"OBJECTIVES HEIGHT: container root '{lever.name}' sized from its own " +
+                              $"content, {beforePx:F0} -> {afterPx:F0} authored px " +
+                              $"({missBefore * mmPerPx:F1} mm at {mmPerPx:F4} mm/px). Rows still " +
+                              $"squeezed after the write: {missAfter:F0} px" +
+                              (worst.Length > 0 ? $" on '{worst}'" : "") + ". " +
+                              "READ IT LIKE THIS. The px pair is the whole verdict: a line whose FIRST " +
+                              "number is 100 is the conversion placeholder being replaced by a real " +
+                              "measure, and every px the second number adds over the first is room a " +
+                              "row was previously drawing into its neighbour. 'still squeezed' must be " +
+                              "0 px in EVERY line — a non-zero one means the rows do not fit even at " +
+                              "the height their own layout asked for, which is a cause this instrument " +
+                              "has not seen and is no longer the placeholder. A line reading " +
+                              "'100 -> 100' cannot occur (the write is gated on a difference); NO line " +
+                              "at all across a whole scenario means the objectives panel was never " +
+                              "converted, which is a different defect from its height being wrong.");
+    }
+
+    /// <summary>
     /// Record the lever's PRISTINE horizontal state — the <c>sizeDelta.x</c> the conversion
     /// installed, plus a horizontal ContentSizeFitter if one ever appears on it — so
     /// <see cref="RestoreContentWidth"/> can put it back exactly. Nothing below the root is
@@ -2202,7 +2295,10 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     {
         _widthLever = lever;
         _widthAuthoredX = lever.sizeDelta.x;
+        _heightAuthoredY = lever.sizeDelta.y;
         _widthForcedX = float.NaN; // nothing written yet — the restore guard must not match
+        _heightForcedY = float.NaN;
+        _heightAppliedPx = -1f;
         _widthFitter = lever.GetComponent<ContentSizeFitter>();
         _widthFitterMode = _widthFitter != null
             ? _widthFitter.horizontalFit
@@ -2226,11 +2322,19 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// </summary>
     private void RestoreContentWidth()
     {
-        if (_widthCaptured && _widthLever != null
-            && !float.IsNaN(_widthForcedX)
-            && Mathf.Abs(_widthLever.sizeDelta.x - _widthForcedX) <= 0.5f)
+        if (_widthCaptured && _widthLever != null)
         {
-            _widthLever.sizeDelta = new Vector2(_widthAuthoredX, _widthLever.sizeDelta.y);
+            // ONE GUARD PER AXIS. The two are written by different rules at different moments (the
+            // column by a dial, the height by the content), so a single combined test would hand one
+            // axis back while the other was still ours — or refuse both because one of them had
+            // already been restored underneath us.
+            Vector2 size = _widthLever.sizeDelta;
+            if (!float.IsNaN(_widthForcedX) && Mathf.Abs(size.x - _widthForcedX) <= 0.5f)
+                size.x = _widthAuthoredX;
+            if (!float.IsNaN(_heightForcedY) && Mathf.Abs(size.y - _heightForcedY) <= 0.5f)
+                size.y = _heightAuthoredY;
+            if (size != _widthLever.sizeDelta)
+                _widthLever.sizeDelta = size;
         }
         if (_widthFitter != null)
             _widthFitter.horizontalFit = _widthFitterMode;
@@ -2239,8 +2343,11 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         _widthFitter = null;
         _widthCaptured = false;
         _widthAuthoredX = 0f;
+        _heightAuthoredY = 0f;
         _widthForcedX = float.NaN;
+        _heightForcedY = float.NaN;
         _widthAppliedPx = -1f;
+        _heightAppliedPx = -1f;
         _widthVerifyAt = 0f;
         _widthDumpAt = 0f;
         _widthDumped = false;

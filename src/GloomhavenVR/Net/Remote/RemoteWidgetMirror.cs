@@ -880,19 +880,82 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             changed = true;
         }
 
-        if (!changed)
+        if (changed)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(_cloneRect);
+
+            // THE STATE WRITE LIVES HERE, NEXT TO THE WRITE IT RECORDS — never inside the logger.
+            // This number is read back by TryMeasureDock to build the seat line's measure path, so
+            // latching it inside a Log* method would mean that retiring a spent diagnostic silently
+            // blanks a number something else depends on. That is a defect this project has shipped
+            // once already.
+            float previous = _ownersColumnPx;
+            _ownersColumnPx = wantPx;
+            if (Mathf.Abs(wantPx - previous) > 0.5f)
+                LogOwnersColumn(wantPx);
+        }
+
+        // UNCONDITIONALLY, for the same reason ObjectivesSurface.ApplyContentHeight is: the column
+        // moves when a DIAL moves, the row count moves when the GAME does, and only the first of
+        // those sets `changed`.
+        ApplyOwnersRowHeight();
+    }
+
+    /// <summary>Last content height written onto the clone root — the vertical twin of
+    /// <see cref="_ownersColumnPx"/>, and the gate that keeps its log line quiet in the steady
+    /// state.</summary>
+    private float _ownersHeightPx = -1f;
+
+    /// <summary>
+    /// THE MIRRORED HALF OF THE OBJECTIVE-OVERLAP FIX (user report 2026-09-06 item 8).
+    ///
+    /// <para>The clone arrives by <c>Object.Instantiate</c> of the owner's converted subtree, so it
+    /// arrives carrying the same <c>CanvasConversion</c> placeholder height the source has — and
+    /// then <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/> re-runs the game's own layout groups
+    /// on it LOCALLY at the owner's column, which is precisely the arrangement that turns a short
+    /// <c>VerticalLayoutGroup</c> into overlapping rows (the mechanism is derived in full on
+    /// <see cref="GloomhavenVR.Core.LayoutContentHeight"/>). The rect half of <see cref="Pair.Apply"/>
+    /// stands down on this path, so the source's own corrected height is NOT copied across: fixing
+    /// the owner alone would leave every peer's copy of the panel overlapping. Both call sites share
+    /// one helper so they cannot drift.</para>
+    ///
+    /// <para>1:1: this is a pure function of the same rows at the same column, so the two clients
+    /// compute the same number from the same inputs. It is not a viewer dial being ANDed with an
+    /// owner dial — there is no dial, and no wire field is needed for a value both sides can derive.
+    /// The frame clamp in <see cref="TryFrameExtent"/> cannot crop the taller panel either: this
+    /// source is latched degenerate at conversion (<see cref="LatchFrameDegenerate"/>), which skips
+    /// the clamp outright.</para>
+    /// </summary>
+    private void ApplyOwnersRowHeight()
+    {
+        // Cheap test first — this runs on the content cadence and the row-guard walk allocates. The
+        // BEFORE shortfall needs no walk: it is the room the root was short, which is the difference
+        // the write just closed.
+        if (!LayoutContentHeight.Apply(_cloneRect, out float beforePx, out float afterPx))
             return;
 
         LayoutRebuilder.ForceRebuildLayoutImmediate(_cloneRect);
+        float missAfter = LayoutContentHeight.MeasureRowOverflowPx(_cloneRect, out string worst);
 
-        // THE STATE WRITE LIVES HERE, NEXT TO THE WRITE IT RECORDS — never inside the logger. This
-        // number is read back by TryMeasureDock to build the seat line's measure path, so latching
-        // it inside a Log* method would mean that retiring a spent diagnostic silently blanks a
-        // number something else depends on. That is a defect this project has shipped once already.
-        float previous = _ownersColumnPx;
-        _ownersColumnPx = wantPx;
-        if (Mathf.Abs(wantPx - previous) > 0.5f)
-            LogOwnersColumn(wantPx);
+        float previous = _ownersHeightPx;
+        _ownersHeightPx = afterPx;
+        if (Mathf.Abs(afterPx - previous) <= LayoutContentHeight.DeadBandPx)
+            return;
+
+        // HW-VERIFY
+        VRLog.Note("Net", $"OBJECTIVES HEIGHT (mirrored) '{_name}': the clone's container root is " +
+                          $"sized from its own content, {beforePx:F0} -> {afterPx:F0} authored px " +
+                          $"(it was short by {afterPx - beforePx:F0} px, which is the room a row was " +
+                          $"drawing into its neighbour). Rows still squeezed after the write: " +
+                          $"{missAfter:F0} px" + (worst.Length > 0 ? $" on '{worst}'" : "") + ". " +
+                          "Read it against the OWNER's 'OBJECTIVES HEIGHT: container root ... -> N " +
+                          "authored px' line in THEIR log: at equal dials the two must agree to the " +
+                          "pixel, because both sides measure the same rows at the same column. " +
+                          "'still squeezed' must be 0 px in every line; a non-zero one is a cause " +
+                          "neither instrument has seen. NO line here while the owner's log has one " +
+                          "means this dock never mirrored the real widget — read the 'Remote board " +
+                          "content' line for which mechanism is live before reading anything into " +
+                          "the silence.");
     }
 
     /// <summary>
