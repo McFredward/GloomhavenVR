@@ -93,8 +93,15 @@ internal sealed class RemoteActiveCards
     /// <summary>How many active cards the column currently draws (diagnostics).</summary>
     public int Count { get; private set; }
 
-    public RemoteActiveCards(int playerId, Transform boardRoot, in RemoteBoardLayout layout)
+    /// <summary>The peer whose matrix this is — read for record 36's held seats (see
+    /// <see cref="RemoteAvatar.HeldActiveSeats"/>), which is the only reason this class needs more
+    /// than a player id.</summary>
+    private readonly RemoteAvatar _owner;
+
+    public RemoteActiveCards(RemoteAvatar owner, int playerId, Transform boardRoot,
+                             in RemoteBoardLayout layout)
     {
+        _owner = owner;
         _playerId = playerId;
         _root = new GameObject("ActiveCards").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
@@ -139,6 +146,56 @@ internal sealed class RemoteActiveCards
     /// call below is one this surface declares about itself and no caller can take away —
     /// <c>RevealGate.PeerCardPopulation.AlreadyPublic</c> carries the whole argument.</para>
     /// </summary>
+    /// <summary>Change key for <see cref="ReportActiveHeldIfChanged"/>.</summary>
+    private int _loggedActiveHeld = int.MinValue;
+
+    /// <summary>
+    /// HARDWARE EVIDENCE for report item 1 of 2026-09-06, on the surface the user did not happen to
+    /// photograph. Grep token: ACTIVE MATRIX HELD SEAT.
+    ///
+    /// <para>READ IT LIKE THIS. <c>held=H matrix=N recordLen=L suppressed=S</c>:</para>
+    /// <list type="bullet">
+    ///   <item><c>held=0</c> — this peer is not holding an active card. The round says NOTHING
+    ///     about this fix, and the silence of everything else proves nothing.</item>
+    ///   <item><c>held&gt;0 and suppressed==held</c> — WORKING. The card is drawn in their fist and
+    ///     its matrix cell is blank, which is the picture the owner is looking at.</item>
+    ///   <item><c>held&gt;0 and suppressed==0</c> — INERT, and <c>recordLen</c> against
+    ///     <c>matrix</c> says why: they must be equal for a positional seat to be a name, and a
+    ///     PERSISTENT inequality means the sender's ActivatedCards walk and this one have drifted
+    ///     apart, which is a defect in one of the two walks and not in this belt.</item>
+    /// </list>
+    /// <para>Change-gated on all four numbers, so a settled board costs no lines and a pick-up
+    /// costs one.</para>
+    /// </summary>
+    private void ReportActiveHeldIfChanged(int held, int listLength, int seatA, int seatB)
+    {
+        int suppressed = (seatA >= 0 ? 1 : 0) + (seatB >= 0 ? 1 : 0);
+        int key = ((held * 97 + listLength) * 97 + Count) * 97 + suppressed;
+        if (key == _loggedActiveHeld)
+            return;
+        _loggedActiveHeld = key;
+        if (held == 0 && suppressed == 0)
+            return;   // the resting state is not a reading worth a line
+        // HW-VERIFY: report item 1 (2026-09-06). Grep token: ACTIVE MATRIX HELD SEAT.
+        VRLog.Note("Net", $"ACTIVE MATRIX HELD SEAT [player {_playerId}]: held={held} "
+            + $"matrix={Count} recordLen={listLength} suppressed={suppressed}. FIFTH COPY OF ONE "
+            + "MEMBERSHIP DEFECT, and the one the user could not have photographed: picking an "
+            + "active card up removes it from nothing a peer can see (the grab choke point touches "
+            + "the hand fan only, ActivePileViewer.Relayout merely declines the held card a grid "
+            + "POSE, and this matrix is rebuilt from the replicated ActivatedCards, which still "
+            + "holds it), so the same card was drawn in their fist AND in their matrix — in EVERY "
+            + "phase, because this population is exempt from the selection-phase gate and has no "
+            + "run of identical backs to hide a duplicate behind. held>0 with suppressed=held is "
+            + "the WORKING reading. held>0 with suppressed=0 is INERT, and the two lengths beside "
+            + "it are the reason: recordLen is the sender's own ActivatedCards walk and matrix is "
+            + "this client's, they must be equal for seat k to name cell k, and a positional guess "
+            + "across a frame where they differ would blank the WRONG card — worse than the "
+            + "duplicate. A PERSISTENT inequality is a drift between the two walks and is the "
+            + "finding. NOTHING NEW IS ON THE WIRE: record 36 has named this card in this list "
+            + "since HeldFaceListActive shipped, so its own front could be drawn on the fist slab; "
+            + "until now RemoteHeldCardFace was its only consumer.");
+    }
+
     public void Refresh(CPlayerActor actor)
     {
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It
@@ -168,6 +225,41 @@ internal sealed class RemoteActiveCards
         catch { _buffer.Clear(); }
 
         Count = _buffer.Count;
+
+        // ─── THE CARD IN THE OWNER'S FIST IS NOT DRAWN IN THE MATRIX (report item 1, 2026-09-06) ─
+        // "Durchsuche nochmal alles nach solchen ungewollten Kopien in der Hand die Karten kopieren
+        // statt sie aus einem Faecher zu nehmen." Fifth copy of one membership defect and the one
+        // with the widest blast radius, because this surface is exempt from the selection-phase
+        // gate (RevealGate.PeerCardPopulation.AlreadyPublic) — so unlike the hand fan there is not
+        // even a run of identical backs to hide the duplicate behind. It was visible in EVERY
+        // phase. Picking an active card up removes it from nothing a peer can see: the grab choke
+        // point touches _fan only, ActivePileViewer.Relayout merely declines the held card a grid
+        // POSE, and this class rebuilds from the replicated ActivatedCards, which still holds it.
+        //
+        // THE GAP IS KEPT, exactly as it is for the hand, browse and item arcs and for the same
+        // reason: the owner's own ActivePileViewer.Layout keeps n = _cards.Count and gives every
+        // other card the pose for its own unchanged index, so the owner is looking at a grid with
+        // one cell empty. Blanking the cell in place IS that picture; re-flowing the grid would
+        // trade one 1:1 breach for a worse one.
+        //
+        // THE LENGTH BELT IS WHAT MAKES THE INDEX SAFE. Record 36's seat indexes the sender's walk
+        // of ActivatedCards; this buffer is the identical walk, so seat k is cell k — but only
+        // while both walks are the same length. They can differ for a frame around a card going
+        // active, and a positional guess across that frame would blank the WRONG card, which is
+        // strictly worse than a duplicate. So a disagreement hides nothing.
+        int heldActive = _owner.HeldActiveSeats(out int activeSeatA, out int activeSeatB,
+                                                out int activeListLen);
+        if (heldActive == 2 && activeSeatA == activeSeatB)
+        {
+            activeSeatB = -1;
+            heldActive = 1;
+        }
+        if (heldActive == 0 || activeListLen != Count)
+        {
+            activeSeatA = -1;
+            activeSeatB = -1;
+        }
+        ReportActiveHeldIfChanged(heldActive, activeListLen, activeSeatA, activeSeatB);
         // The comparable half of item 8b's answer: what THIS client believes is active for THAT
         // player, in the same format and the same sort order the owner's own board reports, so two
         // logs' lines for one character diff literally. Reported BEFORE the empty early-out below,
@@ -217,6 +309,14 @@ internal sealed class RemoteActiveCards
             int colsInRow = Mathf.Min(Columns, Count - row * Columns);
             float x = (col - (colsInRow - 1) * 0.5f) * colStep;
             _cards[i].Move(new Vector3(x, yTop - row * rowStep, -ActivePileViewer.ZStagger * row));
+            if (i == activeSeatA || i == activeSeatB)
+            {
+                // In their fist, not in their matrix. Moved to its own cell first so the gap sits
+                // where the owner's does, then blanked through the same Set(null) every unused cell
+                // takes — no second hiding mechanism to keep in step with this one.
+                _cards[i].Set(null, showFronts, actor);
+                continue;
+            }
             // The ACTIVE column gets the same real-card treatment as the round slots: the actor is
             // handed through so its cards can be resolved to that player's own widgets. An active
             // card is public by definition (it was played face-up in front of everybody), and it is

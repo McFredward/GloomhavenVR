@@ -1261,7 +1261,18 @@ internal sealed partial class PlayTray
     /// <c>RoundAbilityCards</c> plus which one leads initiative
     /// (<c>CCharacterClass.InitiativeAbilityCard</c>, CCharacterClass.cs:220) — it does
     /// NOT care which VR slot a card sits in (<c>SwapInitiative</c> merely toggles the
-    /// leader + reverses the pair, AbilityCardUI.cs:809). So this no longer FORCES the
+    /// leader + reverses the pair, AbilityCardUI.cs:809) — TRUE OF VANILLA, AND RE-VERIFIED
+    /// 2026-09-06, BUT READ THE NEXT SENTENCE BEFORE ACTING ON IT. It says nothing about
+    /// whether THIS MOD makes the slot matter, and this mod does: the recess is not a view
+    /// of the game's choice, it is the INPUT to it (see the ReconcileInitiative clause
+    /// below). Anything that seats a card in recess 0 therefore changes a REPLICATED
+    /// GAMEPLAY FACT — <c>AbilityCardUI.SwapInitiative()</c> rewrites
+    /// <c>CCharacterClass.m_InitiativeAbilityCard</c>, reverses <c>RoundAbilityCards</c>,
+    /// updates the initiative track and NETWORKS it. That is why
+    /// <see cref="PlaceRoundCardIfMissing"/>, the one path that fills a recess the player did
+    /// not drop into, now prints a line naming itself as the author (report item 4,
+    /// 2026-09-06: "nach der Bestaetigung ... er die falsche Karte als Initiative hat die er
+    /// dort nicht hingelegt hatte"). So this no longer FORCES the
     /// initiative card into slot 0; instead it keeps every already-seated round card in
     /// the exact slot the player dropped it, only (a) evicting occupants that left the
     /// round and (b) dropping a NEWLY-selected round card into an empty slot (default

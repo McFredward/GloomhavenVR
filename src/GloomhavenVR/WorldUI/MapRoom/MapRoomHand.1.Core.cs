@@ -926,6 +926,27 @@ internal sealed partial class MapRoomHand
     /// the wire, or 0 from a peer whose build does not send it — in which case the deduction tiers
     /// below answer exactly as they did before the field existed.</para>
     ///
+    /// <para><b>KNOWN DEFECT, 2026-09-06, NOT FIXED HERE — READ THIS BEFORE TOUCHING THIS FAN.</b>
+    /// This resolve has NO LENGTH BELT, and it is the only one of the four card arcs that has none.
+    /// The tiers below that gate on <c>LoadoutSize(c) != cardCount</c> fail SAFE (they fall back to
+    /// backs); the modern Tier 0 path — the one always taken once record 20 is present — calls
+    /// <c>ResolveLoadout</c> and returns the FULL loadout without ever comparing it to
+    /// <paramref name="cardCount"/>. Combined with the fact that every compensating clause in
+    /// <c>Net.RemoteHandFan</c> is guarded on <c>!mapFronts</c> — the held-seat drop, the recess
+    /// hand-off removal, AND the length belt itself — a card in the owner's fist leaves this path
+    /// zipping an n-entry buffer against n-1 slabs. It therefore fails UNSAFELY, with every face
+    /// after the held seat shifted by one, rather than falling back to backs. A shifted FRONT is
+    /// worse than a back: the player cannot read it as wrong and will act on it.</para>
+    ///
+    /// <para>THE NAMING HALF IS ALREADY ON THE WIRE (record 36 seats a held map-loadout card via
+    /// <c>NetProtocol.HeldFaceListMapLoadout</c>, sampled in
+    /// <c>MapRoomHand.TryNameLocalLoadoutSeat</c>), so the fix is the same receiver-side seat
+    /// removal the hand, browse, item and active arcs now share — plus the length belt this tier
+    /// never had. It was deliberately NOT done in the ModBuild 462 round: it needs its own evidence
+    /// and its own build rather than a corner of one whose verdict has to stay readable. This note
+    /// exists so the next person to touch this fan finds the finding instead of rediscovering it.
+    /// </para>
+    ///
     /// <para><paramref name="cardCount"/> is the peer's broadcast <c>HandCardCount</c>.
     /// <paramref name="verdict"/> is a human sentence naming which tier answered (or why none did)
     /// — it is written verbatim into the receiver's diagnostic so a hardware log can tell "the peer

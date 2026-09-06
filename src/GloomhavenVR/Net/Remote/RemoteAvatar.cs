@@ -431,6 +431,38 @@ internal sealed class RemoteAvatar
             : 0;
     }
 
+    /// <summary>
+    /// WHICH SEATS OF THIS PEER'S <b>ACTIVE / PERSISTENT MATRIX</b> ARE IN THEIR FIST — record
+    /// 36's seats filtered to <see cref="NetProtocol.HeldFaceListActive"/>, in
+    /// <c>CCharacterClass.ActivatedCards</c> order, with that list's own length beside them.
+    ///
+    /// <para>WHY <c>Net.RemoteActiveCards</c> NEEDS IT, and it is the FIFTH copy of one membership
+    /// defect. The user's item 1 of 2026-09-06 asked for a sweep — "Durchsuche nochmal alles nach
+    /// solchen ungewollten Kopien in der Hand die Karten kopieren statt sie aus einem Faecher zu
+    /// nehmen" — and this is one of the two surfaces it turned up. Picking an active card up out of
+    /// the matrix does not remove it from anything a peer can see: the grab choke point
+    /// (<c>CardsDriver.OnCardGrabbed</c>) removes from <c>_fan</c> only,
+    /// <c>ActivePileViewer.Relayout</c> merely <c>continue</c>s past a held card without giving it
+    /// a grid pose, and this receiver rebuilds the matrix straight from the replicated
+    /// <c>ActivatedCards</c> — which still holds it, because a card in a player's hand has not
+    /// stopped being active. The peer therefore saw the same card twice, in the matrix and in the
+    /// fist, IN EVERY PHASE (this surface is exempt from the selection-phase gate by
+    /// <c>RevealGate.PeerCardPopulation.AlreadyPublic</c>, so unlike the hand fan there is not even
+    /// a run of identical backs to hide it).</para>
+    ///
+    /// <para>NO NEW WIRE FIELD IS OWED and no index space is invented: record 36 has named this
+    /// exact card in this exact list since <c>HeldFaceListActive</c> shipped, so that its own front
+    /// can be drawn on the slab in the peer's fist — and until now
+    /// <c>Net.RemoteHeldCardFace</c> was its only consumer. The sender seats it by walking
+    /// <c>CCharacterClass.ActivatedCards</c> and counting the <c>CAbilityCard</c> entries
+    /// (<c>LocalRigSampler.NameHeldCard</c>'s Active arm); <c>RemoteActiveCards</c> fills its own
+    /// buffer with the identical walk, so seat k IS cell k by construction. The LENGTH is handed
+    /// out beside the seats because that identity is the only thing that makes the index safe to
+    /// use, exactly as it is for the hand fan.</para>
+    /// </summary>
+    internal int HeldActiveSeats(out int seatA, out int seatB, out int listLength) =>
+        HeldSeatsIn(NetProtocol.HeldFaceListActive, out seatA, out seatB, out listLength);
+
     /// <summary>Record 36's two pose slots, filtered to ONE list id — the single expression behind
     /// <see cref="HeldHandSeats"/> and <see cref="HeldPileSeats"/>. Two callers, one reading of the
     /// wire: a second copy is how the hand fan and the browse arc would come to disagree about what
