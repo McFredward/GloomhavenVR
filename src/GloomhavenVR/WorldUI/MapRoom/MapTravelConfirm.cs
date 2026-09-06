@@ -1951,10 +1951,22 @@ internal static class MapTravelConfirm
         // roster's own doc claimed "the quest site does not need this" — it did, and this is the
         // one place that had not asked. Being OURS is not the test: mod-AUTHORED content is ink
         // (ModBuild 242). Being PLACED BY THIS SWEEP is the test.
+        //
+        // ---- ModBuild 463 - AND THE THIRD ONE, WHICH THE 459 CLAUSE ITSELF PREDICTED. ------------
+        //
+        // That clause ships the sentence "a NON-ZERO count here means a THIRD graphic reaches past
+        // the frame ... name that graphic, do not widen the exclusion". The 2026-09-06 host log has
+        // the other half of it: RAW union bottom y=-449.2 with a refusal count of ZERO, on a card
+        // whose bottom edge is y=-510.5. -510.5 + 0.06 x 1021 = -449.24 is
+        // MapQuestReadyRoster's status NOTICE seated by its own fallback construction — a third
+        // object this mod places, drawn by a mod-built GameObject that no ownership test in this
+        // sweep can see, and NOT excluded. It is named here rather than widened into excludeRoot for
+        // the same reason the row was.
         if (!TryContentBounds(win, win, excludeRoot: rect,
                               excludeParked: MapQuestReadyRoster.HeldRow, out Rect infoRaw,
                               out int infoCounted, out int infoSkipped, out int infoClipped,
-                              out int infoTransient, out int infoTransientMask, out int infoParked))
+                              out int infoTransient, out int infoTransientMask, out int infoParked,
+                              excludeParkedB: MapQuestReadyRoster.HeldNotice))
         {
             _anchorWhy = "the quest window has no visible Graphic outside the button itself and the "
                          + "row this measurement places — the previous zero is kept";
@@ -2066,6 +2078,33 @@ internal static class MapTravelConfirm
     internal static bool TryInkBounds(RectTransform frame, Transform sweepRoot,
                                       out Rect ink, out int counted) =>
         TryContentBounds(frame, sweepRoot, excludeRoot: null, out ink, out counted, out _, out _);
+
+    /// <summary>
+    /// THE SAME INFORMATION UNION <see cref="MaybeRefreshAnchor"/> SOLVES THE CONFIRM FROM, ASKED BY
+    /// A SIBLING PLACEMENT THAT HAS NO CONFIRM TO PARK.
+    ///
+    /// <para><b>WHY IT EXISTS (ModBuild 463).</b> The zero this file measures is only measured while
+    /// something is parked, because <see cref="MaybeRefreshAnchor"/> runs from the pose write. The
+    /// quest card's status notice exists precisely for the state in which NOTHING is parked, and it
+    /// was therefore seated by a construction — a fraction of the window height above the window's
+    /// own bottom edge — while the drawn card ends hundreds of px higher. Handing the same sweep out
+    /// is the alternative to that construction and to a second set of ink rules
+    /// [[measure-the-picture-not-the-state]].</para>
+    ///
+    /// <para>The caller passes its OWN subtree as <paramref name="excludeRoot"/>, for the reason the
+    /// whole 459/463 exclusion family exists: a placement solved from a union it is itself inside
+    /// chases its own answer down the card, one ink height per refresh.</para>
+    ///
+    /// <para>Frame-clamped by the caller and not here: the clamp belongs with the placement that
+    /// decides what to do when the union leaves the card, and this method's job is the union.</para>
+    /// </summary>
+    /// <returns>False when nothing visible was found, in which case <paramref name="ink"/> is
+    /// meaningless and the caller must fall back and SAY it fell back.</returns>
+    internal static bool TryInkBounds(RectTransform frame, Transform sweepRoot,
+                                      Transform? excludeRoot, Transform? excludeParked,
+                                      out Rect ink, out int counted, out int parkedRefused) =>
+        TryContentBounds(frame, sweepRoot, excludeRoot, excludeParked, out ink,
+                         out counted, out _, out _, out _, out _, out parkedRefused);
 
     /// <summary>
     /// ONE LINE, ONCE PER SESSION: the dials' ZERO changed meaning at ModBuild 197, so any value
@@ -2345,11 +2384,20 @@ internal static class MapTravelConfirm
     /// exclusions answer the same question but the counts have to stay tellable apart, because a
     /// zero on this one is the difference between "the row is not in the card" and "the row is in
     /// the card and sizing the information again".</param>
+    /// <param name="excludeParkedB">A SECOND subtree in the same category as
+    /// <paramref name="excludeParked"/>, refused into the same counter. ModBuild 463 added it for
+    /// the quest card's status notice, which this file's own placement measurement had been
+    /// counting: on the 2026-09-06 host log the info union's RAW bottom read y=-449.2 with a
+    /// refusal count of 0, and -449.2 is exactly the notice's own seated rect bottom
+    /// (0.06 x 1021 above a card whose bottom edge is -510.5). One counter and not two because the
+    /// two subtrees answer the same question - "this mod places it FROM this measurement" - and the
+    /// only distinction the ModBuild 459 clause needs is parked-versus-skipped.</param>
     private static bool TryContentBounds(RectTransform frame, Transform sweepRoot,
                                          Transform? excludeRoot, Transform? excludeParked,
                                          out Rect content,
                                          out int counted, out int skipped, out int clipped,
-                                         out int transient, out int transientMask, out int parked)
+                                         out int transient, out int transientMask, out int parked,
+                                         Transform? excludeParkedB = null)
     {
         content = default;
         counted = 0;
@@ -2400,8 +2448,14 @@ internal static class MapTravelConfirm
                 skipped++;
                 continue;
             }
-            // PLACED BY THIS MEASUREMENT, so it cannot be an input to it (ModBuild 459).
+            // PLACED BY THIS MEASUREMENT, so it cannot be an input to it (ModBuild 459; the
+            // second subtree is ModBuild 463's notice — see the excludeParkedB param doc).
             if (excludeParked != null && rt.IsChildOf(excludeParked))
+            {
+                parked++;
+                continue;
+            }
+            if (excludeParkedB != null && rt.IsChildOf(excludeParkedB))
             {
                 parked++;
                 continue;

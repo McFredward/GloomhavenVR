@@ -1095,6 +1095,12 @@ internal sealed class MapLocationInteractor
     /// </summary>
     private void TickDeselect()
     {
+        // THE REGISTRATION IS THE GAME'S ANSWER, AND IT MUST BE READ AND NOT ONLY WRITTEN.
+        // See TickAdoptGameSelection: a quest opened from the QUEST LIST never reaches Dispatch,
+        // so up to ModBuild 462 `_selected` stayed null and this method returned on its first line
+        // for the whole life of that window.
+        TickAdoptGameSelection();
+
         if (_selected == null)
             return;
 
@@ -1303,6 +1309,119 @@ internal sealed class MapLocationInteractor
                           + "pointing at the room must not. Rate-limited to one line per "
                           + $"{RefusedLogIntervalSeconds:F0} s.");
     }
+
+    /// <summary>
+    /// TAKE THE SELECTION THE GAME ALREADY HAS, WHOEVER MADE IT.
+    ///
+    /// <para><b>THE DEFECT (report 3 of 2026-09-06, user verbatim): "Wenn man eine Quest über die
+    /// Quest-Liste statt über ein Quest-Symbol auf der Map öffnet, dann kann man sie nicht mehr
+    /// wegklicken, wenn man woanders in der Map hinklickt."</b> The set a press on empty map space
+    /// clears is one field — <see cref="_selected"/> — and up to ModBuild 462 that field was
+    /// written in exactly ONE place, <see cref="Dispatch"/>. A quest opened from the quest list
+    /// never passes through it: <c>UIQuestLogSlot.Select</c> → <c>QuestLogManager.OnQuestSelected</c>
+    /// → <c>QuestManager.OnSelectedLogQuest</c> → <c>MapChoreographer.SelectLocation</c> →
+    /// <c>MapLocation.Select()</c> runs entirely inside the game, and this mod has no patch anywhere
+    /// on it. So the window opened, the game's own selection stood, and
+    /// <see cref="TickDeselect"/> returned on its first line for the rest of that window's life
+    /// [[cascade-clears-only-what-it-lists]]. His own workaround is the proof: opening a second
+    /// quest FROM A SYMBOL runs <see cref="Dispatch"/>, arms the field, and the next press on empty
+    /// map space then closes the one shared popup — the closing mechanism was never broken.</para>
+    ///
+    /// <para><b>THE SAME PREDICATE, NOT A SECOND ONE.</b> Dispatch arms the field on
+    /// <c>MapLocation.IsSelected</c> — the game's own answer to our click (ModBuild 423). This asks
+    /// the same question of the same game state on every tick instead of only on the tick this mod
+    /// clicked: <c>AdventureMapUIManager.LocationToTravel</c> (decompiled
+    /// AdventureMapUIManager.cs:70, written at :434 from <c>OnSelectedMapLocation</c> :340, which is
+    /// where BOTH paths converge) AND that location's own <c>IsSelected</c>. The capital therefore
+    /// stays excluded for free and for the right reason: its click delegate returns false before
+    /// <c>m_IsSelected</c> is ever set, so it is never <c>IsSelected</c> and never becomes
+    /// <c>LocationToTravel</c>.</para>
+    ///
+    /// <para><b>IT ARMS, IT NEVER CLEARS.</b> Dropping <see cref="_selected"/> because the game's
+    /// field went null would be a new deselect trigger, and this room already has two that the user
+    /// tuned by hand. Nothing about the point of no return changes either: the
+    /// <c>AdventureMapUIManager.IsLocked</c> guard below still refuses every DESELECT for the length
+    /// of the lock, and this method is deliberately NOT gated on it so that the two open paths arm
+    /// the field identically — <see cref="Dispatch"/> is not gated on the lock either.</para>
+    ///
+    /// <para><b>MULTIPLAYER.</b> <see cref="Staged"/> IS this field, and it is what
+    /// <c>Net.RemoteMapRoom</c> publishes as record 20's one shared selection; <see cref="_selectedDecisionId"/>
+    /// is what <c>MapQuestReadyUp</c> watches for "the decision changed". Both were blind to a
+    /// list-opened quest, so that quest reached no peer and reset no ready-up. Arming the field
+    /// makes the two open paths produce the same shared state, which is the 1:1 rule. No new wire
+    /// field and no new channel: the edge that already exists simply stops missing one of its two
+    /// producers.</para>
+    /// </summary>
+    private void TickAdoptGameSelection()
+    {
+        if (!Singleton<AdventureMapUIManager>.IsInitialized)
+            return;
+        AdventureMapUIManager mapUi = Singleton<AdventureMapUIManager>.Instance;
+        if (mapUi == null)
+            return;
+        MapLocation? game = mapUi.LocationToTravel;
+        // The game's own membership test, both halves. LocationToTravel is kept across a deselect
+        // (AdventureMapUIManager.cs:389 only calls Deselect on it), so IsSelected is what says
+        // whether it is selected RIGHT NOW rather than "was, once".
+        if (game == null || !game.IsSelected || ReferenceEquals(game, _selected))
+            return;
+
+        // WAS THIS OUR OWN CLICK ARRIVING? Dispatch arms the field synchronously on the frame it
+        // runs, so by construction it cannot be — but the frame stamp says so with a number instead
+        // of with an argument, and it is what makes "which path opened this window" a reading and
+        // not an inference.
+        int sinceDispatch = _lastDispatchFrame == int.MinValue / 2
+            ? -1
+            : Time.frameCount - _lastDispatchFrame;
+        MapLocation? previous = _selected;
+        // Flat local, never an interpolated string inside an interpolation hole - the repo's
+        // brace-counting tools lose the nesting depth on those.
+        string previousName = previous != null ? previous.name : "<nothing>";
+        _selected = game;
+        _selectedAt = Time.unscaledTime;
+        _selectedDecisionId = DecisionIdOf(game);
+        _adoptedFromGame++;
+
+        // HW-VERIFY: report 3 of 2026-09-06 — "Wenn man eine Quest über die Quest-Liste statt über
+        // ein Quest-Symbol auf der Map öffnet, dann kann man sie nicht mehr wegklicken".
+        VRLog.Note(Scope,
+            $"MAP ROOM SELECTION ADOPTED '{game.name}' — WHICH PATH OPENED THIS QUEST WINDOW: NOT a "
+            + "map symbol. A symbol press goes through this class's own Dispatch, which arms the "
+            + "deselect on the SAME frame, so anything this line names was selected by something "
+            + "else — in practice the QUEST LIST (UIQuestLogSlot.Select -> QuestLogManager -> "
+            + "QuestManager.OnSelectedLogQuest -> MapChoreographer.SelectLocation -> "
+            + $"MapLocation.Select), which this mod does not patch at all. Frames since this mod "
+            + $"last dispatched a location click: {sinceDispatch} (-1 = never this session; 0 or 1 "
+            + "would mean our own click arriving late and is not expected). REGISTERED IN THE "
+            + "DISMISSABLE SET: YES, as of this line — the set is the single field this class's "
+            + "TickDeselect reads first, and before ModBuild 463 only Dispatch ever wrote it, so a "
+            + "list-opened quest could not be closed by pressing empty map space at all. It was "
+            + $"'{previousName}' before this. THE GAME'S OWN "
+            + $"ANSWER: AdventureMapUIManager.LocationToTravel={game.name}, IsSelected=True, "
+            + $"IsLocked={mapUi.IsLocked} (a lock still refuses the DESELECT, unchanged - this line "
+            + "only arms it). Session tally: "
+            + $"{_adoptedFromGame} adopted from the game, {_dispatchedHere} dispatched by this mod. "
+            + "This also puts the selection on record 20 and on MapQuestReadyUp's decision id, "
+            + "which a list-opened quest reached neither of before. ONE LINE PER SELECTION EDGE "
+            + "THIS MOD DID NOT MAKE, and a repeat of the SAME location is not a bug in the gate: "
+            + "MapLocation.Deselect is itself gated on IsSelectable() and the game's own "
+            + "m_OnClickAction (decompiled MapLocation.cs:671-673), so a deselect the game REFUSES "
+            + "leaves m_IsSelected true and this line re-arms it on the next tick - which is the "
+            + "honest answer and is bounded by how often a human presses.");
+    }
+
+    /// <summary>Frame of the last <see cref="Dispatch"/> that armed <see cref="_selected"/>. Far
+    /// enough from <c>int.MinValue</c> that the subtraction cannot overflow
+    /// [[sentinel-overflow-and-silent-scans]].</summary>
+    private int _lastDispatchFrame = int.MinValue / 2;
+
+    /// <summary>Session tallies for the line in <see cref="TickAdoptGameSelection"/>: a zero on the
+    /// first while the user reports opening quests from the list is the instrument being INERT, not
+    /// the defect being absent.</summary>
+    private int _adoptedFromGame;
+
+    /// <inheritdoc cref="_adoptedFromGame"/>
+    private int _dispatchedHere;
 
     private void Deselect(string why)
     {
@@ -2194,6 +2313,8 @@ internal sealed class MapLocationInteractor
             {
                 _selected = loc;   // what a later "press somewhere else" deselects
                 _selectedAt = Time.unscaledTime;
+                _lastDispatchFrame = Time.frameCount;
+                _dispatchedHere++;
                 // The DECISION's identity, captured HERE and never re-derived from the object
                 // later - see DecisionIdOf for why reading it back off a rebuilt map is not the
                 // same question.

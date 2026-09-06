@@ -248,11 +248,30 @@ internal static class MapQuestReadyRoster
     /// with a usable spacing, and which of the two was used is on the report line.</para></summary>
     private const float RowGapWindowHeights = 0.015f;
 
-    /// <summary>Where the NOTICE's bottom edge sits, as a fraction of the window height above the
-    /// window's bottom edge. Deliberately NOT the measured zero: the zero is only measured while
-    /// something is parked (<c>MapTravelConfirm.MaybeRefreshAnchor</c> runs from its pose write),
-    /// and the notice exists precisely for the case in which nothing is parked. A construction that
-    /// is inside the frame for every card length beats a measurement that cannot be taken.</summary>
+    /// <summary>
+    /// FALLBACK ONLY SINCE ModBuild 463. Where the notice's edge sits, as a fraction of the window
+    /// height above the window's bottom edge, when the card paints nothing this sweep can measure.
+    ///
+    /// <para><b>THE DOC THIS REPLACES WAS A HYPOTHESIS AND THE HARDWARE FALSIFIED BOTH ITS
+    /// CLAUSES</b> [[an-assertion-in-the-source-is-a-hypothesis]]. It read: "Deliberately NOT the
+    /// measured zero: the zero is only measured while something is parked ... A construction that is
+    /// inside the frame for every card length beats a measurement that cannot be taken."</para>
+    /// <list type="number">
+    /// <item>The measurement CAN be taken — <c>MapTravelConfirm.TryInkBounds</c> is the same sweep
+    /// with the same rules and needs no parked confirm; only the CALLER of it was tied to the pose
+    /// write. <see cref="SeatNotice"/> now takes it directly.</item>
+    /// <item>"Inside the frame" is not inside the CARD. The window's RectTransform is 512x1021 px
+    /// and the card is fitted to 512x636 — on the 2026-09-06 host log this construction seated the
+    /// notice at window-local y=-449.2 while the drawn panel ends at y=-113, i.e. 336 px of empty
+    /// forest between the rewards panel and the sentence. That IS hinweistext.jpg's gap, and the
+    /// same 336 px is what pushed the card's drawn content to 972 px around a 636 px host rect and
+    /// tripped the supersample's own warning ("the capture frames 608x956 and whatever lies outside
+    /// THAT is cropped") — which IS hinweistext.jpg's cut-off last line. One construction, both
+    /// symptoms.</item>
+    /// </list>
+    /// <para>It is kept, because a card that paints nothing measurable still has to put the sentence
+    /// somewhere, and which of the two was used is on the report line.</para>
+    /// </summary>
     private const float NoticeBottomFractionAboveBottom = 0.06f;
 
     /// <summary>Notice width as a fraction of the window's own width. The card is 512 px wide in the
@@ -305,6 +324,27 @@ internal static class MapQuestReadyRoster
     private static TextMeshProUGUI? _notice;
     private static UIWindow? _noticeHost;
     private static string _noticeText = string.Empty;
+
+    /// <summary>The card's own information bottom, in the host window's local units, as measured on
+    /// the notice's own cadence — the SAME edge <c>MapTravelConfirm</c> seats the confirm from, so
+    /// the sentence and the button land in the same place and the user sees one layout, not two.
+    /// </summary>
+    private static float _noticeZero;
+
+    private static bool _noticeZeroValid;
+    private static string _noticeZeroWhy = "never measured yet";
+    private static float _noticeZeroNextAt = float.NegativeInfinity;
+
+    /// <summary>The gap between the information and the notice, and where the number came from —
+    /// <see cref="ResolveGap"/>, the same rule the icon row uses.</summary>
+    private static float _noticeGapPx;
+    private static string _noticeGapWhy = "never resolved";
+
+    /// <summary>What the last seat wrote, for the report: the notice rect's own top and bottom in
+    /// the host window's local units, and the size TMP asked for against the size the rect has.
+    /// </summary>
+    private static float _noticeTopY, _noticeBottomY, _noticeRectH, _noticeRectW;
+    private static float _noticePrefH, _noticePrefW;
 
     // ---- C: which confirmation, and the two parkers' offers -------------------------------------------
 
@@ -456,6 +496,22 @@ internal static class MapQuestReadyRoster
     /// because it can flip with every other term unchanged (ModBuild 459).</summary>
     private static int _reportGapState;
     private static string _reportNotice = string.Empty;
+
+    /// <summary>Gate terms for the NOTICE clause. The seat can start or stop being MEASURED, and the
+    /// sentence can move hundreds of px, with the ids, the cell counts and the text all unchanged —
+    /// a verdict that can only be seen on a tick something else moved is a line that reads as dead
+    /// [[held-instrument-reads-as-dead]]. Rounded to whole window-local px so a sub-pixel layout
+    /// jitter cannot make this line print per frame.</summary>
+    private static bool _reportNoticeMeasured;
+
+    /// <inheritdoc cref="_reportNoticeMeasured"/>
+    private static int _reportNoticeTop;
+
+    /// <summary>Whether the last reported tick had the rect SHORTER than TMP asked for. A gate term
+    /// because the ContentSizeFitter has not run on the tick the label is created, so the first
+    /// report of every notice reads rect height 0 — without this the line would stand at that
+    /// transient forever and be read as a clip this class caused.</summary>
+    private static bool _reportNoticeShort;
     private static bool _reportEver;
 
     /// <summary>Forget the last line so the next one prints whatever it says.</summary>
@@ -660,6 +716,18 @@ internal static class MapQuestReadyRoster
     /// </summary>
     internal static Transform? HeldRow => _row != null ? _row.transform : null;
 
+    /// <summary>
+    /// The status notice's transform while it is up, else null. <see cref="HeldRow"/>'s twin and for
+    /// the identical reason: since ModBuild 463 the notice is SEATED FROM the card's information
+    /// union, so a sweep that solves that union must refuse it or the sentence walks down the card
+    /// one ink height per refresh — the ModBuild 423 feedback loop with a different object in it.
+    ///
+    /// <para>It is mod-BUILT and carries the <c>GloomhavenVR.</c> prefix, so
+    /// <c>CanvasConversion</c>'s fit already skips it and does not need this; what needed it is
+    /// <c>MapTravelConfirm.MaybeRefreshAnchor</c>, whose sweep has no name test at all.</para>
+    /// </summary>
+    internal static Transform? HeldNotice => _noticeGo != null ? _noticeGo.transform : null;
+
     /// <summary>Hand both elements back — the room is going away under them. Called from
     /// <see cref="MapTravelConfirm.Reset"/>.</summary>
     internal static void Reset()
@@ -793,7 +861,7 @@ internal static class MapQuestReadyRoster
             return;
         }
 
-        _gapPx = ResolveGap(win, windowHeight);
+        _gapPx = ResolveGap(win, windowHeight, out _gapWhy);
 
         // ANCHORS ARE READ, NEVER RE-WRITTEN unless they are STRETCHED — MapTravelConfirm's rule,
         // and the correction is needed for the same reason: `anchoredPosition +=` TRANSLATES a rect
@@ -906,22 +974,22 @@ internal static class MapQuestReadyRoster
     /// window height at least scales with the card. Which of the two was used is on the report
     /// line, so this never has to be inferred from the picture.</para>
     /// </summary>
-    private static float ResolveGap(RectTransform win, float windowHeight)
+    private static float ResolveGap(RectTransform win, float windowHeight, out string why)
     {
         var group = win.GetComponent<HorizontalOrVerticalLayoutGroup>();
         if (group != null && group.spacing > 0f)
         {
-            _gapWhy = $"the host's own {group.GetType().Name}.spacing";
+            why = $"the host's own {group.GetType().Name}.spacing";
             return group.spacing;
         }
         var grid = win.GetComponent<GridLayoutGroup>();
         if (grid != null && grid.spacing.y > 0f)
         {
-            _gapWhy = "the host's own GridLayoutGroup.spacing.y";
+            why = "the host's own GridLayoutGroup.spacing.y";
             return grid.spacing.y;
         }
-        _gapWhy = $"FALLBACK {RowGapWindowHeights:0.###} x the window's height — the host carries no "
-                  + "layout group with a usable spacing, so it has no pitch of its own to lend";
+        why = $"FALLBACK {RowGapWindowHeights:0.###} x the window's height — the host carries no "
+              + "layout group with a usable spacing, so it has no pitch of its own to lend";
         return RowGapWindowHeights * windowHeight;
     }
 
@@ -1097,28 +1165,109 @@ internal static class MapQuestReadyRoster
             _noticeHost = questWindow;
         }
 
-        RectTransform rect = (RectTransform)_noticeGo!.transform;
-        Rect frame = win.rect;
-        float windowHeight = Mathf.Abs(frame.height);
-        if (windowHeight > 0f)
-        {
-            Vector2 want = new Vector2(frame.center.x,
-                                       frame.yMin + NoticeBottomFractionAboveBottom * windowHeight)
-                           - AnchorReference(frame, rect.anchorMin, rect.anchorMax);
-            if ((rect.anchoredPosition - want).sqrMagnitude > 0.01f)
-                rect.anchoredPosition = want;
-            float wantWidth = Mathf.Abs(frame.width) * NoticeWidthFraction;
-            if (Mathf.Abs(rect.sizeDelta.x - wantWidth) > 0.5f)
-                rect.sizeDelta = new Vector2(wantWidth, rect.sizeDelta.y);
-        }
-
+        // TEXT BEFORE GEOMETRY. The seat below reads the rect the ContentSizeFitter produced for
+        // this string; writing the string afterwards would seat the sentence the tick BEFORE it,
+        // which is one frame of the defect this build removes on every change of the blocker.
         if (_noticeText != text && _notice != null)
         {
             _noticeText = text;
             _notice.text = text;
         }
-        if (!_noticeGo.activeSelf)
+        if (!_noticeGo!.activeSelf)
             _noticeGo.SetActive(true);
+
+        SeatNotice(win, (RectTransform)_noticeGo.transform);
+    }
+
+    /// <summary>
+    /// SEAT THE SENTENCE WHERE THE BUTTON WOULD GO — directly under the card's own information.
+    ///
+    /// <para><b>THE DEFECT (report 2 of 2026-09-06, hinweistext.jpg, user verbatim): "Der
+    /// Hinweis-Text im Quest-Fenster ... ist a) teilweise abgeschnitten und b) wieder eine größere
+    /// vertikale Lücke (verschwindet, wenn der Button erscheint)."</b> His parenthesis is the whole
+    /// diagnosis: the button is seated from the MEASURED information bottom and the sentence was
+    /// seated from a FRACTION OF THE WINDOW RECT, and the two are 336 px apart on this card because
+    /// the window's RectTransform is 512x1021 px while the drawn panel is fitted to 512x636. The
+    /// gap he photographed is that difference, and the cut-off last line is the same difference
+    /// arriving at the supersample: 636 px of host rect plus a 336 px overhang is 972 px of drawn
+    /// content, past the 956 px the capture frame will grow to, and the log says so in its own words
+    /// on the same tick ("draws content that reaches 553x972 uGUI px around a 512x636 host rect ...
+    /// the capture frames 608x956 and whatever lies outside THAT is cropped").</para>
+    ///
+    /// <para><b>ONE EDGE, TWO CONSUMERS.</b> The zero is <c>MapTravelConfirm</c>'s information union
+    /// — the same sweep, the same rules, the same frame clamp — so the sentence occupies exactly the
+    /// seat the confirm takes when the confirm exists. That is what makes the gap DISAPPEAR in both
+    /// states rather than in one, and it is why this is not a second layout system: it is the same
+    /// one, asked by the other caller.</para>
+    ///
+    /// <para><b>THE NOTICE IS REFUSED FROM ITS OWN MEASUREMENT</b> (<paramref name="rect"/> as
+    /// <c>excludeRoot</c>), and so is the parked row. Without the first the sentence would walk down
+    /// the card one ink height per refresh — the ModBuild 423 loop that cost six builds.</para>
+    ///
+    /// <para>ON THE CADENCE, never per frame: the sweep is the expensive part and the quest text
+    /// changes when the QUEST does.</para>
+    /// </summary>
+    private static void SeatNotice(RectTransform win, RectTransform rect)
+    {
+        Rect frame = win.rect;
+        float windowHeight = Mathf.Abs(frame.height);
+        if (windowHeight <= 0f)
+            return;
+
+        float now = Time.unscaledTime;
+        if (now >= _noticeZeroNextAt)
+        {
+            _noticeZeroNextAt = now + InkRefreshIntervalSeconds;
+            _noticeGapPx = ResolveGap(win, windowHeight, out _noticeGapWhy);
+            if (MapTravelConfirm.TryInkBounds(win, win, excludeRoot: rect, excludeParked: HeldRow,
+                                              out Rect info, out int counted, out int refused)
+                && counted > 0)
+            {
+                // FRAME-CLAMPED, exactly as MaybeRefreshAnchor clamps its own: a graphic drawn past
+                // the card must not send the sentence after it, and saturating at the card's own
+                // bottom edge is a bound and not an answer.
+                _noticeZero = Mathf.Max(info.yMin, frame.yMin);
+                _noticeZeroValid = true;
+                _noticeZeroWhy = $"MEASURED - the card's information union bottom, {counted} "
+                                 + $"graphic(s) counted and {refused} refused as content this "
+                                 + "measurement places (the notice itself and the parked icon row)";
+            }
+            else
+            {
+                _noticeZeroValid = false;
+                _noticeZeroWhy = "FALLBACK - the card paints no visible graphic outside the notice "
+                                 + "itself this tick, so there is no information edge to hang from";
+            }
+        }
+
+        // The seat: the notice's TOP edge one gap under the information's bottom. Its pivot is
+        // top-centre, so the ContentSizeFitter grows it DOWNWARD from here and a longer sentence
+        // never walks up into the quest text.
+        float topY = _noticeZeroValid
+            ? _noticeZero - _noticeGapPx
+            : frame.yMin + NoticeBottomFractionAboveBottom * windowHeight;
+
+        Vector2 want = new Vector2(frame.center.x, topY)
+                       - AnchorReference(frame, rect.anchorMin, rect.anchorMax);
+        if ((rect.anchoredPosition - want).sqrMagnitude > PlaceEpsilonPx * PlaceEpsilonPx)
+            rect.anchoredPosition = want;
+        float wantWidth = Mathf.Abs(frame.width) * NoticeWidthFraction;
+        if (Mathf.Abs(rect.sizeDelta.x - wantWidth) > PlaceEpsilonPx)
+            rect.sizeDelta = new Vector2(wantWidth, rect.sizeDelta.y);
+
+        // WHAT WAS ACTUALLY WRITTEN, read back off the transform for the report - never re-derived
+        // from the numbers above, because the question the report answers is what the rect CARRIES.
+        Vector3 pivotLocal = win.InverseTransformPoint(rect.position);
+        Rect r = rect.rect;
+        _noticeTopY = pivotLocal.y + r.yMax;
+        _noticeBottomY = pivotLocal.y + r.yMin;
+        _noticeRectH = r.height;
+        _noticeRectW = r.width;
+        if (_notice != null)
+        {
+            _noticePrefH = _notice.preferredHeight;
+            _noticePrefW = _notice.preferredWidth;
+        }
     }
 
     /// <summary>
@@ -1140,7 +1289,11 @@ internal static class MapQuestReadyRoster
             rect.SetParent(win, worldPositionStays: false);
             rect.SetAsLastSibling();
             rect.anchorMin = rect.anchorMax = Vector2.up;
-            rect.pivot = new Vector2(0.5f, 0f);
+            // TOP-CENTRE (ModBuild 463; it was bottom-centre). The seat is now the information's
+            // bottom edge, so the rect has to grow DOWN from a fixed top rather than up from a
+            // fixed bottom - otherwise a sentence that gains a line pushes itself INTO the quest
+            // text it is meant to sit under.
+            rect.pivot = new Vector2(0.5f, 1f);
             rect.localRotation = Quaternion.identity;
             rect.localScale = Vector3.one;
             rect.sizeDelta = new Vector2(Mathf.Abs(win.rect.width) * NoticeWidthFraction, 0f);
@@ -1192,11 +1345,26 @@ internal static class MapQuestReadyRoster
     private static void HideNotice()
     {
         if (_noticeGo != null)
+        {
+            // DEACTIVATE BEFORE DESTROYING. Object.Destroy is deferred to the end of the frame, so
+            // a notice merely destroyed is still ACTIVE and still drawn for the rest of the tick on
+            // which the confirm arrives - and every painted-union sweep in this room that runs after
+            // this call would count it. SetActive(false) is what makes
+            // GetComponentsInChildren(includeInactive: false) stop seeing it on the spot.
+            _noticeGo.SetActive(false);
             UnityEngine.Object.Destroy(_noticeGo);
+        }
         _noticeGo = null;
         _notice = null;
         _noticeHost = null;
         _noticeText = string.Empty;
+        // An anchor can never be carried from one card into another, same rule as
+        // MapTravelConfirm.ResetAnchor.
+        _noticeZeroValid = false;
+        _noticeZeroNextAt = float.NegativeInfinity;
+        _noticeZeroWhy = "no notice is up";
+        _noticeTopY = _noticeBottomY = _noticeRectH = _noticeRectW = 0f;
+        _noticePrefH = _noticePrefW = 0f;
     }
 
     // ---- the blocker, in the game's own words ------------------------------------------------------------
@@ -1452,6 +1620,9 @@ internal static class MapQuestReadyRoster
             && rowId == _reportRowId && cells == _reportCells && lit == _reportLit
             && _site == _reportSite && _inkValid == _reportInkValid
             && gapState == _reportGapState
+            && _noticeZeroValid == _reportNoticeMeasured
+            && Mathf.RoundToInt(_noticeTopY) == _reportNoticeTop
+            && (_noticePrefH > _noticeRectH + PlaceEpsilonPx) == _reportNoticeShort
             && string.Equals(_noticeText, _reportNotice, StringComparison.Ordinal))
             return;
         _reportEver = true;
@@ -1464,6 +1635,9 @@ internal static class MapQuestReadyRoster
         _reportInkValid = _inkValid;
         _reportGapState = gapState;
         _reportNotice = _noticeText;
+        _reportNoticeMeasured = _noticeZeroValid;
+        _reportNoticeTop = Mathf.RoundToInt(_noticeTopY);
+        _reportNoticeShort = _noticePrefH > _noticeRectH + PlaceEpsilonPx;
 
         // Each clause is built into its own local FIRST. Nesting an interpolated string inside an
         // interpolation hole is legal C# and unreadable to every brace-counting tool this repo runs
@@ -1491,6 +1665,62 @@ internal static class MapQuestReadyRoster
         string noticeClause = _noticeText.Length > 0
             ? "'" + _noticeText.Replace("\n", " / ") + "'"
             : "<none>";
+
+        // ---- ModBuild 463 - THE GAP AND THE CLIPPING, IN ONE READING. --------------------------
+        //
+        // hinweistext.jpg has two symptoms and the user named their common cause himself: the gap
+        // "verschwindet, wenn der Button erscheint". The button is seated from the MEASURED
+        // information bottom; up to 462 the sentence was seated from a FRACTION OF THE WINDOW RECT,
+        // which on this card is 336 px lower than the drawn panel's own bottom edge. Those 336 px
+        // are the gap AND the overhang that pushed the card's drawn content past the supersample's
+        // capture frame ("draws content that reaches 553x972 uGUI px around a 512x636 host rect ...
+        // whatever lies outside THAT is cropped") - the cut-off last line.
+        //
+        // SO THE FOUR NUMBERS ARE PRINTED TOGETHER. The seat and where it came from; the rect the
+        // sentence actually carries; the size TMP asked for against the size it got (a rect SHORTER
+        // than preferred is a clip this class caused, a rect that matches means any clip is
+        // downstream and the supersample line owns it); and whether the confirm's space is being
+        // reserved while the confirm is absent, which is the one way this class could re-open the
+        // gap from the other end.
+        string noticeGeometry;
+        if (_noticeText.Length == 0)
+        {
+            noticeGeometry = "<no notice up, nothing seated>";
+        }
+        else
+        {
+            // TWO TERMS AND NOT ONE. ReservedHeight() is gated on the row being HELD, so reading
+            // it alone would be near-tautological here; the row's own presence beside an absent
+            // confirm is the state that would book space for a button nobody can see, and it is
+            // stated separately so a zero cannot be read as proof of both.
+            float reserved = ReservedHeight();
+            bool rowWithoutConfirm = _row != null && parkedConfirm == null;
+            string rowHeldText = rowWithoutConfirm ? "STILL HELD" : "not held";
+            bool booking = parkedConfirm == null && (reserved > PlaceEpsilonPx || rowWithoutConfirm);
+            string reservedVerdict = booking
+                ? $"YES - {reserved:F1} px booked and the icon row is {rowHeldText} with no confirm "
+                  + "parked. THAT IS A FAULT and it would re-open the gap from the other end: "
+                  + "ReservedHeight() must be exactly 0 whenever no confirm is parked, because the "
+                  + "sentence takes the confirm's seat and nothing else may book above it"
+                : $"no ({reserved:F1} px booked, icon row held: {_row != null})";
+            string fitVerdict = _noticePrefH > _noticeRectH + PlaceEpsilonPx
+                ? $"SHORT BY {_noticePrefH - _noticeRectH:F1} px - the rect cannot hold the string "
+                  + "and the tail is being cut by THIS class"
+                : "the rect holds the whole string, so any cut-off tail is DOWNSTREAM of this class "
+                  + "and PANEL SUPERSAMPLE's own capture-frame warning for this window is the line "
+                  + "that owns it";
+            // Flat locals, one clause each, and NO interpolated string inside an interpolation
+            // hole - scripts/patch-inventory.py loses the nesting depth on those and then reports
+            // this file's Harmony classes as unattributed. Same rule as the clauses below.
+            string zeroText = _noticeZeroValid ? _noticeZero.ToString("F1") : "<none>";
+            noticeGeometry =
+                $"seated TOP y={_noticeTopY:F1}, BOTTOM y={_noticeBottomY:F1} in the card's own "
+                + $"local units, from zero y={zeroText} "
+                + $"less a {_noticeGapPx:F1} px gap taken from {_noticeGapWhy}; ZERO={_noticeZeroWhy}; "
+                + $"rect {_noticeRectW:F1}x{_noticeRectH:F1} px against TMP's preferred "
+                + $"{_noticePrefW:F1}x{_noticePrefH:F1} px - {fitVerdict}; CONFIRM'S SPACE RESERVED "
+                + $"WHILE THE CONFIRM IS ABSENT: {reservedVerdict}";
+        }
         // ADOPTED, NEVER CLONED, and the distinction is not academic in this room: the scenario fan
         // ADOPTS the game's widget while the map-room fan CLONES it, so a fix naming one is inert in
         // the other [[two-fans-one-name]]. This is the game's own singleton instance, moved and handed
@@ -1554,7 +1784,12 @@ internal static class MapQuestReadyRoster
         // und button soll direkt unter den Questinfos angezeigt werden ohne so ein riesen Abstand"
         // ("that vertical gap in the quest window is still there — the icons and the button should
         // be shown directly under the quest information without such a huge gap"), which is the
-        // VERTICAL GAP clause below.
+        // VERTICAL GAP clause below; and report 2 of 2026-09-06, "Der Hinweis-Text im Quest-Fenster,
+        // dass noch nicht alle Charaktere zugewiesen wurden, ist a) teilweise abgeschnitten und b)
+        // wieder eine größere vertikale Lücke (verschwindet, wenn der Button erscheint). Siehe
+        // hinweistext.jpg" ("the hint text in the quest window ... is a) partly cut off and b) again
+        // a larger vertical gap (it disappears when the button appears)"), which is the NOTICE
+        // GEOMETRY clause.
         VRLog.Note(Scope,
             "MAP QUEST READY CARD: what this client is drawing beside the confirm right now. "
             + $"ticks={_ticks} (LIVENESS — counted before any early return, so a small number here "
@@ -1562,7 +1797,8 @@ internal static class MapQuestReadyRoster
             + $"CONFIRMATION={siteClause}; card='{cardName}'; CONFIRM={confirmClause}; "
             + $"ICON ROW={rowClause}; SOURCE={adoptClause}; GEOMETRY={geometryClause}; "
             + $"FRAMES={frameClause}; reserved {ReservedHeight():F1} window-local unit(s) above the "
-            + $"confirm; VERTICAL GAP={gapClause}; NOTICE={noticeClause}. "
+            + $"confirm; VERTICAL GAP={gapClause}; NOTICE={noticeClause}; "
+            + $"NOTICE GEOMETRY={noticeGeometry}. "
             + "READ IT WITH 'MAP TRAVEL CONFIRM ONLINE STAND-BY': that line carries the game's own "
             + "UIReadyToggle terms and the evaluated DetermineHostToggleInteractability sub-terms, "
             + "and this line carries what the player can see as a result. A CONFIRM=NO with a NOTICE "
@@ -1570,7 +1806,21 @@ internal static class MapQuestReadyRoster
             + "online IS one and must be reported. ICON ROW=NO beside a CONFIRM=YES is the honest "
             + "state OFFLINE and on the loadout it is the ONLY offline state, because "
             + "UILoadoutManager.MultiplayerStartup never reaches MPConfirmEnterScenario when "
-            + "FFSNetwork.IsOnline is false and the bar is therefore never populated at all.");
+            + "FFSNetwork.IsOnline is false and the bar is therefore never populated at all. "
+            + "HOW TO READ 'NOTICE GEOMETRY', IN NUMBERS (hinweistext.jpg, ModBuild 463). WORKING: "
+            + "ZERO=MEASURED, and the seated TOP is within one gap of the VERTICAL GAP clause's own "
+            + "clamped zero on a tick that has both — that is the sentence and the button taking the "
+            + "SAME seat, which is what makes the gap vanish in both states. On the 462 host pair "
+            + "the card's information ended at y=-101.0 while the sentence was seated at y=-449.2, "
+            + "336 px lower; anything near -449 on a card whose bottom edge is -510.5 is the old "
+            + "window-rect construction still running. INERT: ZERO=FALLBACK on a card that is "
+            + "visibly painting, or a seated TOP that does not move when the quest text changes "
+            + "length. STILL BEYOND THIS INSTRUMENT: a tail cut off while the rect/preferred pair "
+            + "AGREE — this class then holds the whole string and the crop is downstream, so read "
+            + "PANEL SUPERSAMPLE for this window instead: its capture frame grows by at most 320 px "
+            + "around the fitted host rect, and on the 462 host log it warned in its own words that "
+            + "content reaching 972 px around a 636 px host rect leaves 16 px outside a 956 px "
+            + "frame, which is the cut-off last line in the photograph.");
     }
 
     // ---- geometry ------------------------------------------------------------------------------------------
