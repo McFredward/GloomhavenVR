@@ -425,7 +425,8 @@ internal sealed class RemoteCardArt
 
             Neutralize(clone);
             ItemFxRig itemFx = StripFragileEffects(clone, out _burnHeaderText, out _burnInitiativeText,
-                                                  out _flameBurnTexture, out _flameGhostTexture);
+                                                  out _flameBurnTexture, out _flameGhostTexture,
+                                                  out _flameQuadByName);
             if (skinSource != null)
                 TryReapplySkin(skinSource, clone);
             beforeActivate?.Invoke(clone);
@@ -1002,7 +1003,8 @@ internal sealed class RemoteCardArt
     /// </summary>
     private static ItemFxRig StripFragileEffects(GameObject clone,
         out TMPro.TextMeshProUGUI? header, out TMPro.TextMeshProUGUI? initiative,
-        out Texture? flameBurn, out Texture? flameGhost)
+        out Texture? flameBurn, out Texture? flameGhost,
+        out UnityEngine.UI.Image? flameQuad)
     {
         UnityEngine.UI.Image[]? images = null;
         TMPro.TextMeshProUGUI[]? texts = null;
@@ -1010,6 +1012,7 @@ internal sealed class RemoteCardArt
         initiative = null;
         flameBurn = null;
         flameGhost = null;
+        flameQuad = null;
         try
         {
             var effects = clone.GetComponentsInChildren<CardEffects>(includeInactive: true);
@@ -1023,6 +1026,12 @@ internal sealed class RemoteCardArt
                 // of ours. First component wins — a card carries exactly one CardEffects.
                 if (header == null)
                     LiftBurnTexts(effects[i], ref header, ref initiative);
+                // …AND THE SHEET ITSELF, which is the object those textures are pushed into. The
+                // game does not search for it: `fgFx = _uiFxOverlay` (CardEffects.cs:288) is one
+                // serialized reference, and taking it here is the difference between reproducing the
+                // owner's fire and reproducing a lookup that happens to agree with it.
+                if (flameQuad == null)
+                    flameQuad = LiftFlameQuad(effects[i]);
                 // …AND THE FLAME SHEET'S TWO TEXTURES, in the same instant and for the same reason.
                 // `overlayFrameBurn` and `overlayFrameGhost` are PUBLIC serialized fields
                 // (CardEffects.cs:221-223), so Object.Instantiate carries them onto the clone and this
@@ -1080,9 +1089,22 @@ internal sealed class RemoteCardArt
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
             s_headerField = typeof(CardEffects).GetField("_header", flags);
             s_initiativeField = typeof(CardEffects).GetField("_initiativeText", flags);
+            s_overlayField = typeof(CardEffects).GetField("_uiFxOverlay", flags);
         }
         header = s_headerField?.GetValue(effects) as TMPro.TextMeshProUGUI;
         initiative = s_initiativeField?.GetValue(effects) as TMPro.TextMeshProUGUI;
+    }
+
+    /// <summary>The game's own reference to the flame sheet — <c>CardEffects._uiFxOverlay</c>, the
+    /// object it aliases as <c>fgFx</c> (CardEffects.cs:288) — read off the CLONE's component. Same
+    /// mechanism, same component and same instant as <see cref="LiftBurnTexts"/>: the field is
+    /// <c>[SerializeField] private</c>, so the clone really has it. Null on a rename, which is why
+    /// <see cref="BuildFlameQuad"/> keeps its signature walk as the fallback.</summary>
+    private static UnityEngine.UI.Image? LiftFlameQuad(CardEffects effects)
+    {
+        if (!s_effectFieldsResolved)
+            return null;
+        return s_overlayField?.GetValue(effects) as UnityEngine.UI.Image;
     }
 
     // ─────────────────────────────────── the "already used" look on a peer's item card ──────────
@@ -2017,6 +2039,10 @@ internal sealed class RemoteCardArt
     /// null and the look degrades to uniform grey.</summary>
     private static System.Reflection.FieldInfo? s_headerField;
     private static System.Reflection.FieldInfo? s_initiativeField;
+
+    /// <summary>Handle for <c>CardEffects._uiFxOverlay</c> — see <see cref="_flameQuadByName"/>.
+    /// Resolved in the same one-shot pass as the two text handles.</summary>
+    private static System.Reflection.FieldInfo? s_overlayField;
     private static bool s_effectFieldsResolved;
 
     /// <summary>The clone's own flame sheet — <c>CardEffects._uiFxOverlay</c> ('UIFX_Overlay'),
@@ -2035,6 +2061,29 @@ internal sealed class RemoteCardArt
     /// the sheet whole rather than shown the shared material's leftover one.</summary>
     private Texture? _flameBurnTexture;
     private Texture? _flameGhostTexture;
+
+    /// <summary>
+    /// THE OWNER'S OWN <c>fgFx</c>, BY NAME RATHER THAN BY GUESS — <c>CardEffects._uiFxOverlay</c>,
+    /// lifted off the CLONE's own component in the instant before it is destroyed, exactly as
+    /// <see cref="_burnHeaderText"/> is.
+    ///
+    /// <para>WHY IT EXISTS (2026-09-06 item 10, the second pass). The game's fire is
+    /// <c>fgFx = _uiFxOverlay</c> (CardEffects.cs:288) — one exact serialized reference, chosen by
+    /// the artist. <see cref="BuildFlameQuad"/> chose the FIRST Image on the clone whose material
+    /// happens to carry <c>_FXAnim</c> + <c>_ParticleTexture</c> + <c>_Glow</c>, which is a
+    /// heuristic over a hierarchy walk whose ORDER nothing guarantees. Those two can disagree, and
+    /// if they do, every constant this class writes lands on an Image the artist never meant to
+    /// carry the fire while the real sheet is never touched — a state in which the rig reports
+    /// ARMED and the card shows nothing, which is the report word for word.</para>
+    ///
+    /// <para>IT COSTS NOTHING TO BE EXACT. <c>_uiFxOverlay</c> is <c>[SerializeField] private</c>
+    /// (CardEffects.cs:77-79), so <c>Object.Instantiate</c> copies it onto the clone — the same
+    /// property that makes <see cref="LiftBurnTexts"/> possible, on the same component, in the same
+    /// instant, three lines away. The signature walk STAYS as the fallback (a game patch that
+    /// renames the field lands on null rather than on no fire at all) and the instrument says which
+    /// route answered and whether the two agreed.</para>
+    /// </summary>
+    private UnityEngine.UI.Image? _flameQuadByName;
 
     /// <summary>One-shot latches for the three burn-rig outcomes, PER SURFACE — see
     /// <see cref="FxSurface"/> for why a single latch could not answer the question it was written
@@ -2299,6 +2348,18 @@ internal sealed class RemoteCardArt
             var kept = new List<UnityEngine.UI.Image>(12);
             for (int i = 0; i < all.Length; i++)
             {
+                // THE FIRE IS NEVER IN THE FACE SET, and that is the game's own partition rather
+                // than a shader-property coincidence: CardEffects.Initialize fills imgComp[2..8]
+                // from the header, the two action plates and their default-action icons and NEVER
+                // from fgFx (CardEffects.cs:295-303), which is why it writes _PosAndBounds to
+                // imgComp only. IsCardFxMaterial is a signature test (_GreyOut + _PosAndBounds) and
+                // signature tests cannot state that partition, so the ONE object the game names is
+                // excluded here by reference. Without this, an overlay shader that happens to
+                // declare both properties would be swept into the face loop, given the face
+                // constants, and then skipped by BuildFlameQuad's own IsCardFxMaterial guard
+                // — i.e. the fire would be written nowhere while the rig reported ARMED.
+                if (_flameQuadByName != null && ReferenceEquals(all[i], _flameQuadByName))
+                    continue;
                 Material? mat = MaterialOf(all[i]);
                 if (mat == null || !IsCardFxMaterial(mat))
                     continue;
@@ -2355,7 +2416,7 @@ internal sealed class RemoteCardArt
             _burnRigLook = CardFxLook.Burn;
             BuildFlameQuad(all, CardFxLook.Burn);
             ReportBurnRigOnce(Surface, _burnImages.Length, inherited, footprint,
-                              _flameQuad != null, _flameRefusal);
+                              _flameQuad != null, _flameRefusal, _flameFoundBy, _flameWalkDisagreed);
         }
         catch (System.Exception ex)
         {
@@ -2436,6 +2497,43 @@ internal sealed class RemoteCardArt
                 : "CardEffects.overlayFrameGhost was null on the clone, so there is no ghost frame to draw";
             return;
         }
+        // ─── THE GAME'S OWN REFERENCE FIRST (2026-09-06 item 10, second pass) ────────────────
+        // `fgFx = _uiFxOverlay` (CardEffects.cs:288) is ONE serialized reference the artist chose,
+        // and it is on the clone because the field is [SerializeField] private. The signature walk
+        // below was picking the FIRST Image whose material carries three properties, over a
+        // hierarchy whose ORDER nothing guarantees — a heuristic that can name a different Image
+        // than the game does, in which case every constant this method writes lands somewhere the
+        // artist never meant and the real sheet is never touched, while the rig still reports
+        // ARMED. That is the report word for word, so the guess is now the FALLBACK.
+        _flameFoundBy = "the game's own CardEffects._uiFxOverlay reference";
+        _flameWalkDisagreed = false;
+        UnityEngine.UI.Image? named = _flameQuadByName;
+        // NO !IsCardFxMaterial GUARD ON THIS ARM, deliberately. That guard exists in the walk below
+        // to stop a SECOND copy being minted over an Image the face loop already owns; the named
+        // object cannot be one, because the face loop now excludes it by reference (BuildBurnRig).
+        if (named != null && MaterialOf(named) is Material namedMat && IsFlameMaterial(namedMat))
+        {
+            AdoptFlameQuad(named, namedMat, look);
+            // …and say whether the ModBuild 461 heuristic would have agreed. A disagreement here IS
+            // the cause of a fire that armed and never appeared, and it must never be silent.
+            for (int j = 0; j < all.Length; j++)
+            {
+                Material? m = MaterialOf(all[j]);
+                if (m == null || IsCardFxMaterial(m) || !IsFlameMaterial(m))
+                    continue;
+                _flameWalkDisagreed = !ReferenceEquals(all[j], named);
+                break;
+            }
+            return;
+        }
+        if (named != null)
+            _flameFoundBy = "the material-signature walk (CardEffects._uiFxOverlay was found on the "
+                            + "clone but its material declares no _FXAnim + _ParticleTexture + "
+                            + "_Glow, which would mean the artist's own fire object is not wearing a "
+                            + "fire shader — a finding in itself)";
+        else
+            _flameFoundBy = "the material-signature walk (CardEffects._uiFxOverlay was null on the "
+                            + "clone)";
         for (int i = 0; i < all.Length; i++)
         {
             Material? mat = MaterialOf(all[i]);
@@ -2445,36 +2543,53 @@ internal sealed class RemoteCardArt
             // shader change from quietly minting a second copy over our own.
             if (mat == null || IsCardFxMaterial(mat) || !IsFlameMaterial(mat))
                 continue;
-            Material copy;
-            try
-            {
-                copy = new Material(mat) { name = mat.name + " (VR-flame)" };
-            }
-            catch (System.Exception)
-            {
-                _flameRefusal = "the overlay material could not be copied, and the game's own shared "
-                                + "asset is never written";
-                return;
-            }
-            all[i].material = copy;
-            _ownedMaterials.Add(copy);
-            _flameQuad = all[i];
-            // ACTIVE-STATE IS INHERITED, NEVER FORCED. BurnCardTimeline - unlike GhostOutOnTimeline
-            // (CardEffects.cs:624-626) - never switches this GameObject on, so on the owner's card
-            // it is authored ON and a clone copies that. If the clone's copy ever came back INACTIVE
-            // the owner would have no fire either, so forcing it here would be inventing a picture
-            // he does not have; it is REPORTED instead, and the instrument says which it was.
-            // Its OWN authored state, not isActiveAndEnabled: the clone can be built under an
-            // inactive host, and reporting the HOST as the overlay would be a false reading.
-            _flameRefusal = all[i].enabled && all[i].gameObject.activeSelf
-                ? string.Empty
-                : "INACTIVE-ON-CLONE (armed anyway; the source's own overlay is off, so the owner "
-                  + "sees no fire either and forcing it on here would invent a picture he does not have)";
-            WriteFlameConstants(copy, look);
-            // At rest until a progress call moves it - the same value RestoreCard leaves behind.
-            copy.SetFloat(FxAnimId, 0f);
+            AdoptFlameQuad(all[i], mat, look);
             return;
         }
+    }
+
+    /// <summary>Which route named <see cref="_flameQuad"/>, for the instrument.</summary>
+    private string _flameFoundBy = "no rig built yet";
+
+    /// <summary>Did the ModBuild 461 material-signature walk pick a DIFFERENT Image than the game's
+    /// own <c>_uiFxOverlay</c> reference? True is a finding, not a detail: it means every flame
+    /// constant used to land on the wrong graphic while the rig reported ARMED.</summary>
+    private bool _flameWalkDisagreed;
+
+    /// <summary>Mint this overlay's own copy of the sheet's material and write the chosen timeline's
+    /// constants into it. One implementation for both routes above, so the named reference and the
+    /// fallback walk can never drift into two different arms.</summary>
+    private void AdoptFlameQuad(UnityEngine.UI.Image quad, Material mat, CardFxLook look)
+    {
+        Material copy;
+        try
+        {
+            copy = new Material(mat) { name = mat.name + " (VR-flame)" };
+        }
+        catch (System.Exception)
+        {
+            _flameRefusal = "the overlay material could not be copied, and the game's own shared "
+                            + "asset is never written";
+            return;
+        }
+        quad.material = copy;
+        _ownedMaterials.Add(copy);
+        _flameQuad = quad;
+        // ACTIVE-STATE IS INHERITED, NEVER FORCED. Nothing in the game ever switches this GameObject
+        // OFF — `_uiFxOverlay` appears in exactly ONE file in the whole decompiled tree and the only
+        // SetActive on it anywhere is GhostOutOnTimeline's SetActive(true) (CardEffects.cs:624-626)
+        // — so a clone that came back INACTIVE inherited that from the source widget, and the owner
+        // would have no fire on it either. Forcing it on here would invent a picture he does not
+        // have; it is REPORTED instead. Its OWN authored state, not isActiveAndEnabled: the clone is
+        // built under an inactive host, and reporting the HOST as the overlay would be a false
+        // reading. PEER CARD FIRE measures the hierarchy term later, when the host is up.
+        _flameRefusal = quad.enabled && quad.gameObject.activeSelf
+            ? string.Empty
+            : "INACTIVE-ON-CLONE (armed anyway; the source's own overlay is off, so the owner "
+              + "sees no fire either and forcing it on here would invent a picture he does not have)";
+        WriteFlameConstants(copy, look);
+        // At rest until a progress call moves it - the same value RestoreCard leaves behind.
+        copy.SetFloat(FxAnimId, 0f);
     }
 
     /// <summary>One line per (surface) for the flame sheet's DRAWN state — see
@@ -2553,6 +2668,16 @@ internal sealed class RemoteCardArt
 
             Texture? particle = flame.HasProperty(ParticleTextureId)
                 ? flame.GetTexture(ParticleTextureId) : null;
+            // THE FOURTH CANDIDATE, AND THE ONLY ONE LEFT THAT THIS PROJECT HAS SEEN BEFORE. The
+            // print's canvas is scaled ~2000x down (metres per canvas unit) against the owner's
+            // screen-space one, so any term this shader derives in WORLD units instead of canvas
+            // units lands at the wrong spatial frequency - which is the ModBuild 348 item-card
+            // defect and the _PosAndBounds defect one graphic over. The face shader escapes it only
+            // because BuildBurnRig hands it a re-derived footprint; nothing hands this one anything.
+            // If the sheet declares the property at all, its value is the answer.
+            string bounds = flame.HasProperty(PosAndBoundsId)
+                ? flame.GetVector(PosAndBoundsId).ToString("0.#")
+                : "not declared by this shader";
             Color tint = flame.HasProperty(TintColorId) ? flame.GetColor(TintColorId) : default;
             float anim = flame.HasProperty(FxAnimId) ? flame.GetFloat(FxAnimId) : -1f;
             float glow = flame.HasProperty(OverlayGlowId) ? flame.GetFloat(OverlayGlowId) : -1f;
@@ -2568,7 +2693,14 @@ internal sealed class RemoteCardArt
             // THE INSTRUMENT = "DRAWN" on every term with no fire on screen, which would leave only
             // the shader itself and would make the shader name printed here the next round's lead.
             VRLog.Note("Net", $"PEER CARD FIRE [{Surface}]: {(drawn ? "DRAWN" : "NOT DRAWN")} — "
-                + $"'{quad.name}' activeInHierarchy={quad.gameObject.activeInHierarchy}, "
+                + $"found by {_flameFoundBy}"
+                + (_flameWalkDisagreed
+                    ? " — AND THE ModBuild 461 SIGNATURE WALK NAMED A DIFFERENT IMAGE, which is "
+                      + "by itself the whole of item 10: every flame constant that build wrote "
+                      + "landed on a graphic the artist never meant to carry the fire while the real "
+                      + "sheet was never touched, and the rig reported ARMED throughout"
+                    : " (the ModBuild 461 signature walk agrees)")
+                + $". '{quad.name}' activeInHierarchy={quad.gameObject.activeInHierarchy}, "
                 + $"enabled={quad.enabled}, first ancestor switched OFF: {offAt}; vertex colour "
                 + $"RGBA({c.r:F2}, {c.g:F2}, {c.b:F2}, {c.a:F3}); lowest inherited CanvasGroup alpha "
                 + $"{lowestGroup:F3}; rect {r.width:F0}x{r.height:F0} canvas units against a "
@@ -2576,17 +2708,28 @@ internal sealed class RemoteCardArt
                 + $"{flame.renderQueue}; _ParticleTexture="
                 + $"{(particle != null ? particle.name + " " + particle.width + "x" + particle.height : "NULL")}, "
                 + $"_FXAnim {anim:F3}, _Glow {glow:F2}, _TintColor RGBA({tint.r:F2}, {tint.g:F2}, "
-                + $"{tint.b:F2}, {tint.a:F2}). WHY THIS LINE EXISTS: 'Remote BURN look … FIRE=ARMED' "
+                + $"{tint.b:F2}, {tint.a:F2}); _PosAndBounds {bounds}. WHY THIS LINE EXISTS: 'Remote BURN look … FIRE=ARMED' "
                 + "is a report about a WRITE — a material minted and nine constants set — and item "
                 + "10 is a report about a PICTURE, so the two can both be true. THREE LEADS ARE "
                 + "ALREADY DEAD and must not be re-run: a sprite-less Image DOES draw (Graphic's own "
                 + "OnPopulateMesh fills the rect against the white texture — it is how this class's "
-                + "own FaceGapBackdrop paints), the peer's card art is NOT missing (the face-gap "
-                + "verdict was counting a FullAbilityCard's unused icon slots), and the sheet does "
-                + "not read _PosAndBounds (CardEffects writes that vector to imgComp only, never to "
-                + "fgFx). Every remaining step between a correct material and a pixel is named "
-                + "above; the FIRST term that is not at its working value is the cause, and if all "
-                + "of them are, the lead is the shader named here.");
+                + "own FaceGapBackdrop paints); the peer's card art is NOT missing (the face-gap "
+                + "verdict was counting a FullAbilityCard's unused icon slots); CardEffects writes "
+                + "_PosAndBounds to imgComp only and never to fgFx, so the game does not hand the "
+                + "sheet one either; the frame texture IS on the clone (overlayFrameBurn is a PUBLIC "
+                + "Texture2D field, CardEffects.cs:221-223, so Instantiate carries it, and a null "
+                + "one refuses the sheet BY NAME); and StripFragileEffects took nothing the picture "
+                + "needs — '_uiFxOverlay' appears in exactly ONE file in the whole decompiled "
+                + "tree, the only SetActive on it anywhere is GhostOutOnTimeline:626, and the "
+                + "owner's own FIRE half is nothing but the same nine material writes plus the "
+                + "_FXAnim ramp this class reproduces term for term (ToggleEffect — "
+                + "ToggleAdditiveEffect — BurnCard — BurnCardTimeline; HighlightBurnOn/Off "
+                + "are empty bodies). Every remaining step between a correct material and a pixel is "
+                + "named above; the FIRST term that is not at its working value is the cause. If ALL "
+                + "of them read correct, the two survivors are the shader named here and the canvas "
+                + "it is drawn on — a world-space one at ~0.0005 units per canvas unit against "
+                + "the flat game's screen-space one — and the _PosAndBounds field above says "
+                + "whether this shader is even in that family.");
         }
         catch (System.Exception ex)
         {
@@ -2802,7 +2945,8 @@ internal sealed class RemoteCardArt
     /// its own words and the one <c>ApplySpentLook</c> was written around.</para>
     /// </summary>
     private static void ReportBurnRigOnce(FxSurface surface, int images, Vector4 was, Vector4 now,
-                                          bool flame, string flameRefusal)
+                                          bool flame, string flameRefusal, string foundBy,
+                                          bool walkDisagreed)
     {
         if (s_burnRigLogged[(int)surface])
             return;
@@ -2814,7 +2958,14 @@ internal sealed class RemoteCardArt
                           + "name: FACE=_GreyOut+_Flow+_Dissolve (0 -> 1, 0 -> 1, 0 -> 0.646 over 2 s) "
                           + "on the images above; TEXT=header+initiative -> RGB(143,58,44), the rest -> "
                           + "mid grey; FIRE=the fgFx 'UIFX_Overlay' flame sheet, _FXAnim 0 -> 0.5 over "
-                          + $"the first 0.5 s at _TintColor(1, 0.3, 0, 0.8) _Glow 3 — {(flame ? (flameRefusal.Length == 0 ? "ARMED" : "ARMED but " + flameRefusal) : "REFUSED (" + flameRefusal + ")")}; "
+                          + $"the first 0.5 s at _TintColor(1, 0.3, 0, 0.8) _Glow 3 — {(flame ? (flameRefusal.Length == 0 ? "ARMED" : "ARMED but " + flameRefusal) : "REFUSED (" + flameRefusal + ")")}"
+                          + $", found by {foundBy}"
+                          + (walkDisagreed
+                              ? ", AND THE ModBuild 461 SIGNATURE WALK NAMED A DIFFERENT IMAGE "
+                                + "(that build wrote every flame constant onto a graphic the artist "
+                                + "never meant to carry the fire, and reported ARMED while doing it)"
+                              : string.Empty)
+                          + "; "
                           + "SMOKE=the CardSmoke plume, which is NOT part of this rig at all and is "
                           + "mirrored separately by RemoteCardPlume behind the owner's own "
                           + "[Cards] GameCardParticles permission bit (wire id 236). The FOOTPRINT the "
@@ -2896,6 +3047,9 @@ internal sealed class RemoteCardArt
         _burnInitiativeText = null;
         _flameQuad = null;               // the flame sheet was the clone's own Image
         _flameRefusal = "no rig built yet";
+        _flameFoundBy = "no rig built yet";
+        _flameWalkDisagreed = false;
+        _flameQuadByName = null;         // …the named reference belonged to that clone's CardEffects
         _flameBurnTexture = null;        // …and the textures were lifted off the clone's CardEffects
         _flameGhostTexture = null;
         _burnRigState = BurnRig.Unbuilt;
