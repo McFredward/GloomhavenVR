@@ -97,6 +97,61 @@ internal sealed class RemoteCardArt
     private GameObject? _host;      // world-space canvas host (child of the slab), inactive when hidden
     private Canvas? _canvas;
     private GameObject? _clone;     // the instantiated fullAbilityCard clone (child of _host)
+
+    /// <summary>
+    /// THE BACKDROP behind the print — one opaque quad in the OWNER's own card-edge colour,
+    /// drawn at sibling index 0 so every part of the clone paints over it.
+    ///
+    /// <para>WHAT IT IS FOR (2026-09-06 report item 6, the half lane E's heal cannot reach). A heal
+    /// is a repair, not a guarantee: <c>CardArtGuard</c> can restart a cancelled addressable load,
+    /// it cannot make one land, and its budget is three attempts. So there is a window — and for a
+    /// load that never lands, a permanent state — in which an action half's background Image is
+    /// sprite-less or disabled and paints nothing. What showed through that hole was the SLAB, and
+    /// the slab is where the owner and every peer stop agreeing.</para>
+    ///
+    /// <para>THE DIVERGENCE, MEASURED FROM BOTH BUILDERS RATHER THAN ASSERTED.
+    /// <c>Cards.VRCard</c>'s backing gives submesh 0 — the front fan plus the rim, the only fan a
+    /// viewer sees — <c>CardMesh.CreateEdgeMaterial</c>, and the card BACK only to submesh 1, which
+    /// faces away. Every remote surface gives BOTH slots <c>CardMesh.CreateBackMaterial</c>
+    /// (deliberately: a peer's covered card has to read as a card back from the front). So through
+    /// the identical hole the OWNER sees a warm card edge and a PEER saw the back's gold diamond
+    /// lattice — which is the "durchscheinen" in the user's own photograph, and a face-policy breach
+    /// rather than a blemish: a back asserts "this card is hidden from you" about a card he is
+    /// entitled to see.</para>
+    ///
+    /// <para>WHY IT IS ON THE PRINT AND NOT ON THE SLAB, which is the part worth reading. The
+    /// obvious fix is to give the slab's submesh 0 the edge material while a print is up. That is a
+    /// live <c>sharedMaterials</c> write on a card body, and <c>CardMesh.SetBodyFaceHosted</c>'s own
+    /// doc block records what it costs: <c>Net.Board.PeerBoardFade</c> installs private
+    /// alpha-capable material CLONES on exactly these renderers and latches the install, so a
+    /// material write mid-ramp destroys them and snaps the card back to opaque for the rest of the
+    /// fade. Dropping the front fan through <c>SetBodyFaceHosted</c> is not the answer either — it
+    /// costs the card its only depth-writing front surface and leaves the culled back, i.e. a hole
+    /// rather than a card. A quad INSIDE the print touches neither mechanism.</para>
+    ///
+    /// <para>IT CANNOT LEAK, AND THAT IS STRUCTURAL RATHER THAN GUARDED. It lives under
+    /// <see cref="_host"/>, which <see cref="HideFront"/> DEACTIVATES — so a card drawn as a BACK
+    /// has no active host, no backdrop, and reads exactly as it did. The selection phase is
+    /// untouched by construction; there is no condition to get wrong.</para>
+    /// </summary>
+    private UnityEngine.UI.Image? _backdrop;
+
+    /// <summary>How far the backdrop is inset inside the print rect, as a fraction of each side.
+    /// The print is already fitted to <c>(1 - BorderFraction)</c> of the card box, so its rect
+    /// corners sit close to the card's ROUNDED outline; an edge-to-edge quad would square them off
+    /// against a body whose silhouette is punched out. This keeps the backdrop strictly inside the
+    /// printed picture, where the holes are — an action half's background is a large interior
+    /// rectangle — and never near the outline.</summary>
+    private const float BackdropInset = 0.04f;
+
+    /// <summary>Unscaled time the backdrop was first seen covering a hole that no load was still
+    /// filling, or negative for "not currently covering one". Drives the one line that names a
+    /// PERMANENT blank (see <see cref="TickBackdropVerdict"/>).</summary>
+    private float _gapSince = -1f;
+
+    /// <summary>Change-key for the backdrop verdict line: the last state reported for this seat, so
+    /// a card that stays broken prints once rather than every cadence tick.</summary>
+    private int _gapReported;
     private int _shownSourceId = int.MinValue; // GetInstanceID of the source fullAbilityCard shown
     private float _nextMipRescan;   // unscaled time of the next cadenced mip-bake rescan
 
@@ -460,6 +515,9 @@ internal sealed class RemoteCardArt
         {
             _nextArtHeal = now + Cards.CardArtGuard.TickIntervalSeconds;
             Cards.CardArtGuard.TickModOwnedClone(_cloneFace);
+            // …and the verdict on whether that heal LANDED, on the heal's own clock so the two can
+            // never describe different moments.
+            TickBackdropVerdict(now);
         }
 
         if (Time.unscaledTime < _nextMipRescan)
@@ -569,6 +627,12 @@ internal sealed class RemoteCardArt
                     UnityEngine.UI.Graphic g = gs[i];
                     if (g == null)
                         continue;
+                    // THE MOD'S OWN BACKDROP IS NOT PART OF THE PRINT and must not be counted as one:
+                    // it is an Image with a null sprite BY DESIGN (a flat colour quad), so leaving it
+                    // in would add a permanent +1 to the NULL SPRITE column this whole line is read
+                    // by — an instrument that reports its own furniture as the defect it looks for.
+                    if (ReferenceEquals(g, _backdrop))
+                        continue;
                     // AN IMAGE WITH NO SPRITE IS THE WHOLE QUESTION, so it is counted separately
                     // from a Graphic that is merely switched off: the two look identical on screen
                     // (nothing is painted) and have completely different causes — a cancelled
@@ -624,6 +688,7 @@ internal sealed class RemoteCardArt
               .Append(" live CanvasGroup(s), lowest alpha ").Append(minGroup.ToString("F3"))
               .Append("; ").Append(loaded).Append(" ImageAddressableLoader(s), ").Append(inFlight)
               .Append(" still loading. face-hosted=").Append(_bodyFaceHosted ? "YES" : "no")
+              .Append(", backdrop=").Append(_backdrop != null ? "up" : "MISSING")
               .Append(". HOW TO READ IT. The mesh above wears CardMesh's procedural card BACK — the "
                     + "gold diamond lattice, 8 cells across a card — on BOTH submeshes, and the "
                     + "print stands 0.6 mm in front of it, so anything that stops the print painting "
@@ -634,12 +699,118 @@ internal sealed class RemoteCardArt
                     + "loaders still counting is simply art in flight, which is not a defect at all. "
                     + "Every Image holding a sprite, no loader counting and a lowest alpha of 1.000 "
                     + "means the print is complete and the lattice is coming from somewhere OTHER "
-                    + "than this seat — then the lead is the slab, not the print.");
+                    + "than this seat — then the lead is the slab, not the print. 'backdrop=up' is "
+                    + "the ModBuild 461 quad behind the print in the OWNER's own card-edge colour: "
+                    + "with it, a hole shows what the owner's hole shows instead of the slab's card "
+                    + "back, so NULL SPRITE > 0 is now a MISSING-ART report and no longer a "
+                    + "face-policy one. 'MISSING' means the host was built without it and the "
+                    + "lattice is back.");
             return sb.ToString();
         }
         catch (System.Exception ex)
         {
             return $"SEAT STACK unreadable ({ex.GetType().Name}).";
+        }
+    }
+
+    /// <summary>
+    /// SAY WHETHER THE BACKDROP IS ACTUALLY COVERING SOMETHING, and for how long — the answer to
+    /// "what happens if the art never arrives at all".
+    ///
+    /// <para>THE HEAL IS A REPAIR, NOT A GUARANTEE. <c>CardArtGuard</c> can restart a cancelled
+    /// addressable load and spends at most <c>MaxHealsPerAdoption</c> attempts on one; nothing in
+    /// the mod can make a load land. So a permanent art-less print is a real end state, and it must
+    /// name itself or it becomes next round's report with no grep behind it. The backdrop makes that
+    /// state look like a BLANK card instead of a FACE-DOWN one, which removes the face-policy breach
+    /// and removes nothing else — a blank card is still not the card its owner is looking at.</para>
+    ///
+    /// <para>THE TWO STATES ARE SEPARATED BY THE LOADER'S OWN COUNTER, not by a timeout alone: an
+    /// Image with no sprite while <c>ImageAddressableLoader.ReferenceCount</c> is non-zero is art
+    /// ARRIVING and is not evidence of anything. Only a hole with every loader quiet starts the
+    /// clock, and the clock is what tells a half-second flicker from a card that will never paint.
+    /// </para>
+    ///
+    /// <para>Change-gated on the state, so a card that stays broken prints ONE line and a card that
+    /// repairs itself prints one more saying so. Runs on the heal's cadence, never per frame.</para>
+    /// </summary>
+    private void TickBackdropVerdict(float now)
+    {
+        try
+        {
+            if (_host == null || !_host.activeSelf || _cloneFace == null)
+            {
+                _gapSince = -1f;
+                return;
+            }
+            bool hole = false;
+            bool arriving = false;
+            var images = _host.GetComponentsInChildren<UnityEngine.UI.Image>(includeInactive: true);
+            for (int i = 0; i < images.Length; i++)
+            {
+                UnityEngine.UI.Image img = images[i];
+                if (img == null || ReferenceEquals(img, _backdrop))
+                    continue;
+                if (img.sprite == null || !img.enabled)
+                    hole = true;
+            }
+            var loaders = _host.GetComponentsInChildren<ImageAddressableLoader>(includeInactive: true);
+            for (int i = 0; i < loaders.Length; i++)
+            {
+                if (loaders[i] != null && loaders[i].ReferenceCount > 0)
+                    arriving = true;
+            }
+
+            if (!hole || arriving)
+            {
+                if (_gapSince >= 0f && _gapReported != 0)
+                {
+                    _gapReported = 0;
+                    // HW-VERIFY: report item 6, the "what if it never arrives" half. Grep token:
+                    // PEER CARD FACE GAP. This is the RECOVERY edge — the art landed after all.
+                    VRLog.Note("Net", $"PEER CARD FACE GAP on slab '{_slab.name}': CLOSED after "
+                        + $"{now - _gapSince:F1}s — every Image in this peer's print holds a sprite "
+                        + "again and no loader is still counting, so the backdrop is covering "
+                        + "nothing and the card is drawing its real face.");
+                }
+                _gapSince = -1f;
+                return;
+            }
+
+            if (_gapSince < 0f)
+                _gapSince = now;
+            float held = now - _gapSince;
+            // ONE LINE PER STATE CLASS, and the classes are OPEN (a heal may still land) and STUCK
+            // (the guard's budget cannot outlast this). MaxHealsPerAdoption attempts at
+            // TickIntervalSeconds apiece is the whole repair window; past it, the art is not coming.
+            int state = held >= Cards.CardArtGuard.TickIntervalSeconds * 8f ? 2 : 1;
+            if (state == _gapReported)
+                return;
+            _gapReported = state;
+            // HW-VERIFY: report item 6, the "what if it never arrives" half. Grep token:
+            // PEER CARD FACE GAP. WORKING = this line present and saying BACKDROP, with no card-back
+            // lattice on screen; INERT = the line absent while a peer's card visibly carries the
+            // lattice, which means the backdrop was never built (DescribeStack then reads
+            // 'backdrop=MISSING'); STILL BEYOND THE INSTRUMENT = 'STUCK' lines that keep appearing
+            // for new cards every round, which is the addressable loader cancelling and is not
+            // something this class can fix — that is a report about the game's streaming.
+            VRLog.Note("Net", $"PEER CARD FACE GAP on slab '{_slab.name}': at least one Image in this "
+                + $"peer's printed face has no sprite (or is disabled) and NO loader is still "
+                + $"counting, {held:F1}s so far — "
+                + (state == 2
+                    ? "STUCK. CardArtGuard's heal budget for this print is spent, so this card will "
+                      + "stay BLANK where the art belongs for the life of the print"
+                    : "OPEN. A heal may still land; this is the window, not yet a verdict")
+                + ". BACKDROP: the hole shows the OWNER's own card-edge colour "
+                + "(CardMesh.FaceGapColor), NOT the slab's card back — so the picture is a blank "
+                + "card and never a face-DOWN one. Read the SEAT STACK line beside this for which "
+                + "Images are missing, and the peer's own 'Load of asset is Canceled!' count for "
+                + "why.");
+        }
+        catch (System.Exception ex)
+        {
+            _gapSince = -1f;
+            VRLog.Warn("Net", $"Peer card face-gap verdict failed ({ex.GetType().Name}) — the "
+                              + "backdrop is unaffected; only this reading is missing.");
         }
     }
 
@@ -675,6 +846,25 @@ internal sealed class RemoteCardArt
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head != null)
             _canvas.worldCamera = head;
+
+        // THE BACKDROP, BUILT BEFORE ANY CLONE so it is sibling index 0 and every part of the print
+        // paints over it. Stretched to the canvas rect and inset (see BackdropInset); raycastTarget
+        // off because nothing here is pressable and a full-rect target would swallow the clone's own
+        // hit tests. Colour is the OWNER's own card-edge colour, read from CardMesh rather than
+        // spelled again — see the _backdrop field for the divergence it closes.
+        var backdrop = new GameObject("FaceGapBackdrop");
+        backdrop.transform.SetParent(_host.transform, worldPositionStays: false);
+        var backdropRect = backdrop.AddComponent<RectTransform>();
+        backdropRect.anchorMin = new Vector2(BackdropInset, BackdropInset);
+        backdropRect.anchorMax = new Vector2(1f - BackdropInset, 1f - BackdropInset);
+        backdropRect.offsetMin = Vector2.zero;
+        backdropRect.offsetMax = Vector2.zero;
+        backdropRect.localScale = Vector3.one;
+        backdropRect.localRotation = Quaternion.identity;
+        _backdrop = backdrop.AddComponent<UnityEngine.UI.Image>();
+        _backdrop.color = Cards.CardMesh.FaceGapColor;
+        _backdrop.raycastTarget = false;
+        backdrop.transform.SetAsFirstSibling();
 
         _host.SetActive(false); // stays inactive until a clone is built + neutralized
     }

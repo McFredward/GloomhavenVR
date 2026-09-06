@@ -2081,6 +2081,23 @@ internal static class CardMesh
     private static readonly Color EdgeColor = new(0.42f, 0.33f, 0.23f);
 
     /// <summary>
+    /// THE COLOUR A HOLE IN A CARD'S FACE SHOWS on the card's OWNER — <see cref="EdgeColor"/>, read
+    /// rather than re-spelled, because a second copy of it is how a mirrored card comes to show
+    /// something else there.
+    ///
+    /// <para>WHY A PEER'S CARD NEEDS IT (2026-09-06 report item 6). A local card's backing wears
+    /// <c>CreateEdgeMaterial</c> on submesh 0 — the FRONT fan plus the rim — and the card BACK only
+    /// on submesh 1, the fan the viewer never sees (<c>Cards.VRCard</c>'s backing builder). Every
+    /// REMOTE surface gives BOTH slots the card back on purpose, so the two disagree about exactly
+    /// one thing: what shows through a gap in the printed face. On the owner that is this warm edge
+    /// colour; on every peer it was the back's gold diamond lattice, which is the "durchscheinen"
+    /// the user photographed. <c>Net.RemoteCardArt</c> closes that gap on the PRINT rather than by
+    /// writing the slab's material array — see <c>SetBodyFaceHosted</c> for why a material write on
+    /// a card body races <c>Net.Board.PeerBoardFade</c>'s installed clones.</para>
+    /// </summary>
+    internal static Color FaceGapColor => EdgeColor;
+
+    /// <summary>
     /// THE LIGHTING FIX (border round 15). The slab pair renders through the stock
     /// <c>Standard</c> shader, whose output is albedo × incoming light — and the game's VR
     /// scenes are dark / stripped of lighting, so a Standard surface renders near-black
