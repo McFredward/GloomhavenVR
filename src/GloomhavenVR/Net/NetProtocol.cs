@@ -433,7 +433,140 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 462;
+    public const ushort ModBuild = 463;
+    // Build 463: the sixth big multiplayer round — eleven items, eight lanes, and the round in
+    //   which THREE OF THE INTEGRATOR'S OWN PREMISES WERE KILLED BY THE LANES THAT RECEIVED THEM,
+    //   one user premise turned out to be false, and one lane corrected another lane's finding.
+    //   Every item is addressed; the two deliberate non-fixes are named at the end.
+    //   * ITEM 1 — A SOLO PARTY HAS NO MEMBERSHIP CHANGE, SO THE WALK-IN DIRECTION WAS FROZEN FOR
+    //     THE WHOLE VISIT. All three of the integrator's candidates were eliminated from the logs:
+    //     the fixed-axis fallback never ran (`DIRECTION SOURCE: the HOST's decided step` on 8 of 8
+    //     host and 3 of 3 peer occurrences), the roster was 1 and not 0, and the 461 search's sign
+    //     is right — checked arithmetically against the host's own seat, 0.1 predicted against a
+    //     printed 0.2 degrees. What was wrong is WHEN the seat was sampled: round 1 decided on the
+    //     20 s cap off a seat 2.47 m out that the gate itself flagged as still moving, he then took
+    //     his real place on the opposite side, and `MembershipFold` — the only re-open trigger —
+    //     never changes for one player. Readings 121.5, 145.5 and 119.1 degrees over ONE head. The
+    //     second player was never the cure; the re-decision his join forced was. Added a
+    //     membership-independent re-open: a standing direction past 90 degrees where a re-decision
+    //     buys 25 degrees or more, held 1 s. The 256-step search was MOVED into a shared method
+    //     character for character so the multi-seat path is bit-identical.
+    //     AND A LATENT FINDING WORTH MORE THAN THE FIX: the settle gate has NEVER been observed to
+    //     open on either machine — both rounds decided on the cap — and the refusal was SILENT, so
+    //     nothing could distinguish "the party never stood still" from "this stillness term cannot
+    //     be satisfied". Not tuned on a guess; a line now names the blocking term.
+    //   * ITEMS 2+3 — THE HINT TEXT WAS SEATED FROM THE WINDOW RECT AND THE LIST-OPENED QUEST WAS
+    //     IN NO SET. The notice sits at 0.06 x the WINDOW rect's height while the confirm is seated
+    //     from the MEASURED information bottom, and on this card those are 336 px apart because the
+    //     window rect is 512x1021 while the drawn panel fits to 512x636. Both symptoms are that one
+    //     number: 636 + 336 = 972 against a 956 px capture frame is 16 px off a 22 px line, which is
+    //     the cut in his screenshot, and the notice was ALSO being counted as quest information by
+    //     the sweep that places the confirm — the third member of the ModBuild 459 exclusion family,
+    //     confirmed to a hundredth of a pixel (-510.5 + 0.06 x 1021 = -449.24 against a logged
+    //     -449.2). Item 3's set is ONE FIELD WITH ONE WRITER: the empty-space click clears
+    //     `MapLocationInteractor._selected`, written only in the mod's own dispatch, and the quest
+    //     LIST path runs entirely inside the game, which this mod patches nowhere. The window was
+    //     never in the set, so the deselect returned on its first line for that window's whole life.
+    //     AND IT HAD A MULTIPLAYER CONSEQUENCE HE DID NOT REPORT: that same field is what record 20
+    //     publishes as the shared selection, so a list-opened quest reached NO peer and reset no
+    //     ready-up.
+    //   * ITEMS 4+5 — THE FACE AUDIT. All eight census surfaces enumerated; three had defects, five
+    //     were already correct, and the enumeration is in the commit body including the correct
+    //     ones. All 11 host POLICY=FRONTS breaches are ONE row whose own arithmetic said the
+    //     difference was fully explained (`8 model vs 7 slab, 0 fist, 1 seated — remainder 0`) and
+    //     which refused anyway, because the seated term is a COUNT and never a NAME. Record 44's
+    //     payload is reinterpreted from a permutation to an INJECTION — the owner states which
+    //     derived indices their arc holds, so the missing card is dropped BY NAME with no identity
+    //     on the wire. RECORD 39 HAD NEVER ONCE RESOLVED A CARD: its actor source read the item
+    //     pile's owner, published only while the item arc is open, which is verbatim the defect
+    //     `SampleHeldCardFaces` was fixed for one method over — and its sender instrument was a
+    //     `byte` starting at 0, the sampler's own failure value, so it went silent exactly when it
+    //     failed. `Discard -> Slot0` flights were asking a DEPARTURE question about an ARRIVAL.
+    //     THE SHORT REST WAS REFUSED, DELIBERATELY AND CORRECTLY: 13 host and 11 peer census ticks
+    //     across the rest all read `PHASE=SelectAbilityCardsOrLongRest` and that player has not yet
+    //     committed their two cards, so their fan IS the option set the phase protects. The user
+    //     was asked and AGREED — "während einer kurzen Rast ist man de facto noch in der
+    //     Auswahlphase" — and separately ruled that the LONG rest, whose execution runs in the
+    //     actor's own turn against the public DISCARD pile, stays fully open. The game's own phase
+    //     model agrees: `CPhaseActionSelection` treats `LongRest` as a flag on the character, not a
+    //     phase of its own.
+    //   * THE TWO ITEMS NUMBERED 6 — THE TEARDOWN WAS NEVER THE DEFECT. The previous fix works and
+    //     its instrument fires 5x host / 7x peer. Only TWO of the TEN places that ask "is a pick
+    //     being asked for" ANDed the game's latched mode with that edge; the other eight read the
+    //     latch raw, and the one method every close of the damage decision funnels through touches
+    //     the latch not at all. Measured on the peer: `PICK GATE (LoseCard): pick=CLOSED` and
+    //     twelve lines later `Hand fan WITHHELD by NoCards … boundMode=LoseCard`, four times, with
+    //     15 withholdings against 1 sanctioned by the ruling. Item 6a is ONE FLAG TWICE: a card
+    //     grabbed while the fan is in Inspect keeps a read-only stamp because the re-stamp walks
+    //     only the list a grab has already removed it from, and that stamp kills the snap glow AND
+    //     the release — which is why drop-and-regrab works.
+    //     THE NEW STANDING RULING IS ENCODED WITH A VERDICT PER TERM: the hand fan is ALWAYS
+    //     openable, the sole exception being a player with no character assigned. Four suppressions
+    //     removed, six kept with reasons, four survive as TAKEABLE-not-VISIBLE, one flagged for his
+    //     word. And a second false comment fell: `PickFlowWatch` claimed "there is never a second
+    //     flow to keep apart" while the host recorded five flow-ends naming TWO hands in a session
+    //     whose own pick counters are all zero — five foreign burns moving a global latch.
+    //   * ITEM 7 — THE ANIMATION ALREADY EXISTED AND THE USER'S PREMISE WAS FALSE. He asked for a
+    //     new feature; ModBuild 462 had shipped it, and the peer's log carries three
+    //     `Board -> Active playing` events for a board that had exactly ONE active card all
+    //     session. Four defects, all from the logs: the trigger was a DISPLAY edge cleared by the
+    //     column's own turn gate (its doc STATED the replay and read as intent); the origin was the
+    //     pre-461 expression that returns -1 by construction, hence 3 of 3 from the board centre;
+    //     2 of 3 drew a BACK, which the origin fix cures with nothing changed on the receiver; and
+    //     owner and observer played different curves under a comment claiming they matched.
+    //   * ITEM 8 — AND THE INTEGRATOR'S READING OF HIS OWN FALSIFIER WAS A SAMPLE FROM THE WRONG
+    //     CARD. He reported the blue tint, zero glow and a frame-mask texture as evidence that the
+    //     writes had failed; they are `GhostOutOnTimeline`'s own correct literals for a DISCARDED
+    //     card, and the same session's other two tags show the burn's nine constants landed exactly
+    //     as intended. THE REAL CAUSE IS AN OCCLUSION: the flame sheet is drawn BEHIND the print.
+    //     In the screenshot it appears only on the stone either side of the card — the ring where
+    //     its 330x480 rect overhangs the 294x450 face — and over the whole card once the board's
+    //     fade makes the print translucent. The owner's card hangs on a ScreenSpaceOverlay canvas,
+    //     which IGNORES material queues and draws by hierarchy; a mirrored card hangs on a
+    //     world-space canvas, which sorts by queue FIRST — and the sheet's shader declares no Queue
+    //     tag, so it falls to Geometry (2000) under a face in the transparent range.
+    //   * ITEM 9 — THREE CLAUSES, THREE CAUSES. The delay was entirely the 250 ms board-state
+    //     cadence (all five burns report 255-259 ms); the burn watch now has its own 80 ms poll.
+    //     The centre start is a SACRIFICE being blind by construction: the sacrifice branch nulls
+    //     the recess latch, correctly and with a true comment, and that latch is the only argument
+    //     the departure memory takes — so the one card guaranteed to burn out of a recess stamps
+    //     nothing. A position-only memory answers it now, and no face path reads it. And the mini
+    //     card lying on the board was the slab being revealed, stationary, the instant the recess
+    //     stopped drawing the card — which is exactly the frame the OWNER's flight begins. The
+    //     hand-over now happens there; the slab's only appearance is the arc.
+    //   * ITEM 10 — NOT TRANSPARENCY AT ALL, AND HIS OWN WORDS WERE THE ACCURATE ONES. The lane
+    //     re-rendered `CardMesh.GetBackTexture` from its own constants and matched the frame pixel
+    //     for pixel: burgundy field, gold lattice at 8 cells across, 2-px gold inner frame, dark
+    //     outer border. Nothing in those shots is translucent and the only depth verdict in the log
+    //     reads `its peer board is SOLID`. A mirrored body gives BOTH submeshes the card back while
+    //     a local card wears `CreateEdgeMaterial` on submesh 0 — the front fan and rim, the band
+    //     that frames the print. SO EVERY MIRRORED FRONT HAS ALWAYS BEEN FRAMED BY ITS OWN BACK,
+    //     and 461's backdrop quad and 462's fit of it to the card's INTERIOR could not reach it by
+    //     construction: the lattice is in the banner and the outer frame, outside that union. This
+    //     is the same defect he has now reported three rounds running under three descriptions.
+    //     Fixed at a new choke point with six callers; ONE LANE CORRECTED THE OTHER'S LIST — two of
+    //     the five named sites were already covered (one builds a cold start owned by a class that
+    //     already calls the choke point, the other never shows a front at all) and adding callers
+    //     there would have been a second decision for a slab that already has one.
+    //   * ITEM 11 — THE TRAP REALLY WAS RE-SPAWNED. The sound is the game's, played by a component
+    //     that fires on every freshly instantiated object; it was correct. Apparance's `CheckEntity`
+    //     monitors bounds EVERY tick regardless of the movement flag, and `RestoreHome` wrote the
+    //     home pose and handed the flag back IN THE SAME CALL, so the next tick requested a refresh
+    //     — and a refresh re-runs `Instantiate` for every placed object under the prop. The comment
+    //     naming the cost, "one rebuild on the cell is the price and it is the right one", did not
+    //     notice that a rebuild IS a re-spawn. The asymmetry he reported is the asymmetry in the
+    //     code: the local thaw has waited three frames since ModBuild 349 and the remote one did
+    //     not. The sound was NOT silenced — it was the symptom, and suppressing it would have left
+    //     the re-instantiation, its particle burst and its renderers born disabled in place.
+    // NOT FIXED, DELIBERATELY: the card-FX event loss (1 of 7 this session; today it fails in the
+    // safe direction and the reasoning is recorded at the seam), and the 0.4 s window in which an
+    // observer sees an active card in its cell and in the air — the naming half shipped here, the
+    // suppression is one call in the matrix and is owed next build.
+    // Wire: no new extension record. Record 44's payload is REINTERPRETED (an injection of the
+    // arc's membership rather than a permutation of it) and record 39's actor source is corrected;
+    // both are the same bytes on the wire. Worst case stays 1747, MaxSize stays 2100, 45 is next
+    // free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 462: the fifth big multiplayer round — eleven items, six lanes, and the round in which
     //   the instruments themselves were the largest single source of wrong answers. Three of this
     //   tree's own falsifiers were lying, two hypotheses from the integrator were killed by the
