@@ -45,6 +45,10 @@ Auf dem Brett neben dir liegen außerdem Rückgängig, die Marken für kurze und
 Überspringen, die Entscheidungs-Schublade, eine Mulde für Gegenstände und die Stapel für Ablage,
 Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett oder in der Handfläche.
 
+<p align="center">
+  <img src="img/board-de.png" width="860" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenfächer, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände sowie deine Handkarten">
+</p>
+
 ---
 
 ## Das Brett vor dir

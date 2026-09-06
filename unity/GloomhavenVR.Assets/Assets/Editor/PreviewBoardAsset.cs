@@ -92,6 +92,135 @@ namespace GloomhavenVR
             Debug.Log("[BoardAssetShot] done.");
         }
 
+        /// <summary>
+        /// The ARTWORK for docs/img/board-{en,de}.png — the same board and the same rod as
+        /// <see cref="RenderAll"/>, photographed DEAD STRAIGHT-ON at diagram resolution.
+        ///
+        /// <para>WHY A SECOND ENTRY POINT AND NOT A FLAG ON THE FIRST. RenderAll's 900 px / ortho
+        /// 0.78 / yaw 35 / pitch 50 are matched to build_asset_strips.sh so the README's styles
+        /// matrix reads as one picture; every one of those four numbers is wrong for a labelled
+        /// diagram, which needs the board flat to the reader, filling the frame, at a resolution
+        /// that survives ring and text overlay. Nothing here may be pushed back into RenderAll.</para>
+        ///
+        /// <para>NO Euler(90,0,0) HERE. RenderAll lays the board flat because a strip tile is shot
+        /// from above; a diagram is shot from where the PLAYER sits, so the board keeps the upright
+        /// pose the game gives it and the camera goes in front of its face. That also sidesteps a
+        /// real trap: a straight-down camera and LookAt's default world up are parallel, and the
+        /// resulting roll is undefined.</para>
+        ///
+        /// <para>BOTH FACES ARE WRITTEN (<c>_zpos</c> / <c>_zneg</c>) because which one carries the
+        /// decoration is an FBX-import question, not something to assert from the authoring
+        /// convention: the board is authored decorated-face toward -Z and the FBX importer flips
+        /// handedness on the way in. Pick by eye, once, and delete the other.</para>
+        ///
+        ///   BOARD_ASSET_OUT=&lt;dir&gt; xvfb-run -a Unity -batchmode -projectPath . -buildTarget Win64 \
+        ///     -executeMethod GloomhavenVR.BoardAssetShot.RenderDiagramArtwork -logFile x.log -quit
+        /// </summary>
+        public static void RenderDiagramArtwork()
+        {
+            string outDir = System.Environment.GetEnvironmentVariable("BOARD_ASSET_OUT");
+            if (string.IsNullOrEmpty(outDir))
+                outDir = Path.GetFullPath(Path.Combine("..", "asset-preview", "render"));
+            Directory.CreateDirectory(outDir);
+
+            // Oak only: it is the DEFAULT board (VRCardFactory's unsuffixed path), so it is the one
+            // a reader of the playing guide is looking at when they first meet the diagram.
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Bundle/Table/PlayTray.prefab");
+            if (prefab == null)
+            {
+                Debug.LogError("[BoardAssetShot] oak prefab not found");
+                return;
+            }
+
+            const int DiagramWidth = 2000;   // 2x the on-page width, as the controls diagram is
+            const float Margin = 1.015f;     // just enough that the rim's outermost bevel is not clipped
+            foreach (int sign in new[] { +1, -1 })
+                ShootFace(prefab, "oak", sign, DiagramWidth, Margin, outDir);
+            Debug.Log("[BoardAssetShot] diagram artwork done.");
+        }
+
+        private static void ShootFace(GameObject prefab, string rodStyle, int sign,
+                                      int width, float margin, string outDir)
+        {
+            GameObject board = Object.Instantiate(prefab);
+            var camGo = new GameObject("Cam");
+            RenderTexture? rt = null;
+            try
+            {
+                board.transform.position = Vector3.zero;
+                board.transform.rotation = Quaternion.identity;
+                AttachRod(board.transform, rodStyle);
+
+                // Frame on board AND rod together — the rod hangs below the board's own centre, so
+                // aiming at the board would push it off the bottom edge. (Same reason as Shoot.)
+                Bounds b = Content(board);
+                float orthoW = b.size.x * margin;
+                float orthoH = b.size.y * margin;
+                int height = Mathf.RoundToInt(width * (orthoH / orthoW));
+
+                Camera cam = camGo.AddComponent<Camera>();
+                cam.clearFlags = CameraClearFlags.SolidColor;
+                cam.backgroundColor = new Color(0f, 0f, 0f, 0f);   // the diagram composites on paper
+                cam.orthographic = true;
+                cam.orthographicSize = orthoH * 0.5f;              // orthographicSize is half HEIGHT
+                cam.nearClipPlane = 0.01f;
+                cam.farClipPlane = 20f;
+                camGo.transform.position = b.center + new Vector3(0f, 0f, sign * 2f);
+                camGo.transform.LookAt(b.center, Vector3.up);
+
+                RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+                RenderSettings.ambientLight = new Color(0.5f, 0.5f, 0.5f);
+
+                rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+                cam.targetTexture = rt;
+                cam.Render();
+                RenderTexture.active = rt;
+                var shot = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                shot.ReadPixels(new Rect(0, 0, width, height), 0, 0);
+                shot.Apply();
+                RenderTexture.active = null;
+                cam.targetTexture = null;
+
+                string file = "board_artwork_" + (sign > 0 ? "zpos" : "zneg") + ".png";
+                File.WriteAllBytes(Path.Combine(outDir, file), shot.EncodeToPNG());
+                Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                    "[BoardAssetShot] {0}: {1}x{2} px, ortho {3:F5} x {4:F5} m, centre {5}",
+                    file, width, height, orthoW, orthoH, b.center.ToString("F5")));
+
+                // EVERY NAMED ANCHOR, PROJECTED INTO THE ARTWORK'S OWN PIXELS. The controls diagram
+                // had to read its twelve feature centres off the render and verify them with probe
+                // dots, and its script says so: "Regenerating the artwork moves all twelve —
+                // re-probe, do not guess." Here the camera that took the picture prints them, so
+                // the board diagram's ring coordinates are a measurement, not a reading.
+                //
+                // It also settles a question that cannot be settled from the authoring convention:
+                // the FBX importer decides how Blender's Z-up anchor frame lands in Unity, so which
+                // rest pad is SHORT and which is LONG is only knowable from the anchor that the
+                // shipped prefab actually carries.
+                foreach (Transform t in board.GetComponentsInChildren<Transform>(true))
+                {
+                    if (t == board.transform || t.GetComponent<Renderer>() != null)
+                        continue;
+                    Vector3 v = cam.WorldToViewportPoint(t.position);
+                    Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                        "[BoardAssetShot] ANCHOR {0,-16} local {1}  px ({2,7:F1},{3,7:F1})",
+                        t.name, t.localPosition.ToString("F4"), v.x * width, (1f - v.y) * height));
+                }
+                Object.DestroyImmediate(shot);
+            }
+            finally
+            {
+                RenderTexture.active = null;
+                if (rt != null)
+                {
+                    rt.Release();
+                    Object.DestroyImmediate(rt);
+                }
+                Object.DestroyImmediate(camGo);
+                Object.DestroyImmediate(board);
+            }
+        }
+
         private static void Shoot(string file, GameObject prefab, string rodStyle,
                                   string outDir)
         {

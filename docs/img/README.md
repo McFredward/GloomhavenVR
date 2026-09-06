@@ -426,18 +426,19 @@ clips that are already there, and keeping the two language pages in step.
 
 Each new clip needs a poster beside it, same name plus `-poster.jpg`.
 
-## The two built diagrams -- `controls-*.png` and `install-tree-*.png`
+## The three built diagrams -- `controls-*.png`, `board-*.png` and `install-tree-*.png`
 
 These are the only images here that exist in **two language versions**, and the reason they are
-scripts rather than files is the same in both cases: **the artwork is generated once, every word is
+scripts rather than files is the same in all three cases: **the artwork is made once, every word is
 drawn at build time.**
 
 ```
 python3 docs/img/build-controls-diagram.py     -> controls-en.png, controls-de.png
+python3 docs/img/build-board-diagram.py        -> board-en.png,    board-de.png
 python3 docs/img/build-install-tree.py         -> install-tree-en.png, install-tree-de.png
 ```
 
-Both need Pillow and the Inter fonts at `/usr/share/fonts/opentype/inter`.
+All three need Pillow and the Inter fonts at `/usr/share/fonts/opentype/inter`.
 
 ### `controls-{en,de}.png` -- the button map in the playing guide
 
@@ -510,6 +511,85 @@ What is still not exact: the plate is rendered as a near-circle where the real o
 teardrop-shaped oval, and the handle is a little longer and glossier than the real part. The caption
 stays because the claim it makes is one the picture keeps -- a reader holding a Quest 3 can match
 every marked control on it, one for one.
+
+### `board-{en,de}.png` -- the control board, explained the way the controllers are
+
+The user asked for it in those words: *"Weiterhin will ich das du das Controllboard auch als Bild
+zeigst mit entsprechenden Erklärungen ähnlich wie bei den Controllern."* So it is the same
+language as `controls-*.png` -- artwork on top, a legend of colour-coded cells under it, and the
+colour of each swatch matching a marker drawn on the artwork. It ships in both READMEs and in both
+playing guides.
+
+| Layer | Where it comes from |
+|---|---|
+| `board-artwork.png` | **rendered** -- the shipped Oak `PlayTray.prefab` with its grab rod, dead straight-on, through the real BoardLit material. Quantised to 200 colours: 3.2 MB to 240 kB. |
+| every marker, every word | **drawn by the script**, as real text in Inter |
+
+**The artwork is a render, not a screenshot, and not a Blender render either.** `control-board-poster.jpg`
+is the obvious candidate and it is unusable as a diagram base -- a dark in-game capture with a play
+glyph painted over the middle and the player's forearm across the board. And
+`unity/asset-preview/render_asset.py`, which shot every other asset tile here, cannot draw the
+**grab rod**: that rod is a procedural mesh built in C# at runtime, so there is no FBX to hand
+Blender. So the artwork comes from a second entry point on the station that already solved exactly
+that problem for the styles matrix:
+
+```
+BOARD_ASSET_OUT=<dir> xvfb-run -a Unity -batchmode \
+    -projectPath unity/GloomhavenVR.Assets -buildTarget Win64 \
+    -executeMethod GloomhavenVR.BoardAssetShot.RenderDiagramArtwork -logFile x.log -quit
+```
+
+It writes `board_artwork_zneg.png` (2000x1150) plus a `_zpos` twin; **the `zneg` one is the
+decorated face**, and both are written because which face carries the decoration is an FBX-import
+question rather than something to assert from the authoring convention. `RenderDiagramArtwork` must
+never be folded back into `RenderAll` -- that one's 900 px / ortho 0.78 / yaw 35 / pitch 50 are
+matched to `build_asset_strips.sh` so the styles matrix reads as one picture, and all four are
+wrong for a labelled diagram.
+
+Three things in the script are load-bearing:
+
+- **The marker coordinates are BOARD-LOCAL METRES, not pixels read off the render.** The controls
+  script has to re-probe twelve pixel positions whenever its artwork is regenerated; here the
+  artwork's own frame is published by the renderer (`ortho 0.64960 x 0.37343 m`, centre printed at
+  F5), so a re-render at another resolution needs no re-probe at all.
+- **Read the anchors from the FBX, not from the Unity prefab.** The prefab's anchor transforms come
+  out of `AssetDatabase` carrying a ~1.30x scale the board **mesh** does not have, which puts the
+  key column at board-local 0.296 -- a centimetre outboard of three recesses that are plainly
+  visible in the picture. The first cut drew its markers there and they missed everything. The FBX
+  empties agree with `PlayTray.6.Build.cs`'s own fallback constants to within a centimetre, and
+  that agreement is the cross-check.
+- **`ORIENTATION` is a guard, not documentation.** Seven claims the source makes about the board --
+  slot 0 is left, the rest pads are left, the keys are right, short rest is the upper pad, Confirm
+  is the top seat, the rod is below the bottom edge -- are asserted against the coordinates the
+  markers are drawn from, and the script refuses to build if one fails. It exists because **the
+  first render of this board was mirrored** and looked completely plausible until you noticed
+  CONFIRM on the left.
+
+**The explanations came from the SOURCE, not from the docs** -- `Cards/Tray/PlayTray.*.cs`,
+`Cards/BoardAnchors.cs`, `Cards/Caps/RestControls.cs`, `Cards/Piles/PileViewer.cs`,
+`Cards/CardFan.cs`, `Cards/Driver/CardsDriver.*.cs`, `Net/Remote/RemoteElementStrip.cs` -- and two
+labels would have been stale on arrival if they had not been:
+
+- **there is no settings gear.** `PlayTray.1.Core.cs`'s own class doc still lists one in the right
+  column; `CreateDashboardButtons` builds only the follow/pin toggle, there is no `_gear` field
+  under `Cards/Tray/`, and `CapRole` has no entry for one.
+- **the native short-rest widget does not dock on the board.** `TrayControlDockSurface` hardcodes
+  `ShortRestDocked => false`, so the mod's own left-hand pad is the only short-rest control.
+
+**On the file size, so nobody tries to "fix" it.** `board-en.png` is 280 kB and `board-de.png` is
+292 kB, against the controls diagram's 78 kB. **The palette is not the cause and lowering it does
+nothing**: 200, 160 and 128 colours, FASTOCTREE and MEDIANCUT, all land within 1 kB of each other,
+because the cost is the OAK GRAIN -- spatial noise a PNG's row filters cannot predict -- and not the
+colour count. The controls artwork is flat plastic and quantises to almost nothing; this one cannot.
+It is in the same league as `styles-boards.png` (354 kB), which is the same wood.
+
+**Half of the picture is drawn, and that is the honest part.** The initiative track, the objectives
+panel, the element chips and the three card stacks are the game's own converted canvases docked
+around the tray -- no render of the mod's asset can contain them. The script draws them as light
+ghost plates at the mounts the code gives them (`PlayTray.3.Pose.cs`'s `*MountBase` constants), at a
+lighter weight than the markers on the board itself, so the board stays the subject. Deliberately
+**not** drawn, to keep the picture readable: the decision drawer, the active-cards column, the
+item-use berth, the pin toggle and the pick-progress placard.
 
 ### `install-tree-{en,de}.png` -- "did it land in the right place?"
 

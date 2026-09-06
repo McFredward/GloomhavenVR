@@ -46,6 +46,14 @@
 </tr>
 </table>
 
+Dein Kontrollbrett ist ein echter Tisch vor dir: zwei Fächer für die Karten der Runde, Tasten, die
+du mit der Fingerspitze eindrückst, und darunter eine Stange, mit der du das Ganze dorthin trägst,
+wo du es haben willst.
+
+<p align="center">
+  <img src="docs/img/board-de.png" width="860" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenfächer, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände sowie deine Handkarten">
+</p>
+
 ### Das Brett vor dir
 
 <table>
