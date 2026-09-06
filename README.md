@@ -48,10 +48,8 @@
 
 Your control board is a real desk in front of you: two recesses for the round's cards, keys you push
 in with a fingertip, and a rod under it that carries the whole thing wherever you want it.
-
-<p align="center">
-  <img src="docs/img/board-en.png" width="860" alt="The control board with every part labelled: the two card recesses, the three keys on the right, the two rest keys on the left, the grab rod, the initiative track, the objectives and elements, the discard, burnt and item stacks, and your hand of cards">
-</p>
+Every part of it is named on one labelled picture in the
+[playing guide](docs/PLAYING.md#your-cards-and-your-board).
 
 ### The board in front of you
 

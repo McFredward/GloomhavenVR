@@ -517,8 +517,12 @@ every marked control on it, one for one.
 The user asked for it in those words: *"Weiterhin will ich das du das Controllboard auch als Bild
 zeigst mit entsprechenden Erklärungen ähnlich wie bei den Controllern."* So it is the same
 language as `controls-*.png` -- artwork on top, a legend of colour-coded cells under it, and the
-colour of each swatch matching a marker drawn on the artwork. It ships in both READMEs and in both
-playing guides.
+colour of each swatch matching a marker drawn on the artwork.
+
+**It ships in the two playing guides only.** It started in the READMEs as well and the user moved
+it: *"das board passt mehr in playing guide rein"*. The READMEs keep the paragraph about the board
+and now link onward to the picture, so the front page stays a pitch and the map lives with the rest
+of the instructions.
 
 | Layer | Where it comes from |
 |---|---|
@@ -558,6 +562,16 @@ Three things in the script are load-bearing:
   visible in the picture. The first cut drew its markers there and they missed everything. The FBX
   empties agree with `PlayTray.6.Build.cs`'s own fallback constants to within a centimetre, and
   that agreement is the cross-check.
+- **The callouts on the picture do NOT break "every word is drawn at build time".** Read that rule
+  precisely: what it forbids is a word BAKED INTO THE ARTWORK, because a model cannot spell, because
+  a labelled bitmap would need regenerating per language, and because a label that moved could not
+  be corrected without redrawing the picture. `CALLOUTS` is none of those -- real Inter text drawn
+  by the script, per language, anchored in board-local metres, each one a one-line edit. They exist
+  because the user asked for them: *"Ich will das ein kurzer Text direkt auch schon auf dem Bild zu
+  sehen ist, damit man in einem Blick versteht welches Element was ist statt in der Legende erst ein
+  mapping machen zu müssen."* The colour coding stays and each callout wears its marker's colour, so
+  the picture and the legend reinforce each other instead of being two halves of a lookup. **Do not
+  "fix" them back out.**
 - **`ORIENTATION` is a guard, not documentation.** Seven claims the source makes about the board --
   slot 0 is left, the rest pads are left, the keys are right, short rest is the upper pad, Confirm
   is the top seat, the rod is below the bottom edge -- are asserted against the coordinates the
@@ -576,12 +590,34 @@ labels would have been stale on arrival if they had not been:
 - **the native short-rest widget does not dock on the board.** `TrayControlDockSurface` hardcodes
   `ShortRestDocked => false`, so the mod's own left-hand pad is the only short-rest control.
 
-**On the file size, so nobody tries to "fix" it.** `board-en.png` is 280 kB and `board-de.png` is
-292 kB, against the controls diagram's 78 kB. **The palette is not the cause and lowering it does
+**On the file size, so nobody tries to "fix" it.** `board-en.png` is 293 kB and `board-de.png` is
+307 kB, against the controls diagram's 78 kB. **The palette is not the cause and lowering it does
 nothing**: 200, 160 and 128 colours, FASTOCTREE and MEDIANCUT, all land within 1 kB of each other,
 because the cost is the OAK GRAIN -- spatial noise a PNG's row filters cannot predict -- and not the
 colour count. The controls artwork is flat plastic and quantises to almost nothing; this one cannot.
 It is in the same league as `styles-boards.png` (354 kB), which is the same wood.
+
+**Where the callout room came from, and why it is not width.** The x range of the picture is set by
+the content: the objectives column mounts at board-local -0.592 and the pile stacks reach +0.432, so
+there is no horizontal gutter to put a label in, and widening the window would shrink the board --
+which is the subject. So the room is bought in **y**, where it is free: a band above the initiative
+dock and a band below the grab rod. Three markers live inside the board's silhouette and are joined
+to their names by leaders. The two named from ABOVE drop through a **gap between two tiles** of the
+initiative dock rather than across a tile face -- board-local 0.000 is the dock's own centre seam and
+0.20557 is the seam between its fifth and sixth tiles -- and the script asserts both, because that
+alignment is arithmetic on the tile pitch and would break silently if the dock changed. The three
+keys are named from BELOW instead, because the round readout sits directly over the top key and
+covers the whole key column in x: there is no lane from above that reaches a key without crossing
+it.
+
+The German guard rail is two checks, not one, because German fails these in two different ways. A
+word WIDER than its gap survives wrapping and paints over its neighbour -- that is the width check.
+A string that is merely long does not overrun at all: it grows DOWNWARD, into the card fan or off
+the bottom of the picture, which no width check can see -- so every callout also declares how many
+lines its gap can absorb, and two of them declare `rows=1` for exactly that reason. Both run as a
+`check_callouts()` **preflight over every language before a single file is written**, because the
+two languages are built one after the other and a failure found while drawing German would
+otherwise have left a new English file on disk beside a stale German one.
 
 **Half of the picture is drawn, and that is the honest part.** The initiative track, the objectives
 panel, the element chips and the three card stacks are the game's own converted canvases docked
