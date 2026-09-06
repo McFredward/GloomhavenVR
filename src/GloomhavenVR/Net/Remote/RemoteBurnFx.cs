@@ -529,7 +529,13 @@ internal sealed class RemoteBurnFx
             go.SetActive(false);
             VRLayers.Apply(go);
             b.Go = go;
-            b.Art = new RemoteCardArt(go.transform, w, h);
+            b.Art = new RemoteCardArt(go.transform, w, h)
+            {
+                // Names this face for the card-FX instrument, which latches PER SURFACE so a
+                // term that arms on the recess and refuses on the flight is readable rather
+                // than silent. See RemoteCardArt.FxSurface.
+                Surface = RemoteCardArt.FxSurface.Flight,
+            };
         }
         _burns.Add(b);
         return b;

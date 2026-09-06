@@ -346,7 +346,8 @@ internal sealed class RemoteCardArt
             _clone = clone;
 
             Neutralize(clone);
-            ItemFxRig itemFx = StripFragileEffects(clone, out _burnHeaderText, out _burnInitiativeText);
+            ItemFxRig itemFx = StripFragileEffects(clone, out _burnHeaderText, out _burnInitiativeText,
+                                                  out _flameBurnTexture, out _flameGhostTexture);
             if (skinSource != null)
                 TryReapplySkin(skinSource, clone);
             beforeActivate?.Invoke(clone);
@@ -572,12 +573,15 @@ internal sealed class RemoteCardArt
     /// impossible and capturing them from the SOURCE would name the game's objects instead of ours.</para>
     /// </summary>
     private static ItemFxRig StripFragileEffects(GameObject clone,
-        out TMPro.TextMeshProUGUI? header, out TMPro.TextMeshProUGUI? initiative)
+        out TMPro.TextMeshProUGUI? header, out TMPro.TextMeshProUGUI? initiative,
+        out Texture? flameBurn, out Texture? flameGhost)
     {
         UnityEngine.UI.Image[]? images = null;
         TMPro.TextMeshProUGUI[]? texts = null;
         header = null;
         initiative = null;
+        flameBurn = null;
+        flameGhost = null;
         try
         {
             var effects = clone.GetComponentsInChildren<CardEffects>(includeInactive: true);
@@ -591,6 +595,17 @@ internal sealed class RemoteCardArt
                 // of ours. First component wins — a card carries exactly one CardEffects.
                 if (header == null)
                     LiftBurnTexts(effects[i], ref header, ref initiative);
+                // …AND THE FLAME SHEET'S TWO TEXTURES, in the same instant and for the same reason.
+                // `overlayFrameBurn` and `overlayFrameGhost` are PUBLIC serialized fields
+                // (CardEffects.cs:221-223), so Object.Instantiate carries them onto the clone and this
+                // is a read of the clone's own state — no reflection is owed for these two. They are
+                // what CardEffects pushes into the fgFx overlay's `_ParticleTexture`
+                // (CardEffects.cs:554 / :668) and they are the picture the user calls the fire.
+                if (flameBurn == null)
+                {
+                    flameBurn = effects[i].overlayFrameBurn;
+                    flameGhost = effects[i].overlayFrameGhost;
+                }
                 Object.DestroyImmediate(effects[i]);
             }
             var itemEffects = clone.GetComponentsInChildren<ItemCardEffects>(includeInactive: true);
@@ -655,6 +670,30 @@ internal sealed class RemoteCardArt
     private static readonly int FlowSpeedId = Shader.PropertyToID("_Flow_Speed");
     private static readonly int AnimNoiseMaskId = Shader.PropertyToID("_AnimNoise_Mask");
     private static readonly int DissolveVerticalGradientId = Shader.PropertyToID("_Dissolve_VerticalGradient");
+
+    // ─── THE FLAME SHEET'S NINE PROPERTIES (2026-09-06 report item 4) ────────────────────────────
+    // The burn has TWO face-wide halves and only one of them was ever mirrored. The FACE half is the
+    // material sweep above. The FIRE half is a SECOND Image — CardEffects' serialized `_uiFxOverlay`,
+    // aliased `fgFx`, live GameObject 'UIFX_Overlay', a sprite-less quad drawn over ~120 % of the
+    // card — carrying its own shader with its own nine properties, of which `_FXAnim` is the only
+    // ANIMATED one. That is what the user means by "die Feuer animation": an orange sheet
+    // (_TintColor 1, 0.3, 0, 0.8) textured with `overlayFrameBurn` at _Glow 3, ramped in over the
+    // first HALF SECOND and then held for the remaining 1.5 s of the 2 s timeline.
+    //
+    // ITS RATE IS NOT THE FACE HALF'S, and that is the one term a "same timeline" assumption would
+    // get wrong: CardEffects.cs:581 writes `Mathf.Clamp(dTime * 4f, 0f, 1f) / 2f`, i.e. FOUR TIMES
+    // the face rate, capped, halved — 0 → 0.5 reached at t = 0.25 (0.5 s) and constant after. The
+    // fire flashes up and sits; the char keeps darkening underneath it.
+    private static readonly int FxAnimId = Shader.PropertyToID("_FXAnim");
+    private static readonly int TintColorId = Shader.PropertyToID("_TintColor");
+    private static readonly int ParticleTextureId = Shader.PropertyToID("_ParticleTexture");
+    private static readonly int OverlayFlowSpeedId = Shader.PropertyToID("_FlowSpeed");
+    private static readonly int OffsetStrengthId = Shader.PropertyToID("_OffsetStrength");
+    private static readonly int ThinHighlightsId = Shader.PropertyToID("_ThinHighlights");
+    private static readonly int ThinHighlightMinId = Shader.PropertyToID("_ThinHighlight_Min");
+    private static readonly int ThinHighlightMaxId = Shader.PropertyToID("_ThinHighlight_Max");
+    private static readonly int FlowNoiseTilingId = Shader.PropertyToID("_Flow_NoiseTiling");
+    private static readonly int OverlayGlowId = Shader.PropertyToID("_Glow");
 
     /// <summary>The SIGNATURE that identifies a card-FX material without naming a shader or an asset:
     /// <c>_GreyOut</c> AND <c>_PosAndBounds</c> together, the same pair — for the same reason — that
@@ -1325,6 +1364,45 @@ internal sealed class RemoteCardArt
         Ghost,
     }
 
+    /// <summary>
+    /// WHICH OF THE MOD'S CARD-FX SURFACES this face belongs to — named by whoever DRIVES the look,
+    /// because driving it is what makes a surface exist for the instrument below.
+    ///
+    /// <para>IT EXISTS BECAUSE A ONCE-PER-PROCESS LATCH CANNOT ANSWER THE QUESTION. The rig is one
+    /// implementation with several callers, and the defect shape this project has already shipped
+    /// once (2026-09-05 item 9b, the burnt pile fan that nobody had asked for the look) is a term
+    /// that arms on ONE surface and refuses on ANOTHER. The armed/refused line was latched on a
+    /// single static bool, so only the FIRST surface to build a rig ever printed and every other
+    /// one was invisible. Latching per surface is what makes "fire armed on the recess, refused on
+    /// the pile" readable at a glance instead of being a silence.</para>
+    ///
+    /// <para>Bounded by construction: four surfaces times three outcomes is at most twelve lines for
+    /// the life of the process, never per card and never per frame.</para>
+    /// </summary>
+    internal enum FxSurface
+    {
+        /// <summary>Nobody has driven a card-FX look on this face. The ACTIVE-CARDS column sits here
+        /// permanently and that is the correct reading for it — an activated card is not burnt, so
+        /// no look is driven, so no rig is built and no line is printed.</summary>
+        Unnamed,
+
+        /// <summary>A peer's round-card RECESS — <c>RemoteBoardCard.DriveUsedCardFx</c>, a live 2 s
+        /// ramp off the owner's own effect state.</summary>
+        Recess,
+
+        /// <summary>The burn FLIGHT slab — <c>RemoteBurnFx</c>, the same 2 s ramp during the hold and
+        /// the settled look for the arc.</summary>
+        Flight,
+
+        /// <summary>The opened BURNT PILE fan — <c>RemotePileFronts</c>, the settled end-state at
+        /// t = 1 and deliberately never a ramp.</summary>
+        Pile,
+    }
+
+    /// <summary>Which surface is driving this face. Assigned by the driver, idempotently; a face
+    /// nobody drives keeps <see cref="FxSurface.Unnamed"/> and never reaches the instrument.</summary>
+    internal FxSurface Surface { get; set; } = FxSurface.Unnamed;
+
     /// <summary>How far the card-FX rig has got. Built ONCE per clone: the walk over the clone's
     /// Images and the material minting must not repeat per frame.</summary>
     private enum BurnRig { Unbuilt, Ready, Refused }
@@ -1366,10 +1444,101 @@ internal sealed class RemoteCardArt
     private static System.Reflection.FieldInfo? s_initiativeField;
     private static bool s_effectFieldsResolved;
 
-    /// <summary>One-shot latches for the three burn-rig outcomes. Never per card, never per frame.</summary>
-    private static bool s_burnRigLogged;
-    private static bool s_burnRigRefused;
-    private static bool s_burnRigNoFxImages;
+    /// <summary>The clone's own flame sheet — <c>CardEffects._uiFxOverlay</c> ('UIFX_Overlay'),
+    /// found by MATERIAL SIGNATURE rather than by name, wearing a material this overlay minted.
+    /// Null when the face carries no such graphic or when the sheet was REFUSED, in which case
+    /// <see cref="_flameRefusal"/> names the term that refused it.</summary>
+    private UnityEngine.UI.Image? _flameQuad;
+
+    /// <summary>Why the flame sheet is not being drawn, in one phrase, for the instrument. Empty
+    /// means it IS being drawn.</summary>
+    private string _flameRefusal = "no rig built yet";
+
+    /// <summary>The two authored frame textures lifted off the clone's own <c>CardEffects</c> in the
+    /// instant before it is destroyed — <c>overlayFrameBurn</c> and <c>overlayFrameGhost</c>, the
+    /// pictures the flame sheet is textured with. A face whose look has no texture here is refused
+    /// the sheet whole rather than shown the shared material's leftover one.</summary>
+    private Texture? _flameBurnTexture;
+    private Texture? _flameGhostTexture;
+
+    /// <summary>One-shot latches for the three burn-rig outcomes, PER SURFACE — see
+    /// <see cref="FxSurface"/> for why a single latch could not answer the question it was written
+    /// to answer. Never per card, never per frame; at most one line per (surface, outcome) pair for
+    /// the life of the process.</summary>
+    private static readonly bool[] s_burnRigLogged = new bool[4];
+    private static readonly bool[] s_burnRigRefused = new bool[4];
+    private static readonly bool[] s_burnRigNoFxImages = new bool[4];
+
+    /// <summary>
+    /// PUT THE CARD BACK — the mirror of <c>CardEffects.RestoreCard()</c> (CardEffects.cs:466-506)
+    /// on a rig this overlay owns, for a card the GAME has un-burned.
+    ///
+    /// <para>THE DEFECT THIS EXISTS FOR (2026-09-06 item 8a, his words: "auch soll im Bereich
+    /// 'aktive Karten' die Karte nicht verbrannt dargestellt sein, da sie ja de facto noch nicht
+    /// verbrannt ist, sondern nur aktiviert wurde"). The look was a one-way ramp: every caller could
+    /// drive it 0 -> 1, and NOBODY could drive it back. So a card the game itself restores kept the
+    /// char this overlay had painted, for the rest of its life on that peer's board.</para>
+    ///
+    /// <para>AND THE GAME RESTORES EXACTLY THIS CASE. <c>FullAbilityCard.SetPile</c> reads
+    /// (FullAbilityCard.cs:325-328): <c>if (newCardPile == ECardPile.Hand || newCardPile ==
+    /// ECardPile.Activated) cardEffects.RestoreCard();</c>. A persistent card - one that burns only
+    /// AFTER its effects have run - enters <c>ECardPile.Activated</c>
+    /// (<c>CCharacterClass.MoveAbilityCardToPile</c>, CCharacterClass.cs:440-442: <c>if
+    /// (abilityCard.ActiveBonuses.Count > 0) eCardPile = ECardPile.Activated;</c>, which OVERRIDES
+    /// the action's own Lost pile), so the owner's own card is wiped clean the instant it reaches
+    /// the active area. Without this method the peer's copy was not.</para>
+    ///
+    /// <para>TERM FOR TERM, and the set is the game's: the three animated face terms back to zero,
+    /// the flame sheet back to <c>_FXAnim = 0</c>, and every watched text back to the colour it was
+    /// authored in (<c>txtColourStore</c>, CardEffects.cs:499-505) with its vertex gradient back on.
+    /// The CONSTANT half is deliberately left where it is - the game leaves <c>_Burn</c> alone in
+    /// the arm it takes here too, and all four terms it multiplies are now zero, so it is inert.</para>
+    ///
+    /// <para>Never throws and never builds a rig: a face that was never painted has nothing to put
+    /// back, and calling this on one costs a single field compare.</para>
+    /// </summary>
+    public void ClearAbilityCardFx()
+    {
+        if (_burnRigState != BurnRig.Ready || _burnImages == null)
+            return;
+        try
+        {
+            for (int i = 0; i < _burnImages.Length; i++)
+            {
+                Material? mat = MaterialOf(_burnImages[i]);
+                if (mat == null)
+                    continue;
+                SetFloatIfPresent(mat, GreyOutId, 0f);
+                SetFloatIfPresent(mat, FlowId, 0f);
+                SetFloatIfPresent(mat, DissolveId, 0f);
+            }
+            Material? flame = MaterialOf(_flameQuad);
+            if (flame != null)
+                flame.SetFloat(FxAnimId, 0f);
+            if (_burnTexts != null && _burnTextColours != null)
+            {
+                for (int i = 0; i < _burnTexts.Length && i < _burnTextColours.Length; i++)
+                {
+                    TMPro.TextMeshProUGUI text = _burnTexts[i];
+                    if (text == null)
+                        continue;
+                    text.color = _burnTextColours[i];
+                    // The ghost arm switches this OFF past halfway (CardEffects.cs:703-706); the
+                    // game's own restore does not put it back explicitly, but it restores the
+                    // colour that gradient was authored against, so leaving it off would keep half
+                    // of the ghost on a card that is meant to be clean.
+                    text.enableVertexGradient = true;
+                }
+            }
+            _burnRigLook = CardFxLook.None;
+        }
+        catch (System.Exception ex)
+        {
+            _burnRigState = BurnRig.Refused;
+            VRLog.Debug("Net", $"Remote card-FX restore stopped ({ex.Message}) - the peer's card "
+                               + "keeps its current look.");
+        }
+    }
 
     /// <summary>The BURN look at progress <paramref name="t"/> — the shape every existing caller
     /// uses. See <see cref="SetAbilityCardFxProgress"/>, which it forwards to.</summary>
@@ -1416,6 +1585,14 @@ internal sealed class RemoteCardArt
                 SetFloatIfPresent(mat, FlowId, k);
                 SetFloatIfPresent(mat, DissolveId, Mathf.Lerp(0f, 0.646f, k));
             }
+            // THE FIRE, ON ITS OWN CLOCK. CardEffects.cs:581 and :696 are the same line in both
+            // timelines and it is NOT the face rate: Clamp(t * 4, 0, 1) / 2 reaches its settled 0.5
+            // at t = 0.25 - half a second into a two-second burn - and holds there. Writing k here
+            // instead would have the flame still climbing when the card has finished charring, which
+            // is a picture the owner never has.
+            Material? flame = MaterialOf(_flameQuad);
+            if (flame != null)
+                flame.SetFloat(FxAnimId, Mathf.Clamp(k * 4f, 0f, 1f) / 2f);
             if (look == CardFxLook.Ghost && _burnTexts != null && _burnTextColours != null)
             {
                 // GhostOutOnTimeline's text rule (CardEffects.cs:700-708) and it is a DIFFERENT rule,
@@ -1547,7 +1724,7 @@ internal sealed class RemoteCardArt
             }
             if (kept.Count == 0)
             {
-                ReportBurnRigNoFxImages();
+                ReportBurnRigNoFxImages(Surface);
                 return;
             }
 
@@ -1556,7 +1733,7 @@ internal sealed class RemoteCardArt
             {
                 // ALL OR NOTHING, same as the item look: switching the FX terms on against a
                 // degenerate footprint is the "card renders DEEP BLACK" failure.
-                ReportBurnRigRefused();
+                ReportBurnRigRefused(Surface);
                 return;
             }
 
@@ -1594,7 +1771,9 @@ internal sealed class RemoteCardArt
             }
             _burnRigState = BurnRig.Ready;
             _burnRigLook = CardFxLook.Burn;
-            ReportBurnRigOnce(_burnImages.Length, inherited, footprint);
+            BuildFlameQuad(all, CardFxLook.Burn);
+            ReportBurnRigOnce(Surface, _burnImages.Length, inherited, footprint,
+                              _flameQuad != null, _flameRefusal);
         }
         catch (System.Exception ex)
         {
@@ -1603,6 +1782,143 @@ internal sealed class RemoteCardArt
             VRLog.Debug("Net", $"Remote burn rig skipped ({ex.Message}) - the peer's card burns " +
                                "without the char.");
         }
+    }
+
+    /// <summary>
+    /// THE FIRE HALF - find the clone's own flame sheet, mint its material and write the nine
+    /// constants of the chosen timeline into the copy.
+    ///
+    /// <para>THIS IS THE TERM THE USER REPORTED MISSING (2026-09-06 item 4: "die Feuer animation,
+    /// die kommen sollte wird nicht korrekt dargestellt beim remote board"). Everything the char rig
+    /// above drives is the FACE half of the burn - <c>_GreyOut</c>, <c>_Flow</c>, <c>_Dissolve</c>
+    /// and the text recolour - and the hardware logs of ModBuild 459 confirm that half landed on
+    /// BOTH machines ("Remote BURN look armed on 9 card image(s)" prints on the host and on the
+    /// co-player, and <c>RECESS CARD FX</c> reads <c>look=BURN, applied=yes</c>). The user agrees:
+    /// "die Karte wird zwar grau und der Text rot wie es sein soll". So the report is NOT a wrong
+    /// place, a wrong size, a wrong orientation or a wrong clock - it is one named term that was
+    /// never written, and the instrument that shipped in 459 says so in its own words: "the smoke
+    /// emitter and the fgFx flame quad are still deliberately not reproduced".</para>
+    ///
+    /// <para>WHAT THE TERM IS. The burn has TWO face-wide halves and no rim object anywhere in the
+    /// system. The FACE half is the material sweep above. The FIRE half is a SECOND Image -
+    /// <c>CardEffects</c>' serialized <c>_uiFxOverlay</c>, aliased <c>fgFx</c>, live GameObject
+    /// 'UIFX_Overlay', a sprite-less quad drawn over ~120 % of the card - carrying its own shader
+    /// with its own nine properties, of which <c>_FXAnim</c> is the only ANIMATED one.</para>
+    ///
+    /// <para>WHY IT WAS DEFERRED, AND WHAT ANSWERS THAT NOW. <see cref="ApplySpentLook"/>'s note
+    /// declined it as "a second, unmeasured material driven by nine more properties and drawn over
+    /// the WHOLE card; if any of that lands wrong the failure is a full-card artefact". Two of those
+    /// three clauses no longer hold. It is MEASURED - <c>Cards.CardFxBounds</c>' census read this
+    /// very graphic on a real hosted card ("'UIFX_Overlay' [no sprite] 132 % of the face"), and the
+    /// nine values are read term for term out of <c>CardEffects.BurnCardTimeline</c> (CardEffects.cs
+    /// :528-537, written :553-561) and <c>GhostOutOnTimeline</c> (:642-651, written :666-675). And
+    /// the material is not the game's: the copy is minted here and destroyed with the clone, exactly
+    /// as the face half's is. What REMAINS true is the full-card failure mode, so the sheet is
+    /// ALL-OR-NOTHING and refuses itself BY NAME rather than writing a partial set - see
+    /// <see cref="_flameRefusal"/>, which the instrument prints.</para>
+    ///
+    /// <para>FOUND BY SIGNATURE, NOT BY NAME. The graphic's GameObject is called 'UIFX_Overlay' and
+    /// <c>Cards.CardFxBounds</c> matches that string for a DIAGNOSTIC; a FIX never may. The test
+    /// here is the material's own property set - <c>_FXAnim</c> AND <c>_ParticleTexture</c> AND
+    /// <c>_Glow</c>, none of which the face's <c>AbilityCard_Shd</c> carries - which is the same
+    /// discipline <see cref="IsCardFxMaterial"/> applies one graphic over.</para>
+    ///
+    /// <para>THE SHEET IS INERT AT REST. <c>RestoreCard</c> leaves the overlay ACTIVE and simply
+    /// zeroes <c>_FXAnim</c> (CardEffects.cs:488-491), and <c>BurnCardTimeline</c> - unlike
+    /// <c>GhostOutOnTimeline</c> (:624-626) - never switches the GameObject on at all, which is the
+    /// proof that it is authored ON. So this method writes <c>_FXAnim = 0</c> into the fresh copy
+    /// and the card looks exactly as it did before until a progress call moves it.</para>
+    /// </summary>
+    private void BuildFlameQuad(UnityEngine.UI.Image[] all, CardFxLook look)
+    {
+        _flameQuad = null;
+        _flameRefusal = "the face carries no 'UIFX_Overlay' graphic (no material with "
+                        + "_FXAnim + _ParticleTexture + _Glow)";
+        // NO TEXTURE, NO SHEET. The authored frame picture IS the whole of what this quad draws;
+        // without it the shader would fall back to whatever the SHARED authored material happens to
+        // hold, which is a guess painted over the entire card - the one failure this is written to
+        // avoid.
+        Texture? tex = look == CardFxLook.Burn ? _flameBurnTexture : _flameGhostTexture;
+        if (tex == null)
+        {
+            _flameRefusal = look == CardFxLook.Burn
+                ? "CardEffects.overlayFrameBurn was null on the clone, so there is no fire picture to draw"
+                : "CardEffects.overlayFrameGhost was null on the clone, so there is no ghost frame to draw";
+            return;
+        }
+        for (int i = 0; i < all.Length; i++)
+        {
+            Material? mat = MaterialOf(all[i]);
+            // THE TWO SIGNATURES ARE DISJOINT BY CONSTRUCTION - the face's AbilityCard_Shd carries
+            // neither _ParticleTexture nor _Glow - but this walk runs AFTER the face loop has already
+            // replaced those Images with copies WE minted, so an explicit skip is what keeps a future
+            // shader change from quietly minting a second copy over our own.
+            if (mat == null || IsCardFxMaterial(mat) || !IsFlameMaterial(mat))
+                continue;
+            Material copy;
+            try
+            {
+                copy = new Material(mat) { name = mat.name + " (VR-flame)" };
+            }
+            catch (System.Exception)
+            {
+                _flameRefusal = "the overlay material could not be copied, and the game's own shared "
+                                + "asset is never written";
+                return;
+            }
+            all[i].material = copy;
+            _ownedMaterials.Add(copy);
+            _flameQuad = all[i];
+            // ACTIVE-STATE IS INHERITED, NEVER FORCED. BurnCardTimeline - unlike GhostOutOnTimeline
+            // (CardEffects.cs:624-626) - never switches this GameObject on, so on the owner's card
+            // it is authored ON and a clone copies that. If the clone's copy ever came back INACTIVE
+            // the owner would have no fire either, so forcing it here would be inventing a picture
+            // he does not have; it is REPORTED instead, and the instrument says which it was.
+            // Its OWN authored state, not isActiveAndEnabled: the clone can be built under an
+            // inactive host, and reporting the HOST as the overlay would be a false reading.
+            _flameRefusal = all[i].enabled && all[i].gameObject.activeSelf
+                ? string.Empty
+                : "INACTIVE-ON-CLONE (armed anyway; the source's own overlay is off, so the owner "
+                  + "sees no fire either and forcing it on here would invent a picture he does not have)";
+            WriteFlameConstants(copy, look);
+            // At rest until a progress call moves it - the same value RestoreCard leaves behind.
+            copy.SetFloat(FxAnimId, 0f);
+            return;
+        }
+    }
+
+    /// <summary>Does this material belong to the flame sheet? Three properties the card face's own
+    /// <c>AbilityCard_Shd</c> does not carry, so the two graphics can never be confused, and no
+    /// shader name and no GameObject name is consulted.</summary>
+    private static bool IsFlameMaterial(Material mat) =>
+        mat.HasProperty(FxAnimId) && mat.HasProperty(ParticleTextureId) && mat.HasProperty(OverlayGlowId);
+
+    /// <summary>
+    /// The nine constants of the flame sheet, term for term out of the game's two timelines -
+    /// <c>BurnCardTimeline</c> (CardEffects.cs:528-537) and <c>GhostOutOnTimeline</c> (:642-651).
+    /// Every value is the game's own literal.
+    ///
+    /// <para>The pair that carries the LOOK is <c>_TintColor</c> and <c>_Glow</c>: the burn is
+    /// orange (1, 0.3, 0, 0.8) at glow 3 and the ghost is a pale blue-white (0.8, 0.8, 1, 0.6) at
+    /// glow ZERO, which is why the ghosted card gets a faint frame and only the burnt one reads as
+    /// fire.</para>
+    /// </summary>
+    private void WriteFlameConstants(Material mat, CardFxLook look)
+    {
+        bool burn = look == CardFxLook.Burn;
+        mat.SetColor(TintColorId, burn
+            ? new Color(1f, 0.3f, 0f, 0.8f)
+            : new Color(0.8f, 0.8f, 1f, 0.6f));
+        Texture? tex = burn ? _flameBurnTexture : _flameGhostTexture;
+        if (tex != null)
+            mat.SetTexture(ParticleTextureId, tex);
+        SetFloatIfPresent(mat, OverlayFlowSpeedId, burn ? 0.5f : 0.2f);
+        SetFloatIfPresent(mat, OffsetStrengthId, burn ? 0.2f : 0.8f);
+        SetFloatIfPresent(mat, ThinHighlightsId, burn ? 0.463f : 0.125f);
+        SetFloatIfPresent(mat, ThinHighlightMinId, burn ? 0f : 0.77f);
+        SetFloatIfPresent(mat, ThinHighlightMaxId, burn ? 0.195f : 0.9f);
+        SetFloatIfPresent(mat, FlowNoiseTilingId, burn ? 6f : 2f);
+        SetFloatIfPresent(mat, OverlayGlowId, burn ? 3f : 0f);
     }
 
     /// <summary>
@@ -1647,6 +1963,25 @@ internal sealed class RemoteCardArt
             Material? mat = MaterialOf(_burnImages[i]);
             if (mat != null)
                 WriteFxConstants(mat, look);
+        }
+        // …AND THE FIRE HALF, which has its own nine constants and its own texture. A look change
+        // that moved only the face would leave an ORANGE sheet over a card that is ghosting, which
+        // is the one thing the two timelines differ in by eye.
+        Material? flame = MaterialOf(_flameQuad);
+        if (flame != null)
+        {
+            Texture? tex = look == CardFxLook.Burn ? _flameBurnTexture : _flameGhostTexture;
+            if (tex == null)
+            {
+                // The other look has no picture. Hide the sheet rather than paint the wrong one.
+                flame.SetFloat(FxAnimId, 0f);
+                _flameQuad = null;
+                _flameRefusal = "the other look's overlay frame texture was null on the clone";
+            }
+            else
+            {
+                WriteFlameConstants(flame, look);
+            }
         }
         _burnRigLook = look;
     }
@@ -1716,45 +2051,87 @@ internal sealed class RemoteCardArt
     /// <c>BURN CARD [peer n]</c> lines. Both mean zero FX terms were written and the peer's card
     /// lies on their board for 2 s without charring — which is the 457 picture exactly.</para>
     ///
-    /// <para>STILL BEYOND THE INSTRUMENT = an <c>armed</c> line whose <c>was</c> and <c>now</c> are
-    /// both non-degenerate and the user still reports no char. That would mean the terms are running
-    /// against a footprint this measurement got RIGHT and the divergence is elsewhere — the fgFx
-    /// flame quad and the smoke emitter, which are deliberately not reproduced, are then the next
-    /// lead, not this vector.</para>
+    /// <para>STILL BEYOND THE INSTRUMENT = an <c>armed</c> line reading <c>FIRE=…ARMED</c>, a
+    /// non-degenerate <c>now</c> footprint, and the user STILL reports no fire. Every term this rig
+    /// can write is then proven written, and the next lead is the one graphic no term here names —
+    /// the <c>CardSmoke</c> plume, which is <see cref="RemoteCardPlume"/>'s and is gated behind the
+    /// owner's own <c>[Cards] GameCardParticles</c> permission bit, so check that bit before
+    /// suspecting this rig again.</para>
+    ///
+    /// <para>HALF-FIXED = <c>FIRE=REFUSED (…)</c> beside an otherwise armed line. The char landed
+    /// and the flame sheet did not, and the parenthesis names WHICH of the three terms refused it:
+    /// no overlay graphic on the face, a null <c>overlayFrameBurn</c>, or a material that would not
+    /// copy. That is the 459 picture plus the char — grey card, red title, no fire.</para>
+    ///
+    /// <para>─── READ IT PER SURFACE, WHICH IS THE WHOLE POINT OF THE <c>[…]</c> TAG ───────────────
+    /// The tag is a <see cref="FxSurface"/>, and the line latches per surface rather than once for
+    /// the process. THE COMPLETE READING for the 1:1 ruling of 2026-09-06 ("Für 1:1 Regel soll es
+    /// voll gleich da sein … beim remote-board oder remote-karten") is <c>FIRE=…ARMED</c> on
+    /// <b>three</b> tags across one scenario:
+    /// <list type="bullet">
+    /// <item><c>[Recess]</c> — the card lying in a peer's round slot, a live 2 s ramp.</item>
+    /// <item><c>[Flight]</c> — the burn slab in transit to the burnt stack.</item>
+    /// <item><c>[Pile]</c> — the opened burnt-pile fan, which is where user item 9b of the previous
+    ///   round was reported and is the surface this project has already forgotten once.</item>
+    /// </list>
+    /// A tag that never appears is a surface whose fire was never even asked for; a tag appearing
+    /// with <c>FIRE=REFUSED</c> is a surface where it was asked for and declined. Before this line
+    /// carried a tag, only the FIRST surface to build a rig ever printed and the other two were
+    /// indistinguishable from silence — which is exactly how 9b got through.</para>
+    ///
+    /// <para><c>[Unnamed]</c> NEVER APPEARS, and its absence is a reading too: the ACTIVE-CARDS
+    /// column builds these faces and drives no look on them, because an activated card is not burnt
+    /// (item 8a). An <c>[Unnamed]</c> line would mean some surface started driving the look without
+    /// naming itself.</para>
+    ///
+    /// <para>THE TIMING IS DIFFERENT ON EACH AND THAT IS DELIBERATE. The fire runs at four times the
+    /// face rate, capped and halved (CardEffects.cs:581), so it settles at <c>_FXAnim = 0.5</c> a
+    /// half second in and holds while the char darkens for the remaining 1.5 s. <c>[Recess]</c> and
+    /// the hold phase of <c>[Flight]</c> drive the real ramp; the arc phase of <c>[Flight]</c> and
+    /// the whole of <c>[Pile]</c> write progress 1, which lands on that same settled 0.5. A card the
+    /// viewer finds ALREADY BURNT — every card in an opened pile fan — therefore shows the settled
+    /// fire and never restarts the animation, which is the rule <c>RemotePileFronts</c> states in
+    /// its own words and the one <c>ApplySpentLook</c> was written around.</para>
     /// </summary>
-    private static void ReportBurnRigOnce(int images, Vector4 was, Vector4 now)
+    private static void ReportBurnRigOnce(FxSurface surface, int images, Vector4 was, Vector4 now,
+                                          bool flame, string flameRefusal)
     {
-        if (s_burnRigLogged)
+        if (s_burnRigLogged[(int)surface])
             return;
-        s_burnRigLogged = true;
-        // HW-VERIFY: grep token "Remote BURN look" — see this method's doc for the three readings.
-        VRLog.Note("Net", $"Remote BURN look armed on {images} card image(s): _PosAndBounds was "
+        s_burnRigLogged[(int)surface] = true;
+        // HW-VERIFY: grep token "Remote BURN look" — see this method's doc for the four readings.
+        VRLog.Note("Net", $"Remote BURN look [{surface}] armed on {images} card image(s): _PosAndBounds was "
                           + $"({was.x:0.#}, {was.y:0.#}, {was.z:0.#}x{was.w:0.#}) -> now "
-                          + $"({now.x:0.#}, {now.y:0.#}, {now.z:0.#}x{now.w:0.#}). A peer's burning "
-                          + "card now carries the game's own grey-out/flow/dissolve ramp, term for term "
-                          + "out of CardEffects.BurnCardTimeline, on materials this overlay minted and "
-                          + "destroys with the clone. The 'was' half is what the CLONE INHERITED: 0x0 "
-                          + "extents mean the peer's widget never ran CardEffects.Initialize on this "
-                          + "client (it has never been active here), and a large negative origin means "
-                          + "it ran on a SCREEN-SPACE hand canvas and the number is two card-widths "
-                          + "away from this world-space clone. Either way the FX terms would have been "
-                          + "multiplied by a card-local coordinate that does not vary across the card, "
-                          + "which is the ModBuild 348 item-card defect one card type over. The game's "
-                          + "CardEffects stays stripped; the smoke emitter and the fgFx flame quad are "
-                          + "still deliberately not reproduced.");
+                          + $"({now.x:0.#}, {now.y:0.#}, {now.z:0.#}x{now.w:0.#}). TERMS ARMED, by "
+                          + "name: FACE=_GreyOut+_Flow+_Dissolve (0 -> 1, 0 -> 1, 0 -> 0.646 over 2 s) "
+                          + "on the images above; TEXT=header+initiative -> RGB(143,58,44), the rest -> "
+                          + "mid grey; FIRE=the fgFx 'UIFX_Overlay' flame sheet, _FXAnim 0 -> 0.5 over "
+                          + $"the first 0.5 s at _TintColor(1, 0.3, 0, 0.8) _Glow 3 — {(flame ? (flameRefusal.Length == 0 ? "ARMED" : "ARMED but " + flameRefusal) : "REFUSED (" + flameRefusal + ")")}; "
+                          + "SMOKE=the CardSmoke plume, which is NOT part of this rig at all and is "
+                          + "mirrored separately by RemoteCardPlume behind the owner's own "
+                          + "[Cards] GameCardParticles permission bit (wire id 236). The FOOTPRINT the "
+                          + $"shader will read is the 'now' half above: ({now.z:0.#} x {now.w:0.#}) "
+                          + "canvas units centred on this clone. The 'was' half is what the CLONE "
+                          + "INHERITED: 0x0 extents mean the peer's widget never ran "
+                          + "CardEffects.Initialize on this client (it has never been active here), and "
+                          + "a large negative origin means it ran on a SCREEN-SPACE hand canvas and the "
+                          + "number is two card-widths away from this world-space clone. Either way the "
+                          + "FX terms would have been multiplied by a card-local coordinate that does "
+                          + "not vary across the card, which is the ModBuild 348 item-card defect one "
+                          + "card type over. The game's CardEffects stays stripped throughout.");
     }
 
     /// <summary>
     /// HARDWARE VERIFICATION: the DEEP-BLACK refusal, now measured rather than inherited. One line per
     /// process. Reading it means the char is inert and the reason is this clone's own geometry.
     /// </summary>
-    private static void ReportBurnRigRefused()
+    private static void ReportBurnRigRefused(FxSurface surface)
     {
-        if (s_burnRigRefused)
+        if (s_burnRigRefused[(int)surface])
             return;
-        s_burnRigRefused = true;
+        s_burnRigRefused[(int)surface] = true;
         // HW-VERIFY: grep token "Remote BURN look" — the REFUSED arm of the three outcomes.
-        VRLog.Alert("Net", "Remote BURN look REFUSED: this clone's own card plate measures under a "
+        VRLog.Alert("Net", $"Remote BURN look [{surface}] REFUSED: this clone's own card plate measures under a "
                            + "canvas unit, so the footprint written into _PosAndBounds would be "
                            + "degenerate - the 'card renders DEEP BLACK' failure mode. The peer's "
                            + "burning card keeps its FRESH face and still flies into the burnt stack; "
@@ -1768,13 +2145,13 @@ internal sealed class RemoteCardArt
     /// a 457 log could show neither an armed line nor a refusal for a given face. One line per
     /// process.
     /// </summary>
-    private static void ReportBurnRigNoFxImages()
+    private static void ReportBurnRigNoFxImages(FxSurface surface)
     {
-        if (s_burnRigNoFxImages)
+        if (s_burnRigNoFxImages[(int)surface])
             return;
-        s_burnRigNoFxImages = true;
+        s_burnRigNoFxImages[(int)surface] = true;
         // HW-VERIFY: grep token "Remote BURN look" — the NO-FX-MATERIAL arm of the three outcomes.
-        VRLog.Alert("Net", "Remote BURN look has NO CARD-FX MATERIAL to write: not one Image on this "
+        VRLog.Alert("Net", $"Remote BURN look [{surface}] has NO CARD-FX MATERIAL to write: not one Image on this "
                            + "clone carries the _GreyOut + _PosAndBounds signature, so there is nothing "
                            + "on this face the game's own burn terms would paint either. The peer's "
                            + "card burns without the char. If this line appears instead of the 'armed' "
@@ -1804,6 +2181,10 @@ internal sealed class RemoteCardArt
         _burnTextColours = null;
         _burnHeaderText = null;
         _burnInitiativeText = null;
+        _flameQuad = null;               // the flame sheet was the clone's own Image
+        _flameRefusal = "no rig built yet";
+        _flameBurnTexture = null;        // …and the textures were lifted off the clone's CardEffects
+        _flameGhostTexture = null;
         _burnRigState = BurnRig.Unbuilt;
         _burnRigLook = CardFxLook.None;
         _shownSourceId = int.MinValue;

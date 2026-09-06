@@ -504,8 +504,17 @@ internal sealed class RemotePileFronts
                     //
                     // DISCARD IS DELIBERATELY NOT INCLUDED: a discarded card is not burnt and the
                     // owner's own discard fan shows it fresh.
-                    if (shown && content == Content.Burnt && art.SetAbilityBurnProgress(1f))
-                        burntLook++;
+                    if (shown && content == Content.Burnt)
+                    {
+                        // Name the surface BEFORE the drive: the same art list also serves the
+                        // DISCARD fan, which drives no look at all, so the label belongs on the
+                        // burnt arm rather than on construction. The card-FX instrument latches
+                        // per surface (RemoteCardArt.FxSurface) and this is the surface user
+                        // item 9b was reported against.
+                        art.Surface = RemoteCardArt.FxSurface.Pile;
+                        if (art.SetAbilityBurnProgress(1f))
+                            burntLook++;
+                    }
                 }
             }
             if (shown)

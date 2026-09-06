@@ -931,11 +931,30 @@ internal sealed class RemoteBoardCard
         RemoteCardArt.CardFxLook want = ResolveUsedCardLook(topSpent, bottomSpent, out string source);
         if (want != _fxLook)
         {
+            RemoteCardArt.CardFxLook was = _fxLook;
             _fxLook = want;
             _fxElapsed = 0f;
+            // ─── THE LOOK COMES OFF AGAIN (2026-09-06 item 8a) ───────────────────────────────────
+            // The ramp used to be ONE-WAY: every caller could drive it 0 -> 1 and nobody could drive
+            // it back, so a card the GAME itself un-burns kept this overlay's char for the rest of
+            // its life on that peer's board. FullAbilityCard.SetPile is the game's own restore
+            // (FullAbilityCard.cs:325-328) and it fires on exactly the case he reported: a card that
+            // burns only AFTER its effects enters ECardPile.Activated first, and Hand/Activated is
+            // the branch that calls cardEffects.RestoreCard(). One line, and it is the difference
+            // between "activated" and "burnt" on every peer's board.
+            if (was != RemoteCardArt.CardFxLook.None && want == RemoteCardArt.CardFxLook.None)
+            {
+                _art?.ClearAbilityCardFx();
+                LogUsedCardFxIfChanged(playerId, slot, applied: true, source);
+            }
         }
         if (_fxLook == RemoteCardArt.CardFxLook.None || _art == null)
             return;
+        // NAMED BY THE DRIVER, and this method is the only driver a board card has. The ACTIVE-CARDS
+        // column builds RemoteBoardCards too and never reaches here, so its faces stay
+        // FxSurface.Unnamed and print nothing — which is the CORRECT reading for item 8a: an
+        // activated card is not burnt, so no look is driven and no rig is ever built for it.
+        _art.Surface = RemoteCardArt.FxSurface.Recess;
         if (_fxElapsed < UsedCardFxSeconds)
             _fxElapsed = Mathf.Min(UsedCardFxSeconds, _fxElapsed + Mathf.Max(0f, Time.unscaledDeltaTime));
         bool took = _art.SetAbilityCardFxProgress(_fxLook, _fxElapsed / UsedCardFxSeconds);
@@ -954,6 +973,62 @@ internal sealed class RemoteBoardCard
         CAbilityCard? card = _plumeCard;
         if (card == null)
             return RemoteCardArt.CardFxLook.None;
+
+        // ── 0. THE PILE THE CARD IS IN, WHICH OUTRANKS THE ACTION THAT WAS PLAYED ─────────────────
+        // 2026-09-06 item 8a, his words: "Im Test wurde eine Karte aktiviert die nach ihren effekten
+        // erst verbrannt wird. D.h. dann soll auch nicht die verbrennen animation und ton bereits
+        // kommen … da sie ja de facto noch nicht verbrannt ist, sondern nur aktiviert wurde."
+        //
+        // THE GAME HAS TWO RULES FOR THIS LOOK AND THIS SURFACE ONLY EVER COPIED ONE.
+        //   (a) FullAbilityCard.TryPlayBurnAnimation (FullAbilityCard.cs:577-604) keys on the PLAYED
+        //       ACTION - CardPile plus ActionHasHappened - and is what step 2 below reproduces.
+        //   (b) FullAbilityCard.SetPile (:313-333) keys on the PILE THE CARD LANDS IN, and it runs
+        //       AFTER (a) on every pile change: Discarded -> DiscardMode, Lost/PermanentlyLost ->
+        //       LostMode (which is BurnCardTimeline, CardEffects.cs:422-423), and Hand or ACTIVATED
+        //       -> cardEffects.RestoreCard(), i.e. NO LOOK AT ALL.
+        // Rule (b) is the later writer and therefore the one the owner ends up looking at, so it is
+        // asked FIRST here.
+        //
+        // AND ACTIVATION IS PRECISELY WHERE THE TWO DISAGREE. A persistent card is one whose action
+        // has CardPile == Lost, so rule (a) chars it - but CCharacterClass.MoveAbilityCardToPile
+        // (CCharacterClass.cs:434-442) reads:
+        //     eCardPile = (!abilityCard.ActionHasHappened) ? Discarded : abilityCard.SelectedAction.CardPile;
+        //     if (abilityCard.ActiveBonuses.Count > 0) eCardPile = ECardPile.Activated;
+        // The ActiveBonuses clause OVERRIDES the action's own pile, so the card goes to the ACTIVE
+        // area, SetPile(Activated) restores it, and the owner's card is clean. It burns for real
+        // only on the SECOND pass, when CheckForFinishedActiveBonuses (:1131) re-runs the same
+        // method with ActiveBonuses.Count == 0 and the card finally reaches LostAbilityCards.
+        //
+        // CurrentCardPile IS THE FIELD, and it is not a convenience: CBaseCard.cs:91 declares it,
+        // CCharacterClass.cs:452 maintains it, it is SERIALIZED (CBaseCard.cs:103/:126) and the
+        // game's own multiplayer state comparison checks it (CBaseCard.cs:382-403, mismatch code
+        // 2804) - the same argument by which ActionHasHappened is trusted twenty lines below. It
+        // cannot disagree between the two machines.
+        try
+        {
+            switch (card.CurrentCardPile)
+            {
+                case CBaseCard.ECardPile.Activated:
+                case CBaseCard.ECardPile.Hand:
+                    // SetPile's RestoreCard branch. An ACTIVATED card is not burnt and not spent;
+                    // it is in play. This is the whole of item 8a on this surface.
+                    source = "pile:" + card.CurrentCardPile;
+                    return RemoteCardArt.CardFxLook.None;
+                case CBaseCard.ECardPile.Lost:
+                case CBaseCard.ECardPile.PermanentlyLost:
+                    source = "pile:" + card.CurrentCardPile;
+                    return RemoteCardArt.CardFxLook.Burn;
+                case CBaseCard.ECardPile.Discarded:
+                    source = "pile:Discarded";
+                    return RemoteCardArt.CardFxLook.Ghost;
+            }
+            // Round / None fall through: the card is still on the board and rule (a) decides.
+        }
+        catch (System.Exception)
+        {
+            // An unreadable pile is not an answer - fall through to the two resolvers below, which
+            // is exactly the picture every build before this one drew.
+        }
 
         // ── 1. THE OWNER'S OWN EFFECT STATE ──────────────────────────────────────────────────────
         // Under the SAME identity check TickPlume applies: the effect may only be read off the very
@@ -1064,6 +1139,16 @@ internal sealed class RemoteBoardCard
     /// resolver saw a used action, and <c>source=</c> on the neighbouring lines says which resolver
     /// is even running.</para>
     ///
+    /// <para>THE ITEM 8a READING (2026-09-06): <c>look=NONE, source=pile:Activated</c> on the line
+    /// that FOLLOWS a <c>look=BURN</c> line for the same recess is the fix WORKING — the card was
+    /// activated rather than burnt and this surface took the char back off. Its absence is the
+    /// defect: a <c>look=BURN</c> line with NO <c>look=NONE</c> line after it, on a card the user
+    /// can see sitting in the ACTIVE column, means the pile term never fired. Note the SOUND is not
+    /// in this instrument and never can be: <c>PlaySound_CardUI_BurnedCard</c> is played by the GAME
+    /// at FullAbilityCard.cs:590, on the owner's own machine, from the owner's own
+    /// <c>TryPlayBurnAnimation</c> — this mod plays no burn sound anywhere, so an early burn sound
+    /// is the game's and is heard by its owner too.</para>
+    ///
     /// <para>STILL BEYOND THE INSTRUMENT = <c>source=model</c> on every line. That is not a failure —
     /// the fallback is the game's own expression — but it means the owner's widget could not be
     /// observed on this client, so the premise <see cref="TickPlume"/> is built on
@@ -1090,7 +1175,18 @@ internal sealed class RemoteBoardCard
             + "own numbers on materials this mod minted. source=widget means the OWNER'S OWN effect "
             + "flag answered; source=model means it was re-derived from record 41's spent half plus "
             + "that action's CardPile and CBaseCard.ActionHasHappened, both host-replicated. A recess "
-            + "whose card nobody has used prints NO line at all.");
+            + "whose card nobody has used prints NO line at all. "
+            + "WHICH GAME EVENT FIRED THIS, and it is the whole of the 2026-09-06 item 8a question: "
+            + "source=pile:X means the PILE the card LANDED IN decided (FullAbilityCard.SetPile, the "
+            + "later writer), and source=widget/model means the ACTION THAT WAS PLAYED decided "
+            + "(FullAbilityCard.TryPlayBurnAnimation, the earlier one). look=NONE with "
+            + "source=pile:Activated is the ACTIVATION reading and is CORRECT: the card was activated, "
+            + "not burnt, CCharacterClass.MoveAbilityCardToPile:440-442 sent it to ECardPile.Activated "
+            + "because ActiveBonuses.Count > 0, and SetPile:325-328 calls RestoreCard for that pile - "
+            + "so this recess just took the char back off. look=BURN with source=pile:Lost is the "
+            + "RESOLVE reading and is the card really burning. look=BURN with source=widget or "
+            + "source=model on a card that is sitting in the ACTIVE column is the DEFECT this term "
+            + "was added to end, and seeing it again means CurrentCardPile did not read Activated.");
     }
 
     /// <summary>
