@@ -433,7 +433,166 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 460;
+    public const ushort ModBuild = 461;
+    // Build 461: the fourth big multiplayer round — eleven items, nine lanes, and a recurring
+    //   theme worth naming up front: FIVE claims written confidently in this tree's own source
+    //   comments were false, and each one was protecting a live defect. They are called out
+    //   individually below. An assertion in a source comment is a HYPOTHESIS.
+    //   * ITEMS 1+2 WERE ONE DEFECT AND IT WAS A FACING AVERAGE. The map room decided where the
+    //     PARTY was looking by summing head FORWARD vectors and testing the mean's length. Two
+    //     people reading one table stand opposite and face opposite ways, so the sum is ZERO and
+    //     the direction is tracking noise. The rule had exactly two outcomes and they are the
+    //     user's two sentences: refuse and fall back to a fixed table axis with no term for a human
+    //     (item 1), or believe one head (item 2). And the timing was worse than he described: the
+    //     host log decides at :12510 with `1 player head(s)`, the second player's avatar is created
+    //     at :13671, and the window is placed at :15686 — the direction was latched 1140 lines
+    //     BEFORE THE SECOND PLAYER EXISTED ON THE WIRE and held for the next 85 s. The 458 settle
+    //     delay measured the ROOM standing still, which says nothing about the PARTY.
+    //     Replaced by a search over the 256 representable yaws scoring SEAT POSITIONS, minimising
+    //     the WORST seat's reading angle — worst-over-seats and not the mean, because a mean
+    //     averages a 170-degree back and a 5-degree front into a respectable 87 and that is exactly
+    //     his picture. Two opposed players at 0.75 m yield yaw 90 and both at 43.2 degrees, i.e.
+    //     the perpendicular bisector — his own requirement (b), falling out of the objective rather
+    //     than being coded as a case. Every degenerate layout stays under 70 degrees. His (a) is a
+    //     settle gate with three terms (2 s clock AND every roster player has a fresh map-room
+    //     record AND every head held within 0.12 m for 1 s), a 20 s cap that prints *** MOVING ***
+    //     rather than faking a settle, and a re-decide on membership change. Same byte, same
+    //     record 20 — only what the host computes it FROM changed. The scenario story window was
+    //     investigated and EXONERATED: it is anchored per-seat (host yaw 271.47 vs peer 69.76 for
+    //     one identical frame-local pose), so it cannot produce 'nur von hinten lesbar'.
+    //   * ITEM 3, AND THE MIRRORED FAN HAD NO HOME-LERP AT ALL. The return glide had existed since
+    //     2026-09-05 and could never run: TrackFist wrote the seat only on a frame it could also
+    //     NAME the card, and the name comes from a buffer RevealGate deliberately empties for the
+    //     whole secret selection phase — the one phase in which a player fans their hand out and
+    //     puts cards back. Measured: 11 arc dips on the host, 4 flights, SEVEN SILENT REFUSALS.
+    //     Identity is now split from motion; the seat comes off the wire alone, belted by the
+    //     sender's own two numbers. Then the deeper one: LayoutCards has claimed since ModBuild 84
+    //     to reproduce CardFan.Relayout and reproduced the POSE while snapping the WRITE — so the
+    //     reflow, the highlight split, the gaze lean and the pop have ALL been snapping, and the
+    //     pluck was merely the loudest instance. FALSE COMMENT #1. Nothing had to arrive: the
+    //     owner's reflow is a standing exponential with no duration and no curve, and its speed was
+    //     already on record 27. open/close/swap stand down on a branch whose three transform
+    //     statements are BYTE-IDENTICAL to the shipped ones. Rebuild also puffed appear-dust on
+    //     every fresh slab, so one plucked card dusted the whole hand; a carried slab is the same
+    //     card continuing and no longer emits it.
+    //     CAVEAT PASSED TO THE USER RATHER THAN BURIED: the largest untested surface is the STEADY
+    //     STATE, not the pluck — the ease now runs every frame, so toe-in, depth bow and gaze lean
+    //     lag by one exponential where they used to track instantly. That is what the owner sees,
+    //     but it is a look tuned by eye over many rounds and no headset has seen it.
+    //   * ITEM 4 — THE FIRE WAS ABSENT, NOT MISPLACED, AND 459'S OWN INSTRUMENT SAID SO. Both logs
+    //     print 'the smoke emitter and the fgFx flame quad are still deliberately not reproduced'
+    //     beside look=BURN, applied=yes. The game's burn has TWO face-wide halves: the face
+    //     material sweep (mirrored in 459) and a sprite-less quad over ~120 % of the card carrying
+    //     nine more constants and one animated term. Its rate is NOT the face's — it settles at
+    //     0.25 s and holds while the char darkens for the remaining 1.5 s, so a 'same timeline'
+    //     assumption gets it wrong. Found by MATERIAL SIGNATURE, never by GameObject name. The
+    //     standing refusal guarding it ('a second, UNMEASURED material') was FALSE COMMENT #2 on
+    //     two of its three clauses. User ruling mid-round: '1:1 … voll gleich da sein', so the fire
+    //     was then chased across every surface — recess, flight, pile all inherit it through one
+    //     entry point, and the active column structurally never asks. THE SMOKE IS NOT MIRRORED AND
+    //     THAT IS CORRECT: both logs show `card particles suppressed (NoCardsParticles False ->
+    //     true)`, so [Cards] GameCardParticles is off on the OWNER's machine too and mirroring a
+    //     plume would break 1:1 in the other direction. User confirmed: 'Ja Rauch sehe ich nicht,
+    //     ist auch ok'.
+    //   * ITEM 5 HAD A DELIBERATE CAUSE AND A SECOND, SEPARATE POSE DEFECT. The flight flew a BACK
+    //     on purpose ('ANTI-CHEAT: the slab is a BACK on both faces') — but VRCard.FlyToPile
+    //     captures the rotation once and locks it, so the OWNER watches a FRONT lying flat for the
+    //     whole arc. The card was nameable all along; RemoteControlBoard threw the identity away
+    //     one tick before the flight asked. Then the origin: the launch reported SlotOf(card) while
+    //     launching off the PREVIOUS rebuild's dock, so the seat was -1 BY CONSTRUCTION and both
+    //     logs carry only 'Board ->', never 'Slot0 ->'. Fixed at the REPORT, not the symptom — at
+    //     the launch instant the card is still a child of its recess transform, because eviction is
+    //     pure bookkeeping and never reparents.
+    //   * ITEMS 6+7 — THE LATTICE WAS NEVER AN OVERLAY. The integrator's premise (a back composited
+    //     OVER the print) was FALSIFIED BY THE LANE and the user's own word was the better one:
+    //     durchscheinen. At 9x the title is fully opaque and the gold lines stop at the glyph edges
+    //     — what is MISSING is the card's background, frame and art, and the body's own back fan
+    //     shows through the empty print. A CanvasGroup cannot produce that picture at any alpha.
+    //     The cause: `Load of asset is Canceled` 202x on the host, 28x on the peer, uniq -c on the
+    //     state says 100 % cancelled. The load RETURNS rather than throws, so the Image is
+    //     re-enabled with a null sprite. The owner heals in ~0.25 s through CardArtGuard; every
+    //     remote surface goes through RemoteCardArt, which reaches NEITHER of that guard's two call
+    //     sites. THE ASYMMETRY IS THE DEFECT. A trap was seen and avoided: registering clones in
+    //     the guard's own set would have silently switched off half-tone normalisation on every
+    //     remote card, because a second consumer reads that same set.
+    //     AND THE FALLBACK IS MEASURED, NOT CHOSEN: through the identical hole the owner sees a
+    //     warm card EDGE (0.42,0.33,0.23) because VRCard gives submesh 0 an edge material, while
+    //     every remote surface gave BOTH slots the back material. So the gap is closed on the print
+    //     in that exact colour — mirroring the real thing rather than inventing a neutral.
+    //     ITEM 6's MEMBERSHIP HALF IS THE THIRD COPY OF ONE BUG: the grab removes from the hand fan
+    //     and nothing removes from the PILE BROWSER, whose relayout only skips a held card's POSE.
+    //     459's commit message asserts PileBrowser.Remove drops the count on the pluck — FALSE
+    //     COMMENT #3; its only caller is the widget-recycled path. Fixed with no third membership
+    //     rule: one existing filter gained a second caller.
+    //   * ITEM 7b was neither the fan nor the gate: PlacePickCard deliberately does not touch
+    //     _occupants, so the seat reads OCCUPIED while RoundAbilityCards cannot name the card and
+    //     the anonymous back is drawn. Record 39 already existed and its list-id field was already
+    //     general — no new wire id.
+    //   * ITEM 8a WAS A ONE-WAY RAMP. Every caller could drive the char 0->1 and nobody could drive
+    //     it back. The game has TWO rules and this surface copied one: SetPile keys on the pile the
+    //     card LANDS in and runs AFTER, and CCharacterClass overrides the action's own Lost pile
+    //     with `if (abilityCard.ActiveBonuses.Count > 0) eCardPile = Activated;` — exactly the
+    //     reported card, which reaches the lost pile only on a second pass. THE SOUND IS THE
+    //     GAME'S: PlaySound_CardUI_BurnedCard is played at FullAbilityCard.cs:590 inside a branch
+    //     with no term for ActiveBonuses, so the OWNER hears it early too and a flat player hears
+    //     it as well. Not suppressed; the user was told and the decision left to him.
+    //   * ITEM 8b — NOT A MISSING BROADCAST. TWO SOURCES FOR ONE FACT, and the observer was RIGHT
+    //     while the owner's own board was wrong. The mirror read the MODEL (ActivatedCards, written
+    //     at the instant of activation); the owner's own column read a WIDGET cache whose only
+    //     in-scenario writer refreshes that hand's own 2D view — which the game never drives for a
+    //     peer's hand. Measured against three shared alignment events: the host's own column lit
+    //     520 s after every mirror of it, the peer's 390 s. Symptom 3 (switching the board to a
+    //     teammate's character) had its own cause: the refresh gated on a clause reading
+    //     `!IsOnline || IsUnderMyControl` — a CONTROL term on a DISPLAY surface. The watchdog
+    //     hashed the same stale cache, so it sat downstream of the refresh it existed to trigger.
+    //     No wire field: the fact is already on every machine.
+    //   * ITEM 9's phase carve-out was the SMALLER half. An active card is no hand-fan member, has
+    //     no pile origin and is in neither arc, so every arm of the held-card namer missed it and
+    //     record 36 went out as 'unknown' IN EVERY PHASE. The exemption now hangs on the CARD, not
+    //     the surface, so anything drawing it is exempt by asking.
+    //   * ITEM 10 — CHEAP IMMUNITY DOES NOT EXIST, AND WE WERE MAKING IT WORSE. The roll arrives on
+    //     the head camera's LOCAL rotation from Unity's own TrackedPoseDriver; the mod composes no
+    //     head pose and every rig-root writer is already yaw-only, so there is no seam to flatten.
+    //     But TickOriginGuard armed on an AXIS-AGNOSTIC angle while the only correction it can
+    //     express is world-up yaw plus a translation — so it fired on a rotation it cannot undo,
+    //     applied the half it could, and dragged the rig root 0.4-5.0 real metres until the head's
+    //     POSITION was restored with the head still inverted. Entirely one-sided: 16 of 17 arms
+    //     report 179-180 degrees in ONE frame with ~0 applied yaw, and the host has zero of every
+    //     token. The 'user presence lost' line's printed cause is false for all 16 — the headset
+    //     was never doffed. The guard now refuses when the head's UP VECTOR swings >60 degrees in
+    //     the arming frame: strictly FEWER transform writes, no new behaviour.
+    //   * AND THE BOARD HAD NO WAY BACK. CardsDriver.RequestBoardRecall had NO CALLER anywhere in
+    //     src/ — its own doc said so and said 'do not delete it as dead code, wire it'. After the
+    //     2026-08-03 ruling removed the automatic recall, the only automatic recovery left is the
+    //     NON-FINITE verdict, and the co-player's board had a perfectly finite pose; both logs hold
+    //     zero CONTROL BOARD RECOVERED lines and he opened the VR settings 0 times. So 'wir konnten
+    //     es nicht mehr finden' was literally true. Wired as an action row, reachable from the
+    //     pause menu with the board nowhere in sight. FALSE COMMENT #4: 'the options tab exposes
+    //     config DIALS, not actions' — BuildLinkRow(asAction: true) has existed for many builds.
+    //     The ruling is untouched: nothing fires without a press.
+    //   * ITEM 11 — THE SHORT-REST DIALOG WAS NEVER THE SAME OBJECT. The owner gets the game's own
+    //     dialog box converted to world space with 7 visible graphics; the observer got two
+    //     mod-drawn plates and a locally composed caption. The falsifying pair sat two lines apart
+    //     in the two logs: the owner sends '2 role(s) [#0=0, #1=0]' where role 0 IS 'unknown', and
+    //     the observer answers 'NOT mirroring the game's own widgets — no widget roles on the
+    //     wire'. FALSE COMMENT #5: the sampler looked for the dialog ABOVE the option 'by
+    //     construction', but the docked object is the dialog's BOX, which the canvas conversion has
+    //     already reparented away. Broken since ModBuild 301. The rest of the machinery was sound —
+    //     the same logs show it engaging nine times for other prompts.
+    //   * FOUR INSTRUMENTS WERE LYING AND ARE FIXED. The face census added a quiet row's kept
+    //     picture INTO its totals, so it reported 75 policy breaches of 165 ticks on the host and
+    //     all 75 were one closed fan quoting a legitimate back from minutes earlier (now 5 of 166).
+    //     Its held-card row clobbered itself: both hand slots wrote one key and the usually-empty
+    //     slot 2 won 175 of 195 lines. The burn instrument latched on a SINGLE static bool, so only
+    //     the first surface to arm ever printed and the other two were indistinguishable from
+    //     silence — precisely the shape that let last round's item 9 through. And the shared-gaze
+    //     age was stamped on every 5 Hz packet instead of on the decision edge, so it could only
+    //     ever print 0.0 s.
+    // Wire: NO new extension record. Record 36 gains a reserved value (HeldFaceListActive = 6) in
+    // its existing 3-bit field and the card-FX anchor nibble gains CardFxAnchor.Active = 7. The
+    // documented worst case stays 1738; PresenceSerializer.MaxSize stays 2100. 44 is still the
+    // next free extension id.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 460: documentation only — no C# behaviour changes at all. Two lanes, three user asks.
     //   * THE USER DOCS WERE WRITTEN FOR THE WRONG READER IN PLACES, and he named the passage:
     //     everything after "the game closes and reopens itself — once. That is meant to happen. It
