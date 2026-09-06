@@ -5355,8 +5355,22 @@ internal static partial class ModalFallback
         // writer of the panel's scale — which no comparison against a peer's log could tell apart.
         bool armed = SharedWindowSize.IsArmed(panel);
         Vector2 design = panel != null ? panel.SharedDesignFrame : Vector2.zero;
-        Vector2 lawMm = armed ? SharedWindowSizeLaw.CommittedMm(fitted) : Vector2.zero;
-        string token = armed ? SharedWindowSizeLaw.Token(fitted) : "none";
+        // ModBuild 450 - THE TWO-HAND RESIZE IS PART OF THE PREDICTION, and leaving it out was a
+        // false verdict waiting to happen. `realMm` is read off the DRAWN world half-size, so it
+        // already contains the user grab factor; `lawMm` did not, so the first player to resize a
+        // shared window would have made this line say DISAGREES - and this line's own doc reads a
+        // disagreement as "the fix is being BYPASSED by some other writer of the panel's scale".
+        // The factor is a shared quantity now (records 19 and 21 carry it, and
+        // SharedWindowSizeLaw.SharedGrabFactor pins the puller to the same 0.01 grid as every
+        // follower), so putting it in keeps the prediction client-independent and keeps the token
+        // comparable across two logs. At factor 1.00x every number below is bit-identical to what
+        // ModBuild 449 printed.
+        float grabFactor = armed && SharedWindows.TryGetGrab(kind, out GrabbableModal? sized)
+                           && sized != null
+            ? sized.SharedGrabFactor
+            : 1f;
+        Vector2 lawMm = armed ? SharedWindowSizeLaw.CommittedMm(fitted, grabFactor) : Vector2.zero;
+        string token = armed ? SharedWindowSizeLaw.Token(fitted, grabFactor) : "none";
         bool lawHolds = armed && Mathf.Abs(lawMm.x - realMm.x) <= 1f
                               && Mathf.Abs(lawMm.y - realMm.y) <= 1f;
         bool frameIsDesign = armed && Mathf.Abs(fitted.x - design.x) <= 0.5f
@@ -5368,7 +5382,11 @@ internal static partial class ModalFallback
             + $"COMMITTED REAL SIZE {realMm.x:F0} x {realMm.y:F0} mm. 1:1 TOKEN {token}. "
             + $"SIZE LAW {(armed ? "ARMED" : "NOT ARMED")}"
             + (armed
-                ? $" — design frame {design.x:F0}x{design.y:F0} px from {panel!.SharedDesignSource}; "
+                ? $" — shared two-hand resize factor {grabFactor:F2}x (wire code "
+                  + $"{SharedWindowSizeLaw.SharedGrabCode(grabFactor)}, the same byte records 19 "
+                  + "and 21 carry, so it is in the prediction below rather than a term that would "
+                  + "make it disagree); "
+                  + $"design frame {design.x:F0}x{design.y:F0} px from {panel!.SharedDesignSource}; "
                   + $"the law predicts {lawMm.x:F0} x {lawMm.y:F0} mm and the window committed "
                   + $"{realMm.x:F0} x {realMm.y:F0} mm, which {(lawHolds ? "AGREES" : "DISAGREES")}; "
                   + $"the committed rect {(frameIsDesign ? "IS" : "is a CONTENT FIT of")} the design "

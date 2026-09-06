@@ -26,6 +26,17 @@ namespace GloomhavenVR.WireTests;
 /// the same millimetres" — is a property of a FUNCTION, so it can be decided here, on a build
 /// machine, with no headset, no second player and no session.</para>
 ///
+/// <para><b>THE 2026-09-06 FOLLOW-UP RULING, verbatim:</b> <i>"Auch beim größer/kleiner ziehen
+/// soll die 1:1 Regel gelten. Alle Spieler sollen immer die selbe Größe sehen, d.h. skalliert ein
+/// Spieler ein Multiplayer fenster sehen alle Spieler wie es skalliert und sehen somit wieder die
+/// exakt gleiche Größe bei allen."</i> The two-hand resize was ALREADY shared and already live
+/// (records 19 and 21 carry a <c>sizeCode</c> byte mid-drag at 15 Hz); what the word <b>exakt</b>
+/// added is that the PULLER must stand on the wire's grid too, which is what
+/// <see cref="RunResizeLaw"/> and <see cref="RunResizeSourceGate"/> assert. Those two also carry the
+/// answer to the obvious objection - that a user-driven SCALE is exactly what the fifteen-token gate
+/// below forbids. It is not, the list was not touched, and <see cref="RunResizeSourceGate"/>'s doc
+/// is where the distinction between a CLIENT-LOCAL scale and a SHARED one is written down.</para>
+///
 /// <para><b>THE TWO HALVES.</b> <see cref="RunLaw"/> drives the arithmetic: the same window, fed the
 /// display shapes the two real machines have and the dial settings the config allows, must come out
 /// at one number. <see cref="RunSourceGate"/> is the half that survives a refactor — it reads the
@@ -47,7 +58,9 @@ internal static class SharedWindowSizeVectors
     {
         VerifyAgainstSource(t, repoRoot);
         RunLaw(t);
+        RunResizeLaw(t, repoRoot);
         RunSourceGate(t, repoRoot);
+        RunResizeSourceGate(t, repoRoot);
     }
 
     // =============================================================================================
@@ -224,6 +237,160 @@ internal static class SharedWindowSizeVectors
     }
 
     // =============================================================================================
+    // 2b. THE TWO-HAND RESIZE: THE PULLER STANDS ON THE WIRE, NOT NEAR IT
+    // =============================================================================================
+
+    /// <summary>
+    /// <b>USER RULING (2026-09-06, verbatim):</b> <i>"Auch beim größer/kleiner ziehen soll die 1:1
+    /// Regel gelten. Alle Spieler sollen immer die selbe Größe sehen, d.h. skalliert ein Spieler
+    /// ein Multiplayer fenster sehen alle Spieler wie es skalliert und sehen somit wieder die exakt
+    /// gleiche Größe bei allen."</i>
+    ///
+    /// <para><b>WHAT THIS BLOCK ASSERTS, and it is deliberately not "the resize is synced".</b> The
+    /// resize has been synced since ModBuild 226: records 19 and 21 carry the grab factor as a
+    /// <c>sizeCode</c> byte, publish it MID-DRAG at the 15 Hz carry rate as ABSOLUTE state, and both
+    /// appliers write the decoded value onto the receiver. The property that was NOT true, and that
+    /// the word <b>exakt</b> in the ruling is about, is that the PULLER stood on the same grid: it
+    /// kept the unrounded pinch float while every follower stood on a multiple of 0.01. So what is
+    /// asserted here is the fixed point - <c>SharedGrabFactor</c> is exactly the set of values the
+    /// wire can carry, it is idempotent, and applying it never changes what would have been
+    /// sent.</para>
+    /// </summary>
+    private static void RunResizeLaw(Harness t, string repoRoot)
+    {
+        // ---- the residual the ruling is about, stated with its own number ------------------------
+        // The story window commits 1200 mm wide. The puller pinching to 1.234x published code 123
+        // and drew 1.234x; every follower drew 1.23x. 0.004 x 1200 mm = 4.8 mm, permanently, with
+        // no edge left to heal it because the absolute re-send keeps saying 123.
+        t.Case("shared-window-resize/the-puller-joins-the-grid");
+        const float pinched = 1.234f;
+        t.True(SharedWindowSizeLaw.SharedGrabFactor(pinched) != pinched,
+               "sanity: the raw pinch value is NOT on the wire's grid, which is the whole defect");
+        t.True(Mathf.Abs(SharedWindowSizeLaw.SharedGrabFactor(pinched) - 1.23f) < 1e-5f,
+               $"the puller is pulled onto the followers' value 1.23x (got "
+               + $"{SharedWindowSizeLaw.SharedGrabFactor(pinched):F4})");
+        Vector2 design = new(1920f, 1080f);
+        Vector2 pullerMm = SharedWindowSizeLaw.CommittedMm(design, pinched);
+        Vector2 followerMm = SharedWindowSizeLaw.CommittedMm(
+            design, GloomhavenVR.Net.NetProtocol.DecodeStorySize(
+                        GloomhavenVR.Net.NetProtocol.EncodeStorySize(pinched)));
+        t.True(SameMm(pullerMm, followerMm),
+               $"and the two therefore commit the same millimetres ({pullerMm.x:F1} against "
+               + $"{followerMm.x:F1}) - before this build they differed by "
+               + $"{Mathf.Abs(1.234f - 1.23f) * 1200f:F1} mm on this window");
+
+        // ---- the fixed point, over the whole legal range ------------------------------------------
+        // Three properties, and together they are the definition of "a value every client can hold":
+        // idempotent (so it can be applied at both ends of the wire and every frame in between),
+        // wire-stable (applying it never changes the byte that would have been sent), and closed
+        // (every answer it gives is DecodeStorySize of a legal code).
+        t.Case("shared-window-resize/is-the-wire-value");
+        for (int milli = 0; milli <= 3000; milli += 7)
+        {
+            float raw = milli / 1000f;
+            float once = SharedWindowSizeLaw.SharedGrabFactor(raw);
+            t.True(Mathf.Abs(SharedWindowSizeLaw.SharedGrabFactor(once) - once) < 1e-6f,
+                   $"SharedGrabFactor is idempotent at {raw:F3} (got {once:F4} then "
+                   + $"{SharedWindowSizeLaw.SharedGrabFactor(once):F4}) - it is applied on the "
+                   + "puller, on the publisher's read and on every follower, so a second "
+                   + "application must be a no-op or the three would chase each other");
+            t.Equal(GloomhavenVR.Net.NetProtocol.EncodeStorySize(raw),
+                    GloomhavenVR.Net.NetProtocol.EncodeStorySize(once),
+                    $"quantising locally at {raw:F3} does not change the byte that goes on the wire");
+            byte code = GloomhavenVR.Net.NetProtocol.EncodeStorySize(raw);
+            t.True(Mathf.Abs(GloomhavenVR.Net.NetProtocol.DecodeStorySize(code) - once) < 1e-6f,
+                   $"and the value at {raw:F3} is exactly DecodeStorySize({code}), i.e. a value the "
+                   + "wire can carry rather than one near it");
+        }
+
+        // ---- the clamp is the WIRE's, which is what makes it impossible to diverge ---------------
+        // The brief's question 5: "if one player's clamp differs from another's - now or after a
+        // future config change - the sizes diverge again at the extremes." There is exactly one
+        // clamp left and it is EncodeStorySize's, so the question has no room to be answered wrongly
+        // twice. Garbage in fails CLOSED to a readable window, never to a speck or a wall.
+        t.Case("shared-window-resize/one-clamp-and-it-is-the-wires");
+        float min = SharedWindowSizeLaw.MinSharedGrabFactor;
+        float max = SharedWindowSizeLaw.MaxSharedGrabFactor;
+        t.True(Mathf.Abs(min - 0.15f) < 1e-6f, $"the shared floor is 0.15x (got {min:F3})");
+        t.True(Mathf.Abs(max - 2.00f) < 1e-6f, $"the shared ceiling is 2.00x (got {max:F3})");
+        float[] outOfRange = { -100f, 0f, 0.0001f, 5.567f, 1e9f, float.NaN,
+                               float.PositiveInfinity, float.NegativeInfinity };
+        foreach (float bad in outOfRange)
+        {
+            float got = SharedWindowSizeLaw.SharedGrabFactor(bad);
+            t.True(got >= min - 1e-6f && got <= max + 1e-6f,
+                   $"a shared window asked for {bad} lands inside [{min:F2}, {max:F2}] (got {got:F3})"
+                   + " - the ModBuild 350 play tray really did sit at localScale 5.567, so a value "
+                   + "far outside this window is a case that has happened rather than a hypothetical");
+        }
+
+        // ---- and the generic gesture's range is the same range ------------------------------------
+        // PanelGrabHandle cannot be compiled into this assembly (it carries the whole rig), so its
+        // two constants are read out of the repository. If somebody widens them, a shared window
+        // would be pullable to a value the wire silently clamps - the puller at 3.0x and everybody
+        // else at 2.0x, which is the ruling broken at exactly the extreme it is easiest to reach.
+        t.Case("shared-window-resize/the-gesture-range-is-the-wire-range");
+        string handlePath = Path.Combine(repoRoot, "src/GloomhavenVR/WorldUI/Grab/PanelGrab.cs");
+        if (!File.Exists(handlePath))
+        {
+            t.True(false, "src/GloomhavenVR/WorldUI/Grab/PanelGrab.cs is gone - MinScale/MaxScale "
+                          + "cannot be pinned to the wire's window");
+        }
+        else
+        {
+            string handle = File.ReadAllText(handlePath);
+            (string Decl, float Wire)[] pinned = { ("MinScale", min), ("MaxScale", max) };
+            foreach (var (decl, wire) in pinned)
+            {
+                var m = Regex.Match(handle,
+                                    @"const\s+float\s+" + Regex.Escape(decl) + @"\s*=\s*([0-9.]+)f\s*;");
+                if (!m.Success)
+                {
+                    t.True(false, $"could not find `const float {decl} = ...f;` in PanelGrab.cs - "
+                                  + "the two-hand range is now unpinned from the wire, which is "
+                                  + "worse than a wrong pin");
+                    continue;
+                }
+                float real = float.Parse(m.Groups[1].Value,
+                                         System.Globalization.CultureInfo.InvariantCulture);
+                t.True(Mathf.Abs(real - wire) < 1e-6f,
+                       $"PanelGrabHandle.{decl} is {real} but the wire's window ends at {wire}. A "
+                       + "shared window may only be pulled to a value every client can hold, so "
+                       + "move NetProtocol.StorySize{Min,Max}Code with it or gate the wider range "
+                       + "to the owners that are not shared.");
+            }
+        }
+
+        // ---- nothing an unresized window prints moves ---------------------------------------------
+        // ModBuild 449's own vectors are the acceptance record for these numbers; the resize overload
+        // must reproduce every one of them at factor 1.00x or this lane has moved something the user
+        // already accepted.
+        t.Case("shared-window-resize/factor-one-changes-nothing");
+        Vector2[] accepted = { new(1920f, 1080f), new(512f, 1021f), new(512f, 846f), new(802f, 126f) };
+        foreach (Vector2 px in accepted)
+        {
+            t.True(SameMm(SharedWindowSizeLaw.CommittedMm(px, 1f),
+                          SharedWindowSizeLaw.CommittedMm(px)),
+                   $"a {px.x:F0}x{px.y:F0} px rect at factor 1.00x commits exactly what ModBuild "
+                   + "449 committed");
+            t.Equal(SharedWindowSizeLaw.Token(px), SharedWindowSizeLaw.Token(px, 1f),
+                    $"and prints the same 1:1 token, so every token already read off a hardware log "
+                    + "keeps its meaning");
+        }
+
+        // A resize really does move the token - otherwise the overload would be decoration and the
+        // ArcSeats line would go on predicting a size the window is not drawn at.
+        t.True(SharedWindowSizeLaw.Token(design, 1f) != SharedWindowSizeLaw.Token(design, 1.5f),
+               "and a genuinely resized window prints a DIFFERENT token, which is what makes the "
+               + "two-log comparison able to see a resize at all");
+        Vector2 half = SharedWindowSizeLaw.CommittedMm(design, 0.5f);
+        t.True(Mathf.Abs(half.x - 600f) < 0.1f && Mathf.Abs(half.y - 337.5f) < 0.1f,
+               $"a 0.50x pull halves both figures (got {half.x:F1} x {half.y:F1} mm) - the resize is "
+               + "a UNIFORM factor, which is why a scalar is the right shape here even though it was "
+               + "the wrong shape for the aspect divergence this file was written for");
+    }
+
+    // =============================================================================================
     // 3. THE HALF THAT SURVIVES THE NEXT REFACTOR
     // =============================================================================================
 
@@ -351,6 +518,148 @@ internal static class SharedWindowSizeVectors
         else
         {
             t.True(false, "SharedWindows.cs is gone — the shared population cannot be enumerated");
+        }
+    }
+
+    /// <summary>
+    /// <b>THE GATE'S SECOND QUESTION: CLIENT-LOCAL, OR SHARED?</b>
+    ///
+    /// <para><b>WHY THE FIRST QUESTION WAS NOT ENOUGH, and why the answer is NOT to loosen it.</b>
+    /// <see cref="ClientLocalTerms"/> bans fifteen tokens from the law, two of which are
+    /// <c>localScale</c> and <c>lossyScale</c>. The 2026-09-06 follow-up ruling ("auch beim
+    /// größer/kleiner ziehen soll die 1:1 Regel gelten") requires a shared window to carry a
+    /// user-driven SCALE, which on its face is the thing that list forbids. It is not, and the
+    /// distinction is exact rather than a judgement call:</para>
+    ///
+    /// <list type="bullet">
+    /// <item>A <b>CLIENT-LOCAL</b> scale is one this machine COMPUTES - from its display, its
+    /// viewport, its rig, its dials, its clock, its session state, or from a live transform it
+    /// happens to be holding. Every one of the fifteen tokens is a way of FETCHING such a number,
+    /// and not one of them has been removed, relaxed or exempted by this build. The law file still
+    /// contains none of them.</item>
+    /// <item>A <b>SHARED</b> scale is one that came off, or is going onto, the wire. It is
+    /// identifiable without judgement: it is a value in the image of
+    /// <c>NetProtocol.DecodeStorySize</c>, and <c>SharedWindowSizeLaw.SharedGrabFactor</c> is
+    /// literally <c>Decode(Encode(x))</c>, so "is this scale shared" is decided by a function and
+    /// not by a comment.</item>
+    /// </list>
+    ///
+    /// <para><b>SO THE GATE BELOW BANS AN UNMEDIATED SCALE WRITE ON A SHARED WINDOW.</b> The two
+    /// wire appliers touch nothing but shared windows, so in those two files the rule is total and
+    /// exception-free: every <c>localScale</c> assignment must name <c>SharedWindowSizeLaw</c> on
+    /// the same statement. That is the shape the defect would take if it came back - somebody
+    /// clamping to <c>PanelGrabHandle</c>'s range again, or reading the panel's own transform - and
+    /// it is a change to the FILE, which is what is checked.</para>
+    ///
+    /// <para><b>WHAT IT STILL CATCHES.</b> Adding <c>Screen.width</c>, <c>Time.time</c>,
+    /// <c>PanelLayout.WorldScale</c>, <c>WorldUIConfig.</c> or a <c>lossyScale</c> read to the law:
+    /// unchanged, first gate. Sizing a shared window from the live transform in either applier, or
+    /// re-introducing a second clamp beside the wire's: second gate. Widening the two-hand gesture's
+    /// range past what the wire can carry, so the puller reaches 3x and everybody else is pinned at
+    /// 2x: <c>the-gesture-range-is-the-wire-range</c>. Letting the puller keep an unrounded float:
+    /// <c>is-the-wire-value</c>. Teaching the GENERIC gesture about shared windows, which would put
+    /// a shared-window term on the merchant, the temple, the party panel and the quest log:
+    /// <c>the-generic-gesture-stays-generic</c>.</para>
+    ///
+    /// <para><b>WHAT IT DOES NOT COVER, said plainly.</b> Nothing here asserts that the two clients
+    /// AGREE on the committed pixel rect a factor is applied to - that is the first gate's job and
+    /// its own stated residual (a content-fit rect is still a function of what the game painted).
+    /// And nothing here can see a THIRD writer of the grab frame's scale outside these files; the
+    /// <c>SHARED WINDOW RESIZE</c> line's <c>NOBODY IDENTIFIABLE</c> wording is what would report
+    /// one from hardware.</para>
+    /// </summary>
+    private static void RunResizeSourceGate(Harness t, string repoRoot)
+    {
+        // ---- no unmediated scale write on a shared window ----------------------------------------
+        t.Case("shared-window-resize/no-unmediated-scale-write-in-an-applier");
+        string[] appliers =
+        {
+            "src/GloomhavenVR/Net/Remote/RemoteMapStory.cs",
+            "src/GloomhavenVR/Net/Remote/RemoteStorySync.cs",
+        };
+        foreach (string file in appliers)
+        {
+            string path = Path.Combine(repoRoot, file);
+            if (!File.Exists(path))
+            {
+                t.True(false, $"{file} is gone - the shared window's size arrives through it, so "
+                              + "move this gate with it rather than deleting the gate");
+                continue;
+            }
+            bool sawOne = false;
+            foreach (string line in CodeLines(File.ReadAllLines(path)))
+            {
+                if (!line.Contains("localScale", StringComparison.Ordinal)
+                    && !line.Contains("lossyScale", StringComparison.Ordinal))
+                    continue;
+                sawOne = true;
+                t.True(line.Contains("SharedWindowSizeLaw", StringComparison.Ordinal),
+                       $"{file} touches a transform scale without going through "
+                       + "SharedWindowSizeLaw. This file only ever handles SHARED windows, so a "
+                       + "scale here is a scale every player must agree on: take it from the wire "
+                       + $"(SharedGrabFactor) and not from a local range. Offending line: {line.Trim()}");
+            }
+            t.True(sawOne,
+                   $"{file} no longer touches a transform scale at all. The shared two-hand resize "
+                   + "travels in this record's sizeCode byte and is APPLIED here; if the apply is "
+                   + "gone, one player can resize a shared window for themselves again and no "
+                   + "arithmetic vector above would notice.");
+        }
+
+        // ---- the generic gesture stays generic ----------------------------------------------------
+        // Question 6 of the brief - "non-shared windows are untouched" - VERIFIED rather than
+        // asserted. PanelGrab is the two-hand gesture the control board, the play tray, the combat
+        // log and every private window share. A shared-window term in it would put the wire's grid
+        // on the player's own merchant, temple, party panel and quest log, which the ruling never
+        // asked for and which would make those four windows step in 1 % increments for no reason.
+        t.Case("shared-window-resize/the-generic-gesture-stays-generic");
+        string grabPath = Path.Combine(repoRoot, "src/GloomhavenVR/WorldUI/Grab/PanelGrab.cs");
+        if (File.Exists(grabPath))
+        {
+            foreach (string line in CodeLines(File.ReadAllLines(grabPath)))
+                t.True(!line.Contains("SharedWindow", StringComparison.Ordinal),
+                       "PanelGrab.cs names a shared-window type. The two-hand resize is the SAME "
+                       + "gesture for every window in the mod and the shared half belongs in "
+                       + "GrabbableModal, which is the one owner that knows whether its window is "
+                       + $"shared for this client. Offending line: {line.Trim()}");
+        }
+        else
+        {
+            t.True(false, "PanelGrab.cs is gone - the two-hand gesture cannot be checked");
+        }
+
+        // ---- and the shared half is where it belongs, and is actually called ----------------------
+        t.Case("shared-window-resize/the-resize-law-is-actually-called");
+        (string File, string Needle, string Why)[] callSites =
+        {
+            ("src/GloomhavenVR/WorldUI/Grab/GrabbableModal.cs",
+             "SharedWindowSizeLaw.SharedGrabFactor",
+             "the puller's own frame must be pulled onto the wire's grid, or it keeps an unrounded "
+             + "pinch value no other player can stand at"),
+            ("src/GloomhavenVR/WorldUI/Grab/GrabbableModal.cs",
+             "SharedWindowSize.ServiceResize",
+             "the SHARED WINDOW RESIZE line is the only thing that can settle the ruling from two "
+             + "logs, and a line nobody calls is [[gated-remedy-never-ran]] again"),
+            ("src/GloomhavenVR/Net/Remote/RemoteMapStory.cs",
+             "SharedWindowSize.NoteRemotePuller",
+             "a resize driven by a peer must be attributed to that peer, or every remote pull reads "
+             + "as NOBODY IDENTIFIABLE - which the line itself calls a defect"),
+            ("src/GloomhavenVR/Net/Remote/RemoteStorySync.cs",
+             "SharedWindowSize.NoteRemotePuller",
+             "the scenario story box travels in record 19 and needs the same attribution"),
+            ("src/GloomhavenVR/WorldUI/Modal/ArcSeats.cs",
+             "SharedWindowSizeLaw.Token(fitted, grabFactor)",
+             "the SHARED WINDOW SIZE TERMS line reads its own COMMITTED size off the drawn "
+             + "half-size, which already contains the resize; a prediction without the resize makes "
+             + "that line say DISAGREES for every resized window, and its own doc reads a "
+             + "disagreement as the size law being BYPASSED"),
+        };
+        foreach (var (file, needle, why) in callSites)
+        {
+            string path = Path.Combine(repoRoot, file);
+            bool present = File.Exists(path)
+                           && File.ReadAllText(path).Contains(needle, StringComparison.Ordinal);
+            t.True(present, $"{file} no longer calls {needle}. {why}.");
         }
     }
 

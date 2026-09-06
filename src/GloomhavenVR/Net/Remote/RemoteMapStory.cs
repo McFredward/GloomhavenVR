@@ -1173,7 +1173,14 @@ internal static class RemoteMapStory
             return false;
         pos = frame.position;
         rot = frame.rotation;
-        size = Mathf.Clamp(frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+        // ModBuild 450 - THE PUBLISHED FACTOR IS THE WIRE'S OWN VALUE, not a float near it.
+        // SharedWindowSizeLaw.SharedGrabFactor is Decode(Encode(x)) against this very codec, so
+        // this clamp is the wire's window by construction and can never be a DIFFERENT window from
+        // the one EncodeStorySize below enforces. That was the last place a shared window's size
+        // could differ between the puller and every follower (the puller kept the unrounded pinch
+        // value), and it is also the answer to "what if one client's clamp changes": there is only
+        // one clamp left, and it is the wire's.
+        size = WorldUI.SharedWindowSizeLaw.SharedGrabFactor(frame.localScale.x);
         return true;
     }
 
@@ -1867,10 +1874,20 @@ internal static class RemoteMapStory
 
         var frameOwner = (IPanelGrabOwner)grab;
         Transform? frameRoot = frameOwner.GrabRoot;
+        // ModBuild 450 - ONE CLAMP, AND IT IS THE WIRE'S. `size` already came off DecodeStorySize,
+        // so this is a no-op today by construction and stays one however PanelGrabHandle's generic
+        // range or an owner's GrabScaleLimits move: a shared window may only ever stand at a value
+        // the wire can carry, or the players are not the same size again the moment somebody drags
+        // to an extreme.
         if (frameRoot != null)
-            frameRoot.localScale = Vector3.one
-                                   * Mathf.Clamp(size, PanelGrabHandle.MinScale,
-                                                 PanelGrabHandle.MaxScale);
+            frameRoot.localScale = Vector3.one * WorldUI.SharedWindowSizeLaw.SharedGrabFactor(size);
+        // AND SAY WHO PULLED, for the SHARED WINDOW RESIZE line that WorldUI owns. Only on a real
+        // change of the wire code: a peer re-sending the same absolute size five times a second is
+        // not resizing anything, and crediting them with it would make the log unreadable exactly
+        // when it matters ([[a-summary-stat-is-not-the-field]]).
+        if (WorldUI.SharedWindowSizeLaw.SharedGrabCode(size)
+            != WorldUI.SharedWindowSizeLaw.SharedGrabCode(local.FrameSize))
+            WorldUI.SharedWindowSize.NoteRemotePuller(kind, bestPeer);
         // PlaceFrameAt and never the HOST: GrabbableModal copies the frame onto the host every
         // frame in both Update and LateUpdate, so a write to the host is a write that is about to
         // be overwritten.

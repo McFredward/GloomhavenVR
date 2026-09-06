@@ -994,6 +994,69 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     // ---- per-frame follow -------------------------------------------------------------------
 
+    /// <summary>
+    /// THE USER GRAB FACTOR THIS FRAME - and, for a shared window, the ONE value every player is
+    /// standing at rather than a value near it.
+    ///
+    /// <para><b>USER RULING (2026-09-06, verbatim):</b> <i>"Auch beim größer/kleiner ziehen soll
+    /// die 1:1 Regel gelten. Alle Spieler sollen immer die selbe Größe sehen ... und sehen somit
+    /// wieder die exakt gleiche Größe bei allen."</i></para>
+    ///
+    /// <para><b>THE RESIZE WAS ALREADY SHARED; WHAT WAS NOT SHARED WAS THE PULLER'S OWN COPY.</b>
+    /// <c>PanelGrabHandle</c>'s two-hand branch lerps <c>_frame.localScale</c> toward
+    /// <c>_rootScale0 * d / anchorDistance</c> every frame and leaves an unrounded float there.
+    /// <c>Net.RemoteStorySync</c> (record 19) and <c>Net.RemoteMapStory</c> (record 21) then read
+    /// that float, publish <c>round(f * 100)</c> as their <c>sizeCode</c> byte - mid-drag, at the
+    /// 15 Hz carry rate, as ABSOLUTE state and never a delta - and every follower writes the DECODED
+    /// value onto its own frame. So the followers all stood on the wire's 0.01 grid and the puller
+    /// stood wherever the pinch left it: a permanent residual of up to half a code, 0.5 %, which is
+    /// 6 mm on the 1200 mm story window and has no edge left to heal it. Quantising HERE, on the
+    /// frame the publisher reads, makes the puller a follower of its own packet.</para>
+    ///
+    /// <para><b>WHY THIS IS THE SMALLEST CORRECT PLACE and not <c>PanelGrabHandle</c>.</b> The
+    /// handle is the generic two-hand gesture shared by the control board, the play tray, the combat
+    /// log and every private window; it has no notion of a shared window and must not grow one. This
+    /// class already knows (<see cref="_shared"/>, rewritten every tick by
+    /// <see cref="SyncSharedState"/>), already owns the frame, and already reads its scale exactly
+    /// once per frame right here. A private window's answer below is the byte-identical clamp it has
+    /// always been.</para>
+    ///
+    /// <para><b>CONTENTION, AND WHY IT CANNOT OSCILLATE.</b> This function is IDEMPOTENT
+    /// (<c>f(f(x)) == f(x)</c>) and has no memory, so it can never be one side of a write war
+    /// ([[dont-win-a-write-war]]). The arbitration between two hands is unchanged and lives where it
+    /// always did: while a hand is on it here, the appliers refuse to write (<c>local.Moving</c> is
+    /// a hand and "never fight a hand"), and the pull that SETTLES last bumps its stamp last and is
+    /// followed by everybody. Neither side latches anything on the other, which is why there is no
+    /// embrace to deadlock ([[two-clauses-holding-each-other]]).</para>
+    /// </summary>
+    private float ResolveGrabFactor()
+    {
+        if (_frame == null)
+            return 1f;
+        float raw = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale,
+                                PanelGrabHandle.MaxScale);
+        if (!_shared)
+            return raw;
+        float shared = SharedWindowSizeLaw.SharedGrabFactor(raw);
+        if (!Mathf.Approximately(shared, _frame.localScale.x))
+            _frame.localScale = Vector3.one * shared;
+        SharedWindowSize.ServiceResize(_sharedKind, _logName,
+                                       _panel != null && _panel.HostRect != null
+                                           ? _panel.HostRect.rect.size
+                                           : Vector2.zero,
+                                       shared, IsGrabbed);
+        return shared;
+    }
+
+    /// <summary>The shared factor this window is standing at right now - the number
+    /// <c>ArcSeats</c>' <c>SHARED WINDOW SIZE TERMS</c> line needs so its law prediction includes
+    /// the resize instead of reporting an accepted resize as the law being BYPASSED. 1.00x for a
+    /// private window, always, because nothing shared is riding on one.</summary>
+    internal float SharedGrabFactor =>
+        _shared && _frame != null
+            ? SharedWindowSizeLaw.SharedGrabFactor(_frame.localScale.x)
+            : 1f;
+
     /// <summary>The game-owned host follows the mod-owned grab frame (position, rotation, scale).</summary>
     internal void Tick()
     {
@@ -1033,7 +1096,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         // Item 4: the user grab factor rides the SAME [MinScale, MaxScale] range the shared handle
         // clamps to — a higher local floor here would silently re-cap what the two-hand pinch shrank.
-        float factor = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+        // ModBuild 450: and for a SHARED window it rides the WIRE's grid on top of that — see
+        // ResolveGrabFactor, which is the only place this class ever writes the frame's scale.
+        float factor = ResolveGrabFactor();
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
 
         // REMOTE POSE EASING: advance (or pin) the DRAWN pose before anything reads it this frame.
@@ -1729,6 +1794,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// asked.</summary>
     private bool _shared;
 
+    /// <summary>The kind behind <see cref="_shared"/>, cached for the same consumers and written in
+    /// the same place. <see cref="SharedWindowKind.None"/> exactly when <c>_shared</c> is false.
+    /// </summary>
+    private SharedWindowKind _sharedKind;
+
     /// <summary>
     /// Has a REMOTE player's pose ever been applied to this window? Latched by
     /// <see cref="PlaceFrameAt"/> on the easing path and never cleared while the window floats — the
@@ -1779,6 +1849,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // rule that method enforces.
         bool was = _shared;
         _shared = shared;
+        // AND THE KIND BESIDE IT, for the same reason the flag is cached at all: the resize
+        // instrument runs from Tick(), which cannot see the UIWindow. None whenever the window is
+        // not shared FOR THIS CLIENT, so a kind can never outlive its participation.
+        _sharedKind = shared ? kind : SharedWindowKind.None;
         if (shared == was)
             return;
         // HW-VERIFY

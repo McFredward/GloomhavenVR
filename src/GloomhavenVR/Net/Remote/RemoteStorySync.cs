@@ -519,7 +519,14 @@ internal static class RemoteStorySync
             return false;
         pos = frame.position;
         rot = frame.rotation;
-        size = Mathf.Clamp(frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+        // ModBuild 450 - THE PUBLISHED FACTOR IS THE WIRE'S OWN VALUE, not a float near it.
+        // SharedWindowSizeLaw.SharedGrabFactor is Decode(Encode(x)) against this very codec, so
+        // this clamp is the wire's window by construction and can never be a DIFFERENT window from
+        // the one EncodeStorySize below enforces. That was the last place a shared window's size
+        // could differ between the puller and every follower (the puller kept the unrounded pinch
+        // value), and it is also the answer to "what if one client's clamp changes": there is only
+        // one clamp left, and it is the wire's.
+        size = SharedWindowSizeLaw.SharedGrabFactor(frame.localScale.x);
         return true;
     }
 
@@ -880,9 +887,12 @@ internal static class RemoteStorySync
 
         var frameOwner = (IPanelGrabOwner)grab;
         Transform? frame = frameOwner.GrabRoot;
+        // ModBuild 450 - ONE CLAMP, AND IT IS THE WIRE'S; see RemoteMapStory's copy of this block.
         if (frame != null)
-            frame.localScale = Vector3.one
-                               * Mathf.Clamp(size, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+            frame.localScale = Vector3.one * SharedWindowSizeLaw.SharedGrabFactor(size);
+        if (SharedWindowSizeLaw.SharedGrabCode(size)
+            != SharedWindowSizeLaw.SharedGrabCode(_lastFrameSize))
+            SharedWindowSize.NoteRemotePuller(SharedWindowKind.ScenarioStory, bestPeer);
         grab.PlaceFrameAt(worldPos, worldRot);
 
         // AND THE SPAWN ANCHOR IS SPENT (ModBuild 243). This is the hole the shared-anchor block in

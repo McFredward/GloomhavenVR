@@ -233,8 +233,204 @@ internal static class SharedWindowSize
         panel != null && panel.SharedDesignFrame.x >= MinDesignPx
         && panel.SharedDesignFrame.y >= MinDesignPx;
 
+    // =============================================================================================
+    // THE TWO-HAND RESIZE - ONE OWNER FOR THE 1:1 LINE, WHOEVER PULLED
+    // =============================================================================================
+
+    /// <summary>
+    /// <b>USER RULING (2026-09-06, verbatim):</b> <i>"Auch beim größer/kleiner ziehen soll die 1:1
+    /// Regel gelten. Alle Spieler sollen immer die selbe Größe sehen, d.h. skalliert ein Spieler
+    /// ein Multiplayer fenster sehen alle Spieler wie es skalliert und sehen somit wieder die exakt
+    /// gleiche Größe bei allen."</i>
+    ///
+    /// <para><b>WHAT ACTUALLY HAD TO CHANGE, and it is much less than the ruling sounds like.</b>
+    /// The resize was already shared and already LIVE: <c>RemoteStorySync</c> (record 19) and
+    /// <c>RemoteMapStory</c> (record 21) have carried the grab factor as a <c>sizeCode</c> byte
+    /// since ModBuild 226, they publish it MID-DRAG at the 15 Hz carry rate rather than on the
+    /// release edge, and both appliers write it onto the receiver's grab frame and ease it in
+    /// <c>GrabbableModal.AdvanceVisual</c>. What was missing is one word of the ruling: <b>exakt</b>
+    /// - the puller kept an unrounded float while every follower stood on the wire's 0.01 grid, a
+    /// residual of up to half a code that had no edge left to heal it. That is now closed at the
+    /// source (<see cref="SharedWindowSizeLaw.SharedGrabFactor"/>), so the puller draws the value it
+    /// publishes and not a value near it.</para>
+    ///
+    /// <para><b>WHY THE LINE HAS ONE OWNER AND NOT TWO.</b> The same factor arrives from two
+    /// directions - a hand on this client, and a peer's hand through either record - and the
+    /// question a hardware round asks is about the RESULT, not the direction. So both directions
+    /// reach this one function, it latches on the WIRE CODE, and whichever direction presents a new
+    /// code first is the one that names the puller. Two loggers would have printed the same step
+    /// twice with two wordings and made the two-log comparison harder than the defect.</para>
+    ///
+    /// <para><b>THE FALSIFIER, and it is the reason the first call always prints.</b> A pull emits
+    /// lines only when the code CHANGES, so a session in which nobody ever resizes a shared window
+    /// emits none - and silence would then be indistinguishable from the instrument never running
+    /// ([[held-instrument-reads-as-dead]]). The first service call for a window therefore always
+    /// prints a BASELINE line naming <c>PULLED BY NOBODY</c> and the factor it stands at. So:
+    /// <b>exactly one line per shared window per client, all at stage BASELINE</b>, means the
+    /// guarantee was never exercised this session - not that it held. <b>No line at all</b> for a
+    /// window whose <c>SHARED WINDOW SIZE LAW ARMED</c> line is present means this service call is
+    /// not being reached, which is an instrument defect and not a result.</para>
+    /// </summary>
+    private const float ResizeNoteThrottleSeconds = 0.5f;
+
+    /// <summary>How long the code must hold still after a change before the SETTLED line is
+    /// printed. Longer than <c>RemoteMapStory</c>'s 0.25 s move settle, so the settled line is
+    /// written once the WIRE has also settled and its factor is the one the followers kept. The
+    /// settled line is NEVER throttled: the throttle exists to thin a continuous pull, and the end
+    /// of that pull is the one reading the round is actually waiting for
+    /// ([[a-cap-that-goes-silent]]).</summary>
+    private const float ResizeSettleSeconds = 0.4f;
+
+    /// <summary>How long a peer's attribution stays believed after the applier recorded it, so a
+    /// step that reaches this function through the local tick is still credited to the hand that
+    /// caused it rather than to nobody. One second is five idle packets at 5 Hz.</summary>
+    private const float RemotePullerBelievedSeconds = 1f;
+
+    /// <summary>The per-kind state of the resize instrument. A class and not a struct because every
+    /// field here is written in place from one call site per frame.</summary>
+    private sealed class ResizeWatch
+    {
+        internal bool Seeded;
+        internal byte Code;
+        internal float LastLineAt = float.NegativeInfinity;
+        internal int Suppressed;
+        internal bool SettlePending;
+        internal float SettleAt;
+        internal int RemotePeer;
+        internal float RemoteAt = float.NegativeInfinity;
+    }
+
+    private static readonly System.Collections.Generic.Dictionary<SharedWindowKind, ResizeWatch>
+        ResizeWatches = new(4);
+
+    private static ResizeWatch WatchOf(SharedWindowKind kind)
+    {
+        if (!ResizeWatches.TryGetValue(kind, out ResizeWatch? w))
+        {
+            w = new ResizeWatch();
+            ResizeWatches[kind] = w;
+        }
+        return w;
+    }
+
+    /// <summary>
+    /// A peer's applier just wrote a NEW shared factor for this kind - remember who, so the line
+    /// below can name them. Called from <c>Net.RemoteStorySync</c> and <c>Net.RemoteMapStory</c>,
+    /// in the Net to WorldUI direction those two appliers already run in
+    /// (<c>SharedWindowIdentity.NotePoseApplied</c>).
+    ///
+    /// <para>It records an ATTRIBUTION and never a size: the size is read off the panel by
+    /// <see cref="ServiceResize"/> a frame later at the latest, which is the only reading that can
+    /// state the millimetres this client actually drew.</para>
+    /// </summary>
+    internal static void NoteRemotePuller(SharedWindowKind kind, int peerId)
+    {
+        if (kind == SharedWindowKind.None)
+            return;
+        ResizeWatch w = WatchOf(kind);
+        w.RemotePeer = peerId;
+        w.RemoteAt = Time.unscaledTime;
+    }
+
+    /// <summary>
+    /// Service one shared window's resize instrument for this frame: seed it, report a step, or
+    /// report the settle. Called once per tick per SHARED floated window from
+    /// <c>GrabbableModal.Tick</c> - never for a private one, which is what keeps the merchant, the
+    /// temple, the party panel and the quest log entirely out of this.
+    /// </summary>
+    /// <param name="localHand">Is a hand on THIS client holding the window right now.</param>
+    internal static void ServiceResize(SharedWindowKind kind, string name, Vector2 committedPx,
+                                       float factor, bool localHand)
+    {
+        if (kind == SharedWindowKind.None)
+            return;
+        // A rect the content fit has not written yet is not a size, and seeding the BASELINE line
+        // off it would print '0 x 0 mm' as the falsifier reading — the one line that has to be
+        // trustworthy when nothing else fires. Wait a frame instead; the panel ticks either way.
+        if (committedPx.x < 1f || committedPx.y < 1f)
+            return;
+        ResizeWatch w = WatchOf(kind);
+        byte code = SharedWindowSizeLaw.SharedGrabCode(factor);
+        float now = Time.unscaledTime;
+
+        if (!w.Seeded)
+        {
+            w.Seeded = true;
+            w.Code = code;
+            w.LastLineAt = now;
+            EmitResize(kind, name, committedPx, factor, code, "BASELINE",
+                       "NOBODY - nothing has resized this window yet this session", 0);
+            return;
+        }
+
+        if (code != w.Code)
+        {
+            w.Code = code;
+            w.SettlePending = true;
+            w.SettleAt = now + ResizeSettleSeconds;
+            if (now - w.LastLineAt < ResizeNoteThrottleSeconds)
+            {
+                w.Suppressed++;
+                return;
+            }
+            int carried = w.Suppressed;
+            w.Suppressed = 0;
+            w.LastLineAt = now;
+            EmitResize(kind, name, committedPx, factor, code, "PULLING",
+                       PullerText(w, localHand, now), carried);
+            return;
+        }
+
+        if (!w.SettlePending || now < w.SettleAt)
+            return;
+        w.SettlePending = false;
+        int tail = w.Suppressed;
+        w.Suppressed = 0;
+        w.LastLineAt = now;
+        EmitResize(kind, name, committedPx, factor, code, "SETTLED",
+                   PullerText(w, localHand, now), tail);
+    }
+
+    private static string PullerText(ResizeWatch w, bool localHand, float now)
+    {
+        if (localHand)
+            return "SELF - a hand on this client";
+        if (w.RemotePeer != 0 && now - w.RemoteAt <= RemotePullerBelievedSeconds)
+            return $"PLAYER {w.RemotePeer} - applied from the wire";
+        return "NOBODY IDENTIFIABLE - no hand here and no fresh peer apply, so a re-place or a "
+               + "content re-fit moved it; for a FACTOR that is a defect and not a resize";
+    }
+
+    private static void EmitResize(SharedWindowKind kind, string name, Vector2 committedPx,
+                                   float factor, byte code, string stage, string puller,
+                                   int suppressed)
+    {
+        Vector2 mm = SharedWindowSizeLaw.CommittedMm(committedPx, factor);
+        // HW-VERIFY
+        VRLog.Note("WorldUI",
+            $"SHARED WINDOW RESIZE ({stage}) - '{name}' (SharedWindowKind.{kind}): FACTOR "
+            + $"{SharedWindowSizeLaw.SharedGrabFactor(factor):F2}x, WIRE CODE {code}, PULLED BY "
+            + $"{puller}. COMMITTED {mm.x:F0} x {mm.y:F0} mm, 1:1 TOKEN "
+            + $"{SharedWindowSizeLaw.Token(committedPx, factor)}, from a "
+            + $"{committedPx.x:F0}x{committedPx.y:F0} px rect"
+            + (suppressed > 0 ? $" ({suppressed} intermediate step(s) not printed)" : string.Empty)
+            + ". THE FACTOR IS THE WIRE VALUE AND NOT A NUMBER NEAR IT: it is Decode(Encode(x)) "
+            + "against the same codec records 19 and 21 carry, applied on the PULLER as well as on "
+            + "every follower, so 'exakt die gleiche Größe' means the same byte and not the "
+            + "same rounding. HOW TO READ IT: grep this token on two logs and line up the entries "
+            + "for one window at stage SETTLED - equal WIRE CODE and equal mm is the guarantee "
+            + "holding. FALSIFIER: a window whose ONLY line is stage BASELINE was never resized "
+            + "this session, so that line proves the instrument ran and nothing else; a window "
+            + "with a SHARED WINDOW SIZE LAW ARMED line and no line here at all means this service "
+            + "call is not being reached.");
+    }
+
     /// <summary>Forget the per-session arming log. Called from the WorldUI module teardown so a
     /// second session in the same process reports its arming again rather than looking silent.
     /// [[held-instrument-reads-as-dead]] is the recorded version of that reading.</summary>
-    internal static void ResetForSession() => ArmLogged.Clear();
+    internal static void ResetForSession()
+    {
+        ArmLogged.Clear();
+        ResizeWatches.Clear();
+    }
 }
