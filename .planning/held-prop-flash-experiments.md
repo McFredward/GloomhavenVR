@@ -15,6 +15,33 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
+## START AT §20 — ROUND THIRTEEN (2026-09-06): THE FIRST GENUINELY NEW TERM IN MONTHS IS **WORLD POSITION**
+
+> *"Wenn das weiße Highlighting in der Hand auftritt und ich es physisch nach oben fliegen lasse in
+> der Hand, 'entkomme' ich dem Weißen und es geht wieder weg. Also ist es vielleicht doch ein Licht?
+> Auf jeden Fall scheint die Position im Raum einen Einfluss zu haben."*
+
+He does not change a state, wait out a timer or re-grab — **he translates the prop upward and the
+white goes.** Every probe in this file measures the prop's STATE; none has ever measured its
+**INPUTS**, and a light, a projector or a screen-space map that the prop merely SAMPLES leaves all
+of them reading zero while the picture changes.
+
+Round thirteen ships `] [Props] HELD-PROP POSITION SWEEP` — the prop's inputs at **four positions on
+one frame** (+0, +0.5, +1, +2 m), across four channels: realtime lights, the per-pixel light cap,
+the occlusion map, and scene projectors. **The difference between the rungs is the whole answer, and
+an EMPTY difference is a finding too.** §20.2 has the pre-registered reading.
+
+**Two instrument defects in the ModBuild 463 log are fixed here (§20.3):** the lighting comparison
+has been reading a CONSTANT (`0.0252..0.0252` on both props over 72 samples — a baked-ambient
+fallback, and its own sentence claimed it excluded lighting, which it never could); and strand 5's
+counts were missing from `Retire`, so a pooled belt printed *"0 volumes of which 59 are ENABLED"*
+and only the FIRST hold of a session was readable — which is the very precondition §19.4 rests on.
+
+Read [§20](#20-round-thirteen--2026-09-06-against-the-modbuild-463-log-the-user-named-a-new-term-and-it-is-world-position)
+first, then §19, then **§15, the obituary**.
+
+---
+
 ## START AT §19 — ROUND TWELVE (2026-09-06): THIS BUILD IS AN EXPERIMENT, NOT A PROBE
 
 **STRAND 5 IS OFF.** For twelve rounds this mod unregistered a held prop from
@@ -2200,6 +2227,12 @@ setting and is consistent with it.
 reflection-probe selection is sampled. The lighting comparison reads `WORST DIFFERENCE on any
 sampled tick 0` with `0` reflection probes on both sides, so that path is closed too.
 
+> **RETIRED BY §20.3 (round thirteen).** That last sentence is wrong twice over. The zero is a
+> BAKED-AMBIENT fallback — `0.0252..0.0252` on both props over 72 samples, i.e. a constant, not
+> two positions agreeing — and a light probe could never have seen a REALTIME light in the first
+> place. **Lighting was never closed.** The reading that covers it is
+> `] [Props] HELD-PROP POSITION SWEEP`.
+
 ### 19.6 What round twelve did NOT do
 
 * It did **not** build the picture read-back. The experiment supersedes it this round: if the white
@@ -2218,3 +2251,121 @@ wire field: `NetProps` calls `PropAnimBelt.Engage` (`NetProps.cs:288`) and `Rele
 has one fewer thing done to it. There is nothing to keep in step because there is now nothing
 written. **Verified from evidence on the LOCAL side only** — the ModBuild 457 log is single-player;
 the mirrored half is reasoned from those two call sites.
+
+## 20. Round thirteen — 2026-09-06, against the ModBuild 463 log: the user named a NEW TERM, and it is WORLD POSITION
+
+**User, after testing ModBuild 463, verbatim:**
+
+> *"Wenn das weiße Highlighting in der Hand auftritt und ich es physisch nach oben fliegen lasse in
+> der Hand, 'entkomme' ich dem Weißen und es geht wieder weg. Also ist es vielleicht doch ein Licht?
+> Auf jeden Fall scheint die Position im Raum einen Einfluss zu haben."*
+
+He changes no state, waits out no timer and does not re-grab. **He TRANSLATES the prop upward and
+the white goes.** That makes the effect a function of **world position**, and after twelve rounds of
+state probes it is the first term nobody has tested.
+
+### 20.1 Why every probe in this file could read zero and be honest
+
+`BOARD PROP STANDING WATCH` read **1796 frames, CHANGES: 0** again this session (Player.log:5698,
+and 1799/0 on a gold pile at 6300). Its own conclusion — *"the board flash is not state at all"* —
+**stands, for STATE.** It does not cover the prop's **INPUTS**. A realtime light, a projector, a
+screen-space map or a volume that the prop merely **samples** is not the prop's state, hangs off no
+object in the prop's hierarchy, and would leave every animator / material / property-block /
+object-graph / outline probe in this file reading exactly zero *while the picture changes*. That is
+the documented shape of a defect that survives twelve clean measurements.
+
+### 20.2 THE INSTRUMENT — `] [Props] HELD-PROP POSITION SWEEP`
+
+`src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.PositionSweep.cs`, armed by `ArmVerdict`, sampled by
+`SampleVerdict` immediately after `SampleTwin`, emitted by `CloseVerdict` on its own line. It writes
+nothing, moves nothing, and adds **no second hush** — the prop's own attention animation stays
+suppressed exactly as ModBuild 454 left it, on the user's instruction, and that is not the flash.
+
+**It samples FOUR POSITIONS ON ONE FRAME** — `+0, +0.5, +1, +2 m` straight up from the held prop's
+bounds centre — because the user's experiment is a translation and a single-position reading cannot
+see a gradient. Four rungs and not two so that a light dropping out between two rungs **names its
+range**. Four channels, because those are the four ways a picture can depend on where an object is
+with nothing about the object changing:
+
+| channel | what it reads | why no earlier arm could see it |
+|---|---|---|
+| **realtime lights** | every enabled `Light` whose culling mask admits the prop's layer and whose reach covers the rung: type, range, intensity, colour luminance, renderMode, shadows, baked flag, distance, attenuated contribution | §19.5 closed lighting on `LightProbes.GetInterpolatedProbe`, which is a **baked ambient** term read at ONE position. It is blind to every realtime light in the scene by construction. STRAND 3's `Light` count is the lights **under the prop** (trap: 0). |
+| **the per-pixel light cap** | `QualitySettings.pixelLightCount` and the reconstructed top-N set at each rung | Unity ranks a renderer's important lights **from its own position**. A prop that MOVES can promote a light from vertex to pixel treatment and back — a brightness change with no state anywhere. Never measured. |
+| **the occlusion map** | generator camera vs head camera, registered/room renderer counts, and an **analytic** reconstruction of which registered renderers' screen-space extents contain each rung — including whether the held prop covers itself | a screen-space lookup is position-dependent by construction. Deliberately NOT a GPU read-back: this file has already photographed a buffer it empties itself. |
+| **projectors** | every scene `Projector` whose frustum contains the rung, tested in projector-local space against `ignoreLayers` | the round that found "the trap has 0 Projectors" measured **the prop**. A projector painting ONTO it is a different object and could never appear in that count. |
+
+**The grep token:** `] [Props] HELD-PROP POSITION SWEEP`.
+
+* **WORKING** — the line appears once per hold with `SAMPLES` >= 1 and `SCENE LIGHTS` >= 1.
+* **POSITIVE (the round is answered)** if ANY of: `LIGHTS THAT THE LIFT ESCAPES` > 0 — that light
+  *is* the flash and the fix is a lighting fix, and the clause names it with its range and both
+  distances; `TOP-N PER-PIXEL LIGHT SET FLIPPED` on >= 1 sample; `LUMINANCE RATIO` above **2.0**;
+  occlusion coverage or projector containment differing by >= 1 between rungs.
+* **NEGATIVE, AND THAT IS ALSO A FINDING** — escapes 0, enters 0, flips 0, ratio inside 0.5..2.0,
+  equal coverage and projector counts on every rung. Position is then not an input through any of
+  these four channels and the only position term left is the shader's own **view**-dependence: a
+  lift also rotates the prop against the eye, and §13.2 already recorded that the ring reads white
+  FACE-ON and bronze EDGE-ON. The `POSE` columns on the HOME TWIN line are the shipped control.
+* **STILL BEYOND THE INSTRUMENT** — `SAMPLES 0` (no drawing renderer), `SCENE LIGHTS 0`,
+  `GENERATOR: none`, or `PER-PIXEL LIGHT CAP IN FORCE: 0` (at a cap of 0 the pixel-set channel
+  cannot flip and its zero is a NON-READING). Each prints as its own clause so an untaken channel
+  can never read as a taken one that returned zero.
+
+`FindObjectsOfType` runs on a 120-frame cadence and **not per sample**, and the refresh count is on
+the line: this project's own record has one such call owning 12.6 ms of an 11.11 ms frame.
+
+### 20.3 TWO INSTRUMENT DEFECTS FOUND IN THE 463 LOG, AND BOTH ARE FIXED HERE
+
+**(a) The lighting arm has been reading a CONSTANT, and its own sentence claimed the opposite.**
+`LIGHTING, HELD vs HOME ON THE SAME TICK` reads, on both holds in the 463 log:
+
+```
+HELD last 0.0252 over 0.0252..0.0252; HOME last 0.0252 over 0.0252..0.0252;
+WORST DIFFERENCE on any sampled tick 0        (72 samples, then 62)
+```
+
+A value identical to four decimal places at two positions more than a metre apart, on **every one**
+of 72 samples, is not two readings agreeing — it is a constant.
+`LightProbes.GetInterpolatedProbe` returns `RenderSettings.ambientProbe` when the scene carries no
+baked probe set. The arm's closing sentence said *"a difference near zero says both props receive
+the same ambient and this arm excludes lighting too"*, and **that is a false assertion protecting a
+live defect**: a light probe is a *baked ambient* term, so the arm could never have seen a realtime
+light in the first place. The sentence is corrected in place and the sweep now prints
+`BAKED LIGHT PROBES IN THE SCENE: n` so the question is decided by a number rather than by prose.
+**§19.5's "the lighting comparison reads WORST DIFFERENCE 0 … so that path is closed too" is
+retired by the same reading.**
+
+**(b) Strand 5's counts were missing from `Retire`, so only the FIRST hold of a session was
+readable.** Belts are pooled. `Retire` resets `LightsFound/On0`, `ProjectorsFound/On0` and
+`FlaresFound/On0` and **never reset `OcclusionFound`/`OcclusionOn0`**, so `OcclusionOn0` — which
+accumulates across the walks of one hold by design — went on accumulating across every hold in the
+session. The 463 log prints the impossible consequence:
+
+```
+'BearTrap'        1 ObjectOcclusionVolume(s) ... of which  1 are ENABLED   (first hold, clean)
+'OneHexObstacle'  0 ObjectOcclusionVolume(s) ... of which 59 are ENABLED
+'GoldPile'        1 ObjectOcclusionVolume(s) ... of which 60 are ENABLED
+```
+
+A found count from *this* walk beside an on count from sixty. That is not cosmetic: §19.4 makes **a
+non-zero found count the PRECONDITION** for the round-twelve experiment and `NetProtocol`'s note
+quotes the same pair. One line added to `Retire`.
+
+### 20.4 What round thirteen did NOT do
+
+* It shipped **no fix** for the flash. Twelve rounds of fixes built on a guess is the reason this
+  file exists; the deliverable is the sweep and the pre-registered reading in §20.2.
+* It did **not** re-suppress the prop's attention animation or add another hush.
+* It did **not** build a GPU read-back of the occlusion texture. The analytic reconstruction names
+  the coverer, which is the reading a number could not give, and it costs no capture subsystem.
+* It did **not** re-run any measurement §§3-19 already took, and it did not re-open a candidate
+  §11.6 or §15 closed.
+* It did **not** bump `NetProtocol.ModBuild`.
+
+**Multiplayer.** The sweep is a pure read on the LOCAL held prop and emits one log line; there is
+nothing to keep in step and no wire field. `NetProps` drives `PropAnimBelt.Engage`/`Release` for a
+remote hold, so a mirrored prop arms the same window and prints its own line on the peer's machine.
+Verified from evidence on the local side only — the 463 log is single-player-shaped; the mirrored
+half is reasoned from those two call sites.
+
+---

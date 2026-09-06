@@ -74,7 +74,7 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// deleted from this class and the reading that retired it. Read it before adding a strand here:
 /// re-proposing a falsified one is the failure mode that document exists to prevent.</para>
 /// </summary>
-internal static class PropAnimBelt
+internal static partial class PropAnimBelt
 {
     /// <summary>Frames between re-walks of a suppressed prop's subtree. Apparance content is
     /// destroyed and re-instantiated on a refresh (that is the whole of ModBuild 349), and a fresh
@@ -1147,6 +1147,17 @@ internal static class PropAnimBelt
         b.LightsFound = b.LightsOn0 = 0;
         b.ProjectorsFound = b.ProjectorsOn0 = 0;
         b.FlaresFound = b.FlaresOn0 = 0;
+        // STRAND 5's COUNTS WERE MISSING FROM THIS RESET, AND THE ModBuild 463 LOG PRINTED THE
+        // CONSEQUENCE. A belt is POOLED, so a belt reused for the next prop carried the previous
+        // prop's occlusion figures, and OcclusionOn0 — which accumulates across the walks of one
+        // hold by design — went on accumulating across every hold in the session. The 463 log
+        // therefore reads "0 ObjectOcclusionVolume(s) under the visual of which 59 are ENABLED"
+        // for the second prop held and "1 ... of which 60 are ENABLED" for the third: a FOUND
+        // count from this walk beside an ON count from sixty. Only the FIRST hold of a session was
+        // ever readable. That matters beyond cosmetics: §19.4 of
+        // .planning/held-prop-flash-experiments.md makes a NON-ZERO FOUND COUNT the PRECONDITION
+        // for the round-twelve experiment, and NetProtocol's note quotes the same pair.
+        b.OcclusionFound = b.OcclusionOn0 = 0;
         b.RestoreForeignEmitters = b.RestoreDead = 0;
         b.RestoreForeignAnimators = 0;
         b.AnimatorsRewound = b.RewindSkipped = 0;
@@ -1756,6 +1767,9 @@ internal static class PropAnimBelt
         // DRAWING renderer that carries a material, which the roster has just resolved.
         FindHomeTwin(go);
         ArmClocks(b);
+        // ROUND THIRTEEN. Armed last, because it reads the lead renderer the roster resolved and
+        // the twin the line above found. It writes nothing and it re-suppresses nothing.
+        ArmPositionSweep();
     }
 
     /// <summary>
@@ -1879,6 +1893,11 @@ internal static class PropAnimBelt
         // same tick — every prop of a kind is in phase with every other, so a comparison taken a
         // frame apart would compare two different points of the same flash.
         SampleTwin();
+        // ROUND THIRTEEN, and it must run AFTER SampleTwin for the same reason SampleTwin runs
+        // after VNow: every rung of the ladder is read on the SAME tick as the twin it is compared
+        // against, so a difference between two positions can never be a difference between two
+        // frames.
+        SamplePositionSweep();
 
         if (Time.frameCount >= _vEndFrame)
             CloseVerdict(b, "the window ran to its full length with the prop still in the hand");
@@ -1893,6 +1912,9 @@ internal static class PropAnimBelt
         _vBelt = null;
         if (_vFrames > 0)
             EmitHomeTwin(b, why);
+        // Its own line and its own grep token: the sweep answers a different question from the
+        // twin comparison and must not be findable only by reading past it.
+        EmitPositionSweep(why);
     }
 
     /// <summary>Append the renderer roster and the pose control — the identity half, which has not
@@ -2433,8 +2455,18 @@ internal static class PropAnimBelt
           .Append("). READ IT LIKE THIS: a LARGE worst-difference, or a HOME probe count above a "
                   + "HELD count of 0, says the prop in the hand is lit by something the same prop "
                   + "on the board is not — the ivory is then LIGHTING and not paint, which is a "
-                  + "different fix again and one no round has costed. A difference near zero says "
-                  + "both props receive the same ambient and this arm excludes lighting too. ");
+                  + "different fix again and one no round has costed. **A DIFFERENCE OF ZERO DOES "
+                  + "NOT EXCLUDE LIGHTING, AND THIS SENTENCE USED TO SAY THAT IT DID.** Two "
+                  + "corrections, both forced by the ModBuild 463 log, which read 0.0252..0.0252 "
+                  + "on BOTH props over 72 samples: (a) a value identical to four decimal places "
+                  + "at two positions more than a metre apart, on every sample, is a CONSTANT and "
+                  + "not two readings agreeing — LightProbes.GetInterpolatedProbe returns "
+                  + "RenderSettings.ambientProbe when the scene carries no baked probe set, and "
+                  + "the POSITION SWEEP line prints that probe count so the question is decided by "
+                  + "a number; (b) a light probe is a BAKED AMBIENT term in the first place, so "
+                  + "this arm is blind to every REALTIME light in the scene by construction and "
+                  + "could never have excluded one. The reading that covers realtime lights is on "
+                  + "the HELD-PROP POSITION SWEEP line. ");
     }
 
 
