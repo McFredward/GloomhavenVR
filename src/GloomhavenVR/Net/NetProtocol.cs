@@ -20966,6 +20966,126 @@ internal static class NetProtocol
     public static bool IsFanSourcePile(byte list) =>
         list == HeldFaceListDiscard || list == HeldFaceListBurnt;
 
+    // ---- record 44: FAN ARC ORDER (the owner's own left-to-right order) -----------------------
+
+    /// <summary>
+    /// THE ORDER THE OWNER'S HAND ARC IS ACTUALLY DRAWN IN, as a permutation of the index space
+    /// every receiver already derives. Report item 2 of 2026-09-06, the user verbatim: "Im Test
+    /// war der remote Faecher anders als der Faecher die er gesehen hat, heisst: Ich habe ganz
+    /// rechts eine andere Karte gesehen als der Spieler selber. Das darf niemals passieren. Auch
+    /// nach umsortieren etc. muessen die Karten exakt an den selben Stellen remote zu sehen sein
+    /// wie lokal beim Spieler."
+    ///
+    /// <para>WHY A FIELD IS OWED HERE, WHEN THE STANDING PREFERENCE IS AGAINST ONE. The rule is
+    /// that a value both clients can compute identically beats one that has to arrive — and this
+    /// one provably cannot be computed. The owner's arc order is
+    /// <c>CardsDriver._fanOrder</c>: the player's own drag-reorder through the insertion gap, plus
+    /// <c>CardFan._authoredOrder</c>'s return-home insertion. It is SESSION-LOCAL, it is an
+    /// arbitrary human choice, and no rule on another machine can reproduce it. Every observer
+    /// therefore rebuilt the hand from <c>CardsHandUI.cardsUI</c> in the game's own order, and the
+    /// two disagree: MEASURED in the 2026-09-06 session, 38 of the co-player's 54 non-empty
+    /// <c>Fan order [scenario hand]</c> readings say NOT SORTED and 21 of the host's 33 do — i.e.
+    /// for most of that session each player's fan was drawn to everyone else in an order its owner
+    /// was not looking at.</para>
+    ///
+    /// <para>THE INDEX SPACE IS THE ONE THAT ALREADY EXISTS, and that is what keeps this three
+    /// bytes rather than a card list: entry k is the index, into the hand list built by
+    /// <c>CardsGameApi.HandFanMember</c> over <c>CardsHandUI.cardsUI</c>, of the card at ARC SEAT
+    /// k. That is the identical index space record 36 seats a held card in, and the identical walk
+    /// <c>RemoteHandFan</c> already performs, so NO CARD IDENTITY IS ON THE WIRE — this is an
+    /// ORDER, exactly as record 18 is an order and not an identity. It widens no secret and needs
+    /// no reveal gate: a permutation says nothing about what any card IS.</para>
+    ///
+    /// <para>PAYLOAD: <c>[count][ceil(count/2) packed nibbles]</c>, entry k in the low nibble of
+    /// byte k/2 for even k and the high nibble for odd k. Four bits is enough by construction —
+    /// the broadcast hand is clamped to <see cref="FanArcOrderMaxSeats"/> = 12 seats on both ends,
+    /// so every index it can name is 0..11. WIDTH IS DECLARED: the record is
+    /// <see cref="FanArcOrderMinRecordBytes"/> = 1 byte at minimum and
+    /// <see cref="FanArcOrderMaxRecordBytes"/> = 7 at maximum, and a reader steps over it by the
+    /// TLV length either way.</para>
+    ///
+    /// <para>IT MUST FAIL CLOSED AND IT DOES. A missing order is a cosmetic divergence; a WRONG
+    /// order applied is a lie about which card is where, and it would shift every face — the exact
+    /// catastrophic mode the fan's length belt exists to prevent. So the receiver applies the
+    /// permutation only when it is an EXACT permutation of the seats it actually holds: the count
+    /// must equal its own derived list length, every index must be in range, and no index may
+    /// repeat (<see cref="ValidateFanArcOrder"/>). Anything else — a short record, a peer on an
+    /// older build, a FLAT player, a model that is a beat behind — and the receiver keeps the
+    /// game's own order, which is precisely the picture every build before this one drew.</para>
+    ///
+    /// <para>WRITTEN ONLY WHEN IT SAYS SOMETHING. The sender omits the record whenever the arc is
+    /// already in the derived order — the common case for a player who has never dragged a card —
+    /// so those packets stay byte-identical to ModBuild 461's. It also omits it whenever it cannot
+    /// answer honestly: no open fan, a hand longer than the cap, or an arc card the derived walk
+    /// does not contain (a browse loan, a pick fan over a pile). Silence always means "use the
+    /// order you already had".</para>
+    /// </summary>
+    public const byte ExtIdFanArcOrder = 44;
+
+    /// <summary>Largest hand this record can express an order for — the same clamp the broadcast
+    /// count uses (<c>RemoteHandFan.MaxCards</c>), which is what makes a 4-bit index total.
+    /// </summary>
+    public const int FanArcOrderMaxSeats = 12;
+
+    /// <summary>Smallest payload <see cref="ExtIdFanArcOrder"/> can carry: the count byte alone.
+    /// A record shorter than this is malformed and is stepped over.</summary>
+    public const int FanArcOrderMinRecordBytes = 1;
+
+    /// <summary>Largest payload: count byte + the packed nibbles for
+    /// <see cref="FanArcOrderMaxSeats"/> seats.</summary>
+    public const int FanArcOrderMaxRecordBytes = 1 + (FanArcOrderMaxSeats + 1) / 2;
+
+    /// <summary>Entry <paramref name="k"/> of a packed <see cref="ExtIdFanArcOrder"/> payload,
+    /// where <paramref name="packed"/> points at the first nibble byte. Even entries live in the
+    /// LOW nibble, odd entries in the high one — stated once here so the writer and the reader
+    /// cannot spell it two ways.</summary>
+    public static int FanArcOrderSeat(byte[] packed, int offset, int k) =>
+        (k & 1) == 0 ? packed[offset + (k >> 1)] & 0x0F : (packed[offset + (k >> 1)] >> 4) & 0x0F;
+
+    /// <summary>Write entry <paramref name="k"/> into a packed payload. The inverse of
+    /// <see cref="FanArcOrderSeat"/>, and deliberately its neighbour.</summary>
+    public static void SetFanArcOrderSeat(byte[] packed, int offset, int k, int seat)
+    {
+        int at = offset + (k >> 1);
+        if ((k & 1) == 0)
+            packed[at] = (byte)((packed[at] & 0xF0) | (seat & 0x0F));
+        else
+            packed[at] = (byte)((packed[at] & 0x0F) | ((seat & 0x0F) << 4));
+    }
+
+    /// <summary>
+    /// Is <paramref name="order"/> (its first <paramref name="count"/> entries) an EXACT
+    /// permutation of 0..<paramref name="listLength"/>-1? The whole fail-closed contract of
+    /// <see cref="ExtIdFanArcOrder"/> in one expression, so the sender and the receiver cannot
+    /// hold two opinions of what "valid" means.
+    ///
+    /// <para>A receiver never trusts the wire, and the failure it is guarding against is not a
+    /// crash: a permutation that is merely PLAUSIBLE — right length, indices in range, one of them
+    /// repeated — would drop a card and duplicate another, drawing a confident wrong face at every
+    /// seat after it. That is strictly worse than the divergence this record exists to fix, so
+    /// anything short of an exact permutation is refused and the receiver keeps the order it
+    /// already had.</para>
+    /// </summary>
+    public static bool ValidateFanArcOrder(int[] order, int count, int listLength)
+    {
+        if (order == null || count <= 0 || count != listLength || count > FanArcOrderMaxSeats)
+            return false;
+        if (count > order.Length)
+            return false;
+        int seen = 0;
+        for (int k = 0; k < count; k++)
+        {
+            int seat = order[k];
+            if (seat < 0 || seat >= listLength)
+                return false;
+            int bit = 1 << seat;
+            if ((seen & bit) != 0)
+                return false;   // repeated index — plausible and wrong is the dangerous case
+            seen |= bit;
+        }
+        return true;
+    }
+
     // ---- record 25: USE BARS ------------------------------------------------------------------
 
     // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------

@@ -63,6 +63,7 @@ internal static class Program
             // confidently wrong card. And an id this build cannot name must degrade to the HAND
             // rather than to a pile, which is the only degradation that cannot mislead.
             FanSourceVectors.Run(t);
+            FanArcOrderVectors.Run(t);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
             HeldPoseMirrorVectors.Run(t, repoRoot);

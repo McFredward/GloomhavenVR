@@ -1448,6 +1448,27 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             VRLog.Warn("Net", $"RemoteHandFan front gate errored ({ex.Message}) — showing backs.");
         }
 
+        // ─── THE OWNER'S OWN LEFT-TO-RIGHT ORDER (record 44, report item 2 of 2026-09-06) ──────
+        // "Ich habe ganz rechts eine andere Karte gesehen als der Spieler selber. Das darf niemals
+        // passieren." _handBuffer is this client's DERIVED order — cardsUI walked under
+        // HandFanMember — and until this record that was simply asserted to be the owner's arc
+        // order too. It is not: their arc is CardsDriver._fanOrder, the player's own drag-reorder,
+        // which is session-local and which no rule here can reproduce. Measured in the 2026-09-06
+        // session, 38 of the co-player's 54 non-empty 'Fan order [scenario hand]' readings and 21
+        // of the host's 33 say NOT SORTED, i.e. for most of that session each fan was drawn to
+        // everyone else in an order its owner was not looking at.
+        //
+        // IT FAILS CLOSED, and that is the whole reason this is safe to apply to a face list. A
+        // missing order costs a cosmetic divergence; a WRONG order applied is a lie about which
+        // card is where and would shift every face after the first mistake — the exact failure the
+        // length belt below exists to prevent. So it is applied only when it is an EXACT
+        // permutation of the seats this client actually holds (NetProtocol.ValidateFanArcOrder:
+        // right count, every index in range, no index twice) AND the two lists are the same length.
+        // A FLAT player, a peer predating ModBuild 462, a peer whose arc already matches, a model a
+        // beat behind — all of them land in the else and keep the order this build's predecessor
+        // drew.
+        ApplyFanArcOrder(count);
+
         // A LENGTH DISAGREEMENT MEANS THE TWO SIDES ARE NOT LOOKING AT THE SAME HAND — SHOW BACKS
         // (ModBuild 351, hardware MP report item 10: "Die gerade verbrannte Karte ist beim Test auf
         // dem Handfaecher zu sehen direkt nachdem der Mitspieler sie verbrannt hat").
@@ -2222,6 +2243,196 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <see cref="SyncTuning"/>.</summary>
     private float _lerpSpeed = Defaults.CardLerpSpeed;
 
+    /// <summary>Scratch for <see cref="ApplyFanArcOrder"/>'s permutation. Reused; this runs every
+    /// frame the fan is up.</summary>
+    private readonly List<AbilityCardUI> _orderScratch = new(MaxCards);
+
+    /// <summary>How many DISTINCT orders this peer has stated (record 44 arriving with content
+    /// this fan had not already applied) — the "the order arrived" half of the falsifier.</summary>
+    private int _orderStated;
+
+    /// <summary>How many of those were an exact permutation of the seats this client held and were
+    /// therefore APPLIED — the "the order was applied" half. Deliberately a SEPARATE number from
+    /// <see cref="_orderStated"/>: stated &gt; 0 with applied == 0 is the one reading that says the
+    /// record travelled and the belt refused it, which is a different defect from the record never
+    /// being sent at all.</summary>
+    private int _orderApplied;
+
+    /// <summary>Why the most recent stated order was refused, for the log line. Empty when the last
+    /// one was applied.</summary>
+    private string _orderRefusal = string.Empty;
+
+    /// <summary>Change key for the order clause of <see cref="ReportArcMembershipIfChanged"/>.
+    /// </summary>
+    private int _orderKey;
+
+    /// <summary>
+    /// Re-lay <see cref="_handBuffer"/> into the order the OWNER'S OWN ARC is drawn in, from
+    /// extension record 44. Report item 2 of 2026-09-06.
+    ///
+    /// <para>THE RECORD IS A PERMUTATION OF THIS CLIENT'S OWN DERIVED LIST — entry k is the index,
+    /// into the list this fan just built with <c>CardsGameApi.HandFanMember</c>, of the card the
+    /// owner has at arc seat k. So applying it is one gather, and afterwards slab i is a name for
+    /// card i in the OWNER's order rather than in the game's, which is what "exakt an den selben
+    /// Stellen" means.</para>
+    ///
+    /// <para>EVERY REFUSAL KEEPS THE OLD ORDER AND NAMES ITSELF. There are four, and they are not
+    /// interchangeable:</para>
+    /// <list type="bullet">
+    ///   <item><c>none stated</c> — no record 44 on the wire. A FLAT player, a peer on an older
+    ///     build, or (much the commonest) a peer whose arc is already in this order, which the
+    ///     sender deliberately does not spend bytes restating. NOT a defect.</item>
+    ///   <item><c>model length</c> — this client's derived list is not as long as the arc on the
+    ///     wire, so the permutation is not about the list in hand. The ordinary cause is a card in
+    ///     the owner's fist or a model a beat behind; both are transient.</item>
+    ///   <item><c>not a permutation</c> — the wire's own numbers do not form an exact permutation
+    ///     of the seats held: a repeated index, an index out of range, or a count that disagrees.
+    ///     THIS IS THE ONE THAT WOULD HAVE SHIFTED EVERY FACE, and it must never be applied.</item>
+    ///   <item><c>no fronts</c> — there is no resolved list to permute. The slabs are backs and
+    ///     their order is unobservable, so nothing is owed.</item>
+    /// </list>
+    /// </summary>
+    private void ApplyFanArcOrder(int count)
+    {
+        _orderArcValid = false;
+        int[]? order = _owner.FanArcOrder;
+        int stated = _owner.FanArcOrderCount;
+        if (order == null || stated <= 0)
+        {
+            _orderRefusal = "none stated";
+            ReportArcOrderIfChanged(count);
+            return;
+        }
+        // ONE COUNT PER DISTINCT ORDER, not one per frame: the record rides every extras packet
+        // while it is in force, so counting arrivals would count the packet rate.
+        int key = stated;
+        unchecked
+        {
+            for (int k = 0; k < stated && k < order.Length; k++)
+                key = key * 31 + order[k];
+        }
+        if (key != _orderKey)
+        {
+            _orderKey = key;
+            _orderStated++;
+        }
+
+        if (_handBuffer.Count == 0)
+        {
+            _orderRefusal = "no fronts";
+            ReportArcOrderIfChanged(count);
+            return;
+        }
+        if (_handBuffer.Count != count)
+        {
+            _orderRefusal = "model length";
+            ReportArcOrderIfChanged(count);
+            return;
+        }
+        if (!NetProtocol.ValidateFanArcOrder(order, stated, _handBuffer.Count))
+        {
+            _orderRefusal = "not a permutation";
+            ReportArcOrderIfChanged(count);
+            return;
+        }
+        _orderScratch.Clear();
+        for (int k = 0; k < stated; k++)
+            _orderScratch.Add(_handBuffer[order[k]]);
+        _handBuffer.Clear();
+        for (int k = 0; k < _orderScratch.Count; k++)
+            _handBuffer.Add(_orderScratch[k]);
+        _orderScratch.Clear();
+        _orderRefusal = string.Empty;
+        _orderArcValid = true;
+        _orderApplied++;
+        ReportArcOrderIfChanged(count);
+    }
+
+    /// <summary>Change key for <see cref="ReportArcOrderIfChanged"/> — the verdict and the reason,
+    /// so a standing refusal costs one line and not one per frame.</summary>
+    private string _loggedOrderVerdict = "\u0000";
+
+    /// <summary>
+    /// HARDWARE EVIDENCE for report item 2 of 2026-09-06. Grep token: ARC ORDER NOT APPLIED.
+    ///
+    /// <para>THE USER'S RULING IS WHY THIS IS ITS OWN LINE AND NOT A CLAUSE: "Es ist sehr wichtig,
+    /// dass im Faecher immer die richtigen Karten am richtigen Platz liegen. D.h. jegliche
+    /// Umsortierungen die ein Spieler taetigt MUESSEN zwingend auch so von allen anderen Spielern
+    /// gesehen werden. Das ist NICHT optional." A client that is drawing this peer's fan in an
+    /// order its owner is not looking at is failing that requirement, and the standing rule is to
+    /// disable a feature VISIBLY rather than silently. So it says so, every time, with the reason —
+    /// and the reason is the whole value, because "the order never arrived" and "the order arrived
+    /// and was refused" look identical through a headset and have different fixes.</para>
+    ///
+    /// <para>READ IT LIKE THIS, and this is meant to be the FIRST grep after "der Faecher war
+    /// wieder falsch":</para>
+    /// <list type="bullet">
+    ///   <item><c>APPLIED</c> — this arc is in its owner's own order. The requirement is met and
+    ///     item 2 cannot be live for this fan.</item>
+    ///   <item><c>reason=peer build N</c> — THE PEER CANNOT SEND ONE. A FLAT player (N=0) or a
+    ///     modded peer predating ModBuild 462. No receiver code can fix this and their fan WILL
+    ///     diverge for everyone watching for as long as they run that build; the answer is that
+    ///     they update. This is a limit of the feature, not a bug in it.</item>
+    ///   <item><c>reason=none stated</c> — the peer CAN send one and did not, which the sender only
+    ///     does when its arc already equals the derived order. Benign: the picture is correct and
+    ///     the bytes were saved. Distinguished from the line above precisely so that "he never sent
+    ///     it" is never mistaken for "he cannot".</item>
+    ///   <item><c>reason=not a permutation</c> — THE SERIOUS ONE. The record arrived and its own
+    ///     numbers were self-contradictory (a repeated index, one out of range, a count that
+    ///     disagrees). Nothing was applied, deliberately: a wrong permutation shifts every face
+    ///     after the first mistake, which is a worse lie than the divergence it would fix. If this
+    ///     ever appears, the SENDER is at fault and LocalRigSampler.SampleFanArcOrder is the file.
+    ///     </item>
+    ///   <item><c>reason=model length</c> / <c>reason=no fronts</c> — ordinary transients: a card in
+    ///     the owner's fist, a burn, a model a beat behind, or a shut reveal gate leaving no list to
+    ///     permute. Expected to appear and disappear; a PERSISTENT one is the finding.</item>
+    /// </list>
+    /// </summary>
+    private void ReportArcOrderIfChanged(int count)
+    {
+        int build = VersionGuard.PeerBuild(_owner.PlayerId);
+        // A PEER THAT CANNOT SEND ONE IS A DIFFERENT ANSWER FROM ONE THAT DID NOT, and only this
+        // term can tell them apart: the sender omits the record both when its arc already matches
+        // and when its build has never heard of record 44. Asked only where nothing was stated,
+        // so a peer who HAS sent orders this session is never mislabelled by a dropped packet.
+        string reason = _orderArcValid
+            ? string.Empty
+            : _orderStated == 0 && _orderRefusal == "none stated"
+                ? $"peer build {build}"
+                : _orderRefusal;
+        string verdict = _orderArcValid ? "APPLIED" : reason;
+        if (verdict == _loggedOrderVerdict)
+            return;
+        _loggedOrderVerdict = verdict;
+        // HW-VERIFY: report item 2 (2026-09-06). Grep token: ARC ORDER NOT APPLIED.
+        VRLog.Note("Net", _orderArcValid
+            ? $"ARC ORDER NOT APPLIED [player {_owner.PlayerId}]: (cleared) — this arc IS now in "
+              + $"its owner's own left-to-right order, applied from extension record 44 over "
+              + $"{count} seat(s). stated={_orderStated} applied={_orderApplied}. The user's "
+              + "requirement for this fan is met: \"jegliche Umsortierungen die ein Spieler taetigt "
+              + "MUESSEN zwingend auch so von allen anderen Spielern gesehen werden\"."
+            : $"ARC ORDER NOT APPLIED [player {_owner.PlayerId}]: this client is drawing this "
+              + $"peer's {count}-slab fan in the GAME's order, which may not be the order its "
+              + $"owner is looking at. reason={reason} (stated={_orderStated} applied="
+              + $"{_orderApplied}, peer ModBuild {build}, ours {NetProtocol.ModBuild}). THIS IS THE "
+              + "FEATURE DEGRADING AND IT SAYS SO RATHER THAN DOING IT QUIETLY. 'peer build N' "
+              + "means that player CANNOT send an order — a FLAT player reads 0, and anything below "
+              + "462 predates the record; their fan will diverge for every watcher until they "
+              + "update, and no receiver code can fix it. 'none stated' means they CAN and chose "
+              + "not to, which the sender only does when its arc already equals the order derived "
+              + "here — benign, and the picture is right. 'not a permutation' is the serious one: "
+              + "the record arrived and its own numbers did not form an exact permutation of the "
+              + "seats held, so nothing was applied on purpose (a wrong order shifts every face "
+              + "after the first mistake, a worse lie than the gap it would close) and the SENDER "
+              + "is at fault. 'model length' and 'no fronts' are transients around a held card, a "
+              + "burn or a shut gate — a PERSISTENT one of those is the finding, not the noise.");
+    }
+
+    /// <summary>True while the order applied this frame is a validated permutation — the term
+    /// <see cref="ResolveArcHeldSeats"/> needs before it may translate a record-36 seat into an ARC
+    /// seat.</summary>
+    private bool _orderArcValid;
+
     /// <summary>
     /// WHICH SEATS OF THIS ARC THE OWNER IS HOLDING, and therefore which slabs must not be drawn.
     /// Report item 1 of 2026-09-06, and the FOURTH appearance of one membership defect.
@@ -2291,10 +2502,39 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         }
         if (listLength != count)
             return;   // the arc already dropped them (or the two numbers disagree) - see the doc
+
+        // ─── RECORD 36 NAMES A SEAT IN THE HAND LIST, NOT IN THE ARC ───────────────────────────
+        // Those were the same index until ModBuild 462, and this fan simply assumed it. They are
+        // not: record 36's seat is an index into the cardsUI walk, while the slab to hide is an
+        // ARC seat, and record 44 exists precisely because the owner's arc is in their own
+        // drag-reorder. So where an order is stated AND validates, translate through it; where it
+        // is not, fall back to the identity, which is what every earlier build did and is exactly
+        // right for a fan nobody has reordered.
+        //
+        // THE TRANSLATION IS BELTED ON ITS OWN TERMS and does not borrow UpdateFaces' verdict: it
+        // needs no model list, so it runs with the reveal gate shut, and a permutation that does
+        // not validate leaves the identity standing rather than hiding a slab at a guessed seat.
+        int[]? order = _owner.FanArcOrder;
+        bool orderOk = order != null
+                       && NetProtocol.ValidateFanArcOrder(order, _owner.FanArcOrderCount, count);
         if (seatA >= 0 && seatA < count)
-            _arcHeldSeatA = seatA;
+            _arcHeldSeatA = orderOk ? ArcSeatOf(order!, _owner.FanArcOrderCount, seatA) : seatA;
         if (seatB >= 0 && seatB < count)
-            _arcHeldSeatB = seatB;
+            _arcHeldSeatB = orderOk ? ArcSeatOf(order!, _owner.FanArcOrderCount, seatB) : seatB;
+    }
+
+    /// <summary>Which ARC seat holds the card at hand-list index <paramref name="listSeat"/>, per a
+    /// VALIDATED record-44 permutation — the inverse of the gather in
+    /// <see cref="ApplyFanArcOrder"/>. -1 when the permutation does not name it, which
+    /// <see cref="ResolveArcHeldSeats"/> reads as "hide nothing".</summary>
+    private static int ArcSeatOf(int[] order, int count, int listSeat)
+    {
+        for (int k = 0; k < count && k < order.Length; k++)
+        {
+            if (order[k] == listSeat)
+                return k;
+        }
+        return -1;
     }
 
     /// <summary>
@@ -2963,7 +3203,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         VRLog.Note("Net", $"MIRRORED ARC ORDER [player {_owner.PlayerId}]: list="
             + $"{FanListName(_owner.FanSourceList)} arc={count} model={_handBuffer.Count} "
             + $"recordListLen={_arcHeldListLength} held={held} suppressed={suppressed} "
-            + $"right='{rightMost}' fp={(haveIds ? fp.ToString("x8") : "--------")}. MEMBERSHIP: "
+            + $"right='{rightMost}' fp={(haveIds ? fp.ToString("x8") : "--------")} | ORDER RECORD "
+            + $"44: stated={_orderStated} applied={_orderApplied} thisFrame="
+            + $"{(_orderArcValid ? "APPLIED" : "refused/" + (_orderRefusal.Length > 0 ? _orderRefusal : "none stated"))}"
+            + ". MEMBERSHIP: "
             + "held is how many seats record 36 names in THIS fan's list and suppressed is how "
             + "many slabs this fan is therefore not drawing; held>0 with suppressed=0 is the INERT "
             + "reading of the item-1 fix and the two lengths beside it say why — recordListLen==arc "
@@ -2978,7 +3221,22 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             + "fan draws cardsUI order while the owner's arc draws CardsDriver._fanOrder, their "
             + "session-only drag-reorder, which is on no wire. '--------' means this client has no "
             + "resolved model list to fold (the reveal gate, or a lagging model), so the ORDER half "
-            + "of the line proves nothing that frame while every count above still holds.");
+            + "of the line proves nothing that frame while every count above still holds. ORDER "
+            + "RECORD 44 IS A SEPARATE VERDICT FROM BOTH OF THOSE, and its two numbers are "
+            + "deliberately not one: 'stated' counts the DISTINCT orders this peer put on the wire "
+            + "and 'applied' counts how many of them were an exact permutation of the seats this "
+            + "client held and were therefore used. stated=0 means no order travelled — a FLAT "
+            + "player, a peer predating ModBuild 462, or (the common case) a peer whose arc "
+            + "already matches, since the sender does not spend bytes restating an order the "
+            + "receiver would derive anyway; that is NOT a defect and item 2 simply cannot be "
+            + "measured from it. stated>0 with applied=0 IS the defect: the record travelled and "
+            + "the belt refused it, and 'thisFrame' names which of the four terms did — "
+            + "'not a permutation' is the serious one and means the wire's own numbers were "
+            + "self-contradictory, while 'model length' and 'no fronts' are the ordinary transients "
+            + "around a held card, a burn or a shut gate. NOTHING IS EVER APPLIED UNVALIDATED: a "
+            + "wrong permutation would shift every face after the first mistake, which is worse "
+            + "than the divergence the record exists to fix, so a refusal keeps the game's own "
+            + "order — exactly the picture ModBuild 461 drew.");
     }
 
     /// <summary>Change key for <see cref="ReportSeatStackIfChanged"/> — the arc length, the front

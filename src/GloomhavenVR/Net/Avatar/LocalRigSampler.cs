@@ -595,6 +595,102 @@ internal static class LocalRigSampler
         code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListHand, seat);
     }
 
+    /// <summary>Scratch for <see cref="SampleFanArcOrder"/>'s derived-list walk. Static and
+    /// reused: this runs at the extras rate.</summary>
+    private static readonly System.Collections.Generic.List<AbilityCardUI> s_fanOrderDerived = new(16);
+
+    /// <summary>
+    /// THE LEFT-TO-RIGHT ORDER OF OUR OWN HAND ARC — extension record
+    /// <see cref="NetProtocol.ExtIdFanArcOrder"/>'s whole payload, as indices into the hand list
+    /// every receiver already builds. Report item 2 of 2026-09-06.
+    ///
+    /// <para>WHAT IT WRITES: entry k is the position, in the list produced by walking
+    /// <c>CardsHandUI.cardsUI</c> under <c>CardsGameApi.HandFanMember</c>, of the card the owner
+    /// has at ARC SEAT k. That walk is verbatim the one <c>Net.RemoteHandFan</c> performs on the
+    /// other machine and verbatim the one <see cref="NameHeldCard"/>'s hand arm seats record 36 in,
+    /// so the three cannot drift into three index spaces — the mistake that cost report item 5b a
+    /// whole round. NO CARD IDENTITY LEAVES THIS METHOD.</para>
+    ///
+    /// <para>IT IS SAMPLED FROM THE ARC ITSELF, on the same call as the arc COUNT, and that is a
+    /// requirement rather than a convenience: a permutation that arrived one packet apart from the
+    /// count it permutes would describe a different moment, and the receiver would apply yesterday's
+    /// order to today's fan. Both come off <c>CardFan.Current</c> in the same frame.</para>
+    ///
+    /// <para>IT RETURNS FALSE — and the caller then writes no record at all — in every case where
+    /// it cannot answer honestly, because silence means "keep the order you already had" and that
+    /// is always the safe answer:</para>
+    /// <list type="bullet">
+    ///   <item>no open fan, or no hand to derive the index space from;</item>
+    ///   <item>a hand past <see cref="NetProtocol.FanArcOrderMaxSeats"/>, which a 4-bit index
+    ///     cannot name;</item>
+    ///   <item>the two lists differing in length, which means one of them is a beat behind;</item>
+    ///   <item>an arc card the derived walk does not contain — a browse loan, or a modal PICK fan
+    ///     drawn over a pile (record 43), where the arc is not the hand at all and an index into
+    ///     the hand would be a confident lie;</item>
+    ///   <item><b>the arc already being in the derived order</b>, which is the common case and the
+    ///     reason an ordinary player's packet stays byte-identical to ModBuild 461's. The record
+    ///     exists to state a DIFFERENCE; identity is what its absence already means.</item>
+    /// </list>
+    /// </summary>
+    internal static bool SampleFanArcOrder(CardsHandUI? hand, int[] order, out int count)
+    {
+        count = 0;
+        try
+        {
+            Cards.CardFan? fan = Cards.CardFan.Current;
+            if (fan == null || hand == null || hand.cardsUI == null || order == null)
+                return false;
+            System.Collections.Generic.IReadOnlyList<Cards.VRCard> arc = fan.Cards;
+            int n = arc.Count;
+            if (n <= 0 || n > NetProtocol.FanArcOrderMaxSeats || n > order.Length)
+                return false;
+
+            CPlayerActor? actor = hand.PlayerActor;
+            s_fanOrderDerived.Clear();
+            System.Collections.Generic.List<AbilityCardUI> all = hand.cardsUI;
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (Cards.CardsGameApi.HandFanMember(all[i], actor))
+                    s_fanOrderDerived.Add(all[i]);
+            }
+            // THE LENGTHS MUST AGREE BEFORE A PERMUTATION MEANS ANYTHING. They can differ for a
+            // frame around a draw or a burn, and they differ permanently while the fan is drawing
+            // a PILE rather than the hand — in both cases an index into the hand list would name
+            // the wrong card, so say nothing.
+            if (s_fanOrderDerived.Count != n)
+            {
+                s_fanOrderDerived.Clear();
+                return false;
+            }
+
+            bool identity = true;
+            for (int k = 0; k < n; k++)
+            {
+                Cards.VRCard card = arc[k];
+                AbilityCardUI? widget = card != null ? card.GameCard : null;
+                int at = widget != null ? s_fanOrderDerived.IndexOf(widget) : -1;
+                if (at < 0)
+                {
+                    s_fanOrderDerived.Clear();
+                    return false;   // an arc card the hand walk does not hold — a loan or a pick fan
+                }
+                order[k] = at;
+                if (at != k)
+                    identity = false;
+            }
+            s_fanOrderDerived.Clear();
+            if (identity)
+                return false;       // nothing to state: absence already means "this order"
+            count = n;
+            return true;
+        }
+        catch (System.Exception)
+        {
+            s_fanOrderDerived.Clear();
+            return false;           // a card mid-teardown must never take down the extras sender
+        }
+    }
+
     /// <summary>
     /// WHICH ROUND RECESS HOLDS THE SHORT-REST SACRIFICE, AND WHICH CARD IT IS — extension record
     /// <see cref="NetProtocol.ExtIdSacrificeSeat"/>'s whole payload, as a <c>[code][list length]</c>

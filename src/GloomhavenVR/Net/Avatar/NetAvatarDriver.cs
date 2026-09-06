@@ -62,6 +62,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // Last broadcast fan sizes — an on-change extras send keeps a peer's fan appearing/disappearing
     // with the gesture instead of up to one 5 Hz interval later (see TickExtrasSend).
     private int _lastSentHandCount = -1;
+
+    /// <summary>Persistent sample buffer for extension record 44 (the fan arc order) — sized to
+    /// the record's own seat cap so the sampler can never be asked to write past it.</summary>
+    private readonly int[] _fanArcOrderBuf = new int[NetProtocol.FanArcOrderMaxSeats];
     private int _lastSentItemCount = -1;
 
     // ITEM-USE CLIP (extension record 26): the last broadcast fan index of the chip lying in our own
@@ -1055,6 +1059,14 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // 200 ms makes the peer's fan appear noticeably after the hand gesture that raised it. Send
         // on change too, same argument (and same tiny cost) as the card-FX pre-emption below.
         int handNow = CardFan.Current?.Count ?? 0;
+        // FAN ARC ORDER (extension record 44, report item 2 of 2026-09-06): the left-to-right order
+        // of our OWN arc, read HERE and not anywhere else — on the same call and the same frame as
+        // the count above, because a permutation that travels one packet apart from the count it
+        // permutes describes a different fan. Returns false (and writes no record) whenever the arc
+        // is already in the order every receiver derives, which is the common case and is what keeps
+        // an un-dragged player's packet byte-identical to ModBuild 461's.
+        bool fanArcOrder = LocalRigSampler.SampleFanArcOrder(
+            CardsGameApi.ActiveHand(), _fanArcOrderBuf, out int fanArcOrderCount);
         ItemsPile? itemsNow = ItemsPile.Current;
         int itemsCount = itemsNow != null && itemsNow.IsOpen ? itemsNow.Chips.Count : 0;
         bool countsChanged = handNow != _lastSentHandCount || itemsCount != _lastSentItemCount;
@@ -1956,6 +1968,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
 
         extras.HandCardCount = (byte)Mathf.Clamp(handNow, 0, 255);
+        // …AND THE ORDER THOSE SLABS GO IN (record 44). Written beside the count it permutes, from
+        // the sample taken on the same frame. Absent whenever the sampler could not answer or the
+        // arc is already in the derived order — silence means "keep the order you have", which is
+        // exactly what every build before this one did.
+        if (fanArcOrder && fanArcOrderCount > 0)
+        {
+            extras.HasFanArcOrder = true;
+            extras.FanArcOrderCount = fanArcOrderCount;
+            extras.FanArcOrder = _fanArcOrderBuf;
+        }
         extras.DominantRight = LocalRigSampler.LocalDominantRight();
 
         // Ghost hand (cosmetic): whether ANY of our hands is faded, plus the strength WE chose —

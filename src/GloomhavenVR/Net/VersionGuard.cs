@@ -115,6 +115,20 @@ internal static class VersionGuard
     internal static bool IsModdedPeer(int playerId) => Peers.ContainsKey(playerId);
 
     /// <summary>
+    /// The ModBuild <paramref name="playerId"/> is running, or 0 for a FLAT player and for a
+    /// modded peer whose version record has not arrived yet.
+    ///
+    /// <para>WHY A READER WANTS IT (2026-09-06, report item 2): a feature that needs a record the
+    /// PEER has to send cannot be told apart, from the receiving side, into "they chose not to
+    /// send it" and "their build cannot send it" — and those are different problems with different
+    /// answers, one of which is "ask them to update". A surface that degrades because of the
+    /// sender's build must be able to SAY so rather than degrade silently, which is this project's
+    /// standing rule for disabling a feature.</para>
+    /// </summary>
+    internal static int PeerBuild(int playerId) =>
+        Peers.TryGetValue(playerId, out PeerInfo info) ? info.Build : 0;
+
+    /// <summary>
     /// WHICH MULTIPLAYER SESSION THIS IS, as a number that changes when one ends.
     ///
     /// <para>Bumped by <see cref="Reset"/>, i.e. exactly when the peer registry is cleared. A

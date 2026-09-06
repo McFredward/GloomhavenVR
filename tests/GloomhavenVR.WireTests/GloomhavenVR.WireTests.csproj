@@ -252,6 +252,7 @@
     <Compile Include="HeldFaceActiveVectors.cs" />
     <Compile Include="SpentHalfVectors.cs" />
     <Compile Include="FanSourceVectors.cs" />
+    <Compile Include="FanArcOrderVectors.cs" />
     <!-- Peer-board see-through (user request 15): a stepper pin for four dials whose defaults do
          not ride src/GloomhavenVR/Defaults/ (so the sweep cannot see them), plus a SOURCE LINT
          that no per-eye / screen-space term ever enters that fade — the parked wall-fade rivalry

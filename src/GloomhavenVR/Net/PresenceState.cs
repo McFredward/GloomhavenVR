@@ -1053,6 +1053,26 @@ internal struct PresenceState
     public int[]? TrackOrderIds;
 
     /// <summary>
+    /// True when this packet names the LEFT-TO-RIGHT ORDER of the sender's own hand arc
+    /// (extension record <see cref="NetProtocol.ExtIdFanArcOrder"/>). Written ONLY while that
+    /// order differs from the one every receiver already derives, so a player who has never
+    /// dragged a card in their fan emits the exact bytes ModBuild 461 emitted.
+    /// </summary>
+    public bool HasFanArcOrder;
+
+    /// <summary>Number of valid entries in <see cref="FanArcOrder"/> (≤
+    /// <see cref="NetProtocol.FanArcOrderMaxSeats"/> after clamping on both ends). Meaningful only
+    /// when <see cref="HasFanArcOrder"/>.</summary>
+    public int FanArcOrderCount;
+
+    /// <summary>Entry k is the index, into the hand list built by
+    /// <c>CardsGameApi.HandFanMember</c> over <c>CardsHandUI.cardsUI</c>, of the card at ARC SEAT
+    /// k on the sender's own screen — an ORDER in an index space both machines already build, and
+    /// never a card identity. May be longer than <see cref="FanArcOrderCount"/> (the sender passes
+    /// its persistent sample buffer); only the first count entries go on the wire.</summary>
+    public int[]? FanArcOrder;
+
+    /// <summary>
     /// True when this packet carries the sender's OWN TUNING of their board, fan and board mesh
     /// (extension record <see cref="NetProtocol.ExtIdBoardTuning"/>). Written ONLY while at least
     /// one dial differs from the shipped default for their synced board style — an untuned player
@@ -1539,6 +1559,17 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>1738 -> 1747 on 2026-09-06: the FAN ARC ORDER record (44) adds 9 bytes at its
+    /// maximum — <c>[id][len]</c> plus <c>NetProtocol.FanArcOrderMaxRecordBytes</c> 7, which is a
+    /// count byte and six packed nibble bytes for the 12-seat clamp. It is in force ONLY while the
+    /// sender's own arc order differs from the order every receiver derives, i.e. only for a player
+    /// who has dragged a card in their fan; every other packet is byte-identical to ModBuild 461's.
+    /// <see cref="MaxSize"/> is UNCHANGED at 2100: the margin is 353 bytes, still more than the
+    /// largest single record (257, board tuning), so the rule below is satisfied without a raise.
+    /// Computed on top of 1738 and not on top of 1735 — the sum has now moved four times in three
+    /// days, which is exactly how the consumer literal in <c>HeldPropVectors</c> went stale once
+    /// already, and it is updated in this same commit.</para>
+    ///
     /// <para>1735 -> 1738 on 2026-09-06, in the same round: the FAN SOURCE PILE record (43) adds
     /// 3 bytes flat — <c>[id][len]</c> plus its single list-id byte — and that is in force only
     /// while the sender's fan really is a pile rather than their hand, i.e. for the few seconds of
@@ -1791,6 +1822,8 @@ internal static class PresenceSerializer
                           // The sampler already returns 0 outside the online card-selection phase,
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
+                          || (state.HasFanArcOrder && state.FanArcOrderCount > 0
+                              && state.FanArcOrder != null)
                           || (state.HasTrackOrder && state.TrackOrderCount > 0
                               && state.TrackOrderIds != null)
                           // An EMPTY line writes no record, so it must not open the tail either —
@@ -2491,6 +2524,43 @@ internal static class PresenceSerializer
                                              & NetProtocol.TrackOrderOwnedDefinedMask);
                         for (int k = 0; k < n; k++)
                             AvatarSerializer.WriteI32(buffer, ref i, state.TrackOrderIds[k]);
+                        records++;
+                    }
+                }
+                if (state.HasFanArcOrder && state.FanArcOrder != null && state.FanArcOrderCount > 0)
+                {
+                    // FAN ARC ORDER (44): [count][ceil(count/2) packed nibbles] — the left-to-right
+                    // order of the sender's OWN hand arc, as indices into the hand list every
+                    // receiver already builds with CardsGameApi.HandFanMember. Report item 2 of
+                    // 2026-09-06: the owner's order is CardsDriver._fanOrder, their session-local
+                    // drag-reorder, which no other machine can reproduce — so it is the one thing
+                    // about this fan that genuinely has to travel. It is an ORDER and not an
+                    // identity (record 18 makes the same argument for the two recesses), so it
+                    // widens no secret and rides no reveal gate.
+                    //
+                    // WRITTEN ONLY WHEN IT SAYS SOMETHING: the sampler sets the flag only where
+                    // the arc really differs from the derived order, so an un-dragged fan — the
+                    // common case — is byte-identical to ModBuild 461's packet. Count is clamped
+                    // to the cap AND the caller's buffer before a byte goes out, and every index
+                    // is masked to the nibble it has to fit in, so a sampler bug can never write a
+                    // record whose own reader would then refuse it silently.
+                    int n = state.FanArcOrderCount;
+                    if (n > NetProtocol.FanArcOrderMaxSeats)
+                        n = NetProtocol.FanArcOrderMaxSeats;
+                    if (n > state.FanArcOrder.Length)
+                        n = state.FanArcOrder.Length;
+                    int payload = 1 + (n + 1) / 2;
+                    if (n > 0 && i + 2 + payload <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdFanArcOrder;
+                        buffer[i++] = (byte)payload;
+                        buffer[i++] = (byte)n;
+                        int at = i;
+                        for (int k = 0; k < payload - 1; k++)
+                            buffer[at + k] = 0;
+                        for (int k = 0; k < n; k++)
+                            NetProtocol.SetFanArcOrderSeat(buffer, at, k, state.FanArcOrder[k]);
+                        i += payload - 1;
                         records++;
                     }
                 }
@@ -4019,6 +4089,37 @@ internal static class PresenceSerializer
                                 state.TrackOrderOwnedMask = owned;
                                 state.TrackOrderIds = ids;
                             }
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdFanArcOrder
+                             && len >= NetProtocol.FanArcOrderMinRecordBytes)
+                    {
+                        // FAN ARC ORDER: [count][packed nibbles]. The count is re-clamped against
+                        // the record LENGTH and the cap (never trust the wire) and the nibbles are
+                        // decoded through NetProtocol.FanArcOrderSeat, the same expression the
+                        // writer packs with.
+                        //
+                        // NOTHING IS VALIDATED AS A PERMUTATION HERE, and that is deliberate: this
+                        // layer does not know how long the RECEIVER's own derived hand list is, and
+                        // "is this an exact permutation of the seats I actually hold" is precisely
+                        // the question that has to be asked against that list. It is asked at the
+                        // point of use (RemoteHandFan, through NetProtocol.ValidateFanArcOrder),
+                        // where a refusal can fall back to the game's own order and say so. All
+                        // this does is decode a well-formed record into integers.
+                        int n = buffer[i];
+                        int fit = (len - 1) * 2;
+                        if (n > fit)
+                            n = fit;
+                        if (n > NetProtocol.FanArcOrderMaxSeats)
+                            n = NetProtocol.FanArcOrderMaxSeats;
+                        if (n > 0)
+                        {
+                            var order = new int[n];
+                            for (int k = 0; k < n; k++)
+                                order[k] = NetProtocol.FanArcOrderSeat(buffer, i + 1, k);
+                            state.HasFanArcOrder = true;
+                            state.FanArcOrderCount = n;
+                            state.FanArcOrder = order;
                         }
                     }
                     else if (id == NetProtocol.ExtIdTrackHover

@@ -303,6 +303,26 @@ internal sealed class RemoteAvatar
     private byte _secondHeldFaceCount;
 
     /// <summary>
+    /// THE LEFT-TO-RIGHT ORDER OF THIS PEER'S OWN HAND ARC (extension record 44), or null when
+    /// they have not stated one. Entry k is the index, into the hand list this client derives with
+    /// <c>CardsGameApi.HandFanMember</c>, of the card at ARC SEAT k on THEIR screen.
+    ///
+    /// <para>NULL IS THE ORDINARY ANSWER AND IS NOT A FAILURE: a FLAT player, a peer on a build
+    /// before ModBuild 462, and — much the most common case — any player whose arc is already in
+    /// the order this client derives, all send nothing. The caller then draws the hand in the
+    /// order it always drew it, which is the behaviour of every build before this record.</para>
+    ///
+    /// <para>NOT VALIDATED HERE. Whether these integers are an EXACT permutation of the seats the
+    /// caller actually holds is a question about the CALLER's own list length, so it is asked at
+    /// the point of use through <c>NetProtocol.ValidateFanArcOrder</c> — where a refusal can keep
+    /// the old order and print why.</para>
+    /// </summary>
+    internal int[]? FanArcOrder { get; private set; }
+
+    /// <summary>How many entries of <see cref="FanArcOrder"/> are valid. 0 when none.</summary>
+    internal int FanArcOrderCount { get; private set; }
+
+    /// <summary>
     /// WHICH SEATS OF THIS PEER'S HAND LIST ARE CURRENTLY IN THEIR FIST — the seats named by record
     /// 36 for the two pose slots, filtered to <see cref="NetProtocol.HeldFaceListHand"/>, handed back
     /// in <paramref name="seatA"/> / <paramref name="seatB"/> and answered as a count (0..2).
@@ -1243,6 +1263,12 @@ internal sealed class RemoteAvatar
             BoardScale = p.BoardScale > 0f ? p.BoardScale : 1f;
         }
         HandCardCount = p.HandCardCount;
+        // FAN ARC ORDER (record 44). Adopt-if-published with a local default of "no order stated",
+        // exactly like every other optional record here: a sender that omits it leaves the previous
+        // answer standing for one packet at most, because the count above moves with it and the
+        // consumer re-belts the pair every frame.
+        FanArcOrder = p.HasFanArcOrder ? p.FanArcOrder : null;
+        FanArcOrderCount = p.HasFanArcOrder ? p.FanArcOrderCount : 0;
         DominantRight = p.DominantRight;
 
         // SECOND HELD FIGURE (extension record 8): the mini in the sender's other hand. Absent ⇒

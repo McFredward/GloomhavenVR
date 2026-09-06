@@ -294,7 +294,7 @@ internal static class HeldPropVectors
     private static void Budget(Harness t)
     {
         t.Case("37f. held prop, the send buffer still satisfies its own margin rule");
-        const int documentedWorstCase = 1738;  // the sum in PresenceSerializer.MaxSize's doc.
+        const int documentedWorstCase = 1747;  // the sum in PresenceSerializer.MaxSize's doc.
                                                // 1513 -> 1570 when this record and the shared-gaze
                                                // byte landed in one round; 1570 -> 1726 on
                                                // 2026-09-05 when an EXISTING term grew (the wall-
@@ -312,7 +312,11 @@ internal static class HeldPropVectors
                                                // 3 bytes flat ([id][len] + one mask byte); 1735 ->
                                                // 1738 in the same round: the FAN SOURCE PILE
                                                // record (43), 3 bytes flat as well ([id][len] +
-                                               // one list-id byte).
+                                               // one list-id byte). 1738 -> 1747 on 2026-09-06:
+                                               // the FAN ARC ORDER record (44), 9 bytes at its
+                                               // maximum ([id][len] + its 7-byte payload) and in
+                                               // force only for a player who has dragged a card in
+                                               // their own fan.
         const int largestSingleRecord = 257;   // board tuning: 2 TLV + one 255-byte page
         t.True(PresenceSerializer.MaxSize >= documentedWorstCase + largestSingleRecord,
                $"MaxSize {PresenceSerializer.MaxSize} leaves "
