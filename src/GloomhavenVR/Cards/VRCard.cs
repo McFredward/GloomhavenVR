@@ -446,11 +446,13 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _canvasRect = (RectTransform)canvasGo.transform;
         // The BEST KNOWN face size, not a frozen guess. This used to be a hard-coded 270x400 while
         // the real ability face is 294x450, so a card built before its face was adopted wore a body
-        // 1.8 mm too wide; AttachGameCard then re-fit it and the width visibly stepped. It is also
-        // the size a BORROWED remote copy (Cards/CardBorrow.cs) is stuck with, because that copy
-        // never adopts a game widget at all — its face is a clone, and the clone is fitted to the
-        // real 294x450. CardFace.ObservedFacePixels IS 270x400 until this client has hosted an
-        // ability face, so nothing changes before the first card and everything agrees after it.
+        // 1.8 mm too wide; AttachGameCard then re-fit it and the width visibly stepped.
+        // CardFace.ObservedFacePixels IS 270x400 until this client has hosted an ability face, so
+        // nothing changes before the first card and everything agrees after it.
+        // (This note used to carry a second case — the size a BORROWED remote copy was stuck with,
+        // since that copy never adopted a game widget. Cards/CardBorrow.cs was deleted on
+        // 2026-09-07 when reaching into a teammate's fan stopped handing anything out, so there is
+        // no such copy any more and the sentence above stands on the adopted case alone.)
         SetCanvasSize(CardFace.ObservedFacePixels, w, h);
         // Face plane sits a hair in front of the backing. Convention everywhere in
         // this module: layouts orient roots with +Z pointing AWAY from the HMD, so
