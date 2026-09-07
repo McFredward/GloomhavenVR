@@ -1372,7 +1372,12 @@ internal sealed partial class CardsDriver
             // `no OPEN edge is outstanding` is a pick the game never announced, `the game asks for
             // 0 card(s)` is a hand the game re-drove behind the burn step. Both of the first two
             // are now unreachable by construction and a reading of either is a NEW defect, not
-            // this one returning. STILL BEYOND THE INSTRUMENT: a refusal
+            // this one returning — and the FOREIGN one is unreachable twice over, because
+            // PickFlowWatch.HealOwnerIfRefusingAnOpenPick runs earlier in the SAME Update and would
+            // have corrected the latch before this line was reached, leaving a `PICK OWNER HEAL`
+            // line above this one. A foreign refusal printed here with NO heal beside it means the
+            // watchdog's own gate refused, and its five terms are then what to read.
+            // STILL BEYOND THE INSTRUMENT: a refusal
             // that happens with pickRefusedBy=<nothing> — the fan then had its candidates and
             // something further down (the palm gate, the slot target) ate them, and the reading
             // that decides it is the `fan state:` line's withheldBy/mode pair on the same frame.

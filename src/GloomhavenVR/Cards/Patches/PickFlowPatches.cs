@@ -183,6 +183,25 @@ internal static class PickFlowWatch
     private static int _endSeq;
 
     /// <summary>
+    /// How many OPEN edges were DECLINED because the hand belongs to a character this client does
+    /// not control. This is the count that proves the construction rule below is load-bearing: in
+    /// multiplayer the game opens a co-player's burn on THIS machine's copy of their
+    /// <c>CardsHandUI</c> too (the peer's 2026-09-07 log recorded exactly that as
+    /// <c>BURN FLOW ARM #6 … on hand 'Player handMindthief'</c>), and every one of those used to
+    /// be able to seize this client's latch.
+    /// </summary>
+    private static int _foreignArmsDeclined;
+
+    /// <summary>Name of the last declined hand — the change key for that line.</summary>
+    private static string _lastDeclinedName = "";
+
+    /// <summary>
+    /// How many times <see cref="HealOwnerIfRefusingAnOpenPick"/> has had to correct the latch this
+    /// session. ZERO is the only healthy reading — see that method.
+    /// </summary>
+    private static int _heals;
+
+    /// <summary>
     /// Is a pick flow live right now, for ANY hand? Kept for the one caller that has no hand to ask
     /// about (<see cref="CardsGameApi.PickIsOpen"/>'s no-hand fallback). Every gate that HAS a hand
     /// must use <see cref="LiveFor"/> instead — see the class remarks.
@@ -295,6 +314,48 @@ internal static class PickFlowWatch
                 // an unreadable hand still opened a flow — LiveFor falls back to the global answer
             }
 
+            // ---- UNREACHABLE BY CONSTRUCTION, WHICH IS BETTER THAN DETECTED ------------------
+            // A pick opened on a character this client does not CONTROL can never be a pick this
+            // player is being asked to make, and this client's latch exists to answer only that
+            // question. Both edge patches are on the TYPE, so in multiplayer the game drives a
+            // co-player's burn through this postfix on our machine as well — that is how a foreign
+            // hand came to own the flow in the first place. Declining the arm removes the whole
+            // ownership-disagreement class rather than healing it after the fact; the watchdog in
+            // HealOwnerIfRefusingAnOpenPick is the belt behind this brace, and its firing count is
+            // the measurement that says whether this rule missed a route.
+            //
+            // THE REFUSAL IS ONE-WAY. An arm we cannot CLASSIFY is armed, never declined: losing a
+            // genuine local pick would reproduce the very softlock this fixes, whereas an extra
+            // arm is only ever a stale latch the stand-down branch below clears on the next
+            // non-pick redraw of that hand.
+            if (!MayThisClientPickFor(hand))
+            {
+                _foreignArmsDeclined++;
+                if (name != _lastDeclinedName)
+                {
+                    _lastDeclinedName = name;
+                    // HW-VERIFY: grep token "PICK ARM DECLINED". WORKING = one or more of these in
+                    // any multiplayer session in which a co-player burns, discards or recovers a
+                    // card, each naming THEIR hand, and NO "PICK OWNER HEAL" line anywhere in the
+                    // same log. INERT = zero of these in a multiplayer session that contains a
+                    // peer's own burn — the ownership test is not reaching this postfix and the
+                    // 2026-09-07 deadlock's route is open again. NOT A DEFECT BY ITSELF: this line
+                    // is the rule working, and its count is expected to grow with the party's
+                    // activity. Single-player prints it never (IsLocalHand is unconditionally true
+                    // offline), which is also the correct reading there.
+                    VRLog.Note("Cards", $"PICK ARM DECLINED (#{_foreignArmsDeclined} this session): the " +
+                                        $"game opened a {mode} pick for {maxCardsSelected} card(s) on " +
+                                        $"'{name}', a character this client does not control, so it did " +
+                                        "NOT arm this board's pick latch. A foreign hand owning the " +
+                                        "latch is what deadlocked the 2026-09-07 long rest for a whole " +
+                                        "session: only the owning hand's END edges can close a flow, and " +
+                                        "this client never drives a foreign hand to a stand-down. The " +
+                                        "peer keeps picking normally on their own machine — this line is " +
+                                        "about OUR latch and nothing else.");
+                }
+                return; // NOT a stand-down: falling through would end OUR OWN live pick
+            }
+
             if (_live)
             {
                 if (id == 0 || _openedOn == 0 || id == _openedOn)
@@ -382,6 +443,145 @@ internal static class PickFlowWatch
         _openedOn = 0; // the flow is over; nothing may be "its" hand until the next OPEN edge
     }
 
+    /// <summary>
+    /// MAY THIS CLIENT BE THE ONE PICKING FOR THIS HAND — the mod's own existing control
+    /// predicate (<see cref="CardsGameApi.IsLocalHand"/>: <c>!FFSNetwork.IsOnline ||
+    /// PlayerActor.IsUnderMyControl</c>), asked in the ONE direction that is safe to act on.
+    ///
+    /// <para>TRUE is the answer for everything it cannot classify — a null hand, a hand whose
+    /// <c>PlayerActor</c> has not been wired yet, a throw out of the network layer. Declining an
+    /// arm we are unsure about would silently lose a genuine local pick, which is the softlock this
+    /// whole change exists to remove; arming one we are unsure about costs at worst a stale latch
+    /// that the next non-pick redraw of that hand stands down.</para>
+    /// </summary>
+    private static bool MayThisClientPickFor(CardsHandUI? hand)
+    {
+        try
+        {
+            if (hand == null || hand.PlayerActor == null)
+                return true; // unclassifiable — never refuse on a guess
+            return CardsGameApi.IsLocalHand(hand);
+        }
+        catch (Exception)
+        {
+            return true; // unclassifiable — same direction, deliberately
+        }
+    }
+
+    /// <summary>
+    /// THE INVARIANT: the mod must never be refusing a pick the GAME genuinely has open. User
+    /// ruling 2026-09-07, on being offered a visible escape hatch instead: <em>"Nein das will ich
+    /// nicht. Sorge einfach dafür das so etwas nicht vorkommt."</em> — so there is no fallback
+    /// surface anywhere; the state simply may not persist. Returns true when it corrected
+    /// something, which the caller turns into a rebuild so the healed frame is the SAME frame.
+    ///
+    /// <para><b>WHAT IT WILL AND WILL NOT TOUCH.</b> It corrects an OWNERSHIP disagreement and
+    /// never a LIVENESS one. With <c>_live</c> false there is no outstanding OPEN edge at all, and
+    /// a refusal then is <see cref="CardsGameApi.PickIsOpen"/> correctly reading a mode/count pair
+    /// the game left latched behind a finished flow — the 2026-09-05 items 9+10 defect, where the
+    /// banner stood 87 s past the burn. Healing that would put the defect straight back, so the
+    /// first term below is <c>_live</c> and the method is blind to everything else.</para>
+    ///
+    /// <para><b>IT DOES NOT VALIDATE ITSELF.</b> The decision to hand the flow over is taken from
+    /// the GAME's own state on the hand the board is presenting — its latched pick mode, its
+    /// <c>maxCardsSelected</c>, its <c>ShowOrHideInternal</c> active bit and its
+    /// <c>IsUnderMyControl</c>. The only thing our own latch contributes is the single fact that is
+    /// wrong by definition when all four of those hold: that some OTHER hand owns the flow. This
+    /// promotes <see cref="CardsGameApi.PickHandIsPresented"/> from the report-only measurement
+    /// item 10 shipped it as — "so the NEXT round can see whether this bit tracks the flow better
+    /// than the count did, WITHOUT a build having bet on it" — to a gate term. It is the next
+    /// round, and this is the bet, stated rather than slipped in: it can only make the watchdog
+    /// fire LESS, so a wrong reading of it costs a heal that does not happen, never a heal that
+    /// should not have.</para>
+    ///
+    /// <para><b>IT WRITES NO GAME STATE.</b> Only this class's own fields move.</para>
+    ///
+    /// <para><b>IT SHOULD NEVER FIRE.</b> The arm-side construction rule above (a foreign hand can
+    /// no longer take the latch) removes the only route the 2026-09-07 log exhibits. A firing means
+    /// a route nobody has enumerated, and its line says so.</para>
+    /// </summary>
+    internal static bool HealOwnerIfRefusingAnOpenPick(CardsHandUI? hand)
+    {
+        if (hand == null || !_live)
+            return false; // no OPEN edge outstanding: the refusal is a LIVENESS answer and CORRECT
+        if (LiveFor(hand))
+            return false; // this hand already owns the flow — nothing is being refused
+
+        CardHandMode mode;
+        int want;
+        bool shown;
+        bool mine;
+        try
+        {
+            mode = CardsGameApi.Mode(hand);
+            if (!CardsGameApi.IsPickMode(mode))
+                return false; // the game has no pick open on this hand
+            want = hand.MaxSelectedCards;
+            if (want <= 0)
+                return false; // …and is asking it for no cards
+            shown = CardsGameApi.PickHandIsPresented(hand);
+            if (!shown)
+                return false; // the game is not even showing this hand
+            mine = CardsGameApi.IsLocalHand(hand);
+            if (!mine)
+                return false; // not ours to pick for — a refusal here is correct
+        }
+        catch (Exception)
+        {
+            return false; // an unreadable hand is never evidence that we are refusing wrongly
+        }
+
+        string stale = _openedOnName;
+        int id = 0;
+        string name = "?";
+        try
+        {
+            id = hand.GetInstanceID();
+            if (hand.gameObject != null)
+                name = hand.gameObject.name;
+        }
+        catch (Exception)
+        {
+            // the heal still has to happen; the names are decoration
+        }
+
+        NoteEnd($"the OWNER WATCHDOG released it — the game had a {mode} pick open on '{name}' " +
+                $"while this flow was standing on '{stale}'");
+
+        _live = true;
+        _openedAt = Time.unscaledTime;
+        _openedFrame = Time.frameCount;
+        _openedOn = id;
+        _openedOnName = name;
+        _armSeq++;
+        _heals++;
+
+        // HW-VERIFY: grep token "PICK OWNER HEAL". WORKING = the line is ABSENT from the whole log.
+        // That is the only healthy reading: the arm-side rule above is supposed to make this state
+        // unreachable, so this watchdog is a belt that should measure zero. ONE firing = a route to
+        // foreign ownership that the construction rule does not cover, and the heal bought the
+        // player his turn back while naming it. TWO OR MORE IN ONE SESSION IS A NEW DEFECT REPORT,
+        // NOT A SUCCESS — it means the mod is silently carrying the session on its watchdog, and
+        // the number in this line is the count to quote. Read it together with "PICK ARM DECLINED":
+        // heals=0 with declines>0 is the construction rule doing the work by itself, which is what
+        // this build predicts. FALSIFIER for the whole design: a heal whose stale owner is a hand
+        // this client DOES control — that is not the 2026-09-07 class at all, it is our own END
+        // edges failing to fire, and the fix would be in the three END patches, not here.
+        VRLog.Note("Cards", $"PICK OWNER HEAL #{_heals}: the mod was REFUSING a pick the game " +
+                            $"genuinely has open. The game asks '{name}' for {want} card(s) in " +
+                            $"{mode} (hand shown={shown}, under my control={mine}), while this " +
+                            $"board's pick latch was still standing on '{stale}' — so " +
+                            "CardsGameApi.PickIsOpen answered false and the player could neither " +
+                            "see the candidate pile nor place a card. The game is the authority on " +
+                            "whether a pick is open, so the latch is wrong by definition: released " +
+                            "and re-armed on this hand in the same frame, no game state written. " +
+                            "THIS LINE SHOULD NEVER APPEAR — the arm-side control test is supposed " +
+                            "to make it unreachable. Once is a route nobody enumerated; twice in " +
+                            $"one session is a NEW defect report ({_foreignArmsDeclined} foreign " +
+                            "arm(s) were declined this session).");
+        return true;
+    }
+
     /// <summary>Module shutdown / hot reload — leave no latch behind for the next session.</summary>
     internal static void Reset()
     {
@@ -395,6 +595,9 @@ internal static class PickFlowWatch
         _openedOnName = "?";
         _armSeq = 0;
         _openedFrame = -1;
+        _foreignArmsDeclined = 0;
+        _lastDeclinedName = "";
+        _heals = 0;
     }
 }
 

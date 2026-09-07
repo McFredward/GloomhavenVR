@@ -572,15 +572,46 @@ internal sealed class RestControls
         // The ONE gate line: fires only on the edge where the offer gate is actually suppressing a
         // keycap a stale selection flag would otherwise have kept up — i.e. precisely the reported
         // boots-decision case — so the next hardware log proves the gate fired and why.
+        //
+        // TIER, 2026-09-07: this pair was VRLog.Info, which the ModBuild 331 mapping puts on the
+        // DEBUG tier — INVISIBLE at the shipped default. It printed in the 2026-09-07 host log only
+        // because that rig's level was raised, and a gate that decides whether a rest control
+        // exists is exactly the kind of answer check-hw-verify.py was written to stop losing. The
+        // SUPPRESSING text is byte-identical to what shipped; only the tier moved.
+        //
+        // AND THE FALLING EDGE IS NEW. The old code flipped the latch on both edges but printed
+        // only the rising one, so a reader could see a suppression window OPEN and never see it
+        // close — two lines in the 2026-09-07 session named two starts and no ends, which reads
+        // like a gate that ran twice and stopped rather than one that opened and closed twice.
         bool gateSuppressing = !offered && (shortSelected || longSelected);
         if (gateSuppressing != _lastGateSuppressing)
         {
             _lastGateSuppressing = gateSuppressing;
             if (gateSuppressing)
-                Core.VRLog.Info("Cards", "REST GATE: rest keycaps hidden — the game offers no rest control here " +
+            {
+                // HW-VERIFY: grep REST GATE — the offer gate, not the availability signal, is what
+                // removed a keycap. WORKING = SUPPRESSION lines and LIFTED lines alternate and
+                // pair up, each SUPPRESSION naming the phase that closed the offer window.
+                // INERT = zero REST GATE lines in a session whose log contains a
+                // "LONG REST FLOW: SELECTED" or a short-rest commit: the stale-selection case the
+                // gate exists for never arose, which is possible but should be stated rather than
+                // assumed. FALSIFIER = a SUPPRESSION with no LIFTED before the next SUPPRESSION —
+                // the latch flipped without this pair seeing it, and the gate's own edge state is
+                // then the thing to read, not the phase.
+                Core.VRLog.Note("Cards", "REST GATE: rest keycaps hidden — the game offers no rest control here " +
                                          $"{(PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest ? "because the improved-short-rest long rest is running" : $"in phase {PhaseManager.PhaseType}")}" +
                                          $", while a stale selection flag was still set: short={shortSelected}, long={longSelected}. " +
                                          "Same predicate as CardsHandUI.UpdateShortRest / the long-rest pseudo-card.");
+            }
+            else
+            {
+                // HW-VERIFY: the CLOSING half of the pair above — see its block for the readings.
+                Core.VRLog.Note("Cards", "REST GATE LIFTED: the suppression above has ended — either the game " +
+                                         $"offers a rest control again (phase {PhaseManager.PhaseType}, offered={offered}) " +
+                                         "or the stale selection flags cleared " +
+                                         $"(short={shortSelected}, long={longSelected}). The keycaps are back under " +
+                                         "their own availability signals from here.");
+            }
         }
 
         if (shortVisible != _lastShortVisible || longVisible != _lastLongVisible)

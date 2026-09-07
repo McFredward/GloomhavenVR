@@ -826,6 +826,16 @@ internal sealed partial class CardsDriver
         // The character the BOARD is presenting (focus override applied). Resolved once per tick
         // and only handed to surfaces that DISPLAY — never to a path that can reach a game seam.
         CardsHandUI? presented = Board.CharacterFocus.PresentedHand(hand);
+        // THE INVARIANT, BEFORE ANYTHING READS THE PICK GATE THIS FRAME: the mod must never be
+        // refusing a pick the GAME genuinely has open. User ruling 2026-09-07, on being offered a
+        // visible escape hatch instead — "Nein das will ich nicht. Sorge einfach dafür das so etwas
+        // nicht vorkommt." — so there is no fallback surface: the state may simply not persist.
+        // Placed ahead of PollModeChange so a correction and the rebuild it needs land in the SAME
+        // frame the player would otherwise have been stranded in. Normally a no-op that returns
+        // false without reading anything (there is no outstanding OPEN edge); see
+        // PickFlowWatch.HealOwnerIfRefusingAnOpenPick for why it should never fire at all.
+        if (!_fakeActive && Patches.PickFlowWatch.HealOwnerIfRefusingAnOpenPick(hand))
+            _dirty = true;
         PollModeChange(_fakeActive ? null : hand); // deadlock safety: rebuild on any game card-mode change
         // ITEM 10 (burned card still on the fan): rebuild the moment the PRESENTED character's
         // hand-pile card set changes. DELIBERATELY OUTSIDE the _tray.IsVisible gate below — the fan
