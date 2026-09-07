@@ -20,11 +20,25 @@ Not installed yet? → [install guide](../INSTALL.md)
 holding and lights up the key for each of the fourteen controls, in the order they become useful.
 Switch it off under **Comfort ▸ Hands & aiming**.
 
-<!-- VIDEO PLACEHOLDER: tutorial.mp4
-     WHAT IT SHOWS: the tutorial doing its work. The player's hands turn into the controller he is
-     actually holding and one key after another lights up as each control becomes useful.
-     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
-     then delete this line and the closing marker.
+<table>
+<tr><td>
+
+**🎬 VIDEO PLACEHOLDER 3 of 6 — `tutorial.mp4` — this spot is still empty, nothing renders here yet.**
+
+**What it has to show** (12 s): your hands turning into the controller you are actually
+holding, and one key after another lighting up as each control becomes useful. Afterwards the reader
+knows the fourteen bindings on the picture above are taught, not memorised.
+
+**How you fill it:** put `tutorial.mp4` and `tutorial-poster.jpg` into `docs/img/`, then delete
+this box and the two comment markers around the ready-made markup directly below — that markup
+already points at both files. The same clip goes into the same spot in `PLAYING.de.md`. Brief:
+[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
+[img/README.md](img/README.md#encoding-a-new-clip).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
   <a href="img/tutorial.mp4"><img src="img/tutorial-poster.jpg" width="560" alt="The tutorial lighting up a key on the controller in your hand"></a>
 </p>
@@ -77,13 +91,26 @@ sweeps across the board never selects anything.
 
 ## Windows
 
-<!-- VIDEO PLACEHOLDER: windows.mp4 + grab-rod.mp4
-     WHAT IT SHOWS: everything in the room hangs from a rod you take hold of. A game window grabbed
-     by its bar, moved, resized, reeled closer with the stick and closed with its X; then the
-     control board carried to a new place by its rod, by hand and by the laser from across the
-     table.
-     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
-     then delete this line and the closing marker.
+<table>
+<tr><td>
+
+**🎬 VIDEO PLACEHOLDERS 4 and 5 of 6 — `windows.mp4` and `grab-rod.mp4` — this spot is still empty, nothing renders here yet.**
+
+**What they have to show** (12 s and 8–10 s, side by side): a game window grabbed by its bar,
+moved, resized, reeled closer with the stick while the laser holds it, then closed with its X — and
+beside it the control board carried to a new place by the rod under it, once with the hand and once
+with the laser from across the table. One idea, shown twice: everything in the room hangs from a rod.
+
+**How you fill it:** put all four files — `windows.mp4`, `windows-poster.jpg`, `grab-rod.mp4`,
+`grab-rod-poster.jpg` — into `docs/img/`, then delete this box and the two comment markers around the
+ready-made markup directly below. The same pair goes into the same spot in `PLAYING.de.md`. Brief:
+[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
+[img/README.md](img/README.md#encoding-a-new-clip).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
   <a href="img/windows.mp4"><img src="img/windows-poster.jpg" width="420" alt="Moving and resizing a window"></a>
   <a href="img/grab-rod.mp4"><img src="img/grab-rod-poster.jpg" width="420" alt="Carrying the control board by its rod"></a>
@@ -115,12 +142,25 @@ route it travels. Prefer the original flat map? **World & sound ▸ Campaign map
   <img src="img/env-forest.jpg" width="420" alt="The night forest">
 </p>
 
-<!-- VIDEO PLACEHOLDER: environments.mp4
-     WHAT IT SHOWS: what a still cannot: the rooms in motion. Firelight and drips in the cellar,
-     foliage and moonbeams in the forest, an element infusion fading the room over, and the
-     environment switched in the settings.
-     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
-     then delete this line and the closing marker.
+<table>
+<tr><td>
+
+**🎬 VIDEO PLACEHOLDER 6 of 6 — `environments.mp4` — this spot is still empty, nothing renders here yet.**
+
+**What it has to show** (15 s): what the two stills above cannot — the rooms in motion.
+Firelight and drips in the cellar, moonbeams and moving foliage in the forest, an element infusion
+fading the room over, and the environment switched in the settings.
+
+**How you fill it:** put `environments.mp4` and `environments-poster.jpg` into `docs/img/`, then
+delete this box and the two comment markers around the ready-made markup directly below. The same
+clip goes into the same spot in `PLAYING.de.md`. Brief:
+[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
+[img/README.md](img/README.md#encoding-a-new-clip).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
   <a href="img/environments.mp4"><img src="img/environments-poster.jpg" width="560" alt="The cellar and the forest in motion"></a>
 </p>
@@ -139,12 +179,26 @@ that choice is yours alone.
 
 ## Multiplayer
 
-<!-- VIDEO PLACEHOLDER: multiplayer.mp4
-     WHAT IT SHOWS: the table from the other side. A second player's mask and hands, their control
-     board mirrored beside them, a miniature they lift, a shared window one of them drags across
-     the room.
-     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
-     then delete this line and the closing marker.
+<table>
+<tr><td>
+
+**🎬 VIDEO PLACEHOLDER 2 of 6 — `multiplayer.mp4` — this spot is still empty, nothing renders here yet.**
+
+**What it has to show** (15 s): the table from the other side. A second player's mask and hands
+with real finger poses, their control board mirrored beside them, a miniature they lift, and a shared
+window one of you drags to a new place in the room. **This is the same clip the README is waiting
+for** — record it once, use it twice.
+
+**How you fill it:** put `multiplayer.mp4` and `multiplayer-poster.jpg` into `docs/img/`, then
+delete this box and the two comment markers around the ready-made markup directly below. The README
+needs the same file a second way, uploaded through a GitHub comment box — see the placeholder there.
+The same clip goes into the same spot in `PLAYING.de.md`. Brief:
+[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for multiplayer.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
   <a href="img/multiplayer.mp4"><img src="img/multiplayer-poster.jpg" width="560" alt="Two players at the same table"></a>
 </p>
@@ -159,18 +213,3 @@ that choice is yours alone.
 - **What you share:** map windows (marked by a small badge in the corner), the story window on the
   same page for everyone, and one clock — so the same ambient sounds and the same apparitions
   happen at the same moment in the same place for everybody.
-
----
-
-## Known limitations
-
-Known, and not worth reporting.
-
-- **Big, fully-revealed scenarios seen from above can hitch** — roughly 80–100 ms every couple of seconds, worst case.
-- **Windows in the map room can overlap.** With five open the arc is full; a nearer window takes the clicks meant for the one behind it. Move or close one.
-- **A couple of texts live only on the flat screen** — the "waiting for other players" hint and the multiplayer lock overlay. In VR you see the effect but not the sentence.
-- **Distant models drop to a coarser version slightly earlier** than the game intends. Real, small, left alone.
-- **Per-pixel lights ship off** and can flicker at zero; **forced full texture resolution costs video memory** — the first thing to turn down if you are tight.
-- **Mixed reality turns the environments and the sky off.** They cannot be drawn over passthrough and still look right.
-- **In multiplayer, arrival at a new location can differ by a second or two** — the travel animation runs on each machine.
-- The mod is **pre-1.0** and moves round by round against real headset sessions.

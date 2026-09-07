@@ -132,8 +132,7 @@ in that folder; you should not need them.
 
 **Reporting it:** send the whole of `BepInEx/LogOutput.log`, plus what you were doing, your headset
 and the app you stream with. Set **`[General] LogLevel = Debug`** and reproduce it first — the
-default log is far too quiet to answer a report. Things
-[already known](docs/PLAYING.md#known-limitations) are not worth reporting.
+default log is far too quiet to answer a report.
 
 ---
 

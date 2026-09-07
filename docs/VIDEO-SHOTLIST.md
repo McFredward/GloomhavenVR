@@ -4,22 +4,27 @@
 it has to be saved as and the spot that is already prepared for it. Record one, drop it in, delete
 two comment markers — nothing else in the repo has to be hunted through.
 
-Every prepared spot is an **HTML comment holding the finished markup**, so an unrecorded clip
-renders as nothing at all: never a broken image, never a dead link, on GitHub or in a browser. Find
-them all with
+Every prepared spot **announces itself on the rendered page** — a bordered box saying which clip is
+missing, what it has to show, and exactly what to replace to fill it. That is a deliberate change
+from 2026-09-07: the spots used to be HTML comments, which render as nothing at all, and the person
+who has to shoot the clips reported the obvious consequence — *"die sehe ich in der README nicht"*.
+An invisible reminder is not a reminder. The finished markup still sits in a comment directly under
+each box, so nothing is broken while a clip is missing; the box above it is what you can see.
+
+Find them all with
 
 ```
 grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING.de.md
 ```
 
-and each one repeats, in place, what that clip has to show.
+— six per language, twelve in all, and each one repeats in place what that clip has to show.
 
 ## What still has to be recorded
 
 | # | File | ~Length | Prepared spot | What it shows | What the viewer knows afterwards |
 |---|---|---:|---|---|---|
 | 1 | `overview.mp4` | 10-12 s | `README.md` + `README.de.md`, straight under the nav row, above *Your cards and your board* | Standing at the table in a lit scenario, then dragging, rotating and zooming the whole board with the two-handed world grab. | What this mod **is**, in three seconds: a real table you stand at, and a board you take hold of. |
-| 2 | `multiplayer.mp4` | 15 s | `README*.md` *Full VR multiplayer*, **and** `docs/PLAYING*.md` ▸ *Multiplayer* | A second player across the table: their mask and hands with real finger poses, their control board mirrored beside them, a miniature they lift, and a shared window one of you drags to a new place in the room. | The other player is a **body at the table**, not a name in a lobby list — and what you do is seen. |
+| 2 | `multiplayer.mp4` | 15 s | `README*.md` *Everyone at the same table*, **and** `docs/PLAYING*.md` ▸ *Multiplayer* | A second player across the table: their mask and hands with real finger poses, their control board mirrored beside them, a miniature they lift, and a shared window one of you drags to a new place in the room. | The other player is a **body at the table**, not a name in a lobby list — and what you do is seen. |
 | 3 | `tutorial.mp4` | 12 s | `docs/PLAYING*.md` ▸ *The controls*, under "You do not have to learn this" | Your hands turning into the controller you are actually holding, and one key after another lighting up as each control becomes useful. | The fourteen bindings on the controls picture are **taught, not memorised**. |
 | 4 | `windows.mp4` | 12 s | `docs/PLAYING*.md` ▸ *Windows* (left of the pair) | A game window grabbed by its bar, moved, resized, reeled closer and further with the stick while the laser holds it, then closed with its X. | The game's windows are **furniture you place once**, not a UI that reappears where it likes. |
 | 5 | `grab-rod.mp4` | 8-10 s | `docs/PLAYING*.md` ▸ *Windows* (right of the pair) | The control board taken by the rod under it and carried to a new place — once with the hand, once with the laser from across the table. | **Everything in the room hangs from a rod**, and the same grab moves all of it. |
@@ -31,9 +36,14 @@ idea (*it hangs from a rod, you take hold of it*), shown twice.
 **Clip 2 is recorded once and used twice.** The README spot takes an attachment URL, the playing
 guide takes a poster; the mp4 is the same file.
 
-## The two placeholder shapes, and why they differ
+## Every spot is a visible box; what goes IN it differs by page
 
-| Document | Shape | Why |
+Each prepared spot is the same two things stacked: a `<table>` box that renders on the page and says
+what is missing, and an HTML comment under it holding the finished markup. Filling a spot is always
+the same three moves — put the file where the markup expects it, delete the box, delete the two
+comment markers. What the markup is differs by page:
+
+| Document | Markup in the comment | Why |
 |---|---|---|
 | `README.md`, `README.de.md` | `<video src="https://github.com/user-attachments/assets/…">` | a video only ever **plays** in a GitHub README when it is served from the attachment CDN. Upload the mp4 through a comment box to get the URL — `docs/img/README.md` has the full procedure, including why nothing you commit will play by itself. |
 | `docs/PLAYING.md`, `docs/PLAYING.de.md` | poster jpg linking to the committed mp4 | the guide is read, not pitched; a thumbnail row costs no page height and works on a clone with no network. |
@@ -54,12 +64,12 @@ carries **one idea**, cropped to the action.
 ## Housekeeping
 
 - **Both language pages, always.** A placeholder filled on one side and not the other is exactly the
-  drift `scripts/check-docs-i18n.py` exists to catch — though it counts headings, not comments, so
-  this one is on you. Run it after any doc change regardless.
+  drift `scripts/check-docs-i18n.py` exists to catch — though it counts headings, and a placeholder
+  box is deliberately not a heading, so this one is on you. Run it after any doc change regardless.
+- **Keep the box visible until the clip is in.** Do not collapse one into a `<details>` and do not
+  move it back inside a comment. The whole point of the 2026-09-07 change is that an empty spot is
+  something you can see on the page.
 - **Record something that is not on this list?** Add a row, and add its placeholder to both language
   pages, rather than starting a second list somewhere else.
-- `docs/img/README.md` also carries a *Still missing* table. It predates this file, it is the image
-  directory's own record of what was and was not shot, and it is **not** the working checklist: this
-  page is. Two entries there are already stale — its `map-room.mp4` shipped as `map-interaction.mp4`
-  (it is in the playing guide today), and its statement that there are no placeholders in the README
-  stopped being true with this file.
+- `docs/img/README.md` points at this page for what is still missing and carries the encoding
+  recipe. It is not a second checklist: this page is the checklist.

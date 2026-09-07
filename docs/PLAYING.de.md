@@ -20,11 +20,26 @@ Noch nicht installiert? → [Installationsanleitung](../INSTALL.de.md)
 tatsächlich hältst, und lässt für jede der vierzehn Steuerungen die passende Taste aufleuchten — in
 der Reihenfolge, in der sie nützlich werden. Abschalten unter **Komfort ▸ Hände & Zielen**.
 
-<!-- VIDEO PLACEHOLDER: tutorial.mp4
-     WHAT IT SHOWS: the tutorial doing its work. The player's hands turn into the controller he is
-     actually holding and one key after another lights up as each control becomes useful.
-     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
-     then delete this line and the closing marker.
+<table>
+<tr><td>
+
+**🎬 VIDEO-PLATZHALTER 3 von 6 — `tutorial.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+
+**Was der Clip zeigen muss** (12 s): wie deine Hände zu dem Controller werden, den du wirklich
+in der Hand hältst, und wie eine Taste nach der anderen aufleuchtet, sobald die jeweilige Steuerung
+gebraucht wird. Danach ist klar: die vierzehn Belegungen oben werden beigebracht, nicht auswendig
+gelernt.
+
+**So füllst du ihn:** leg `tutorial.mp4` und `tutorial-poster.jpg` in `docs/img/` und lösch dann
+diesen Kasten samt der zwei Kommentar-Markierungen um die fertige Auszeichnung darunter — die zeigt
+schon auf beide Dateien. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. Auftrag:
+[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
+[img/README.md](img/README.md#encoding-a-new-clip) (englisch).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
   <a href="img/tutorial.mp4"><img src="img/tutorial-poster.jpg" width="560" alt="Das Tutorial lässt eine Taste auf dem Controller in deiner Hand aufleuchten"></a>
 </p>
@@ -77,13 +92,27 @@ mit Absicht: so wählt eine Hand, die nur über das Brett streicht, nie etwas au
 
 ## Fenster
 
-<!-- VIDEO PLACEHOLDER: windows.mp4 + grab-rod.mp4
-     WHAT IT SHOWS: everything in the room hangs from a rod you take hold of. A game window grabbed
-     by its bar, moved, resized, reeled closer with the stick and closed with its X; then the
-     control board carried to a new place by its rod, by hand and by the laser from across the
-     table.
-     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
-     then delete this line and the closing marker.
+<table>
+<tr><td>
+
+**🎬 VIDEO-PLATZHALTER 4 und 5 von 6 — `windows.mp4` und `grab-rod.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+
+**Was die Clips zeigen müssen** (12 s und 8–10 s, nebeneinander): ein Spielfenster, an seiner
+Stange gegriffen, verschoben, in der Größe geändert, mit dem Stick näher herangeholt, während der
+Strahl es hält, und über sein X geschlossen — und daneben das Kontrollbrett, das an der Stange
+darunter woandershin getragen wird, einmal mit der Hand und einmal mit dem Strahl quer über den
+Tisch. Eine Idee, zweimal gezeigt: alles im Raum hängt an einer Stange.
+
+**So füllst du sie:** leg alle vier Dateien — `windows.mp4`, `windows-poster.jpg`,
+`grab-rod.mp4`, `grab-rod-poster.jpg` — in `docs/img/` und lösch dann diesen Kasten samt der zwei
+Kommentar-Markierungen um die fertige Auszeichnung darunter. Dasselbe Paar kommt an dieselbe Stelle
+in `PLAYING.md`. Auftrag: [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und
+Kodierung: [img/README.md](img/README.md#encoding-a-new-clip) (englisch).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
   <a href="img/windows.mp4"><img src="img/windows-poster.jpg" width="420" alt="Ein Fenster bewegen und in der Größe ändern"></a>
   <a href="img/grab-rod.mp4"><img src="img/grab-rod-poster.jpg" width="420" alt="Das Kontrollbrett an seiner Stange tragen"></a>
@@ -117,12 +146,25 @@ Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte?
   <img src="img/env-forest.jpg" width="420" alt="Der Nachtwald">
 </p>
 
-<!-- VIDEO PLACEHOLDER: environments.mp4
-     WHAT IT SHOWS: what a still cannot: the rooms in motion. Firelight and drips in the cellar,
-     foliage and moonbeams in the forest, an element infusion fading the room over, and the
-     environment switched in the settings.
-     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
-     then delete this line and the closing marker.
+<table>
+<tr><td>
+
+**🎬 VIDEO-PLATZHALTER 6 von 6 — `environments.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+
+**Was der Clip zeigen muss** (15 s): was die zwei Standbilder darüber nicht können — die Räume
+in Bewegung. Feuerschein und Tropfen im Keller, Mondstrahlen und bewegtes Blattwerk im Wald, eine
+Elementinfusion, die den Raum umfärbt, und der Wechsel der Umgebung in den Einstellungen.
+
+**So füllst du ihn:** leg `environments.mp4` und `environments-poster.jpg` in `docs/img/` und
+lösch dann diesen Kasten samt der zwei Kommentar-Markierungen um die fertige Auszeichnung darunter.
+Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. Auftrag:
+[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
+[img/README.md](img/README.md#encoding-a-new-clip) (englisch).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
   <a href="img/environments.mp4"><img src="img/environments-poster.jpg" width="560" alt="Keller und Wald in Bewegung"></a>
 </p>
@@ -141,12 +183,26 @@ unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
 
 ## Mehrspieler
 
-<!-- VIDEO PLACEHOLDER: multiplayer.mp4
-     WHAT IT SHOWS: the table from the other side. A second player's mask and hands, their control
-     board mirrored beside them, a miniature they lift, a shared window one of them drags across
-     the room.
-     Full brief: docs/VIDEO-SHOTLIST.md. Put the mp4 and its poster jpg into docs/img/,
-     then delete this line and the closing marker.
+<table>
+<tr><td>
+
+**🎬 VIDEO-PLATZHALTER 2 von 6 — `multiplayer.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+
+**Was der Clip zeigen muss** (15 s): der Tisch von der anderen Seite. Maske und Hände eines
+zweiten Spielers mit echten Fingerhaltungen, sein gespiegeltes Kontrollbrett daneben, eine Miniatur,
+die er hochhebt, und ein geteiltes Fenster, das einer von euch an eine andere Stelle im Raum zieht.
+**Das ist derselbe Clip, auf den die README wartet** — einmal aufnehmen, zweimal benutzen.
+
+**So füllst du ihn:** leg `multiplayer.mp4` und `multiplayer-poster.jpg` in `docs/img/` und
+lösch dann diesen Kasten samt der zwei Kommentar-Markierungen um die fertige Auszeichnung darunter.
+Die README braucht dieselbe Datei noch auf dem zweiten Weg, hochgeladen über ein
+GitHub-Kommentarfeld — siehe den Platzhalter dort. Derselbe Clip kommt an dieselbe Stelle in
+`PLAYING.md`. Auftrag: [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for multiplayer.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
   <a href="img/multiplayer.mp4"><img src="img/multiplayer-poster.jpg" width="560" alt="Zwei Spieler am selben Tisch"></a>
 </p>
@@ -163,18 +219,3 @@ unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
 - **Was ihr teilt:** Kartenfenster (mit einem kleinen Abzeichen in der Ecke), das Geschichtsfenster
   auf derselben Seite für alle, und eine Uhr — damit dieselben Umgebungsgeräusche und dieselben
   Erscheinungen bei allen im selben Moment am selben Ort passieren.
-
----
-
-## Bekannte Einschränkungen
-
-Bekannt, und keine Meldung wert.
-
-- **Große, komplett aufgedeckte Szenarien von oben können haken** — im schlimmsten Fall rund 80–100 ms alle paar Sekunden.
-- **Fenster im Kartenraum können sich überlappen.** Bei fünf offenen ist der Bogen voll; ein näheres Fenster fängt die Klicks für das dahinter ab. Eins wegschieben oder schließen.
-- **Ein paar Texte gibt es nur am flachen Bildschirm** — der Hinweis „warte auf andere Spieler“ und die Mehrspieler-Sperre. In VR siehst du die Wirkung, aber nicht den Satz.
-- **Weit entfernte Modelle fallen etwas früher auf eine gröbere Stufe** als vom Spiel gedacht. Echt, klein, absichtlich so gelassen.
-- **Pixelgenaue Lichter sind aus** und können bei null flackern; **erzwungene volle Texturauflösung kostet Videospeicher** — das Erste zum Runterdrehen, wenn er knapp ist.
-- **Mixed Reality schaltet Umgebungen und Himmel ab.** Über Passthrough lassen sie sich nicht zeichnen und dabei richtig aussehen.
-- **Im Mehrspieler kann die Ankunft an einem neuen Ort ein bis zwei Sekunden auseinanderliegen** — die Reise-Animation läuft auf jedem Rechner selbst.
-- Die Mod ist **vor 1.0** und bewegt sich Runde für Runde an echten Headset-Sitzungen.

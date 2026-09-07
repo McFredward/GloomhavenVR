@@ -133,8 +133,7 @@ Textdatei in diesem Ordner; brauchen solltest du sie nicht.
 
 **Ein Problem melden:** Schick die ganze `BepInEx/LogOutput.log`, dazu was du gerade gemacht hast,
 dein Headset und die App, mit der du streamst. Setz vorher **`[General] LogLevel = Debug`** und
-reproduzier es dann — das Standard-Log ist viel zu leise für eine Meldung. Was
-[schon bekannt ist](docs/PLAYING.de.md#bekannte-einschränkungen), ist keine Meldung wert.
+reproduzier es dann — das Standard-Log ist viel zu leise für eine Meldung.
 
 ---
 

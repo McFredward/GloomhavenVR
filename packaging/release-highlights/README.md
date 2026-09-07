@@ -28,9 +28,10 @@ The reader is somebody deciding whether to download an update. Write what **chan
 - Say what they will notice, not what was changed to make them notice it. "The cards in your hand
   now update the moment you enhance one" — not "peer hand-fan sticker refresh".
 - Lead with the fixes for things they complained about. Those are what the update is for.
-- Name a thing that is still broken if this release does not fix it. The **Known limitations**
-  section of [`docs/PLAYING.md`](../../docs/PLAYING.md#known-limitations) is the long form
-  (German: [`docs/PLAYING.de.md`](../../docs/PLAYING.de.md)); a release note can point at it.
+- Name a thing that is still broken if this release does not fix it, in the release note itself.
+  There is no standing list to point at any more: the playing guide's *Known limitations* section
+  was removed on the user's instruction (`erstmal komplett`, 2026-09-07), so a limitation a player
+  needs to know about has to be written into the notes for the release it survives.
 - Markdown works. Headings above `###` do not — the section already sits under `## What's new`.
 - No version numbers, no build numbers, no file names, no `ModBuild`. If a player has to know a
   number, the game tells them.

@@ -418,17 +418,20 @@ drifted apart — the table that stood here still asked for `map-room.mp4`, whic
 `map-interaction.mp4` and has been in the playing guide ever since, and it still said there were no
 placeholders in the READMEs, which stopped being true when the six spots below were prepared.
 
-**There ARE placeholders now, and they render nothing until the file exists.** Each prepared spot
-holds its finished markup inside an HTML comment, so a missing `.mp4` is never a broken image on
-GitHub or in a browser. Find them with:
+**There ARE placeholders now, and since 2026-09-07 every one of them is VISIBLE on the rendered
+page.** They used to be HTML comments, which render as nothing — and the person who has to shoot the
+clips said so: *"habe ich dich das letzte mal gebeten Platzhalter für videos und Bilder einzubauen
+… die sehe ich in der README nicht."* Each spot is now a bordered box naming the clip, what it has
+to show and what to replace to fill it, with the finished markup still in a comment underneath so a
+missing `.mp4` is never a broken image. Find them with:
 
 ```bash
 grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING.de.md
 ```
 
-Six clips, twelve markers (both languages). To publish one: drop the file in, delete the two comment
-markers around its block, and keep the two language pages in step. Every clip except the two README
-ones also needs a poster beside it, same name plus `-poster.jpg`.
+Six clips, twelve boxes (both languages). To publish one: drop the file in, delete the box, delete
+the two comment markers around the markup under it, and keep the two language pages in step. Every
+clip except the two README ones also needs a poster beside it, same name plus `-poster.jpg`.
 
 ## The three built diagrams -- `controls-*.png`, `board-*.png` and `install-tree-*.png`
 

@@ -15,6 +15,9 @@
   <a>
     <img src="https://img.shields.io/badge/version-0.1.1-7c3aed.svg" alt="Mod version">
   </a>
+  <a href="https://buymeacoffee.com/mcfredward">
+    <img src="https://img.shields.io/badge/Buy me a coffee-ffdd00.svg?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee">
+  </a>
 </p>
 
 <p align="center">
@@ -24,32 +27,58 @@
 </p>
 
 <p align="center">
-  Eine von der Community gebaute VR-Mod für <a href="https://store.steampowered.com/app/780290/Gloomhaven/"><b>Gloomhaven (Digital)</b></a>.<br>
-  Bewegungssteuerung wie in Demeo, vollständig integrierter VR-Mehrspieler, eigene Umgebungen, Mixed Reality …
+  <b><a href="https://store.steampowered.com/app/780290/Gloomhaven/">Gloomhaven (Digital)</a>, im Stehen am Tisch gespielt.</b><br>
+  Eine VR-Mod aus der Community: Die Karten fächern sich in deiner Handfläche auf,<br>
+  das Spielbrett liegt vor dir, und die Mitspieler stehen mit im Raum.
 </p>
 
 <p align="center">
   <a href="INSTALL.de.md"><b>Installieren →</b></a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.de.md#die-steuerung">Steuerung</a> &nbsp;·&nbsp;
-  <a href="docs/PLAYING.de.md">Spielanleitung</a> &nbsp;·&nbsp;
-  <a href="docs/PLAYING.de.md#bekannte-einschränkungen">Bekannte Einschränkungen</a>
+  <a href="docs/PLAYING.de.md">Spielanleitung</a>
 </p>
 
 ---
 
-<!-- VIDEO PLACEHOLDER: overview.mp4
-     WHAT IT SHOWS: the hero shot. Standing at the table in a lit scenario, then dragging, rotating
-     and zooming the whole board with the two-handed world grab.
-     Full brief: docs/VIDEO-SHOTLIST.md. Record it, upload the mp4 through a GitHub
-     comment box (docs/img/README.md explains how), paste the returned
-     user_attachments URL below, then delete this line and the closing marker. The same
-     URL goes into the other language page at the same spot.
+<table>
+<tr><td>
+
+**🎬 VIDEO-PLATZHALTER 1 von 6 — `overview.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+
+**Was der Clip zeigen muss** (10–12 s): am Tisch stehen in einem beleuchteten Szenario, dann das
+ganze Brett mit dem beidhändigen Weltgriff verschieben, drehen und zoomen. Nach drei Sekunden soll
+klar sein, worum es geht — ein echter Tisch, an dem du stehst, und ein Brett, das du anfasst.
+
+**So füllst du ihn:** aufnehmen, die mp4 über ein GitHub-Kommentarfeld hochladen
+([so geht das](docs/img/README.md#the-only-way-a-video-actually-plays-in-a-github-readme), englisch),
+dann die `user-attachments`-Adresse über `PASTE_UUID_HERE` in den HTML-Kommentar direkt unter diesem
+Kasten setzen. Dann diesen Kasten löschen und die zwei Kommentar-Zeilen um die Auszeichnung herum
+entfernen, damit sie kein Kommentar mehr ist, sondern ein Video. Derselbe
+Clip kommt an dieselbe Stelle in `README.md`. Vollständiger Auftrag:
+[docs/VIDEO-SHOTLIST.md](docs/VIDEO-SHOTLIST.md) (englisch).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for overview.mp4 — paste the UUID, delete this line and the closing marker
 <p align="center">
   <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
 </p>
 -->
 
-### Deine Karten und dein Brett
+- **Dein Kartenblatt liegt in deiner Handfläche.** Dreh sie nach oben, der Fächer geht auf, nimm
+  eine Karte mit den Fingern und leg sie in ein Fach deines Bretts.
+- **Ein Kontrollbrett, das du mitnimmst.** Rückgängig, die beiden Rasten, die Stapel, die
+  Entscheidungs-Schublade — ein Tisch an einer Stange, den du hinstellst, wo du ihn haben willst.
+- **Greif ins Szenario hinein.** Heb eine Miniatur hoch, um ihren nächsten Zug zu lesen; pack das
+  ganze Brett mit beiden Händen, um es zu ziehen, zu drehen und zu zoomen.
+- **Vollwertiger VR-Mehrspieler.** Masken, Hände, Bretter und zeigende Finger sehen alle — und wer
+  kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
+- **Räume, die für diese Mod gebaut sind.** Ein kerzenbeleuchteter Keller und ein Nachtwald unter
+  einem echten Sternkatalog, beide reagieren auf die Elementinfusionen des Szenarios.
+- **Mixed Reality.** Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer.
+
+## Deine Karten und dein Brett
 
 <table>
 <tr>
@@ -64,7 +93,7 @@ wo du es haben willst.
 Jedes Teil davon ist auf einem beschrifteten Bild im
 [Spielhandbuch](docs/PLAYING.de.md#deine-karten-und-dein-brett) benannt.
 
-### Das Brett vor dir
+## Das Brett vor dir
 
 <table>
 <tr>
@@ -73,39 +102,42 @@ Jedes Teil davon ist auf einem beschrifteten Bild im
 </tr>
 </table>
 
-### Vollwertiger VR-Mehrspieler
+Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe zu
+nehmen — oder halt den Griff und tipp es mit der Fingerspitze an. Heb eine Miniatur hoch, und du
+liest den Zug, den sie gleich macht.
+
+## Alle am selben Tisch
 
 Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Hochgehobene Miniaturen,
 verschobene Fenster und zeigende Finger sehen alle, und wer kein Headset hat, spielt am flachen
 Bildschirm in derselben Partie mit.
 
-<!-- VIDEO PLACEHOLDER: multiplayer.mp4
-     WHAT IT SHOWS: the table from the other side. A second player's mask and hands, their control
-     board mirrored beside them, a miniature they lift, a shared window one of them drags across
-     the room.
-     Full brief: docs/VIDEO-SHOTLIST.md. Record it, upload the mp4 through a GitHub
-     comment box (docs/img/README.md explains how), paste the returned
-     user_attachments URL below, then delete this line and the closing marker. The same
-     URL goes into the other language page at the same spot.
+<table>
+<tr><td>
+
+**🎬 VIDEO-PLATZHALTER 2 von 6 — `multiplayer.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+
+**Was der Clip zeigen muss** (15 s): der Tisch von der anderen Seite. Maske und Hände eines zweiten
+Spielers mit echten Fingerhaltungen, sein gespiegeltes Kontrollbrett daneben, eine Miniatur, die er
+hochhebt, und ein geteiltes Fenster, das einer von euch an eine andere Stelle im Raum zieht. Danach
+weiß der Zuschauer: der andere ist ein Körper am Tisch, kein Name in einer Lobby-Liste.
+
+**So füllst du ihn:** genauso wie den Clip oben auf dieser Seite — über ein Kommentarfeld hochladen,
+die Adresse über `PASTE_UUID_HERE` darunter setzen, diesen Kasten löschen und die zwei
+Kommentar-Zeilen um die Auszeichnung herum entfernen. **Dieser Clip wird zweimal gebraucht:** die Spielanleitung nimmt dieselbe Datei als
+eingecheckte mp4 mit Vorschaubild, leg also `multiplayer.mp4` und `multiplayer-poster.jpg` zusätzlich
+in `docs/img/`. Vollständiger Auftrag: [docs/VIDEO-SHOTLIST.md](docs/VIDEO-SHOTLIST.md) (englisch).
+
+</td></tr>
+</table>
+
+<!-- READY MARKUP for multiplayer.mp4 — paste the UUID, delete this line and the closing marker
 <p align="center">
   <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
 </p>
 -->
 
-## Assets der Mod
-
-Drei Handpaare, drei Masken, drei Kontrollbretter — je ein Dropdown, mitten in der Sitzung
-umstellbar, und die anderen Spieler sehen deine Wahl. Alles für dieses Projekt modelliert.
-
-<p align="center">
-  <img src="docs/img/styles.png" width="680" alt="Drei Handpaare, drei Masken und drei Kontrollbretter mit der Greifstange, die zu jedem gehört">
-</p>
-
-Jedes Fenster und jedes Brett hängt an einer gedrechselten Stange und wird bewegt, indem du sie
-greifst — mit der Hand oder mit dem Zeigestrahl quer über den Tisch. Ein Brett, auf das du quer über
-den Tisch schaust, trägt **die Stange seines Besitzers**, nicht deine.
-
-## Umgebungen
+## Der Raum, in dem du spielst
 
 Ein kerzenbeleuchteter Keller oder ein Nachtwald unter einem echten Sternkatalog — beide für dieses
 Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen.
@@ -118,9 +150,9 @@ Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen.
 **Mixed Reality** blendet den Himmel aus, damit deine Streaming-App den Tisch in dein echtes Zimmer
 stellen kann.
 
-### Wirkung der Elemente
+### Die Räume reagieren auf die Elemente
 
-**Die Räume reagieren auf die Elementinfusionen des Szenarios**, an den Rändern statt über der
+**Die Elementinfusionen des Szenarios verändern den Raum**, an den Rändern statt über der
 Spielfläche. Feuer setzt Requisiten in Brand, Eis lässt Frost wachsen, Luft bewegt Flammen und
 Blattwerk, Erde treibt Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelheit verfinstert den
 Mond.
@@ -130,19 +162,44 @@ Mond.
   <i>Dieselbe Kamera, links Element aus, rechts an.</i>
 </p>
 
-## Voraussetzungen
+## Hände, Masken und Bretter
+
+Drei Handpaare, drei Masken, drei Kontrollbretter — je ein Dropdown, mitten in der Sitzung
+umstellbar, und die anderen Spieler sehen deine Wahl.
+
+<p align="center">
+  <img src="docs/img/styles.png" width="680" alt="Drei Handpaare, drei Masken und drei Kontrollbretter mit der Greifstange, die zu jedem gehört">
+</p>
+
+Jedes Fenster und jedes Brett hängt an einer gedrechselten Stange und wird bewegt, indem du sie
+greifst — mit der Hand oder mit dem Zeigestrahl quer über den Tisch. Ein Brett, auf das du quer über
+den Tisch schaust, trägt **die Stange seines Besitzers**, nicht deine.
+
+## Was du brauchst, und wie du installierst
 
 **Gloomhaven (Digital)** für den PC (Steam oder GOG) · Windows · ein PC-VR-Headset mit zwei
 getrackten Controllern · Room-Scale oder im Stehen. Entwickelt auf einer **Quest 3 über Virtual
 Desktop**.
 
-**[→ Installationsanleitung](INSTALL.de.md)** — zwei Archive, entpackt in den Spielordner.
+**[→ Installationsanleitung](INSTALL.de.md)** — zwei Archive, entpackt in den Spielordner. Danach
+[die Steuerung](docs/PLAYING.de.md#die-steuerung) und die
+[Spielanleitung](docs/PLAYING.de.md).
 
 ---
+
+**Kostenlos, und bleibt kostenlos.** Wenn dir die Mod einen guten Abend am Tisch beschert hat und du
+Danke sagen möchtest: [ein Kaffee](https://buymeacoffee.com/mcfredward) geht immer.
 
 <details>
 <summary><b>Danksagungen und Lizenz</b></summary>
 
+- **ARMA** und **JJ-Pueppi** — Tester, über unzählige Sitzungen im Headset. Vieles von dem, was auf
+  dieser Seite zu sehen ist, sieht nur deshalb so aus, weil einer von beiden das Headset aufgesetzt
+  und gesagt hat, dass es so noch nicht stimmt.
+- **ARMA** hat außerdem die 3D-Assets der Mod gebaut — die Hände, die Masken, die Bretter und den
+  Rest. Sie sind als KI-generierte Rohformen gestartet und in seinen Händen zu brauchbaren Modellen
+  geworden: in Blender nachmodelliert, aufgeräumt, neu gerigged und texturiert, bis sie auf
+  Armlänge im Headset standhalten — und genau daran scheitert ein generiertes Mesh sonst.
 - **[LCVR](https://github.com/DaXcess/LCVR)** und **[RepoXR](https://github.com/DaXcess/RepoXR)**
   (GPL-3.0) — das VR-Startmuster, das Headset-Failover und die Fingerkrümmung, die diese Mod
   übernimmt.
@@ -150,8 +207,6 @@ Desktop**.
   das überall dort greift, wo ein Weltpanel nicht die richtige Antwort ist.
 - **Demeo** (Resolution Games) — das Interaktionsmodell, dem diese Mod folgt. Es werden weder
   Assets noch Code daraus verwendet.
-- Die Hände, die Masken, die Bretter und die übrigen gebauten 3D-Assets wurden für dieses Projekt
-  von seinem Grafiker erstellt.
 
 **Lizenz: GPL-3.0** — siehe [LICENSE](LICENSE). Die Mod liefert **ausschließlich eigenen Code und
 eigene lizenzierte Grafik** aus; niemals Spieldateien, Spiel-Assets oder dekompilierte Quellen.
