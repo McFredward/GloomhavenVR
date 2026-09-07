@@ -967,7 +967,17 @@ internal static partial class PanelSupersample
     /// </summary>
     private static void NeutraliseGrabPassBlur(Entry e, Transform t)
     {
-        if (!WorldUIConfig.NeutraliseGrabPassBlur.Value)
+        // GUARDED SINCE ModBuild 479, and this one is a CLEARED SUSPECT rather than a fix: it was the
+        // last unguarded ConfigEntry read on this path, next to three siblings in the same class that
+        // all defend themselves (WorldUIConfig.PanelSupersample at 1.Core.cs, PanelSupersampleFactor
+        // in ResolveFactor, PanelMipLodOffset in AskedMipLodOffset just above), and every field there
+        // is declared `null!` and left permanently null if Bind() throws part-way. It is NOT the
+        // ModBuild 478 throw: ApplyCaptureLayer reaches here from Engage as well, inside Tick's guard,
+        // so an unbound entry would have failed "the eligibility pass" at the session's FIRST engage
+        // — and that session logged three clean engages before the failure, which read "the per-frame
+        // sync". Closed anyway, because the asymmetry costs one comparison to remove.
+        if (WorldUIConfig.NeutraliseGrabPassBlur == null
+            || !WorldUIConfig.NeutraliseGrabPassBlur.Value)
             return;
         var g = t.GetComponent<Graphic>();
         if (g == null || g.material == null || g.material.shader == null)
@@ -1071,7 +1081,15 @@ internal static partial class PanelSupersample
         }
 
         SyncProjection(e);
-        e.DisplayRect.sizeDelta = e.Frame.size;
+        // GUARDED SINCE ModBuild 479, and the ASYMMETRY is the whole argument: ReleaseRepair writes
+        // this exact line under `if (e.DisplayRect != null)`, and SyncProjection immediately above
+        // returns early when the camera or its GameObject is gone — the same state, on the same
+        // frame, reached through the same entry. This one dereferenced unconditionally, which makes
+        // it the leading candidate for the one NullReferenceException in the ModBuild 478 log.
+        if (e.DisplayRect != null)
+            e.DisplayRect.sizeDelta = e.Frame.size;
+        else
+            MissingPart(e, "display-quad RectTransform (Entry.DisplayRect)");
         SyncDisplayPose(e);
         Rect frame = e.Frame;
 
@@ -1613,6 +1631,23 @@ internal static partial class PanelSupersample
             life.Refusals++;
             life.CreateMs += (Time.realtimeSinceStartup - createStart) * 1000.0;
             e.Authored = frame.size; // as above: do not retry a refused allocation per frame
+            e.ScaleAtAllocation = e.MinContentScale;
+            return;
+        }
+        // GUARDED SINCE ModBuild 479, same asymmetry as SyncGeometry's: SyncVisibility, SyncProjection
+        // and DestroyEntryObjects all test `e.Cam != null` before touching it, and this method — the
+        // one that RE-POINTS the camera and the quad — tested neither it nor the RawImage. The new
+        // target is released here rather than swapped in, so a refused swap costs nothing and leaks
+        // nothing; the window keeps the pair it already has and resamples slightly, which is exactly
+        // what the two refusal branches above already do.
+        if (e.Cam == null || e.DisplayImage == null)
+        {
+            MissingPart(e, e.Cam == null ? "capture camera (Entry.Cam)"
+                                         : "display-quad RawImage (Entry.DisplayImage)");
+            rt.Release();
+            Object.Destroy(rt);
+            life.Refusals++;
+            e.Authored = frame.size;
             e.ScaleAtAllocation = e.MinContentScale;
             return;
         }
@@ -2902,17 +2937,201 @@ internal static partial class PanelSupersample
 
     // ---- the fatal-error stand-down ---------------------------------------------------------
 
+    /// <summary>
+    /// <b>THE ONE THING A CAUGHT EXCEPTION IN THIS MOD MUST CARRY, AND THE ModBuild 478 LOG PROVES
+    /// WHY.</b> That session's only <see cref="Fail"/> line read, in full,
+    /// <c>(NullReferenceException: )</c> — an EMPTY message and no stack — for a failure that tore
+    /// every engaged window down. Nothing in a 94 MB log could name the throwing member, so the
+    /// defect could not be diagnosed without asking the user for another hardware round.
+    ///
+    /// <para><b>READ THE EMPTY MESSAGE AS A MEASUREMENT, NOT AS A CURIOSITY.</b> A caught exception
+    /// has TWO independent pieces of evidence on it and this file was composing only the weaker one.
+    /// <see cref="System.Exception.StackTrace"/> is captured by the runtime at THROW time and is
+    /// unaffected by <c>Application.SetStackTraceLogType</c> — which is what
+    /// <c>Core/Diagnostics/ExceptionTraces.cs</c> restores, and which only ever governed exceptions
+    /// UNITY logs, never ones we catch ourselves. So the stack was available the whole time and was
+    /// simply not asked for.</para>
+    ///
+    /// <para>Both halves are stated explicitly rather than interpolated, so a future reading can tell
+    /// "the runtime gave no message" apart from "the message was dropped on the way to the log", and
+    /// "this build has no managed stack" apart from "nobody asked for one".</para>
+    /// </summary>
+    private static string Describe(System.Exception ex)
+    {
+        string message = string.IsNullOrEmpty(ex.Message)
+            ? "<NO MESSAGE — the runtime raised this exception without one, which is ordinary for a "
+              + "bare dereference and is exactly why the stack below is the whole of the evidence>"
+            : ex.Message;
+        string stack = string.IsNullOrEmpty(ex.StackTrace)
+            ? "<NO MANAGED STACK — the throw came from native code or from a frame the runtime could "
+              + "not walk; the `where` tag above is then all that names it>"
+            : ex.StackTrace;
+        return $"{ex.GetType().Name}: {message}\n{stack}";
+    }
+
+    /// <summary>
+    /// How many times one FAILURE SITE, or one WINDOW, may throw before this path stops trying it.
+    /// <para>Four, and the number is doing two jobs at once. It has to be above one, because the
+    /// ModBuild 478 reading is a SINGLE throw from which the path recovered completely and a fix that
+    /// turned that into a permanent outage would be a regression dressed as a safety measure. And it
+    /// has to be small, because the alternative failure shape in this project is a subsystem that
+    /// threw on 19,853 CONSECUTIVE frames while every frame paid for a full render-target teardown
+    /// and rebuild.</para>
+    /// </summary>
+    private const int MaxFailuresPerSite = 4;
+
+    /// <summary>Session throw tally per <c>where</c> site. Not a bool: the ModBuild 478 flag latched
+    /// after ONE line, so a site that threw a thousand times and a site that threw once were the same
+    /// log.</summary>
+    private static readonly Dictionary<string, int> Failures = new(4);
+
+    /// <summary>Session throw tally per WINDOW NAME — the same key <see cref="Lives"/> uses, and
+    /// deliberately NOT the entry, because the entry dies at the stand-down and the whole point of
+    /// this tally is to survive into the re-engage that follows.</summary>
+    private static readonly Dictionary<string, int> WindowFailures = new(4);
+
+    /// <summary>
+    /// <b>THE CLAIM THE ModBuild 478 LOG LINE MADE, MADE TRUE.</b> That line said "the path stands
+    /// down completely… every floated window goes back to being rasterized directly into the eye",
+    /// and the same log falsifies it 866 lines later: <see cref="StandDownAll"/> only empties
+    /// <see cref="Entries"/>, nothing gated <see cref="Tick"/>, and the eligibility pass re-engaged
+    /// both windows on the very next frames (25 further engages followed in that session).
+    /// <para>So the sentence is now a CONSEQUENCE OF A FLAG rather than a hope: after
+    /// <see cref="MaxFailuresPerSite"/> throws at one site the path really does stop, and until then
+    /// the log says what actually happens instead — a one-frame gap and a full target rebuild.</para>
+    /// </summary>
+    private static bool _pathDisabled;
+
+    /// <summary>
+    /// <b>ONE WINDOW THREW; STAND DOWN THAT WINDOW.</b> Called from the per-entry guard inside
+    /// <c>LateTick</c>'s loop, where the entry that threw is known — which is the whole reason the
+    /// guard was moved inside the loop. The ModBuild 478 failure tore down BOTH engaged windows and
+    /// 75 MB of render target for a throw that belonged to at most one of them.
+    ///
+    /// <para><b>WHY THIS DOES NOT BECOME A THROW-EVERY-FRAME LOOP.</b> The stand-down removes the
+    /// entry, so the next frame's loop cannot re-enter the same code with the same state; the
+    /// eligibility pass may re-engage the window, which is CORRECT for a transient (a scene load, a
+    /// modal being re-revealed) and is exactly what recovered the 478 session. A window that throws
+    /// <see cref="MaxFailuresPerSite"/> times is not transient and is refused for the rest of the
+    /// session — bounding the loop at four engage/stand-down cycles rather than at none or at
+    /// infinity.</para>
+    /// </summary>
+    private static void FailEntry(System.Exception ex, Entry e, int index, string where)
+    {
+        string window = e.Window;
+        Failures.TryGetValue(where, out int siteCount);
+        Failures[where] = siteCount + 1;
+        WindowFailures.TryGetValue(window, out int count);
+        count++;
+        WindowFailures[window] = count;
+
+        // Capped per WINDOW and per verdict class, first eight then one per doubling — never once
+        // per session, which is the ModBuild 478 defect this method exists to remove. A throw that
+        // repeats has to remain visible or the log cannot tell a transient from a loop.
+        if (count <= 8 || (count & (count - 1)) == 0)
+        {
+            // HW-VERIFY
+            VRLog.Alert(Scope, $"PANEL SUPERSAMPLE failed on '{window}' in {where} — throw #{count} "
+                + $"on this window this session, #{siteCount + 1} at this site. WHAT HAPPENS NOW: "
+                + "this ONE window is stood down and drawn straight into the eye again (i.e. the "
+                + "dial's OFF behaviour for it, including the shimmer); every OTHER engaged window "
+                + $"keeps its capture — {Mathf.Max(Entries.Count - 1, 0)} of them here. The "
+                + "eligibility pass "
+                + "re-engages this one on a later frame if it is still eligible, which costs it a "
+                + "full render-target rebuild but no permanent loss. Input, placement and "
+                + "multiplayer are untouched either way. AFTER "
+                + $"{MaxFailuresPerSite} throws this window is refused for the rest of the session, "
+                + "so a genuine loop is bounded rather than paying for a teardown every frame. "
+                + "THE STACK IS THE EVIDENCE — the ModBuild 478 line carried only an empty "
+                + ".Message and could name nothing:\n" + Describe(ex));
+        }
+
+        try
+        {
+            StandDown(e, index, $"a failure in {where} on this window");
+        }
+        catch
+        {
+            // Never throw out of a tick.
+        }
+        // FORWARD PROGRESS, unconditionally. If StandDown itself threw, the entry is still in the
+        // list and the next frame would re-enter the same code with the same state — the loop this
+        // method exists to prevent. Remove is a no-op when the stand-down already removed it.
+        Entries.Remove(e);
+    }
+
+    /// <summary>Has this window thrown often enough to be refused for the session? Read by
+    /// <c>Consider</c> before every engage, so a window that fails on engage cannot be re-engaged
+    /// forever.</summary>
+    private static bool FailedOut(string window)
+        => WindowFailures.TryGetValue(window, out int count) && count >= MaxFailuresPerSite;
+
+    /// <summary>Per-window tally of "an <see cref="Entry"/> part this frame needed was not there",
+    /// keyed <c>window|part</c>.</summary>
+    private static readonly Dictionary<string, int> MissingParts = new(4);
+
+    /// <summary>
+    /// <b>A GUARD THAT STAYS EVIDENCE.</b> Every <see cref="Entry"/> object field is declared
+    /// <c>null!</c>, and this file guards some of their dereferences and not others — the same
+    /// expression appears guarded in <see cref="ReleaseRepair"/> and unguarded in
+    /// <see cref="SyncGeometry"/>, and <see cref="SyncProjection"/> returns early on a camera that
+    /// <see cref="Reallocate"/> writes through unconditionally. Closing that asymmetry is right, but
+    /// a bare <c>if (x != null)</c> would turn the ModBuild 478 throw into SILENCE, which is this
+    /// project's "a workaround outlived the question": the picture would be quietly wrong and the
+    /// next round would have less to read than this one did.
+    ///
+    /// <para>So the guard NAMES the part instead. Capped per window and per part the way
+    /// <see cref="NoteRefusedLayerRestores"/> is capped — first eight, then one per doubling — so a
+    /// state that persists stays visible without flooding a per-frame path.</para>
+    /// </summary>
+    private static void MissingPart(Entry e, string part)
+    {
+        string key = e.Window + "|" + part;
+        MissingParts.TryGetValue(key, out int count);
+        count++;
+        MissingParts[key] = count;
+        if (count > 8 && (count & (count - 1)) != 0)
+            return;
+        // HW-VERIFY
+        VRLog.Alert(Scope, $"PANEL SUPERSAMPLE: '{e.Window}' reached the per-frame sync with no "
+            + $"{part} (occurrence {count} this session). BEFORE ModBuild 479 THIS WAS A THROW — the "
+            + "dereference was unguarded here and guarded in the sibling method that writes the same "
+            + "value, so the frame died and every engaged window was torn down for it. It is now a "
+            + "skipped write on THIS window only. WHAT IT LOOKS LIKE: the quad keeps last frame's "
+            + "size or last frame's texture until the part comes back, i.e. one window very slightly "
+            + "stale, not a window that stops being supersampled. IF THIS LINE IS PRESENT AT ALL, it "
+            + "names the field the ModBuild 478 NullReferenceException most likely died on; if the "
+            + "throw persists WITH this line absent, the null is somewhere else and the stack on the "
+            + "PANEL SUPERSAMPLE failed line is the thing to read.");
+    }
 
     private static void Fail(System.Exception ex, string where)
     {
-        if (_errorLogged)
-            return;
-        _errorLogged = true;
-        VRLog.Warn(Scope, $"PANEL SUPERSAMPLE failed in {where} ({ex.GetType().Name}: {ex.Message}) "
-                          + "— the path stands down completely. THE CONSEQUENCE: every floated window "
-                          + "goes back to being rasterized directly into the eye, i.e. exactly the "
-                          + "behaviour with the dial off, including the reported shimmer. Nothing "
-                          + "about input, placement or multiplayer changes.");
+        Failures.TryGetValue(where, out int count);
+        count++;
+        Failures[where] = count;
+
+        // Capped, not latched. The ModBuild 478 `_errorLogged` bool silenced EVERY later failure at
+        // EVERY site for the rest of the process while StandDownAll kept running, so a throw that
+        // repeated once per frame — and this path has two callbacks that run once per camera per
+        // frame — would have been an invisible per-frame teardown of every window.
+        if (count <= 8 || (count & (count - 1)) == 0)
+        {
+            // HW-VERIFY
+            VRLog.Alert(Scope, $"PANEL SUPERSAMPLE failed in {where} — throw #{count} at this site "
+                + "this session, and it is NOT attributable to one window (it happened outside the "
+                + "per-window guard). WHAT HAPPENS NOW, measured rather than asserted: all "
+                + $"{Entries.Count} engaged window(s) are stood down and {Mb(_vramTotal)} MB of "
+                + "render target is released, then the eligibility pass re-engages every one of them "
+                + "that is still eligible — so the honest cost of ONE throw is a single frame with "
+                + "no supersampling plus a full target rebuild, NOT the permanent outage the "
+                + "ModBuild 478 wording claimed (that session's log carries 25 further engages after "
+                + "its only failure). Input, placement and multiplayer are untouched. AFTER "
+                + $"{MaxFailuresPerSite} throws at one site the path really does stop for the "
+                + "session, which is what bounds a per-frame loop. THE STACK IS THE EVIDENCE:\n"
+                + Describe(ex));
+        }
+
         try
         {
             StandDownAll("a failure in " + where);
@@ -2920,6 +3139,20 @@ internal static partial class PanelSupersample
         catch
         {
             // Nothing left to do: never throw out of a tick.
+        }
+
+        if (count >= MaxFailuresPerSite && !_pathDisabled)
+        {
+            _pathDisabled = true;
+            // HW-VERIFY
+            VRLog.Alert(Scope, $"PANEL SUPERSAMPLE is OFF for the rest of this session: {where} has "
+                + $"thrown {count} times, which is not a transient. THE CONSEQUENCE: every floated "
+                + "window is rasterized directly into the eye from now on — exactly the behaviour "
+                + "with the [WorldUI] PanelSupersample dial off, including the text and edge "
+                + "shimmer. Nothing about input, placement or multiplayer changes. This is the "
+                + "sentence the ModBuild 478 line printed after ONE throw, when it was not true; it "
+                + "is true here. The stack of the first throw is above — it names the member to fix, "
+                + "and until it is fixed the only lever from the log is that dial.");
         }
     }
 }

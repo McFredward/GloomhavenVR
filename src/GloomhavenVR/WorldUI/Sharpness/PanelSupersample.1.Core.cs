@@ -980,7 +980,6 @@ internal static partial class PanelSupersample
 
     private static bool _noLayerLogged;
     private static bool _noHeadLogged;
-    private static bool _errorLogged;
     private static bool _capLogged;
     private static float _nextReport;
     private static int _poseSyncFrame = -1;
@@ -2277,12 +2276,21 @@ internal static partial class PanelSupersample
             RestoreMaskedCameras();
             UninstallHooks();
             Refused.Clear();
+            // A HOT RELOAD IS A NEW SESSION FOR THE FAILURE LEDGERS. Everything they hold is "since
+            // this process last started this path", and the whole point of reloading the plugin is to
+            // test a build that may have fixed the throw — a stale four-strike refusal would make the
+            // new code read as still broken while never having run. _pathDisabled last, so a reload
+            // always comes back up.
+            Failures.Clear();
+            WindowFailures.Clear();
+            MissingParts.Clear();
+            _pathDisabled = false;
         }
         catch (System.Exception ex)
         {
-            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE shutdown failed ({ex.GetType().Name}: {ex.Message}) "
-                              + "— a floated window may keep a mod capture layer or a camera may keep "
-                              + "a narrowed culling mask until the next scene load.");
+            VRLog.Warn(Scope, "PANEL SUPERSAMPLE shutdown failed — a floated window may keep a mod "
+                              + "capture layer or a camera may keep a narrowed culling mask until the "
+                              + "next scene load.\n" + Describe(ex));
         }
     }
 
@@ -2295,6 +2303,12 @@ internal static partial class PanelSupersample
     /// </summary>
     internal static void Tick()
     {
+        // THE SESSION STAND-DOWN, AND THE ONLY PLACE IT IS ENFORCED (ModBuild 479). Until this build
+        // nothing read the failure state at all: StandDownAll merely emptied Entries and this method
+        // re-engaged every window on the next tick, so the failure line's "the path stands down
+        // completely" was falsified by its own session 866 log lines later. See _pathDisabled.
+        if (_pathDisabled)
+            return;
         try
         {
             bool wanted = WorldUIConfig.PanelSupersample != null && WorldUIConfig.PanelSupersample.Value;
@@ -2360,80 +2374,135 @@ internal static partial class PanelSupersample
             for (int i = Entries.Count - 1; i >= 0; i--)
             {
                 Entry e = Entries[i];
-                if (!Eligible(e.Panel))
+                // THE GUARD IS INSIDE THE LOOP (ModBuild 479), and moving it here is the per-window
+                // half of this fix. The ModBuild 478 log's single throw was caught by the METHOD-level
+                // catch below, which knows only that "the per-frame sync" failed: it stood BOTH engaged
+                // windows down and released 75 MB of render target for a throw that belonged to at most
+                // one of them, and its log line could not name a window. Here the entry that threw is in
+                // hand, so the failure NAMES it, costs only it, and is counted against it — which is
+                // also what makes FailEntry's four-strike refusal possible at all.
+                try
                 {
-                    StandDown(e, i, "the window is no longer eligible (closed, hidden or re-fitted "
-                                    + "below the minimum size)");
-                    continue;
+                    ServiceEntry(e, i, report);
                 }
-                // BEFORE SyncGeometry, because arming a burst pulls NextContentFrame to NOW and it is
-                // SyncGeometry that reads it — so a tab press re-measures the capture frame on the
-                // very frame it happened, not on the next 15-frame cadence tick. See
-                // Entry.SubViewChanges for the whole argument and for the ModBuild 202 evidence.
-                NoticeSubViewChange(e);
-                SyncGeometry(e);
-                SyncVisibility(e);
-
-                bool moving = IsMoving(e);
-                SampleFrameBudget(e, moving);
-
-                // THE SUB-MESH CULL INVARIANT — ModBuild 204's headline, and it runs HERE, every
-                // frame, on every entry, gated on NOTHING. This project has now shipped four remedies
-                // that never executed because they were gated on the very diagnostic that was supposed
-                // to decide whether they were needed (ModBuild 196's text regeneration, ModBuild 198's
-                // band-limit floor, and twice besides). This one is a compare over a cached pair list
-                // — see RepairSubMeshCull for the two decompiled quotations that make it a repair of a
-                // TMP invariant rather than a policy of ours.
-
-                // THE SUB-VIEW BURST, ahead of the ordinary cadence so a burst frame is never
-                // followed by a redundant periodic sweep on the same frame (it re-arms NextSweepFrame
-                // itself). Costs nothing on every frame in which no sub-view changed.
-                ServiceSweepBurst(e);
-
-                // THE MOVEMENT CADENCE. While the window is moving (and for SweepAfterMotionFrames
-                // after), sweep on the faster MovingSweepIntervalFrames cadence: that is the interval
-                // in which the panel's own per-frame nested-canvas adoption is throttled OFF by
-                // GrabbableModal.ThrottleDiagWhileMoving, so a child born mid-drag would otherwise
-                // stay on the game's UI layer — missing from the capture and double-drawn into the
-                // eye. It is a CADENCE and no longer every frame, because the ModBuild 195 log priced
-                // per-frame sweeping at 1.5 ms of a 17 ms frame and measured that it caught exactly
-                // ONE of the session's 23 real arrivals; see MovingSweepIntervalFrames.
-                if (Time.frameCount >= e.NextSweepFrame)
+                catch (System.Exception ex)
                 {
-                    e.NextSweepFrame = Time.frameCount
-                                       + (moving ? MovingSweepIntervalFrames : SweepIntervalFrames);
-                    ApplyCaptureLayer(e, initial: false);
-                }
-
-                // THE RELEASE REPAIR and the FONT-REPACK REPAIR — both unconditional, both bounded,
-                // and both aimed squarely at "die dargestellte Anzeige ist kaputt". See ReleaseRepair.
-                ServiceRepairs(e);
-
-                if (report)
-                {
-                    // Scan on the report cadence as well as on every release, so the CONTENT
-                    // INTEGRITY field is never a stale reading from the last time the window was
-                    // touched. The window in the user's photograph had been STANDING STILL when the
-                    // pause menu opened next to it, so "it only moved ten minutes ago" must not mean
-                    // "measured ten minutes ago". Once per 10 s per panel, ~1 ms.
-                    MeasureContent(e);
-                    Report(e);
-                    // TWO FURTHER LINES, EMITTED FROM PanelSupersample.4.Content.cs, because that is
-                    // the file that owns both measurements (ModBuild 204). They are separate lines
-                    // rather than more fields on Report's line for a practical reason: each one has to
-                    // carry its own HOW TO READ IT paragraph, and the state line is already at the
-                    // limit of what a reader can hold.
-                    ReportCaptureFrame(e);
-                    // ModBuild 243's falsifier. A separate line for the same reason as the two
-                    // above: it carries its own verdict and its own ASKED -> GOT table, and the
-                    // state line is already at the limit of what a reader can hold.
-                    ReportEyeGrid(e);
+                    FailEntry(ex, e, i, "the per-frame sync");
                 }
             }
         }
         catch (System.Exception ex)
         {
-            Fail(ex, "the per-frame sync");
+            // Reached only for the parts of the frame that belong to NO entry — RestoreMaskedCameras
+            // and the loop's own bookkeeping. Named apart from the per-window site so the two failure
+            // tallies in Fail and FailEntry can never be read as one.
+            Fail(ex, "the per-frame sync's shared scaffolding");
+        }
+    }
+
+    /// <summary>
+    /// One engaged window's per-frame service — the body of <see cref="LateTick"/>'s loop, extracted
+    /// verbatim (ModBuild 479) so that loop can guard PER ENTRY instead of per method. Not a refactor
+    /// of the supersampler: the calls, their order and every comment on them are unchanged, and the
+    /// only edit is that the early exits are <c>return</c> rather than <c>continue</c>.
+    /// <para><paramref name="i"/> is the entry's index in <see cref="Entries"/>, needed only so a
+    /// stand-down can remove it in O(1); <paramref name="report"/> is the caller's 10 s cadence flag,
+    /// resolved once per frame rather than once per window so every window's report lands in the same
+    /// burst.</para>
+    ///
+    /// <para><b>THE RE-ENTRANCY DOOR, NAMED HERE BECAUSE ModBuild 479 FOUND IT AND DID NOT CLOSE
+    /// IT.</b> This method holds ONE <see cref="Entry"/> across <c>NoticeSubViewChange</c>,
+    /// <c>SyncGeometry</c>, <c>ApplyCaptureLayer</c>, <c>ServiceRepairs</c> and
+    /// <c>MeasureContent</c> — and several of those write to game objects (<c>SetActive</c>, a layer
+    /// write, <c>enabled = false</c>, TMP's <c>ForceMeshUpdate</c>, and a synchronous
+    /// <c>Camera.Render</c> inside <c>PrimeNewTarget</c>). Any of them can make the game run a
+    /// <c>UIWindow.Show()</c>, whose postfix reaches <see cref="NoticeWindowShown"/>
+    /// (<c>Modal/ModalFallback.4.Tick.cs:523</c>) and stands an entry down SYNCHRONOUSLY — including,
+    /// in principle, the entry this method is still holding. <see cref="StandDown"/> ends in
+    /// <c>DestroyEntryObjects</c>, which sets <c>Cam</c>, <c>CamGo</c>, <c>DisplayGo</c>, <c>Rt</c>
+    /// and <c>MipRt</c> to genuine <c>null</c>, so every later read of those five in this frame is
+    /// then a bare dereference. <c>NoticeRelease</c> (<c>Conversion/CanvasConversion.4.Lifecycle.cs
+    /// :30, :652</c>) is the same door by a second route.
+    ///
+    /// <para>IT IS NOT WHAT KILLED THE ModBuild 478 FRAME, and the log says so: both stand-down doors
+    /// go through <see cref="StandDown"/>, which logs unconditionally, and no stand-down line
+    /// precedes that session's failure — the two that follow it are <see cref="StandDownAll"/>'s own.
+    /// So this is a real hazard with no measured occurrence, which is why it is written down rather
+    /// than guarded. THE SHAPE OF THE FIX when a reading justifies it: an <c>Alive</c> flag on
+    /// <see cref="Entry"/>, cleared in <see cref="StandDown"/>, tested here after each of the five
+    /// calls above — that makes the whole class unrepresentable instead of guarding one field at a
+    /// time, which is all ModBuild 479 did.</para></para>
+    /// </summary>
+    private static void ServiceEntry(Entry e, int i, bool report)
+    {
+        if (!Eligible(e.Panel))
+        {
+            StandDown(e, i, "the window is no longer eligible (closed, hidden or re-fitted "
+                            + "below the minimum size)");
+            return;
+        }
+        // BEFORE SyncGeometry, because arming a burst pulls NextContentFrame to NOW and it is
+        // SyncGeometry that reads it — so a tab press re-measures the capture frame on the
+        // very frame it happened, not on the next 15-frame cadence tick. See
+        // Entry.SubViewChanges for the whole argument and for the ModBuild 202 evidence.
+        NoticeSubViewChange(e);
+        SyncGeometry(e);
+        SyncVisibility(e);
+
+        bool moving = IsMoving(e);
+        SampleFrameBudget(e, moving);
+
+        // THE SUB-MESH CULL INVARIANT — ModBuild 204's headline, and it runs HERE, every
+        // frame, on every entry, gated on NOTHING. This project has now shipped four remedies
+        // that never executed because they were gated on the very diagnostic that was supposed
+        // to decide whether they were needed (ModBuild 196's text regeneration, ModBuild 198's
+        // band-limit floor, and twice besides). This one is a compare over a cached pair list
+        // — see RepairSubMeshCull for the two decompiled quotations that make it a repair of a
+        // TMP invariant rather than a policy of ours.
+
+        // THE SUB-VIEW BURST, ahead of the ordinary cadence so a burst frame is never
+        // followed by a redundant periodic sweep on the same frame (it re-arms NextSweepFrame
+        // itself). Costs nothing on every frame in which no sub-view changed.
+        ServiceSweepBurst(e);
+
+        // THE MOVEMENT CADENCE. While the window is moving (and for SweepAfterMotionFrames
+        // after), sweep on the faster MovingSweepIntervalFrames cadence: that is the interval
+        // in which the panel's own per-frame nested-canvas adoption is throttled OFF by
+        // GrabbableModal.ThrottleDiagWhileMoving, so a child born mid-drag would otherwise
+        // stay on the game's UI layer — missing from the capture and double-drawn into the
+        // eye. It is a CADENCE and no longer every frame, because the ModBuild 195 log priced
+        // per-frame sweeping at 1.5 ms of a 17 ms frame and measured that it caught exactly
+        // ONE of the session's 23 real arrivals; see MovingSweepIntervalFrames.
+        if (Time.frameCount >= e.NextSweepFrame)
+        {
+            e.NextSweepFrame = Time.frameCount
+                               + (moving ? MovingSweepIntervalFrames : SweepIntervalFrames);
+            ApplyCaptureLayer(e, initial: false);
+        }
+
+        // THE RELEASE REPAIR and the FONT-REPACK REPAIR — both unconditional, both bounded,
+        // and both aimed squarely at "die dargestellte Anzeige ist kaputt". See ReleaseRepair.
+        ServiceRepairs(e);
+
+        if (report)
+        {
+            // Scan on the report cadence as well as on every release, so the CONTENT
+            // INTEGRITY field is never a stale reading from the last time the window was
+            // touched. The window in the user's photograph had been STANDING STILL when the
+            // pause menu opened next to it, so "it only moved ten minutes ago" must not mean
+            // "measured ten minutes ago". Once per 10 s per panel, ~1 ms.
+            MeasureContent(e);
+            Report(e);
+            // TWO FURTHER LINES, EMITTED FROM PanelSupersample.4.Content.cs, because that is
+            // the file that owns both measurements (ModBuild 204). They are separate lines
+            // rather than more fields on Report's line for a practical reason: each one has to
+            // carry its own HOW TO READ IT paragraph, and the state line is already at the
+            // limit of what a reader can hold.
+            ReportCaptureFrame(e);
+            // ModBuild 243's falsifier. A separate line for the same reason as the two
+            // above: it carries its own verdict and its own ASKED -> GOT table, and the
+            // state line is already at the limit of what a reader can hold.
+            ReportEyeGrid(e);
         }
     }
 
@@ -2484,6 +2553,16 @@ internal static partial class PanelSupersample
     /// bake an empty frame and the display would show a blank window at the pop-in.</item>
     /// </list>
     /// </summary>
+    /// <summary>
+    /// The name this class knows a window by — <see cref="Entry.Window"/>, the key
+    /// <see cref="Lives"/>, <c>MipBiasNextReport</c> and <c>WindowFailures</c> are all held under,
+    /// and the string every log line in this file prints. ONE implementation, because it is asked
+    /// both at engage (where the entry is built) and before it (where the failure ledger is
+    /// consulted), and two spellings of it would silently give the same window two ledgers.
+    /// </summary>
+    private static string WindowNameOf(ConvertedPanel panel)
+        => panel.Target != null ? panel.Target.name : panel.HostGo.name;
+
     private static bool Eligible(ConvertedPanel? panel)
     {
         if (panel == null || !panel.IsAlive || panel.HostGo == null || panel.HostCanvas == null
@@ -2528,8 +2607,13 @@ internal static partial class PanelSupersample
         for (int i = 0; i < live.Count && Entries.Count < cap; i++)
         {
             ConvertedPanel panel = live[i];
+            // FailedOut is asked LAST because it is the only one of the four that costs a string, and
+            // it is asked at all because Refused cannot carry this: every StandDown clears that set on
+            // purpose (a freed budget deserves a fresh look), so a window that throws would be
+            // re-engaged, re-throw and re-stand-down forever. See FailEntry.
             if (!Eligible(panel) || OwnsPanelLayers(panel)
-                || Refused.Contains(panel.HostGo.GetInstanceID()))
+                || Refused.Contains(panel.HostGo.GetInstanceID())
+                || FailedOut(WindowNameOf(panel)))
                 continue;
             Engage(panel);
         }
@@ -2623,7 +2707,7 @@ internal static partial class PanelSupersample
             return;
         }
 
-        string window = panel.Target != null ? panel.Target.name : panel.HostGo.name;
+        string window = WindowNameOf(panel);
         Rect rect = panel.HostRect.rect;
         float factor = ResolveFactor(out float configured, out bool floored);
 
