@@ -389,6 +389,14 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <inheritdoc cref="_arcHeldSeatA"/>
     private int _arcHeldSeatB = -1;
 
+    /// <summary>The record-36 MODEL seats the two above were translated FROM, kept only so
+    /// <see cref="ReportArcMembershipIfChanged"/> can print the translation rather than its result.
+    /// A count of suppressed slabs cannot tell a right hide from a wrong one; a
+    /// <c>modelSeat-&gt;arcSeat</c> pair can, and that pair is the whole reading for the 2026-09-07
+    /// HELD-order regression.</summary>
+    private int _arcHeldListSeatA = -1;
+    private int _arcHeldListSeatB = -1;
+
     /// <summary>Record 36's list length beside those seats, for the verdict line's membership
     /// clause. 0 when no seat was named.</summary>
     private int _arcHeldListLength;
@@ -2479,6 +2487,34 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// rather than from a record on this packet — the HELD verdict of the log line.</summary>
     private bool _orderFromLatch;
 
+    /// <summary>
+    /// THE PERMUTATION THAT IS ACTUALLY IN FORCE, as MODEL indices: entry <c>k</c> is the hand-list
+    /// index the arc holds at seat <c>k</c>. Written wherever <see cref="_orderScratch"/> is filled —
+    /// the STATED path and the HELD path alike — and zeroed by <see cref="ApplyFanArcOrder"/>'s own
+    /// first lines, so a refused frame can never leave a stale one standing.
+    ///
+    /// <para>WHY IT EXISTS AT ALL, when <c>_owner.FanArcOrder</c> is already the wire's own array:
+    /// because the wire array is only ONE of the two ways an order comes into force. Since the
+    /// 2026-09-07 order fix the receiver also HOLDS the last applied order across a packet that
+    /// states none (<see cref="TryHoldFanArcOrder"/>), and a HELD order fills the gather with
+    /// <c>_owner.FanArcOrder</c> STILL NULL. Anything translating off the wire array is therefore
+    /// right for a stated order and silently falls back to the identity for a held one — in exactly
+    /// the state the latch made common. This array is the one expression both are true of.</para>
+    ///
+    /// <para>AND IT IS READABLE IN BOTH WINDOWS OF THE FRAME, which the gather is not.
+    /// <see cref="_orderScratch"/> lives only between <see cref="ApplyFanArcOrder"/> and
+    /// <see cref="CommitFanArcOrder"/>; <see cref="ResolveArcHeldSeats"/> runs a whole method
+    /// earlier, out of <see cref="LayoutCards"/>, where the gather is empty and
+    /// <see cref="_handBuffer"/> already holds the PREVIOUS commit's arc order. Read there, this
+    /// array is last frame's applied permutation — which is precisely the order the slabs being laid
+    /// out are currently in, so the two agree by construction instead of by luck.</para>
+    /// </summary>
+    private readonly int[] _appliedOrder = new int[MaxCards];
+
+    /// <summary>How many seats of <see cref="_appliedOrder"/> are meaningful. 0 = no permutation in
+    /// force, which means the arc IS the model order and the identity is the correct answer.</summary>
+    private int _appliedOrderCount;
+
     /// <summary>Why the most recent stated order was refused, for the log line. Empty when the last
     /// one was applied.</summary>
     private string _orderRefusal = string.Empty;
@@ -2523,6 +2559,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     {
         _orderArcValid = false;
         _orderFromLatch = false;
+        // Zeroed HERE and written only by the two paths that actually stage a gather, so every
+        // refusal below — "arc length", "not a permutation", "no fronts", "none stated" — leaves the
+        // identity standing rather than a permutation from a frame that no longer describes this arc.
+        _appliedOrderCount = 0;
         // A CLOSED FAN FORGETS. Nothing this latch holds survives the arc going away, so a fan
         // raised again is never drawn in an order its owner left behind minutes ago.
         if (count <= 0)
@@ -2601,7 +2641,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // NAME rather than by any arithmetic on lengths.
         _orderScratch.Clear();
         for (int k = 0; k < stated; k++)
+        {
             _orderScratch.Add(_handBuffer[order[k]]);
+            if (k < _appliedOrder.Length)
+                _appliedOrder[k] = order[k];   // see _appliedOrder: the gather in index form
+        }
+        _appliedOrderCount = Mathf.Min(stated, _appliedOrder.Length);
         _orderRefusal = string.Empty;
         _orderArcValid = true;
         // ONE COUNT PER DISTINCT ORDER APPLIED, for the same reason _orderStated is: this runs
@@ -2710,22 +2755,32 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         {
             int want = _latchOrderIds[k];
             AbilityCardUI? found = null;
+            int foundAt = -1;
             for (int i = 0; i < _handBuffer.Count; i++)
             {
                 AbilityCardUI? w = _handBuffer[i];
                 if (w != null && w.CardInstanceID == want)
                 {
                     found = w;
+                    foundAt = i;
                     break;
                 }
             }
             if (found == null)
             {
                 _orderScratch.Clear();
+                _appliedOrderCount = 0;
                 return false;
             }
             _orderScratch.Add(found);
+            // A HELD order is an order. Recording it in the SAME index form the stated path uses is
+            // the whole of the ResolveArcHeldSeats fix: this path leaves _owner.FanArcOrder null, so
+            // every consumer that read the wire array fell back to the identity here and hid the
+            // wrong slab. See _appliedOrder.
+            if (k < _appliedOrder.Length)
+                _appliedOrder[k] = foundAt;
         }
+        _appliedOrderCount = Mathf.Min(_latchOrderIds.Count, _appliedOrder.Length);
         return true;
     }
 
@@ -2928,6 +2983,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     {
         _arcHeldSeatA = -1;
         _arcHeldSeatB = -1;
+        _arcHeldListSeatA = -1;
+        _arcHeldListSeatB = -1;
         int held = _owner.HeldHandSeats(out int seatA, out int seatB, out int listLength);
         _arcHeldListLength = listLength;
         if (held == 0)
@@ -2967,71 +3024,65 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // THE TRANSLATION IS BELTED ON ITS OWN TERMS and does not borrow UpdateFaces' verdict: it
         // needs no model list, so it runs with the reveal gate shut, and a permutation that does
         // not validate leaves the identity standing rather than hiding a slab at a guessed seat.
-        int[]? order = _owner.FanArcOrder;
-        bool orderOk = order != null
-                       && NetProtocol.ValidateFanArcOrder(order, _owner.FanArcOrderCount, count);
+        //
+        // ...AND THE TRANSLATION IS THE ONE IN FORCE, NOT THE ONE ON THE WIRE (2026-09-07). This
+        // read `_owner.FanArcOrder` + ValidateFanArcOrder and fell back to the identity when the
+        // wire array was null. That was complete until the same round's order fix gave the receiver
+        // a second way to have an order in force: TryHoldFanArcOrder HOLDS the last applied one
+        // across a packet that states none, and fills the gather with _owner.FanArcOrder still NULL.
+        // From that build on, every HELD frame translated by the identity and hid the slab at the
+        // MODEL seat — a card the owner is looking at goes dark while the one in their fist stays
+        // drawn, which is the user's own "eine andere Karte an der falschen Stelle" symptom on the
+        // hiding side rather than the ordering side. AppliedArcSeatOf is true of both paths.
+        //
+        // NO SEPARATE VALIDATE CALL: _appliedOrder is only ever written by a gather that already
+        // passed ValidateFanArcOrder (the stated path) or that resolved every latched id to a live
+        // widget (the held path), and it is zeroed on every refusal. An unvalidated permutation
+        // cannot reach this method.
         if (seatA >= 0 && seatA < count)
-            _arcHeldSeatA = orderOk ? ArcSeatOf(order!, _owner.FanArcOrderCount, seatA) : seatA;
-        if (seatB >= 0 && seatB < count)
-            _arcHeldSeatB = orderOk ? ArcSeatOf(order!, _owner.FanArcOrderCount, seatB) : seatB;
-    }
-
-    /// <summary>Which ARC seat holds the card at hand-list index <paramref name="listSeat"/>, per a
-    /// VALIDATED record-44 permutation — the inverse of the gather in
-    /// <see cref="ApplyFanArcOrder"/>. -1 when the permutation does not name it, which
-    /// <see cref="ResolveArcHeldSeats"/> reads as "hide nothing".</summary>
-    private static int ArcSeatOf(int[] order, int count, int listSeat)
-    {
-        for (int k = 0; k < count && k < order.Length; k++)
         {
-            if (order[k] == listSeat)
-                return k;
+            _arcHeldListSeatA = seatA;
+            _arcHeldSeatA = AppliedArcSeatOf(seatA);
         }
-        return -1;
+        if (seatB >= 0 && seatB < count)
+        {
+            _arcHeldListSeatB = seatB;
+            _arcHeldSeatB = AppliedArcSeatOf(seatB);
+        }
     }
 
     /// <summary>
-    /// WHICH ARC SEAT the card at hand-list index <paramref name="listSeat"/> will be laid out at,
-    /// read off the very gather <see cref="CommitFanArcOrder"/> is about to swap in. -1 when the arc
-    /// does not carry it.
+    /// WHICH ARC SEAT holds the card at hand-list index <paramref name="listSeat"/>, per the
+    /// permutation that is IN FORCE (<see cref="_appliedOrder"/>). -1 when the arc does not carry it;
+    /// the identity when no permutation is in force, which is not a fallback but the correct answer —
+    /// with nothing to permute the fan lays the model list out in its own order, so seat k IS slab k.
     ///
-    /// <para>THIS IS THE DESTINATION QUESTION, AND IT HAS ONE RIGHT SOURCE. The user's requirement
-    /// is "Wenn man eine Karte nimmt und sie loslässt muss die Animation exakt dorthin gehen wo die
-    /// Karte auch für den Spieler ist" — the order and the flight target are ONE requirement, so the
-    /// flight may not resolve its seat by an expression of its own. Record 36's seat is an index
-    /// into the MODEL list (<see cref="_handBuffer"/> as it stands during
-    /// <see cref="TrackFist"/>); a slab index is an ARC seat, and record 44 exists precisely because
-    /// the owner's arc is in their own drag-reorder. <see cref="BeginReturnGlide"/> used the model
-    /// seat as a slab index, so the flight was correct only while the applied order was the
-    /// identity.</para>
+    /// <para>THIS IS THE DESTINATION QUESTION AND THE HIDE QUESTION, AND THEY HAVE ONE ANSWER. The
+    /// user's requirement is "Wenn man eine Karte nimmt und sie loslässt muss die Animation exakt
+    /// dorthin gehen wo die Karte auch für den Spieler ist" — the order and the seat a card is drawn
+    /// at are ONE requirement, so neither the return flight nor the slab-hiding may resolve a seat by
+    /// an expression of its own. Record 36's seat is an index into the MODEL list; a slab index is an
+    /// ARC seat; record 44 exists precisely because the owner's arc is in their own drag-reorder.
+    /// This method is the only place the mod turns one into the other.</para>
     ///
-    /// <para>WHY THE STAGED GATHER AND NOT <c>_owner.FanArcOrder</c>. The wire array is only ONE of
-    /// the two ways an order comes into force: since the 2026-09-07 order fix the receiver also
-    /// HOLDS the last applied order across a packet that states none
-    /// (<see cref="TryHoldFanArcOrder"/>), and a held order fills <see cref="_orderScratch"/>
-    /// without <c>_owner.FanArcOrder</c> ever being non-null. Translating off the wire array would
-    /// therefore be right for a stated order and silently fall back to the identity for a HELD one —
-    /// the exact state Lane B's fix made common. <see cref="_orderScratch"/> is what the fan obeys
-    /// on BOTH paths, so it is what the flight reads.</para>
-    ///
-    /// <para>NO ORDER IN FORCE ⇒ THE IDENTITY, which is the honest answer and not a fallback: with
-    /// no permutation the fan lays the model list out in its own order, so seat k IS slab k. That is
-    /// also the whole of the map-room case (see <see cref="RetargetReturnGlide"/>).</para>
+    /// <para>DO NOT "SIMPLIFY" THIS BACK TO <c>_owner.FanArcOrder</c>. That was what
+    /// <see cref="ResolveArcHeldSeats"/> did, and it is wrong for half the states: the wire array is
+    /// only one of the two ways an order comes into force, because the receiver also HOLDS the last
+    /// applied order across a packet that states none (<see cref="TryHoldFanArcOrder"/>), and a HELD
+    /// order leaves <c>_owner.FanArcOrder</c> NULL. Reading the wire array is therefore right for a
+    /// stated order and silently the identity for a held one — hiding a slab whose card the owner
+    /// can see and leaving the plucked one drawn twice. <see cref="_appliedOrder"/> is true of both
+    /// paths and is readable in both windows of the frame; see its own note for the ordering.</para>
     /// </summary>
-    private int StagedArcSeatOf(int listSeat)
+    private int AppliedArcSeatOf(int listSeat)
     {
         if (listSeat < 0)
             return -1;
-        if (!_orderArcValid || _orderScratch.Count == 0)
+        if (_appliedOrderCount <= 0)
             return listSeat;                       // no permutation: the arc IS the model order
-        if (listSeat >= _handBuffer.Count)
-            return -1;
-        AbilityCardUI? widget = _handBuffer[listSeat];
-        if (widget == null)
-            return -1;
-        for (int k = 0; k < _orderScratch.Count; k++)
+        for (int k = 0; k < _appliedOrderCount && k < _appliedOrder.Length; k++)
         {
-            if (ReferenceEquals(_orderScratch[k], widget))
+            if (_appliedOrder[k] == listSeat)
                 return k;
         }
         return -1;                                 // the arc does not carry it — never guess a seat
@@ -3060,7 +3111,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     {
         if (_returnGlide <= 0f || _returnListSeat < 0)
             return;
-        int seat = StagedArcSeatOf(_returnListSeat);
+        int seat = AppliedArcSeatOf(_returnListSeat);
         if (seat < 0)
         {
             // No seat: the arc no longer carries this card (it was played, burnt, or the order stops
@@ -3443,7 +3494,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // about to swap in — is what makes the user's requirement true: "die Animation muss exakt
         // dorthin gehen wo die Karte auch fuer den Spieler ist". A -1 means the arc does not carry
         // this card, and then no flight is owed.
-        int arcSeat = StagedArcSeatOf(_fistSeat);
+        int arcSeat = AppliedArcSeatOf(_fistSeat);
         bool flew = _fistArcSeatUsable && arcSeat >= 0
                     && BeginReturnGlide(arcSeat, _fistPoseSlot, _fistSeat);
         ResolveRelease(flew, recess: false, _refusal);
@@ -3830,6 +3881,35 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             + "takes the 'RECESS HAND-OFF' branch instead and never reaches here.");
     }
 
+    /// <summary>
+    /// WHICH SLAB IS HIDDEN AND WHY IT IS THAT ONE — the <c>hidden=</c> clause of
+    /// <see cref="ReportArcMembershipIfChanged"/>, as <c>modelSeat-&gt;arcSeat</c> pairs plus the
+    /// permutation that did the translating.
+    ///
+    /// <para>WHY A COUNT WAS NOT ENOUGH, and this is the reading that would have caught the
+    /// 2026-09-07 HELD-order regression on its first hardware round. <c>suppressed=1</c> is printed
+    /// whether the RIGHT slab or the WRONG one went dark, so a fan hiding a card the owner is
+    /// looking at while drawing the one in their fist twice produced a census line identical to a
+    /// perfectly healthy one. The pair is what separates them: with a non-identity order in force,
+    /// <c>3-&gt;1</c> is the translation working and <c>3-&gt;3</c> under <c>via a HELD order</c> is
+    /// the identity leaking through — the exact defect.</para>
+    ///
+    /// <para>READ IT WITH THE <c>thisFrame=</c> VERDICT ON THE SAME LINE: <c>via none</c> beside
+    /// <c>thisFrame=HELD</c> or <c>=APPLIED</c> is a contradiction and means
+    /// <see cref="AppliedArcSeatOf"/> is not seeing the order the fan is drawn in.</para>
+    /// </summary>
+    private string HiddenSeatsClause()
+    {
+        if (_arcHeldSeatA < 0 && _arcHeldSeatB < 0)
+            return "none";
+        string a = _arcHeldSeatA >= 0 ? $"{_arcHeldListSeatA}->{_arcHeldSeatA}" : string.Empty;
+        string b = _arcHeldSeatB >= 0 ? $"{_arcHeldListSeatB}->{_arcHeldSeatB}" : string.Empty;
+        string pair = a.Length > 0 && b.Length > 0 ? a + "," + b : a + b;
+        return pair + " via " + (_appliedOrderCount > 0
+            ? (_orderFromLatch ? "a HELD order" : "an APPLIED order")
+            : "none (the identity)");
+    }
+
     /// <summary>The fan's source list in one word, for a log line. The HAND is the resting answer
     /// and is spelled out rather than left blank: a census row that says nothing about the list is
     /// a row a reader cannot tell from one printed by a build that had no list at all.</summary>
@@ -3906,8 +3986,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                 rightMost = last.CardName;
         }
 
+        // THE ARC SEAT IS IN THE KEY, not just the suppressed COUNT. A reorder that moves the
+        // hidden slab from one seat to another changes neither count, and before the 2026-09-07
+        // HELD-order fix that is exactly the edge that went unreported for a whole session.
         long key = ((long)fp << 24) ^ ((long)count << 12) ^ ((long)suppressed << 8)
-                   ^ ((long)held << 4) ^ _owner.FanSourceList;
+                   ^ ((long)held << 4) ^ _owner.FanSourceList
+                   ^ ((long)(_arcHeldSeatA + 2) << 32) ^ ((long)(_arcHeldSeatB + 2) << 40);
         if (key == _loggedArcMembership)
             return;
         _loggedArcMembership = key;
@@ -3916,6 +4000,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         VRLog.Note("Net", $"MIRRORED ARC ORDER [player {_owner.PlayerId}]: list="
             + $"{FanListName(_owner.FanSourceList)} arc={count} model={_handBuffer.Count} "
             + $"recordListLen={_arcHeldListLength} held={held} suppressed={suppressed} "
+            + $"hidden={HiddenSeatsClause()} "
             + $"right='{rightMost}' fp={(haveIds ? fp.ToString("x8") : "--------")} | ORDER RECORD "
             + $"44: stated={_orderStated} applied={_orderApplied} held={_orderHeld} thisFrame="
             + $"{(_orderArcValid ? (_orderFromLatch ? "HELD" : "APPLIED") : "refused/" + (_orderRefusal.Length > 0 ? _orderRefusal : "none stated"))}"
@@ -5271,8 +5356,45 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // guessing one is exactly the "confidently wrong" failure this file's belts exist to
         // refuse. Those keep today's picture, and the verdict line counts them so the gap is
         // readable rather than assumed.
-        int carryFrom = -1;   // pluck: the seat that LEFT the arc
-        int carryInto = -1;   // release: the seat that REJOINED it
+        // ─── DEBT, 2026-09-07: THESE TWO ARE MODEL SEATS USED AS ARC INDICES ────────────────────
+        // NAMED AND LEFT, deliberately, so the next round picks it up from evidence instead of
+        // rediscovering the confusion a fifth time. It is the same index-space defect the same round
+        // fixed at three other sites (the return flight's destination, its mid-flight retarget, and
+        // ResolveArcHeldSeats' slab-hiding — all now through AppliedArcSeatOf): record 36's seat
+        // indexes the MODEL list, `_carryPos` is indexed over the ARC, and the two are one number
+        // only while the applied permutation is the identity. `liveSeat` and `_fistSeat` below are
+        // both model seats.
+        //
+        // WHY IT WAS NOT FIXED WITH THE OTHER THREE, and the reason is a frame ordering and not an
+        // oversight. Rebuild is called from Tick BEFORE UpdateFaces — the count test sits a few
+        // lines above PoseFan/LayoutCards, while ApplyFanArcOrder runs inside UpdateFaces after
+        // them. So at this point:
+        //   * `_appliedOrder` is LAST frame's permutation, and `_fistSeat` is last frame's seat
+        //     (this frame's TrackFist has not run yet);
+        //   * `carryFrom` is worse than a lag: it indexes the OLD arc, of length `_builtCount`,
+        //     which the current permutation does not describe at all — the card it names is still
+        //     IN that arc, and the order that would translate it is the one that was in force when
+        //     that arc was built, which this class does not keep.
+        // Translating either of them through AppliedArcSeatOf as it stands would be applying a
+        // permutation to the wrong list, which is precisely the "confidently wrong" failure every
+        // belt in this file exists to refuse. It needs a kept previous-permutation, and inventing
+        // one without a reading to check it against is tuning a second set of numbers.
+        //
+        // THE READING THAT WOULD SETTLE IT, in one hardware round with a peer who has REORDERED
+        // their fan (the ModBuild 470 logs cannot: nothing in them says the order was non-identity
+        // across a rebuild). On the observer, for one release:
+        //   * 'MIRRORED ARC ORDER ... thisFrame=APPLIED|HELD' with 'hidden=m->a' where m != a —
+        //     proof a non-identity permutation was in force across the rebuild;
+        //   * 'FAN RETURN VERDICT ... ARMED' on the same release, with its 'arc reflow: E of B
+        //     slab(s) carried' clause. E == B-1 says the carry map was right; E == 0 with B > 0 is
+        //     the documented "the fix worked and the symptom stayed" combination and, WITH a
+        //     non-identity order beside it, convicts these two lines specifically rather than the
+        //     key being absent.
+        // Until that pair is in a log, the honest state is: the reflow carries poses correctly for
+        // an unreordered fan and snaps for a reordered one — a snap, never a wrong slab, because a
+        // mis-mapped `from` only sources a stale pose and every slab still lands at its own seat.
+        int carryFrom = -1;   // pluck: the seat that LEFT the arc (MODEL seat — see the debt above)
+        int carryInto = -1;   // release: the seat that REJOINED it (MODEL seat — ditto)
         if (_builtCount > 0 && _cards.Count == _builtCount)
         {
             if (count == _builtCount - 1
