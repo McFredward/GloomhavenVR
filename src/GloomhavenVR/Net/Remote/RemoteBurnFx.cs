@@ -747,7 +747,8 @@ internal sealed class RemoteBurnFx
                 bool recessDraws = b.CardId != int.MinValue
                                    && _owner.RecessShowingCard(b.CardId) == b.Recess
                                    && b.Recess >= 0;
-                bool playing = BurnArtwork.Playing(BurnArtwork.EffectsOf(b.Widget));
+                CardEffects? ownerFx = BurnArtwork.EffectsOf(b.Widget);
+                bool playing = BurnArtwork.Playing(ownerFx);
                 if (playing)
                     b.ArtworkObserved = true;
                 if (!BurnArtwork.Released(playing, b.Elapsed))
@@ -788,9 +789,33 @@ internal sealed class RemoteBurnFx
                           + "s DEADLINE ran out with his burn artwork still running — the same arm "
                           + "his own BURN HOLD line reports as 'artwork still running'"
                         : b.ArtworkObserved
-                            ? "the owner's own burn artwork finished (CardEffects.coroutine went "
-                              + "null on HIS widget, read here on this machine) — the identical "
-                              + "term his own TryTakeBurnFlightSlot released on"
+                            // ─── THIS ARM USED TO SAY "the owner's own burn artwork FINISHED" AND
+                            // ─── IT COULD NOT KNOW THAT (2026-09-07 late round, item 8) ──────────
+                            // CardEffects.coroutine is nulled by THREE different histories: the
+                            // timeline's own last statement (CardEffects.cs:618), RestoreCard()
+                            // (:469-472) and every ToggleAdditiveEffect (:404-407) — the last two
+                            // being CANCELS. The owner's short-rest flow runs both several times on
+                            // the same card (CardsHandUI.AnimateCardsLost:1029/:1066 →
+                            // AbilityCardUI.UpdateCard → FullAbilityCard.SetPile), so "the handle
+                            // went null" is the commonest reading for a CANCEL, not for an end.
+                            // ModBuild 476 measures it: the owner's own BURN HOLD for
+                            // 'ABILITY_CARD_ProvokingRoar' (remote/Player.log 60504) reports this
+                            // same arm after 0,69s against a hard-coded burnTime of 2 s — a
+                            // finished ramp cannot be 0.69 s long. The user's report of that exact
+                            // burn is "kein verbrennen effekt darauf festellen können".
+                            //
+                            // SO THE LINE NOW REPORTS THE PAINT, which is the ramp's own progress
+                            // variable (_GreyOut = Clamp01(dTime), :571) and therefore the one field
+                            // that can tell the two histories apart. Under 1.00 = cancelled.
+                            ? "the owner's burn artwork HANDLE went null on HIS widget (read here on "
+                              + "this machine) at paint _GreyOut "
+                              + BurnArtwork.PaintProgress(ownerFx).ToString("F2")
+                              + " of 1.00 — the identical term his own TryTakeBurnFlightSlot "
+                              + "released on. A value under 1.00 means the game CANCELLED its own "
+                              + "2 s ramp rather than finishing it (RestoreCard and "
+                              + "ToggleAdditiveEffect null the same handle); BurnLookPolicy settles "
+                              + "the owner's card to the full burnt end state in that case, so both "
+                              + "boards still agree on the picture"
                             : "the owner's " + BurnArtwork.StartGraceSeconds.ToString("F2")
                               + "s START GRACE ran out without his burn artwork ever being "
                               + "observable on this client — CardEffects.BurnCardTimeline refuses "

@@ -59,6 +59,11 @@ internal sealed class BurnCardFx
     // Test #22 symptom 4c-ii: change-dedup for the "burn plays ON the card" diagnostic.
     private bool _effectActive;
 
+    /// <summary>The face <see cref="BurnLookPolicy"/> last held a write budget for, so
+    /// <see cref="Detach"/> can drop it. Kept here rather than looked up at teardown because by
+    /// then <c>VRCard.FullCard</c> has already been handed back to the game.</summary>
+    private FullAbilityCard? _policyFace;
+
     /// <summary>
     /// Per-frame: keep the card's live smoke instance card-bounded and log the
     /// on-card burn/ghost lifecycle. Cheap (reference + set membership) when nothing is
@@ -72,15 +77,30 @@ internal sealed class BurnCardFx
     {
         CardEffects? effects = full != null ? full.cardEffects : null;
 
+        // ITEM 4 (2026-09-07): WHAT THIS CARD'S BURN LOOK MUST BE, decided in one place and stated
+        // as a rule there. FIRST in the tick on purpose: the census below must report the look the
+        // player is actually going to see this frame, not the one the policy is about to correct.
+        // An activated card is restored to rest, a lost card is settled to the full burnt end
+        // state, everything else is left to the game. See BurnLookPolicy.
+        BurnLookPolicy.Enforce(full);
+        _policyFace = full;
+
         // Symptom 4c-ii evidence: the burn/ghost timeline runs on the card's OWN uGUI
         // (face-image dissolve + _uiFxOverlay flame) plus the bounded CardSmoke below —
         // all on this world card. Because the face is kept on our dock FaceCanvas (see
         // CardFace), it plays HERE, at the laid card's world position, and the view
         // returns to the two-card action-selection display once the card resolves.
-        bool active = effects != null && (
-            effects.HasEffect(CardEffects.FXTask.BurnCard)
-            || effects.HasEffect(CardEffects.FXTask.LostMode)
-            || effects.HasEffect(CardEffects.FXTask.DiscardMode));
+        //
+        // THE THREE TASKS ARE NAMED NOW, NOT UNIONED. This predicate has always been an OR over
+        // BurnCard | LostMode | DiscardMode and the line it drives said only "Burn/ghost effect" —
+        // so the ModBuild 476 host log can prove that the card which flew into the ACTIVE column
+        // was wearing an effect (:83670 and :83749 at the same world coordinate, :123923 and
+        // :123973 likewise) and cannot say WHICH, which is the difference between a lead and an
+        // answer. A summary token over three states is not the field.
+        bool burn = effects != null && effects.HasEffect(CardEffects.FXTask.BurnCard);
+        bool lost = effects != null && effects.HasEffect(CardEffects.FXTask.LostMode);
+        bool ghost = effects != null && effects.HasEffect(CardEffects.FXTask.DiscardMode);
+        bool active = burn || lost || ghost;
         if (active != _effectActive)
         {
             _effectActive = active;
@@ -91,8 +111,11 @@ internal sealed class BurnCardFx
                 // mirror (see HandSuppression.BurnActive). The world-space smoke plume
                 // bounded below still plays in VR to signal the burn.
                 Patches.HandSuppression.BeginBurn();
-                VRLog.Info("Cards", "Burn/ghost effect playing ON the dock card at world " +
-                                    $"{cardTransform.position} (card mesh, not a fullscreen flat).");
+                string tasks = (burn ? "BurnCard " : "") + (lost ? "LostMode " : "") +
+                               (ghost ? "DiscardMode " : "");
+                VRLog.Info("Cards", $"Burn/ghost effect ({tasks.TrimEnd()}) playing ON the dock card " +
+                                    $"at world {cardTransform.position} (card mesh, not a fullscreen " +
+                                    "flat).");
             }
             else
             {
@@ -118,6 +141,8 @@ internal sealed class BurnCardFx
             _effectActive = false;
             Patches.HandSuppression.EndBurn(); // balance the BeginBurn from Tick
         }
+        BurnLookPolicy.Forget(_policyFace);
+        _policyFace = null;
         RestoreBound();
     }
 

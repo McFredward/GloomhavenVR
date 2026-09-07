@@ -74,6 +74,17 @@ internal static class BurnArtwork
     /// ran on this client". Read-only discriminator, see <see cref="SettledBurnPainted"/>.</summary>
     private const float PaintedGreyOut = 0.5f;
 
+    /// <summary>
+    /// The <c>_GreyOut</c> a COMPLETED burn ramp leaves behind, minus float slack.
+    /// <c>BurnCardTimeline</c>'s animated arm drives <c>_GreyOut</c> to <c>Mathf.Clamp01(dTime)</c>
+    /// and runs until <c>burnTime = 2f</c> seconds of global-clock time have passed
+    /// (CardEffects.cs:511/571), and its no-ramp arm writes a literal 1 (:600). So a LATCHED burn
+    /// whose handle is gone and whose paint sits below this did not finish — it was CANCELLED, and
+    /// <see cref="PaintProgress"/> reads the fraction it got to. That number, not the handle, is
+    /// what says whether the player saw a burn.
+    /// </summary>
+    internal const float FinishedGreyOut = 0.98f;
+
     private static readonly int GreyOutId = Shader.PropertyToID("_GreyOut");
 
     /// <summary>
@@ -181,6 +192,25 @@ internal static class BurnArtwork
             return false;
         }
         return greyOut >= PaintedGreyOut;
+    }
+
+    /// <summary>
+    /// HOW FAR THE BURN RAMP ACTUALLY GOT ON THIS WIDGET, 0..1 — or -1 when nothing could be read.
+    ///
+    /// <para>THE FIELD THAT SEPARATES "FINISHED" FROM "CANCELLED", which no handle can.
+    /// <c>CardEffects.coroutine</c> is null after the timeline's last statement (CardEffects.cs:618)
+    /// AND after every <c>RestoreCard()</c> / <c>ToggleAdditiveEffect</c>, which stop it and null it
+    /// (:469-472, :404-407). Two histories, one reading — and this project's own logs report the
+    /// wrong one: ModBuild 476's peer log 60504 says <c>BURN HOLD: 'ABILITY_CARD_ProvokingRoar'
+    /// waited 0,69s … (released by: ARTWORK END — the game's own BurnCardTimeline handle went
+    /// null)</c> about a ramp whose duration is a hard-coded 2 s. A completed ramp cannot be 0.69 s
+    /// long, so that line names an END it cannot observe. <c>_GreyOut</c> can: it IS the ramp's
+    /// progress variable.</para>
+    /// </summary>
+    internal static float PaintProgress(CardEffects? fx)
+    {
+        SettledBurnPainted(fx, out float greyOut);
+        return greyOut;
     }
 
     /// <summary>

@@ -368,10 +368,10 @@ internal static class CardHalfTone
         // The held faces belong to the boards going away with the scene; a stale id could otherwise
         // collide with a fresh clone's and stand this file down for a face nobody is mirroring.
         s_mirroredDim.Clear();
-        foreach (KeyValuePair<int, Material> entry in s_restCopies)
+        foreach (Material copy in s_restCopies.Values)
         {
-            if (entry.Value != null)
-                Object.Destroy(entry.Value);
+            if (copy != null)
+                Object.Destroy(copy);
         }
         s_restCopies.Clear();
     }
@@ -574,16 +574,71 @@ internal static class CardHalfTone
     /// the eye can see and well above float noise, so a corrected face never re-triggers.</summary>
     private const float RestEpsilon = 0.002f;
 
-    /// <summary>Rest-state copies, keyed by the SOURCE material's instance id. One copy per distinct
-    /// source material, shared by every clone that draws through it — a mod-built front has no
+    /// <summary>Rest-state copies, keyed by a CONTENT signature of the source material. One copy per
+    /// distinct <i>look</i>, shared by every clone that draws through it — a mod-built front has no
     /// <c>CardEffects</c> and therefore nothing that could ever want a per-card animation, so
     /// sharing is free and it is what keeps a fan that rebuilds ten fronts per second from leaking
-    /// ten materials per second.</summary>
-    private static readonly Dictionary<int, Material> s_restCopies = new(8);
+    /// ten materials per second.
+    ///
+    /// <para>THE KEY USED TO BE THE SOURCE'S INSTANCE ID AND THAT IS WHY THE CAP WAS REACHED. The
+    /// note on the cap below asserted that per-image materials for clones were something
+    /// <i>"nothing does today"</i>. <c>CardEffects.Initialize</c> does exactly that, on every widget
+    /// it wakes: <c>image2.material = new Material(image2.material)</c> for each of the up-to-ten
+    /// <c>imgComp</c> entries, plus one more for <c>fgFx</c> (CardEffects.cs:333-340). So a clone of
+    /// a pool widget the game has already used contributes ~8 DISTINCT instance ids that are byte
+    /// -identical copies of one authored asset, and 32 entries is four faces. Both hardware logs of
+    /// the ModBuild 476 session hit the cap and said so — host <c>Player.log:106863</c>, peer
+    /// <c>remote/Player.log:68760</c> — which is the falsifying reading for that sentence.</para>
+    ///
+    /// <para>The signature is (shader instance id, source material NAME, <c>_PosAndBounds</c>). All
+    /// of one card's FX images carry the SAME <c>_PosAndBounds</c> — <c>Initialize</c> writes the
+    /// card's single <c>canvasPosition</c>/<c>cardBounds</c> into every one of them (:347) — so a
+    /// whole face now collapses to one entry, and two cards at the same canvas slot share it. The
+    /// name separates the <c>_useLowEffect</c> variant, which is a different authored material on a
+    /// possibly identical shader (:318). The population is therefore the number of distinct card
+    /// SLOTS, not the number of faces ever built.</para></summary>
+    private static readonly Dictionary<RestKey, Material> s_restCopies = new(16);
 
-    /// <summary>Hard cap on distinct rest copies. Reached only if something mints per-image
-    /// materials for clones, which nothing does today; the refusal is logged rather than silent.</summary>
-    private const int MaxRestCopies = 32;
+    /// <summary>The content signature above. A struct key so the lookup allocates nothing on the
+    /// per-rebuild path this sits on.</summary>
+    private readonly struct RestKey : System.IEquatable<RestKey>
+    {
+        private readonly int _shader;
+        private readonly string _name;
+        private readonly Vector4 _bounds;
+
+        internal RestKey(Material source)
+        {
+            Shader? shader = source.shader;
+            _shader = shader != null ? shader.GetInstanceID() : 0;
+            _name = source.name ?? string.Empty;
+            _bounds = source.HasProperty(PosAndBoundsId) ? source.GetVector(PosAndBoundsId) : Vector4.zero;
+        }
+
+        public bool Equals(RestKey other) =>
+            _shader == other._shader && _name == other._name && _bounds == other._bounds;
+
+        public override bool Equals(object? obj) => obj is RestKey other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = _shader;
+                hash = (hash * 397) ^ _name.GetHashCode();
+                hash = (hash * 397) ^ _bounds.GetHashCode();
+                return hash;
+            }
+        }
+    }
+
+    /// <summary>Hard cap on distinct rest copies — the leak guard, not the fix. Sized to the card
+    /// SLOTS a session can produce now that the key is a content signature rather than an instance
+    /// id (see <see cref="s_restCopies"/>): a hand fan is a dozen positions and a browse fan a few
+    /// dozen, so a session that reaches this has found a new producer and the refusal is logged
+    /// rather than silent. It was 32 while the key was per-image, which both ModBuild 476 logs
+    /// exhausted inside one scenario.</summary>
+    private const int MaxRestCopies = 256;
 
     /// <summary>Card images whose material was swapped to a rest copy this session.</summary>
     private static int s_fxCorrected;
@@ -740,7 +795,7 @@ internal static class CardHalfTone
     /// </summary>
     private static Material? RestCopyOf(Material source)
     {
-        int key = source.GetInstanceID();
+        RestKey key = new(source);
         if (s_restCopies.TryGetValue(key, out Material existing) && existing != null)
             return existing;
         if (s_restCopies.Count >= MaxRestCopies)
@@ -748,11 +803,27 @@ internal static class CardHalfTone
             if (!s_fxCapLogged)
             {
                 s_fxCapLogged = true;
-                VRLog.Warn(Scope, $"CARD FX REST: the rest-copy cache hit its {MaxRestCopies} entry cap — " +
+                // HW-VERIFY (2026-09-07 item 4, "lokal und remote"): the cap that decides whether a
+                // mod-built front is left drawing through a GAME-OWNED material. Grep token:
+                // "CARD FX REST" with "entry cap".
+                //
+                // WHY THIS MATTERS TO THE BURN LOOK. Past the cap this method returns null and the
+                // caller leaves the game's own material on the clone — so a peer's mirrored card
+                // shows whatever burn/grey state the pooled widget happens to carry, and a later
+                // burn on that widget repaints the peer's card underneath it. That is a
+                // mirror-side source of exactly the inconsistency item 4 reports.
+                // FALSIFIER — this line was NOT inert before: host Player.log:106863 and peer
+                // remote/Player.log:68760 both printed it on ModBuild 476, with the old per-image
+                // key and a cap of 32. INERT is now the expected reading; if it fires again with a
+                // content-signature key and 256 entries, a genuinely new producer exists and THAT
+                // is the lead, not this number.
+                VRLog.Note(Scope, $"CARD FX REST: the rest-copy cache hit its {MaxRestCopies} entry cap — " +
                                   "further mod-built fronts keep the source material and may still read " +
-                                  "grey. That means something is minting a material PER CARD IMAGE for " +
-                                  "clones, which nothing was doing when this was written; the cap is the " +
-                                  "leak guard, not the fix.");
+                                  "grey, and a later burn on the pooled widget they borrowed from would " +
+                                  "repaint them. The key is a CONTENT signature (shader + material name " +
+                                  "+ _PosAndBounds), so one card face is ONE entry and this cap is a " +
+                                  "count of distinct card SLOTS; reaching it means a new producer of " +
+                                  "card-FX materials exists. The cap is the leak guard, not the fix.");
             }
             return null;
         }
