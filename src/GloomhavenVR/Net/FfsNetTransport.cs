@@ -235,7 +235,19 @@ internal sealed class FfsNetTransport : INetTransport
             // suppresses the ones after it. One seam, one explicit order. The request handler takes
             // the raw object so this file keeps its zero-compile-time-dependency stance on the Bolt
             // token types; nothing below this line names one.
-            if (EnemyInfoContinue.TryHandleSideAction(action))
+            //
+            // FLAT-NET MODE IS HONOURED HERE, AND FOR THIS ONE REQUEST ONLY AT THIS SEAM.
+            // "Als Flat-Spieler joinen" turns every mod net path off (NetSession.cs:11-23); the
+            // cosmetic paths have always had the term (TickSend / TickExtrasSend /
+            // OnPacketReceived) and the control requests never did, so a flat-mode host still
+            // pressed its own buttons on a peer's request. The other two requests carry the term
+            // INSIDE their own judgement, where it becomes a named REFUSED line; this one is
+            // gated at the call site instead because EnemyInfoContinue.cs is outside this lane.
+            // Declining to recognise it is safe here and ONLY here-shaped for a sentinel-typed
+            // request: it falls through to vanilla, which ignores it without calling Execute()
+            // because SentinelTargetPlayerId is no player's id (ActionProcessor.cs:188). The
+            // encounter branch above must never be gated this way — its action type is REAL.
+            if (!NetSession.FlatNetMode && EnemyInfoContinue.TryHandleSideAction(action))
                 return false;
 
             // The SECOND control request, and it is the same branch rather than a second prefix for

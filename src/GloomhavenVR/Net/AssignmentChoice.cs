@@ -559,7 +559,21 @@ internal static class AssignmentChoice
         string refusal;
         UIDistributePointsSlot? target = null;
 
-        if (!amHost)
+        if (NetSession.FlatNetMode)
+        {
+            // FLAT-NET MODE. "Als Flat-Spieler joinen" means every mod net path is off
+            // (NetSession.cs:11-23) and this is one — the send side has always had the term
+            // (MayOperateHere), the receive side never did, so a flat-mode host still pressed its
+            // own controls on a peer's request while its own refusal lines claimed "every mod net
+            // path is off". CONSUMED AND NAMED rather than passed through: the request carries the
+            // sentinel TargetPlayerID so vanilla would ignore it either way, but a refusal with a
+            // term in the log is worth more than a silence, and it keeps this branch identical in
+            // shape to EncounterChoice's, where passing through is NOT safe.
+            refusal = "NetSession.FlatNetMode — the player on this machine chose to join as a flat "
+                    + "player, so every mod net path is off for the rest of the session and this "
+                    + "machine answers no requests";
+        }
+        else if (!amHost)
         {
             // Unreachable over the host-only channel, and refused rather than asserted anyway:
             // a client that somehow saw this must never write.
@@ -680,6 +694,10 @@ internal static class AssignmentChoice
     private static FieldInfo? _addButtonField;
     private static FieldInfo? _removeButtonField;
     private static FieldInfo? _confirmButtonField;
+
+    /// <summary>The popup's own <c>onUpdatedPoints</c> callback — see
+    /// <see cref="ReinvokeUpdatedPoints"/>. Read, never written.</summary>
+    private static FieldInfo? _onUpdatedPointsField;
     private static bool _fieldsResolved;
 
     private static void ResolveFields()
@@ -690,6 +708,8 @@ internal static class AssignmentChoice
         _addButtonField = AccessTools.Field(typeof(UIDistributePointsSlot), "addPointButton");
         _removeButtonField = AccessTools.Field(typeof(UIDistributePointsSlot), "removePointButton");
         _confirmButtonField = AccessTools.Field(typeof(UIDistributeReward), "confirmButton");
+        _onUpdatedPointsField = AccessTools.Field(typeof(UIDistributePointsPopup),
+                                                  "onUpdatedPoints");
         if (_addButtonField == null || _removeButtonField == null || _confirmButtonField == null)
             // HW-VERIFY: the un-grey could not be installed on this game build, so the feature is
             // ABSENT rather than half-present — the flat game's host-only behaviour stands, which
@@ -737,6 +757,49 @@ internal static class AssignmentChoice
         if (!button.gameObject.activeSelf && interactable)
             button.gameObject.SetActive(true);
         button.interactable = interactable;
+    }
+
+    /// <summary>
+    /// RE-ASK THE GAME "ARE ALL THE POINTS ASSIGNED?" AFTER A REPLAY — because the game only ever
+    /// asks it after a LOCAL hand, and a client's hand is not the one moving these points.
+    ///
+    /// <para><b>THE SECOND HALF OF THE ORDERING DEFECT, AND WITHOUT IT THE FIRST HALF ONLY MOVES
+    /// THE DEAD END.</b> <see cref="ReapplyConfirmButton"/> is reachable from exactly one place —
+    /// the postfix on <c>UIDistributeReward.SetButtonInteractable</c> — and that method has exactly
+    /// two callers, both through <c>SetInteractable</c>: the call inside <c>Distribute</c> at :52
+    /// (which <see cref="UIDistributeReward_Distribute_Patch"/> being a PREFIX now makes
+    /// effective), and the <c>onUpdatedPoints</c> closure handed to <c>popup.Show</c> at :57-59.
+    /// <b>The replay path never invokes that closure.</b> <c>onUpdatedPoints</c> is fired only from
+    /// the popup's own private <c>AddPoint</c>/<c>RemovePoint</c> (UIDistributePointsPopup.cs:182,
+    /// :190), which is a LOCAL press; a remote one arrives as
+    /// <c>DistributeRewardProcess.ProxyAddPoint</c>, which calls <c>m_Service.AddPoint(actor)</c>
+    /// and <c>Refresh()</c> DIRECTLY (DistributeItemsProcess.cs:240-247 and the four siblings) and
+    /// touches neither. So on a client the confirm button keeps whatever value it had when the
+    /// window opened, however many points the host assigns afterwards — for every process except
+    /// gold, that value is "greyed", and a client could never press CONFIRM at all.</para>
+    ///
+    /// <para><b>WHAT IS INVOKED IS THE GAME'S OWN CLOSURE, NOT A COPY OF ITS RULE.</b> The one
+    /// closure this seam can reach is the one <c>UIDistributeReward.Distribute</c> passes, whose
+    /// whole body is <c>SetInteractable(service.AvailablePoints == 0)</c> — the scope test below
+    /// (identity against <see cref="_livePopup"/>) is what guarantees that. It is declared
+    /// <c>delegate { … }</c> with no parameter list, so neither argument is read and
+    /// <c>(null, 0)</c> is the honest way to say "no particular actor changed; re-evaluate". This
+    /// writes no game state: the closure's only effect is the confirm button's
+    /// <c>interactable</c>/<c>SetActive</c> and its text colour.</para>
+    ///
+    /// <para>Scoped to a CLIENT that may operate the window. The HOST needs nothing here — every
+    /// press it makes, its own and one it makes on a client's behalf, goes through
+    /// <c>UIDistributePointsSlot.AddPoint</c> → the popup's <c>AddPoint</c> → the closure — so this
+    /// would be a no-op re-write there, and the narrower gate keeps the blast radius at the defect.
+    /// A third player watching two others assign IS a client and is covered.</para>
+    /// </summary>
+    internal static void ReinvokeUpdatedPoints(UIDistributePointsPopup? popup)
+    {
+        if (popup == null || !ReferenceEquals(popup, _livePopup) || !MayOperateHere())
+            return;
+        ResolveFields();
+        if (_onUpdatedPointsField?.GetValue(popup) is System.Action<IDistributePointsActor, int> callback)
+            callback(null!, 0);
     }
 }
 
@@ -799,6 +862,28 @@ internal static class UIDistributePointsPopup_Hide_AssignmentPatch
     private static void Postfix(UIDistributePointsPopup __instance) =>
         DispatchGuard.Run("UIDistributePointsPopup.Hide(AssignmentChoice)",
             () => AssignmentChoice.NoteHidden(__instance));
+}
+
+/// <summary>
+/// RE-EVALUATE THE CONFIRM BUTTON AFTER A REPLAY. A postfix on the private
+/// <c>UIDistributePointsPopup.RefreshAssignedPoints()</c>
+/// (decompiled/GH.Runtime/UIDistributePointsPopup.cs:212) — the one method both a local press and a
+/// REMOTE one end in, since <c>DistributeRewardProcess.ProxyAddPoint</c> reaches it through the
+/// public <c>Refresh()</c> (:193-199). The game re-derives every <c>+</c>/<c>−</c> here but not the
+/// confirm, which it only re-derives from <c>onUpdatedPoints</c> after a LOCAL hand — see
+/// <see cref="AssignmentChoice.ReinvokeUpdatedPoints"/> for the full reading and for why this is
+/// the half that has to ship WITH the prefix rather than after it.
+///
+/// <para>A POSTFIX, so the game's own refresh has already run and the value the closure reads is
+/// the settled one. It cannot skip the original and it writes nothing itself.</para>
+/// </summary>
+[HarmonyPatch(typeof(UIDistributePointsPopup), "RefreshAssignedPoints")]
+internal static class UIDistributePointsPopup_RefreshAssignedPoints_Patch
+{
+    [HarmonyPostfix]
+    private static void Postfix(UIDistributePointsPopup __instance) =>
+        DispatchGuard.Run("UIDistributePointsPopup.RefreshAssignedPoints(AssignmentChoice)",
+            () => AssignmentChoice.ReinvokeUpdatedPoints(__instance));
 }
 
 /// <summary>

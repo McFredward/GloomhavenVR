@@ -140,9 +140,30 @@ internal static class EncounterChoice
     /// vacuously true and nothing about single player changes, because
     /// <c>ClientButtonLocker</c> only ever locks while <c>FFSNetwork.IsClient</c>.</para>
     /// </summary>
+    /// <remarks>
+    /// <b>THE <c>FFSNetwork.IsHost</c> TERM IS NOT A CONVENIENCE — WITHOUT IT THIS METHOD CALLS THE
+    /// HOST UNMODDED ON THE HOST'S OWN MACHINE.</b> <see cref="VersionGuard.Peers"/> is fed only
+    /// from RECEIVED packets and the receive path drops the local echo
+    /// (<c>NetAvatarDriver.OnPacketReceived</c>: <c>if (senderId != 0 &amp;&amp; senderId ==
+    /// _transport.LocalPlayerId) return;</c>), so a machine never registers ITSELF and
+    /// <c>IsModdedPeer(PlayerRegistry.HostPlayerID)</c> — the host is fixed at player 1,
+    /// PlayerRegistry.cs:37 — is false on the host forever. No BEHAVIOUR depended on that: the
+    /// send path returns at <c>!FFSNetwork.IsClient</c> long before it asks, and the game's own
+    /// <c>ClientButtonLocker.TryLockButton</c> writes nothing unless <c>FFSNetwork.IsClient</c>, so
+    /// this term flipping true on a host changes no button on any machine. <b>THE INSTRUMENT IS
+    /// WHAT WAS BROKEN, AND THAT IS WHY IT MATTERS:</b> <c>VersionGuard.NoteMixedSession</c> reads
+    /// this method for its consequence clause while reading the ROSTER rows through
+    /// <c>isLocal || IsModdedPeer(id)</c>, so the host's own census printed
+    /// <c>player 1 (HOST) (THIS CLIENT) = MODDED</c> and then "THE HOST IS NOT A MODDED PEER" in
+    /// the same line — and <c>VersionGuard</c>:279-283 names that clause as THE FALSIFIER for "the
+    /// handshake is not arriving". A hardware round would have been spent chasing a handshake that
+    /// was working.
+    /// </remarks>
     internal static bool HostCanHonourRequests() =>
         !NetSession.FlatNetMode
-        && (!FFSNetwork.IsOnline || VersionGuard.IsModdedPeer(PlayerRegistry.HostPlayerID));
+        && (!FFSNetwork.IsOnline
+            || FFSNetwork.IsHost                 // I AM the host, so the host is running this mod
+            || VersionGuard.IsModdedPeer(PlayerRegistry.HostPlayerID));
 
     /// <summary>
     /// TRUE for the GameObject of an encounter option button, and for nothing else. IS-A and not
@@ -164,7 +185,14 @@ internal static class EncounterChoice
         if (!IsEncounterOptionButton(locker))
             return false;   // not our button; the game's own lock decides, and there is nothing to say
         bool may = HostCanHonourRequests();
-        NoteUnlockVerdict(may);
+        // SAY IT ONLY WHERE THERE IS A LOCK TO SPEAK ABOUT. The verdict is about the game's own
+        // client lock, and ClientButtonLocker.TryLockButton writes nothing unless
+        // FFSNetwork.IsClient — so on the HOST and offline no line here can be true: the old
+        // REFUSED text named a host that is this very machine, and the UNLOCKED text would claim
+        // "this CLIENT's buttons" on a machine that is not a client. Absent is the honest reading
+        // for both, and NoteUnlockVerdict's own doc now says so.
+        if (FFSNetwork.IsOnline && FFSNetwork.IsClient)
+            NoteUnlockVerdict(may);
         return may;
     }
 
@@ -196,8 +224,10 @@ internal static class EncounterChoice
         // HW-VERIFY: were this client's encounter option buttons given back, and if not, by which
         // term? THE FALSIFIER: in a MODDED-ONLY session this must read UNLOCKED — a LOCKED verdict
         // there means the host's handshake is not arriving, which is a bug and not a flat player.
-        // Absent altogether means no encounter option button was ever built on this machine this
-        // session, which proves nothing either way. Change-gated on the verdict, so it is at most a
+        // Absent altogether means one of three things and proves none of them: no encounter option
+        // button was built on this machine this session, OR this machine is the HOST, OR the
+        // session is offline — the caller only speaks while FFSNetwork.IsClient, because the game's
+        // lock this line is about is never applied anywhere else. Change-gated, so it is at most a
         // couple of lines per session and never one per button.
         VRLog.Note(Scope, may
             ? "ENCOUNTER OPTION UNLOCK: this CLIENT's encounter option buttons are UNLOCKED — the "
@@ -436,7 +466,26 @@ internal static class EncounterChoice
         int offered = 0;
         bool open = false;
 
-        if (panel == null)
+        if (NetSession.FlatNetMode)
+        {
+            // FLAT-NET MODE, AND IT IS CHECKED HERE RATHER THAN AT THE SEAM ON PURPOSE. "Als
+            // Flat-Spieler joinen" means every mod net path is off (NetSession.cs:11-23) and this
+            // is one — the send side has always had the term (HostCanHonourRequests), the receive
+            // side never did, so a flat-mode host still clicked its own buttons on a peer's
+            // request and every REFUSED line's claim that "every mod net path is off" was false.
+            // IT MUST STILL CONSUME. This request rides the game's REAL
+            // GameActionType.ContinueRoadEvent, so declining to recognise it at the transport seam
+            // would hand it to the game's dispatch — the unguarded Singleton deref AND a vanilla
+            // body that reads the unset SupplementaryDataIDMed as option 0. Refusing by a named
+            // term costs the far player one press they can repeat; passing it through costs the
+            // campaign. Unreachable in practice, because a flat-mode host sends no GVR1 packets
+            // either, so no client ever marks it modded and no request is raised against it — this
+            // is the term that makes that a decision instead of a coincidence.
+            refusal = "NetSession.FlatNetMode — the player on this machine chose to join as a flat "
+                    + "player, so every mod net path is off for the rest of the session and this "
+                    + "machine answers no requests";
+        }
+        else if (panel == null)
         {
             refusal = "there is no UIEventPanel on this machine";
         }

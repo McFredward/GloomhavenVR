@@ -263,6 +263,7 @@ internal sealed class NetModule : IVRModule
         VRSession.Harmony.PatchAll(typeof(UIDistributePointsSlot_EnableAddPoints_Patch));
         VRSession.Harmony.PatchAll(typeof(UIDistributePointsSlot_EnableRemovePoints_Patch));
         VRSession.Harmony.PatchAll(typeof(UIDistributeReward_SetButtonInteractable_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIDistributePointsPopup_RefreshAssignedPoints_Patch));
         VRSession.Harmony.PatchAll(typeof(UIDistributePointsSlot_AddPoint_Patch));
         VRSession.Harmony.PatchAll(typeof(UIDistributePointsSlot_RemovePoint_Patch));
         VRSession.Harmony.PatchAll(typeof(UIDistributeReward_OnConfirmClick_Patch));
