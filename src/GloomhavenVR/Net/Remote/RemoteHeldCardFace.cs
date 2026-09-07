@@ -201,7 +201,17 @@ internal sealed class RemoteHeldCardFace
             // and asking a CMapCharacter for one THROWS. A null actor is now the map room's normal
             // state rather than a refusal.
             actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
-            source = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor);
+            // AN ITEM IN A FIST IS STILL AN ITEM (user, 2026-09-07 evening item 3, which extends the
+            // pile-fan ruling to the items fan). An item is not an ability card and was never part
+            // of the two-card commit the secret window protects, so it declares its own population
+            // and is exempt — see RevealGate.PeerCardPopulation.ItemCard for why that is a KIND and
+            // not a PLACE, and why it therefore follows the chip out of the arc. The list byte is
+            // the same one EnsureBody already reads for the silhouette, so this costs no new read
+            // and cannot disagree with the shape the card is drawn in.
+            source = RevealGate.CardFaces(
+                NetProtocol.HeldFaceList(code) == NetProtocol.HeldFaceListItems
+                    ? RevealGate.PeerCardPopulation.ItemCard
+                    : RevealGate.PeerCardPopulation.Selectable, actor);
             // ─── AN ACTIVE CARD IS PUBLIC WHEREVER IT IS HELD (2026-09-06 report item 9) ────────
             // "Die aktiven Karten sind immer sichtbar ... d.h. aber auch, dass wenn ein Spieler eine
             // aktive Karte in die Hand nimmt, soll diese auch mit der Vorderseite AUCH in der
@@ -232,10 +242,24 @@ internal sealed class RemoteHeldCardFace
             // burnt arc during a short rest held a BACK on every watcher — the exact picture the
             // exception exists to prevent, on the surface closest to the player's eye.
             //
-            // HeldFaceListDiscard IS DELIBERATELY NOT HERE. A discarded card is not burnt and it is
-            // not in any of the three lists; its identity is still the selection window's secret,
-            // and widening to it would be a PLACE rule of exactly the kind
-            // RevealGate.IsPublicPopulation's own doc forbids adding.
+            // ─── AND HeldFaceListDiscard JOINED THEM (2026-09-07 evening report, item 6) ────────
+            // USER, VERBATIM: "sobald ich eine Karte aus dem Faecher (der die abgeworfenen Karten zu
+            // dem Zeitpunkt noch zeigt) nehme, sehen die anderen Spieler bei der genommenen Karte
+            // nur die Rueckseite ... Das darf nicht sein." This comment used to read: "HeldFaceList-
+            // Discard IS DELIBERATELY NOT HERE. A discarded card is not burnt and it is not in any
+            // of the three lists; its identity is still the selection window's secret, and widening
+            // to it would be a PLACE rule of exactly the kind RevealGate.IsPublicPopulation's own
+            // doc forbids adding." The last clause had it backwards, and the report is the proof:
+            // the ruling he gave in the SAME message ("Die Faecher der piles werden also ab jetzt
+            // immer mit Vorderseiten gezeigt ohne Ausnahme") is about the FAN, and a PLACE rule
+            // implementing it is exactly what leaves this surface — the card in the fist, one place
+            // over — drawing a back. RevealGate.IsDiscardedCard is a property of the CARD and
+            // reaches both, which is why this branch is three lines and not a second ruling.
+            //
+            // THE SEAT MUST STILL BE READ TO ASK. The exemption is a fact about a card and there is
+            // no card until the seat resolves; a length-checked list index is all that costs, and
+            // the anti-cheat ordering is untouched because the SHOW below still happens only under
+            // a non-None source.
             if (source == RevealGate.CardFaceSource.None)
             {
                 byte heldList = NetProtocol.HeldFaceList(code);
@@ -243,7 +267,9 @@ internal sealed class RemoteHeldCardFace
                     heldList == NetProtocol.HeldFaceListActive
                         ? TryPeekActiveSeat(actor, code, count)
                   : heldList == NetProtocol.HeldFaceListBurnt
-                        ? TryPeekBurntSeat(actor, code, count)
+                        ? TryPeekPileSeat(actor, code, count, burnt: true)
+                  : heldList == NetProtocol.HeldFaceListDiscard
+                        ? TryPeekPileSeat(actor, code, count, burnt: false)
                   : null;
                 if (peek != null)
                     source = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
@@ -258,12 +284,14 @@ internal sealed class RemoteHeldCardFace
         }
         if (source == RevealGate.CardFaceSource.None)
         {
-            Report(0, 1, "RevealGate.CardFaces(Selectable) named no source — the game's own secret "
+            Report(0, 1, "RevealGate.CardFaces named no source — the game's own secret "
                        + "SelectAbilityCardsOrLongRest window, or no context to resolve a face in. "
-                       + "The two card-property exceptions were both asked and both refused: this "
-                       + "card is not in that character's ActivatedCards and not in their "
-                       + "Lost/PermanentlyLost lists, so neither the active-card ruling nor the "
-                       + "burn ruling reaches it");
+                       + "The card-property exceptions were all asked and all refused: this card is "
+                       + "not in that character's ActivatedCards, not in their Lost/PermanentlyLost "
+                       + "lists and not in their DiscardedAbilityCards, so neither the active-card "
+                       + "ruling, nor the burn ruling, nor the pile-fan ruling reaches it. A HAND "
+                       + "card inside the secret window is the one state that legitimately lands "
+                       + "here");
             // A BACK, BUT STILL AN ITEM-SHAPED BACK. This branch is the report's second half almost
             // word for word — "in der Auswahlphase … man nur die Rückseite sieht" — and it used to
             // call Hide(), which resets the silhouette to ABILITY. The gate governs the FACE; it
@@ -498,7 +526,7 @@ internal sealed class RemoteHeldCardFace
     /// <see cref="TryPeekActiveSeat"/> is. The permission it feeds is still asked before anything is
     /// shown.</para>
     /// </summary>
-    private CAbilityCard? TryPeekBurntSeat(CPlayerActor? actor, byte code, byte count)
+    private CAbilityCard? TryPeekPileSeat(CPlayerActor? actor, byte code, byte count, bool burnt)
     {
         if (actor == null)
             return null;
@@ -506,7 +534,11 @@ internal sealed class RemoteHeldCardFace
         CardsHandUI? hand = manager != null ? manager.GetHand(actor) : null;
         if (hand == null)
             return null;
-        CardsGameApi.GetPileArcWidgets(hand, burnt: true, _pileBuf);
+        // ONE WALK FOR BOTH PILE ARCS. It was TryPeekBurntSeat with `burnt: true` hardcoded; the
+        // discard arc is the SAME index space read from the SAME accessor, and giving it a second
+        // method would be two copies of a wire index space — the defect record 36's own doc block
+        // forbids. The caller names the pile; nothing else differs.
+        CardsGameApi.GetPileArcWidgets(hand, burnt, _pileBuf);
         int at = NetProtocol.HeldFaceIndex(code);
         CAbilityCard? found = _pileBuf.Count == count && at >= 0 && at < _pileBuf.Count
                               && _pileBuf[at] != null

@@ -203,8 +203,20 @@ internal sealed class RemotePileFronts
         SecretPhase,
 
         /// <summary>
-        /// THE SECRET WINDOW IS OPEN AND THIS IS THE BURNT PILE, so the gate is asked PER CARD
-        /// instead of per fan (2026-09-07 review, item B2).
+        /// THE SECRET WINDOW IS OPEN AND THIS IS AN ABILITY-CARD PILE ARC, so the gate is asked PER
+        /// CARD instead of per fan (2026-09-07 review item B2 for the burnt arc; 2026-09-07 evening
+        /// report item 3 for the discard arc).
+        ///
+        /// <para>THE NAME IS HISTORICAL AND THE MEMBER IS WIDER THAN IT. It started as the burn
+        /// exception and now carries the whole pile-fan ruling — "Die Fächer der piles werden also
+        /// ab jetzt immer mit Vorderseiten gezeigt ohne Ausnahme" — for BOTH ability-card arcs. A
+        /// burnt card is opened by <c>RevealGate.IsPubliclyRevealedCard</c>, a discarded one by
+        /// <c>RevealGate.IsDiscardedCard</c>, and both are asked through the same card-aware
+        /// <c>RevealGate.CardFaces</c> overload, so this surface still states no rule of its own.
+        /// The ITEM arc never reaches this member at all: an item has no <c>CardInstanceID</c>, so
+        /// it is opened one level up by its POPULATION
+        /// (<c>RevealGate.PeerCardPopulation.ItemCard</c>) and its gate is never
+        /// <see cref="SecretPhase"/> to begin with.</para>
         ///
         /// <para>USER, VERBATIM, AND IT IS THE STRONGEST TERM HE HAS USED FOR ANY FACE: "Beim
         /// Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar
@@ -217,9 +229,13 @@ internal sealed class RemotePileFronts
         /// character's <c>LostAbilityCards</c> / <c>PermanentlyLostAbilityCards</c> BY
         /// CONSTRUCTION, which is the same list the exception reads.</para>
         ///
-        /// <para>ONLY THE BURNT ARM, AND ONLY THIS ONE REFUSAL. <see cref="Content.Discard"/> and
+        /// <para>WHAT THIS PARAGRAPH USED TO SAY, KEPT SO THE REVERSAL IS LEGIBLE: "ONLY THE BURNT
+        /// ARM, AND ONLY THIS ONE REFUSAL. <see cref="Content.Discard"/> and
         /// <see cref="Content.Items"/> keep the whole-fan gate — a discarded card is not burnt and
-        /// its identity is still the selection window's secret. And only
+        /// its identity is still the selection window's secret." That was correct while nobody had
+        /// ruled; the user has now ruled twice, and the ModBuild 478 logs measure the picture he is
+        /// describing on both machines (<c>pile browse[p2] 0 FRONT / 4 BACK — Discard:
+        /// RevealGate.ShowRoundCardFronts(actor)=false</c>). Only
         /// <see cref="SecretPhase"/> converts: <see cref="NoActor"/>, <see cref="OffScenario"/> and
         /// <see cref="Errored"/> are CAPABILITY failures, not secrecy verdicts, and a capability
         /// failure cannot be argued away by a ruling about what may be shown.</para>
@@ -253,14 +269,17 @@ internal sealed class RemotePileFronts
         Gate.OffScenario => "RevealGate.InScenario=false",
         Gate.SecretPhase => "RevealGate.ShowRoundCardFronts(actor)=false — the game's own secret " +
                             "SelectAbilityCardsOrLongRest phase for a remote actor",
-        Gate.BurnException => "RevealGate.ShowRoundCardFronts(actor)=false, but this is the BURNT " +
-                              "pile, so the gate is asked PER CARD through the card-aware " +
-                              "RevealGate.CardFaces overload: every card in this arc is in that " +
-                              "character's Lost/PermanentlyLost lists by construction and " +
-                              "RevealGate.IsPubliclyRevealedCard therefore opens it — user, " +
+        Gate.BurnException => "RevealGate.ShowRoundCardFronts(actor)=false, but this is a PILE arc, " +
+                              "so the gate is asked PER CARD through the card-aware " +
+                              "RevealGate.CardFaces overload: every card in a burnt arc is in that " +
+                              "character's Lost/PermanentlyLost lists and every card in a discard " +
+                              "arc is in their DiscardedAbilityCards, both by construction, so " +
+                              "RevealGate.IsPubliclyRevealedCard / IsDiscardedCard opens it — user, " +
                               "verbatim: 'Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte " +
-                              "immer mit der Vorderseite sichtbar sein'. A BACK on this line is a " +
-                              "card the exception refused, which for this arc is a finding",
+                              "immer mit der Vorderseite sichtbar sein' and 'Die Faecher der piles " +
+                              "werden also ab jetzt immer mit Vorderseiten gezeigt ohne Ausnahme'. " +
+                              "A BACK on this line is a card the ruling refused, which for either " +
+                              "arc is a finding",
         Gate.CountMismatch => "RevealGate.ShowRoundCardFronts(actor)=true, but this client's copy of " +
                               "the peer's pile is a different LENGTH from the arc they are looking " +
                               "at — a positional zip across a length disagreement draws the WRONG " +
@@ -449,8 +468,19 @@ internal sealed class RemotePileFronts
             // this class's Gate enum is exact and deliberately loses nothing: MapLoadout means "no
             // scenario is running", and a pile-browse arc or an item fan needs the scenario
             // singletons its clone path reads, so for THIS surface that answer IS OffScenario.
+            //
+            // WHICH POPULATION — and the ITEM arc names its own (user, 2026-09-07 evening item 3:
+            // "Die Fächer der piles werden also ab jetzt immer mit Vorderseiten gezeigt ohne
+            // Ausnahme", which he extended to the items fan in that message). An item is not an
+            // ability card: it carries no CardInstanceID, so it can never be answered by the
+            // per-card ruling the two ability arcs take below, and the population is the only
+            // vocabulary both item surfaces share. RevealGate.PeerCardPopulation.ItemCard carries
+            // the derivation, including why a KIND may sit on the exempt side of
+            // RevealGate.IsPublicPopulation where a PLACE may not.
             RevealGate.CardFaceSource source =
-                RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor);
+                RevealGate.CardFaces(content == Content.Items
+                                         ? RevealGate.PeerCardPopulation.ItemCard
+                                         : RevealGate.PeerCardPopulation.Selectable, actor);
             if (actor == null)
                 gate = Gate.NoActor;
             else if (source == RevealGate.CardFaceSource.Scenario)
@@ -469,13 +499,21 @@ internal sealed class RemotePileFronts
                                $"({ex.Message}) — backs.");
         }
 
-        // ─── THE BURN EXCEPTION IS A CARD PROPERTY, SO THE BURNT ARC ASKS PER CARD ─────────────
-        // See Gate.BurnException. The whole-fan refusal below is right for the discard and item
-        // arcs and wrong for this one, and it was wrong in the direction the user has now ruled on
-        // three times. Converting the gate here rather than adding a second early-out keeps ONE
-        // shut path and ONE open path; the per-card ask is in the resolve loop, where the card is
-        // in hand.
-        if (gate == Gate.SecretPhase && content == Content.Burnt && actor != null)
+        // ─── THE PILE RULING IS A CARD PROPERTY, SO EVERY PILE ARC ASKS PER CARD ──────────────
+        // See Gate.BurnException (the name is historical; the member now carries both pile
+        // rulings). The whole-fan refusal below used to stand for the DISCARD arc as well, and the
+        // user has ruled it out twice: "Auch offen - dann gilt das aber auch für den
+        // Verbrannt-Fächer" (2026-09-07 afternoon) and "Die Fächer der piles werden also ab jetzt
+        // immer mit Vorderseiten gezeigt ohne Ausnahme" (2026-09-07 evening, item 3).
+        //
+        // THE CONTENT TERM IS GONE AND ITS ABSENCE IS THE FIX. A `content ==` test here is a PLACE
+        // rule, and the same report carries the falsifier for place rules on this ruling: "sobald
+        // ich eine Karte aus dem Fächer … nehme, sehen die anderen Spieler bei der genommenen Karte
+        // nur die Rückseite" — the card leaves the fan and the ruling has to go with it. It does,
+        // because what this line hands to is RevealGate's per-CARD ask, which the held-card surface
+        // asks too. The ITEM arc cannot arrive here (its population is already exempt above), so
+        // dropping the term costs no third branch.
+        if (gate == Gate.SecretPhase && actor != null)
             gate = Gate.BurnException;
 
         int contentKey = (int)content;
@@ -720,7 +758,7 @@ internal sealed class RemotePileFronts
         Census(content, fronts, outcome);
         Log(content, outcome, fronts, actor);
         if (gate == Gate.BurnException && carvedBacks > 0)
-            LogBurnCarveRefusal(carvedBacks, fronts, actor);
+            LogBurnCarveRefusal(content, carvedBacks, fronts, actor);
         if (content != Content.Items)
             LogPileLook(content, fxLooks, fronts, actor);
     }
@@ -733,39 +771,51 @@ internal sealed class RemotePileFronts
     /// THE FALSIFIER FOR THIS CLASS'S BURN CARVE-OUT (<see cref="Gate.BurnException"/>). Grep token
     /// <c>BURNT ARC CARVE-OUT REFUSED</c>.
     ///
-    /// <para>The carve-out rests on ONE claim: every card in a peer's burnt browse arc is in that
-    /// character's <c>LostAbilityCards</c> or <c>PermanentlyLostAbilityCards</c>, which is the very
-    /// membership <c>RevealGate.IsPubliclyRevealedCard</c> tests, so the per-card ask can only ever
-    /// say yes. This line fires exactly when it said no — i.e. when the claim is false — and it is
-    /// the only way to find that out, because a refused slab draws the SAME card back the old
-    /// whole-fan gate drew and is invisible in every other reading.</para>
+    /// <para>The carve-out rests on ONE claim per arc, and both are membership by construction:
+    /// every card in a peer's BURNT browse arc is in that character's <c>LostAbilityCards</c> or
+    /// <c>PermanentlyLostAbilityCards</c> (what <c>RevealGate.IsPubliclyRevealedCard</c> tests), and
+    /// every card in their DISCARD browse arc is in <c>DiscardedAbilityCards</c> (what
+    /// <c>RevealGate.IsDiscardedCard</c> tests) — both arcs are built out of exactly those lists by
+    /// <c>CardsGameApi.GetPileWidgets</c>. So the per-card ask can only ever say yes. This line
+    /// fires exactly when it said no — i.e. when the claim is false — and it is the only way to find
+    /// that out, because a refused slab draws the SAME card back the old whole-fan gate drew and is
+    /// invisible in every other reading.</para>
     ///
     /// <para>SILENCE IS THE EXPECTED READING, and it is not a "held instrument": the enclosing arm
-    /// only runs while a viewer has a peer's BURNT pile open DURING that peer's secret selection
-    /// window, so nothing at all is owed outside that intersection. The reading that means the
-    /// carve-out is live and working is <c>Gate.BurnException</c> appearing in this surface's
+    /// only runs while a viewer has a peer's BURNT or DISCARD pile open DURING that peer's secret
+    /// selection window, so nothing at all is owed outside that intersection. The reading that means
+    /// the carve-out is live and working is <c>Gate.BurnException</c> appearing in this surface's
     /// census line with a non-zero front count.</para>
+    ///
+    /// <para>ONE REFUSAL IS EXPECTED AND IS NOT A DEFECT, AND IT IS NAMED HERE SO IT IS NOT CHASED:
+    /// a card the owner is holding out of the arc is not DRAWN, so it never reaches the per-card ask
+    /// and cannot be counted here. A refusal on this line is always a card that IS on screen.</para>
     /// </summary>
-    private void LogBurnCarveRefusal(int refused, int fronts, CPlayerActor? actor)
+    private void LogBurnCarveRefusal(Content content, int refused, int fronts, CPlayerActor? actor)
     {
-        int key = (refused << 8) | (fronts & 0xFF);
+        int key = ((int)content << 16) | (refused << 8) | (fronts & 0xFF);
         int actorId = NetFigures.StableActorId(actor);
         if (key == _loggedCarveRefusal.Key && actorId == _loggedCarveRefusal.ActorId)
             return;
         _loggedCarveRefusal = (key, actorId);
         // HW-VERIFY: grep token "BURNT ARC CARVE-OUT REFUSED" — see this method's doc.
         VRLog.Note("Net", $"BURNT ARC CARVE-OUT REFUSED [player {_owner.PlayerId}]: {refused} slab(s) "
-                          + $"of this burnt arc stayed BACKS beside {fronts} front(s) for "
+                          + $"of this {content.ToString().ToUpperInvariant()} arc stayed BACKS beside "
+                          + $"{fronts} front(s) for "
                           + $"'{Board.CharacterFocus.Describe(actor)}', inside that peer's secret "
                           + "selection window. The premise of the carve-out is that every card in a "
-                          + "burnt browse arc is in that character's Lost/PermanentlyLost lists by "
-                          + "construction, so RevealGate.IsPubliclyRevealedCard cannot refuse one. "
+                          + "burnt browse arc is in that character's Lost/PermanentlyLost lists and "
+                          + "every card in a discard browse arc is in their DiscardedAbilityCards, "
+                          + "both by construction, so RevealGate.IsPubliclyRevealedCard / "
+                          + "IsDiscardedCard cannot refuse one. "
                           + "THIS LINE IS THAT PREMISE BEING FALSE. The two candidates are a widget "
                           + "with no model CAbilityCard behind it (CardsGameApi.PileWidgetIsArcMember "
                           + "should already have dropped it) and a length disagreement that slipped "
                           + "past the belt above — read the fan's own count line beside this one. "
-                          + "The user's ruling is 'Beim Verbrennen EGAL AUS WELCHEM GRUND', so any "
-                          + "occurrence is a finding and not a footnote.");
+                          + "The user's rulings are 'Beim Verbrennen EGAL AUS WELCHEM GRUND' and "
+                          + "'Die Faecher der piles werden also ab jetzt immer mit Vorderseiten "
+                          + "gezeigt ohne Ausnahme', so any occurrence is a finding and not a "
+                          + "footnote.");
     }
 
     /// <summary>Change key for <see cref="LogPileLook"/>: the (content, looks, fronts) triple plus
