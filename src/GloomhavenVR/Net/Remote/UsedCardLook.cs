@@ -45,18 +45,41 @@
 //
 //  THE PREMISE THAT WAS PUT TO THIS LANE — "CardEffects flags are TRANSIENT; burnTime is a
 //  hard-coded 2f, so two seconds after a card is used every HasEffect goes false" — IS FALSE, and
-//  the game says so in three lines: `private HashSet<FXTask> toggledEffects` (CardEffects.cs:229),
-//  `HasEffect(e) => toggledEffects.Contains(e)` (:354-357), and the only two writers that ever
-//  REMOVE from it, ToggleEffect(active:false) (:432) and RestoreCard() (:468). The 2 s is the
-//  ANIMATION's duration and has nothing to do with the flag. FromWidget therefore does not "stop
-//  being able to see the past" on a timer.
+//  the game says so in three lines: `private HashSet<FXTask> toggledEffects` (CardEffects.cs:229)
+//  and `HasEffect(e) => toggledEffects.Contains(e)` (:354-357), against writers that only ever ADD
+//  on the path a played card takes. The 2 s is the ANIMATION's duration and has nothing to do with
+//  the flag. FromWidget therefore does not "stop being able to see the past" on a timer.
+//
+//  CORRECTION (2026-09-07, re-read in the decompile). The sentence above used to name "the only two
+//  writers that ever REMOVE from it, ToggleEffect(active:false) (:432) and RestoreCard() (:468)",
+//  and BOTH halves of that were wrong in a way that matters:
+//    * :432 is inside ToggleAdditiveEffect, not ToggleEffect (ToggleEffect is :359-403,
+//      ToggleAdditiveEffect is :404-443);
+//    * and that Remove is DEAD on the public entry point, because ToggleEffect calls RestoreCard()
+//      FIRST, ALWAYS (:362), which does toggledEffects.Clear() (:468). By the time :432 runs the
+//      set is already empty.
+//  So `toggledEffects` is a SINGLE-SLOT register, not a set: every ToggleEffect wipes it and adds
+//  exactly one task. That is why FromWidget may test the three tasks in any order it likes — at
+//  most one of them can be standing — and it is also why the "burn is asked first because a card
+//  can be mid-burn while its discard flag is still standing" argument below is stated as an
+//  ORDERING PREFERENCE and never relied on.
 //
 //  WHAT IT DOES DO IS FOLLOW THE GAME'S OWN ERASURE. FullAbilityCard.SetPile(Hand | Activated)
-//  calls cardEffects.RestoreCard() unconditionally (:325-328) and is reached from
-//  AbilityCardUI.UpdateCard(), i.e. at the next hand refresh — one round later. So this expression
+//  calls cardEffects.RestoreCard() (:325-328) and is reached from AbilityCardUI.UpdateCard()
+//  (AbilityCardUI.cs:768-775), i.e. at the next hand refresh — one round later. So this expression
 //  is a faithful report of a latch the game itself clears, and every surface that asks ONLY this
 //  question draws a spent card clean from the round boundary onward. That is not a bug in FromWidget;
 //  it is the reason a DURABLE question had to exist beside it.
+//
+//  CORRECTION (2026-09-07): THAT CALL IS NOT UNCONDITIONAL, and this file used to say it was. All
+//  three FX arms of SetPile sit inside `if (cardPile != newCardPile && cardEffects != null)`
+//  (FullAbilityCard.cs:313-315). RestoreCard() fires only on a CHANGE into Hand or Activated,
+//  measured against the value the WIDGET last received — and UpdateCard() re-passes the same
+//  cardType (:770-773), so on an unchanged card SetPile is a complete no-op on the FX layer. The
+//  erasure is real and the remedies built on it are still owed; its TRIGGER is a widget-local edge,
+//  not a round boundary. AbilityCardUI.ToggleHighlight writes cardType behind SetPile's back
+//  (AbilityCardUI.cs:1096, :1186), which is one way that edge is manufactured without the model
+//  moving at all.
 //
 //  THE DURABLE QUESTION IS Cards.BurnLookPolicy.ForCard / ForActivatedCard, and it lives in Cards/
 //  because CALLS GO DOWN: Net/ may read Cards/, and Cards/ must never learn that a mirror exists.
@@ -107,22 +130,57 @@ internal static class UsedCardLook
     /// answer <see cref="FromWidget"/> cannot give once the game has cleared its latch.
     ///
     /// <para>One call, so that a mirrored surface needing a settled look has nothing to write by
-    /// hand. See <see cref="Cards.BurnLookPolicy.ForCard"/> for the term and for its one blind spot
-    /// (a card a rest handed back to the hand still reads <c>Discarded</c>), which every caller
-    /// whose population can contain a hand card must answer before asking.</para>
+    /// hand. See <see cref="Cards.BurnLookPolicy.ForCard(CAbilityCard?)"/> for the term and for its
+    /// blind spots — a card a rest handed back to the hand still reads <c>Discarded</c>, which every
+    /// caller whose population can contain a hand card must answer before asking.</para>
+    ///
+    /// <para>PASS THE OWNER WHEREVER YOU HAVE ONE. The other blind spot — a card burnt to NEGATE
+    /// DAMAGE, which <c>GameState.Lose1HandCardToAvoidAttack</c> moves into <c>LostAbilityCards</c>
+    /// without ever writing <c>CurrentCardPile</c> — is answered only by the overload that names the
+    /// owner, because the answer is list membership and a bare <c>CAbilityCard</c> cannot name a
+    /// list. Without it a mirrored surface draws that card PRISTINE while its owner sees it charred,
+    /// against <i>"Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite
+    /// sichtbar sein"</i>.</para>
     /// </summary>
     internal static RemoteCardArt.CardFxLook FromState(CAbilityCard? card)
         => FromPolicy(Cards.BurnLookPolicy.ForCard(card));
+
+    /// <summary><see cref="FromState(CAbilityCard?)"/> with the card's OWNER named — the form every
+    /// mirrored surface that can resolve the peer's actor should call. A null owner degrades to the
+    /// bare form exactly, never to a worse answer.</summary>
+    internal static RemoteCardArt.CardFxLook FromState(CPlayerActor? owner, CAbilityCard? card)
+        => FromPolicy(Cards.BurnLookPolicy.ForCard(owner, card));
 
     /// <summary>
     /// Which of the game's two card-FX looks <paramref name="full"/> is running right now, or
     /// <see cref="RemoteCardArt.CardFxLook.None"/> for a card nobody has touched.
     ///
-    /// <para>THE GAME'S OWN TASK FLAGS AND NOTHING ELSE. <c>FXTask.BurnCard</c> is
-    /// <c>BurnCardTimeline</c>; <c>DiscardMode</c> and <c>LostMode</c> both run
-    /// <c>GhostOutOnTimeline</c> (CardEffects.cs:422-423), which is why they collapse to one answer
-    /// here. Burn is asked FIRST because a card can be mid-burn while its discard flag is still
-    /// standing, and the char is the later, stronger look.</para>
+    /// <para>THE GAME'S OWN TASK FLAGS AND NOTHING ELSE, AND THE COLLAPSE USED TO BE ON THE WRONG
+    /// SIDE. <c>CardEffects.ToggleAdditiveEffect</c>'s switch is three arms and the odd one out is
+    /// <c>DiscardMode</c>, not <c>LostMode</c> — read out of the decompile on 2026-09-07:
+    /// <code>
+    /// 419:  case FXTask.DiscardMode: GhostOutOn(ghostAnim: true);              break;   // the GREY
+    /// 422:  case FXTask.LostMode:    BurnCard(burnAnim: true, playOnDisabled); break;   // the CHAR
+    /// 425:  case FXTask.BurnCard:    BurnCard(burnAnim: true, playOnDisabled); break;   // the CHAR
+    /// </code>
+    /// <c>LostMode</c> and <c>BurnCard</c> are the SAME CALL. Until ModBuild 480 this method mapped
+    /// <c>LostMode</c> to <see cref="RemoteCardArt.CardFxLook.Ghost"/> and the doc block that stood
+    /// here asserted <i>"DiscardMode and LostMode both run GhostOutOnTimeline (CardEffects.cs:422-423)"</i>
+    /// while citing the two lines that refute it — 422-423 IS the <c>LostMode → BurnCard</c> arm.</para>
+    ///
+    /// <para>WHY IT WAS THE ORDINARY BURN AND NOT A CORNER. <c>FullAbilityCard.SetPile</c> raises
+    /// <c>LostMode</c> — never <c>BurnCard</c> — for every card the model routes into a burnt pile
+    /// (FullAbilityCard.cs:321-323, the <c>Lost || PermanentlyLost</c> arm). <c>BurnCard</c> is
+    /// raised in exactly two places: the short-rest sacrifice (CardsHandUI.cs:955) and
+    /// <c>TryPlayBurnAnimation</c>'s already-resolved arm (FullAbilityCard.cs:587-589). So a peer
+    /// burning a card that reached the pile through <c>SetPile</c> — a "lost" symbol played, a card
+    /// burnt to negate damage — charred warm brown-black on his own headset and washed cold blue-grey
+    /// in his mirrored hand fan on every other one. Same card, same instant, two different burns:
+    /// the 1:1 ruling counts a wrong ANIMATION exactly as it counts a wrong colour.</para>
+    ///
+    /// <para>Burn is asked first as an ordering preference only. <c>toggledEffects</c> is cleared by
+    /// <c>ToggleEffect</c>'s own <c>RestoreCard()</c> on every entry (CardEffects.cs:362, :468), so
+    /// at most one of the three flags can be standing and no order can change the answer.</para>
     ///
     /// <para>NEVER THROWS, and a null widget or a stripped <c>CardEffects</c> answers
     /// <see cref="RemoteCardArt.CardFxLook.None"/> — the clean card, which is the safe direction for
@@ -136,10 +194,13 @@ internal static class UsedCardLook
             CardEffects? fx = full != null ? full.cardEffects : null;
             if (fx == null)
                 return RemoteCardArt.CardFxLook.None;
-            if (fx.HasEffect(CardEffects.FXTask.BurnCard))
-                return RemoteCardArt.CardFxLook.Burn;
-            if (fx.HasEffect(CardEffects.FXTask.DiscardMode)
+            // LostMode BELONGS ON THIS SIDE. CardEffects.cs:422-423 runs BurnCard(burnAnim: true)
+            // for it, character for character the same call as the FXTask.BurnCard arm at :425-426;
+            // only DiscardMode reaches GhostOutOn (:419-420).
+            if (fx.HasEffect(CardEffects.FXTask.BurnCard)
                 || fx.HasEffect(CardEffects.FXTask.LostMode))
+                return RemoteCardArt.CardFxLook.Burn;
+            if (fx.HasEffect(CardEffects.FXTask.DiscardMode))
                 return RemoteCardArt.CardFxLook.Ghost;
             return RemoteCardArt.CardFxLook.None;
         }

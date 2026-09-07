@@ -1993,7 +1993,17 @@ internal sealed class RemoteCardArt
         /// <para>THE ACTIVE COLUMN NO LONGER READS <c>Unnamed</c> EITHER — the paragraph above asked
         /// for an <c>Active</c> member "rather than borrowing <c>Pile</c> or <c>Recess</c>" and
         /// ModBuild 479 added it, in the same change that gave the column a GHOST as well as a
-        /// burn. What is left here is a face nobody drives at all.</para></summary>
+        /// burn.</para>
+        ///
+        /// <para>BUT IT IS NOT "a face nobody drives at all", which is what this doc used to end
+        /// with. Grepped 2026-09-07: exactly five sites assign <see cref="Surface"/>
+        /// (<c>RemotePileFronts.cs:724</c>, <c>RemoteBoardCard.cs:1032</c> and <c>:1239</c>,
+        /// <c>RemoteHeldCardFace.cs:732</c>, <c>RemoteBurnFx.cs:1077</c>) and TWO drivers paint a
+        /// look without assigning one — <c>RemoteHandFan.TickUsedCardFx</c>, which argues for it in
+        /// its own doc, and <c>RemoteCardFx.DriveFlightLook</c> (<c>RemoteCardFx.cs:637</c>), which
+        /// simply never does. Both therefore report as <c>Unnamed</c> and the instrument cannot tell
+        /// them apart, which is the argument for a member each rather than for this
+        /// paragraph.</para></summary>
         Unnamed,
 
         /// <summary>A peer's round-card RECESS — <c>RemoteBoardCard.DriveUsedCardFx</c>, a live 2 s
@@ -2022,6 +2032,28 @@ internal sealed class RemoteCardArt
         /// effekten"</i>.</summary>
         Held,
     }
+
+    /// <summary>
+    /// HOW MANY SURFACES THERE ARE, TAKEN FROM THE ENUM — the length every per-surface latch array
+    /// below is sized to, so that growing <see cref="FxSurface"/> can never again leave one of them
+    /// short.
+    ///
+    /// <para>WHAT WAS MEASURED (2026-09-07 review, F1). <c>c14e5220</c> grew this enum from four
+    /// members to six by adding <see cref="FxSurface.Active"/> and <see cref="FxSurface.Held"/>.
+    /// The three latch arrays beside <see cref="_flameQuadByName"/> were literal <c>new bool[4]</c>
+    /// and were indexed UNGUARDED, so <c>(int)Active == 4</c> threw
+    /// <c>IndexOutOfRangeException</c> inside <see cref="BuildBurnRig"/>'s own <c>try</c> — and it
+    /// threw AFTER <c>_burnRigState = BurnRig.Ready</c>, so the catch nulled <c>_burnImages</c>,
+    /// the rig was never rebuilt (<see cref="BuildBurnRig"/> runs only from <c>Unbuilt</c>) and
+    /// every later write was refused by <c>_burnRigState != Ready || _burnImages == null</c>. Two
+    /// of the six card-FX surfaces — the peer's ACTIVE column and the card in a peer's FIST, both
+    /// of them surfaces the 2026-09-07 rulings are about — could therefore never paint at all.</para>
+    ///
+    /// <para>THE NUMBER IS NOT WRITTEN DOWN ANYWHERE, deliberately: a literal <c>6</c> here would
+    /// rot exactly as the <c>4</c> did. Declared BEFORE the arrays because C# initialises static
+    /// fields in declaration order and a forward reference would read 0.</para>
+    /// </summary>
+    private static readonly int FxSurfaceCount = System.Enum.GetValues(typeof(FxSurface)).Length;
 
     /// <summary>Which surface is driving this face. Assigned by the driver, idempotently; a face
     /// nobody drives keeps <see cref="FxSurface.Unnamed"/> and never reaches the instrument.</summary>
@@ -2164,9 +2196,31 @@ internal sealed class RemoteCardArt
     /// <see cref="FxSurface"/> for why a single latch could not answer the question it was written
     /// to answer. Never per card, never per frame; at most one line per (surface, outcome) pair for
     /// the life of the process.</summary>
-    private static readonly bool[] s_burnRigLogged = new bool[4];
-    private static readonly bool[] s_burnRigRefused = new bool[4];
-    private static readonly bool[] s_burnRigNoFxImages = new bool[4];
+    private static readonly bool[] s_burnRigLogged = new bool[FxSurfaceCount];
+    private static readonly bool[] s_burnRigRefused = new bool[FxSurfaceCount];
+    private static readonly bool[] s_burnRigNoFxImages = new bool[FxSurfaceCount];
+
+    /// <summary>
+    /// TAKE a per-surface one-shot latch, or answer false if it is already taken — the ONE place
+    /// any of the four latch arrays in this file is indexed.
+    ///
+    /// <para>BOUNDS-CHECKED EVEN THOUGH <see cref="FxSurfaceCount"/> NOW SIZES THEM, because the
+    /// cost of being wrong here is not a missing log line. The 2026-09-07 review measured what an
+    /// out-of-range index does on this path: it throws inside <see cref="BuildBurnRig"/>'s try
+    /// AFTER the rig has committed <c>BurnRig.Ready</c>, and the surface is then dead for the life
+    /// of the clone. An INSTRUMENT MUST NEVER BE ABLE TO KILL THE THING IT MEASURES; a surface this
+    /// method cannot name goes quiet instead, and its absence from the log is itself the reading.
+    /// <c>ReportFlameDrawnOnce</c> already had this guard and is why its array alone did not
+    /// throw.</para>
+    /// </summary>
+    private static bool TakeSurfaceLatch(bool[] latches, FxSurface surface)
+    {
+        int s = (int)surface;
+        if (s < 0 || s >= latches.Length || latches[s])
+            return false;
+        latches[s] = true;
+        return true;
+    }
 
     /// <summary>
     /// PUT THE CARD BACK — the mirror of <c>CardEffects.RestoreCard()</c> (CardEffects.cs:466-506)
@@ -2798,7 +2852,7 @@ internal sealed class RemoteCardArt
 
     /// <summary>One line per (surface) for the flame sheet's DRAWN state — see
     /// <see cref="ReportFlameDrawnOnce"/>.</summary>
-    private static readonly bool[] s_flameDrawnLogged = new bool[4];
+    private static readonly bool[] s_flameDrawnLogged = new bool[FxSurfaceCount];
 
     /// <summary>
     /// SAY WHETHER THE FIRE IS BEING DRAWN, at the instant its own timeline has settled — the
@@ -2839,10 +2893,8 @@ internal sealed class RemoteCardArt
     /// </summary>
     private void ReportFlameDrawnOnce(Material flame)
     {
-        int s = (int)Surface;
-        if (s < 0 || s >= s_flameDrawnLogged.Length || s_flameDrawnLogged[s] || _flameQuad == null)
+        if (_flameQuad == null || !TakeSurfaceLatch(s_flameDrawnLogged, Surface))
             return;
-        s_flameDrawnLogged[s] = true;
         try
         {
             UnityEngine.UI.Image quad = _flameQuad;
@@ -3157,10 +3209,20 @@ internal sealed class RemoteCardArt
     /// carried a tag, only the FIRST surface to build a rig ever printed and the other two were
     /// indistinguishable from silence — which is exactly how 9b got through.</para>
     ///
-    /// <para><c>[Unnamed]</c> NEVER APPEARS, and its absence is a reading too: the ACTIVE-CARDS
-    /// column builds these faces and drives no look on them, because an activated card is not burnt
-    /// (item 8a). An <c>[Unnamed]</c> line would mean some surface started driving the look without
-    /// naming itself.</para>
+    /// <para>─── AND TWO MORE TAGS SINCE ModBuild 479, WHICH HAVE NEVER PRINTED A LINE ───────────
+    /// <c>[Active]</c> and <c>[Held]</c> exist and are driven (<c>RemoteBoardCard.cs:1032</c>,
+    /// <c>RemoteHeldCardFace.cs:732</c>), but until the <see cref="FxSurfaceCount"/> fix above every
+    /// one of their rigs threw on this method's own latch array and died. So on any log from
+    /// ModBuild 479 their absence means NOTHING about the fire — it means this instrument killed
+    /// them. A 480-or-later log in which they are still absent is the reading; a 479 log in which
+    /// they are absent is not.</para>
+    ///
+    /// <para><c>[Unnamed]</c> DOES APPEAR, and the previous version of this paragraph asserted the
+    /// opposite. TWO drivers paint a look without naming a surface: <c>RemoteHandFan.TickUsedCardFx</c>
+    /// (which says so in its own doc and argues for it) and <c>RemoteCardFx.DriveFlightLook</c>
+    /// (<c>RemoteCardFx.cs:637</c>, which never assigns <see cref="Surface"/> at all). An
+    /// <c>[Unnamed]</c> line is therefore one of those two and NOT evidence of a new surface; it
+    /// cannot tell them apart, which is the argument for giving each its own member.</para>
     ///
     /// <para>THE TIMING IS DIFFERENT ON EACH AND THAT IS DELIBERATE. The fire runs at four times the
     /// face rate, capped and halved (CardEffects.cs:581), so it settles at <c>_FXAnim = 0.5</c> a
@@ -3175,9 +3237,8 @@ internal sealed class RemoteCardArt
                                           bool flame, string flameRefusal, string foundBy,
                                           bool walkDisagreed)
     {
-        if (s_burnRigLogged[(int)surface])
+        if (!TakeSurfaceLatch(s_burnRigLogged, surface))
             return;
-        s_burnRigLogged[(int)surface] = true;
         // HW-VERIFY: grep token "Remote BURN look" — see this method's doc for the four readings.
         VRLog.Note("Net", $"Remote BURN look [{surface}] armed on {images} card image(s): _PosAndBounds was "
                           + $"({was.x:0.#}, {was.y:0.#}, {was.z:0.#}x{was.w:0.#}) -> now "
@@ -3213,9 +3274,8 @@ internal sealed class RemoteCardArt
     /// </summary>
     private static void ReportBurnRigRefused(FxSurface surface)
     {
-        if (s_burnRigRefused[(int)surface])
+        if (!TakeSurfaceLatch(s_burnRigRefused, surface))
             return;
-        s_burnRigRefused[(int)surface] = true;
         // HW-VERIFY: grep token "Remote BURN look" — the REFUSED arm of the three outcomes.
         VRLog.Alert("Net", $"Remote BURN look [{surface}] REFUSED: this clone's own card plate measures under a "
                            + "canvas unit, so the footprint written into _PosAndBounds would be "
@@ -3233,9 +3293,8 @@ internal sealed class RemoteCardArt
     /// </summary>
     private static void ReportBurnRigNoFxImages(FxSurface surface)
     {
-        if (s_burnRigNoFxImages[(int)surface])
+        if (!TakeSurfaceLatch(s_burnRigNoFxImages, surface))
             return;
-        s_burnRigNoFxImages[(int)surface] = true;
         // HW-VERIFY: grep token "Remote BURN look" — the NO-FX-MATERIAL arm of the three outcomes.
         VRLog.Alert("Net", $"Remote BURN look [{surface}] has NO CARD-FX MATERIAL to write: not one Image on this "
                            + "clone carries the _GreyOut + _PosAndBounds signature, so there is nothing "

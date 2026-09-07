@@ -72,9 +72,19 @@ namespace GloomhavenVR.Cards;
 /// <para>WHO WIPES IT, AND WHY IT IS "nur eine Runde". <c>FullAbilityCard.SetPile</c> is reached
 /// only from <c>AbilityCardUI.UpdateCard()</c>, i.e. only when the game refreshes its own 2D hand
 /// view — the next card selection. For <c>ECardPile.Activated</c> that branch calls
-/// <c>cardEffects.RestoreCard()</c> (FullAbilityCard.cs:325-328), which zeroes
-/// <c>_GreyOut/_Flow/_Dissolve/_Burn</c> unconditionally. It does not ask where the card is going.
-/// So a Lost-bound activated card is painted at play time and un-painted one round later, which is
+/// <c>cardEffects.RestoreCard()</c> (FullAbilityCard.cs:325-328), and THAT call zeroes
+/// <c>_GreyOut/_Flow/_Dissolve/_Burn</c> without asking where the card is going.</para>
+///
+/// <para>WHAT REACHING IT IS NOT, corrected 2026-09-07: the branch is not unconditional. All three
+/// FX arms sit inside <c>if (cardPile != newCardPile &amp;&amp; cardEffects != null)</c>
+/// (FullAbilityCard.cs:313-315), and <c>UpdateCard()</c> re-passes the same <c>cardType</c>
+/// (AbilityCardUI.cs:770-773) — so the wipe needs the WIDGET's own last value to change, not the
+/// model's. <c>AbilityCardUI.ToggleHighlight</c> writes <c>cardType</c> behind <c>SetPile</c>'s
+/// back (:1096, :1186), which manufactures that edge with no model move at all. The measurement
+/// below is unaffected: the wash was observed going and coming back on both machines. Only the
+/// story about WHEN was wrong.</para>
+///
+/// <para>So a Lost-bound activated card is painted at play time and un-painted one round later, which is
 /// <i>"aber nur eine Runde - die runde darauf war die Karte wieder blau"</i>, word for word. That
 /// is why rule 1a is enforced on a CADENCE (<see cref="RecheckSeconds"/>) rather than once: the
 /// wipe arrives with no pile change and therefore with no edge to hang a one-shot on.</para>
@@ -254,7 +264,7 @@ internal static class BurnLookPolicy
 
         if (IsActivated(full, card))
             EnforceActivated(fx, card, id, now);
-        else if (IsLost(card))
+        else if (IsLost(full, card))
             EnforceLost(fx, card, id, now);
     }
 
@@ -314,10 +324,49 @@ internal static class BurnLookPolicy
         }
     }
 
-    private static bool IsLost(CAbilityCard card)
+    /// <summary>
+    /// IS THIS CARD BURNT? The owner's own two LOST LISTS first, and the card's
+    /// <c>CurrentCardPile</c> stamp only as the fallback for a widget with no actor to ask.
+    ///
+    /// <para>WHY THE LISTS AND NOT THE STAMP (2026-09-07 review, F2, re-derived in the decompile).
+    /// <c>GameState.Lose1HandCardToAvoidAttack</c> (GameState.cs:1503-1507) and
+    /// <c>Lose2DiscardCardsToAvoidAttack</c> (:1509-1515) — the damage-negation burns — call
+    /// <c>CCharacterClass.MoveAbilityCard</c> DIRECTLY (:273-309). That method edits the two
+    /// <c>List&lt;CAbilityCard&gt;</c> and NEVER writes <c>CurrentCardPile</c>; grepped across the
+    /// whole rule library, the only writers of that property are
+    /// <c>MoveAbilityCardToPile</c> (CCharacterClass.cs:452),
+    /// <c>RestoreCachedAugmentOrSongAbilityCard</c> (:548), <c>Reset</c> (:1198, :1207) and
+    /// <c>CBaseCard</c>'s own serialisation/copy paths (CBaseCard.cs:127, :152, :311, :466 — the
+    /// last of which COPIES the stale value into a state snapshot rather than correcting it). So
+    /// after a card is burnt to negate damage its stamp still reads <c>Hand</c> (1-card variant) or
+    /// <c>Discarded</c> (2-card variant) for the rest of the scenario, while the card itself sits in
+    /// <c>LostAbilityCards</c>.</para>
+    ///
+    /// <para>WHAT THAT COST. This predicate is rule 2's gate — <i>"a lost card is always FULLY
+    /// burnt, front visible"</i>, the user's <i>"Beim Verbrennen EGAL AUS WELCHEM GRUND muss die
+    /// Karte immer mit der Vorderseite sichtbar sein"</i> — so a damage-negation burn was the one
+    /// burn rule 2 never ran on, on the OWNER's own board.</para>
+    ///
+    /// <para>THE LIST IS THE AUTHORITY THIS TREE ALREADY USES for exactly this question:
+    /// <c>Net.RevealGate.IsPubliclyRevealedCard</c> walks the same two lists to decide the card's
+    /// FACE, which is why the face was right while the look was wrong. Membership is tested by
+    /// <c>CardInstanceID</c> rather than by reference, for the same reason it is there.</para>
+    ///
+    /// <para>NOT <c>GameState.CardsBurnedToAvoidDamage</c>, and that was checked before it was
+    /// rejected: it is <c>Clear()</c>ed at the head of every damage-avoidance episode
+    /// (<c>ContinueActorDamagedAfterSelectingPlayerActorToBurnCards</c>, GameState.cs:1225) and
+    /// therefore holds only the CURRENT episode's cards — the very next attack that offers the
+    /// choice wipes it. It is also a <c>volatile List</c> mutated on the SRL worker thread. It is a
+    /// transient message payload, not a durable record, and a look built on it would go clean at
+    /// the next attack.</para>
+    /// </summary>
+    private static bool IsLost(FullAbilityCard? full, CAbilityCard card)
     {
         try
         {
+            CPlayerActor? owner = full != null ? CardsGameApi.CardOwner(full) : null;
+            if (HeldInLostList(owner, card))
+                return true;
             return card.CurrentCardPile == CBaseCard.ECardPile.Lost
                    || card.CurrentCardPile == CBaseCard.ECardPile.PermanentlyLost;
         }
@@ -325,6 +374,32 @@ internal static class BurnLookPolicy
         {
             return false;
         }
+    }
+
+    /// <summary>Is <paramref name="card"/> lying in either of <paramref name="owner"/>'s burnt
+    /// lists? False for a null owner, which is the fallback case the caller answers from the
+    /// stamp — never an assertion that the card is clean.</summary>
+    private static bool HeldInLostList(CPlayerActor? owner, CAbilityCard card)
+    {
+        CCharacterClass? cc = owner != null ? owner.CharacterClass : null;
+        if (cc == null)
+            return false;
+        int id = card.CardInstanceID;
+        return HoldsCard(cc.LostAbilityCards, id) || HoldsCard(cc.PermanentlyLostAbilityCards, id);
+    }
+
+    /// <summary>Walked by index and never with LINQ: this runs on the 0.5 s policy cadence for
+    /// every adopted card and on every mirrored settled-look resolve.</summary>
+    private static bool HoldsCard(List<CAbilityCard>? list, int cardInstanceId)
+    {
+        if (list == null)
+            return false;
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (list[i] != null && list[i].CardInstanceID == cardInstanceId)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -424,26 +499,58 @@ internal static class BurnLookPolicy
     /// <para>WHY IT IS STATE AND NOT AN EFFECT FLAG. <c>CardEffects.HasEffect</c> is a
     /// <c>HashSet&lt;FXTask&gt;</c> membership test (CardEffects.cs:354-357) that <c>RestoreCard()</c>
     /// clears, and <c>FullAbilityCard.SetPile(Hand|Activated)</c> calls <c>RestoreCard()</c>
-    /// unconditionally (:325-328). So the widget's own answer is a faithful mirror of a latch the
-    /// GAME drops at every round boundary — which is why a surface that can only ask the widget
-    /// draws a spent card clean one round later, and why every surface that has a durable question
-    /// available should ask this instead.</para>
+    /// (:325-328). So the widget's own answer is a faithful mirror of a latch the GAME drops —
+    /// which is why a surface that can only ask the widget draws a spent card clean afterwards, and
+    /// why every surface that has a durable question available should ask this instead.</para>
+    ///
+    /// <para>CORRECTION (2026-09-07): that call is NOT unconditional, as this paragraph used to
+    /// say. All three FX arms of <c>SetPile</c> sit inside
+    /// <c>if (cardPile != newCardPile &amp;&amp; cardEffects != null)</c> (FullAbilityCard.cs:313-315),
+    /// so <c>RestoreCard()</c> fires only on a CHANGE into Hand or Activated measured against the
+    /// value the WIDGET last received. The erasure is real and this method is still owed; its
+    /// trigger is a widget-local edge, not the round boundary.</para>
     ///
     /// <para><c>CBaseCard.CurrentCardPile</c> is the field: serialized (CBaseCard.cs:103/:126) and
     /// checked by the game's own multiplayer state comparison (:382-403, mismatch code 2804), so it
-    /// cannot disagree between two machines. ITS ONE BLIND SPOT is recorded at length in
-    /// <c>Net.Remote.RemoteBoardCard.ResolveUsedCardLook</c>: the Hand↔Round moves go through
-    /// <c>CCharacterClass.MoveAbilityCard</c>, which edits the two LISTS and never writes the field,
-    /// so a card a rest handed back to the hand still reads <c>Discarded</c>. A caller that draws
-    /// cards which may be in the hand or in this round's recess must therefore answer that
-    /// population itself before asking here — the recess resolver does exactly that.</para>
+    /// cannot disagree between two machines. ITS BLIND SPOT is every move that goes through
+    /// <c>CCharacterClass.MoveAbilityCard</c> rather than <c>MoveAbilityCardToPile</c>: that method
+    /// edits the two LISTS and never writes the field. Two consequences, and they need different
+    /// answers:
+    /// <list type="bullet">
+    ///   <item>A card a rest handed back to the HAND still reads <c>Discarded</c>. Nothing here can
+    ///   see that, so a caller whose population may contain hand cards must answer the population
+    ///   itself before asking — the recess resolver and the held-card face both do.</item>
+    ///   <item>A card BURNT TO NEGATE DAMAGE still reads <c>Hand</c> (or <c>Discarded</c> for the
+    ///   2-card variant) while it sits in <c>LostAbilityCards</c> — see <see cref="IsLost"/> for
+    ///   the derivation. That one IS answered here, by the owner-taking overload below:
+    ///   passing the card's owner lets this method ask the LIST, which is the same authority
+    ///   <c>Net.RevealGate.IsPubliclyRevealedCard</c> uses for the card's FACE. WITHOUT an owner
+    ///   this method still reads the stale stamp and answers <c>None</c> / <c>Ghost</c> for a card
+    ///   the owner sees charred, which is the 2026-09-07 F2 picture; every caller that can name the
+    ///   owner should.</item>
+    /// </list></para>
     /// </summary>
-    internal static Look ForCard(CAbilityCard? card)
+    internal static Look ForCard(CAbilityCard? card) => ForCard(null, card);
+
+    /// <summary>
+    /// <see cref="ForCard(CAbilityCard?)"/> with the card's OWNER named, so the burnt lists can be
+    /// asked before the <c>CurrentCardPile</c> stamp — the only form that is right for a card burnt
+    /// to negate damage. A null <paramref name="owner"/> degrades to the stamp, which is exactly
+    /// the older behaviour and never a worse answer than it.
+    /// </summary>
+    internal static Look ForCard(CPlayerActor? owner, CAbilityCard? card)
     {
         if (card == null)
             return Look.None;
         try
         {
+            // THE LIST OUTRANKS THE STAMP, and only in this direction: a card the owner's burnt
+            // list holds is burnt no matter what the stamp says, because MoveAbilityCard moved it
+            // there without writing the stamp. The reverse is never asserted — a card the list does
+            // not hold falls through to the stamp rather than being declared clean, so an actor
+            // this client cannot resolve costs nothing.
+            if (HeldInLostList(owner, card))
+                return Look.Burn;
             switch (card.CurrentCardPile)
             {
                 case CBaseCard.ECardPile.Lost:
@@ -574,10 +681,12 @@ internal static class BurnLookPolicy
                               "with the game's OWN no-ramp arm " +
                               "(GhostOutOnTimeline(ghostAnim: false)), front visible. The wipe is " +
                               "the same one rule 1a already undoes for the char: " +
-                              "FullAbilityCard.SetPile(Activated) calls RestoreCard() " +
-                              "unconditionally and never asks which look it is erasing, and it is " +
-                              "reached only from AbilityCardUI.UpdateCard(), i.e. at the next hand " +
-                              "refresh. RULE: an ACTIVATED card wears the permanent BURNT look if " +
+                              "FullAbilityCard.SetPile(Activated) calls RestoreCard() and never " +
+                              "asks which look it is erasing. It is reached only from " +
+                              "AbilityCardUI.UpdateCard() and only when the WIDGET's own cardPile " +
+                              "actually changes (FullAbilityCard.cs:313-315) - not on every hand " +
+                              "refresh, which is a correction of what this line used to claim. " +
+                              "RULE: an ACTIVATED card wears the permanent BURNT look if " +
                               "it is bound for Lost and the permanent GREY if it is bound for " +
                               "Discard, and keeps it for as long as it sits in the active area, on " +
                               "every board; there is no third state and no clean activated card.");
@@ -632,9 +741,11 @@ internal static class BurnLookPolicy
                           $"but its paint read _GreyOut {painted:F2} of 1.00, i.e. the wash was " +
                           "missing or half gone. Restored to the settled end state with the game's " +
                           "OWN no-ramp arm, front visible. The wipe is the game's: " +
-                          "FullAbilityCard.SetPile(Activated) calls RestoreCard() unconditionally " +
-                          "and never asks where the card is going, and it is reached only from " +
-                          "AbilityCardUI.UpdateCard(), i.e. at the next hand refresh — the user's " +
+                          "FullAbilityCard.SetPile(Activated) calls RestoreCard() and never asks " +
+                          "where the card is going. It is reached only from " +
+                          "AbilityCardUI.UpdateCard() and only when the WIDGET's own cardPile " +
+                          "actually changes (FullAbilityCard.cs:313-315) - not on every hand " +
+                          "refresh, which is a correction of what this line used to claim — the user's " +
                           "'aber nur eine Runde - die runde darauf war die Karte wieder blau'. " +
                           "RULE, and every later round is judged against it: an ACTIVATED card " +
                           "wears the permanent burnt look IF AND ONLY IF it is bound for Lost, and " +
