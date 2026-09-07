@@ -3014,7 +3014,16 @@ internal sealed partial class CardsDriver
             //            card reached the column without the end-of-turn transition being seen, so
             //            _lastHalfCards did not hold it (it was not lying in a recess: activated
             //            from the hand fan, from a pick field, or the column re-populated on a focus
-            //            switch rather than on a turn ending). No flight is CORRECT for those.
+            //            switch rather than on a turn ending). No flight is correct for those, and
+            //            AS OF ModBuild 473 none is drawn: ActivePileViewer.Relayout SEATS an
+            //            arriving card instantly (grep token ACTIVE SEAT) and glides only cards
+            //            already standing in the column. Until that build the sentence here read
+            //            "No flight is CORRECT for those" and stopped — an assertion about what
+            //            OUGHT to happen, read for two builds as a statement of what did. A glide
+            //            always happened: the session behind report item 1 filled the column six
+            //            times against one legitimate end-of-turn arc, so five arrivals flew
+            //            unlogged and this comment covered them. The claim is now true on purpose
+            //            rather than by accident, and ACTIVE SEAT is what makes it falsifiable.
             //  BEYOND  = this line present with NO FLIGHT FACE line on any peer: the event was lost
             //            on the unreliable extras channel (read '[Net] CARD FX OUTBOX' here against
             //            that peer's '[Net] CARD FX LOST', which stood at 1 of 7 this session). A
