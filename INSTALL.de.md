@@ -8,7 +8,9 @@
 
 **Zwei Archive in den Spielordner. Etwa fünf Minuten.**
 
----
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 ## Was du brauchst
 

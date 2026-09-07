@@ -20,6 +20,28 @@ grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING
 — **three per language, six in all, and every one of them is in the playing guide.** The README has
 held no placeholder since 2026-09-07. Each box repeats in place what that clip has to show.
 
+## The ornament — one asset, three placements
+
+`docs/img/divider.png` is a transparent PNG, 1200x122, generated with gpt-image-2 and cropped to
+its ink. It replaces the plain `---` rules, at **600 px** — deliberately narrower than the 720 the
+media uses, because a break is not a full-bleed element.
+
+**It is transparent and mid-tone antique gold on purpose.** GitHub renders these pages on a light
+AND a dark background and the reader picks; anything white, cream, black or near-black would vanish
+on one of the two. Every candidate was composited onto `#ffffff` and `#0d1117` before one was
+chosen, and the shipped asset was checked the same way. Do that again for any new ornament.
+
+Three candidates were generated — a hex-and-star motif, a leafy scrollwork vine, and a minimal
+tapered rule. The hex won for reasons worth keeping: it is on-theme for a hex-grid board game, it
+still reads when shrunk to a 40 px band, and it is distinctive. The vine was prettier and generic;
+the minimal rule was indistinguishable from an `<hr>` at page size.
+
+| Document | Ornaments | Why |
+|---|---:|---|
+| `README*.md` | 9 — every break, and above every section heading | the pitch. It should read as chapters, not as a list. Roughly one per screenful on a page carrying six clips |
+| `docs/PLAYING*.md` | 7 — at its existing rules only, never above headings | the manual is SCANNED; an ornament before every heading would slow the scan |
+| `INSTALL*.md` | 1 — under the nav, as the page's identity | a task page. Its ten rules separate NUMBERED steps that already carry their own rhythm, and an ornament between step 2 and step 3 would compete with the numbers. Mixed styles inside one document read as accidental, so the steps keep plain rules and the ornament appears once |
+
 ## How big — THREE WIDTHS, AND NOTHING ELSE
 
 **Every picture and every clip in every document carries an explicit width, and it is one of three.**

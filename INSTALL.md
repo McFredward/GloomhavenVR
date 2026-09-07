@@ -8,7 +8,9 @@
 
 **Two archives into the game folder. About five minutes.**
 
----
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 ## What you need
 

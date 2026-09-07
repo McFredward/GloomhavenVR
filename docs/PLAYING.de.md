@@ -8,7 +8,9 @@
 
 Noch nicht installiert? → [Installationsanleitung](../INSTALL.de.md)
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Die Steuerung
 
@@ -54,7 +56,9 @@ Drei Sachen, die das Bild nicht zeigen kann:
 - **45°-Sprünge statt fließendem Drehen** — **Komfort ▸ Drehen**.
 - **Steigen und sinken** auf dem rechten Stick — standardmäßig aus, einschalten unter **Komfort**.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Deine Karten und dein Brett
 
@@ -73,7 +77,9 @@ Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett o
   <img src="img/board-de.png" width="820" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenmulden, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände, die Matrix deiner aktiven Karten sowie deine Handkarten">
 </p>
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Das Brett vor dir
 
@@ -85,7 +91,9 @@ mit Absicht: so wählt eine Hand, die nur über das Brett streicht, nie etwas au
 
 **Heb eine Figur hoch** — mit dem Trigger — und du siehst ihren kommenden Zug.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Fenster
 
@@ -127,7 +135,9 @@ Raum**. Greif die Stange oben, um eine zu bewegen, ihre Größe zu ändern oder 
 schließen, und hol sie mit dem Stick näher heran oder schieb sie weg, während der Laser sie hält. Wo
 du eine hinstellst, da bleibt sie.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Die Kampagnenkarte
 
@@ -138,7 +148,9 @@ sind echte Kappen am Tischrand, zeig auf einen Ort, um sein Auftragsschild zu se
 Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte?
 **Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte**.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Der Raum, in dem du spielst
 
@@ -183,7 +195,9 @@ Dunkel des Treppenschachts, Augen, die im Unterholz blinzeln. Nie über dem Bret
 gleichzeitig, und alle in einer Sitzung sehen dieselbe im selben Moment. Regeln oder abschalten
 unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Mehrspieler
 

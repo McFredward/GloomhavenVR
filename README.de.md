@@ -41,7 +41,9 @@
   <a href="docs/PLAYING.de.md">Spielanleitung</a>
 </p>
 
----
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 <table>
 <tr>
@@ -68,6 +70,10 @@ macht. Leg sie zurück, und sie setzt sich auf ihr Feld.
   einem echten Sternkatalog, beide reagieren auf die Elementinfusionen des Szenarios.
 - **Mixed Reality.** Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer.
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## Alle am selben Tisch
 
 Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Hochgehobene Miniaturen,
@@ -76,6 +82,10 @@ Bildschirm in derselben Partie mit.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" width="720" controls muted loop></video>
+</p>
+
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
 </p>
 
 ## Deine Karten und dein Brett
@@ -90,6 +100,10 @@ wo du es haben willst.
 Jedes Teil davon ist auf einem beschrifteten Bild im
 [Spielhandbuch](docs/PLAYING.de.md#deine-karten-und-dein-brett) benannt.
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## Das Brett vor dir
 
 <p align="center">
@@ -98,6 +112,10 @@ Jedes Teil davon ist auf einem beschrifteten Bild im
 
 Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe zu
 nehmen — oder halt den Griff und tipp es mit der Fingerspitze an.
+
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 ## Die Kampagnenkarte auf dem Tisch
 
@@ -108,6 +126,10 @@ nehmen — oder halt den Griff und tipp es mit der Fingerspitze an.
 Zwischen den Szenarien stehst du in einem Gewölbe, und die Karte von Gloomhaven liegt ausgebreitet
 auf dem Tisch vor dir. Die Aufträge hängen lesbar an der Wand, und wenn einer freigeschaltet wird,
 leuchtet der ganze Raum auf.
+
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 ## Der Raum, in dem du spielst
 
@@ -134,6 +156,10 @@ Mond.
   <i>Dieselbe Kamera, links Element aus, rechts an.</i>
 </p>
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## Hände, Masken und Bretter
 
 Drei Handpaare, drei Masken, drei Kontrollbretter — je ein Dropdown, mitten in der Sitzung
@@ -147,6 +173,10 @@ Jedes Fenster und jedes Brett hängt an einer gedrechselten Stange und wird bewe
 greifst — mit der Hand oder mit dem Zeigestrahl quer über den Tisch. Ein Brett, auf das du quer über
 den Tisch schaust, trägt **die Stange seines Besitzers**, nicht deine.
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## Was du brauchst, und wie du installierst
 
 **Gloomhaven (Digital)** für den PC (Steam oder GOG) · Windows · ein PC-VR-Headset mit zwei
@@ -157,7 +187,9 @@ Desktop**.
 [die Steuerung](docs/PLAYING.de.md#die-steuerung) und die
 [Spielanleitung](docs/PLAYING.de.md).
 
----
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 **Kostenlos, und bleibt kostenlos.** Wenn dir die Mod einen guten Abend am Tisch beschert hat und du
 Danke sagen möchtest: [ein Kaffee](https://buymeacoffee.com/mcfredward) geht immer.

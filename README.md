@@ -41,7 +41,9 @@
   <a href="docs/PLAYING.md">Playing guide</a>
 </p>
 
----
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 <table>
 <tr>
@@ -68,6 +70,10 @@ Put it back and it settles onto its hex.
   both reacting to the scenario's element infusions.
 - **Mixed reality.** The sky drops away and the table stands in your real room.
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## Everyone at the same table
 
 Every VR player has a mask, hands and their own control board. Lifted miniatures, moved windows and
@@ -76,6 +82,10 @@ screen.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" width="720" controls muted loop></video>
+</p>
+
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
 </p>
 
 ## Your cards and your board
@@ -89,6 +99,10 @@ in with a fingertip, and a rod under it that carries the whole thing wherever yo
 Every part of it is named on one labelled picture in the
 [playing guide](docs/PLAYING.md#your-cards-and-your-board).
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## The board in front of you
 
 <p align="center">
@@ -98,6 +112,10 @@ Every part of it is named on one labelled picture in the
 Point the laser and pull the trigger to take a hex, an enemy, a door or a chest — or hold the grip
 and touch it with a fingertip.
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## The campaign map on a table
 
 <p align="center">
@@ -106,6 +124,10 @@ and touch it with a fingertip.
 
 Between scenarios you stand in a cellar with the map of Gloomhaven spread out on the table in front
 of you. Quests hang on the wall where you can read them, and unlocking one lights up the room.
+
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 ## The room you play in
 
@@ -130,6 +152,10 @@ lifts the ambient level, Dark eclipses the moon.
   <i>Same camera, element off left and on right.</i>
 </p>
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## Hands, masks and boards
 
 Three pairs of hands, three masks, three control boards — one dropdown each, changeable mid-session,
@@ -143,6 +169,10 @@ Every window and every board hangs from a turned rod and is moved by taking hold
 hand, or with the pointer from across the table. A board you look at across the table wears **its
 owner's** rod, not yours.
 
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
+
 ## What you need, and how to install
 
 **Gloomhaven (Digital)** for PC (Steam or GOG) · Windows · a PC-VR headset with two tracked
@@ -151,7 +181,9 @@ controllers · room-scale or standing. Developed on a **Quest 3 over Virtual Des
 **[→ Install guide](INSTALL.md)** — two archives into the game folder. Then
 [the controls](docs/PLAYING.md#the-controls) and the [playing guide](docs/PLAYING.md).
 
----
+<p align="center">
+  <img src="docs/img/divider.png" width="600" alt="">
+</p>
 
 **Free, and staying free.** If the mod gave you a good evening at the table and you feel like saying
 thanks, there is [a coffee](https://buymeacoffee.com/mcfredward).

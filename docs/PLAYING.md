@@ -8,7 +8,9 @@
 
 Not installed yet? → [install guide](../INSTALL.md)
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## The controls
 
@@ -52,7 +54,9 @@ Three more that the picture cannot show:
 - **45° snap turning** instead of a smooth one — **Comfort ▸ Turning**.
 - **Rise and sink** on the right stick — off by default, switch it on under **Comfort**.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Your cards and your board
 
@@ -71,7 +75,9 @@ above the board or in your palm.
   <img src="img/board-en.png" width="820" alt="The control board with every part labelled: the two card recesses, the three keys on the right, the two rest keys on the left, the grab rod, the initiative track, the objectives and elements, the discard, burnt and item stacks, the matrix of the cards you have active, and your hand of cards">
 </p>
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## The board in front of you
 
@@ -83,7 +89,9 @@ sweeps across the board never selects anything.
 
 **Pick a figure up** with the trigger to see its coming turn.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Windows
 
@@ -123,7 +131,9 @@ The game's windows — character sheets, the merchant, dialogs, the story — be
 room**. Grab the bar at the top to move one, resize it, or close it with its X, and reel it closer
 and further with the stick while the laser holds it. Where you put one is where it stays.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## The campaign map
 
@@ -133,7 +143,9 @@ Between scenarios the map is a **room with a table in it**. The guildmaster butt
 caps on the table rim, point at a location to see its quest placard, and your party token walks the
 route it travels. Prefer the original flat map? **World & sound ▸ Campaign map ▸ Original 2D map**.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## The room you play in
 
@@ -177,7 +189,9 @@ shaft, eyes that blink in the undergrowth. Never over the board, never two at on
 a session sees the same one at the same moment. Dial or switch them off under **World ▸ Creepy**;
 that choice is yours alone.
 
----
+<p align="center">
+  <img src="img/divider.png" width="600" alt="">
+</p>
 
 ## Multiplayer
 
