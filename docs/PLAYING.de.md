@@ -183,30 +183,9 @@ unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
 
 ## Mehrspieler
 
-<table>
-<tr><td>
-
-**🎬 VIDEO-PLATZHALTER 2 von 6 — `multiplayer.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
-
-**Was der Clip zeigen muss** (15 s): der Tisch von der anderen Seite. Maske und Hände eines
-zweiten Spielers mit echten Fingerhaltungen, sein gespiegeltes Kontrollbrett daneben, eine Miniatur,
-die er hochhebt, und ein geteiltes Fenster, das einer von euch an eine andere Stelle im Raum zieht.
-**Das ist derselbe Clip, auf den die README wartet** — einmal aufnehmen, zweimal benutzen.
-
-**So füllst du ihn:** leg `multiplayer.mp4` und `multiplayer-poster.jpg` in `docs/img/` und
-lösch dann diesen Kasten samt der zwei Kommentar-Markierungen um die fertige Auszeichnung darunter.
-Die README braucht dieselbe Datei noch auf dem zweiten Weg, hochgeladen über ein
-GitHub-Kommentarfeld — siehe den Platzhalter dort. Derselbe Clip kommt an dieselbe Stelle in
-`PLAYING.md`. Auftrag: [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for multiplayer.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
-  <a href="img/multiplayer.mp4"><img src="img/multiplayer-poster.jpg" width="560" alt="Zwei Spieler am selben Tisch"></a>
+  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
 </p>
--->
 
 - **Alle in einer VR-Sitzung brauchen dieselbe Version.** Passt sie nicht, blockiert die Mod mit
   einem Hinweis, statt die Sitzung still schiefgehen zu lassen —

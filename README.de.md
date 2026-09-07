@@ -72,6 +72,8 @@ Clip kommt an dieselbe Stelle in `README.md`. Vollständiger Auftrag:
   Entscheidungs-Schublade — ein Tisch an einer Stange, den du hinstellst, wo du ihn haben willst.
 - **Greif ins Szenario hinein.** Heb eine Miniatur hoch, um ihren nächsten Zug zu lesen; pack das
   ganze Brett mit beiden Händen, um es zu ziehen, zu drehen und zu zoomen.
+- **Die Kampagnenkarte auf dem Tisch.** Zwischen den Szenarien stehst du in einem Gewölbe über der
+  Karte von Gloomhaven, und die Aufträge hängen lesbar an der Wand.
 - **Vollwertiger VR-Mehrspieler.** Masken, Hände, Bretter und zeigende Finger sehen alle — und wer
   kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
 - **Räume, die für diese Mod gebaut sind.** Ein kerzenbeleuchteter Keller und ein Nachtwald unter
@@ -95,16 +97,23 @@ Jedes Teil davon ist auf einem beschrifteten Bild im
 
 ## Das Brett vor dir
 
-<table>
-<tr>
-<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/cf113c2e-d995-4ca3-87f5-d0059e909a2c" controls muted loop></video></td>
-</tr>
-</table>
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
+</p>
 
 Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe zu
 nehmen — oder halt den Griff und tipp es mit der Fingerspitze an. Heb eine Miniatur hoch, und du
 liest den Zug, den sie gleich macht.
+
+## Die Kampagnenkarte auf dem Tisch
+
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/99f7cf4d-d946-4b00-b2c0-6750b99f8abd" controls muted loop></video>
+</p>
+
+Zwischen den Szenarien stehst du in einem Gewölbe, und die Karte von Gloomhaven liegt ausgebreitet
+auf dem Tisch vor dir. Die Aufträge hängen lesbar an der Wand, und wenn einer freigeschaltet wird,
+leuchtet der ganze Raum auf.
 
 ## Alle am selben Tisch
 
@@ -112,30 +121,9 @@ Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Hochgehob
 verschobene Fenster und zeigende Finger sehen alle, und wer kein Headset hat, spielt am flachen
 Bildschirm in derselben Partie mit.
 
-<table>
-<tr><td>
-
-**🎬 VIDEO-PLATZHALTER 2 von 6 — `multiplayer.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
-
-**Was der Clip zeigen muss** (15 s): der Tisch von der anderen Seite. Maske und Hände eines zweiten
-Spielers mit echten Fingerhaltungen, sein gespiegeltes Kontrollbrett daneben, eine Miniatur, die er
-hochhebt, und ein geteiltes Fenster, das einer von euch an eine andere Stelle im Raum zieht. Danach
-weiß der Zuschauer: der andere ist ein Körper am Tisch, kein Name in einer Lobby-Liste.
-
-**So füllst du ihn:** genauso wie den Clip oben auf dieser Seite — über ein Kommentarfeld hochladen,
-die Adresse über `PASTE_UUID_HERE` darunter setzen, diesen Kasten löschen und die zwei
-Kommentar-Zeilen um die Auszeichnung herum entfernen. **Dieser Clip wird zweimal gebraucht:** die Spielanleitung nimmt dieselbe Datei als
-eingecheckte mp4 mit Vorschaubild, leg also `multiplayer.mp4` und `multiplayer-poster.jpg` zusätzlich
-in `docs/img/`. Vollständiger Auftrag: [docs/VIDEO-SHOTLIST.md](docs/VIDEO-SHOTLIST.md) (englisch).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for multiplayer.mp4 — paste the UUID, delete this line and the closing marker
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
 </p>
--->
 
 ## Der Raum, in dem du spielst
 

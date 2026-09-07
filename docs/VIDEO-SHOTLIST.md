@@ -21,10 +21,18 @@ grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING
 
 ## What still has to be recorded
 
+**Delivered on 2026-09-07 and no longer on this list:** `multiplayer.mp4` (slot 2, README and
+playing guide in both languages), plus two clips that were not on it — the scenario board and the
+campaign map room. All three are served from the attachment CDN, so the playing guide takes the
+same `<video>` markup as the README rather than a committed poster: an mp4 that already plays
+inline is worth more there than a thumbnail, and it saves the repository three binaries.
+The four videos in *Your cards and your board* and *The board in front of you* were shot on
+2026-08-24 against ModBuild 248; the board pair has been replaced by the fresher clip and the
+card pair is now the oldest footage on the page.
+
 | # | File | ~Length | Prepared spot | What it shows | What the viewer knows afterwards |
 |---|---|---:|---|---|---|
 | 1 | `overview.mp4` | 10-12 s | `README.md` + `README.de.md`, straight under the nav row, above *Your cards and your board* | Standing at the table in a lit scenario, then dragging, rotating and zooming the whole board with the two-handed world grab. | What this mod **is**, in three seconds: a real table you stand at, and a board you take hold of. |
-| 2 | `multiplayer.mp4` | 15 s | `README*.md` *Everyone at the same table*, **and** `docs/PLAYING*.md` ▸ *Multiplayer* | A second player across the table: their mask and hands with real finger poses, their control board mirrored beside them, a miniature they lift, and a shared window one of you drags to a new place in the room. | The other player is a **body at the table**, not a name in a lobby list — and what you do is seen. |
 | 3 | `tutorial.mp4` | 12 s | `docs/PLAYING*.md` ▸ *The controls*, under "You do not have to learn this" | Your hands turning into the controller you are actually holding, and one key after another lighting up as each control becomes useful. | The fourteen bindings on the controls picture are **taught, not memorised**. |
 | 4 | `windows.mp4` | 12 s | `docs/PLAYING*.md` ▸ *Windows* (left of the pair) | A game window grabbed by its bar, moved, resized, reeled closer and further with the stick while the laser holds it, then closed with its X. | The game's windows are **furniture you place once**, not a UI that reappears where it likes. |
 | 5 | `grab-rod.mp4` | 8-10 s | `docs/PLAYING*.md` ▸ *Windows* (right of the pair) | The control board taken by the rod under it and carried to a new place — once with the hand, once with the laser from across the table. | **Everything in the room hangs from a rod**, and the same grab moves all of it. |

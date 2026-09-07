@@ -71,6 +71,8 @@ it stops being a comment and starts being a video. The same clip goes into the s
   one desk on a rod, placed wherever you want it.
 - **Reach into the scenario.** Pick a miniature up to read its coming turn; take the whole board
   with both hands to drag, turn and zoom it.
+- **The campaign map on a table.** Between scenarios you stand in a cellar over the map of
+  Gloomhaven, with the quests hanging on the wall where you can read them.
 - **Full VR multiplayer.** Masks, hands, boards and pointing fingers, visible to everyone — and
   players without a headset in the same game on a flat screen.
 - **Rooms built for this mod.** A candle-lit cellar and a night forest under a real star catalogue,
@@ -93,15 +95,21 @@ Every part of it is named on one labelled picture in the
 
 ## The board in front of you
 
-<table>
-<tr>
-<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/cf113c2e-d995-4ca3-87f5-d0059e909a2c" controls muted loop></video></td>
-</tr>
-</table>
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
+</p>
 
 Point the laser and pull the trigger to take a hex, an enemy, a door or a chest — or hold the grip
 and touch it with a fingertip. Lift a miniature to read the turn it is about to take.
+
+## The campaign map on a table
+
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/99f7cf4d-d946-4b00-b2c0-6750b99f8abd" controls muted loop></video>
+</p>
+
+Between scenarios you stand in a cellar with the map of Gloomhaven spread out on the table in front
+of you. Quests hang on the wall where you can read them, and unlocking one lights up the room.
 
 ## Everyone at the same table
 
@@ -109,31 +117,9 @@ Every VR player has a mask, hands and their own control board. Lifted miniatures
 pointing fingers are visible to everyone, and players without a headset join the same game on a flat
 screen.
 
-<table>
-<tr><td>
-
-**🎬 VIDEO PLACEHOLDER 2 of 6 — `multiplayer.mp4` — this spot is still empty, nothing renders here yet.**
-
-**What it has to show** (15 s): the table from the other side. A second player's mask and hands with
-real finger poses, their control board mirrored beside them, a miniature they lift, and a shared
-window one of you drags to a new place in the room. Afterwards the viewer knows the other player is
-a body at the table, not a name in a lobby list.
-
-**How you fill it:** same procedure as the clip at the top of this page — upload through a comment
-box, paste the URL over `PASTE_UUID_HERE` below, delete this box, and delete the two comment marker
-lines around that markup. **This clip is used twice:** the playing guide takes the same file as a
-committed mp4 plus a poster, so put `multiplayer.mp4` and `multiplayer-poster.jpg` into `docs/img/`
-as well. Full brief:
-[docs/VIDEO-SHOTLIST.md](docs/VIDEO-SHOTLIST.md).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for multiplayer.mp4 — paste the UUID, delete this line and the closing marker
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
 </p>
--->
 
 ## The room you play in
 

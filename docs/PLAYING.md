@@ -179,30 +179,9 @@ that choice is yours alone.
 
 ## Multiplayer
 
-<table>
-<tr><td>
-
-**🎬 VIDEO PLACEHOLDER 2 of 6 — `multiplayer.mp4` — this spot is still empty, nothing renders here yet.**
-
-**What it has to show** (15 s): the table from the other side. A second player's mask and hands
-with real finger poses, their control board mirrored beside them, a miniature they lift, and a shared
-window one of you drags to a new place in the room. **This is the same clip the README is waiting
-for** — record it once, use it twice.
-
-**How you fill it:** put `multiplayer.mp4` and `multiplayer-poster.jpg` into `docs/img/`, then
-delete this box and the two comment markers around the ready-made markup directly below. The README
-needs the same file a second way, uploaded through a GitHub comment box — see the placeholder there.
-The same clip goes into the same spot in `PLAYING.de.md`. Brief:
-[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for multiplayer.mp4 — delete this line and the closing marker once the files are in place
 <p align="center">
-  <a href="img/multiplayer.mp4"><img src="img/multiplayer-poster.jpg" width="560" alt="Two players at the same table"></a>
+  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
 </p>
--->
 
 - **Everyone in a VR session must run the same version.** A mismatch is blocked with a dialog rather
   than allowed to go quietly wrong — [update together](../INSTALL.md#updating).
