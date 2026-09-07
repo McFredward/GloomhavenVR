@@ -433,8 +433,10 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 467;
-    // NEXT BUILD (lane `lane-b-flash-in-render`; the INTEGRATOR bumps ModBuild when it lands):
+    public const ushort ModBuild = 468;
+    // Build 468: the round the white flash ran out of candidates, and the round the house wall was
+    //   finally named. Two lanes, two behaviour changes, and BOTH LANES CORRECTED THE INTEGRATOR'S
+    //   BRIEFING FROM THE LOG — the fourth round running in which that has happened.
     //   THE OCCLUSION MAP IS EXCLUDED BY EXPERIMENT, and the assumption sixteen rounds shared is
     //   written down. Full record: .planning/held-prop-flash-experiments.md §23.
     //   * THE A/B ANSWERED, AND THE ANSWER IS A REAL EXCLUSION. User, verbatim: "A/B Test
@@ -495,6 +497,55 @@ internal static class NetProtocol
     //     saturating ~1.0-1.4 s ramp IN and a complete clear inside one 0.1 s step, NEUTRAL light.
     //     Every field this probe compares is a bool, an int or a name — such a value FLICKERS, it
     //     does not ramp. So even a DISAGREE reading owes an account of the ramp.
+    //   * THE HOUSE WALL — WHOLE-SET SAMPLING LEFT THE BAR IN CELLS UNCAPPED, AND THAT IS WHY ONE
+    //     WALL OF TEN EVER FADES. `PER-WALL: faded 1 of 10` in 61 of 72 passes. Until ModBuild 465
+    //     a room's denominator was min(grid^2, hexes) with grid^2 topping out at 16, so the enter
+    //     bar was at most ceil(0.35*16) = 6 CELLS in every scenario the mod had ever measured.
+    //     465's whole-set sampling was correct and fixed a real resolution defect, but it gave this
+    //     room 24 samples and the same fraction now demands NINE hidden hexes — and the ABSOLUTE
+    //     requirement now grows without bound with room size, where the lattice used to cap it.
+    //     465's own regression envelope said "only the resolution at which coverage is measured
+    //     changes": true of the fraction, FALSE of the bar in cells. That is a real behaviour
+    //     change and it must be read as one — for a room of 24 the effective enter fraction moves
+    //     0.35 -> 0.25, so MORE walls fade than yesterday. It is not a restoration.
+    //     THE FIX IS A CEILING IN CELLS AND NOT A LOWER FRACTION: EnterBarForRoom(total) =
+    //     min(On, MaxEnterCells/total), the exit bar holding the Off/On ratio so the Schmitt band
+    //     cannot collapse into the ModBuild 250 group churn. [WallFade] MaxEnterCells = 6 is not a
+    //     taste number — it is ceil(OnFraction*16), the largest bar the pre-465 lattice could
+    //     produce. OnFraction is NOT lowered, so no scenario-wide fraction moves.
+    //     NO-REGRESSION, WHICH THE USER HAS REQUIRED TWICE: both bars can only move DOWN, and a
+    //     Schmitt whose bars both fall latches no later and releases no earlier, so the DOWNWARD
+    //     crossing count is 0 BY CONSTRUCTION and not by sampling. Replayed over all 402 wall
+    //     readings in the 467 log: 18 raw / 12 EMA crossings upward, 0 downward. Every LATTICE room
+    //     (16/9/4/1) is BIT-IDENTICAL at every rung and for every hex distribution, as is every
+    //     whole-set room of 17 hexes or fewer; the population that changes is exactly the one
+    //     whole-set sampling created. FLICKER GUARD, MEASURED: 'Wall 3' sits pinned at 3/24 in 57
+    //     of 69 rows and never crosses at cap 6 — it WOULD at 5 or 4, which is why 6 ships.
+    //     THE WALL IS NAMED AT LAST, and the lane said plainly which half it could not decide: the
+    //     video shows the stone GROUND-FLOOR course of a three-storey town house on the western
+    //     edge at the mouth of the plank dead end, whose plaster and roof storeys DO fade in the
+    //     same frames while the stone stays opaque. Best match BY BEHAVIOUR is 'Wall 7' #-19106
+    //     @(-5.4,0,0.2) — a top-3 coverer in 67 of 72 diag lines, EMA capped at 0.28, ON in 1 of
+    //     67. It could NOT be decided geometrically, because the verdict line carried only an
+    //     anchor position and anchors lie ('Wall 8' anchors 3.8 wu outside its room's floor
+    //     bounds). Closed: every named entry now prints its xz extent.
+    //     TWO INTEGRATOR CLAIMS THE LANE HAD TO CORRECT. (1) "466 measured blocked/visible: 0 of
+    //     302 flip because every low-visibility verdict also reads blk 0" — the CONCLUSION stands
+    //     but the REASON is false on this log, where [SOLID:CEILING] 'Wall 3' reads blk3/24 vis8
+    //     ceil0.33; naive blocked/visible gives 2 up-crossings of 186 and both are the wrong walls.
+    //     (2) The "23 of those are PLAYABLE and in the head's frustum" clause reads
+    //     CNode.Walkable/Blocked and NOTHING about reveal while framing the count as an alarm — yet
+    //     those 34 hexes sit on tile 'F', vis=Preview, child 'Full' self=OFF hier=OFF, 0 of 113
+    //     renderers drawing, where coverage 0.00 is CORRECT under the standing revealed-only
+    //     ruling. It now prints `revealedOffGrid` beside it and says which number is the defect.
+    //     NOT A SECOND DEFECT, verified rather than assumed: the five NOT-CONSIDERED:NO-BOUNDS
+    //     segments are the unrevealed preview tile's four walls plus the revealed tile's own ROOT.
+    // REPORTED, NOT FIXED, and owed to the user: under the new bar the ThickDoor peaks at 6/24 and
+    // WOULD reach the 6-cell bar at its widest viewpoints — it has never faded before. Its
+    // classification is untouched; whether a door leaf embedded in masonry should fade with its
+    // wall is the user's call, and the standing doors-never-fade ruling names doorways and arches.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 467: one lane, two small defects, and the round that makes the fifteen-round white
     //   flash decidable by a single hardware test. Also: the MATERIAL CLASS IS NOW PROPERLY
     //   EXCLUDED for the first time, on the user's word rather than by inference.
