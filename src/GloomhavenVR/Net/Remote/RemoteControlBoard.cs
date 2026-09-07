@@ -1399,6 +1399,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                       $"({(_active != null ? _active.RealFaceCount : 0)} real face(s)), " +
                       $"objectives={(_objectives != null ? _objectives.RowCount : 0)} row(s) " +
                       $"via {SectionTag(_objectives?.Source, _objectives?.Reason)}, " +
+                      // The SPECIAL RULES ride the objectives panel and are counted separately:
+                      // a scenario with goals and no rules and a scenario whose rules failed to
+                      // mirror both draw goals only, and this census is the only place the two are
+                      // told apart from one line. Zero rows with source None is the ordinary
+                      // picture for a scenario that has none.
+                      $"rules={(_objectives != null ? _objectives.RuleRowCount : 0)} row(s) " +
+                      $"via {(_objectives != null ? _objectives.RulesSource : RemoteWidgetMirror.Fidelity.None)}, " +
                       $"elements={(_elements != null ? _elements.ActiveCount : 0)} infused, " +
                       $"track={(_track != null ? _track.Count : 0)} entr(y/ies) " +
                       $"via {SectionTag(_track?.Source, _track?.Reason)}, " +
