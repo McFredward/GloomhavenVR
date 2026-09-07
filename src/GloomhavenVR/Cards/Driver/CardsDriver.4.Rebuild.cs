@@ -2965,13 +2965,24 @@ internal sealed partial class CardsDriver
         // CHEAP EXIT FIRST — this runs twice per frame from PileViewer.TickStatus, and
         // GetPileWidgets is an O(pile × cardsUI) scan. Nothing can be en route unless the mod is
         // holding at least one card OUTSIDE the pool: a flight, a burn hold, a docked round card, a
-        // play-slot occupant, a pick-field card or the short-rest sacrifice. In the steady state
-        // (an enemy turn, a hand being read, the whole card-selection phase) every one of these is
-        // empty and the query costs six compares. The ACTIVE column is deliberately absent: an
-        // activated card is in ActivatedCards, never in a discard/lost list, so it can never be a
-        // member of the set this method counts.
+        // play-slot occupant, a pick-field card, the short-rest sacrifice OR THE ACTIVE COLUMN. In
+        // the steady state (an enemy turn, a hand being read, the whole card-selection phase) every
+        // one of these is empty and the query costs seven compares.
+        //
+        // THE ACTIVE COLUMN USED TO BE ABSENT HERE, AND THE SENTENCE THAT EXCLUDED IT WAS FALSE.
+        // It read: "an activated card is in ActivatedCards, never in a discard/lost list, so it can
+        // never be a member of the set this method counts." An active card that BURNS OUT is listed
+        // in LostAbilityCards while its visual is still standing in the column — so it is a member
+        // of exactly this set, and the early-out returned 0 for it. The loop body was always right:
+        // BoardOwnsCardVisual (CardsDriver.6.Flows.cs) has five terms and _active.Contains is the
+        // fifth. Only the cheap exit disagreed with it, and a cheap exit that is narrower than the
+        // body it guards is the body's blind spot. USER REPORT 2026-09-07 item 4b, verbatim: "Im
+        // Stapel steht eine '2' aber der Fächer zeigt nur eine Karte (remote und lokal)" — the
+        // badge subtracts this number, so under-counting it by one prints the model count while the
+        // card is still visibly in the column, on BOTH boards, which is why neither view agreed
+        // with the badge and both agreed with each other.
         if (_flyingToPile.Count == 0 && _burnHoldSince.Count == 0 && _halfBuffer.Count == 0
-            && _fieldCards.Count == 0 && _shortRestCard == null
+            && _fieldCards.Count == 0 && _shortRestCard == null && _active.Cards.Count == 0
             && _tray.Occupant(0) == null && _tray.Occupant(1) == null)
             return 0;
         try

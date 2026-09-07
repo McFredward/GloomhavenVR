@@ -2797,7 +2797,24 @@ internal sealed class RemoteBoardFurniture
         _shownUseBarStructure = int.MinValue; // force the bars to re-derive from the moved row
         VRLog.Info("Net", $"Remote decision seat: the mirrored area's CEILING is board-local y " +
                           $"{_decisionCeilingY:F3} (the owner's drawer-zone top at their offset/scale, " +
-                          "clamped at the grab bar) — the topmost element is " +
+                          "clamped at the grab bar)"
+                          // THE ONE TERM ModBuild 473's SHORT-REST FIX COULD NOT FALSIFY, and it is
+                          // stated here so the NEXT log settles it without a second machine. That fix
+                          // proved the two sides anchor DIFFERENT EDGES onto this seat and corrected
+                          // the edge; it could not prove the two sides agree on the SEAT, because the
+                          // owner publishes its ceiling mount-relative in mm world while this line
+                          // published it board-root-relative — two frames, never converted, so a
+                          // matching anchor edge on both logs proves the edge and says nothing about
+                          // the ceiling. The owner's 'DECISION DOCK SEAT' line prints its ceiling in
+                          // mm world; divide that by the mountScale the '1:1' pair prints and it is
+                          // directly comparable with the number below. Equal ⇒ the seat agrees and
+                          // the dialog position item is closed end to end. Unequal ⇒ the remaining
+                          // offset is the seat, not the anchor, and the search moves one term up.
+                          + $" = {(_decisionCeilingY - (DecisionMount.y + _decisionTuning.DecisionOffset.y)) * 1000f:F2} mm "
+                          + "above the DECISION MOUNT, which is the frame the owner's 'DECISION DOCK "
+                          + "SEAT' line publishes its own ceiling in once that line's mm are divided "
+                          + "by its mountScale — the two numbers are comparable only in THIS frame. " +
+                          "The topmost element is " +
                           (promptLineShown
                               ? $"the PROMPT LINE, so the button row drops to y {y:F3}: " +
                                 (_promptMeasuredHeight > 0f
