@@ -401,6 +401,36 @@ internal static partial class PropAnimBelt
     private static readonly byte[] PhMark = new byte[PhSampleCap];
     private static int _phCount, _phOverflow;
 
+    /// <summary>
+    /// CLOCK OR SPATIAL, WITHOUT ASKING THE USER TO PERFORM A STUNT.
+    ///
+    /// <para>ModBuild 470 named the experiment that separates a shader phase seeded from WORLD
+    /// POSITION from one seeded from a CLOCK — hold the prop dead still and see whether the
+    /// whiteness runs on — and the same log measured 0.06 s of stillness in a 4 s hold. Asking a
+    /// person to hold a tracked controller motionless for over a second is asking a lot, and an
+    /// experiment nobody can perform is not an experiment.</para>
+    ///
+    /// <para>So the instrument performs it instead, out of ordinary play. Every photometric sample
+    /// carries the prop's world-space step since the last one; the longest run of samples under a
+    /// millimetre is kept with the PROP PATCH luminance range measured ACROSS IT, and the
+    /// Pearson r between the patch and the step is computed over the whole series. A luminance
+    /// range across a still run comparable to the flash's own excursion says CLOCK; a patch that
+    /// only ever moves while the prop does — r near 1 — says SPATIAL. Neither needs the user to
+    /// hold anything still on purpose, and the reading accumulates every hold.</para>
+    /// </summary>
+    private static readonly float[] PhStep = new float[PhSampleCap];
+
+    /// <summary>"Dead still" is a millimetre per sample, the same bar the verdict line's motion
+    /// trace uses, so the two numbers are comparable.</summary>
+    private const float PhStillStep = 0.001f;
+
+    private static Vector3 _phPosPrev;
+    private static bool _phPosSeen;
+    private static int _phStillRun, _phStillBest;
+    private static float _phRunLo, _phRunHi, _phStillLo, _phStillHi, _phStillAt;
+    private static float _phStillSum, _phMoveSum;
+    private static int _phStillSamples, _phMoveSamples;
+
     /// <summary>Scratch for the median of a partial series. Sized to the cap so the trigger allocates
     /// nothing per sample.</summary>
     private static readonly float[] PhScratch = new float[PhSampleCap];
@@ -503,6 +533,13 @@ internal static partial class PropAnimBelt
         _phRenderW = _phRenderH = _phPropPxW = _phPropPxH = _phCtlOffsetUsed = 0;
         _phCtlOnProp = _phPlacements = 0;
         _phCount = _phOverflow = 0;
+        _phPosSeen = false;
+        _phStillRun = _phStillBest = 0;
+        _phRunLo = _phStillLo = float.MaxValue;
+        _phRunHi = _phStillHi = float.MinValue;
+        _phStillAt = 0f;
+        _phStillSum = _phMoveSum = 0f;
+        _phStillSamples = _phMoveSamples = 0;
         _phPeakLin = -1f;
         _phPeakR = _phPeakG = _phPeakB = 0f;
         _phBlinksLeft = PhBlinkBudget;
@@ -1051,6 +1088,18 @@ internal static partial class PropAnimBelt
     {
         if (!_phArmed)
             return;
+        // The prop's own motion since the last sample, on the SAME row as the light it was
+        // carrying. A blink row is excluded from every motion statistic below: this class turns the
+        // renderers off on those frames, so their luminance says nothing about a shader phase.
+        float step = 0f;
+        Vector3 now = _phLead != null ? _phLead.transform.position : _phPosPrev;
+        if (_phLead != null)
+        {
+            step = _phPosSeen ? Vector3.Distance(now, _phPosPrev) : 0f;
+            _phPosPrev = now;
+            _phPosSeen = true;
+        }
+
         if (_phCount < PhSampleCap)
         {
             int k = _phCount++;
@@ -1060,11 +1109,44 @@ internal static partial class PropAnimBelt
             PhMirror[k] = _phMirrorLin;
             PhFrame[k] = _phFrameLin;
             PhWhiteFrac[k] = _phPropWhite;
+            PhStep[k] = step;
             PhMark[k] = _phBlinkLive ? _phBlinkKind : PhMarkNone;
         }
         else
         {
             _phOverflow++;
+        }
+
+        if (!_phBlinkLive && _phAfterLeft == 0 && _phPosSeen)
+        {
+            if (step < PhStillStep)
+            {
+                if (_phStillRun == 0)
+                {
+                    _phRunLo = float.MaxValue;
+                    _phRunHi = float.MinValue;
+                }
+                _phStillRun++;
+                if (_phPropLin < _phRunLo) _phRunLo = _phPropLin;
+                if (_phPropLin > _phRunHi) _phRunHi = _phPropLin;
+                // Updated WHILE the run grows, not when it ends: a run still open when the window
+                // closes would otherwise never be recorded at all.
+                if (_phStillRun >= _phStillBest)
+                {
+                    _phStillBest = _phStillRun;
+                    _phStillLo = _phRunLo;
+                    _phStillHi = _phRunHi;
+                    _phStillAt = Time.unscaledTime - _phT0;
+                }
+                _phStillSum += _phPropLin;
+                _phStillSamples++;
+            }
+            else
+            {
+                _phStillRun = 0;
+                _phMoveSum += _phPropLin;
+                _phMoveSamples++;
+            }
         }
 
         if (_phPropLin > _phPeakLin)
@@ -1170,6 +1252,71 @@ internal static partial class PropAnimBelt
             return 0f;
         System.Array.Sort(PhScratch, 0, m);
         return PhScratch[m / 2];
+    }
+
+    /// <summary>
+    /// THE CLOCK-OR-SPATIAL READING, MEASURED RATHER THAN REQUESTED.
+    ///
+    /// <para>ModBuild 470 asked the user to hold the prop dead still and watch whether the
+    /// whiteness runs on. That experiment has never been performed: the same log measured a longest
+    /// still run of 5 frames, 0.06 s. This reads the answer off the stillness he happens to give,
+    /// and says in numbers what would count as each verdict.</para>
+    ///
+    /// <para>WORKING: <c>stillest run</c> above 1 sample and <c>r(prop, step)</c> a real number.
+    /// INERT: <c>stillest run 0</c> — the prop never stopped for a single sample. STILL BEYOND
+    /// THE INSTRUMENT: a phase seeded from a position the prop passes through only while moving,
+    /// which no amount of stillness can separate from a clock.</para>
+    /// </summary>
+    private static void AppendPhotometerStillness(System.Text.StringBuilder sb, int samples,
+                                                  float noise)
+    {
+        float rPropStep = PhCorrelation(PhProp, PhStep, samples);
+        float stillMean = _phStillSamples > 0 ? _phStillSum / _phStillSamples : -1f;
+        float moveMean = _phMoveSamples > 0 ? _phMoveSum / _phMoveSamples : -1f;
+        float stillRange = _phStillBest > 0 && _phStillHi >= _phStillLo
+            ? _phStillHi - _phStillLo
+            : -1f;
+        float fps = _phFrames > 0 && Time.unscaledTime > _phT0
+            ? _phFrames / (Time.unscaledTime - _phT0)
+            : 0f;
+
+        sb.Append("*** CLOCK OR SPATIAL, AND THE USER NEVER HAD TO HOLD ANYTHING STILL. ModBuild "
+                  + "470 named one experiment for this — hold the prop dead still and see whether "
+                  + "the whiteness runs on — and measured 0.06 s of stillness in the whole hold, "
+                  + "so it has never been performed. This measures it out of ordinary play. "
+                  + "STILLEST RUN in this window: ").Append(_phStillBest)
+          .Append(" consecutive sample(s) under ").Append(PhStillStep.ToString("0.###"))
+          .Append(" wu of movement");
+        if (_phStillBest > 0)
+        {
+            sb.Append(" (ending near t ").Append(_phStillAt.ToString("0.00")).Append(" s");
+            if (fps > 0f)
+                sb.Append(", i.e. ").Append((_phStillBest / fps).ToString("0.00")).Append(" s");
+            sb.Append("), PROP PATCH across it ").Append(_phStillLo.ToString("0.0000")).Append("..")
+              .Append(_phStillHi.ToString("0.0000")).Append(" (range ")
+              .Append(stillRange.ToString("0.0000")).Append(')');
+        }
+        sb.Append(". MEAN PROP PATCH while still ")
+          .Append(stillMean >= 0f ? stillMean.ToString("0.0000") : "<no still sample>")
+          .Append(" over ").Append(_phStillSamples).Append(" sample(s), while moving ")
+          .Append(moveMean >= 0f ? moveMean.ToString("0.0000") : "<no moving sample>")
+          .Append(" over ").Append(_phMoveSamples)
+          .Append(" sample(s). Pearson r(prop patch, per-sample movement) ")
+          .Append(rPropStep.ToString("0.000")).Append(". ");
+
+        sb.Append("HOW TO READ IT, AND EVERY BAR IS THIS INSTRUMENT'S OWN MEASURED NOISE (")
+          .Append(noise.ToString("0.00000"))
+          .Append(") AND NOT A CONSTANT: a luminance RANGE across the stillest run that is large "
+                  + "against that noise means the patch went on changing while the prop did not "
+                  + "move, which is a CLOCK and deletes every world-position seed "
+                  + "(ObjectPosToMaterial._ObjPos, PosToMat._ObjPosY, "
+                  + "CustomObjectPositionToChildMaterials._FadeSourcePos) at once. A range at the "
+                  + "noise floor across a run of real length, together with r near 1, is SPATIAL "
+                  + "and says the picture is a function of where he is holding it. r near 0 with a "
+                  + "moving patch is a CLOCK by a second route that needs no stillness at all — "
+                  + "it is the reading that accumulates over ordinary play, because it uses every "
+                  + "sample instead of the rare motionless ones. A stillest run of 0 or 1 makes "
+                  + "the range column INERT and leaves only r. *** ");
     }
 
     /// <summary>Pearson r between two columns over the non-blink samples. It is the statistic that
@@ -1854,6 +2001,9 @@ internal static partial class PropAnimBelt
                 }
             }
         }
+
+        // ---- clock or spatial, taken out of ordinary play -----------------------------------------
+        AppendPhotometerStillness(sb, samples, noise);
 
         // ---- the bisection -----------------------------------------------------------------------
         sb.Append("THE BISECTION — IS THE WHITE DRAWN BY THE PROP'S OWN RENDERERS AT ALL? Seventeen "

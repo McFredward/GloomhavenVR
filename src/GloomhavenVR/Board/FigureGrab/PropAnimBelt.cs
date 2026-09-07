@@ -126,7 +126,13 @@ internal static partial class PropAnimBelt
     /// number is the finding: <c>PropAnimWatch</c> tracks 20 of the 57 <c>Amp_Char_Shader</c>
     /// declares, and ModBuild 151 already lost a build to a 24-property cap on a shader with 24
     /// interesting properties. The declared count is printed beside the tracked count per material
-    /// either way, so a truncation is visible rather than silent.</summary>
+    /// either way, so a truncation is visible rather than silent.
+    ///
+    /// <para><b>THAT LAST SENTENCE WAS FALSE FOR TWO BUILDS.</b> <c>PropTable.Describe</c>,
+    /// <c>PropTable.Declared</c> and <c>PropTable.Truncated</c> all existed and all had ZERO call
+    /// sites, so no log line has ever carried the declared count and no reader could tell "57 is
+    /// every property this shader has" from "57 is what we happened to watch". ModBuild 471 emits
+    /// it — see <see cref="AppendPropertyTableProvenance"/>.</para></summary>
     private const int VerdictPropCap = 96;
 
     /// <summary>How many MOVING properties / lights the verdict names before it stops naming
@@ -1314,7 +1320,14 @@ internal static partial class PropAnimBelt
             DiffFrames[i] = 0;
             TwLo[i] = float.MaxValue;
             TwHi[i] = float.MinValue;
+            MpbHeldOn[i] = false;
+            MpbHomeOn[i] = false;
+            MpbHeldMoves[i] = 0;
+            MpbHomeMoves[i] = 0;
+            MpbDiffFrames[i] = 0;
         }
+        _mpbFrames = _mpbHeldBlocks = _mpbHomeBlocks = 0;
+        _mpbTwinBound = 0;
 
         // The held prop's own drawing renderer is the thing to match. Take the first roster entry
         // that is drawing AND carries a material — roster entry [1] on the trap is the occlusion
@@ -1421,6 +1434,7 @@ internal static partial class PropAnimBelt
             Material held0 = VTable.Mats[m];
             if (TwinMats[m] == null || held0 == null)
                 continue;
+            _mpbTwinBound++;
             if (ReferenceEquals(TwinMats[m], held0))
                 _twinSharedMats++;
             else
@@ -1646,6 +1660,270 @@ internal static partial class PropAnimBelt
             DiffHeld[slot] = VNow[slot];
             DiffHome[slot] = home;
         }
+    }
+
+    // ---- WHERE THE COUNT COMES FROM, AND THE ONE CHANNEL A MATERIAL READ CANNOT SEE -------------
+
+    /// <summary>How many (material, property) slots the census below names before it stops. The
+    /// totals are printed either way, so a truncation here is visible.</summary>
+    private const int CensusCap = 128;
+
+    /// <summary>Reused destination for <c>Renderer.GetPropertyBlock</c>. A block belongs to a
+    /// RENDERER, not to a material, so it needs no per-material identity and no allocation.</summary>
+    private static readonly MaterialPropertyBlock MpbScratch = new();
+
+    private static readonly bool[] MpbHeldOn = new bool[TwinSlots];
+    private static readonly bool[] MpbHomeOn = new bool[TwinSlots];
+    private static readonly Vector4[] MpbHeldPrev = new Vector4[TwinSlots];
+    private static readonly Vector4[] MpbHomePrev = new Vector4[TwinSlots];
+    private static readonly int[] MpbHeldMoves = new int[TwinSlots];
+    private static readonly int[] MpbHomeMoves = new int[TwinSlots];
+    private static readonly int[] MpbDiffFrames = new int[TwinSlots];
+
+    /// <summary>Frames sampled, worst per-frame count of renderers CARRYING a block on each side,
+    /// and how many of the held table's materials actually bound to a twin material.</summary>
+    private static int _mpbFrames, _mpbHeldBlocks, _mpbHomeBlocks, _mpbTwinBound;
+
+    /// <summary>
+    /// THE PER-RENDERER PROPERTY CHANNEL — the only one that can differ between two objects that
+    /// SHARE ONE MATERIAL ASSET.
+    ///
+    /// <para>ModBuild 470 read <c>1 of the held prop's material(s) are THE SAME ASSET as the
+    /// twin's and 0 are per-prop instances</c> and, on the same tick, <c>0 slot(s) EVER
+    /// DIFFERED</c>. Those two readings together are not a null result: they say that no value
+    /// reachable through <c>Material.Get*</c> can possibly explain a held prop drawing white while
+    /// its twin does not, because both draw with the SAME <c>Material</c> object and every
+    /// property on it is one number shared by both. A <c>MaterialPropertyBlock</c> is the channel
+    /// that survives that argument — it overrides a property for ONE renderer, at draw time,
+    /// without writing the material at all, and it is invisible to every reading this file has
+    /// taken in twenty rounds.</para>
+    ///
+    /// <para>Cost is nothing in the common case: <c>Renderer.HasPropertyBlock</c> is the gate and a
+    /// renderer with no block never reaches <c>GetPropertyBlock</c> or a single
+    /// <c>HasProperty</c> call.</para>
+    /// </summary>
+    private static void SampleBlocks()
+    {
+        _mpbFrames++;
+        int held = ReadBlocks(_vRenderers, MpbHeldOn, MpbHeldPrev, MpbHeldMoves);
+        if (held > _mpbHeldBlocks)
+            _mpbHeldBlocks = held;
+        if (_twinLead != null)
+        {
+            int home = ReadBlocks(TwinRends, MpbHomeOn, MpbHomePrev, MpbHomeMoves);
+            if (home > _mpbHomeBlocks)
+                _mpbHomeBlocks = home;
+        }
+
+        for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+        {
+            int n = VTable.PerMat[m];
+            for (int k = 0; k < n; k++)
+            {
+                int slot = (m * VerdictPropCap) + k;
+                bool h = MpbHeldOn[slot], o = MpbHomeOn[slot];
+                if (!h && !o)
+                    continue;
+                if (h != o || Moved(VTable.Kind[slot], MpbHeldPrev[slot], MpbHomePrev[slot]))
+                    MpbDiffFrames[slot]++;
+            }
+        }
+    }
+
+    /// <summary>Read every block-overridden tracked slot on one side. Returns the number of
+    /// renderers that CARRY a block, which is the headline number: at zero on both sides the whole
+    /// channel is excluded and nothing below it needs reading.</summary>
+    private static int ReadBlocks(IList<Renderer> rends, bool[] on, Vector4[] prev, int[] moves)
+    {
+        int blocks = 0;
+        for (int r = 0; r < rends.Count; r++)
+        {
+            Renderer rend = rends[r];
+            if (rend == null || !rend.HasPropertyBlock())
+                continue;
+            blocks++;
+            rend.GetPropertyBlock(MpbScratch);
+            if (MpbScratch.isEmpty)
+                continue;
+            for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+            {
+                int n = VTable.PerMat[m];
+                for (int k = 0; k < n; k++)
+                {
+                    int slot = (m * VerdictPropCap) + k;
+                    int id = VTable.Id[slot];
+                    if (!MpbScratch.HasProperty(id))
+                        continue;
+                    Vector4 v = ReadBlockValue(VTable.Kind[slot], id);
+                    if (on[slot] && Moved(VTable.Kind[slot], prev[slot], v))
+                        moves[slot]++;
+                    on[slot] = true;
+                    prev[slot] = v;
+                }
+            }
+        }
+        return blocks;
+    }
+
+    /// <summary>One block slot, read the way its own class reads.</summary>
+    private static Vector4 ReadBlockValue(byte kind, int id)
+    {
+        switch (kind)
+        {
+            case PropTable.KindColor:
+            {
+                Color c = MpbScratch.GetColor(id);
+                return new Vector4(c.r, c.g, c.b, c.a);
+            }
+            case PropTable.KindVector:
+                return MpbScratch.GetVector(id);
+            case PropTable.KindTexture:
+            {
+                Texture? t = MpbScratch.GetTexture(id);
+                return new Vector4(t != null ? t.GetInstanceID() : 0f, 0f, 0f, 0f);
+            }
+            default:
+                return new Vector4(MpbScratch.GetFloat(id), 0f, 0f, 0f);
+        }
+    }
+
+    /// <summary>Where the tracked count comes from, in numbers, so no round has to take it on
+    /// trust again — and what the enumeration still cannot reach.</summary>
+    private static void AppendPropertyTableProvenance(System.Text.StringBuilder sb)
+    {
+        sb.Append("WHERE THE TRACKED COUNT COMES FROM — asked because ten rounds of "
+                  + "'0 of N tracked slot(s)' are worth nothing if N is a list somebody typed. IT "
+                  + "IS NOT. The table is enumerated at the grab from EACH MATERIAL'S OWN SHADER "
+                  + "through Shader.GetPropertyCount / GetPropertyName / GetPropertyType / "
+                  + "GetPropertyNameId — runtime APIs, not ShaderUtil — so the watched set IS "
+                  + "that shader's Properties block with nothing left out. THE DECLARED COUNT WAS "
+                  + "COMPUTED FOR TWO BUILDS AND NEVER PRINTED: PropTable.Describe, .Declared and "
+                  + ".Truncated had zero call sites, and the comment above VerdictPropCap claimed "
+                  + "otherwise. PER MATERIAL: ").Append(VTable.Describe())
+          .Append(". TOTALS: ").Append(VTable.Declared).Append(" declared across ")
+          .Append(VTable.MatCount).Append(" kept material(s) of ").Append(VTable.MatFound)
+          .Append(" found, ").Append(VTable.Slots).Append(" tracked, per-material cap ")
+          .Append(VerdictPropCap).Append(", TRUNCATED: ")
+          .Append(VTable.Truncated
+              ? "YES — a zero anywhere below is a TRUNCATION and not an absence"
+              : "no — declared equals tracked on every kept material")
+          .Append(". TWIN BIND: ").Append(_mpbTwinBound).Append(" of ").Append(VTable.MatCount)
+          .Append(" held material(s) matched a twin material by shader name. A slot on an UNBOUND "
+                  + "material is never counted in the tracked total at all, which is why this "
+                  + "mod's own overlay material contributes nothing to it and why the tracked "
+                  + "number is smaller than the declared one whenever the two props do not carry "
+                  + "the same set of shaders. ");
+        sb.Append("AND WHAT THIS ENUMERATION CANNOT REACH, stated so the count is never read as "
+                  + "the whole shading input: (a) a uniform declared only inside the CGPROGRAM and "
+                  + "NOT in the Properties block is invisible to GetPropertyCount and is fed by "
+                  + "Shader.SetGlobal*; (b) a shader KEYWORD carries no property value at all and "
+                  + "changes the branch taken; (c) a MaterialPropertyBlock overrides a value PER "
+                  + "RENDERER without touching the material — and (c) is the ONLY one of the "
+                  + "three that can make two renderers SHARING ONE MATERIAL ASSET draw "
+                  + "differently, which is exactly the situation the SHARED-OR-INSTANCED count "
+                  + "above reports. The clause after next reads (c) directly. ");
+    }
+
+    /// <summary>The per-renderer override channel, held vs twin, on the same tick.</summary>
+    private static void AppendPropertyBlocks(System.Text.StringBuilder sb)
+    {
+        int heldSlots = 0, homeSlots = 0, moved = 0, differing = 0;
+        for (int slot = 0; slot < TwinSlots; slot++)
+        {
+            if (MpbHeldOn[slot])
+                heldSlots++;
+            if (MpbHomeOn[slot])
+                homeSlots++;
+            if (MpbHeldMoves[slot] > 0 || MpbHomeMoves[slot] > 0)
+                moved++;
+            if (MpbDiffFrames[slot] > 0)
+                differing++;
+        }
+
+        sb.Append("MATERIAL PROPERTY BLOCKS — THE CHANNEL TWENTY ROUNDS NEVER READ. Over ")
+          .Append(_mpbFrames).Append(" sampled frame(s): renderers CARRYING a block, worst frame, "
+                  + "held ").Append(_mpbHeldBlocks).Append(" of ").Append(_vRenderers.Length)
+          .Append(", twin ").Append(_mpbHomeBlocks).Append(" of ").Append(TwinRends.Count)
+          .Append(". Tracked slot(s) OVERRIDDEN by a block: held ").Append(heldSlots)
+          .Append(", twin ").Append(homeSlots).Append("; slot(s) whose block value MOVED: ")
+          .Append(moved).Append("; slot(s) where the two sides' block state or value DIFFERED on "
+                  + "at least one frame: ").Append(differing).Append(". ");
+        if (_mpbHeldBlocks == 0 && _mpbHomeBlocks == 0)
+        {
+            sb.Append("*** ZERO BLOCKS ON EITHER SIDE. Renderer.HasPropertyBlock is false on every "
+                      + "renderer of both props on every sampled frame, so no per-renderer "
+                      + "override exists to explain the difference and this channel is EXCLUDED "
+                      + "outright — not 'nothing moved in it', but 'it is not there'. Taken with "
+                      + "a SHARED material asset and 0 differing material slots, what is left that "
+                      + "can still differ between the two props is only what is NOT a property at "
+                      + "all: the object-to-world matrix the shader is handed (the asymmetry "
+                      + "clause below prints a lossyScale and a determinant that DO differ), the "
+                      + "per-renderer lighting the shader is handed, and a camera replacement "
+                      + "shader. *** ");
+        }
+        else if (differing > 0)
+        {
+            sb.Append("*** THE CHANNEL IS LIVE AND IT DIFFERS. Naming up to ")
+              .Append(VerdictListCap).Append(": ");
+            int listed = 0;
+            for (int slot = 0; slot < TwinSlots && listed < VerdictListCap; slot++)
+            {
+                if (MpbDiffFrames[slot] <= 0)
+                    continue;
+                if (listed > 0)
+                    sb.Append("; ");
+                sb.Append(VTable.Name[slot] ?? "<unnamed>").Append(" (mat")
+                  .Append(slot / VerdictPropCap).Append(") differed on ").Append(MpbDiffFrames[slot])
+                  .Append(" frame(s), HELD ")
+                  .Append(MpbHeldOn[slot] ? Show(VTable.Kind[slot], MpbHeldPrev[slot]) : "<no override>")
+                  .Append(" vs HOME ")
+                  .Append(MpbHomeOn[slot] ? Show(VTable.Kind[slot], MpbHomePrev[slot]) : "<no override>");
+                listed++;
+            }
+            sb.Append(". A slot named here IS the flash's channel and the HOME value beside it is "
+                      + "what a fix writes. *** ");
+        }
+        else
+        {
+            sb.Append("Blocks exist but no tracked slot differed between the two props. A block "
+                      + "carrying a property this shader does not DECLARE would be invisible here "
+                      + "by construction, because the ids asked for come from the shader; that is "
+                      + "the remaining hole in this clause and it is named rather than hidden. ");
+        }
+    }
+
+    /// <summary>Every tracked slot, named, with the held value and the twin's beside it. This is
+    /// the runtime substitute for extracting the shader out of an AssetBundle: it costs one line
+    /// and needs nothing from the user's install.</summary>
+    private static void AppendPropertyCensus(System.Text.StringBuilder sb)
+    {
+        sb.Append("THE WHOLE TABLE, NAMED — printed so no future round has to extract a shader "
+                  + "from an AssetBundle to learn what it declares. name=HELD value, and "
+                  + "'|HOME=' follows only where the twin's value differs: ");
+        int listed = 0, hidden = 0;
+        for (int m = 0; m < VTable.MatCount && m < VerdictMatCap; m++)
+        {
+            sb.Append("[mat").Append(m).Append(' ').Append(VTable.ShaderOf(m)).Append("] ");
+            for (int k = 0; k < VTable.PerMat[m]; k++)
+            {
+                if (listed >= CensusCap)
+                {
+                    hidden++;
+                    continue;
+                }
+                int slot = (m * VerdictPropCap) + k;
+                sb.Append(VTable.Name[slot] ?? "<unnamed>").Append('=')
+                  .Append(VNowValid[slot] ? Show(VTable.Kind[slot], VNow[slot]) : "<unread>");
+                if (TwSeen[slot] && VNowValid[slot]
+                    && Moved(VTable.Kind[slot], VNow[slot], TwPrev[slot]))
+                    sb.Append("|HOME=").Append(Show(VTable.Kind[slot], TwPrev[slot]));
+                sb.Append(' ');
+                listed++;
+            }
+        }
+        sb.Append(hidden > 0
+            ? $"and {hidden} more past the cap of {CensusCap}. "
+            : "— that is the complete set. ");
     }
 
     /// <summary>The slots that MOVE on a prop of this kind standing on its hex. This is the flash
@@ -2059,6 +2337,11 @@ internal static partial class PropAnimBelt
         // same tick — every prop of a kind is in phase with every other, so a comparison taken a
         // frame apart would compare two different points of the same flash.
         SampleTwin();
+        // ROUND TWENTY. The material read above and the twin read inside SampleTwin both go through
+        // Material.Get*, and a MaterialPropertyBlock overrides a value PER RENDERER without ever
+        // touching the material — so both of them are blind to it by construction. This runs on the
+        // same tick for the same reason SampleTwin does.
+        SampleBlocks();
         // ROUND SEVENTEEN, and its POSITION IN THE FRAME IS THE MEASUREMENT. This is the
         // Update-order half of a comparison whose other half is taken inside a camera's render
         // pass, so it has to be read from the same place every other arm in this file reads from —
@@ -2274,8 +2557,11 @@ internal static partial class PropAnimBelt
                   + "AnimationClip asset; the tree holds 4646 .cs files and zero .anim), which is "
                   + "why this had to become a runtime read instead of a source sweep. ");
 
+        AppendPropertyTableProvenance(sb);
         AppendTwinMovers(sb);
         AppendTwinDiffs(sb);
+        AppendPropertyBlocks(sb);
+        AppendPropertyCensus(sb);
         AppendTwinGraph(sb);
         AppendLightingCompare(sb);
         AppendClocks(sb, b);
