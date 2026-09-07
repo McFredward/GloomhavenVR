@@ -277,10 +277,14 @@ internal sealed partial class CardsDriver
     /// lines below read the raw <c>Count</c> of two bookkeeping containers. Forty lines under that
     /// header, <see cref="CardEnRouteToPile"/>'s own doc says the opposite in as many words: "the
     /// set can hold a stale entry for a card something else parked (Park cancels the fly without
-    /// running the completion callback), so it is a HINT, NEVER THE TRUTH". Eleven of the fourteen
-    /// <c>_factory.Park</c> call sites do not drop the membership, and <c>VRCard.CancelFly</c> is
-    /// documented "Does NOT run the callback" — so a parked mid-flight card strands its entry for
-    /// the life of the scenario.</para>
+    /// running the completion callback), so it is a HINT, NEVER THE TRUTH". SIX of the fourteen
+    /// <c>_factory.Park</c> call sites do not drop the membership — five of them reachable with a
+    /// live entry — and <c>VRCard.CancelFly</c> is documented "Does NOT run the callback", so a
+    /// parked mid-flight card strands its entry for the life of the scenario. (The number read
+    /// "eleven of the fourteen" until it was recounted on 2026-09-07: eight sites DO drop it. The
+    /// conclusion is unchanged and the recount is recorded rather than quietly edited, because a
+    /// wrong number in a paragraph that is otherwise right is how this project's false assertions
+    /// survive.)</para>
     ///
     /// <para>THE MEASUREMENT (host Player.log, ModBuild 474). <c>OVERLAY HELD BY EXIT</c> fired
     /// five times all session; the last three read <c>held=55.51s</c> (:248926),

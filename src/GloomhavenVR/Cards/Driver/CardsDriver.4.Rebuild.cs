@@ -2974,9 +2974,20 @@ internal sealed partial class CardsDriver
     // live objects each frame — for them "there is nothing to leak" holds, because they never read
     // a membership without also asking IsFlying/IsParked/_factory.Find. It is NOT true of the
     // CONTAINERS themselves. `_flyingToPile` genuinely leaks: VRCard.CancelFly is documented "Does
-    // NOT run the callback", eleven of the fourteen `_factory.Park` call sites do not drop the
+    // NOT run the callback", SIX of the fourteen `_factory.Park` call sites do not drop the
     // membership, and CardEnRouteToPile's own doc forty lines below calls the set "a HINT, NEVER
-    // THE TRUTH" for exactly that reason. CardsDriver.BoardStillOwnsACardsExit (6.Flows) used to
+    // THE TRUTH" for exactly that reason.
+    //
+    // THE COUNT WAS ELEVEN HERE UNTIL IT WAS RECOUNTED. Fourteen call sites, EIGHT of which drop
+    // the membership; of the six that do not, `6.Flows.cs:2544` cannot be reached with a live
+    // entry (an early return at :2520 stands in front of it), so FIVE are genuine. The leak the
+    // reader should go to first is Rebuild's own zone loop at :1458 —
+    // `card.Vanish(() => _factory.Park(vanishing))` — because `VRCard.Vanish` short-circuits on
+    // `_flying`, so CancelFly runs and that callback never fires at all. And the reads a stale
+    // entry actually costs are `TryAnimateBurn`'s `ownedElsewhere` and `LaunchBurnFlight`: both
+    // silently downgrade a real burn to the anonymous slab. None of that changes the paragraph's
+    // conclusion — the set leaks and a raw `Count` read may not be trusted — which is why the
+    // pruning gate below stands as written. CardsDriver.BoardStillOwnsACardsExit (6.Flows) used to
     // read `_flyingToPile.Count` RAW and cited this paragraph as its proof that it could not
     // latch; on 2026-09-07 it latched the wanted-slot overlays off at `held=57.92s` and never let
     // go — two stale memberships from a discard cluster ~57 s earlier. A self-healing ARGUMENT
