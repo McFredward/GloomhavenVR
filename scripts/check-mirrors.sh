@@ -272,6 +272,68 @@ MIRRORS=(
   # here only because naming it is an edit to a file this round does not own.
   "beam reach, real metres at rig scale 1 : Hands/Interact/RayInteractor.cs:MaxDistanceMeters Hands/Interact/RayUguiDriver.cs:MaxDistanceMeters Hands/Interact/RayGrabDriver.cs:MaxDistanceMeters WorldUI/MapRoom/MapLocationInteractor.cs:MaxPickMeters WorldUI/MapRoom/MapButtonRail.cs:MaxCapLaserMeters"
   "beam occlusion epsilon, real metres at rig scale 1 : Hands/Interact/RayInteractor.cs:FanOcclusionEpsilonMeters Hands/Interact/RayUguiDriver.cs:OcclusionEpsilonMeters Hands/Interact/RayGrabDriver.cs:OcclusionEpsilonMeters Cards/Driver/CardsDriver.3.Laser.cs:FanOcclusionSlackMeters WorldUI/MapRoom/MapButtonRail.cs:SolidOccluderEpsilonMeters"
+
+  # ── FOUR GROUPS ADDED BY THE 2026-09-07 1:1 RE-AUDIT ────────────────────────────────────────────
+  # The audit's finding was that this file pins 21 numbers while the Net mirrors re-spell dozens.
+  # These four are the ones whose BOTH halves are already NAMED constants, so they cost one line
+  # each. They all agree today; that is the point — a group is added while a pair agrees, not after
+  # it has drifted.
+  #
+  # THE FIRST ONE HAS ALREADY DRIFTED ONCE, AND ITS OWN DOC COMMENT RECORDS IT. RemoteCardFx's arc
+  # fraction sat at 0.28f under a comment reading "the value VRCard.FlyArcHeightFraction uses
+  # locally, so the bow matches", while that constant had been 0.55f since it was raised for user
+  # issue 3. Every mirrored play, discard and burn flight bowed at 50.9 % of the height its owner
+  # watched, for every build until a review happened to catch it. That is exactly the failure this
+  # file exists to prevent, already realised once, and it was unlinted the whole time.
+  "card flight arc fraction (1:1) : Cards/VRCard.cs:FlyArcHeightFraction Net/Remote/RemoteCardFx.cs:ArcFraction"
+  # The RECESS CARD METRIC. RemoteControlBoard.CardW's own comment says "Defaults.CardWidth x
+  # PlayTray.SlotScale" and NetProtocol.SlotCardWidthLegacy is the identical product — it is the
+  # value a pre-record peer's recess cards are drawn at, so the two must be one number or an old
+  # peer's board draws its cards at a size no sender ever meant.
+  "legacy recess card width (1:1) : Net/NetProtocol.cs:SlotCardWidthLegacy Net/Remote/RemoteControlBoard.cs:CardW"
+  # The two round recesses' PITCH — the owner's authored tray spacing and the mirror's fallback
+  # layout for the same board. A drift puts a peer's two played cards further apart on every other
+  # player's copy of their board than on their own, which is the 1:1 ruling's own object.
+  "play slot spacing (1:1) : Cards/Tray/PlayTray.6.Build.cs:SlotSpacing Net/Remote/RemoteControlBoard.cs:SlotSpacing"
+  # The pile stack's COUNT RING band, one number out of the ~40 that RemoteControlBoard.PileCounter
+  # hand-copies from PileViewer.PileStack. It is the only one of the forty whose two halves are both
+  # named constants; the rest are inline literals on one side or the other, and an inline literal is
+  # not merely unlinted but INVISIBLE — a grep for the name returns nothing, so no reader of one
+  # site ever learns the other exists. NAMING THEM IS THE PREREQUISITE FOR LINTING THEM and is
+  # tracked as such: slab count/thickness/jitter/step/tilt, the 0.45 darken lerp, the count fit
+  # (w*0.9, h*0.62, 0.30), the caption seat and fit, EmberColor, RingRevealSeconds 0.28 and all four
+  # curves are the list.
+  "pile count-ring band fraction (1:1) : Cards/Piles/PileViewer.cs:RingBandFraction Net/Remote/RemoteControlBoard.cs:RingBandFraction"
+
+  # ── THE FANS, ONE MIRROR AT A TIME (same 2026-09-07 re-audit) ──────────────────────────────────
+  # PAIRED PER FAN, NEVER MERGED ACROSS FANS, and that is deliberate. The hand fan, the pile-browse
+  # fan and the item fan all happen to stagger at 0.004 and two of them happen to span 110 degrees,
+  # but "two numbers are equal today" is not "two numbers must be equal" — merging those would
+  # assert that retuning the ITEM fan's span must move the BROWSE fan's, which nobody has ruled and
+  # which this project has a name for ("two fans, one name"). Each group below is one mirror
+  # against ITS OWN owner, which is exactly the 1:1 contract and nothing more.
+  #
+  # NOT LISTED, BECAUSE THEY NEED NO LINT: the pop lift and pop scale (every fan already ALIASES
+  # Cards.VRCard.PopUp / PopScale) and the browse arch/tilt factors (RemoteBrowserFan aliases
+  # RemotePileFronts, which reads Cards/Piles/PileFanShape). A real shared constant beats a group;
+  # this file keeps saying so and those five are the proof.
+  "hand fan gaze-bias deadzone (1:1) : Cards/CardFan.cs:GazeBiasDeadzoneDeg Net/Remote/RemoteHandFan.cs:GazeBiasDeadzoneDeg"
+  "hand fan gaze-bias release (1:1) : Cards/CardFan.cs:GazeBiasReleaseDeg Net/Remote/RemoteHandFan.cs:GazeBiasReleaseDeg"
+  "hand fan gaze-bias full angle (1:1) : Cards/CardFan.cs:GazeBiasFullDeg Net/Remote/RemoteHandFan.cs:GazeBiasFullDeg"
+  "hand fan gaze-bias max yaw (1:1) : Cards/CardFan.cs:GazeBiasMaxYawDeg Net/Remote/RemoteHandFan.cs:GazeBiasMaxYawDeg"
+  "hand fan gaze-bias gain (1:1) : Cards/CardFan.cs:GazeBiasGain Net/Remote/RemoteHandFan.cs:GazeBiasGain"
+  "hand fan gaze-bias smoothing (1:1) : Cards/CardFan.cs:GazeBiasSmoothing Net/Remote/RemoteHandFan.cs:GazeBiasSmoothing"
+  # The per-card Z step that keeps a fan's DRAW ORDER stable. One pair per fan: a drift reverses the
+  # overlap on a peer's copy of a fan its owner is reading front-to-back.
+  "hand fan draw-order Z step (1:1) : Cards/CardFan.cs:ZStagger Net/Remote/RemoteHandFan.cs:ZStagger"
+  "browse fan draw-order Z step (1:1) : Cards/Piles/PileBrowser.cs:ZStagger Net/Remote/RemoteBrowserFan.cs:ZStagger"
+  "item fan draw-order Z step (1:1) : Cards/Piles/ItemsPile.cs:ZStagger Net/Remote/RemoteItemFan.cs:ZStagger"
+  # …and each fan's ARC SPAN and card enlargement — the two numbers that decide how wide and how big
+  # the fan reads. A peer whose browse fan spanned a different arc from its owner's would be looking
+  # at a different picture of the same pile, which is the ruling's own words.
+  "browse fan arc span (1:1) : Cards/Piles/PileBrowser.cs:MaxArcDegrees Net/Remote/RemoteBrowserFan.cs:MaxArcDegrees"
+  "item fan arc span (1:1) : Cards/Piles/ItemsPile.cs:MaxArcDegrees Net/Remote/RemoteItemFan.cs:MaxArcDegrees"
+  "browse fan card enlargement (1:1) : Cards/Piles/PileBrowser.cs:CardScale Net/Remote/RemoteBrowserFan.cs:CardScale"
 )
 
 fail=0
