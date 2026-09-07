@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Core;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -186,6 +187,74 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <para>The forced release takes the NORMAL user-release glide ("mit der üblichen Animation als
 /// hätte der User sie losgelassen") — see <c>FigureGrabbable.OnRelease</c> for why the glide's
 /// 0.28 s of continued bar-hide is safe (no deactivation edge, so nothing can be killed by it).</para>
+///
+/// ───────────────────────── AN OPEN DECISION IS A WAIT, NOT A RESOLVE (2026-09-07, ModBuild 479)
+///
+/// <para>User report, verbatim: "Im Test hat mein Character schaden bekommen und ich will ihn
+/// aufheben um infos zu bekommen, aber ich kann den character nicht aufheben während ich in der
+/// Entscheidung bin was ich mit dem Schaden mache. Ich will ihn aber aufheben können (genau so wie
+/// andere Spieler auch - er scheint blockiert zu sein)."</para>
+///
+/// <para>THE READING, and it is unusually clean. Across BOTH machines of the ModBuild 478 session
+/// this gate refused a grab ELEVEN times — 9 in the user's log, 2 in his co-player's — and every
+/// single one of them names clause (3), <c>"its own action is being resolved right now"</c>, on
+/// <c>MindthiefID</c>. Not one refusal came from the global unbounded-wait clause, from a live bar
+/// flow, from a choreographer animation wait, or from the animator clause. In the user's log all
+/// nine sit strictly between <c>UIWindow SHOWN: 'Take Damage Panel'</c> and the matching
+/// <c>UIWindow hidden</c> of ONE prompt — the one offering him "1 verfügbare Karte
+/// verbrennen | Schaden erhalten | 2 abgeworfene Karten verbrennen". So clause (3) was the entire
+/// observed cost of this gate that session, and a damage decision was the entire cause of it.</para>
+///
+/// <para>ROOT CAUSE. Clause (3)'s busy term was the bare
+/// <c>ScenarioRuleClient.IsProcessingOrMessagesQueued</c>, and that flag CANNOT tell "the rules are
+/// chewing" from "the rules are waiting for a person". <c>GameState.ActorDamaged</c> /
+/// <c>ContinueActorDamagedAfterSelectingPlayerActorToBurnCards</c> (GameState.cs:1187-1207,
+/// :1245-1273) publish the decision message and then park the SRL WORK THREAD in
+/// <c>while (!s_Recieved…Response) { ThreadIsSleeping = true; Thread.Sleep(100); }</c>. The message
+/// is in flight for the whole prompt, so <c>IsProcessing</c> stays true while the engine executes
+/// literally nothing. Nothing is being resolved, and above all nothing is writing the figure's
+/// transform — the hazard this whole class exists for.</para>
+///
+/// <para>THE FIX IS THE GAME'S OWN EXPRESSION, NOT A NEW PREDICATE. The game asks this exact
+/// question in five places and answers it the same way every time — its own buttons must stay
+/// pressable during a damage prompt:</para>
+///
+/// <code>
+///   (!ScenarioRuleClient.IsProcessingOrMessagesQueued
+///    || GameState.WaitingForPlayerToSelectDamageResponse
+///    || GameState.WaitingForPlayerActorToAvoidDamageResponse)
+///        // SkipButton.cs:162, ReadyButton.cs:501, UndoButton.cs:294, ActionProcessor.cs:365
+///        // and, in the ThreadIsSleeping form, SceneController.cs:1479
+/// </code>
+///
+/// <para><see cref="Sample"/> now samples <c>_ruleClientBusy</c> with those two exclusions, so
+/// clause (3) means what its own why-string has always claimed. Deliberately NOT widened past the
+/// report: only the two damage-response waits are excluded, because those are the two the GAME
+/// excludes. Any other message the SRL is genuinely processing still closes the gate.</para>
+///
+/// <para>WHY THIS CANNOT RE-OPEN THE 2026-08-11 DEADLOCK. That hang needs a LIVE bar coroutine on
+/// the grabbed figure plus an untimed wait latched on its flow flag. Both of those are tested by
+/// OTHER clauses that this change does not touch: the GLOBAL <c>_unboundedWait</c> clause (checked
+/// first in <see cref="IsBusy"/>, and demonstrably not what refused any of the eleven) and clause
+/// (1), <c>panel.FlowControlActive()</c>. Clause (3) never protected against the deadlock at all —
+/// the figure that caused it was the attack's TARGET, which is precisely NOT
+/// <c>m_CurrentActor</c>, as this class's own root-cause note says in bold.</para>
+///
+/// <para>THE ASYMMETRY HE NOTICED ("genau so wie andere Spieler auch") IS A CONSEQUENCE, NOT A
+/// SECOND DEFECT. Clause (3) is keyed on <c>ReferenceEquals(_currentActor, actor.Actor)</c> — the
+/// figure whose action the engine is on — and never on "is this the local player's figure". His own
+/// mini was refused because it was the current actor; every other mini on the board passed the
+/// same clause and stayed liftable. The co-player's two refusals are the mirror image: HE was
+/// refused on <c>MindthiefID</c>, a figure that is not his. There is no local-player term to
+/// remove.</para>
+///
+/// <para>REJECTED — routing this through <c>Cards/Patches/PickFlowWatch</c>. It is the right shape
+/// (an edge-driven latch that separates an open pick from a live resolve) and the wrong question:
+/// it is keyed on a <c>CardsHandUI</c> instance and tracks CARD PICK flows. It is false for the
+/// "Schaden erhalten" branch and for the burn-2-discarded branch of the very prompt that caused
+/// this report, and it knows nothing about the SRL thread. Using it here would be a lookalike, not
+/// a share. The thing that IS shared is the game's expression above, and it is now read from the
+/// same three fields the game's own buttons read.</para>
 /// </summary>
 internal static class FigureBusy
 {
@@ -240,18 +309,38 @@ internal static class FigureBusy
 
         Choreographer choreo = Choreographer.s_Choreographer;
         if (choreo == null)
+        {
+            // No scenario (main menu, a torn-down scene). Drop the damage-wait edge with everything
+            // else, or a prompt that was open when the scenario ended would leave the latch TRUE
+            // and swallow the FIRST line of the next session — a held instrument reading as dead.
+            NoteDamageWaitEdge(false);
             return;
+        }
 
         _currentActor = choreo.m_CurrentActor;
         try
         {
             // ScenarioRuleClient is a pure static; reading it can throw only if the library was
             // never initialised (main menu). Never let a diagnostic read break the grab path.
-            _ruleClientBusy = ScenarioRuleClient.IsProcessingOrMessagesQueued;
+            //
+            // THE EXCLUSION IS THE GAME'S OWN, COPIED VERBATIM — see AN OPEN DECISION IS A WAIT,
+            // NOT A RESOLVE in the class doc. `IsProcessingOrMessagesQueued` is true while the SRL
+            // work thread is PARKED in `Thread.Sleep(100)` inside a damage prompt, so on its own it
+            // cannot tell "resolving" from "waiting for a person". The game answers that with two
+            // extra terms and does so in five places (SkipButton.cs:162, ReadyButton.cs:501,
+            // UndoButton.cs:294, ActionProcessor.cs:365, and SceneController.cs:1479 in the
+            // ThreadIsSleeping form). Reading the same three fields the game's own buttons read is
+            // what keeps this gate and the game's notion of "busy" from drifting apart.
+            bool processing = ScenarioRuleClient.IsProcessingOrMessagesQueued;
+            bool humanDamageWait = GameState.WaitingForPlayerToSelectDamageResponse
+                                   || GameState.WaitingForPlayerActorToAvoidDamageResponse;
+            _ruleClientBusy = processing && !humanDamageWait;
+            NoteDamageWaitEdge(processing && humanDamageWait);
         }
         catch
         {
             _ruleClientBusy = false;
+            NoteDamageWaitEdge(false);
         }
 
         Choreographer.CWaitState wait = choreo.m_WaitState;
@@ -262,6 +351,50 @@ internal static class FigureBusy
         _animationWait = IsAnimationWait(wait.m_State);
         if (_animationWait && wait.m_StateWaitActorGO != null)
             _waitActor = ActorBehaviour.GetActorBehaviour(wait.m_StateWaitActorGO);
+    }
+
+    /// <summary>Edge state for <see cref="NoteDamageWaitEdge"/> — whether the previous sample was
+    /// already inside a human damage wait, so the line below is one per PROMPT and not one per
+    /// frame.</summary>
+    private static bool _inDamageWait;
+
+    /// <summary>How many damage prompts this session were recognised as a WAIT rather than a
+    /// resolve. This is the exclusion's activity reading and the ONLY positive evidence that the
+    /// ModBuild 479 narrowing runs: the defect it fixes is a line that no longer prints, and an
+    /// absence proves nothing on its own.</summary>
+    private static int _damageWaits;
+
+    /// <summary>
+    /// Say once per damage prompt that the rule engine reported BUSY and this gate did not believe
+    /// it. Edge-gated, so a prompt the player thinks about for a minute costs one line; the count
+    /// carries the frequency. Writes nothing that any non-diagnostic reads.
+    /// </summary>
+    private static void NoteDamageWaitEdge(bool inWait)
+    {
+        if (inWait == _inDamageWait)
+            return;
+        _inDamageWait = inWait;
+        if (!inWait)
+            return;
+
+        _damageWaits++;
+        // HW-VERIFY: grep token "GRAB GATE STANDS DOWN". WORKING = this line appears while a Take
+        // Damage / burn-to-prevent prompt is open, AND no "[FigureGrab] ... grab REFUSED on ... its
+        // own action is being resolved right now" line appears between it and that prompt closing.
+        // BROKEN = the refusal still appears (the exclusion never reached the clause), or this line
+        // never appears at all while TakeDamagePanel opens (the two GameState terms read false on
+        // this build and the premise below is wrong).
+        VRLog.Note("FigureGrab",
+            $"GRAB GATE STANDS DOWN (damage prompt #{_damageWaits} this session): the rule engine "
+            + "reports IsProcessingOrMessagesQueued, but its work thread is PARKED in a "
+            + "Thread.Sleep(100) loop inside GameState waiting for a HUMAN answer "
+            + "(WaitingForPlayerToSelectDamageResponse / WaitingForPlayerActorToAvoidDamageResponse), "
+            + "so it is not resolving anything and nothing is driving a figure's transform. The "
+            + "turn-deadlock gate's 'its own action is being resolved right now' clause is therefore "
+            + "NOT applied - user report 2026-09-07 item 7: 'ich kann den character nicht aufheben "
+            + "während ich in der Entscheidung bin was ich mit dem Schaden mache'. The two clauses "
+            + "that actually make the 2026-08-11 deadlock impossible (the global unbounded-wait "
+            + "clause and this figure's own live bar flow) are unchanged and still refuse.");
     }
 
     /// <summary>
