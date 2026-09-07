@@ -212,6 +212,26 @@ internal static class BurnCommitRescue
 /// <c>TakeDamageConfirmation</c> some seconds later, which is the exact fingerprint of
 /// "the commit ran, the action went out, and nothing advanced". Ticked from
 /// <c>HandSuppression.Tick</c> (CardsDriver, every frame).
+///
+/// <para><b>IT WATCHES THE DAMAGE BURN AND ONLY THE DAMAGE BURN — 2026-09-07 MEASURED THAT THE
+/// HARD WAY.</b> <see cref="Arm"/> is called from EVERY legal <c>OnLoseCardClick</c>, but
+/// <see cref="Tick"/>'s first act is to disarm unless the phase is
+/// <c>TakeDamageConfirmation</c>. A LONG REST's lose-a-card commit runs in
+/// <c>ActionSelection</c>, so the watch armed and disarmed on the same frame and reported
+/// nothing — and that session's deadlock WAS a long rest whose commit never resolved. Anchored,
+/// the host log carries ZERO <c>[Cards] BURN COMMIT HANG</c> lines (the 17 raw grep hits are
+/// <c>[Net] DESYNC STALL</c> lines QUOTING this token inside their own body, which is why the
+/// anchor matters).</para>
+///
+/// <para>THE PHASE TERM IS NOT WIDENED, DELIBERATELY. "Still in the phase it committed in" is
+/// the right fingerprint for the damage burn because <c>TakeDamageConfirmation</c> exists only
+/// to be left; it is the WRONG one for a long rest, whose commit happens in the middle of an
+/// <c>ActionSelection</c> that correctly persists for the rest of the turn — so a generalised
+/// term would fire on every healthy long rest. The long-rest commit has its own watch instead,
+/// on its own resolution term (<c>CCharacterClass.HasLongRested</c>) and with its own token:
+/// <c>LONG REST RE-DRIVE HELD</c> / <c>LONG REST RE-DRIVE ONCE</c> in
+/// <c>CardsDriver.PumpLongRestTurn</c>. Read the two together — between them every burn commit
+/// this mod can route has a watch, and neither pretends to cover the other's flow.</para>
 /// </summary>
 internal static class BurnCommitWatch
 {

@@ -202,6 +202,19 @@ internal static class PickFlowWatch
     private static int _heals;
 
     /// <summary>
+    /// <c>GetInstanceID</c> of the hand whose ANSWER the player has handed the game and whose
+    /// consequences have not been established yet, or 0. See <see cref="AnswerOutstandingFor"/>:
+    /// this is a different fact from <see cref="_live"/> and outlives it on purpose.
+    /// </summary>
+    private static int _answeredOn;
+
+    /// <summary>Unscaled time of that answer.</summary>
+    private static float _answeredAt;
+
+    /// <summary>Monotone count of answers taken this session — log decoration only.</summary>
+    private static int _answerSeq;
+
+    /// <summary>
     /// Is a pick flow live right now, for ANY hand? Kept for the one caller that has no hand to ask
     /// about (<see cref="CardsGameApi.PickIsOpen"/>'s no-hand fallback). Every gate that HAS a hand
     /// must use <see cref="LiveFor"/> instead — see the class remarks.
@@ -386,13 +399,110 @@ internal static class PickFlowWatch
             : "the game re-drove the hand's view asking for 0 cards (CardsHandUI.UpdateView)");
     }
 
-    /// <summary>END edge (a): the player answered and the game's commit is about to run.</summary>
+    /// <summary>
+    /// END edge (a): the player answered and the game's commit is about to run.
+    ///
+    /// <para>IT ALSO RECORDS THE ANSWER, WHICH IS A DIFFERENT FACT FROM THE FLOW ENDING and the
+    /// 2026-09-07 deadlock is what taught the difference. Ending the flow says "this board has
+    /// nothing to ask"; <see cref="AnswerOutstandingFor"/> says "the player has already given the
+    /// game a card and the game has not visibly done anything with it yet". Only the second one
+    /// can stop the mod's own long-rest pump from re-opening the very step he just answered — see
+    /// <c>CardsDriver.PumpLongRestTurn</c>. The record is deliberately NOT cleared by
+    /// <see cref="NoteEnd"/>: the commit edge IS an end edge, so clearing it there would make it
+    /// always false.</para>
+    /// </summary>
     internal static void NoteCommitAccepted(CardsHandUI? hand, int wanted)
     {
+        NoteAnswerTaken(hand);
         if (!OwnsLiveFlow(hand))
             return;
         NoteEnd($"the player COMMITTED the pick — CardsHandUI.OnLoseCardClick accepted {wanted} card(s)");
     }
+
+    /// <summary>
+    /// END edge (d), NEW 2026-09-07 — <c>CardsHandUI.HandleLongRest</c>, the ONE choke point of
+    /// both long-rest commit routes, and the close of a class the file header above named and
+    /// deliberately left open ("It is one more disarm site the day one does").
+    ///
+    /// <para><b>WHY IT IS NOT COVERED BY (a).</b> Edge (a) is a prefix on
+    /// <c>CardsHandUI.OnLoseCardClick</c>, which is the OWNING client's route only. Every OTHER
+    /// client replays the same long rest through <c>CardsHandUI.ProxyLongRest</c>
+    /// (CardsHandUI.cs:2819), which calls <c>HandleLongRest</c> DIRECTLY: it never touches
+    /// <c>OnLoseCardClick</c> (so not edge a) and never calls <c>Hide()</c> (so not edge b). Its
+    /// only remaining exit is the <c>ShowLongRested</c> inside <c>AnimateCardsLost</c>'s completion
+    /// delegate (CardsHandUI.cs:2427-2434), and that is guarded
+    /// <c>if (IsShown &amp;&amp; PhaseManager.PhaseType == ActionSelection)</c> — evaluated once,
+    /// SECONDS later, after a <c>WaitUntil(animations.Count == 0)</c>. A phase that has moved on by
+    /// then makes the guard false, nothing re-drives the view, and NONE of the three edges ever
+    /// fires. That is a structurally reachable permanent arm on every observing client, and this
+    /// edge is what closes it.</para>
+    ///
+    /// <para>It also fires on the owner, one call after edge (a). <see cref="NoteEnd"/> is
+    /// idempotent per flow, so the second one is free.</para>
+    /// </summary>
+    internal static void NoteLongRestAnswered(CardsHandUI? hand)
+    {
+        NoteAnswerTaken(hand);
+        if (!OwnsLiveFlow(hand))
+            return;
+        NoteEnd("the game took this hand's LONG REST answer — CardsHandUI.HandleLongRest, which " +
+                "runs GameState.PlayerLongRested synchronously and then animates. This is END edge " +
+                "(d) and it is the ONLY edge a non-owning client's copy of a long rest ever reaches");
+    }
+
+    /// <summary>
+    /// The player has handed the game a card for this hand. Records WHICH hand and WHEN; the flow
+    /// latch is a separate question (see <see cref="NoteCommitAccepted"/>'s remarks).
+    /// </summary>
+    private static void NoteAnswerTaken(CardsHandUI? hand)
+    {
+        _answeredAt = Time.unscaledTime;
+        _answerSeq++;
+        _answeredOn = 0;
+        try
+        {
+            if (hand != null)
+                _answeredOn = hand.GetInstanceID();
+        }
+        catch (Exception)
+        {
+            // an unreadable hand still answered — the TIME is the load-bearing half
+        }
+    }
+
+    /// <summary>
+    /// Has this hand handed the game an answer that the game has not visibly acted on yet, and how
+    /// long ago? False when this hand has never answered. The CALLER owns the staleness rule — this
+    /// only reports the fact and its age, because "long enough" is a question about the animation
+    /// the caller is waiting out, not about the latch.
+    /// </summary>
+    internal static bool AnswerOutstandingFor(CardsHandUI? hand, out float secondsSince)
+    {
+        secondsSince = 0f;
+        if (_answeredOn == 0 || hand == null)
+            return false;
+        try
+        {
+            if (hand.GetInstanceID() != _answeredOn)
+                return false;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        secondsSince = Time.unscaledTime - _answeredAt;
+        return true;
+    }
+
+    /// <summary>Forget the recorded answer — the caller has established the game acted on it.</summary>
+    internal static void ClearAnswer()
+    {
+        _answeredOn = 0;
+        _answeredAt = 0f;
+    }
+
+    /// <summary>How many answers the player has handed the game this session (log decoration).</summary>
+    internal static int AnswerSeq => _answerSeq;
 
     /// <summary>
     /// Is this the hand whose OPEN edge armed the live flow? An unidentified owner (<c>_openedOn</c>
@@ -598,7 +708,28 @@ internal static class PickFlowWatch
         _foreignArmsDeclined = 0;
         _lastDeclinedName = "";
         _heals = 0;
+        _answeredOn = 0;
+        _answeredAt = 0f;
+        _answerSeq = 0;
     }
+}
+
+/// <summary>
+/// END edge (d). Verified target: <c>private void HandleLongRest(CAbilityCard cardToBurn)</c>
+/// (CardsHandUI.cs:2423) — the single choke point of BOTH long-rest commit routes: the owning
+/// client's <c>OnLoseCardClick</c> long-rest branch (:2371) and every other client's
+/// <c>ProxyLongRest</c> (:2825). Its first statement is
+/// <c>GameState.PlayerLongRested(cardToBurn)</c>, so by the time this prefix returns the rules have
+/// already taken the answer; everything after it is animation.
+///
+/// <para>Prefix rather than postfix so the edge is recorded even if the body throws — the body's
+/// tail is <c>StartCoroutine(AnimateCardsLost(...))</c>, and a coroutine refused on an inactive
+/// object is precisely the failure this project has already paid two builds for.</para>
+/// </summary>
+[HarmonyPatch(typeof(CardsHandUI), "HandleLongRest")]
+internal static class CardsHandUI_HandleLongRest_PickFlowEnd
+{
+    private static void Prefix(CardsHandUI __instance) => PickFlowWatch.NoteLongRestAnswered(__instance);
 }
 
 /// <summary>

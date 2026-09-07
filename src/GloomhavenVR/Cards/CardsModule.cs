@@ -53,6 +53,11 @@ internal sealed class CardsModule : IVRModule
         // over the next damage prompt. See Cards/Patches/PickFlowPatches.cs for the log excerpt.
         VRSession.Harmony?.PatchAll(typeof(CardsHandUI_UpdateView_PickFlowOpen));
         VRSession.Harmony?.PatchAll(typeof(CardsHandUI_Hide_PickFlowEnd));
+        // END edge (d), 2026-09-07: CardsHandUI.HandleLongRest. Both long-rest commit routes pass
+        // through it, and the NON-OWNING client's route (ProxyLongRest) reaches neither of the two
+        // edges above — see PickFlowPatches.cs for the guard that can leave that arm standing for
+        // ever.
+        VRSession.Harmony?.PatchAll(typeof(CardsHandUI_HandleLongRest_PickFlowEnd));
         // Laser half-hover: the docked action-selection cards take their half highlight
         // from the beam's geometry (HalfSelection.UpdateLaserHighlight); the per-graphic
         // pushers are silenced for laser events so a tooltip row winning the raycast can

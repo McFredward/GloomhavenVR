@@ -143,6 +143,10 @@ internal sealed partial class CardsDriver
             return;
         }
         _overlayExitHeldSince = 0f;
+        // Re-arm the change-gate with the hold: without this, a later burst whose (holds, flights)
+        // pair happens to repeat an earlier one prints NOTHING, and a silent instrument is how the
+        // 57.92 s latch above went unreported for a whole session.
+        _loggedOverlayExit = null;
         // ITEM 6b (2026-09-06) — A DEAD FLOW MAY NOT PULSE A SLOT. His words: "Beim zweiten Schaden
         // nach einer direkten Verbrennung hat das Overlay zum Verbrennen schon geblinkt, obwohl die
         // Entscheidung noch nicht getroffen wurde". The pick branch below used to read IsPickMode
@@ -263,13 +267,41 @@ internal sealed partial class CardsDriver
     ///   callback the frame it parks the card.</item>
     /// </list>
     ///
-    /// <para>IT CANNOT LATCH THE OVERLAYS OFF, and that matters more here than anywhere else
-    /// because a permanently dark hint is a worse defect than an early one. The region header
-    /// above <c>CardEnRouteToPile</c> (CardsDriver.4.Rebuild.cs:2895-2917) enumerates every way
-    /// a flight can end — land, cancel, destroy, board switch, hand switch, artwork deadline —
-    /// and states that each converges the count on the very next frame, so "an entry for a card
-    /// nobody will ever land is not representable". This method adds no third set and therefore
-    /// inherits that argument whole rather than restating it.</para>
+    /// <para><b>IT USED TO LATCH THE OVERLAYS OFF, AND ON 2026-09-07 IT DID — FOR 57.92 s AND THEN
+    /// FOR THE REST OF THE SESSION.</b> The sentence that stood here claimed it could not, on the
+    /// strength of the region header above <c>CardEnRouteToPile</c>
+    /// (CardsDriver.4.Rebuild.cs) — "an entry for a card nobody will ever land is not
+    /// representable" — and said this method "inherits that argument whole". IT DOES NOT, AND THE
+    /// ARGUMENT WAS NEVER ABOUT THIS METHOD. The header's self-healing claim is about
+    /// <see cref="PileArrivalsPending"/>, which RECOMPUTES from live objects every frame; the two
+    /// lines below read the raw <c>Count</c> of two bookkeeping containers. Forty lines under that
+    /// header, <see cref="CardEnRouteToPile"/>'s own doc says the opposite in as many words: "the
+    /// set can hold a stale entry for a card something else parked (Park cancels the fly without
+    /// running the completion callback), so it is a HINT, NEVER THE TRUTH". Eleven of the fourteen
+    /// <c>_factory.Park</c> call sites do not drop the membership, and <c>VRCard.CancelFly</c> is
+    /// documented "Does NOT run the callback" — so a parked mid-flight card strands its entry for
+    /// the life of the scenario.</para>
+    ///
+    /// <para>THE MEASUREMENT (host Player.log, ModBuild 474). <c>OVERLAY HELD BY EXIT</c> fired
+    /// five times all session; the last three read <c>held=55.51s</c> (:248926),
+    /// <c>held=57.52s</c> (:249420) and <c>held=57.92s</c> (:249468) — against the 3.40 s ceiling
+    /// (<c>BurnEffectMaxHoldSeconds</c> + <c>FlyToPileSeconds</c>) that this file's own
+    /// "STILL BEYOND THE INSTRUMENT" note declares unreachable. The line is change-gated on the
+    /// pair, and 9,237 further lines run to the end of the log without another one: the count was
+    /// stuck at 2, not merely unsampled. Only ONE <c>PILE FLIGHT</c> existed in the window
+    /// (:249417); the other two were leftovers from the discard cluster at :241957-:242071, four
+    /// of whose nine locally-animated starts never logged a <c>reached the … pile — parked</c>
+    /// line anywhere in the session. The hold had been standing since t≈2102 s — BEFORE
+    /// <c>BURN FLOW ARM #1</c> at t=2109.684 — so the wanted-slot overlays were suppressed for the
+    /// WHOLE of that pick. That is user item 1's first symptom, verbatim: <em>"Das erste komische
+    /// was anders war ist, dass das Overlay nicht geblinkt ist."</em></para>
+    ///
+    /// <para>SO THE GATE NOW ASKS THE LIVE QUESTION AND PRUNES WHAT IT FINDS DEAD, which is the
+    /// self-healing property the header promises rather than a citation of it. A membership whose
+    /// card is gone, parked, or no longer flying is dropped ON SIGHT here — this is the only place
+    /// that reads the set as a COUNT, so it is the only place that has to. No third set, no timer,
+    /// no ledger: the same two containers, filtered by the same <c>IsFlying</c>/<c>IsParked</c>
+    /// terms <see cref="CardEnRouteToPile"/> already trusts as the truth.</para>
     ///
     /// <para>DELIBERATELY NOT NARROWED TO THE SHORT-REST SACRIFICE. The card is handed to the
     /// burn path by <c>RemoveShortRestCard</c>, which nulls <c>_shortRestCard</c> in the same
@@ -280,8 +312,43 @@ internal sealed partial class CardsDriver
     /// the answer is the same one the user gave for the burn: the overlay for the NEXT choice
     /// does not belong on a board that is still clearing the LAST one.</para>
     /// </summary>
+    /// <summary>Reused scratch for the stale-flight prune below (allocation-free steady state).</summary>
+    private readonly List<VRCard> _exitFlightPruneScratch = new(4);
+
+    /// <summary>
+    /// How many flight memberships this gate has dropped as stale since the driver came up. It is
+    /// the falsifier for the fix: a session that reaches this gate at all and reads 0 here has no
+    /// leak, and a nonzero reading NAMES the leak that used to latch the overlays off.
+    /// </summary>
+    private int _exitFlightsPruned;
+
     private bool BoardStillOwnsACardsExit(out int holds, out int flights)
     {
+        // PRUNE FIRST, COUNT SECOND. A membership is evidence that a flight STARTED, never that
+        // one is still running: VRCard.CancelFly is documented "Does NOT run the callback", so
+        // every Park that does not drop the entry itself leaves one behind for ever. Asking the
+        // live objects the same way CardEnRouteToPile does makes this count self-healing instead
+        // of merely claiming to be.
+        if (_flyingToPile.Count > 0)
+        {
+            _exitFlightPruneScratch.Clear();
+            foreach (VRCard flying in _flyingToPile)
+            {
+                // ONE TERM, AND IT IS THE ONE CardEnRouteToPile ALREADY CALLS THE TRUTH:
+                // VRCard.IsFlying. Destroyed, cancelled, parked, landed — every way a flight can
+                // end clears it, so "not flying" is "this exit is OVER, however it ended". Nothing
+                // narrower is needed and nothing wider is safe: IsParked/IsHeld would each eat a
+                // live arc in some board pose, while IsFlying cannot.
+                if (flying == null || !flying.IsFlying)
+                    _exitFlightPruneScratch.Add(flying!);
+            }
+            for (int i = 0; i < _exitFlightPruneScratch.Count; i++)
+            {
+                if (_flyingToPile.Remove(_exitFlightPruneScratch[i]))
+                    _exitFlightsPruned++;
+            }
+            _exitFlightPruneScratch.Clear();
+        }
         holds = _burnHoldSince.Count;
         flights = _flyingToPile.Count;
         return holds > 0 || flights > 0;
@@ -313,14 +380,22 @@ internal sealed partial class CardsDriver
         // then not being reached and the overlays are lighting on FinalizeShortRest again, which
         // is the 472 behaviour verbatim.
         // STILL BEYOND THE INSTRUMENT = lines whose `held=` climbs past
-        // BurnEffectMaxHoldSeconds + FlyToPileSeconds (3.40 s) without the burst ending. Nothing
-        // in the two sets can do that (see BoardStillOwnsACardsExit), so a reading like that
-        // means a flight completion callback did not run and the lead is VRCard.FlyToPile /
-        // the park sweep, NOT this gate — and the overlays would be dark for as long as it lasts.
+        // BurnEffectMaxHoldSeconds + FlyToPileSeconds (3.40 s) without the burst ending. THAT
+        // READING HAPPENED — 55.51 / 57.52 / 57.92 s on 2026-09-07 — and the sentence that used to
+        // stand here ("nothing in the two sets can do that") was wrong; the gate read the raw set
+        // COUNT while the set is only ever a hint. `staleFlightsPruned=` below is the number of
+        // memberships this gate has dropped as dead; it is the direct falsifier for that fix.
+        // WORKING now also requires held= to fall back under 3.40 s once a burst ends. A held=
+        // above it WITH staleFlightsPruned climbing means the prune is running and something is
+        // still adding faster than flights land; a held= above it with staleFlightsPruned=0 means
+        // the flights really ARE live and the lead is VRCard.FlyToPile's tick, not this gate.
         VRLog.Note("Cards", $"OVERLAY HELD BY EXIT: the wanted-slot overlays for the NEXT selection are " +
                             $"suppressed because this board is still moving {holds + flights} card(s) off it " +
                             $"— {holds} inside the game's burn artwork (TryTakeBurnFlightSlot's hold, released " +
-                            $"on CardEffects.coroutine going null) and {flights} in flight to a pile. " +
+                            $"on CardEffects.coroutine going null) and {flights} in flight to a pile " +
+                            $"(staleFlightsPruned={_exitFlightsPruned} this session — memberships dropped " +
+                            "because VRCard.IsFlying said the arc was already over; a nonzero count IS the " +
+                            "2026-09-07 leak that suppressed this player's overlays for a whole pick). " +
                             $"held={now - _overlayExitHeldSince:F2}s so far. This is the SAME completion " +
                             "signal the flight itself waits on, not a second one: the user's order is burn " +
                             "artwork, then the flight with the card disappearing, THEN the next choice's " +
@@ -436,6 +511,68 @@ internal sealed partial class CardsDriver
                             "A second damage event immediately after a burn is a COMPLETELY NEW " +
                             "situation (user ruling 2026-09-06) and must inherit nothing.");
     }
+
+    /// <summary>The ARM sequence number this board has already reported as unpaired.</summary>
+    private int _reportedUnpairedArm;
+
+    /// <summary>
+    /// THE PAIRING INVARIANT, AS A LINE INSTEAD OF AS A HOPE — user item 1, 2026-09-07: <em>"Finde
+    /// heraus was los war und sorge dafür, dass so etwas niemals auftritt."</em>
+    ///
+    /// <para><b>THE PASS CONDITION IS A COUNT IDENTITY.</b> In a healthy log,
+    /// <c>grep -c '] [Cards] BURN FLOW ARM'</c> equals <c>grep -c '] [Cards] PICK FLOW END'</c>,
+    /// with at most ONE ARM outstanding at the end of the session (the pick the player was making
+    /// when he quit). The 2026-09-07 host log read 2 and 1: <c>ARM #2</c> at t=2159.306s had no
+    /// <c>END #2</c>, and finding that cost the whole session, because nothing in 9,356 further
+    /// lines said "an ARM is still outstanding".</para>
+    ///
+    /// <para><b>WHAT AN UNPAIRED ARM NOW TRIGGERS.</b> This line, once per ARM, with its own token
+    /// — <c>PICK FLOW UNPAIRED</c> — and nothing else. It is DELIBERATELY NOT A REMEDY. Standing
+    /// the flow down here would be a lie in exactly the case that produced it: on 2026-09-07 the
+    /// game genuinely did have that pick open (the mod's own pump had just re-opened it, see
+    /// <see cref="PumpLongRestTurn"/>), and hiding the banner would have left the player with a
+    /// live request and no way to see it — a degraded surface, which the standing ruling refuses.
+    /// The state is made impossible at the ARM side instead; this is the falsifier that says
+    /// whether that worked.</para>
+    ///
+    /// <para>The bound is generous on purpose. A legitimate pick can stand for a long time — flow
+    /// #1 of the same session was live 47.92 s while the player read his discard pile — so this
+    /// says nothing about whether the flow is WRONG, only that it is OLD and still open. Read it
+    /// beside the <c>LONG REST RE-DRIVE</c> pair and the <c>BURN COMMIT HANG</c> line: those name
+    /// causes, this one names the symptom and gives it a grep.</para>
+    /// </summary>
+    private void ReportUnpairedPickFlow()
+    {
+        int arm = Patches.PickFlowWatch.ArmSeq;
+        if (arm == 0 || arm == _reportedUnpairedArm || arm == Patches.PickFlowWatch.EndSeq)
+            return; // no flow, already said, or the ARM is paired — the healthy readings
+        float live = Time.unscaledTime - Patches.PickFlowWatch.OpenedAt;
+        if (live < UnpairedArmSeconds)
+            return;
+        _reportedUnpairedArm = arm;
+        // HW-VERIFY: grep token "PICK FLOW UNPAIRED".
+        // WORKING = absent, OR present at most once at the very end of a session for the pick the
+        // player was actually making. The count identity above is the real reading.
+        // INERT = a log with an unpaired ARM (count(BURN FLOW ARM) - count(PICK FLOW END) > 1) and
+        // NO line here: this reporter is not being reached, and the next deadlock is silent again.
+        // STILL BEYOND THE INSTRUMENT = this line naming a flow the player CAN still answer. It
+        // cannot tell "stuck" from "slow"; it only says an ARM has stood for a long time. The line
+        // that decides which is the LONG REST RE-DRIVE pair, or a BURN CARD with no END after it.
+        VRLog.Note("Cards", $"PICK FLOW UNPAIRED: BURN FLOW ARM #{arm} on " +
+                            $"'{Patches.PickFlowWatch.OpenedOnName}' has been standing {live:F1}s with no " +
+                            $"PICK FLOW END (END seq is {Patches.PickFlowWatch.EndSeq}). THE PASS CONDITION " +
+                            "FOR THIS FLOW IS A COUNT IDENTITY — every ARM has an END — and it is currently " +
+                            "broken. The mod is asking this player for a card and the four END edges " +
+                            "(OnLoseCardClick commit, CardsHandUI.Hide, a non-pick UpdateView on the owning " +
+                            "hand, and HandleLongRest) have all not fired. This line REPORTS and repairs " +
+                            "NOTHING on purpose: on 2026-09-07 the unpaired ARM was a pick the game really " +
+                            "did have open, so standing the banner down would have hidden a live request " +
+                            "instead of answering it. One line per ARM; it does not repeat.");
+    }
+
+    /// <summary>How long an ARM may stand unpaired before it is worth a line. Generously above the
+    /// 47.92 s a real 2026-09-07 pick took, so a slow reader is never accused of a deadlock.</summary>
+    private const float UnpairedArmSeconds = 90f;
 
     private void ReportPickFlowEnd()
     {
@@ -781,6 +918,7 @@ internal sealed partial class CardsDriver
         // not print.
         ReportBurnFlowArm();
         ReportPickFlowEnd();
+        ReportUnpairedPickFlow();
         // ITEM 6 (2026-09-07) rides the same per-frame, pre-early-return spot for the same
         // reason: a rest edge can be taken while the item-surrender or floating-panel banner
         // owns the placard, and a census that only runs when the pick banner does would miss
@@ -1443,9 +1581,62 @@ internal sealed partial class CardsDriver
     // and, while the rest is pending on this actor's own turn, drives the game's own
     // two-step flow through CardsGameApi.TryAdvanceLongRestTurn — heal +2 and item
     // refresh then run natively in GameState.PlayerLongRested when the burn commits.
+    //
+    // ─── 2026-09-07, USER ITEM 1: THIS PUMP RE-OPENED A STEP THE PLAYER HAD ALREADY ANSWERED ───
+    //
+    // His words: "Ich konnte bestätigen die Karte zu verbrennen und die Animationen waren korrekt.
+    // Doch danach ging es nicht weiter - das Spiel wollte weiterhin von mir dass ich Karte
+    // verbrenne." The host log says it in six lines, and every one of them is this pump's:
+    //
+    //   248928  PICK FLOW END #1   t=2157.606s   ended by "the player COMMITTED the pick"
+    //   249089  Rebuild: mode=ActionSelection            <- the game re-drove the view MID-ANIMATION
+    //   249091  LONG REST FLOW: SELECTED                 <- so `losing` went false: mode != LoseCard
+    //   249256  Long rest: auto-advanced — confirmation toggled
+    //   249336  Long rest: auto-advanced — 'PERFORM LONG REST' ReadyButton clicked
+    //   249349  BURN FLOW ARM #2   t=2159.306s           <- 1.70 s after his commit. Never ended.
+    //   249415  BURN HOLD: waited 2.01s (artwork finished)  <- the FIRST burn was still playing
+    //
+    // THE GATE BELOW WAS THE WHOLE CAUSE. `Mode(hand) == LoseCard` is CardsHandUI.currentMode — a
+    // latch this codebase documents at length, and the game clears it for the ~2 s in which it
+    // animates the answer away. LongRestTurnHand()'s own terms (`LongRest && !HasLongRested`) also
+    // both still hold across that window, because the rest is not resolved until the commit lands.
+    // So for those two seconds every gate this pump owns reads "the rest is pending and no burn
+    // step is open" — which is true of a rest that has NEVER been answered and of one that was
+    // answered 1.7 s ago, and the pump could not tell them apart. It clicked PERFORM LONG REST
+    // again and the game opened a SECOND burn step over the discard pile.
+    //
+    // THE COST IS NOT COSMETIC. Had he laid a card into that second step, he would have lost TWO
+    // cards for one long rest. The standing banner was the visible half; the re-open was the
+    // dangerous half.
+    //
+    // THE RULE NOW. An UNANSWERED rest is driven exactly as before — that is what this pump is for
+    // and the original stuck-long-rest bug is unchanged. Once the player has ANSWERED, the pump
+    // holds until the answer has had the game's own burn animation to resolve in
+    // (LongRestAnswerSettleSeconds), and may then re-drive AT MOST ONCE, saying so with its own
+    // token. It is not a timer standing in for a signal: the signal is
+    // PickFlowWatch.AnswerOutstandingFor, an EDGE recorded at the game's own commit choke point,
+    // and the seconds only bound how long we wait for the game to act on it. `ClearAnswer` at the
+    // top means a rest that resolves normally leaves nothing behind for the next one.
     private float _longRestPumpNextTry;   // throttle for the actual game calls (state reads stay per-tick)
     private bool _longRestPumpQueued;     // at most one queued advance in flight
     private bool _longRestPumpAnnounced;  // change-deduped "turn arrived" log
+    private float _longRestRetryOpenedAt; // unscaled time the ONE post-answer re-drive opened; 0 = none
+    private int _longRestHoldPhaseLogged; // 0 none, 1 "settling", 2 "spent" — one line per phase
+
+    /// <summary>
+    /// How long an answered long rest is given to resolve before the pump may re-drive it once.
+    /// It is the game's own worst case for the animation that carries the answer — the artwork
+    /// hold ceiling plus the flight — so the pump can never act inside it.
+    /// </summary>
+    private const float LongRestAnswerSettleSeconds = BurnEffectMaxHoldSeconds + FlyToPileSeconds;
+
+    /// <summary>
+    /// How long the ONE post-answer re-drive stays open. <c>TryAdvanceLongRestTurn</c> is a
+    /// two-step flow throttled to one game call every 0.5 s, so the allowance has to be a WINDOW:
+    /// a single-tick allowance would toggle the long-rest confirmation and never reach the
+    /// ReadyButton click, leaving the turn half-driven.
+    /// </summary>
+    private const float LongRestRetryWindowSeconds = 3f;
 
     private void PumpLongRestTurn()
     {
@@ -1453,10 +1644,91 @@ internal sealed partial class CardsDriver
         if (hand == null)
         {
             _longRestPumpAnnounced = false;
+            // The rest resolved (or this actor's turn ended): nothing about the answer that
+            // belonged to it may survive into the next one.
+            _longRestRetryOpenedAt = 0f;
+            _longRestHoldPhaseLogged = 0;
+            Patches.PickFlowWatch.ClearAnswer();
             return;
         }
         if (CardsGameApi.Mode(hand) == CardHandMode.LoseCard)
-            return; // burn step live — the existing pick flow owns it from here
+        {
+            // The burn step IS open right now, so the pick flow owns it — but note that this term
+            // is a LATCH and goes false for the seconds in which the game animates an answer away.
+            // It is therefore necessary and NOT sufficient; the answer test below is the other half.
+            return;
+        }
+        if (Patches.PickFlowWatch.AnswerOutstandingFor(hand, out float sinceAnswer))
+        {
+            float nowAnswer = Time.unscaledTime;
+            // THE RETRY IS A WINDOW, NOT A TICK. TryAdvanceLongRestTurn is a TWO-step flow
+            // (confirmation toggle, then the ReadyButton click) throttled to one game call every
+            // 0.5 s, so a retry that latched itself off after its FIRST tick would toggle the
+            // confirmation and never click READY — a half-drive, which is worse than none.
+            bool retrySpent = _longRestRetryOpenedAt > 0f
+                              && nowAnswer - _longRestRetryOpenedAt >= LongRestRetryWindowSeconds;
+            bool retryRunning = _longRestRetryOpenedAt > 0f && !retrySpent;
+            if (!retryRunning && (sinceAnswer < LongRestAnswerSettleSeconds || retrySpent))
+            {
+                int phase = retrySpent ? 2 : 1;
+                if (_longRestHoldPhaseLogged != phase)
+                {
+                    _longRestHoldPhaseLogged = phase;
+                    // HW-VERIFY: grep token "LONG REST RE-DRIVE HELD".
+                    // WORKING = one of these per long rest the player answers, and NO
+                    // "BURN FLOW ARM #n" within LongRestAnswerSettleSeconds of a "PICK FLOW END
+                    // #n-1" anywhere in the log. That pair — an ARM 1.70 s after an END on the
+                    // same hand — IS the 2026-09-07 deadlock and this line is what now stands
+                    // between them.
+                    // INERT = zero of these lines in a session that contains a long rest the
+                    // player answered (grep "LONG REST FLOW: BURN step active" and a following
+                    // "PICK FLOW END"): the answer edge is not reaching this gate and the pump can
+                    // re-open an answered step again.
+                    // STILL BEYOND THE INSTRUMENT = this line present, then "LONG REST RE-DRIVE
+                    // ONCE" below it, and STILL no "LONG REST FLOW: RESOLVED" — the game did not
+                    // take the answer at all, which is upstream of this mod (see the report).
+                    VRLog.Note("Cards", "LONG REST RE-DRIVE HELD: this player answered his long rest " +
+                                        $"{sinceAnswer:F2}s ago (answer #{Patches.PickFlowWatch.AnswerSeq}) and the " +
+                                        "game has not resolved it yet, so the PERFORM LONG REST drive is HELD " +
+                                        $"{(retrySpent ? "for good — its one re-drive is spent" : $"until {LongRestAnswerSettleSeconds:F2}s have passed")}. " +
+                                        "On 2026-09-07 it was NOT held: CardsHandUI.currentMode had gone " +
+                                        "back to ActionSelection while the game animated the answer away, " +
+                                        "every gate here read 'rest pending, no burn step open', and the pump " +
+                                        "clicked PERFORM LONG REST 1.70s after his commit — opening a SECOND " +
+                                        "burn step over the discard pile that no END edge could ever close. " +
+                                        "A second answered step would have cost him a SECOND card for one rest.");
+                }
+                return;
+            }
+            // retryRunning ⇒ fall straight through: the one open window's two-step advance is
+            // mid-flight and TryAdvanceLongRestTurn logs each step it actually performs.
+            if (!retryRunning)
+            {
+                // The settle window has passed and the game still has not taken the answer. This
+                // is the stuck state the pump exists for, so it gets its ONE retry — loudly,
+                // because a retry after an answer re-opens a step the player has already made.
+                _longRestRetryOpenedAt = nowAnswer;
+                _longRestHoldPhaseLogged = 0;
+                // HW-VERIFY: grep token "LONG REST RE-DRIVE ONCE".
+                // WORKING = absent. The settle window is the game's own animation ceiling, so a
+                // rest that resolves normally never reaches this line.
+                // INERT/DEFECT = present. It means the game did not act on an answer it was given,
+                // and the number to quote is how many appear: ONE is the mod buying the turn back
+                // while naming the state; TWO OR MORE for one rest is impossible by construction
+                // (the window latch above), so a second one is a NEW defect in this gate and not
+                // the old one returning.
+                VRLog.Note("Cards", $"LONG REST RE-DRIVE ONCE: {sinceAnswer:F2}s after this player answered his " +
+                                    "long rest the game has still not resolved it (LongRest set, HasLongRested " +
+                                    "false, and CardsHandUI.currentMode is no longer LoseCard), which is past the " +
+                                    $"{LongRestAnswerSettleSeconds:F2}s its own burn animation can possibly need. " +
+                                    "Driving PERFORM LONG REST one more time so the turn is not lost — this is the " +
+                                    "ONLY re-drive an answered rest gets, and it re-opens a step the player has " +
+                                    "already made, so if it appears the fault is UPSTREAM of this pump: the game's " +
+                                    "OnLoseCardClick took the damage-avoidance branch instead of the long-rest one " +
+                                    "(CardsHandUI.cs:2369 needs LongRest && GameState.InternalCurrentActor == " +
+                                    "playerActor, and this mod writes neither term).");
+            }
+        }
         if (WorldUI.ModalFallback.BlockingWindowModalActive)
             return; // never advance the turn under a blocking modal (story/results/…)
         if (!_longRestPumpAnnounced)

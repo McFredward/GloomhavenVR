@@ -2920,6 +2920,21 @@ internal sealed partial class CardsDriver
     // The pathological case a ledger would have — an entry for a card nobody will ever land — is
     // not representable: there is nothing to leak. The worst reachable state is a card genuinely
     // still lying on the board, which is exactly the state the user asked us to wait for.
+    //
+    // THAT PARAGRAPH IS TRUE OF THIS FEATURE AND WAS CITED FOR ONE IT DOES NOT COVER (2026-09-07).
+    // Every claim above is about PileArrivalsPending and CardEnRouteToPile, which RECOMPUTE from
+    // live objects each frame — for them "there is nothing to leak" holds, because they never read
+    // a membership without also asking IsFlying/IsParked/_factory.Find. It is NOT true of the
+    // CONTAINERS themselves. `_flyingToPile` genuinely leaks: VRCard.CancelFly is documented "Does
+    // NOT run the callback", eleven of the fourteen `_factory.Park` call sites do not drop the
+    // membership, and CardEnRouteToPile's own doc forty lines below calls the set "a HINT, NEVER
+    // THE TRUTH" for exactly that reason. CardsDriver.BoardStillOwnsACardsExit (6.Flows) used to
+    // read `_flyingToPile.Count` RAW and cited this paragraph as its proof that it could not
+    // latch; on 2026-09-07 it latched the wanted-slot overlays off at `held=57.92s` and never let
+    // go — two stale memberships from a discard cluster ~57 s earlier. A self-healing ARGUMENT
+    // does not transfer to a call site that does not do the recomputation; that gate now prunes.
+    // Four of that session's nine locally-animated flight starts never logged a "reached the …
+    // pile — parked" line at all, so the leak is a live producer and not a one-off.
 
     /// <summary>Reused resolve buffer for <see cref="PileArrivalsPending"/> — the per-frame count
     /// query allocates nothing.</summary>
