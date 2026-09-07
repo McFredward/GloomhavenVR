@@ -57,7 +57,7 @@ Drei Sachen, die das Bild nicht zeigen kann:
 - **Steigen und sinken** auf dem rechten Stick — standardmäßig aus, einschalten unter **Komfort**.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Deine Karten und dein Brett
@@ -78,7 +78,7 @@ Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett o
 </p>
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Das Brett vor dir
@@ -92,7 +92,7 @@ mit Absicht: so wählt eine Hand, die nur über das Brett streicht, nie etwas au
 **Heb eine Figur hoch** — mit dem Trigger — und du siehst ihren kommenden Zug.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Fenster
@@ -136,7 +136,7 @@ schließen, und hol sie mit dem Stick näher heran oder schieb sie weg, während
 du eine hinstellst, da bleibt sie.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Die Kampagnenkarte
@@ -149,7 +149,7 @@ Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte?
 **Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte**.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Der Raum, in dem du spielst
@@ -196,7 +196,7 @@ gleichzeitig, und alle in einer Sitzung sehen dieselbe im selben Moment. Regeln 
 unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Mehrspieler

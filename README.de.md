@@ -71,7 +71,7 @@ macht. Leg sie zurück, und sie setzt sich auf ihr Feld.
 - **Mixed Reality.** Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Alle am selben Tisch
@@ -85,7 +85,7 @@ Bildschirm in derselben Partie mit.
 </p>
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Deine Karten und dein Brett
@@ -101,7 +101,7 @@ Jedes Teil davon ist auf einem beschrifteten Bild im
 [Spielhandbuch](docs/PLAYING.de.md#deine-karten-und-dein-brett) benannt.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Das Brett vor dir
@@ -114,7 +114,7 @@ Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür
 nehmen — oder halt den Griff und tipp es mit der Fingerspitze an.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Die Kampagnenkarte auf dem Tisch
@@ -128,7 +128,7 @@ auf dem Tisch vor dir. Die Aufträge hängen lesbar an der Wand, und wenn einer 
 leuchtet der ganze Raum auf.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Der Raum, in dem du spielst
@@ -157,7 +157,7 @@ Mond.
 </p>
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Hände, Masken und Bretter
@@ -174,7 +174,7 @@ greifst — mit der Hand oder mit dem Zeigestrahl quer über den Tisch. Ein Bret
 den Tisch schaust, trägt **die Stange seines Besitzers**, nicht deine.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Was du brauchst, und wie du installierst
@@ -188,7 +188,7 @@ Desktop**.
 [Spielanleitung](docs/PLAYING.de.md).
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 **Kostenlos, und bleibt kostenlos.** Wenn dir die Mod einen guten Abend am Tisch beschert hat und du

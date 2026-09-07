@@ -20,27 +20,50 @@ grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING
 — **three per language, six in all, and every one of them is in the playing guide.** The README has
 held no placeholder since 2026-09-07. Each box repeats in place what that clip has to show.
 
-## The ornament — one asset, three placements
+## The ornament — TWO assets, and which one goes where
 
-`docs/img/divider.png` is a transparent PNG, 1200x122, generated with gpt-image-2 and cropped to
-its ink. It replaces the plain `---` rules, at **600 px** — deliberately narrower than the 720 the
-media uses, because a break is not a full-bleed element.
+**The first break on a page is the PAGE's; every later one is a SECTION's.** Maintainer's ruling,
+2026-09-07: *"Der Trenner für ganz oben gefällt mir. Alle weiteren Trenner sollten etwas kleiner
+sein."*
+
+| | file | page width | where |
+|---|---|---:|---|
+| the rule | `docs/img/divider.png` — 1200x122 | **600 px** | ONCE per document, directly under the header block. It closes the title and opens the document |
+| the mark | `docs/img/divider-small.png` — 680x94 | **340 px** | every break after that |
+
+600 px is deliberately narrower than the 720 the media uses, because a break is not a full-bleed
+element; 340 is half of it.
+
+**THE SMALL ONE IS A SECOND ASSET, NOT A SECOND WIDTH, and that is the whole point.** Rendering the
+rule at 340 keeps every bit of its structure — the double line, the six diamonds, the star inside
+the hexagon — and merely makes it too small to read. The mark instead DROPS the structure and keeps
+the hexagon, so the two read as the same ornament at two volumes. Measured at page size before it
+shipped: 8.7 % ink coverage where the discarded candidates ran to 19.8 %, with a 2.1 px stroke at
+full alpha — quiet, and still alive on the dark theme. If a third one is ever needed, size it by
+INK, not by box: a hairline that averages below ~1.5 px at page size is a ghost, and it dies on the
+dark theme first.
 
 **It is transparent and mid-tone antique gold on purpose.** GitHub renders these pages on a light
 AND a dark background and the reader picks; anything white, cream, black or near-black would vanish
 on one of the two. Every candidate was composited onto `#ffffff` and `#0d1117` before one was
 chosen, and the shipped asset was checked the same way. Do that again for any new ornament.
 
-Three candidates were generated — a hex-and-star motif, a leafy scrollwork vine, and a minimal
-tapered rule. The hex won for reasons worth keeping: it is on-theme for a hex-grid board game, it
+Three candidates were generated for the rule — a hex-and-star motif, a leafy scrollwork vine, and
+a minimal tapered rule. The hex won for reasons worth keeping: it is on-theme for a hex-grid board game, it
 still reads when shrunk to a 40 px band, and it is distinctive. The vine was prettier and generic;
 the minimal rule was indistinguishable from an `<hr>` at page size.
 
+Three more were generated for the mark, each judged UNDER the rule at 600 px rather than alone,
+because the question is whether it reads as the same ornament one step quieter. A row of three
+hexagons arrived with scrollwork wings — that is MORE structure, not less. A solid lozenge read
+well but at 19.8 % coverage was no quieter than what it replaced. The bare hexagon on a hairline
+won on the measurement above.
+
 | Document | Ornaments | Why |
 |---|---:|---|
-| `README*.md` | 9 — every break, and above every section heading | the pitch. It should read as chapters, not as a list. Roughly one per screenful on a page carrying six clips |
-| `docs/PLAYING*.md` | 7 — at its existing rules only, never above headings | the manual is SCANNED; an ornament before every heading would slow the scan |
-| `INSTALL*.md` | 1 — under the nav, as the page's identity | a task page. Its ten rules separate NUMBERED steps that already carry their own rhythm, and an ornament between step 2 and step 3 would compete with the numbers. Mixed styles inside one document read as accidental, so the steps keep plain rules and the ornament appears once |
+| `README*.md` | 9 — every break, and above every section heading; **1 rule + 8 marks** | the pitch. It should read as chapters, not as a list. Roughly one per screenful on a page carrying six clips |
+| `docs/PLAYING*.md` | 7 — at its existing rules only, never above headings; **1 rule + 6 marks** | the manual is SCANNED; an ornament before every heading would slow the scan |
+| `INSTALL*.md` | 1 — under the nav, as the page's identity; **the rule, no marks** | a task page. Its ten rules separate NUMBERED steps that already carry their own rhythm, and an ornament between step 2 and step 3 would compete with the numbers. Mixed styles inside one document read as accidental, so the steps keep plain rules and the ornament appears once |
 
 ## How big — THREE WIDTHS, AND NOTHING ELSE
 

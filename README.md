@@ -71,7 +71,7 @@ Put it back and it settles onto its hex.
 - **Mixed reality.** The sky drops away and the table stands in your real room.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Everyone at the same table
@@ -85,7 +85,7 @@ screen.
 </p>
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Your cards and your board
@@ -100,7 +100,7 @@ Every part of it is named on one labelled picture in the
 [playing guide](docs/PLAYING.md#your-cards-and-your-board).
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## The board in front of you
@@ -113,7 +113,7 @@ Point the laser and pull the trigger to take a hex, an enemy, a door or a chest 
 and touch it with a fingertip.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## The campaign map on a table
@@ -126,7 +126,7 @@ Between scenarios you stand in a cellar with the map of Gloomhaven spread out on
 of you. Quests hang on the wall where you can read them, and unlocking one lights up the room.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## The room you play in
@@ -153,7 +153,7 @@ lifts the ambient level, Dark eclipses the moon.
 </p>
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## Hands, masks and boards
@@ -170,7 +170,7 @@ hand, or with the pointer from across the table. A board you look at across the 
 owner's** rod, not yours.
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 ## What you need, and how to install
@@ -182,7 +182,7 @@ controllers · room-scale or standing. Developed on a **Quest 3 over Virtual Des
 [the controls](docs/PLAYING.md#the-controls) and the [playing guide](docs/PLAYING.md).
 
 <p align="center">
-  <img src="docs/img/divider.png" width="600" alt="">
+  <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
 **Free, and staying free.** If the mod gave you a good evening at the table and you feel like saying

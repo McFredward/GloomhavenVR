@@ -55,7 +55,7 @@ Three more that the picture cannot show:
 - **Rise and sink** on the right stick — off by default, switch it on under **Comfort**.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Your cards and your board
@@ -76,7 +76,7 @@ above the board or in your palm.
 </p>
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## The board in front of you
@@ -90,7 +90,7 @@ sweeps across the board never selects anything.
 **Pick a figure up** with the trigger to see its coming turn.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Windows
@@ -132,7 +132,7 @@ room**. Grab the bar at the top to move one, resize it, or close it with its X, 
 and further with the stick while the laser holds it. Where you put one is where it stays.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## The campaign map
@@ -144,7 +144,7 @@ caps on the table rim, point at a location to see its quest placard, and your pa
 route it travels. Prefer the original flat map? **World & sound ▸ Campaign map ▸ Original 2D map**.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## The room you play in
@@ -190,7 +190,7 @@ a session sees the same one at the same moment. Dial or switch them off under **
 that choice is yours alone.
 
 <p align="center">
-  <img src="img/divider.png" width="600" alt="">
+  <img src="img/divider-small.png" width="340" alt="">
 </p>
 
 ## Multiplayer
