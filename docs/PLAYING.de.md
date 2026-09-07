@@ -52,9 +52,10 @@ alle eingecheckten Clips entfernt wurden. Auftrag:
 
 Drei Sachen, die das Bild nicht zeigen kann:
 
-- **Eine gehaltene Figur größer oder kleiner machen** — mit einer Hand halten, den **Trigger der anderen Hand** ziehen, Hände auseinander oder zusammen.
-- **45°-Sprünge statt fließendem Drehen** — **Komfort ▸ Drehen**.
-- **Steigen und sinken** auf dem rechten Stick — standardmäßig aus, einschalten unter **Komfort**.
+- Eine gehaltene Figur größer oder kleiner machen: mit einer Hand halten, den **Trigger der anderen
+  Hand** ziehen, dann die Hände auseinander oder zusammen bewegen.
+- 45°-Sprünge statt fließendem Drehen: **Komfort ▸ Drehen**.
+- Steigen und sinken auf dem rechten Stick. Standardmäßig aus, einschalten unter **Komfort**.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -64,14 +65,15 @@ Drei Sachen, die das Bild nicht zeigen kann:
 
 › **Das Brett in Bewegung** steht auf der Startseite: [Deine Karten und dein Brett](../README.de.md#deine-karten-und-dein-brett).
 
-Dreh die Handfläche nach oben, und deine Hand **fächert sich davor auf**. Nimm eine Karte mit dem
-Trigger und leg sie in einen Slot deines Kontrollbretts — die Reihenfolge der Slots ist deine
-Initiative, genau wie im echten Spiel. Beide Karten drin, dann **Bestätigen** drücken. Wenn du am
-Zug bist, **tipp die obere oder untere Hälfte** einer gespielten Karte an, um die Hälfte zu wählen.
+Dreh die Handfläche nach oben, und deine Hand fächert sich davor auf. Nimm eine Karte mit dem
+Trigger und leg sie in einen Slot deines Kontrollbretts. Die Reihenfolge der Slots ist deine
+Initiative, genau wie im echten Spiel. Wenn beide Karten drin sind, drück **Bestätigen**. Wenn du am
+Zug bist, tipp die obere oder untere Hälfte einer gespielten Karte an, um die Hälfte zu wählen.
 
 Auf dem Brett neben dir liegen außerdem Rückgängig, die Marken für kurze und lange Rast,
 Überspringen, die Entscheidungs-Schublade, eine Mulde für Gegenstände und die Stapel für Ablage,
-Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett oder in der Handfläche.
+Verbranntes und Gegenstände. Jeder Stapel klappt als Fächer auf, über dem Brett oder in der
+Handfläche.
 
 <p align="center">
   <img src="img/board-de.png" width="820" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenmulden, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände, die Matrix deiner aktiven Karten sowie deine Handkarten">
@@ -86,10 +88,10 @@ Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett o
 › **Ins Brett greifen und eine Figur hochheben** stehen auf der Startseite: [Das Brett vor dir](../README.de.md#das-brett-vor-dir).
 
 Zeig mit dem Laser darauf und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe
-auszuwählen — oder halt den **Grip** und berühr es mit der Fingerspitze. Der Grip muss mit, und zwar
-mit Absicht: so wählt eine Hand, die nur über das Brett streicht, nie etwas aus.
+auszuwählen. Oder halt den **Grip** und berühr es mit der Fingerspitze. Der Grip muss mit Absicht
+dabei sein: sonst würde eine Hand, die nur über das Brett streicht, dauernd etwas auswählen.
 
-**Heb eine Figur hoch** — mit dem Trigger — und du siehst ihren kommenden Zug.
+Heb eine Figur mit dem Trigger hoch, dann siehst du ihren kommenden Zug.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -130,10 +132,10 @@ alle eingecheckten Clips entfernt wurden. Auftrag:
 </table>
 -->
 
-Die Fenster des Spiels — Charakterbögen, Händler, Dialoge, die Geschichte — werden zu **Tafeln im
-Raum**. Greif die Stange oben, um eine zu bewegen, ihre Größe zu ändern oder sie über ihr X zu
-schließen, und hol sie mit dem Stick näher heran oder schieb sie weg, während der Laser sie hält. Wo
-du eine hinstellst, da bleibt sie.
+Die Fenster des Spiels werden zu Tafeln im Raum: Charakterbögen, Händler, Dialoge, die Geschichte.
+Greif die Stange oben, um eine zu bewegen, ihre Größe zu ändern oder sie über ihr X zu schließen.
+Solange der Laser eine hält, holst du sie mit dem Stick näher heran oder schiebst sie weg. Wo du ein
+Fenster hinstellst, da bleibt es.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -143,9 +145,9 @@ du eine hinstellst, da bleibt sie.
 
 › **Der Kartenraum in Bewegung** steht auf der Startseite: [Die Kampagnenkarte auf dem Tisch](../README.de.md#die-kampagnenkarte-auf-dem-tisch).
 
-Zwischen den Szenarien ist die Karte ein **Raum mit einem Tisch darin**. Die Gildenmeister-Tasten
-sind echte Kappen am Tischrand, zeig auf einen Ort, um sein Auftragsschild zu sehen, und dein
-Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte?
+Zwischen den Szenarien ist die Karte ein Raum mit einem Tisch darin. Die Gildenmeister-Tasten sind
+Kappen am Tischrand, wenn du auf einen Ort zeigst, kommt sein Auftragsschild, und dein Gruppenmarker
+läuft die Strecke wirklich ab. Wenn dir die alte flache Karte lieber ist, findest du sie unter
 **Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte**.
 
 <p align="center">
@@ -190,10 +192,11 @@ Ein kerzenbeleuchteter **Keller**, ein **Nachtwald** unter einem echten Sternkat
 **Standard**-Look des Spiels oder **Aus (schwarz)**. Beide gebauten Räume haben Feuerschein,
 Tropfen, Mondstrahlen und leisen räumlichen Klang.
 
-In beiden stecken außerdem seltene Erscheinungen — ein Gesicht am vergitterten Fenster, jemand im
-Dunkel des Treppenschachts, Augen, die im Unterholz blinzeln. Nie über dem Brett, nie zwei
-gleichzeitig, und alle in einer Sitzung sehen dieselbe im selben Moment. Regeln oder abschalten
-unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
+In beiden stecken außerdem seltene Erscheinungen: ein Gesicht am vergitterten Fenster, jemand im
+Dunkel des Treppenschachts, Augen, die im Unterholz blinzeln. Sie tauchen nie über dem Brett auf und
+nie zwei gleichzeitig, und alle in einer Sitzung sehen dieselbe im selben Moment. Unter
+**Umgebung ▸ Grusel** kannst du sie herunterregeln oder abschalten, und diese Einstellung gilt nur
+für dich.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -203,14 +206,13 @@ unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
 
 › **Eine Runde zu dritt** steht auf der Startseite: [Alle am selben Tisch](../README.de.md#alle-am-selben-tisch).
 
-- **Alle in einer VR-Sitzung brauchen dieselbe Version.** Passt sie nicht, blockiert die Mod mit
-  einem Hinweis, statt die Sitzung still schiefgehen zu lassen —
-  [gemeinsam aktualisieren](../INSTALL.de.md#updates).
-- **Wer die Mod gar nicht hat, spielt ganz normal mit.** Nichts, was die Mod sendet, ändert den
+- Alle in einer VR-Sitzung brauchen dieselbe Version. Passt sie nicht, kommt ein Hinweis, statt dass
+  die Sitzung still schiefgeht. Also [gemeinsam aktualisieren](../INSTALL.de.md#updates).
+- Wer die Mod gar nicht hat, spielt ganz normal mit. Nichts, was die Mod sendet, ändert den
   Spielzustand.
-- **Was die anderen von dir sehen:** Kopf und beide Hände mit echten Fingerhaltungen, deine Maske
-  und deinen Handstil, was du gerade hältst (Karten immer als Rückseiten), die Anzahl deiner
+- Was die anderen von dir sehen: Kopf und beide Hände mit echten Fingerhaltungen, deine Maske und
+  deinen Handstil, was du gerade hältst (Karten immer als Rückseiten), die Anzahl deiner
   Fächerkarten und ein Live-Abbild deines Kontrollbretts.
-- **Was ihr teilt:** Kartenfenster (mit einem kleinen Abzeichen in der Ecke), das Geschichtsfenster
-  auf derselben Seite für alle, und eine Uhr — damit dieselben Umgebungsgeräusche und dieselben
-  Erscheinungen bei allen im selben Moment am selben Ort passieren.
+- Was ihr teilt: Kartenfenster, mit einem kleinen Abzeichen in der Ecke; das Geschichtsfenster, auf
+  derselben Seite für alle; und eine Uhr, damit die Umgebungsgeräusche und die Erscheinungen bei
+  allen im selben Moment am selben Ort passieren.

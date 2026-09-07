@@ -31,8 +31,8 @@
 
 <p align="center">
   <b><a href="https://store.steampowered.com/app/780290/Gloomhaven/">Gloomhaven (Digital)</a>, im Stehen am Tisch gespielt.</b><br>
-  Eine VR-Mod aus der Community: Die Karten fächern sich in deiner Handfläche auf,<br>
-  das Spielbrett liegt vor dir, und die Mitspieler stehen mit im Raum.
+  Eine VR-Mod aus der Community. Deine Karten liegen in deiner Hand, das Spielbrett<br>
+  steht vor dir auf dem Tisch, und die anderen stehen mit drum herum.
 </p>
 
 <p align="center">
@@ -52,23 +52,23 @@
 </tr>
 </table>
 
-**Heb eine Figur hoch, und sie kommt vom Brett in deine Hand** — so groß, wie du sie ziehst, und
-ihre Karte kommt mit: Gesundheit, Bewegung, Angriff, die Modifikatoren, der Zug, den sie gleich
-macht. Leg sie zurück, und sie setzt sich auf ihr Feld.
+Heb eine Figur hoch, und sie kommt vom Brett in deine Hand. Sie bleibt so groß, wie du sie gezogen
+hast, und ihre Karte kommt mit: Gesundheit, Bewegung, Angriff, Modifikatoren und der Zug, den sie
+gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
 
-- **Dein Kartenblatt liegt in deiner Handfläche.** Dreh sie nach oben, der Fächer geht auf, nimm
-  eine Karte mit den Fingern und leg sie in ein Fach deines Bretts.
-- **Ein Kontrollbrett, das du mitnimmst.** Rückgängig, die beiden Rasten, die Stapel, die
-  Entscheidungs-Schublade — ein Tisch an einer Stange, den du hinstellst, wo du ihn haben willst.
-- **Greif ins Szenario hinein.** Heb eine Miniatur hoch, um ihren nächsten Zug zu lesen; pack das
+- Dein Kartenblatt liegt in deiner Handfläche. Dreh die Hand nach oben, dann geht der Fächer auf;
+  nimm eine Karte mit den Fingern heraus und leg sie in ein Fach deines Bretts.
+- Ein Kontrollbrett, das du mitnimmst. Rückgängig, beide Rasten, die Stapel und die
+  Entscheidungs-Schublade, alles auf einem Tisch an einer Stange, den du hinstellst, wo du willst.
+- Greif ins Szenario hinein. Heb eine Miniatur hoch, um ihren nächsten Zug zu lesen, oder pack das
   ganze Brett mit beiden Händen, um es zu ziehen, zu drehen und zu zoomen.
-- **Die Kampagnenkarte auf dem Tisch.** Zwischen den Szenarien stehst du in einem Gewölbe über der
-  Karte von Gloomhaven, und die Aufträge hängen lesbar an der Wand.
-- **Vollwertiger VR-Mehrspieler.** Masken, Hände, Bretter und zeigende Finger sehen alle — und wer
-  kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
-- **Räume, die für diese Mod gebaut sind.** Ein kerzenbeleuchteter Keller und ein Nachtwald unter
-  einem echten Sternkatalog, beide reagieren auf die Elementinfusionen des Szenarios.
-- **Mixed Reality.** Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer.
+- Die Kampagnenkarte auf dem Tisch. Zwischen den Szenarien stehst du in einem Gewölbe über der Karte
+  von Gloomhaven, und die Aufträge hängen daneben an der Wand.
+- Vollwertiger VR-Mehrspieler. Masken, Hände, Bretter und zeigende Finger sehen alle anderen auch.
+  Wer kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
+- Räume, die für die Mod gebaut wurden. Ein kerzenbeleuchteter Keller und ein Nachtwald unter einem
+  echten Sternkatalog, beide reagieren auf die Elemente des Szenarios.
+- Mixed Reality. Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -76,8 +76,9 @@ macht. Leg sie zurück, und sie setzt sich auf ihr Feld.
 
 ## Alle am selben Tisch
 
-Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Hochgehobene Miniaturen,
-verschobene Fenster und zeigende Finger sehen alle, und wer kein Headset hat, spielt am flachen
+Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Wenn du eine Miniatur
+hochhebst, ein Fenster verschiebst oder auf etwas zeigst, sehen die anderen das. Wer kein Headset
+hat, spielt am flachen
 Bildschirm in derselben Partie mit.
 
 <p align="center">
@@ -94,11 +95,10 @@ Bildschirm in derselben Partie mit.
   <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
 </p>
 
-Dein Kontrollbrett ist ein echter Tisch vor dir: zwei Fächer für die Karten der Runde, Tasten, die
-du mit der Fingerspitze eindrückst, und darunter eine Stange, mit der du das Ganze dorthin trägst,
-wo du es haben willst.
-Jedes Teil davon ist auf einem beschrifteten Bild im
-[Spielhandbuch](docs/PLAYING.de.md#deine-karten-und-dein-brett) benannt.
+Das Kontrollbrett ist ein Tisch, der vor dir steht: zwei Fächer für die Karten dieser Runde, Tasten,
+die du mit der Fingerspitze eindrückst, und darunter eine Stange zum Tragen. Im
+[Spielhandbuch](docs/PLAYING.de.md#deine-karten-und-dein-brett) ist jedes Teil davon auf einem Bild
+beschriftet.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -111,7 +111,7 @@ Jedes Teil davon ist auf einem beschrifteten Bild im
 </p>
 
 Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe zu
-nehmen — oder halt den Griff und tipp es mit der Fingerspitze an.
+nehmen. Oder halt den Griff und tipp es mit der Fingerspitze an.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -124,8 +124,8 @@ nehmen — oder halt den Griff und tipp es mit der Fingerspitze an.
 </p>
 
 Zwischen den Szenarien stehst du in einem Gewölbe, und die Karte von Gloomhaven liegt ausgebreitet
-auf dem Tisch vor dir. Die Aufträge hängen lesbar an der Wand, und wenn einer freigeschaltet wird,
-leuchtet der ganze Raum auf.
+auf dem Tisch vor dir. Die Aufträge hängen an der Wand, wo du sie lesen kannst, und wenn einer
+freigeschaltet wird, leuchtet der ganze Raum auf.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -133,17 +133,19 @@ leuchtet der ganze Raum auf.
 
 ## Der Raum, in dem du spielst
 
-Ein kerzenbeleuchteter Keller oder ein Nachtwald unter einem echten Sternkatalog — beide für dieses
-Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen.
+Ein kerzenbeleuchteter Keller oder ein Nachtwald unter einem echten Sternkatalog. Beide wurden für
+die Mod gebaut, mit Feuerschein und Umgebungsklang, und mit dem, was ab und zu passiert, wenn man
+lange genug herumsteht.
 
 <p align="center">
   <img src="docs/img/env-cellar.jpg" width="350" alt="Der Keller">
   <img src="docs/img/env-forest.jpg" width="350" alt="Der Nachtwald">
 </p>
 
-**Ein Regler, fünf Einstellungen.** Derselbe Tisch und dasselbe Szenario in jeder davon. Die beiden
-Räume oben sind die, die für diesen Mod gebaut wurden; die anderen drei sind der Himmel des Spiels,
-gar kein Himmel, und der Greenscreen, der den Tisch an deine Streaming-App übergibt.
+Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dasselbe Szenario in allen.
+Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
+Spiels, gar kein Himmel, und ein Greenscreen, damit deine Streaming-App den Tisch in dein echtes
+Zimmer setzen kann.
 
 <p align="center">
   <img src="docs/img/env-styles-de.png" width="720" alt="Die fünf Umgebungen: Keller und Nachtwald, beide für diesen Mod gebaut, darunter der Himmel des Spiels, Aus (schwarz) und Mixed Reality">
@@ -151,10 +153,9 @@ gar kein Himmel, und der Greenscreen, der den Tisch an deine Streaming-App über
 
 ### Die Räume reagieren auf die Elemente
 
-**Die Elementinfusionen des Szenarios verändern den Raum**, an den Rändern statt über der
-Spielfläche. Feuer setzt Requisiten in Brand, Eis lässt Frost wachsen, Luft bewegt Flammen und
-Blattwerk, Erde treibt Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelheit verfinstert den
-Mond.
+Die Elemente des Szenarios verändern den Raum an den Rändern, nicht über der Spielfläche. Feuer
+setzt Requisiten in Brand, Eis lässt Frost wachsen, Luft bewegt Flammen und Blattwerk, Erde treibt
+Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelheit verfinstert den Mond.
 
 <p align="center">
   <img src="docs/img/env-elements.jpg" width="720" alt="Dieselbe Kamera mit ausgeschaltetem und mit eingeschaltetem Element"><br>
@@ -167,16 +168,16 @@ Mond.
 
 ## Hände, Masken und Bretter
 
-Drei Handpaare, drei Masken, drei Kontrollbretter — je ein Dropdown, mitten in der Sitzung
-umstellbar, und die anderen Spieler sehen deine Wahl.
+Drei Handpaare, drei Masken und drei Kontrollbretter, jeweils in einem eigenen Dropdown. Du kannst
+mitten in der Sitzung umstellen, und die anderen sehen es.
 
 <p align="center">
   <img src="docs/img/styles.png" width="720" alt="Drei Handpaare, drei Masken und drei Kontrollbretter mit der Greifstange, die zu jedem gehört">
 </p>
 
-Jedes Fenster und jedes Brett hängt an einer gedrechselten Stange und wird bewegt, indem du sie
-greifst — mit der Hand oder mit dem Zeigestrahl quer über den Tisch. Ein Brett, auf das du quer über
-den Tisch schaust, trägt **die Stange seines Besitzers**, nicht deine.
+Jedes Fenster und jedes Brett hängt an einer gedrechselten Stange, und du bewegst es, indem du die
+Stange greifst, mit der Hand oder mit dem Zeigestrahl von weiter weg. Das Brett von jemand anderem
+behält dessen Stange, nicht deine.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -185,40 +186,40 @@ den Tisch schaust, trägt **die Stange seines Besitzers**, nicht deine.
 ## Was du brauchst, und wie du installierst
 
 **Gloomhaven (Digital)** für den PC (Steam oder GOG) · Windows · ein PC-VR-Headset mit zwei
-getrackten Controllern · Room-Scale oder im Stehen. Entwickelt auf einer **Quest 3 über Virtual
-Desktop**.
+getrackten Controllern · Room-Scale oder im Stehen. Entwickelt wurde die Mod auf einer Quest 3 über
+Virtual Desktop.
 
-**[→ Installationsanleitung](INSTALL.de.md)** — zwei Archive, entpackt in den Spielordner. Danach
-[die Steuerung](docs/PLAYING.de.md#die-steuerung) und die
+[→ Installationsanleitung](INSTALL.de.md). Es läuft auf zwei Archive hinaus, die in den Spielordner
+entpackt werden. Danach [die Steuerung](docs/PLAYING.de.md#die-steuerung) und die
 [Spielanleitung](docs/PLAYING.de.md).
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-**Kostenlos, und bleibt kostenlos.** Wenn dir die Mod einen guten Abend am Tisch beschert hat und du
+Die Mod ist kostenlos und bleibt es. Wenn sie dir einen guten Abend am Tisch beschert hat und du
 Danke sagen möchtest: [ein Kaffee](https://buymeacoffee.com/mcfredward) geht immer.
 
 <details>
 <summary><b>Danksagungen und Lizenz</b></summary>
 
-- **ARMA** und **JJ-Pueppi** — Tester, über unzählige Sitzungen im Headset. Vieles von dem, was auf
-  dieser Seite zu sehen ist, sieht nur deshalb so aus, weil einer von beiden das Headset aufgesetzt
-  und gesagt hat, dass es so noch nicht stimmt.
-- **ARMA** hat außerdem die 3D-Assets der Mod gebaut — die Hände, die Masken, die Bretter und den
-  Rest. Sie sind als KI-generierte Rohformen gestartet und in seinen Händen zu brauchbaren Modellen
-  geworden: in Blender nachmodelliert, aufgeräumt, neu gerigged und texturiert, bis sie auf
-  Armlänge im Headset standhalten — und genau daran scheitert ein generiertes Mesh sonst.
+- **ARMA** und **JJ-Pueppi** haben das über viele Sitzungen im Headset getestet. Vieles von dem, was
+  auf dieser Seite zu sehen ist, sieht nur deshalb so aus, weil einer von beiden es ausprobiert und
+  gesagt hat, dass es so noch nicht stimmt.
+- **ARMA** hat außerdem die 3D-Assets gemacht: die Hände, die Masken und die Bretter. Sie sind als
+  KI-generierte Rohformen gestartet, und so wie sie herauskommen, kann man sie nicht gebrauchen. Er
+  hat sie in Blender nachmodelliert, aufgeräumt, neu gerigged und texturiert, bis sie auf Armlänge
+  im Headset standhalten.
 - **[LCVR](https://github.com/DaXcess/LCVR)** und **[RepoXR](https://github.com/DaXcess/RepoXR)**
-  (GPL-3.0) — das VR-Startmuster, das Headset-Failover und die Fingerkrümmung, die diese Mod
+  (GPL-3.0), für das VR-Startmuster, das Headset-Failover und die Fingerkrümmung, die diese Mod
   übernimmt.
-- **[UUVR](https://github.com/Raicuparta/uuvr)** (GPL-3.0) — das Muster „flacher Bildschirm in VR“,
-  das überall dort greift, wo ein Weltpanel nicht die richtige Antwort ist.
-- **Demeo** (Resolution Games) — das Interaktionsmodell, dem diese Mod folgt. Es werden weder
-  Assets noch Code daraus verwendet.
+- **[UUVR](https://github.com/Raicuparta/uuvr)** (GPL-3.0), für das Muster „flacher Bildschirm in
+  VR“, das überall dort greift, wo ein Weltpanel nicht die richtige Antwort ist.
+- **Demeo** (Resolution Games), dessen Interaktionsmodell diese Mod folgt. Es werden weder Assets
+  noch Code daraus verwendet.
 
-**Lizenz: GPL-3.0** — siehe [LICENSE](LICENSE). Die Mod liefert **ausschließlich eigenen Code und
-eigene lizenzierte Grafik** aus; niemals Spieldateien, Spiel-Assets oder dekompilierte Quellen.
+**Lizenz: GPL-3.0**, siehe [LICENSE](LICENSE). Die Mod liefert nur eigenen Code und eigene
+lizenzierte Grafik aus. Keine Spieldateien, keine Spiel-Assets, keine dekompilierten Quellen.
 
 Nicht verbunden mit Flaming Fowl Studios, Twin Sails Interactive, Asmodee oder Cephalofair Games.
 Gloomhaven und die zugehörigen Grafiken gehören ihren Eigentümern.

@@ -6,7 +6,7 @@
   <a href="INSTALL.de.md"><img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
 </p>
 
-**Two archives into the game folder. About five minutes.**
+It comes down to two archives into the game folder, and takes about five minutes.
 
 <p align="center">
   <img src="docs/img/divider.png" width="600" alt="">
@@ -61,15 +61,15 @@ game. Set it in whichever app you stream with:
 
 ## 4. Start it
 
-Headset on, launch the game the way you always do. You are at the table.
+Put the headset on and launch the game the way you normally do. You should be standing at the table.
 
-> **On the first start after installing or updating, the game closes and reopens itself — once.**
-> That is meant to happen. It is not a crash.
+> **On the first start after installing or updating, the game closes and reopens itself, once.**
+> That is meant to happen, it is not a crash.
 
 Your saves, your campaign and your settings are not touched.
 
-**The mod writes exactly one game file:** `GH_Data/boot.config`. The original is kept beside it as
-`boot.config.gloomhavenvr-backup` — if the game ever refuses to start, copy that back over
+The mod writes exactly one game file, `GH_Data/boot.config`, and keeps the original beside it as
+`boot.config.gloomhavenvr-backup`. If the game ever refuses to start, copy that back over
 `boot.config`.
 
 <sub>Why it restarts, and how to avoid it:
@@ -96,8 +96,9 @@ Press Update and it downloads (~70 MB), swaps the files, closes the game and sta
 
 ## Settings
 
-Everything is adjustable in the headset: open the game's own **Options** window — main menu or pause
-menu — and pick the **VR Options** tab. Changes apply live and are saved for you.
+You can change everything from inside the headset. Open the game's own **Options** window, from the
+main menu or the pause menu, and pick the **VR Options** tab. Changes apply straight away and are
+saved for you.
 
 | Tab | What is in it |
 |---|---|
@@ -112,9 +113,9 @@ menu — and pick the **VR Options** tab. Changes apply live and are saved for y
 The mod's text follows the game's language: **English and German**; anything else falls back to
 English.
 
-**To play completely unmodified for a while**, set `[General] Enabled = false` in
-`BepInEx/config/dev.gloomhavenvr.cfg` — better than uninstalling. Every setting is also a text file
-in that folder; you should not need them.
+If you want to play completely unmodified for a while, set `[General] Enabled = false` in
+`BepInEx/config/dev.gloomhavenvr.cfg`. That is easier than uninstalling. Every setting is also a
+text file in that folder, but you should not need them.
 
 ---
 
@@ -128,9 +129,9 @@ in that folder; you should not need them.
 | The game will not start at all | Copy `GH_Data/boot.config.gloomhavenvr-backup` over `GH_Data/boot.config` |
 | An update left the mod broken | Copy the two folders out of `BepInEx/GloomhavenVR-update/backup/` back over the installed ones |
 
-**Reporting it:** send the whole of `BepInEx/LogOutput.log`, plus what you were doing, your headset
-and the app you stream with. Set **`[General] LogLevel = Debug`** and reproduce it first — the
-default log is far too quiet to answer a report.
+If you want to report something, send the whole of `BepInEx/LogOutput.log`, plus what you were
+doing, your headset and the app you stream with. Set `[General] LogLevel = Debug` and reproduce it
+first. The default log is too quiet to answer a report with.
 
 ---
 
@@ -141,7 +142,7 @@ Delete `BepInEx/plugins/GloomhavenVR/` and `BepInEx/patchers/GloomhavenVR/`, plu
 `boot.config.gloomhavenvr-backup` to undo the rendering change. Deleting all of `BepInEx/` removes
 the loader too.
 
-Optional, and inert without the mod: `GH_Data/Plugins/x86_64/UnityOpenXR.dll`,
+These are optional and do nothing without the mod: `GH_Data/Plugins/x86_64/UnityOpenXR.dll`,
 `GH_Data/Plugins/x86_64/openxr_loader.dll`, `GH_Data/UnitySubsystems/UnityOpenXR/`.
 
 ---

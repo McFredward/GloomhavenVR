@@ -50,9 +50,10 @@ from a repo path does not play on GitHub, which is why every committed clip was 
 
 Three more that the picture cannot show:
 
-- **Resize a held figure** — hold it in one hand, pull the **other hand's trigger**, move your hands apart or together.
-- **45° snap turning** instead of a smooth one — **Comfort ▸ Turning**.
-- **Rise and sink** on the right stick — off by default, switch it on under **Comfort**.
+- Resizing a figure you are holding: keep it in one hand, pull the **other hand's trigger**, then
+  move your hands apart or together.
+- 45° snap turning instead of smooth turning: **Comfort ▸ Turning**.
+- Rise and sink on the right stick. It is off by default; switch it on under **Comfort**.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -62,13 +63,13 @@ Three more that the picture cannot show:
 
 › **The board in motion** is on the front page: [Your cards and your board](../README.md#your-cards-and-your-board).
 
-Turn your palm up and your hand **fans out in front of it**. Take a card with the trigger and drop
-it into a slot on your control board — slot order is your initiative, exactly like the physical
-game. Both cards in, press **CONFIRM**. On your turn, **poke the top or bottom half** of a played
-card to choose which half you use.
+Turn your palm up and your hand fans out in front of it. Take a card with the trigger and drop it
+into a slot on your control board. The slot order is your initiative, the same as in the physical
+game. Once both cards are in, press **CONFIRM**. On your turn, poke the top or bottom half of a
+played card to choose which half you use.
 
 The board beside you also carries undo, the short and long rest discs, skip, the decision drawer, a
-recess for using items, and the discard, burnt and item piles — each opens as a fan you can read
+recess for using items, and the discard, burnt and item piles. Each pile opens as a fan you can read
 above the board or in your palm.
 
 <p align="center">
@@ -83,11 +84,11 @@ above the board or in your palm.
 
 › **Reaching into the board, and lifting a figure**, are on the front page: [The board in front of you](../README.md#the-board-in-front-of-you).
 
-Point the laser and pull the trigger to pick a hex, an enemy, a door or a chest — or hold the
-**grip** and touch it with a fingertip. The grip is required on purpose, so a hand that merely
-sweeps across the board never selects anything.
+Point the laser and pull the trigger to pick a hex, an enemy, a door or a chest. Or hold **grip**
+and touch it with a fingertip. The grip is deliberate: without it, a hand sweeping across the board
+would keep selecting things you did not mean to.
 
-**Pick a figure up** with the trigger to see its coming turn.
+Pick a figure up with the trigger to see the turn it is about to take.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -127,9 +128,9 @@ from a repo path does not play on GitHub, which is why every committed clip was 
 </table>
 -->
 
-The game's windows — character sheets, the merchant, dialogs, the story — become **panels in the
-room**. Grab the bar at the top to move one, resize it, or close it with its X, and reel it closer
-and further with the stick while the laser holds it. Where you put one is where it stays.
+The game's windows become panels in the room: character sheets, the merchant, dialogs, the story.
+Grab the bar at the top to move one, resize it, or close it with its X. While the laser is holding
+one, the stick reels it closer or pushes it away. Where you put a window is where it stays.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -139,9 +140,10 @@ and further with the stick while the laser holds it. Where you put one is where 
 
 › **The map room in motion** is on the front page: [The campaign map on a table](../README.md#the-campaign-map-on-a-table).
 
-Between scenarios the map is a **room with a table in it**. The guildmaster buttons are physical
-caps on the table rim, point at a location to see its quest placard, and your party token walks the
-route it travels. Prefer the original flat map? **World & sound ▸ Campaign map ▸ Original 2D map**.
+Between scenarios the map is a room with a table in it. The guildmaster buttons are caps on the
+table rim, pointing at a location brings up its quest placard, and your party token walks the route
+it travels. If you would rather have the original flat map, it is under
+**World & sound ▸ Campaign map ▸ Original 2D map**.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -184,10 +186,10 @@ A candle-lit **cellar**, a **moonlit forest** under a real star catalogue, the g
 look, or **Off (black)**. Both built rooms have firelight, drips, moonbeams and quiet spatial
 ambience.
 
-They also hide rare apparitions — a face at the barred window, someone in the dark of the stair
-shaft, eyes that blink in the undergrowth. Never over the board, never two at once, and everyone in
-a session sees the same one at the same moment. Dial or switch them off under **World ▸ Creepy**;
-that choice is yours alone.
+There are also rare apparitions hidden in them: a face at the barred window, someone standing in the
+dark of the stair shaft, eyes blinking in the undergrowth. They never appear over the board and
+never two at once, and everyone in a session sees the same one at the same moment. You can turn them
+down or off under **World ▸ Creepy**, and that setting is yours alone.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -197,12 +199,12 @@ that choice is yours alone.
 
 › **A session with three players** is on the front page: [Everyone at the same table](../README.md#everyone-at-the-same-table).
 
-- **Everyone in a VR session must run the same version.** A mismatch is blocked with a dialog rather
-  than allowed to go quietly wrong — [update together](../INSTALL.md#updating).
-- **Players without the mod play with you normally.** Nothing the mod sends changes game state.
-- **What others see of you:** your head and both hands with real finger poses, your mask and hand
-  style, whatever you are holding (cards always as backs), your fan counts, and a live mirror of
-  your control board.
-- **What you share:** map windows (marked by a small badge in the corner), the story window on the
-  same page for everyone, and one clock — so the same ambient sounds and the same apparitions
-  happen at the same moment in the same place for everybody.
+- Everyone in a VR session needs the same version. A mismatch gets a dialog instead of quietly
+  going wrong, so [update together](../INSTALL.md#updating).
+- Players without the mod can play with you as normal. Nothing the mod sends changes game state.
+- What others see of you: your head and both hands with real finger poses, your mask and hand style,
+  whatever you are holding (cards always as backs), your fan counts, and a live mirror of your
+  control board.
+- What you share: map windows, marked with a small badge in the corner; the story window, on the
+  same page for everyone; and one clock, so the ambient sounds and the apparitions happen at the
+  same moment in the same place for everybody.

@@ -52,7 +52,7 @@ Everything else is already inside this zip.
    Put the headset on and start Gloomhaven the way you normally do.
 
    THE FIRST TIME AFTER INSTALLING OR UPDATING, THE GAME CLOSES AND REOPENS
-   BY ITSELF — ONCE. That is meant to happen. It is not a crash.
+   BY ITSELF, ONCE. That is meant to happen, it is not a crash.
 
    Your save games and your settings are not touched.
 
@@ -65,7 +65,7 @@ Everything else is already inside this zip.
 
 
 SETTINGS
-  Everything is adjustable from inside the headset: open the game's own
+  You can change everything from inside the headset. Open the game's own
   Options window and pick the VR Options tab.
 
   To play the game completely unmodified for a while, set Enabled = false
@@ -74,7 +74,7 @@ SETTINGS
 
 
 PLAYING WITH OTHER PEOPLE
-  Everyone playing together needs the same version of the mod — if two
+  Everyone playing together needs the same version of the mod. If two
   people differ, the game says so instead of letting the session go quietly
   wrong. People without the mod can still play with you normally.
 

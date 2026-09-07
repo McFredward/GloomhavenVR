@@ -6,7 +6,7 @@
   <img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
 </p>
 
-**Zwei Archive in den Spielordner. Etwa fünf Minuten.**
+Es läuft auf zwei Archive in den Spielordner hinaus und dauert etwa fünf Minuten.
 
 <p align="center">
   <img src="docs/img/divider.png" width="600" alt="">
@@ -62,16 +62,16 @@ Stell sie in der App ein, mit der du streamst:
 
 ## 4. Starten
 
-Headset auf, Gloomhaven starten wie immer. Du stehst am Tisch.
+Setz das Headset auf und starte Gloomhaven wie immer. Du solltest am Tisch stehen.
 
-> **Beim ersten Start nach dem Installieren oder Updaten schließt sich das Spiel und geht von selbst
-> wieder auf — einmal.** Das soll so sein. Es ist kein Absturz.
+> **Beim ersten Start nach dem Installieren oder Updaten schließt sich das Spiel einmal und geht von
+> selbst wieder auf.** Das soll so sein, es ist kein Absturz.
 
 Deine Spielstände, deine Kampagne und deine Einstellungen bleiben unangetastet.
 
-**Die Mod schreibt genau eine Spieldatei:** `GH_Data/boot.config`. Das Original liegt als
-`boot.config.gloomhavenvr-backup` daneben — falls das Spiel irgendwann gar nicht mehr startet,
-kopier es zurück über `boot.config`.
+Die Mod schreibt genau eine Spieldatei, `GH_Data/boot.config`, und legt das Original als
+`boot.config.gloomhavenvr-backup` daneben. Falls das Spiel irgendwann gar nicht mehr startet, kopier
+es zurück über `boot.config`.
 
 <sub>Warum sie neu startet und wie du es vermeidest:
 [docs/DEVELOPING.md](docs/DEVELOPING.md#the-restart-on-the-first-start) (nur auf Englisch)</sub>
@@ -97,8 +97,9 @@ wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben una
 
 ## Einstellungen
 
-Alles lässt sich im Headset einstellen: Öffne das **Optionen**-Fenster des Spiels — Hauptmenü oder
-Pausenmenü — und geh auf den Reiter **VR Optionen**. Änderungen wirken sofort und werden gespeichert.
+Du kannst alles im Headset einstellen. Öffne das **Optionen**-Fenster des Spiels, aus dem Hauptmenü
+oder dem Pausenmenü, und geh auf den Reiter **VR Optionen**. Änderungen wirken sofort und werden
+gespeichert.
 
 | Reiter | Was drinsteht |
 |---|---|
@@ -113,9 +114,9 @@ Pausenmenü — und geh auf den Reiter **VR Optionen**. Änderungen wirken sofor
 Der Text der Mod folgt der Sprache des Spiels: **Englisch und Deutsch**; alles andere fällt auf
 Englisch zurück.
 
-**Um eine Weile völlig unverändert zu spielen**, setz `[General] Enabled = false` in
-`BepInEx/config/dev.gloomhavenvr.cfg` — besser als deinstallieren. Jede Einstellung gibt es auch als
-Textdatei in diesem Ordner; brauchen solltest du sie nicht.
+Wenn du eine Weile völlig unverändert spielen willst, setz `[General] Enabled = false` in
+`BepInEx/config/dev.gloomhavenvr.cfg`. Das ist einfacher als deinstallieren. Jede Einstellung gibt
+es auch als Textdatei in diesem Ordner, brauchen solltest du sie aber nicht.
 
 ---
 
@@ -130,8 +131,8 @@ Textdatei in diesem Ordner; brauchen solltest du sie nicht.
 | Ein Update hat die Mod zerlegt | Die zwei Ordner aus `BepInEx/GloomhavenVR-update/backup/` zurückkopieren |
 
 **Ein Problem melden:** Schick die ganze `BepInEx/LogOutput.log`, dazu was du gerade gemacht hast,
-dein Headset und die App, mit der du streamst. Setz vorher **`[General] LogLevel = Debug`** und
-reproduzier es dann — das Standard-Log ist viel zu leise für eine Meldung.
+dein Headset und die App, mit der du streamst. Setz vorher `[General] LogLevel = Debug` und
+reproduzier es dann. Das Standard-Log ist zu leise, um damit eine Meldung zu beantworten.
 
 ---
 
@@ -142,7 +143,7 @@ Lösch `BepInEx/plugins/GloomhavenVR/` und `BepInEx/patchers/GloomhavenVR/`, daz
 `GH_Data/boot.config.gloomhavenvr-backup` über `GH_Data/boot.config`. Löschst du ganz `BepInEx/`,
 ist auch der Loader weg.
 
-Optional und ohne die Mod wirkungslos: `GH_Data/Plugins/x86_64/UnityOpenXR.dll`,
+Diese hier sind optional und tun ohne die Mod nichts: `GH_Data/Plugins/x86_64/UnityOpenXR.dll`,
 `GH_Data/Plugins/x86_64/openxr_loader.dll`, `GH_Data/UnitySubsystems/UnityOpenXR/`.
 
 ---
