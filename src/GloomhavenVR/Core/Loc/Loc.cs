@@ -1037,18 +1037,11 @@ internal static partial class Loc
         // than sitting silently among the buttons — the tester has to be able to tell "I pressed a
         // trigger" from "I changed a setting that is still on tomorrow".
         //
-        // THE OCCLUSION A/B is here because it was filed by its SECTION when it shipped and landed
-        // under Erweitert ▸ Hände ▸ "Figuren-Offsets", where the user — who had been asked to switch
-        // it on — could not find it: "Ich konnte die OcclusionMapOffOnHeadCamera in Erweitert
-        // nirgends finden, wo ist sie?" Its cost is stated in the page rather than only in the
-        // hover hint, because a warning nobody hovers is not a warning: while it is on, flames and
-        // other effects stop being hidden by walls (the switch it holds down is the game's global
-        // master switch for the whole occlusion term).
-        ["vr_tt_diag"] = Pair("Diagnostics — settings, not triggers", "Diagnose — Einstellungen, keine Auslöser"),
-        ["h_vr_tt_diag"] = Pair("Test aids that have to survive being switched on, so they are saved like a setting instead of being a button.", "Testhilfen, die das Einschalten überdauern müssen und deshalb wie eine Einstellung gespeichert werden statt ein Knopf zu sein."),
-        ["vr_tt_diag_persist"] = Pair("Unlike the rows above, these are SAVED: they stay on until you switch them off again, including after restarting the game.", "Anders als die Zeilen darüber werden diese GESPEICHERT: sie bleiben an, bis du sie wieder ausschaltest — auch nach einem Neustart des Spiels."),
-        ["vr_tt_occl_note"] = Pair("Cost while it is on: flames and other effects are drawn WITHOUT occlusion, so they show through walls. Switch it on for one pick-up, look at the trap in your hand, switch it off again.", "Preis, solange es an ist: Flammen und andere Effekte werden OHNE Verdeckung gezeichnet und scheinen deshalb durch Wände. Für ein einziges Aufheben einschalten, die Falle in der Hand ansehen, wieder ausschalten."),
-        ["h_vr_tt_occl"] = Pair("A test, not a feature: it switches the game's occlusion map off for the VR view only, to find out whether that map is what makes a trap or chest in your hand turn bright white. While it is on, flames and other effects show through walls, because the same switch controls them. Nothing about the game or your save changes, and the other players are unaffected.", "Ein Test, keine Funktion: schaltet die Verdeckungskarte des Spiels nur für die VR-Ansicht aus, um herauszufinden, ob diese Karte eine Falle oder Truhe in deiner Hand hell weiß färbt. Solange es an ist, scheinen Flammen und andere Effekte durch Wände, denn derselbe Schalter steuert sie. Am Spiel und am Spielstand ändert sich nichts, die Mitspieler sind nicht betroffen."),
+        // THE OCCLUSION A/B's five captions stood here (vr_tt_diag, h_vr_tt_diag,
+        // vr_tt_diag_persist, vr_tt_occl_note, h_vr_tt_occl). The experiment ran on ModBuild 467,
+        // answered, and the user asked for the page back: "Räum die Testauslöser wieder aus, da
+        // sollten wirklich nur die Easter Eggs und Element Auslöser drin sein." The row is gone, so
+        // the captions are gone with it rather than left as orphans nothing resolves.
         // ONE CAPTION PER ROOM PER CARD, cellar (vr_tt_hc_*) and wood (vr_tt_hf_*). They used to be
         // six two-room captions ("Fenster / Fratze"), which stopped being expressible the moment the
         // rooms stopped having the same number of cards — the cellar has six and the wood three

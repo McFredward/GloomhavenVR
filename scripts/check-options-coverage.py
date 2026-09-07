@@ -66,14 +66,23 @@ cost this project a round:
      five affected keys are listed at ENUM_LABELS_NOT_LOCALIZED's foot so the size of that class
      is written down rather than merely unmeasured.
   7. A ROW HANDED TO A PAGE THAT DOES NOT DRAW IT. `VROptionsTab.8.Dependencies.OwnPageRows` names
-     the keys the catalog's own listings must NOT draw because a hand-built page owns them —
-     `[FigureGrab] OcclusionMapOffOnHeadCamera` is drawn on Erweitert > Test-Ausloeser, because
-     filing it by its section put it under Haende > "Figuren-Offsets" and the user could not find
-     it ("Ich konnte die OcclusionMapOffOnHeadCamera in Erweitert nirgends finden, wo ist sie?").
-     The hand-off has exactly one failure mode: the page stops drawing it and the filter keeps
-     hiding it, and the setting is then reachable from NEITHER door with nothing saying so. So:
-     every key in that set must be bound, and must be named literally by some other file under
-     Options/ — the page that took responsibility for it.
+     the keys the catalog's own listings must NOT draw because a hand-built page owns them. The one
+     key it has ever held, `[FigureGrab] OcclusionMapOffOnHeadCamera`, was drawn on Erweitert >
+     Test-Ausloeser because filing it by its section put it under Haende > "Figuren-Offsets" and the
+     user could not find it ("Ich konnte die OcclusionMapOffOnHeadCamera in Erweitert nirgends
+     finden, wo ist sie?"); that A/B answered on ModBuild 467 and the key is gone, so the set is
+     EMPTY at the time of writing. The hand-off has exactly one failure mode: the page stops drawing
+     a key and the filter keeps hiding it, and the setting is then reachable from NEITHER door with
+     nothing saying so. So: every key in that set must be bound, and must be named literally by some
+     other file under Options/ — the page that took responsibility for it.
+
+     AND THE CHECK MUST STAY MEANINGFUL WHILE THE SET IS EMPTY, which is a different requirement
+     from the one above. `own_page_rows()` returns (found, keys): a set it could no longer LOCATE
+     (renamed, moved, reformatted) is a FAILURE, and a set it found and read as empty is a state the
+     success line SAYS — "the OwnPageRows set was FOUND and is EMPTY". Before that split, both
+     printed "0 row(s) handed to a page of their own", so a reader could not tell "no own-page keys"
+     from "this check stopped looking", and a checker that silently stopped looking is the failure
+     this file exists to prevent, pointed at itself.
 
 WHAT IS NOT CHECKED, AND WHY. "Every key is reachable" is not checked because it is TRUE BY
 CONSTRUCTION and checking it would be checking the wrong thing: Erweitert is the catalog's own
@@ -471,20 +480,29 @@ OWN_PAGE_ENTRY = re.compile(r'"([^"/]+)/([^"/]+)"')
 
 
 def own_page_rows():
-    """(Section, Key) the catalog's listings skip because a hand-built page draws them.
+    """(found, {(Section, Key)}) the catalog's listings skip because a hand-built page draws them.
 
     VROptionsTab.8.Dependencies.OwnPageRows. Read from the STRIPPED body for the same reason
     every other reader here does: the set is documented in prose that quotes the very key it
     names, and a comment counted as an entry makes the census lie.
+
+    THE FIRST RETURN VALUE IS THE WHOLE POINT OF THE SIGNATURE. The set is legitimately EMPTY
+    whenever no diagnostic is standing on the Test-Ausloeser page — it was emptied in ModBuild
+    468, after the occlusion A/B answered and the user asked for that page cleared. An empty set
+    and a set this reader could no longer FIND (renamed, moved, reformatted) both produced the
+    same `set()` before, and check 7 then reported "0 rows handed to a page of their own" for
+    both. That is the shape of a check that has quietly stopped looking, and this file has paid
+    for one of those. `found` separates them: not-found is a FAILURE, empty is a state the
+    success line names out loud.
     """
     path = os.path.join(OPTIONS, "VROptionsTab.8.Dependencies.cs")
     with open(path, encoding="utf-8") as fh:
         body = strip_comments(fh.read())
     at = body.find("OwnPageRows = new(")
     if at < 0:
-        return set()
-    return {(m.group(1), m.group(2))
-            for m in OWN_PAGE_ENTRY.finditer(body[at:body.find("};", at)])}
+        return False, set()
+    return True, {(m.group(1), m.group(2))
+                  for m in OWN_PAGE_ENTRY.finditer(body[at:body.find("};", at)])}
 
 
 def drawn_outside_the_filter(section, key):
@@ -826,7 +844,13 @@ def main():
                             f"the tree names a key nothing binds; it draws nothing.")
 
     # ---- 7. a row handed to a page that does not draw it -------------------------------------
-    own_page = own_page_rows()
+    own_page_found, own_page = own_page_rows()
+    if not own_page_found:
+        failures.append(
+            "OWN-PAGE SET NOT FOUND: VROptionsTab.8.Dependencies.cs no longer contains "
+            "'OwnPageRows = new(', so check 7 is reading nothing and would pass whatever the "
+            "menu does. Point this reader at the set's new name, or delete the check with the "
+            "hand-off mechanism it guards — do not leave it looking at an empty file.")
     for section, key in sorted(own_page):
         if not known(section, key, keys, wild):
             failures.append(f"OWN-PAGE KEY DOES NOT EXIST: [{section}] {key} "
@@ -975,8 +999,14 @@ def main():
             print("error: " + line)
         print(f"\n{len(failures)} option-menu coverage failure(s).")
         return 1
+    # An EMPTY set is a legitimate state and a BROKEN reader is not, and the two used to print the
+    # same "0 row(s)". Say which one this is.
+    own_page_note = (f"{len(own_page)} row(s) handed to a page of their own and drawn there"
+                     if own_page
+                     else "the OwnPageRows set was FOUND and is EMPTY (no key is handed to a page "
+                          "of its own today, so check 7 held nothing — it did not stop looking)")
     print("options coverage: every curated and topic-tree key exists, every caption resolves, "
-          f"{len(own_page)} row(s) handed to a page of their own and drawn there, "
+          f"{own_page_note}, "
           f"{two_names} row(s) named on both doors agree, "
           f"{len(DUPLICATE_ALLOWED)} deliberate second door(s), "
           f"{len(KNOWN_ORPHANS)} known family orphan(s) in the frozen backlog, no NEW split "

@@ -31,14 +31,15 @@ internal static class FigureGrabConfig
     /// <summary>Master toggle for grabbing board figures into the hand.</summary>
     public static ConfigEntry<bool> GrabFigures = null!;
 
-    /// <summary>
-    /// ROUND-FIFTEEN EXPERIMENT for the held-prop white flash - hold the game's global
-    /// <c>_EnableOcclusionMap</c> at 0 for the VR head camera's own render pass. OFF by default
-    /// and meant to be on for one hold: see <see cref="PropOcclusionGate"/> for the mechanism,
-    /// the evidence that raised it, and the cost (flames stop being occluded by walls while it
-    /// is on).
-    /// </summary>
-    public static ConfigEntry<bool> OcclusionMapOffOnHeadCamera = null!;
+    // THE ROUND-FIFTEEN OCCLUSION A/B USED TO BE BOUND HERE (`OcclusionMapOffOnHeadCamera`,
+    // PropOcclusionGate). IT ANSWERED, AND BOTH ARE GONE. The 467 log reads the WORKING branch on
+    // every clause — head-camera passes SUPPRESSED 120 / RESTORED 120, the value found before the
+    // write 1..1 and already 0 on 0 of them, read-back non-zero on 0, generator camera passes 60 —
+    // and the user's report on that build was "ich merke keinen Unterschied - das Problem tritt bei
+    // beiden unveraendert auf". A gate that was genuinely down for every head-camera pass and
+    // changed nothing is an EXCLUSION BY EXPERIMENT of the occlusion channel, so the dial had
+    // nothing left to ask and the user asked for his test page back in the same message. Do not
+    // re-add it: the record is in NetProtocol.cs and in .planning/held-prop-flash-experiments.md.
 
     /// <summary>
     /// How close the PINCH POINT has to come to a figure before it lights up as the grab
@@ -497,18 +498,6 @@ internal static class FigureGrabConfig
             return;
         ConfigFile config = _file = ModuleConfig.Create("figuregrab");
 
-        OcclusionMapOffOnHeadCamera = config.Bind(
-            "FigureGrab", "OcclusionMapOffOnHeadCamera", Defaults.OcclusionMapOffOnHeadCamera,
-            "DIAGNOSTIC A/B, not a feature - leave this OFF unless you were asked to switch " +
-            "it on. In the VR menu it is on the Erweitert > Test-Ausloeser page, with the other " +
-            "test aids, and NOT among the figure settings. It holds the game's occlusion map " +
-            "switch OFF for the VR view only, to " +
-            "test whether that map is what makes a trap or chest in your hand turn bright " +
-            "white. WHILE IT IS ON YOU WILL SEE A SIDE EFFECT: flames and other effects stop " +
-            "being hidden by walls, because the same switch controls them. Turn it on, pick " +
-            "a trap up once, look at it, turn it off again - and say whether the white was " +
-            "still there. Nothing about the game or your save is changed either way, and " +
-            "other players are unaffected.");
         GrabFigures = config.Bind(
             "FigureGrab", "GrabFigures", Defaults.GrabFigures,
             "Grab a board figure (hero OR monster) into your hand with the TRIGGER to " +

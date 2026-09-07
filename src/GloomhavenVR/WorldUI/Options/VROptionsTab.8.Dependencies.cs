@@ -373,17 +373,19 @@ internal static partial class VROptionsTab
     /// Rows a PAGE OF THIS MENU draws by hand, so the catalog's own listings must not draw them a
     /// second time.
     ///
-    /// <para><b>WHY THIS EXISTS, and it is a repeat of a recorded defect rather than a new idea.</b>
-    /// <c>[FigureGrab] OcclusionMapOffOnHeadCamera</c> is not a setting: it is a one-hold diagnostic
-    /// A/B with a side effect the player can see (flames stop being hidden by walls). It shipped
-    /// uncurated in ModBuild 466, so <c>ConfigCatalog.TopicOf</c> filed it by its SECTION and it
-    /// landed under Erweitert ▸ Hände ▸ "Figuren-Offsets", between the grab radius and the cloth
-    /// reach. The user, who had been asked to switch it on, could not find it — verbatim: "Ich
-    /// konnte die OcclusionMapOffOnHeadCamera in Erweitert nirgends finden, wo ist sie?" — and the
-    /// experiment did not run at all that session (<c>OCCLUSION GATE A/B ARMED</c> appears zero
-    /// times in the 466 log). The rule that came out of the last time this happened is that a
-    /// setting is filed by what the PLAYER would look for, not by which module owns the key, and a
-    /// test aid is looked for on the test page.</para>
+    /// <para><b>THE SET IS EMPTY TODAY, AND THAT IS A STATE AND NOT A DELETION.</b> It has held
+    /// exactly one entry: <c>[FigureGrab] OcclusionMapOffOnHeadCamera</c>, the held-prop white-flash
+    /// A/B — not a setting but a one-hold diagnostic with a side effect the player can see. It
+    /// shipped uncurated in ModBuild 466, so <c>ConfigCatalog.TopicOf</c> filed it by its SECTION
+    /// and it landed under Erweitert ▸ Hände ▸ "Figuren-Offsets", between the grab radius and the
+    /// cloth reach. The user, who had been asked to switch it on, could not find it — verbatim:
+    /// "Ich konnte die OcclusionMapOffOnHeadCamera in Erweitert nirgends finden, wo ist sie?" — and
+    /// the experiment did not run at all that session (<c>OCCLUSION GATE A/B ARMED</c> appears zero
+    /// times in the 466 log). ModBuild 467 moved it to Erweitert ▸ Test-Auslöser through this set;
+    /// it ran there, answered, and the user asked for that page cleared again ("Räum die
+    /// Testauslöser wieder aus"), so the key, its gate and its row are all gone. The mechanism stays
+    /// because the rule it encodes stays: a setting is filed by what the PLAYER would look for, not
+    /// by which module owns the key, and a test aid is looked for on the test page.</para>
     ///
     /// <para><b>WHY HERE AND NOT IN <c>ConfigCatalog</c>.</b> The catalog's two withholding tables
     /// (<c>RetiredMarkers</c>, <c>NotOffered</c>) take a key OUT of the catalog entirely — and this
@@ -396,15 +398,17 @@ internal static partial class VROptionsTab
     /// <c>Lookup</c> + <c>BuildItem</c> directly and never asks this filter, which is what lets it
     /// draw the row it is responsible for.</para>
     ///
-    /// <para>Nothing here is withheld from the player: every key in this set is drawn, once,
+    /// <para>Nothing here is ever withheld from the player: every key in this set is drawn, once,
     /// somewhere else in the same menu. Keep the comment beside each entry naming that page — an
-    /// entry whose page is deleted would silently hide a working setting.</para>
+    /// entry whose page is deleted would silently hide a working setting, which is the one failure
+    /// mode of the hand-off and what <c>scripts/check-options-coverage.py</c> check 7 exists to
+    /// catch. That check reads this set by name and reports an EMPTY set as empty rather than
+    /// passing silently: "no own-page keys" and "the check stopped looking" are different findings
+    /// and must not print the same line.</para>
     /// </summary>
     private static readonly HashSet<string> OwnPageRows = new(StringComparer.Ordinal)
     {
-        // Drawn by VROptionsTab.9.TestTriggers.cs on Erweitert ▸ Test-Auslöser, with the note that
-        // states its cost. It is a test aid, not a figure offset.
-        "FigureGrab/OcclusionMapOffOnHeadCamera",
+        // EMPTY. Add an entry only together with a comment naming the page that draws it by hand.
     };
 
     /// <summary>Does another page of this menu draw this row by hand?</summary>

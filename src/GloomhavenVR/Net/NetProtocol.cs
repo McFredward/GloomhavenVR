@@ -434,6 +434,67 @@ internal static class NetProtocol
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 467;
+    // NEXT BUILD (lane `lane-b-flash-in-render`; the INTEGRATOR bumps ModBuild when it lands):
+    //   THE OCCLUSION MAP IS EXCLUDED BY EXPERIMENT, and the assumption sixteen rounds shared is
+    //   written down. Full record: .planning/held-prop-flash-experiments.md §23.
+    //   * THE A/B ANSWERED, AND THE ANSWER IS A REAL EXCLUSION. User, verbatim: "A/B Test
+    //     durchgefuehrt, ich merke keinen Unterschied - das Problem tritt bei beiden unveraendert
+    //     auf. Raeum die Testausloeser wieder aus, da sollten wirklich nur die Easter Eggs und
+    //     Element Ausloeser drin sein." A null result is an exclusion only if the perturbation
+    //     happened, which is why 467 pre-registered NEVER ARMED / ARMED BUT BLIND / WORKING. The
+    //     467 log returns WORKING on EVERY clause: head-camera passes SUPPRESSED 120, RESTORED
+    //     120; VALUE FOUND BEFORE THE WRITE 1..1, already 0 on 0 of them (so NOT a null
+    //     perturbation, which is what round twelve's experiment turned out to be); READ-BACK
+    //     non-zero on 0 (the write took, not merely ran); GENERATOR CAMERA PASSES 60 against 120
+    //     head passes (the no-latch premise measured, so the reading is not an artefact of our own
+    //     bookkeeping). The map's GLOBAL master switch was down for every pass of the VR view —
+    //     which bypasses the occlusion term in every shader that reads it, whatever they are — and
+    //     the white was unchanged. Do not re-chase the occlusion channel.
+    //   * TWO INSTRUMENTS RETIRED, BOTH BECAUSE THEY HAVE ANSWERED. `PropOcclusionGate` and its
+    //     dial `[FigureGrab] OcclusionMapOffOnHeadCamera` (bind, Defaults entry, Loc.ConfigNames
+    //     caption, BoardModule wiring, the Erweitert > Test-Ausloeser diagnostics block with its
+    //     five Loc ids, and the OwnPageRows entry) — the experiment is spent and the user asked for
+    //     his test page back in the same message. Its only writes were the paired
+    //     SetGlobalFloat(_EnableOcclusionMap, 0) / restore of the experiment itself; the body was
+    //     grepped for writes before deleting, per the standing rule. And `PropAnimBelt.PositionSweep`
+    //     — §22.5 wrote the rule "delete it when the A/B returns, with the A/B as the reason", and
+    //     its own 467 output closes the rest: LUMINANCE RATIO 0.928 against a bar of 2.0 (second
+    //     session pointing the wrong way, after 464's 0.629), head-camera UV INSIDE the 0..1 frame
+    //     on 36 of 36 samples at EVERY rung — which is its own falsifier for "lifting escapes it" —
+    //     coverage differed on 0 of 36, top-N light set flipped on 0 of 36, projectors at no rung.
+    //     Every channel it owns has answered. It contained no writes.
+    //   * `check-options-coverage.py` CHECK 7 STAYS MEANINGFUL WITH AN EMPTY SET. `own_page_rows()`
+    //     now returns (found, keys): a set the reader can no longer LOCATE is a failure, and a set
+    //     found and read as empty is stated — "the OwnPageRows set was FOUND and is EMPTY". Both
+    //     used to print "0 row(s) handed to a page of their own", i.e. a checker that had quietly
+    //     stopped looking read exactly like a clean pass.
+    //   * WHAT SHIPPED IS ONE INSTRUMENT FOR A WHOLE CLASS, NOT A NINTH SINGLE-CANDIDATE PROBE.
+    //     `] [Props] HELD-PROP RENDER-PASS PROBE` (PropAnimBelt.RenderPass.cs). EVERY probe in
+    //     sixteen rounds sampled Update/LateUpdate state; NOT ONE sampled during a camera's own
+    //     render pass. A renderer switched on by one camera's pre-render and off in its post-render,
+    //     `Renderer.forceRenderingOff` (a SEPARATE flag from .enabled that no probe here had ever
+    //     read — and this mod itself writes it, Net/PeerBoardFade.cs), a global re-published
+    //     mid-frame by a command buffer, a material or layer swapped for one pass: all invisible to
+    //     every one of them BY CONSTRUCTION, reading CHANGES 0 forever while the picture changes.
+    //     The probe takes the Update reading and the in-render reading OF THE SAME FRAME and reports
+    //     where they DISAGREE — eight renderer fields on the held prop and its home twin, the CLOSED
+    //     set of the game's shader globals (every Shader/CommandBuffer SetGlobal name in decompiled/
+    //     plus the two Unity built-ins the fog and Beautify paths OVERWRITE, _CameraDepthTexture and
+    //     _GrabTexture), a per-camera roster (passes, depth, cullingMask and how many tracked
+    //     renderers it admits, commandBufferCount, the OnRenderImage census, which one is the head
+    //     camera), and a BETWEEN-CAMERA count for the same renderer on two passes of one frame.
+    //     Readings: INERT (camera passes 0, or PAIRS 0, or nothing tracked); AGREE (PAIRS > 0 and
+    //     every count 0 => the in-render class is excluded for those fields); DISAGREE (the field,
+    //     the renderer, the camera and both values are named). Two corrections made BEFORE its first
+    //     reading: texture globals compare on presence and SIZE, because half of them are temporary
+    //     RTs Unity recycles every frame and an identity compare would print 100% DISAGREE as a
+    //     matter of course (the id churn is counted separately); and the callback body is wrapped
+    //     whole, with the throw count printed, because an exception out of a Camera.onPreRender
+    //     subscriber is thrown inside the engine's render loop.
+    //   * AND THE RAMP IS STILL UNEXPLAINED, WHICH IS SAID RATHER THAN FITTED. The signature is a
+    //     saturating ~1.0-1.4 s ramp IN and a complete clear inside one 0.1 s step, NEUTRAL light.
+    //     Every field this probe compares is a bool, an int or a name — such a value FLICKERS, it
+    //     does not ramp. So even a DISAGREE reading owes an account of the ramp.
     // Build 467: one lane, two small defects, and the round that makes the fifteen-round white
     //   flash decidable by a single hardware test. Also: the MATERIAL CLASS IS NOW PROPERLY
     //   EXCLUDED for the first time, on the user's word rather than by inference.
@@ -8066,6 +8127,14 @@ internal static class NetProtocol
     // BeforeImageEffects. The head camera carries ZERO, so the Outline pass genuinely does not
     // run in VR. It draws character outlines, not pale rectangles, so it is not the subject —
     // but it is a real flat-vs-VR difference that somebody would otherwise rediscover.
+    // RE-MEASURED IN THE ModBuild 467 LOG, because a sentence in a comment is a hypothesis and
+    // this one had been standing since 254 as the ground for "the Outline pass is not a VR
+    // suspect": `] [WorldUI] EYE CENSUS EFFECT SUMMARY` reads `1 of 9 camera(s) carry a
+    // CommandBuffer`, and the one that does is ScenarioCamera; its `6 MonoBehaviour(s) …
+    // implement OnRenderImage` are the 4 on ScenarioCamera plus the 2 on 'UI Camera'. The head
+    // camera carries neither. The claim is TRUE. It also no longer needs re-checking by hand:
+    // HELD-PROP RENDER-PASS PROBE prints commandBufferCount and the OnRenderImage census per
+    // camera it sees, every session.
     //
     // Build 254: HE ASKED WHETHER THE GROUND AREAS PLAY A ROLE. THEY DO, AND IT WAS MY RULE.
     // NO WIRE CHANGE. Wire tests 146,839 (UNCHANGED). Patch inventory 78/130 (UNCHANGED).

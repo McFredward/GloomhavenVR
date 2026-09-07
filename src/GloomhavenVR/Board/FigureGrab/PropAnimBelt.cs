@@ -1891,9 +1891,11 @@ internal static partial class PropAnimBelt
         // DRAWING renderer that carries a material, which the roster has just resolved.
         FindHomeTwin(go);
         ArmClocks(b);
-        // ROUND THIRTEEN. Armed last, because it reads the lead renderer the roster resolved and
-        // the twin the line above found. It writes nothing and it re-suppresses nothing.
-        ArmPositionSweep();
+        // ROUND SEVENTEEN. Armed last, because its tracked set IS the roster above plus the twin
+        // renderers FindHomeTwin kept — it never walks a subtree of its own. It writes nothing and
+        // it re-suppresses nothing; it only installs a Camera.onPreRender reader, which
+        // EmitRenderPass removes again the moment the window closes.
+        ArmRenderPass();
     }
 
     /// <summary>
@@ -2022,11 +2024,12 @@ internal static partial class PropAnimBelt
         // same tick — every prop of a kind is in phase with every other, so a comparison taken a
         // frame apart would compare two different points of the same flash.
         SampleTwin();
-        // ROUND THIRTEEN, and it must run AFTER SampleTwin for the same reason SampleTwin runs
-        // after VNow: every rung of the ladder is read on the SAME tick as the twin it is compared
-        // against, so a difference between two positions can never be a difference between two
-        // frames.
-        SamplePositionSweep();
+        // ROUND SEVENTEEN, and its POSITION IN THE FRAME IS THE MEASUREMENT. This is the
+        // Update-order half of a comparison whose other half is taken inside a camera's render
+        // pass, so it has to be read from the same place every other arm in this file reads from —
+        // that is what makes "these two disagree" mean "the render loop holds a value Update cannot
+        // see". Moving this call into a render callback would delete the reading.
+        SampleRenderPassUpdate();
 
         if (Time.frameCount >= _vEndFrame)
             CloseVerdict(b, "the window ran to its full length with the prop still in the hand");
@@ -2041,9 +2044,11 @@ internal static partial class PropAnimBelt
         _vBelt = null;
         if (_vFrames > 0)
             EmitHomeTwin(b, why);
-        // Its own line and its own grep token: the sweep answers a different question from the
-        // twin comparison and must not be findable only by reading past it.
-        EmitPositionSweep(why);
+        // Its own line and its own grep token: the render-pass probe answers a different question
+        // from the twin comparison and must not be findable only by reading past it. It also
+        // UNHOOKS here — a probe that has answered is spent, and one that keeps a callback on every
+        // camera of every frame afterwards is the shape this project has already paid for.
+        EmitRenderPass(why);
     }
 
     /// <summary>Append the renderer roster and the pose control — the identity half, which has not

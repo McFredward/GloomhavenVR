@@ -2833,3 +2833,197 @@ to mean for five rounds.
   starts from the ramp's shape rather than from a leftover.
 
 ---
+
+## 23. Round seventeen — 2026-09-07, against the ModBuild 467 log: **THE OCCLUSION MAP IS EXCLUDED BY EXPERIMENT**, and the assumption sixteen rounds shared gets written down
+
+(There is no §-section for round sixteen. That round's findings — the material-attachment
+confirmation and the "the A/B never ran, and its own verdict blamed the wrong thing" repair — are
+in the ModBuild 467 record in `src/GloomhavenVR/Net/NetProtocol.cs`.)
+
+### 23.1 THE RESULT: the last standing candidate of sixteen rounds is dead, and this one is a real exclusion
+
+The user, verbatim:
+
+> "A/B Test durchgeführt, ich merke keinen Unterschied - das Problem tritt bei beiden unverändert
+> auf. Räum die Testauslöser wieder aus, da sollten wirklich nur die Easter Eggs und Element
+> Auslöser drin sein."
+
+**A null result is only an exclusion if the perturbation happened.** ModBuild 467 pre-registered
+three readings for exactly that reason — NEVER ARMED, ARMED BUT BLIND, WORKING — and the 467 log
+returns WORKING on every clause. Anchored token `] .*OCCLUSION GATE`, two lines, both quoted from
+the log rather than restated:
+
+```
+OCCLUSION GATE A/B ARMED — …                                            (1 line)
+OCCLUSION GATE A/B — the first head-camera passes are on record.
+  *** WORKING — the gate was genuinely down for every head-camera pass. ***
+  HEAD CAMERA MATCHED: 'GloomhavenVR.HeadCamera'.
+  Head-camera passes SUPPRESSED 120, RESTORED 120.
+  GENERATOR CAMERA PASSES 60 against 120 head pass(es) …
+  VALUE FOUND BEFORE THE WRITE: 1..1 over those passes, already 0 on 0 of them.
+  READ-BACK AFTER THE WRITE was non-zero on 0.
+```
+
+Clause by clause, because each one closes a different way of getting a fake null:
+
+* `SUPPRESSED 120, RESTORED 120` — the hook matched the head camera 120 times and every suppression
+  was paired with a restore. Not "the dial was off"; not "the hook never matched".
+* `VALUE FOUND BEFORE THE WRITE: 1..1 … already 0 on 0 of them` — the global was 1 on every pass, so
+  this was **not** a null perturbation. Something was actually switched off. (Round twelve's
+  experiment turned out to have been exactly that, which is why the clause exists.)
+* `READ-BACK AFTER THE WRITE was non-zero on 0` — the write took, on every pass. "The write ran" and
+  "the write landed" are different claims.
+* `GENERATOR CAMERA PASSES 60 against 120 head pass(es)` — the command buffer that re-publishes
+  `_EnableOcclusionMap = 1` really did re-run, so a missed restore could never have latched and
+  nothing about the reading is an artefact of our own bookkeeping.
+
+**Therefore: the occlusion channel is EXCLUDED BY EXPERIMENT.** The map's master switch was held at
+0 for every one of the VR view's own render passes — which bypasses the occlusion term in *every*
+shader that reads it, whatever those shaders are — and the white was unchanged. Do not re-chase it.
+
+### 23.2 The position sweep answered its last open channel, and is RETIRED
+
+§22.5 wrote the rule: *"Delete it when the A/B returns, with the A/B as the reason."* The A/B has
+returned, and the sweep's own 467 output closes the rest of it. From the one
+`] [Props] HELD-PROP POSITION SWEEP` line in that log, 36 samples:
+
+* **LUMINANCE RATIO rung 0 : top rung = 0.928**, against its own pre-registered bar of 2.0. Second
+  session, same direction: 464 read 0.629. The user lifts the prop into *more* light while the white
+  goes. The light channel is closed twice over, and by a non-zero reading pointing the wrong way.
+* **Head-camera UV was INSIDE the 0..1 frame on 36 of 36 samples at every rung.** This was the
+  sweep's own falsifier for "lifting escapes it": if the lift moved the shader's lookup off the
+  screen, the top rung would leave the frame and rung 0 would not. It does not. The coincidence the
+  channel needed does not exist.
+* **COVERAGE DIFFERED between rung 0 and the top rung on 0 of 36**; TOP-N per-pixel light set flipped
+  on 0 of 36; projectors contained the prop at no rung; the per-pixel light cap is 0, so the
+  pixel-set channel is a stated NON-READING rather than a zero.
+* Its participation clause (`renderers under the prop present in m_ObjectRenderers: 1`) was what met
+  round twelve's precondition and put the A/B on hardware. That job is done.
+
+Add 466's photometry — the prop's centroid moves under 30 px across both the ramp and the cliff, so
+"lifting escapes it" is not reproduced in the user's own video — and every channel the sweep owns has
+answered. It is **retired** (`PropAnimBelt.PositionSweep.cs`, deleted; it contained no writes, which
+was checked before deleting: `grep` for `.enabled =`, `SetActive`, `Destroy`, `SetGlobal`, `Set*` and
+transform writes over its whole body returns nothing).
+
+`PropOcclusionGate` is retired with it, together with its dial
+(`[FigureGrab] OcclusionMapOffOnHeadCamera`), its `Defaults` entry, its `Loc.ConfigNames` caption,
+its `BoardModule` wiring, and the whole diagnostics block on Erweitert ▸ Test-Auslöser (heading,
+two notes, hint and row, plus the five now-dead `Loc` ids and the `OwnPageRows` entry) — the user
+asked for that page cleared in the same message. Its only writes were the paired
+`SetGlobalFloat(_EnableOcclusionMap, 0)` / restore of the experiment itself; nothing else in the
+class wrote anything, so nothing was carried forward.
+
+`OwnPageRows` is now empty, and `scripts/check-options-coverage.py` check 7 was changed so that is
+readable: `own_page_rows()` returns `(found, keys)`, a set the reader can no longer LOCATE is a
+failure, and the success line says *"the OwnPageRows set was FOUND and is EMPTY"* instead of
+"0 row(s)". "No own-page keys" and "the check stopped looking" were printing the same sentence.
+
+### 23.3 THE ASSUMPTION NOBODY HAD WRITTEN DOWN
+
+Sixteen rounds have now excluded: the prop's own state in every form (1796 frames, `CHANGES 0`); the
+material class, with its cache attachment verified on a hold where the user confirms the white
+occurred; light reaching the prop, in two sessions and two directions; this mod's own overlays by
+COLOUR; pose; position; projectors; and the occlusion map by experiment. No candidate stands.
+
+**Every probe in those sixteen rounds sampled `Update`/`LateUpdate` state. Not one sampled during a
+camera's own render pass.** A value that exists only inside the render loop is invisible to all of
+them *by construction* and reads as `CHANGES 0` forever while the picture changes:
+
+* a renderer switched on by one camera's pre-render and off in its post-render;
+* `Renderer.forceRenderingOff` — a **separate flag** from `.enabled` that no probe in this file has
+  ever read, and which this mod itself writes (`Net/PeerBoardFade.cs`);
+* a shader global re-published mid-frame by a command buffer (the occlusion generator does exactly
+  this at `CameraEvent.BeforeGBuffer` on `ScenarioCamera`, so between that camera's pass and the head
+  camera's pass the global set is **not** the set an `Update` read returns);
+* a material, layer or render queue swapped for one pass and swapped back.
+
+That is the exact shape of the defect: a per-renderer, board-wide-synchronous, neutral bleach that no
+object probe can see.
+
+### 23.4 What shipped — ONE instrument for the whole class, not another single-candidate probe
+
+`] [Props] HELD-PROP RENDER-PASS PROBE` (`PropAnimBelt.RenderPass.cs`). It arms with the hold window,
+from the roster and twin renderers the existing arms already resolved, and unhooks the moment the
+window closes. It writes nothing.
+
+It takes **two readings of the same frame** and reports where they disagree:
+
+* the **Update-time** reading, from `SampleVerdict` — i.e. from exactly where the other sixteen
+  rounds read, which is what makes the comparison mean anything;
+* the **in-render** reading, from `Camera.onPreRender`, for every camera that renders.
+
+Compared per tracked renderer, eight fields: `enabled`, `forceRenderingOff`, `activeInHierarchy`,
+`isVisible`, `gameObject.layer`, `sharedMaterials.Length`, the lead material's shader NAME, and its
+`renderQueue`. Plus the **closed set of the game's shader globals** — every `Shader.SetGlobal*` /
+`CommandBuffer.SetGlobal*` name in `decompiled/` (NM_Wind 9, VolumetricFog 7, RFX4 5, `ToggleWallFade`
+8 sites across 4 classes, DynamicFogManager 3, EPOOutline's stencil and cutout block,
+TilesOcclusionGenerator's three, BFX 1) plus the two Unity built-ins the fog and Beautify paths
+**overwrite**, `_CameraDepthTexture` and `_GrabTexture`, which are the globals whose wrong value is
+invisible to anyone grepping only for the game's own names.
+
+It also prints a per-camera roster — passes, depth, `cullingMask` (and how many tracked renderers
+that mask admits), `commandBufferCount`, the OnRenderImage census, and which one is the rig's head
+camera — and a **between-camera** count: the same renderer read on two passes of one frame. That is
+the strongest signal available for a per-camera bleach and it costs nothing extra.
+
+**Pre-registered readings.** INERT: `camera passes 0`, or `PAIRS 0` (no camera pass fell in a frame
+that had already produced an Update sample), or nothing tracked — measures nothing either way. AGREE:
+`PAIRS > 0` and every per-field and per-global count 0 — the in-render class is excluded for those
+fields. DISAGREE: any count above 0, with the field, renderer, camera and both values named.
+
+**Two instrument corrections made before the first reading, not after it.**
+(a) Texture globals are compared on **presence and size only**: half these names are bound to
+temporary render targets Unity recycles every frame, so an identity compare would print 100 %
+DISAGREE as a matter of course. The id churn is counted separately, under its own name.
+(b) The callback body is wrapped whole — an exception out of a `Camera.onPreRender` subscriber is
+thrown inside the engine's render loop, and the throw count is printed so a partial reading cannot
+pass for a clean one.
+
+**What is still beyond it**, stated in the line itself so a row of zeroes is not over-read:
+`MaterialPropertyBlock` contents (write-only from managed code); a global written by a command buffer
+that runs *after* `onPreRender` on the same camera (the head camera carries none —
+`commandBufferCount` is printed per camera so that stays a reading); a replacement shader
+(`Camera.SetReplacementShader` has no managed getter in 2021.3); anything an image effect composites
+after `onPostRender`; and whatever the OpenXR compositor draws outside Unity's camera loop.
+
+### 23.5 Two leads from the 467 log that are CLOSED, and were not made into probes
+
+* **The trap's `Trap_BearTrap_PR/OcclusionVolume [MeshRenderer]` being drawn into the view.** It
+  cannot be. The 467 roster reads `materials <none>` on it, and a renderer with zero materials
+  submits no draw to any camera whatever the culling mask says. The only thing that ever draws it is
+  `TilesOcclusionGenerator.UpdateCommandBuffers`, via `CommandBuffer.DrawRenderer(r,
+  m_OcclusionObjectMaterial)` *after* `SetRenderTarget(_TempObjectsRT)` — into the generator's own
+  temporary target, never into the view. The head camera's `0xFFFFFFFF` mask is real and is not this.
+  (Material count is one of the eight fields compared anyway, so an assignment inside a render pass
+  would be caught rather than assumed away.)
+* **The 'Outline' pass running on the head camera.** It does not, and this is now a reading rather
+  than the assertion it was in `NetProtocol.cs`. The 467 `] [WorldUI] EYE CENSUS EFFECT SUMMARY`
+  reads `1 of 9 camera(s) carry a CommandBuffer`, and the one that does is `ScenarioCamera` ('Tile
+  Occlusion Map Generation' at BeforeGBuffer, 'Outline' at BeforeImageEffects); its
+  `6 MonoBehaviour(s) … implement OnRenderImage` are the 4 on `ScenarioCamera` plus the 2 on
+  'UI Camera'. The head camera carries neither. The probe re-measures both per camera every session
+  so the claim cannot go stale again.
+
+And the three `Can't remove Outlinable (Script) because OutlineWrapper (Script) depends on it` lines,
+at the three grab frames, are ours: `FigureOverlay.BuildFrozenGhost`'s component sweep sets
+`mb.enabled = false` and then `Object.Destroy(mb)`, and Unity refuses the destroy while the
+`[RequireComponent]` holder is still standing (both destroys are deferred to end of frame, so it is).
+The disable landed, so the surviving component draws nothing — and it is on the **ghost at the prop's
+home cell**, not on the held prop. Cosmetic, not this defect, and written down so nobody spends a
+round on it.
+
+### 23.6 What round seventeen did NOT do
+
+* **No fix.** No cause is named, and this project has a standing finding about remedies written for
+  unnamed causes. The round ships an instrument.
+* **No second toggle anywhere in the options UI.** The user has just asked for one to be taken out.
+* **No account of the RAMP.** The measured signature is a saturating ~1.0-1.4 s ramp in and a
+  complete clear inside one 0.1 s step, and the added light is NEUTRAL. Every field this probe
+  compares is a boolean, an int or a name — a value of that kind would FLICKER, not ramp. So even a
+  DISAGREE reading here will still owe an account of the ramp. **The ramp is unexplained**, and
+  writing that down is better than fitting a story to it.
+* **The view-dependence lead is still not promoted.** §22.2(c) falsified the only correlation ever
+  recorded for it and nothing since has revived it.
+
+---

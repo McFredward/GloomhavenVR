@@ -76,29 +76,30 @@ namespace GloomhavenVR.WorldUI;
 /// The local view is never routed through the network either: the button below calls
 /// <c>Force</c> directly and the environment answers on the same frame, exactly as it did before.</para>
 ///
-/// <para><b>NO NEW CONFIG ENTRIES, deliberately — AND ONE EXISTING ONE, WHICH IS NOT THE SAME
-/// THING.</b> This page still creates no <c>ConfigEntry</c> of its own: the ten-file localisation
+/// <para><b>NO CONFIG ENTRIES AT ALL, AND THE PAGE WENT BACK TO THAT ON THE USER'S OWN
+/// INSTRUCTION.</b> This page creates no <c>ConfigEntry</c> of its own — the ten-file localisation
 /// footprint an option costs buys nothing for a button, an action is not a value and has nothing to
-/// persist, and the durations that were the only tunable numbers here no longer exist. What changed
-/// in ModBuild 467 is that ONE dial that already existed came to live on this page —
-/// <c>[FigureGrab] OcclusionMapOffOnHeadCamera</c>, the held-prop white-flash A/B. It was bound as
-/// a setting because it has to survive the frame it is switched on in, and it was FILED as a
-/// setting, which is where it went wrong: <c>ConfigCatalog.TopicOf</c> put it under Erweitert ▸
-/// Hände ▸ "Figuren-Offsets" and the user could not find it (verbatim: "Ich konnte die
-/// OcclusionMapOffOnHeadCamera in Erweitert nirgends finden, wo ist sie?"). It is not a figure
-/// offset; it is a test aid with a visible cost, which is this page's subject exactly.</para>
+/// persist, and the durations that were the only tunable numbers here no longer exist. ModBuild 467
+/// made ONE exception: <c>[FigureGrab] OcclusionMapOffOnHeadCamera</c>, the held-prop white-flash
+/// A/B, was bound as a setting because it had to survive the frame it was switched on in, and it
+/// was FILED as one, which is where it went wrong — <c>ConfigCatalog.TopicOf</c> put it under
+/// Erweitert ▸ Hände ▸ "Figuren-Offsets" and the user could not find it ("Ich konnte die
+/// OcclusionMapOffOnHeadCamera in Erweitert nirgends finden, wo ist sie?"), so the row moved here.
+/// He then ran the experiment and it answered: <i>"A/B Test durchgeführt, ich merke keinen
+/// Unterschied … Räum die Testauslöser wieder aus, da sollten wirklich nur die Easter Eggs und
+/// Element Auslöser drin sein."</i> The dial, its gate and this page's diagnostics block are all
+/// gone, and the rule above holds again with no exception: nothing here writes a
+/// <c>ConfigEntry</c>, so there is nothing here for the player to undo.</para>
 ///
-/// <para><b>AND IT IS THE ONE ROW HERE THAT PERSISTS, so the page says so instead of hiding it.</b>
-/// The class doc's own rule two paragraphs up — "Nothing on this page writes a ConfigEntry, so there
-/// is also nothing for the player to undo" — is no longer true of every row, and a page whose
-/// safety rail is a sentence may not leave that sentence stale. The row keeps its own note
-/// (<c>vr_tt_occl_note</c>): it states that this one stays on across a restart and what it costs
-/// while it is on. It is drawn with the menu's ordinary bool row rather than a latch caption,
-/// deliberately: a checkbox is what a persistent value looks like everywhere else in this menu, and
-/// dressing a persistent setting up as a fire-and-forget latch is the confusion this page exists to
-/// avoid, pointed the other way. The catalog listings do not draw it a second time — see
-/// <c>OwnPageRows</c> in <c>VROptionsTab.8.Dependencies.cs</c> for why the hand-off lives in the
-/// row filter and not in <c>ConfigCatalog</c>'s withholding tables.</para>
+/// <para><b>THE HAND-OFF MECHANISM STAYS, BECAUSE THE NEXT DIAGNOSTIC WILL NEED IT.</b> A test aid
+/// that has to persist across the frame it is armed in has to be bound, and a bound key is filed by
+/// its SECTION unless somebody says otherwise — that is the defect that cost round sixteen its
+/// experiment. The recipe is two lines: a <c>Lookup</c> + <c>BuildItem</c> block on this page, and
+/// one entry in <c>OwnPageRows</c> (<c>VROptionsTab.8.Dependencies.cs</c>) so the catalog's own
+/// listings do not draw the row a second time. Both halves are still here, still checked by
+/// <c>scripts/check-options-coverage.py</c> check 7, and the set is simply EMPTY today — which that
+/// check now says out loud, so "no own-page keys" cannot be mistaken for "the check stopped
+/// looking".</para>
 ///
 /// <para><b>THE PAGE DOES NOT REBUILD ITSELF ON A PRESS</b>, unlike the variant-copy rows, which do.
 /// Those change the settings the page is showing, so the page has to be redrawn. Rebuilding would
@@ -201,7 +202,6 @@ internal static partial class VROptionsTab
         rows += BuildElementTriggers(waning: false, "vr_tt_elem_strong");
         rows += BuildElementTriggers(waning: true, "vr_tt_elem_waning");
         rows += BuildHauntTriggers();
-        rows += BuildDiagnosticSwitches();
 
         // ONE PRESS PUTS EVERYTHING BACK, AND IT IS NOW LOAD-BEARING. While both overrides expired on
         // their own, this row was a convenience — a tester who had seen enough did not have to sit
@@ -233,51 +233,23 @@ internal static partial class VROptionsTab
         return rows;
     }
 
-    /// <summary>
-    /// The diagnostic SWITCHES — the rows on this page that are real settings rather than latches.
-    ///
-    /// <para>ONE ROW TODAY, and the block exists rather than the row being inlined because the
-    /// reason it is here generalises: a diagnostic A/B has to persist across the frame it is armed
-    /// in, so it is bound as a <c>ConfigEntry</c>, and being bound is what got the last one filed by
-    /// its SECTION into Erweitert ▸ Hände ▸ "Figuren-Offsets" where the user could not find it. The
-    /// next one will be bound for the same reason and must not repeat the same filing. Adding it
-    /// costs one <c>Lookup</c> line here and one entry in <c>OwnPageRows</c>.</para>
-    ///
-    /// <para><b>IT IS RESOLVED, NOT ASSUMED.</b> <see cref="Lookup"/> already warns when a curated
-    /// key has been renamed out from under the menu, and it warns here too — the row is simply
-    /// skipped rather than throwing, which keeps the eighteen latch rows above it working. The block
-    /// draws NOTHING at all if the key is gone: a heading and a note over no control would advertise
-    /// a switch that is not there, which is the failure this whole page's design keeps rejecting.</para>
-    ///
-    /// <para><b>THE COST IS IN THE PAGE, NOT ONLY IN THE TOOLTIP.</b> While the occlusion A/B is on,
-    /// flames and other effects stop being hidden by walls — the gate it holds down is the game's
-    /// GLOBAL master switch for the occlusion term, so every shader that reads it loses the term for
-    /// the VR view's pass (PropOcclusionGate's class doc proves that by disassembly). The user was
-    /// told this in chat; a tester who reads the menu instead has to be told it there. So the cost is
-    /// a NOTE under the heading, in both languages, and not only the hover hint — a hint nobody
-    /// hovers is not a warning.</para>
-    ///
-    /// <para>Live on <c>SettingChanged</c> with no restart: the write goes through the same
-    /// <c>ConfigCatalog.ToggleBool</c> every other bool row uses, which sets <c>ConfigEntry.Value</c>
-    /// and therefore fires <c>SettingChanged</c>, which <c>BoardModule</c> has wired to
-    /// <c>PropOcclusionGate.Sync()</c> since ModBuild 466. The page does not rebuild itself on the
-    /// press either — <c>Apply</c> only rebuilds for a variant selector or a dependency parent, and
-    /// this key is neither — so the class doc's "no rebuild under the pointer" rule survives.</para>
-    /// </summary>
-    private static int BuildDiagnosticSwitches()
-    {
-        if (ContentRoot == null)
-            return 0;
-
-        ConfigCatalog.ConfigItem? occlusion = Lookup("FigureGrab", "OcclusionMapOffOnHeadCamera");
-        if (occlusion == null)
-            return 0;
-
-        BuildHeader(ContentRoot, Loc.Mod("vr_tt_diag"), "h_vr_tt_diag", sub: true);
-        BuildNote(ContentRoot, Loc.Mod("vr_tt_diag_persist"));
-        BuildNote(ContentRoot, Loc.Mod("vr_tt_occl_note"));
-        return BuildItem(occlusion, hintKey: "h_vr_tt_occl");
-    }
+    // THE DIAGNOSTICS BLOCK WAS HERE, AND THE USER ASKED FOR IT OUT IN SO MANY WORDS.
+    //
+    // ModBuild 467 put one real setting on this page — `[FigureGrab] OcclusionMapOffOnHeadCamera`,
+    // the held-prop white-flash A/B — under its own sub-heading with two notes, because it had been
+    // filed by its SECTION into Erweitert > Haende > "Figuren-Offsets" and the user could not find
+    // it. He then ran it, and reported: "A/B Test durchgefuehrt, ich merke keinen Unterschied - das
+    // Problem tritt bei beiden unveraendert auf. Raeum die Testausloeser wieder aus, da sollten
+    // wirklich nur die Easter Eggs und Element Ausloeser drin sein." The experiment had answered
+    // (the 467 log reports its WORKING branch on every clause), the dial had nothing left to ask,
+    // and the page is back to what its owner wants on it.
+    //
+    // The class doc's rule above is therefore TRUE AGAIN WITHOUT AN EXCEPTION: nothing on this page
+    // writes a ConfigEntry, so there is nothing here for the player to undo. If a future diagnostic
+    // has to persist across the frame it is armed in and therefore has to be bound, this is still
+    // where its row belongs and the recipe is two lines - a `Lookup` + `BuildItem` block here, and
+    // one entry in `OwnPageRows` (VROptionsTab.8.Dependencies.cs) so the catalog does not draw it a
+    // second time. Both mechanisms are still in place and still tested; only the row is gone.
 
     /// <summary>One headed block of six element buttons, all latching into the same state.</summary>
     private static int BuildElementTriggers(bool waning, string headerKey)
