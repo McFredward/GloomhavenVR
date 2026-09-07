@@ -86,9 +86,36 @@ internal static partial class VROptionsTab
         window.OnShow = () =>
         {
             previous?.Invoke();
-            TickGuard.Run("VROptionsTab.Build", Rebuild, "WorldUI");
+            // THE PAGE-RESTORE EDGE. _view and _curated are static, so this show rebuilds whatever
+            // page was open when the window was last closed — the behaviour the user named and
+            // explicitly cleared ("das ist auch in Ordnung", 2026-09-07 item 13). It is also the
+            // edge the tile-strip defect rode in on, because a page built from here has already had
+            // a layout pass run over it before any LateUpdate arrives, while a page built by a
+            // press inside the open window has not. Nothing downstream could tell the two apart;
+            // now it can. Cleared in a finally so a throw inside Rebuild cannot leave the flag set
+            // and mislabel every later navigation build.
+            _buildFromShow = true;
+            try
+            {
+                TickGuard.Run("VROptionsTab.Build", Rebuild, "WorldUI");
+            }
+            finally
+            {
+                _buildFromShow = false;
+            }
         };
     }
+
+    /// <summary>True only while <see cref="Rebuild"/> is running under the window's own show.</summary>
+    private static bool _buildFromShow;
+
+    /// <summary>
+    /// WHICH EDGE IS BUILDING THE PAGE ON SCREEN RIGHT NOW, for the instruments that need to say so.
+    /// Read at BUILD time and captured by whatever needs it later — the flag is cleared the moment
+    /// Rebuild returns, and a deferred layout recompute runs long after that.
+    /// </summary>
+    private static string PageBuildKind =>
+        _buildFromShow ? "RESTORE — window show" : "NAV — press in the open window";
 
     /// <summary>Tear the list down and build the current category.</summary>
     private static void Rebuild()

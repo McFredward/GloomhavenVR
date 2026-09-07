@@ -202,14 +202,50 @@ internal static partial class VROptionsTab
         grid.spacing = new Vector2(TileGap, TileGap);
         grid.childAlignment = TextAnchor.UpperLeft;
         grid.padding = new RectOffset(0, 0, 2, 14);
-        // Seeded as one row at the authored size. TileStripGrid corrects both the moment the strip's
-        // width is known, which is not until the parent's horizontal layout pass has run.
         grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
-        grid.constraintCount = Mathf.Max(1, tiles.Length);
-        grid.cellSize = new Vector2(TileWidth, TileHeight);
+
+        // THE STRIP'S WIDTH COMES FROM THE PANEL, NEVER FROM THE TILES (user report 2026-09-07
+        // item 13, kachel_problem.jpg; the defect is measured in the ModBuild 472 log).
+        //
+        // A GridLayoutGroup at FixedColumnCount reports minWidth == preferredWidth == the width of
+        // its own row, and ContentRoot's VerticalLayoutGroup runs childControlWidth WITH
+        // childForceExpandWidth, whose cross-axis rule is Clamp(innerWidth, childMin, innerWidth).
+        // A CHILD MINIMUM LARGER THAN THE CONTAINER THEREFORE WINS. Seeding the grid at
+        // tiles.Length columns of TileWidth made the strip demand 5*232 + 4*10 = 1200 px, the panel
+        // handed back 1200 instead of its own 618, and TileStripGrid then measured 1200, concluded
+        // five columns fit, and RE-CONFIRMED THE SEED. A self-confirming fixed point: the strip
+        // measured a width its own seed had caused.
+        //
+        // The old comment here read "TileStripGrid corrects both the moment the strip's width is
+        // known" and that was the false sentence protecting this defect. It only corrected them
+        // when its first LateUpdate BEAT the first layout pass — which is the case on a page built
+        // by a press inside the open window (the strip is still at the RectTransform default of
+        // 100 px, one column is chosen, minWidth drops to 174, and the panel's real 618 arrives
+        // next pass) and NOT the case on a page built by the window's own OnShow, where a layout
+        // pass has already run by the time LateUpdate arrives. Six page builds in the ModBuild 472
+        // single-player log say exactly that: the four reached by a press read "in 100 px" then
+        // "in 618 px" and settle at 2 rows x 3 columns; the two reached by UIWindow SHOWN read "in
+        // 1200 px" once and stop at 1 row x 5 columns.
+        //
+        // Two independent guards, because this must not depend on winning a race:
+        //   (1) a LayoutElement pinning minWidth to 0. LayoutElement.layoutPriority is 1 against
+        //       LayoutGroup's 0, so LayoutUtility.GetMinSize returns 0 whatever the grid says and
+        //       the container's width wins in EVERY ordering. preferredWidth/height stay -1, so the
+        //       grid still owns the strip's height and the row-count contract above is untouched.
+        //   (2) a seed that is already the answer whenever the parent's width can be read, and one
+        //       single column when it cannot — never tiles.Length. Even with (1) in place this
+        //       keeps the first drawn frame inside the panel instead of showing one clipped
+        //       1200 px row until LateUpdate lands.
+        var fence = strip.AddComponent<LayoutElement>();
+        fence.minWidth = 0f;
+
+        TileGridShape(ParentContentWidth(parent), grid.padding.horizontal, tiles.Length,
+                      out _, out int seedColumns, out float seedCell);
+        grid.constraintCount = seedColumns;
+        grid.cellSize = new Vector2(seedCell, TileHeight);
 
         TileStripGrid balancer = strip.AddComponent<TileStripGrid>();
-        balancer.Bind(grid, tiles.Length);
+        balancer.Bind(grid, tiles.Length, PageBuildKind);
 
         var built = new List<BuiltTile>(tiles.Length);
         int withArt = 0;
@@ -226,13 +262,89 @@ internal static partial class VROptionsTab
 
         // HW-VERIFY: the next hardware round has to answer whether the strips drew and whether the
         // embedded art decoded on the headset; both are one number each and neither is visible in
-        // any other line.
+        // any other line. The EDGE and the PANEL WIDTH ride here rather than only on the strip
+        // line below, because this one is unconditional and prints exactly once per page build: a
+        // build whose strip never got a usable width would otherwise leave no record of which edge
+        // produced it, which is the reading ModBuild 472 could not make.
         VRLog.Note("WorldUI",
             $"Variant tiles for {item.Section}/{item.Key}: {tiles.Length} tile(s), " +
-            $"{withArt} with art, {tiles.Length - withArt} label-only.");
+            $"{withArt} with art, {tiles.Length - withArt} label-only; page build = " +
+            $"{PageBuildKind}; panel offers {ParentContentWidth(parent):F0} px, seeded " +
+            $"{seedColumns} column(s) at {seedCell:F0} px.");
 
         return true;
     }
+
+    /// <summary>
+    /// THE WIDTH A CHILD OF <c>ContentRoot</c> IS ACTUALLY OFFERED: the parent's rect less the
+    /// layout group's own horizontal padding, which on <c>ContentRoot</c> is the gap reserved for
+    /// the sub-tab column and is not the child's to use. Returns 0 when there is no parent rect or
+    /// no layout has run yet — <see cref="TileGridShape"/> reads that as "not known".
+    /// </summary>
+    private static float ParentContentWidth(Transform? parent)
+    {
+        if (parent is not RectTransform rect)
+            return 0f;
+        float width = rect.rect.width;
+        var group = rect.GetComponent<LayoutGroup>();
+        if (group != null)
+            width -= group.padding.horizontal;
+        return width;
+    }
+
+    /// <summary>
+    /// HOW MANY ROWS, HOW MANY COLUMNS AND HOW WIDE A CELL, for a strip of <paramref name="count"/>
+    /// tiles offered <paramref name="stripWidth"/> px. THE ONE COPY of the wrap arithmetic — the
+    /// seed in <c>TryBuildVariantTiles</c> and <see cref="TileStripGrid"/>'s live recompute must
+    /// never be able to disagree, because a seed that answers differently from the recompute is
+    /// exactly the defect this shape function was extracted to kill.
+    ///
+    /// <para>Returns FALSE when the width is not usable yet, and then hands back the safe seed —
+    /// ONE column at the authored size. Never <paramref name="count"/> columns: the grid's minimum
+    /// width is what the container obeys, so a fallback wider than the panel would size the panel
+    /// to the fallback rather than the other way round.</para>
+    ///
+    /// <para>THE RESULT FITS WHENEVER ONE TILE FITS, and not unconditionally — the first draft of
+    /// this sentence claimed the latter and a sweep of counts 1..24 over widths 115..4000 px
+    /// falsified it. <c>columns</c> is at most <c>fit</c>, and <c>fit</c> counts tiles at the
+    /// legible floor plus a gap, so <c>columns*cell + (columns-1)*gap ≤ usable - gap</c>: at
+    /// <c>stripWidth ≥ TileMinLegibleWidth</c> the worst overrun over that whole sweep is exactly
+    /// 0.0 px. BELOW that width <c>fit</c> is clamped up to 1 and the single column overruns by up
+    /// to <c>TileMinLegibleWidth - stripWidth</c>. That is the wrap ruling working as written — a
+    /// tile may never go below the floor, so a panel too narrow for one legible tile gets a tile
+    /// that sticks out rather than one nobody can see. Unreachable in this pane, whose content
+    /// column measures 618 px, and the instrument below names it separately so it can never be
+    /// mistaken for the ModBuild 472 defect.</para>
+    /// </summary>
+    private static bool TileGridShape(float stripWidth, int horizontalPadding, int count,
+                                      out int rows, out int columns, out float cell)
+    {
+        rows = 1;
+        columns = 1;
+        cell = TileWidth;
+
+        if (count <= 0)
+            return false;
+
+        float usable = stripWidth - horizontalPadding + TileGap;
+        if (usable <= TileGap + 1f)
+            return false;
+
+        // How many tiles fit at the floor, then how few ROWS that needs, then an EVEN spread over
+        // those rows. Never more columns than tiles, never fewer than one.
+        int fit = Mathf.Clamp(Mathf.FloorToInt(usable / (TileMinLegibleWidth + TileGap)), 1, count);
+        rows = Mathf.Max(1, Mathf.CeilToInt(count / (float)fit));
+        columns = Mathf.Clamp(Mathf.CeilToInt(count / (float)rows), 1, count);
+
+        // The leftover width is given back to the tiles, up to the authored size — a two-row strip
+        // in a wide pane should not leave a hole on the right of each row.
+        cell = Mathf.Clamp(usable / columns - TileGap, TileMinLegibleWidth, TileWidth);
+        return true;
+    }
+
+    /// <summary>The width one built row of the strip occupies, which is what has to fit the panel.</summary>
+    private static float TileRowWidth(int columns, float cell, int horizontalPadding) =>
+        columns * cell + Mathf.Max(0, columns - 1) * TileGap + horizontalPadding;
 
     /// <summary>
     /// Chooses the strip's COLUMN COUNT and CELL WIDTH from the width the strip actually got.
@@ -256,10 +368,17 @@ internal static partial class VROptionsTab
         private int _lastColumns = -1;
         private bool _pending;
 
-        internal void Bind(GridLayoutGroup grid, int count)
+        /// <summary>Which edge built the page this strip belongs to, captured at BUILD time: the
+        /// recompute runs a frame or more later, by which point the flag naming the edge is long
+        /// cleared. This is the term the user's report turns on — the defect was only ever visible
+        /// on a page restored by the window's own show.</summary>
+        private string _buildKind = "?";
+
+        internal void Bind(GridLayoutGroup grid, int count, string buildKind)
         {
             _grid = grid;
             _count = count;
+            _buildKind = buildKind;
             _lastColumns = -1;
             _pending = true;
         }
@@ -297,19 +416,16 @@ internal static partial class VROptionsTab
                 return;
 
             float width = ((RectTransform)transform).rect.width;
-            float usable = width - _grid.padding.horizontal + TileGap;
-            if (usable <= TileGap + 1f)
-                return; // layout has not run yet — the next dimensions change calls back
-
-            // How many tiles fit at the floor, then how few ROWS that needs, then an EVEN spread
-            // over those rows. Never more columns than tiles, never fewer than one.
-            int fit = Mathf.Clamp(Mathf.FloorToInt(usable / (TileMinLegibleWidth + TileGap)), 1, _count);
-            int rows = Mathf.Max(1, Mathf.CeilToInt(_count / (float)fit));
-            int columns = Mathf.Clamp(Mathf.CeilToInt(_count / (float)rows), 1, _count);
-
-            // The leftover width is given back to the tiles, up to the authored size — a two-row
-            // strip in a wide pane should not leave a hole on the right of each row.
-            float cell = Mathf.Clamp(usable / columns - TileGap, TileMinLegibleWidth, TileWidth);
+            if (!TileGridShape(width, _grid.padding.horizontal, _count,
+                               out int rows, out int columns, out float cell))
+            {
+                // Layout has not run yet. LEAVE _pending SET: the only other thing that re-arms
+                // this is OnRectTransformDimensionsChange, and a strip whose width never changes
+                // again — because it was already at its final value when this component woke —
+                // would otherwise stay on its seed for the life of the page.
+                _pending = true;
+                return;
+            }
 
             _grid.cellSize = new Vector2(cell, TileHeight);
             if (columns == _lastColumns)
@@ -317,13 +433,37 @@ internal static partial class VROptionsTab
 
             _lastColumns = columns;
             _grid.constraintCount = columns;
+
+            // THE PANEL IS THE THING THE ROW HAS TO FIT, so the line names it beside the row rather
+            // than leaving a reader to infer it from the strip rect — the strip rect is the term
+            // that LIED in ModBuild 472, reading 1200 px inside a 618 px panel because the strip's
+            // own seed had inflated it.
+            float row = TileRowWidth(columns, cell, _grid.padding.horizontal);
+            float panel = ParentContentWidth(transform.parent);
+            // THREE VERDICTS, NOT TWO. A panel too narrow for ONE tile at the legible floor is the
+            // wrap ruling refusing to shrink further, which is deliberate and documented at
+            // TileGridShape; calling that OVERRUNS would put the word on a working strip and cost a
+            // future reader the count that matters. OVERRUNS therefore means the ModBuild 472
+            // defect and nothing else.
+            string fit = panel <= 0f
+                ? "panel width not readable"
+                : row - panel <= 1f
+                    ? $"fits with {panel - row:F0} px to spare"
+                    : panel < TileMinLegibleWidth
+                        ? $"sticks out by {row - panel:F0} px because the panel is under the " +
+                          $"{TileMinLegibleWidth:F0} px legibility floor — the wrap ruling, not a defect"
+                        : $"OVERRUNS its panel by {row - panel:F0} px";
+
             // HW-VERIFY: the wrap ruling's only observable is "how many rows, at what tile width",
-            // and no other line carries either number. Change-gated on the COLUMN count, so a
-            // settled strip prints once and a re-seated window prints again with the new answer.
+            // and no other line carries either number; the OVERRUNS clause is the whole of user
+            // report 2026-09-07 item 13 in one word. Change-gated on the COLUMN count, so a settled
+            // strip prints once per page build and a re-seated window prints again with the new
+            // answer — Bind clears _lastColumns, so every build gets at least one line.
             VRLog.Note("WorldUI",
-                $"Variant tile strip {name}: {_count} tile(s) in {rows} row(s) x {columns} column(s), " +
-                $"cell {cell:F0} px wide (floor {TileMinLegibleWidth:F0}, authored {TileWidth:F0}) " +
-                $"in {width:F0} px of strip.");
+                $"Variant tile strip {name} [{_buildKind}]: {_count} tile(s) in {rows} row(s) x " +
+                $"{columns} column(s), cell {cell:F0} px wide (floor {TileMinLegibleWidth:F0}, " +
+                $"authored {TileWidth:F0}); row {row:F0} px against {panel:F0} px of panel — {fit} " +
+                $"(strip rect {width:F0} px).");
             // The ROW COUNT changed, so the strip's own preferred height did too, and the pane above
             // it has to be told: a grid does not mark its ancestors dirty for its own reflow.
             LayoutRebuilder.MarkLayoutForRebuild((RectTransform)transform);
