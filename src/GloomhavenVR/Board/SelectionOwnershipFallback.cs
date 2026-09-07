@@ -64,6 +64,27 @@ internal static class SelectionOwnershipFallback
 
     private static int _armedFrame;
 
+    /// <summary>
+    /// DOES THIS CLIENT OWN <paramref name="player"/>? The same term the whole card funnel now runs
+    /// on — <c>CardsGameApi.IsLocalHand</c>'s <c>NetworkPlayer.MyControllables</c> question, with
+    /// <c>CActor.IsUnderMyControl</c> kept only for the cases the registry cannot answer.
+    ///
+    /// <para>IT MATTERS MOST HERE, of all places. This class reacts to a control RELEASE, and the
+    /// release is exactly the edge at which the flag goes wrong: <c>CharacterManager.OnControlReleased</c>
+    /// (CharacterManager.cs:488-495) clears it with no test of WHICH player the release concerned,
+    /// while its counterpart <c>OnControlAssigned</c> sets it only for the matching player. So on the
+    /// client that has just been GIVEN the character the flag can read false, and reading it here
+    /// would make this fallback deselect the player's own, newly-assigned character and then report
+    /// that he has none left — turning a stale bit into the reported "he cannot take the cards of
+    /// that character into his hand at all". Asking the list instead cannot do that: the list is
+    /// what <c>AssignControllable</c> just added him to.</para>
+    /// </summary>
+    private static bool LocallyOwned(CPlayerActor player)
+    {
+        bool byList = CardsGameApi.LocalControlsActor(player, out bool answerable);
+        return answerable ? byList : player.IsUnderMyControl;
+    }
+
     /// <summary>Called from the OnControlReleased postfix — arm a next-frame check.</summary>
     public static void Arm(CPlayerActor released)
     {
@@ -92,7 +113,7 @@ internal static class SelectionOwnershipFallback
                 return; // session ended between arm and tick — nothing to correct
 
             CActor? selected = CardsGameApi.SelectedActor();
-            if (!(selected is CPlayerActor selectedPlayer) || selectedPlayer.IsUnderMyControl)
+            if (!(selected is CPlayerActor selectedPlayer) || LocallyOwned(selectedPlayer))
                 return; // selection is fine (or not a player) — nothing to do
 
             wasReleased = _released.Contains(selectedPlayer);
@@ -114,7 +135,7 @@ internal static class SelectionOwnershipFallback
         {
             InitiativeTrackPlayerBehaviour beh = players[i];
             if (beh != null && beh.Actor is CPlayerActor mine
-                && mine.IsUnderMyControl && !mine.IsDead
+                && LocallyOwned(mine) && !mine.IsDead
                 && CardsGameApi.SelectActor(mine))
             {
                 VRLog.Info("Board", "[Ownership] selected character was reassigned to another player " +

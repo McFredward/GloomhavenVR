@@ -1214,10 +1214,31 @@ internal static class CharacterFocus
         Cards.CardsDriver.RequestRebuild();
     }
 
-    /// <summary>True when <paramref name="actor"/> belongs to another player (online only —
-    /// offline every merc is ours).</summary>
-    internal static bool IsForeign(CPlayerActor? actor) =>
-        actor != null && FFSNetwork.IsOnline && !actor.IsUnderMyControl;
+    /// <summary>
+    /// True when <paramref name="actor"/> belongs to another player (online only — offline every
+    /// merc is ours).
+    ///
+    /// <para>IT IS THE PRECISE INVERSE OF <c>Cards.CardsGameApi.IsLocalHand</c>, which
+    /// <see cref="HandInspectable"/> has always said it is, AND IT HAS TO STAY THAT WAY: the two are
+    /// read on the same rebuild — one to decide whether the fan is interactive, the other to label it
+    /// "another player's character — read-only view" and to decide whether a peer's use bar is
+    /// answerable (<c>WorldUI.Surfaces.UseBarsSurface</c>, <c>Net.Avatar.NetAvatarDriver</c>). If the
+    /// two disagreed, the mod would call a hand foreign and hand it out anyway, or the reverse.</para>
+    ///
+    /// <para>So it asks the same question through the same term. <c>IsLocalHand</c> stopped reading
+    /// <c>CActor.IsUnderMyControl</c> because that flag's CLEAR is unpartitioned
+    /// (<c>CharacterManager.OnControlReleased</c> tests no player identity,
+    /// CharacterManager.cs:488-495) while its SET is — the full derivation is on
+    /// <c>Cards.CardsGameApi.IsLocalHand</c> — and this predicate had to follow it, or the inverse
+    /// claim above would have become false in exactly the state the pair exists to handle.</para>
+    /// </summary>
+    internal static bool IsForeign(CPlayerActor? actor)
+    {
+        if (actor == null || !FFSNetwork.IsOnline)
+            return false;
+        bool byList = CardsGameApi.LocalControlsActor(actor, out bool answerable);
+        return !(answerable ? byList : actor.IsUnderMyControl);
+    }
 
     /// <summary>
     /// MAY THE PLAYER PICK A CARD OUT OF THIS HAND JUST TO LOOK AT IT? User ruling 2026-08-08:
@@ -1258,6 +1279,116 @@ internal static class CharacterFocus
     internal static bool HandInspectable(CardsHandUI? hand) =>
         hand != null && hand.PlayerActor != null && CardsGameApi.IsLocalHand(hand);
 
+
+    // ------------------------------------------------------------------ the ownership census --
+
+    /// <summary>Last announced census signature, so the line lands on a CHANGE and a steady board
+    /// costs one string compare per rebuild. Read by nothing but <see cref="LogOwnershipCensus"/>.</summary>
+    private static string? _lastOwnershipCensus;
+
+    /// <summary>Scratch, so the census allocates no list per rebuild.</summary>
+    private static readonly List<int> _claimants = new List<int>();
+
+    /// <summary>
+    /// WHO DOES THE MOD THINK OWNS THE HAND IT IS ABOUT TO DRAW, AND DOES ANYBODY ELSE CLAIM IT?
+    ///
+    /// <para>USER REPORT (hardware, 2026-09-07, item 10): <i>"Wenn ein Spieler einen Character
+    /// ausgewählt hat den ein anderer Spieler spielt, kann ich Handkarten aus dem Fächer des
+    /// Mitspielers ziehen. Das darf nicht sein. Außerdem kann er die Karten von dem Character nicht
+    /// in die Hand nehmen."</i> Two symptoms, and <c>Cards.CardsGameApi.IsLocalHand</c>'s doc shows
+    /// they are one broken term: <c>CActor.IsUnderMyControl</c> has a partitioned SET
+    /// (<c>CharacterManager.OnControlAssigned</c> tests <c>MyPlayer.PlayerID == controller.PlayerID</c>)
+    /// and an UNPARTITIONED CLEAR (<c>OnControlReleased</c> tests nothing), so after a reassignment
+    /// it can read stale TRUE on a client that does not own the character and stale FALSE on the one
+    /// that does — both at once.</para>
+    ///
+    /// <para>THE FIX IS ALREADY IN (<c>IsLocalHand</c> now asks
+    /// <c>NetworkPlayer.MyControllables</c>, which partitions at both edges). THIS LINE IS THE
+    /// FALSIFIER, and it exists because the 2026-09-07 session's two logs do NOT contain the
+    /// duplicate: host and peer held one character each for the whole session, so nothing in the
+    /// evidence showed the two terms disagreeing. So the line prints BOTH terms side by side and the
+    /// full claimant list, and it is the reading that decides whether the duplicate is real, which
+    /// half of it each client saw, and whether raising the term cured it.</para>
+    ///
+    /// <para>It is emitted from <see cref="ResolveHand"/> — the ONE seam into the card pipeline,
+    /// called once per rebuild and never per frame — and only when its signature CHANGES, so a
+    /// steady board is silent. Every field it names is read at the moment the fan is built for that
+    /// character, which is exactly the moment the report is about.</para>
+    /// </summary>
+    private static void LogOwnershipCensus(CardsHandUI? presented, bool readOnly)
+    {
+        CPlayerActor? actor = presented != null ? presented.PlayerActor : null;
+        if (actor == null)
+        {
+            _lastOwnershipCensus = null; // no hand: the next real one always announces itself
+            return;
+        }
+
+        bool online = FFSNetwork.IsOnline;
+        bool flag = actor.IsUnderMyControl;
+        bool byList = Cards.CardsGameApi.LocalControlsActor(actor, out bool answerable);
+        bool mine = !online || (answerable ? byList : flag);
+
+        _claimants.Clear();
+        int claimCount = Cards.CardsGameApi.ClaimantPlayerIds(actor, _claimants);
+        int localId = NetPlayerActors.LocalPlayerId();
+
+        // WHAT THE PLAYER MAY DO WITH THIS FAN, in the vocabulary the report used. `mine` is
+        // CardsGameApi.IsLocalHand's own answer, which is what CardsDriver.CurrentHand and
+        // HandInspectable both consume, so the verdict cannot drift from the behaviour.
+        string verdict = !mine
+            ? "REFUSED (foreign hand — the fan is a picture; a teammate's card is reachable only as "
+              + "a read-only Cards.CardBorrow copy from the mirrored fan)"
+            : readOnly
+                ? "own-hand READ-ONLY (a focus/floor view of one of this client's own characters)"
+                : "own-hand INTERACTIVE";
+
+        var claims = new System.Text.StringBuilder();
+        if (claimCount < 0)
+        {
+            claims.Append("unanswerable");
+        }
+        else if (claimCount == 0)
+        {
+            claims.Append("NOBODY");
+        }
+        else
+        {
+            for (int i = 0; i < _claimants.Count; i++)
+                claims.Append(i == 0 ? string.Empty : ",").Append(_claimants[i]);
+        }
+
+        // THE DUPLICATE, NAMED. More than one player id listing the same character is the state the
+        // report describes, and it must be visible here without a screenshot — he has hit it once
+        // and will hit it again. A claimant list that does not contain THIS client while the flag
+        // says it does (or the reverse) is the disagreement that convicts the flag.
+        string duplicate = claimCount > 1
+            ? $" — DUPLICATE: {claimCount} players claim this character"
+            : claimCount == 1 && localId != 0 && _claimants[0] != localId && flag
+                ? " — DISAGREEMENT: the registry names another player while IsUnderMyControl says mine"
+                : claimCount == 1 && localId != 0 && _claimants[0] == localId && !flag
+                    ? " — DISAGREEMENT: the registry names THIS client while IsUnderMyControl says not mine"
+                    : string.Empty;
+
+        string signature = $"{Describe(actor)}|{online}|{flag}|{answerable}|{byList}|{claims}|"
+                           + $"{localId}|{readOnly}|{duplicate.Length}";
+        if (signature == _lastOwnershipCensus)
+            return;
+        _lastOwnershipCensus = signature;
+
+        // HW-VERIFY
+        VRLog.Note("Board",
+            $"[Ownership] HAND FAN for '{Describe(actor)}': this client is player "
+            + $"{(localId == 0 ? "?" : localId.ToString())}; the game's own controllable list names "
+            + $"claimant(s) {claims}; CActor.IsUnderMyControl={flag}; "
+            + $"MyControllables says mine={(answerable ? byList.ToString() : "unanswerable")}; "
+            + $"online={online} ⇒ interaction {verdict}.{duplicate} "
+            + "The list is the term the fan is gated on (Cards.CardsGameApi.IsLocalHand); the flag "
+            + "is printed beside it because its clear is unpartitioned "
+            + "(CharacterManager.OnControlReleased tests no player identity) and it is the term "
+            + "that shipped before ModBuild 473.");
+    }
+
     // ----------------------------------------------------------------------------- resolution --
 
     /// <summary>
@@ -1293,6 +1424,7 @@ internal static class CharacterFocus
         CardsHandUI? resolved = ResolveHandCore(gameHand);
         if (resolved != null)
         {
+            LogOwnershipCensus(resolved, _readOnlyView);
             // Remember what we presented, while it is still ours: the floor's first choice is
             // CONTINUITY, so a board that has to fall back falls back to the character the player
             // was already looking at rather than to whoever happens to be first in the list.
@@ -1311,6 +1443,7 @@ internal static class CharacterFocus
             // no living character at all (spectator / whole party exhausted). The empty board is
             // then the truth, and SelectionOwnershipFallback documents the same terminal case.
             LogFloor(null);
+            LogOwnershipCensus(null, false);
             return null;
         }
 
@@ -1323,6 +1456,7 @@ internal static class CharacterFocus
         _readOnlyView = true;
         _floorActor = floor.PlayerActor;
         LogFloor(floor.PlayerActor);
+        LogOwnershipCensus(floor, readOnly: true);
         return floor;
     }
 

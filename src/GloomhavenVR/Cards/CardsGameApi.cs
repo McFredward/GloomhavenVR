@@ -1,6 +1,8 @@
 using System.Collections.Generic;
+using System.Reflection;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net;
+using HarmonyLib;
 using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.Cards;
@@ -250,15 +252,217 @@ internal static class CardsGameApi
     }
 
     /// <summary>
-    /// True when we may drive this hand. Verified: <c>public static bool
-    /// FFSNetwork.IsOnline</c>; <c>CPlayerActor.IsUnderMyControl</c> (used the same
-    /// way throughout CardsHandUI, e.g. RefreshValidCards, CardsHandUI.cs:1635).
+    /// True when we may drive this hand — <b>the single ownership term the whole card funnel runs
+    /// on</b> (<c>CardsDriver.CurrentHand</c>, <c>Board.CharacterFocus.HandInspectable</c> and its
+    /// inverse <c>IsForeign</c>, <c>ActiveHand</c>, the pick flows, the pile viewers, the wrist HUD).
+    ///
+    /// <para><b>WHAT IT USED TO BE, AND WHY THAT WAS NOT AN OWNERSHIP TEST AT ALL.</b> This method
+    /// read <c>!FFSNetwork.IsOnline || hand.PlayerActor.IsUnderMyControl</c>. That flag is
+    /// <c>public bool IsUnderMyControl { get; set; }</c> — a plain auto-property, i.e. a CACHED
+    /// PER-CLIENT BOOLEAN (CActor.cs:751), and its two FFSNet writers are asymmetric:</para>
+    /// <list type="bullet">
+    /// <item><c>CharacterManager.OnControlAssigned(NetworkPlayer controller)</c>
+    /// (CharacterManager.cs:479-486) sets it TRUE <b>only</b> when
+    /// <c>PlayerRegistry.MyPlayer.PlayerID == controller.PlayerID</c> — the set IS partitioned;</item>
+    /// <item><c>CharacterManager.OnControlReleased()</c> (CharacterManager.cs:488-495) is
+    /// <c>if (CharacterActor.IsUnderMyControl) CharacterActor.IsUnderMyControl = false;</c> — <b>no
+    /// identity test at all</b>. The clear is NOT partitioned: it fires on whichever client runs it.</item>
+    /// </list>
+    /// <para>A pair whose set is scoped and whose clear is not cannot be a partition. Nothing
+    /// anywhere sets it FALSE on client X because the character was assigned to client Y, and
+    /// nothing re-asserts it on the client that DOES own it after a release ran there. So after a
+    /// reassignment the flag can be stale TRUE on a client that does not own the character and
+    /// stale FALSE on the client that does — <b>both at once</b>, which is exactly the reported pair
+    /// of symptoms (user report item 10, 2026-09-07: he could pull cards out of the teammate's fan,
+    /// and the teammate could not take his own character's cards at all). It is also copied wholesale
+    /// out of a serialized snapshot at CActor.cs:3652.</para>
+    ///
+    /// <para><b>WHY VANILLA NEVER SHOWS THIS AND THE MOD DOES.</b> The flat game does not gate hand
+    /// cards on ownership at all. <c>CardsHandUI.SetInteractable(!IsDead, !IsDead)</c> is applied to
+    /// EVERY non-dead hand including teammates' (CardsHandManager.cs:1248, no ownership check), and
+    /// <c>AbilityCardUI</c>'s <c>IsUnderMyControl</c> tests (:980/:1024/:1100/:1188) are DISPLAY
+    /// concealment of the chosen round cards, not click gates. What actually stops a flat player
+    /// touching a teammate's card is STRUCTURAL: <c>CardsHandManager.SwitchHand</c> calls
+    /// <c>CardsHandUI.Hide()</c> on every other hand, whose body is
+    /// <c>gameObject.SetActive(false)</c> (CardsHandUI.cs:514) — you cannot click what is not in the
+    /// hierarchy. This mod suppresses that 2D window (<c>Cards.Patches.HandSuppression</c>) and
+    /// rebuilds the fan in VR straight off <c>CardsHandUI.cardsUI</c>, so vanilla's only enforcement
+    /// is bypassed by construction and THIS predicate is the whole of the replacement. A structural
+    /// guarantee was traded for a cached bool, and the bool is the one that can be wrong.</para>
+    ///
+    /// <para><b>THE TERM THAT IS A REAL PARTITION, and it is the game's own.</b> The same events
+    /// that write the flag also maintain a LIST: <c>NetworkPlayer.AssignControllable</c> does
+    /// <c>MyControllables.Add(controllable)</c> (NetworkPlayer.cs:259) and
+    /// <c>NetworkPlayer.ReleaseControllable</c> removes it from <b>that owner's</b> list
+    /// (:303-329). The list is scoped to the player it belongs to at both edges, so it partitions
+    /// where the bool does not, and it is the record the game itself reacts to
+    /// (<c>CardsHandManager.OnMyControllableOwnershipChanged</c> is a collection-changed handler on
+    /// it, CardsHandManager.cs:1207). <see cref="LocalControlsActor"/> asks it.</para>
+    ///
+    /// <para><b>STRICTLY MORE ACCURATE, NEVER MORE PERMISSIVE BY GUESS.</b> When the registry is
+    /// unanswerable (offline, netcode absent, reflection incomplete) the flag is used exactly as
+    /// before, so single player and any non-FFSNet build are byte-identical. When both are
+    /// answerable and AGREE — every healthy multiplayer frame — the answer is unchanged. Only the
+    /// disagreement changes, and there the list is right in both directions: it refuses the foreign
+    /// hand (report requirement A) and admits the player's own (requirement B, "IMMER
+    /// ausnahmslos"). No third code path and no fallback surface: the wrong term was raised to the
+    /// right one in the one place the funnel reads it.</para>
     /// </summary>
     internal static bool IsLocalHand(CardsHandUI hand)
     {
         if (hand == null || hand.PlayerActor == null)
             return false;
-        return !FFSNetwork.IsOnline || hand.PlayerActor.IsUnderMyControl;
+        if (!FFSNetwork.IsOnline)
+            return true;
+        bool byList = LocalControlsActor(hand.PlayerActor, out bool answerable);
+        return answerable ? byList : hand.PlayerActor.IsUnderMyControl;
+    }
+
+    // ------------------------------------------------------ WHO OWNS WHAT — the game's own list --
+    //
+    // REFLECTION-ONLY, for the reason Net/NetPlayerActors and WorldUI/MapRoom/MapCharacterSelection
+    // both state at length: FFSNet.NetworkPlayer is EntityBehaviour<IPlayerState>, i.e. Bolt-derived,
+    // and this build has (and needs) no bolt.dll. So the registry, the player and the controllable
+    // are handled as `object` and every member is reached through AccessTools. CharacterManager is
+    // NOT Bolt-derived and is referenced directly, exactly as Net/NetPlayerActors.ActorFor does.
+    //
+    // Anything missing degrades to "unanswerable", and every caller then falls back to
+    // CActor.IsUnderMyControl — i.e. to the behaviour that shipped before this block existed.
+    //
+    // THE SHAPE, from the game's own source:
+    //   PlayerRegistry.MyPlayer               : NetworkPlayer                     (PlayerRegistry.cs:86)
+    //   PlayerRegistry.AllPlayers             : List<NetworkPlayer>               (:13, a FIELD)
+    //   NetworkPlayer.PlayerID                : int                               (NetworkPlayer.cs:29)
+    //   NetworkPlayer.MyControllables         : ObservableCollection<NetworkControllable>  (a FIELD)
+    //   NetworkControllable.ControllableObject: IControllable                     (NetworkControllable.cs:55)
+    //   CharacterManager : IControllable, and CharacterManager.CharacterActor is the CPlayerActor.
+
+    private static bool _ownReflected;
+    private static PropertyInfo? _ownMyPlayer;        // static NetworkPlayer
+    private static FieldInfo? _ownAllPlayers;         // static List<NetworkPlayer>
+    private static PropertyInfo? _ownPlayerId;        // int
+    private static FieldInfo? _ownMyControllables;    // ObservableCollection<NetworkControllable>
+    private static PropertyInfo? _ownControllableObj; // IControllable
+
+    private static void ReflectOwnership()
+    {
+        if (_ownReflected)
+            return;
+        _ownReflected = true;
+        try
+        {
+            System.Type? registry = AccessTools.TypeByName("FFSNet.PlayerRegistry");
+            System.Type? player = AccessTools.TypeByName("FFSNet.NetworkPlayer");
+            System.Type? controllable = AccessTools.TypeByName("FFSNet.NetworkControllable");
+
+            _ownMyPlayer = registry?.GetProperty("MyPlayer",
+                BindingFlags.Public | BindingFlags.Static);
+            _ownAllPlayers = registry == null ? null : AccessTools.Field(registry, "AllPlayers");
+            _ownPlayerId = player?.GetProperty("PlayerID");
+            _ownMyControllables = player == null ? null : AccessTools.Field(player, "MyControllables");
+            _ownControllableObj = controllable?.GetProperty("ControllableObject");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Warn("Cards", "[Ownership] the FFSNet reflection failed "
+                                + $"({ex.Message}); every ownership question falls back to "
+                                + "CActor.IsUnderMyControl, which is what shipped before.");
+        }
+    }
+
+    /// <summary>Does <paramref name="np"/>'s <c>MyControllables</c> list a scenario character whose
+    /// actor is <paramref name="actor"/>? Never throws — an unreadable player is a miss.</summary>
+    private static bool PlayerListsActor(object? np, CPlayerActor actor)
+    {
+        if (np == null)
+            return false;
+        try
+        {
+            if (_ownMyControllables!.GetValue(np) is not System.Collections.IEnumerable list)
+                return false;
+            foreach (object? nc in list)
+            {
+                if (nc == null)
+                    continue;
+                if (_ownControllableObj!.GetValue(nc) is CharacterManager cm
+                    && ReferenceEquals(cm.CharacterActor, actor))
+                    return true;
+            }
+        }
+        catch (System.Exception)
+        {
+            // A half-built registry answers "no", never a throw: this sits under the card
+            // pipeline's per-rebuild seam and must never take the board down with it.
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Does the LOCAL player's own <c>MyControllables</c> list <paramref name="actor"/>? This is the
+    /// partitioned ownership term <see cref="IsLocalHand"/> documents at length — the list the game's
+    /// own <c>AssignControllable</c>/<c>ReleaseControllable</c> pair maintains, scoped to its owner
+    /// at BOTH edges, as opposed to <c>CActor.IsUnderMyControl</c> whose clear is scoped to nobody.
+    ///
+    /// <para><paramref name="answerable"/> is false when the question cannot be put to the registry
+    /// at all (offline, FFSNet absent, reflection incomplete, no local player yet). Every caller then
+    /// keeps reading the flag, so nothing outside a live multiplayer session changes.</para>
+    /// </summary>
+    internal static bool LocalControlsActor(CPlayerActor? actor, out bool answerable)
+    {
+        answerable = false;
+        if (actor == null || !FFSNetwork.IsOnline)
+            return false;
+        ReflectOwnership();
+        if (_ownMyPlayer == null || _ownMyControllables == null || _ownControllableObj == null)
+            return false;
+        try
+        {
+            object? me = _ownMyPlayer.GetValue(null);
+            if (me == null)
+                return false; // online but no local player yet — a not-yet, never an answer
+            answerable = true;
+            return PlayerListsActor(me, actor);
+        }
+        catch (System.Exception)
+        {
+            answerable = false;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Every player id whose <c>MyControllables</c> lists <paramref name="actor"/>, appended to
+    /// <paramref name="into"/>. <b>DIAGNOSTIC ONLY</b> — nothing gates on it; the census line in
+    /// <c>Board.CharacterFocus</c> prints it so a character claimed by TWO seats is visible in the
+    /// log without a screenshot. Returns -1 when the registry is unanswerable, otherwise the number
+    /// of claimants appended (0, 1, or — the defect this exists to catch — more than 1).
+    /// </summary>
+    internal static int ClaimantPlayerIds(CPlayerActor? actor, List<int> into)
+    {
+        if (actor == null || into == null || !FFSNetwork.IsOnline)
+            return -1;
+        ReflectOwnership();
+        if (_ownAllPlayers == null || _ownPlayerId == null
+            || _ownMyControllables == null || _ownControllableObj == null)
+            return -1;
+        try
+        {
+            if (_ownAllPlayers.GetValue(null) is not System.Collections.IEnumerable all)
+                return -1;
+            int found = 0;
+            foreach (object? np in all)
+            {
+                if (np == null || !PlayerListsActor(np, actor))
+                    continue;
+                into.Add(_ownPlayerId.GetValue(np) is int id ? id : 0);
+                found++;
+            }
+            return found;
+        }
+        catch (System.Exception)
+        {
+            return -1;
+        }
     }
 
     /// <summary>
