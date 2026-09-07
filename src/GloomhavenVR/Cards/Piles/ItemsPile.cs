@@ -2183,7 +2183,22 @@ internal sealed class ItemsPile
         ItemCardPicker? demand = DemandCandidateFilter();
         if (demand != null)
             return chip.Item != null && CardsGameApi.IsItemPickCandidate(demand, chip.Item);
-        return (CardsGameApi.IsActionTurn(_hand) && chip.IsActivatable) || chip.HasOfferedBonus;
+        // THE TAKE-DAMAGE ARM (user item 6a, 2026-09-07): "die Item stapel soll während die
+        // Schadenentscheidung getroffen werden soll anzeigen das ein Item genutzt werden kann mit
+        // dem üblichen Highlighting und der User muss das Item dann entsprechend aktivieren".
+        // NEITHER ARM ABOVE CAN ANSWER IT. You are attacked on somebody ELSE's turn, so
+        // IsActionTurn is false for the whole decision; and an OnAttacked shield is not a
+        // PlaceableBonusForItem, so the bonus arm misses it too. Measured on ModBuild 476: the
+        // decision armed twice on the peer ('[Cards] TAKE-DAMAGE item place ARMED', raw 53941 and
+        // 108268) while '[Net] Item usable mask SENT' read 0x0000 across both windows.
+        //
+        // LiveItemsBarSlot(item) != null IS THE SAME GATE THE DROP ROUTER USES to decide the chip
+        // is placeable (HeldTakeDamageCandidate), so this highlight can never promise a placement
+        // that would then be bounced — the failure the demand arm above is written to avoid.
+        return (CardsGameApi.IsActionTurn(_hand) && chip.IsActivatable)
+               || chip.HasOfferedBonus
+               || (CardsGameApi.TakeDamagePlaceContext(_hand) && chip.Item != null
+                   && CardsGameApi.LiveItemsBarSlot(chip.Item) != null);
     }
 
     /// <summary>
@@ -2363,13 +2378,19 @@ internal sealed class ItemsPile
         // fan already shows the owner INVENTORY during a forfeit, so there is no correct card to
         // frame. Named here rather than left to be rediscovered.
         ItemCardPicker? demand = DemandItemsOverride() == null ? DemandCandidateFilter() : null;
+        // The take-damage arm, hoisted: see CanUseNow for why neither of the other two arms can
+        // answer during a damage decision. It is read ONCE per mask rather than per item because
+        // it is a property of the open panel, not of a card.
+        bool tdPlace = CardsGameApi.TakeDamagePlaceContext(hand);
         ushort mask = 0;
         for (int i = 0; i < items.Count; i++)
         {
             bool eligible = demand != null
                 ? items[i] != null && CardsGameApi.IsItemPickCandidate(demand, items[i])
                 : (turn && IsItemActivatable(items[i]))
-                  || CardsGameApi.PlaceableBonusForItem(items[i], owner) != null;
+                  || CardsGameApi.PlaceableBonusForItem(items[i], owner) != null
+                  || (tdPlace && items[i] != null
+                      && CardsGameApi.LiveItemsBarSlot(items[i]) != null);
             if (!eligible)
                 continue;
             count++;
