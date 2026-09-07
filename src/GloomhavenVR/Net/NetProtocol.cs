@@ -433,7 +433,81 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 466;
+    public const ushort ModBuild = 467;
+    // Build 467: one lane, two small defects, and the round that makes the fifteen-round white
+    //   flash decidable by a single hardware test. Also: the MATERIAL CLASS IS NOW PROPERLY
+    //   EXCLUDED for the first time, on the user's word rather than by inference.
+    //   * THE MATERIAL EXCLUSION IS CONFIRMED, AND ROUND SIXTEEN'S ALARM IS RETIRED. ModBuild 466
+    //     found that `ResolveVerdictMaterials` caches Material REFERENCES once at the grab, so a
+    //     later `Renderer.material` touch would orphan the cache and every "nothing changed"
+    //     reading since round ten would have been blind. It shipped a counter and a pre-registered
+    //     rule: 0 orphans on a WHITE hold confirms the exclusion for the first time; 0 on a hold
+    //     with no flash proves nothing. The 466 log reads `held prop worst 0 of 2, twin worst 0 of
+    //     2` over 360 sampled frames — and THE USER CONFIRMS THE WHITE OCCURRED IN THAT SESSION.
+    //     So the hole is real in the code and did not fire in practice: the readings were attached
+    //     to what draws, and the whole material class stays excluded — including on the UNHELD
+    //     TWIN, which is the board-wide flash on a population this mod does not touch at all.
+    //   * THE A/B DID NOT FAIL ITS CAMERA MATCH — IT NEVER RAN, AND ITS OWN REPORT BLAMED THE WRONG
+    //     THING. The integrator read `HEAD CAMERA MATCHED: '<none>'` as a broken match and briefed
+    //     a camera-identity fix. The lane falsified that from the same log: `OCCLUSION GATE A/B
+    //     ARMED` appears ZERO times, `[Board] Board targeting installed` is at line 126 so
+    //     `PropOcclusionGate.Sync()` did run — and found the dial FALSE. The hook was never
+    //     installed, because the user could not find the switch. The two items of this round are
+    //     one causal chain. And the match itself is sound: `HEAD CAMERA: 'GloomhavenVR.HeadCamera'`
+    //     prints four times from the SAME `VRRigDriver.HeadCamera` property the gate compares
+    //     against, which is the mod-wide head identity used by four other classes.
+    //     THE REAL DEFECT WAS A VERDICT ASSERTING A CAUSE IT COULD NOT OBSERVE — one branch of
+    //     `_suppressed == 0` printed "THE HOOK NEVER MATCHED A HEAD CAMERA", which is one of two
+    //     ways that count reaches zero and was the wrong one. This project has a standing finding
+    //     for exactly this shape and it has now cost a briefing. The line now carries `_everArmed`,
+    //     the camera-pass and head-null counts, the arming frame and the names of cameras that did
+    //     not match, so it REPORTS the cause instead of guessing it.
+    //     AND THE NO-LATCH PREMISE IS NOW MEASURED RATHER THAN ASSERTED. The gate leans on the game
+    //     re-publishing `_EnableOcclusionMap = 1` every frame; that is real — the write sits inside
+    //     the command buffer added at `CameraEvent.BeforeGBuffer` (TilesOcclusionGenerator.cs:191-
+    //     192) — and `VRCameraPolicy` only forces game cameras to `StereoTargetEyeMask.None`, so
+    //     the ScenarioCamera keeps rendering under a VR rig. It was still an assertion, so the line
+    //     now counts `GENERATOR CAMERA PASSES`, and a zero there explicitly downgrades the
+    //     guarantee.
+    //     THREE READINGS THAT MUST STAY DISTINGUISHABLE, because the entire value of this
+    //     experiment is that its NULL RESULT can be trusted: NEVER ARMED (dial off — the only
+    //     branch that prints with no ARMED line above it); ARMED BUT BLIND (ARMED >= 1 with
+    //     SUPPRESSED 0, naming either zero camera renders or the cameras that were not the head);
+    //     and WORKING (SUPPRESSED >= 120, RESTORED equal, read-back non-zero on 0, and generator
+    //     passes >= suppressed). Only against the third does "the white was unchanged" mean an
+    //     exclusion.
+    //   * THE SWITCH WAS FILED WHERE NOBODY WOULD LOOK, AND THAT IS A REPEAT OF A RECORDED LESSON.
+    //     `[FigureGrab] OcclusionMapOffOnHeadCamera` was bound with a proper EN/DE name but was not
+    //     curated, so `ConfigCatalog.TopicOf` filed it by its SECTION and it landed under "Figuren-
+    //     Offsets". The user went looking under Erweitert and could not find it — the same failure
+    //     as the round in which a dial he had explicitly asked for vanished into the raw key list,
+    //     whose lesson was to file a setting by what the PLAYER would look for. It now sits on
+    //     Erweitert > Test-Auslöser under a new sub-heading, "Diagnostics — settings, not
+    //     triggers", with two notes in both languages: that unlike every other row on that page
+    //     this one is SAVED, and what it costs — flames and other effects drawn WITHOUT occlusion,
+    //     showing through walls — stated on the page and not only in a tooltip.
+    //     THE DE-DUPLICATION IS IN THE ROW FILTER AND NOT IN THE CATALOG, deliberately: taking the
+    //     key out of the catalog would have made it reachable from NEITHER door, since the topic
+    //     pages are built from the catalog's own groups. It is named inside the single visibility
+    //     filter every view already asks, so the key stays bound, stays counted, and is drawn
+    //     exactly once. `check-options-coverage.py` gained a seventh check for that invariant —
+    //     every key handed to a page of its own must be bound AND named literally by some other
+    //     file under WorldUI/Options — and the check was falsified on purpose before shipping
+    //     (exit 1, `OWN-PAGE KEY IS DRAWN NOWHERE`) rather than assumed to work.
+    //   * STATE OF THE FLASH AFTER FIFTEEN ROUNDS, so the next reader does not re-derive it.
+    //     EXCLUDED: the prop's own state in every form (1796 frames, CHANGES 0); the material class
+    //     (now with its attachment verified on a white hold); light reaching the prop, in two
+    //     sessions and in two directions (ratio 0.629 once, 1.003 the next — the second is no
+    //     change at all); this mod's own overlays, by COLOUR (neutral delta 1.000/0.995/1.010
+    //     against an amber that demands 1.000/0.342/0.056); pose, by a same-pose same-position pair
+    //     0.1 s apart with one white and one not; position, by a centroid that moves under 30 px
+    //     across both the ramp and the cliff; and projectors. OPEN: the occlusion map, whose head-
+    //     camera UV sits 1.06-1.20 away from the generator camera's for the same world point, where
+    //     0.5 already means a different part of the world — and which one hardware test now
+    //     decides. If that test comes back "unchanged", NO CANDIDATE STANDS, and the honest next
+    //     step is to question an assumption none of the rounds has written down.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 466: two lanes, no fade decision changed, and the round in which the flash's PICTURE
     //   was finally measured — killing the position premise this build's own predecessor was
     //   built on, and turning up a hole that may invalidate every material exclusion since round
