@@ -583,7 +583,9 @@ internal sealed class RemotePileFronts
         }
 
         int fronts = 0;
-        int burntLook = 0;
+        // Slabs carrying a settled card-FX look this pass — the burnt arc's char and, since
+        // ModBuild 479, the discard arc's grey.
+        int fxLooks = 0;
         // Slabs the PER-CARD burn exception refused. Zero is the expected reading (every card in a
         // burnt arc is in the owner's lost lists by construction), so a non-zero one is the
         // falsifier for that sentence and not a footnote.
@@ -652,18 +654,42 @@ internal sealed class RemotePileFronts
                     // colours) and the rig itself is built once per clone, so the 4 Hz cadence this
                     // sits on costs a handful of SetFloat calls per slab and nothing else.
                     //
-                    // DISCARD IS DELIBERATELY NOT INCLUDED: a discarded card is not burnt and the
-                    // owner's own discard fan shows it fresh.
-                    if (shown && content == Content.Burnt)
+                    // ─── AND SO IS A DISCARDED CARD (ModBuild 479, user item 2a) ─────────────────
+                    // THE SENTENCE THAT USED TO STAND HERE WAS FALSE, and it is written out rather
+                    // than deleted because it is the whole of the defect: "DISCARD IS DELIBERATELY
+                    // NOT INCLUDED: a discarded card is not burnt and the owner's own discard fan
+                    // shows it fresh." The second clause is the claim, and the game contradicts it
+                    // in one line — FullAbilityCard.SetPile(ECardPile.Discarded) calls
+                    // cardEffects.ToggleEffect(active: true, FXTask.DiscardMode)
+                    // (FullAbilityCard.cs:316-319), which runs GhostOutOnTimeline and greys the
+                    // WHOLE card. Every card in the owner's own discard fan is wearing that ghost.
+                    //
+                    // The user reported it as the mirror's defect, verbatim: "Öffnet ein Spieler
+                    // seine abgeworfenen Karten sehe ich dort die Standartfarben ohne
+                    // ausgegraut/braun - der Spieler sieht es richtig ausgegraut."
+                    //
+                    // THE LOOK COMES FROM THE CARD, NOT FROM THE FAN'S IDENTITY. Asking
+                    // Cards.BurnLookPolicy.ForCard rather than switching on `content` here means
+                    // this surface holds no copy of the rule at all: the card's own
+                    // CBaseCard.CurrentCardPile decides, which is Lost/PermanentlyLost for every
+                    // member of a burnt arc and Discarded for every member of a discard arc BY
+                    // CONSTRUCTION. If the two ever disagree the answer degrades to None — a fresh
+                    // card, today's picture — rather than to a confident wrong look, which is the
+                    // same safe direction every other mirrored surface takes.
+                    //
+                    // The t = 1 argument above holds for the grey-out word for word.
+                    if (shown)
                     {
-                        // Name the surface BEFORE the drive: the same art list also serves the
-                        // DISCARD fan, which drives no look at all, so the label belongs on the
-                        // burnt arm rather than on construction. The card-FX instrument latches
-                        // per surface (RemoteCardArt.FxSurface) and this is the surface user
-                        // item 9b was reported against.
+                        // Name the surface BEFORE the drive: the card-FX instrument latches per
+                        // surface (RemoteCardArt.FxSurface) and this is the surface user item 9b
+                        // (burnt) and user item 2a (discard) were both reported against.
                         art.Surface = RemoteCardArt.FxSurface.Pile;
-                        if (art.SetAbilityBurnProgress(1f))
-                            burntLook++;
+                        RemoteCardArt.CardFxLook want =
+                            UsedCardLook.FromState(full != null ? full.AbilityCard : null);
+                        if (want == RemoteCardArt.CardFxLook.None)
+                            art.ClearAbilityCardFx();
+                        else if (art.SetAbilityCardFxProgress(want, 1f))
+                            fxLooks++;
                     }
                 }
             }
@@ -695,8 +721,8 @@ internal sealed class RemotePileFronts
         Log(content, outcome, fronts, actor);
         if (gate == Gate.BurnException && carvedBacks > 0)
             LogBurnCarveRefusal(carvedBacks, fronts, actor);
-        if (content == Content.Burnt)
-            LogBurntLook(burntLook, fronts, actor);
+        if (content != Content.Items)
+            LogPileLook(content, fxLooks, fronts, actor);
     }
 
     /// <summary>Change key for <see cref="LogBurnCarveRefusal"/>, so the line fires on a real edge
@@ -742,13 +768,15 @@ internal sealed class RemotePileFronts
                           + "occurrence is a finding and not a footnote.");
     }
 
-    /// <summary>Change key for <see cref="LogBurntLook"/>: the (looks, fronts) pair plus the
-    /// character, so the line fires on a real edge and not on the 4 Hz cadence.</summary>
-    private (int Key, int ActorId) _loggedBurntLook = (int.MinValue, 0);
+    /// <summary>Change key for <see cref="LogPileLook"/>: the (content, looks, fronts) triple plus
+    /// the character, so the line fires on a real edge and not on the 4 Hz cadence — and so the two
+    /// ability arcs cannot suppress each other's reading.</summary>
+    private (int Key, int ActorId) _loggedPileLook = (int.MinValue, 0);
 
     /// <summary>
-    /// HARDWARE VERIFICATION (2026-09-06 report, item 9b): does a peer's BURNT pile fan actually wear the
-    /// burn, or is it a fan of fresh cards? Grep token <c>Remote burnt pile look</c>.
+    /// HARDWARE VERIFICATION (2026-09-06 report item 9b, and 2026-09-07 evening item 2a): does a
+    /// peer's BURNT pile fan actually wear the char, and does their DISCARD fan wear the grey, or
+    /// are they fans of fresh cards? Grep token <c>Remote pile look</c>.
     ///
     /// <para>WORKING = <c>looks</c> equal to <c>fronts</c> and both above 0 while the viewer has that
     /// peer's burnt pile open, beside a <c>Remote BURN look armed</c> line.</para>
@@ -762,25 +790,32 @@ internal sealed class RemotePileFronts
     /// PAINT — the fgFx flame quad and the smoke emitter are not reproduced, and this line cannot
     /// see that.</para>
     /// </summary>
-    private void LogBurntLook(int looks, int fronts, CPlayerActor? actor)
+    private void LogPileLook(Content content, int looks, int fronts, CPlayerActor? actor)
     {
-        int key = (looks << 8) | (fronts & 0xFF);
+        int key = ((int)content << 16) | (looks << 8) | (fronts & 0xFF);
         int actorId = NetFigures.StableActorId(actor);
-        if (key == _loggedBurntLook.Key && actorId == _loggedBurntLook.ActorId)
+        if (key == _loggedPileLook.Key && actorId == _loggedPileLook.ActorId)
             return;
-        _loggedBurntLook = (key, actorId);
-        // HW-VERIFY: grep token "Remote burnt pile look" — see this method's doc for the three readings.
-        VRLog.Note("Net", $"Remote burnt pile look [player {_owner.PlayerId}]: {looks} of {fronts} "
-                          + $"front(s) carry the settled burn for '{Board.CharacterFocus.Describe(actor)}'. "
-                          + "The owner's own burnt fan hosts the REAL widget the game already painted "
-                          + "through CardEffects.BurnCardTimeline; this fan hosts a CLONE of that widget, "
-                          + "and a clone whose source never ran CardEffects.Initialize on this client "
-                          + "inherits neither the material state nor the text recolour. The settled "
-                          + "end-state is therefore rebuilt here on materials this mod minted "
-                          + "(RemoteCardArt.SetAbilityBurnProgress(1)), never on anything the game owns, "
-                          + "and with NO animation — the owner's timeline ran long before this fan was "
-                          + "opened. looks=0 beside fronts>0 is the defect, and 'Remote BURN look' says "
-                          + "why.");
+        _loggedPileLook = (key, actorId);
+        string arc = content == Content.Burnt ? "burnt" : "discard";
+        string look = content == Content.Burnt ? "settled burn" : "settled grey-out";
+        // HW-VERIFY: grep token "Remote pile look" — see this method's doc for the three readings.
+        VRLog.Note("Net", $"Remote pile look [player {_owner.PlayerId}] {arc} arc: {looks} of {fronts} "
+                          + $"front(s) carry the {look} for '{Board.CharacterFocus.Describe(actor)}'. "
+                          + "The owner's own fan hosts the REAL widget the game already painted — "
+                          + "CardEffects.BurnCardTimeline for a lost card, GhostOutOnTimeline for a "
+                          + "discarded one (FullAbilityCard.SetPile calls ToggleEffect for both, "
+                          + ":313-322). This fan hosts a CLONE of that widget, and a clone whose "
+                          + "source never ran CardEffects.Initialize on this client inherits neither "
+                          + "the material state nor the text recolour. The settled end-state is "
+                          + "therefore rebuilt here on materials this mod minted "
+                          + "(RemoteCardArt.SetAbilityCardFxProgress(look, 1)), never on anything the "
+                          + "game owns, and with NO animation — the owner's timeline ran long before "
+                          + "this fan was opened. The look is the CARD's "
+                          + "(Cards.BurnLookPolicy.ForCard), not this fan's, so looks < fronts on the "
+                          + "discard arc also means a card in it does not read CurrentCardPile = "
+                          + "Discarded. looks=0 beside fronts>0 is the defect, and 'Remote BURN look' "
+                          + "says why.");
     }
 
     /// <summary>

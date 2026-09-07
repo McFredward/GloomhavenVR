@@ -530,11 +530,11 @@ internal sealed class RemoteActiveCards
             for (int i = 0; i < _cards.Count; i++)
             {
                 _cards[i].Set(null, showFronts, actor);
-                // ITEM 4 (2026-09-07): release the permanent burnt wash with the cell. Set(null)
+                // ITEM 4 (2026-09-07): release the permanent look with the cell. Set(null)
                 // already drops it through ClearFace; this makes the release EXPLICIT at every
-                // blanking site so a future path that blanks some other way cannot leave
-                // CardHalfTone standing down for a face nobody is painting.
-                _cards[i].SetActiveBurntWash(_playerId, i, null, wanted: false);
+                // blanking site so a future path that blanks some other way cannot leave a look
+                // standing on a face nobody is painting.
+                _cards[i].SetActiveCardLook(_playerId, i, null, RemoteCardArt.CardFxLook.None);
             }
             // ZERO IS A READING (see PeerCardFaceCensus): an empty active pile must overwrite this
             // population's census row rather than leave the last non-empty one standing.
@@ -572,7 +572,7 @@ internal sealed class RemoteActiveCards
             if (i >= Count)
             {
                 _cards[i].Set(null, showFronts, actor);
-                _cards[i].SetActiveBurntWash(_playerId, i, null, wanted: false);
+                _cards[i].SetActiveCardLook(_playerId, i, null, RemoteCardArt.CardFxLook.None);
                 continue;
             }
             Vector3 cellAt = CellLocal(i, Count, _cardW, _grid);
@@ -590,7 +590,7 @@ internal sealed class RemoteActiveCards
                 // the same pass that re-seats the face when the card lands — before its first drawn
                 // frame, because Set() and this call are one pass. The wash on the FLYING slab
                 // itself belongs to RemoteCardFx's arc and is NOT claimed here.
-                _cards[i].SetActiveBurntWash(_playerId, i, _buffer[i], wanted: false);
+                _cards[i].SetActiveCardLook(_playerId, i, _buffer[i], RemoteCardArt.CardFxLook.None);
                 continue;
             }
             // The ACTIVE column gets the same real-card treatment as the round slots: the actor is
@@ -602,21 +602,30 @@ internal sealed class RemoteActiveCards
             // Set() is change-gated, so the cadenced mip-bake rescan for a hosted face's async
             // header art rides this refresh instead (see RemoteBoardCard.MaintainMips).
             _cards[i].MaintainMips();
-            // ── RULE 1a, THE MIRROR HALF (user item 4, 2026-09-07) ──────────────────────────────
+            // ── RULE 1, THE MIRROR HALF (user item 4, 2026-09-07 afternoon AND evening) ─────────
             // "Ich meine nicht die Animation von 2 Sekunden, sondern den dauerhaften effekt der
             // über eine verbrannte Karte liegt. Und dieser Effekt war bei manchen Aktiven Karten
             // vorhanden und wurde dort auch angezeigt - aber nur eine Runde - die runde darauf war
-            // die Karte wieder blau" — and, from the same report, "lokal und remote".
+            // die Karte wieder blau" — and, from the same report, "lokal und remote"; then, that
+            // evening: "Einmal grau bleibt die Karte (remote UND lokal) grau solange sie im aktiven
+            // Stapel liegt. Gleiches gilt für eine verbrannte Karte dort."
             //
-            // ONE EXPRESSION, BOTH BOARDS. Cards.BurnLookPolicy.ActiveCardWearsBurntWash is the
-            // game's own CCharacterClass.cs:479 test and it is the SAME method the owner's own
-            // board asks through BurnLookPolicy.Enforce — not an equivalent-looking copy. THE MODEL
-            // IS LOCAL: _buffer is this client's own walk of that peer's ActivatedCards and the
-            // SelectedAction it reads is on every client, so no wire field is owed and none is
-            // added. RIGHT AFTER Set(), which is where the face exists; the hold-before-paint
-            // ordering is inside SetActiveBurntWash, next to the art it protects.
-            _cards[i].SetActiveBurntWash(_playerId, i, _buffer[i],
-                Cards.BurnLookPolicy.ActiveCardWearsBurntWash(_buffer[i]));
+            // BOTH HALVES OF THE RULE, NOT JUST THE BURN. This call used to pass a BOOLEAN — wears
+            // the burnt wash, or nothing — so a Discard-bound activated card was mirrored CLEAN and
+            // went blue at the same round boundary the owner's own did. Cards.BurnLookPolicy.
+            // ForActivatedCard answers the whole rule in one term: Burn for Lost-bound, Ghost for
+            // Discard-bound, and there is no third answer because a card is only in this pile
+            // because its action was played.
+            //
+            // ONE EXPRESSION, BOTH BOARDS. That method is the game's own CCharacterClass.cs:479 test
+            // and it is the SAME one the owner's own board asks through BurnLookPolicy.Enforce —
+            // not an equivalent-looking copy. THE MODEL IS LOCAL: _buffer is this client's own walk
+            // of that peer's ActivatedCards and the SelectedAction it reads is on every client, so
+            // no wire field is owed and none is added. RIGHT AFTER Set(), which is where the face
+            // exists; the one-writer hold is taken inside RemoteCardArt, next to the art it
+            // protects.
+            _cards[i].SetActiveCardLook(_playerId, i, _buffer[i],
+                UsedCardLook.FromPolicy(Cards.BurnLookPolicy.ForActivatedCard(_buffer[i])));
             // …and the pulse pass's only way back from a hosted clone to the card it is showing.
             // Recorded HERE rather than derived again later, so the position the driver matches on
             // is the very Vector3 the cell was moved to and not a second evaluation of the same

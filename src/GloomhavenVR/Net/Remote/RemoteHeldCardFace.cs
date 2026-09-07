@@ -333,6 +333,7 @@ internal sealed class RemoteHeldCardFace
         // every part of the slab the print does not paint now reads as the owner's own card edge
         // instead of the back's burgundy/gold lattice. CardMesh.SetBodyFrontFace owns the rule.
         SetFrontFace(showsBack: false);
+        DriveHeldCardLook(art, code);
         Report(1, 0, $"{source} — resolved {Describe(code, count)} against this client's own copy of "
                    + "that host-replicated list");
         if (!_loggedShown || code != _loggedCode)
@@ -648,6 +649,65 @@ internal sealed class RemoteHeldCardFace
             return w * 1.15f;
         float h = w * (fh / (float)fw);
         return h < w * 0.5f || h > w * 2f ? w * 1.15f : h;
+    }
+
+    /// <summary>
+    /// A CARD CARRIES ITS LOOK INTO THE HAND (ModBuild 479, user item 5).
+    ///
+    /// <para>HIS WORDS, verbatim: <i>"Sobald ein remote Spieler eine aktive Karte in die Hand
+    /// genommen hat, die eine verbrannte Animation hatte in der Vorschau neben dem Board - ist die
+    /// Animation in der Hand aber wieder weg. Wird sie in die Hand genommen soll sie lokal und
+    /// remote genau gleich angezeigt werden mit allen gleichen FX effekten wie sie auch bei den
+    /// aktiven Karten dargestellt wird."</i></para>
+    ///
+    /// <para>THIS SURFACE RESOLVED THE FACE AND NEVER THE LOOK. Before this build the file had no
+    /// reference to any card-FX mechanism at all, so a peer's fist held a bright, fresh card while
+    /// the very same card in the very same frame wore the char in their active column and the grey
+    /// in their discard arc. The picking up is not what un-plays a card.</para>
+    ///
+    /// <para>THE POPULATION IS THE WIRE'S, THE LOOK IS THE CARD'S. The sender names which arc the
+    /// card came out of (<c>NetProtocol.HeldFaceList</c>), and only the three arcs whose members
+    /// have LANDED somewhere are asked at all — active, burnt, discard. That gate is not tidiness:
+    /// <c>CBaseCard.CurrentCardPile</c> is written by <c>CCharacterClass.MoveAbilityCardToPile</c>
+    /// and NOT by <c>MoveAbilityCard</c>, so a card a short rest handed back to the HAND still reads
+    /// <c>Discarded</c>, and asking the durable term about a hand card would grey a card nobody has
+    /// used. <c>Cards.BurnLookPolicy.ForCard</c>'s own doc names that blind spot and says the caller
+    /// must answer the population; this is that answer.</para>
+    ///
+    /// <para>t = 1 AND NEVER A RAMP. The owner's own timeline ran when the card was played; a burn
+    /// starting the moment they pick the card up is a picture they never had, which is the same
+    /// argument the pile fans and the active cells settle on.</para>
+    /// </summary>
+    private void DriveHeldCardLook(RemoteCardArt art, byte code)
+    {
+        try
+        {
+            byte heldList = NetProtocol.HeldFaceList(code);
+            bool landed = heldList == NetProtocol.HeldFaceListActive
+                          || heldList == NetProtocol.HeldFaceListBurnt
+                          || heldList == NetProtocol.HeldFaceListDiscard;
+            CAbilityCard? model = _activeCard;
+            if (model == null && _face != null)
+                model = _face.AbilityCard;
+            RemoteCardArt.CardFxLook want = landed
+                ? UsedCardLook.FromState(model)
+                : RemoteCardArt.CardFxLook.None;
+            if (want == RemoteCardArt.CardFxLook.None)
+            {
+                art.ClearAbilityCardFx();
+                return;
+            }
+            art.Surface = RemoteCardArt.FxSurface.Held;
+            art.SetAbilityCardFxProgress(want, 1f);
+        }
+        catch (System.Exception ex)
+        {
+            // A held card that cannot be classified is drawn CLEAN — the picture this surface had
+            // before this change — and never takes down the per-frame held-slab tick.
+            VRLog.Debug("Net", $"Remote held card [player {_owner.PlayerId} slot {_slot}]: the "
+                               + $"card-FX look could not be resolved ({ex.Message}) — the held "
+                               + "card draws fresh.");
+        }
     }
 
     private RemoteCardArt EnsureArt()

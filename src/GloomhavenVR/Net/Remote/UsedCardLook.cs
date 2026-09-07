@@ -40,7 +40,33 @@
 //  limit is stated where it is read: whether a peer's hidden CardsHandUI widget actually runs its
 //  CardEffects coroutine on THIS client is not established, and if it does not, the failure is "no
 //  wash" — today's picture — never a wash on the wrong card.
+//
+//  ═══ ModBuild 479: WHAT THIS FILE ANSWERS IS A LATCH, AND THE GAME DROPS IT EVERY ROUND ═══
+//
+//  THE PREMISE THAT WAS PUT TO THIS LANE — "CardEffects flags are TRANSIENT; burnTime is a
+//  hard-coded 2f, so two seconds after a card is used every HasEffect goes false" — IS FALSE, and
+//  the game says so in three lines: `private HashSet<FXTask> toggledEffects` (CardEffects.cs:229),
+//  `HasEffect(e) => toggledEffects.Contains(e)` (:354-357), and the only two writers that ever
+//  REMOVE from it, ToggleEffect(active:false) (:432) and RestoreCard() (:468). The 2 s is the
+//  ANIMATION's duration and has nothing to do with the flag. FromWidget therefore does not "stop
+//  being able to see the past" on a timer.
+//
+//  WHAT IT DOES DO IS FOLLOW THE GAME'S OWN ERASURE. FullAbilityCard.SetPile(Hand | Activated)
+//  calls cardEffects.RestoreCard() unconditionally (:325-328) and is reached from
+//  AbilityCardUI.UpdateCard(), i.e. at the next hand refresh — one round later. So this expression
+//  is a faithful report of a latch the game itself clears, and every surface that asks ONLY this
+//  question draws a spent card clean from the round boundary onward. That is not a bug in FromWidget;
+//  it is the reason a DURABLE question had to exist beside it.
+//
+//  THE DURABLE QUESTION IS Cards.BurnLookPolicy.ForCard / ForActivatedCard, and it lives in Cards/
+//  because CALLS GO DOWN: Net/ may read Cards/, and Cards/ must never learn that a mirror exists.
+//  FromPolicy below is the ONE place the two enums meet. Use FromWidget where the LIVE ramp is what
+//  is wanted (the recess and the hand fan, which mirror the owner's 2 s animation as it plays) and
+//  the policy where a SETTLED look is wanted (the piles, the active cells, the held card), which is
+//  every surface a viewer can open long after the animation ran.
 // ═══════════════════════════════════════════════════════════════════════════════════════════════
+
+using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.Net;
 
@@ -57,6 +83,36 @@ internal static class UsedCardLook
     /// wrong colour.
     /// </summary>
     internal const float RampSeconds = 2f;
+
+    /// <summary>
+    /// The mirror's name for <see cref="Cards.BurnLookPolicy.Look"/> — the ONE place the durable
+    /// answer crosses from <c>Cards/</c> into <c>Net/</c>.
+    ///
+    /// <para>TWO ENUMS AND NOT ONE, DELIBERATELY. The sharing ruling's direction of dependency is
+    /// that <c>Net/</c> calls DOWN into <c>Cards/</c> and code never goes up, so the policy cannot
+    /// name <see cref="RemoteCardArt.CardFxLook"/> — that type is the mirror's rig, and a
+    /// <c>Cards/</c> file referencing it would be the owner's board learning that a mirror exists.
+    /// The cost is this three-line map; the alternative was a fourth hand-written copy of the
+    /// look decision on every mirrored surface, which is what this file was created to stop.</para>
+    /// </summary>
+    internal static RemoteCardArt.CardFxLook FromPolicy(Cards.BurnLookPolicy.Look look) => look switch
+    {
+        Cards.BurnLookPolicy.Look.Burn => RemoteCardArt.CardFxLook.Burn,
+        Cards.BurnLookPolicy.Look.Ghost => RemoteCardArt.CardFxLook.Ghost,
+        _ => RemoteCardArt.CardFxLook.None,
+    };
+
+    /// <summary>
+    /// THE DURABLE LOOK for a card drawn on a mirror, in the mirror's own enum — the settled
+    /// answer <see cref="FromWidget"/> cannot give once the game has cleared its latch.
+    ///
+    /// <para>One call, so that a mirrored surface needing a settled look has nothing to write by
+    /// hand. See <see cref="Cards.BurnLookPolicy.ForCard"/> for the term and for its one blind spot
+    /// (a card a rest handed back to the hand still reads <c>Discarded</c>), which every caller
+    /// whose population can contain a hand card must answer before asking.</para>
+    /// </summary>
+    internal static RemoteCardArt.CardFxLook FromState(CAbilityCard? card)
+        => FromPolicy(Cards.BurnLookPolicy.ForCard(card));
 
     /// <summary>
     /// Which of the game's two card-FX looks <paramref name="full"/> is running right now, or

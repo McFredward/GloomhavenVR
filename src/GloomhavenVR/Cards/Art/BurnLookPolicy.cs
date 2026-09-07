@@ -38,11 +38,18 @@ namespace GloomhavenVR.Cards;
 ///   total, and <c>CAbility.cs:3082</c> does the mirror-image count for the LOST total. Marking it
 ///   is what the player needs, not a leftover to clean up.</description></item>
 ///   <item><description><b>RULE 1b — an ACTIVATED card bound for DISCARD never wears the BURNT
-///   look.</b> Its own <c>DiscardMode</c> ghost is the game's business and is left alone (see
-///   <see cref="EnforceActivated"/> for why the trigger is the LATCH and never the paint: the ghost
-///   timeline writes <c>_GreyOut</c> too, CardEffects.cs:686). A Discard-bound activated card found
-///   LATCHED <c>BurnCard</c>/<c>LostMode</c> is a SECOND, separate defect and is logged as
-///   one.</description></item>
+///   look, and wears the PERMANENT GREY instead — which it also KEEPS,</b> for as long as it sits in
+///   the active area, on every board. A Discard-bound activated card found LATCHED
+///   <c>BurnCard</c>/<c>LostMode</c> is a SECOND, separate defect and is logged as one, and the
+///   trigger for THAT half is the LATCH and never the paint, because the ghost timeline writes
+///   <c>_GreyOut</c> too (CardEffects.cs:686) — see <see cref="EnforceActivated"/>.
+///   <para>THE SECOND SENTENCE OF THIS RULE USED TO READ "its own DiscardMode ghost is the game's
+///   business and is left alone", AND THAT WAS THE DEFECT, not a scoping decision. The wipe rule 1a
+///   exists to undo — <c>SetPile(Activated)</c> → <c>RestoreCard()</c> — does not ask which look it
+///   is erasing, so leaving the grey to "the game" meant leaving it to the writer that destroys it.
+///   The user's ruling of 2026-09-07 evening, verbatim: <i>"Einmal grau bleibt die Karte (remote UND
+///   lokal) grau solange sie im aktiven Stapel liegt. Gleiches gilt für eine verbrannte Karte
+///   dort."</i></para></description></item>
 ///   <item><description><b>RULE 2 — a LOST / PERMANENTLY LOST card is always FULLY burnt</b>, front
 ///   visible (<i>"Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite
 ///   sichtbar sein"</i>), at the settled end state <c>_GreyOut = 1</c> — either because the game's
@@ -53,7 +60,13 @@ namespace GloomhavenVR.Cards;
 ///   partial paint is a leftover.</description></item>
 ///   <item><description><b>RULE 4 — cards in HAND, ROUND and DISCARDED are not this policy's
 ///   business.</b> The game's own play flourish (<c>FullAbilityCard.TryPlayBurnAnimation</c>) and
-///   its discard ghost run there and the user has never complained about either.</description></item>
+///   its discard ghost run there on the OWNER's adopted widget, and the user has never complained
+///   about either. <para>THE EXCLUSION IS ABOUT THIS BOARD AND NOTHING ELSE. On a MIRROR the face is
+///   a clone with <c>CardEffects</c> stripped, so "the game paints it" is false for every one of
+///   those three piles; a peer's DISCARD arc drew fresh, default-coloured cards for exactly that
+///   reason (2026-09-07 evening, item 2a). The mirror asks <see cref="ForCard"/> instead — the
+///   durable term — and drives it through its own rig. Share the TERM, not the
+///   exclusion.</para></description></item>
 /// </list>
 ///
 /// <para>WHO WIPES IT, AND WHY IT IS "nur eine Runde". <c>FullAbilityCard.SetPile</c> is reached
@@ -82,16 +95,18 @@ namespace GloomhavenVR.Cards;
 /// WASH</c>.</para>
 ///
 /// <para>THE MIRROR DOES THIS TOO, and rule 1a is one expression on both boards.
-/// <see cref="ActiveCardWearsBurntWash"/> is asked by this policy for the owner's adopted face and
-/// by <c>Net.Remote.RemoteActiveCards</c> → <c>RemoteBoardCard.SetActiveBurntWash</c> for every
+/// <see cref="ForActivatedCard"/> is asked by this policy for the owner's adopted face and
+/// by <c>Net.Remote.RemoteActiveCards</c> → <c>RemoteBoardCard.SetActiveCardLook</c> for every
 /// mirrored active cell, over the SAME local <c>CAbilityCard</c> object — not two copies that agree
-/// today. The mirror writes the settled end state with <c>RemoteCardArt.SetAbilityBurnProgress(1f)</c>
+/// today. The mirror writes the settled end state with <c>RemoteCardArt.SetAbilityCardFxProgress</c>
 /// and NEVER a ramp, because the separate 2026-09-06 item 8a ruling forbids the burn animation and
 /// sound at the moment of activation; the user drew that line himself when he said <i>"Ich meine
 /// nicht die Animation von 2 Sekunden, sondern den dauerhaften effekt"</i>. The write ordering there
-/// is hold-then-paint through <see cref="CardHalfTone.HoldBurntLook"/>, because
+/// is hold-then-paint through <see cref="CardHalfTone.HoldCardFxLook"/>, because
 /// <c>NormalizeCardFx</c> would otherwise swap the clone's images to a SHARED rest copy that the
-/// burn rig's next write would then char for every other clone using it.</para>
+/// burn rig's next write would then char for every other clone using it. Since ModBuild 479 that
+/// hold is taken by <c>Net.RemoteCardArt</c> itself rather than by each mirrored surface — see its
+/// own doc for the write war a per-surface hold produced on the burnt pile fan.</para>
 ///
 /// <para>THIS WRITES PRESENTATION ONLY, THROUGH THE GAME'S OWN CALLS. Rule 1a and rule 2 use
 /// <see cref="BurnArtwork.TrySettleBurnLook"/>, which drains
@@ -176,6 +191,8 @@ internal static class BurnLookPolicy
     private static bool s_settleLogged;
     private static bool s_refusedLogged;
     private static bool s_strayLogged;
+    private static bool s_ghostKeptLogged;
+    private static bool s_ghostRefusedLogged;
     private static bool s_budgetLogged;
 
     /// <summary>
@@ -259,6 +276,8 @@ internal static class BurnLookPolicy
         s_settleLogged = false;
         s_refusedLogged = false;
         s_strayLogged = false;
+        s_ghostKeptLogged = false;
+        s_ghostRefusedLogged = false;
         s_budgetLogged = false;
     }
 
@@ -358,6 +377,95 @@ internal static class BurnLookPolicy
     internal static bool ActiveCardWearsBurntWash(CAbilityCard? card)
         => Destination(card) == CBaseCard.ECardPile.Lost;
 
+    /// <summary>
+    /// THE THREE LOOKS the game's two <c>CardEffects</c> timelines produce, named once so the
+    /// owner's board and every mirror can pass one answer around instead of a boolean per surface.
+    ///
+    /// <para>IT IS DELIBERATELY NOT <c>Net.RemoteCardArt.CardFxLook</c>, and that is the sharing
+    /// ruling rather than an oversight: CALLS GO DOWN. <c>Net/</c> may read this file; <c>Cards/</c>
+    /// must never learn that a mirror exists. <c>Net.UsedCardLook.FromPolicy</c> is the one-line
+    /// map between the two and is the ONLY place the two enums meet.</para>
+    /// </summary>
+    internal enum Look
+    {
+        /// <summary>A clean card. Nobody has used it, or the game has restored it.</summary>
+        None,
+
+        /// <summary>The cold grey-out — <c>CardEffects.GhostOutOnTimeline</c>, which
+        /// <c>FXTask.DiscardMode</c> runs.</summary>
+        Ghost,
+
+        /// <summary>The warm char — <c>CardEffects.BurnCardTimeline</c>, which
+        /// <c>FXTask.BurnCard</c> and <c>FXTask.LostMode</c> both run.</summary>
+        Burn,
+    }
+
+    /// <summary>
+    /// RULE 1 AS ONE ANSWER: what an ACTIVATED card wears. <see cref="Look.Burn"/> for a Lost-bound
+    /// one (rule 1a), <see cref="Look.Ghost"/> for a Discard-bound one (rule 1b).
+    ///
+    /// <para>THERE IS NO THIRD ANSWER, and that is the 2026-09-07 evening ruling rather than an
+    /// inference: <i>"Einmal grau bleibt die Karte (remote UND lokal) grau solange sie im aktiven
+    /// Stapel liegt. Gleiches gilt für eine verbrannte Karte dort."</i> A card is in the active area
+    /// only because its action was PLAYED, so a clean activated card is never right; the first
+    /// version of rule 1b left the ghost to the game and the game wiped it one round later, which is
+    /// the defect measured on both machines this round.</para>
+    ///
+    /// <para>The caller supplies "this card is in the ACTIVE area", exactly as
+    /// <see cref="ActiveCardWearsBurntWash"/> does and for the same reason.</para>
+    /// </summary>
+    internal static Look ForActivatedCard(CAbilityCard? card)
+        => ActiveCardWearsBurntWash(card) ? Look.Burn : Look.Ghost;
+
+    /// <summary>
+    /// THE DURABLE LOOK a card is owed WHEREVER IT IS DRAWN, from the card's own state and from
+    /// nothing that is running this frame.
+    ///
+    /// <para>WHY IT IS STATE AND NOT AN EFFECT FLAG. <c>CardEffects.HasEffect</c> is a
+    /// <c>HashSet&lt;FXTask&gt;</c> membership test (CardEffects.cs:354-357) that <c>RestoreCard()</c>
+    /// clears, and <c>FullAbilityCard.SetPile(Hand|Activated)</c> calls <c>RestoreCard()</c>
+    /// unconditionally (:325-328). So the widget's own answer is a faithful mirror of a latch the
+    /// GAME drops at every round boundary — which is why a surface that can only ask the widget
+    /// draws a spent card clean one round later, and why every surface that has a durable question
+    /// available should ask this instead.</para>
+    ///
+    /// <para><c>CBaseCard.CurrentCardPile</c> is the field: serialized (CBaseCard.cs:103/:126) and
+    /// checked by the game's own multiplayer state comparison (:382-403, mismatch code 2804), so it
+    /// cannot disagree between two machines. ITS ONE BLIND SPOT is recorded at length in
+    /// <c>Net.Remote.RemoteBoardCard.ResolveUsedCardLook</c>: the Hand↔Round moves go through
+    /// <c>CCharacterClass.MoveAbilityCard</c>, which edits the two LISTS and never writes the field,
+    /// so a card a rest handed back to the hand still reads <c>Discarded</c>. A caller that draws
+    /// cards which may be in the hand or in this round's recess must therefore answer that
+    /// population itself before asking here — the recess resolver does exactly that.</para>
+    /// </summary>
+    internal static Look ForCard(CAbilityCard? card)
+    {
+        if (card == null)
+            return Look.None;
+        try
+        {
+            switch (card.CurrentCardPile)
+            {
+                case CBaseCard.ECardPile.Lost:
+                case CBaseCard.ECardPile.PermanentlyLost:
+                    return Look.Burn;
+                case CBaseCard.ECardPile.Discarded:
+                    return Look.Ghost;
+                case CBaseCard.ECardPile.Activated:
+                    return ForActivatedCard(card);
+                default:
+                    return Look.None;
+            }
+        }
+        catch
+        {
+            // An unreadable card draws CLEAN, which is the safe direction every mirrored surface
+            // already takes: a missing wash is a small divergence, a wash on a card the owner has
+            // not used is a lie about their board.
+            return Look.None;
+        }
+    }
+
     // ------------------------------------------------------------------------ the two rules --
 
     /// <summary>RULES 1a and 1b — the activated card, split by where it is going.</summary>
@@ -371,36 +479,108 @@ internal static class BurnLookPolicy
 
         if (dest == CBaseCard.ECardPile.Discarded)
         {
-            // RULE 1b. THE TRIGGER IS THE LATCH AND NEVER THE PAINT, and that distinction is
-            // load-bearing: CardEffects.GhostOutOnTimeline drives the SAME _GreyOut property
-            // (CardEffects.cs:686), so a paint-based test would erase the discard ghost the game
-            // is entitled to draw on a Discard-bound activated card. HasEffect names the task.
-            if (!latched)
-                return;
-            if (!TakeBudget(fx, card, id, now, "RULE 1b (a discard-bound activated card is not burnt)"))
-                return;
-            try { fx.RestoreCard(); }
-            catch { return; }
-            if (s_strayLogged)
-                return;
-            s_strayLogged = true;
-            // HW-VERIFY (2026-09-07 item 4, the SECOND defect the corrected rule can name): an
-            // activated card whose selected action is DISCARD-bound was latched BurnCard/LostMode.
-            // Grep token: "ACTIVE BURN STRAY".
+            // -- RULE 1b, HALF ONE -- THE STRAY BURN -------------------------------------------
+            // THE TRIGGER IS THE LATCH AND NEVER THE PAINT, and that distinction is load-bearing:
+            // CardEffects.GhostOutOnTimeline drives the SAME _GreyOut property (CardEffects.cs:686),
+            // so a paint-based test could not tell a stray CHAR from the discard GHOST this card is
+            // entitled to. HasEffect names the task; the paint cannot.
+            bool strayCleared = false;
+            if (latched)
+            {
+                if (!TakeBudget(fx, card, id, now,
+                                "RULE 1b (a discard-bound activated card is not burnt)"))
+                    return;
+                try { fx.RestoreCard(); }
+                catch { return; }
+                // RestoreCard() writes 0 to all four terms (CardEffects.cs:474-484), so the reading
+                // taken before it is stale from here on and half two must not judge on it. An
+                // UNREADABLE widget stays unreadable, though: -1 is not "unpainted", it is "no
+                // image on this face carries _GreyOut at all", and turning it into a 0 here would
+                // send half two to settle a look on a widget it cannot see.
+                painted = painted < 0f ? painted : 0f;
+                strayCleared = true;
+                ReportActiveBurnStray(card);
+            }
+
+            // -- RULE 1b, HALF TWO -- THE GREY IS DURABLE TOO (ModBuild 479, user item 4) -------
+            // THE SENTENCE THAT USED TO STAND HERE WAS "its own DiscardMode ghost is the game's
+            // business and is left alone", and this round's ruling retires it, verbatim: "Einmal
+            // grau bleibt die Karte (remote UND lokal) grau solange sie im aktiven Stapel liegt.
+            // Gleiches gilt fuer eine verbrannte Karte dort."
             //
-            // EXPECTED READING: INERT. The user reported the burnt wash on "manche" activated cards
-            // and reported it as CORRECT there; nothing in either ModBuild 476 log says a
-            // discard-bound one ever wore it, because no log line carried a destination at all.
-            // If this line DOES appear, it is a defect of its own — the game latching a burn on a
-            // card it will discard — and the lead is FullAbilityCard.TryPlayBurnAnimation, whose
-            // BurnCard arm is gated on the ACTION's CardPile and not on the card's.
-            VRLog.Note(Scope, $"ACTIVE BURN STRAY: '{Name(card)}' is ACTIVATED and DISCARD-bound " +
-                              "(CCharacterClass.cs:479: its SelectedAction.CardPile is Discarded) " +
-                              "yet the game had it latched BurnCard/LostMode — the permanent burnt " +
-                              "wash belongs only to an activated card bound for LOST. Cleared with " +
-                              "the game's own CardEffects.RestoreCard(). Its DiscardMode ghost, if " +
-                              "any, is untouched: that trigger is the LATCH and never the paint, " +
-                              "because GhostOutOnTimeline writes the same _GreyOut.");
+            // THE WIPE IS THE SAME ONE RULE 1a ALREADY UNDOES, and that is why leaving this half
+            // out was never defensible: FullAbilityCard.SetPile(Activated) -> RestoreCard()
+            // (:325-328) does not ask which look it is erasing. Rule 1a put the CHAR back and
+            // nobody put the GREY back, so a Lost-bound activated card was consistent across rounds
+            // and a Discard-bound one went blue -- the user's "Nach einer Runde wurde die aktive
+            // Karte von grau (verbraucht) blau", exactly.
+            //
+            // MEASURED, ModBuild 478, both machines of the 2026-09-07 evening session, on the same
+            // card: '[Cards] ACTIVE WASH' for 'ABILITY_CARD_TheMindsWeakness', ACTIVATED and bound
+            // for Discarded, reads "wearing = True (latched=False, _GreyOut 1.00)" and then, later
+            // in the same session, "wearing = False (latched=False, _GreyOut 0.00)" -- user log
+            // lines 23355 and 26305, peer log lines 14953 and 42556. latched=False on both readings
+            // is what says the look it lost is a GHOST and not a char, i.e. exactly the half this
+            // arm owns. Over the same window 'ACTIVE BURN KEPT' fires once for the Lost-bound
+            // 'ABILITY_CARD_WardingStrength' (peer log 22847, between its own 0.00 and 1.00
+            // readings) -- rule 1a catching the identical wipe and putting its look back.
+            if (painted < 0f || painted >= BurnArtwork.FinishedGreyOut)
+                return;                   // unreadable, or already correct
+            if (!strayCleared
+                && !TakeBudget(fx, card, id, now,
+                               "RULE 1b (a discard-bound activated card stays grey)"))
+                return;
+            if (!BurnArtwork.TrySettleGhostLook(fx))
+            {
+                if (s_ghostRefusedLogged)
+                    return;
+                s_ghostRefusedLogged = true;
+                // HW-VERIFY (2026-09-07 item 4, the GHOST half): the remedy was OWED and REFUSED.
+                // Grep token: "GHOST LOOK REFUSED".
+                //
+                // A gated remedy that never runs reports nothing, so the refusal gets its own line,
+                // exactly as the burn half's does. TrySettleGhostLook refuses a widget the game
+                // never ToggleEffect'd (txtAffected / imgComp still null), one with a live
+                // coroutine, and one whose private fgFx overlay is missing -- the no-ramp arm
+                // dereferences it unguarded, so that case throws and is caught rather than tested.
+                VRLog.Note(Scope, $"GHOST LOOK REFUSED: '{Name(card)}' is ACTIVATED and " +
+                                  $"DISCARD-bound, its paint reads _GreyOut {painted:F2} of 1.00, " +
+                                  "and the settle refused - CardEffects.GhostOutOnTimeline's " +
+                                  "no-ramp arm indexes txtAffected and imgComp and dereferences " +
+                                  "fgFx, so the widget was never ToggleEffect'd/Initialize'd on " +
+                                  "this client or carries no _uiFxOverlay. The card stays blue and " +
+                                  "the rule is NOT being enforced on it.");
+                return;
+            }
+            if (s_ghostKeptLogged)
+                return;
+            s_ghostKeptLogged = true;
+            // HW-VERIFY (2026-09-07 evening, item 4: "Einmal grau bleibt die Karte (remote UND
+            // lokal) grau solange sie im aktiven Stapel liegt"): the permanent GREY was missing
+            // from a discard-bound activated card and has been put back. Grep token:
+            // "ACTIVE GHOST KEPT".
+            //
+            // PROOF the rule is doing its job: this line, with painted well under 1.00, on a card
+            // the ACTIVE WASH line beside it names as Discard-bound. A reading near 0.00 is the
+            // "wieder blau" state itself, measured.
+            // FALSIFIER: this line never appears across a session that contains a discard-bound
+            // activation, which would mean the grey survives on its own and the reversion the
+            // ACTIVE WASH pair measured has some other trigger.
+            // SECOND FALSIFIER: 'BURN LOOK BUDGET' for the same card, i.e. a second writer.
+            VRLog.Note(Scope, $"ACTIVE GHOST KEPT: '{Name(card)}' is ACTIVATED and bound for " +
+                              "DISCARD (CCharacterClass.cs:479), so the PERMANENT grey-out belongs " +
+                              $"on it - but its paint read _GreyOut {painted:F2} of 1.00, i.e. the " +
+                              "grey was missing or half gone. Restored to the settled end state " +
+                              "with the game's OWN no-ramp arm " +
+                              "(GhostOutOnTimeline(ghostAnim: false)), front visible. The wipe is " +
+                              "the same one rule 1a already undoes for the char: " +
+                              "FullAbilityCard.SetPile(Activated) calls RestoreCard() " +
+                              "unconditionally and never asks which look it is erasing, and it is " +
+                              "reached only from AbilityCardUI.UpdateCard(), i.e. at the next hand " +
+                              "refresh. RULE: an ACTIVATED card wears the permanent BURNT look if " +
+                              "it is bound for Lost and the permanent GREY if it is bound for " +
+                              "Discard, and keeps it for as long as it sits in the active area, on " +
+                              "every board; there is no third state and no clean activated card.");
             return;
         }
 
@@ -460,6 +640,33 @@ internal static class BurnLookPolicy
                           "wears the permanent burnt look IF AND ONLY IF it is bound for Lost, and " +
                           "keeps it for as long as it sits in the active area, on every board; a " +
                           "LOST card is always FULLY burnt, front visible; there is no third state.");
+    }
+
+    /// <summary>RULE 1b's first half, reported once: a DISCARD-bound activated card the game had
+    /// latched burnt. Split out of <see cref="EnforceActivated"/> when that method gained its second
+    /// half, so clearing a stray no longer returns before the grey the card is actually owed.</summary>
+    private static void ReportActiveBurnStray(CAbilityCard card)
+    {
+        if (s_strayLogged)
+            return;
+        s_strayLogged = true;
+        // HW-VERIFY (2026-09-07 item 4, the SECOND defect the corrected rule can name): an
+        // activated card whose selected action is DISCARD-bound was latched BurnCard/LostMode.
+        // Grep token: "ACTIVE BURN STRAY".
+        //
+        // EXPECTED READING: INERT. The user reported the burnt wash on "manche" activated cards
+        // and reported it as CORRECT there; nothing in either ModBuild 476 log says a
+        // discard-bound one ever wore it, because no log line carried a destination at all, and
+        // both ModBuild 478 logs are inert on it as well.
+        // If this line DOES appear, it is a defect of its own -- the game latching a burn on a
+        // card it will discard -- and the lead is FullAbilityCard.TryPlayBurnAnimation, whose
+        // BurnCard arm is gated on the ACTION's CardPile and not on the card's.
+        VRLog.Note(Scope, $"ACTIVE BURN STRAY: '{Name(card)}' is ACTIVATED and DISCARD-bound " +
+                          "(CCharacterClass.cs:479: its SelectedAction.CardPile is Discarded) " +
+                          "yet the game had it latched BurnCard/LostMode - the permanent burnt " +
+                          "wash belongs only to an activated card bound for LOST. Cleared with " +
+                          "the game's own CardEffects.RestoreCard(), and the GREY the card IS " +
+                          "owed is painted immediately afterwards by rule 1b's second half.");
     }
 
     /// <summary>RULE 2 — a lost card is fully burnt, whatever the game did with its own ramp.</summary>

@@ -352,6 +352,64 @@ internal static class BurnArtwork
     }
 
     /// <summary>
+    /// Paint the SETTLED GHOST look — the cold grey-out the game puts on a DISCARDED card — by
+    /// running the game's own timeline in its no-ramp arm. Returns true when the paint ran.
+    ///
+    /// <para>THE SIBLING OF <see cref="TrySettleBurnLook"/>, TERM FOR TERM, and it exists for the
+    /// same reason: <c>GhostOutOnTimeline(ghostAnim: false)</c> writes the constant block and then
+    /// the settled end state (<c>_GreyOut</c>=1, <c>_Flow</c>=1, <c>_Dissolve</c>=<c>mc_Dissolve</c>,
+    /// <c>_FXAnim</c>=0.5, every affected text lerped fully to white with its vertex gradient off)
+    /// and yields exactly once, at the very end (CardEffects.cs:712-737). So draining one
+    /// <c>MoveNext</c> here runs the whole of it on this frame, with no coroutine and no ramp — the
+    /// game's own numbers, never an approximation of them.</para>
+    ///
+    /// <para>WHY IT IS OWED (ModBuild 479, user item 4): <i>"Einmal grau bleibt die Karte (remote
+    /// UND lokal) grau solange sie im aktiven Stapel liegt."</i> A Discard-bound ACTIVATED card is
+    /// grey because the game ghosted it when the action resolved, and
+    /// <c>FullAbilityCard.SetPile(Activated)</c> then calls <c>RestoreCard()</c> unconditionally at
+    /// the next hand refresh and wipes it. The BURN half of that wipe already has a remedy
+    /// (<see cref="TrySettleBurnLook"/>, <c>BurnLookPolicy</c> rule 1a); the GHOST half had none,
+    /// which is the defect measured on both machines this round — <c>ACTIVE WASH</c> for
+    /// <c>ABILITY_CARD_TheMindsWeakness</c> reads <c>_GreyOut 1.00</c> and then <c>_GreyOut
+    /// 0.00</c> for the same Discard-bound activated card.</para>
+    ///
+    /// <para>REFUSED ON THE SAME THREE CONDITIONS. A running timeline (never cut across the game's
+    /// own ramp), a widget the game never <c>Initialize</c>d (the no-ramp arm indexes
+    /// <c>txtAffected</c> and <c>imgComp</c>), and — caught rather than tested, because the field is
+    /// private — a widget with no <c>fgFx</c> overlay, which the arm dereferences unguarded. The
+    /// refusal happens BEFORE any material is written in that last case: the unguarded
+    /// <c>fgFx.material</c> write stands ahead of the whole else-branch.</para>
+    ///
+    /// <para>AND IT SUPPRESSES THE PARTICLE for the reason <see cref="TrySettleBurnLook"/> does: the
+    /// no-ramp arm calls <c>SpawnParticle()</c>, and the owner's card puffed its smoke when the
+    /// action resolved. A puff at a round boundary is a picture nobody had.</para>
+    /// </summary>
+    internal static bool TrySettleGhostLook(CardEffects? fx)
+    {
+        if (fx == null || fx.coroutine != null)
+            return false;
+        try
+        {
+            if (fx.imgComp == null || fx.txtAffected == null)
+                return false; // never Initialize()d — the no-ramp arm would index a null array
+            System.Collections.IEnumerator settle = fx.GhostOutOnTimeline(ghostAnim: false);
+            while (settle.MoveNext())
+            {
+                // ghostAnim:false yields exactly once, AFTER the whole end state is written; the
+                // guard is against a game-side shape change turning this into a real ramp and
+                // spinning here forever.
+                break;
+            }
+            fx.HideParticle();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// THE ONE RELEASE EXPRESSION. May a burn whose artwork state is <paramref name="playing"/> and
     /// which has been held for <paramref name="held"/> seconds fly now?
     ///

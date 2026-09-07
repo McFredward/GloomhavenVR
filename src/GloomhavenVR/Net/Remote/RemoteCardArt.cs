@@ -1990,13 +1990,10 @@ internal sealed class RemoteCardArt
         /// (<c>CCharacterClass.cs:479</c> is the game's own destination expression, and
         /// <c>Cards.Art.BurnLookPolicy</c> is where both boards read it).</para>
         ///
-        /// <para>The column reads <c>Unnamed</c> for a DIFFERENT reason: the wash is written as a
-        /// settled end state through <c>SetAbilityBurnProgress(1f)</c> and reported on its own
-        /// <c>REMOTE ACTIVE WASH</c> line, so no FX LOOK is driven here and no rig is built. If a
-        /// surface tag is ever wanted for it, add an <c>Active</c> member rather than borrowing
-        /// <c>Pile</c> or <c>Recess</c> — this enum is instrument-only and nothing behavioural
-        /// reads it, so the cost of the wrong label is a misleading log line, which is the cost
-        /// this whole enum exists to avoid.</para></summary>
+        /// <para>THE ACTIVE COLUMN NO LONGER READS <c>Unnamed</c> EITHER — the paragraph above asked
+        /// for an <c>Active</c> member "rather than borrowing <c>Pile</c> or <c>Recess</c>" and
+        /// ModBuild 479 added it, in the same change that gave the column a GHOST as well as a
+        /// burn. What is left here is a face nobody drives at all.</para></summary>
         Unnamed,
 
         /// <summary>A peer's round-card RECESS — <c>RemoteBoardCard.DriveUsedCardFx</c>, a live 2 s
@@ -2007,9 +2004,23 @@ internal sealed class RemoteCardArt
         /// the settled look for the arc.</summary>
         Flight,
 
-        /// <summary>The opened BURNT PILE fan — <c>RemotePileFronts</c>, the settled end-state at
-        /// t = 1 and deliberately never a ramp.</summary>
+        /// <summary>An opened PILE fan — <c>RemotePileFronts</c>, the settled end-state at t = 1 and
+        /// deliberately never a ramp. Both ability arcs since ModBuild 479: the BURNT one wears the
+        /// char and the DISCARD one the grey, each from the card's own
+        /// <c>Cards.BurnLookPolicy.ForCard</c> answer rather than from the fan's identity.</summary>
         Pile,
+
+        /// <summary>A peer's ACTIVE / persistent cell — <c>RemoteBoardCard.SetActiveCardLook</c>,
+        /// the settled end state at t = 1 and never a ramp (the 2026-09-06 item 8a ruling forbids
+        /// the burn animation and sound at the moment of an activation).</summary>
+        Active,
+
+        /// <summary>The card a peer is HOLDING in their fist — <c>RemoteHeldCardFace</c>, the
+        /// settled end state at t = 1: the card carries whatever look it wore where it was picked
+        /// up from, which is the 2026-09-07 evening ruling <i>"Wird sie in die Hand genommen soll
+        /// sie lokal und remote genau gleich angezeigt werden mit allen gleichen FX
+        /// effekten"</i>.</summary>
+        Held,
     }
 
     /// <summary>Which surface is driving this face. Assigned by the driver, idempotently; a face
@@ -2043,6 +2054,54 @@ internal sealed class RemoteCardArt
     /// <summary>Which look the minted materials currently carry. A change rewrites the constant
     /// half on the copies this overlay already owns — the walk and the minting never repeat.</summary>
     private CardFxLook _burnRigLook = CardFxLook.None;
+
+    /// <summary>Is <see cref="Cards.CardHalfTone"/> currently standing down for this clone's face
+    /// because a card-FX look is deliberately painted on it? See <see cref="TakeFxLookHold"/>.
+    /// </summary>
+    private bool _fxLookHeld;
+
+    /// <summary>
+    /// TAKE THE ONE-WRITER HOLD, at the ONE call through which a mirrored look is ever written.
+    ///
+    /// <para>USER ITEM 2b (2026-09-07 evening, verbatim): <i>"Öffnet der andere Spieler seine
+    /// verbrannten Karten kämpfen scheinbar zwei Effekte gegeneinander: Ich sehe die verbrannte
+    /// Karte mit Feuer Effekt und dann wieder ohne Feuer Effekt alternierend dauerhaft."</i></para>
+    ///
+    /// <para>THAT IS A WRITE WAR AND BOTH WRITERS ARE CORRECT WHERE THEY LIVE.
+    /// <c>Cards.CardHalfTone.NormalizeCardFx</c> swaps a mod-built front's card-FX materials to a
+    /// SHARED rest copy, because a clone of a pooled widget inherits the previous user's wash and
+    /// must start fresh. <c>RemotePileFronts</c> writes the settled burn onto the same materials at
+    /// its 4 Hz cadence, because a card in a peer's burnt arc is a burnt card. Neither is wrong;
+    /// exactly one of them may own the final value, and <c>CardHalfTone.HoldCardFxLook</c> is the
+    /// contract that says which. ModBuild 478 shipped that hold with a SINGLE caller — the active
+    /// cell — and the burnt fan never took it.</para>
+    ///
+    /// <para>SO THE HOLD IS TAKEN HERE AND NOT BY THE SURFACES. Every mirrored look goes through
+    /// <see cref="SetAbilityCardFxProgress"/>; a per-surface hold is a rule a future surface can
+    /// forget once, and this one was forgotten by three of the four surfaces that paint. Taking it
+    /// at the choke point makes forgetting it unrepresentable — and the ordering the old callers
+    /// were careful about (hold BEFORE <see cref="BuildBurnRig"/> mints its per-image materials, or
+    /// the rig's next write lands on the SHARED rest copy and chars every other clone using it) is
+    /// now structural rather than a comment.</para>
+    /// </summary>
+    private void TakeFxLookHold()
+    {
+        if (_fxLookHeld || _cloneFace == null)
+            return;
+        Cards.CardHalfTone.HoldCardFxLook(_cloneFace, true);
+        _fxLookHeld = true;
+    }
+
+    /// <summary>Release the hold — on the restore, and on the clone's teardown. A hold left standing
+    /// for a face nobody paints is the failure <c>CardHalfTone.HoldMirroredDim</c>'s own doc warns
+    /// about, so both exits release it and <see cref="DestroyClone"/> is the backstop.</summary>
+    private void ReleaseFxLookHold()
+    {
+        if (!_fxLookHeld)
+            return;
+        _fxLookHeld = false;
+        Cards.CardHalfTone.HoldCardFxLook(_cloneFace, false);
+    }
 
     /// <summary>The game's own <c>CardEffects.burntTextColor</c> (CardEffects.cs:225), a
     /// <c>Color32(143, 58, 44, 255)</c> field initialiser and therefore a BUILD FACT of the game,
@@ -2139,6 +2198,10 @@ internal sealed class RemoteCardArt
     /// </summary>
     public void ClearAbilityCardFx()
     {
+        // BEFORE the early-out, always: a face this overlay is no longer painting must not leave
+        // CardHalfTone standing down for it, and a rig that never became Ready still took the hold
+        // on its first write attempt.
+        ReleaseFxLookHold();
         if (_burnRigState != BurnRig.Ready || _burnImages == null)
             return;
         try
@@ -2206,6 +2269,9 @@ internal sealed class RemoteCardArt
     {
         if (_clone == null || look == CardFxLook.None)
             return false;
+        // FIRST, and before the rig mints anything — see TakeFxLookHold for why the ordering is
+        // load-bearing rather than tidy.
+        TakeFxLookHold();
         if (_burnRigState == BurnRig.Unbuilt)
             BuildBurnRig();
         if (_burnRigState != BurnRig.Ready || _burnImages == null)
@@ -3181,6 +3247,10 @@ internal sealed class RemoteCardArt
 
     private void DestroyClone()
     {
+        // Let CardHalfTone have this face back before it goes: an id Unity is free to reuse must
+        // never inherit a hold from a clone that is gone, which is the same argument the heal
+        // budget below is released on.
+        ReleaseFxLookHold();
         // Drop the heal budget with the clone that spent it: the guard keys on instance id, and an
         // id Unity is free to reuse must never inherit a spent budget from a face that is gone.
         Cards.CardArtGuard.NoteReleased(_cloneFace);

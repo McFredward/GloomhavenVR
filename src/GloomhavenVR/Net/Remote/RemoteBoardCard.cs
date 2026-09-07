@@ -937,12 +937,21 @@ internal sealed class RemoteBoardCard
     /// <summary>True while this slot is holding the active-column burnt wash on its face.</summary>
     private bool _activeWashOn;
 
-    /// <summary>Change gate for the line below: (card instance id, wash on) last reported.</summary>
-    private (int Card, bool On) _loggedActiveWash = (0, false);
+    /// <summary>Change gate for the line below: (card instance id, look) last reported.</summary>
+    private (int Card, RemoteCardArt.CardFxLook Look) _loggedActiveWash =
+        (0, RemoteCardArt.CardFxLook.None);
 
     /// <summary>
-    /// RULE 1a ON THE MIRROR - an ACTIVATED card bound for LOST wears the PERMANENT burnt wash on
-    /// every board, and KEEPS it.
+    /// RULE 1 ON THE MIRROR - an ACTIVATED card wears the PERMANENT look its destination earns on
+    /// every board, and KEEPS it: the burnt wash when it is bound for LOST (rule 1a), the grey-out
+    /// when it is bound for DISCARD (rule 1b).
+    ///
+    /// <para>THE GHOST HALF IS ModBuild 479, and the ruling is the user's own: <i>"Einmal grau
+    /// bleibt die Karte (remote UND lokal) grau solange sie im aktiven Stapel liegt. Gleiches gilt
+    /// fuer eine verbrannte Karte dort."</i> ModBuild 478 mirrored only the BURN, so a Discard-bound
+    /// activated card went blue on the mirror at the same round boundary it went blue on the
+    /// owner's board - one defect, two surfaces, and both halves are now one expression
+    /// (<c>Cards.BurnLookPolicy.ForActivatedCard</c>) asked over the same local model object.</para>
     ///
     /// <para>USER ITEM 4, his correction of the first attempt, verbatim: <i>"Nein du hast Bahn C
     /// falsch interpretiert. Ich meine nicht die Animation von 2 Sekunden, sondern den dauerhaften
@@ -957,18 +966,21 @@ internal sealed class RemoteBoardCard
     /// nicht verbrannt ist, sondern nur aktiviert wurde."</i> The two rulings are not in conflict
     /// and the user drew the line himself: 8a forbids the ANIMATION and the SOUND at the moment of
     /// activation, the 2026-09-07 correction asks for the PERMANENT WASH. So this drives
-    /// <c>SetAbilityBurnProgress(1f)</c> - the settled end state in one write, the same call
-    /// <c>RemotePileFronts</c> makes for the burnt fan and for the same reason - and never
+    /// <c>SetAbilityCardFxProgress(want, 1f)</c> - the settled end state in one write, the same call
+    /// <c>RemotePileFronts</c> makes for the pile fans and for the same reason - and never
     /// <see cref="DriveUsedCardFx"/>'s 2 s ramp.</para>
     ///
-    /// <para>THE HOLD GOES ON BEFORE THE PAINT, always, and that ordering is load-bearing rather
-    /// than tidy. <c>RemoteCardArt.BuildBurnRig</c> mints a per-image <c>(VR-burn)</c> material and
-    /// ASSIGNS it to the clone's Images; <c>CardHalfTone.NormalizeCardFx</c> exists to swap a
-    /// mod-built front's card-FX materials to a SHARED <c>(VR-rest)</c> copy. Let those two race and
-    /// the failure is not a flicker: the rig's next write would land on the shared rest copy and
-    /// burn every OTHER clone drawing through the same source material.
-    /// <see cref="CardHalfTone.HoldBurntLook"/> is the same one-writer-owns-the-value contract
-    /// <see cref="SetSpentHalves"/> already takes for the dim, in the same order.</para>
+    /// <para>THE HOLD IS NO LONGER TAKEN HERE, AND THAT IS THE ModBuild 479 FIX FOR ITEM 2b. This
+    /// method used to call <c>CardHalfTone.HoldBurntLook</c> itself, and it was the ONLY mirrored
+    /// surface that did; the burnt pile fan, the recess ramp and the burn flight all paint through
+    /// the same rig and none of them took it, so <c>CardHalfTone.NormalizeCardFx</c> and
+    /// <c>RemotePileFronts</c>' 4 Hz re-assert fought over the same four floats - the user's
+    /// <i>"mit Feuer Effekt und dann wieder ohne Feuer Effekt alternierend dauerhaft"</i>. The hold
+    /// is now taken and released inside <c>RemoteCardArt.SetAbilityCardFxProgress</c> /
+    /// <c>ClearAbilityCardFx</c>, the one call every mirrored look goes through, which keeps the
+    /// ordering that mattered (hold BEFORE <c>BuildBurnRig</c> mints its per-image materials, or the
+    /// rig's next write lands on the SHARED rest copy and chars every other clone using it) and
+    /// makes forgetting it unrepresentable rather than a rule each new surface must remember.</para>
     ///
     /// <para>WHY THIS LIVES HERE AND NOT IN <c>RemoteActiveCards</c>. The alternative was to expose
     /// the hosted face and its <c>RemoteCardArt</c> out of this class and drive the hold from the
@@ -986,9 +998,11 @@ internal sealed class RemoteBoardCard
     /// the wash ON the flying slab itself - that arc is <c>RemoteCardFx</c>'s and is reported as an
     /// open divergence rather than silently claimed.</para>
     /// </summary>
-    /// <param name="wanted">Rule 1a's answer for the card in this slot, from the ONE expression
-    /// both boards ask - <c>Cards.BurnLookPolicy.ActiveCardWearsBurntWash</c>.</param>
-    public void SetActiveBurntWash(int playerId, int slot, CAbilityCard? card, bool wanted)
+    /// <param name="want">Rule 1's answer for the card in this slot, from the ONE expression both
+    /// boards ask - <c>Cards.BurnLookPolicy.ForActivatedCard</c>, mapped into this module's enum by
+    /// <c>UsedCardLook.FromPolicy</c>.</param>
+    public void SetActiveCardLook(int playerId, int slot, CAbilityCard? card,
+                                  RemoteCardArt.CardFxLook want)
     {
         try
         {
@@ -1003,28 +1017,26 @@ internal sealed class RemoteBoardCard
                 return;
             }
 
-            // FIRST, every call - see the ordering note above.
-            CardHalfTone.HoldBurntLook(face, wanted);
-
-            if (!wanted)
+            if (want == RemoteCardArt.CardFxLook.None)
             {
                 if (_activeWashOn)
                 {
                     _art?.ClearAbilityCardFx();
                     _activeWashOn = false;
-                    LogActiveWashIfChanged(playerId, slot, card, on: false, took: true);
+                    LogActiveWashIfChanged(playerId, slot, card, want, took: true);
                 }
                 return;
             }
             if (_art == null)
                 return;
+            _art.Surface = RemoteCardArt.FxSurface.Active;
             // Idempotent by construction (the same floats and the same colours every time), so the
             // column's cadence costs a handful of SetFloat calls per seat and the rig itself is
-            // built once per clone. Re-asserting rather than one-shotting is what makes the wash
+            // built once per clone. Re-asserting rather than one-shotting is what makes the look
             // survive a clone rebuild - the defect is that it did NOT survive.
-            bool took = _art.SetAbilityBurnProgress(1f);
+            bool took = _art.SetAbilityCardFxProgress(want, 1f);
             _activeWashOn = took;
-            LogActiveWashIfChanged(playerId, slot, card, on: took, took: took);
+            LogActiveWashIfChanged(playerId, slot, card, want, took: took);
         }
         catch (System.Exception ex)
         {
@@ -1036,38 +1048,44 @@ internal sealed class RemoteBoardCard
         }
     }
 
-    private void LogActiveWashIfChanged(int playerId, int slot, CAbilityCard? card, bool on, bool took)
+    private void LogActiveWashIfChanged(int playerId, int slot, CAbilityCard? card,
+                                       RemoteCardArt.CardFxLook look, bool took)
     {
         int id;
         try { id = card != null ? card.CardInstanceID : 0; }
         catch { id = 0; }
-        if (_loggedActiveWash.Card == id && _loggedActiveWash.On == on)
+        if (_loggedActiveWash.Card == id && _loggedActiveWash.Look == look)
             return;
-        _loggedActiveWash = (id, on);
+        _loggedActiveWash = (id, look);
+        string on = look.ToString().ToUpperInvariant();
         string name;
         try { name = card != null ? card.Name : "(none)"; }
         catch { name = "(unnamed)"; }
-        // HW-VERIFY (2026-09-07 item 4, "lokal und remote"): whether a peer's ACTIVATED, LOST-BOUND
-        // card carries the permanent burnt wash on THIS client. Grep token: "REMOTE ACTIVE WASH".
+        // HW-VERIFY (2026-09-07 item 4, "lokal und remote"): which permanent look a peer's ACTIVATED
+        // card carries on THIS client. Grep token: "REMOTE ACTIVE WASH".
         //
-        // THE PAIR THAT IS THE 1:1 CLAIM: this line and the owner's own "ACTIVE SET" MODEL row for
-        // the same card must agree on Lost-bound, and this one's wash=True must match the owner's
-        // own board wearing it. Both read the same local model object through the same expression
-        // (Cards.BurnLookPolicy.ActiveCardWearsBurntWash), so a disagreement is a LOCAL GATE and
+        // THE PAIR THAT IS THE 1:1 CLAIM: this line and the owner's own "[Cards] ACTIVE WASH" line
+        // for the same card must agree on the destination, and this one's look must match what the
+        // owner's own board is wearing. Both read the same local model object through the same
+        // expression (Cards.BurnLookPolicy.ForActivatedCard), so a disagreement is a LOCAL GATE and
         // never a lost packet.
-        // FALSIFIER: wash=False for a card the ACTIVE SET row names as Lost-bound - the divergence
-        // the user reported as "lokal und remote". took=False separates "the rig refused"
-        // (RemoteCardArt.BuildBurnRig found no card-FX material or a degenerate _PosAndBounds) from
-        // "nothing was owed".
-        VRLog.Note("Net", $"REMOTE ACTIVE WASH [player {playerId}] cell {slot}: '{name}' wash={on} "
-                        + $"(rig took the write = {took}). RULE 1a: an ACTIVATED card bound for LOST "
+        // FALSIFIER: look=NONE for any card the ACTIVE SET row names as activated at all - since
+        // ModBuild 479 there is no such thing as a clean activated card, so NONE here means the
+        // destination expression threw or the seat is not really active. look=BURN against an
+        // owner's "bound for Discarded", or look=GHOST against "bound for Lost", is the 1:1 breach.
+        // took=False separates "the rig refused" (RemoteCardArt.BuildBurnRig found no card-FX
+        // material or a degenerate _PosAndBounds) from "nothing was owed".
+        VRLog.Note("Net", $"REMOTE ACTIVE WASH [player {playerId}] cell {slot}: '{name}' look={on} "
+                        + $"(rig took the write = {took}). RULE 1: an ACTIVATED card bound for LOST "
                         + "wears the PERMANENT burnt wash on every board and keeps it, every round; "
-                        + "one bound for DISCARD never does. Bound-ness is the game's own expression "
-                        + "(CCharacterClass.cs:479), asked once in Cards.BurnLookPolicy and read "
-                        + "here off the SAME local model object the owner's board reads. Written as "
-                        + "the settled end state at t = 1 and NEVER as a ramp - the 2026-09-06 item "
-                        + "8a ruling forbids the burn animation and sound on an activation, and this "
-                        + "is the permanent effect, not the animation.");
+                        + "one bound for DISCARD wears the PERMANENT grey-out and keeps that. There "
+                        + "is no third state and no clean activated card. Bound-ness is the game's "
+                        + "own expression (CCharacterClass.cs:479), asked once in "
+                        + "Cards.BurnLookPolicy and read here off the SAME local model object the "
+                        + "owner's board reads. Written as the settled end state at t = 1 and NEVER "
+                        + "as a ramp - the 2026-09-06 item 8a ruling forbids the burn animation and "
+                        + "sound on an activation, and this is the permanent effect, not the "
+                        + "animation.");
     }
 
     /// <summary>Drop the hold and forget the applied state — a slot that no longer shows a real
@@ -1203,8 +1221,8 @@ internal sealed class RemoteBoardCard
             return;
         }
         // NAMED BY THE DRIVER. This method is no longer the only driver a board card has: since the
-        // user's 2026-09-07 correction the ACTIVE-CARDS column drives SetActiveBurntWash above, so
-        // an activated LOST-BOUND face does build a rig and does carry the settled burn.
+        // user's 2026-09-07 correction the ACTIVE-CARDS column drives SetActiveCardLook above, so
+        // an activated face does build a rig and does carry a settled look.
         //
         // ─── THE NOTE THAT USED TO STAND HERE IS FALSE NOW, AND SO IS RemoteCardArt's ────────────
         // It read: "the ACTIVE-CARDS column ... never reaches here, so its faces stay
@@ -1830,7 +1848,8 @@ internal sealed class RemoteBoardCard
             // the identical reason — a hold on a face nobody is painting stands CardHalfTone
             // down for a clone that genuinely needs resetting. The column re-asserts it on its
             // next refresh.
-            CardHalfTone.HoldBurntLook(_faceCard, false);
+            // The card-FX look hold is RemoteCardArt's since ModBuild 479 and is released with
+            // the clone it protects (RemoteCardArt.DestroyClone); nothing to release here.
         }
         _activeWashOn = false;
         _appliedSpent = null;
