@@ -1488,9 +1488,29 @@ internal sealed class UseBarsSurface
                 // condition that it is strictly 1:1 on every mirror — same size, same icon, same
                 // position, same animations (his item 6b). So the exception is not "we could not
                 // build it", it is a ruling: an ability-card bonus keeps its decision-area row, and
-                // what is owed on it is FIDELITY, not removal. The screenshot that opened the
-                // round, riesiger_text.jpg, was this row's mirror at ~2400x scale, which is the
-                // half that was genuinely broken and is fixed in RemoteWidgetMirror.
+                // what is owed on it is FIDELITY, not removal.
+                //
+                // AND THAT FIDELITY IS NOT DELIVERED YET — the sentence that used to stand here
+                // said the screenshot which opened the round, riesiger_text.jpg, was THIS row's
+                // mirror at ~2400x scale and was fixed in RemoteWidgetMirror. THAT WAS FALSE, it
+                // was written by the integrator on 2026-09-07, and it was load-bearing: it would
+                // have told the next round that the ruling's condition was met. This row is NOT a
+                // RemoteWidgetMirror clone. There are exactly five of those — DecisionRow,
+                // InitiativeTrack, ElementBoard, Objectives, ScenarioRules — and this row is drawn
+                // by RemoteBoardFurniture.SetUseBars, a mod-drawn quad drawer that cannot render at
+                // identity scale and that nothing in ModBuild 477 touched. The screenshot was a
+                // LayoutOwner.Source clone generically (most plausibly the initiative track); see
+                // the ModBuild 477 note in NetProtocol.cs, which states it correctly.
+                //
+                // WHAT IS ACTUALLY OWED, measured: the mirrored tile is ANONYMOUS. RemoteUseBarSymbols
+                // resolves the icon off the VIEWER's own UIActiveBonusBar, on the premise that the
+                // game raises those bars from replicated messages on every client. That premise
+                // fails for exactly this population: TakeDamagePanel.ShowOtherPlayer — the branch
+                // every non-deciding client takes — calls neither ShowReduceDamageActiveBonuses nor
+                // ShowItems, so the viewer's bar is empty and the owner gate can never pass. Host
+                // log raw 126140 built one mirrored row with one tile and 126141 reported no symbol
+                // resolved, four times in one session. Closing this needs the icon IDENTITY on the
+                // wire; it is not a geometry fix.
                 //
                 // WHY THIS ROW SURVIVED (user, ModBuild 103: the peer saw the Brille among the
                 // symbols, and the mod's own log could not say why). The split is silent by design
