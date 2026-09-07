@@ -890,7 +890,7 @@ internal struct PresenceState
 
     /// <summary>
     /// True when this packet names WHICH BONUS OR ITEM the sender's use-bar slots are showing
-    /// (extension record <see cref="UseBarSlotIdentity.ExtIdUseBarSlotIdentity"/>, 45). Sparse and
+    /// (extension record <see cref="NetProtocol.ExtIdUseBarSlotIdentity"/>, 45). Sparse and
     /// default-off: an owner whose bars carry no resolvable identity — and every peer predating the
     /// record — emits nothing, and a receiver then falls back to the zero-wire local resolve
     /// <see cref="RemoteUseBarSymbols"/> has always done.
@@ -1577,7 +1577,7 @@ internal static class PresenceSerializer
     /// = 1726.
     ///
     /// <para>1747 -> 1798 on 2026-09-07: the USE-BAR SLOT IDENTITY record (45) adds 51 bytes at its
-    /// maximum — <c>[id][len]</c> plus <c>UseBarSlotIdentity.UseBarSlotIdentityMaxRecordBytes</c>
+    /// maximum — <c>[id][len]</c> plus <c>NetProtocol.UseBarSlotIdentityMaxRecordBytes</c>
     /// 49, which is an entry-count byte and 16 three-byte entries (one addressing byte and a 16-bit
     /// id each). It is in force ONLY while the sender has a use bar up whose slots carry a
     /// resolvable identity — the active-bonus and item bars of a decision prompt — and only for
@@ -3080,7 +3080,7 @@ internal static class PresenceSerializer
                     if (payload > 0 && i + 2 + payload <= buffer.Length)
                     {
                         int entries = UseBarSlotIdEntries(in state);
-                        buffer[i++] = UseBarSlotIdentity.ExtIdUseBarSlotIdentity;
+                        buffer[i++] = NetProtocol.ExtIdUseBarSlotIdentity;
                         buffer[i++] = (byte)payload;
                         buffer[i++] = (byte)entries;
                         byte mask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
@@ -3099,7 +3099,7 @@ internal static class PresenceSerializer
                                 ushort id = state.UseBarSlotIds[k];
                                 if (id == UseBarSlotIdentity.NoIdentity)
                                     continue;
-                                buffer[i++] = UseBarSlotIdentity.UseBarSlotAddr(b, s);
+                                buffer[i++] = NetProtocol.UseBarSlotAddr(b, s);
                                 buffer[i++] = (byte)id;
                                 buffer[i++] = (byte)(id >> 8);
                                 written++;
@@ -3319,8 +3319,8 @@ internal static class PresenceSerializer
                     entries++;
             }
         }
-        return entries > UseBarSlotIdentity.UseBarSlotIdentityMaxEntries
-            ? UseBarSlotIdentity.UseBarSlotIdentityMaxEntries
+        return entries > NetProtocol.UseBarSlotIdentityMaxEntries
+            ? NetProtocol.UseBarSlotIdentityMaxEntries
             : entries;
     }
 
@@ -3335,7 +3335,7 @@ internal static class PresenceSerializer
         int entries = UseBarSlotIdEntries(in state);
         return entries == 0
             ? 0
-            : 1 + (entries * UseBarSlotIdentity.UseBarSlotIdentityEntryBytes);
+            : 1 + (entries * NetProtocol.UseBarSlotIdentityEntryBytes);
     }
 
     // ---- mod-version text (en/de)coding caches ------------------------------------------
@@ -4465,8 +4465,8 @@ internal static class PresenceSerializer
                             state.FanSourceList = list;
                         }
                     }
-                    else if (id == UseBarSlotIdentity.ExtIdUseBarSlotIdentity
-                             && len >= UseBarSlotIdentity.UseBarSlotIdentityMinRecordBytes)
+                    else if (id == NetProtocol.ExtIdUseBarSlotIdentity
+                             && len >= NetProtocol.UseBarSlotIdentityMinRecordBytes)
                     {
                         // USE-BAR SLOT IDENTITY: [entries][entries × [bar:3|slot:5][idLo][idHi]].
                         //
@@ -4485,10 +4485,10 @@ internal static class PresenceSerializer
                         int j = i;
                         int end = i + len;
                         int stated = buffer[j++];
-                        int fits = (end - j) / UseBarSlotIdentity.UseBarSlotIdentityEntryBytes;
+                        int fits = (end - j) / NetProtocol.UseBarSlotIdentityEntryBytes;
                         int n = stated;
-                        if (n > UseBarSlotIdentity.UseBarSlotIdentityMaxEntries)
-                            n = UseBarSlotIdentity.UseBarSlotIdentityMaxEntries;
+                        if (n > NetProtocol.UseBarSlotIdentityMaxEntries)
+                            n = NetProtocol.UseBarSlotIdentityMaxEntries;
                         if (n > fits)
                             n = fits;
                         if (n > 0)
@@ -4500,9 +4500,9 @@ internal static class PresenceSerializer
                             {
                                 byte addr = buffer[j];
                                 var value = (ushort)(buffer[j + 1] | (buffer[j + 2] << 8));
-                                j += UseBarSlotIdentity.UseBarSlotIdentityEntryBytes;
-                                int bar = UseBarSlotIdentity.UseBarSlotAddrBar(addr);
-                                int slot = UseBarSlotIdentity.UseBarSlotAddrSlot(addr);
+                                j += NetProtocol.UseBarSlotIdentityEntryBytes;
+                                int bar = NetProtocol.UseBarSlotAddrBar(addr);
+                                int slot = NetProtocol.UseBarSlotAddrSlot(addr);
                                 if (bar >= NetProtocol.UseBarsCount
                                     || slot >= NetProtocol.UseBarsMaxSlots
                                     || value == UseBarSlotIdentity.NoIdentity)

@@ -110,21 +110,21 @@ internal static class UseBarSlotIdentityVectors
         {
             for (int slot = 0; slot < 32; slot++)
             {
-                byte addr = UseBarSlotIdentity.UseBarSlotAddr(bar, slot);
-                t.Equal(bar, UseBarSlotIdentity.UseBarSlotAddrBar(addr),
+                byte addr = NetProtocol.UseBarSlotAddr(bar, slot);
+                t.Equal(bar, NetProtocol.UseBarSlotAddrBar(addr),
                         $"addr 0x{addr:X2} decodes back to bar {bar}");
-                t.Equal(slot, UseBarSlotIdentity.UseBarSlotAddrSlot(addr),
+                t.Equal(slot, NetProtocol.UseBarSlotAddrSlot(addr),
                         $"addr 0x{addr:X2} decodes back to slot {slot}");
             }
         }
 
         // …and the ends are named explicitly, so a future "tidy the shifts" pass that swapped them
         // consistently in both directions still fails HERE even though the sweep above would pass.
-        t.Equal(0x20, (int)UseBarSlotIdentity.UseBarSlotAddr(1, 0),
+        t.Equal(0x20, (int)NetProtocol.UseBarSlotAddr(1, 0),
                 "bar 1 slot 0 is 0x20 — the bar lives in the HIGH three bits, not the low five");
-        t.Equal(0x01, (int)UseBarSlotIdentity.UseBarSlotAddr(0, 1),
+        t.Equal(0x01, (int)NetProtocol.UseBarSlotAddr(0, 1),
                 "bar 0 slot 1 is 0x01 — the slot lives in the LOW five bits");
-        t.Equal(0x60, (int)UseBarSlotIdentity.UseBarSlotAddr(3, 0),
+        t.Equal(0x60, (int)NetProtocol.UseBarSlotAddr(3, 0),
                 "the items bar (3), slot 0, is 0x60 — the byte the golden vector below spells out");
     }
 
@@ -266,7 +266,7 @@ internal static class UseBarSlotIdentityVectors
         // Bars 4..7 are addressable by the byte and undefined by this build. Every one must DROP.
         for (int bar = NetProtocol.UseBarsCount; bar < 8; bar++)
         {
-            byte addr = UseBarSlotIdentity.UseBarSlotAddr(bar, 0);
+            byte addr = NetProtocol.UseBarSlotAddr(bar, 0);
             byte[] p = Tail($"2D 04 01 {addr:X2} EF BE");
             t.True(PresenceSerializer.TryRead(p, p.Length, out PresenceState g),
                    $"a record naming undefined bar {bar} still parses");
@@ -278,7 +278,7 @@ internal static class UseBarSlotIdentityVectors
         // Slots 8..31 likewise: addressable, past UseBarsMaxSlots, must drop.
         for (int slot = NetProtocol.UseBarsMaxSlots; slot < 32; slot++)
         {
-            byte addr = UseBarSlotIdentity.UseBarSlotAddr(0, slot);
+            byte addr = NetProtocol.UseBarSlotAddr(0, slot);
             byte[] p = Tail($"2D 04 01 {addr:X2} EF BE");
             t.True(PresenceSerializer.TryRead(p, p.Length, out PresenceState g),
                    $"a record naming out-of-range slot {slot} still parses");
@@ -390,16 +390,16 @@ internal static class UseBarSlotIdentityVectors
 
         // Record 45 of every legal entry count, followed by record 3 (mod version, 'GVR'), which
         // the reader must still find on its own offset.
-        for (int entries = 0; entries <= UseBarSlotIdentity.UseBarSlotIdentityMaxEntries; entries++)
+        for (int entries = 0; entries <= NetProtocol.UseBarSlotIdentityMaxEntries; entries++)
         {
             var body = new System.Text.StringBuilder();
-            int payload = 1 + (entries * UseBarSlotIdentity.UseBarSlotIdentityEntryBytes);
+            int payload = 1 + (entries * NetProtocol.UseBarSlotIdentityEntryBytes);
             body.Append($"2D {payload:X2} {entries:X2} ");
             for (int e = 0; e < entries; e++)
             {
                 int bar = (e & 1) == 0 ? 0 : 3;
                 int slot = e >> 1;
-                byte addr = UseBarSlotIdentity.UseBarSlotAddr(bar, slot);
+                byte addr = NetProtocol.UseBarSlotAddr(bar, slot);
                 body.Append($"{addr:X2} {(0x21 + e):X2} 0{(e % 8) + 1} ");
             }
             // record 3: ExtIdModVersion — [u16 build LE][UTF8 text], build 471, text "GVR"
@@ -435,22 +435,22 @@ internal static class UseBarSlotIdentityVectors
                + $"worst case {documentedWorstCase}, which is at least one record's worth "
                + $"({largestSingleRecord})");
 
-        t.Equal(51, 2 + UseBarSlotIdentity.UseBarSlotIdentityMaxRecordBytes,
+        t.Equal(51, 2 + NetProtocol.UseBarSlotIdentityMaxRecordBytes,
                 "record 45's worst case is [id][len] + its 49-byte payload — the term the sum added");
 
         // AND WHY THE CAP IS 16 AND NOT 32. The addressing byte can name four bars, so "one entry
         // per addressable slot" would be 32 — a 97-byte payload, worst case 1846, margin 254. That
         // is ONE BYTE inside the rule above, and this assertion is here so that a future widening
         // trips the gate instead of the rule quietly expiring.
-        const int ifItNamedEveryBar = 1 + (32 * UseBarSlotIdentity.UseBarSlotIdentityEntryBytes);
+        const int ifItNamedEveryBar = 1 + (32 * NetProtocol.UseBarSlotIdentityEntryBytes);
         t.True(PresenceSerializer.MaxSize
-               < (documentedWorstCase - UseBarSlotIdentity.UseBarSlotIdentityMaxRecordBytes
+               < (documentedWorstCase - NetProtocol.UseBarSlotIdentityMaxRecordBytes
                   + ifItNamedEveryBar) + 2 + largestSingleRecord,
                "a 32-entry version of this record would BREAK the margin rule at today's MaxSize — "
                + "which is why the cap is 16, and why widening it means raising MaxSize in the "
                + "same commit");
 
-        t.Equal(16, UseBarSlotIdentity.UseBarSlotIdentityMaxEntries,
+        t.Equal(16, NetProtocol.UseBarSlotIdentityMaxEntries,
                 "the cap is the two carried bars at UseBarsMaxSlots each");
     }
 }

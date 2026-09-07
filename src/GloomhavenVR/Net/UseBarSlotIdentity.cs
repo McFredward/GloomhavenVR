@@ -73,78 +73,12 @@ namespace GloomhavenVR.Net;
 /// "Net — content classification".</remarks>
 internal static class UseBarSlotIdentity
 {
-    // ─── WIRE CONSTANTS PENDING RELOCATION INTO NetProtocol.cs ────────────────────────────────
-    //
-    // NetProtocol.cs is the integrator's file and a lane may not edit it, but this lane's sender,
-    // receiver and wire tests all have to COMPILE against the record's constants before the gate
-    // suite can be run at all. So they are declared here, and the lane's report hands the
-    // integrator their exact text to MOVE into NetProtocol.cs beside ExtIdFanArcOrder. Nothing
-    // reads a second copy of any of these numbers, so the move is a cut, a paste and a
-    // `UseBarSlotIdentity.` → `NetProtocol.` rename at the call sites.
-
-    /// <summary>Extension record id: WHICH bonus or item each visible use-bar slot is showing.
-    /// Allocated by the integrator for ModBuild 479.</summary>
-    internal const byte ExtIdUseBarSlotIdentity = 45;
-
-    /// <summary>Smallest payload the record can have: the entry-count byte alone. A record shorter
-    /// than this is malformed and is stepped over by the tail loop's own length skip.</summary>
-    internal const int UseBarSlotIdentityMinRecordBytes = 1;
-
-    /// <summary>Bytes per carried entry: one addressing byte then the id, little-endian.</summary>
-    internal const int UseBarSlotIdentityEntryBytes = 3;
-
-    /// <summary>
-    /// Most entries the record can carry: <c>2 × NetProtocol.UseBarsMaxSlots</c> = 16 — the two
-    /// bars that carry an identity (active bonus and items), at their existing per-bar slot cap.
-    /// Clamped on BOTH ends, so a lying count can neither allocate nor overrun.
-    ///
-    /// <para>NOT 32, AND THE REASON IS THE BUDGET RULE RATHER THAN TIDINESS. The addressing byte
-    /// has three bits of bar and can name all four, and 32 entries is what "one per addressable
-    /// slot" would give; but 32 entries is a 97-byte payload, which takes the documented worst case
-    /// to 1846 and leaves a 254-byte margin under <c>PresenceSerializer.MaxSize</c> 2100 — one byte
-    /// INSIDE the standing rule that the margin stay at least as large as the biggest single record
-    /// (257, board tuning). 16 is also the honest bound: bars 1 and 2 produce no id at all today
-    /// (the abilities bar resolves locally, an augment slot has no icon), so the sender cannot
-    /// currently emit a seventeenth entry. A future build that gives those bars identities must
-    /// raise this cap AND <c>MaxSize</c> in the same commit, per that rule.</para>
-    /// </summary>
-    internal const int UseBarSlotIdentityMaxEntries = 2 * 8;
-
-    /// <summary>Largest payload the record can occupy: the count byte plus every entry
-    /// (1 + 16 × 3 = 49). With the 2-byte TLV header that is 51 bytes on the wire.</summary>
-    internal const int UseBarSlotIdentityMaxRecordBytes =
-        1 + (UseBarSlotIdentityMaxEntries * UseBarSlotIdentityEntryBytes);
-
-    /// <summary>
-    /// First ModBuild that can SEND record 45. A peer below this — a ModBuild-478 co-player, a FLAT
-    /// player, an unmodded client — sends no record 45 at all, and its mirrored bars must keep
-    /// drawing exactly the plates they drew before this build. The receiver never REQUIRES the
-    /// record; this constant exists so the log can tell "that peer CANNOT name its slots" apart
-    /// from "that peer named none", which is the distinction the ARC ORDER NOT APPLIED line was
-    /// corrected to make on 2026-09-07 after the first grep of a host log accused a peer four
-    /// builds PAST the record of predating it.
-    /// </summary>
-    internal const ushort UseBarSlotIdentityMinPeerBuild = 479;
+    // ---- the one value the record reserves ----------------------------------------------------
 
     /// <summary>The id that means "this slot has no transmissible identity". Never produced by
     /// <see cref="Fold"/>, which remaps a zero fold to 1, so absence and a real id can never be
     /// confused and the record needs no separate presence bit per slot.</summary>
     internal const ushort NoIdentity = 0;
-
-    // ---- the addressing codec ----------------------------------------------------------------
-
-    /// <summary>Pack a (bar, slot) pair into the record's addressing byte: bar in the HIGH 3 bits,
-    /// slot in the LOW 5. One expression, called by the writer and by the reader, so the two cannot
-    /// disagree about which end the bar lives on — a swap there would move every symbol onto the
-    /// wrong bar while still parsing perfectly.</summary>
-    internal static byte UseBarSlotAddr(int bar, int slot) =>
-        (byte)(((bar & 0x07) << 5) | (slot & 0x1F));
-
-    /// <summary>The bar index inside an addressing byte (high 3 bits).</summary>
-    internal static int UseBarSlotAddrBar(byte addr) => (addr >> 5) & 0x07;
-
-    /// <summary>The slot index inside an addressing byte (low 5 bits).</summary>
-    internal static int UseBarSlotAddrSlot(byte addr) => addr & 0x1F;
 
     // ---- the fold (ONE implementation, called by BOTH directions) ---------------------------
     //

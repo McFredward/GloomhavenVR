@@ -101,7 +101,7 @@ namespace GloomhavenVR.Net;
 /// carry (the abilities bar, which the game genuinely does raise on every client — the
 /// <c>Choreographer.CheckForInitiativeAdjustments</c> path above is real, it was merely generalised
 /// too far), for every peer below
-/// <c>UseBarSlotIdentity.UseBarSlotIdentityMinPeerBuild</c>, and for every FLAT or unmodded player.
+/// <c>NetProtocol.UseBarSlotIdentityMinPeerBuild</c>, and for every FLAT or unmodded player.
 /// The two never mix inside one bar: either the owner named that bar's slots or nobody did.</para>
 /// </summary>
 /// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. The icons come from this client's own

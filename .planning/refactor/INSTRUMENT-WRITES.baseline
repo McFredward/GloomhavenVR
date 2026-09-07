@@ -74,6 +74,5 @@ OpenState::Opt <- OpenState
 PanelGrabHandle::_reelSelfTicks <- ReportReelReleased
 PanelSamplingProbe::Surfaces <- Report
 PanelSupersample::FrameSb <- ReportCaptureFrame
-RemoteHandFan::_mapPrinted <- PrintMapFace
 RenderTargetProbe::Sb <- BehaviourList
 UiSoundEar::_stateLogged <- ReportState

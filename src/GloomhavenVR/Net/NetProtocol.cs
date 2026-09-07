@@ -448,7 +448,123 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 478;
+    public const ushort ModBuild = 479;
+    // Build 479: A HARDWARE ROUND ON 478 — the first, taken hours after 478 shipped, so this build
+    //   is both the answer to eight fresh reports and the first reading of the last one. Eight
+    //   lanes. The shape of it: FOUR OF HIS EIGHT ITEMS WERE ONE DEFECT, and it was the same defect
+    //   478 had just closed for the card's FACE, left open for the card's LOOK.
+    //   * ONLY THE CHAR WAS PUT BACK AFTER THE GAME'S ROUND-BOUNDARY WIPE. His item 4: "Nach einer
+    //     Runde wurde die aktive Karte von grau (verbraucht) blau." FullAbilityCard.SetPile
+    //     (Activated) calls cardEffects.RestoreCard() UNCONDITIONALLY (FullAbilityCard.cs:325-328),
+    //     reached from AbilityCardUI.UpdateCard at the next hand refresh, and it does not ask which
+    //     look it is erasing. BurnLookPolicy rule 1a put the CHAR back on a Lost-bound activated
+    //     card; rule 1b said the ghost on a Discard-bound one "is the game's business and is left
+    //     alone", so the GREY was put back by nobody. Same card, both machines: ACTIVE WASH
+    //     'TheMindsWeakness' ... wearing = True at user 23355, wearing = False at user 26305, and
+    //     the identical pair on the peer at 14953/42556 — with rule 1a visibly catching the SAME
+    //     wipe on Lost-bound WardingStrength at peer 22846.
+    //     MY OWN ROOT CAUSE FOR THIS WAS WRONG IN MECHANISM and the lane said so: I briefed that
+    //     CardEffects flags are TRANSIENT and expire with the 2 s animation. They are LATCHES —
+    //     a HashSet, cleared only by ToggleEffect(false) or RestoreCard (CardEffects.cs:229,
+    //     :354-357, :432, :468). My proposed remedy, "the widget may only ADD a look, never remove
+    //     one", would have re-broken the 2026-09-06 item 8a fix, which exists precisely so a card
+    //     the game un-burns loses its overlay. ResolveUsedCardLook is unchanged.
+    //   * A LOOK NOBODY HELD, ON THREE MIRRORED SURFACES. Item 2b, the burnt fan flickering fire
+    //     on/off forever, is a write war that CardHalfTone.HoldCardFxLook's own doc had predicted
+    //     VERBATIM a build in advance: "left to fight they alternate per rebuild and the user sees
+    //     a flicker instead of an answer." 478 shipped the hold with ONE caller and three surfaces
+    //     that needed it forgot to take it. The hold now belongs to RemoteCardArt, taken inside the
+    //     single write choke point, so a new mirrored surface gets it and CANNOT omit it.
+    //   * A COMMENT ASSERTED THE OWNER'S OWN FAN SHOWS DISCARDS FRESH. It does not:
+    //     SetPile(Discarded) runs GhostOutOnTimeline (:316-319). That false sentence
+    //     (RemotePileFronts.cs:656) is the whole of item 2a — the mirrored discard fan asked for no
+    //     look at all. Sixth confident-comment defect in this project's ledger.
+    //   * THE PILE RULING WAS WRITTEN AS A PLACE, so it could not follow a card out of the fan.
+    //     Items 3 and 6, and he sent them in one message because they are one defect. The burnt arc
+    //     had the ruling as a card PROPERTY; the discard pile was in none of its lists and the
+    //     items fan had no vocabulary at all (Tick passed the SELECTION-phase term for all three
+    //     contents and only converted per-card when content == Content.Burnt). Measured:
+    //     `pile browse[p2] 0 FRONT / 4 BACK`, `item fan[p2] 0 FRONT / 2 BACK`, and
+    //     `held card[p2/slot1] 0 FRONT / 1 BACK`. RemoteHeldCardFace said it in its own comment:
+    //     "// HeldFaceListDiscard IS DELIBERATELY NOT HERE."
+    //     THE TRAP WAS BIGGER THAN MY BRIEF SAID: widening the FACE predicate to "in the discard
+    //     pile" re-opens the short-rest SACRIFICE as well as 477's label leak, because
+    //     PerformShortRest indexes DiscardedAbilityCards and removes nothing. Hence PileFrontsReach,
+    //     a card property but a SCOPED one. PeersMaySeeOurCard is renamed PeersMayNameOurCard,
+    //     byte-identical: all three callers were always asking about a SENTENCE, and the name is
+    //     what made two questions look like one. CardIdentityMaskVectors now fails the build if
+    //     they are merged again.
+    //   * A DAMAGE PROMPT PARKS THE RULE THREAD, AND THE DEADLOCK GATE READ THAT AS "RESOLVING".
+    //     Item 7. GameState.ActorDamaged publishes its message and then sleeps the SRL work thread
+    //     in a while loop (GameState.cs:1187-1207), so IsProcessingOrMessagesQueued reads true while
+    //     the engine executes nothing and writes no figure transform. All ELEVEN refusals across
+    //     both logs are that one clause, on his own Mindthief, inside one Take Damage Panel. The fix
+    //     is the GAME'S OWN three-term expression, which it writes out in five places because its
+    //     own buttons must stay pressable during that prompt (SkipButton.cs:162 and four more).
+    //   * A PEER'S DECISION SYMBOLS COULD NEVER RESOLVE — NOT UNIMPLEMENTED, IMPOSSIBLE. Item 8's
+    //     second half, and the first half of a two-part answer. UIScenarioMultiplayerController
+    //     .cs:238-246 branches on IsUnderMyControl and sends a non-controlling client to
+    //     TakeDamagePanel.ShowOtherPlayer, whose body raises NEITHER UIUseItemsBar.ShowItems NOR
+    //     UIActiveBonusBar.ShowReduceDamageActiveBonuses. So the watcher's own copy of that bar is
+    //     empty BY CONSTRUCTION. NEW EXTENSION RECORD 45 carries the slot's IDENTITY — the game's
+    //     own, (Ability.Name, BaseCard.ID) and CItem.NetworkID, which is what
+    //     TakeDamagePanel.ProxyTakeDamage resolves an active bonus by over the GAME's network. No
+    //     art on the wire; an unresolvable id stays ANONYMOUS.
+    //   * AND ITEM 8'S FIRST HALF IS NOT SOLVED, WHICH IS SAID PLAINLY RATHER THAN PAPERED OVER.
+    //     The giant orange text survived a build that was believed to have fixed it, and all four
+    //     candidates are now ruled out with measurements — including BOTH of the integrator's leads:
+    //     the occlusion proves nothing (the mirrored furniture is order-sorted and writes no depth,
+    //     and the object draws OVER the tree trunks in the same frame), and the "8.5 m dock" is
+    //     WORLD UNITS mislabelled as metres on a 21.69 units/m rig, for one tick. What was found is
+    //     a real asymmetry with the right shape: RemoteWidgetMirror.TryMeasure DISCARDS a graphic
+    //     >= 3x the dock budget as "not part of this panel" and the clone DRAWS IT ANYWAY, whose
+    //     smallest reachable case computes to 1.26 m against a 0.44 m board. Instrument shipped
+    //     (MIRROR DRAWS AN UNMEASURED BACKDROP), fix deliberately NOT shipped blind.
+    //   * THE WINDOW CEILING WAS 70 mm ABOVE THE CELLAR'S OWN. Item 1. ArcSeats
+    //     .MapRoomWindowTopCeilingMeters was 1.90 m over the table, set against EYE HEIGHT and not
+    //     against any room; the cellar's beam soffits are at 1.58 m and its planks at 1.83 m in
+    //     perceived metres, so a 1.752 m top edge stood 176 mm INSIDE a beam while the instrument
+    //     called it "under the 1.90 m ceiling". Now 1.45 m, derived from the authored room. A
+    //     ceiling-AWARE clamp is impossible and the lane says why: SkyAlternative measures every
+    //     room horizontally only and throws size.y away, and a shared window's pose may not read a
+    //     client-local term anyway.
+    //   * THE SUPERSAMPLER'S ONE THROW DISCARDED ITS STACK AND LIED ABOUT ITS OWN SCOPE. Not
+    //     reported by him; found by reading the logs. The line claimed "the path stands down
+    //     completely"; _errorLogged gated THE LOG AND NOTHING ELSE, and 866 of the session's 895
+    //     PANEL SUPERSAMPLE lines come AFTER the failure, 25 of them engages. The real hazard was
+    //     the inverse: a session-wide bool over four call sites, two of them per-camera-per-frame,
+    //     so a throw repeating every frame would print ONE line while paying a full teardown and
+    //     rebuild of 75 MB of render target forever. Now per entry, with the stack, capped at four.
+    //   * A REASON STRING CARRIED THREE CAUSES and hid the round's only real arc-order loss. A
+    //     read-only lane RETIRED my lead that record 44 was being dropped ~90 % of the time: the
+    //     pair I read as a rate counts two different populations, and the "61 vs 4" was one card
+    //     plucked and re-seated ~35 times while the selection phase held the mirror on backs. The
+    //     feature works. What it found instead: the receiver's `reason=none stated` bullet and its
+    //     shipped log sentence both still explained a SENDER policy that ModBuild 471 deleted, and
+    //     both ended "benign, and the picture is right" — a stale receiver-side sentence about
+    //     sender-side policy, which is a class this tree carries four times.
+    // A GATE FOR THE CLASS, WHICH IS THE PART THAT OUTLIVES THE ROUND. Asked whether the code is
+    //   still maintainable, and whether an Umbau is warranted: yes, one, and narrow. 478 collapsed
+    //   the card FACE from twelve surfaces answering four ways into RevealGate.CardFaces plus a
+    //   gate group; nobody had done it for the LOOK, and items 2a/2b/4/5 are that omission arriving
+    //   one surface at a time. scripts/check-mirrors.sh gains TWO expression groups — "the durable
+    //   card look" (one implementation: Cards.Art.BurnLookPolicy.ForCard/ForActivatedCard, reached
+    //   from Net/ through UsedCardLook.FromPolicy) and "the mirrored-look one-writer hold" — 41
+    //   constant groups and 7 expression groups, each verified by PLANTING the forbidden pattern
+    //   and watching the build fail, and by confirming the same text in a COMMENT does not fire it.
+    //   scripts/log-triage.py is the other half and is the cheaper one: item 4's answer was already
+    //   in the log he uploaded with the report and nobody read the distribution. It prints, for
+    //   every standing instrument, the full value distribution of the field that DECIDES its
+    //   verdict, anchored, never truncated, with a loud SILENT section because a token that never
+    //   fired is itself a reading.
+    // OWED ON HARDWARE: the giant text (cause not found, instrument shipped); record 45's whole
+    //   path, which has never run; item 6's second symptom, the fan reverting while a card is held,
+    //   for which NO mechanism could be established and whose only candidate belt has zero
+    //   occurrences in either log; and the burnt-pile arc, still never measured.
+    // Wire: NEW extension record 45 (ExtIdUseBarSlotIdentity), sparse, default-off, 16 entries max
+    //   at 3 bytes each. Worst case 1747 -> 1798, MaxSize unchanged at 2100, margin 302 against the
+    //   257-byte largest single record. 46 is next free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 478: THE REVIEW ROUND. Five read-only reviews answering the maintainer's five standing
     //   questions, then six fix lanes. NOT A HARDWARE ROUND — nothing here comes from a new test;
     //   every defect below was found by reading the shipped code against the game and against the
@@ -22992,6 +23108,91 @@ internal static class NetProtocol
         else
             packed[at] = (byte)((packed[at] & 0x0F) | ((seat & 0x0F) << 4));
     }
+
+    // ══ EXTENSION RECORD 45 — WHICH BONUS OR ITEM A PEER'S USE-BAR SLOT IS SHOWING ══════════════
+    //
+    // Allocated 2026-09-07 for the maintainer's item 8, after the mirror's LOCAL resolve was shown
+    // to be impossible rather than merely unimplemented: the game branches on the attacked actor's
+    // IsUnderMyControl (UIScenarioMultiplayerController.cs:238-246) and sends a NON-CONTROLLING
+    // client to TakeDamagePanel.ShowOtherPlayer, whose body raises neither UIUseItemsBar.ShowItems
+    // nor UIActiveBonusBar.ShowReduceDamageActiveBonuses and ends on myWindow.Hide(instant: true).
+    // A watcher's own copy of that bar is therefore EMPTY BY CONSTRUCTION and no local rule could
+    // ever have named the slot. His words for what was owed: "Es ist von aeusserster Wichtigkeit
+    // dass hier die 1:1 Regel eingehalten wird und jeder Spieler genau das selbe sieht wie der
+    // lokale Spieler bei sich bei diesen Entscheidungssymbolen."
+    //
+    // STILL NO ART ON THE WIRE. The record carries a 16-bit IDENTITY; the receiver resolves it
+    // against its own model and calls IActiveBonus.GetIcon() itself. A slot whose id the receiver
+    // cannot resolve stays ANONYMOUS — the failure direction the old gate was built for, and the
+    // one this keeps: a symbol from somebody else's decision is worse than no symbol at all.
+    //
+    // THE IDENTITY IS THE GAME'S OWN, not this mod's invention, which is why it can be trusted
+    // across machines: TakeDamagePanel.ProxyTakeDamage (:1152-1165) resolves an active bonus
+    // arriving over the GAME's network by (Ability.Name, BaseCard.ID) and an item by
+    // CItem.NetworkID. Record 45 folds exactly those pairs.
+    //
+    // The FOLD and the record's NoIdentity sentinel live in Net/UseBarSlotIdentity.cs beside the
+    // sender and the receiver that both call them, so the two directions cannot drift apart without
+    // the compiler moving both. Only the ALLOCATION and the addressing codec are here.
+
+    /// <summary>Extension record id: WHICH bonus or item each visible use-bar slot is showing.
+    /// Allocated by the integrator for ModBuild 479.</summary>
+    public const byte ExtIdUseBarSlotIdentity = 45;
+
+    /// <summary>Smallest payload the record can have: the entry-count byte alone. A record shorter
+    /// than this is malformed and is stepped over by the tail loop's own length skip.</summary>
+    public const int UseBarSlotIdentityMinRecordBytes = 1;
+
+    /// <summary>Bytes per carried entry: one addressing byte then the id, little-endian.</summary>
+    public const int UseBarSlotIdentityEntryBytes = 3;
+
+    /// <summary>
+    /// Most entries the record can carry: <c>2 × NetProtocol.UseBarsMaxSlots</c> = 16 — the two
+    /// bars that carry an identity (active bonus and items), at their existing per-bar slot cap.
+    /// Clamped on BOTH ends, so a lying count can neither allocate nor overrun.
+    ///
+    /// <para>NOT 32, AND THE REASON IS THE BUDGET RULE RATHER THAN TIDINESS. The addressing byte
+    /// has three bits of bar and can name all four, and 32 entries is what "one per addressable
+    /// slot" would give; but 32 entries is a 97-byte payload, which takes the documented worst case
+    /// to 1846 and leaves a 254-byte margin under <c>PresenceSerializer.MaxSize</c> 2100 — one byte
+    /// INSIDE the standing rule that the margin stay at least as large as the biggest single record
+    /// (257, board tuning). 16 is also the honest bound: bars 1 and 2 produce no id at all today
+    /// (the abilities bar resolves locally, an augment slot has no icon), so the sender cannot
+    /// currently emit a seventeenth entry. A future build that gives those bars identities must
+    /// raise this cap AND <c>MaxSize</c> in the same commit, per that rule.</para>
+    /// </summary>
+    public const int UseBarSlotIdentityMaxEntries = 2 * 8;
+
+    /// <summary>Largest payload the record can occupy: the count byte plus every entry
+    /// (1 + 16 × 3 = 49). With the 2-byte TLV header that is 51 bytes on the wire.</summary>
+    public const int UseBarSlotIdentityMaxRecordBytes =
+        1 + (UseBarSlotIdentityMaxEntries * UseBarSlotIdentityEntryBytes);
+
+    /// <summary>
+    /// First ModBuild that can SEND record 45. A peer below this — a ModBuild-478 co-player, a FLAT
+    /// player, an unmodded client — sends no record 45 at all, and its mirrored bars must keep
+    /// drawing exactly the plates they drew before this build. The receiver never REQUIRES the
+    /// record; this constant exists so the log can tell "that peer CANNOT name its slots" apart
+    /// from "that peer named none", which is the distinction the ARC ORDER NOT APPLIED line was
+    /// corrected to make on 2026-09-07 after the first grep of a host log accused a peer four
+    /// builds PAST the record of predating it.
+    /// </summary>
+    public const ushort UseBarSlotIdentityMinPeerBuild = 479;
+
+    // ---- the addressing codec ----------------------------------------------------------------
+
+    /// <summary>Pack a (bar, slot) pair into the record's addressing byte: bar in the HIGH 3 bits,
+    /// slot in the LOW 5. One expression, called by the writer and by the reader, so the two cannot
+    /// disagree about which end the bar lives on — a swap there would move every symbol onto the
+    /// wrong bar while still parsing perfectly.</summary>
+    public static byte UseBarSlotAddr(int bar, int slot) =>
+        (byte)(((bar & 0x07) << 5) | (slot & 0x1F));
+
+    /// <summary>The bar index inside an addressing byte (high 3 bits).</summary>
+    public static int UseBarSlotAddrBar(byte addr) => (addr >> 5) & 0x07;
+
+    /// <summary>The slot index inside an addressing byte (low 5 bits).</summary>
+    public static int UseBarSlotAddrSlot(byte addr) => addr & 0x1F;
 
     /// <summary>
     /// Are <paramref name="order"/>'s first <paramref name="count"/> entries DISTINCT indices into

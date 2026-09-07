@@ -3719,11 +3719,11 @@ internal sealed class RemoteBoardFurniture
         // the build can tell them apart — the correction the ARC ORDER NOT APPLIED line took on
         // 2026-09-07, applied here from the start rather than after a wasted grep.
         int peerBuild = VersionGuard.PeerBuild(owner.PlayerId);
-        bool peerCanName = peerBuild >= UseBarSlotIdentity.UseBarSlotIdentityMinPeerBuild;
+        bool peerCanName = peerBuild >= NetProtocol.UseBarSlotIdentityMinPeerBuild;
         string peerArm = peerCanName
             ? $"peer ModBuild {peerBuild} CAN send record 45"
             : $"peer ModBuild {peerBuild} predates record 45 (needs " +
-              $"{UseBarSlotIdentity.UseBarSlotIdentityMinPeerBuild}), so it names no slot and the " +
+              $"{NetProtocol.UseBarSlotIdentityMinPeerBuild}), so it names no slot and the " +
               "local resolve is the only source there is";
         // HW-VERIFY
         VRLog.Note("Net", lit > 0

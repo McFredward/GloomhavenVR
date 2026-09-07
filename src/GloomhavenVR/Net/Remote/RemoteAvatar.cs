@@ -1039,7 +1039,7 @@ internal sealed class RemoteAvatar
     /// Per-slot IDENTITY ids (record 45) — same stride and same subscripts as
     /// <see cref="UseBarSlotStates"/>; null while the peer sends none, which is the case for every
     /// FLAT player, every unmodded client and every peer below
-    /// <c>UseBarSlotIdentity.UseBarSlotIdentityMinPeerBuild</c>.
+    /// <c>NetProtocol.UseBarSlotIdentityMinPeerBuild</c>.
     ///
     /// <para>STILL NO ART AND STILL NO LABEL. An entry is a 16-bit fold of the GAME'S OWN
     /// cross-machine identity for a bonus or item; the receiver looks it up in its own replicated

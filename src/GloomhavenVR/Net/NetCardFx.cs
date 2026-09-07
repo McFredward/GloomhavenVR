@@ -121,7 +121,7 @@ internal static class NetCardFx
     /// FX block is a FLAG-BIT field in the extras packet, not a length-prefixed TLV record, so
     /// widening it in place breaks every older peer's parse. It would have to be a NEW additive TLV
     /// record (id 46 is the next free — 45 is
-    /// <c>UseBarSlotIdentity.ExtIdUseBarSlotIdentity</c>) carrying the
+    /// <c>NetProtocol.ExtIdUseBarSlotIdentity</c>) carrying the
     /// second pending event, with the documented worst case (1798) and
     /// <c>PresenceSerializer.MaxSize</c> (2100) updated together and wire-test vectors added.
     /// (These numbers have gone stale TWICE and are corrected rather than deleted: the text once
