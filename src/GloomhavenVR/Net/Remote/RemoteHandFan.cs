@@ -67,10 +67,21 @@ namespace GloomhavenVR.Net;
 ///
 /// KNOWN, DELIBERATE GAPS (nothing here is derivable from synced data, and all are transient or
 /// opt-in cosmetics — none is worth a wire field):
-///   * HOVER SPLIT / insertion GAP: driven by the owner's laser or fingertip hovering one card.
-///     Nothing on the wire says which card, so a peer's fan never splits. Costs a byte + a flag to
-///     fix; the extras flag byte is full, so it would have to claim one of the RESERVED bits 5-7 of
-///     the pile-browse payload byte A (see PresenceState's layout contract).
+///   * REORDER INSERTION GAP: while the owner DRAGS a card sideways to a new seat their own fan
+///     opens a gap at the drop index (CardFan._insertGap, pushed by the driver each frame). Nothing
+///     on the wire says where that gap is, so a peer's fan does not open one and the reorder reads
+///     as a card jumping rather than sliding into a space. That is a genuine wire item and is held
+///     as one.
+///
+///     (THE HOVER SPLIT USED TO BE LISTED HERE WITH IT, AND BOTH ITS CLAUSES WERE FALSE — retired
+///     2026-09-07. The bullet read "Nothing on the wire says which card, so a peer's fan never
+///     splits". Extension record 6 carries the hovered INDEX (RemoteAvatar.HandHighlightIndex), and
+///     LayoutCards has been drawing the split off it for builds — the `pos += rot * new
+///     Vector3(SplitOffset(i - hovered), 0f, 0f)` term, on the shared Cards.FanSweep.SplitOffset
+///     curve, with the card itself lifting on VRCard's own pop. The sentence welded a SHIPPED
+///     feature to an unshipped one, and for as long as it stood, anybody grepping this list for
+///     what was missing found the split already crossed off and the gap not named at all. A
+///     class-doc claim is a hypothesis, exactly like a log string.)
 /// (GAZE-BIAS YAW left this list. It said the receiver "could compute the whole eased/hysteretic
 /// yaw from the peer's synced head gaze, but not whether the SENDER has the toggle on — that one bit
 /// is the only missing input", and that was true and then simply stood there: an owner who switched
@@ -942,9 +953,102 @@ internal sealed class RemoteHandFan
     // true in any frame ShowRoundCardFronts would close, and the scenario branch below is still the
     // only thing that can draw a scenario hand.
 
-    /// <summary>The peer's map-phase loadout, index-aligned with the slabs (empty = unresolved, i.e.
-    /// backs). Models rather than widgets: the map phase has no <c>AbilityCardUI</c> anywhere.</summary>
+    /// <summary>The peer's map-phase loadout IN FULL, in the initiative order both machines build it
+    /// in (empty = unresolved, i.e. backs). Models rather than widgets: the map phase has no
+    /// <c>AbilityCardUI</c> anywhere.
+    ///
+    /// <para>THE WHOLE LOADOUT AND NOT THE ARC, and the distinction is load-bearing since
+    /// 2026-09-07: record 36's held-card seat is named against the sender's full <c>_loadout</c>
+    /// (<c>MapRoomHand.TryNameLocalLoadoutSeat</c>), so <see cref="MapLoadoutSeat"/> must index
+    /// THIS list. What the fan's slabs are drawn from is <see cref="_mapArc"/>.</para></summary>
     private readonly List<CAbilityCard> _mapBuffer = new(MaxCards);
+
+    /// <summary>
+    /// The peer's map arc — <see cref="_mapBuffer"/> with the seat in their fist removed — and the
+    /// list the slabs are index-aligned with. Rebuilt every tick of the map branch rather than
+    /// cached with the buffer, because a card is picked up and put down far faster than
+    /// <see cref="MapResolveInterval"/>.
+    ///
+    /// <para>WHY REMOVING A SEAT IS NOT A GUESS. It is exactly what the OWNER's own fan did to
+    /// produce the arc: <c>CardFan.Remove</c> takes the plucked card out of the layout list and
+    /// leaves every other card at its own index, so an ordered list minus seat k IS their arc. The
+    /// seat is the one record 36 already carries to draw that card's own front, in the same index
+    /// space, built by the same expression on both machines — and the length belt in
+    /// <c>UpdateFaces</c> is what proves the two agree before a single face is printed.</para>
+    /// </summary>
+    private readonly List<CAbilityCard> _mapArc = new(MaxCards);
+
+    /// <summary>
+    /// WHICH SEAT of this peer's map LOADOUT is in their fist right now, or -1.
+    ///
+    /// <para>Record 36 through <c>RemoteAvatar.SingleHeldHandSeat</c>, narrowed to
+    /// <c>NetProtocol.HeldFaceListMapLoadout</c> — the list id
+    /// <c>LocalRigSampler.NameHeldMapCard</c> writes for a card lifted out of the map fan. It is
+    /// NOT <c>RemoteAvatar.HeldHandSeats</c>, and that is the whole of the defect this method
+    /// exists to close: that helper filters record 36 to the HAND list (or a record-43 pile), so
+    /// a map-loadout seat was thrown away before any caller could see it.</para>
+    ///
+    /// <para>TWO FISTS ANSWER -1, by construction: <c>SingleHeldHandSeat</c> refuses when both pose
+    /// slots name an arc card, because it cannot say which is which. The arc is then one card
+    /// longer than the wire, the length belt refuses, and the fan draws BACKS — the safe direction,
+    /// and the one this whole path had never reached. Reading BOTH seats needs an accessor
+    /// <c>RemoteAvatar</c> does not expose (its <c>HeldSeatsIn</c> is private and its public
+    /// map-aware entry point answers a single seat); that is filed rather than forced, because a
+    /// second reading of record 36 in this file is how two surfaces come to disagree about what
+    /// "in the fist" means.</para>
+    /// </summary>
+    private int HeldMapLoadoutSeat()
+    {
+        if (!_owner.SingleHeldHandSeat(out int seat, out int listLength, out _, out byte listId))
+            return -1;
+        if (listId != NetProtocol.HeldFaceListMapLoadout || seat < 0 || listLength <= 0)
+            return -1;
+        return seat;
+    }
+
+    /// <summary>
+    /// May slab <paramref name="widget"/> show its front? TRUE outright unless the arc was opened
+    /// by the per-card burn exception alone (<paramref name="publicCardsOnly"/>), in which case the
+    /// card has to earn it through the CARD-AWARE <c>RevealGate.CardFaces</c> overload — the one
+    /// that can reach <c>RevealGate.IsPubliclyRevealedCard</c>.
+    ///
+    /// <para>ONE PREDICATE, OWNED BY <c>RevealGate</c>, asked with the same population the whole-fan
+    /// gate was asked with, so this cannot become a second opinion about secrecy. Any failure to
+    /// name the card at all answers FALSE, which is the back — this file's standing direction.</para>
+    /// </summary>
+    private static bool PrintsFront(bool publicCardsOnly, CPlayerActor? actor, AbilityCardUI? widget)
+    {
+        if (!publicCardsOnly)
+            return true;
+        if (actor == null || widget == null)
+            return false;
+        try
+        {
+            CAbilityCard? card = widget.AbilityCard;
+            if (card == null)
+                return false;
+            return RevealGate.CardFaces(RevealGate.PeerCardPopulation.PickFan, actor,
+                                        card.CardInstanceID) != RevealGate.CardFaceSource.None;
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Project <see cref="_mapBuffer"/> into <see cref="_mapArc"/>, dropping
+    /// <paramref name="heldSeat"/> when it names one. Allocation-free; a seat out of range drops
+    /// nothing, which leaves the length belt to refuse rather than this method to guess.</summary>
+    private void BuildMapArc(int heldSeat)
+    {
+        _mapArc.Clear();
+        for (int i = 0; i < _mapBuffer.Count; i++)
+        {
+            if (i == heldSeat)
+                continue;
+            _mapArc.Add(_mapBuffer[i]);
+        }
+    }
 
     /// <summary>
     /// The card at map-loadout seat <paramref name="seat"/> of THIS peer's loadout, or null when the
@@ -1064,7 +1168,7 @@ internal sealed class RemoteHandFan
     /// than per resolve.</summary>
     private string _loggedMapVerdict = string.Empty;
 
-    /// <summary>True while the faces currently up came from <see cref="_mapBuffer"/> (the map phase)
+    /// <summary>True while the faces currently up came from <see cref="_mapArc"/> (the map phase)
     /// rather than from <see cref="_handBuffer"/> (a scenario). It used to drive the borrow as well
     /// — a borrow had to read a card out of the same buffer the slab's face was drawn from — and
     /// since report 2 of 2026-09-07 removed the borrow it drives the printing and the diagnostics
@@ -1394,6 +1498,14 @@ internal sealed class RemoteHandFan
         bool showFronts = false;
         bool mapFronts = false;
         int frontCount = 0;
+        // Which seat of the peer's map LOADOUT is in their fist this frame (-1 = none). Read on the
+        // map branch below and used again for the census, so the number the log prints is the
+        // number the arc was actually built with.
+        int heldMapSeat = -1;
+        // TRUE while the arc is open ONLY through the per-card burn exception — the population gate
+        // said None and each slab must earn its own front. See the default branch of the switch
+        // below, and PrintsFront, which is the only place it is honoured.
+        bool publicCardsOnly = false;
         try
         {
             // The DISPLAYED character is resolved once per tick by the caller and handed in — see
@@ -1488,12 +1600,98 @@ internal sealed class RemoteHandFan
                     showFronts = _handBuffer.Count > 0;
                     break;
                 case RevealGate.CardFaceSource.MapLoadout:
-                    ResolveMapFronts(count);
-                    mapFronts = _mapBuffer.Count > 0;
+                    // ─── THE MAP ARC IS THE LOADOUT MINUS THE FIST (2026-09-07) ─────────────────
+                    // This was the ONE arc of the four with no length belt and no held-seat
+                    // removal, and it is the only surface in this round that failed UNSAFELY. The
+                    // chain, every link measurable at source: plucking a card out of the owner's
+                    // map fan runs CardFan.Remove (CardsDriver.5.Interactions.cs, the unconditional
+                    // `if (_fan.Contains(card)) _fan.Remove(card)`), the wire count is
+                    // CardFan.Current.Count (NetAvatarDriver.cs), so `count` drops to n-1 — while
+                    // MapRoomHand.TryResolvePeerLoadout hands back the peer's FULL n-card loadout
+                    // and its Tier 0 (the only tier a current build takes) compared it to nothing
+                    // at all. n-1 slabs were then filled positionally from an n-entry buffer:
+                    // slab i showed loadout[i] while the owner's seat i held loadout[i+1], i.e.
+                    // every face from the plucked seat rightwards was A DIFFERENT CARD, drawn with
+                    // full confidence. A back reads as "not loaded yet"; a shifted front does not
+                    // read as wrong at all, and the player acts on it.
+                    //
+                    // MEASURED, ModBuild 476, the CO-PLAYER's log — it is in the open and nobody
+                    // had read it. One PEER CARD FACE CENSUS tick carries both halves in one line:
+                    //   held card[p1/slot1] 1 FRONT ... MapLoadout — resolved map-room loadout
+                    //                                   SEAT 7 OF 10 ... over 701 tick(s)
+                    //   hand fan[p1]        9 FRONT / 0 BACK — RevealGate map-phase fronts
+                    // A ten-card loadout, seat 7 in the owner's fist, NINE slabs on the arc, and
+                    // every one of them showing a front. Slabs 0-6 were right; slabs 7 and 8 wore
+                    // loadout[7] and loadout[8] while the owner's own arc held loadout[8] and
+                    // loadout[9]. TWO CONFIDENTLY WRONG CARDS, standing for most of a ten-second
+                    // census interval, with the row's own rule reading "map-phase fronts" — i.e.
+                    // the instrument said the surface was working.
+                    //
+                    // AND EVERY EXISTING COMPENSATION WAS GUARDED OUT. The held-seat drop, the
+                    // recess hand-off removal and the length belt below are all `!mapFronts` — and
+                    // even unguarded the seat translation would have found nothing, because
+                    // RemoteAvatar.HeldHandSeats narrows record 36 to HeldFaceListHand (or a
+                    // record-43 pile) while a map card in a fist is sent as HeldFaceListMapLoadout
+                    // (LocalRigSampler.NameHeldMapCard). The seat was NARROWED AWAY, not missing.
+                    //
+                    // NO NEW WIRE FIELD, and the fix is the same shape the hand, browse, item and
+                    // active arcs already share: record 20 names the character, record 36 names
+                    // which seat of THAT character's loadout is in the fist, both in the index
+                    // space MapRoomHand.TryNameLocalLoadoutSeat writes and
+                    // MapRoomHand.ResolveLoadout reads. So resolve the whole loadout, take the
+                    // named seat out for the ARC, and belt what is left against the wire.
+                    //
+                    // A SEAT-AWARE FILL RATHER THAN A REFUSAL, deliberately: a refusal is safe and
+                    // a correct arc is better, and the information to draw the correct one is
+                    // already here. When it is NOT — an unnameable fist, two fists, a loadout this
+                    // client resolves at a different length — the belt below still refuses and the
+                    // fan falls back to backs, which is where this path started.
+                    heldMapSeat = HeldMapLoadoutSeat();
+                    ResolveMapFronts(count + (heldMapSeat >= 0 ? 1 : 0));
+                    BuildMapArc(heldMapSeat);
+                    mapFronts = _mapArc.Count > 0;
                     showFronts = mapFronts;
                     break;
                 default:
                     ClearMapFronts();
+                    // ─── THE BURN EXCEPTION IS A PROPERTY OF THE CARD, AND THIS GATE COULD NOT
+                    //     SEE ONE (2026-09-07) ────────────────────────────────────────────────
+                    // The call above is the TWO-ARGUMENT CardFaces — population and actor — which
+                    // by construction cannot reach RevealGate.IsPubliclyRevealedCard, because it
+                    // is handed no card. So this surface asked only the PHASE question, and during
+                    // the game's secret selection window it answered None for every card in the
+                    // arc without exception. Every card in a BURNT pile is by construction in the
+                    // exact two lists that exception walks (CCharacterClass.LostAbilityCards /
+                    // PermanentlyLostAbilityCards — a burn is committed into them before the burn
+                    // artwork even starts), so a peer picking a card out of their burnt pile drew
+                    // a fan of backs against the user's strongest ruling on any face:
+                    //
+                    //   "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der
+                    //    Vorderseite sichtbar sein. Es gibt keinen Grund warum sie nicht sichtbar
+                    //    sein sollte."
+                    //
+                    // ROUTED THROUGH THE CARD-AWARE OVERLOAD, PER SLAB, AND IT ONLY WIDENS. The
+                    // resolve below fills the same buffer the open path fills, from the same
+                    // expression; what is different is that every slab must then pass
+                    // CardFaces(population, actor, cardInstanceId) on its own — see PrintsFront.
+                    // A slab whose card is not already public keeps the back the shut gate gave
+                    // it, so the secret window is exactly as closed as it was for every card the
+                    // ruling does not name.
+                    //
+                    // ONLY A PILE FAN PAYS FOR IT. IsFanSourcePile is a capability test and not a
+                    // secrecy one: a HAND-pile widget cannot be in ActivatedCards or either burnt
+                    // list — the game moves a card's widget out of CardPileType.Hand in the same
+                    // step it commits the model — so resolving the hand here would walk three
+                    // lists per slab per frame for the whole selection phase to answer false every
+                    // time. The one state where a hand widget and a burnt model coexist is this
+                    // client's copy of the peer's model lagging a choreographer turn, and that is
+                    // the length belt's case, not this one.
+                    if (RevealGate.InScenario && actor != null && pickFan)
+                    {
+                        ResolveHandFronts(actor, fanList);
+                        publicCardsOnly = _handBuffer.Count > 0;
+                        showFronts = publicCardsOnly;
+                    }
                     break;
             }
         }
@@ -1606,7 +1804,11 @@ internal sealed class RemoteHandFan
         CommitFanArcOrder();
         bool arcNamed = _orderArcValid;
 
-        int heldSeatCount = 0;
+        // The map arc does its own held-seat removal on the branch above (record 36's map-loadout
+        // seat, which HeldHandSeats below cannot see because it narrows to the HAND list). Seeded
+        // here so the census line's fist column is the number the arc was really built with rather
+        // than a zero that would make the belt equation look unbalanced.
+        int heldSeatCount = mapFronts && heldMapSeat >= 0 ? 1 : 0;
         if (!arcNamed && showFronts && !mapFronts && _handBuffer.Count != count)
         {
             heldSeatCount = _owner.HeldHandSeats(out int heldSeatA, out int heldSeatB);
@@ -1676,8 +1878,16 @@ internal sealed class RemoteHandFan
             }
         }
 
-        _countBelt = showFronts && !mapFronts && _handBuffer.Count != count
-            ? (Model: _handBuffer.Count, Wire: count)
+        // ─── AND THE MAP ARC IS BELTED BY THE SAME LINE, WHICH IT NEVER WAS BEFORE ──────────────
+        // `!mapFronts` used to stand here, so the one arc that could not compensate for a plucked
+        // card was also the one arc that was never checked. It is the same test on the same two
+        // numbers — this client's model list against the owner's slab count — and it fails the same
+        // way: to BACKS. The map buffer stays at its full loadout length for MapLoadoutSeat (record
+        // 36's seat is named against the whole loadout), so the list compared here is the ARC
+        // projection built above, not the buffer.
+        int modelCount = mapFronts ? _mapArc.Count : _handBuffer.Count;
+        _countBelt = showFronts && modelCount != count
+            ? (Model: modelCount, Wire: count)
             : ((int Model, int Wire)?)null;
         if (_countBelt != null)
             showFronts = false;
@@ -1705,7 +1915,11 @@ internal sealed class RemoteHandFan
             {
                 if (mapFronts)
                 {
-                    if (i < _mapBuffer.Count && PrintMapFace(i, face, _mapBuffer[i]))
+                    // _mapArc, NOT _mapBuffer: the buffer is the peer's whole loadout (record 36's
+                    // seat is an index into that) and the ARC is what the owner is holding up — the
+                    // same list with the card in their fist taken out. Zipping the buffer against
+                    // the slabs is precisely the shift this build fixed.
+                    if (i < _mapArc.Count && PrintMapFace(i, face, _mapArc[i]))
                     {
                         frontCount++;
                         // USER ITEM 10: a front is up, so this body stops wearing the card BACK on
@@ -1719,7 +1933,8 @@ internal sealed class RemoteHandFan
                 {
                     AbilityCardUI widget = _handBuffer[i];
                     FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
-                    if (full != null && face.ShowFront(full))
+                    if (full != null && PrintsFront(publicCardsOnly, actor, widget)
+                        && face.ShowFront(full))
                     {
                         frontCount++;
                         SetFrontFace(i, showsBack: false);   // …and the same on the hand-widget arm
@@ -1742,6 +1957,12 @@ internal sealed class RemoteHandFan
         // exactly the one just used for the face: a second resolve would be a second answer, which
         // is the ModBuild 84 mismatch one surface over.
         TickMirroredPlumes(count, showFronts, mapFronts);
+
+        // …AND THE LOOK THE CARD ITSELF WEARS, on the SAME resolved widgets and for the same reason
+        // the plume rides this pass. It is a separate call and not a branch of the plume because
+        // the two answer to different permissions: the plume is the owner's [Cards]
+        // GameCardParticles bit, the wash is the card. See TickUsedCardFx.
+        TickUsedCardFx(count, showFronts, mapFronts);
 
         // THE LEAVING HALF IS RE-GATED EVERY FRAME TOO — ON ITS OWN CHARACTER'S VERDICT, NOT THIS
         // ONE'S. Slabs on their way out of a character exchange keep the faces the gate had already
@@ -1814,7 +2035,11 @@ internal sealed class RemoteHandFan
                   + $"{_owner.SeatedHandCardExcess} hand card(s) lying in their recesses — "
                   + $"remainder {_countBelt.Value.Model - _countBelt.Value.Wire - heldSeatCount
                                  - _owner.SeatedHandCardExcess} "
-                  + $"({FanListName(_censusList)})"
+                  + (mapFronts
+                        ? "(map-room loadout arc — the model list is the peer's replicated loadout "
+                          + "minus the seat record 36 names, so a standing remainder means the two "
+                          + "clients disagree about that character's loadout, not about the fist)"
+                        : $"({FanListName(_censusList)})")
                 // ONE STRING USED TO CARRY TWO CAUSES, and it is the string this whole item was read
                 // through: "RevealGate.CardFaces(Selectable) named no source, OR no widget resolved"
                 // cannot tell a SHUT GATE (the game's secret window, which is correct and expected)
@@ -1829,6 +2054,11 @@ internal sealed class RemoteHandFan
                           + $"window for a remote character ({FanListName(_censusList)})"
                         : "RevealGate OPEN but NO widget resolved on this client — the gate is not "
                           + $"the blocker here ({FanListName(_censusList)})")
+                    : publicCardsOnly
+                        ? "RevealGate SHUT by phase, arc opened by the PER-CARD burn exception "
+                          + $"(RevealGate.IsPubliclyRevealedCard) — {FanListName(_censusList)}. "
+                          + "Every front on this row is a card already public to everybody; a slab "
+                          + "that did not earn one kept its back."
                     : mapFronts
                         ? "RevealGate map-phase fronts (peer's replicated map loadout)"
                         // WHICH FACT MADE THE TWO LISTS AGREE, named rather than left to be
@@ -1939,16 +2169,25 @@ internal sealed class RemoteHandFan
     /// Resolve (and cache) the map-phase loadout this peer's fan is holding into
     /// <see cref="_mapBuffer"/>. The identification itself belongs to the map room — see
     /// <c>MapRoomHand.TryResolvePeerLoadout</c>, which carries the tiers, their certainty and the
-    /// wire field that would make them exact. Cached because that walk is O(party) and this is
-    /// called every frame: it re-runs when the peer's card COUNT moves (a card ticked on or off, a
-    /// character switch) and otherwise on <see cref="MapResolveInterval"/>, which is what picks up
-    /// an edit that did not change the size.
+    /// belt each one applies. Cached because that walk is O(party) and this is called every frame:
+    /// it re-runs when the peer's LOADOUT SIZE moves (a card ticked on or off, a character switch)
+    /// and otherwise on <see cref="MapResolveInterval"/>, which is what picks up an edit that did
+    /// not change the size.
+    ///
+    /// <para><paramref name="loadoutSize"/> IS THE WHOLE LOADOUT AND NOT THE ARC (2026-09-07).
+    /// <see cref="_mapBuffer"/> is the peer's full loadout in initiative order — it has to be,
+    /// because <see cref="MapLoadoutSeat"/> indexes record 36's seat straight into it and that seat
+    /// is named on the sender against the full <c>_loadout</c>
+    /// (<c>MapRoomHand.TryNameLocalLoadoutSeat</c>). The wire's slab count is that number MINUS the
+    /// cards in the owner's fist, so both callers hand the full length: the fan adds its held seats
+    /// back on, the held card passes record 36's own length byte. Feeding the raw arc count instead
+    /// would make the map room refuse for as long as a card was up.</para>
     /// </summary>
-    private void ResolveMapFronts(int count)
+    private void ResolveMapFronts(int loadoutSize)
     {
-        if (count == _mapResolvedForCount && Time.unscaledTime < _nextMapResolveAt)
+        if (loadoutSize == _mapResolvedForCount && Time.unscaledTime < _nextMapResolveAt)
             return;
-        _mapResolvedForCount = count;
+        _mapResolvedForCount = loadoutSize;
         _nextMapResolveAt = Time.unscaledTime + MapResolveInterval;
 
         int before = _mapBuffer.Count;
@@ -1958,7 +2197,7 @@ internal sealed class RemoteHandFan
         // back to deducing the owner from the hand size exactly as it did before the field existed.
         RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint characterKey);
         WorldUI.MapRoom.MapRoomHand.TryResolvePeerLoadout(
-            _owner.PlayerId, count, characterKey, _mapBuffer, out _mapVerdict);
+            _owner.PlayerId, loadoutSize, characterKey, _mapBuffer, out _mapVerdict);
         int firstAfter = _mapBuffer.Count > 0 && _mapBuffer[0] != null ? _mapBuffer[0].ID : 0;
 
         // A DIFFERENT HAND MUST NOT INHERIT THE OLD HAND'S PRINTS. The per-slab latch below is what
@@ -1979,9 +2218,10 @@ internal sealed class RemoteHandFan
     {
         // Idempotent AND cheap: this is called on every frame of every scenario, for every peer, so
         // the steady state must be one integer compare and nothing else.
-        if (_mapResolvedForCount < 0 && _mapBuffer.Count == 0)
+        if (_mapResolvedForCount < 0 && _mapBuffer.Count == 0 && _mapArc.Count == 0)
             return;
         _mapBuffer.Clear();
+        _mapArc.Clear();
         _mapResolvedForCount = -1;
         _mapVerdict = "not in the map phase";
         for (int i = 0; i < _mapPrinted.Count; i++)
@@ -4808,21 +5048,15 @@ internal sealed class RemoteHandFan
         int n = Mathf.Min(count, Mathf.Min(_cards.Count, Mathf.Min(_handBuffer.Count, _plume.Length)));
         for (int i = 0; i < n; i++)
         {
-            bool running;
-            try
-            {
-                AbilityCardUI widget = _handBuffer[i];
-                FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
-                CardEffects? fx = full != null ? full.cardEffects : null;
-                running = fx != null
-                          && (fx.HasEffect(CardEffects.FXTask.BurnCard)
-                              || fx.HasEffect(CardEffects.FXTask.LostMode)
-                              || fx.HasEffect(CardEffects.FXTask.DiscardMode));
-            }
-            catch (System.Exception)
-            {
-                running = false; // any deref failure -> no plume, like every other gate in this file
-            }
+            // ONE EXPRESSION, TWO CONSUMERS (2026-09-07). The three HasEffect calls used to be
+            // spelled out here and again in RemoteBoardCard's recess resolver; the plume only needs
+            // "is anything running", so it collapses the shared answer rather than keeping its own
+            // copy of the terms. See UsedCardLook for why a fourth copy is the thing to avoid.
+            AbilityCardUI? plumeWidget = _handBuffer[i];
+            bool running = UsedCardLook.FromWidget(plumeWidget != null
+                                                       ? plumeWidget.fullAbilityCard
+                                                       : null)
+                           != RemoteCardArt.CardFxLook.None;
             if (running == _plume[i])
                 continue;
             _plume[i] = running;
@@ -4837,6 +5071,135 @@ internal sealed class RemoteHandFan
         // again at the same index without the fan having to be rebuilt first.
         for (int i = n; i < _plume.Length; i++)
             _plume[i] = false;
+    }
+
+    // ------------------------------------------------------- the GAME's card WASH (permanent) --
+
+    /// <summary>Which card-FX look slab <c>i</c>'s face is currently wearing, and how far into the
+    /// 2 s ramp it is. Parallel to <see cref="_faces"/>, cleared everywhere that list is.</summary>
+    private readonly RemoteCardArt.CardFxLook[] _fxLook = new RemoteCardArt.CardFxLook[MaxCards];
+
+    /// <inheritdoc cref="_fxLook"/>
+    private readonly float[] _fxElapsed = new float[MaxCards];
+
+    /// <summary>One-shot: the wash driver has actually written a look on this fan.</summary>
+    private bool _fxLoggedOnce;
+
+    /// <summary>
+    /// Drive the game's own card-FX look — the CHAR of a burning card, the grey-out of a discarded
+    /// or lost one — on the slabs of this peer's fan.
+    ///
+    /// <para>THIS SURFACE HAD NO WASH AT ALL UNTIL 2026-09-07, and the flow that convicts it is the
+    /// one E1 is about: on a long rest the game re-Shows the owner's hand over their DISCARD pile
+    /// and they pick a card to burn. Their card is an adopted LIVE <c>FullAbilityCard</c>, so
+    /// <c>CardEffects.BurnCardTimeline</c> chars the whole face in front of them. The mirror's slab
+    /// wears a CLONE whose <c>CardEffects</c> <c>RemoteCardArt</c> destroys on purpose, and nothing
+    /// in this file drove the replacement rig — <c>grep -n "SetAbility"</c> over this file returned
+    /// nothing. The only response the fan had was <see cref="TickMirroredPlumes"/>, gated on the
+    /// owner's <c>[Cards] GameCardParticles</c> bit, which SHIPS FALSE. So every peer watched a
+    /// bright, fresh card burn away on its owner's screen, which is the standing burn ruling read on
+    /// the LOOK rather than on the face: the card is shown, and it is shown wrong.</para>
+    ///
+    /// <para>SAME TRIGGER AS THE PLUME, SAME 2 s RAMP AS THE RECESS, AND NO NEW DIAL. The look comes
+    /// from <see cref="UsedCardLook.FromWidget"/> — the shared expression, read off the peer's own
+    /// live widget — and it is NOT gated on the particle bit, because that bit is about smoke and
+    /// this is about what the card looks like. The ramp is <see cref="UsedCardLook.RampSeconds"/>,
+    /// the game's own duration, so the mirror's timing is the owner's timing.</para>
+    ///
+    /// <para>IT COMES OFF AGAIN. A look that falls back to <c>None</c> — the game's own
+    /// <c>RestoreCard</c>, which runs when a card lands in the Hand or Activated pile — clears the
+    /// rig rather than latching, the same one-way-ramp defect <c>RemoteBoardCard</c> paid for in
+    /// its item-8a round.</para>
+    ///
+    /// <para><c>Surface</c> IS DELIBERATELY LEFT <c>Unnamed</c>. <c>RemoteCardArt.FxSurface</c> has
+    /// no member for the hand fan and that enum's own doc says to ADD one rather than borrow
+    /// <c>Pile</c> or <c>Recess</c>; that file was not handed to this lane, so this driver reports
+    /// through its own line below instead of mislabelling itself as another surface. The enum is
+    /// instrument-only — nothing behavioural reads it — so the cost is a per-surface latch in a log,
+    /// not a wrong picture.</para>
+    /// </summary>
+    private void TickUsedCardFx(int count, bool showFronts, bool mapFronts)
+    {
+        // The MAP phase has no AbilityCardUI at all — its faces come from this client's own pool by
+        // card id — so there is no widget whose effect state could be read, and a loadout card is
+        // not in play in any case.
+        if (!showFronts || mapFronts)
+        {
+            ClearUsedCardFx();
+            return;
+        }
+
+        int n = Mathf.Min(count, Mathf.Min(_faces.Count, Mathf.Min(_handBuffer.Count, _fxLook.Length)));
+        for (int i = 0; i < n; i++)
+        {
+            AbilityCardUI? widget = _handBuffer[i];
+            RemoteCardArt.CardFxLook want =
+                UsedCardLook.FromWidget(widget != null ? widget.fullAbilityCard : null);
+            RemoteCardArt face = _faces[i];
+            if (want != _fxLook[i])
+            {
+                RemoteCardArt.CardFxLook was = _fxLook[i];
+                _fxLook[i] = want;
+                _fxElapsed[i] = 0f;
+                if (was != RemoteCardArt.CardFxLook.None && want == RemoteCardArt.CardFxLook.None)
+                    face?.ClearAbilityCardFx();
+            }
+            if (want == RemoteCardArt.CardFxLook.None || face == null)
+                continue;
+            if (_fxElapsed[i] < UsedCardLook.RampSeconds)
+            {
+                _fxElapsed[i] = Mathf.Min(UsedCardLook.RampSeconds,
+                                          _fxElapsed[i] + Mathf.Max(0f, Time.unscaledDeltaTime));
+            }
+            bool took = face.SetAbilityCardFxProgress(want, _fxElapsed[i] / UsedCardLook.RampSeconds);
+            if (took && !_fxLoggedOnce)
+            {
+                _fxLoggedOnce = true;
+                // HW-VERIFY: the 2026-09-07 re-audit, TIER A. Grep token: REMOTE HAND CARD WASH.
+                //
+                // WORKING = this line appearing within a beat of the owner's own burn, on the flow
+                // that convicts the defect (a long rest's burn step over the DISCARD arc), with the
+                // mirrored slab reading as charred rather than fresh.
+                //
+                // INERT = a peer burns a hand card and this line never appears. The look comes off
+                // the peer's HIDDEN CardsHandUI widget, and whether the game runs its CardEffects
+                // coroutine on a deactivated hand on THIS client is NOT established here — the same
+                // open question the plume's ARMED line was written to answer. If it does not, the
+                // trigger owes a wire field (one look enum per fan seat, or a per-card FX record)
+                // and the driver below is already correct for it.
+                VRLog.Note("Net", $"REMOTE HAND CARD WASH [player {_owner.PlayerId}]: slab {i} of "
+                    + $"{count} is wearing the game's own {want} look, driven from the owner's live "
+                    + "FullAbilityCard through RemoteCardArt.SetAbilityCardFxProgress over "
+                    + $"{UsedCardLook.RampSeconds:0.#} s. NOT gated on [Cards] GameCardParticles: "
+                    + "that bit is the smoke plume, and before this build it was the ONLY response "
+                    + "this fan had to a card being burnt — so with the dial at its shipped OFF a "
+                    + "peer's burning hand card stayed bright and fresh for the whole animation. "
+                    + "The clone cannot run the game's own timeline (RemoteCardArt destroys "
+                    + "CardEffects on every clone on purpose), so this drives the same replacement "
+                    + "rig the recess, the burn flight and the burnt pile already share.");
+            }
+        }
+
+        // Slots past the resolved window keep no stale latch, and their faces are not ours to write.
+        for (int i = n; i < _fxLook.Length; i++)
+        {
+            _fxLook[i] = RemoteCardArt.CardFxLook.None;
+            _fxElapsed[i] = 0f;
+        }
+    }
+
+    /// <summary>Forget every wash latch (fan hidden, rebuilt, or the gate shut). The FACES are not
+    /// cleared here: a hidden fan's faces are torn down with it, and a rebuild mints new ones, so a
+    /// write would be to an object that is about to die. What must not survive is the LATCH — a
+    /// stale look would make the next card at that index skip the write that puts the wash on.
+    /// </summary>
+    private void ClearUsedCardFx()
+    {
+        for (int i = 0; i < _fxLook.Length; i++)
+        {
+            _fxLook[i] = RemoteCardArt.CardFxLook.None;
+            _fxElapsed[i] = 0f;
+        }
     }
 
     private void ClearPops()
@@ -5174,6 +5537,7 @@ internal sealed class RemoteHandFan
             _seeded.Clear();       // index-aligned with _cards; a stale entry would ease a fresh slab out of the root origin
             _bodyWearsBack.Clear();// index-aligned with _cards; a stale FALSE would skip a body write
             _mapPrinted.Clear();   // index-aligned with _faces; stale entries would claim prints that no longer exist
+            ClearUsedCardFx();     // index-aligned with _faces; a stale look would skip the next card's wash
             // The outgoing wave hung off the same dead root — drop its bookkeeping with the rest, or
             // TickSwap would drive destroyed transforms every frame (the very defect this heal
             // exists for, one list over).
@@ -5540,6 +5904,7 @@ internal sealed class RemoteHandFan
         _bodyWearsBack.Clear();   // index-aligned with _cards; a stale FALSE would skip a body write
         _frontsShown = false;
         ClearPops(); // a rebuilt fan must never open with a stale card already lifted
+        ClearUsedCardFx(); // …and never with the last card's wash latched at this index
 
         // Ability KIND so a peer's card backs take the same silhouette clip the owner's do — the MP
         // 1:1 rule applies to the card's SHAPE as much as to its content.
@@ -5688,6 +6053,18 @@ internal sealed class RemoteHandFan
         if (_root != null && _root.activeSelf)
             _root.SetActive(false);
         _openElapsed = -1f; // next appearance fans out again from the centre stack
+        // …AND THE POP RAMPS, WHICH THIS METHOD FORGOT (2026-09-07 re-audit). Rebuild and BeginSwap
+        // both call this and Hide did not, so a fan lowered while one card was lifted and raised
+        // again at the SAME card count skipped the rebuild entirely (`count == _lastBuilt`) and came
+        // back with that slab still popped — 18 % bigger and 35 mm proud of the arc — relaxing over
+        // the ~125 ms PopRate takes. The owner's own fan has no such state to carry: CardFan.Open
+        // re-lays every card out from the centre stack. Same rule as every other latch here, stated
+        // in Rebuild's own comment: a fan that comes back must never come back mid-animation.
+        ClearPops();
+        // …and the card-FX wash latch with them, for the reason ClearUsedCardFx states: the faces
+        // die with the fan, and a latch that outlived them would make the next card at that index
+        // skip the write that puts its wash on.
+        ClearUsedCardFx();
         // …and a collapse that was interrupted by a teardown (the holder went untracked mid-fold)
         // must not survive into the next appearance. The tick clears this too, on the frame the
         // fan comes back; clearing it here as well means the state cannot outlive the slabs it

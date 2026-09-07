@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
+using ScenarioRuleLibrary;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -934,10 +935,50 @@ internal sealed class WorldTooltips
         if (hovered == null)
             return true; // cursor-anchored world tooltip (hex/map info — on every client's screen)
 
-        bool isCard = hovered.GetComponentInParent<VRCard>() != null
+        VRCard? vrCard = hovered.GetComponentInParent<VRCard>();
+        bool isCard = vrCard != null
                       || hovered.GetComponentInParent<FullAbilityCard>() != null;
         if (!isCard)
             return true; // board furniture / docked buttons — always public
+
+        // ─── THE PHASE IS NOT THE WHOLE RULE, AND THIS GATE HAD NO CARD TERM (2026-09-07) ───────
+        // PeersSeeOurCardFronts is the PHASE half. Net.RevealGate owns a second half one line over
+        // — PeersMaySeeOurCard, "the SAME two terms in the same order: the phase, then the burn
+        // exception for this particular card, which can only widen" — and this method never asked
+        // it. So inside the game's secret selection window a watcher could read a peer's ALREADY
+        // PUBLIC card face-up (an active-matrix card, a burnt one: RevealGate.IsPubliclyRevealedCard
+        // walks ActivatedCards, LostAbilityCards and PermanentlyLostAbilityCards) while the tooltip
+        // beside it went blank. The method's own doc states the contract that breaks: "'what a peer
+        // renders' and 'what we may say about it' can never drift apart again". They had.
+        //
+        // IT ONLY EVER WIDENS, AND ONLY WHERE THE FACE IS ALREADY UP. PeersMaySeeOurCard's first
+        // term IS the predicate this used to return, so nothing that was public stops being public,
+        // and nothing becomes public whose front a peer is not already being shown by the very same
+        // exception. The phase rule for a covered card is untouched.
+        //
+        // A CARD WE CANNOT NAME FALLS BACK TO THE PHASE, which is the unchanged, closed answer:
+        // asking the card term needs BOTH the owning actor and the card instance id, and
+        // AbilityCardUI carries both (PlayerActor is stamped by its own Init, AbilityCard is the
+        // model). A bare FullAbilityCard with no widget host has no actor to ask about, so it keeps
+        // the phase answer rather than being handed a guess — suppression is still the designed
+        // failure direction.
+        AbilityCardUI? widget = hovered.GetComponentInParent<AbilityCardUI>();
+        if (widget == null && vrCard != null)
+            widget = vrCard.GameCard;
+        if (widget != null)
+        {
+            try
+            {
+                CPlayerActor? owner = widget.PlayerActor;
+                CAbilityCard? card = widget.AbilityCard;
+                if (owner != null && card != null)
+                    return Net.RevealGate.PeersMaySeeOurCard(owner, card.CardInstanceID);
+            }
+            catch (System.Exception)
+            {
+                // Fall through to the phase answer — a throw may not open anything.
+            }
+        }
 
         // ONE predicate, owned by Net.RevealGate, so "what a peer renders" and "what we may say about
         // it" can never drift apart again.

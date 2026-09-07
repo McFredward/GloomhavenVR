@@ -476,9 +476,22 @@ internal sealed class DamageTooltipSurface : WorldSurface
     ///
     /// <para>THE GATE IS NOT OPTIONAL AND IT IS NOT DECORATIVE. A card name is card identity, and
     /// the standing rule is that identity reveals only through <see cref="Net.RevealGate"/>. This
-    /// asks <c>PeersSeeOurCardFronts</c> — the very predicate the board tooltip's text already rides
-    /// — and returns null when it is closed, which renders as the bare hint, i.e. exactly what
-    /// every build before ModBuild 307 drew.</para>
+    /// used to ask <c>PeersSeeOurCardFronts</c> alone — the very predicate the board tooltip's text
+    /// already rides — and return null when it was closed, which renders as the bare hint, i.e.
+    /// exactly what every build before ModBuild 307 drew.</para>
+    ///
+    /// <para>IT HAD NO CARD TERM, AND EVERY CARD ON THIS BAR WOULD HAVE PASSED ONE (2026-09-07).
+    /// <c>Net.RevealGate.PeersMaySeeOurCard</c> is the phase term this asked PLUS the burn/active
+    /// exception for the particular card, "which can only widen" — and the cards this bar names are
+    /// ACTIVE BONUSES, i.e. in <c>CCharacterClass.ActivatedCards</c> by construction, which is the
+    /// first list <c>RevealGate.IsPubliclyRevealedCard</c> walks. So inside the game's secret
+    /// selection window a watcher read the peer's active card face-up on their matrix and got a
+    /// nameless hint beside it, which is the same drift the board tooltip's gate carried.</para>
+    ///
+    /// <para>THE WIDENING IS PER CARD AND FAILS CLOSED. A bonus whose card cannot be NAMED — no
+    /// <c>CAbilityCard</c> behind it (an item bonus), no <c>CPlayerActor</c> to ask about — keeps
+    /// the phase answer, so a shut phase still publishes nothing for it. And because the bar is
+    /// wrapped whole, one such card withholds the ENTIRE bar rather than half of it.</para>
     ///
     /// <para>Wrapped whole: a half-torn bar must publish NO names, never a wrong one.</para>
     /// </summary>
@@ -486,8 +499,9 @@ internal sealed class DamageTooltipSurface : WorldSurface
     {
         try
         {
-            if (!Net.RevealGate.PeersSeeOurCardFronts)
-                return null;
+            // THE PHASE HALF, READ ONCE. It is no longer a bail: a card the phase covers may still
+            // be public in its own right, and that is asked per card below.
+            bool phaseOpen = Net.RevealGate.PeersSeeOurCardFronts;
             if (!Singleton<UIActiveBonusBar>.IsInitialized)
                 return null;
             UIActiveBonusBar bar = Singleton<UIActiveBonusBar>.Instance;
@@ -508,6 +522,10 @@ internal sealed class DamageTooltipSurface : WorldSurface
                 if (!lethal && bonus is CPreventDamageActiveBonus prevent
                     && prevent.PreventOnlyIfLethal)
                     continue;
+                // …AND THE CARD HALF. Asked of Net.RevealGate, never re-derived here, so this
+                // seam and the face a peer is looking at cannot answer differently.
+                if (!phaseOpen && !CardIsPublic(bonus))
+                    return null;   // wrapped whole — one covered card withholds the bar
                 string? key = bonus.BaseCard != null ? bonus.BaseCard.Name : null;
                 if (string.IsNullOrWhiteSpace(key))
                     continue;
@@ -523,6 +541,30 @@ internal sealed class DamageTooltipSurface : WorldSurface
         {
             return null; // no names is the safe answer; the hint stands alone, as it always did
         }
+    }
+
+    /// <summary>
+    /// Is <paramref name="bonus"/>'s source card ALREADY public to peers in its own right — the
+    /// exception that outranks the phase (<c>Net.RevealGate.IsPubliclyRevealedCard</c>, reached
+    /// through <c>PeersMaySeeOurCard</c> so this file states no rule of its own)?
+    ///
+    /// <para>Two things have to be named before the question can be asked at all: the card
+    /// (<c>CBaseCard</c> carries no instance id — only <c>CAbilityCard</c> does) and the
+    /// <c>CPlayerActor</c> whose <c>CharacterClass</c> holds it. The bonus's own Actor is tried
+    /// first and its Caster second, because an active bonus placed on an ally still lives in the
+    /// CASTER's <c>ActivatedCards</c>. Anything unnamed answers FALSE, which withholds — this
+    /// file's standing direction of failure.</para>
+    /// </summary>
+    private static bool CardIsPublic(CActiveBonus bonus)
+    {
+        if (bonus.BaseCard is not CAbilityCard card || card == null)
+            return false;
+        int id = card.CardInstanceID;
+        if (bonus.Actor is CPlayerActor owner && owner != null
+            && Net.RevealGate.PeersMaySeeOurCard(owner, id))
+            return true;
+        return bonus.Caster is CPlayerActor caster && caster != null
+               && Net.RevealGate.PeersMaySeeOurCard(caster, id);
     }
 
     /// <summary>The game's own mandatory-active-bonus test (TakeDamagePanel.cs:321), re-evaluated

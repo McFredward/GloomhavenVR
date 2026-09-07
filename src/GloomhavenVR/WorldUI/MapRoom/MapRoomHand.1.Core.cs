@@ -926,42 +926,63 @@ internal sealed partial class MapRoomHand
     /// the wire, or 0 from a peer whose build does not send it — in which case the deduction tiers
     /// below answer exactly as they did before the field existed.</para>
     ///
-    /// <para><b>KNOWN DEFECT, 2026-09-06, NOT FIXED HERE — READ THIS BEFORE TOUCHING THIS FAN.</b>
-    /// This resolve has NO LENGTH BELT, and it is the only one of the four card arcs that has none.
-    /// The tiers below that gate on <c>LoadoutSize(c) != cardCount</c> fail SAFE (they fall back to
-    /// backs); the modern Tier 0 path — the one always taken once record 20 is present — calls
-    /// <c>ResolveLoadout</c> and returns the FULL loadout without ever comparing it to
-    /// <paramref name="cardCount"/>. Combined with the fact that every compensating clause in
-    /// <c>Net.RemoteHandFan</c> is guarded on <c>!mapFronts</c> — the held-seat drop, the recess
-    /// hand-off removal, AND the length belt itself — a card in the owner's fist leaves this path
-    /// zipping an n-entry buffer against n-1 slabs. It therefore fails UNSAFELY, with every face
-    /// after the held seat shifted by one, rather than falling back to backs. A shifted FRONT is
-    /// worse than a back: the player cannot read it as wrong and will act on it.</para>
+    /// <para><b>THE LENGTH BELT TIER 0 NEVER HAD (2026-09-07). READ THIS BEFORE TOUCHING THIS FAN.
+    /// </b> Until this build this resolve was the only one of the four card arcs with NO length
+    /// belt at all. The two deduction tiers below have always gated on
+    /// <c>LoadoutSize(c) != loadoutSize</c> and therefore fail SAFE (they fall back to backs); the
+    /// modern Tier 0 path — the one always taken once record 20 is present, and by its own comment
+    /// the only one that runs on a current build — called <c>ResolveLoadout</c> and returned the
+    /// FULL loadout without ever comparing it to anything. Combined with the fact that every
+    /// compensating clause in <c>Net.RemoteHandFan</c> was guarded on <c>!mapFronts</c> — the
+    /// held-seat drop, the recess hand-off removal, AND the length belt itself — a card in the
+    /// owner's fist left this path zipping an n-entry buffer against n-1 slabs. It failed
+    /// UNSAFELY, with every face after the held seat shifted one place LEFT, rather than falling
+    /// back to backs. A shifted FRONT is worse than a back: the player cannot read it as wrong and
+    /// will act on it. It is the one defect of its round that drew a confident WRONG card.</para>
     ///
-    /// <para>THE NAMING HALF IS ALREADY ON THE WIRE (record 36 seats a held map-loadout card via
-    /// <c>NetProtocol.HeldFaceListMapLoadout</c>, sampled in
-    /// <c>MapRoomHand.TryNameLocalLoadoutSeat</c>), so the fix is the same receiver-side seat
-    /// removal the hand, browse, item and active arcs now share — plus the length belt this tier
-    /// never had. It was deliberately NOT done in the ModBuild 462 round: it needs its own evidence
-    /// and its own build rather than a corner of one whose verdict has to stay readable. This note
-    /// exists so the next person to touch this fan finds the finding instead of rediscovering it.
-    /// </para>
+    /// <para>MEASURED, ModBuild 476, the co-player's log, one <c>PEER CARD FACE CENSUS</c> tick:
+    /// <c>held card[p1/slot1] 1 FRONT … map-room loadout SEAT 7 OF 10</c> beside
+    /// <c>hand fan[p1] 9 FRONT / 0 BACK — RevealGate map-phase fronts</c>. Ten cards, seat 7 in the
+    /// owner's fist, nine slabs, every one showing a front — so slabs 7 and 8 wore loadout[7] and
+    /// loadout[8] where the owner's arc held loadout[8] and loadout[9]. Two wrong cards, and the
+    /// row's own rule string said the surface was working.</para>
     ///
-    /// <para><paramref name="cardCount"/> is the peer's broadcast <c>HandCardCount</c>.
-    /// <paramref name="verdict"/> is a human sentence naming which tier answered (or why none did)
-    /// — it is written verbatim into the receiver's diagnostic so a hardware log can tell "the peer
-    /// is holding a hand we cannot name" from "the map has no party" without a screenshot.</para>
+    /// <para><b>WHICH NUMBER <paramref name="loadoutSize"/> IS, AND WHY IT IS NOT THE ARC COUNT.</b>
+    /// It is the length of the peer's WHOLE loadout — the list <paramref name="into"/> is filled
+    /// with, the list <c>ResolveLoadout</c> builds and the list
+    /// <see cref="TryNameLocalLoadoutSeat"/> seats a held card into — and NOT the number of slabs
+    /// on the wire. The two differ by exactly the cards in the owner's fist: plucking one runs
+    /// <c>CardFan.Remove</c> (<c>Cards/Driver/CardsDriver.5.Interactions.cs</c>), so the broadcast
+    /// <c>HandCardCount</c> (<c>CardFan.Current.Count</c>) drops at once while <c>_loadout</c> on
+    /// the sender — and this walk of the peer's replicated <c>CMapCharacter</c> on the receiver —
+    /// does not. The caller therefore adds back the seats record 36 names
+    /// (<c>Net.RemoteHandFan.ResolveMapFronts</c>) before asking, and every tier here compares one
+    /// FULL-loadout length against another. A caller that hands the raw arc count instead gets a
+    /// refusal the instant a card is picked up, which is the safe direction but not the right
+    /// picture.</para>
+    ///
+    /// <para>TIER 0 REFUSES OUTRIGHT ON A MISMATCH — it does not fall through to the deduction
+    /// tiers, and that is deliberate. Tier 0 is a NAME, not a guess: the peer said which character
+    /// their fan is built for. If that character's loadout is not the length the caller accounted
+    /// for, the two clients disagree about THAT character's cards, and a size deduction over the
+    /// same number would then name a DIFFERENT character whose loadout happens to fit — which is
+    /// the confident-wrong-front failure one tier lower down. Backs are the honest answer.</para>
+    ///
+    /// <para><paramref name="verdict"/> is a human sentence naming which tier answered (or why none
+    /// did) — it is written verbatim into the receiver's diagnostic so a hardware log can tell "the
+    /// peer is holding a hand we cannot name" from "the map has no party" without a
+    /// screenshot.</para>
     ///
     /// <para>ALLOCATION-FREE on the resolved path beyond what <see cref="ResolveLoadout"/> already
-    /// costs, and it is not on a per-frame path: the caller re-asks only when the peer's card count
-    /// changes or on its own slow cadence.</para>
+    /// costs, and it is not on a per-frame path: the caller re-asks only when the peer's loadout
+    /// size changes or on its own slow cadence.</para>
     /// </summary>
-    internal static bool TryResolvePeerLoadout(int playerId, int cardCount, uint characterKey,
+    internal static bool TryResolvePeerLoadout(int playerId, int loadoutSize, uint characterKey,
                                                List<CAbilityCard> into, out string verdict)
     {
         into.Clear();
         verdict = "not resolved";
-        if (cardCount <= 0)
+        if (loadoutSize <= 0)
         {
             verdict = "the peer is holding no cards";
             return false;
@@ -998,9 +1019,33 @@ internal sealed partial class MapRoomHand
                 if (Net.NetProtocol.HashMapKey(c.CharacterName) != characterKey)
                     continue;
                 ResolveLoadout(c, into);
+                // ─── THE BELT THIS TIER NEVER HAD ────────────────────────────────────────────
+                // An index is a name for a card only while both copies of the list are the same
+                // length. Two things can break that even after the character is NAMED exactly:
+                // this client's copy of that CMapCharacter's HandAbilityCardIDs lagging a loadout
+                // edit made on the peer's side, and ResolveLoadout silently dropping an id its
+                // class pool does not carry (its inner loop just does not Add). Both produce a
+                // SHORT list, and a short list zipped positionally against the arc shifts every
+                // face after the gap. See this method's doc block for why a mismatch refuses here
+                // rather than falling through to the size deduction below.
+                if (into.Count != loadoutSize)
+                {
+                    verdict = $"NAMED BUT REFUSED: player {playerId} says their map fan is "
+                              + $"'{DisplayName(c)}' (character key 0x{characterKey:X8} in record "
+                              + $"20), and that character's loadout resolves to {into.Count} card(s) "
+                              + $"on this client against the {loadoutSize} the peer's arc plus fist "
+                              + "accounts for. Slab i is a name for card i only while those two "
+                              + "agree, so this shows BACKS rather than zipping two lists of "
+                              + "different lengths. Expect it BRIEFLY around a loadout edit (this "
+                              + "client's copy of their CMapCharacter lags); a mismatch that STANDS "
+                              + "means an id in their loadout is missing from this client's class "
+                              + "pool";
+                    into.Clear();
+                    return false;
+                }
                 verdict = $"NAMED: player {playerId} says their map fan is '{DisplayName(c)}' "
                           + $"(character key 0x{characterKey:X8} in record 20) — no deduction was "
-                          + "needed";
+                          + $"needed, and its {into.Count} card(s) match the arc plus fist";
                 return into.Count > 0;
             }
         }
@@ -1010,14 +1055,14 @@ internal sealed partial class MapRoomHand
         int matches = 0;
         for (int i = 0; i < s_peerScratch.Count; i++)
         {
-            if (LoadoutSize(s_peerScratch[i]) != cardCount)
+            if (LoadoutSize(s_peerScratch[i]) != loadoutSize)
                 continue;
             unique ??= s_peerScratch[i];
             matches++;
         }
         if (matches == 0)
         {
-            verdict = $"no party member has a loadout of {cardCount} card(s) — the peer's fan is "
+            verdict = $"no party member has a loadout of {loadoutSize} card(s) — the peer's fan is "
                       + "mid-change, or their party state has not replicated here yet";
             return false;
         }
@@ -1025,7 +1070,7 @@ internal sealed partial class MapRoomHand
         {
             ResolveLoadout(unique, into);
             verdict = $"EXACT: '{DisplayName(unique)}' is the ONLY party member with a "
-                      + $"{cardCount}-card loadout, and a map-room fan is always some party "
+                      + $"{loadoutSize}-card loadout, and a map-room fan is always some party "
                       + "member's loadout";
             return into.Count > 0;
         }
@@ -1036,7 +1081,7 @@ internal sealed partial class MapRoomHand
         for (int i = 0; i < s_peerScratch.Count; i++)
         {
             CMapCharacter c = s_peerScratch[i];
-            if (LoadoutSize(c) != cardCount || ControllerPlayerId(c) != playerId)
+            if (LoadoutSize(c) != loadoutSize || ControllerPlayerId(c) != playerId)
                 continue;
             owned ??= c;
             ownedMatches++;
@@ -1044,7 +1089,7 @@ internal sealed partial class MapRoomHand
         if (ownedMatches == 1 && owned != null)
         {
             ResolveLoadout(owned, into);
-            verdict = $"OWNERSHIP: {matches} party members hold {cardCount} cards, and exactly one "
+            verdict = $"OWNERSHIP: {matches} party members hold {loadoutSize} cards, and exactly one "
                       + $"of them — '{DisplayName(owned)}' — is controlled by player {playerId} "
                       + "(the game's own ControllableRegistry). ASSUMES the peer is displaying a "
                       + "character they control; the party screen does not require that";
@@ -1054,8 +1099,8 @@ internal sealed partial class MapRoomHand
         into.Clear();
         verdict = ownedMatches > 1
             ? $"AMBIGUOUS: player {playerId} controls {ownedMatches} characters with a "
-              + $"{cardCount}-card loadout — showing BACKS rather than guessing which"
-            : $"AMBIGUOUS: {matches} party members hold {cardCount} cards and none of them resolved "
+              + $"{loadoutSize}-card loadout — showing BACKS rather than guessing which"
+            : $"AMBIGUOUS: {matches} party members hold {loadoutSize} cards and none of them resolved "
               + $"to player {playerId} through ControllableRegistry — showing BACKS rather than "
               + "guessing which";
         return false;

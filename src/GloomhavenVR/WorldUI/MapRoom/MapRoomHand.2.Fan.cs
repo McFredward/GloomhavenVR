@@ -654,6 +654,31 @@ internal sealed partial class MapRoomHand
                 // and the retry below removes it the moment he lets go. Appended at the END of the
                 // new set because it no longer HAS a place in the loadout; that index is never used
                 // while it is held (every layout loop in CardFan skips IsHeld).
+                //
+                // ─── WHAT THIS COSTS A WATCHER, MEASURED AT SOURCE (2026-09-07) ─────────────────
+                // The re-publish below hands this card back to CardFan.SetCards, which re-adds it
+                // to _cards unconditionally — so the number on the wire (CardFan.Current.Count) is
+                // restored to n while the loadout every receiver resolves
+                // (MapRoomHand.ResolveLoadout over the peer's replicated CMapCharacter) is now
+                // n-1. And record 36 can say nothing about the gap: TryNameLocalLoadoutSeat seats
+                // the card through _loadout.IndexOf(model), which is -1 for a card the loadout no
+                // longer names, so it answers "names nothing".
+                //
+                // THE RECEIVER THEREFORE REFUSES THE WHOLE FAN (Net.RemoteHandFan's length belt,
+                // and MapRoomHand.TryResolvePeerLoadout's tier-0 belt behind it) and draws BACKS
+                // for as long as he holds the deselected card. That is a DELIBERATE trade and not
+                // an oversight: before those belts existed this state drew n-1 correct fronts plus
+                // one phantom slab, which looks right — and it is indistinguishable, from the
+                // receiver's seat, from the state where ResolveLoadout silently dropped a card its
+                // class pool does not carry, where the same arithmetic shifts every face after the
+                // gap. One of the two must be chosen blind, and a back is the failure the player
+                // can read.
+                //
+                // DRAWING IT EXACTLY NEEDS A WIRE FIELD and is filed rather than forced: the arc is
+                // n long with one seat holding a card that is in NO loadout, and nothing currently
+                // on the wire can say that. Record 36 cannot be stretched to carry it — its seat is
+                // an index into the loadout by contract, and Net.RemoteHeldCardFace draws the held
+                // card's own front from exactly that index.
                 _deferredLeave = true;
                 _diffDeferred.Add(id);
                 _diffCards.Add(card);
@@ -1078,6 +1103,22 @@ internal sealed partial class MapRoomHand
     /// Move the current cards to the retired list (or destroy them outright with a zero grace).
     /// They are NOT unpublished here: the driver's very next rebuild replaces the fan's contents
     /// with the new list, and a card that is mid-exchange must still exist while it flies.
+    ///
+    /// <para>THERE IS NO HELD-CARD EXEMPTION HERE, unlike the single-card diff's, and the
+    /// consequence for a WATCHER is that a card the player is holding while they switch character
+    /// loses its front (checked at source, 2026-09-07). <see cref="_cards"/> and
+    /// <see cref="_cardModels"/> are cleared outright, so <see cref="TryNameLocalLoadoutSeat"/>'s
+    /// first test — <c>_cards.IndexOf(card)</c> — answers -1, record 36 is omitted, and
+    /// <c>Net.RemoteHeldCardFace</c> draws that slab as a BACK until it is let go.</para>
+    ///
+    /// <para>IT FAILS SAFE, AND THAT IS WHY IT IS LEFT ALONE. The card in the fist belongs to the
+    /// OUTGOING character while record 20 already names the INCOMING one, so a seat that DID
+    /// survive the retirement would be an index into the wrong character's loadout — the confident
+    /// wrong front this round exists to remove, on the surface that draws a single card. The new
+    /// fan itself is unaffected: its length and the wire count are both the incoming character's,
+    /// they agree, and its fronts are drawn normally. Naming the held card across a switch needs
+    /// the OWNING character to travel beside the seat, i.e. a wire change, and is filed rather than
+    /// guessed at.</para>
     /// </summary>
     private void RetireCards(float grace)
     {
