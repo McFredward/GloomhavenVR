@@ -202,6 +202,17 @@ internal static partial class Loc
         // The box's ONE button. A card that teaches a control says ÜBERSPRINGEN and skips THAT
         // CARD; the welcome and closing cards, which have no task to skip, say WEITER. Both do the
         // same thing — go to the next card.
+        // ---- the one approved 1:1 exception: a covered card's identity in a mirrored dialog ----
+        // Net/DecisionLabelMask puts this in place of a card NAME inside a peer's mirrored decision
+        // row, while and only while the face rule says that card is covered (user 2026-09-07:
+        // "der Name der Karte in dem Dialog im remote board muss ausgeblendet werden. Nutz eine
+        // immersive Art das ausblenden"). It must READ AS THE WORLD, never as a redaction — it
+        // names the object the viewer is actually looking at, a face-down card lying in the owner's
+        // recess — and it must stay in the length range real card names occupy ("In die Nacht",
+        // "Verdorbene Schneide") so the mirrored plate barely changes width. PLAIN LETTERS ONLY: a
+        // glyph the receiver's font atlas lacks renders as a box, which reads as broken rather than
+        // as sealed. Accusative-safe in German so it drops into "Verbrennen …" unchanged.
+        ["mp_sealed_card"] = Pair("a sealed card", "eine versiegelte Karte"),
         ["ctl_next"] = Pair("NEXT", "WEITER"),
         ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
         // ---- the multiplayer quest card ----

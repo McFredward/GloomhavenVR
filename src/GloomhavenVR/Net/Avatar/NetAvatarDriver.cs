@@ -1045,6 +1045,31 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     // ---- extras send (board pose + hand count, slower) ----------------------------------
 
+    /// <summary>
+    /// Take a covered card's IDENTITY out of one extension-record-13 cap wording before it goes on
+    /// the wire — the same mask, the same predicate and the same tick as record 12's.
+    ///
+    /// <para>WHY BITS 0 AND 2 NEED IT. A confirm/undo cap normally reads a generic "Bestätigen" /
+    /// "Rückgängig", but during a modal card pick <c>PlayTray</c> overrides both with the live
+    /// <c>DialogPopup</c> option wording, which for a burn prompt NAMES the card. That made record
+    /// 13 a second, unnamed and ungated channel for exactly the content record 12 was ruled about,
+    /// and a fix that masked only record 12 would have been theatre.</para>
+    ///
+    /// <para>A REFUSAL BECOMES <c>null</c>, WHICH IS A SAFE PICTURE HERE AND NOT A HOLE: the
+    /// receiver renders an absent cap label as its own <c>GUI_CONFIRM</c> ("Confirm"/"Bestätigen",
+    /// in the VIEWER's language — <c>RemoteBoardFurniture.SetCapLabels</c>), so the cap still reads
+    /// as a button and simply stops quoting the option. Record 12 cannot degrade that way — its
+    /// labels are index-aligned with two other records — which is why the two callers handle a
+    /// refusal differently.</para>
+    /// </summary>
+    private static string? MaskCapLabel(string? label)
+    {
+        if (string.IsNullOrEmpty(label))
+            return label;
+        string masked = DecisionLabelMask.Apply(label!, out int names);
+        return names < 0 ? null : masked;
+    }
+
     private void TickExtrasSend(float dt)
     {
         // Same flat-net gate as TickSend — see there.
@@ -1810,6 +1835,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 useBarsChanged = true;
         }
 
+        // (see MaskCapLabel below for records 13 bits 0/2)
         // CAP LABELS (extension record 13): what the owner's CONFIRM cap and docked SKIP button
         // actually read. Null while the control is hidden, so the record's presence tracks the
         // board-UI visibility bits; appearance/disappearance/re-wording are edges.
@@ -1835,6 +1861,23 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // its declared width (48 B), not a new field, and it is what lets a peer read the owner's
         // "ITEM ABGEBEN" under their mirrored recess at the same moment the owner does.
         string? itemUseLabelNow = trayNow != null ? trayNow.ItemUseCapLabel : null;
+        // ─── THE SECOND CHANNEL FOR THE SAME CARD NAME, AND IT HAD NO GATE AT ALL ────────────────
+        // Found by the 2026-09-07 sweep that item 6's fix owed. Bits 0 and 2 do NOT carry a generic
+        // "Confirm"/"Undo" during a pick flow: PlayTray.ConfirmControlLabel / UndoControlLabel fall
+        // through to Cards.CardsGameApi.PickDialogOptionLabel, which reads
+        // `button.ExtendedButton.buttonText.text` straight off the live DialogPopup option — THE
+        // SAME STRING FAMILY AS RECORD 12, i.e. `<sprite name="LOST"> Verbrennen "Nagende Horde"`.
+        // A peer renders it on their mirrored confirm cap (RemoteBoardFurniture.SetCapLabels →
+        // InertCap.SetLabel), so masking record 12 alone would have moved the leak one surface over
+        // and left the fix as theatre — which is the exact failure this project has recorded as
+        // "the blind spot is the lead".
+        //
+        // IT IS MASKED HERE AND NOT AT PickDialogOptionLabel: that accessor also feeds the OWNER's
+        // OWN keycap (PlayTray.7.Nested), and the owner must go on reading their own card's name.
+        // The wire is the boundary, so the wire is where the identity comes out — same predicate,
+        // same file, same tick as record 12's.
+        confirmLabelNow = MaskCapLabel(confirmLabelNow);
+        undoLabelNow = MaskCapLabel(undoLabelNow);
         bool capLabelsChanged = confirmLabelNow != _lastSentConfirmLabel
                                 || skipLabelNow != _lastSentSkipLabel
                                 || undoLabelNow != _lastSentUndoLabel
@@ -2254,7 +2297,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // docked; omitted otherwise, so an idle packet stays byte-identical to the previous
         // build's. The sampler already excluded everything that is not a pressable widget label.
         //
-        // ─── A LABEL CAN CONTAIN A CARD NAME, AND THIS RECORD USED TO DENY IT ────────────────────
+        // ─── A LABEL CAN CONTAIN A CARD NAME, AND THE NAME IS NOW TAKEN OUT AT THE SAMPLER ───────
         // The note here and the log line below both used to read "pressable-widget labels only, NO
         // card identity". The first half is a true statement about what the SAMPLER SELECTS; the
         // second was read as a statement about what those labels CONTAIN, and it is false. The
@@ -2262,12 +2305,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // both clients — the confirm button of a burn prompt, which names the card being burnt, in
         // plain text, with no RevealGate term anywhere on this path.
         //
-        // IT IS AN EXEMPTION AND IT IS NOW A NAMED ONE:
-        // RevealGate.PeerCardPopulation.DecisionRowWording carries the ruling and its three grounds
-        // (the content is a card being LOST rather than one being chosen; refusing it would blank a
-        // mirrored row mid-prompt, which is an empty window; and vanilla already lets any player
-        // read any other player's cards outside the selection window). What the exemption owes in
-        // return is a MEASUREMENT rather than a promise, and that is the line below it.
+        // THAT WAS A RULED EXEMPTION FOR TWO BUILDS AND IS NOW A RULED MASK. User, 2026-09-07:
+        // "wegen dem Anti-Cheat-System in der Auswahlphase muss hier ein genehmigte Ausnahme der
+        // 1:1 Regel greifen, der Name der Karte in dem Dialog im remote board muss ausgeblendet
+        // werden." WorldUI.Surfaces.DecisionDockSurface's sampler now runs every label through
+        // Net.DecisionLabelMask BEFORE it becomes this string, so a covered card's identity does not
+        // reach this line, this record, or the wire — see DecisionLabelMask for why masking at the
+        // sender is the only place that makes the claim true, and RevealGate.PeerCardPopulation
+        // .DecisionRowWording for the ruling. WHAT THE MASK OWES IN RETURN IS STILL A MEASUREMENT
+        // rather than a promise, and it is now TWO lines: the mask's own DECISION LABEL MASK line
+        // (what it replaced) and the line below (what actually went out, quoted whole).
         if (!string.IsNullOrEmpty(decisionNow))
         {
             extras.HasDecisionLines = true;
@@ -2281,11 +2328,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             // HW-VERIFY: grep token DECISION LABEL INSIDE THE SECRET WINDOW. This line exists
             // because an exemption nobody can see is indistinguishable from a leak, and because the
             // claim it replaces ("NO card identity") was an assertion the instrument could not make.
-            // READ IT LIKE THIS: content naming a card being BURNT or LOST — a Verbrennen/Lost
-            // confirm, a short-rest sacrifice — is the ruled exemption and is expected here. Content
-            // naming a card being CHOSEN, or any HAND card, is NOT covered by that ruling and means
-            // the exemption is too wide: narrow it at RevealGate.PeerCardPopulation
-            // .DecisionRowWording, which is the one place it is written down. THE FALSIFIER: this
+            // READ IT LIKE THIS, AND THE READING INVERTED ON 2026-09-07: the quoted text is what
+            // LEFT this client, after Net.DecisionLabelMask ran. ANY card name still in it is a
+            // DEFECT now, not an exemption — the mask walks the hand, discard and round lists of
+            // every character we control, so a name that survives means it came from a list the
+            // mask does not walk, and this line is the proof. The expected reading is a wording
+            // carrying the in-world sealed-card phrase in place of the name. THE FALSIFIER: this
             // line never appearing at all does NOT mean nothing travels — it means no decision row
             // was docked during a selection phase this session, so the question was not put.
             VRLog.Note("Net", "DECISION LABEL INSIDE THE SECRET WINDOW: record 12 is publishing "
@@ -2320,10 +2368,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   "board drops them)."
                 : $"Decision lines SENT: \"{decisionNow!.Replace('\n', '|')}\" — extension record 12 " +
                   $"(UTF8, capped {NetProtocol.DecisionLinesMaxBytes} B: the labels of pressable " +
-                  "widgets ONLY, never a dialog's description text — but a label CAN name a card, " +
-                  "and a burn prompt's does, so this record is not identity-free and no longer " +
-                  "claims to be; see RevealGate.PeerCardPopulation.DecisionRowWording for the "
-                  + "ruling and 'DECISION LABEL INSIDE THE SECRET WINDOW' for the measurement); " +
+                  "widgets ONLY, never a dialog's description text — and a label CAN name a card, " +
+                  "which a burn prompt's does, so the identity is stripped at the sampler by " +
+                  "Net.DecisionLabelMask while the face rule says that card is covered; what is " +
+                  "quoted above is the masked string that actually went out. See RevealGate" +
+                  ".PeerCardPopulation.DecisionRowWording for the ruling, 'DECISION LABEL MASK' for "
+                  + "what was replaced and 'DECISION LABEL INSIDE THE SECRET WINDOW' for the "
+                  + "measurement); " +
                   "peers render them as inert plates at their copy's decision seat.");
         }
         // DECISION STATE (extension record 24, NetProtocol.ExtIdDecisionState — the two log lines
@@ -2525,7 +2576,14 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                               "which used to read as a plain undo / 'USE' on every peer's board. " +
                               "itemUse is the whole ITEM-USE AREA's wording (cap AND the caption " +
                               "engraved under the recess), so it is present for the whole demand " +
-                              "and not only while the cap is up.");
+                              "and not only while the cap is up. CONFIRM AND UNDO ARE IDENTITY-" +
+                              "MASKED (2026-09-07): during a modal card pick both fall through to " +
+                              "the live DialogPopup option wording, which for a burn prompt NAMES " +
+                              "the card, so Net.DecisionLabelMask strips the identity while the " +
+                              "face rule says that card is covered — what is quoted above is the " +
+                              "masked text that actually went out, and a card name still in it is " +
+                              "a DEFECT. A label the mask had to withhold is sent as <hidden>, " +
+                              "which peers letter with their own GUI_CONFIRM / GUI_UNDO.");
         }
 
         if (boardUiChanged)

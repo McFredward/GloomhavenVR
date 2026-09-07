@@ -1435,6 +1435,9 @@ internal sealed class DecisionDockSurface : WorldSurface
                 SelectableScratch.Clear();
                 root.GetComponentsInChildren(includeInactive: false, SelectableScratch);
                 WireLinesScratch.Length = 0;
+                // Set only by the identity mask refusing (see below): a withdrawal that must
+                // survive the loop that triggers it.
+                bool maskRefused = false;
                 for (int i = 0; i < SelectableScratch.Count; i++)
                 {
                     Selectable sel = SelectableScratch[i];
@@ -1448,7 +1451,35 @@ internal sealed class DecisionDockSurface : WorldSurface
                         WireLinesScratch.Append('\n');
                     // Labels are single-line wordings; a stray newline inside one would split it
                     // into two plates on the peer, so it is flattened to a space here.
-                    WireLinesScratch.Append(text.Replace('\n', ' ').Replace('\r', ' ').Trim());
+                    //
+                    // ─── AND THE CARD IDENTITY COMES OUT HERE, BEFORE IT IS A WIRE STRING ────────
+                    // A burn prompt's confirm label NAMES the card being burnt, and record 12 is
+                    // rendered verbatim on a peer's dialog-popup row — so this walk is where a
+                    // secret would leave the client. Net.DecisionLabelMask replaces the name with
+                    // an in-world wording while, and only while, RevealGate says that card is
+                    // covered; it is the user's approved exception to the 1:1 rule and its own file
+                    // carries the ruling. IT IS DONE HERE AND NOT AT PUBLISH TIME so that the byte
+                    // cap downstream measures the ALREADY-MASKED string — a cap sized in English is
+                    // a codec, never layout, and masking after it would put the German tail at
+                    // risk. Cards that are open (burnt, activated, or any card once the phase ends)
+                    // are not touched, so the sentence uncovers on the same tick the card does.
+                    string wire = Net.DecisionLabelMask.Apply(
+                        text.Replace('\n', ' ').Replace('\r', ' ').Trim(), out int maskedNames);
+                    if (maskedNames < 0)
+                    {
+                        // The mask refused (it threw and withheld the wording). Publishing the
+                        // remaining labels without this one would mis-align records 12/24/29, whose
+                        // index alignment is structural — so the whole row is withdrawn for this
+                        // cadence and the peer keeps its mod-drawn plates. Its own line says why.
+                        //
+                        // A FLAG AND NOT `lines = null`: the assignment after this loop is
+                        // `if (WireLinesScratch.Length > 0) lines = WireLinesScratch.ToString()`,
+                        // so nulling it here would be overwritten by the options already collected
+                        // — the withdrawal has to survive the loop it breaks out of.
+                        maskRefused = true;
+                        break;
+                    }
+                    WireLinesScratch.Append(wire);
                     if (options < _wireOptionStates.Length)
                     {
                         // ONE WALK FILLS ALL THREE RECORDS — the wording (12), the state (24) and
@@ -1461,8 +1492,10 @@ internal sealed class DecisionDockSurface : WorldSurface
                         _wireOptionStates[options++] = SampleOptionState(sel, root);
                     }
                 }
-                if (WireLinesScratch.Length > 0)
+                if (WireLinesScratch.Length > 0 && !maskRefused)
                     lines = WireLinesScratch.ToString();
+                if (maskRefused)
+                    options = 0;
                 if (lines != null)
                     widgetFlags = SampleWidgetNumbers(out damage);
             }
@@ -1818,8 +1851,11 @@ internal sealed class DecisionDockSurface : WorldSurface
                               $"[{states}] (record 12: the labels of PRESSABLE WIDGETS only, never a " +
                               "dialog's description text — which is a statement about what is " +
                               "SELECTED and not about what those labels CONTAIN: a burn prompt's " +
-                              "confirm label names the card being burnt, so this record is not " +
-                              "identity-free. See RevealGate.PeerCardPopulation.DecisionRowWording; " +
+                              "confirm label NAMES the card being burnt. Since 2026-09-07 that name " +
+                              "is taken out here by Net.DecisionLabelMask whenever the face rule " +
+                              "says the card is covered, so what is quoted above IS what went on " +
+                              "the wire — read it: a card name still in it means the mask missed a " +
+                              "list. See RevealGate.PeerCardPopulation.DecisionRowWording; " +
                               "record 24: the states + the prompt kind; record 29: " +
                               $"the widget ROLES above plus damage " +
                               $"{((widgetFlags & NetProtocol.DecisionWidgetDamageValidBit) != 0 ? damage.ToString() : "n/a")}" +

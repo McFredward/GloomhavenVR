@@ -145,6 +145,36 @@ internal static class RevealGate
     public static bool PeersSeeOurCardFronts =>
         !(FFSNetwork.IsOnline && IsSecretSelectionPhase);
 
+    /// <summary>
+    /// MAY OUR PEERS KNOW WHICH CARD THIS IS, right now? The owner-seat counterpart of
+    /// <see cref="CardFaces(PeerCardPopulation, CPlayerActor, int)"/>, and it is the SAME two terms
+    /// in the same order: the phase (<see cref="PeersSeeOurCardFronts"/>), then the burn exception
+    /// for this particular card (<see cref="IsPubliclyRevealedCard"/>), which can only widen.
+    ///
+    /// <para>IT EXISTS SO A CARD AND THE SENTENCE ABOUT IT CANNOT DISAGREE. A face and a WORDING
+    /// that name the same card are two surfaces answering one question, and this project has
+    /// already paid for letting two surfaces answer it separately (see the note on
+    /// <see cref="CardFaces(PeerCardPopulation, CPlayerActor)"/>: the hand fan and the held card
+    /// each spelled their own gate and drifted apart the moment only one was edited). So the
+    /// decision row's identity mask asks THIS, and it is one expression away from the predicate the
+    /// recess beside it asks — the card is covered exactly while its name is masked, and it uncovers
+    /// and unmasks on the same tick.</para>
+    ///
+    /// <para>WHY IT IS ASKED AT THE SENDER AND NOT AT THE RECEIVER, and this is the whole reason the
+    /// exemption below is an ANTI-CHEAT boundary rather than a presentation preference: a receiver
+    /// that is handed the name has been told the secret, whatever it then chooses to draw. This
+    /// class's opening sentence is "We never transmit card identities over our side channel"; the
+    /// decision row was the one place that was not true, and masking at the render end would have
+    /// left it untrue. The identity does not go on the wire.</para>
+    ///
+    /// <para>The actor is the OWNER's own — every character we control is "somebody else's" to a
+    /// peer, so <c>!IsUnderMyControl</c> folds out exactly as it does for
+    /// <see cref="PeersSeeOurCardFronts"/>. Degrades to FALSE (mask it) on a null actor or an
+    /// unknown card, which is this file's standing direction of failure.</para>
+    /// </summary>
+    public static bool PeersMaySeeOurCard(CPlayerActor? actor, int cardInstanceId) =>
+        PeersSeeOurCardFronts || IsPubliclyRevealedCard(actor, cardInstanceId);
+
     // ============================================================================================
     //  THE MAP PHASE — THE ANSWER THIS CLASS ALREADY GAVE, AND THE ONE ITS CALLER THREW AWAY
     //
@@ -420,27 +450,53 @@ internal static class RevealGate
         /// extension record 12 carries, which for a burn prompt read <c>Verbrennen "In die
         /// Nacht"</c> and therefore DO contain a card name.
         ///
-        /// <para>IT IS AN EXEMPTION AND NOT A LEAK, AND IT IS NAMED HERE BECAUSE AN EXEMPTION
-        /// NOBODY CAN FIND IS INDISTINGUISHABLE FROM ONE. Record 12's own send log asserted
+        /// <para>IT IS AN EXEMPTION FOR THE ROW AND A MASK FOR THE NAME, AND IT IS NAMED HERE
+        /// BECAUSE AN EXEMPTION NOBODY CAN FIND IS INDISTINGUISHABLE FROM A LEAK. Record 12's own send log asserted
         /// "pressable-widget labels only, NO card identity" and that claim was false — the assertion
         /// was about what the sampler SELECTS (only labels of pressable widgets) and was read as a
         /// statement about what those labels CONTAIN. Both wordings are corrected at their sites.
         /// </para>
         ///
-        /// <para>THE RULING, AND ITS THREE GROUNDS. (1) What actually travels is the name of a card
-        /// being BURNT or LOST — the same content <see cref="SacrificedCard"/> covers, and the user
-        /// has now explicitly asked to be able to see it. (2) Refusing it would blank a mirrored
-        /// decision row in the middle of a prompt, which is an empty window and a standing
-        /// prohibition, and would remove the ONLY channel that currently tells a peer which card is
-        /// at stake. (3) Card identity is not a durable secret in this game: vanilla lets any player
-        /// open any other player's complete card overview from the initiative track outside the
-        /// selection window, and broadcasts the chosen battle goal in the clear.</para>
+        /// <para>THE MEMBER STAYS EXEMPT AND THE WORDING NO LONGER CARRIES AN IDENTITY — those are
+        /// two different statements and the distinction is the whole of the 2026-09-07 follow-up.
+        /// The ROW may still be mirrored inside the secret window (that is what the exemption is
+        /// for: refusing it would blank a mirrored decision mid-prompt, which is an empty window and
+        /// a standing prohibition). What may no longer ride is the CARD NAME inside it.</para>
         ///
-        /// <para>WHAT IS OWED IN RETURN IS A MEASUREMENT, not a promise: the sender now prints a
-        /// hardware-verified line whenever a decision label travels while
-        /// <see cref="PeersSeeOurCardFronts"/> is SHUT, quoting the label. If that line ever names
-        /// content this ruling does not cover — a HAND card, a card being chosen rather than lost —
-        /// the exemption is too wide and this is the member to narrow.</para>
+        /// <para>USER, VERBATIM: "wegen dem Anti-Cheat-System in der Auswahlphase muss hier ein
+        /// genehmigte Ausnahme der 1:1 Regel greifen, der Name der Karte in dem Dialog im remote
+        /// board muss ausgeblendet werden. Nutz eine immersive Art das ausblenden und bleib trotzdem
+        /// so nah wie möglich am Dialog den der Spieler auch sieht."</para>
+        ///
+        /// <para>THIS IS THE FIRST APPROVED, NAMED EXCEPTION TO THE 1:1 RULE, and it is recorded as
+        /// exactly that so a future round does not "restore 1:1" and re-open the leak: the mirrored
+        /// dialog is deliberately NOT what the owner sees, because the covering rule here is an
+        /// ANTI-CHEAT boundary and not a presentation preference. <c>Net.DecisionLabelMask</c> owns
+        /// the mechanism and the craft (why the mask is applied at the SENDER, why it is plain
+        /// letters rather than a sprite, and why it is in the sender's language).</para>
+        ///
+        /// <para>THE SUPERSEDED RULING, KEPT so the reversal is legible. It had three grounds:
+        /// "(1) What actually travels is the name of a card being BURNT or LOST — the same content
+        /// <see cref="SacrificedCard"/> covers, and the user has now explicitly asked to be able to
+        /// see it. (2) Refusing it would blank a mirrored decision row in the middle of a prompt …
+        /// (3) Card identity is not a durable secret in this game: vanilla lets any player open any
+        /// other player's complete card overview from the initiative track outside the selection
+        /// window." Ground (2) still stands and is why the member is still exempt. Ground (1) fell
+        /// with <see cref="SacrificedCard"/>'s carve-out — he no longer wants to see it INSIDE the
+        /// window — and ground (3) was always an argument about OUTSIDE the window, where nothing is
+        /// masked and this member changes nothing.</para>
+        ///
+        /// <para>WHAT IS OWED IS STILL A MEASUREMENT, not a promise, and it is now two lines: the
+        /// mask's own <c>DECISION LABEL MASK</c> (what was replaced, with both lengths) and the
+        /// sender's <c>DECISION LABEL INSIDE THE SECRET WINDOW</c> (the whole of what actually went
+        /// out). The reading INVERTED with this change — a card name quoted in the second line used
+        /// to be the expected exemption and is now a DEFECT, meaning the mask missed a list.</para>
+        ///
+        /// <para>IT IS NOT THE ONLY RECORD THAT CARRIED THIS CONTENT. Extension record 13's cap
+        /// labels (bits 0 and 2) fall through to the same <c>DialogPopup</c> option wording during a
+        /// pick flow and had no gate at all; they are masked at the same seam. If a THIRD surface is
+        /// ever found spelling a covered card's name in prose, mask it there — the wire is the
+        /// boundary — and add it to this paragraph.</para>
         /// </summary>
         DecisionRowWording,
 
