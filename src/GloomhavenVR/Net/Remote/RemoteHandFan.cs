@@ -1578,6 +1578,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // identity a freshly-seated round card has.
         TrackFist(showFronts && !mapFronts, actor, count);
 
+        // …AND RE-AIM A FLIGHT THAT IS ALREADY IN THE AIR. Same staged window, same one source of
+        // truth: a glide armed three packets ago is still keyed on its hand-list seat, and the arc
+        // seat that seat maps to is re-derived here. See RetargetReturnGlide for why it re-aims
+        // instead of abandoning.
+        RetargetReturnGlide();
+
         // ─── THE OWNER'S OWN STATEMENT OF WHAT IS IN THEIR ARC WINS OVER EVERY COUNT BELOW ──────
         // Record 44 names, per arc seat, the derived index it holds — so a derived card the order
         // does not name is one the arc does not carry, and dropping it is a NAME and not a guess.
@@ -2213,6 +2219,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <summary>Slab index gliding home after a release into the void (-1 = none) — the
     /// ability-card twin of <c>RemoteItemFan._returnIndex</c>.</summary>
     private int _returnIndex = -1;
+
+    /// <summary>The HAND-LIST seat (record 36's own index space) the live return flight belongs to,
+    /// kept beside the arc seat because the arc seat is a DERIVED value that must be re-resolved
+    /// whenever the order moves. See <see cref="RetargetReturnGlide"/>. -1 = no live flight.</summary>
+    private int _returnListSeat = -1;
 
     /// <summary>Unscaled seconds left of that glide.</summary>
     private float _returnGlide;
@@ -2980,6 +2991,140 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     }
 
     /// <summary>
+    /// WHICH ARC SEAT the card at hand-list index <paramref name="listSeat"/> will be laid out at,
+    /// read off the very gather <see cref="CommitFanArcOrder"/> is about to swap in. -1 when the arc
+    /// does not carry it.
+    ///
+    /// <para>THIS IS THE DESTINATION QUESTION, AND IT HAS ONE RIGHT SOURCE. The user's requirement
+    /// is "Wenn man eine Karte nimmt und sie loslässt muss die Animation exakt dorthin gehen wo die
+    /// Karte auch für den Spieler ist" — the order and the flight target are ONE requirement, so the
+    /// flight may not resolve its seat by an expression of its own. Record 36's seat is an index
+    /// into the MODEL list (<see cref="_handBuffer"/> as it stands during
+    /// <see cref="TrackFist"/>); a slab index is an ARC seat, and record 44 exists precisely because
+    /// the owner's arc is in their own drag-reorder. <see cref="BeginReturnGlide"/> used the model
+    /// seat as a slab index, so the flight was correct only while the applied order was the
+    /// identity.</para>
+    ///
+    /// <para>WHY THE STAGED GATHER AND NOT <c>_owner.FanArcOrder</c>. The wire array is only ONE of
+    /// the two ways an order comes into force: since the 2026-09-07 order fix the receiver also
+    /// HOLDS the last applied order across a packet that states none
+    /// (<see cref="TryHoldFanArcOrder"/>), and a held order fills <see cref="_orderScratch"/>
+    /// without <c>_owner.FanArcOrder</c> ever being non-null. Translating off the wire array would
+    /// therefore be right for a stated order and silently fall back to the identity for a HELD one —
+    /// the exact state Lane B's fix made common. <see cref="_orderScratch"/> is what the fan obeys
+    /// on BOTH paths, so it is what the flight reads.</para>
+    ///
+    /// <para>NO ORDER IN FORCE ⇒ THE IDENTITY, which is the honest answer and not a fallback: with
+    /// no permutation the fan lays the model list out in its own order, so seat k IS slab k. That is
+    /// also the whole of the map-room case (see <see cref="RetargetReturnGlide"/>).</para>
+    /// </summary>
+    private int StagedArcSeatOf(int listSeat)
+    {
+        if (listSeat < 0)
+            return -1;
+        if (!_orderArcValid || _orderScratch.Count == 0)
+            return listSeat;                       // no permutation: the arc IS the model order
+        if (listSeat >= _handBuffer.Count)
+            return -1;
+        AbilityCardUI? widget = _handBuffer[listSeat];
+        if (widget == null)
+            return -1;
+        for (int k = 0; k < _orderScratch.Count; k++)
+        {
+            if (ReferenceEquals(_orderScratch[k], widget))
+                return k;
+        }
+        return -1;                                 // the arc does not carry it — never guess a seat
+    }
+
+    /// <summary>
+    /// Re-aim a LIVE return glide at the seat the arc holds the card in THIS frame. Called once per
+    /// tick inside the staged window, right behind <see cref="TrackFist"/>.
+    ///
+    /// <para>WHY EVERY FRAME AND NOT ONCE AT ARM TIME. The glide runs for
+    /// <see cref="ReleaseGlideSeconds"/> — several packets — and since the 2026-09-07 order fix the
+    /// order in force can change inside that window: the owner drags another card, or a stated order
+    /// supersedes a HELD one. A seat NUMBER latched at arm time then names a different card's slab,
+    /// and the flight would drag the wrong slab out of the release pose while the returning card
+    /// popped. A mid-flight re-order is the case that looks worst, so it is the one this exists for.
+    /// </para>
+    ///
+    /// <para>AND IT RETARGETS RATHER THAN ABANDONING, because that is what the OWNER does: their
+    /// <c>CardFan.Relayout</c> hands every card a new home mid-motion and <c>VRCard</c>'s standing
+    /// lerp simply keeps carrying it to the new one — the card never stops and never snaps. The same
+    /// sentence is already written into <see cref="Rebuild"/>'s carry note one screen down. The
+    /// glide is abandoned only where the arc stops carrying the card at all, which is the one state
+    /// with no destination to name.</para>
+    /// </summary>
+    private void RetargetReturnGlide()
+    {
+        if (_returnGlide <= 0f || _returnListSeat < 0)
+            return;
+        int seat = StagedArcSeatOf(_returnListSeat);
+        if (seat < 0)
+        {
+            // No seat: the arc no longer carries this card (it was played, burnt, or the order stops
+            // naming it). There is nowhere to fly to, and a flight to a guessed seat is worse than
+            // none — the same ruling ResolveArcHeldSeats states for hiding a slab.
+            _returnRetargetsDropped++;
+            LogReturnRetarget(-1);
+            ClearReturnGlide();
+            return;
+        }
+        if (seat == _returnIndex)
+            return;
+        // The slab we were flying is not the one that holds this card any more. Bank ITS live pose
+        // as the new seed so the motion continues from where the eye last saw it instead of jumping
+        // back to the release point, and hand the old slab back to the standing layout lerp, which
+        // eases it home rather than snapping it.
+        if (!_returnSeedPending && _returnIndex >= 0 && _returnIndex < _cards.Count
+            && _cards[_returnIndex] != null)
+        {
+            Transform live = _cards[_returnIndex]!.transform;
+            _returnSeedPos = live.position;
+            _returnSeedRot = live.rotation;
+            _returnSeedPending = true;
+        }
+        int was = _returnIndex;
+        _returnIndex = seat;
+        _returnRetargets++;
+        LogReturnRetarget(was);
+    }
+
+    /// <summary>Session count of mid-flight re-aims and of flights dropped for want of a seat — the
+    /// two readings <see cref="LogReturnRetarget"/> reports.</summary>
+    private int _returnRetargets;
+    private int _returnRetargetsDropped;
+
+    /// <summary>
+    /// HARDWARE EVIDENCE for the order/animation seam (2026-09-07). Grep token:
+    /// <c>FAN RETURN RETARGET</c>. Edge-triggered — one line per re-aim, never per frame — because a
+    /// glide that is never re-aimed must cost NOTHING to leave in.
+    ///
+    /// <para>WORKING: zero lines in a session where nobody reordered mid-flight, and one line
+    /// reading <c>seat A -&gt; B</c> for each one who did. INERT: <c>FAN RETURN VERDICT ... ARMED</c>
+    /// lines with a non-identity order in force (the <c>MIRRORED ARC ORDER ... APPLIED</c> /
+    /// <c>HELD</c> line beside it) and no retarget line and no <c>arcSeat</c> clause — that says this
+    /// translation never ran. STILL BEYOND: no <c>ARMED</c> lines at all, which says nobody put a
+    /// card back and the round proves nothing either way.</para>
+    /// </summary>
+    private void LogReturnRetarget(int wasSeat)
+    {
+        // HW-VERIFY: the order/animation seam (2026-09-07). Grep token: FAN RETURN RETARGET.
+        VRLog.Note("Net", $"FAN RETURN RETARGET [player {_owner.PlayerId}]: the arc order moved under "
+            + $"a live return flight — hand-list seat {_returnListSeat} "
+            + (wasSeat < 0
+                ? $"is no longer carried by the arc, so the flight was DROPPED rather than aimed at a "
+                  + "guessed slab"
+                : $"moved from arc seat {wasSeat} to {_returnIndex}, and the flight was RE-AIMED "
+                  + "there, continuing from the pose the eye last saw rather than restarting")
+            + $". Session: {_returnRetargets} re-aim(s), {_returnRetargetsDropped} drop(s). THE "
+            + "DESTINATION IS THE FAN'S OWN: it is read off the record-44 gather CommitFanArcOrder "
+            + "is about to swap in, which covers a STATED order and a HELD one alike — never off "
+            + "_owner.FanArcOrder, which is null for a held order.");
+    }
+
+    /// <summary>
     /// Watch the fist for one frame: resolve what is in it, and on the frame it empties decide
     /// whether the card went into a RECESS (arm the hand-off, item 5) or back to the FAN (start the
     /// mirrored return glide, item 2). See the block above for why each term is here.
@@ -3290,7 +3435,17 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // …AND ONLY IF THE SEAT IS AN ARC INDEX. See the split above: with a hand card seated on
         // their board the arc and the model list have different membership, so this seat names a
         // card correctly and names a SLAB incorrectly. Refuse the motion, keep the name.
-        bool flew = _fistArcSeatUsable && BeginReturnGlide(_fistSeat, _fistPoseSlot);
+        // THE SEAT THE FLIGHT LANDS ON IS AN ARC SEAT, NOT A MODEL SEAT. _fistSeat is record 36's
+        // index into the hand LIST; _cards is the ARC. They are the same number only while the
+        // applied order is the identity, and since the 2026-09-07 order fix a non-identity order is
+        // in force far more of the time (it is stated on every describable packet and HELD across
+        // packets that state none). Translating here — through the very gather CommitFanArcOrder is
+        // about to swap in — is what makes the user's requirement true: "die Animation muss exakt
+        // dorthin gehen wo die Karte auch fuer den Spieler ist". A -1 means the arc does not carry
+        // this card, and then no flight is owed.
+        int arcSeat = StagedArcSeatOf(_fistSeat);
+        bool flew = _fistArcSeatUsable && arcSeat >= 0
+                    && BeginReturnGlide(arcSeat, _fistPoseSlot, _fistSeat);
         ResolveRelease(flew, recess: false, _refusal);
         _fistCard = null;
         _fistSeat = -1;
@@ -3426,7 +3581,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// to its arc slot on the standing home-lerp — so the slab starts exactly where their card was
     /// hanging and eases in on THEIR rate, never a tween of our own invention.
     /// </summary>
-    private bool BeginReturnGlide(int seat, int poseSlot)
+    private bool BeginReturnGlide(int seat, int poseSlot, int listSeat)
     {
         Transform? slab = _owner.HeldSlab(poseSlot);
         if (slab == null)
@@ -3439,6 +3594,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             return false;
         }
         _returnIndex = seat;
+        _returnListSeat = listSeat; // the key RetargetReturnGlide re-resolves the seat from
         _returnGlide = ReleaseGlideSeconds;
         _returnSeedPending = true;
         _returnSeedPos = slab.position;
@@ -3563,6 +3719,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private void ClearReturnGlide()
     {
         _returnIndex = -1;
+        _returnListSeat = -1;
         _returnGlide = 0f;
         _returnSeedPending = false;
     }
@@ -3660,6 +3817,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // HW-VERIFY: report item 2. Grep token: FAN RETURN FLIGHT.
         VRLog.Note("Net", $"FAN RETURN FLIGHT [player {_owner.PlayerId}]: this peer released a "
             + $"card into the void and slab {_returnIndex} now GLIDES home to its arc seat from "
+            + $"(hand-list seat {_returnListSeat} -> arcSeat {_returnIndex}, translated through the "
+            + $"record-44 gather this fan lays out from: {(_orderArcValid ? (_orderFromLatch ? "a HELD order" : "an APPLIED order") : "no order in force, so the identity")}) "
             + "the pose their card was let go at, instead of the held slab blinking out and a fan "
             + $"slab appearing at the seat — flight {_returnsPlayed} this session, over "
             + $"{ReleaseGlideSeconds:F2}s on the OWNER's own [Cards] CardLerpSpeed "
