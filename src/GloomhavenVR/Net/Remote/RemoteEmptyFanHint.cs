@@ -238,18 +238,26 @@ internal sealed class RemoteEmptyFanHint
         // placard is a picture.
         RemoteBoardFurniture.StripColliders(_root, "RemoteEmptyFanHint");
 
-        // USER ITEM 11a (2026-09), the same seam as RemoteHandFan's: this placard hangs at the
-        // owner's palm, i.e. exactly where their hand fan would have opened, so when they hold an
-        // empty hand over their board it is one of "die Faecher vor dem Brett" and must yield with
-        // it. WhileOverBoard for the same reason the fan is: it follows the board only while it is
-        // parked over one, and stays untouched avatar content everywhere else.
+        // HandOwned, WHICH REVERSES USER ITEM 11a FOR THIS SURFACE (2026-09-07, verbatim: "Der
+        // Handfaecher des Mitspielers wird transparent wenn das Board des Mitspielers wegen
+        // Verdeckung transparent wird - das will ich nicht. Nur die Karten auf dem Board selber
+        // sollen auch transparent werden."). This placard hangs at the owner's palm, i.e. exactly
+        // where their hand fan would have opened — it IS the hand fan whenever the hand is empty —
+        // so it takes the hand fan's membership, whatever that is. Splitting the two would make an
+        // EMPTY hand yield with the board while a full one did not, which is neither reading of
+        // the user's rule.
         //
-        // The plate drives its OWN alpha (ApplyAlpha, the mirrored ease-in), and the two COMPOSE
-        // rather than fight: the see-through re-reads the live material colour every frame and
-        // scales it, so a plate that is 40 % through its own fade-in on a board at 0.25 shows at
-        // 0.4 x 0.25. Neither writer freezes the other.
+        // STILL REGISTERED, DELIBERATELY, AND REFUSED AT THE CENSUS INSTEAD. The see-through's own
+        // census line counts the refusal and names this surface in it, so "the placard does not
+        // fade" and "the placard was never registered" stay distinguishable in one grep. See
+        // PeerBoardFade.FollowRule.HandOwned for the ruling and for why it lives there and not in
+        // an absent call here.
+        //
+        // The plate's OWN alpha (ApplyAlpha, the mirrored ease-in) is untouched by this and always
+        // was: the see-through only ever scaled it. Excluding this root removes the scale, not the
+        // fade — the placard still eases in and out exactly as it always has.
         PeerBoardFade.Follow(_owner.PlayerId, _root.transform,
-                             PeerBoardFade.FollowRule.WhileOverBoard);
+                             PeerBoardFade.FollowRule.HandOwned);
 
         _root.SetActive(false);
     }

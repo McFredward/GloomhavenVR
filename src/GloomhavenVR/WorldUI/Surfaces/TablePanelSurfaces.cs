@@ -2667,7 +2667,121 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     {
         base.LateTick();
         PlaceQuestLabel();
+        LogColumnSeats();
     }
+
+    /// <summary>Signature of the last column-seat reading reported (<see cref="LogColumnSeats"/>),
+    /// quantised to a tenth of a millimetre. <c>long.MinValue</c> = nothing reported yet.</summary>
+    private long _loggedSeats = long.MinValue;
+
+    /// <summary>
+    /// THE LEFT COLUMN, ALL THREE SEATS AND BOTH GAPS, in mount-local millimetres measured DOWN
+    /// from the shared objectives mount. This is the line user item 5 (2026-09-07, "Der Text der
+    /// Sonderregeln liegt über dem Text der privaten Quest") is judged by, and it is written here —
+    /// on the surface that owns the BOTTOM seat — because this is the only place all three
+    /// geometries are readable in one frame.
+    ///
+    /// <para>THE TWO GAPS ARE DIFFERENCES OF SEATS, NOT RESTATEMENTS OF THE CONSTANTS THAT SET
+    /// THEM, which is the whole point: this project has already shipped an instrument that measured
+    /// its own bookkeeping and read green while nothing moved. The battle goal's top edge is
+    /// measured off the label's PLACED transform (its rect centre, minus half the rect), so a seat
+    /// term that silently evaluated to zero — a missing publish, a mount with no scale, a release
+    /// that never zeroed — lands the label back on the rules and prints a NEGATIVE second gap. The
+    /// objectives' bottom edge is measured off the converted host's own world corners. Only the
+    /// rules' extent is taken from its published drop, and the falsifier for THAT number is its own
+    /// "Docked 'GloomhavenVR.Panel_ScenarioRules'" world-rect line.</para>
+    /// </summary>
+    private void LogColumnSeats()
+    {
+        if (Panel == null || _questGo == null || !_questGo.activeSelf)
+            return;
+        Transform? mount = Mount;
+        if (mount == null)
+            return;
+        float trayScale = mount.lossyScale.x;
+        if (trayScale <= 1e-6f)
+            return;
+
+        Panel.HostRect.GetWorldCorners(QuestCorners); // 0=BL, 1=TL, 2=TR, 3=BR
+        Vector3 bl = QuestCorners[0];
+        float width = (QuestCorners[3] - bl).magnitude;
+        if (width < 1e-4f)
+            return;
+
+        // Mount-local metres throughout, DEPTH POSITIVE DOWNWARD from the mount origin — the frame
+        // the authored constants are written in (StackGapMeters, RulesBudgetMeters,
+        // PlayTray.ElementMountBase), so the numbers can be read straight against them.
+        float column = width / trayScale;                       // the objectives' own world width
+        float objBottom = -mount.InverseTransformPoint((bl + QuestCorners[3]) * 0.5f).y;
+        float objHeight = DockedHeightMeters;
+        float rulesDrop = ScenarioRulesSurface.DockedDropMeters; // gap + fitted height, 0 = absent
+        bool haveRules = rulesDrop > 0f;
+        float rulesTop = objHeight * 0.5f + ScenarioRulesSurface.StackGapMeters; // its MountOffset
+        float rulesBottom = objBottom + rulesDrop;
+        float goalHeight = QuestRectHeightFrac * column;
+        float goalTop = -mount.InverseTransformPoint(_questGo.transform.position).y - goalHeight * 0.5f;
+        float goalBottom = goalTop + goalHeight;
+        float gapObjRules = rulesTop - objBottom;
+        float gapRulesGoal = goalTop - (haveRules ? rulesBottom : objBottom);
+
+        // Clearance to the element board's authored budget, read LIVE off the two mount transforms
+        // so the per-board Objectives/Elements offsets are already in it. This is the bound the
+        // rules surface's author could only derive; the goal label now sits one section further
+        // down, so it is the term that decides whether the column still fits.
+        Transform? elementMount = PlayTray.Current?.ElementMount;
+        float elementTop = elementMount != null
+            ? -mount.InverseTransformPoint(elementMount.position).y - PlayTray.ElementMountMaxHeight * 0.5f
+            : float.NaN;
+        float clearance = elementTop - goalBottom;
+
+        long sig = Quantise(objHeight);
+        sig = sig * 8191L + Quantise(rulesDrop);
+        sig = sig * 8191L + Quantise(column);
+        sig = sig * 8191L + Quantise(goalTop);
+        sig = sig * 8191L + Quantise(clearance);
+        if (sig == _loggedSeats)
+            return;
+        _loggedSeats = sig;
+
+        // HW-VERIFY
+        VRLog.Note("WorldUI", "OBJECTIVES COLUMN SEATS (mount-local mm, measured DOWN from the " +
+            $"objectives mount, column {column * 1000f:F1} mm wide): [1] objectives " +
+            $"{objHeight * 1000f:F1} tall, bottom edge at {objBottom * 1000f:F1}; [2] scenario " +
+            (haveRules
+                ? $"rules {(rulesDrop - ScenarioRulesSurface.StackGapMeters) * 1000f:F1} tall, " +
+                  $"top {rulesTop * 1000f:F1}, bottom {rulesBottom * 1000f:F1}"
+                : "rules ABSENT (no special rules, or no anchor)") +
+            $"; [3] battle goal {goalHeight * 1000f:F1} tall, top {goalTop * 1000f:F1}, bottom " +
+            $"{goalBottom * 1000f:F1}. GAPS: objectives→rules {gapObjRules * 1000f:F1}, " +
+            $"{(haveRules ? "rules" : "objectives")}→goal {gapRulesGoal * 1000f:F1}. Element-board " +
+            $"budget top at {elementTop * 1000f:F1}, goal clears it by {clearance * 1000f:F1}. " +
+            "READ IT LIKE THIS. WORKING: BOTH gaps positive on a scenario that has objectives, " +
+            "special rules AND a battle goal at once — that is the whole of user item 5, and the " +
+            "seat this build added is the second one. INERT: a NEGATIVE rules→goal gap means the " +
+            "goal label was seated against the objectives again, i.e. " +
+            "ScenarioRulesSurface.DockedDropMeters read 0 while section [2] was on screen; the " +
+            "size of the negative is the overlap in millimetres (ModBuild 474 read -28.8 with a " +
+            "25.0 mm rules section). A negative objectives→rules gap means the objectives re-fitted " +
+            "between the rules' Place and this line and is a different defect. BEYOND THE " +
+            "INSTRUMENT: seat [3] is the label's RECT, not its ink — a goal whose text does not " +
+            "fill the rect sits higher than 'bottom' says, so a SMALL negative clearance is not " +
+            "yet proof that anything is drawn over the element board; a negative clearance " +
+            "together with a report of the goal text over the elements is. Section [2]'s extent " +
+            "is its published drop and not a re-measurement: the cross-check is its own \"Docked " +
+            "'GloomhavenVR.Panel_ScenarioRules'\" world-rect line divided by this column's tray " +
+            "scale.");
+    }
+
+    /// <summary>Tenth-of-a-millimetre quantiser for <see cref="LogColumnSeats"/>'s change gate,
+    /// clamped into a range a hash can carry. NaN (no element mount) folds to one bucket, so a
+    /// board without one does not re-log every frame.
+    ///
+    /// <para>A CHANGE GATE, NOT A KEY: five clamped terms do not fit a long without aliasing, and
+    /// they are not meant to. The only thing an alias can cost is one suppressed DUPLICATE line —
+    /// there is no direction in which it can invent a reading — and every number the line reports
+    /// is re-measured from live geometry on the tick it is written.</para></summary>
+    private static long Quantise(float meters) =>
+        float.IsNaN(meters) ? 0L : (long)Mathf.Clamp(Mathf.Round(meters * 10000f), -8000f, 8000f);
 
     public override void Shutdown()
     {
@@ -2761,7 +2875,9 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     }
 
     /// <summary>
-    /// Pose-follow the battle-goal label onto the objectives host's world rect. Split out of
+    /// Pose-follow the battle-goal label onto the objectives host's world rect, one seat below
+    /// whatever the scenario-rules section took out of the column (<see cref="RulesDropWorld"/>).
+    /// Split out of
     /// <see cref="TickQuestLabel"/> so it can be re-run from <see cref="LateTick"/>: the label
     /// hangs off the HOST's world corners, so it has to be written in the same frame phase as the
     /// host itself or it inherits exactly the one-frame drag the late placement exists to remove
@@ -2792,8 +2908,52 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         Transform t = _questGo!.transform;
         t.rotation = Panel.HostTransform.rotation;
         t.localScale = Vector3.one * width;
-        t.position = bottomCenter - up * (width * (QuestGapFrac + QuestRectHeightFrac * 0.5f));
+        t.position = bottomCenter - up * (RulesDropWorld() + width * (QuestGapFrac + QuestRectHeightFrac * 0.5f));
         return true;
+    }
+
+    /// <summary>
+    /// WHAT THE SCENARIO RULES TOOK OUT OF THIS COLUMN, in WORLD metres, measured down from the
+    /// objectives dock's bottom edge. Zero whenever there is no rules section on screen, which is
+    /// the state the label's seat was authored against and still renders exactly as before.
+    ///
+    /// <para>ROOT CAUSE OF USER ITEM 5 (2026-09-07, verbatim: "Der Text der Sonderregeln liegt über
+    /// dem Text der privaten Quest siehe sonderregel_überlapp.jpg", with the screenshot showing the
+    /// special rule and the private quest drawn ON TOP OF each other). The left column is THREE
+    /// seats deep — objectives, then <see cref="ScenarioRulesSurface"/>, then this label — but only
+    /// the first relation was ever expressed. The rules dock reads
+    /// <see cref="DockedHeightMeters"/> and seats itself one <see cref="ScenarioRulesSurface.StackGapMeters"/>
+    /// under the objectives; this label read the objectives' bottom edge too and had no term for
+    /// the rules at all, so BOTH sections hung off the same anchor. It is not a tuning error and no
+    /// gap constant can fix it: on the ModBuild 474 hardware log the objectives docked at 394 px =
+    /// 273.6 mm of mount-local column, so the rules' top edge sat
+    /// <see cref="ScenarioRulesSurface.StackGapMeters"/> = 12.0 mm under the objectives while this
+    /// label's top edge sat 0.03 × 273.6 mm = 8.2 mm under them — the label started ABOVE the
+    /// paragraph it was supposed to follow, and it is <c>TextAlignmentOptions.Top</c>, so the goal's
+    /// first line landed on the rule's first line, which is the screenshot. (Rules dock 36 px =
+    /// 25.0 mm tall in the same log, so the two blocks overlapped by 28.8 mm of a 25.0 mm
+    /// section.)</para>
+    ///
+    /// <para>WHY THE PUBLISHED HEIGHT AND NOT THE RULES PANEL'S WORLD RECT: the same reason the
+    /// rules read the objectives' published height rather than measuring it. The published value is
+    /// a FIT quantity in mount-local metres, so it is stable across the two placement passes and
+    /// carries no pose; the live <c>lossyScale</c> read here is what turns it into world metres, on
+    /// the very frame the board is being flung around. Reading a world position published by
+    /// another surface would re-introduce exactly the one-frame drag
+    /// <see cref="TrayMountedPanelSurface.LateTick"/> exists to remove.</para>
+    ///
+    /// <para>Returns 0 with no mount (the floating fallback): with no mount the rules surface
+    /// cannot convert either — <see cref="ScenarioRulesSurface.WantConverted"/> needs an anchor —
+    /// so there is nothing in the column to clear.</para>
+    /// </summary>
+    private float RulesDropWorld()
+    {
+        float drop = ScenarioRulesSurface.DockedDropMeters;
+        if (drop <= 0f)
+            return 0f;
+        Transform? mount = Mount;
+        float trayScale = mount != null ? mount.lossyScale.x : 0f;
+        return trayScale > 0f ? drop * trayScale : 0f;
     }
 
     /// <summary>
@@ -3388,6 +3548,67 @@ internal sealed class ScenarioRulesSurface : TrayMountedPanelSurface
     /// that column are evenly spaced rather than each picking its own number.</para>
     /// </summary>
     internal const float StackGapMeters = 0.012f;
+
+    /// <summary>
+    /// HOW FAR THIS SECTION PUSHES THE REST OF THE COLUMN DOWN — mount-local metres from the
+    /// OBJECTIVES dock's bottom edge to THIS dock's bottom edge, i.e. <see cref="StackGapMeters"/>
+    /// plus the height this panel actually came out at. Zero means "the rules are not on screen",
+    /// and a seat below reads that as "the objectives are the bottom of the column".
+    ///
+    /// <para>PUBLISHED FOR THE SAME REASON <see cref="ObjectivesSurface.DockedHeightMeters"/> is,
+    /// one step further down. This surface seats itself from the objectives' live height because
+    /// an ASSUMED height is drift; the battle-goal label under it
+    /// (<see cref="ObjectivesSurface.PlaceQuestLabel"/>) had no term for THIS panel at all and
+    /// therefore seated itself against the objectives too — two surfaces on one anchor, drawn on
+    /// top of each other (user, 2026-09-07: "Der Text der Sonderregeln liegt über dem Text der
+    /// privaten Quest"). The column is three seats deep, so the relation has to run three deep.</para>
+    ///
+    /// <para>MOUNT-LOCAL METRES, NOT WORLD, and that is what makes it safe to read across a tick
+    /// boundary: it is a FIT quantity (<c>rect.height × metersPerPixel</c>), so it moves only when
+    /// the panel re-lays-out — never with the tray grab, the diorama zoom or the board pose, which
+    /// the reader multiplies in live from the shared mount's own lossy scale. STATIC because the
+    /// seat is a relation between two SURFACES and <see cref="WorldUIModule"/> owns exactly one
+    /// instance of each.</para>
+    ///
+    /// <para>WITHIN-FRAME, NOT LAST FRAME'S, despite this surface ticking AFTER the objectives:
+    /// the docked panels place TWICE per frame (Update, then LateUpdate — see
+    /// <see cref="TrayMountedPanelSurface.LateTick"/>), so the value the objectives' LateUpdate
+    /// pass reads is the one this surface wrote in the SAME frame's Update pass. The ordering
+    /// constraint in <see cref="WorldUIModule"/>'s slot list is therefore still exactly right and
+    /// must not be inverted to "fix" a staleness that does not exist.</para>
+    /// </summary>
+    internal static float DockedDropMeters { get; private set; }
+
+    /// <summary>
+    /// Republish <see cref="DockedDropMeters"/> from the height this tick actually applied.
+    /// AFTER <c>base.Place()</c>, which is what writes <see cref="TrayMountedPanelSurface.AppliedHeightMeters"/>
+    /// and what decides whether this dock is on screen at all — an invisible dock occupies none of
+    /// the column and must publish 0, or the battle goal below it would hold a gap open for a
+    /// section nobody can see.
+    /// </summary>
+    protected override void Place()
+    {
+        base.Place();
+        DockedDropMeters = Panel != null
+                           && Panel.HostGo != null
+                           && Panel.HostGo.activeInHierarchy
+                           && AppliedHeightMeters > 0f
+            ? StackGapMeters + AppliedHeightMeters
+            : 0f;
+    }
+
+    /// <summary>
+    /// Released (no special rules on this scenario, no objectives anchor, no scenario at all) —
+    /// <see cref="Place"/> is not called on a surface with no panel, so the last published drop
+    /// would stand forever and push the battle goal down past a section that no longer exists.
+    /// Checked AFTER the base tick, which is the call that can clear <c>Panel</c>.
+    /// </summary>
+    public override void Tick()
+    {
+        base.Tick();
+        if (Panel == null)
+            DockedDropMeters = 0f;
+    }
 
     /// <summary>
     /// Seated under the objectives' LIVE height, re-read every <see cref="TrayMountedPanelSurface.Place"/>.

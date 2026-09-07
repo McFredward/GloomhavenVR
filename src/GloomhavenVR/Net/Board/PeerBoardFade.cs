@@ -737,10 +737,23 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// <summary>Next census's follower set, built while <see cref="_followers"/> still holds the
     /// previous one (the freeze test reads it) and swapped in at the end.</summary>
     private readonly List<Transform> _followerScratch = new(4);
-    /// <summary>Registered roots the last census REFUSED — a <see cref="FollowRule.WhileOverBoard"/>
-    /// root its owner is not currently holding over the board. Reported, so a "the peer's hand fan
-    /// still does not fade" line can say whether the registration or the predicate is the reason.</summary>
+    /// <summary>Registered roots the last census REFUSED for POSITION — a
+    /// <see cref="FollowRule.WhileOverBoard"/> root its owner is not currently holding over the
+    /// board. Reported, so a "the peer's hand fan still does not fade" line can say whether the
+    /// registration or the predicate is the reason.</summary>
     private int _followersHeld;
+
+    /// <summary>Registered roots the last census refused for IDENTITY — <see cref="FollowRule.HandOwned"/>,
+    /// the peer's hand fan and its placard, which the 2026-09-07 ruling takes out of the fade set
+    /// wherever their owner holds them.
+    ///
+    /// <para>ITS OWN COUNTER AND NOT A SHARE OF <see cref="_followersHeld"/>: the two refusals mean
+    /// opposite things about the same reading. A held-out root is one the predicate may admit again
+    /// a second later and whose absence from the set is therefore a question about WHERE THE HAND
+    /// IS; an excluded root is one that can never be admitted and whose absence is the ruling
+    /// working. A single number covering both would answer neither — this project has already spent
+    /// six rounds tuning a fraction that named no blocker.</para></summary>
+    private int _followersExcluded;
 
     private Bounds _localBox;
     private bool _hasBox;
@@ -882,6 +895,37 @@ internal sealed class PeerBoardFade : MonoBehaviour
         /// for HAND-anchored surfaces, which are avatar content wherever else they go and become
         /// "eine der Faecher vor dem Brett" only when their owner holds them there.</summary>
         WhileOverBoard = 1,
+
+        /// <summary>
+        /// IT NEVER BELONGS TO THE BOARD. The root is the peer's own HAND FAN — the cards they are
+        /// holding up in front of themselves — and a hand fan is avatar content wherever its owner
+        /// takes it, INCLUDING directly over their board.
+        ///
+        /// <para>USER RULING, 2026-09-07, verbatim: <i>"Der Handfaecher des Mitspielers wird
+        /// transparent wenn das Board des Mitspielers wegen Verdeckung transparent wird - das will
+        /// ich nicht. Nur die Karten auf dem Board selber sollen auch transparent werden."</i> This
+        /// REVERSES user item 11a, which had asked for the opposite and is what put the hand fan on
+        /// <see cref="WhileOverBoard"/> in the first place. The two readings are not in conflict
+        /// about the mechanism, only about the membership: 11a said the fan in front of the board
+        /// is one of "die Faecher vor dem Brett"; this one says it is not, because it hangs in
+        /// front of its OWNER, not on the board.</para>
+        ///
+        /// <para>A REFUSED REGISTRATION, NOT A MISSING ONE, and that is deliberate. The root still
+        /// registers and the census still enumerates it — it is simply never admitted, and it is
+        /// COUNTED as excluded so the census line can name it. Deleting the <see cref="Follow"/>
+        /// call would have left the ruling nowhere in the code and nothing in the log: "the hand
+        /// fan does not fade" and "the hand fan was never registered" would then read identically,
+        /// which is the reading this class already had to build <see cref="_followersHeld"/> to
+        /// separate. It also means the ruling lives in ONE place; a future caller that registers a
+        /// hand-anchored root cannot re-open the question by choosing a different rule at its own
+        /// call site without saying so here.</para>
+        ///
+        /// <para>NOT THE SAME QUESTION AS <c>RemoteBoardGate</c>'s, which asks whether a peer's
+        /// hand content may be DRAWN at all and whose answer for hand-held surfaces is unchanged:
+        /// always yes. This rule only says the fan is not one of the things the board's see-through
+        /// yields on behalf of.</para>
+        /// </summary>
+        HandOwned = 2,
     }
 
     /// <summary>
@@ -922,6 +966,19 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// <c>GetComponentsInChildren</c> census nor its follower registry. In the selection phase
     /// that fan hangs in front of its owner's board, showing card BACKS, and it stayed fully solid
     /// while the board behind it dissolved.</para>
+    ///
+    /// <para><b>AND USER ITEM 6 (2026-09-07) TOOK THE HAND FAN BACK OUT AGAIN</b>: <i>"Der
+    /// Handfaecher des Mitspielers wird transparent wenn das Board des Mitspielers wegen Verdeckung
+    /// transparent wird - das will ich nicht. Nur die Karten auf dem Board selber sollen auch
+    /// transparent werden."</i> That is a REVERSAL of 11a for that one surface and it is recorded
+    /// as one rather than smoothed into the paragraph above, because the two readings are both
+    /// coherent and the code has now been on both sides: 11a called the fan one of "die Faecher vor
+    /// dem Brett"; item 6 says it belongs to the PLAYER, who is standing in front of their own
+    /// board, and that only what is ON the board yields with it. The fan and its placard therefore
+    /// carry <see cref="FollowRule.HandOwned"/> and are refused by every census — see that member
+    /// for why they still register at all. What 11a asked for and item 6 did not touch stays: the
+    /// item arc, the discard browse and the card FX still fade unconditionally (item 7), and a card
+    /// slab a peer PINCHES over their board still fades while they hold it there (item 10).</para>
     ///
     /// <para><b>THE CLASSIFICATION TENSION, AND HOW IT IS RESOLVED RATHER THAN PAPERED OVER.</b>
     /// <c>RemoteBoardGate</c> classifies hand-held surfaces as AVATAR content on purpose and
@@ -1139,9 +1196,13 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// <para>TWO POPULATIONS, BOTH READ OFF THIS DRIVER'S OWN BOOKKEEPING rather than off a list of
     /// class names somebody has to keep current: anything under a transform that CARRIES a driver
     /// (the board root and everything parented beneath it), and anything under a root that was
-    /// handed to <see cref="Follow"/> (the item arc, the discard browse, the card FX, the hand fan
-    /// and its placard). A <see cref="FollowRule.WhileOverBoard"/> root counts whatever its owner's
-    /// hand is doing right now, for the same anti-strobe reason.</para>
+    /// handed to <see cref="Follow"/> (the item arc, the discard browse, the card FX, a held card
+    /// slab, and — registered but never admitted since 2026-09-07 — the hand fan and its placard).
+    /// REGISTRATION IS NOT MEMBERSHIP HERE, deliberately: a <see cref="FollowRule.WhileOverBoard"/>
+    /// root counts whatever its owner's hand is doing right now, and a
+    /// <see cref="FollowRule.HandOwned"/> root never counts at all. Both are resolved by this
+    /// method and separated by <see cref="IsFollowing"/>, which is the call every consumer of the
+    /// live state has to make.</para>
     ///
     /// <para>Null for every LOCAL surface — the player's own scenario hand, the map-room hand, the
     /// item chips on their own board — because none of them is a peer's board and none of them is
@@ -1152,9 +1213,11 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// <param name="t">The surface to resolve.</param>
     /// <param name="followerRoot">The REGISTERED follower root <paramref name="t"/> hangs under, or
     /// null when it is simply parented beneath the board itself. A follower root's membership is
-    /// conditional — a <see cref="FollowRule.WhileOverBoard"/> fan its owner has taken away from the
-    /// board is registered but NOT composited — so a caller that needs the live state has to hand
-    /// this back to <see cref="IsFollowing"/> rather than assume registration means membership.</param>
+    /// conditional or refused outright — a <see cref="FollowRule.WhileOverBoard"/> slab its owner
+    /// has taken away from the board is registered but NOT composited, and a
+    /// <see cref="FollowRule.HandOwned"/> root is registered and never composited — so a caller
+    /// that needs the live state has to hand this back to <see cref="IsFollowing"/> rather than
+    /// assume registration means membership.</param>
     internal static PeerBoardFade? DriverFor(Transform? t, out Transform? followerRoot)
     {
         followerRoot = null;
@@ -1188,10 +1251,14 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// census admit it?
     ///
     /// <para>WHY REGISTRATION IS NOT ENOUGH, AND WHY THIS EXISTS. A
-    /// <see cref="FollowRule.WhileOverBoard"/> root — the peer's hand fan and its placard — is
-    /// registered for the whole session but composited only while its owner is actually holding it
-    /// over the board (<see cref="RefreshSurfaces"/>'s <c>OverBoard</c> test, frozen while
-    /// <see cref="_engaged"/>). A consumer that read only <see cref="CompositingBelowSolid"/> would
+    /// <see cref="FollowRule.WhileOverBoard"/> root — a card slab a peer is pinching over their
+    /// board — is registered for the whole session but composited only while its owner is actually
+    /// holding it over the board (<see cref="RefreshSurfaces"/>'s <c>OverBoard</c> test, frozen
+    /// while <see cref="_engaged"/>). A <see cref="FollowRule.HandOwned"/> root — the peer's hand
+    /// fan and its 'keine Handkarten' placard — is registered for the whole session and composited
+    /// NEVER, which is the 2026-09-07 ruling; this method is what makes that reachable by a
+    /// consumer without it having to know the rule. A consumer that read only
+    /// <see cref="CompositingBelowSolid"/> would
     /// therefore treat a hand fan held AWAY from a fading board as see-through when the driver is
     /// writing nothing to it at all — and for the face-hosting switch that means dropping the depth
     /// stamp of a fully opaque card for no benefit whatever, which is a fresh copy of the very
@@ -1525,7 +1592,7 @@ internal sealed class PeerBoardFade : MonoBehaviour
         GetComponentsInChildren(true, _rendererScratch);
         AdoptRenderers(_rendererScratch, toLocal, contributeBox: true);
 
-        // The board's floating fans (user items 7 and 11a). Their renderers join the SAME list and
+        // The board's floating fans (user items 7, 11a and 6). Their renderers join the SAME list and
         // are driven by the SAME alpha; their extents deliberately do NOT join the occluder box, or
         // the decision this board is judged by would silently change with what its owner happens to
         // have open. See Follow() for the two membership rules and for why the conditional one is
@@ -1539,6 +1606,7 @@ internal sealed class PeerBoardFade : MonoBehaviour
         bool freeze = _engaged;
         _followerScratch.Clear();
         _followersHeld = 0;
+        _followersExcluded = 0;
         if (FollowerRoots.TryGetValue(_playerId, out List<FollowerEntry> registered))
         {
             for (int i = registered.Count - 1; i >= 0; i--)
@@ -1549,6 +1617,16 @@ internal sealed class PeerBoardFade : MonoBehaviour
             for (int i = 0; i < registered.Count; i++)
             {
                 FollowerEntry entry = registered[i];
+                // IDENTITY FIRST, and it is not subject to the freeze: a HandOwned root is never
+                // board content, so there is no episode for it to be frozen INTO and no membership
+                // for it to keep. Ordering it ahead of the positional test is also what keeps the
+                // ruling readable — the hand fan never reaches the "is it over the board" question
+                // at all any more. See FollowRule.HandOwned for the user ruling this is.
+                if (entry.Rule == FollowRule.HandOwned)
+                {
+                    _followersExcluded++;
+                    continue;
+                }
                 bool admit = entry.Rule == FollowRule.Always
                     || (freeze ? WasFollowing(entry.Root) : OverBoard(entry.Root));
                 if (admit)
@@ -2695,7 +2773,7 @@ internal sealed class PeerBoardFade : MonoBehaviour
             $"{_localBox.size.x:0.00}×{_localBox.size.y:0.00}×{_localBox.size.z:0.00} m; " +
             $"{_surfaces.Count} surface(s) driven, {SettledCount()} clone(s) already back in " +
             $"their original depth state; {_followers.Count} follower root(s), {_followersHeld} " +
-            "held out.");
+            $"held out (not over the board), {_followersExcluded} excluded (hand-owned).");
     }
 
     /// <summary>
@@ -2728,8 +2806,8 @@ internal sealed class PeerBoardFade : MonoBehaviour
                 default: swap++; break;
             }
         }
-        int signature = (((_surfaces.Count * 397 + flip) * 397 + swap) * 397 + _followers.Count)
-                        * 397 + _followersHeld;
+        int signature = ((((_surfaces.Count * 397 + flip) * 397 + swap) * 397 + _followers.Count)
+                         * 397 + _followersHeld) * 397 + _followersExcluded;
         if (signature == _loggedSurfaces)
             return;
         _loggedSurfaces = signature;
@@ -2742,15 +2820,28 @@ internal sealed class PeerBoardFade : MonoBehaviour
             "the fade-in still ends on a one-frame brightness step — that is a BUNDLE age, not a " +
             "decision: a bundle baked at ModBuild 351+ moves the board slab family from unlit-swap " +
             $"to lit-clone). Every clone is forced single-sided, so a fading board never shows its " +
-            $"interior. {_followers.Count} follower root(s) fade with this board off the same " +
-            $"alpha and {_followersHeld} registered root(s) are currently HELD OUT. A held root is " +
-            "always a hand-anchored one (the peer's hand fan or its 'keine Handkarten' placard, " +
-            "which follow the board only while their owner parks them over it — see Follow()); " +
-            "the item / burned / discard fans belong to the board unconditionally and are never " +
-            "held. So a peer whose hand fan is visibly still solid IN FRONT OF their fading board " +
-            "is a held count that should have been a followed count, and a hand fan fading while " +
-            "its owner holds it up beside their face is the reverse — those two readings, not a " +
-            "screenshot, are what the 'over the board' predicate is judged by. Every UI graphic " +
-            "rides one CanvasGroup per root.");
+            $"interior. FOLLOWER SPLIT: {_followers.Count} root(s) DRIVEN off the same alpha, " +
+            $"{_followersHeld} HELD OUT (registered WhileOverBoard, currently not parked over the " +
+            $"board) and {_followersExcluded} EXCLUDED (registered HandOwned — the peer's HAND FAN " +
+            "and its 'keine Handkarten' placard, which the 2026-09-07 ruling takes out of the fade " +
+            "set wherever their owner holds them: \"Nur die Karten auf dem Board selber sollen " +
+            "auch transparent werden\"). READ IT LIKE THIS. WORKING: EXCLUDED is 1 as soon as this " +
+            "peer's hand fan root exists and 2 once their empty-hand placard has been built too " +
+            "(the two roots are built independently and both persist, so 1 is not a fault), and " +
+            "DRIVEN is correspondingly SMALLER than it used to be by exactly the number of those " +
+            "roots the old WhileOverBoard test was admitting — ModBuild 474 logged up to 6 DRIVEN " +
+            "with 0 held out on peer 2, of which 4 are the unconditional item / burned / discard / " +
+            "card-FX fans. INERT: EXCLUDED stuck at 0 on a peer whose fan is visibly dissolving " +
+            "with " +
+            "their board means the registration is still WhileOverBoard at its call site " +
+            "(RemoteHandFan.EnsureRoot / RemoteEmptyFanHint), not that this census refused to " +
+            "refuse. HELD OUT and EXCLUDED are deliberately different numbers: a held root may " +
+            "join again a second later and its absence is a question about where the hand is; an " +
+            "excluded root can never join and its absence is the ruling working. BEYOND THE " +
+            "INSTRUMENT: a single card a peer PINCHES over their board (RemoteHeldCardFace) is " +
+            "still WhileOverBoard and still fades — that is user item 10 and it was asked for " +
+            "explicitly; it shows up in DRIVEN, not in EXCLUDED, and a report that a held card " +
+            "should also stay solid would be the first evidence those two rulings disagree. Every " +
+            "UI graphic rides one CanvasGroup per root.");
     }
 }
