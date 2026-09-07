@@ -199,9 +199,7 @@ styles_matrix([[('hand_glove.png', 'Leather glove'), ('hand_plate.png', 'Plate g
                [('board_oak.png', 'Oak'), ('board_steel.png', 'Steel'),
                 ('board_bronze.png', 'Bronze')]], 'styles.png')
 logo()
-poster('card-fan.mp4', 'card-fan-poster.jpg', '0:05')
-poster('figure-grab.mp4', 'figure-grab-poster.jpg', '0:06')
-# control-board.mp4 and its poster were RETIRED on 2026-09-07: the clip was shot
-# 2026-08-25 against ModBuild 248 and the playing guide now shows the fresh
-# controll-board recording from the attachment CDN instead. Nothing to poster.
-poster('physical-interaction.mp4', 'physical-interaction-poster.jpg', '0:07')
+# NOTHING IS POSTERED ANY MORE. Every committed clip was deleted on 2026-09-07: a video
+# served from a repo path does not play on GitHub, so the docs take `user-attachments`
+# URLs and a poster has nothing left to front. poster() is kept for the day a clip is
+# committed for some other reason; if that day never comes, delete it.

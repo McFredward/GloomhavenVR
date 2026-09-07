@@ -99,19 +99,20 @@ nothing, and there were TWO independent reasons, either of which alone is fatal:
 And a third that is not GitHub's fault: `<video>` is only conditionally allowed through GitHub's
 HTML sanitiser, so a tag that works today is not a thing to build a pitch on.
 
-What ships instead is a **poster image that links to the mp4**:
+What used to ship instead was a **poster image linking to the committed mp4** — a relative `<img>`,
+which GitHub rewrites on every branch and which never needed a sanitiser exemption, with a play glyph
+drawn on top so the still read as a video:
 
 ```html
 <div align="center">
-  <a href="docs/img/card-fan.mp4"><img src="docs/img/card-fan-poster.jpg" width="800"></a>
+  <a href="docs/img/some-clip.mp4"><img src="docs/img/some-clip-poster.jpg" width="800"></a>
 </div>
 ```
 
-A relative `<img>` is rewritten by GitHub on **every** branch, public or private, and has never
-needed a sanitiser exemption. Posters carry a play glyph drawn on top so the still reads as a video.
-
-**But the link only reaches GitHub's blob page**, where the reader has to press *View raw* and the
-file downloads — the user's report, and a fair complaint.
+**THAT ROUTE IS GONE AS OF 2026-09-07 AND MUST NOT COME BACK.** The link only ever reached GitHub's
+blob page, where the reader has to press *View raw* and the file downloads. The maintainer reported
+it twice; the second time he ruled it out entirely, and every committed mp4 and poster was deleted
+with it. The only markup in this repository's docs now is the attachment `<video>` below.
 
 ### The only way a video actually PLAYS in a GitHub README
 
@@ -124,7 +125,7 @@ https://github.com/user-attachments/assets/<uuid>
 ```
 
 and you only get one by **uploading the file through a comment box**: open a new issue, a PR, or a
-discussion in this repository, drag `docs/img/card-fan.mp4` into the text area, wait for the upload
+discussion in this repository, drag the mp4 into the text area, wait for the upload
 to finish, and copy the `https://github.com/user-attachments/assets/…` URL it writes into the box.
 **Do not submit the issue** — the upload has already happened and the URL is permanent. Then either
 put that URL bare on its own line, or wrap it:
@@ -162,24 +163,38 @@ figure-grab second). It cannot be checked from here — an attachment URL on a p
 without a session — so if the two clips ever appear under the wrong headings, that is the
 reason and swapping the two lines is the fix.
 
-## The clips that exist
+## The clips that exist — ONE, AND IT IS NOT A CLIP
 
 | File | Length | Size | Shows |
 |---|---:|---:|---|
-| `card-fan.mp4` | 15 s | 1.2 MB | palm-up fan, a card taken and dropped into a board slot |
-| `figure-grab.mp4` | 15 s | 1.3 MB | a miniature lifted off the board, scaled, released |
-| `figure-lift.gif` | 6.5 s | 4.5 MB | **README**, *The board in front of you* — the ice ally lifted to eye level with her stat card beside her |
-| `physical-interaction.mp4` | 12.6 s | 1.3 MB | reaching into the scenario: pointing, touching, the arcane hand at work |
+| `figure-lift.gif` | 6.5 s | 4.5 MB | README and playing guide, *The board in front of you* — the ice ally lifted to eye level with her stat card beside her |
 
-`control-board.mp4` and its poster were **deleted on 2026-09-07**. They were shot on 2026-08-25
-against ModBuild 248 and the playing guide now takes the fresh `controll-board` recording from the
-attachment CDN, in both languages — a clip that plays inline beats a thumbnail that opens a file.
-Nothing referenced the poster except that thumbnail: the board-diagram script names it only in prose,
-as a candidate it REJECTED, and never opens it.
+**EVERY COMMITTED mp4 WAS DELETED ON 2026-09-07**, with its poster: `card-fan`, `figure-grab`,
+`map-interaction`, `physical-interaction`, and `control-board` earlier the same day. Eight files,
+7.7 MB. The maintainer's ruling, verbatim: *"Die Videos müssen von mir in einem Issue hochgeladen
+werden und ich gebe sie dir dann. An manchen Punkten findet sich noch solche absoluten Pfade zu
+Videos — die werden in GitHub nicht abgespielt."*
 
-`physical-interaction` was trimmed at **0.55–13.10 s** of its capture. Both ends had to go and the
-cut points were read off a contact sheet, then checked frame by frame — the controller model
-reappears at 11.60 s, which a 2 fps sheet alone does not show. Every clip cut since has had the same
+He is right and it is worth stating as the rule this whole directory now runs on: **a video served
+from a repository path does not play on github.com.** Not in a README, not in a doc, not as a
+`<video src>`, and a poster thumbnail linking to one only gets the reader a download. The ONLY thing
+that plays is a file uploaded through a GitHub issue or comment box and referenced by its
+`user-attachments` URL. So clips are never committed any more: they are uploaded, and the docs carry
+the URL.
+
+**`figure-lift.gif` is the one exception and it is deliberate.** A GIF at a repo path DOES render
+inline, which is the whole reason it exists — it was derived from `figure-grab.mp4` so that the
+figure lift could be shown at all without an upload. If that footage is ever uploaded, replace the
+GIF with the attachment `<video>`: better quality, a tenth of the bytes, and this file can go.
+`promo.gif` is the same case and predates all of it.
+
+WHAT IS LEFT IN THIS DIRECTORY is stills — the controls picture, the board diagram, the environment
+and style shots — plus `env-default-surround.png`, which is not documentation at all but a build
+input for the environment picker's Default tile.
+
+`physical-interaction` WAS trimmed at **0.55–13.10 s** of its capture, and the lesson outlives the
+file: both ends had to go, the cut points were read off a contact sheet and then checked frame by
+frame — the controller model reappears at 11.60 s, which a 2 fps sheet alone does not show. Every clip cut since has had the same
 defect at one end or both: the Virtual Desktop overlay, the Quest status bar and its app tiles.
 Cut at the frames where it clears, and check the first and last frame of the RESULT, not of the
 source.
@@ -198,14 +213,10 @@ each cluster was one sentence of prose plus two clips showing the same idea from
 reader who watched one already knew what the other was about; four clips under one heading would
 have read as four unrelated demos.
 
-Where these files stand now:
-
-| File | Still drawn? |
-|---|---|
-| `card-fan.mp4` | yes — playing guide only, *Your cards and your board*, as a poster link |
-| `figure-grab.mp4` | yes — playing guide as a poster link, AND as the source of `figure-lift.gif` in the README |
-| `physical-interaction.mp4` | no — the README section it served takes the attachment clip; the file is kept as the poster's target |
-| `control-board.mp4` | **deleted 2026-09-07** |
+Where these files stand now: **all five are deleted.** `control-board.mp4` went first that morning,
+then `card-fan`, `figure-grab`, `map-interaction` and `physical-interaction` the same evening, each
+with its poster. The only thing that survived any of them is `figure-lift.gif`, derived from
+`figure-grab.mp4` before it went, because a GIF is the one moving image a repo path can still play.
 
 **Which attachment URL is which was taken on the maintainer's word**, in the order he sent them
 (`control-board` first, `physical-interaction` second). It cannot be checked from here — an
@@ -433,9 +444,10 @@ get a nicer frame; fifty review frames hang off each one.
 **The shot list moved.** What is still to be recorded, where each clip goes, how long it should be
 and what a viewer should understand afterwards now live in ONE place:
 **[`docs/VIDEO-SHOTLIST.md`](../VIDEO-SHOTLIST.md)**. Keeping a second list here is how the two
-drifted apart — the table that stood here still asked for `map-room.mp4`, which shipped as
-`map-interaction.mp4` and has been in the playing guide ever since, and it still said there were no
-placeholders in the READMEs, which stopped being true when the six spots below were prepared.
+drifted apart — the table that stood here still asked for `map-room.mp4`, which shipped under a
+different name entirely, and it still said there were no placeholders in the READMEs, which stopped
+being true when the six spots were prepared and stopped being true again when the last of them was
+filled on 2026-09-07.
 
 **There ARE placeholders now, and since 2026-09-07 every one of them is VISIBLE on the rendered
 page.** They used to be HTML comments, which render as nothing — and the person who has to shoot the

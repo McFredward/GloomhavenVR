@@ -56,23 +56,32 @@ Clips 4 and 5 are one pair under one heading, on the same principle as the two R
 idea (*it hangs from a rod, you take hold of it*), shown twice.
 
 **Clip 2 was recorded once and used twice**, and it settled the question for every clip after it:
-where an attachment URL exists, BOTH pages take the `<video>`. The poster route below is what a
-playing-guide clip falls back to when no upload has happened.
+**BOTH pages take the `<video>` from the attachment URL. There is no second route.** The poster
+fallback that used to be described here was removed on 2026-09-07 along with every committed mp4.
 
-## Every spot is a visible box; what goes IN it differs by page
+## Every spot is a visible box, and every spot takes the same markup
 
 Each prepared spot is the same two things stacked: a `<table>` box that renders on the page and says
-what is missing, and an HTML comment under it holding the finished markup. Filling a spot is always
-the same three moves — put the file where the markup expects it, delete the box, delete the two
-comment markers. What the markup is differs by page:
+what is missing, and an HTML comment under it holding the finished markup. Filling a spot is three
+moves — upload the mp4, paste the URL over `PASTE_UUID_HERE`, delete the box and the two comment
+markers.
 
-| Document | Markup in the comment | Why |
-|---|---|---|
-| `README.md`, `README.de.md` | `<video src="https://github.com/user-attachments/assets/…">` | a video only ever **plays** in a GitHub README when it is served from the attachment CDN. Upload the mp4 through a comment box to get the URL — `docs/img/README.md` has the full procedure, including why nothing you commit will play by itself. |
-| `docs/PLAYING.md`, `docs/PLAYING.de.md` | poster jpg linking to the committed mp4 | the guide is read, not pitched; a thumbnail row costs no page height and works on a clone with no network. |
+**IT USED TO DIFFER BY PAGE AND IT NO LONGER DOES.** The README took an attachment `<video>` and the
+playing guide took a poster jpg linking to a committed mp4. That second route was deleted on
+2026-09-07, with every file it depended on, because it never worked the way it promised: **a video
+served from a repository path does not play on github.com** — a poster link only offers the reader a
+download. Maintainer's ruling, verbatim: *"Die Videos müssen von mir in einem Issue hochgeladen
+werden und ich gebe sie dir dann."*
 
-So a README clip needs the mp4 **committed and uploaded**; a playing-guide clip needs the mp4 and a
-`<name>-poster.jpg` beside it in `docs/img/`. Clip 2 needs all three.
+So, for every spot on every page:
+
+    <p align="center">
+      <video src="https://github.com/user-attachments/assets/<uuid>" controls muted loop></video>
+    </p>
+
+**Nothing is committed.** Upload the mp4 through a GitHub issue or comment box — `docs/img/README.md`
+has the procedure — and hand over the `user-attachments` link. Do not add the file to `docs/img/`;
+there is no longer any code that would poster it and no page that would play it.
 
 ## Recording, cutting, encoding
 

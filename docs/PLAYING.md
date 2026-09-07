@@ -29,18 +29,20 @@ Switch it off under **Comfort ▸ Hands & aiming**.
 holding, and one key after another lighting up as each control becomes useful. Afterwards the reader
 knows the fourteen bindings on the picture above are taught, not memorised.
 
-**How you fill it:** put `tutorial.mp4` and `tutorial-poster.jpg` into `docs/img/`, then delete
-this box and the two comment markers around the ready-made markup directly below — that markup
-already points at both files. The same clip goes into the same spot in `PLAYING.de.md`. Brief:
-[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
+**How you fill it:** record it, then **upload the mp4 in a GitHub issue or comment box** and send
+the maintainer the `user-attachments` link it hands back. Paste that link over `PASTE_UUID_HERE` in
+the ready-made markup directly below, then delete this box and the two comment markers around it.
+The same clip goes into the same spot in `PLAYING.de.md`. **Do not commit the mp4** — a video served
+from a repo path does not play on GitHub, which is why every committed clip was removed on
+2026-09-07. Brief: [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
 [img/README.md](img/README.md#encoding-a-new-clip).
 
 </td></tr>
 </table>
 
-<!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the files are in place
+<!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <a href="img/tutorial.mp4"><img src="img/tutorial-poster.jpg" width="560" alt="The tutorial lighting up a key on the controller in your hand"></a>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
 </p>
 -->
 
@@ -58,9 +60,6 @@ Three more that the picture cannot show:
   <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
 </p>
 
-<p align="center">
-  <a href="img/card-fan.mp4"><img src="img/card-fan-poster.jpg" width="420" alt="The card fan"></a>
-</p>
 
 Turn your palm up and your hand **fans out in front of it**. Take a card with the trigger and drop
 it into a slot on your control board — slot order is your initiative, exactly like the physical
@@ -80,8 +79,11 @@ above the board or in your palm.
 ## The board in front of you
 
 <p align="center">
-  <a href="img/figure-grab.mp4"><img src="img/figure-grab-poster.jpg" width="420" alt="Lifting a miniature"></a>
-  <a href="img/physical-interaction.mp4"><img src="img/physical-interaction-poster.jpg" width="420" alt="Reaching into the scenario"></a>
+  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
+</p>
+
+<p align="center">
+  <img src="img/figure-lift.gif" width="480" alt="An ally lifted off the board to eye level, her stat card beside her">
 </p>
 
 Point the laser and pull the trigger to pick a hex, an enemy, a door or a chest — or hold the
@@ -104,19 +106,24 @@ moved, resized, reeled closer with the stick while the laser holds it, then clos
 beside it the control board carried to a new place by the rod under it, once with the hand and once
 with the laser from across the table. One idea, shown twice: everything in the room hangs from a rod.
 
-**How you fill it:** put all four files — `windows.mp4`, `windows-poster.jpg`, `grab-rod.mp4`,
-`grab-rod-poster.jpg` — into `docs/img/`, then delete this box and the two comment markers around the
-ready-made markup directly below. The same pair goes into the same spot in `PLAYING.de.md`. Brief:
-[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
+**How you fill it:** record it, then **upload the mp4 in a GitHub issue or comment box** and send
+the maintainer the `user-attachments` link it hands back. Paste that link over `PASTE_UUID_HERE` in
+the ready-made markup directly below, then delete this box and the two comment markers around it.
+The same clip goes into the same spot in `PLAYING.de.md`. **Do not commit the mp4** — a video served
+from a repo path does not play on GitHub, which is why every committed clip was removed on
+2026-09-07. Brief: [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
 [img/README.md](img/README.md#encoding-a-new-clip).
 
 </td></tr>
 </table>
 
-<!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the files are in place
+<!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <a href="img/windows.mp4"><img src="img/windows-poster.jpg" width="420" alt="Moving and resizing a window"></a>
-  <a href="img/grab-rod.mp4"><img src="img/grab-rod-poster.jpg" width="420" alt="Carrying the control board by its rod"></a>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+</p>
+
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
 </p>
 -->
 
@@ -129,7 +136,7 @@ and further with the stick while the laser holds it. Where you put one is where 
 ## The campaign map
 
 <p align="center">
-  <a href="img/map-interaction.mp4"><img src="img/map-interaction-poster.jpg" width="560" alt="The campaign map room"></a>
+  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" controls muted loop></video>
 </p>
 
 Between scenarios the map is a **room with a table in it**. The guildmaster buttons are physical
@@ -154,18 +161,20 @@ route it travels. Prefer the original flat map? **World & sound ▸ Campaign map
 Firelight and drips in the cellar, moonbeams and moving foliage in the forest, an element infusion
 fading the room over, and the environment switched in the settings.
 
-**How you fill it:** put `environments.mp4` and `environments-poster.jpg` into `docs/img/`, then
-delete this box and the two comment markers around the ready-made markup directly below. The same
-clip goes into the same spot in `PLAYING.de.md`. Brief:
-[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
+**How you fill it:** record it, then **upload the mp4 in a GitHub issue or comment box** and send
+the maintainer the `user-attachments` link it hands back. Paste that link over `PASTE_UUID_HERE` in
+the ready-made markup directly below, then delete this box and the two comment markers around it.
+The same clip goes into the same spot in `PLAYING.de.md`. **Do not commit the mp4** — a video served
+from a repo path does not play on GitHub, which is why every committed clip was removed on
+2026-09-07. Brief: [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
 [img/README.md](img/README.md#encoding-a-new-clip).
 
 </td></tr>
 </table>
 
-<!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the files are in place
+<!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <a href="img/environments.mp4"><img src="img/environments-poster.jpg" width="560" alt="The cellar and the forest in motion"></a>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
 </p>
 -->
 

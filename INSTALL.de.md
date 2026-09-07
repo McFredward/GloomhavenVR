@@ -63,7 +63,7 @@ Stell sie in der App ein, mit der du streamst:
 Headset auf, Gloomhaven starten wie immer. Du stehst am Tisch.
 
 <p align="center">
-  <a href="docs/img/physical-interaction.mp4"><img src="docs/img/physical-interaction-poster.jpg" width="560" alt="Am Tisch stehen, in VR"></a>
+  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
 </p>
 
 > **Beim ersten Start nach dem Installieren oder Updaten schließt sich das Spiel und geht von selbst

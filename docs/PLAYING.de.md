@@ -30,18 +30,21 @@ in der Hand hältst, und wie eine Taste nach der anderen aufleuchtet, sobald die
 gebraucht wird. Danach ist klar: die vierzehn Belegungen oben werden beigebracht, nicht auswendig
 gelernt.
 
-**So füllst du ihn:** leg `tutorial.mp4` und `tutorial-poster.jpg` in `docs/img/` und lösch dann
-diesen Kasten samt der zwei Kommentar-Markierungen um die fertige Auszeichnung darunter — die zeigt
-schon auf beide Dateien. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. Auftrag:
+**So füllst du ihn:** aufnehmen, dann **die mp4 in einem GitHub-Issue oder Kommentarfeld hochladen**
+und die `user-attachments`-Adresse weitergeben. Diese Adresse über `PASTE_UUID_HERE` in die
+vorbereitete Auszeichnung direkt unter diesem Kasten setzen, dann den Kasten und die zwei
+Kommentar-Zeilen löschen. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. **Die mp4 nicht
+einchecken** — ein Video aus einem Repo-Pfad wird auf GitHub nicht abgespielt, weshalb am 07.09.2026
+alle eingecheckten Clips entfernt wurden. Auftrag:
 [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
 [img/README.md](img/README.md#encoding-a-new-clip) (englisch).
 
 </td></tr>
 </table>
 
-<!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the files are in place
+<!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <a href="img/tutorial.mp4"><img src="img/tutorial-poster.jpg" width="560" alt="Das Tutorial lässt eine Taste auf dem Controller in deiner Hand aufleuchten"></a>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
 </p>
 -->
 
@@ -59,9 +62,6 @@ Drei Sachen, die das Bild nicht zeigen kann:
   <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
 </p>
 
-<p align="center">
-  <a href="img/card-fan.mp4"><img src="img/card-fan-poster.jpg" width="420" alt="Der Kartenfächer"></a>
-</p>
 
 Dreh die Handfläche nach oben, und deine Hand **fächert sich davor auf**. Nimm eine Karte mit dem
 Trigger und leg sie in einen Slot deines Kontrollbretts — die Reihenfolge der Slots ist deine
@@ -81,8 +81,11 @@ Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett o
 ## Das Brett vor dir
 
 <p align="center">
-  <a href="img/figure-grab.mp4"><img src="img/figure-grab-poster.jpg" width="420" alt="Eine Miniatur hochheben"></a>
-  <a href="img/physical-interaction.mp4"><img src="img/physical-interaction-poster.jpg" width="420" alt="Ins Szenario greifen"></a>
+  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
+</p>
+
+<p align="center">
+  <img src="img/figure-lift.gif" width="480" alt="Eine Verbündete vom Brett auf Augenhöhe gehoben, ihre Werte-Karte daneben">
 </p>
 
 Zeig mit dem Laser darauf und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe
@@ -106,19 +109,25 @@ Strahl es hält, und über sein X geschlossen — und daneben das Kontrollbrett,
 darunter woandershin getragen wird, einmal mit der Hand und einmal mit dem Strahl quer über den
 Tisch. Eine Idee, zweimal gezeigt: alles im Raum hängt an einer Stange.
 
-**So füllst du sie:** leg alle vier Dateien — `windows.mp4`, `windows-poster.jpg`,
-`grab-rod.mp4`, `grab-rod-poster.jpg` — in `docs/img/` und lösch dann diesen Kasten samt der zwei
-Kommentar-Markierungen um die fertige Auszeichnung darunter. Dasselbe Paar kommt an dieselbe Stelle
-in `PLAYING.md`. Auftrag: [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und
-Kodierung: [img/README.md](img/README.md#encoding-a-new-clip) (englisch).
+**So füllst du ihn:** aufnehmen, dann **die mp4 in einem GitHub-Issue oder Kommentarfeld hochladen**
+und die `user-attachments`-Adresse weitergeben. Diese Adresse über `PASTE_UUID_HERE` in die
+vorbereitete Auszeichnung direkt unter diesem Kasten setzen, dann den Kasten und die zwei
+Kommentar-Zeilen löschen. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. **Die mp4 nicht
+einchecken** — ein Video aus einem Repo-Pfad wird auf GitHub nicht abgespielt, weshalb am 07.09.2026
+alle eingecheckten Clips entfernt wurden. Auftrag:
+[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
+[img/README.md](img/README.md#encoding-a-new-clip) (englisch).
 
 </td></tr>
 </table>
 
-<!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the files are in place
+<!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <a href="img/windows.mp4"><img src="img/windows-poster.jpg" width="420" alt="Ein Fenster bewegen und in der Größe ändern"></a>
-  <a href="img/grab-rod.mp4"><img src="img/grab-rod-poster.jpg" width="420" alt="Das Kontrollbrett an seiner Stange tragen"></a>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+</p>
+
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
 </p>
 -->
 
@@ -132,7 +141,7 @@ du eine hinstellst, da bleibt sie.
 ## Die Kampagnenkarte
 
 <p align="center">
-  <a href="img/map-interaction.mp4"><img src="img/map-interaction-poster.jpg" width="560" alt="Der Kampagnenkarten-Raum"></a>
+  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" controls muted loop></video>
 </p>
 
 Zwischen den Szenarien ist die Karte ein **Raum mit einem Tisch darin**. Die Gildenmeister-Tasten
@@ -158,18 +167,21 @@ Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte?
 in Bewegung. Feuerschein und Tropfen im Keller, Mondstrahlen und bewegtes Blattwerk im Wald, eine
 Elementinfusion, die den Raum umfärbt, und der Wechsel der Umgebung in den Einstellungen.
 
-**So füllst du ihn:** leg `environments.mp4` und `environments-poster.jpg` in `docs/img/` und
-lösch dann diesen Kasten samt der zwei Kommentar-Markierungen um die fertige Auszeichnung darunter.
-Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. Auftrag:
+**So füllst du ihn:** aufnehmen, dann **die mp4 in einem GitHub-Issue oder Kommentarfeld hochladen**
+und die `user-attachments`-Adresse weitergeben. Diese Adresse über `PASTE_UUID_HERE` in die
+vorbereitete Auszeichnung direkt unter diesem Kasten setzen, dann den Kasten und die zwei
+Kommentar-Zeilen löschen. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. **Die mp4 nicht
+einchecken** — ein Video aus einem Repo-Pfad wird auf GitHub nicht abgespielt, weshalb am 07.09.2026
+alle eingecheckten Clips entfernt wurden. Auftrag:
 [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
 [img/README.md](img/README.md#encoding-a-new-clip) (englisch).
 
 </td></tr>
 </table>
 
-<!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the files are in place
+<!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <a href="img/environments.mp4"><img src="img/environments-poster.jpg" width="560" alt="Keller und Wald in Bewegung"></a>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
 </p>
 -->
 
