@@ -1665,6 +1665,9 @@ internal sealed class RemoteBoardFurniture
         // tiles for up to 250 ms — the very defect this round is closing, moved one layer down.
         // So the pair stays together, and only the per-slot STATE bytes go per-frame.
         ApplyUseBarSymbols(actor, owner);
+        // …AND THE OVERSIZE CENSUS. It is not part of drawing this board; it is the instrument the
+        // 2026-09-07 round asked for, and it has its own 2 s cadence inside. See AuditOversizedBoard.
+        AuditOversizedBoard();
 
         // THE SECOND WIRE BLOCK THAT USED TO STAND HERE — the FOLLOW/PIN toggle, the item-USE
         // cap's armed bit, the wanted-glow mask and the snap-hover rim — now runs PER FRAME in
@@ -3587,6 +3590,10 @@ internal sealed class RemoteBoardFurniture
             return;
         int lit = 0;
         int litBar = -1;
+        int refusedBar = -1;
+        int refusedWire = 0;
+        int refusedLocal = 0;
+        var refusedWhy = RemoteUseBarSymbols.RefusalReason.None;
         for (int r = 0; r < _useBarRows.Count; r++)
         {
             UseBarRow row = _useBarRows[r];
@@ -3595,9 +3602,19 @@ internal sealed class RemoteBoardFurniture
                 continue;
             int bar = r < _useBarRowIndices.Count ? _useBarRowIndices[r] : -1;
             System.Array.Clear(_symbolScratch, 0, _symbolScratch.Length);
-            int resolved = bar >= 0
-                ? RemoteUseBarSymbols.Resolve(bar, actor, symbols.Length, _symbolScratch)
-                : 0;
+            int resolved = 0;
+            var why = RemoteUseBarSymbols.RefusalReason.NoWireSlots;
+            if (bar >= 0)
+                resolved = RemoteUseBarSymbols.Resolve(bar, actor, symbols.Length, _symbolScratch, out why);
+            // FIRST refusal of this pass wins the line: one bar per mirrored drawer is the shipped
+            // case, and a second arm could only ever repeat the first.
+            if (resolved == 0 && why != RemoteUseBarSymbols.RefusalReason.None && refusedBar < 0)
+            {
+                refusedBar = bar;
+                refusedWhy = why;
+                refusedWire = symbols.Length;
+                refusedLocal = RemoteUseBarSymbols.LastLocalSlots;
+            }
             for (int s = 0; s < symbols.Length; s++)
             {
                 SpriteRenderer sr = symbols[s];
@@ -3624,20 +3641,27 @@ internal sealed class RemoteBoardFurniture
                     sr.transform.localScale = want;
             }
         }
-        int key = lit == 0 ? 0 : (litBar + 1) * 1000 + lit;
+        // THE REFUSAL ARM IS PART OF THE KEY (ModBuild 479). Before this the key was lit-only, so a
+        // refusal that CHANGED ARM — a bar that went from absent to present-but-foreign — printed
+        // nothing at all, and the one line the user's report needed said "one of three reasons".
+        int key = lit == 0 ? -((int)refusedWhy + 1) : (litBar + 1) * 1000 + lit;
         if (key == _shownSymbolKey)
             return;
         _shownSymbolKey = key;
-        VRLog.Info("Net", lit > 0
+        // HW-VERIFY
+        VRLog.Note("Net", lit > 0
             ? $"DOCK MIRROR: {lit} mirrored use-bar slot(s) now wear THE GAME'S OWN symbol " +
               $"(bar {litBar}, owner '{Board.CharacterFocus.Describe(actor)}') — taken off this " +
               "client's own copy of that bar, gated on the bar's owner being this board's character " +
               "and on its visible slot count matching record 25's. Nothing about the art travelled; " +
               "the tiles are still inert."
-            : "DOCK MIRROR: no mirrored use-bar symbol resolved — this client's own copy of the " +
-              "owner's bar is absent, belongs to another character, or shows a different number of " +
-              "slots than record 25 reported. The tiles stay anonymous, which is what every build " +
-              "before this one drew. The wire carried no art either way.");
+            : "DOCK MIRROR: no mirrored use-bar symbol resolved for board '" +
+              Board.CharacterFocus.Describe(actor) + "' — " +
+              RemoteUseBarSymbols.Describe(refusedWhy, refusedBar, refusedWire, refusedLocal) +
+              ". The tiles stay anonymous, which is what every build before this one drew; the wire " +
+              "carried no art either way. NAMING THE ARM IS THE WHOLE POINT: the old line listed all " +
+              "three and named none, and item 8 of the 2026-09-07 round cost a hardware session to " +
+              "that ambiguity.");
     }
 
     /// <summary>
@@ -4544,6 +4568,187 @@ internal sealed class RemoteBoardFurniture
     /// mirrors). Everything else here is a child of the board root and dies with it.
     /// </summary>
     public void Destroy() => _decisionWidgets?.Destroy();
+
+    // ---- ModBuild 479: THE OVERSIZE CENSUS ---------------------------------------------------
+
+    /// <summary>
+    /// Board-local metres, on ANY axis, past which a thing standing under a mirrored board cannot
+    /// be furniture. The mirrored control board's own face is 0.44 m across and the widest single
+    /// piece this file builds is the 0.150 m use-bar caption, so 1.00 m is not a tuning dial — it
+    /// is "twice the whole board", i.e. a value nothing correct can reach.
+    /// </summary>
+    private const float OversizeBoardMeters = 1.00f;
+
+    /// <summary>How often the census walks the board subtree. Not per content tick: it is a
+    /// <c>GetComponentsInChildren</c> over ~190 objects and it answers a question that changes on
+    /// the scale of a prompt opening, not of a frame.</summary>
+    private const float OversizeCensusSeconds = 2f;
+
+    /// <summary>Re-state an UNCHANGED verdict this often, so a clean board is a READING and not a
+    /// silent instrument. This project has twice mistaken a change-gated line that had nothing new
+    /// to say for a probe that never ran.</summary>
+    private const float OversizeRestateSeconds = 30f;
+
+    /// <summary>At most this many offenders are named per line — the biggest first. A census that
+    /// can print a hundred paths is a census nobody reads.</summary>
+    private const int OversizeNameCap = 4;
+
+    private readonly System.Collections.Generic.List<Renderer> _oversizeRenderers = new(256);
+    private readonly System.Collections.Generic.List<UnityEngine.UI.Graphic> _oversizeGraphics = new(64);
+    private static readonly Vector3[] OversizeCorners = new Vector3[4];
+    private readonly System.Text.StringBuilder _oversizeText = new(512);
+    private float _oversizeNextAt;
+    private float _oversizeStatedAt = -1e9f;
+    private string _oversizeState = string.Empty;
+
+    /// <summary>
+    /// NAME ANYTHING UNDER THIS MIRRORED BOARD THAT IS TOO BIG TO BE PART OF IT — world size and
+    /// full owning path, one line on change.
+    ///
+    /// <para><b>WHY IT EXISTS.</b> User report 2026-09-07 item 8, verbatim: <i>"Wichtigster Punkt
+    /// dieser Runde: Das Problem mit dem riesentext ist immer noch da ausgelöst vom Schild der
+    /// aktiven Karte eines Spielers … Finde den Grund für diesen riesen großen Text und löse ihn
+    /// auch."</i> (<c>.planning/debug/riesen_text2.jpg</c>.) ModBuild 477 found ONE mechanism that
+    /// can produce it — an unfitted <see cref="RemoteWidgetMirror"/> host at identity scale — and
+    /// closed it; <see cref="RemoteWidgetMirror.NoteUnfittedWithhold"/> is its falsifier and it
+    /// read <b>zero</b> firings across his whole 55 616-line ModBuild 478 log while every
+    /// <c>mirror fitted</c> line in that log is under 0.38 m. So the object in the screenshot is
+    /// NOT that mechanism, and nothing in the mod could say what it IS: every size instrument here
+    /// reports the thing it OWNS, and an object nobody owns is exactly the one nobody prints.</para>
+    ///
+    /// <para><b>WHAT IT MEASURES, AND WHY IT IS NOT ANOTHER STATE PROBE.</b> The DRAWN extent —
+    /// <see cref="Renderer.bounds"/> for meshes and sprites, the live world corners for uGUI
+    /// graphics — converted into BOARD-LOCAL metres through the board root's own lossy scale, so
+    /// the number is comparable with every authored constant in this file and with the owner's
+    /// board on a rig of a different size. A scale, a rect or a fit could each be perfectly sane
+    /// and the picture still wrong; what the user photographed is an extent, so an extent is what
+    /// this reads.</para>
+    ///
+    /// <para><b>READING IT.</b> <c>none</c> means the giant object is NOT parented under this
+    /// mirrored board, and that is a real finding — it sends the next round to look at the local
+    /// player's own surfaces instead. A named entry gives the path to the exact node, so the next
+    /// step is a <c>grep</c> and not a hypothesis. NOTE that the "it is drawn behind the mirrored
+    /// pile furniture, so it must be at the board's depth" reading of the screenshot does NOT
+    /// support scoping the search here: this board's own furniture is order-sorted, not
+    /// depth-tested (its <c>FURNITURE ORDER</c> line says so in the same log), so being painted
+    /// over by it proves only a lower sorting order.</para>
+    /// </summary>
+    private void AuditOversizedBoard()
+    {
+        float now = Time.unscaledTime;
+        if (now < _oversizeNextAt)
+            return;
+        _oversizeNextAt = now + OversizeCensusSeconds;
+
+        Transform? board = _root != null ? _root.parent : null;
+        if (board == null)
+            return;
+        // The board's own world scale is what turns a world extent back into the metres every
+        // constant in this file is written in. A degenerate scale would divide badly, so it is the
+        // one term that is guarded rather than assumed.
+        float unitsPerMeter = Mathf.Abs(board.lossyScale.x);
+        if (unitsPerMeter < 1e-4f)
+            return;
+
+        int offenders = 0;
+        float worst = 0f;
+        _oversizeText.Length = 0;
+
+        board.GetComponentsInChildren(includeInactive: false, _oversizeRenderers);
+        for (int i = 0; i < _oversizeRenderers.Count; i++)
+        {
+            Renderer r = _oversizeRenderers[i];
+            if (r == null || !r.enabled)
+                continue;
+            Vector3 size = r.bounds.size / unitsPerMeter;
+            float span = Mathf.Max(size.x, Mathf.Max(size.y, size.z));
+            if (span < OversizeBoardMeters)
+                continue;
+            NoteOversize(r.transform, board, size, span, r.GetType().Name, ref offenders, ref worst);
+        }
+
+        board.GetComponentsInChildren(includeInactive: false, _oversizeGraphics);
+        for (int i = 0; i < _oversizeGraphics.Count; i++)
+        {
+            UnityEngine.UI.Graphic g = _oversizeGraphics[i];
+            if (g == null || !g.enabled)
+                continue;
+            CanvasRenderer cr = g.canvasRenderer;
+            if (cr == null || cr.cull || g.color.a * cr.GetInheritedAlpha() < 0.02f)
+                continue;
+            RectTransform rt = g.rectTransform;
+            if (rt == null)
+                continue;
+            rt.GetWorldCorners(OversizeCorners);
+            Vector3 size = new(
+                (OversizeCorners[3] - OversizeCorners[0]).magnitude / unitsPerMeter,
+                (OversizeCorners[1] - OversizeCorners[0]).magnitude / unitsPerMeter,
+                0f);
+            float span = Mathf.Max(size.x, size.y);
+            if (span < OversizeBoardMeters)
+                continue;
+            NoteOversize(rt, board, size, span, g.GetType().Name, ref offenders, ref worst);
+        }
+
+        _oversizeRenderers.Clear();
+        _oversizeGraphics.Clear();
+
+        // The STATE is the offender count plus the worst span rounded to a centimetre — a breathing
+        // pulse must not re-print the line, and a new object appearing must.
+        string state = offenders == 0 ? "none" : offenders + "@" + worst.ToString("F2");
+        if (state == _oversizeState && now - _oversizeStatedAt < OversizeRestateSeconds)
+            return;
+        _oversizeState = state;
+        _oversizeStatedAt = now;
+        // HW-VERIFY
+        VRLog.Note("Net", offenders == 0
+            ? "REMOTE BOARD OVERSIZE CENSUS: none — every drawn renderer and uGUI graphic under this "
+              + $"mirrored board spans under {OversizeBoardMeters:F2} board-metres on every axis "
+              + "(the board's own face is 0.44 m). THIS IS A READING, NOT SILENCE: if the giant "
+              + "orange object of riesen_text2.jpg is on screen while this line says 'none', it is "
+              + "NOT parented under a mirrored board and the search belongs on the LOCAL player's "
+              + "own surfaces instead. Being painted over by this board's furniture does not place "
+              + "it here — that furniture is order-sorted, not depth-tested."
+            : $"REMOTE BOARD OVERSIZE CENSUS: {offenders} drawn object(s) under this mirrored board "
+              + $"span at least {OversizeBoardMeters:F2} board-metres, worst {worst:F2} m against a "
+              + "0.44 m board face. Nothing this file builds can be that big, so each entry below is "
+              + "either a clone whose fit never committed or a graphic no fit measured. Biggest "
+              + $"first, path is board-relative: {_oversizeText}");
+    }
+
+    /// <summary>Append one offender to the census line (biggest first is approximated by APPEND
+    /// ORDER plus the worst-span field; a full sort would allocate on a path that must not).</summary>
+    private void NoteOversize(Transform node, Transform board, Vector3 size, float span,
+                              string drawer, ref int offenders, ref float worst)
+    {
+        offenders++;
+        if (span > worst)
+            worst = span;
+        if (offenders > OversizeNameCap)
+            return;
+        if (_oversizeText.Length > 0)
+            _oversizeText.Append("; ");
+        _oversizeText.Append('\'').Append(OversizePath(node, board)).Append("' ")
+                     .Append(size.x.ToString("F2")).Append('x').Append(size.y.ToString("F2"));
+        if (size.z > 0.001f)
+            _oversizeText.Append('x').Append(size.z.ToString("F2"));
+        _oversizeText.Append(" m via ").Append(drawer)
+                     .Append(", lossyScale ").Append(node.lossyScale.x.ToString("F4"));
+    }
+
+    /// <summary>Path of <paramref name="node"/> relative to <paramref name="root"/>. Depth-capped:
+    /// a cloned game panel is deep, and a log line is not a hierarchy dump.</summary>
+    private static string OversizePath(Transform node, Transform root)
+    {
+        string path = node.name;
+        Transform? p = node.parent;
+        for (int depth = 0; depth < 12 && p != null && p != root; depth++)
+        {
+            path = p.name + "/" + path;
+            p = p.parent;
+        }
+        return p == root ? path : ".../" + path;
+    }
 }
 
 /// <summary>

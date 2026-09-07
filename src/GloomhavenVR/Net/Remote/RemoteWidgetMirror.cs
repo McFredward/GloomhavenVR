@@ -1544,6 +1544,9 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         _fitApplied = true;
 
         LogFit(w, h, fit, metersPerPx);
+        // …and the other half of the measure's verdict: what it threw away and the clone still
+        // draws. Placed AFTER the commit because the line quotes the density it is drawn at.
+        LogDrawnBackdrops(metersPerPx);
     }
 
     /// <summary>True once a fit has actually been APPLIED to the current clone (reset with the
@@ -1905,6 +1908,9 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         float maxH = _mountMaxHeight * density * OversizeFactor;
 
         bool any = false;
+        _backdropCount = 0;
+        _backdropWorst = Vector2.zero;
+        _backdropName = string.Empty;
         Pair[] pairs = _pairs;
         for (int i = 0; i < pairs.Length; i++)
         {
@@ -1934,7 +1940,16 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             if (r.width < 0.5f || r.height < 0.5f)
                 continue; // collapsed layout cell / empty stretch container
             if (r.width >= maxW || r.height >= maxH)
-                continue; // full-screen blocker / backdrop — see the note above
+            {
+                // DISCARDED FROM THE MEASURE — AND STILL DRAWN. This branch is the mirror's own
+                // verdict that the graphic is not part of the panel, and it is the ONE place in
+                // this class where that verdict has no counterpart in what the viewer sees: the
+                // clone keeps the node, so the host's committed scale carries it onto the board at
+                // whatever size it authored. ModBuild 479 makes it SAY SO rather than drop it in
+                // silence — see NoteDrawnBackdrop for why the line is worth its cost.
+                NoteDrawnBackdrop(pairs[i].Dst, r);
+                continue;
+            }
 
             rect.GetWorldCorners(CornerScratch);
             for (int k = 0; k < 4; k++)
@@ -1959,6 +1974,97 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// rather than content (see <see cref="TryMeasure"/>). Deliberately generous: normal content
     /// overflowing its dock a little is what the density clamp is for.</summary>
     private const float OversizeFactor = 3f;
+
+    /// <summary>Graphics the last <see cref="TryMeasure"/> classified as backdrops and left out of
+    /// the union — and which the clone nevertheless DRAWS. See <see cref="NoteDrawnBackdrop"/>.</summary>
+    private int _backdropCount;
+
+    /// <summary>The biggest such graphic's own rect, in host-local px.</summary>
+    private Vector2 _backdropWorst;
+
+    /// <summary>…and its clone-relative path, for the line below.</summary>
+    private string _backdropName = string.Empty;
+
+    /// <summary>Change gate for <see cref="LogDrawnBackdrops"/>.</summary>
+    private string _loggedBackdrop = string.Empty;
+
+    /// <summary>Note a graphic the measure threw away. Cheapest possible: three field writes on a
+    /// branch that is taken zero times on every healthy panel.</summary>
+    private void NoteDrawnBackdrop(Transform? node, Rect r)
+    {
+        _backdropCount++;
+        if (r.width * r.height <= _backdropWorst.x * _backdropWorst.y)
+            return;
+        _backdropWorst = new Vector2(r.width, r.height);
+        _backdropName = node != null ? BackdropPath(node) : "<destroyed>";
+    }
+
+    /// <summary>Path of a clone node relative to the clone root, depth-capped — a cloned game panel
+    /// is deep and a log line is not a hierarchy dump.</summary>
+    private string BackdropPath(Transform node)
+    {
+        string path = node.name;
+        Transform? p = node.parent;
+        for (int depth = 0; depth < 10 && p != null && !ReferenceEquals(p, _cloneRect); depth++)
+        {
+            path = p.name + "/" + path;
+            p = p.parent;
+        }
+        return ReferenceEquals(p, _cloneRect) ? path : ".../" + path;
+    }
+
+    /// <summary>
+    /// SAY THAT THIS CLONE IS DRAWING SOMETHING THE FIT REFUSED TO MEASURE — the falsifier this
+    /// class was missing, and a direct candidate for the 2026-09-07 item 8 report.
+    ///
+    /// <para><b>THE ASYMMETRY IT REPORTS.</b> <see cref="TryMeasure"/> skips a graphic that is
+    /// <see cref="OversizeFactor"/>x the dock budget, on the argument — written there and correct —
+    /// that "a graphic that size is by definition not part of this panel". Nothing acts on the
+    /// other half of that sentence. The node stays in the clone, so the host's committed
+    /// metres-per-pixel carries it onto a peer's board at its authored pixel size: on the mirrored
+    /// decision row's own numbers (0.5208 mm/px, budget 0.420x0.120 m) the smallest graphic that
+    /// can reach this branch already comes out 1.26 m wide against a 0.44 m board face, and a
+    /// 1920x1080 authored blocker comes out 1.00 x 0.56 m. That is the SHAPE of what the user
+    /// photographed, and no instrument in this mod would have printed it.</para>
+    ///
+    /// <para><b>IT IS A LINE, NOT A FIX, AND DELIBERATELY SO.</b> Hiding the node would be the
+    /// obvious next step and it is NOT taken here, because the same branch also catches a stretch
+    /// child that legitimately fills a converted panel, and suppressing one of those would breach
+    /// 1:1 in the other direction — on a surface nobody has photographed. One hardware round with
+    /// this line decides it: if it names a graphic while the giant object is on screen, the remedy
+    /// is a suppression at this branch; if it never fires, this whole mechanism is exonerated and
+    /// the search moves off the mirror. Costs one string compare per fit on a healthy panel.</para>
+    ///
+    /// <para>Only reachable on the GRAPHICS-UNION measure path. A mirror measured "via converted
+    /// host rect" never calls <see cref="TryMeasure"/> at all, so silence from this line on such a
+    /// panel says nothing about it — read the <c>measured via</c> field of the fit line beside
+    /// it.</para>
+    /// </summary>
+    private void LogDrawnBackdrops(float metersPerPx)
+    {
+        string state = _backdropCount == 0
+            ? string.Empty
+            : $"{_backdropCount}|{_backdropName}|{_backdropWorst.x:F0}x{_backdropWorst.y:F0}";
+        if (state == _loggedBackdrop)
+            return;
+        _loggedBackdrop = state;
+        if (_backdropCount == 0)
+            return;
+        // HW-VERIFY
+        VRLog.Note("Net", $"MIRROR DRAWS AN UNMEASURED BACKDROP: '{_name}' carries " +
+            $"{_backdropCount} visible graphic(s) that the fit REFUSED to measure for being at " +
+            $"least {OversizeFactor:F0}x this dock's {_mountWidth:F3}x{_mountMaxHeight:F3} m " +
+            $"budget — biggest '{_backdropName}' at {_backdropWorst.x:F0}x{_backdropWorst.y:F0} px, " +
+            $"which the committed {metersPerPx * 1000f:F4} mm/px draws at " +
+            $"{_backdropWorst.x * metersPerPx:F2}x{_backdropWorst.y * metersPerPx:F2} m against a " +
+            "0.44 m board face. THE MEASURE SAYS IT IS NOT PART OF THIS PANEL AND THE CLONE DRAWS " +
+            "IT ANYWAY. This is a candidate for the 'riesentext' of the 2026-09-07 round (item 8, " +
+            "riesen_text2.jpg) and it is REPORTED, not suppressed: the same branch also catches a " +
+            "stretch child that legitimately fills a converted panel, so a blind hide would breach " +
+            "1:1 elsewhere. If this line is up while the giant object is on screen, suppress at " +
+            "TryMeasure's oversize branch; if the object is on screen and this line is absent, the " +
+            "mirror is exonerated and the object belongs to something else entirely.");
+    }
 
     // ------------------------------------------------------------------ node pair --
 

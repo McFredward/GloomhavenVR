@@ -56,6 +56,39 @@ namespace GloomhavenVR.Net;
 ///      non-slot children skipped — <c>UseBarsSurface.BarDock.SampleWireSlots</c>).
 /// Any failure returns 0 and the caller keeps the anonymous tile it drew before. The peer therefore
 /// shows the real symbol or an honest blank — never a symbol from a different decision.
+/// <see cref="RefusalReason"/> says WHICH of the three refused, and the caller prints it: a gate that
+/// lists three reasons and names none is a gate whose verdict cannot be acted on.
+///
+/// ─── ModBuild 479: THE PREMISE ABOVE IS FALSE FOR THE PREVENT-DAMAGE PROMPT ────────────────────
+/// User report 2026-09-07 item 8, verbatim: <i>"Die entsprechenden Symbole sehe ich auch nicht."</i>
+/// His log answers it: <c>DOCK MIRROR: no mirrored use-bar symbol resolved</c>, on the very tick a
+/// co-player's <c>CShieldActiveBonus</c> (<c>ABILITY_CARD_WardingStrength</c>) was pending. The
+/// counts agreed on both machines — record 25 published <c>mask 0x01 [activeBonus: 1 slot(s)]</c>
+/// and the mirror drew one tile — so gate 3 is not what refused. Gate 2 is, and it CANNOT PASS:
+///
+///   <c>UIScenarioMultiplayerController</c> (decompiled, the take-damage entry point) branches on
+///   the attacked actor's <c>IsUnderMyControl</c>. On a client that does NOT control that actor it
+///   calls <c>TakeDamagePanel.ShowOtherPlayer</c>, and <c>ShowOtherPlayer</c> raises NOTHING: no
+///   <c>UIActiveBonusBar.ShowReduceDamageActiveBonuses</c>, no <c>UIUseItemsBar.ShowItems</c>, and
+///   it ends on <c>myWindow.Hide(instant: true)</c>. Only the controlling client's
+///   <c>TakeDamagePanel.Show</c> reaches those two calls (decompiled TakeDamagePanel.cs:245-270).
+///
+/// So for a PEER'S prevent-damage decision this client's <c>UIActiveBonusBar</c> is never
+/// populated for that actor and <see cref="BarBelongsTo"/> is false by construction. The class
+/// doc's evidence — <c>Choreographer.CheckForInitiativeAdjustments</c> calling
+/// <c>ShowActiveBonus</c> with no <c>IsUnderMyControl</c> test — is about the INITIATIVE-ADJUSTMENT
+/// bonus, a different prompt with a different entry point, and it was generalised to "the game
+/// raises these bars from replicated messages on every client" without being checked against this
+/// one. That generalisation is the defect; the code below is doing exactly what it says.
+///
+/// WHAT WOULD ACTUALLY FIX IT is therefore NOT a better local resolve. The identity is on this
+/// machine (<c>UIActiveBonusBar.GetPreventDamageActiveBonuses(actor, abilityType, isLethal)</c> is
+/// public and reads only the local model, and <c>IActiveBonus.GetIcon()</c> is the sprite), but
+/// picking WHICH bonus fills slot #0 needs the owner's <c>abilityType</c> and lethal flag, and the
+/// game's own filter closes over <c>activeBonusSlots</c> — the bar's LIVE slot map, which is empty
+/// here. A re-derivation could therefore pick a different bonus than the owner's bar did, which is
+/// the one outcome this class exists to prevent. The honest fix is one slot-identity field on the
+/// wire; the shape is reported to the integrator rather than allocated here.
 /// </summary>
 /// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. The icons come from this client's own
 /// game UI, raised by the host-replicated message every client already receives. Slot art stays
@@ -70,23 +103,99 @@ internal static class RemoteUseBarSymbols
     private static bool s_logged;
 
     /// <summary>
+    /// WHICH ARM OF THE THREE-WAY GATE REFUSED — the field ModBuild 479 added, because the old
+    /// refusal line listed all three reasons and named none, and a verdict nobody can act on costs
+    /// a hardware round to re-ask. Written by <see cref="Resolve"/> on every call (including the
+    /// successful ones, which set <see cref="RefusalReason.None"/>); read by the caller's log line.
+    /// </summary>
+    internal enum RefusalReason
+    {
+        /// <summary>No refusal — the resolve succeeded.</summary>
+        None = 0,
+
+        /// <summary>Record 25 published no slots for this bar (or the caller passed no board actor
+        /// / no scratch), so there was nothing to resolve. Not a defect.</summary>
+        NoWireSlots,
+
+        /// <summary>GATE 1: this client has no live <c>Singleton</c> for that bar, or its slot
+        /// container is gone. The bar has never been raised in this session.</summary>
+        NoLocalBar,
+
+        /// <summary>GATE 2: the local bar exists but its owner set does not contain the character
+        /// this board draws. For a PEER'S PREVENT-DAMAGE prompt this is structural and permanent —
+        /// see the ModBuild 479 block in the class doc.</summary>
+        NotThisBoardsCharacter,
+
+        /// <summary>GATE 3: the local bar is the right character's but shows a different number of
+        /// visible slots than record 25 reported — a genuinely stale or mid-rebuild bar.</summary>
+        SlotCountMismatch,
+
+        /// <summary>The walk threw; the warning beside it carries the message.</summary>
+        Threw,
+    }
+
+    /// <summary>Human-readable form of <see cref="RefusalReason"/> for the caller's log line, with
+    /// the counts filled in. <paramref name="localSlots"/> is meaningful only for
+    /// <see cref="RefusalReason.SlotCountMismatch"/>.</summary>
+    internal static string Describe(RefusalReason why, int barIndex, int wireCount, int localSlots) => why switch
+    {
+        RefusalReason.None => "resolved",
+        RefusalReason.NoWireSlots =>
+            $"record 25 named no slot for bar {barIndex}, so there was nothing to resolve",
+        RefusalReason.NoLocalBar =>
+            $"GATE 1 (local bar absent): this client has no live bar-{barIndex} singleton or its "
+            + "slot container is gone — the game has never raised that bar here",
+        RefusalReason.NotThisBoardsCharacter =>
+            $"GATE 2 (wrong character): this client's own bar {barIndex} exists but its owner set "
+            + "does not contain the character this board draws. FOR A PEER'S PREVENT-DAMAGE PROMPT "
+            + "THIS IS STRUCTURAL, NOT A GLITCH: the game's own "
+            + "UIScenarioMultiplayerController sends a non-controlling client to "
+            + "TakeDamagePanel.ShowOtherPlayer, which raises neither UIActiveBonusBar nor "
+            + "UIUseItemsBar — so the local copy CANNOT be populated for that actor and no local "
+            + "resolve can ever succeed here. Closing this needs one slot-identity field on the wire",
+        RefusalReason.SlotCountMismatch =>
+            $"GATE 3 (slot count): this client's own bar {barIndex} is the right character's but "
+            + $"shows {localSlots} visible slot(s) against record 25's {wireCount} — a stale or "
+            + "mid-rebuild local bar; the next cadence tick normally clears it",
+        RefusalReason.Threw =>
+            $"the walk over bar {barIndex} threw (see the warning beside this line)",
+        _ => "unknown",
+    };
+
+    /// <summary>How many visible slots the LOCAL bar showed on the last <see cref="Resolve"/> call
+    /// — the number <see cref="RefusalReason.SlotCountMismatch"/> is about. Meaningless for the
+    /// other arms.</summary>
+    internal static int LastLocalSlots { get; private set; }
+
+    /// <summary>
     /// Fill <paramref name="into"/> with the sprite each visible slot of bar
     /// <paramref name="barIndex"/> is wearing on THIS client, for the bar belonging to
     /// <paramref name="boardActor"/>. Returns the number of slots written (0 = refuse, see the
     /// three-way gate in the class doc); entries past the return value are left untouched and
     /// entries inside it may still be null for a slot type that carries no icon.
     /// </summary>
-    internal static int Resolve(int barIndex, CPlayerActor? boardActor, int wireCount, Sprite?[] into)
+    internal static int Resolve(int barIndex, CPlayerActor? boardActor, int wireCount, Sprite?[] into,
+                                out RefusalReason why)
     {
+        LastLocalSlots = 0;
         if (boardActor == null || wireCount <= 0 || into == null || into.Length == 0)
+        {
+            why = RefusalReason.NoWireSlots;
             return 0;
+        }
         try
         {
             RectTransform? container = ContainerOf(barIndex);
             if (container == null)
+            {
+                why = RefusalReason.NoLocalBar;
                 return 0;
+            }
             if (!BarBelongsTo(barIndex, boardActor))
+            {
+                why = RefusalReason.NotThisBoardsCharacter;
                 return 0;
+            }
 
             int count = 0;
             for (int i = 0; i < container.childCount && count < into.Length; i++)
@@ -99,15 +208,21 @@ internal static class RemoteUseBarSymbols
                     continue;
                 into[count++] = IconOf(child);
             }
+            LastLocalSlots = count;
             if (count != wireCount)
+            {
+                why = RefusalReason.SlotCountMismatch;
                 return 0; // the local bar is not showing the owner's row — refuse, keep the tile
+            }
             ReportOnce(barIndex, count);
+            why = RefusalReason.None;
             return count;
         }
         catch (System.Exception e)
         {
             VRLog.Warn("Net", $"Remote use-bar symbols: resolve failed for bar {barIndex} " +
                               $"({e.Message}) — the mirrored tiles stay anonymous this cadence.");
+            why = RefusalReason.Threw;
             return 0;
         }
     }
