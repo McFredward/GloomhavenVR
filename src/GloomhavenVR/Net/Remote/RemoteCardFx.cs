@@ -515,6 +515,7 @@ internal sealed class RemoteCardFx
                 return "BACK — the card was named but its face CLONE failed to build "
                      + "(RemoteAbilityCardSource found neither a live widget nor a poolable one)";
             f.HasFace = true;
+            DriveFlightLook(f, card);
             return $"FRONT via RemoteAbilityCardSource.{path}, inherited from the round recess this "
                  + "client's own mirror was drawing that card in one tick ago";
         }
@@ -601,7 +602,39 @@ internal sealed class RemoteCardFx
             return null;
         }
         f.HasFace = true;
+        DriveFlightLook(f, card);
         return $"FRONT via RemoteAbilityCardSource.{path}, from {origin}";
+    }
+
+    /// <summary>
+    /// PUT THE CARD'S SETTLED LOOK ON THE SLAB THAT IS FLYING IT — the hole lane B's look census
+    /// named as the biggest one left (M10), closed at the two places this class commits a front.
+    ///
+    /// <para>WHY IT MATTERED. Every Slot -&gt; Discard flight, and every Slot -&gt; Burnt flight that
+    /// <c>RemoteBurnFx.ConsumesWireEvent</c> does not swallow, flew a CLEAN face into a pile that
+    /// this very mirror draws charred or greyed one tick later. The card did not change between
+    /// those two frames; only the surface drawing it did, which is the definition of a 1:1 breach in
+    /// the user's own terms — his ruling covers ANIMATION and STATE, not only the resting picture.
+    /// The owner never saw it: on their board the flight is the game's own live widget, wearing the
+    /// look the game put on it before the flight began.</para>
+    ///
+    /// <para>IT ASKS THE SAME EXPRESSION EVERY OTHER MIRRORED SURFACE ASKS, and that is the whole
+    /// point of it being one line: <see cref="UsedCardLook.FromState"/> reads
+    /// <c>Cards.BurnLookPolicy.ForCard</c>, the single durable pile-to-look implementation, DOWN in
+    /// <c>Cards/</c>. Progress is committed at <c>1f</c> rather than ramped because a flight is not
+    /// where a look is EARNED — the card was already spent when it left the recess, and a ramp here
+    /// would animate a state change that happened somewhere else.</para>
+    ///
+    /// <para>A card the policy calls clean writes <c>None</c>, which is the pooled slab's own rest
+    /// state and costs nothing; the write is what stops a RECYCLED slab from wearing the previous
+    /// flight's char, which is the failure direction that would have been introduced by only
+    /// writing the non-clean cases.</para>
+    /// </summary>
+    private static void DriveFlightLook(Flight f, ScenarioRuleLibrary.CAbilityCard? card)
+    {
+        if (f.Art == null)
+            return;
+        f.Art.SetAbilityCardFxProgress(UsedCardLook.FromState(card), 1f);
     }
 
     /// <summary>

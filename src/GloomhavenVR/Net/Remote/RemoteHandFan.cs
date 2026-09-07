@@ -3085,10 +3085,17 @@ internal sealed class RemoteHandFan
     ///     modded peer predating ModBuild 462. No receiver code can fix this and their fan WILL
     ///     diverge for everyone watching for as long as they run that build; the answer is that
     ///     they update. This is a limit of the feature, not a bug in it.</item>
-    ///   <item><c>reason=none stated</c> — the peer CAN send one and did not, which the sender only
-    ///     does when its arc already equals the derived order. Benign: the picture is correct and
-    ///     the bytes were saved. Distinguished from the line above precisely so that "he never sent
-    ///     it" is never mistaken for "he cannot".</item>
+    ///   <item><c>reason=none stated</c> — the peer CAN send one and THIS PACKET CARRIED NONE. It
+    ///     is NOT a statement that their arc already matches ours, and it was read as one for seven
+    ///     builds. This bullet used to end "which the sender only does when its arc already equals
+    ///     the derived order — benign, and the picture is right"; that described ModBuild 462-470
+    ///     and was made FALSE by the sender fix in this same tree at ModBuild 471 (commit
+    ///     647c5103). <c>LocalRigSampler.SampleFanArcOrder</c> has had no identity shortcut since —
+    ///     "NO IDENTITY SHORTCUT … State it." — so silence now means only that one of that method's
+    ///     named exits fired, or that no packet arrived, and a receiver cannot tell those apart and
+    ///     must not pretend to. The reading that CAN is the OWNER's own
+    ///     <c>FAN ARC ORDER SENT … why=</c> line, which names the exit. Distinguished from the line
+    ///     above precisely so that "he sent nothing" is never mistaken for "he cannot".</item>
     ///   <item><c>reason=not a permutation</c> — THE SERIOUS ONE. The record arrived and its own
     ///     numbers were self-contradictory (a repeated index, or one past the end of the list this
     ///     client holds). Nothing was applied, deliberately: a wrong order shifts every face after
@@ -3106,6 +3113,19 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void ReportArcOrderIfChanged(int count)
     {
+        // A FAN WITH NO SLABS HAS NO ORDER TO GET WRONG, and saying so every time one shuts is how
+        // this line came to read as a standing refusal. MEASURED (2026-09-07 evening round): EVERY
+        // 'reason=none stated' that follows an APPLIED/HELD burst in either log prints "this peer's
+        // 0-slab fan" — user 18792 and 37160, mate 10730, 12581, 12730, 30248, 36697, 37060, 37189,
+        // 38762 and 42757 — and those ten readings are the whole of why 'none stated' looked like
+        // the dominant verdict when the fan was simply closed. The verdict is FORGOTTEN rather than
+        // kept, so the first frame of a re-raised fan restates it in full instead of inheriting a
+        // word about a fan that no longer exists.
+        if (count <= 0)
+        {
+            _loggedOrderVerdict = "\u0000";
+            return;
+        }
         int build = VersionGuard.PeerBuild(_owner.PlayerId);
         // A PEER THAT CANNOT SEND ONE IS A DIFFERENT ANSWER FROM ONE THAT DID NOT, and only this
         // term can tell them apart. IT IS THE BUILD THAT DECIDES, NOT THE COUNTER — until
@@ -3141,13 +3161,29 @@ internal sealed class RemoteHandFan
             : $"ARC ORDER NOT APPLIED [player {_owner.PlayerId}]: this client is drawing this "
               + $"peer's {count}-slab fan in the GAME's order, which may not be the order its "
               + $"owner is looking at. reason={reason} (stated={_orderStated} applied="
-              + $"{_orderApplied}, peer ModBuild {build}, ours {NetProtocol.ModBuild}). THIS IS THE "
+              + $"{_orderApplied}, peer ModBuild {build}, ours {NetProtocol.ModBuild}). THE PAIR IS "
+              + "NOT A RATE AND DOES NOT SUBTRACT: 'stated' is counted at the TOP of "
+              + "ApplyFanArcOrder, ABOVE the 'no fronts' / 'arc length' / 'model length' / 'not a "
+              + "permutation' gates, so it counts every distinct record-44 payload this fan was "
+              + "handed INCLUDING every one handed to a fan that was drawing BACKS and had no list "
+              + "to permute, while 'applied' counts only those that reached the gather. In the "
+              + "2026-09-07 evening round that pair read 61 vs 4 on one client purely because the "
+              + "peer's arc flapped 8-7-8 through a SINGLE pluck for ~35 census rows while the "
+              + "selection phase kept the mirrored fan on backs. THE READING THAT ANSWERS 'DID THE "
+              + "PICTURE GET THE ORDER' IS THE 'MIRRORED ARC ORDER' CENSUS ROW AND NOT THIS PAIR: "
+              + "filter it to model>0 and read thisFrame=. In that round every such row but three "
+              + "said APPLIED or HELD. THIS IS THE "
               + "FEATURE DEGRADING AND IT SAYS SO RATHER THAN DOING IT QUIETLY. 'peer build N' "
               + "means that player CANNOT send an order — a FLAT player reads 0, and anything below "
               + "462 predates the record; their fan will diverge for every watcher until they "
-              + "update, and no receiver code can fix it. 'none stated' means they CAN and chose "
-              + "not to, which the sender only does when its arc already equals the order derived "
-              + "here — benign, and the picture is right. 'not a permutation' is the serious one: "
+              + "update, and no receiver code can fix it. 'none stated' means they CAN send one "
+              + "and THIS PACKET CARRIED NONE — it does NOT mean their arc already matches ours. "
+              + "Their sender has had no identity shortcut since ModBuild 471 (LocalRigSampler."
+              + "SampleFanArcOrder states the arc in full, identity or not), so silence means one "
+              + "of that method's named exits fired or the packet did not arrive, and only the "
+              + "OWNER's 'FAN ARC ORDER SENT ... why=' line can say which. This sentence read "
+              + "'benign, and the picture is right' until ModBuild 479 and cost a whole diagnosis "
+              + "round. 'not a permutation' is the serious one: "
               + "the record arrived and its own numbers did not form an exact permutation of the "
               + "seats held, so nothing was applied on purpose (a wrong order shifts every face "
               + "after the first mistake, a worse lie than the gap it would close) and the SENDER "
