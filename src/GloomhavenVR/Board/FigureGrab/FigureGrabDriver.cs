@@ -793,6 +793,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // have a reach volume that covers every hex they stand on. Counted in full, never sampled.
         int propMultiHex = 0;
         int propMultiHexFull = 0;
+        // ModBuild 473: how many multi-hex props are measured against the UNION of their hexes
+        // rather than the bounding box over them. Counted in full, never sampled, for the same
+        // reason propMultiHexFull is.
+        int propMultiHexFootprint = 0;
         _censusProps.Clear();
         _censusUnliftable.Clear();
         _censusMultiHex.Clear();
@@ -830,11 +834,16 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                 // THE MULTI-HEX MEASUREMENT (ModBuild 371), AND IT RUNS FOR EVERY LIFTABLE PROP,
                 // ABOVE THE SAMPLE CAP. Two numbers that between them answer the 2026-09-03 report
                 // without a screenshot: how many hexes the GAME says this prop stands on, and how
-                // many of them the collider the hands are ACTUALLY tested against stands over.
-                // `hexes=2(PathingBlockers) REACHHEXES=2/2` is the fix working; `REACHHEXES=1/2`
-                // is the defect, still present, naming itself. Measured on PropGrab's REGISTERED
+                // many of them the prop's REGISTERED COLLIDER stands over.
+                // `hexes=2(PathingBlockers) REACHHEXES=2/2` is that fix working; `REACHHEXES=1/2`
+                // is that defect, still present, naming itself. Measured on PropGrab's REGISTERED
                 // collider rather than on anything this census builds, so it cannot agree with a
                 // broken build the way a re-derived shape would.
+                //
+                // IT IS NO LONGER THE SHAPE A HAND IS MEASURED AGAINST, and that is ModBuild 473 —
+                // see the FOOTPRINT column below and PropFootprint for why a box over the prop's
+                // renderers had to stop being the reach. Both columns are printed because they
+                // answer different questions and a build can pass one and fail the other.
                 //
                 // It sits above the cap because of what the cap did to the last round: the four
                 // named samples were three OneHexObstacles and a GoldPile on a board that also
@@ -847,16 +856,31 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                 string reachSpan = reachVolume == null
                     ? "unregistered"
                     : spannedHexes < 0 ? "unlocated" : spannedHexes.ToString();
+                // FOOTPRINT (ModBuild 473). REACHHEXES above measures the REGISTERED COLLIDER, and
+                // since this build that collider is no longer what a hand is tested against for a
+                // multi-hex prop — the union of its hexes is. So the pair is printed together:
+                // REACHHEXES says the box still stands over every hex (the ModBuild 371 fix, still
+                // holding), FOOTPRINT says whether the narrow volume that replaced it was built.
+                // 'FOOTPRINT=3/3' on a 'hexes=3' prop is this build working; 'FOOTPRINT=none/3'
+                // is a multi-hex prop still answering over its bounding box, i.e. the prop that
+                // will still eat the figure beside it, naming itself.
+                int footprintCells = PropGrab.FootprintCellsOf(prop);
+                string footprintSpan = footprintCells < 0
+                    ? "unregistered"
+                    : footprintCells == 0 ? "none" : footprintCells.ToString();
                 if (coveredHexes > 1)
                 {
                     propMultiHex++;
                     if (spannedHexes >= coveredHexes)
                         propMultiHexFull++;
+                    if (footprintCells >= coveredHexes)
+                        propMultiHexFootprint++;
                     if (_censusMultiHex.Count < PropCensusNamedSamples)
                     {
                         _censusMultiHex.Add($"'{prop.InstanceName}' {prop.ObjectType} "
                             + $"hexes={coveredHexes}({hexSource}) "
                             + $"REACHHEXES={reachSpan}/{coveredHexes} "
+                            + $"FOOTPRINT={footprintSpan}/{coveredHexes} "
                             + $"GRABBABLE={(PropGrab.IsRegistered(prop) ? "yes" : "NO")}");
                     }
                 }
@@ -892,7 +916,8 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                     + $" MAYLIFT={liftVerdict}"
                     + $" GRABBABLE={(PropGrab.IsRegistered(prop) ? "yes" : "NO")}"
                     + $" hexes={coveredHexes}({hexSource})"
-                    + $" REACHHEXES={reachSpan}/{coveredHexes}");
+                    + $" REACHHEXES={reachSpan}/{coveredHexes}"
+                    + $" FOOTPRINT={footprintSpan}/{coveredHexes}");
             }
         }
 
@@ -930,7 +955,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + $"{(_censusUnliftable.Count == 0 ? "none" : string.Join(" | ", _censusUnliftable))}. "
             + $"MULTI-HEX props (ModBuild 371): {propMultiHex} of the {propLiftable} liftable "
             + $"stand on more than one hex, {propMultiHexFull} of those have reach over EVERY hex "
-            + $"they stand on; first {_censusMultiHex.Count} named: "
+            + $"they stand on, and {propMultiHexFootprint} of them are measured against the UNION "
+            + "of those hexes rather than the bounding box over them (ModBuild 473 — a shortfall "
+            + "here is the count of props that still answer a hand from a neighbouring hex); "
+            + $"first {_censusMultiHex.Count} named: "
             + $"{(_censusMultiHex.Count == 0 ? "none" : string.Join(" | ", _censusMultiHex))}. "
             + "READ IT LIKE THIS. The FIRST sentence is the retired path and its numbers are "
             + "EXPECTED TO BE ZERO: only a prop that HAS AN ACTOR ever appears in that list, a "
@@ -973,14 +1001,29 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + "(PathingBlockers)' is how many hexes the GAME says the prop stands on and which "
             + "term said so - the obstacle's own PathingBlockers list, else its EPropType family "
             + "name (TwoHexObstacle, ThreeHexCurvedObstacle), else 'assumed' for the one-hex "
-            + "default. 'REACHHEXES=2/2' is how many of those hexes the collider the hands are "
-            + "ACTUALLY tested against stands over - that single collider is the only shape the "
-            + "hover election and the grab gate ever measure, so 2/2 is the fix working and 1/2 "
-            + "is the defect still present. 'unregistered/2' means the prop has no registered "
+            + "default. 'REACHHEXES=2/2' is how many of those hexes the prop's REGISTERED COLLIDER "
+            + "stands over, so 2/2 is the ModBuild 371 fix working and 1/2 is that defect still "
+            + "present. 'unregistered/2' means the prop has no registered "
             + "collider yet (read the 'via=' column first, it is a resolve question, not a reach "
             + "one) and 'unlocated/2' means the hexes could not be placed in the world at all - "
             + "no PathingBlockers, or the client tile array is not built yet - which leaves the "
-            + "spanning box built from the prop's renderer bounds and simply unmeasured here.";
+            + "spanning box built from the prop's renderer bounds and simply unmeasured here."
+            + " MODBUILD 473 ADDS 'FOOTPRINT=', AND IT CORRECTS A SENTENCE THAT USED TO STAND HERE. "
+            + "That sentence said the registered collider 'is the only shape the hover election "
+            + "and the grab gate ever measure'. It was true when it was written and it is the "
+            + "2026-09-07 defect: that collider is an AXIS-ALIGNED BOX over everything the prop "
+            + "draws, a hand anywhere inside it reads 0 mm, and 0 wins every election - so a "
+            + "three-hex obstacle whose box the ModBuild 472 log measured at 3.6 x 3.4 HEXES ate "
+            + "the figure standing next to it and answered from 392 mm real away, against the "
+            + "40 mm a figure admits. Since this build a multi-hex prop is measured against the "
+            + "UNION OF ITS HEXES instead - one upright cylinder per hex, half a hex wide, over "
+            + "the prop's drawn height - and the collider is only what it REGISTERS. So "
+            + "'FOOTPRINT=3/3' on a 'hexes=3' prop is this build working, 'FOOTPRINT=none/3' is a "
+            + "multi-hex prop still answering over its box (its hexes could not be located, the "
+            + "runtime hex size was not resolvable, or it draws nothing measurable - the "
+            + "registration line names which), and 'FOOTPRINT=none/1' is CORRECT on every "
+            + "single-hex prop: those keep the collider and the expression they always had, which "
+            + "is what guarantees this build did not move them.";
         if (line == _lastPropCensus)
             return;
         _lastPropCensus = line;

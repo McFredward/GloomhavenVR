@@ -32,6 +32,15 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// collider covers one hex", and the two halves of the report cannot be separated — which matches
 /// what he wrote.</para>
 ///
+/// <para><b>THAT LIST WAS THE WHOLE TRUTH UNTIL MODBUILD 473, AND IT IS NOT ANY MORE.</b> A
+/// multi-hex prop now publishes a <see cref="PropFootprint"/> — the union of the hexes it stands
+/// on — and every one of the three tests above measures THAT instead, through
+/// <c>Hands.Interact.IGrabReachVolume</c>, which <c>GrabbableProp</c> implements. A prop with no
+/// footprint (every single-hex prop, and any multi-hex prop whose union could not be described)
+/// still takes the <c>ClosestPoint</c> expression above, unchanged, against the same registered
+/// collider. See <see cref="PropFootprint"/> for the report that forced it and the numbers that
+/// name it.</para>
+///
 /// <para><b>WHICH COLLIDER GETS REGISTERED, before this class existed.</b> Scan took
 /// <c>visual.GetComponentInChildren&lt;Collider&gt;()</c> — the FIRST collider in a depth-first
 /// walk of the prop's subtree, the prop's own authored one — and only fell back to
@@ -306,13 +315,33 @@ internal static class PropReach
     /// <param name="route">Which collider came back — log only.</param>
     /// <param name="hexes">How many hexes the prop covers, for the caller's log.</param>
     /// <param name="hexSource">Which term produced <paramref name="hexes"/>.</param>
+    /// <param name="footprint">ModBuild 473 — THE VOLUME THE HANDS ACTUALLY MEASURE for a
+    /// multi-hex prop: the union of its hexes rather than their bounding box. Null for every prop
+    /// that covers ONE hex, and null whenever the union cannot be described (see
+    /// <see cref="PropFootprint.Build"/>); a null footprint means <c>GrabbableProp</c> measures the
+    /// returned collider with the identical <c>ClosestPoint</c> expression it always did. The
+    /// collider above is still what the prop REGISTERS — the registry, the pick-shape predicate
+    /// and the <see cref="SpannedHexes"/> census all keep reading it — and it is still the box a
+    /// re-key finds again by name.</param>
     internal static Collider? Resolve(GameObject visual, CObjectProp prop, Collider? own,
-        out Route route, out int hexes, out string hexSource)
+        out Route route, out int hexes, out string hexSource, out PropFootprint? footprint)
     {
+        footprint = null;
         hexes = CoveredHexes(prop, out hexSource);
 
         if (hexes <= 1)
             return SingleHex(visual, own, out route);
+
+        // THE HEXES ARE LOCATED FIRST NOW (ModBuild 473), before the reuse branch rather than
+        // after it. The spanning BOX is a Unity component parented on the prop visual and it
+        // survives a registry re-key; the FOOTPRINT is a plain object owned by the registry ENTRY,
+        // and a re-key builds a new entry — so it has to be built on both routes or a re-keyed
+        // prop would silently fall back to its bounding box, which is the defect this build is
+        // fixing. Locating them costs one PathingBlockers walk and one array index, at
+        // registration only.
+        bool located = TryLocateHexes(prop, HexCentres);
+        if (!located)
+            HexCentres.Clear();
 
         // A box this or an earlier scan built for this same visual. Transform.Find looks at DIRECT
         // children only, which is exactly right: BuildSpanning (and BuildPropCollider) parent the
@@ -323,16 +352,18 @@ internal static class PropReach
         if (reused != null)
         {
             route = Route.SpanReused;
+            Bounds reusedDrawn = DrawnBounds(visual, out bool reusedDrew);
+            if (reusedDrew)
+                footprint = PropFootprint.Build(visual, HexCentres, reusedDrawn);
             return reused;
         }
 
-        bool located = TryLocateHexes(prop, HexCentres);
-        if (!located)
-            HexCentres.Clear();
-        Collider? span = BuildSpanning(visual, HexCentres);
+        Collider? span = BuildSpanning(visual, HexCentres, out Bounds drawnBounds, out bool drew);
         if (span != null)
         {
             route = Route.SpanBuilt;
+            if (drew)
+                footprint = PropFootprint.Build(visual, HexCentres, drawnBounds);
             return span;
         }
 
@@ -340,6 +371,26 @@ internal static class PropReach
         // prop would have got before this class existed rather than refusing it: one hex of reach
         // is a smaller defect than a prop that cannot be picked up at all.
         return SingleHex(visual, own, out route);
+    }
+
+    /// <summary>
+    /// The AABB over everything the prop DRAWS, or an empty box when it draws nothing measurable.
+    /// Split out of <see cref="BuildSpanning"/> (ModBuild 473) because the reuse route needs the
+    /// same vertical extent without building a second box.
+    /// </summary>
+    private static Bounds DrawnBounds(GameObject visual, out bool drew)
+    {
+        drew = false;
+        Renderer[] renderers = visual.GetComponentsInChildren<Renderer>(false);
+        if (renderers.Length == 0)
+            return default;
+        Bounds bounds = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            bounds.Encapsulate(renderers[i].bounds);
+        if (bounds.size.sqrMagnitude <= 1e-10f)
+            return default;
+        drew = true;
+        return bounds;
     }
 
     /// <summary>
@@ -483,6 +534,15 @@ internal static class PropReach
     /// <summary>
     /// A TRIGGER BOX OVER EVERYTHING THE PROP DRAWS, plus the centre of every hex it stands on.
     ///
+    /// <para><b>MODBUILD 473 — THIS BOX IS NO LONGER WHAT A HAND IS MEASURED AGAINST.</b> It is
+    /// the shape the prop REGISTERS: the registry needs one live collider per target, the
+    /// pick-shape predicate is asked about it, and <see cref="SpannedHexes"/> still measures it.
+    /// The reach itself is <see cref="PropFootprint"/>, because this box is an AABB and an AABB
+    /// over a three-hex obstacle's renderers measured 3.6 x 3.4 HEXES across in the ModBuild 472
+    /// host log for a prop standing on three — a hand anywhere inside it read 0 mm, which both
+    /// ate the figure on the next hex and answered from 392 mm real away. Everything below
+    /// describes the BOX and stays true of it; none of it is a claim about the reach any more.</para>
+    ///
     /// <para><b>The renderer bounds are the primary shape, and they are the shape the report
     /// describes.</b> A prop the player says "spans several tiles" is a prop that DRAWS on several
     /// tiles — the ModBuild 367 wall-fade census lists eleven separate meshes under one
@@ -510,16 +570,13 @@ internal static class PropReach
     /// not move. That discrepancy is a real finding and it is recorded here rather than
     /// half-fixed.</para>
     /// </summary>
-    private static Collider? BuildSpanning(GameObject visual, List<Vector3> hexCentres)
+    private static Collider? BuildSpanning(GameObject visual, List<Vector3> hexCentres,
+        out Bounds drawnBounds, out bool drew)
     {
-        Renderer[] renderers = visual.GetComponentsInChildren<Renderer>(false);
-        if (renderers.Length == 0)
+        drawnBounds = DrawnBounds(visual, out drew);
+        if (!drew)
             return null;
-        Bounds bounds = renderers[0].bounds;
-        for (int i = 1; i < renderers.Length; i++)
-            bounds.Encapsulate(renderers[i].bounds);
-        if (bounds.size.sqrMagnitude <= 1e-10f)
-            return null;
+        Bounds bounds = drawnBounds;
 
         float floorY = bounds.min.y;
         float ceilingY = bounds.max.y;
@@ -607,5 +664,218 @@ internal static class PropReach
             default:
                 return "unknown";
         }
+    }
+}
+
+/// <summary>
+/// THE UNION OF THE HEXES A PROP STANDS ON — the reach volume that replaced the bounding box.
+///
+/// <para><b>THE REPORT (2026-09-07 hardware round), verbatim.</b> "Wenn eine Figur neben einem
+/// Prop steht das mehrere tiles umfasst, bekommt man die Figur schwierig bis kaum gegriffen, da
+/// das highlight immer auf die nebenstehende Prop highlightet und es dann greift statt die Figure.
+/// Verbessere die greif-ranges. Die Hindernisse die mehrere tiles umfassen kann man auch schon von
+/// viel zu weit weg aufheben, also ihre 'hitbox' in der es reagiert ist zu groß. Soll sich ähnlich
+/// anfühlen wie bei den Figuren auch."</para>
+///
+/// <para><b>ONE CAUSE, BOTH HALVES, AND THE MODBUILD 472 HOST LOG CARRIES THE NUMBERS.</b>
+/// <c>PropReach.BuildSpanning</c> makes a multi-hex prop's reach volume an AXIS-ALIGNED BOUNDING
+/// BOX over every renderer in its subtree, and every reach test in the mod was
+/// <c>Distance(hand, collider.ClosestPoint(hand))</c> against exactly that one collider. A hand
+/// ANYWHERE INSIDE that box reads 0, and 0 wins every election outright.</para>
+/// <list type="bullet">
+///   <item>The log measures the box. <c>[Props] pre-grab highlight ENGAGED (Right near
+///   'ThreeHexObstacle' Obstacle)</c> prints its renderer span as <c>size (6.16, 3.52, 5.86)</c>
+///   world units, and <c>[FigureGrab] PICK VOLUME</c> prints <c>one hex is 109 mm real at this
+///   zoom</c> at <c>rig world scale 15.73</c>, i.e. one hex is 1.71 world units. So the volume is
+///   3.6 x 3.4 HEXES across for a prop the census calls <c>hexes=3(PathingBlockers)
+///   REACHHEXES=3/3</c> — the neighbouring figure's hex is INSIDE it, at distance 0.</item>
+///   <item>The same two lines put the box at 392 x 373 mm REAL at the hand, against the 40 mm the
+///   figure pick radius admits (<c>PICK VOLUME: 40 mm real at the hand</c>): "von viel zu weit
+///   weg" stated as a ratio, not as an adjective.</item>
+///   <item>The yardstick he names is measured in the same log. <c>[FigureGrab] FIGURE REACH</c>
+///   prints every figure's pick collider — <c>a CapsuleCollider … size (1.00, 2.00, 1.00) wu</c>,
+///   i.e. 0.58 hex across and 1.17 hexes tall, on eleven distinct actors.</item>
+/// </list>
+///
+/// <para><b>THE SHAPE.</b> One upright CYLINDER per covered hex: centred on that hex's own centre,
+/// radius half the runtime hex width (<c>UnityGameEditorRuntime.s_TileSize.x * 0.5</c> — the same
+/// term <c>VRRigDriver.ResolveWorldScale</c> and <c>SkyAlternative</c> read), running over the
+/// prop's DRAWN vertical range. The reach distance is the MINIMUM over those cylinders, so the
+/// volume is their union and nothing else. Three consequences, one per clause of the report:</para>
+/// <list type="number">
+///   <item><b>It cannot reach a hex the prop does not stand on.</b> A cylinder extends half a hex
+///   PITCH in every direction, so its surface stops exactly half way to the next hex centre. A
+///   figure standing there has its capsule surface 1.21 wu from our hex centre against our 0.86 wu,
+///   so it can never be inside the prop's volume — whatever the prop draws, or overhangs.</item>
+///   <item><b>It admits at a figure's margin, and that margin is not a new number.</b> Nothing
+///   here is tuned: <c>GrabbableProp.AllowsHand</c> keeps admitting at
+///   <c>FigureGrabConfig.PickRadiusRealMeters</c> — the FIGURE's own dial, the same 40 mm — only
+///   now measured from this surface instead of from the box. The prop's half-hex 54 mm plus that
+///   40 mm is 94 mm from a hex centre, against a figure's 32 mm capsule radius plus the same
+///   40 mm = 72 mm from a mini's axis. "Ähnlich wie bei den Figuren", in one unit.</item>
+///   <item><b>The vertical extent is the figure's rule too: the body it draws.</b> A figure answers
+///   over its own capsule, floor to head; a prop answers over its own drawn floor-to-ceiling. The
+///   three-hex obstacle in his scenario draws 3.52 wu tall against a figure's 2.00, so HEIGHT was
+///   never what "too far away" was about, and it is deliberately not narrowed — narrowing it would
+///   make a tall rock unreachable from the side the player can see.</item>
+/// </list>
+///
+/// <para><b>A ONE-HEX PROP HAS NO FOOTPRINT AT ALL, and that is structural rather than promised.</b>
+/// <c>PropReach.Resolve</c> returns before this class is ever mentioned for every prop
+/// <c>PropReach.CoveredHexes</c> counts as 1 — which is every prop that is not a multi-hex
+/// obstacle, and everything it cannot answer. <c>GrabbableProp</c> holds a null reference in that
+/// case and takes the identical <c>ClosestPoint</c> expression it always took, against the
+/// identical collider. There is no branch that could widen or narrow those props, because there is
+/// no object for a branch to read.</para>
+///
+/// <para><b>NO SCENE QUERY, NO ALLOCATION, NO PHYSICS.</b> Built once per prop at registration;
+/// <see cref="Distance"/> is arithmetic over a fixed array and is safe on the per-frame election
+/// path. <c>FindObjectsOfType</c> is a recorded trap in this project and none is used. The cells
+/// are stored in the VISUAL's local space and transformed back per query, so they follow the prop
+/// exactly as a child collider would and a re-posed prop can never leave a stale volume behind.</para>
+/// </summary>
+internal sealed class PropFootprint
+{
+    /// <summary>One covered hex, in the prop visual's LOCAL space. <see cref="LocalCentre"/> is the
+    /// hex centre lifted to the drawn body's mid-height; the two lengths are local.</summary>
+    private readonly struct Cell
+    {
+        internal readonly Vector3 LocalCentre;
+        internal readonly float LocalRadius;
+        internal readonly float LocalHalfHeight;
+
+        internal Cell(Vector3 localCentre, float localRadius, float localHalfHeight)
+        {
+            LocalCentre = localCentre;
+            LocalRadius = localRadius;
+            LocalHalfHeight = localHalfHeight;
+        }
+    }
+
+    private readonly Transform _visual;
+    private readonly Cell[] _cells;
+
+    private PropFootprint(Transform visual, Cell[] cells)
+    {
+        _visual = visual;
+        _cells = cells;
+    }
+
+    /// <summary>How many covered hexes this volume is the union of — printed beside an elected
+    /// prop on the hover line, so a wrong footprint names its own size.</summary>
+    internal int Count => _cells.Length;
+
+    /// <summary>The cylinder radius in REAL METRES AT THE HAND — half a hex, restated in the unit
+    /// the figure pick radius is quoted in so the two stand comparably on one line.</summary>
+    /// <param name="handWorldScale">The rig world scale the reading is taken at.</param>
+    internal float RadiusRealMeters(float handWorldScale)
+    {
+        if (_cells.Length == 0 || _visual == null)
+            return 0f;
+        return _cells[0].LocalRadius * UniformScale(_visual) / Mathf.Max(handWorldScale, 1e-4f);
+    }
+
+    /// <summary>
+    /// Distance from <paramref name="point"/> to this footprint in WORLD units — zero inside it,
+    /// the true Euclidean gap outside. A drop-in for
+    /// <c>Vector3.Distance(point, collider.ClosestPoint(point))</c>, which is what every reach test
+    /// in this mod is.
+    /// </summary>
+    /// <param name="cell">Which covered hex answered — the index into the prop's own
+    /// <c>PathingBlockers</c> order; -1 when there is nothing to measure. Log only, and nothing
+    /// branches on it.</param>
+    internal float Distance(Vector3 point, out int cell)
+    {
+        cell = -1;
+        if (_visual == null || _cells.Length == 0)
+            return float.PositiveInfinity;
+
+        float scale = UniformScale(_visual);
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < _cells.Length; i++)
+        {
+            Cell c = _cells[i];
+            Vector3 centre = _visual.TransformPoint(c.LocalCentre);
+            float radius = c.LocalRadius * scale;
+            float halfHeight = c.LocalHalfHeight * scale;
+
+            // The cylinder's axis is WORLD up, not the prop's: the hex grid is a world-space
+            // lattice and board props stand upright on it. A prop tilted in a hand is never
+            // measured here — GrabbableProp.CanGrab is false for the whole of a hold.
+            float dx = point.x - centre.x;
+            float dz = point.z - centre.z;
+            float radial = Mathf.Max(0f, Mathf.Sqrt(dx * dx + dz * dz) - radius);
+            float axial = Mathf.Max(0f, Mathf.Abs(point.y - centre.y) - halfHeight);
+            float d = Mathf.Sqrt(radial * radial + axial * axial);
+            if (d < best)
+            {
+                best = d;
+                cell = i;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// The one uniform factor a local length is converted to world with.
+    ///
+    /// <para>The LARGEST absolute component of the visual's lossy scale, not the average: board
+    /// props are uniformly scaled, where every choice agrees exactly, and for a non-uniform one the
+    /// largest component is the conservative direction — a slightly wider cylinder rather than a
+    /// hand that has secretly left the volume. Read per query rather than captured at build,
+    /// because a held prop is rescaled by the stretch gesture.</para>
+    /// </summary>
+    private static float UniformScale(Transform t)
+    {
+        Vector3 lossy = t.lossyScale;
+        return Mathf.Max(1e-4f,
+            Mathf.Max(Mathf.Abs(lossy.x), Mathf.Max(Mathf.Abs(lossy.y), Mathf.Abs(lossy.z))));
+    }
+
+    /// <summary>
+    /// Build the union of hex cylinders, or null when the pieces are not all there.
+    ///
+    /// <para>Null — i.e. the prop keeps the bounding box it had in ModBuild 472 — when the hexes
+    /// could not be located (no <c>PathingBlockers</c>, or no client tile array yet), when the
+    /// game's runtime hex size is not resolvable, or when the prop draws nothing measurable.
+    /// Refusing to narrow a volume that cannot be described is the conservative direction, and the
+    /// registration log says which prop got which.</para>
+    /// </summary>
+    /// <param name="visual">The prop's GameObject.</param>
+    /// <param name="hexCentres">World centres of the hexes the prop stands on.</param>
+    /// <param name="drawn">The AABB over the prop's renderers — its VERTICAL extent is all that is
+    /// taken from it; the horizontal extent is the hex grid's, by construction.</param>
+    internal static PropFootprint? Build(GameObject visual, List<Vector3> hexCentres, Bounds drawn)
+    {
+        if (visual == null || hexCentres.Count == 0)
+            return null;
+
+        // The runtime hex WIDTH in world units, taken from the 'Hex' resource's BoxCollider
+        // (decompiled UnityGameEditorRuntime) — the same term VRRigDriver.ResolveWorldScale and
+        // SkyAlternative read, so the cylinder is half a hex by the GAME's measure and never by a
+        // constant of ours. It is zero before a scenario's tiles exist, which is exactly the case
+        // this refuses on rather than inventing a radius for.
+        float hexWidth = UnityGameEditorRuntime.s_TileSize.x;
+        if (!(hexWidth > 1e-4f))
+            return null;
+
+        float halfHeight = drawn.extents.y;
+        if (!(halfHeight > 0f))
+            return null;
+
+        Transform t = visual.transform;
+        Vector3 lossy = t.lossyScale;
+        float scale = Mathf.Max(1e-4f,
+            Mathf.Max(Mathf.Abs(lossy.x), Mathf.Max(Mathf.Abs(lossy.y), Mathf.Abs(lossy.z))));
+        float midY = drawn.center.y;
+
+        var cells = new Cell[hexCentres.Count];
+        for (int i = 0; i < hexCentres.Count; i++)
+        {
+            Vector3 centre = new(hexCentres[i].x, midY, hexCentres[i].z);
+            cells[i] = new Cell(t.InverseTransformPoint(centre), hexWidth * 0.5f / scale,
+                halfHeight / scale);
+        }
+        return new PropFootprint(t, cells);
     }
 }

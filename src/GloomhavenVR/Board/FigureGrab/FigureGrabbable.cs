@@ -40,8 +40,25 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// in-headset debug-menu steppers nudge the mini in your hand in real time.
 /// </summary>
 internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable,
-                                        IWalkInHighlightTarget
+                                        IWalkInHighlightTarget, IBoardGrabTarget
 {
+    /// <summary>ModBuild 473 — a FIGURE, and the election prefers one over a PROP whenever both
+    /// are admissible for the same hand in the same frame. See
+    /// <see cref="Hands.Interact.IBoardGrabTarget"/> for the rule and the report; the rule itself
+    /// lives in <c>ProximityGrabber.UpdateHighlight</c> and nowhere else. Nothing is asserted
+    /// here — this is the marker the rule reads.</summary>
+    BoardGrabKind IBoardGrabTarget.BoardKind => BoardGrabKind.Figure;
+
+    string IBoardGrabTarget.BoardLabel => Label;
+
+    /// <summary>A figure IS the yardstick the prop side is being measured against, so the hover
+    /// line states the radius it was admitted on — the same
+    /// <c>FigureGrabConfig.PickRadiusRealMeters</c> a prop now uses, printed beside the prop's own
+    /// half-hex cylinder radius so the two stand comparably on one grep. Log only.</summary>
+    string IBoardGrabTarget.DescribeBoardReach(Vector3 point, float handWorldScale) =>
+        $" [figure: admitted inside {FigureGrabConfig.PickRadiusRealMeters * 1000f:F0} mm real of "
+        + "its own pick collider — the yardstick a prop's reach is now measured to]";
+
     /// <summary>Every grabbable currently held in a hand — the live-tune broadcast target.</summary>
     private static readonly HashSet<FigureGrabbable> Live = new();
 

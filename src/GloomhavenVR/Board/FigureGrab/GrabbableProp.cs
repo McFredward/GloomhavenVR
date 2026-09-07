@@ -115,7 +115,8 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <c>CObjectProp.PropGuid</c>.</para>
 /// </summary>
 internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable,
-                                      IWalkInHighlightTarget, IGrabRefusalNarrator
+                                      IWalkInHighlightTarget, IGrabRefusalNarrator, IGrabReachVolume,
+                                      IBoardGrabTarget
 {
     /// <summary>Unity's built-in Ignore Raycast layer. Parked here for the duration of a hold; see
     /// the class doc for why the game's own <c>"Hovering"</c> layer cannot stay.</summary>
@@ -171,6 +172,13 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     private readonly CObjectProp _prop;
     private readonly GameObject _visual;
     private readonly Collider _collider;
+
+    /// <summary>THE VOLUME THE HANDS ARE MEASURED AGAINST for a prop standing on SEVERAL hexes —
+    /// the union of those hexes (<see cref="PropFootprint"/>). NULL for every single-hex prop, and
+    /// that null is the structural guarantee that a one-hex prop's reach did not move in ModBuild
+    /// 473: <see cref="ReachDistance"/> is then the identical <c>ClosestPoint</c> expression
+    /// against the identical <see cref="_collider"/> that shipped in 472.</summary>
+    private readonly PropFootprint? _footprint;
 
     private readonly FigureHighlight _highlight = new();
 
@@ -237,11 +245,13 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     private Quaternion _glideFromRot = Quaternion.identity;
     private Vector3 _glideFromScale = Vector3.one;
 
-    internal GrabbableProp(CObjectProp prop, GameObject visual, Collider collider)
+    internal GrabbableProp(CObjectProp prop, GameObject visual, Collider collider,
+        PropFootprint? footprint = null)
     {
         _prop = prop;
         _visual = visual;
         _collider = collider;
+        _footprint = footprint;
     }
 
     internal CObjectProp Prop => _prop;
@@ -249,6 +259,10 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     internal GameObject Visual => _visual;
 
     internal Collider PickCollider => _collider;
+
+    /// <summary>How many hex cylinders this prop's reach is the union of; 0 when it has none and
+    /// is measured against <see cref="PickCollider"/> instead. Census column only.</summary>
+    internal int FootprintCells => _footprint?.Count ?? 0;
 
     internal bool IsHeld => _holder != null;
 
@@ -336,7 +350,12 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// and a refusal probe that all have to agree within one frame. A prop has none of that, so
     /// the only rule left is the one the user can feel: the PINCH POINT — where a held object
     /// appears, not the palm — has to come within <c>[FigureGrab] PickRadiusMillimeters</c> of the
-    /// prop's own surface. Everything past that is left to the <c>ProximityGrabber</c>, which
+    /// prop's REACH VOLUME. ModBuild 473: that volume is the prop's own collider surface for a
+    /// single-hex prop, exactly as before, and the UNION OF ITS HEXES for a prop standing on
+    /// several — see <see cref="ReachDistance"/>, which is the one expression both cases go
+    /// through. The RADIUS is untouched and is still the FIGURE's own dial, which is what makes
+    /// "soll sich ähnlich anfühlen wie bei den Figuren" a shared term rather than a second tuned
+    /// number. Everything past that is left to the <c>ProximityGrabber</c>, which
     /// already picks the single nearest surviving candidate and already has its own switch
     /// hysteresis. So props and figures compete on equal terms in one election instead of two.</para>
     ///
@@ -384,9 +403,62 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         float admit = FigureGrabConfig.PickRadiusRealMeters * scale
                       * (_inReach[side] ? FigureGrabDriver.PickExitFactor : 1f);
         Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(PropHeldPose.HeldOffsetFor(hand.Side));
-        bool inside = Vector3.Distance(pinch, _collider.ClosestPoint(pinch)) <= admit;
+        bool inside = ReachDistance(pinch) <= admit;
         _inReach[side] = inside;
         return inside;
+    }
+
+    /// <summary>
+    /// HOW FAR THIS PROP IS FROM <paramref name="point"/>, in world units — zero inside its reach
+    /// volume. THE ONE EXPRESSION every reach test in the mod now runs against a prop
+    /// (<see cref="Hands.Interact.IGrabReachVolume"/>): <see cref="AllowsHand"/>, which gates the
+    /// grab; <see cref="InReachOf"/>, which <c>PropGrab.NearestInReach</c> and thus the stretch
+    /// veto walk; and all three sites in <c>ProximityGrabber</c>, which elect the hover glow.
+    ///
+    /// <para><b>A MULTI-HEX PROP IS MEASURED AGAINST THE UNION OF ITS HEXES</b> — see
+    /// <see cref="PropFootprint"/> for the 2026-09-07 report, and for the ModBuild 472 host-log
+    /// readings that put the bounding box it replaced at 3.6 x 3.4 hexes over a three-hex
+    /// obstacle.</para>
+    ///
+    /// <para><b>EVERY OTHER PROP TAKES THE LINE IT ALWAYS TOOK.</b> <see cref="_footprint"/> is
+    /// null for every single-hex prop by construction (<c>PropReach.Resolve</c> returns before it
+    /// is ever built), so the fall-through is character for character the expression that shipped
+    /// in ModBuild 472, against the same collider. Nothing widens or narrows for them, and no
+    /// branch could: there is no object for a branch to read.</para>
+    /// </summary>
+    internal float ReachDistance(Vector3 point)
+    {
+        if (_footprint != null)
+            return _footprint.Distance(point, out _);
+        return Vector3.Distance(point, _collider.ClosestPoint(point));
+    }
+
+    float IGrabReachVolume.ReachDistance(Vector3 point) => ReachDistance(point);
+
+    BoardGrabKind IBoardGrabTarget.BoardKind => BoardGrabKind.Prop;
+
+    string IBoardGrabTarget.BoardLabel => Label;
+
+    /// <summary>
+    /// WHICH HEX ANSWERED, and how wide that hex's cylinder is — the clause the hover line prints
+    /// beside an elected prop so a wrong election can be read off the log without a screenshot.
+    /// Empty for a single-hex prop, which has no footprint and therefore nothing to disambiguate.
+    /// Log only; nothing branches on it.
+    /// </summary>
+    /// <param name="point">The point the election measured from.</param>
+    /// <param name="handWorldScale">The rig world scale, so the radius is quoted in the same real
+    /// millimetres at the hand as the figure pick radius.</param>
+    string IBoardGrabTarget.DescribeBoardReach(Vector3 point, float handWorldScale) =>
+        DescribeReach(point, handWorldScale);
+
+    internal string DescribeReach(Vector3 point, float handWorldScale)
+    {
+        if (_footprint == null)
+            return string.Empty;
+        _footprint.Distance(point, out int cell);
+        return $" [footprint: hex {cell + 1} of {_footprint.Count} answered, each a cylinder of "
+               + $"{_footprint.RadiusRealMeters(handWorldScale) * 1000f:F0} mm real radius = half a "
+               + "hex, over the prop's drawn height]";
     }
 
     /// <summary>
@@ -417,7 +489,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             return false;
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
         Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(PropHeldPose.HeldOffsetFor(hand.Side));
-        float world = Vector3.Distance(pinch, _collider.ClosestPoint(pinch));
+        float world = ReachDistance(pinch);
         realMetres = world / scale;
         return realMetres <= FigureGrabConfig.PickRadiusRealMeters;
     }

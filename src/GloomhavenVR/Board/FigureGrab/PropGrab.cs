@@ -165,8 +165,10 @@ internal static class PropGrab
 
     /// <summary>
     /// The collider this prop actually REGISTERED against, or null if it is not registered — read
-    /// by the <c>[Props]</c> census's REACHHEXES column so the line measures the shape the hands
-    /// are really being tested against, not the shape this file believes it built.
+    /// by the <c>[Props]</c> census's REACHHEXES column so the line measures the shape the registry
+    /// really holds, not the shape this file believes it built. Since ModBuild 473 that collider
+    /// is not necessarily the shape a HAND is measured against: see
+    /// <see cref="FootprintCellsOf"/> and <see cref="PropFootprint"/>.
     ///
     /// <para>Read-only: it hands back a reference and nothing else, so the census cannot become
     /// load-bearing through it. A destroyed collider comes back as a Unity-null the caller's own
@@ -198,6 +200,23 @@ internal static class PropGrab
         if (prop == null)
             return null;
         return Registry.TryGetValue(prop, out GrabbableProp grabbable) ? grabbable.PickCollider : null;
+    }
+
+    /// <summary>
+    /// How many hex cylinders this prop's REACH is the union of, or 0 when it has no footprint and
+    /// is measured against its registered collider instead (ModBuild 473) — read by the
+    /// <c>[Props]</c> census's FOOTPRINT column.
+    ///
+    /// <para>Asked of the LIVE registry entry rather than re-derived, for the same reason
+    /// <see cref="PickColliderOf"/> is: a census that rebuilds the shape it is measuring agrees
+    /// with every broken build. Read-only, and -1 for a prop that is not registered at all, which
+    /// is a different fact from "registered with no footprint".</para>
+    /// </summary>
+    internal static int FootprintCellsOf(CObjectProp? prop)
+    {
+        if (prop == null)
+            return -1;
+        return Registry.TryGetValue(prop, out GrabbableProp grabbable) ? grabbable.FootprintCells : -1;
     }
 
     /// <summary>
@@ -480,7 +499,8 @@ internal static class PropGrab
             Collider? own = PropReach.OwnPickShape(visual, out int ownPresent, out int ownUsable);
             bool built = own == null;
             Collider? collider = PropReach.Resolve(visual, prop, own,
-                out PropReach.Route reachRoute, out int reachHexes, out string reachHexSource);
+                out PropReach.Route reachRoute, out int reachHexes, out string reachHexSource,
+                out PropFootprint? footprint);
             if (collider == null)
             {
                 _pendingResolve++;
@@ -490,7 +510,7 @@ internal static class PropGrab
             if (ownPresent > 0 && ownUsable == 0)
                 NoteUnusableOwnShape(visual, prop, reachRoute, ownPresent);
 
-            var grabbable = new GrabbableProp(prop, visual, collider);
+            var grabbable = new GrabbableProp(prop, visual, collider, footprint);
             VRInteractables.RegisterGrabbable(grabbable, collider);
             Registry[prop] = grabbable;
 
@@ -523,8 +543,29 @@ internal static class PropGrab
                 + $"stands on {reachHexes} hex(es) according to {reachHexSource}. A prop on ONE hex "
                 + "keeps exactly the collider it had before this build; a prop on SEVERAL gets one "
                 + "trigger box spanning all of them, because the single registered collider is the "
-                + "only shape every hover and grab test measures against. The census line's "
-                + "REACHHEXES column says whether that landed, per prop.");
+                + "only shape the registry and the pick-shape predicate can read. The census line's "
+                + "REACHHEXES column says whether that landed, per prop."
+                // ModBuild 473: the registered collider stopped being the shape a HAND is measured
+                // against for a multi-hex prop, so the line has to say which of the two volumes
+                // this prop actually answers over — a null footprint and a built one are the whole
+                // difference between the 472 behaviour and this one.
+                + " FOOTPRINT (ModBuild 473): "
+                + (footprint != null
+                    ? $"the union of {footprint.Count} hex cylinder(s), each half a hex wide over "
+                      + "the prop's drawn height — this is what every hover and grab test measures, "
+                      + "NOT the box above. The box over this prop's renderers is an AABB and "
+                      + "covers hexes it does not stand on by construction: in the ModBuild 472 log "
+                      + "a ThreeHexObstacle's was 3.6 x 3.4 hexes wide, read 0 mm to a hand "
+                      + "anywhere inside it, and so beat the figure on the neighbouring hex every "
+                      + "time."
+                    : reachHexes > 1
+                        ? "NONE — this prop stands on several hexes but its union could not be "
+                          + "described (its hexes could not be located, the runtime hex size is not "
+                          + "resolvable yet, or it draws nothing measurable), so it keeps the "
+                          + "ModBuild 472 bounding box. A multi-hex prop reading NONE here is the "
+                          + "one that will still eat the figure beside it."
+                        : "none, and none is correct — a single-hex prop is measured against its "
+                          + "own collider with the identical expression it always was."));
         }
 
         // PHASE 4 — THE PER-KIND LEDGER. Everything above decided per INSTANCE; this rolls the

@@ -82,3 +82,84 @@ internal interface IGrabbableHandFilter
 internal interface ITriggerOnlyGrabbable
 {
 }
+
+/// <summary>
+/// Optional companion to <see cref="IGrabbable"/> (additive, ModBuild 473): THIS TARGET MEASURES
+/// ITS OWN REACH, and the election must ask it instead of its collider.
+///
+/// <para><b>Why the registered collider is not always enough.</b> Every reach test in this mod is
+/// <c>Vector3.Distance(point, collider.ClosestPoint(point))</c>, and
+/// <see cref="VRInteractables.RegisterGrabbable"/> allows exactly ONE collider per target (its
+/// first statement is <c>UnregisterGrabbable(target)</c>, and the election loops assume one entry
+/// per target throughout). A target whose true volume is a UNION of shapes therefore cannot be
+/// described by its entry: a board obstacle standing on three hexes had to register the bounding
+/// box over all of them, which in the ModBuild 472 host log measured 3.6 x 3.4 HEXES across, read
+/// 0 mm to a hand anywhere inside it, and so ate the figure on the neighbouring hex outright. See
+/// <c>Board.FigureGrab.PropFootprint</c> for that account and its numbers.</para>
+///
+/// <para><b>It is a distance, not a policy.</b> The grabber still asks
+/// <see cref="VRInteractables.IsUsablePickShape"/> about the registered collider first, still
+/// applies <see cref="IGrabbable.CanGrab"/> and <see cref="IGrabbableHandFilter"/>, and still
+/// elects the nearest candidate — only the number changes. A target that does not implement this
+/// keeps the exact <c>ClosestPoint</c> expression it always had, so this can never move the reach
+/// of anything that did not opt in.</para>
+///
+/// <para>Must be pure, allocation-free and free of scene queries: it is called once per registered
+/// entry per hand per frame.</para>
+/// </summary>
+internal interface IGrabReachVolume
+{
+    /// <summary>Distance from <paramref name="point"/> to this target's reach volume in WORLD
+    /// units — zero inside it, the true Euclidean gap outside.</summary>
+    float ReachDistance(Vector3 point);
+}
+
+/// <summary>Which class of board object a grabbable is — see <see cref="IBoardGrabTarget"/>.</summary>
+internal enum BoardGrabKind
+{
+    /// <summary>A board miniature (<c>Board.FigureGrab.FigureGrabbable</c>).</summary>
+    Figure,
+
+    /// <summary>Board scenery: an obstacle, chest, trap, gold pile
+    /// (<c>Board.FigureGrab.GrabbableProp</c>).</summary>
+    Prop,
+}
+
+/// <summary>
+/// Optional companion to <see cref="IGrabbable"/> (additive, ModBuild 473): a target that is a
+/// BOARD object, and which kind of one.
+///
+/// <para><b>What it decides.</b> Exactly one rule, in exactly one place — see
+/// <c>ProximityGrabber.UpdateHighlight</c>: when a FIGURE and a PROP are both admissible for the
+/// same hand in the same frame, the FIGURE wins regardless of which is the nearer. It answers the
+/// half of the 2026-09-07 report that a correct footprint alone cannot: a figure standing on the
+/// hex NEXT TO an obstacle is close to that obstacle's boundary either way, and if the election is
+/// a bare distance comparison then two centimetres of hand tremor decide it. A figure is the
+/// finer-grained and far more often wanted target, and a prop beside it can always be reached by
+/// stepping off the figure — the reverse is not true.</para>
+///
+/// <para><b>It is deliberately not a general precedence ladder.</b> Only these two kinds carry it.
+/// Cards, tray bars and world panels implement nothing here and are compared on distance exactly
+/// as before, so nothing outside the board can win or lose an election because of this
+/// interface.</para>
+/// </summary>
+internal interface IBoardGrabTarget
+{
+    /// <summary>Figure or prop. Constant for the life of the target.</summary>
+    BoardGrabKind BoardKind { get; }
+
+    /// <summary>The target's own short name — the vocabulary the rest of its subsystem's log lines
+    /// use, so a hover line and a grab line read as one story. Log only.</summary>
+    string BoardLabel { get; }
+
+    /// <summary>
+    /// One clause describing the volume this target just answered over, or an empty string when it
+    /// has nothing to add. Log only, and it is how the hover line says WHICH of a multi-hex prop's
+    /// hexes replied — the field the 2026-09-07 report needs and which only the target itself can
+    /// know. Hands deliberately does not name Board types; this member is why it does not have to.
+    /// </summary>
+    /// <param name="point">The point the election measured from.</param>
+    /// <param name="handWorldScale">Rig world scale, so lengths can be quoted in real millimetres
+    /// at the hand — the unit every reach number in this project is stated in.</param>
+    string DescribeBoardReach(Vector3 point, float handWorldScale);
+}

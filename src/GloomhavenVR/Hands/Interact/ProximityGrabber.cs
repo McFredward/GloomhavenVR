@@ -141,6 +141,16 @@ internal sealed class ProximityGrabber
     private float _nextOverrideLogAt;
     private int _overridesSinceLastLog;
 
+    // THE HOVER ELECTION LINE (ModBuild 473, see LogHighlightEngaged): the runner-up and both
+    // distances, collected by UpdateHighlight's existing sweep so the line can never disagree with
+    // the election that produced it. World units; converted to real mm at the hand when printed.
+    private IGrabbable? _runnerUp;
+    private float _runnerUpDist;
+    private float _electedDist;
+    private bool _figureBeatProp;
+    private float _nextEngageLogAt;
+    private int _engagesSinceLastLog;
+
     internal ProximityGrabber(VRHand hand) => _hand = hand;
 
     /// <summary>The current grab candidate (highlighted), if any.</summary>
@@ -588,7 +598,7 @@ internal sealed class ProximityGrabber
                 continue;
             if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
                 continue;
-            float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
+            float dist = ReachDistance(entries[i], palm);
             if (dist <= reach && dist < nearestDist)
             {
                 nearestDist = dist;
@@ -745,10 +755,115 @@ internal sealed class ProximityGrabber
     /// <summary>Stable display name for a grabbable (MonoBehaviour name when alive).</summary>
     private static string DescribeGrabbable(IGrabbable target)
     {
+        // A BOARD target names itself in the vocabulary the rest of its subsystem's log lines use
+        // (ModBuild 473). Without this a prop printed as "GrabbableProp" and a figure as
+        // "FigureGrabbable" — the CLASS name, identical for every prop on the board — because
+        // neither is a UnityEngine.Object and the fall-through below is a type name. A hover line
+        // that cannot say WHICH obstacle won cannot settle a wrong election.
+        if (target is IBoardGrabTarget board)
+            return board.BoardLabel;
         if (target is UnityEngine.Object obj)
             return obj == null ? $"{target.GetType().Name} (destroyed)" : obj.name;
         return target.GetType().Name;
     }
+
+    /// <summary>
+    /// HOW FAR <paramref name="point"/> IS FROM THIS ENTRY'S TARGET, in world units — THE one
+    /// reach expression this class runs, in the three places it runs it
+    /// (<see cref="UpdateHighlight"/>, <see cref="FindNearestGripGrabbable"/>,
+    /// <see cref="LogNoCandidateRefusal"/>).
+    ///
+    /// <para>A target that measures its OWN reach (<see cref="IGrabReachVolume"/>) is asked;
+    /// everything else keeps the exact <c>Distance(point, collider.ClosestPoint(point))</c> that
+    /// has always stood here. The override exists because the registry allows one collider per
+    /// target and a board obstacle standing on three hexes cannot be described by one — see
+    /// <c>Board.FigureGrab.PropFootprint</c> and the 2026-09-07 report.</para>
+    ///
+    /// <para>The caller has already asked <see cref="VRInteractables.IsUsablePickShape"/> about
+    /// the entry's collider in every one of the three sites, and that gate is deliberately NOT
+    /// moved in here: it is a question about the REGISTERED shape, and it stays the same question
+    /// for an overriding target — a prop whose registered collider went dead is refused before its
+    /// footprint is ever consulted, exactly as it was before.</para>
+    /// </summary>
+    private static float ReachDistance(in VRInteractables.GrabbableEntry entry, Vector3 point)
+    {
+        if (entry.Target is IGrabReachVolume volume)
+            return volume.ReachDistance(point);
+        return Vector3.Distance(point, entry.Collider.ClosestPoint(point));
+    }
+
+    /// <summary>
+    /// THE ONE BOARD PRECEDENCE RULE (ModBuild 473, see <see cref="IBoardGrabTarget"/>): a FIGURE
+    /// outranks a PROP, and nothing else outranks anything. Read in exactly two places, both in
+    /// <see cref="UpdateHighlight"/> — the election itself, and the switch-margin stickiness that
+    /// would otherwise protect a lit prop from the figure the player is reaching for. Written once
+    /// so those two can never drift apart.
+    /// </summary>
+    private static bool Outranks(IGrabbable? rival, IGrabbable? current) =>
+        rival is IBoardGrabTarget { BoardKind: BoardGrabKind.Figure }
+        && current is IBoardGrabTarget { BoardKind: BoardGrabKind.Prop };
+
+    /// <summary>
+    /// WHAT THIS HAND JUST ELECTED, AND WHAT IT BEAT — one line per hover that actually STARTED.
+    ///
+    /// <para>The 2026-09-07 report is about an election going the wrong way ("das highlight
+    /// highlightet immer auf die nebenstehende Prop … statt die Figure"), and no line in ModBuild
+    /// 472 could describe an election at all: <see cref="LogHighlightDrop"/> names the gate that
+    /// ENDED a hover, and nothing named the one that started it or what came second. A wrong
+    /// election therefore left no trace whatsoever, and he is testing this with his hands.</para>
+    ///
+    /// <para>So the line carries the winner, its KIND, its distance, the RUNNER-UP and its
+    /// distance, whether the board precedence rule (<see cref="Outranks"/>) is what decided it,
+    /// and for a prop the covered-hex count and WHICH hex answered. Every one of those is the
+    /// election's own working, collected inside the sweep that produced it — nothing is
+    /// re-derived, so this line cannot agree with a broken build.</para>
+    ///
+    /// <para>Throttled to one per second per hand and carrying the count it swallowed, exactly
+    /// like <see cref="LogHighlightDrop"/>: a hand sweeping a crowded board changes hover many
+    /// times a second, and a cap that goes silent would read as "it only happened once".</para>
+    /// </summary>
+    private void LogHighlightEngaged(IGrabbable elected)
+    {
+        _engagesSinceLastLog++;
+        if (Time.unscaledTime < _nextEngageLogAt)
+            return;
+        _nextEngageLogAt = Time.unscaledTime + 1f;
+        int swallowed = _engagesSinceLastLog - 1;
+        _engagesSinceLastLog = 0;
+
+        float scale = Mathf.Max(_hand.WorldScale, 1e-4f);
+        string rival = _runnerUp != null
+            ? $"'{DescribeGrabbable(_runnerUp)}' ({DescribeKind(_runnerUp)}) at "
+              + $"{_runnerUpDist / scale * 1000f:F0} mm"
+            : "nothing else was in reach";
+        string footprint = elected is IBoardGrabTarget board
+            ? board.DescribeBoardReach(_hand.Rig.PalmCenter.position, scale)
+            : string.Empty;
+
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        Core.VRLog.Note("Interact",
+            $"{_hand.Side} hover ELECTED '{DescribeGrabbable(elected)}' ({DescribeKind(elected)}) "
+            + $"at {_electedDist / scale * 1000f:F0} mm real from the palm; runner-up {rival}. "
+            + (_figureBeatProp
+                ? "THE FIGURE WON ON RANK, not on distance (ModBuild 473: a figure outranks a prop "
+                  + "whenever both are admissible, because a prop beside a figure can always be "
+                  + "reached by stepping off the figure and the reverse is not true). "
+                : "Decided on distance alone. ")
+            + footprint
+            + (swallowed > 0
+                ? $" {swallowed} further hover start(s) in the last second are not printed — a "
+                  + "count above zero here means the hand is sweeping, or that two candidates are "
+                  + "trading the glow."
+                : string.Empty));
+    }
+
+    /// <summary>Figure, prop, or the target's own class — the column that makes a wrong election
+    /// one grep instead of a screenshot. Log only.</summary>
+    private static string DescribeKind(IGrabbable target) =>
+        target is IBoardGrabTarget board
+            ? board.BoardKind == BoardGrabKind.Figure ? "figure" : "prop"
+            : target.GetType().Name;
 
     /// <summary>
     /// Throttled (1/s per hand) refusal diagnostic.
@@ -793,7 +908,7 @@ internal sealed class ProximityGrabber
             // places in this file, and NOT written at all on the prop side of the same election.
             if (!VRInteractables.IsUsablePickShape(collider))
                 continue;
-            float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
+            float dist = ReachDistance(entries[i], palm);
             if (dist > reach || dist >= nearest)
                 continue;
             IGrabbable target = entries[i].Target;
@@ -872,6 +987,13 @@ internal sealed class ProximityGrabber
         IGrabbable? nearest = null;
         float nearestDist = float.MaxValue;
         float nearestTriggerDist = float.MaxValue; // ModBuild 359: the trigger fall-through target
+        // FIGURE BEATS PROP (ModBuild 473, see IBoardGrabTarget) plus the runner-up the hover line
+        // prints. Both are collected in THIS sweep, one comparison per entry, for the same reason
+        // the trigger candidate is: a second scan could disagree with the election it explains.
+        IGrabbable? nearestFigure = null;
+        float nearestFigureDist = float.MaxValue;
+        IGrabbable? runnerUp = null;
+        float runnerUpDist = float.MaxValue;
         _triggerCandidate = null;
         float currentDist = float.MaxValue; // distance to the CURRENT highlight while it is measurable
         bool currentMeasured = false;       // its collider is alive, so currentDist means something
@@ -907,7 +1029,7 @@ internal sealed class ProximityGrabber
             // Measured BEFORE the policy gates so a vetoed current highlight still reports where
             // the hand actually is — the exit ring is a distance test and has to run on the frames
             // the gates fail, which are the only frames it matters on.
-            float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
+            float dist = ReachDistance(entries[i], palm);
             if (isCurrent)
             {
                 currentDist = dist;
@@ -940,10 +1062,28 @@ internal sealed class ProximityGrabber
                     currentBlocker = $"the hand moved out to {dist / scale * 1000f:F0} mm real, past "
                                      + $"the {ReachMeters * 1000f:F0} mm palm reach";
             }
-            if (dist <= reach && dist < nearestDist)
+            if (dist <= reach)
             {
-                nearestDist = dist;
-                nearest = target;
+                if (dist < nearestDist)
+                {
+                    // The winner so far becomes the runner-up, so the hover line always names the
+                    // candidate that came SECOND rather than merely the second one met.
+                    runnerUpDist = nearestDist;
+                    runnerUp = nearest;
+                    nearestDist = dist;
+                    nearest = target;
+                }
+                else if (dist < runnerUpDist)
+                {
+                    runnerUpDist = dist;
+                    runnerUp = target;
+                }
+                if (target is IBoardGrabTarget { BoardKind: BoardGrabKind.Figure }
+                    && dist < nearestFigureDist)
+                {
+                    nearestFigureDist = dist;
+                    nearestFigure = target;
+                }
             }
             // TRIGGER FALL-THROUGH candidate (ModBuild 359), collected in THIS sweep so it can
             // never disagree with the election above: the nearest in-reach target that takes the
@@ -959,10 +1099,57 @@ internal sealed class ProximityGrabber
         if (sawDead)
             VRInteractables.Prune();
 
+        // ---- A FIGURE OUTRANKS A PROP (ModBuild 473) -------------------------------------------
+        //
+        // "Wenn eine Figur neben einem Prop steht das mehrere tiles umfasst, bekommt man die Figur
+        // schwierig bis kaum gegriffen, da das highlight immer auf die nebenstehende Prop
+        // highlightet und es dann greift statt die Figure."
+        //
+        // A correct prop footprint (PropFootprint, this same build) stops the obstacle from
+        // reaching ONTO the figure's hex, and it is the larger half of that report. It is not the
+        // whole of it: a figure standing on the hex NEXT TO an obstacle is close to that
+        // obstacle's boundary whichever shape the boundary has, and while the election is a bare
+        // distance comparison a couple of centimetres of hand tremor decide which one lights up.
+        // The feel he asked for needs the answer to be STABLE, not merely nearer.
+        //
+        // So when both are admissible in the same frame the FIGURE wins outright. A figure is the
+        // finer-grained and far more often wanted target, and a prop beside it can always be
+        // reached by stepping off the figure — the reverse is not true, which is exactly what he
+        // reported. ONE rule, in ONE place: the two board classes declare themselves through
+        // IBoardGrabTarget and nothing else consults it.
+        //
+        // WHAT IT CANNOT COST. A figure is only ever admissible here when FigureGrabDriver's own
+        // election has already named it for this hand (IGrabbableHandFilter.AllowsHand above), and
+        // that election requires the pinch to be inside FigureGrabConfig.PickRadiusRealMeters —
+        // 40 mm real — of the mini's own capsule. So a prop can only lose to a figure the hand is
+        // literally pinching, and never to one merely somewhere in the 130 mm palm reach.
+        //
+        // NOTHING OUTSIDE THE BOARD IS TOUCHED: cards, tray bars and world panels implement
+        // IBoardGrabTarget on neither side, so they are compared on distance exactly as before.
+        _figureBeatProp = false;
+        if (!ReferenceEquals(nearest, nearestFigure) && Outranks(nearestFigure, nearest))
+        {
+            runnerUp = nearest;
+            runnerUpDist = nearestDist;
+            nearest = nearestFigure;
+            nearestDist = nearestFigureDist;
+            _figureBeatProp = true;
+        }
+        _runnerUp = runnerUp;
+        _runnerUpDist = runnerUpDist;
+        _electedDist = nearestDist;
+
         // Sticky candidate: keep the current highlight while it is still in reach and
         // the rival is not decisively closer (haptic-buzz fix, see SwitchMarginMeters).
+        //
+        // THE STICKINESS MAY NOT PROTECT A PROP FROM A FIGURE (ModBuild 473). The rule above is
+        // about RANK, not distance, and a figure standing beside an obstacle is usually the
+        // FARTHER of the two — so leaving the margin in front of it would have let a lit obstacle
+        // keep the glow against exactly the figure the player is reaching for, which is the report
+        // verbatim. Same predicate, so the two sites can never disagree.
         if (nearest != null && Highlighted != null && !ReferenceEquals(nearest, Highlighted)
             && currentEligible && currentDist <= reach
+            && !Outranks(nearest, Highlighted)
             && nearestDist > currentDist - SwitchMarginMeters * _hand.WorldScale)
         {
             _highlightDropAt = -1f;
@@ -1012,7 +1199,14 @@ internal sealed class ProximityGrabber
         // A different target takes the highlight outright (or the first one arrives).
         SetHighlighted(nearest);
         if (nearest != null)
+        {
+            // Logged HERE and not in SetHighlighted, deliberately: this is the only path on which
+            // an ELECTION produced the new highlight, so _electedDist / _runnerUp are this frame's
+            // own working. SetHighlighted is also called by CancelAll and by the hover-tail
+            // teardown, where there is no election to report.
+            LogHighlightEngaged(nearest);
             _hand.SendHaptic(HapticPreset.HoverTick);
+        }
     }
 
     /// <summary>
