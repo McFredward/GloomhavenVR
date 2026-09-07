@@ -5331,6 +5331,10 @@ internal static partial class ModalFallback
         // SharedAnchorSpent.Count would leave last room's windows in the next room's falsifier and
         // make the SPREAD read as a disagreement that nobody can see.
         ResetMapRoomBarRoster();
+        // The quest popup's corner latch dies with the room for the same reason and BEFORE the same
+        // early return: it is written on placements that never spend an anchor, so gating its clear
+        // on SharedAnchorSpent.Count would carry last room's loadout verdict into the next room.
+        ResetSharedQuestCornerSeats(reason);
         if (SharedAnchorSpent.Count == 0)
             return;
         VRLog.Info("WorldUI", $"SHARED WINDOW ANCHOR RESET ({reason}) — {SharedAnchorSpent.Count} "
@@ -5478,8 +5482,8 @@ internal static partial class ModalFallback
             return false;
 
         bool seated = MapRoom.MapRoomDriver.Active
-            ? TrySharedAnchorOnTable(window, kind, home, stage, halfSize, out worldPos, out worldRot,
-                                     out worldScale, out line)
+            ? TrySharedAnchorOnTable(panel, window, kind, home, stage, halfSize, out worldPos,
+                                     out worldRot, out worldScale, out line)
             : TrySharedAnchorOverBoard(window, kind, home, stage, halfSize, out worldPos, out worldRot,
                                        out worldScale, out line);
         if (seated && !replay)
@@ -5806,9 +5810,9 @@ internal static partial class ModalFallback
     /// <summary>THE MAP ROOM HOME — parchment frame, real metres, absolute world rotation. Every
     /// term is a pure function of the parchment renderer's own world bounds, so two clients compute
     /// the same frame-local numbers with nothing sent.</summary>
-    private static bool TrySharedAnchorOnTable(UIWindow window, SharedWindowKind kind, int home,
-        string stage, Vector2 halfSize, out Vector3 worldPos, out Quaternion worldRot,
-        out float worldScale, out string line)
+    private static bool TrySharedAnchorOnTable(ConvertedPanel? panel, UIWindow window,
+        SharedWindowKind kind, int home, string stage, Vector2 halfSize, out Vector3 worldPos,
+        out Quaternion worldRot, out float worldScale, out string line)
     {
         worldPos = Vector3.zero;
         worldRot = Quaternion.identity;
@@ -5989,6 +5993,23 @@ internal static partial class ModalFallback
         // forward*depth + up*centre + right*lateral IS (lateral, centre, depth).
         Vector3 localPos = ahead * depthHalf + Vector3.up * centreYm + lateralDir * lateral;
 
+        // ---- ModBuild 477 — THE ONE EXCEPTION TO THE RING, AND IT IS THE QUEST INFO WINDOW'S ALONE.
+        //      "Das Multiplayer-Questinfo Fenster soll an der rechten Ecke des Tisches Spawnen wenn
+        //       man die privaten Quests auswählen muss. Aktuell spawnt es davor."
+        //
+        //      While the LOADOUT SCREEN is open — the phase in which the game raises this popup and
+        //      the battle-goal ("private quest") picker from one call — SharedWindowKind.QuestConfirm
+        //      is seated on the table's RIGHT FAR CORNER instead of on its ring home. Everything else
+        //      about the seat is untouched: the height is still the room's one bar height, the facing
+        //      is still the one shared yaw below, and the drag still spends the anchor. The whole
+        //      rule, the predicate it is NOT (the picker's own open flag, which is per-player and
+        //      would seat a shared window in two places), and the corner arithmetic are in
+        //      SharedQuestCornerSeat.cs. Grep token: PRIVATE QUEST CORNER.
+        bool questCorner = TryPrivateQuestCornerSeat(panel, kind, ahead, halfXm, halfZm,
+                                                     out Vector3 questCornerRel);
+        if (questCorner)
+            localPos = questCornerRel + Vector3.up * centreYm;
+
         // FACING IS 1:1 AND IT IS THE SAME FOR EVERY SLOT (ModBuild 250). The window is yawed square
         // to the READING AXIS — the short horizontal axis of the table, whose negative end is the
         // end every client is seated at — and NOT along its own radius. Canvas front faces
@@ -6043,6 +6064,7 @@ internal static partial class ModalFallback
                + $"TWO CLIENTS: pos ({localPos.x:F4},{localPos.y:F4},{localPos.z:F4}) m, yaw "
                + $"{worldRot.eulerAngles.y:F2}°, size {worldScale:F2} wu/m. WORLD POSE, WHICH MAY "
                + $"LEGITIMATELY DIFFER: ({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2}) wu. "
+               + TakeQuestCornerClause()
                + $"TABLE: half-width {halfXm:F3} m, half-depth {halfZm:F3} m, top surface "
                + $"{topYm:F3} m above the frame centre, derived from the parchment's own "
                + $"{b.size.x:F1}x{b.size.z:F1} wu bounds by the surveyed ratios "

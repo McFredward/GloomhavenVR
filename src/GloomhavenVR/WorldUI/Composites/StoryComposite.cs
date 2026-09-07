@@ -1035,8 +1035,15 @@ internal static class StoryComposite
     internal static bool StoryOrLoadoutStanding => _curtainStanding || LoadoutScreenOpen;
 
     /// <summary>The ModBuild 233 level, unchanged and still the clause that holds the gate up for the
-    /// whole pre-scenario interval.</summary>
-    private static bool LoadoutScreenOpen =>
+    /// whole pre-scenario interval.
+    ///
+    /// <para>ModBuild 477 made it <c>internal</c> and changed nothing else. It is the one term of
+    /// the map room's PRIVATE QUEST CORNER exception (<c>SharedQuestCornerSeat.cs</c>): the loadout
+    /// screen is the phase in which the game raises the quest info popup and the battle-goal
+    /// ("private quest") picker from one call, and it is the only term of that phase which is not
+    /// per-player. It is READ there and never written, so this stays a level with one writer: the
+    /// game.</para></summary>
+    internal static bool LoadoutScreenOpen =>
         MapRoomDriver.Active
         && Singleton<UILoadoutManager>.IsInitialized
         && Singleton<UILoadoutManager>.Instance != null
