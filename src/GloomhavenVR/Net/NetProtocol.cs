@@ -433,7 +433,127 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 468;
+    public const ushort ModBuild = 469;
+    // Build 469: the user re-diagnosed the wall himself and was right, and the flash's best-fitting
+    //   candidate in eighteen rounds was named — by the LANE, from the game's own source, after it
+    //   threw out both of the integrator's proposed experiments. Two lanes, three commits, and BOTH
+    //   LANES FALSIFIED THE BRIEFING AGAIN. That is now five rounds running.
+    //   * THE WALL — THE RULE MEASURES THE ROOM, NOT WHAT THE WALL HIDES, AND THE USER SAID SO
+    //     FIRST. Verbatim: "es faded - aber im gegensatz zu den anderen Wänden erst wenn man super
+    //     nah rangeht oder aus einem winkel in dem fast die ganze map verdeckt ist. Das Problem das
+    //     ich aber habe ist das teile der map sichtbar sind aber die 'Sackgasse' verdeckt bleibt.
+    //     Die Wand reagiert also (anders als die anderen Wände) nicht direkt auf verdeckung.
+    //     Eventuell hat das mit der Position zu tun." That is an exact description of
+    //     blocked/ALL-room-hexes: a wall sealing a dead end scores low however completely it seals
+    //     it, and only clears the bar when it happens to cover a large share of everything.
+    //     THE 468 CAP WORKED AND WAS THE WRONG LEVER. `PER-WALL: faded N of 10` went from 1-of-10
+    //     in 61 of 72 passes (467) to 1-of-10 nineteen times, 2-of-10 eighteen times and 4-of-10
+    //     three times (468). More walls fade. Not his, not from his viewpoint.
+    //     THE INTEGRATOR'S SHADOW RULE IS FALSIFIED BY THE 468 LOG AND WAS NOT BUILT. Fitting the
+    //     24 hex positions to 6,720 blocked/not-blocked decisions in the PER-WALL cell sets
+    //     reproduces 97.2 % of them from a pure 2D shadow predicate: in this scenario the 3D ray
+    //     test IS the 2D shadow, identical on 98 of 137 wall-passes and within one hex on 114. So
+    //     the shadow FRACTION reads 1.00 on 72 of 88 wall-passes — including a wall hiding two
+    //     hexes and one hiding a single hex — and a frac>=0.80 rule would have added 73 wall-passes
+    //     across six walls. Every guard that trims that back is a guard on the absolute cell count,
+    //     i.e. a second copy of the 468 cap. The fraction term carries no information here.
+    //     SHIPPED INSTEAD — THE SOLE-OCCLUDER RULE, which the same cell sets DO support with no
+    //     model at all: count the cells this segment is the ONLY occluder of. Of the wall-passes
+    //     the 6-cell bar does not already carry, `exclusive >= 3` adds 21 — ALL of them Wall 7, and
+    //     always the same three cells #5,#6,#7, whose fitted positions (-4.5,2.3) (-5.1,1.8)
+    //     (-4.7,2.5) form a three-hex pocket immediately behind it, closed to the west by Wall 8.
+    //     That is the Sackgasse. No other segment reaches 3 while under the bar (the highest is 2)
+    //     and `exclusive >= 4` adds nothing, so the bar sits with a full cell of margin BOTH ways.
+    //     For contrast the obvious rule `blocked >= 3` would have added 43 wall-passes over six
+    //     walls. `[WallFade] MinExclusiveCells` = 3, 0 = off, no VR-menu row.
+    //     NO-REGRESSION, STRUCTURAL AGAIN: `raw = roomRaw || exclusiveRaw`. With the new term false
+    //     every statement is the 468 one BIT FOR BIT, and adding trues can only lengthen a true-run
+    //     inside StepDwell — so a wall that fades today cannot stop. Own EMA, own Schmitt latch with
+    //     band edges at bar±0.5 cells, because an EMA never reaches an integer bar from below and
+    //     that is exactly why 468's Wall 7 sat at ema0.24 blk6/24 for a whole pass.
+    //     TWO TRAPS CAUGHT BEFORE THE COMMIT, both of which would have shipped the 43-wall-pass
+    //     regression: the decision cadence is THROTTLED (1.8 BlockedFraction calls per tick against
+    //     16 segments), so the ownership map may only rotate on EVALUATING passes — rotating
+    //     otherwise publishes an empty map and degrades the rule into `blocked >= 3`; and the
+    //     walk-in stand-down now drops the new EMA seed as it drops the room one, or every wall
+    //     leaves that mode holding a minute-old count, which is the ModBuild 251 "alle auf einmal".
+    //     THE WALL IS IDENTIFIED, from the video and the xz extents ModBuild 468 added for exactly
+    //     this: 'Wall 7' #-19124 xz[-7.6..-3.8][-0.5..1.7] is TO_EXT_House_07_PR /
+    //     TO_EXT_House_01_Base, the timber-framed house on the west, with the pocket BEHIND it and
+    //     other walls fading in the same frames.
+    //     AND MODBUILD 468'S OWN DOC COMMENT CARRIED A FALSE UNIVERSAL, corrected in place: it
+    //     claimed Wall 7 "cannot reach 9 from any viewpoint that exists", and the 468 log answers
+    //     blk11/24 ema0.36 and blk12/24 ema0.49. The MEASUREMENT was right and the universal was
+    //     not — what it cannot reach is nine from a viewpoint he PLAYS from, which is his report.
+    //     KNOWN OVER-REPORT, documented at the seam: a segment held solid by a fail-safe (doorway,
+    //     gate, engulf, no bounds, no room grid) never measures, so it is absent from the ownership
+    //     map and a wall sharing cells with only such a segment over-reports. ADD-direction only;
+    //     measured size in the 468 log is zero.
+    //   * THE FLASH — EIGHTEEN ROUNDS, AND THE STRUCTURAL FAULT IS NOW NAMED. Every reading in this
+    //     file is "over N frames, NOTHING CHANGED", and every one is conditional on a premise no
+    //     instrument ever measured: that the white was IN that window. The ModBuild 465 line says
+    //     so about itself — "a 0 here on a window that contained NO flash proves nothing either" —
+    //     and nobody could check it. The honest position is therefore not "eighteen candidates
+    //     excluded" but EIGHTEEN READINGS UNQUALIFIED. That reframing is the round's real product.
+    //     THE MECHANISM IS NAMED, IN THE GAME'S OWN SOURCE, and it is the first candidate ever to
+    //     fit the RAMP: GH.Runtime/SpawnObjectAnimateMaterial_SMB, 43 lines. OnStateUpdate is
+    //     `t += dt/animTime; v = myCurve.Evaluate(t)*animStrength;
+    //     rend = animator.GetComponentsInChildren<Renderer>(); rend[i].material.SetFloat(
+    //     animProperty, v);` and OnStateExit is `t = 0f`. Term for term against the photometry: a
+    //     rise over animTime; a PLATEAU, because AnimationCurve.Evaluate clamps past its last key;
+    //     a COMPLETE CLEAR INSIDE ONE FRAME, because t resets and the next update writes
+    //     Evaluate(0); the WHOLE prop, because it walks GetComponentsInChildren; NEUTRAL, because
+    //     it is a scalar SetFloat; EVERY trap and chest at once, because prop animators all start
+    //     at scenario load; and the hand normal, because the hand is not under that animator. It is
+    //     the only generic data-driven material-ramp SMB in the decompile — all 29 were enumerated.
+    //     Its four parameters are serialized in the AssetBundle and unreadable from source; ONE
+    //     Animator.GetBehaviours call reads them off the live object, and that is STATIC DATA — the
+    //     first reading in this file that does not need the flash to happen while it looks.
+    //     BOTH OF THE INTEGRATOR'S PROPOSED EXPERIMENTS WERE THROWN OUT, ONE WITH REFERENCES. The
+    //     off-screen re-render is unsound on three independent grounds (a private-layer write
+    //     against the one-shared-layer-leaks finding; the only working off-screen path here is the
+    //     map's forward UNLIT albedo camera, which cannot show a shading term; and a replacement
+    //     shader would not apply to an explicit DrawRenderer). The capture path used instead is
+    //     EyeFrameProbe's, hardware-proven on this rig 192->219, with ModBuild 191's Blit-rebind
+    //     fault designed out. And the renderer-population census the integrator asked for ALREADY
+    //     EXISTS and already reads zero for the board prop.
+    //     SHIPPED: `] [Props] HELD-PROP FLASH PHOTOMETER` — self-arming from the hold, 35 s wall
+    //     clock, no options row, no config key. Four arms: the behaviour census; the (Instance)
+    //     material fingerprint; THE WITNESS, the actual eye pixels of a prop window and a control
+    //     window, pre-registered INERT / NO WHITE IN THIS WINDOW / WHITE WITNESSED — which is the
+    //     term eighteen rounds have been missing; and the renderer bisection, forceRenderingOff for
+    //     6 frames, once at baseline as the NULL-PERTURBATION CONTROL and once when the photometer
+    //     SEES the white. The answer lands in the log rather than in the user's eye.
+    //     THE FOLLOW-UP FOUND A DEFECT IN THE NEW INSTRUMENT BEFORE IT EVER RAN. Engage calls
+    //     Apply(b) — which disables every animator — and THEN the census. A disabled Animator's
+    //     controller instance is gone, so GetBehaviours answers empty whatever the controller
+    //     carries: as first written it would have printed "0 are SpawnObjectAnimateMaterial_SMB" on
+    //     a prop that has one, and the promise that a zero excludes the best-fitting candidate this
+    //     file has ever had would have been a LIE. The codebase already knew — DrivesRules takes
+    //     its GetBehaviours read BEFORE the disable. Fixed inside the existing census: live state
+    //     per animator, the disabled count printed, the line states that a zero on a disabled
+    //     animator is a NON-READING, and the HOME TWIN is censused too — never hushed, controller
+    //     live, and it is the board-wide population as well.
+    //     AND THE LANE PUT THE EVIDENCE AGAINST ITS OWN HEADLINE: the 468 roster prints
+    //     'Trap_BearTrap_MAT' with NO (Instance) suffix at the grab frame, and material
+    //     instantiation is permanent and one-way — the only one of the three readings that is not
+    //     conditional on the flash happening while something looked. On THAT bear trap the SMB did
+    //     not write. The census must be allowed to return zero and now it can do so honestly.
+    //     THE HUSH CAN LATCH, AND THE SHIPPED REMEDY HAS A GAP — reported, not fixed. §12 and
+    //     RewindAndStop's own comment already say Unity runs neither OnStateExit nor OnStateUpdate
+    //     on a disabled Animator. WriteDefaultValues runs before the disable precisely to undo such
+    //     a latch and 468 confirms it ran — but it writes defaults for properties BOUND BY CLIP
+    //     CURVES, and this float is written imperatively through Renderer.material, which the
+    //     animator does not bind. So the rewind covers a clip-animated latch and leaves an
+    //     SMB-written one standing. It could only ever explain persistence IN THE HAND, never the
+    //     board-wide event: the hush walks the held visual's subtree only, and the ModBuild 447 A/B
+    //     reads advancing home=359/360 on the untouched twin. The hush is a behaviour the user
+    //     asked for by name and NOTHING about it changed.
+    //     KNOWN LIMIT, stated rather than hoped away: CopyTexture's source origin (bottom-left GL /
+    //     top-left D3D) cannot be settled without hardware. The baseline blink detects a Y flip and
+    //     the clause that fires names it as cause (a) of three and WITHHOLDS the verdict.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 468: the round the white flash ran out of candidates, and the round the house wall was
     //   finally named. Two lanes, two behaviour changes, and BOTH LANES CORRECTED THE INTEGRATOR'S
     //   BRIEFING FROM THE LOG — the fourth round running in which that has happened.
