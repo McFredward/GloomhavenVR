@@ -168,25 +168,44 @@ reason and swapping the two lines is the fix.
 |---|---:|---:|---|
 | `card-fan.mp4` | 15 s | 1.2 MB | palm-up fan, a card taken and dropped into a board slot |
 | `figure-grab.mp4` | 15 s | 1.3 MB | a miniature lifted off the board, scaled, released |
-| `control-board.mp4` | 10.6 s | 1.4 MB | the control board in use — cards into slots, the board's own keycaps |
+| `figure-lift.gif` | 6.5 s | 4.5 MB | **README**, *The board in front of you* — the ice ally lifted to eye level with her stat card beside her |
 | `physical-interaction.mp4` | 12.6 s | 1.3 MB | reaching into the scenario: pointing, touching, the arcane hand at work |
 
-`control-board` and `physical-interaction` were trimmed at **0.85–11.40 s** and **0.55–13.10 s** of
-their captures. Both ends had to go and the cut points were read off a contact sheet, then checked
-frame by frame — the Virtual Desktop dashboard is still on screen at 0.60 s in one of them and the
-controller model reappears at 11.60 s in the other, which a 2 fps sheet alone does not show.
+`control-board.mp4` and its poster were **deleted on 2026-09-07**. They were shot on 2026-08-25
+against ModBuild 248 and the playing guide now takes the fresh `controll-board` recording from the
+attachment CDN, in both languages — a clip that plays inline beats a thumbnail that opens a file.
+Nothing referenced the poster except that thumbnail: the board-diagram script names it only in prose,
+as a candidate it REJECTED, and never opens it.
 
-**All four are in the README**, arranged in two clusters rather than as a list of four, on the
-user's instruction ("Ordne die Videos logisch in zusammenhängenden Clustern"):
+`physical-interaction` was trimmed at **0.55–13.10 s** of its capture. Both ends had to go and the
+cut points were read off a contact sheet, then checked frame by frame — the controller model
+reappears at 11.60 s, which a 2 fps sheet alone does not show. Every clip cut since has had the same
+defect at one end or both: the Virtual Desktop overlay, the Quest status bar and its app tiles.
+Cut at the frames where it clears, and check the first and last frame of the RESULT, not of the
+source.
 
-| Cluster | Clips | The one idea it carries |
-|---|---|---|
-| *Your cards and your board* | `card-fan` + `control-board` | the hand you hold and the desk beside you — one continuous action, cards out of the palm and into a slot |
-| *The board in front of you* | `figure-grab` + `physical-interaction` | reaching INTO the diorama — lifting a miniature, pointing at a hex, touching a thing |
+`figure-lift.gif` is a **derivative**, not a capture: 4.4–10.9 s of `figure-grab.mp4` at 10 fps,
+560 px, 96 colours with a diff-mode palette. It is a GIF and not an mp4 for one reason — **a
+committed video does not play in a GitHub README and a GIF does.** If that footage is ever uploaded
+through a comment box, replace the GIF with the attachment `<video>`: better quality, a tenth of the
+bytes, and this file can go.
 
-The pairing is not decorative. Each cluster is one sentence of prose plus two clips that show the
-same idea from two angles, so a reader who watches one already knows what the other is about. Four
-clips under one heading would have read as four unrelated demos.
+**THE CLUSTERS ARE HISTORY — the README no longer draws any of these four.** They were arranged in
+two pairs on the user's instruction ("Ordne die Videos logisch in zusammenhängenden Clustern"), and
+between 2026-08-24 and 2026-09-07 every pair was replaced by a single fresher clip served from the
+attachment CDN. The pairing reasoning is kept because it still governs anything that goes back:
+each cluster was one sentence of prose plus two clips showing the same idea from two angles, so a
+reader who watched one already knew what the other was about; four clips under one heading would
+have read as four unrelated demos.
+
+Where these files stand now:
+
+| File | Still drawn? |
+|---|---|
+| `card-fan.mp4` | yes — playing guide only, *Your cards and your board*, as a poster link |
+| `figure-grab.mp4` | yes — playing guide as a poster link, AND as the source of `figure-lift.gif` in the README |
+| `physical-interaction.mp4` | no — the README section it served takes the attachment clip; the file is kept as the poster's target |
+| `control-board.mp4` | **deleted 2026-09-07** |
 
 **Which attachment URL is which was taken on the maintainer's word**, in the order he sent them
 (`control-board` first, `physical-interaction` second). It cannot be checked from here — an
@@ -577,9 +596,11 @@ of the instructions.
 | `board-artwork.png` | **rendered** -- the shipped Oak `PlayTray.prefab` with its grab rod, dead straight-on, through the real BoardLit material. Quantised to 200 colours: 3.2 MB to 240 kB. |
 | every marker, every word | **drawn by the script**, as real text in Inter |
 
-**The artwork is a render, not a screenshot, and not a Blender render either.** `control-board-poster.jpg`
-is the obvious candidate and it is unusable as a diagram base -- a dark in-game capture with a play
-glyph painted over the middle and the player's forearm across the board. And
+**The artwork is a render, not a screenshot, and not a Blender render either.** An in-game capture of
+the board is the obvious candidate and it is unusable as a diagram base -- dark, with the player's
+forearm across the board and a play glyph painted over the middle. (The specific file this used to
+name, `control-board-poster.jpg`, was deleted on 2026-09-07 along with the clip it fronted; the
+objection was never about that one frame.) And
 `unity/asset-preview/render_asset.py`, which shot every other asset tile here, cannot draw the
 **grab rod**: that rod is a procedural mesh built in C# at runtime, so there is no FBX to hand
 Blender. So the artwork comes from a second entry point on the station that already solved exactly

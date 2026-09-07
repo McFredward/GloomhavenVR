@@ -79,7 +79,15 @@ Every part of it is named on one labelled picture in the
 </p>
 
 Point the laser and pull the trigger to take a hex, an enemy, a door or a chest — or hold the grip
-and touch it with a fingertip. Lift a miniature to read the turn it is about to take.
+and touch it with a fingertip.
+
+**Or pick a figure up.** It comes off the board into your hand, at whatever size you pull it to, and
+its card comes with it — health, movement, attack, the modifiers, the turn it is about to take. Put
+it back and it settles onto its hex.
+
+<p align="center">
+  <img src="docs/img/figure-lift.gif" width="560" alt="An ally lifted off the board to eye level, her stat card beside her">
+</p>
 
 ## The campaign map on a table
 

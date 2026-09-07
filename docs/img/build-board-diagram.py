@@ -22,9 +22,11 @@ marker to a legend cell, and a colour lookup is not a glance. The colour coding 
 callout wears its marker's colour, so the picture and the legend now reinforce each other instead of
 being two halves of a lookup. Do not "fix" the callouts back out.
 
-WHERE THE ARTWORK COMES FROM, and why it is not a screenshot. docs/img/control-board-poster.jpg is
-the obvious candidate and it is unusable: a dark in-game capture with a play glyph painted over the
-middle and the player's own forearm across the board. The artwork here is a RENDER OF THE SHIPPED
+WHERE THE ARTWORK COMES FROM, and why it is not a screenshot. An in-game capture of the board is the
+obvious candidate and it is unusable: dark, with a play glyph painted over the middle and the
+player's own forearm across it. (This used to name docs/img/control-board-poster.jpg; that file was
+deleted on 2026-09-07 with the clip it fronted, and this script never opened it -- ART below is
+board-artwork.png.) The artwork here is a RENDER OF THE SHIPPED
 PREFAB, through the shipped BoardLit material, by
 
     BOARD_ASSET_OUT=<dir> xvfb-run -a Unity -batchmode \

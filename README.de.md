@@ -80,8 +80,15 @@ Jedes Teil davon ist auf einem beschrifteten Bild im
 </p>
 
 Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe zu
-nehmen — oder halt den Griff und tipp es mit der Fingerspitze an. Heb eine Miniatur hoch, und du
-liest den Zug, den sie gleich macht.
+nehmen — oder halt den Griff und tipp es mit der Fingerspitze an.
+
+**Oder heb eine Figur einfach hoch.** Sie kommt vom Brett in deine Hand, so groß, wie du sie ziehst,
+und ihre Karte kommt mit — Gesundheit, Bewegung, Angriff, die Modifikatoren, der Zug, den sie gleich
+macht. Leg sie zurück, und sie setzt sich auf ihr Feld.
+
+<p align="center">
+  <img src="docs/img/figure-lift.gif" width="560" alt="Eine Verbündete vom Brett auf Augenhöhe gehoben, ihre Werte-Karte daneben">
+</p>
 
 ## Die Kampagnenkarte auf dem Tisch
 

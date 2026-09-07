@@ -16,12 +16,21 @@ the middle.**
 
 WHERE EACH LAYER COMES FROM — both from files this repository already tracks:
 
-  the surround   a crop of the game's own scenario sky (`GH_SkySphere`, shader `AMP_SkyShader`)
-                 taken from `docs/img/control-board.mp4`. There is no asset to composite instead:
+  the surround   `docs/img/env-default-surround.png` — a 213x160 crop of the game's own scenario sky
+                 (`GH_SkySphere`, shader `AMP_SkyShader`). There is no asset to composite instead:
                  `SkyAlternative.cs:568-575` gives Default a NULL bundle path because the mod owns
                  no sky for it — Default IS the base game's sky, and the only way to picture it is
-                 to photograph the game rendering it. So the frame grab stays; what changes is that
-                 a region of PURE SURROUND is used, instead of a window onto the diorama.
+                 to photograph the game rendering it. The region is PURE SURROUND, not a window onto
+                 the diorama.
+
+                 IT USED TO BE AN ffmpeg GRAB AT 6.0 s OF docs/img/control-board.mp4, CROPPED
+                 (240, 0, 453, 160). That clip was deleted on 2026-09-07 — it was 2026-08-25 footage
+                 against ModBuild 248 and nothing showed it any more — and this was its LAST
+                 consumer, found by grep rather than by the prose references, which named a
+                 different file. So the crop was committed as the still above and this script opens
+                 it directly. VERIFIED, not assumed: the generator was run against the clip and
+                 against the still, and `tile_env_default.png` came out BYTE-IDENTICAL both times
+                 (md5 d15f120177ddfb8171f51211c0292062), which is also the committed tile.
 
   the board      keyed straight out of `tile_env_offblack.png`, whose backdrop is pure black. That
                  is deliberate over re-rendering the tray in Blender: keying the shipped tile
@@ -40,38 +49,30 @@ make a screenshot behave" ruling is about `EnvironmentsPreview` renders that are
 product, and this is not one.
 
 Usage:  python3 unity/asset-preview/build_variant_tile_default.py
-Needs:  ffmpeg on PATH, Pillow.
+Needs:  Pillow. (ffmpeg is no longer needed — the surround is a committed still.)
 """
 
 import os
-import subprocess
 import sys
-import tempfile
 
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-CLIP = os.path.join(ROOT, "docs", "img", "control-board.mp4")
+SURROUND = os.path.join(ROOT, "docs", "img", "env-default-surround.png")
 TILES = os.path.join(ROOT, "src", "GloomhavenVR", "WorldUI", "Options", "VariantTiles")
 OUT = os.path.join(TILES, "tile_env_default.png")
 
-# The frame, and the window on it that is ENTIRELY surround. The clip is 960x540; the diorama's
-# top edge and the first tooltip both start below/right of this box — checked frame by frame, not
-# assumed. 4:3 so nothing is ever stretched.
-FRAME_AT = "6.0"
-CROP = (240, 0, 453, 160)
+# The window that is ENTIRELY surround, now baked into the committed still. It came off a 960x540
+# frame at (240, 0, 453, 160); the diorama's top edge and the first tooltip both started
+# below/right of that box — checked frame by frame, not assumed. 4:3 so nothing is ever stretched.
 
 WORK = (640, 480)      # composed at 2x and downsampled, so the tray edge stays clean
 TILE = (320, 240)
 
 
 def surround():
-    with tempfile.TemporaryDirectory() as tmp:
-        png = os.path.join(tmp, "frame.png")
-        subprocess.run(["ffmpeg", "-v", "error", "-ss", FRAME_AT, "-i", CLIP,
-                        "-frames:v", "1", png], check=True)
-        im = Image.open(png).convert("RGB").crop(CROP)
+    im = Image.open(SURROUND).convert("RGB")
 
     im = im.resize(WORK, Image.LANCZOS).filter(ImageFilter.GaussianBlur(2.2))
     im = ImageEnhance.Brightness(im).enhance(2.9)
@@ -108,8 +109,8 @@ def board():
 
 
 def main():
-    if not os.path.isfile(CLIP):
-        sys.exit("missing %s" % CLIP)
+    if not os.path.isfile(SURROUND):
+        sys.exit("missing %s" % SURROUND)
     bg = surround()
 
     # the contact shadow first, then the tray on top of it

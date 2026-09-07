@@ -201,5 +201,7 @@ styles_matrix([[('hand_glove.png', 'Leather glove'), ('hand_plate.png', 'Plate g
 logo()
 poster('card-fan.mp4', 'card-fan-poster.jpg', '0:05')
 poster('figure-grab.mp4', 'figure-grab-poster.jpg', '0:06')
-poster('control-board.mp4', 'control-board-poster.jpg', '0:05')
+# control-board.mp4 and its poster were RETIRED on 2026-09-07: the clip was shot
+# 2026-08-25 against ModBuild 248 and the playing guide now shows the fresh
+# controll-board recording from the attachment CDN instead. Nothing to poster.
 poster('physical-interaction.mp4', 'physical-interaction-poster.jpg', '0:07')

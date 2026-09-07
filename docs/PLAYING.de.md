@@ -56,8 +56,11 @@ Drei Sachen, die das Bild nicht zeigen kann:
 ## Deine Karten und dein Brett
 
 <p align="center">
+  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
+</p>
+
+<p align="center">
   <a href="img/card-fan.mp4"><img src="img/card-fan-poster.jpg" width="420" alt="Der Kartenfächer"></a>
-  <a href="img/control-board.mp4"><img src="img/control-board-poster.jpg" width="420" alt="Das Kontrollbrett"></a>
 </p>
 
 Dreh die Handfläche nach oben, und deine Hand **fächert sich davor auf**. Nimm eine Karte mit dem

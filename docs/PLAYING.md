@@ -55,8 +55,11 @@ Three more that the picture cannot show:
 ## Your cards and your board
 
 <p align="center">
+  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
+</p>
+
+<p align="center">
   <a href="img/card-fan.mp4"><img src="img/card-fan-poster.jpg" width="420" alt="The card fan"></a>
-  <a href="img/control-board.mp4"><img src="img/control-board-poster.jpg" width="420" alt="The control board"></a>
 </p>
 
 Turn your palm up and your hand **fans out in front of it**. Take a card with the trigger and drop
