@@ -81,6 +81,21 @@ internal static class NetProtocol
     /// </summary>
     public const int SideRequestEnemyInfoContinue = 1;
 
+    /// <summary>
+    /// CLIENT-TO-HOST CONTROL REQUEST: "press this control on the loot/gold ASSIGNMENT window" —
+    /// the tag an <see cref="AssignmentChoice"/> request carries in <c>NetworkAction.DataInt</c>,
+    /// with the packed (slot, operation, process type) in <c>DataInt2</c>.
+    ///
+    /// <para>The next number after <see cref="SideRequestEnemyInfoContinue"/>, as that member's own
+    /// note asks. It costs the GVR1 packet NOTHING for the same reason: a request rides the GAME's
+    /// own <c>NetworkAction</c> token with no <c>CustomDataToken</c> at all, and the two ints and
+    /// the bool it uses are fields that token already serialises on every side action the game has
+    /// ever sent. <b>The mod's own wire worst case is unchanged at 1747 bytes against
+    /// <c>PresenceSerializer.MaxSize</c> 2100, and no extension id is consumed — 45 is still the
+    /// next free one.</b></para>
+    /// </summary>
+    public const int SideRequestAssignmentPress = 2;
+
     /// <summary>Local sampling / send rate (Hz). ~15 Hz unreliable, interpolated on the receiver.</summary>
     public const float SendRateHz = 15f;
 

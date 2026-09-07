@@ -249,6 +249,24 @@ internal sealed class NetModule : IVRModule
         VRSession.Harmony.PatchAll(typeof(UIEventPanel_CompleteEvent_Patch));
         VRSession.Harmony.PatchAll(typeof(UIEventPanel_ClientContinueRoadEvent_Patch));
 
+        // ANY PLAYER MAY OPERATE THE ASSIGNMENT WINDOW (user request item 3, 2026-09-07) — the
+        // same request as the encounter one above, for the loot/gold window, and it follows that
+        // file term for term. See AssignmentChoice for the whole argument, including why the press
+        // rides the mod's own side-action SENTINEL rather than the game's DistributeUI* actions
+        // (those carry ActionPhaseType.NONE, so a queued client action ends in HandleDesync).
+        // Registered HERE behind the same [Net] Enabled switch and for the same reason: the
+        // client's unlock is gated on VersionGuard.IsModdedPeer, which only answers while this
+        // transport runs, so a host with Net off means no client unlocks and the feature is absent
+        // rather than half-present.
+        VRSession.Harmony.PatchAll(typeof(UIDistributeReward_Distribute_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIDistributePointsPopup_Hide_AssignmentPatch));
+        VRSession.Harmony.PatchAll(typeof(UIDistributePointsSlot_EnableAddPoints_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIDistributePointsSlot_EnableRemovePoints_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIDistributeReward_SetButtonInteractable_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIDistributePointsSlot_AddPoint_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIDistributePointsSlot_RemovePoint_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIDistributeReward_OnConfirmClick_Patch));
+
         _driverGo = new GameObject("GloomhavenVR.NetAvatarDriver");
         Object.DontDestroyOnLoad(_driverGo);
         _driverGo.hideFlags = HideFlags.HideAndDontSave;

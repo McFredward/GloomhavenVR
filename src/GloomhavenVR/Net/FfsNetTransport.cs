@@ -212,6 +212,15 @@ internal sealed class FfsNetTransport : INetTransport
             if (EnemyInfoContinue.TryHandleSideAction(action))
                 return false;
 
+            // The SECOND control request, and it is the same branch rather than a second prefix for
+            // the same reason: "any player may operate the loot/gold ASSIGNMENT window"
+            // (AssignmentChoice — user request item 3, 2026-09-07). It is told apart from the one
+            // above by its own NetProtocol.SideRequest* tag in DataInt, so the order of these two
+            // lines is not load-bearing; each recognises only its own tag and returns false for
+            // everything else, this transport's own rig/extras packets included.
+            if (AssignmentChoice.TryHandleSideAction(action))
+                return false;
+
             // Ours: pull the payload out of the CustomDataToken and hand it up. Consume it.
             object? tokenObj = self._gaSupplementaryToken?.GetValue(action);
             if (tokenObj != null && self._customDataProp?.GetValue(tokenObj) is byte[] bytes && bytes.Length > 0)
