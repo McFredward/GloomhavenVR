@@ -398,8 +398,29 @@ internal sealed class RemoteDecisionWidgets
                      + $"world={mount.x * worldScale * 1000f:F1}x{mount.y * worldScale * 1000f:F1} mm | "
                      + $"mountScale={worldScale:F4} density="
                      + $"{Cards.PlayTray.TrayPixelsPerMeter * WorldUI.Surfaces.DecisionDockSurface.DensityScale:F1} | "
-                     + $"blockTop={_blockSeatResidual * 1000f:F2} mm blockH={_blockHeight * 1000f:F2} mm "
-                     + $"(lift {_blockLift * 1000f:F2} mm, source=MIRRORED CLONE TRANSFORM) | "
+                     // THE THREE BLOCK FIELDS ARE CONVERTED INTO THE OWNER'S FRAME BEFORE THEY ARE
+                     // PRINTED, and that is a FIX, not a decoration.
+                     //
+                     // This class measures the widget block in BOARD-ROOT-local metres — it divides
+                     // the world edges by `seat.lossyScale`, and `seat` is _frame's PARENT, so the
+                     // dock scale _frame itself carries is still in the number. That is the right
+                     // unit for the geometry: RowHeight feeds RemoteBoardFurniture's use-bar stack,
+                     // whose own seat arithmetic is board-root-local, and its fallback branch
+                     // (_mirror.FittedSize.y * _dockScale) is in exactly that unit too.
+                     //
+                     // The OWNER divides by the MOUNT's lossyScale instead (board x DecisionScale,
+                     // DecisionDockSurface.cs's `trayScale`), so its two fields are mount-local. The
+                     // two frames differ by exactly the dock scale, and the line above asserts they
+                     // MUST BE EQUAL — so on the ModBuild 476 logs this pair read blockH 25.00 mm
+                     // [MIRROR] against 15.63 mm [OWNER], a ratio of exactly 1.6000 = the shipped
+                     // [Cards] DecisionScale, and a reader following the line's own instructions
+                     // would have convicted the seat solver of a 60 % breach that is not there.
+                     // An instrument that states a false verdict is a defect in its own right.
+                     + $"blockTop={_blockSeatResidual / _dockScale * 1000f:F2} mm "
+                     + $"blockH={_blockHeight / _dockScale * 1000f:F2} mm "
+                     + $"(lift {_blockLift / _dockScale * 1000f:F2} mm, dockScale {_dockScale:F3} "
+                     + "divided out so these three diff straight against the owner's mount-local "
+                     + "fields, source=MIRRORED CLONE TRANSFORM) | "
                      + WorldUI.Surfaces.DecisionDockSurface.SubtreeInventory(clone) + " | "
                      + WorldUI.Surfaces.DecisionDockSurface.DescribeWireOptions(roles, states, count)
                      + $" | labelRGB=({_ownerLabelColor.r:F3},{_ownerLabelColor.g:F3},{_ownerLabelColor.b:F3})";

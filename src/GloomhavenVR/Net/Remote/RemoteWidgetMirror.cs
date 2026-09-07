@@ -447,17 +447,42 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             // — a peer reading plain rows beats a peer reading a cropped or unfitted clone — and the
             // clone is KEPT, not destroyed, so recovery costs a re-measure rather than an
             // Instantiate and a rebuild loop is impossible.
-            if (_layoutOwner == LayoutOwner.CloneAtBoardOwnersWidth)
+            // (1a) …AND THE UNFITTED HOST IS WITHHELD ON EVERY PATH, not only that one.
+            //
+            // USER RULING 2026-09-07 item 6b, verbatim: "Dieser riesige Text darf trotz dessen
+            // niemals vorkommen" (screenshot .planning/debug/riesiger_text.jpg — orange game glyphs
+            // metres tall, floating across the boards).
+            //
+            // ROOT CAUSE, and it is this class's own doc read literally: EnsureHost leaves the host
+            // at `localScale = Vector3.one` on a WORLD-SPACE canvas, which is ONE WORLD UNIT PER
+            // uGUI PIXEL — a 20 px game label becomes 20 world units of line height, against the
+            // 0.000418 m/px this very mirror settles at once fitted (the mirrored initiative
+            // track's own logged fit, 740x204 px into 0.309x0.085 m). BuildClone then activates the
+            // host (see the `_host.SetActive(true)` there) BEFORE anything has been fitted, and
+            // Fit() legitimately commits nothing on some frames — the owner's converted panel is
+            // not docked yet, or the visible-graphics union is below MinMeasuredPixels. The
+            // `_fitApplied` gate for exactly that case existed and was reachable only under
+            // LayoutOwner.CloneAtBoardOwnersWidth, so every LayoutOwner.Source mirror — the
+            // initiative track, the element board, the DECISION ROW, the scenario rules — had no
+            // unfitted-host gate at all and drew the game's own panel at 2400x on those frames.
+            //
+            // THE COST OF THE WIDENING IS ONE TICK OF THE CALLER'S FALLBACK, which is the shape
+            // every caller here already handles: a false return means "draw your mod-drawn rows".
+            // `_fitApplied` latches per clone, so a settled mirror never takes this branch, and a
+            // clone that never fits is withheld rather than shown wrong — the direction this whole
+            // class is written in.
+            string? withhold = _layoutOwner == LayoutOwner.CloneAtBoardOwnersWidth ? _withhold : null;
+            withhold ??= _fitApplied
+                ? null
+                : "the clone has not been fitted yet (no measure has been committed to it), so "
+                  + "showing it would draw the game's own panel at the host's IDENTITY SCALE — one "
+                  + "world unit per uGUI pixel, i.e. metre-tall glyphs across the board "
+                  + "(riesiger_text.jpg)";
+            if (withhold != null)
             {
-                string? withhold = _withhold ?? (_fitApplied
-                    ? null
-                    : "the re-wrapped clone has not been fitted yet (no measure has been committed "
-                      + "to it), so showing it would draw the panel at the host's identity scale");
-                if (withhold != null)
-                {
-                    Withhold(withhold);
-                    return false;
-                }
+                NoteUnfittedWithhold();
+                Withhold(withhold);
+                return false;
             }
 
             State = Fidelity.MirroredWidget;
@@ -530,6 +555,45 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         SetShown(false);
         State = Fidelity.None;
         Reason = reason;
+    }
+
+    /// <summary>Ticks on which this mirror was refused for want of a fit, since the last clone.</summary>
+    private int _unfittedTicks;
+
+    /// <summary>
+    /// SAY THAT THE UNFITTED-HOST GATE FIRED, and how many ticks it held for — the falsifier for the
+    /// riesiger_text.jpg fix.
+    ///
+    /// <para>Before the gate was widened this class was SILENT in exactly this state: an unfitted
+    /// host on a <see cref="LayoutOwner.Source"/> mirror was shown, not withheld, and
+    /// <c>LogFit</c> only ever runs AFTER a successful fit — so the one state that could produce
+    /// metre-tall glyphs was the one state no log line covered. That silence was the whole reason
+    /// the defect had to be inferred from a screenshot.</para>
+    ///
+    /// <para>READING IT: one or two ticks on a mirror's first appearance is the gate doing its job
+    /// (the owner's dock had not measured yet) and the caller drew its mod-drawn rows meanwhile. A
+    /// count that keeps climbing on the SAME clone means the fit never commits at all, and then the
+    /// panel is permanently absent rather than permanently giant — which is the trade this gate
+    /// makes, deliberately.</para>
+    /// </summary>
+    private void NoteUnfittedWithhold()
+    {
+        _unfittedTicks++;
+        // Once, then on every doubling: a first appearance costs one line, a stuck fit says so
+        // without filling the log.
+        if (_unfittedTicks != 1 && (_unfittedTicks & (_unfittedTicks - 1)) != 0)
+            return;
+        // HW-VERIFY
+        VRLog.Note("Net", $"MIRROR WITHHELD UNFITTED: '{_name}' has been refused for "
+            + $"{_unfittedTicks} tick(s) since its clone was built — no fit has been committed to "
+            + "the host, whose scale is therefore still IDENTITY (one world unit per uGUI pixel), "
+            + "so showing it would draw the game's own panel at roughly 2400x and its text metres "
+            + "tall (user 2026-09-07 item 6b, riesiger_text.jpg). The caller is drawing its "
+            + "mod-drawn fallback for these ticks, which is the designed degradation. ONE OR TWO "
+            + "TICKS ON FIRST APPEARANCE IS THIS GATE WORKING; a count that keeps doubling on one "
+            + "clone means the fit never commits and the panel is permanently absent — read the "
+            + "'mirror fitted' line's absence beside it, and TryDockRect / MinMeasuredPixels are "
+            + "the two terms that refuse a measure.");
     }
 
     private bool Rebuild(Transform source)
@@ -1219,6 +1283,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         _fitApplied = false;
         _withhold = null;
         _frameDegenerate = false;
+        _unfittedTicks = 0;
     }
 
     // ------------------------------------------------------------------ drive --
