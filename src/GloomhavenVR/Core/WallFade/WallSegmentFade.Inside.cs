@@ -544,8 +544,7 @@ internal static partial class WallSegmentFade
         /// evaluation frames only. Allocation-free after warm-up: the sets and the per-run
         /// dictionaries keep their capacity.
         /// </summary>
-        private void EvaluateSplitRuns(Vector3 headPos, float now, float fracStep,
-            float onFraction, float offFraction, float exitDwell)
+        private void EvaluateSplitRuns(Vector3 headPos, float now, float fracStep, float exitDwell)
         {
             _runGeneration++;
             _runOrphans = 0;
@@ -720,7 +719,11 @@ internal static partial class WallSegmentFade
                 float bestRaw = run.Total > 0 ? run.BestMember / (float)run.Total : 0f;
                 float dtRun = run.LastEval > 0f ? Mathf.Min(now - run.LastEval, 0.5f) : 0f;
                 run.LastEval = now;
-                if (run.State && fraction >= offFraction && bestRaw < offFraction)
+                // ModBuild 468: the audit compares against the SAME exit bar the run is judged
+                // by, which is now per room. Reading the global Off here would report a hold the
+                // trigger beside it is not applying.
+                float runOff = WallFadeTuning.ExitBarForRoom(run.Total);
+                if (run.State && fraction >= runOff && bestRaw < runOff)
                 {
                     run.UnionHoldSeconds += dtRun;
                     if (run.UnionHoldSeconds > run.UnionHoldWorst)
@@ -740,7 +743,13 @@ internal static partial class WallSegmentFade
                     _runUnionHoldNow = run.UnionHoldSeconds;
                 if (run.UnionHoldWorst > _runUnionHoldWorst)
                     _runUnionHoldWorst = run.UnionHoldWorst;
-                bool raw = OcclusionFade.Above(run.Smooth, run.State, onFraction, offFraction);
+                // ModBuild 468 — the run takes the SAME per-room capped bars as an unsplit wall.
+                // run.Total is the sample count of the room whose coverage won the MAX above, so
+                // the cap is applied against the denominator that produced `fraction`. A split
+                // run and an unsplit wall standing in the same room must never answer to
+                // different bars; that is why this reads the one accessor and not a copy of it.
+                bool raw = OcclusionFade.Above(run.Smooth, run.State,
+                    WallFadeTuning.EnterBarForRoom(run.Total), WallFadeTuning.ExitBarForRoom(run.Total));
                 if (OcclusionFade.StepDwell(raw, now, EnterDwellSeconds, exitDwell,
                         ref run.PendingRaw, ref run.PendingSince, ref run.State))
                 {
@@ -2559,7 +2568,15 @@ internal static partial class WallSegmentFade
                 + "unanimous — a session that never goes mixed is the defect reported on "
                 + "2026-08-24. Coverage spread this pass: widest "
                 + $"'{_pwMaxWall}' {_pwMaxSmooth:F2}, narrowest '{_pwMinWall}' {minSmooth:F2}, "
-                + $"bars {WallFadeTuning.On:F2}/{WallFadeTuning.Off:F2}"
+                + $"bars {WallFadeTuning.EnterBarForRoom(_pwCells):F2}/"
+                + $"{WallFadeTuning.ExitBarForRoom(_pwCells):F2}"
+                + (WallFadeTuning.EnterBarForRoom(_pwCells) < WallFadeTuning.On
+                    ? $" (ModBuild 468: the CAPPED pair — the configured {WallFadeTuning.On:F2}/"
+                      + $"{WallFadeTuning.Off:F2} would demand "
+                      + $"{(_pwCells > 0 ? Mathf.CeilToInt(WallFadeTuning.On * _pwCells) : 0)} "
+                      + $"cell(s) of this {_pwCells}-cell room, above the "
+                      + $"{WallFadeTuning.EnterCellCap}-cell ceiling)"
+                    : string.Empty)
                 // THE ARITHMETIC, SPELLED OUT. A threshold finer than the grid's own quantum
                 // cannot be expressed: with 16 cells the quantum is 0.0625, so an exit bar of
                 // 0.10 really means "at most ONE blocked cell", which is what made the old band
@@ -2567,9 +2584,9 @@ internal static partial class WallSegmentFade
                 // one line instead of deriving it from the source.
                 + $" against a {_pwCells}-cell floor grid (quantum "
                 + (_pwCells > 0 ? (1f / _pwCells).ToString("F4") : "n/a")
-                + $" — the exit bar is {(_pwCells > 0 ? Mathf.CeilToInt(WallFadeTuning.Off * _pwCells) : 0)} "
+                + $" — the exit bar is {(_pwCells > 0 ? Mathf.CeilToInt(WallFadeTuning.ExitBarForRoom(_pwCells) * _pwCells) : 0)} "
                 + "cell(s), the enter bar "
-                + $"{(_pwCells > 0 ? Mathf.CeilToInt(WallFadeTuning.On * _pwCells) : 0)}). "
+                + $"{(_pwCells > 0 ? Mathf.CeilToInt(WallFadeTuning.EnterBarForRoom(_pwCells) * _pwCells) : 0)}). "
                 + "Head inside masonry: "
                 + $"{_headInMasonryWall} — an OBSERVATION; since ModBuild 255 this no longer "
                 + "forces any wall's coverage to 1.00, the ray test measures what such a wall "

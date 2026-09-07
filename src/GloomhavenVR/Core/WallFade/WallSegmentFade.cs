@@ -25,6 +25,9 @@ internal static class WallFadeTuning
     internal static ConfigEntry<float>? OnFraction;
     /// <summary>Schmitt low bar: once faded, the wall stays faded while the fraction is at/above this.</summary>
     internal static ConfigEntry<float>? OffFraction;
+    /// <summary>ModBuild 468: ceiling on the enter bar expressed in FLOOR CELLS, so a big room
+    /// cannot make a fraction bar unreachable in absolute terms. See <see cref="EnterBarForRoom"/>.</summary>
+    internal static ConfigEntry<int>? MaxEnterCells;
     /// <summary>Seconds continuously below the low bar before un-fading after a recent perspective change.</summary>
     internal static ConfigEntry<float>? ExitDwellMoved;
     /// <summary>Un-fade dwell when the head only rotated (no recent translation/world-grab/recenter).</summary>
@@ -102,6 +105,18 @@ internal static class WallFadeTuning
         OffFraction = config.Bind("WallFade", "OffFraction", Defaults.OffFraction,
             "Once faded, keep the wall faded while the smoothed floor-coverage fraction stays at or " +
             "above this (Schmitt trigger low bar). Live; clamped 0.01-0.95 and never above OnFraction.");
+        MaxEnterCells = config.Bind("WallFade", "MaxEnterCells", Defaults.MaxEnterCells,
+            "Ceiling on the fade-out threshold expressed in FLOOR HEXES, so that OnFraction can " +
+            "never demand more hexes than this however large the room is: a wall that hides this " +
+            "many of the hexes you are looking at is in the way whether the scenario has 20 of " +
+            "them or 90. Without it a one-room scenario of 24 playable hexes needs 9 hidden " +
+            "hexes (0.35 x 24) before anything fades, and a house sealing a small dead end never " +
+            "gets there. 6 is the largest enter bar the mod could produce before whole-set " +
+            "sampling existed (ceil(OnFraction x 16), the 16-cell lattice), so rooms of 17 hexes " +
+            "or fewer behave EXACTLY as before. Raise it if walls now fade too eagerly in a very " +
+            "large room; set it above the room's hex count to switch the cap off entirely. The " +
+            "un-fade bar keeps its ratio to the fade bar, so the hysteresis band is preserved. " +
+            "Live; clamped 1-96.");
         ExitDwellMoved = config.Bind("WallFade", "ExitDwellMovedSeconds", Defaults.ExitDwellMovedSeconds,
             "Seconds the fraction must stay below OffFraction before the wall un-fades when the " +
             "PERSPECTIVE recently changed (real head translation / world-grab / recenter). Live.");
@@ -513,6 +528,59 @@ internal static class WallFadeTuning
             return OcclusionFade.SchmittLowBar(Clamped(OffFraction, 0.10f, 0.01f, 0.95f), on);
         }
     }
+    /// <summary>ModBuild 468 — the enter-bar ceiling in CELLS. Clamped live; safe before Bind().</summary>
+    internal static int EnterCellCap =>
+        Mathf.Clamp(MaxEnterCells != null ? MaxEnterCells.Value : Defaults.MaxEnterCells, 1, 96);
+
+    /// <summary>
+    /// THE ENTER BAR FOR A ROOM OF <paramref name="total"/> SAMPLES — <see cref="On"/> until the
+    /// room is big enough that the fraction demands more than <see cref="EnterCellCap"/> hexes,
+    /// and the cap from there on.
+    ///
+    /// <para><b>WHY A CELL CAP AND NOT A LOWER FRACTION.</b> The user's complaint is about ONE
+    /// wall in a scenario whose single logical room carries 24 playable hexes, and lowering
+    /// <see cref="On"/> would move every wall in every scenario — the regression he has
+    /// forbidden twice. The bar in CELLS is the term that actually changed under him: until
+    /// ModBuild 465 a room's denominator was <c>min(grid², hexes)</c> and <c>grid²</c> tops out
+    /// at 16, so the enter bar was at most <c>ceil(0.35·16) = 6</c> cells in every scenario the
+    /// mod had ever measured. Whole-set sampling (465, and correct — it fixed a real resolution
+    /// defect) gave this room 24 samples, and the same fraction now reads NINE hexes. The wall
+    /// the user is pointing at ('Wall 7' #-19106 in the ModBuild 467 log) peaks at 7 hidden
+    /// hexes and its EMA at 0.28, so it cannot reach 9 from any viewpoint that exists.</para>
+    ///
+    /// <para><b>MONOTONE BY CONSTRUCTION, WHICH IS THE NO-REGRESSION PROOF.</b> The returned bar
+    /// is <c>min(On, cap/total) ≤ On</c> and <see cref="ExitBarForRoom"/> scales with it, so both
+    /// bars can only move DOWN. A Schmitt trigger whose two bars both fall can only latch earlier
+    /// and release later, so no wall that fades today can stop fading — the downward crossing
+    /// count is 0 by construction and not by sampling. Replayed over all 402 wall readings in the
+    /// ModBuild 467 log (186 named OCCLUDER VERDICTS entries + 216 diag rows): 18 raw and 12
+    /// EMA crossings UPWARD, 0 downward.</para>
+    ///
+    /// <para><b>GENERICITY.</b> The cap binds only where <c>ceil(On·total) &gt; cap</c>, i.e. at
+    /// the shipped 0.35/6 only for rooms of 18 samples or more. Every LATTICE room is
+    /// <c>min(grid², hexes) ≤ 16</c> and is therefore BIT-IDENTICAL, at every rung of the ladder
+    /// (16/9/4/1) and for every hex distribution; so is every whole-set room up to 17 hexes. The
+    /// population that changes is exactly the one whole-set sampling created.</para>
+    /// </summary>
+    internal static float EnterBarForRoom(int total)
+    {
+        float on = On;
+        if (total <= 0)
+            return on;
+        float capped = EnterCellCap / (float)total;
+        return capped < on ? capped : on;
+    }
+
+    /// <summary>The exit bar that goes with <see cref="EnterBarForRoom"/>: the SAME ratio to the
+    /// enter bar that <see cref="Off"/> has to <see cref="On"/>, so capping the enter bar cannot
+    /// collapse the Schmitt band and re-introduce the ModBuild 250 group churn.</summary>
+    internal static float ExitBarForRoom(int total)
+    {
+        float on = On;
+        float enter = EnterBarForRoom(total);
+        return on > 0f ? Off * (enter / on) : Off;
+    }
+
     internal static float DwellMoved => Clamped(ExitDwellMoved, 2.5f, 0.1f, 60f);
     internal static float DwellStationary =>
         Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
@@ -2334,7 +2402,7 @@ internal static partial class WallSegmentFade
             using (Phase(TickPhase.SplitRuns))
             {
                 if (evaluate && WallFadeTuning.SplitRunUnifiedOn)
-                    EvaluateSplitRuns(headPos, now, fracStep, onFraction, offFraction,
+                    EvaluateSplitRuns(headPos, now, fracStep,
                         reevalArmed ? exitDwellMoved : exitDwellStationary);
                 else if (evaluate)
                     ClearSplitRunDrive(); // dial off: every piece decides for itself, as in 258
@@ -2464,12 +2532,19 @@ internal static partial class WallSegmentFade
                 {
                     float fraction = BlockedFraction(seg, headPos);
                     seg.LastRaw = fraction;
+                    // ModBuild 468 — THE BARS ARE PER ROOM NOW, capped in CELLS. BlockedFraction
+                    // has just written LastRoomTotal for the room that decided this wall (the
+                    // seam-wall MAX picks it), so the cap is applied against the very denominator
+                    // this fraction was divided by. See WallFadeTuning.EnterBarForRoom for the
+                    // monotonicity argument that makes this incapable of un-fading a wall.
+                    float segOn = WallFadeTuning.EnterBarForRoom(seg.LastRoomTotal);
+                    float segOff = WallFadeTuning.ExitBarForRoom(seg.LastRoomTotal);
                     // EMA -> Schmitt -> dwell, defined in Core/OcclusionFade.cs and nowhere else.
                     // The five fields stay on Segment because the sliced commit carries four of
                     // them across in two further shadow copies and diffs them BY NAME; only the
                     // RULE moved, and it is now literally the statements a peer board runs.
                     OcclusionFade.AdvanceCoverage(fraction, fracStep, ref seg.Smooth, ref seg.SmoothInit);
-                    bool raw = OcclusionFade.Above(seg.Smooth, seg.State, onFraction, offFraction);
+                    bool raw = OcclusionFade.Above(seg.Smooth, seg.State, segOn, segOff);
                     if (OcclusionFade.StepDwell(raw, now, EnterDwellSeconds,
                             reevalArmed ? exitDwellMoved : exitDwellStationary,
                             ref seg.PendingRaw, ref seg.PendingSince, ref seg.State))
@@ -2837,7 +2912,12 @@ internal static partial class WallSegmentFade
                     + $"SAMPLE GRID line for the per-room funnel and which term cut what) — "
                     + $"per-wall ROOM-coverage fade (strict own-room accounting; "
                     + $"EMA tau {FractionTauSeconds:0.00}s; on ≥{onFraction:0.00}, off "
-                    + $"<{offFraction:0.00}; dwell {EnterDwellSeconds:0.00}s in, "
+                    + $"<{offFraction:0.00}, capped at {WallFadeTuning.EnterCellCap} enter "
+                    + "cell(s) per room (ModBuild 468 — a room bigger than "
+                    + $"{Mathf.CeilToInt(WallFadeTuning.EnterCellCap / onFraction)} sample(s) "
+                    + "takes the cap instead, so a wall that hides that many hexes fades however "
+                    + "large the room is); "
+                    + $"dwell {EnterDwellSeconds:0.00}s in, "
                     + $"{exitDwellMoved:0.0}s out moved / "
                     + $"{exitDwellStationary:0.0}s stationary — live config [WallFade]; "
                     + $"tau {FadeTauSeconds:0.00}s).");
@@ -8661,6 +8741,17 @@ internal static partial class WallSegmentFade
                 //     A hex on an un-gridded CMap stays OFF-GRID and still causes no fade.
                 //   • WallFadeTuning.On / .Off (0.35 / 0.20) and the EMA are untouched. Only the
                 //     resolution at which coverage is measured changes.
+                //     CORRECTED ModBuild 468 — THAT SENTENCE WAS TRUE OF THE FRACTION AND FALSE
+                //     OF THE BAR. Both bars are fractions of the denominator this branch
+                //     enlarges, so enlarging it moves them IN CELLS: the reported scenario went
+                //     from a 16-sample lattice, where the enter bar is ceil(0.35*16) = 6 cells,
+                //     to a 24-hex whole set, where the same 0.35 reads NINE hexes. Nothing chose
+                //     that; it fell out of a resolution fix. The ModBuild 467 log is the
+                //     consequence: one wall of ten ever fades, and the house the user has been
+                //     pointing at for three rounds peaks at 7 hidden hexes with its EMA at 0.28.
+                //     WallFadeTuning.EnterBarForRoom now caps the bar at
+                //     Defaults.MaxEnterCells = 6 cells, i.e. exactly the ceiling this branch
+                //     silently lifted, and rooms of 17 samples or fewer stay bit-identical.
                 //   • The playability filter is untouched: the branch is gated on
                 //     _roomPlayableUsed[r], i.e. it fires ONLY where the filter is already in
                 //     force, so it can never demote a room to the wider in-footprint set.
@@ -8805,6 +8896,25 @@ internal static partial class WallSegmentFade
             catch
             {
                 return "?";
+            }
+        }
+
+        /// <summary>ModBuild 468 — <c>CMap.Revealed</c> for a tile-registry map KEY, the
+        /// same question <see cref="RoomRevealedLabel"/> asks of a room index. Reveal is per
+        /// CMap and never per hex (see <c>ClassifyHex</c>), and the OCCLUDER VERDICTS line
+        /// needs it to separate "off every grid AND unrevealed" — which the standing user
+        /// ruling says must never reach a denominator — from "off every grid and REVEALED",
+        /// which is the only shape of that count that is a defect. Reported only; nothing
+        /// gates on it, exactly as for the room label beside it.</summary>
+        private static bool MapRevealed(object? map)
+        {
+            try
+            {
+                return map is ScenarioRuleLibrary.CMap cmap && cmap.Revealed;
+            }
+            catch
+            {
+                return false;
             }
         }
 

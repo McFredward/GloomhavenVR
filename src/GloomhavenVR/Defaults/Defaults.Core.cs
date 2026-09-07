@@ -172,6 +172,14 @@ internal static partial class Defaults
     // wrote there, never a value the user tuned — see the one-shot markers below.
     internal const float OnFraction = 0.35f;                 // => [WallFade] OnFraction  (pinned: cfg drop holds a previous build's value, never tuned)
     internal const float OffFraction = 0.2f;                 // => [WallFade] OffFraction  (pinned: cfg drop holds a previous build's value, never tuned)
+    // ModBuild 468 — THE ENTER BAR AS A CELL COUNT, CAPPED. OnFraction is a fraction of the
+    // room's WHOLE sample set, and until ModBuild 465 that set was min(grid^2, hexes) <= 16, so
+    // the enter bar was at most ceil(0.35 * 16) = 6 cells for every room the mod had ever
+    // measured. Whole-set sampling let a one-room scenario carry 24 samples, and the same 0.35
+    // then reads NINE hexes — a wall must hide more than a third of every playable hex in the
+    // scenario before it fades. 6 is that historical ceiling, written down: no room's enter bar
+    // may be stricter, IN CELLS, than the strictest bar the lattice could ever produce.
+    internal const int MaxEnterCells = 6;                     // => [WallFade] MaxEnterCells
     // BepInEx keeps whatever is already in the cfg, so correcting the two constants above only
     // ever reaches a FRESH install — every existing install would keep the transposed pair and
     // the group churn with it. This marker carries the correction across exactly once; see the

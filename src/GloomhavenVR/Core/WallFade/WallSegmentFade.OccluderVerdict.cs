@@ -197,11 +197,21 @@ internal static partial class WallSegmentFade
                     _verdictHexDropped.Add(dropped);
                 }
             }
-            int inViewOffGrid = 0, inViewDropped = 0;
+            int inViewOffGrid = 0, inViewDropped = 0, revealedOffGrid = 0;
             for (int i = 0; i < _verdictHexGridded.Count; i++)
             {
                 if (!_verdictHexGridded[i])
+                {
                     inViewOffGrid++;
+                    // ModBuild 468 — THE TERM THE SENTENCE WAS MISSING. _verdictHex is filtered
+                    // by ClassifyHex (CNode.Walkable, not CNode.Blocked) and by the frustum, and
+                    // by NOTHING about reveal — so an unrevealed preview map tile's hexes counted
+                    // here and the line read as an alarm about a population the standing ruling
+                    // says must NOT be in any denominator. Reveal is per CMap (CMap.Revealed),
+                    // which is exactly the key _verdictHexMap already carries.
+                    if (MapRevealed(_verdictHexMap[i]))
+                        revealedOffGrid++;
+                }
                 else if (_verdictHexDropped[i])
                     inViewDropped++;
             }
@@ -288,12 +298,20 @@ internal static partial class WallSegmentFade
                 float ceil = seg.LastRoomTotal > 0
                     ? seg.LastRoomVisible / (float)seg.LastRoomTotal
                     : 0f;
+                // ModBuild 468 — THE BAR THIS SEGMENT IS ACTUALLY JUDGED BY. It is per room now
+                // (WallFadeTuning.EnterBarForRoom), so classifying against the global On would
+                // put walls in SOLID:CEILING that the live trigger can in fact fade — an
+                // instrument disagreeing with the rule it exists to explain.
+                float segOn = WallFadeTuning.EnterBarForRoom(seg.LastRoomTotal);
+                int segOnCells = seg.LastRoomTotal > 0
+                    ? Mathf.CeilToInt(segOn * seg.LastRoomTotal)
+                    : 0;
                 if (sweptSegs >= VerdictMaxSegmentsPerPass || index < _verdictCursor)
                 {
                     unsweptSolid++;
                     // Unswept still gets a CLASS from numbers already measured, so it is never
                     // silently missing — only its hex counts wait for the next pass.
-                    if (ceil < onBar)
+                    if (ceil < segOn)
                         ceiling++;
                     else if (seg.LastBlocked > 0)
                         belowBar++;
@@ -341,8 +359,12 @@ internal static partial class WallSegmentFade
                     else
                         hidesOtherRoom++;
                 }
+                // ModBuild 468 — `bar N` is the enter bar THIS room is judged by, in cells, so
+                // 'blk 7/24 bar6' reads as a verdict and not as a number needing arithmetic.
                 string nums = $"{id} r{seg.RoomIndex} ema{seg.Smooth:F2} blk{seg.LastBlocked}/"
-                    + $"{seg.LastRoomTotal} vis{seg.LastRoomVisible} ceil{ceil:F2} — hides "
+                    + $"{seg.LastRoomTotal} bar{segOnCells} xz[{seg.Bounds.min.x:F1}..{seg.Bounds.max.x:F1}]"
+                    + $"[{seg.Bounds.min.z:F1}..{seg.Bounds.max.z:F1}] "
+                    + $"vis{seg.LastRoomVisible} ceil{ceil:F2} — hides "
                     + $"{hidesCounted} counted + {hidesDropped} FOOTPRINT-DROPPED + "
                     + $"{hidesOffGrid} OFF-GRID + {hidesOtherRoom} other-room";
                 if (hidesOffGrid > 0 && hidesCounted == 0 && hidesDropped == 0)
@@ -357,7 +379,7 @@ internal static partial class WallSegmentFade
                     if (_verdictDroppedNamed.Count < VerdictMaxNamed)
                         _verdictDroppedNamed.Add($"[SOLID:FOOTPRINT-DROPPED] {nums}");
                 }
-                else if (ceil < onBar)
+                else if (ceil < segOn)
                 {
                     ceiling++;
                     if (_verdictCeilingNamed.Count < VerdictMaxNamed)
@@ -436,11 +458,22 @@ internal static partial class WallSegmentFade
             VRLog.Note(Name,
                 $"OCCLUDER VERDICTS{(changed ? string.Empty : " (unchanged — heartbeat)")}: head "
                 + $"({headPos.x:F1},{headPos.y:F2},{headPos.z:F1}), {total} segment(s), bars "
-                + $"on≥{onBar:F2}/off<{offBar:F2}. REGISTRY: {registryHexes} keyed hex(es) over "
+                + $"on≥{onBar:F2}/off<{offBar:F2} capped at {WallFadeTuning.EnterCellCap} enter "
+                + "cell(s) (ModBuild 468 — every named entry carries the bar its OWN room is "
+                + "judged by as 'barN', in cells, beside 'blk N/total'; where the two differ the "
+                + "cap is what decided the wall). REGISTRY: "
+                + $"{registryHexes} keyed hex(es) over "
                 + $"{_tilesByMap.Count} CMap(s); {offGridHexes} of them sit on a CMap that got NO "
-                + $"sample grid ({inViewOffGrid} of those are PLAYABLE and in the head's frustum "
-                + "right now) — that population is in no wall's denominator, so a wall hiding only "
-                + "those reads coverage 0.00 by construction and no threshold can move it. "
+                + $"sample grid ({inViewOffGrid} of those pass ClassifyHex as PLAYABLE and are in "
+                + "the head's frustum right now — that term reads CNode.Walkable/Blocked and "
+                + $"NOTHING about reveal; {revealedOffGrid} of them sit on a CMap whose own "
+                + "CMap.Revealed is true). CORRECTED ModBuild 468: this clause used to read as an "
+                + "alarm, and it is one ONLY for the revealed count. An UNREVEALED CMap's hexes "
+                + "are in no wall's denominator BY THE STANDING USER RULING ('gefaded soll NUR "
+                + "bei aufgedeckten Feldern nach wie vor'), so a wall hiding only those SHOULD "
+                + "read coverage 0.00 and the 465/466 rounds were right to refuse widening the "
+                + "denominator for them. Read a non-zero REVEALED count as the defect; the "
+                + "playable-and-in-frustum count on its own is not one. "
                 + $"FOOTPRINT-DROPPED (ModBuild 466): a further {droppedHexes} keyed hex(es) sit "
                 + "on a CMap that DID get a grid and yet outside the bounds box of every gridded "
                 + $"room keyed to it ({inViewDropped} of those are PLAYABLE and in the frustum "
