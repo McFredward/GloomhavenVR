@@ -48,7 +48,7 @@ folder, letting Windows merge `BepInEx/`. Then check these two folders exist:
 
 ---
 
-## 3. Point your headset at the game
+## 3. Set your OpenXR runtime
 
 Only one **OpenXR runtime** can be active at a time, and it has to be yours *before* you start the
 game. Set it in whichever app you stream with:
@@ -59,7 +59,7 @@ game. Set it in whichever app you stream with:
 
 ---
 
-## 4. Start it
+## 4. Start the game
 
 Put the headset on and launch the game the way you normally do. You should be standing at the table.
 
@@ -119,7 +119,7 @@ text file in that folder, but you should not need them.
 
 ---
 
-## Something went wrong
+## Troubleshooting
 
 | What you see | What to do |
 |---|---|

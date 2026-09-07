@@ -30,9 +30,9 @@
 </p>
 
 <p align="center">
-  <b><a href="https://store.steampowered.com/app/780290/Gloomhaven/">Gloomhaven (Digital)</a>, im Stehen am Tisch gespielt.</b><br>
-  Eine VR-Mod aus der Community. Deine Karten liegen in deiner Hand, das Spielbrett<br>
-  steht vor dir auf dem Tisch, und die anderen stehen mit drum herum.
+  <b>Eine Room-Scale-VR-Mod für <a href="https://store.steampowered.com/app/780290/Gloomhaven/">Gloomhaven (Digital)</a>.</b><br>
+  Motion-Controller, ein Kartenblatt in der Hand, ein physisches Kontrollbrett<br>
+  und vollwertiger VR-Mehrspieler.
 </p>
 
 <p align="center">
@@ -62,7 +62,7 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
   Entscheidungs-Schublade, alles auf einem Tisch an einer Stange, den du hinstellst, wo du willst.
 - Greif ins Szenario hinein. Heb eine Miniatur hoch, um ihren nächsten Zug zu lesen, oder pack das
   ganze Brett mit beiden Händen, um es zu ziehen, zu drehen und zu zoomen.
-- Die Kampagnenkarte auf dem Tisch. Zwischen den Szenarien stehst du in einem Gewölbe über der Karte
+- Die Kampagnenkarte. Zwischen den Szenarien stehst du in einem Gewölbe über der Karte
   von Gloomhaven, und die Aufträge hängen daneben an der Wand.
 - Vollwertiger VR-Mehrspieler. Masken, Hände, Bretter und zeigende Finger sehen alle anderen auch.
   Wer kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
@@ -74,7 +74,7 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Alle am selben Tisch
+## Vollwertiger VR-Mehrspieler
 
 Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Wenn du eine Miniatur
 hochhebst, ein Fenster verschiebst oder auf etwas zeigst, sehen die anderen das. Wer kein Headset
@@ -89,7 +89,7 @@ Bildschirm in derselben Partie mit.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Deine Karten und dein Brett
+## Karten und Kontrollbrett
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
@@ -97,14 +97,14 @@ Bildschirm in derselben Partie mit.
 
 Das Kontrollbrett ist ein Tisch, der vor dir steht: zwei Fächer für die Karten dieser Runde, Tasten,
 die du mit der Fingerspitze eindrückst, und darunter eine Stange zum Tragen. Im
-[Spielhandbuch](docs/PLAYING.de.md#deine-karten-und-dein-brett) ist jedes Teil davon auf einem Bild
+[Spielhandbuch](docs/PLAYING.de.md#karten-und-kontrollbrett) ist jedes Teil davon auf einem Bild
 beschriftet.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Das Brett vor dir
+## Das Szenario-Brett
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" width="720" controls muted loop></video>
@@ -117,7 +117,7 @@ nehmen. Oder halt den Griff und tipp es mit der Fingerspitze an.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Die Kampagnenkarte auf dem Tisch
+## Die Kampagnenkarte
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" width="720" controls muted loop></video>
@@ -131,7 +131,7 @@ freigeschaltet wird, leuchtet der ganze Raum auf.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Der Raum, in dem du spielst
+## Umgebungen
 
 Ein kerzenbeleuchteter Keller oder ein Nachtwald unter einem echten Sternkatalog. Beide wurden für
 die Mod gebaut, mit Feuerschein und Umgebungsklang, und mit dem, was ab und zu passiert, wenn man
@@ -151,7 +151,7 @@ Zimmer setzen kann.
   <img src="docs/img/env-styles-de.png" width="720" alt="Die fünf Umgebungen: Keller und Nachtwald, beide für diesen Mod gebaut, darunter der Himmel des Spiels, Aus (schwarz) und Mixed Reality">
 </p>
 
-### Die Räume reagieren auf die Elemente
+### Reaktionen auf die Elemente
 
 Die Elemente des Szenarios verändern den Raum an den Rändern, nicht über der Spielfläche. Feuer
 setzt Requisiten in Brand, Eis lässt Frost wachsen, Luft bewegt Flammen und Blattwerk, Erde treibt
@@ -166,7 +166,7 @@ Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelheit verfinstert den Mond.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Hände, Masken und Bretter
+## Hände, Masken und Brett-Stile
 
 Drei Handpaare, drei Masken und drei Kontrollbretter, jeweils in einem eigenen Dropdown. Du kannst
 mitten in der Sitzung umstellen, und die anderen sehen es.
@@ -183,7 +183,7 @@ behält dessen Stange, nicht deine.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Was du brauchst, und wie du installierst
+## Voraussetzungen und Installation
 
 **Gloomhaven (Digital)** für den PC (Steam oder GOG) · Windows · ein PC-VR-Headset mit zwei
 getrackten Controllern · Room-Scale oder im Stehen. Entwickelt wurde die Mod auf einer Quest 3 über

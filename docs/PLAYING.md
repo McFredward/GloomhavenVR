@@ -59,9 +59,9 @@ Three more that the picture cannot show:
   <img src="img/divider-small.png" width="340" alt="">
 </p>
 
-## Your cards and your board
+## Cards and the control board
 
-› **The board in motion** is on the front page: [Your cards and your board](../README.md#your-cards-and-your-board).
+› Video: [Cards and the control board](../README.md#cards-and-the-control-board), on the front page.
 
 Turn your palm up and your hand fans out in front of it. Take a card with the trigger and drop it
 into a slot on your control board. The slot order is your initiative, the same as in the physical
@@ -80,9 +80,9 @@ above the board or in your palm.
   <img src="img/divider-small.png" width="340" alt="">
 </p>
 
-## The board in front of you
+## The scenario board
 
-› **Reaching into the board, and lifting a figure**, are on the front page: [The board in front of you](../README.md#the-board-in-front-of-you).
+› Video: [The scenario board](../README.md#the-scenario-board), on the front page.
 
 Point the laser and pull the trigger to pick a hex, an enemy, a door or a chest. Or hold **grip**
 and touch it with a fingertip. The grip is deliberate: without it, a hand sweeping across the board
@@ -138,7 +138,7 @@ one, the stick reels it closer or pushes it away. Where you put a window is wher
 
 ## The campaign map
 
-› **The map room in motion** is on the front page: [The campaign map on a table](../README.md#the-campaign-map-on-a-table).
+› Video: [The campaign map](../README.md#the-campaign-map), on the front page.
 
 Between scenarios the map is a room with a table in it. The guildmaster buttons are caps on the
 table rim, pointing at a location brings up its quest placard, and your party token walks the route
@@ -149,7 +149,7 @@ it travels. If you would rather have the original flat map, it is under
   <img src="img/divider-small.png" width="340" alt="">
 </p>
 
-## The room you play in
+## Environments
 
 <p align="center">
   <img src="img/env-cellar.jpg" width="350" alt="The cellar">
@@ -197,7 +197,7 @@ down or off under **World ▸ Creepy**, and that setting is yours alone.
 
 ## Multiplayer
 
-› **A session with three players** is on the front page: [Everyone at the same table](../README.md#everyone-at-the-same-table).
+› Video: [Full VR multiplayer](../README.md#full-vr-multiplayer), on the front page.
 
 - Everyone in a VR session needs the same version. A mismatch gets a dialog instead of quietly
   going wrong, so [update together](../INSTALL.md#updating).

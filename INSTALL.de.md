@@ -49,7 +49,7 @@ Ordner; lass Windows `BepInEx/` zusammenführen. Dann kontrollier, ob diese zwei
 
 ---
 
-## 3. Deinem Headset das Spiel übergeben
+## 3. OpenXR-Runtime einstellen
 
 Aktiv sein kann immer nur **eine OpenXR-Laufzeit**, und *vor* dem Spielstart muss das deine sein.
 Stell sie in der App ein, mit der du streamst:
@@ -60,7 +60,7 @@ Stell sie in der App ein, mit der du streamst:
 
 ---
 
-## 4. Starten
+## 4. Das Spiel starten
 
 Setz das Headset auf und starte Gloomhaven wie immer. Du solltest am Tisch stehen.
 
@@ -120,7 +120,7 @@ es auch als Textdatei in diesem Ordner, brauchen solltest du sie aber nicht.
 
 ---
 
-## Wenn etwas schiefgeht
+## Fehlersuche
 
 | Was du siehst | Was du machst |
 |---|---|

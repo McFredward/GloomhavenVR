@@ -61,9 +61,9 @@ Drei Sachen, die das Bild nicht zeigen kann:
   <img src="img/divider-small.png" width="340" alt="">
 </p>
 
-## Deine Karten und dein Brett
+## Karten und Kontrollbrett
 
-› **Das Brett in Bewegung** steht auf der Startseite: [Deine Karten und dein Brett](../README.de.md#deine-karten-und-dein-brett).
+› Video: [Karten und Kontrollbrett](../README.de.md#karten-und-kontrollbrett), auf der Startseite.
 
 Dreh die Handfläche nach oben, und deine Hand fächert sich davor auf. Nimm eine Karte mit dem
 Trigger und leg sie in einen Slot deines Kontrollbretts. Die Reihenfolge der Slots ist deine
@@ -83,9 +83,9 @@ Handfläche.
   <img src="img/divider-small.png" width="340" alt="">
 </p>
 
-## Das Brett vor dir
+## Das Szenario-Brett
 
-› **Ins Brett greifen und eine Figur hochheben** stehen auf der Startseite: [Das Brett vor dir](../README.de.md#das-brett-vor-dir).
+› Video: [Das Szenario-Brett](../README.de.md#das-szenario-brett), auf der Startseite.
 
 Zeig mit dem Laser darauf und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe
 auszuwählen. Oder halt den **Grip** und berühr es mit der Fingerspitze. Der Grip muss mit Absicht
@@ -143,7 +143,7 @@ Fenster hinstellst, da bleibt es.
 
 ## Die Kampagnenkarte
 
-› **Der Kartenraum in Bewegung** steht auf der Startseite: [Die Kampagnenkarte auf dem Tisch](../README.de.md#die-kampagnenkarte-auf-dem-tisch).
+› Video: [Die Kampagnenkarte](../README.de.md#die-kampagnenkarte), auf der Startseite.
 
 Zwischen den Szenarien ist die Karte ein Raum mit einem Tisch darin. Die Gildenmeister-Tasten sind
 Kappen am Tischrand, wenn du auf einen Ort zeigst, kommt sein Auftragsschild, und dein Gruppenmarker
@@ -154,7 +154,7 @@ läuft die Strecke wirklich ab. Wenn dir die alte flache Karte lieber ist, finde
   <img src="img/divider-small.png" width="340" alt="">
 </p>
 
-## Der Raum, in dem du spielst
+## Umgebungen
 
 <p align="center">
   <img src="img/env-cellar.jpg" width="350" alt="Der Keller">
@@ -204,7 +204,7 @@ für dich.
 
 ## Mehrspieler
 
-› **Eine Runde zu dritt** steht auf der Startseite: [Alle am selben Tisch](../README.de.md#alle-am-selben-tisch).
+› Video: [Vollwertiger VR-Mehrspieler](../README.de.md#vollwertiger-vr-mehrspieler), auf der Startseite.
 
 - Alle in einer VR-Sitzung brauchen dieselbe Version. Passt sie nicht, kommt ein Hinweis, statt dass
   die Sitzung still schiefgeht. Also [gemeinsam aktualisieren](../INSTALL.de.md#updates).
