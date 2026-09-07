@@ -187,6 +187,7 @@ internal static class FigureGhosts
         }
         _ghosts.Clear();
         OverlayVisibilityProbe.Reset(); // a new scenario re-reports its first hover of every figure
+        OverlayPulse.ResetPeak();       // ...and re-bases the overlay high-water mark to this board
     }
 
     private static void Destroy(ActorBehaviour actor)

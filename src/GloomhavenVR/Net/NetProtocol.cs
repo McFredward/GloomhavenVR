@@ -760,6 +760,39 @@ internal static class NetProtocol
     //     grey through ten seconds of a face-on circle, white while a tilted ellipse, and t=4.2
     //     against t=4.3 is the SAME pose at the SAME screen position, 0.1 s apart, one white and
     //     one not.
+    //     ^^^ RE-MEASURED IN ModBuild 470, AND THE RAMP IS TWO TERMS, NOT ONE. The near-white
+    //     pixel COUNT this whole signature is built on is AREA times BRIGHTNESS, and the video
+    //     separates them cleanly. Frames at 30 fps, silhouette = luma >= 100:
+    //       t=2.83..3.30 (0.47 s): silhouette area 23,669 -> 111,482 px, a 4.7x growth, while the
+    //       luminance INSIDE it moves only 145 -> 197. That half of the "ramp" is the prop's
+    //       PROJECTED AREA and not a brightening at all.
+    //       t=3.30..4.27 (0.97 s): area FLAT at 110-113k while silhouette mean goes 197 -> 238 and
+    //       median 200 -> 251. Only this half is a brightening, and it saturates.
+    //     SO "THE PROP'S CENTROID MOVES UNDER 30 PX" IS TRUE AND IT IS BLIND TO EXACTLY THIS: a
+    //     centroid is invariant under scale. The position premise died correctly, but the thing
+    //     that replaced it — "the prop is effectively still" — is false; the prop is not still,
+    //     it is growing 4.7x in projected area about a stationary centre. This is section 13.2's
+    //     recorded trap ("a fixed window measures presence") one level up: the 466 curve is
+    //     brightness TIMES how much of the crop the prop fills.
+    //     AND THE CLIP HOLDS A SECOND EPISODE NOBODY LOOKED FOR, WHICH GIVES THE EVENT A PERIOD.
+    //     Episode 1 cliffs out between frames 128 and 129 (t=4.27->4.30, 100,645 near-white px to
+    //     1,384 in ONE frame); episode 2 ramps 12.90..14.27 and cliffs between frames 428 and 429.
+    //     429 - 129 = 300 frames = EXACTLY 10.000 s at 30 fps, and both lit spans are 1.40-1.43 s.
+    //     A 10 s repeat with a ~1.4 s lit span and a one-frame termination is a SCHEDULE, and it
+    //     is the first hard number any surviving hypothesis has to fit. Episode 2 never reaches
+    //     episode 1's plateau (58,139 vs 100,759 near-white px), so the "plateau" is the thing
+    //     filling its extent and not a feature of the signal.
+    //     THE COLOUR EXCLUSION WAS STATED ON A SATURATED POPULATION AND SURVIVES ANYWAY. At peak,
+    //     33.4 % of the stone-ring pixels have a channel at 255 and 77.5 % are within 5/255 of the
+    //     ceiling, so 1.000/0.995/1.010 was read where a clipped pixel cannot testify to the
+    //     colour that clipped it — that caveat belonged on the sentence and was not there. It does
+    //     not change the verdict. On the strictly UNCLIPPED subpopulation (every channel below 245
+    //     at both times, n = 29,000-89,000 per frame) the added light reads 1.000/0.85-0.90/
+    //     0.78-0.86 in linear light across the WHOLE ramp, nowhere near GlowTint's 1.000/0.620/
+    //     0.260. And simulating a real additive amber pass over the clip's own baseline pixels
+    //     shows clipping can only neutralise amber by driving the patch to 255/255/255 EVERYWHERE
+    //     (k>=5); the observed peak is mean 232/231/231 with 16 % fully saturated. The mod's
+    //     overlays stay excluded, now by two independent measurements instead of one.
     //     THE LANE CORRECTED ITSELF ON THE RECORD. It first read the neutral delta as killing the
     //     occlusion hypothesis; that was wrong twice over, because in this shader family the term
     //     drives the wall-fade BLEACH, which is neutral, and because a wall FINISHING a fade
@@ -1829,6 +1862,45 @@ internal static class NetProtocol
     //     unreferenced. That is why this build ships a CENSUS and not a fix. A live count above 2,
     //     or an entry hanging off an unhovered prop, means the flash on every trap is ours; 0 or 1
     //     kills the lead outright.
+    //     ^^^ EVERY SENTENCE OF THAT ADDENDUM IS WRONG, AND ModBuild 470 REPLACES IT. Kept above
+    //     rather than deleted because it was quoted into three other files and a reader who meets
+    //     one of those quotes must be able to find the correction. Four separate errors:
+    //     (a) THE SWEEP WAS BLIND BY CONSTRUCTION — it grepped C# for a mechanism that lives in
+    //     compiled HLSL. decompiled/ holds 4646 .cs files and ZERO .shader, .mat, .anim,
+    //     .controller or .prefab; the game's shaders ship as LZ4 DXBC inside
+    //     StreamingAssets/aa/StandaloneWindows64/*.bundle, which is exactly why this repo grew
+    //     tools/ShaderDisasm in the first place. Unity publishes _Time/_SinTime/_CosTime as
+    //     time-varying globals every frame with no C# call at all, so "no game code writes a
+    //     time-varying GLOBAL shader value" is true and irrelevant.
+    //     (b) AND THE BLIND SPOT IS NOT EMPTY — IT HOLDS TWO OF THEM, both proven from evidence
+    //     this repository already contains. OmniDecal_Shd (the game's hex-selection decal) binds
+    //     _SinTime and pulses on `1.0 - abs(_SinTime.w)`; this mod's instruction-for-instruction
+    //     port is unity/GloomhavenVR.Assets/Assets/Bundle/Table/HexDecalStable.shader:555, and the
+    //     binding is in tools/ShaderDisasm/evidence/OmniDecal_Shd.extract-report.txt:38.
+    //     VFX/ParticleMasterUnlitAdd_Shd flipbooks on _Time.y; its only candidate phase term,
+    //     _FlipbookStart, is a MATERIAL property and `grep -rn _FlipbookStart --include=*.cs
+    //     decompiled/` returns ZERO writers, so every prop sharing that material runs it in
+    //     lockstep. Both are board-wide synchronous by construction and both are the GAME's.
+    //     (c) NOR IS OverlayPulse UNIQUE INSIDE THIS MOD: eleven other files drive a visual off
+    //     the same absolute clock with no per-instance phase (RemoteBoardFurniture's
+    //     RemoteGlowPulse writes _material.color off Sin(unscaledTime*3.2) — the closest twin),
+    //     and Board/FocusCue.cs:140 documents shared phase as a DELIBERATE RULE: "the blink's 0..1
+    //     phase, shared by every cue so they pulse together". Board-wide synchrony is this mod's
+    //     house style, not one accident in FigureOverlay.
+    //     (d) THE LEAK CANNOT HAPPEN AND THE CENSUS WAS NEVER WRITTEN. PropGrab.Scan's PHASE 2
+    //     drops stale registry entries BEFORE PHASE 3 adds (its own comment: "dropping first makes
+    //     the re-key a clean hand-over"); Drop calls GrabbableProp.Restore; Restore calls
+    //     ClearHighlight unconditionally; ClearHighlight calls FigureHighlight.Clear, which
+    //     destroys _overlayRoot. The root is also a CHILD of the prop's own visual, so a destroyed
+    //     visual takes it with it. There is no path that orphans a pulsing overlay. And "this
+    //     build ships a CENSUS" never happened: the token VRFigureHighlight occurs five times in
+    //     all of src/ (a doc line, the GameObject name, two comments, one WallFade prefix list)
+    //     and not one of them counts anything — which is why the 469 log contains it exactly once,
+    //     inside the HOME TWIN roster's hierarchy path. The census exists as of ModBuild 470:
+    //     OverlayPulse.PeakLive, two integers off Unity's own OnEnable/OnDisable, reported on the
+    //     `[Props] census` line as `OVERLAY PULSES alive at once, high-water this scenario: N`.
+    //     Reading: 0-2 CLEAN, 3+ means overlays are accumulating and the flash is ours, 0 on a
+    //     session that also holds a `highlight ENGAGED` line means the counter is broken.
     //   * THE CLEANUP: 3786 lines removed and no measurement added in that commit. DELETED —
     //     PropAnimWatch.cs whole (1944 lines; every question it asked is answered and its HOME
     //     window is superseded by HOME TWIN), the particle strand (PLAYING pre-count 0 on every

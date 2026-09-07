@@ -64,6 +64,38 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// here still owes an account of the ramp — and "the ramp is unexplained" is an honest thing to
 /// write down and better than a fitted story.</para>
 ///
+/// <para><b>AND ModBuild 470 RE-MEASURED THAT SIGNATURE AT 30 fps AND SPLIT IT IN TWO. A NEAR-WHITE
+/// PIXEL COUNT IS AREA TIMES BRIGHTNESS</b>, and on this clip the two terms run one after the
+/// other, not together. Over t=2.83..3.30 (0.47 s) the prop's SILHOUETTE (luma ≥ 100) grows
+/// 23,669 → 111,482 px — 4.7× in projected area — while the luminance inside it moves only
+/// 145 → 197. Over t=3.30..4.27 (0.97 s) the area is FLAT at 110-113k and only then does the
+/// brightness ramp, 197 → 238 mean and 200 → 251 median, saturating. So "a saturating ~1.0-1.4 s
+/// ramp IN" is half a scale change and half a brightening, and the ModBuild 466 exclusion built on
+/// "THE PROP'S CENTROID MOVES UNDER 30 PX" is true and blind to it: a centroid is invariant under
+/// scale. THIS IS THE RECORDED TRAP ONE LEVEL UP — a fixed window measures presence, and the 466
+/// curve is brightness times how much of the crop the prop fills. Any instrument that reports a
+/// near-white FRACTION over a fixed patch inherits the same confound and should print the
+/// silhouette AREA beside it.</para>
+///
+/// <para><b>THE EVENT HAS A PERIOD, AND IT IS 10.000 s.</b> The clip holds a SECOND complete
+/// episode nobody had looked for. Episode 1 terminates between frames 128 and 129 (100,645
+/// near-white px → 1,384 in ONE frame); episode 2 ramps t=12.90..14.27 and terminates between
+/// frames 428 and 429. 429 − 129 = 300 frames = exactly 10.000 s at 30 fps, and both lit spans are
+/// 1.40-1.43 s. Episode 2 never reaches episode 1's plateau (58,139 vs 100,759 px), so the plateau
+/// is the thing filling its extent, not a feature of the signal. A 10 s schedule with a ~1.4 s lit
+/// span and a one-frame termination is the first hard number a surviving hypothesis has to fit —
+/// and it is not this mod's <c>OverlayPulse</c>, whose period is 1.43 s and which never stops.</para>
+///
+/// <para><b>THE COLOUR EXCLUSION WAS STATED ON A SATURATED POPULATION AND SURVIVES ANYWAY.</b> At
+/// peak, 33.4 % of the stone-ring pixels carry a channel at 255 and 77.5 % sit within 5/255 of the
+/// ceiling, so 1.000/0.995/1.010 was read where a clipped pixel cannot testify to the colour that
+/// clipped it. That caveat belonged on the sentence. It does not change the verdict: on the
+/// strictly UNCLIPPED subpopulation (every channel below 245 at both times) the added light reads
+/// 1.000/0.85-0.90/0.78-0.86 in linear light across the whole ramp, and simulating a real additive
+/// amber pass over the clip's own baseline pixels shows clipping can only neutralise amber by
+/// driving the patch to 255/255/255 everywhere, which the observed peak (mean 232/231/231, 16 %
+/// fully saturated) is not.</para>
+///
 /// <para><b>TWO LEADS THIS CLASS DELIBERATELY DOES NOT CHASE, because the evidence already closed
 /// them and a probe aimed at a closed lead answers nothing.</b>
 /// <list type="number">

@@ -1270,6 +1270,52 @@ internal static class FigureOverlay
 /// visibly pulses (intensity sine on <c>Time.unscaledTime</c>, so it keeps breathing while the game
 /// is paused) plus a slow <c>_MainTex</c> scroll for extra life. Lives on the overlay container and
 /// owns the material, destroying it in <see cref="OnDestroy"/> so nothing leaks per hover.
+///
+/// <para><b>THIS CLASS HAS BEEN ACCUSED OF THE WHITE FLASH FOUR TIMES AND IS EXCLUDED BY FOUR
+/// INDEPENDENT MEASUREMENTS (ModBuild 470). Read this before accusing it a fifth time.</b> The
+/// accusation always ran: an absolute clock with no per-instance offset makes every live pulse
+/// lockstep, so a leak of these components would flash every trap at once. Each link of it is now
+/// a reading rather than an argument.
+/// <list type="number">
+/// <item><b>IT IS NOT THE ONLY BOARD-WIDE-SYNCHRONOUS MECHANISM, AND THE SWEEP THAT SAID SO WAS
+/// BLIND BY CONSTRUCTION.</b> That sweep grepped C# for a mechanism that lives in compiled HLSL.
+/// The game's own <c>OmniDecal_Shd</c> pulses on Unity's <c>_SinTime</c>
+/// (<c>tools/ShaderDisasm/evidence/OmniDecal_Shd.extract-report.txt</c>, and this mod's
+/// instruction-for-instruction port at <c>Table/HexDecalStable.shader</c>:
+/// <c>1.0 - abs(_SinTime.w)</c>), and <c>VFX/ParticleMasterUnlitAdd_Shd</c> flipbooks on
+/// <c>_Time.y</c> with its only phase term, <c>_FlipbookStart</c>, a MATERIAL property no game C#
+/// ever writes. Both are board-wide synchronous by construction. Eleven other files in THIS mod
+/// share the same absolute clock too, and <c>Board/FocusCue.cs</c> documents that as a deliberate
+/// design rule ("shared by every cue so they pulse together").</item>
+/// <item><b>THE PERIOD DOES NOT MATCH.</b> Frame-accurate off the user's own clip
+/// (<c>.planning/debug/falle_aufblitzen.mp4</c>, 30 fps): two complete episodes, cliff-out at
+/// frame 129 and frame 429 — <b>exactly 300 frames, 10.000 s</b>. This pulse's period is 1.43 s
+/// and it never stops. Nothing in either ramp carries a 1.43 s modulation.</item>
+/// <item><b>THE COLOUR EXCLUSION HOLDS, AND IT IS NOT AN ARTEFACT OF SATURATION.</b> ModBuild 466
+/// read the added light as neutral on a population that was in fact heavily clipped (33.4 % of the
+/// stone-ring pixels have a channel at 255 at peak; 77.5 % are within 5/255 of the ceiling), so the
+/// worry that clipping had erased an amber tint was a fair one. It is wrong, twice over. Measured
+/// on the strictly UNCLIPPED subpopulation only (every channel below 245 at both times), the added
+/// light reads 1.000 / 0.85-0.90 / 0.78-0.86 in linear light across the whole ramp — not
+/// <see cref="FigureHighlight"/>'s 1.000 / 0.620 / 0.260. And simulating a real additive amber pass
+/// over the clip's own baseline pixels shows clipping can only neutralise amber by driving the
+/// patch to 255/255/255 everywhere; the observed peak is mean 232/231/231 with 16 % fully
+/// saturated, which is not that picture.</item>
+/// <item><b>THERE IS NO LEAK PATH, AND THE ONE NAMED IN ModBuild 455 CANNOT HAPPEN.</b> The claim
+/// was that a re-keyed prop registry orphans a live <c>VRFigureHighlight</c>. It does not:
+/// <c>PropGrab.Scan</c> drops stale entries BEFORE it adds (its own comment calls this "a clean
+/// hand-over"), <c>PropGrab.Drop</c> calls <c>GrabbableProp.Restore</c>, and <c>Restore</c> calls
+/// <c>ClearHighlight</c> unconditionally, which destroys the overlay root. The root is also
+/// parented UNDER the prop's own visual, so a destroyed visual takes it along. The census ModBuild
+/// 455 promised in place of a fix was never written — the token <c>VRFigureHighlight</c> appears
+/// five times in the whole of <c>src/</c> and not one of them counts anything. It exists now, as
+/// <see cref="PeakLive"/> below.</item>
+/// </list>
+/// What is NOT excluded, and is the open lead: the flash's near-white pixel COUNT — the statistic
+/// the whole 466/469 signature is built on — is AREA times BRIGHTNESS, and over the first 0.47 s of
+/// the episode the prop's projected area grows 4.7x while its brightness barely moves. Only the
+/// remaining 0.97 s is a brightening. "The centroid moves under 30 px" is true and blind to
+/// exactly that.</para>
 /// </summary>
 internal sealed class OverlayPulse : MonoBehaviour
 {
@@ -1280,6 +1326,46 @@ internal sealed class OverlayPulse : MonoBehaviour
     private const float PulseHz = 0.7f;
     private const float Floor = 0.45f; // dimmest intensity
     private const float Ceil = 1.0f;   // brightest intensity
+
+    /// <summary>How many of these are pulsing RIGHT NOW — incremented in <c>OnEnable</c> and
+    /// decremented in <c>OnDisable</c>, which Unity pairs exactly (a destroy of an enabled
+    /// component fires <c>OnDisable</c> first). "Enabled and in an active hierarchy" is the same
+    /// condition as "its <see cref="Update"/> runs", so this counts painters and not objects.</summary>
+    private static int _live;
+
+    /// <summary>THE CENSUS ModBuild 455 PROMISED AND NEVER SHIPPED, in two integers instead of a
+    /// scene walk. The highlight is single-winner — the grab driver suppresses every non-winner —
+    /// so at most one figure overlay and one prop overlay can be alive at once.
+    ///
+    /// <para>PRE-REGISTERED READINGS, in numbers: <b>0, 1 or 2</b> is CLEAN and kills the leak lead
+    /// outright. <b>3 or more</b> means overlays are ACCUMULATING — an overlay is outliving the
+    /// hover that made it, every one of them pulsing off the same absolute clock, and the
+    /// board-wide flash is ours after all. The counter cannot read INERT: it is written from
+    /// Unity's own enable/disable callbacks on a component this mod creates, so a session in which
+    /// any figure or prop was ever hovered reads at least 1, and a peak of 0 on a session with a
+    /// <c>highlight ENGAGED</c> line in it would mean the counter itself is broken.</para>
+    ///
+    /// <para>WHAT IT COSTS WHEN THERE IS NO LEAK: two integer operations per hover, no allocation,
+    /// no per-frame work and no scene query — deliberately not the <c>FindObjectsOfType</c> shape
+    /// this project has now paid for three times in one round. It is reported as a HIGH-WATER MARK
+    /// rather than a live count because the <c>[Props]</c> census line it rides is change-gated: a
+    /// live count would flip on every hover and reprint that whole line each time, while a peak is
+    /// monotone and settles after the first hover of a scenario.</para></summary>
+    internal static int PeakLive { get; private set; }
+
+    /// <summary>Per-scenario reset, called beside <see cref="OverlayVisibilityProbe.Reset"/> at
+    /// teardown. The peak is re-based to the LIVE count rather than to zero, so a component still
+    /// awaiting its deferred destroy cannot make the next scenario's peak read low.</summary>
+    internal static void ResetPeak() => PeakLive = _live;
+
+    private void OnEnable()
+    {
+        _live++;
+        if (_live > PeakLive)
+            PeakLive = _live;
+    }
+
+    private void OnDisable() => _live--;
 
     internal void Init(Material mat, Color baseColor)
     {
