@@ -80,8 +80,10 @@ internal sealed class BurnCardFx
         // ITEM 4 (2026-09-07): WHAT THIS CARD'S BURN LOOK MUST BE, decided in one place and stated
         // as a rule there. FIRST in the tick on purpose: the census below must report the look the
         // player is actually going to see this frame, not the one the policy is about to correct.
-        // An activated card is restored to rest, a lost card is settled to the full burnt end
-        // state, everything else is left to the game. See BurnLookPolicy.
+        // An ACTIVATED card bound for Lost KEEPS the permanent burnt wash (the user's correction:
+        // "dieser Effekt war bei manchen Aktiven Karten vorhanden und wurde dort auch angezeigt -
+        // aber nur eine Runde"); one bound for Discard never wears it; a LOST card is settled to
+        // the full burnt end state; everything else is left to the game. See BurnLookPolicy.
         BurnLookPolicy.Enforce(full);
         _policyFace = full;
 

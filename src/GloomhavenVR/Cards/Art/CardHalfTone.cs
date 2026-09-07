@@ -292,7 +292,14 @@ internal static class CardHalfTone
                 // The card-FX rest state — the ACTUAL subject of the report, see the class doc. Its
                 // own change gate is the measured deviation from 0, so a face that is already at
                 // rest costs one property read per card image and writes nothing.
-                NormalizeCardFx(face);
+                //
+                // ITEM 4 (2026-09-07 correction): a face the mirror is deliberately painting BURNT
+                // is not a face that needs resting. BurnLookPolicy's rule 1a says an ACTIVATED card
+                // bound for Lost wears the permanent burnt wash on EVERY board; this hold is what
+                // lets the mirror write it without this sweep undoing it on the next pump. See
+                // HoldBurntLook.
+                if (!HasBurntLookHold(face))
+                    NormalizeCardFx(face);
             }
             MaybeCensus();
         }
@@ -352,6 +359,55 @@ internal static class CardHalfTone
     private static bool HasMirroredDim(FullAbilityCard face)
         => s_mirroredDim.Count > 0 && s_mirroredDim.Contains(face.GetInstanceID());
 
+    /// <summary>Instance ids of the mod-owned faces a PEER MIRROR is deliberately painting BURNT.
+    /// Ids and not references, for the same reason as <see cref="s_mirroredDim"/>.</summary>
+    private static readonly HashSet<int> s_burntLook = new();
+
+    /// <summary>
+    /// ITEM 4 (2026-09-07, the user's correction): TAKE OR RELEASE THE HOLD that stops
+    /// <see cref="NormalizeCardFx"/> re-resting a face a peer mirror is deliberately drawing BURNT.
+    ///
+    /// <para>WHY IT IS OWED, AND WHY IT IS A HOLD. The rule is now
+    /// <see cref="BurnLookPolicy"/>'s rule 1a: an ACTIVATED card bound for <c>Lost</c> wears the
+    /// permanent burnt wash and keeps it, <i>"lokal und remote"</i>. On a mirror the face is a
+    /// mod-built clone whose <c>CardEffects</c> has been stripped, so the burnt terms have to be
+    /// written straight onto its materials — which is exactly what
+    /// <c>NormalizeCardFx</c> exists to UNDO, because a clone of a pooled widget normally inherits
+    /// the previous user's wash and must start fresh. Two correct writers, opposite directions,
+    /// same four floats: left to fight they alternate per rebuild and the user sees a flicker
+    /// instead of an answer. So the mirror announces itself and this file stands down for exactly
+    /// the faces it names — the same contract, for the same reason, as
+    /// <see cref="HoldMirroredDim"/> one method up.</para>
+    ///
+    /// <para>NO CALLER YET, AND THAT IS DELIBERATE. The producer belongs in
+    /// <c>Net/Remote/RemoteActiveCards.cs</c> (<c>RemoteCardArt.SetAbilityBurnProgress(1f)</c> for a
+    /// Lost-bound activated card, the call <c>RemoteBurnFx</c> already makes on a burnt slab), which
+    /// is another lane's file. Shipping the hold first means that patch is one call and cannot
+    /// land into a write war. Until it exists the mirror draws a Lost-bound activated card FRESH,
+    /// which is a known, named divergence rather than a silent one.</para>
+    /// </summary>
+    internal static void HoldBurntLook(FullAbilityCard? face, bool held)
+    {
+        if (face == null)
+            return;
+        try
+        {
+            int id = face.GetInstanceID();
+            if (held)
+                s_burntLook.Add(id);
+            else
+                s_burntLook.Remove(id);
+        }
+        catch (System.Exception ex)
+        {
+            LogErrorOnce("burnt-look hold", ex);
+        }
+    }
+
+    /// <summary>Is a peer mirror deliberately painting this face burnt right now?</summary>
+    private static bool HasBurntLookHold(FullAbilityCard face)
+        => s_burntLook.Count > 0 && s_burntLook.Contains(face.GetInstanceID());
+
     /// <summary>Drop all state (scene teardown / hot reload), mirroring <c>CardArtGuard.Reset</c>.
     /// The rest-state material copies are destroyed here and only here: this runs on scene teardown,
     /// where every clone that could still be wearing one is going away in the same breath.</summary>
@@ -368,6 +424,11 @@ internal static class CardHalfTone
         // The held faces belong to the boards going away with the scene; a stale id could otherwise
         // collide with a fresh clone's and stand this file down for a face nobody is mirroring.
         s_mirroredDim.Clear();
+        s_burntLook.Clear();
+        // The burn-look policy tracks the same population — adopted and mod-built ability faces —
+        // and its per-face bookkeeping goes away with the same scene. Routed through here rather
+        // than through a second CardsModule.Reset line so the card-art teardown stays one call.
+        BurnLookPolicy.Reset();
         foreach (Material copy in s_restCopies.Values)
         {
             if (copy != null)
