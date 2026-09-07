@@ -1207,6 +1207,42 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     // CardActionHighlight), driven by CardsDriver on the live re-parented card — the exact
     // mouse-over visual. The old translucent-gold overlay quads are retired.
 
+    /// <summary>Last highlight state pushed per half (index 0 = bottom, 1 = top) and which REGION
+    /// it lit — the memory <see cref="ActionHighlightDriver"/> gates on. Held on the card because a
+    /// VR card outlives every rebuild that re-asserts it, which is precisely what the gate needs to
+    /// know.</summary>
+    private readonly int[] _actionHighlight = { ActionHighlightDriver.Off, ActionHighlightDriver.Off };
+
+    /// <summary>Companion to <see cref="_actionHighlight"/>: which of the half's two regions was
+    /// lit. Always false on this path — the active column lights the BIG action region, never the
+    /// standard-action chip — but the gate takes both terms and must not be given a half of one.</summary>
+    private readonly bool[] _actionHighlightRegion = { false, false };
+
+    /// <summary>
+    /// Light this card's ACTIVE half/halves with the game's own action-region highlight, WITHOUT
+    /// restarting a pulse that is already running (user item 7, 2026-09-07 — "Die Frequenz … war
+    /// plötzlich viel höher als zuvor. Es soll mit der dauerhaft selben ruhigen Frequenz blinken").
+    ///
+    /// <para>The whole of the fix is that this is gated. <c>CardActionHighlight.ShowHover</c> is not
+    /// idempotent — it cancels the running LeanTween chain and re-seeds the alpha to 1 — so the
+    /// caller's cadence became the blink's frequency. See <see cref="ActionHighlightDriver"/> for
+    /// the mechanism, the authored period, and the census that now prints it in seconds.</para>
+    /// </summary>
+    internal void SetActionHighlight(bool top, bool bottom)
+    {
+        FullAbilityCard? full = FullCard;
+        if (full == null)
+            return;
+        ActionHighlightDriver.Assert(full.bottomActionButton,
+            bottom ? ActionHighlightDriver.Hover : ActionHighlightDriver.Off, wantDefault: false,
+            ref _actionHighlight[0], ref _actionHighlightRegion[0],
+            ActionHighlightDriver.Site.ActiveColumn);
+        ActionHighlightDriver.Assert(full.topActionButton,
+            top ? ActionHighlightDriver.Hover : ActionHighlightDriver.Off, wantDefault: false,
+            ref _actionHighlight[1], ref _actionHighlightRegion[1],
+            ActionHighlightDriver.Site.ActiveColumn);
+    }
+
     // -------------------------------------------------------------- interaction --
 
     // Held-pose target in GrabAnchor local space (captured once per grab).

@@ -962,6 +962,18 @@ internal sealed class RemoteBoardCard
     /// write took.</summary>
     private string _loggedFx = string.Empty;
 
+    /// <summary>Is the card this recess shows a member of its owner's <c>RoundAbilityCards</c> —
+    /// i.e. is it SEATED IN THIS ROUND'S RECESS rather than merely lying where it was left? Sampled
+    /// once per <see cref="ResolveUsedCardLook"/> pass, reported on the <c>RECESS CARD FX</c> line
+    /// beside the state that was chosen, because "seated AND classified discarded" is item 9's
+    /// defect stated in one clause.</summary>
+    private bool _seatedInRound;
+
+    /// <summary>The card's own <c>CBaseCard.CurrentCardPile</c> stamp at that same instant — the
+    /// LATCH, printed beside the LIST so a log says which of the two the classifier obeyed and what
+    /// the other one held.</summary>
+    private CBaseCard.ECardPile _latchedPile = CBaseCard.ECardPile.None;
+
     /// <summary>
     /// THE FOLLOW-UP THE USER ASKED FOR IN HIS OWN WORDS (2026-09-06): "Das verkohlen oder ausgrauen
     /// (verbraucht, verbrannt) soll nicht im Fächer (in der Mitte) des jeweiligen Stapels angezeigt
@@ -1040,7 +1052,18 @@ internal sealed class RemoteBoardCard
             }
         }
         if (_fxLook == RemoteCardArt.CardFxLook.None || _art == null)
+        {
+            // ITEM 9's POSITIVE READING, and it is the reason this branch logs at all. With the
+            // fix in place the correct answer for a freshly laid round card is NONE, and a silent
+            // instrument cannot be told apart from one that never ran — this project has paid for
+            // that ("a held instrument reads as dead"). Gated on SEATED so it is exactly one line
+            // per round card per state change and nothing else: an empty recess (card == null)
+            // never reaches here, and a card lying anywhere but this round's recess is not what
+            // item 9 is about.
+            if (_seatedInRound)
+                LogUsedCardFxIfChanged(playerId, slot, applied: true, source);
             return;
+        }
         // NAMED BY THE DRIVER, and this method is the only driver a board card has. The ACTIVE-CARDS
         // column builds RemoteBoardCards too and never reaches here, so its faces stay
         // FxSurface.Unnamed and print nothing — which is the CORRECT reading for item 8a: an
@@ -1063,9 +1086,18 @@ internal sealed class RemoteBoardCard
         source = "none";
         CAbilityCard? card = _plumeCard;
         if (card == null)
+        {
+            // An EMPTY recess is not a card seated anywhere. Clearing both here matters because the
+            // RECESS CARD FX line reports them: leaving the previous card's values standing would
+            // print 'seated=True' for a slot holding nothing, which is a lie in the one clause item
+            // 9 is read from.
+            _seatedInRound = false;
+            _latchedPile = CBaseCard.ECardPile.None;
             return RemoteCardArt.CardFxLook.None;
+        }
 
-        // ── 0. THE PILE THE CARD IS IN, WHICH OUTRANKS THE ACTION THAT WAS PLAYED ─────────────────
+        // ── 0. THE PILE THE CARD LANDED IN — WHICH OUTRANKS THE ACTION THAT WAS PLAYED, BUT ONLY
+        //       ONCE THE CARD HAS LEFT THIS ROUND'S RECESS (item 9, at the end of this block) ──────
         // 2026-09-06 item 8a, his words: "Im Test wurde eine Karte aktiviert die nach ihren effekten
         // erst verbrannt wird. D.h. dann soll auch nicht die verbrennen animation und ton bereits
         // kommen … da sie ja de facto noch nicht verbrannt ist, sondern nur aktiviert wurde."
@@ -1078,7 +1110,9 @@ internal sealed class RemoteBoardCard
         //       LostMode (which is BurnCardTimeline, CardEffects.cs:422-423), and Hand or ACTIVATED
         //       -> cardEffects.RestoreCard(), i.e. NO LOOK AT ALL.
         // Rule (b) is the later writer and therefore the one the owner ends up looking at, so it is
-        // asked FIRST here.
+        // asked FIRST here — but only about a card that has actually LANDED somewhere. See the item
+        // 9 block below for the one state where rule (b) has nothing to say and used to answer
+        // anyway.
         //
         // AND ACTIVATION IS PRECISELY WHERE THE TWO DISAGREE. A persistent card is one whose action
         // has CardPile == Lost, so rule (a) chars it - but CCharacterClass.MoveAbilityCardToPile
@@ -1091,34 +1125,118 @@ internal sealed class RemoteBoardCard
         // method with ActiveBonuses.Count == 0 and the card finally reaches LostAbilityCards.
         //
         // CurrentCardPile IS THE FIELD, and it is not a convenience: CBaseCard.cs:91 declares it,
-        // CCharacterClass.cs:452 maintains it, it is SERIALIZED (CBaseCard.cs:103/:126) and the
+        // CCharacterClass.cs:452 writes it, it is SERIALIZED (CBaseCard.cs:103/:126) and the
         // game's own multiplayer state comparison checks it (CBaseCard.cs:382-403, mismatch code
         // 2804) - the same argument by which ActionHasHappened is trusted twenty lines below. It
         // cannot disagree between the two machines.
+        //
+        // ─── THE SENTENCE ABOVE USED TO SAY ":452 MAINTAINS IT" AND THAT WORD WAS FALSE ───────────
+        // USER ITEM 9 (2026-09-07, verbatim): "Ein Spieler hatte eine kurze Rast gemacht, danach
+        // zwei Karten gelegt und es ging in die Aktionsphase. Dort wurden aber auf dem remote Board
+        // und auch wenn ich auf dem Character gegangen bin - die Karten angezeigt als wären sie
+        // bereits abgeworfen (so ausgegraut) - sie sind aber ja die zwei Karten in der Mulde für
+        // diese Runde, die von dem Character noch gar nicht gespielt wurden."
+        //
+        // CurrentCardPile IS WRITTEN ON ONE TRANSITION IN FOUR. Every assignment to it in the whole
+        // rules library is: MoveAbilityCardToPile (CCharacterClass.cs:452, the END-OF-TURN drain),
+        // RestoreCachedAugmentOrSongAbilityCard (:548), scenario setup (:1198/:1207 -> Hand), and
+        // CBaseCard's own reset/deserialize. The two moves that matter here go through a DIFFERENT
+        // method - CCharacterClass.MoveAbilityCard (:273-303), which edits the two LISTS and never
+        // touches the field:
+        //   * SELECTING A CARD FOR THE ROUND is MoveAbilityCard(Hand -> Round) (CardsHandUI.cs:2015
+        //     via ScenarioRuleClient.MoveAbilityCard);
+        //   * A SHORT REST is MoveAbilityCard(Discarded -> Hand), once per discarded card
+        //     (GameState.PlayerShortRested :2612-2616), and a LONG REST the same (:2554-2558).
+        // So ECardPile.Round is a value the game DECLARES (CBaseCard.cs:41) and NEVER ASSIGNS, the
+        // "Round falls through" line below was unreachable, and a card lying in this round's recess
+        // carries whatever pile it last LANDED in: Hand for a card never yet played, and Discarded
+        // for one a rest handed back. That is the user's report exactly - he rested, so both cards
+        // came back to the hand still stamped Discarded, he laid them, and this switch called them
+        // discarded before anybody had played anything.
+        //
+        // MEASURED, ModBuild 474, the host log of the 2026-09-07 session. The peer's short rest is
+        // mirrored at line 191297 ('SHORT REST SEAT [player 2] ... ABILITY_CARD_SpareDagger ...
+        // resolved from the DISCARD arc at seat 1 of 6'). Lines 208837 and 208838 - the only frame
+        // in either log where BOTH recesses change look together - read 'RECESS CARD FX [player 2]
+        // recess 1/2: look=GHOST, applied=yes, source=pile:Discarded'. Over the same window the
+        // record 41 half-dim channel was SILENT: the host's last inbound 'SPENT HALF [player 2]'
+        // before it is line 184650 reading top=False, bottom=False, and the next one is line 237755,
+        // 53 000 lines later. Nothing had been used and the mask said so; the LATCH said otherwise
+        // and this switch believed the latch. 'CARD HALF TONE CENSUS' corroborates from the pixel
+        // side: from #133 (line 211045) it reports CLONE 2 face(s)/4 halves at _GreyOut 1.00
+        // unbroken to line 241458 - two faces, the two recesses, for the rest of the session.
+        //
+        // BOTH SURFACES WERE WRONG AND THE WIRE IS NOT INVOLVED, which is the shape that names a
+        // local gate. The rules model of every actor is simulated on every client, so the list this
+        // fix reads is the same object on both machines in the same frame.
+        //
+        // SO THE LIST OUTRANKS THE LATCH, AND ONLY FOR THE CARDS THE LATCH CANNOT DESCRIBE.
+        // CCharacterClass.RoundAbilityCards is the raw backing field (:89, not the LINQ projection
+        // ActivatedAbilityCards is) and it is maintained on every one of these transitions, because
+        // moving the card between lists is the whole of what MoveAbilityCard does. A card IN that
+        // list is seated in this round's recess and its pile stamp is a value from a previous round;
+        // for it, rule (b) has no opinion and the question goes back to rule (a) - the ACTION THAT
+        // WAS PLAYED, steps 1 and 2 below, which are gated on record 41's spent mask and answer
+        // None for a card nobody has touched.
+        //
+        // IT KEEPS ITEM 8a AND IT RESTORES ITEM 8. An ACTIVATED card is not in RoundAbilityCards -
+        // MoveAbilityCardToPile removed it on the way to m_ActivatedCards - so 'pile:Activated ->
+        // None' still runs and the activated-not-yet-burnt card stays clean. And the mid-turn
+        // grey-out the 2026-09-06 item 8 asked for ("das Ausgrauen wenn eine nicht-verbrennen Aktion
+        // benutzt wurde") was ALSO being eaten by this switch, in the other direction: a fresh round
+        // card is stamped Hand, and 'pile:Hand -> None' returned before either resolver could see
+        // that the owner had used a half. One expression, both directions, one fix.
         try
         {
-            switch (card.CurrentCardPile)
-            {
-                case CBaseCard.ECardPile.Activated:
-                case CBaseCard.ECardPile.Hand:
-                    // SetPile's RestoreCard branch. An ACTIVATED card is not burnt and not spent;
-                    // it is in play. This is the whole of item 8a on this surface.
-                    source = "pile:" + card.CurrentCardPile;
-                    return RemoteCardArt.CardFxLook.None;
-                case CBaseCard.ECardPile.Lost:
-                case CBaseCard.ECardPile.PermanentlyLost:
-                    source = "pile:" + card.CurrentCardPile;
-                    return RemoteCardArt.CardFxLook.Burn;
-                case CBaseCard.ECardPile.Discarded:
-                    source = "pile:Discarded";
-                    return RemoteCardArt.CardFxLook.Ghost;
-            }
-            // Round / None fall through: the card is still on the board and rule (a) decides.
+            System.Collections.Generic.List<CAbilityCard>? round =
+                _plumeOwner != null && _plumeOwner.CharacterClass != null
+                    ? _plumeOwner.CharacterClass.RoundAbilityCards
+                    : null;
+            _seatedInRound = round != null && round.Contains(card);
+            _latchedPile = card.CurrentCardPile;
         }
         catch (System.Exception)
         {
-            // An unreadable pile is not an answer - fall through to the two resolvers below, which
-            // is exactly the picture every build before this one drew.
+            // An unreadable actor is not an answer either: leave the seat unknown and let the latch
+            // decide, which is exactly the picture every build before this one drew.
+            _seatedInRound = false;
+            _latchedPile = CBaseCard.ECardPile.None;
+        }
+
+        if (_seatedInRound)
+        {
+            // The card is lying in this round's recess. Its pile stamp describes a PREVIOUS round
+            // and may not decide anything; fall through to the action-that-was-played below.
+            source = $"list:RoundAbilityCards (latch {_latchedPile} overruled)";
+        }
+        else
+        {
+            try
+            {
+                switch (card.CurrentCardPile)
+                {
+                    case CBaseCard.ECardPile.Activated:
+                    case CBaseCard.ECardPile.Hand:
+                        // SetPile's RestoreCard branch. An ACTIVATED card is not burnt and not
+                        // spent; it is in play. This is the whole of item 8a on this surface.
+                        source = "pile:" + card.CurrentCardPile;
+                        return RemoteCardArt.CardFxLook.None;
+                    case CBaseCard.ECardPile.Lost:
+                    case CBaseCard.ECardPile.PermanentlyLost:
+                        source = "pile:" + card.CurrentCardPile;
+                        return RemoteCardArt.CardFxLook.Burn;
+                    case CBaseCard.ECardPile.Discarded:
+                        source = "pile:Discarded";
+                        return RemoteCardArt.CardFxLook.Ghost;
+                }
+                // None falls through: the card is still on the board and rule (a) decides. Round
+                // NEVER reaches here, and never could — see the block above for why.
+            }
+            catch (System.Exception)
+            {
+                // An unreadable pile is not an answer - fall through to the two resolvers below,
+                // which is exactly the picture every build before this one drew.
+            }
         }
 
         // ── 1. THE OWNER'S OWN EFFECT STATE ──────────────────────────────────────────────────────
@@ -1277,7 +1395,21 @@ internal sealed class RemoteBoardCard
             + "so this recess just took the char back off. look=BURN with source=pile:Lost is the "
             + "RESOLVE reading and is the card really burning. look=BURN with source=widget or "
             + "source=model on a card that is sitting in the ACTIVE column is the DEFECT this term "
-            + "was added to end, and seeing it again means CurrentCardPile did not read Activated.");
+            + "was added to end, and seeing it again means CurrentCardPile did not read Activated. "
+            + "─── ITEM 9 (2026-09-07), THE LIST AND THE LATCH, PRINTED SIDE BY SIDE: this card is "
+            + $"SEATED IN THIS ROUND'S RECESS (CCharacterClass.RoundAbilityCards)={_seatedInRound}, "
+            + $"while its own CBaseCard.CurrentCardPile LATCH reads {_latchedPile}. Those two "
+            + "disagreeing is not a race and not replication lag - the list and the field are the "
+            + "same objects on every client - it is the field being STALE, because the game writes "
+            + "it only in MoveAbilityCardToPile (the end-of-turn drain) and never in "
+            + "MoveAbilityCard, which is what BOTH a round selection (CardsHandUI.cs:2015) and a "
+            + "SHORT REST (GameState.PlayerShortRested:2612-2616) go through. So a rested card comes "
+            + "back to the hand still stamped Discarded and gets laid into a recess wearing it. "
+            + "seated=True with source=pile:Discarded IS the reported defect and this build cannot "
+            + "print it any more: the list is asked first and the latch is overruled, which the "
+            + "source clause says in words (list:RoundAbilityCards (latch X overruled)). seated=True "
+            + "with look=GHOST and source=widget or model is NOT the defect - that is the owner "
+            + "having actually used a half this turn, which is item 8 and must keep working.");
     }
 
     /// <summary>
@@ -1426,63 +1558,29 @@ internal sealed class RemoteBoardCard
     /// a purely state-gated driver would go dark for good the first time the face host re-enabled.
     /// A hover that is already running is left alone, so the game's LeanTween loop is never
     /// restarted mid-cycle (which would visibly re-snap the alpha to 1 every frame).
+    ///
+    /// <para>THAT GATE IS NOW SHARED, and the sharing is the whole of user item 7 (2026-09-07).
+    /// The expression above lived only here, while the LOCAL twin — the owner's own ACTIVE-cards
+    /// column, <c>CardsDriver.SetActiveHighlight</c> — asserted the identical game component with
+    /// no gate at all, once per driver rebuild. Same component, same non-idempotent
+    /// <c>ShowHover</c>, two opinions about when a write is owed. It moved verbatim into
+    /// <see cref="Cards.ActionHighlightDriver"/> so both surfaces ask one expression; the behaviour
+    /// on this path is unchanged, term for term.</para>
     /// </summary>
     private bool ApplyHalf(FullAbilityCardAction? action, int half, int hoverHalf, int selectedHalf)
     {
-        CardActionHighlight? big = action != null ? action.highlightAction : null;
-        CardActionHighlight? chip = action != null ? action.highlightDefaultAction : null;
-        if (big == null && chip == null)
-            return false;
-
-        int want = selectedHalf == half ? 1 : hoverHalf == half ? 0 : -1;
+        int want = selectedHalf == half ? Cards.ActionHighlightDriver.Selected
+            : hoverHalf == half ? Cards.ActionHighlightDriver.Hover
+            : Cards.ActionHighlightDriver.Off;
         // WHICH of this half's two regions the owner named. The selection wins on a doubly-lit
         // half, exactly as the game's own RefreshHighlight parks the selected look over the
         // hover's — so the region question follows the same winner.
-        bool wantDefault = want == 1 ? _shownSelectedDefault
-            : want == 0 && _shownHoverDefault;
-        // A card prefab without the chip's highlight cannot show a chip glow. Falling back to the
-        // BIG half's highlight there would re-create the exact defect this fixes (a whole half lit
-        // for a standard action), so it falls back to NOTHING instead: less than the owner sees,
-        // never something different from what the owner sees.
-        CardActionHighlight? target = want < 0 ? null : wantDefault ? chip : big;
-
-        // The region can flip while the STATE holds (the beam slides off the half onto its chip:
-        // still "hover", different rectangle), so the gate is on BOTH. `isOn` is read from the
-        // object we are about to write, which is what keeps the self-heal against the clone's own
-        // FullAbilityCardAction.OnEnable → Show() → highlight.Hide().
-        bool wantOn = target != null;
-        bool isOn = target != null && target.gameObject.activeSelf;
-        bool gated = want == _appliedHighlight[half]
-                     && wantDefault == _appliedDefault[half]
-                     && wantOn == isOn;
-
-        if (!gated)
-        {
-            _appliedHighlight[half] = want;
-            _appliedDefault[half] = wantDefault;
-            if (target != null)
-            {
-                if (want == 1)
-                    target.ShowSelected(); // steady, selectedShineWidth — the committed region
-                else
-                    target.ShowHover();    // the game's own 1↔0.3 LeanTween loop, hoverShineWidth
-            }
-        }
-
-        // NEVER BOTH AT ONCE, and never a leftover: the same exclusivity
-        // FullAbilityCardAction.RefreshHighlight keeps between its two highlights on the owner's
-        // own card. Run unconditionally (not only on a change) because the object that has to go
-        // dark is the one the gate above is NOT watching — a region flip and a hover ending are
-        // both cases where the previously lit highlight would otherwise stay up.
-        Park(want < 0 || !ReferenceEquals(big, target) ? big : null);
-        Park(want < 0 || !ReferenceEquals(chip, target) ? chip : null);
-        return true;
-
-        static void Park(CardActionHighlight? hl)
-        {
-            if (hl != null && hl.gameObject.activeSelf)
-                hl.Hide();
-        }
+        bool wantDefault = want == Cards.ActionHighlightDriver.Selected ? _shownSelectedDefault
+            : want == Cards.ActionHighlightDriver.Hover && _shownHoverDefault;
+        return Cards.ActionHighlightDriver.Assert(
+            action, want, wantDefault,
+            ref _appliedHighlight[half], ref _appliedDefault[half],
+            Cards.ActionHighlightDriver.Site.MirroredRecess);
     }
 
     /// <summary>

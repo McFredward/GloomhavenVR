@@ -113,6 +113,10 @@ internal sealed class CardsModule : IVRModule
         CardArtPrewarm.Reset();
         CardArtPin.ReleaseAll("the cards module was torn down");
         CardHalfTone.Reset();
+        // Item 7's pulse census holds the authored period it read off a live CardActionHighlight
+        // and a per-object restart clock; a scenario teardown must not carry either into the next
+        // scenario's first reading.
+        ActionHighlightDriver.Reset();
         // ActiveCardSet's census is deliberately NOT reset from here — it forgets its own rows on
         // silence (ActiveCardSet.RowForgetSeconds), so no mechanism path reads instrument state and
         // the whole census stays retirable in one piece. See that constant's note.
