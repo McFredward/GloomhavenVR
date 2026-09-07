@@ -2688,6 +2688,17 @@ internal static partial class ModalFallback
         // past this point either.
         _tickPhase = -1;
         long tickBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+
+        // THE ASSIGNMENT-WINDOW CENSUS RIDES HERE, AND IT IS DELIBERATELY OUTSIDE THE MARKER BELOW.
+        // It is not a step of the modal pipeline and must never become one: the window it watches
+        // (UIDistributeRewardManager's loot/gold assignment) carries no UIWindow at all, so it never
+        // enters this method's tracked set, is never converted here and is never released here —
+        // AssignmentWindows explains the whole of it. It sits above the FRAME-ORDER marker so it
+        // takes part in none of that method's arbitration decisions, and inside TickGuard so that a
+        // census throw can never amputate the pipeline that follows it. Two property reads in the
+        // steady state.
+        TickGuard.Run("WorldUI.AssignmentWindows", AssignmentWindows.Tick, "WorldUI");
+
         // FRAME-ORDER ModalFallback.Tick [PhasePreConvertHide, PhasePolls, PhaseCatchAll, PhaseErrorBox, PhaseDecide, TickScreenBind, PhaseRelease, TickWindowLiveness, PhaseConvert, PhaseRaycast, PhaseGrabFollow, PhaseDestinations, PhaseProbeFlicker, PhaseProbeCameraOrder, PhaseProbeRenderTarget, PhaseScroll, PhaseRefit, PhaseChainPose, PhaseMenuGuard, PhaseEscape, PhasePublish]
         //   The modal pipeline, and TWO of these adjacencies are stated in prose elsewhere in the
         //   codebase while being guarded by nothing — which is exactly the gap this marker closes:
