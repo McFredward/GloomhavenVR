@@ -1473,6 +1473,25 @@ internal sealed class UseBarsSurface
                 continue;
             if (!CardsGameApi.BonusIsPlaceable(bonus))
             {
+                // STANDING RULING, 2026-09-07 — DO NOT "FIX" THIS ROW AWAY. The user's item 6a
+                // reads "Wenn es nur darum geht etwas zu nutzen oder nicht, soll das NICHT als icon
+                // in der Entscheidungsarea angezeigt werden, sondern der User soll die Karte
+                // hinlegen wie alle anderen Items auch aktiviert werden", and the row this branch
+                // keeps looks exactly like the thing that rule forbids. IT IS NOT. The rule is
+                // about ITEMS, and it presupposes a card there is something to lay down; the
+                // population that reaches this branch with `BaseCard is CItem: False` is an
+                // ability / aura / summon bonus, and it has no item card at all — the log line
+                // below says "nothing to place" for precisely that reason.
+                //
+                // Asked and answered: shown the choice between routing such a decision through the
+                // ACTIVE CARD on the board and keeping the icon, he chose to KEEP THE ICON, on the
+                // condition that it is strictly 1:1 on every mirror — same size, same icon, same
+                // position, same animations (his item 6b). So the exception is not "we could not
+                // build it", it is a ruling: an ability-card bonus keeps its decision-area row, and
+                // what is owed on it is FIDELITY, not removal. The screenshot that opened the
+                // round, riesiger_text.jpg, was this row's mirror at ~2400x scale, which is the
+                // half that was genuinely broken and is fixed in RemoteWidgetMirror.
+                //
                 // WHY THIS ROW SURVIVED (user, ModBuild 103: the peer saw the Brille among the
                 // symbols, and the mod's own log could not say why). The split is silent by design
                 // when it hides a row, so a row that is NOT hidden left no trace at all — the two
