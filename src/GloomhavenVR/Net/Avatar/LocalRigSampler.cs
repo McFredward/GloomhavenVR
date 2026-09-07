@@ -667,8 +667,13 @@ internal static class LocalRigSampler
     ///     watcher's <c>MIRRORED ARC ORDER</c> for this player must print <c>fp=X</c> too; if it
     ///     prints a different word, the record arrived and the divergence is on the RECEIVER.</item>
     ///   <item><c>WITHHELD</c> with <c>why=</c> — no record on this packet, and the reason names
-    ///     which exit fired. <c>arc is not our own character's hand</c> and <c>no hand lists this
-    ///     arc</c> are the two that used to be invisible and are the SENDER defect; <c>derived list
+    ///     which exit fired. <c>arc is not our own character's hand</c> is the SENDER defect, and
+    ///     since 2026-09-07 it is one of THREE strings rather than one: the other two, <c>the hand
+    ///     listing this arc has no PlayerActor</c> and <c>NetPlayerActors.ActorFor could not name
+    ///     OUR OWN actor</c>, were folded into it and are a different failure with a different fix
+    ///     — see the comment at the test itself. <c>no hand lists this arc</c> reads like a defect
+    ///     and USUALLY IS NOT: all 21 of its readings in the 2026-09-07 evening logs are the
+    ///     map-room loadout arc, which is not a hand and has no <c>CardsHandUI</c>. <c>derived list
     ///     shorter than the arc</c> is this client's own model lagging its own fan and is
     ///     transient; <c>no open fan</c> is the resting state and is owed nothing.</item>
     /// </list>
@@ -812,8 +817,29 @@ internal static class LocalRigSampler
             // ONE INDEX SPACE, ENFORCED RATHER THAN ASSUMED. A watcher derives this fan against
             // NetPlayerActors.ActorFor(ourPlayerId); an order sampled off any other character is a
             // valid-looking permutation of the WRONG list.
+            //
+            // THREE CAUSES, THREE STRINGS — and the 2026-09-07 evening round's ONLY measured loss of
+            // a record 44 that a watcher could actually SEE went out under this one word. The user's
+            // log prints `why=arc is not our own character's hand` three times, for arc=8/7/8
+            // (lines 19951, 20009, 20023), on a frame whose own `fan state:` line reads
+            // boundHand=True — and the co-player's MIRRORED ARC ORDER census answers
+            // `refused/none stated` with model=8 at 11497/11567/11575, the same 8/7/8, the only three
+            // census rows in either log where a mirrored fan WITH FRONTS got no order. One string
+            // cannot say which of three things happened, and they have three different fixes: a hand
+            // with no PlayerActor, and an ActorFor that cannot name OUR OWN actor, are both this
+            // client failing to answer a question about ITSELF (NetPlayerActors.ActorFor walks
+            // MyControllables and returns the FIRST CharacterManager it finds, which a summon or a
+            // targeting controllable can displace), while the third is the genuine foreign-hand
+            // refusal this test was written for. ReportFanArcOrder's change key folds why.Length and
+            // the three lengths are distinct, so the three cannot collapse into one line.
             CPlayerActor? mine = NetPlayerActors.ActorFor(localPlayerId);
-            if (actor == null || mine == null || !ReferenceEquals(actor, mine))
+            if (actor == null)
+                return ReportFanArcOrder(false, n, 0, 0u,
+                    "the hand listing this arc has no PlayerActor");
+            if (mine == null)
+                return ReportFanArcOrder(false, n, 0, 0u,
+                    "NetPlayerActors.ActorFor could not name OUR OWN actor");
+            if (!ReferenceEquals(actor, mine))
                 return ReportFanArcOrder(false, n, 0, 0u, "arc is not our own character's hand");
 
             // ─── THE INDEX SPACE IS RECORD 43'S TO CHOOSE, NOT THIS METHOD'S TO ASSUME ──────────
