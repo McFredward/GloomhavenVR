@@ -60,6 +60,10 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarState.cs" Link="wire\AvatarState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\PresenceState.cs" Link="wire\PresenceState.cs" />
+    <!-- Record 45's SHAPE and fold. Split out of UseBarSlotSymbol.cs precisely so that
+         PresenceState can be compiled here: the other half names CActiveBonus, CItem and
+         Sprite, and this project references UnityEngine.CoreModule and nothing else. -->
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarSlotIdentity.cs" Link="wire\UseBarSlotIdentity.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetPacket.cs" Link="wire\NetPacket.cs" />
     <!-- Record 28's PAGING (2026-08-09). It belongs on this list for the same reason the
          serializers do: it is a wire format with a sender and a receiver that never meet, and its
@@ -253,6 +257,7 @@
     <Compile Include="SpentHalfVectors.cs" />
     <Compile Include="FanSourceVectors.cs" />
     <Compile Include="FanArcOrderVectors.cs" />
+    <Compile Include="UseBarSlotIdentityVectors.cs" />
     <!-- Peer-board see-through (user request 15): a stepper pin for four dials whose defaults do
          not ride src/GloomhavenVR/Defaults/ (so the sweep cannot see them), plus a SOURCE LINT
          that no per-eye / screen-space term ever enters that fade — the parked wall-fade rivalry

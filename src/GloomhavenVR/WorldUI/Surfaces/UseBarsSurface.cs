@@ -627,18 +627,41 @@ internal sealed class UseBarsSurface
         new byte[Net.NetProtocol.UseBarsCount * Net.NetProtocol.UseBarsMaxSlots];
 
     /// <summary>
-    /// Copy the published per-bar flags / slot counts / slot states into the caller's buffers (each
-    /// may be shorter; nothing is written past its length). The three describe the bars named by
-    /// <see cref="WireBarMask"/>, indexed by BAR INDEX, so the caller never has to know which bars
-    /// were present to address them.
+    /// Per-slot IDENTITY ids for wire record 45, same flat stride and same indexing as
+    /// <see cref="WireSlotStateBuffer"/> — <c>Net.UseBarSlotIdentity.NoIdentity</c> (0) wherever the
+    /// slot has none, which is the ordinary answer for the two bars record 45 does not carry.
+    ///
+    /// <para>SAMPLED IN THE SAME WALK as the state bytes, deliberately: index alignment between a
+    /// slot's state and its id is then structural rather than a promise two loops keep, which is
+    /// the argument <see cref="BarDock.SampleWireSlots"/> already makes for record 25's alignment
+    /// with the receiver's walk.</para>
     /// </summary>
-    internal static void CopyWireBars(byte[]? flags, byte[]? counts, byte[]? states)
+    private static readonly ushort[] WireSlotIdBuffer =
+        new ushort[Net.NetProtocol.UseBarsCount * Net.NetProtocol.UseBarsMaxSlots];
+
+    /// <summary>
+    /// Copy the published per-bar flags / slot counts / slot states / slot ids into the caller's
+    /// buffers (each may be shorter or null; nothing is written past its length). All four describe
+    /// the bars named by <see cref="WireBarMask"/>, indexed by BAR INDEX, so the caller never has to
+    /// know which bars were present to address them.
+    /// </summary>
+    internal static void CopyWireBars(byte[]? flags, byte[]? counts, byte[]? states, ushort[]? ids)
     {
         Copy(WireBarFlagsBuffer, flags);
         Copy(WireBarSlotCountBuffer, counts);
         Copy(WireSlotStateBuffer, states);
+        CopyIds(WireSlotIdBuffer, ids);
 
         static void Copy(byte[] from, byte[]? into)
+        {
+            if (into == null)
+                return;
+            int n = from.Length < into.Length ? from.Length : into.Length;
+            for (int i = 0; i < n; i++)
+                into[i] = from[i];
+        }
+
+        static void CopyIds(ushort[] from, ushort[]? into)
         {
             if (into == null)
                 return;
@@ -659,6 +682,8 @@ internal sealed class UseBarsSurface
     private static readonly byte[] PublishedCounts = new byte[Net.NetProtocol.UseBarsCount];
     private static readonly byte[] PublishedStates =
         new byte[Net.NetProtocol.UseBarsCount * Net.NetProtocol.UseBarsMaxSlots];
+    private static readonly ushort[] PublishedIds =
+        new ushort[Net.NetProtocol.UseBarsCount * Net.NetProtocol.UseBarsMaxSlots];
 
     /// <summary>The record-25 mask bit of bar index <paramref name="i"/> — the stack order this
     /// surface builds its docks in IS the bit order (see the constructor).</summary>
@@ -673,11 +698,21 @@ internal sealed class UseBarsSurface
     /// on the very tick it becomes true, so a peer's drawer empties in the same frames the owner's
     /// does instead of up to a quarter second later. Only the non-empty sample is throttled.</para>
     ///
-    /// <para>NO IDENTITY IS READ. The walk visits the bar's slot CONTAINER children (visual order,
-    /// the same layout truth the fit hold uses) and asks three questions of each: can the owner
-    /// click it, is it dimmed, is it toggled on. It never touches a slot's sprite, its model
-    /// element or its tooltip — see <c>NetProtocol.ExtIdUseBars</c> for why an item slot's only
-    /// "label" is its card art and therefore may not travel in any form.</para>
+    /// <para>NO ART IS READ, AND SINCE ModBuild 479 ONE NUMBER IS. The walk visits the bar's slot
+    /// CONTAINER children (visual order, the same layout truth the fit hold uses) and asks three
+    /// questions of each for record 25: can the owner click it, is it dimmed, is it toggled on. It
+    /// still never touches a slot's SPRITE or its tooltip — see <c>NetProtocol.ExtIdUseBars</c> for
+    /// why an item slot's only "label" is its card art and therefore may not travel in any form.
+    /// </para>
+    ///
+    /// <para>What it now ALSO reads is the slot's model IDENTITY, folded to a 16-bit id for record
+    /// 45 (<see cref="Net.UseBarSlotIdentity"/>). That is not a reversal of the rule above: the id
+    /// is a number derived from the game's own replicated identity for the bonus or item, the
+    /// receiver looks it up in ITS OWN model and asks the GAME for the sprite, and nothing that
+    /// could name a card to a client that could not already enumerate it goes out. It exists
+    /// because for the prevent-damage prompt the receiver's own copy of the bar is never raised at
+    /// all — <c>TakeDamagePanel.ShowOtherPlayer</c> raises neither bar — so no local resolve can
+    /// succeed there and the user saw anonymous plates where the owner saw symbols.</para>
     ///
     /// <para>Never throws its way out of Tick: a half-torn bar degrades to "that bar is not
     /// published", which peers render as no bar at all.</para>
@@ -701,6 +736,8 @@ internal sealed class UseBarsSurface
             }
             for (int i = 0; i < WireSlotStateBuffer.Length; i++)
                 WireSlotStateBuffer[i] = 0;
+            for (int i = 0; i < WireSlotIdBuffer.Length; i++)
+                WireSlotIdBuffer[i] = Net.UseBarSlotIdentity.NoIdentity;
             Publish(0);
             return;
         }
@@ -718,7 +755,8 @@ internal sealed class UseBarsSurface
             {
                 try
                 {
-                    count = _docks[i].SampleWireSlots(WireSlotStateBuffer, at, out flags);
+                    count = _docks[i].SampleWireSlots(WireSlotStateBuffer, WireSlotIdBuffer, i, at,
+                                                      out flags);
                 }
                 catch (System.Exception e)
                 {
@@ -765,7 +803,13 @@ internal sealed class UseBarsSurface
             WireBarFlagsBuffer[i] = flags;
             WireBarSlotCountBuffer[i] = (byte)count;
             for (int s = count; s < Net.NetProtocol.UseBarsMaxSlots; s++)
+            {
                 WireSlotStateBuffer[at + s] = 0; // stale tail must never reach the wire
+                // …AND THE SAME FOR THE IDS. A stale id is worse than a stale state byte: it names
+                // a bonus the owner is no longer offering, and the receiver would resolve it
+                // perfectly and paint somebody's spent decision on a live tile.
+                WireSlotIdBuffer[at + s] = Net.UseBarSlotIdentity.NoIdentity;
+            }
         }
         Publish(mask);
     }
@@ -786,6 +830,15 @@ internal sealed class UseBarsSurface
             if (PublishedStates[i] != WireSlotStateBuffer[i])
                 same = false;
         }
+        // THE IDS ARE PART OF THE GATE. A bar can keep its mask, its counts and every state byte
+        // while the game re-decorates a slot in place — one item spent and the next offered in the
+        // same seat — and if that moved nothing on this gate the peer would keep the previous
+        // symbol until some unrelated byte happened to change.
+        for (int i = 0; same && i < WireSlotIdBuffer.Length; i++)
+        {
+            if (PublishedIds[i] != WireSlotIdBuffer[i])
+                same = false;
+        }
         if (same)
             return;
 
@@ -798,6 +851,8 @@ internal sealed class UseBarsSurface
         }
         for (int i = 0; i < WireSlotStateBuffer.Length; i++)
             PublishedStates[i] = WireSlotStateBuffer[i];
+        for (int i = 0; i < WireSlotIdBuffer.Length; i++)
+            PublishedIds[i] = WireSlotIdBuffer[i];
 
         if (mask == 0)
         {
@@ -2045,7 +2100,8 @@ internal sealed class UseBarsSurface
         /// the active flag no longer answers since that half became a render hide. The peer sees the
         /// same slots the owner does.</para>
         /// </summary>
-        internal int SampleWireSlots(byte[] into, int at, out byte flags)
+        internal int SampleWireSlots(byte[] into, ushort[]? ids, int barIndex, int at,
+                                     out byte flags)
         {
             flags = 0;
             RectTransform? target = Panel?.Target;
@@ -2078,6 +2134,12 @@ internal sealed class UseBarsSurface
                 if (at + count >= into.Length)
                     break;
                 into[at + count] = SampleSlotState(child, container, chosen.Value);
+                // RECORD 45 RIDES THE SAME STEP. Sampling the id here rather than in a second loop
+                // is what makes "state byte s and id s describe the same slot" a property of the
+                // code instead of a property of two walks agreeing — the identical argument the
+                // record-25 doc above makes about the SENDER'S and the RECEIVER'S walks.
+                if (ids != null && at + count < ids.Length)
+                    ids[at + count] = Net.UseBarSlotSymbol.SlotId(barIndex, child);
                 count++;
             }
             return count;

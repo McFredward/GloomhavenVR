@@ -290,6 +290,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private readonly byte[] _useBarSlotSample =
         new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
 
+    /// <summary>Per-slot identity ids for record 45, same stride and same subscripts as
+    /// <see cref="_useBarSlotSample"/>, so a slot's state and its id are one index apart from
+    /// nothing.</summary>
+    private readonly ushort[] _useBarIdSample =
+        new ushort[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
+
     /// <summary>Owner scratch for <see cref="AllVisibleUseBarsAreForeign"/> (one call per packet,
     /// single-threaded).</summary>
     private static readonly System.Collections.Generic.List<CActor> UseBarOwnerScratch = new(4);
@@ -374,6 +380,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private readonly byte[] _lastSentUseBarCounts = new byte[NetProtocol.UseBarsCount];
     private readonly byte[] _lastSentUseBarSlots =
         new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
+    private readonly ushort[] _lastSentUseBarIds =
+        new ushort[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
 
     /// <summary>Last CONFIRM cap label put on the wire (extension record 13 bit 0; null = no
     /// confirm control shown). Same edge pre-emption as the decision lines.</summary>
@@ -1821,7 +1829,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
         if (useBarMask != 0)
             WorldUI.Surfaces.UseBarsSurface.CopyWireBars(
-                _useBarFlagsSample, _useBarCountSample, _useBarSlotSample);
+                _useBarFlagsSample, _useBarCountSample, _useBarSlotSample, _useBarIdSample);
         bool useBarsChanged = useBarMask != _lastSentUseBarMask;
         for (int b = 0; !useBarsChanged && useBarMask != 0 && b < NetProtocol.UseBarsCount; b++)
         {
@@ -1832,6 +1840,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         for (int s = 0; !useBarsChanged && useBarMask != 0 && s < _useBarSlotSample.Length; s++)
         {
             if (_useBarSlotSample[s] != _lastSentUseBarSlots[s])
+                useBarsChanged = true;
+        }
+        // AN IDENTITY CHANGE IS A CHANGE. The game re-decorates a slot in place — one item spent
+        // and the next offered into the same seat — without the mask, the counts or a single state
+        // byte moving, and record 45 rides the same edge record 25 does. Without this term the peer
+        // would keep the previous symbol until some unrelated byte happened to shift.
+        for (int s = 0; !useBarsChanged && useBarMask != 0 && s < _useBarIdSample.Length; s++)
+        {
+            if (_useBarIdSample[s] != _lastSentUseBarIds[s])
                 useBarsChanged = true;
         }
 
@@ -2493,6 +2510,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.UseBarFlags = _useBarFlagsSample;
             extras.UseBarSlotCounts = _useBarCountSample;
             extras.UseBarSlotStates = _useBarSlotSample;
+            // RECORD 45 RIDES ONLY WITH RECORD 25, and only when something is actually
+            // identifiable. The writer drops it to nothing when every id is NoIdentity, so a
+            // drawer of abilities/augment slots — and every drawer before this build — puts not one
+            // byte on the wire.
+            extras.HasUseBarSlotIds = true;
+            extras.UseBarSlotIds = _useBarIdSample;
         }
         if (useBarsChanged)
         {
@@ -2504,6 +2527,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             }
             for (int s = 0; s < _lastSentUseBarSlots.Length; s++)
                 _lastSentUseBarSlots[s] = useBarMask != 0 ? _useBarSlotSample[s] : (byte)0;
+            for (int s = 0; s < _lastSentUseBarIds.Length; s++)
+                _lastSentUseBarIds[s] = useBarMask != 0
+                    ? _useBarIdSample[s] : UseBarSlotIdentity.NoIdentity;
 
             if (useBarMask == 0)
             {

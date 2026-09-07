@@ -889,6 +889,23 @@ internal struct PresenceState
     public byte[]? UseBarSlotStates;
 
     /// <summary>
+    /// True when this packet names WHICH BONUS OR ITEM the sender's use-bar slots are showing
+    /// (extension record <see cref="UseBarSlotIdentity.ExtIdUseBarSlotIdentity"/>, 45). Sparse and
+    /// default-off: an owner whose bars carry no resolvable identity — and every peer predating the
+    /// record — emits nothing, and a receiver then falls back to the zero-wire local resolve
+    /// <see cref="RemoteUseBarSymbols"/> has always done.
+    /// </summary>
+    public bool HasUseBarSlotIds;
+
+    /// <summary>Per-slot 16-bit identity ids, indexed EXACTLY like
+    /// <see cref="UseBarSlotStates"/> — bar <c>b</c> occupying
+    /// <c>[b * NetProtocol.UseBarsMaxSlots .. + count)</c> — so a slot's state and its id are the
+    /// same subscript and no third array has to relate them.
+    /// <c>UseBarSlotIdentity.NoIdentity</c> (0) means "this slot has none", which is the ordinary
+    /// answer for the abilities and augmentation bars.</summary>
+    public ushort[]? UseBarSlotIds;
+
+    /// <summary>
     /// True when this packet names WHICH ITEM-FAN POSITION lies clipped in the sender's item-USE
     /// RECESS (extension record <see cref="NetProtocol.ExtIdItemUseClip"/>). Written ONLY while a
     /// card is really in that recess, so absence means "the recess is empty" — which is exactly
@@ -1559,6 +1576,23 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>1747 -> 1798 on 2026-09-07: the USE-BAR SLOT IDENTITY record (45) adds 51 bytes at its
+    /// maximum — <c>[id][len]</c> plus <c>UseBarSlotIdentity.UseBarSlotIdentityMaxRecordBytes</c>
+    /// 49, which is an entry-count byte and 16 three-byte entries (one addressing byte and a 16-bit
+    /// id each). It is in force ONLY while the sender has a use bar up whose slots carry a
+    /// resolvable identity — the active-bonus and item bars of a decision prompt — and only for
+    /// those slots; every other packet, from every player, is byte-identical to ModBuild 478's.
+    /// <see cref="MaxSize"/> is UNCHANGED at 2100: the margin is 302 bytes, still more than the
+    /// largest single record (257, board tuning), so the rule below is satisfied without a raise.
+    /// </para>
+    ///
+    /// <para>THE 16-ENTRY CAP IS WHAT KEEPS THAT TRUE, and it was chosen against this rule rather
+    /// than against the format. The record's addressing byte can name all four bars, so "one entry
+    /// per addressable slot" would be 32 entries and a 97-byte payload — worst case 1846, margin
+    /// 254, one byte INSIDE the rule. 16 is also the sender's real bound today: only bars 0 and 3
+    /// produce an identity at all. Giving bars 1 or 2 one means raising the cap and
+    /// <see cref="MaxSize"/> together, in that commit.</para>
+    ///
     /// <para>1738 -> 1747 on 2026-09-06: the FAN ARC ORDER record (44) adds 9 bytes at its
     /// maximum — <c>[id][len]</c> plus <c>NetProtocol.FanArcOrderMaxRecordBytes</c> 7, which is a
     /// count byte and six packed nibble bytes for the 12-seat clamp. It is in force ONLY while the
@@ -1850,6 +1884,7 @@ internal static class PresenceSerializer
                           // writes no record, so it must not open the tail either — the same
                           // idle-packet rule the wall-fade set and the decision state follow.
                           || (state.HasUseBars && UseBarsPayload(in state) > 0)
+                          || (state.HasUseBarSlotIds && UseBarSlotIdsPayload(in state) > 0)
                           || (state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel))
                           || (state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel))
                           || (state.HasUndoCapLabel && !string.IsNullOrEmpty(state.UndoCapLabel))
@@ -3015,6 +3050,64 @@ internal static class PresenceSerializer
                     buffer[i++] = state.FanSourceList;
                     records++;
                 }
+                if (state.HasUseBarSlotIds && state.UseBarSlotIds != null)
+                {
+                    // WHICH BONUS OR ITEM EACH USE-BAR SLOT IS SHOWING (45):
+                    // [entries][entries × [bar:3|slot:5][idLo][idHi]].
+                    //
+                    // NO ART AND NO NAME. A 16-bit fold of the GAME'S OWN cross-machine identity for
+                    // the thing — (Ability.Name, BaseCard.ID) for a bonus, CItem.NetworkID for an
+                    // item, the very pairs TakeDamagePanel.ProxyTakeDamage matches its own
+                    // ActiveBonusesToken / ItemsToken on. The receiver resolves it against ITS OWN
+                    // replicated model and asks the GAME for the sprite, so nothing here can name a
+                    // card to a client that could not already enumerate it.
+                    //
+                    // WHY IT EXISTS, when RemoteUseBarSymbols resolves the same symbols for free:
+                    // because for the prevent-damage prompt the free resolve CANNOT work. The game's
+                    // UIScenarioMultiplayerController sends a non-controlling client to
+                    // TakeDamagePanel.ShowOtherPlayer, which raises neither UIActiveBonusBar nor
+                    // UIUseItemsBar and ends on myWindow.Hide(instant: true) — so the watcher's own
+                    // copy of those bars is never populated for that actor and no local walk can
+                    // succeed. The user reported exactly that: "Die entsprechenden Symbole sehe ich
+                    // auch nicht."
+                    //
+                    // SPARSE AND DEFAULT-OFF. Only slots that HAVE an identity are addressed, so the
+                    // abilities and augmentation bars carry nothing, and a drawer with no
+                    // identifiable slot emits no record at all — such a packet is byte-identical to
+                    // ModBuild 478's. APPENDED LAST, behind record 43, for the append-order reason
+                    // stated there.
+                    int payload = UseBarSlotIdsPayload(in state);
+                    if (payload > 0 && i + 2 + payload <= buffer.Length)
+                    {
+                        int entries = UseBarSlotIdEntries(in state);
+                        buffer[i++] = UseBarSlotIdentity.ExtIdUseBarSlotIdentity;
+                        buffer[i++] = (byte)payload;
+                        buffer[i++] = (byte)entries;
+                        byte mask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
+                        int written = 0;
+                        for (int b = 0; b < NetProtocol.UseBarsCount && written < entries; b++)
+                        {
+                            if ((mask & (1 << b)) == 0)
+                                continue;
+                            int n = BarSlotCountOf(in state, b);
+                            int at = b * NetProtocol.UseBarsMaxSlots;
+                            for (int s = 0; s < n && written < entries; s++)
+                            {
+                                int k = at + s;
+                                if (k >= state.UseBarSlotIds.Length)
+                                    break;
+                                ushort id = state.UseBarSlotIds[k];
+                                if (id == UseBarSlotIdentity.NoIdentity)
+                                    continue;
+                                buffer[i++] = UseBarSlotIdentity.UseBarSlotAddr(b, s);
+                                buffer[i++] = (byte)id;
+                                buffer[i++] = (byte)(id >> 8);
+                                written++;
+                            }
+                        }
+                        records++;
+                    }
+                }
                 buffer[countAt] = records;
             }
         }
@@ -3196,6 +3289,53 @@ internal static class PresenceSerializer
             payload += 2 + BarSlotCountOf(in state, b);
         }
         return payload;
+    }
+
+    /// <summary>
+    /// How many ENTRIES record 45 would carry for <paramref name="state"/>: one per visible slot of
+    /// a masked bar that actually has an identity. Walked by exactly the terms record 25's writer
+    /// walks — the same DEFINED mask, the same clamped per-bar counts — so a slot can never be
+    /// addressed by record 45 that record 25 did not also publish a state byte for.
+    /// </summary>
+    private static int UseBarSlotIdEntries(in PresenceState state)
+    {
+        if (!state.HasUseBarSlotIds || state.UseBarSlotIds == null)
+            return 0;
+        byte mask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
+        if (mask == 0)
+            return 0;
+        int entries = 0;
+        for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+        {
+            if ((mask & (1 << b)) == 0)
+                continue;
+            int n = BarSlotCountOf(in state, b);
+            int at = b * NetProtocol.UseBarsMaxSlots;
+            for (int s = 0; s < n; s++)
+            {
+                int k = at + s;
+                if (k < state.UseBarSlotIds.Length
+                    && state.UseBarSlotIds[k] != UseBarSlotIdentity.NoIdentity)
+                    entries++;
+            }
+        }
+        return entries > UseBarSlotIdentity.UseBarSlotIdentityMaxEntries
+            ? UseBarSlotIdentity.UseBarSlotIdentityMaxEntries
+            : entries;
+    }
+
+    /// <summary>
+    /// Payload size record 45 would occupy: <c>1 + 3 × entries</c>. Returns 0 when no slot has an
+    /// identity, so a drawer whose bars carry none — the abilities/augment case, and every bar
+    /// before this build — emits NO record at all and an idle packet stays byte-identical to
+    /// ModBuild 478's.
+    /// </summary>
+    private static int UseBarSlotIdsPayload(in PresenceState state)
+    {
+        int entries = UseBarSlotIdEntries(in state);
+        return entries == 0
+            ? 0
+            : 1 + (entries * UseBarSlotIdentity.UseBarSlotIdentityEntryBytes);
     }
 
     // ---- mod-version text (en/de)coding caches ------------------------------------------
@@ -4323,6 +4463,58 @@ internal static class PresenceSerializer
                         {
                             state.HasFanSource = true;
                             state.FanSourceList = list;
+                        }
+                    }
+                    else if (id == UseBarSlotIdentity.ExtIdUseBarSlotIdentity
+                             && len >= UseBarSlotIdentity.UseBarSlotIdentityMinRecordBytes)
+                    {
+                        // USE-BAR SLOT IDENTITY: [entries][entries × [bar:3|slot:5][idLo][idHi]].
+                        //
+                        // NEVER TRUST THE WIRE. The stated entry count is clamped to the record's
+                        // cap AND to the number of whole 3-byte entries that actually fit inside
+                        // THIS record's own end, so a lying count can neither allocate a large array
+                        // nor read a byte belonging to the next record. Each address is decoded
+                        // through the record's own accessors and RANGE-CHECKED against
+                        // UseBarsCount / UseBarsMaxSlots before it indexes anything — a bar or slot
+                        // this build has no seat for is dropped, not clamped onto a neighbour,
+                        // because clamping would move a symbol onto a slot the owner never named.
+                        //
+                        // An id of 0 is NoIdentity and is dropped for the same reason: it is the
+                        // sender's own "this slot has none", and storing it would be
+                        // indistinguishable from a slot that was never addressed.
+                        int j = i;
+                        int end = i + len;
+                        int stated = buffer[j++];
+                        int fits = (end - j) / UseBarSlotIdentity.UseBarSlotIdentityEntryBytes;
+                        int n = stated;
+                        if (n > UseBarSlotIdentity.UseBarSlotIdentityMaxEntries)
+                            n = UseBarSlotIdentity.UseBarSlotIdentityMaxEntries;
+                        if (n > fits)
+                            n = fits;
+                        if (n > 0)
+                        {
+                            var ids = new ushort[NetProtocol.UseBarsCount
+                                                 * NetProtocol.UseBarsMaxSlots];
+                            bool any = false;
+                            for (int e = 0; e < n; e++)
+                            {
+                                byte addr = buffer[j];
+                                var value = (ushort)(buffer[j + 1] | (buffer[j + 2] << 8));
+                                j += UseBarSlotIdentity.UseBarSlotIdentityEntryBytes;
+                                int bar = UseBarSlotIdentity.UseBarSlotAddrBar(addr);
+                                int slot = UseBarSlotIdentity.UseBarSlotAddrSlot(addr);
+                                if (bar >= NetProtocol.UseBarsCount
+                                    || slot >= NetProtocol.UseBarsMaxSlots
+                                    || value == UseBarSlotIdentity.NoIdentity)
+                                    continue;
+                                ids[(bar * NetProtocol.UseBarsMaxSlots) + slot] = value;
+                                any = true;
+                            }
+                            if (any)
+                            {
+                                state.HasUseBarSlotIds = true;
+                                state.UseBarSlotIds = ids;
+                            }
                         }
                     }
                     else if (id == NetProtocol.ExtIdSlotCardSize

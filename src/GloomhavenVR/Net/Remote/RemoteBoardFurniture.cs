@@ -3594,6 +3594,14 @@ internal sealed class RemoteBoardFurniture
         int refusedWire = 0;
         int refusedLocal = 0;
         var refusedWhy = RemoteUseBarSymbols.RefusalReason.None;
+        // WHICH SOURCE ANSWERED. 'wire' counts slots the OWNER named through record 45; 'local'
+        // counts slots this client resolved off its own copy of the bar. They are counted apart
+        // because the two answer different questions and a line that merged them could not say
+        // whether the record is working.
+        int litFromWire = 0;
+        var wireWhy = UseBarSlotSymbol.ResolveOutcome.NoIdentity;
+        int wireRefusedBar = -1;
+        ushort wireRefusedId = 0;
         for (int r = 0; r < _useBarRows.Count; r++)
         {
             UseBarRow row = _useBarRows[r];
@@ -3604,8 +3612,62 @@ internal sealed class RemoteBoardFurniture
             System.Array.Clear(_symbolScratch, 0, _symbolScratch.Length);
             int resolved = 0;
             var why = RemoteUseBarSymbols.RefusalReason.NoWireSlots;
-            if (bar >= 0)
+
+            // ── THE OWNER'S OWN ANSWER FIRST (record 45) ──────────────────────────────────────
+            //
+            // The wire id is read off the widget the owner is actually looking at, so where it
+            // exists it OUTRANKS any local inference — that is the 1:1 ruling applied to identity.
+            // The local resolve stays first-class for every bar the owner named nothing for, which
+            // is every bar of every peer below UseBarSlotIdentityMinPeerBuild and both bars the
+            // record does not carry.
+            //
+            // THE TWO SOURCES ARE NOT MIXED WITHIN ONE BAR. Either the owner named this bar's
+            // slots or nobody did; interleaving them per slot would put one tile's provenance
+            // beyond the reach of the line below and could pair an owner-named symbol with an
+            // inferred neighbour.
+            ushort[]? wireIds = owner.UseBarSlotIds;
+            int barNamed = 0;
+            if (bar >= 0 && wireIds != null)
+            {
+                int at = bar * Net.NetProtocol.UseBarsMaxSlots;
+                for (int s = 0; s < symbols.Length && s < Net.NetProtocol.UseBarsMaxSlots; s++)
+                {
+                    int k = at + s;
+                    if (k >= wireIds.Length || wireIds[k] == UseBarSlotIdentity.NoIdentity)
+                        continue;
+                    barNamed++;
+                    Sprite? fromWire = UseBarSlotSymbol.ResolveIcon(
+                        bar, actor, wireIds[k], out UseBarSlotSymbol.ResolveOutcome outcome);
+                    if (fromWire != null)
+                    {
+                        _symbolScratch[s] = fromWire;
+                        if (s >= resolved)
+                            resolved = s + 1;
+                        litFromWire++;
+                    }
+                    else if (wireRefusedBar < 0)
+                    {
+                        // FIRST refusal wins the line, same rule the local arm below follows.
+                        wireRefusedBar = bar;
+                        wireWhy = outcome;
+                        wireRefusedId = wireIds[k];
+                    }
+                }
+            }
+
+            if (barNamed > 0)
+            {
+                // The owner named this bar. Slots they named that would not resolve stay ANONYMOUS
+                // — never filled in from the local bar, which is the substitution the whole area
+                // exists to prevent.
+                why = resolved > 0
+                    ? RemoteUseBarSymbols.RefusalReason.None
+                    : RemoteUseBarSymbols.RefusalReason.NoWireSlots;
+            }
+            else if (bar >= 0)
+            {
                 resolved = RemoteUseBarSymbols.Resolve(bar, actor, symbols.Length, _symbolScratch, out why);
+            }
             // FIRST refusal of this pass wins the line: one bar per mirrored drawer is the shipped
             // case, and a second arm could only ever repeat the first.
             if (resolved == 0 && why != RemoteUseBarSymbols.RefusalReason.None && refusedBar < 0)
@@ -3644,24 +3706,42 @@ internal sealed class RemoteBoardFurniture
         // THE REFUSAL ARM IS PART OF THE KEY (ModBuild 479). Before this the key was lit-only, so a
         // refusal that CHANGED ARM — a bar that went from absent to present-but-foreign — printed
         // nothing at all, and the one line the user's report needed said "one of three reasons".
-        int key = lit == 0 ? -((int)refusedWhy + 1) : (litBar + 1) * 1000 + lit;
+        // THE SOURCE IS PART OF THE KEY. A bar that stops being named by its owner and falls back
+        // to the local resolve draws the same number of symbols from a different source, and that
+        // transition is exactly what a hardware round needs to see.
+        int key = lit == 0
+            ? -(((int)refusedWhy * 8) + (int)wireWhy + 1)
+            : ((litBar + 1) * 1000) + (lit * 4) + (litFromWire > 0 ? 1 : 0);
         if (key == _shownSymbolKey)
             return;
         _shownSymbolKey = key;
+        // A PEER THAT CANNOT NAME ITS SLOTS IS A DIFFERENT ANSWER FROM ONE THAT DID NOT, and only
+        // the build can tell them apart — the correction the ARC ORDER NOT APPLIED line took on
+        // 2026-09-07, applied here from the start rather than after a wasted grep.
+        int peerBuild = VersionGuard.PeerBuild(owner.PlayerId);
+        bool peerCanName = peerBuild >= UseBarSlotIdentity.UseBarSlotIdentityMinPeerBuild;
+        string peerArm = peerCanName
+            ? $"peer ModBuild {peerBuild} CAN send record 45"
+            : $"peer ModBuild {peerBuild} predates record 45 (needs " +
+              $"{UseBarSlotIdentity.UseBarSlotIdentityMinPeerBuild}), so it names no slot and the " +
+              "local resolve is the only source there is";
         // HW-VERIFY
         VRLog.Note("Net", lit > 0
             ? $"DOCK MIRROR: {lit} mirrored use-bar slot(s) now wear THE GAME'S OWN symbol " +
-              $"(bar {litBar}, owner '{Board.CharacterFocus.Describe(actor)}') — taken off this " +
-              "client's own copy of that bar, gated on the bar's owner being this board's character " +
-              "and on its visible slot count matching record 25's. Nothing about the art travelled; " +
-              "the tiles are still inert."
+              $"(bar {litBar}, owner '{Board.CharacterFocus.Describe(actor)}') — {litFromWire} of " +
+              "them resolved from the OWNER'S OWN record-45 id and the rest off this client's copy " +
+              $"of that bar. {peerArm}. Nothing about the art travelled either way: an id is a " +
+              "16-bit fold of the game's own identity for the bonus/item, looked up in THIS " +
+              "client's model before the game was asked for the sprite. The tiles are still inert."
             : "DOCK MIRROR: no mirrored use-bar symbol resolved for board '" +
-              Board.CharacterFocus.Describe(actor) + "' — " +
+              Board.CharacterFocus.Describe(actor) + "' — local resolve: " +
               RemoteUseBarSymbols.Describe(refusedWhy, refusedBar, refusedWire, refusedLocal) +
-              ". The tiles stay anonymous, which is what every build before this one drew; the wire " +
-              "carried no art either way. NAMING THE ARM IS THE WHOLE POINT: the old line listed all " +
-              "three and named none, and item 8 of the 2026-09-07 round cost a hardware session to " +
-              "that ambiguity.");
+              "; wire identity: " +
+              UseBarSlotSymbol.Describe(wireWhy, wireRefusedBar, wireRefusedId) +
+              $". {peerArm}. The tiles stay anonymous, which is what every build before this one " +
+              "drew; the wire carried no art either way. NAMING THE ARM IS THE WHOLE POINT: the old " +
+              "line listed all three and named none, and item 8 of the 2026-09-07 round cost a " +
+              "hardware session to that ambiguity.");
     }
 
     /// <summary>

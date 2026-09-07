@@ -64,6 +64,15 @@ internal static class Program
             // rather than to a pile, which is the only degradation that cannot mislead.
             FanSourceVectors.Run(t);
             FanArcOrderVectors.Run(t);
+            // WHICH bonus or item each use-bar slot is showing (45, report item 8 of 2026-09-07 —
+            // the point he called the most important of the round). Driven byte by byte because
+            // this record is the ONE place a slot's identity is allowed to travel, and the two
+            // ways it can go wrong are both silent: an addressing byte whose ends were swapped
+            // puts every symbol on the wrong bar while round-tripping perfectly, and an id that
+            // resolved to the wrong model object paints somebody else's decision onto a live tile
+            // — which is worse than the anonymous plate it replaces and is exactly what the
+            // refusal gate beside it exists to prevent.
+            UseBarSlotIdentityVectors.Run(t);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
             HeldPoseMirrorVectors.Run(t, repoRoot);

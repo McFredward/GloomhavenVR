@@ -1035,6 +1035,20 @@ internal sealed class RemoteAvatar
     /// this wire (see <see cref="NetProtocol.ExtIdUseBars"/>).</summary>
     public byte[]? UseBarSlotStates { get; private set; }
 
+    /// <summary>
+    /// Per-slot IDENTITY ids (record 45) — same stride and same subscripts as
+    /// <see cref="UseBarSlotStates"/>; null while the peer sends none, which is the case for every
+    /// FLAT player, every unmodded client and every peer below
+    /// <c>UseBarSlotIdentity.UseBarSlotIdentityMinPeerBuild</c>.
+    ///
+    /// <para>STILL NO ART AND STILL NO LABEL. An entry is a 16-bit fold of the GAME'S OWN
+    /// cross-machine identity for a bonus or item; the receiver looks it up in its own replicated
+    /// model and asks the GAME for the sprite. It exists because for the prevent-damage prompt the
+    /// zero-wire local resolve cannot work at all — <c>TakeDamagePanel.ShowOtherPlayer</c> raises
+    /// neither bar on a non-controlling client.</para>
+    /// </summary>
+    public ushort[]? UseBarSlotIds { get; private set; }
+
     /// <summary>What the owner's CONFIRM cap actually reads (extension record 13 bit 0), or null
     /// — the receiver then letters the mirrored cap with the neutral GUI_CONFIRM fallback,
     /// exactly what pre-record senders get.</summary>
@@ -1808,14 +1822,23 @@ internal sealed class RemoteAvatar
         byte[]? barFlags = barMask != 0 ? p.UseBarFlags : null;
         byte[]? barCounts = barMask != 0 ? p.UseBarSlotCounts : null;
         byte[]? barSlots = barMask != 0 ? p.UseBarSlotStates : null;
+        // ADOPT-IF-PUBLISHED, and it must clear on absence. Record 45 is sparse: the very same
+        // drawer emits it on the tick a slot becomes identifiable and stops emitting it on the tick
+        // the slot is spent. Holding the last ids through an absent record would leave a peer
+        // wearing the symbol of a decision its owner has already made — the exact failure the
+        // refusal gate exists for — so absence clears, and the tiles fall back to the local resolve
+        // or to an honest blank.
+        ushort[]? barIds = barMask != 0 && p.HasUseBarSlotIds ? p.UseBarSlotIds : null;
         if (barMask != UseBarsMask || !SameOptionStates(barFlags, UseBarFlags)
             || !SameOptionStates(barCounts, UseBarSlotCounts)
-            || !SameOptionStates(barSlots, UseBarSlotStates))
+            || !SameOptionStates(barSlots, UseBarSlotStates)
+            || !SameSlotIds(barIds, UseBarSlotIds))
         {
             UseBarsMask = barMask;
             UseBarFlags = barFlags;
             UseBarSlotCounts = barCounts;
             UseBarSlotStates = barSlots;
+            UseBarSlotIds = barIds;
             VRLog.Info("Net", barMask == 0
                 ? $"Use bars RECEIVED from player {PlayerId}: none — their remote board shows no bar " +
                   "drawer (no bar docked, every bar hidden on their own board for another " +
@@ -2800,6 +2823,22 @@ internal sealed class RemoteAvatar
     /// Reused verbatim by the use-bar drawer's three arrays (record 25): the question is the same
     /// one, "did these bytes move".</summary>
     private static bool SameOptionStates(byte[]? a, byte[]? b)
+    {
+        if (ReferenceEquals(a, b))
+            return true;
+        if (a == null || b == null || a.Length != b.Length)
+            return false;
+        for (int i = 0; i < a.Length; i++)
+        {
+            if (a[i] != b[i])
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>Element-wise equality for the record-45 id arrays — the same contract
+    /// <see cref="SameOptionStates"/> has for the state bytes, on the wider element type.</summary>
+    private static bool SameSlotIds(ushort[]? a, ushort[]? b)
     {
         if (ReferenceEquals(a, b))
             return true;

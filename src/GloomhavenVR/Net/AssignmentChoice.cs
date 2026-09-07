@@ -87,9 +87,9 @@ namespace GloomhavenVR.Net;
 /// prefix returning FALSE suppresses the ones after it). The payload rides
 /// <c>NetworkAction.DataInt</c> / <c>DataInt2</c> / <c>DataBoolean</c>, three fields the GAME's own
 /// token already serialises on every side action (NetworkAction.cs:44-53). <b>Zero bytes are added
-/// to the GVR1 packet, so the mod's own wire worst case is unchanged at 1747 of
-/// <c>PresenceSerializer.MaxSize</c> 2100, and no extension id is consumed — 45 is still next
-/// free.</b></para>
+/// to the GVR1 packet, so the mod's own wire worst case is unchanged by THIS design (it stands at
+/// 1798 since ModBuild 479's record 45) of <c>PresenceSerializer.MaxSize</c> 2100, and no extension
+/// id is consumed — 46 is the next free one.</b></para>
 ///
 /// <para><b>SO THE SHAPE IS: THE CLIENT ASKS, THE HOST PRESSES, THE GAME BROADCASTS.</b> A client's
 /// press advances NOTHING locally and sends one request naming the process type, the slot and the

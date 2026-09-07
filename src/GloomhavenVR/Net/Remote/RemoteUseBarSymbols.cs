@@ -87,8 +87,22 @@ namespace GloomhavenVR.Net;
 /// picking WHICH bonus fills slot #0 needs the owner's <c>abilityType</c> and lethal flag, and the
 /// game's own filter closes over <c>activeBonusSlots</c> — the bar's LIVE slot map, which is empty
 /// here. A re-derivation could therefore pick a different bonus than the owner's bar did, which is
-/// the one outcome this class exists to prevent. The honest fix is one slot-identity field on the
-/// wire; the shape is reported to the integrator rather than allocated here.
+/// the one outcome this class exists to prevent.
+///
+/// ─── ModBuild 479: THAT FIX SHIPPED, AND THIS CLASS IS STILL THE OTHER HALF ────────────────────
+/// The honest fix was one slot-identity field on the wire, and it is now
+/// <see cref="UseBarSlotIdentity"/> — extension record 45, a 16-bit fold of the game's own
+/// cross-machine identity, sampled off the owner's own widget and resolved by the RECEIVER against
+/// its own model. <c>RemoteBoardFurniture.ApplyUseBarSymbols</c> prefers it wherever the owner
+/// named a slot, because an id read off the widget the owner is looking at outranks any local
+/// inference.
+///
+/// <para>THIS CLASS IS NOT SUPERSEDED. It remains the ONLY source for every bar the record does not
+/// carry (the abilities bar, which the game genuinely does raise on every client — the
+/// <c>Choreographer.CheckForInitiativeAdjustments</c> path above is real, it was merely generalised
+/// too far), for every peer below
+/// <c>UseBarSlotIdentity.UseBarSlotIdentityMinPeerBuild</c>, and for every FLAT or unmodded player.
+/// The two never mix inside one bar: either the owner named that bar's slots or nobody did.</para>
 /// </summary>
 /// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. The icons come from this client's own
 /// game UI, raised by the host-replicated message every client already receives. Slot art stays
@@ -152,7 +166,10 @@ internal static class RemoteUseBarSymbols
             + "UIScenarioMultiplayerController sends a non-controlling client to "
             + "TakeDamagePanel.ShowOtherPlayer, which raises neither UIActiveBonusBar nor "
             + "UIUseItemsBar — so the local copy CANNOT be populated for that actor and no local "
-            + "resolve can ever succeed here. Closing this needs one slot-identity field on the wire",
+            + "resolve can ever succeed here. THIS IS NO LONGER THE END OF THE ROAD: extension "
+            + "record 45 (UseBarSlotIdentity) carries the slot's identity from the owner, and the "
+            + "line beside this one says whether it answered. Seeing this arm alone means the peer "
+            + "named nothing — check its ModBuild in the same line",
         RefusalReason.SlotCountMismatch =>
             $"GATE 3 (slot count): this client's own bar {barIndex} is the right character's but "
             + $"shows {localSlots} visible slot(s) against record 25's {wireCount} — a stale or "
