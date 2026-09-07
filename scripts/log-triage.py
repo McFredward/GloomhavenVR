@@ -177,8 +177,9 @@ REGISTRY: list[Instrument] = [
     ),
     Instrument(
         token="PANEL SUPERSAMPLE failed",
-        why="a LATCH: one throw disables supersampling for the rest of the session. One line is not "
-            "'rare', it is 'off from here on'.",
+        why="a throw in the per-frame sync. ONE LINE IS NOT ONE THROW: the counter behind it was a "
+            "session-wide bool until ModBuild 479, so a throw repeating every frame printed once "
+            "while paying a full teardown and rebuild forever. Read the ENGAGE lines after it.",
         verdict_re=r"(PANEL SUPERSAMPLE failed)",
     ),
     Instrument(
