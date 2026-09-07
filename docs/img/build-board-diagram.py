@@ -537,8 +537,8 @@ LABELS = {
                 "Beide werden blass, solange das Spiel diese Rast nicht anbietet.",
             ]),
             (CYAN, "Die Greifstange", [
-                "Greif sie mit einer Hand, und das ganze Brett kommt mit —",
-                "Karten, Tasten, Stapel und Panels zusammen.",
+                "Mit einer Hand greifen trägt das ganze Brett: Karten, Tasten,",
+                "Stapel und Panels zusammen.",
                 "Mit beiden Händen greifen macht das Brett größer oder kleiner.",
             ]),
             (PURPLE, "Obere Kante — die Runde", [
