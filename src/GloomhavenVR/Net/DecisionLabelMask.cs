@@ -73,6 +73,62 @@ namespace GloomhavenVR.Net;
 /// class — and the OWNER's own keycap, which reads the same accessor, is untouched, because the wire
 /// is the boundary and not the accessor.</para>
 ///
+/// <para>IT SHIPPED AND IT NEVER FIRED ONCE — THE ROOT CAUSE OF THE 2026-09-07 REPORT, ITEM 7.
+/// USER, VERBATIM: "Der Text auf dem Button der den Namen der Karte verrät ist voll in der kurzen
+/// Rast auf dem remote board für alle anderen Spieler lesbar und damit ist hier dein anti-cheat
+/// nicht aktiv geworden."</para>
+///
+/// <para>HE IS RIGHT AND THE PREDICATE WAS NOT THE PROBLEM. The phase term was CORRECT for the
+/// short rest — the peer's own log states it in the instrument's own words at raw line 181268,
+/// <c>DECISION LABEL INSIDE THE SECRET WINDOW: record 12 is publishing "&lt;sprite name="Lost"&gt;
+/// Verbrennen "Zusatzdolch"|Neu ziehen: …" while RevealGate.PeersSeeOurCardFronts is SHUT</c>. So
+/// the gate was shut, this class RAN, and the name went out anyway. What was wrong is one line of
+/// arithmetic: <see cref="AddCovered"/> collected <c>CAbilityCard.Name</c>, which is NOT a card's
+/// name in any language a player reads. It is the YML/localization KEY —
+/// <c>ScenarioRuleClient.SRLYML.AbilityCards.Single(s =&gt; s.ID == ID).Name</c>, CBaseCard.cs:52-61,
+/// i.e. the string <c>ABILITY_CARD_SpareDagger</c>, which <c>CBaseCard.StrictName</c> exists to trim
+/// the prefix off. The label it was searched in carries <c>FullAbilityCard.Title</c>
+/// (<c>CardsHandUI.OnLoseCardClick</c> and <c>PerformShortRest</c> both do
+/// <c>string.Format(GetTranslation("GUI_LOSE_CARD"), cardUI.fullAbilityCard.Title)</c>), and Title
+/// is <c>titleText.text</c>, assigned in <c>FullAbilityCard.SetCardName</c> as
+/// <c>LocalizationManager.GetTranslation(cardName)</c> — the TRANSLATED key, "Zusatzdolch". The two
+/// strings can never be equal, so <c>string.Replace</c> matched nothing, <c>masked</c> stayed 0, and
+/// the change-gated log below never printed. THAT SILENCE IS THE PROOF AND IT WAS ALREADY IN THE
+/// LOGS: across a 71 MB host log and a 44 MB peer log there are ZERO <c>DECISION LABEL MASK</c>
+/// lines, against two record-12 publishes inside the secret window one of which quotes a card. A
+/// mask that has never masked anything reads exactly like a mask with nothing to do.</para>
+///
+/// <para>THE FIX IS TO MASK THE STRING THE PLAYER ACTUALLY SEES, resolved through the same accessor
+/// the game itself used to letter the dialog: <c>Loc.Game(card.Name, …)</c> →
+/// <c>LocalizationManager.TryGetTranslation</c>. The raw key is kept in the search set as well, at
+/// no cost, so a wording built from the key rather than from the title is covered too.</para>
+///
+/// <para>AND AN UNRESOLVABLE NAME NOW WITHHOLDS THE LABEL. If a covered card's DISPLAYED name
+/// cannot be resolved, this class cannot tell whether the wording names it — and "I could not
+/// check" must never be the reason a card identity is published. That is the same direction the
+/// catch below already fails in, moved to the one hole it did not cover: a silent no-match. The
+/// same rule now covers a covered SET that cannot be enumerated at all (no
+/// <c>CardsHandManager</c>, no hand list, a hand with no <c>CharacterClass</c>) — states that
+/// cannot occur inside <c>SelectAbilityCardsOrLongRest</c>, which is precisely why refusing them
+/// costs a real session nothing.</para>
+///
+/// <para>THE OWNERSHIP TERM WAS WIDENED IN THE SAME PASS, and it is a second fail-open of the same
+/// shape. <c>CActor.IsUnderMyControl</c> is a cached per-client bool whose FFSNet writers are
+/// asymmetric (<see cref="RevealGate"/>'s <c>LocallyControls</c> doc carries the derivation), so it
+/// can read stale FALSE on the very client that owns the hand — and a hand skipped here is a hand
+/// whose card names are never collected and never masked. A hand is now taken as ours when EITHER
+/// the flag or <c>Cards.CardsGameApi.LocalControlsActor</c> says so. Over-collecting cannot hurt:
+/// the only effect of an extra name in the set is that a wording which NAMES that card gets it
+/// replaced, and a wording of ours that names somebody else's covered card is a leak either way.
+/// </para>
+///
+/// <para>THE PHASE PREDICATE IS UNCHANGED AND DELIBERATELY SO. <see cref="RevealGate"/> was not
+/// edited by this fix: <see cref="RevealGate.IsSecretSelectionPhase"/> already answers TRUE for the
+/// whole of a short rest (the game only offers one in that phase — <c>CardsHandUI.UpdateShortRest</c>
+/// shows the button under <c>PhaseType == SelectAbilityCardsOrLongRest</c>), and widening the window
+/// to "fix" the short rest would have closed the long rest, which resolves as an ACTION and is ruled
+/// fully open.</para>
+///
 /// <para>THE MASK IS IN THE SENDER'S LANGUAGE, DELIBERATELY. Every other word on this path is
 /// already the sender's — that is the accepted property of a record that carries rendered runtime
 /// text — so localizing the mask to the VIEWER would produce one word disagreeing with the sentence
@@ -82,8 +138,9 @@ internal static class DecisionLabelMask
 {
     /// <summary>Reused across calls — this runs on the 0.25 s decision cadence while a row is
     /// docked, and a per-tick allocation on a sampler is how a cosmetic surface becomes a frame
-    /// cost.</summary>
-    private static readonly List<string> NameScratch = new(32);
+    /// cost. Sized for TWO entries per covered card (the displayed title and the raw YML key) over a
+    /// full hand plus discard plus round pile.</summary>
+    private static readonly List<string> NameScratch = new(64);
 
     /// <summary>Change-gate for the diagnostic: the last label this class actually masked, so a
     /// prompt that stands for ten seconds prints one line and not forty.</summary>
@@ -123,10 +180,14 @@ internal static class DecisionLabelMask
     /// <summary>
     /// Replace every COVERED card name in <paramref name="label"/> with the sealed-card wording.
     /// Returns the label unchanged when nothing is covered — which is the overwhelmingly common
-    /// case, and is one predicate read.
+    /// case, and is one predicate read — and returns the EMPTY string with
+    /// <paramref name="masked"/> = -1 when the covered set could not be fully read, which the two
+    /// callers render as their own generic wording.
     /// </summary>
     /// <param name="label">One decision-row wording, already flattened to a single line.</param>
-    /// <param name="masked">How many distinct card names were replaced.</param>
+    /// <param name="masked">How many distinct name STRINGS were replaced (a covered card
+    /// contributes two — its displayed title and its raw YML key — so this is an upper bound on the
+    /// number of CARDS, not a count of them), or -1 when the wording was withheld.</param>
     internal static string Apply(string label, out int masked)
     {
         masked = 0;
@@ -141,7 +202,18 @@ internal static class DecisionLabelMask
                 return label;
 
             NameScratch.Clear();
-            CollectCoveredNames(NameScratch);
+            if (!CollectCoveredNames(NameScratch))
+            {
+                // BLIND IS NOT CLEAN. The covered set could not be enumerated, or a covered card's
+                // DISPLAYED name could not be resolved — so this class cannot say whether the
+                // wording names it, and an unchecked wording must not be published inside the
+                // window. Same direction as the catch below, on the hole the catch never covered:
+                // a silent no-match, which is exactly how this mask ran for a whole session
+                // without masking one string.
+                LogWithheld(label);
+                masked = -1;
+                return string.Empty;
+            }
             if (NameScratch.Count == 0)
                 return label;
 
@@ -178,7 +250,8 @@ internal static class DecisionLabelMask
     /// Every ability-card NAME belonging to a character we control whose identity our peers may not
     /// currently know — asked one card at a time through
     /// <see cref="RevealGate.PeersMaySeeOurCard"/>, so a card that becomes public (it is burnt, it
-    /// is activated) stops being masked on the very tick it does.
+    /// is activated) stops being masked on the very tick it does. Returns FALSE when the covered set
+    /// could not be enumerated at all, which the caller turns into a withheld label.
     ///
     /// <para>THE THREE LISTS ARE THE COVERED ONES BY CONSTRUCTION, and the per-card call is still
     /// made rather than skipped: hand / discard / round are exactly the piles a burn-or-lose prompt
@@ -187,49 +260,147 @@ internal static class DecisionLabelMask
     /// class from becoming a second copy of the rule — if the exemption ever widens, this follows it
     /// without an edit.</para>
     /// </summary>
-    private static void CollectCoveredNames(List<string> into)
+    private static bool CollectCoveredNames(List<string> into)
     {
         CardsHandManager manager = CardsHandManager.Instance;
         List<CardsHandUI>? hands = manager != null ? manager.CardHandsUI : null;
         if (hands == null)
-            return;
+            return false;   // cannot enumerate what is covered — the caller withholds
+        bool complete = true;
         for (int h = 0; h < hands.Count; h++)
         {
             CardsHandUI hand = hands[h];
             CPlayerActor? actor = hand != null ? hand.PlayerActor : null;
-            if (actor == null || !actor.IsUnderMyControl)
+            if (actor == null)
+                continue;   // an empty tab, not a hand of ours we failed to read
+            if (!LocallyOwned(actor))
                 continue;   // a peer's own cards are not ours to mask or to leak
             CCharacterClass? cc = actor.CharacterClass;
             if (cc == null)
+            {
+                // OURS, AND UNREADABLE. Its cards are covered by the phase and we cannot name one
+                // of them, so we cannot check the wording against them either.
+                complete = false;
                 continue;
-            AddCovered(into, actor, cc.HandAbilityCards);
-            AddCovered(into, actor, cc.DiscardedAbilityCards);
-            AddCovered(into, actor, cc.RoundAbilityCards);
+            }
+            complete &= AddCovered(into, actor, cc.HandAbilityCards);
+            complete &= AddCovered(into, actor, cc.DiscardedAbilityCards);
+            complete &= AddCovered(into, actor, cc.RoundAbilityCards);
         }
+        return complete;
+    }
+
+    /// <summary>
+    /// Does THIS client control <paramref name="actor"/>? The game's own controllable list where it
+    /// can answer, the cached flag where it cannot — the two witnesses
+    /// <c>Cards.CardsGameApi.IsLocalHand</c> uses, except that here they are OR-ed rather than one
+    /// preferred over the other.
+    ///
+    /// <para>THE OR IS THE POINT, AND IT IS THIS FILE'S DIRECTION OF FAILURE. Everywhere else in the
+    /// mod a wrong "ours" draws a wrong picture; here a wrong "NOT ours" SKIPS A HAND, so that
+    /// hand's card names are never collected and a wording naming one of them is published in the
+    /// clear. <c>CActor.IsUnderMyControl</c> can read stale FALSE on the owning client (asymmetric
+    /// FFSNet writers — <see cref="RevealGate"/>'s <c>LocallyControls</c> carries the derivation),
+    /// so either witness saying "ours" is taken as ours. Over-collecting is free: an extra name only
+    /// changes an outgoing wording that NAMES that card, and a wording of ours naming a covered card
+    /// is the very thing this class exists to remove.</para>
+    /// </summary>
+    private static bool LocallyOwned(CPlayerActor actor)
+    {
+        if (actor.IsUnderMyControl)
+            return true;
+        bool byList = Cards.CardsGameApi.LocalControlsActor(actor, out bool answerable);
+        return answerable && byList;
     }
 
     /// <summary>Add the names of the cards in <paramref name="list"/> our peers may not see. Longest
     /// first is NOT needed — the names are replaced independently and a card name is never a strict
     /// prefix of another in a way that changes the result — but a null or empty name is skipped,
-    /// because <c>string.Replace(string.Empty, …)</c> throws.</summary>
-    private static void AddCovered(List<string> into, CPlayerActor actor,
+    /// because <c>string.Replace(string.Empty, …)</c> throws.
+    ///
+    /// <para>TWO STRINGS PER CARD, AND THE ONE THAT MATTERS IS THE TRANSLATED ONE. This is the whole
+    /// of the 2026-09-07 item 7 fix. <c>CAbilityCard.Name</c> is the YML/localization KEY
+    /// (<c>ABILITY_CARD_SpareDagger</c>) and never a word a player reads; the wording being searched
+    /// carries <c>FullAbilityCard.Title</c>, which the game letters as
+    /// <c>LocalizationManager.GetTranslation(card.Name)</c> (<c>FullAbilityCard.SetCardName</c>).
+    /// Resolving through <see cref="Loc.Game"/> asks the same table the same way, on the same
+    /// client, in the same language — so the two strings are equal by construction rather than by
+    /// hope. The RAW key is kept in the set as well, at no cost, so a wording built from the key
+    /// rather than from the title is covered too.</para>
+    ///
+    /// <para>Returns FALSE when a covered card's DISPLAYED name could not be resolved. That is not a
+    /// no-op: it is the state in which this class cannot say whether the wording names that card,
+    /// and the caller then withholds the whole wording rather than publish an unchecked one. The
+    /// burn exception is asked BEFORE the resolve, so a card that is already public costs nothing
+    /// and can never withhold a label.</para>
+    /// </summary>
+    private static bool AddCovered(List<string> into, CPlayerActor actor,
                                    List<CAbilityCard>? list)
     {
         if (list == null)
-            return;
+            return true;
+        bool complete = true;
         for (int i = 0; i < list.Count; i++)
         {
             CAbilityCard card = list[i];
             if (card == null)
                 continue;
-            string name = card.Name;
-            if (string.IsNullOrEmpty(name))
-                continue;
             if (RevealGate.PeersMaySeeOurCard(actor, card.CardInstanceID))
                 continue;   // already public — the burn exception, and it outranks the phase
+            string name = card.Name;
+            if (string.IsNullOrEmpty(name))
+            {
+                complete = false;   // a covered card we cannot name at all
+                continue;
+            }
             if (!into.Contains(name))
                 into.Add(name);
+            // THE STRING THE DIALOG ACTUALLY SHOWS. Empty means the table would not answer, and a
+            // covered card whose displayed name we do not know is blind, not clean.
+            string title = Loc.Game(name, string.Empty);
+            if (title.Length == 0)
+            {
+                complete = false;
+                continue;
+            }
+            if (!into.Contains(title))
+                into.Add(title);
         }
+        return complete;
+    }
+
+    /// <summary>Change-gate for the withheld-label diagnostic, kept apart from
+    /// <see cref="_lastLogged"/> so a standing prompt that is masked and one that is withheld cannot
+    /// silence each other.</summary>
+    private static string _lastWithheld = string.Empty;
+
+    /// <summary>
+    /// The reading that says a wording was REFUSED rather than cleaned, and the falsifier for the
+    /// safe direction added on 2026-09-07: this line appearing at all means the covered set could
+    /// not be fully read on this client, and a peer got a generic cap where a wording was due.
+    /// </summary>
+    private static void LogWithheld(string label)
+    {
+        if (label == _lastWithheld)
+            return;
+        _lastWithheld = label;
+        // HW-VERIFY
+        VRLog.Note("Net", "DECISION LABEL MASK: the covered card set could not be fully read on "
+                        + "this client (no CardsHandManager, no hand list, a hand of ours with no "
+                        + "CharacterClass, or a covered card whose displayed name the localization "
+                        + "table would not answer), so the wording \""
+                        + label.Replace('\n', '|')
+                        + "\" is WITHHELD for this tick rather than published unchecked. A wording "
+                        + "this class cannot CHECK against the covered names is not a wording it "
+                        + "may publish inside the secret window — the peer letters their cap with "
+                        + "their own GUI_CONFIRM / GUI_UNDO and record 12's row falls back to the "
+                        + "mod-drawn plates. THIS LINE IS THE FALSIFIER FOR THE 2026-09-07 item 7 "
+                        + "FIX: none of the states named above can occur inside "
+                        + "SelectAbilityCardsOrLongRest with hands on the table, so if this prints "
+                        + "in real play the enumeration in CollectCoveredNames is missing a case "
+                        + "and that case is one of the four this sentence lists. It is NOT the leak "
+                        + "reading — a leak reads as a card NAME inside 'Decision lines SENT' or "
+                        + "'Cap labels SENT'.");
     }
 
     /// <summary>The measurement the exemption owes, change-gated on the label so a standing prompt

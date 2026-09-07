@@ -2330,24 +2330,42 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             // claim it replaces ("NO card identity") was an assertion the instrument could not make.
             // READ IT LIKE THIS, AND THE READING INVERTED ON 2026-09-07: the quoted text is what
             // LEFT this client, after Net.DecisionLabelMask ran. ANY card name still in it is a
-            // DEFECT now, not an exemption — the mask walks the hand, discard and round lists of
-            // every character we control, so a name that survives means it came from a list the
-            // mask does not walk, and this line is the proof. The expected reading is a wording
-            // carrying the in-world sealed-card phrase in place of the name. THE FALSIFIER: this
-            // line never appearing at all does NOT mean nothing travels — it means no decision row
-            // was docked during a selection phase this session, so the question was not put.
+            // DEFECT now, not an exemption. The expected reading is a wording carrying the
+            // in-world sealed-card phrase in place of the name.
+            //
+            // AND THE FIRST GUESS AT *WHY* A NAME WOULD SURVIVE WAS WRONG, so it is corrected here
+            // rather than left to be re-guessed. This comment used to say "the mask walks the hand,
+            // discard and round lists of every character we control, so a name that survives means
+            // it came from a list the mask does not walk". It did not: on 2026-09-07 (report item
+            // 7, the short rest) the card WAS in a walked list and the mask still missed it,
+            // because it compared the wrong STRING FORM — CAbilityCard.Name is the YML/localization
+            // KEY (ABILITY_CARD_SpareDagger) and the wording carries the TRANSLATED title
+            // ("Zusatzdolch"). Check the FORM before the LIST.
+            //
+            // THE FALSIFIER: this line never appearing at all does NOT mean nothing travels — it
+            // means no decision row was docked during a selection phase this session, so the
+            // question was not put. And a card name here is the ONLY convicting reading: the same
+            // name inside 'Decision lines SENT' or 'Cap labels SENT' without this line beside it is
+            // the ACTION phase, where every peer already draws our fronts by ruling.
             VRLog.Note("Net", "DECISION LABEL INSIDE THE SECRET WINDOW: record 12 is publishing "
                 + $"\"{decisionNow!.Replace('\n', '|')}\" while RevealGate.PeersSeeOurCardFronts is "
                 + "SHUT — i.e. online, during the game's own SelectAbilityCardsOrLongRest phase, the "
                 + "window in which every OTHER surface in this mod refuses a peer a card front. This "
                 + "record carries the wording of a pressable widget, and a burn prompt's wording "
                 + "NAMES THE CARD; the record's own note used to claim it never carried a card "
-                + "identity and that claim was false. It is a ruled EXEMPTION, not an accident — see "
-                + "RevealGate.PeerCardPopulation.DecisionRowWording for the three grounds and for "
-                + "the user's own 2026-09-05 ruling that he wants to see which card is at stake. "
-                + "What is printed above is the whole of what went out, so this line is checkable: "
-                + "if it ever quotes a card the owner is CHOOSING rather than one they are LOSING, "
-                + "the exemption is too wide and that is where to narrow it.");
+                + "identity and that claim was false. THE ROW is a ruled exemption; THE NAME INSIDE "
+                + "IT IS NOT, and that half changed on 2026-09-07 (\"Kurze Rast = Auswahlphase = "
+                + "verdeckt\") — see RevealGate.PeerCardPopulation.DecisionRowWording. What is "
+                + "printed above is the whole of what went out, so this line is checkable and the "
+                + "check is now simple: A CARD NAME QUOTED HERE IS THE DEFECT. Net.DecisionLabelMask "
+                + "should have replaced it with the in-world sealed-card wording. It failed to for "
+                + "one whole session because it searched for CAbilityCard.Name — the YML KEY "
+                + "'ABILITY_CARD_SpareDagger' — inside a wording that carries the TRANSLATED title "
+                + "'Zusatzdolch', so read the STRING FORM before suspecting the pile or the phase. "
+                + "The superseded ruling this line used to quote (2026-09-05 item 15, \"he wants to "
+                + "see which card is at stake\") is dead INSIDE the window and alive outside it: a "
+                + "burn prompt in the action phase names its card on purpose, and this line does not "
+                + "print there.");
         }
         // DECISION NAMES (extension record 33): the card-name KEYS the mandatory-use hint is
         // prefixed with. The sampler fills this ONLY for that one text variant and ONLY while
@@ -2581,9 +2599,23 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                               "the live DialogPopup option wording, which for a burn prompt NAMES " +
                               "the card, so Net.DecisionLabelMask strips the identity while the " +
                               "face rule says that card is covered — what is quoted above is the " +
-                              "masked text that actually went out, and a card name still in it is " +
-                              "a DEFECT. A label the mask had to withhold is sent as <hidden>, " +
-                              "which peers letter with their own GUI_CONFIRM / GUI_UNDO.");
+                              "masked text that actually went out. A label the mask had to " +
+                              "withhold is sent as <hidden>, which peers letter with their own " +
+                              "GUI_CONFIRM / GUI_UNDO. READ A CARD NAME IN THIS LINE AGAINST THE " +
+                              "PHASE AND NOT ON ITS OWN, and that correction cost the 2026-09-07 " +
+                              "round a wrong diagnosis: this string used to end 'a card name still " +
+                              "in it is a DEFECT', which is true only INSIDE the secret window. " +
+                              "Outside it every peer is already drawing our fronts (the census " +
+                              "prints POLICY=FRONTS EVERYWHERE), so a burn prompt naming the card " +
+                              "is 1:1 and is what the ruling ASKS for — a take-damage burn or a " +
+                              "long rest lands there. The reading that convicts is the sender's " +
+                              "own 'DECISION LABEL INSIDE THE SECRET WINDOW' line, which prints " +
+                              "only while RevealGate.PeersSeeOurCardFronts is SHUT; a card name " +
+                              "quoted THERE is the defect. And the mask having nothing to do looks " +
+                              "identical to the mask being broken, so the third reading is " +
+                              "'DECISION LABEL MASK' itself: zero of those lines across a whole " +
+                              "session with a burn prompt inside the window is what a dead mask " +
+                              "reads like, and is exactly how item 7 shipped.");
         }
 
         if (boardUiChanged)
