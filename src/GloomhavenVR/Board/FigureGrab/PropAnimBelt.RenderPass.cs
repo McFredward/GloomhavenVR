@@ -86,6 +86,88 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// span and a one-frame termination is the first hard number a surviving hypothesis has to fit —
 /// and it is not this mod's <c>OverlayPulse</c>, whose period is 1.43 s and which never stops.</para>
 ///
+/// <para><b>AND THE TWO TERMS ARE TWO CAUSES, NOT ONE ANIMATION WITH TWO CHANNELS — WHICH IS WHAT
+/// EPISODE 2 SETTLES.</b> They start on the SAME FRAME in episode 1, which is why they read as one
+/// event. They do not end together and only one of them repeats:
+/// <list type="bullet">
+/// <item><b>The SCALE term is ONE-OFF and PERMANENT.</b> Scale-search normalised cross-correlation
+/// against the t=2.83 trap-ring patch: the prop's image scale goes 1.00 → 2.53 over t=2.83..3.30
+/// (0.47 s, NCC 0.79-0.93) and is then FLAT at 2.50 for the rest of episode 1. Re-referenced to
+/// the frame one AFTER the termination, it reads 1.00 at t=5.97 (NCC 0.923) and 1.12 at t=9.97,
+/// and the prop is visibly still at full size at t=12.83. It never changes size again. This is the
+/// PICK-UP, and it is OURS AND INTENDED: the 469 log's own ASYMMETRIES line prints
+/// <c>lossyScale held 3.153,3.153,3.153 vs home 1,1,1</c>.</item>
+/// <item><b>The BRIGHTNESS term is the defect and it is the only thing on the 10 s schedule.</b>
+/// Measured on the prop's OWN pixels inside a disc that TRACKS the growing prop, so it cannot be a
+/// fill artefact: mean luma 130.2 → 245.7 over t=2.83..3.97 (1.14 s), fraction at or above 250
+/// going 0.0 % → 65 %, then flat until the one-frame clear. Episode 2 repeats it exactly — mean
+/// 117 → 237, fraction ≥250 0 % → 43 % — <b>with no scale change at all</b>. And the frame after
+/// each termination shows the prop still large and NORMALLY SHADED (grey stone ring, brown wood,
+/// the held arm's teal runes): only the white clears.</item>
+/// </list>
+/// So the coincident start in episode 1 is the user's own reported trigger — "das weisse in der
+/// Hand tritt immer auf wenn ich die Falle aufhebe" — and not a shared cause.</para>
+///
+/// <para><b>THE PROP IS INFLATING, NOT APPROACHING, AND THAT IS MEASURED RATHER THAN ARGUED.</b>
+/// The same scale search run on four other landmarks between the same two frames, keeping only the
+/// ones whose NCC actually peaks (two patches gave flat ~0.50 responses across every scale and are
+/// discarded rather than quoted): the tooltip panel's 'Falle' caption reads 0.88x / 0.85x (NCC
+/// 0.870 / 0.775) and its 'Schaden: 3' row agrees to two decimals; the roof tiles at bottom-left —
+/// real world geometry a metre from the prop — read 1.09x / 1.15x (NCC 0.911 / 0.841). So the head
+/// contributed at most 1.15x while the prop grew 2.50x: a residual INFLATION of ≈2.2x linear.
+/// A camera approach large enough to explain 2.5x would have grown those roof tiles by the same
+/// factor and did not. NOTE the 469 log's <c>head-to-prop distance ranged 3.797..5.802 wu</c>
+/// bounds a DIFFERENT SESSION (log 2026-09-07 09:10, video 2026-09-06 23:41) and is not evidence
+/// about this clip; the in-clip landmark measurement is, and it does not need it.</para>
+///
+/// <para><b>THE 10.000 s SWEEP, AND ITS HONEST RESULT: NOTHING WITH THE RIGHT SHAPE.</b> Two of
+/// this mod's own cadences are exactly 10.000 s and both were checked first, because twice already
+/// the mod's own work has been the churn it was measuring. <c>PropGrab</c>:
+/// <c>IdleSweepScans = 5</c> × <c>ScanIntervalSeconds = 2f</c> = 10.000 s. <c>LightStabiliser</c>:
+/// <c>RescanSeconds = 10f</c>, which does write <c>Light.renderMode</c> and costs a measured
+/// 3.92 ms hitch on that grid. NEITHER FITS, and the reason is the SHAPE and not the period: both
+/// are instantaneous scans, and neither starts anything that ramps monotonically for 1.14 s. The
+/// cheap falsifier if anyone doubts it is a NULL PERTURBATION — move one cadence off 10 s and see
+/// whether the visual period follows. Game-side C#: 2 <c>InvokeRepeating</c> sites in the entire
+/// game and 190 <c>WaitForSeconds</c>, ZERO of them at 10 s or 1.4 s; <c>Glint</c>,
+/// <c>Telegraph</c> and <c>Attention</c> match 0 files; <c>IEffectBlink</c> is worldspace CANVAS UI
+/// for status icons at a 0.5 s interval with nothing wrapping it; <c>SpawnProp</c> is a
+/// <c>Start()</c> one-shot gated on <c>!PlacedInScenario</c>. The closest morphological match in
+/// either tree is <c>decompiled/GH.Runtime/WaypointLine.cs:75-92</c>, which ramps a shader
+/// <c>_Pulse</c> float over <c>Random.Range(1.2f, 1.9f)</c> seconds — a span that brackets the
+/// measured 1.40-1.43 s dead centre — but its period is randomised and it drives one LineRenderer.
+/// Read that as proof of the studio's HOUSE PATTERN for this exact morphology, not as the
+/// mechanism.</para>
+///
+/// <para><b>WHERE THE SWEEP IS BLIND, STATED SO NOBODY READS ITS NULL AS AN EXCLUSION.</b>
+/// <c>decompiled/</c> is 4646 <c>.cs</c> files and NOTHING else — zero <c>.shader</c>,
+/// <c>.anim</c>, <c>.controller</c>, <c>.prefab</c>, <c>.mat</c>. So a C# sweep cannot see: an
+/// AnimatorController's state speed / cycleOffset; an AnimationClip's length or its curves,
+/// including curves on <c>m_IsActive</c> and <c>m_Enabled</c> (the "switch the glow mesh on"
+/// channel that carries no material property at all); compiled HLSL; authored material floats;
+/// ParticleSystem modules; Timeline durations; or any prefab-serialized override of a default
+/// quoted from source. TWO LEADS LIVE ENTIRELY INSIDE THAT BLIND SPOT AND ARE THE NEXT ACTIONS.
+/// (1) <b><c>Amp_Char_Shader</c> — the shader that actually draws this trap — has never been
+/// extracted.</b> <c>tools/ShaderDisasm/evidence/</c> holds OmniDecal, ParticleMasterUnlitAdd,
+/// SimpleParticleAlphaDFade and UI_Default, and nothing else; in all of <c>decompiled/</c> the name
+/// appears twice, both times as a string comparison in <c>Choreographer.cs</c>. If it samples
+/// <c>_Time</c> or <c>_SinTime</c> it is board-wide synchronous by construction, needs no C# at
+/// all, and accounts for every material exclusion the last ten rounds produced.
+/// (2) <b><c>VFX/ParticleMasterUnlitAdd_Shd</c>'s flipbook</b> is the best morphological fit in the
+/// whole search: a run of identical bright frames ending in a ONE-FRAME step to the next tile,
+/// period <c>TileX*TileY/Speed</c>, every term material-authored with ZERO C# writers
+/// (<c>grep -rni flipbook decompiled --include=*.cs</c> → 0), so every material that shares it runs
+/// in lockstep. Against it: the 469 roster lists 3 renderers under the trap and none is a
+/// <c>ParticleSystemRenderer</c>, so if this is it the emitter is not parented to the prop.</para>
+///
+/// <para><b>AND ONE NUMBER DECIDES THE BEST REMAINING CANDIDATE, SO THIS BUILD READS IT.</b> If the
+/// trap's idle clip is exactly 5.0000 s then two loops are 10.000 s to the frame and "the flash is
+/// one phase of this clip, seen every other loop" survives; the 4.95 s that four rounds' quoted
+/// <c>0.202 normalized/s</c> implies gives 9.90 s = 297 frames, three frames outside the
+/// measurement, and excludes it. That length is not in <c>decompiled/</c> and never can be — but
+/// <c>AnimatorStateInfo.length</c> returns it at runtime, and <c>PropAnimBelt</c>'s HOME TWIN line
+/// now prints it as THE CLIP'S OWN PERIOD.</para>
+///
 /// <para><b>THE COLOUR EXCLUSION WAS STATED ON A SATURATED POPULATION AND SURVIVES ANYWAY.</b> At
 /// peak, 33.4 % of the stone-ring pixels carry a channel at 255 and 77.5 % sit within 5/255 of the
 /// ceiling, so 1.000/0.995/1.010 was read where a clipped pixel cannot testify to the colour that

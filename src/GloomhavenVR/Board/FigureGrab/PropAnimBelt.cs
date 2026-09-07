@@ -1249,6 +1249,14 @@ internal static partial class PropAnimBelt
     private static int _twinFramesAlive, _twinFramesDrawing, _twinAnimAdvancing, _twinAnimFrames;
     private static float _twinPhasePrev, _twinPhaseLo, _twinPhaseHi;
 
+    /// <summary>The twin clip's own wall-clock period, read ONCE per window (ModBuild 470). It
+    /// decides whether the trap's idle can be the 10.000 s clock the user's video measures; see the
+    /// reading key on the TWIN'S ANIMATOR line. Four rounds have quoted "0.202 normalized/s"
+    /// derived from an advancing count; this reads the number off the animator instead.</summary>
+    private static float _twinStateLength, _twinAnimSpeed, _twinClipLength;
+
+    private static string _twinClipName = string.Empty;
+
     private static readonly Vector4[] TwPrev = new Vector4[TwinSlots];
     private static readonly Vector4[] TwNow = new Vector4[TwinSlots];
     private static readonly bool[] TwValid = new bool[TwinSlots];
@@ -1295,6 +1303,8 @@ internal static partial class PropAnimBelt
         _twinPhasePrev = float.NaN;
         _twinPhaseLo = float.MaxValue;
         _twinPhaseHi = float.MinValue;
+        _twinStateLength = _twinAnimSpeed = _twinClipLength = 0f;
+        _twinClipName = string.Empty;
         for (int i = 0; i < VerdictMatCap; i++)
             TwinMats[i] = null!;
         for (int i = 0; i < TwinSlots; i++)
@@ -1543,7 +1553,23 @@ internal static partial class PropAnimBelt
         if (_twinAnim != null && _twinAnim.enabled && _twinAnim.layerCount > 0)
         {
             _twinAnimFrames++;
-            float t = _twinAnim.GetCurrentAnimatorStateInfo(0).normalizedTime;
+            AnimatorStateInfo si = _twinAnim.GetCurrentAnimatorStateInfo(0);
+            if (_twinStateLength <= 0f && si.length > 0f)
+            {
+                // ONCE PER WINDOW, NOT PER FRAME, and the guard is the reason: Unity's
+                // GetCurrentAnimatorClipInfo ALLOCATES an array on every call, and this file has
+                // already paid for one per-frame allocation. The state's length and the animator's
+                // speed do not change while one clip loops, so one read is the whole answer.
+                _twinStateLength = si.length;
+                _twinAnimSpeed = _twinAnim.speed;
+                AnimatorClipInfo[] clips = _twinAnim.GetCurrentAnimatorClipInfo(0);
+                if (clips.Length > 0 && clips[0].clip != null)
+                {
+                    _twinClipLength = clips[0].clip.length;
+                    _twinClipName = clips[0].clip.name;
+                }
+            }
+            float t = si.normalizedTime;
             if (!float.IsNaN(_twinPhasePrev) && Mathf.Abs(t - _twinPhasePrev) > MoveEpsilon)
                 _twinAnimAdvancing++;
             _twinPhasePrev = t;
@@ -2213,6 +2239,40 @@ internal static partial class PropAnimBelt
             sb.Append(", loop fraction swept ").Append(_twinPhaseLo.ToString("0.###")).Append("..")
               .Append(_twinPhaseHi.ToString("0.###"));
         sb.Append(". ");
+
+        // THE CLIP'S OWN PERIOD, WHICH DECIDES THE 10.000 s QUESTION (ModBuild 470). Four rounds
+        // have quoted "0.202 normalized/s", a rate DERIVED from an advancing count rather than
+        // read; the number below is read off the animator.
+        sb.Append("THE CLIP'S OWN PERIOD: ");
+        if (_twinStateLength > 0f)
+        {
+            float speed = _twinAnimSpeed > 0f ? _twinAnimSpeed : 1f;
+            sb.Append("state length ").Append(_twinStateLength.ToString("0.0000"))
+              .Append(" s at Animator.speed ").Append(_twinAnimSpeed.ToString("0.###"))
+              .Append(" => a wall-clock period of ").Append((_twinStateLength / speed).ToString("0.0000"))
+              .Append(" s");
+            if (_twinClipLength > 0f)
+                sb.Append(" (clip '").Append(_twinClipName).Append("' is ")
+                  .Append(_twinClipLength.ToString("0.0000")).Append(" s)");
+            sb.Append(". ");
+        }
+        else
+        {
+            sb.Append("NOT READ — the twin's animator carried no state with a length on any "
+                      + "sampled frame, so this reading is INERT and excludes nothing. ");
+        }
+        sb.Append("READ IT AGAINST 10.000 s. ModBuild 470 re-measured the user's own clip "
+                  + "(.planning/debug/falle_aufblitzen.mp4) at 30 fps and found TWO white "
+                  + "episodes whose one-frame terminations are EXACTLY 300 frames apart — "
+                  + "10.000 s, +/- one frame, i.e. +/- 0.033 s. A period of 5.0000 s means two "
+                  + "loops land on 10.000 s to the frame and 'the flash is one phase of this "
+                  + "clip, seen every other loop' SURVIVES as the best-fitting candidate in the "
+                  + "whole search. A period of 4.95 s — which is what 0.202/s implies — gives "
+                  + "9.90 s = 297 frames, three frames outside the measurement, and EXCLUDES this "
+                  + "clip as the flash's clock. Any other value excludes it outright. The clip "
+                  + "LENGTH is not readable from decompiled/ at all (it lives in the "
+                  + "AnimationClip asset; the tree holds 4646 .cs files and zero .anim), which is "
+                  + "why this had to become a runtime read instead of a source sweep. ");
 
         AppendTwinMovers(sb);
         AppendTwinDiffs(sb);

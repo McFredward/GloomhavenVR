@@ -782,6 +782,70 @@ internal static class NetProtocol
     //     is the first hard number any surviving hypothesis has to fit. Episode 2 never reaches
     //     episode 1's plateau (58,139 vs 100,759 near-white px), so the "plateau" is the thing
     //     filling its extent and not a feature of the signal.
+    //     AND THE TWO TERMS ARE TWO CAUSES, WHICH EPISODE 2 SETTLES. They start on the same frame
+    //     in episode 1 — which is why nineteen rounds read them as one event — but only one of
+    //     them repeats and only one of them ends.
+    //       THE SCALE TERM IS ONE-OFF, PERMANENT, AND IT IS OURS BY DESIGN. Scale-search NCC
+    //       against the t=2.83 trap-ring patch: 1.00 -> 2.53 over 0.47 s (NCC 0.79-0.93), then
+    //       FLAT at 2.50. Re-referenced to the frame after the termination it reads 1.00 at
+    //       t=5.97 (NCC 0.923) and 1.12 at t=9.97, and the prop is visibly still full size at
+    //       t=12.83. It never changes size again. That is the PICK-UP, and this file already
+    //       prints its identity: `lossyScale held 3.153,3.153,3.153 vs home 1,1,1`.
+    //       THE BRIGHTNESS TERM IS THE DEFECT AND THE ONLY THING ON THE 10 s SCHEDULE. Measured on
+    //       the prop's OWN pixels inside a disc that TRACKS the growing prop, so it is not a fill
+    //       artefact: mean luma 130.2 -> 245.7 over 1.14 s, fraction >=250 going 0.0% -> 65%.
+    //       Episode 2 repeats it (117 -> 237, 0% -> 43%) with NO scale change at all, and the
+    //       frame after each termination shows the prop still large and NORMALLY SHADED. Only the
+    //       white clears.
+    //     THE PROP IS INFLATING, NOT APPROACHING — MEASURED, NOT ARGUED. Same scale search on four
+    //     other landmarks, keeping only the ones whose NCC actually peaks (two gave flat ~0.50
+    //     responses at every scale and are discarded rather than quoted): the tooltip panel's
+    //     'Falle' caption 0.88x/0.85x (NCC 0.870/0.775) with its 'Schaden: 3' row agreeing to two
+    //     decimals, and the roof tiles a metre from the prop 1.09x/1.15x (NCC 0.911/0.841). The
+    //     head contributed at most 1.15x while the prop grew 2.50x: a residual INFLATION of ~2.2x
+    //     linear. NOTE this file's `head-to-prop distance ranged 3.797..5.802 wu` bounds a
+    //     DIFFERENT SESSION (log 2026-09-07 09:10, video 2026-09-06 23:41) and is not evidence
+    //     about this clip; the in-clip landmark measurement is, and does not need it.
+    //     THE 10.000 s SWEEP, AND ITS HONEST RESULT: NOTHING WITH THE RIGHT SHAPE. Two of this
+    //     mod's OWN cadences are exactly 10.000 s and were checked first, because twice already
+    //     our own work has been the churn it was measuring: PropGrab's `IdleSweepScans = 5` x
+    //     `ScanIntervalSeconds = 2f`, and `LightStabiliser.RescanSeconds = 10f` (which does write
+    //     Light.renderMode and costs a measured 3.92 ms hitch on that grid). NEITHER FITS, on
+    //     SHAPE and not on period: both are instantaneous scans and neither starts anything that
+    //     ramps monotonically for 1.14 s. The cheap falsifier is a NULL PERTURBATION — move one
+    //     cadence off 10 s and see whether the visual period follows. Game-side C#: 2
+    //     InvokeRepeating sites in the whole game, 190 WaitForSeconds, ZERO at 10 s or 1.4 s;
+    //     Glint/Telegraph/Attention match 0 files; IEffectBlink is worldspace CANVAS UI for status
+    //     icons at 0.5 s with nothing wrapping it; SpawnProp is a Start() one-shot gated on
+    //     !PlacedInScenario. The closest morphological match in either tree is
+    //     decompiled/GH.Runtime/WaypointLine.cs:75-92, ramping a shader `_Pulse` float over
+    //     Random.Range(1.2f, 1.9f) s — a span that brackets the measured 1.40-1.43 s dead centre —
+    //     but randomised and on one LineRenderer. That is the studio's HOUSE PATTERN for this
+    //     morphology, not the mechanism.
+    //     WHERE THAT SWEEP IS BLIND, SO ITS NULL IS NOT READ AS AN EXCLUSION. decompiled/ is 4646
+    //     .cs files and NOTHING else: zero .shader, .anim, .controller, .prefab, .mat. Invisible
+    //     to it: AnimatorController state speed/cycleOffset; AnimationClip length and curves,
+    //     including curves on m_IsActive and m_Enabled (the "switch the glow mesh on" channel that
+    //     carries no material property at all); compiled HLSL; authored material floats;
+    //     ParticleSystem modules; Timeline durations; every prefab override of a source default.
+    //     TWO LEADS LIVE ENTIRELY INSIDE THAT BLIND SPOT AND ARE THE NEXT ACTIONS. (1)
+    //     `Amp_Char_Shader`, THE SHADER THAT ACTUALLY DRAWS THIS TRAP, HAS NEVER BEEN EXTRACTED —
+    //     tools/ShaderDisasm/evidence/ holds OmniDecal, ParticleMasterUnlitAdd,
+    //     SimpleParticleAlphaDFade and UI_Default and nothing else, and in all of decompiled/ the
+    //     name appears twice, both string comparisons in Choreographer.cs. If it samples _Time or
+    //     _SinTime it is board-wide synchronous by construction and accounts for every material
+    //     exclusion since round ten. (2) VFX/ParticleMasterUnlitAdd_Shd's FLIPBOOK is the best
+    //     morphological fit in the search — a run of identical bright frames ending in a ONE-FRAME
+    //     step, period TileX*TileY/Speed, every term material-authored with ZERO C# writers — but
+    //     the 469 roster's 3 renderers under the trap include no ParticleSystemRenderer, so if it
+    //     is this, the emitter is not parented to the prop.
+    //     AND ONE NUMBER DECIDES THE BEST REMAINING CANDIDATE, SO THIS BUILD READS IT. A trap idle
+    //     clip of exactly 5.0000 s puts TWO loops on 10.000 s to the frame and "the flash is one
+    //     phase of this clip, seen every other loop" survives; the 4.95 s implied by the
+    //     `0.202 normalized/s` four rounds have quoted gives 9.90 s = 297 frames, three outside
+    //     the measurement, and excludes it. The length is not in decompiled/ and never can be, but
+    //     AnimatorStateInfo.length returns it at runtime — PropAnimBelt's HOME TWIN line now
+    //     prints it as `THE CLIP'S OWN PERIOD`.
     //     THE COLOUR EXCLUSION WAS STATED ON A SATURATED POPULATION AND SURVIVES ANYWAY. At peak,
     //     33.4 % of the stone-ring pixels have a channel at 255 and 77.5 % are within 5/255 of the
     //     ceiling, so 1.000/0.995/1.010 was read where a clipped pixel cannot testify to the
