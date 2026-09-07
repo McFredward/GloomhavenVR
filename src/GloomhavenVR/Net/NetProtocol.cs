@@ -433,7 +433,118 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 472;
+    public const ushort ModBuild = 473;
+    // Build 473: THIRTEEN ITEMS, NINE LANES, AND FOUR OF MY OWN BRIEFINGS FALSIFIED BY THE LANES I
+    //   WROTE THEM FOR. Two hardware sessions in one round — an eleven-item multiplayer test and a
+    //   two-item single-player one — and the round's real product is that the cause was, four
+    //   times, one term away from where the integrator pointed.
+    //   * THE ACTIVE COLUMN GLIDED EVERYTHING IT WAS HANDED (item 1, and item 8 is the same
+    //     producer). `ActivePileViewer.Relayout` called `SetHome(instant:false)` on every column
+    //     card on every pass, so the frame the game listed a card in `ActivatedCards` the rebuild
+    //     flew it out of a recess it was still lying in. Counted: the column rose 0 -> non-empty
+    //     SIX times across the two logs against exactly ONE end-of-turn arc. Five of six flights
+    //     were unauthorised AND UNLOGGED. Arrivals are now SEATED, residents still glide.
+    //     AND THE INVENTORY HE ASKED FOR IS THE DELIVERABLE: 28 producers, each with engine,
+    //     trigger, destination, required state and verdict. The ledger covered 8 of 28, and its
+    //     pile-shaped destination vocabulary (Discard/Burnt/SlotN) is exactly why the active
+    //     column was outside it BY CONSTRUCTION — an instrument that could not see its subject.
+    //   * A MULTI-HEX PROP'S REACH WAS A BOX 3.6 HEXES WIDE (item 2). Measured, not estimated:
+    //     `size (6.16, 3.52, 5.86) wu` against `one hex is 109 mm real` = 392 x 373 mm at the hand,
+    //     where a FIGURE answers over a capsule 0.58 hexes across at a 40 mm admit. A hand anywhere
+    //     inside an AABB reads ClosestPoint distance ZERO, and zero wins every election — so both
+    //     halves of his report ("die Figur bekommt man kaum gegriffen" and "von viel zu weit weg")
+    //     are one cause. Replaced by the UNION OF HEX CYLINDERS at the game's own tile radius; a
+    //     cylinder ends half way to the next hex centre and cannot reach an uncovered one. The
+    //     admit radius is untouched — still the figure's own dial, no new constant. Plus: a FIGURE
+    //     now outranks a PROP when both are admissible, one predicate, two call sites.
+    //     A ONE-HEX PROP CANNOT MOVE STRUCTURALLY: `Resolve` returns before a footprint exists.
+    //   * A WHOLE VANILLA SURFACE HAD NO VR SEAT (item 3). `UIManager` fills THREE scenario
+    //     containers in one call and the mod had docked one of them: objectives yes, battle goal
+    //     considered, `ScenarioModifierContainer` never named — `grep -rn ScenarioModifier src/`
+    //     returned ZERO before this build. The per-round damage he took is a scenario modifier
+    //     firing, and the proof it needs no wire is in the pair: `StartActiveBonusOrScenarioModifier
+    //     Ability` 6x and `ActorBeenDamaged` 16x, IDENTICAL IN BOTH LOGS. Rows are already-localised
+    //     prose, so nothing is invented and no string is hardcoded. Mirror-or-nothing on both sides;
+    //     a scenario without rules COLLAPSES the section, which is vanilla's own picture.
+    //   * A CHEAP EXIT NARROWER THAN THE BODY IT GUARDED (item 4b). `PileArrivalsPending` tested
+    //     six things; `BoardOwnsCardVisual`, the body, tests five and `_active.Contains` is the
+    //     fifth. The comment asserted the omission was deliberate — "an activated card is in
+    //     ActivatedCards, never in a discard/lost list" — FALSE for an active card that BURNS OUT,
+    //     which is listed in LostAbilityCards while its visual still stands in the column. The
+    //     badge subtracts this number, so "Stapel 2, Fächer 1" on BOTH boards, because both read the
+    //     same local model. That is the seventeenth false assertion this project has found in its
+    //     own source, and the fourth to be protecting a live defect.
+    //   * TWO SIDES ANCHORED DIFFERENT EDGES ONTO ONE SEAT (item 5). The owner solves for the
+    //     BUTTON ROW's top edge; the mirror put the WHOLE CLONE's top edge there. For a take-damage
+    //     popup the clone IS a button row and the two agree; the short rest deliberately clones the
+    //     entire box so the question travels with it, and the question's height pushed the buttons
+    //     down — 898 mm world = 44.3 mm board-local, right sign, right term. The recorded "two
+    //     clients, two canvas widths" class is FALSIFIED for this item: px, mount, mountScale and
+    //     graphics counts are field-for-field identical. The shipped 1:1 pair measured SIZE ONLY,
+    //     which is how a position defect survived it.
+    //   * RECORD 44 NAMED THE HAND WHILE THE OWNER WAS FANNING A PILE (item 9). Not the phase — my
+    //     briefing said the long rest falls inside `SelectAbilityCardsOrLongRest` and the lane
+    //     falsified it from `REST GATE long=True` in `Action` and `MonsterClassesSelectAbilityCards`
+    //     and never in the selection window. The sender withheld the arc order 42 times with
+    //     `why=an arc card is not in this hand's fan walk`, and that reason appears ZERO times on
+    //     the peer — the only asymmetric term between the two logs. The receiver was already right:
+    //     `ResolveHandFronts` branches on `IsFanSourcePile` and `ApplyFanArcOrder` indexes whatever
+    //     it filled, so record 44 has ALWAYS meant "indices into the list record 43 names". The fix
+    //     needed no receiver change at all, which is the strongest available evidence that it is the
+    //     intended contract. Silence stays the failure direction; a wrong-list permutation is still
+    //     impossible.
+    //   * THE OWNERSHIP TERM WAS NOT A PARTITION (item 10). `CActor.IsUnderMyControl` is a cached
+    //     bool whose SET tests `MyPlayer.PlayerID == controller.PlayerID` and whose CLEAR
+    //     (`CharacterManager.OnControlReleased`) tests NO identity at all. A scoped set with an
+    //     unscoped clear can be stale TRUE on the wrong client and stale FALSE on the right one at
+    //     the same time — exactly his symptom pair. And vanilla never shows it because the flat game
+    //     does not gate hand cards on ownership: what stops a flat player touching a teammate's card
+    //     is `SwitchHand -> Hide() -> SetActive(false)`, which this mod suppresses by construction.
+    //     A structural guarantee had been traded for a cached bool. Now read off `MyControllables`,
+    //     which is scoped at BOTH edges and is the record the game itself subscribes to.
+    //   * A SWAP THAT COMMITTED ITS VISUAL HALF BEFORE ITS MODEL HALF (item 11). `BeginPickSwapReopen`
+    //     fanned the laid card home, queued the cancel, and the queue's rebuild landed a frame
+    //     BEFORE `SelectCard` — so Rebuild's field prune fanned the incoming card home too. Board
+    //     empty, model holding a card. Measured 7 of 7. Deleted: while the popup stands the game has
+    //     every widget unselectable and locked, so the free swap was the mod's own invention.
+    //   * AND ONE THE EVIDENCE DOES NOT NAME (item 6). The destination IS settled from the game —
+    //     both rests un-choose every laid card back into the hand — but the game clears on the YES,
+    //     not on the press, because its dialog is still cancellable. Clearing on the press would
+    //     trade a symptom for a real desync. The session contains NO INSTANCE of the gesture: every
+    //     rest edge is preceded by `recess=False`. Shipped as the measurement, said out loud as not
+    //     a fix.
+    //   * A SINGLETON DIALOG PARENTED INTO SOMEBODY ELSE'S WINDOW (item 12, single-player). The item
+    //     confirmation box is a child of the party-display prefab in THE GAME's hierarchy, so
+    //     `RendersInsideFloatedAncestor` correctly refused it a float and correctly said "the parent
+    //     wins" — the rule was right and its PREMISE was wrong. Flat, both windows are full-screen
+    //     and the parenting is invisible; in VR each is a physical panel metres away, so parenting
+    //     becomes a PLACE. Seated under the window that raised it, from the game's own
+    //     `BoxConfirmationType`, and the existing rule then produces the right answer with no third
+    //     path. Enumerated over every raiser: merchant, enchantress, temple, character UI (already
+    //     correct — its home IS the party display), trainer/town records (none). CONCURRENT DIALOGS
+    //     ARE REFUSED ONE LEVEL UP, by `UIGuildmasterHUD`'s single `currentMode` ToggleGroup: the two
+    //     WINDOWS cannot both be open, so their dialogs cannot either, and delivering it would mean
+    //     rebuilding the game's mode machinery from presentation code.
+    //   * A GRID THAT MEASURED A WIDTH ITS OWN SEED HAD CAUSED (item 13, single-player). A
+    //     `GridLayoutGroup` at FixedColumnCount reports its own ROW WIDTH as its minimum, Unity's
+    //     cross-axis rule is `Clamp(inner, childMin, inner)` — A CHILD MINIMUM LARGER THAN THE
+    //     CONTAINER WINS — the strip was seeded at 5 columns and demanded 1200 px, the 618 px panel
+    //     handed back 1200, and the strip then MEASURED that 1200 and re-confirmed its own seed. A
+    //     self-confirming fixed point. Escape depended on an unnoticed race: a page built by a press
+    //     inside the open window measures the 100 px default first; a page built by the window's own
+    //     OnShow — THE RESTORE PATH, the only one a reopen takes — has already had a layout pass, so
+    //     the seed is law. Two independent guards so it never depends on the race again. The
+    //     instrument for this ALREADY EXISTED and had already recorded it, under `[WorldUI]` where
+    //     the briefing had looked for `[Options]`; a second instrument (the perf spike's TickGuard
+    //     step) names the same two paths independently.
+    //   * FOUR BRIEFINGS FALSIFIED, and each correction is worth more than the item it came with:
+    //     the long rest does NOT fall in the selection phase; the mirrored dialog is NOT a canvas-
+    //     width victim and NOT a re-implementation; a multi-hex prop's HEIGHT is correct as built
+    //     (a rock is 1.76x a figure and capping it would make it unreachable from the side you see);
+    //     and the tile page's captions are NOT clipped at the bottom — only the last one is, by the
+    //     overrun itself, so there is no second defect.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 472: a nine-item multiplayer round, seven lanes, twelve commits — and the first round
     //   in this series where BOTH logs came from the SAME build, which is the only reason half of
     //   it could be proved instead of argued. Headline: a session-long DEADLOCK with no escape, a
