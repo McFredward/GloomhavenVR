@@ -1131,6 +1131,12 @@ internal sealed class RemoteInitiativeTrack
         public Board.UiRing? FocusRing;
         public GameObject? Popup;      // clone of the entry's MonsterBaseUI root (enemies only)
 
+        /// <summary>The LIVE (source) <c>MonsterBaseUI</c> rect this clone came from, READ-ONLY and
+        /// only for the seat diff <see cref="RemoteInitiativeTrack.LayoutMirroredPopup"/> prints -
+        /// the local half of "does the mirrored popup sit where the owner's does". Never written:
+        /// the source is this client's own popup and belongs to the game.</summary>
+        public RectTransform? PopupSource;
+
         /// <summary>Has <see cref="RemoteInitiativeTrack.LayoutMirroredPopup"/> already resolved
         /// this clone popup's layout? One-shot per CLONE REBUILD, because that is the lifetime of
         /// the geometry it writes — <c>EnsureHoverCache</c> rebuilds this list on every rebuild, so
@@ -1442,6 +1448,11 @@ internal sealed class RemoteInitiativeTrack
                     MonsterBaseUI? popup = enemy.monsterBaseUI;
                     Transform? popupClone = popup != null ? _mirror.CloneOf(popup.transform) : null;
                     node.Popup = popupClone != null ? popupClone.gameObject : null;
+                    // The SOURCE popup is kept for ONE purpose: the seat diff on the layout line.
+                    // Nothing writes through it - it is this client's own MonsterBaseUI, switched
+                    // off, and reading its rect is the only way the log can say whether the clone's
+                    // own layout MOVED the popup or merely resolved it. See LayoutMirroredPopup.
+                    node.PopupSource = popup != null ? popup.transform as RectTransform : null;
 
                     // node.Entry (the row clone) is resolved for EVERY entry above — the order
                     // override needs it on player rows too — so only the widths are enemy-only.
@@ -1550,7 +1561,12 @@ internal sealed class RemoteInitiativeTrack
                     // the layout call below can refuse and be retried, and a retry must not mean a
                     // frame of the reported picture. See SeatPopupOverlay.
                     SeatPopupOverlay(node.ActorId, node.Popup);
-                    node.PopupLaidOut = LayoutMirroredPopup(node.ActorId, node.Popup);
+                    // ...and out of the board's OPAQUE DEPTH, which the seat above cannot reach:
+                    // the rim writes depth in the opaque pass and no sortingOrder is consulted
+                    // against it. Same two passes the owner's own popup gets. See LiftPopupDepth.
+                    LiftPopupDepth(node.ActorId, node.Popup);
+                    node.PopupLaidOut =
+                        LayoutMirroredPopup(node.ActorId, node.Popup, node.PopupSource);
                     _hoverNodes[i] = node;
                 }
             }
@@ -1651,11 +1667,21 @@ internal sealed class RemoteInitiativeTrack
     /// darauf sichtbar sein." The green monster-ability popup hanging off the mirrored track was cut
     /// by BOTH round-recess card faces and readable only in the gap between them.</para>
     ///
-    /// <para><b>IT IS DRAW ORDER, NOT DEPTH, AND THE SCREENSHOT PROVES IT ON ITS OWN.</b> The popup
-    /// draws OVER the board's stone top rail — the most proud opaque geometry on the board, drawn in
-    /// the opaque pass before any transparent surface — and UNDER two card faces that are RECESSED
-    /// behind that rail. A depth test cannot produce that pair: anything that beats the rail beats
-    /// the cards. What produced it is a TIE. Every mod-owned canvas on a peer's board is adopted
+    /// <para><b>IT IS DRAW ORDER — AND, AS THE NEXT ROUND PROVED, DEPTH AS WELL.</b> This paragraph
+    /// used to read "IT IS DRAW ORDER, NOT DEPTH, AND THE SCREENSHOT PROVES IT ON ITS OWN … the popup
+    /// draws OVER the board's stone top rail … a depth test cannot produce that pair". THE PREMISE OF
+    /// THAT SENTENCE WAS FALSE and the screenshot it cites falsifies it: in
+    /// <c>gegeninfo_mouseoer_tiefen&#8203;problem.jpg</c> the popup's ornate top and title bar are
+    /// ALREADY cut off exactly along the rail's inner lip — only the stat row and the body survive,
+    /// which is the same cut <c>gegenerinfo_seins.jpg</c> shows one round later with the cards no
+    /// longer in the way (user report 2026-09-07 item 3). "The opaque pass draws FIRST" does not mean
+    /// "the opaque pass loses": it WRITES DEPTH, and a world-space canvas draws
+    /// <c>ZTest [unity_GUIZTestMode]</c> = LEqual, so the rail rejects every popup fragment behind it
+    /// whatever order the popup holds. TWO occluders were in that picture, not one, and this seat
+    /// answers only the transparent half. <see cref="LiftPopupDepth"/> answers the other half, and it
+    /// is the pass that must be checked FIRST when the popup is still cut.</para>
+    ///
+    /// <para><b>THE TRANSPARENT HALF — the card faces.</b> Every mod-owned canvas on a peer's board is adopted
     /// into the board's draw-order cluster at the tier its board-local depth earns
     /// (<c>BoardVisual.AdoptBoardOrder</c> / <c>TierForDepth</c>, 2 cm per tier), and the initiative
     /// dock ships at <c>Defaults.InitiativeOffset_{Oak,Steel,Bronze}</c> z = -0.009 on all three
@@ -1677,6 +1703,13 @@ internal sealed class RemoteInitiativeTrack
     /// still below every converted panel genuinely in front of the board. NOTHING is moved, resized
     /// or re-posed: 1:1 is untouched and the fix survives the recess card geometry changing size,
     /// which it is doing in this same round.</para>
+    ///
+    /// <para>THAT IS ONLY HALF OF WHAT THE LOCAL BOARD DOES, and the missing half is what this seat's
+    /// first version mistook for the whole answer: the owner's popup ALSO rides ZTest-Always material
+    /// clones and is detached from its ancestor clippers every tick it is shown
+    /// (<c>WorldUI.Surfaces.TablePanelSurfaces.FlattenEnemyInfo</c> → <c>OnTopUiGraphics</c> +
+    /// <c>UnmaskedUiGraphics</c>, rounds 3 and 4 of the local report), and THAT is what beats the
+    /// board's raised rail there. See <see cref="LiftPopupDepth"/>.</para>
     ///
     /// <para><b>ONE WRITER.</b> The sweep is the permanent owner of this canvas's sortingOrder, like
     /// every other entry on the board. The seed written here is the same number the sweep will
@@ -1786,6 +1819,255 @@ internal sealed class RemoteInitiativeTrack
         }
     }
 
+    // ------------------------------------- the mirrored popup's DEPTH against the board --
+
+    /// <summary>Per-clone cap on <see cref="LiftPopupDepth"/>'s line — the same shape and the same
+    /// reason as <see cref="PopupOrderLogCap"/>: the running totals ride every line, so the cap
+    /// costs detail and never the fact. The rim measurement is taken ONLY while a line is still
+    /// owed, so the cap is also this pass's whole per-frame budget.</summary>
+    private const int PopupDepthLogCap = 4;
+
+    /// <summary>The ZTest-Always material clones of the SHOWN mirrored popups — the exact class the
+    /// owner's own popup rides (<c>WorldUI.Surfaces.TablePanelSurfaces</c> round 3).</summary>
+    private readonly WorldUI.OnTopUiGraphics _popupOnTop = new();
+
+    /// <summary>The ancestor-clipper detach of the SHOWN mirrored popups — the owner's own popup's
+    /// round 4, mirrored (<c>Mask</c>/<c>RectMask2D</c> survive <c>Neutralize</c> on a clone, so the
+    /// same clipper family is there).</summary>
+    private readonly WorldUI.UnmaskedUiGraphics _popupUnmask = new();
+
+    /// <summary>Clone the counters below belong to (<c>RemoteWidgetMirror.RebuildStamp</c>;
+    /// <c>int.MinValue</c> = never). A rebuild destroys every treated graphic, so the stamp change
+    /// is also when the two passes are told to forget them.</summary>
+    private int _popupDepthStamp = int.MinValue;
+    private int _popupDepthOnTop;    // graphics put on-top under the CURRENT clone
+    private int _popupDepthUnmasked; // graphics detached from ancestor clippers under it
+    private int _popupDepthLogged;   // popups that got a line under it
+
+    /// <summary>
+    /// MAKE THE MIRRORED ENEMY-INFO POPUP WIN THE DEPTH TEST AGAINST THE PEER BOARD'S OWN STONE,
+    /// with the SAME machinery the owner's board uses — never a second set of numbers.
+    ///
+    /// <para><b>THE DEFECT</b> (user report 2026-09-07 item 3, <c>gegenerinfo_meins.jpg</c> vs
+    /// <c>gegenerinfo_seins.jpg</c>, BOTH taken on the host's headset): "Überdeckung der Gegnerinfo
+    /// soll ÜBER dem board liegen." On his own board the popup's ornate top and title bar draw over
+    /// the board's stone top rail; on the peer's mirrored board the rail is drawn over them and the
+    /// panel starts abruptly at the rail's inner lip. One client, one frame, two boards.</para>
+    ///
+    /// <para><b>IT IS THE DEPTH TEST, AND <see cref="SeatPopupOverlay"/> CANNOT REACH IT.</b> The
+    /// board slab and its rail are OPAQUE, depth-writing geometry (<c>renderQueue</c> ≤ 2500);
+    /// <c>BoardVisual.AdoptBoardOrder</c> SKIPS exactly that population by design ("depth-writing
+    /// opaque/cutout: correct against depthless plates already"), so the rail holds no cluster slot
+    /// and the <c>sortingOrder</c> that seat writes is never compared with it. What decides is
+    /// <c>ZTest [unity_GUIZTestMode]</c>, which resolves to LEqual on a world-space canvas: the rail
+    /// wrote depth in the opaque pass and z-rejects every popup fragment behind it. The ModBuild-470
+    /// logs say the order half is already WORKING — <c>MIRRORED ENEMY INFO ORDER</c> reads popup 226
+    /// against the board's highest other canvas at 223, and the board's own cluster line reads
+    /// <c>3:1 (deep dock)</c> while a popup is up — and the headset still shows the cut. That pair
+    /// IS the proof that the remaining term is depth.</para>
+    ///
+    /// <para><b>WHY THE OWNER'S BOARD IS RIGHT, READ FROM THE CODE THAT MAKES IT RIGHT.</b>
+    /// <c>WorldUI.Surfaces.TablePanelSurfaces.FlattenEnemyInfo</c> runs every LateTick over the
+    /// LOCAL <c>InitiativeTrack.enemyCardsHolder</c>'s ACTIVE children and gives each one
+    /// <c>OnTopUiGraphics.Apply</c> (ZTest-Always clones of its own materials — round 3, whose whole
+    /// motivation was "the control board's raised wooden rail", the user's "unsichtbare Leiste") and
+    /// <c>UnmaskedUiGraphics.Apply</c> (round 4, ancestor <c>RectMask2D</c>/<c>Mask</c> detach). The
+    /// mirrored popup was reachable by NEITHER: it is a CLONE under the peer's board, not a child of
+    /// the local holder, and — the load-bearing half — the LOCAL source popup is switched OFF
+    /// whenever this client is not hovering that enemy, which is by construction the case when the
+    /// PEER's hover is what opened the mirrored one. <c>activeSelf</c> false, so
+    /// <c>FlattenEnemyInfo</c>'s loop skips it, so nothing is ever treated, so
+    /// <c>RemoteWidgetMirror.Pair.CopyMaterial</c> has no on-top material to share across the clone
+    /// boundary — and it would not have shared one anyway, because this branch is
+    /// <c>Pair.External</c> and the drive returns before a single material is copied. Three
+    /// independent reasons, one outcome: the peer's popup ran on stock LEqual materials in every
+    /// build that ever drew it. THAT is what this method changes, and it changes nothing else.</para>
+    ///
+    /// <para><b>SHARE THE MACHINERY, NOT THE LOOK.</b> The two passes are the same classes, called
+    /// with the same context string family, at the same lifetime granularity — not re-tuned copies.
+    /// Nothing is moved, resized, re-posed or re-queued: the popup's plane, scale, seat and
+    /// <c>renderQueue</c> are exactly what <see cref="SeatPopupOverlay"/> and
+    /// <see cref="LayoutMirroredPopup"/> left, so 1:1 is untouched. The rejected alternative is the
+    /// one the local rounds already rejected in writing: pushing the popup proud of the rail needs
+    /// an offset exceeding the rail's protrusion ALONG THE VIEW RAY, i.e. a guessed constant that
+    /// moves with board tilt and head position, bought with real parallax distortion.</para>
+    ///
+    /// <para><b>WHAT ZTest-Always COSTS, STATED AS THE LOCAL SIDE STATES IT.</b> While a mirrored
+    /// popup is SHOWN its pixels also draw over the viewer's hands and a held mini between eye and
+    /// board — the same scoped, deliberate exception to "perspective must hold" the owner's own
+    /// popup already ships under, and it ends the moment the peer's hover does (the popup root is
+    /// <c>SetActive(false)</c>, so a treated-but-hidden graphic draws nothing). The queue is
+    /// deliberately NOT changed, so the board HUD widgets (4000) and the ray visuals (5000) still
+    /// paint over it: the laser cannot vanish behind the popup it summoned.</para>
+    ///
+    /// <para><b>LIFETIME.</b> Treatment is per CLONE, not per hover: the passes are idempotent and a
+    /// re-show costs one hash probe per graphic, whereas restoring on every hide would churn a
+    /// material assignment (which dirties the graphic) at the peer's pointer rate. A clone REBUILD
+    /// destroys the treated graphics, so the stamp change hands both passes a <c>RestoreAll</c> —
+    /// which on destroyed components is a pure record prune, and on a surviving one is
+    /// reference-checked and therefore safe either way.</para>
+    /// </summary>
+    private void LiftPopupDepth(int actorId, GameObject popup)
+    {
+        try
+        {
+            if (_popupDepthStamp != _mirror.RebuildStamp)
+            {
+                _popupDepthStamp = _mirror.RebuildStamp;
+                // The graphics these two held belong to the PREVIOUS clone and are destroyed;
+                // reference-checked restore turns that into a record prune and clears the
+                // instance-id sets, so the fresh clone is judged from scratch.
+                _popupOnTop.RestoreAll("the mirrored track's clone was rebuilt");
+                _popupUnmask.RestoreAll("the mirrored track's clone was rebuilt");
+                _popupDepthOnTop = 0;
+                _popupDepthUnmasked = 0;
+                _popupDepthLogged = 0;
+            }
+
+            // UNMASK FIRST, THEN ON-TOP — the order FlattenEnemyInfo runs the same two passes in
+            // on the owner's board (TablePanelSurfaces: _enemyInfoUnmask.Apply then
+            // _enemyInfoOnTop.Apply). No claim is made here about whether the order is
+            // load-bearing; it is copied because the point of this method is to be the same
+            // machinery, and a difference nobody measured is not a difference worth introducing.
+            int unmasked = _popupUnmask.Apply(popup.transform, "mirrored enemy-info popup");
+            int onTop = _popupOnTop.Apply(popup.transform, "mirrored enemy-info popup");
+            _popupDepthUnmasked += unmasked;
+            _popupDepthOnTop += onTop;
+
+            if (_popupDepthLogged >= PopupDepthLogCap)
+                return;
+            _popupDepthLogged++;
+
+            float popupZ = _boardRoot.InverseTransformPoint(popup.transform.position).z;
+            float rimZ = MostProudOpaqueZ(out int opaque, out string rimName, out int rimQueue);
+            // +z points AWAY from the viewer (BoardVisual.TierForDepth), so "proud" is the SMALLER
+            // number and a positive standoff means the rim stands in FRONT of the popup plane.
+            float standoffMm = (popupZ - rimZ) * 1000f;
+
+            // HW-VERIFY: grep MIRRORED ENEMY INFO DEPTH — one line per enemy popup per clone
+            // rebuild, capped at PopupDepthLogCap with the running totals on every line. It names
+            // WHICH BOARD the panel belongs to, WHAT ORDER AND WHAT DEPTH TREATMENT it was given,
+            // and WHAT IT WAS COMPARED AGAINST (the board's own most-proud opaque surface), so
+            // "the panel landed behind the board" is a reading and not a screenshot. Diff it
+            // against the OWNER's own half, which is the pair 'ON-TOP UI (initiative hover popup)'
+            // / 'UNMASK (initiative hover popup)' from TablePanelSurfaces on the same machine.
+            // WORKING = a NON-ZERO on-top count on a popup's first shown frame (the owner's own
+            //   lines report 28..94 graphics for this same widget; ModBuild 470 read 0 here,
+            //   because the pass did not exist) AND a POSITIVE standoff in the same line, i.e. the
+            //   rim really was in front and really was the occluder.
+            // INERT = '0 graphic(s) on-top' with a positive standoff. The pass ran and found
+            //   nothing to treat: either the branch was empty at the moment it was shown (compare
+            //   the caption count on MIRRORED ENEMY INFO LAYOUT, which is measured on the same
+            //   object in the same frame) or every graphic was already judged under this clone,
+            //   which the running total on this line tells apart from the first case.
+            // STILL BEYOND THE INSTRUMENT = a non-zero on-top count, a positive standoff, and the
+            //   headset still shows the board cutting the popup. Then the occluder is NOT this
+            //   board's own opaque mesh — ZTest-Always cannot lose to depth at all — so look for a
+            //   surface this measurement never covered: depth-writing geometry that is NOT under
+            //   this board root (the scenario floor, a wall, another peer's board), or a clip that
+            //   survived (this line's unmask count 0 while the popup is visibly cut on a straight
+            //   RECT edge rather than along the rail's silhouette).
+            VRLog.Note("Net", $"MIRRORED ENEMY INFO DEPTH: actor {actorId}'s info popup on board "
+                            + $"'{_boardRoot.name}' — {onTop} graphic(s) swapped onto ZTest-Always "
+                            + $"clones and {unmasked} detached from ancestor clippers this pass "
+                            + $"({_popupDepthOnTop} / {_popupDepthUnmasked} under this clone). This "
+                            + "is the SAME machinery the owner's own popup rides every LateTick "
+                            + "(WorldUI.Surfaces.TablePanelSurfaces.FlattenEnemyInfo → "
+                            + "OnTopUiGraphics + UnmaskedUiGraphics), not a second set of numbers; "
+                            + "renderQueue, ZWrite, plane, scale and seat are untouched, so the "
+                            + "draw ORDER this popup holds is still exactly the one MIRRORED ENEMY "
+                            + "INFO ORDER wrote. COMPARED AGAINST, measured on this board this "
+                            + $"frame: the popup plane sits at board-local z {popupZ:F4} while the "
+                            + $"most PROUD opaque depth-writing surface of this board's {opaque} "
+                            + $"opaque renderer(s) — '{rimName}', renderQueue {rimQueue} — reaches "
+                            + $"board-local z {rimZ:F4}. +z points away from the viewer, so that "
+                            + $"stone stands {standoffMm:F1} mm in FRONT of the popup plane and its "
+                            + "ZTest LEqual was rejecting every fragment behind it. A POSITIVE "
+                            + "standoff with a ZERO on-top count is the ModBuild-470 picture "
+                            + "verbatim. Draw order could never have answered it: "
+                            + "BoardVisual.AdoptBoardOrder skips renderQueue <= 2500 by design, so "
+                            + "that stone holds no cluster slot and no sortingOrder of ours was "
+                            + $"ever compared with it. {_popupDepthLogged} popup(s) reported under "
+                            + "this clone"
+                            + (_popupDepthLogged >= PopupDepthLogCap
+                                ? " (line cap reached — the totals still count every one)"
+                                : string.Empty) + ".");
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Net", $"Mirrored enemy-info popup depth lift threw for actor {actorId} "
+                            + $"({e.GetType().Name}: {e.Message}) — the popup keeps stock LEqual "
+                            + "materials and its authored clipping, which is what every build "
+                            + "before this one drew: the board's own raised stone cuts it.");
+        }
+    }
+
+    /// <summary>
+    /// The most PROUD board-local z reached by any OPAQUE, depth-writing surface of this peer's
+    /// board — the number the popup plane has to be compared against, because that population is
+    /// the one <c>BoardVisual.AdoptBoardOrder</c> deliberately leaves out of the draw-order cluster
+    /// and therefore the one no <c>sortingOrder</c> can answer.
+    ///
+    /// <para>Measured through each renderer's own MESH bounds rather than <c>Renderer.bounds</c>:
+    /// the latter is a WORLD-axis-aligned box, which on a board tilted in the hand inflates the
+    /// proudness by the tilt and would print a rim that is not there — "measure the picture, not
+    /// the bookkeeping". Costs one 8-corner transform per opaque renderer, and runs only while
+    /// <see cref="LiftPopupDepth"/> still owes a line (at most <see cref="PopupDepthLogCap"/> times
+    /// per clone), never per frame.</para>
+    ///
+    /// <para>STATED HONESTLY: this is a BOX, not a silhouette, so for a one-mesh board slab it
+    /// reports the front of the slab's bounding box. On these boards that IS the rim — the card
+    /// recesses are cut INTO the slab, so the rim is its most proud feature and the box front
+    /// coincides with it — but on a board whose most proud opaque feature were a small boss the
+    /// number would be that boss's, printed under the slab's name. The reading it is used for is a
+    /// SIGN (is any opaque surface in front of the popup plane at all), and the sign is unaffected;
+    /// treat the millimetres as an upper bound on the protrusion, not a caliper measurement.</para>
+    /// </summary>
+    private float MostProudOpaqueZ(out int opaque, out string name, out int queue)
+    {
+        opaque = 0;
+        name = "none";
+        queue = 0;
+        float best = 0f;
+        foreach (MeshRenderer r in _boardRoot.GetComponentsInChildren<MeshRenderer>(includeInactive: false))
+        {
+            if (r == null)
+                continue;
+            Material? m = r.sharedMaterial;
+            if (m == null || m.renderQueue > 2500)
+                continue; // transparent: the cluster's sortingOrder already answers it
+            var filter = r.GetComponent<MeshFilter>();
+            Mesh? mesh = filter != null ? filter.sharedMesh : null;
+            if (mesh == null)
+                continue;
+            opaque++;
+            Bounds b = mesh.bounds;
+            Vector3 c = b.center;
+            Vector3 e = b.extents;
+            for (int i = 0; i < 8; i++)
+            {
+                var corner = new Vector3(
+                    c.x + ((i & 1) == 0 ? -e.x : e.x),
+                    c.y + ((i & 2) == 0 ? -e.y : e.y),
+                    c.z + ((i & 4) == 0 ? -e.z : e.z));
+                float z = _boardRoot.InverseTransformPoint(r.transform.TransformPoint(corner)).z;
+                if (opaque == 1 && i == 0)
+                {
+                    best = z;
+                    name = r.gameObject.name;
+                    queue = m.renderQueue;
+                }
+                else if (z < best)
+                {
+                    best = z;
+                    name = r.gameObject.name;
+                    queue = m.renderQueue;
+                }
+            }
+        }
+        return best;
+    }
+
     /// <summary>
     /// MAKE THE MIRRORED POPUP RESOLVE ITS OWN LAYOUT, the first frame it is really on screen.
     ///
@@ -1811,7 +2093,7 @@ internal sealed class RemoteInitiativeTrack
     ///
     /// <para>Returns whether the layout was actually resolved.</para>
     /// </summary>
-    private bool LayoutMirroredPopup(int actorId, GameObject popup)
+    private bool LayoutMirroredPopup(int actorId, GameObject popup, RectTransform? source)
     {
         var rect = popup.transform as RectTransform;
         if (rect == null)
@@ -1876,6 +2158,15 @@ internal sealed class RemoteInitiativeTrack
             return false;
         }
 
+        // THE SEAT, in the ONE frame both sides can be compared in: parent-local CENTRE, never
+        // anchoredPosition. anchoredPosition runs to each rect's OWN pivot, so two rects with
+        // different pivots read differently while sitting in the same place - a recorded finding
+        // here. The clone's parent is the cloned enemyCardsHolder and the source's is the live one;
+        // Pair.Apply drives that holder's rect from the source every tick (this mirror is
+        // LayoutOwner.Source), so the two parents ARE the same frame in uGUI units and the diff
+        // below is a real displacement rather than two numbers in two spaces.
+        string seat = SeatDiff(rect, source);
+
         _popupLayoutDone++;
         if (collapsedLabels > 0)
             _popupLayoutCollapsed++;
@@ -1891,7 +2182,9 @@ internal sealed class RemoteInitiativeTrack
         // column of letters means this rebuild did not reach the popup the eye sees — look at
         // whether ApplyHoverOverrides is showing a clone from an OLDER RebuildStamp than the one
         // measured here, or whether the card on screen is the LOCAL EnemyRevealSurface rather than
-        // this mirror, NOT at the caption arithmetic. "0 stock layout driver(s) kept" WITH a
+        // this mirror, NOT at the caption arithmetic. The SEAT field on the same line answers the
+        // OTHER half of the 2026-09-07 item-3 report ("hängt nach rechts") in the same frame and
+        // with its own WORKING/OPEN/BEYOND reading — see SeatDiff. "0 stock layout driver(s) kept" WITH a
         // collapse means the premise is wrong instead: these rects are not layout-driven, so no
         // layout engine can resolve them and the remedy is RemoteDialogOptions.LayoutCaption's —
         // WRITE the caption box from measured numbers. "0 caption(s)" means the branch was empty at
@@ -1905,6 +2198,7 @@ internal sealed class RemoteInitiativeTrack
                           (_popupLayoutLogged >= PopupLayoutLogCap
                               ? " (line cap reached — the totals still count every one)"
                               : string.Empty) + ". " +
+                          $"SEAT: {seat} " +
                           "The SOURCE popup is this client's own MonsterBaseUI and is switched OFF " +
                           "whenever this client is not hovering that enemy, so no layout ever runs " +
                           "on it and the drive skips its whole branch; the clone's own uGUI layout " +
@@ -1912,6 +2206,81 @@ internal sealed class RemoteInitiativeTrack
                           $"{PopupCollapseGlyphsPerLine:F0} glyph(s) per line or fewer is the " +
                           "reported defect (one letter per line), never an ordinary wrap.");
         return true;
+    }
+
+    /// <summary>
+    /// WHERE THE MIRRORED POPUP SITS, AND WHERE THE OWNER'S SITS — the second half of the
+    /// 2026-09-07 item-3 report ("auf dem gespiegelten Board hängt sie nach rechts"), written as a
+    /// reading instead of left to the next screenshot.
+    ///
+    /// <para><b>WHAT IS ALREADY SETTLED, from the game's own source, and therefore NOT what this
+    /// measures.</b> The popup does NOT follow the hovered entry and never did:
+    /// <c>InitiativeTrackEnemyBehaviour.Init</c> instantiates it under <c>monsterBaseHolder</c> and
+    /// immediately writes <c>anchoredPosition = Vector2.zero</c>
+    /// (decompiled GH.Runtime/InitiativeTrackEnemyBehaviour.cs:77-78), and <c>SetCardHolder</c>
+    /// re-parents it with <c>worldPositionStays: false</c>, which keeps that local pose (:188-195).
+    /// EVERY enemy's popup therefore sits at the SAME holder-local origin, whichever entry is
+    /// hovered. So the offset the user sees cannot be a per-entry anchor computed in the wrong
+    /// frame — there is no per-entry anchor to compute — and it is NOT the occlusion defect
+    /// <see cref="LiftPopupDepth"/> answers, which is a depth test and moves nothing.</para>
+    ///
+    /// <para><b>WHAT IS THEREFORE STILL OPEN, and what this line decides.</b> The clone's popup rect
+    /// is the one node the drive never writes (<c>RemoteWidgetMirror.Pair.External</c> returns
+    /// before a single rect is copied), so its size and position come from the clone's OWN surviving
+    /// layout groups the moment <see cref="LayoutMirroredPopup"/> forces a rebuild — a rebuild the
+    /// SOURCE, being switched off, has never run. If that rebuild resolves a different size or a
+    /// different position than the owner's popup holds, the mirrored panel is displaced, and by how
+    /// much is exactly the number below. Both centres are taken in PARENT-LOCAL terms and never
+    /// from <c>anchoredPosition</c>, which runs to each rect's own pivot.</para>
+    ///
+    /// <para>WORKING = <c>d=(0,0)</c> ± a few uGUI px with equal sizes: the clone resolved the seat
+    /// the owner holds and the remaining on-screen difference is board tilt, i.e. 1:1.
+    /// STILL OPEN = a non-zero <c>d</c>. Its SIGN and MAGNITUDE name the mechanism: a pure size
+    /// difference with <c>d</c> ≈ half of it is a PIVOT-driven displacement (the ContentSizeFitter
+    /// resolved a different box), while equal sizes with a non-zero <c>d</c> is a position the
+    /// layout group placed differently. BEYOND THIS INSTRUMENT = <c>source n/a</c>, which means this
+    /// client never built its own popup for that enemy, so there is no local half to diff against
+    /// and the next reading has to come from the peer's log for the same actor.</para>
+    /// </summary>
+    private static string SeatDiff(RectTransform clone, RectTransform? source)
+    {
+        try
+        {
+            Vector2 cloneCentre = ParentLocalCentre(clone);
+            Vector2 cloneSize = clone.rect.size;
+            if (source == null)
+            {
+                return $"clone centre ({cloneCentre.x:F1}, {cloneCentre.y:F1}) size "
+                     + $"{cloneSize.x:F0}x{cloneSize.y:F0} holder-local px, source n/a (this client "
+                     + "never built its own popup for this enemy — no local half to diff against).";
+            }
+            Vector2 srcCentre = ParentLocalCentre(source);
+            Vector2 srcSize = source.rect.size;
+            Vector2 d = cloneCentre - srcCentre;
+            return $"clone centre ({cloneCentre.x:F1}, {cloneCentre.y:F1}) size "
+                 + $"{cloneSize.x:F0}x{cloneSize.y:F0} against the OWNER-side source at "
+                 + $"({srcCentre.x:F1}, {srcCentre.y:F1}) size {srcSize.x:F0}x{srcSize.y:F0}, "
+                 + $"d=({d.x:F1}, {d.y:F1}) holder-local px. Both are PARENT-LOCAL CENTRES, not "
+                 + "anchoredPosition (which runs to each rect's own pivot). A non-zero d is the "
+                 + "'hängt nach rechts' half of the report and is NOT what the depth lift touches; "
+                 + "d≈0 with equal sizes means the clone sits where the owner's popup sits and the "
+                 + "on-screen difference is board tilt.";
+        }
+        catch (System.Exception e)
+        {
+            return $"unavailable ({e.GetType().Name}).";
+        }
+    }
+
+    /// <summary>A rect's CENTRE expressed in its own parent's local space — the only frame in which
+    /// two rects with different pivots are comparable (recorded finding: "anchoredPosition is not a
+    /// frame"). Falls back to the rect's local position when it has no parent.</summary>
+    private static Vector2 ParentLocalCentre(RectTransform rect)
+    {
+        Transform? parent = rect.parent;
+        Vector3 world = rect.TransformPoint(rect.rect.center);
+        Vector3 local = parent != null ? parent.InverseTransformPoint(world) : world;
+        return new Vector2(local.x, local.y);
     }
 
     /// <summary>Content-cadence refresh: mirror the real widget when it exists, else repaint the

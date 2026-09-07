@@ -308,9 +308,21 @@ internal static class BoardVisual
     /// <c>Defaults.InitiativeOffset_*</c> z = -0.009 on all three boards, i.e. tier 0 — TIED with
     /// the board face, the recess card faces and their art — so the tie fell to Unity's distance
     /// tie-break, the recess cards' canvases measured nearer than the track's canvas above the
-    /// board's top edge, and they painted over the popup. That is what the screenshot shows: the
-    /// popup draws OVER the opaque stone (an opaque queue draws before any transparent one) and
-    /// UNDER two cards that are recessed BEHIND that stone, which no depth test can produce.
+    /// board's top edge, and they painted over the popup. That is the CARD half of the reported
+    /// picture, and this tier answers exactly that half.
+    ///
+    /// <para>THE SENTENCE THAT USED TO END THIS PARAGRAPH WAS FALSE, and is corrected here rather
+    /// than deleted because it cost a round: it read "the popup draws OVER the opaque stone (an
+    /// opaque queue draws before any transparent one) and UNDER two cards that are recessed BEHIND
+    /// that stone, which no depth test can produce". The popup never drew over the stone. In
+    /// <c>gegeninfo_mouseoer_tiefenproblem.jpg</c> its ornate top and title bar are already cut off
+    /// along the rail's inner lip, and <c>gegenerinfo_seins.jpg</c> (ModBuild 470, user report
+    /// 2026-09-07 item 3) shows the same cut with the cards no longer in the way. Drawing FIRST is
+    /// not losing: the opaque pass WRITES DEPTH, and a world-space canvas draws ZTest LEqual, so the
+    /// rail z-rejects the popup at any sortingOrder. That is why <c>AdoptBoardOrder</c> skipping
+    /// renderQueue &lt;= 2500 below is not a gap this tier could ever close — the answer to it is
+    /// <c>Net.RemoteInitiativeTrack.LiftPopupDepth</c>, which gives the mirrored popup the same
+    /// ZTest-Always materials the OWNER's popup already rides.</para>
     ///
     /// <para>THE LOCAL BOARD'S OWN TERM, MIRRORED. On the local board the initiative track is a
     /// board-DOCKED converted panel, and <c>CanvasConversion.9.Furniture</c> pins the whole

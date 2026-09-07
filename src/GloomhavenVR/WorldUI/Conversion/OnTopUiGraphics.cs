@@ -77,8 +77,19 @@ namespace GloomhavenVR.WorldUI;
 /// Image/RawImage materials BY REFERENCE onto peer-board clones every drive tick, so destroying a
 /// clone on restore could leave a mirror rendering a destroyed material for a frame. A cached,
 /// immortal clone makes that window impossible; the mirror simply re-copies the restored original
-/// on its next drive. (While treated, the mirrored copy of the subtree is on-top too — which is
-/// the RIGHT picture: the mirrored popup faces the same raised furniture on the remote board.)
+/// on its next drive.
+///
+/// <para>THIS PARAGRAPH USED TO END "(While treated, the mirrored copy of the subtree is on-top too
+/// — which is the RIGHT picture: the mirrored popup faces the same raised furniture on the remote
+/// board.)" THAT WAS FALSE FOR THE ONE SUBTREE IT NAMED, and it hid the defect for two rounds (user
+/// report 2026-09-07 item 3). It is false three times over: the mirrored enemy-info popup is shown
+/// from the PEER's hover while THIS client's source popup is switched OFF, so
+/// <c>TablePanelSurfaces.FlattenEnemyInfo</c>'s <c>activeSelf</c> loop never treats the source and
+/// there is no on-top material to share; the popup branch is <c>RemoteWidgetMirror.Pair.External</c>,
+/// so the drive returns before <c>CopyMaterial</c> runs on any node inside it; and TMP labels — most
+/// of a popup's pixels — are deliberately outside <c>CopyMaterial</c>'s Image/RawImage scope anyway.
+/// The mirrored popup therefore gets its own explicit call, from
+/// <c>Net.RemoteInitiativeTrack.LiftPopupDepth</c>, and nothing about it is inherited.</para>
 ///
 /// ─── RESTORE DISCIPLINE ────────────────────────────────────────────────────────────────────────
 /// Every swap is recorded (graphic → its exact original reference) and handed back by
