@@ -448,7 +448,123 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 474;
+    public const ushort ModBuild = 475;
+    // Build 475: TEN ITEMS, SEVEN LANES, AND THE DEADLOCK WAS NOT A DEADLOCK — the mod re-opened a
+    //   step he had already answered. Two lanes contradicted each other on a count the fix rested
+    //   on and the integrator recounted it; two briefings of mine were falsified, one of them by an
+    //   unanchored grep of my own.
+    //   * THE DEADLOCK: THE MOD CLICKED "PERFORM LONG REST" 1.70 s AFTER HE COMMITTED IT (item 1).
+    //     It was a LONG REST, not a damage burn — a long rest requires losing a card, which is why
+    //     the banner and his account both say "verbrennen". `PumpLongRestTurn` gated on
+    //     `Mode(hand) == LoseCard`, i.e. `CardsHandUI.currentMode`, a latch THE GAME CLEARS for the
+    //     ~2 s it spends animating the answer away. In that window `LongRest && !HasLongRested`
+    //     still hold too, so every gate the pump owns read "rest pending, no burn step open" —
+    //     indistinguishable from a rest never answered. Chain, from the host log:
+    //     `PICK FLOW END #1 t=2157.606` → `LONG REST FLOW: SELECTED` → `Long rest: auto-advanced` →
+    //     `BURN FLOW ARM #2 t=2159.306` → `BURN HOLD: waited 2.01s`. No END edge could close it.
+    //     Had he laid a card into it he would have lost TWO cards for one rest.
+    //     AND HIS FIRST SYMPTOM WAS A SEPARATE, OLDER DEFECT. "Das Overlay hat nicht geblinkt":
+    //     `BoardStillOwnsACardsExit` read `_flyingToPile.Count` RAW, and that set records that a
+    //     flight STARTED, never that one is running. Two stale entries from a discard cluster
+    //     latched the wanted-slot overlays off from t≈2102 s — SEVEN SECONDS BEFORE ARM #1 — and
+    //     for the rest of the session. `OVERLAY HELD BY EXIT` read `held=55.51/57.52/57.92 s`
+    //     against a 3.40 s ceiling its own note called unreachable.
+    //     NO WATCHDOG STANDS A LIVE FLOW DOWN: hiding the banner would have concealed a request the
+    //     game really had open, which is the degraded surface the standing ruling forbids. The pass
+    //     condition is now an identity — every `BURN FLOW ARM` has a `PICK FLOW END`.
+    //   * REACHING INTO A TEAMMATE'S OPEN FAN HANDED OUT A CARD, 19 TIMES IN ONE SESSION (item 2).
+    //     12 on the host off player 2's fan, 7 on the peer off player 1's, every one gated open and
+    //     every one released. I had told him this was structurally impossible; it was impossible for
+    //     a REAL card and I stopped there. Every slab carried its own trigger volume and
+    //     `CardBorrow.Tick` swept both empty hands every tick with hover haptics and a trigger
+    //     claim. `Cards/CardBorrow.cs` is DELETED — 924 lines, and `RemoteHandFan` was its only
+    //     consumer. The refusal is structural: the slabs now carry NO COLLIDER anywhere in their
+    //     subtree, and the election works over colliders. THIS OVERTURNS THE 2026-08-15 RULING that
+    //     built the borrow, and the reason is recorded: back then switching to a teammate's
+    //     character on one's OWN board did not show a handleable fan, so the borrow was the only way
+    //     to read a teammate's card. ModBuild 474 made that route work, so it is now redundant AND
+    //     unwanted. The own-board route is untouched — 58 `HAND FAN OWNER` lines, zero reading
+    //     "does NOT control" beside "Picture".
+    //   * ONLY THE HOST COULD OPERATE A WINDOW EVERYONE IS MADE TO WATCH (item 3). FOUR independent
+    //     `FFSNetwork.IsHost` gates — the +/− buttons, the confirm, every send, the hotkeys — while
+    //     `UIDistributeRewardManager.Process` runs an all-player ready-up first. `DISTRIBUTE POPUP
+    //     FLOATED` reads exactly 1 on each client, same window name. AND THE PRECEDENT HE CITED IS
+    //     OUR OWN FIX: the encounter window is host-gated in vanilla too and works only because
+    //     `Net/EncounterChoice.cs` granted this same request on 2026-09-05 — so that file was copied
+    //     term for term rather than a second mechanism invented. A client writes nothing; it sends a
+    //     REQUEST and the host presses its own public widget, so the game's own `interactable` stays
+    //     the validator and there is no second copy of the predicate. FLAT COMPATIBILITY IS
+    //     STRUCTURAL, not gated: the request carries a player id no real player owns, so an unmodded
+    //     host executes nothing. Refused rather than faked: the badge/pose half needs a
+    //     `SharedWindowKind`, and this popup has no `UIWindow` and a `SurfaceGrabBar` rather than a
+    //     `GrabbableModal` — a kind byte would have had no publisher and no applier and would have
+    //     read as shipped. The scenario select popup is named as the same press with a different
+    //     commit (its confirm is the board's Ready button, separately host-gated) and left.
+    //   * THE INITIATIVE BAND WAS BLANK IN EVERY FLOW THAT IS NOT A CARD PICK (item 4). The repair
+    //     was keyed on a CARD HAND and failed on line one for anything the game does not present
+    //     through `CardsHandManager`. His controlled comparison could not be run — neither flow's
+    //     token appears in this session — so it was run against the decompiled handlers, where the
+    //     two DIFFER: `SelectLoseCards` shows the hand with NO ownership gate (so it worked), while
+    //     `SelectRefreshOrConsumeItems` presents its picker behind `!IsOnline || IsUnderMyControl`
+    //     and has no card hand on any client. THE OBVIOUS FIX WOULD HAVE MISSED THE REPORTER: every
+    //     member of the mod's deciding-hand chain ends in `IsUnderMyControl`, and the item pick is in
+    //     the PEER's log only — the host who filed the report was the WAITING client, which is
+    //     exactly who "zeigen wer dran ist" is for. Trigger is now the game's own wait state, the one
+    //     term both handlers set unconditionally on every client.
+    //   * THE BATTLE GOAL SAT ON THE SAME ANCHOR AS THE SCENARIO RULES (item 5), which is ModBuild
+    //     473's own regression. The column is THREE seats deep and only the FIRST relation was ever
+    //     expressed. Measured: objectives 86.2 mm, rules 25.0 mm seated 37.0 mm under them, goal top
+    //     8.2 mm under them ⇒ 28.8 mm of overlap on a 25.0 mm section. The bound 473 wrote down for
+    //     itself is NOT what failed (it named objectives > 130 mm; these are 86.2).
+    //   * THE PEER'S HAND FAN WAS BOARD CONTENT (item 6). `FollowRule.WhileOverBoard` — item 11a's
+    //     own rule — admitted the fan and its placard whenever they were parked over the board: "6
+    //     follower root(s) fade … 0 registered root(s) HELD OUT", four of the six unconditional. New
+    //     `FollowRule.HandOwned`, refused at the census and COUNTED, so "does not fade" and "was
+    //     never registered" stay distinguishable. A card a peer PINCHES over their board still fades
+    //     — that is a different accepted ruling and is now reported separately rather than reversed
+    //     on inference.
+    //   * THE LOCAL ACTION PULSE WAS RESTARTED EVERY REBUILD (item 7). `CardActionHighlight.ShowHover`
+    //     is NOT idempotent — it cancels the running chain and re-seeds the alpha. Authored cycle
+    //     1.0 s; delivered period was the REBUILD INTERVAL whenever that fell under a 0.5 s leg, so
+    //     the blink ran fast exactly while the board was busy. A term that varies DURING a session,
+    //     which "plötzlich viel höher" requires and a wrong constant cannot supply. The MIRROR has
+    //     carried the gate since it was written and its comment names the symptom verbatim; the local
+    //     path never had it. Both now assert through `ActionHighlightDriver`.
+    //   * THE MIRRORED BURN WAITED ON A PROXY (item 8). Six producers, three completion signals. The
+    //     mirror held on the owner's RECESS OCCUPANCY — a proxy for his artwork, not the artwork.
+    //     All three burns of the session, clocked from the same model event: ShieldBash +0.33 s,
+    //     SpareDagger −0.48 s, FeedbackLoop −1.45 s. Three signs, three magnitudes ⇒ a design fault.
+    //     SpareDagger is his complaint verbatim: the release clause read "their recess never drew
+    //     this card at all", so it flew at 0.02 s and never lay still. Now released on
+    //     `BurnArtwork.Released` on both sides. AND THE TURN-CLEAR SWEEP HAD NO WAIT AT ALL: it sits
+    //     FIRST in the park sweep's chain, so a played round card whose own action is Lost was won by
+    //     the un-waited producer and had its hold dropped so the waiting one could never re-claim it
+    //     — three rounds of per-flow patches never reached it because it is the DISCARD path. The
+    //     hand-switch flush's bypass is CORRECT and now says so; its 1:1 cost was closed from the
+    //     mirror end instead.
+    //   * A PILE STAMP THE GAME WRITES ON ONE TRANSITION IN FOUR (item 9). `CurrentCardPile` is
+    //     assigned by `MoveAbilityCardToPile` and friends; the two moves that matter — selecting a
+    //     card for the round, and a SHORT REST returning one to the hand — go through
+    //     `MoveAbilityCard`, which edits the lists and never touches the field. So `ECardPile.Round`
+    //     is declared and NEVER ASSIGNED, its switch branch unreachable, and a rested card is laid
+    //     into a recess still stamped `Discarded`. Both views agreed because both read the same stale
+    //     value. The same switch was eating the mid-turn grey-out in the OTHER direction too.
+    //   * THE BURN NEVER PAINTED ON A CARD BURNT WHILE THE 2D UI WAS ELSEWHERE (item 10).
+    //     `CardEffects.BurnCardTimeline` opens with `if (!gameObject.activeInHierarchy && !playOnDisabled)
+    //     { yield break; }` and `ToggleEffect` adds to `toggledEffects` BEFORE starting it — so such a
+    //     card is LATCHED BUT NEVER PAINTED and nothing repaints it. The mirror walks the model list;
+    //     the local fan had NO POPULATION AT ALL — its setter had zero call sites.
+    //   * THE INTEGRATOR'S OWN ERRORS, both caught by lanes. I gave `BURN CARD` as 15 host / 19 peer;
+    //     ONE and TWO are real, the rest quote the token in their own prose — three burns in the
+    //     whole session. And I told a lane to rebase on `origin/dev` for work that was only in my
+    //     local tree, so it rebased without it and said so.
+    //   * A COUNT TWO LANES DISAGREED ON, RECOUNTED. "Eleven of the fourteen `_factory.Park` call
+    //     sites do not drop the membership" was written into two files; the real split is EIGHT drop
+    //     and SIX do not, one of the six unreachable. The paragraph's conclusion is unaffected and the
+    //     recount is recorded rather than quietly edited.
+    // Wire: one side-request constant, no extension record. Worst case stays 1747, MaxSize 2100,
+    //   45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 474: A FOREIGN CHARACTER'S FAN IS SHOWN AND HANDLEABLE, AND THE THING THAT MUST NEVER
     //   HAPPEN WAS ALREADY IMPOSSIBLE. One user ruling, one term, and a correction to what ModBuild
     //   473 shipped — 473 fixed the ownership gate and thereby made a FOREIGN hand a PICTURE, which
