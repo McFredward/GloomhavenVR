@@ -139,7 +139,12 @@ with firelight, ambient sound and rare events.
   <img src="docs/img/env-forest.jpg" width="350" alt="The night forest">
 </p>
 
-**Mixed reality** drops the sky, so your streaming app can put the table in your real room.
+**Five choices, one dial.** The same table and the same scenario, in every room the mod can put
+around it — including no room at all, and the green key that hands the table to your streaming app.
+
+<p align="center">
+  <img src="docs/img/env-styles-en.png" width="720" alt="The five environment options: default sky, cellar, night forest, off (black) and mixed reality">
+</p>
 
 ### The rooms react to the elements
 

@@ -141,8 +141,13 @@ Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen.
   <img src="docs/img/env-forest.jpg" width="350" alt="Der Nachtwald">
 </p>
 
-**Mixed Reality** blendet den Himmel aus, damit deine Streaming-App den Tisch in dein echtes Zimmer
-stellen kann.
+**Fünf Möglichkeiten, ein Regler.** Derselbe Tisch und dasselbe Szenario in jedem Raum, den der Mod
+darum herum stellen kann — auch ganz ohne Raum, und mit dem Greenscreen, der den Tisch an deine
+Streaming-App übergibt.
+
+<p align="center">
+  <img src="docs/img/env-styles-de.png" width="720" alt="Die fünf Umgebungen: Standard-Himmel, Keller, Nachtwald, Aus (schwarz) und Mixed Reality">
+</p>
 
 ### Die Räume reagieren auf die Elemente
 
