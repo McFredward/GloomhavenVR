@@ -1154,13 +1154,31 @@ internal sealed partial class CardsDriver
             return;
         _loggedFanMode = (fanMode, why);
 
+        // WHOSE HAND, BESIDE WHAT THE FAN PERMITS. Report item 10 is a question about the pair, not
+        // about either half: the defect was an INTERACTIVE fan over a character this client does not
+        // control, and neither the mode alone nor the owner alone names it. Printed once per change,
+        // on the same line, so one grep settles it.
+        // HW-VERIFY: report item 10 (2026-09-07). Grep token: HAND FAN OWNER.
+        VRLog.Note("Cards", $"HAND FAN OWNER: '{CardsGameApi.ActorLabel(hand.PlayerActor)}' — this "
+            + $"client {(CardsGameApi.IsLocalHand(hand) ? "CONTROLS" : "does NOT control")} it, and "
+            + $"the fan below is {fanMode}. THE ONLY COMBINATION THAT IS A DEFECT IS "
+            + "'does NOT control' beside 'Interactive' — that is report item 10 (a teammate's "
+            + "character playable from this board) and it must never appear. 'does NOT control' "
+            + "beside 'Inspect' is CORRECT and is the 2026-09-07 ruling: a focused teammate's card "
+            + "may be lifted and read, never placed. Note this line describes THIS board's own fan "
+            + "only; the fan drawn at a PEER'S AVATAR is Net.Remote.RemoteHandFan, a different class "
+            + "that holds no VRCard and no AbilityCardUI at all, so it cannot yield a real card to "
+            + "anybody and never appears here.");
+
         switch (fanMode)
         {
             case CardFan.FanMode.Interactive:
-                VRLog.Info("Cards", "Hand fan INTERACTIVE — grab, laser-pluck and slot placement are all live.");
+                // HW-VERIFY: report item 10 (2026-09-07). Grep token: Hand fan INTERACTIVE.
+                VRLog.Note("Cards", "Hand fan INTERACTIVE — grab, laser-pluck and slot placement are all live.");
                 break;
             case CardFan.FanMode.Inspect:
-                VRLog.Info("Cards", "Hand fan INSPECT-ONLY — the GRAB is ALLOWED (proximity, laser pluck, " +
+                // HW-VERIFY: report item 10 (2026-09-07). Grep token: Hand fan INSPECT-ONLY.
+                VRLog.Note("Cards", "Hand fan INSPECT-ONLY — the GRAB is ALLOWED (proximity, laser pluck, " +
                                     "hand-to-hand transfer: pick a card up and read it, in any phase). The " +
                                     $"PLACEMENT is refused by: {why}. A release returns the card HOME to the fan " +
                                     "with no game call whatsoever (VRCard.InspectOnly → CardsDriver." +
@@ -1168,11 +1186,17 @@ internal sealed partial class CardsDriver
                                     "resolved). Poke-select stays off, as in every hand-fan state.");
                 break;
             default:
-                VRLog.Info("Cards", "Hand fan PICTURE — neither grabbable nor laser-clickable. This is the " +
-                                    "FOREIGN-character case and the only one left: the hand belongs to another " +
-                                    "player (CardsGameApi.IsLocalHand false), so the read-only focus guarantee " +
-                                    "stays absolute — no VR input can reach a game call for a character we are " +
-                                    $"only watching. Placement gate: {why}.");
+                // HW-VERIFY: report item 10 (2026-09-07). Grep token: Hand fan PICTURE.
+                VRLog.Note("Cards", "Hand fan PICTURE — neither grabbable nor laser-clickable. This is now the " +
+                                    "COVERED case and the only one left: the fronts of this hand may not be " +
+                                    "drawn at all (RevealGate.ShowRoundCardFronts false — the secret selection " +
+                                    "window, for a character this client does not control), so there is nothing " +
+                                    "to lift and the lift is refused. A FOREIGN hand OUTSIDE that window is no " +
+                                    "longer a PICTURE: it reports INSPECT, by the user's 2026-09-07 ruling that " +
+                                    "a focused teammate's card may be taken into the hand to be read. The " +
+                                    "read-only guarantee is unchanged and still structural — it rests on " +
+                                    "VRCard.InspectOnly, whose release branch runs BEFORE CurrentHand() and " +
+                                    $"writes no game state. Placement gate: {why}.");
                 break;
         }
     }

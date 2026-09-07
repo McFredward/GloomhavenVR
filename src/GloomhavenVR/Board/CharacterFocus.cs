@@ -1246,14 +1246,36 @@ internal static class CharacterFocus
     /// anzuschauen, auch wenn man die Karte nirgendwo ablegen kann. Das soll also niemals blockiert
     /// sein — aktuell kann man nur Karten in die Hand nehmen wenn man sie auch ablegen kann."
     ///
-    /// <para>THE ENTITLEMENT RULE, in one line: <b>inspection is allowed for every character the
-    /// LOCAL client controls, in every phase, and refused for a FOREIGN character.</b> That is
-    /// exactly <c>CardsGameApi.IsLocalHand</c> — <c>!FFSNetwork.IsOnline ||
-    /// hand.PlayerActor.IsUnderMyControl</c>, the game's own ownership test and the precise inverse
-    /// of <see cref="IsForeign"/> — so offline (where every merc is ours) the answer is always yes
-    /// and the feature is unconditional.</para>
+    /// <para>THE ENTITLEMENT RULE, in one line: <b>inspection is allowed wherever the card's FRONT
+    /// may be shown at all</b> — every character the local client controls, in every phase, AND a
+    /// foreign character outside the secret selection window. Offline (where every merc is ours)
+    /// the answer is always yes and the feature is unconditional.</para>
     ///
-    /// <para>WHY NOT ALSO FOREIGN, given that a foreign HAND is not secret (the class doc's "WHAT IS
+    /// <para><b>THE FOREIGN HALF IS A 2026-09-07 USER RULING AND IT REVERSES THE PARAGRAPH BELOW.</b>
+    /// Asked to choose, he ruled verbatim: <i>"Nur ansehen, aber auch in die Hand nehmen koennen um
+    /// eine Karte besser anzuschauen — so war es bisher auch schon implementiert und abgenommen."</i>
+    /// He had first written <i>"Es soll generell niemals moeglich sein Karten von einem fremden
+    /// Faecher zu nehmen"</i> and then drew the line himself: the thing that must never happen is
+    /// reaching into the fan hanging at ANOTHER PLAYER'S AVATAR and pulling a real card out of it -
+    /// which <c>Net.Remote.RemoteHandFan</c> makes structurally impossible, since it never calls
+    /// <c>VRCardFactory</c>, <c>AttachGameCard</c> or <c>CardsDriver.HookCard</c> and can therefore
+    /// only ever hand out a <c>Cards.CardBorrow</c> copy with no game widget behind it. Switching
+    /// one's OWN focus to a foreign character is a different surface and a different question, and
+    /// there he wants the fan shown AND handleable.</para>
+    ///
+    /// <para><b>THE GATE IS THE FRONT, NOT THE OWNER, AND THAT IS WHY IT IS SAFE TO WIDEN.</b> The
+    /// term below is <c>ShowRoundCardFronts</c> — the same predicate the fan's own faces are drawn
+    /// under — so a card that may not be READ may not be LIFTED either, and the standing ruling
+    /// ("Kurze Rast = Auswahlphase = verdeckt") keeps its teeth without this file restating it.
+    /// It is deliberately NOT a second copy of the phase test: one predicate, asked once.
+    /// Note it is marginally conservative on a foreign BURNT card, whose front is shown in every
+    /// phase by the burn exception while this gate still refuses the lift during the secret window.
+    /// That is the safe direction and it is recorded rather than special-cased.</para>
+    ///
+    /// <para>THE PARAGRAPH THIS RULING OVERTURNED, kept because its own first sentence is the
+    /// reason the reversal is cheap: it said outright that refusing a foreign hand is <b>NOT a
+    /// secrecy necessity</b>, only a structural convenience. Read on — WHY NOT ALSO FOREIGN,
+    /// given that a foreign HAND is not secret (the class doc's "WHAT IS
     /// AND IS NOT A DISCLOSURE" reads that off the game's own model) and the focus fan already
     /// DRAWS those cards face-up today. So refusing here is NOT a secrecy necessity — nothing new
     /// would be disclosed. It is refused because a foreign view's read-only guarantee is
@@ -1277,7 +1299,19 @@ internal static class CharacterFocus
     /// committable.</para>
     /// </summary>
     internal static bool HandInspectable(CardsHandUI? hand) =>
-        hand != null && hand.PlayerActor != null && CardsGameApi.IsLocalHand(hand);
+        hand != null && hand.PlayerActor != null
+        // OWN HAND FIRST, so single player and every locally controlled merc keep the exact
+        // pre-2026-09-07 answer with no new term in their path at all.
+        && (CardsGameApi.IsLocalHand(hand)
+            // A FOREIGN HAND IS INSPECTABLE EXACTLY WHEN ITS FRONTS ARE DRAWN. The release path is
+            // what makes this safe and it was already load-bearing before this change:
+            // CardsDriver.OnCardReleased's InspectOnly branch sits BEFORE CurrentHand() is even
+            // resolved (CardsDriver.5.Interactions.cs, verified 2026-09-07), returns the card home
+            // animated, and writes nothing - no SelectCard, no UnselectCard, no slot occupancy, no
+            // initiative reconcile, no reorder commit. The WRONG-HAND BELT below it is a second net.
+            // So widening the GRAB cannot widen what reaches a game seam; it only lets the player
+            // hold a card up to his face, which is the whole of what he asked for.
+            || RevealGate.ShowRoundCardFronts(hand.PlayerActor));
 
 
     // ------------------------------------------------------------------ the ownership census --

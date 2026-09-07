@@ -433,7 +433,58 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 473;
+    public const ushort ModBuild = 474;
+    // Build 474: A FOREIGN CHARACTER'S FAN IS SHOWN AND HANDLEABLE, AND THE THING THAT MUST NEVER
+    //   HAPPEN WAS ALREADY IMPOSSIBLE. One user ruling, one term, and a correction to what ModBuild
+    //   473 shipped — 473 fixed the ownership gate and thereby made a FOREIGN hand a PICTURE, which
+    //   is not what he wants.
+    //   * THE RULING, verbatim, after he was asked to choose between the two readings of "es soll
+    //     generell niemals möglich sein Karten von einem fremden Fächer zu nehmen": "Nur ansehen,
+    //     aber auch in die Hand nehmen können um eine Karte besser anzuschauen — so war es bisher
+    //     auch schon implementiert und abgenommen." And then, unprompted, the exact case: "Jeder
+    //     Spieler hat sein eigenes board und kann dort zu allen characteren umschalten in der
+    //     Aktionsphase auch zu characteren die er nicht kontrolliert. Dann sieht er alle Karten und
+    //     kann diese auch in die Hand nehmen." So the requirement is a SURFACE rule, not an
+    //     ownership rule: "Ich möchte trotzdem nur, dass ich in den von mir geöffneten Fächer
+    //     greifen kann — nicht aus dem geöffneten Fächer des Mitspielers, auch wenn es die selben
+    //     Karten zeigt."
+    //   * THE HALF THAT NEEDED NO CODE, AND IT IS THE HALF HE WAS WORRIED ABOUT. The fan drawn at a
+    //     PEER'S AVATAR is `Net.Remote.RemoteHandFan`, and it is a DIFFERENT CLASS that only mirrors
+    //     `CardFan`'s geometry. Grepped and verified: it contains not one call to `VRCardFactory`,
+    //     `AttachGameCard` or `CardsDriver.HookCard`, and implements only `IBorrowedCardSource`. It
+    //     holds no `VRCard` and no `AbilityCardUI`, so there is no real card in it to take — the
+    //     routing to a game seam does not exist rather than being blocked. His "es ist der exakt
+    //     gleiche Fächer" is true of the CONTENTS and false of the OBJECT, and that difference is
+    //     what makes the guarantee structural.
+    //   * THE HALF THAT WAS WRONG, and 473 is what made it wrong. `HandInspectable` was
+    //     `IsLocalHand`, so once 473 repaired the ownership term a focused teammate's hand became
+    //     `CardFan.FanMode.Picture` — neither grabbable nor laser-clickable. Correct against the old
+    //     sentence in that file and wrong against him. THE GATE MOVED FROM OWNER TO FRONT: it is now
+    //     `IsLocalHand || RevealGate.ShowRoundCardFronts(actor)`, i.e. a card that may be READ may be
+    //     LIFTED, which is one predicate rather than a second copy of the phase test. A foreign hand
+    //     outside the secret window is `Inspect`: liftable, readable, never placeable. Inside it,
+    //     `Picture`, so "Kurze Rast = Auswahlphase = verdeckt" keeps its teeth untouched.
+    //   * WHY WIDENING THE GRAB CANNOT WIDEN WHAT REACHES THE GAME, verified in the source rather
+    //     than assumed: `CardsDriver.OnCardReleased`'s `InspectOnly` branch sits BEFORE
+    //     `CurrentHand()` is resolved, returns the card home animated, and writes nothing — no
+    //     SelectCard, no UnselectCard, no slot occupancy, no initiative reconcile, no reorder
+    //     commit. The WRONG-HAND BELT below it is a second net. So the read-only guarantee for a
+    //     character we are only watching is unchanged and still structural; only the GRAB moved.
+    //   * TWO FALSE SENTENCES CORRECTED WITH THE CODE, both of which 474 itself would otherwise have
+    //     created: the fan-mode ladder's "PICTURE — a FOREIGN character's hand ... that one stays
+    //     refused", and the runtime line "This is the FOREIGN-character case and the only one left".
+    //     PICTURE is now the COVERED case. The overturned paragraph in `CharacterFocus` is kept
+    //     rather than deleted, because its own first sentence is why the reversal was cheap: it said
+    //     outright that refusing a foreign hand is NOT a secrecy necessity, only a structural
+    //     convenience.
+    //   * AND THE PAIR IS NOW ONE GREP. `HAND FAN OWNER` prints the actor, whether this client
+    //     controls it, and the resulting fan mode on ONE line at Note tier. The only combination
+    //     that is a defect is "does NOT control" beside "Interactive" — report item 10, a teammate's
+    //     character playable from this board. "does NOT control" beside "Inspect" is the correct
+    //     picture. The three mode lines moved from Info (Debug tier, invisible at the shipped
+    //     default) to Note for the same reason: this is the round he will test it in.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 473: THIRTEEN ITEMS, NINE LANES, AND FOUR OF MY OWN BRIEFINGS FALSIFIED BY THE LANES I
     //   WROTE THEM FOR. Two hardware sessions in one round — an eleven-item multiplayer test and a
     //   two-item single-player one — and the round's real product is that the cause was, four

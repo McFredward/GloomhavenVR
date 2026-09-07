@@ -1486,8 +1486,14 @@ internal sealed partial class CardsDriver
         //    client is entitled to handle. The cards are fully grabbable and laser-pluckable and
         //    the release returns them HOME; no game seam is reachable (VRCard.InspectOnly).
         //    THIS IS WHAT USED TO BE A PICTURE, and that was the reported bug.
-        //  • PICTURE — a FOREIGN character's hand in a focus view. Inert end to end, exactly as
-        //    before; see Board.CharacterFocus.HandInspectable for why that one stays refused.
+        //  • PICTURE — a hand whose FRONTS may not be drawn at all: the secret selection window,
+        //    for a character this client does not control. Inert end to end.
+        //    IT IS NO LONGER "every foreign hand". User ruling 2026-09-07, given when he was asked
+        //    to choose: a foreign character one has focused is shown AND handleable, because a card
+        //    that may be read may be held up to the face. The gate moved from OWNER to FRONT and
+        //    lives in Board.CharacterFocus.HandInspectable; the comment that used to stand here said
+        //    "that one stays refused" and would have been the eighteenth false assertion this
+        //    project has found in its own source.
         CardFan.FanMode fanMode =
             !readOnly && grabbable ? CardFan.FanMode.Interactive
             : handInspectable ? CardFan.FanMode.Inspect
