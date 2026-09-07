@@ -72,10 +72,14 @@ namespace GloomhavenVR.Cards.Patches;
 // asked for" from "a pick was asked for once"; both terms are latches and both stayed set.
 // What DOES exist is the game's own beginning and end of the flow, and each is a single call:
 //
-//   OPEN  — `CardsHandUI.UpdateView(..., maxCardsSelected > 0, ...)`. The one writer of both
-//           latched fields, so nothing can open a pick behind its back: every overload of
-//           `CardsHandManager.Show` (:739 and :813), `ShowCoroutine` (:838) and the push/pop
-//           restore (:1262) all end in it.
+//   OPEN  — `CardsHandUI.UpdateView(<a PICK mode>, ..., maxCardsSelected > 0, ...)`. The one
+//           writer of both latched fields, so nothing can open a pick behind its back: every
+//           overload of `CardsHandManager.Show` (:739 and :813), `ShowCoroutine` (:838) and the
+//           push/pop restore (:1262) all end in it.
+//           THE MODE TERM IS NOT DECORATION AND ITS ABSENCE COST A WHOLE TEST SESSION — see
+//           `PickFlowWatch.NoteViewDriven`. The sentence that stood here read
+//           "`CardsHandUI.UpdateView(..., maxCardsSelected > 0, ...)`" with no mode at all, and
+//           ordinary card selection asks for TWO cards on EVERY hand in the party, every round.
 //   END   — two calls, both already choke points this codebase names:
 //           (a) the COMMIT. `CardsHandUI.OnLoseCardClick` is the only commit callback of the
 //               lose/discard confirm popup (wired CardsHandUI.cs:2085) and covers all three of
@@ -108,8 +112,11 @@ namespace GloomhavenVR.Cards.Patches;
 /// IS A MODAL CARD PICK ACTUALLY IN FLIGHT — as an EDGE-DRIVEN latch, because no STATE on the
 /// game's hand can answer it (see this file's header for the measurement that decided that).
 ///
-/// <para>Armed by the game's own <c>CardsHandUI.UpdateView</c> when it opens a pick that wants
-/// at least one card; disarmed by the game's own commit callback and by the game's own
+/// <para>Armed by the game's own <c>CardsHandUI.UpdateView</c> when it drives a hand into a
+/// <see cref="CardsGameApi.IsPickMode"/> MODE that wants at least one card — the mode term is
+/// load-bearing, because <c>CardHandMode.CardsSelection</c> asks every hand in the party for two
+/// cards every round and used to arm this latch (2026-09-07 deadlock, see
+/// <see cref="NoteViewDriven"/>); disarmed by the game's own commit callback and by the game's own
 /// <c>CardsHandUI.Hide</c> at the end of the lost-card animation. Read through
 /// <see cref="CardsGameApi.PickIsOpen"/>, which ANDs it with ModBuild 448's raw-count belt —
 /// the two are independent and neither is sufficient alone: the count catches a pick the game
@@ -230,45 +237,92 @@ internal static class PickFlowWatch
     internal static int EndSeq => _endSeq;
 
     /// <summary>
-    /// OPEN edge. Called from the <c>CardsHandUI.UpdateView</c> postfix with the count the game
-    /// itself passed. A zero is an explicit stand-down and ends the flow; anything above zero
-    /// opens one. Re-arming an already-live flow keeps the original open stamp so
+    /// OPEN edge. Called from the <c>CardsHandUI.UpdateView</c> postfix with the MODE and the
+    /// count the game itself passed. A pick opens only when the game asks a PICK MODE for at
+    /// least one card; anything else re-drives the owning hand's view and therefore stands its
+    /// flow down. Re-arming the SAME hand keeps the original open stamp so
     /// <see cref="LastFlowSeconds"/> measures the whole pick and not its last redraw.
+    ///
+    /// <para><b>THE MODE TERM IS THE FIX FOR THE 2026-09-07 DEADLOCK, AND THE COUNT ALONE WAS
+    /// NEVER THE QUESTION.</b> This class asks "is a MODAL CARD PICK in flight" and the count
+    /// answered "is the game asking for any cards at all" — which ordinary card selection does,
+    /// two of them, every single round: <c>Choreographer</c>'s
+    /// <c>PlayerToSelectAbilityCardsOrLongRest</c> handler runs
+    /// <c>CardsHandManager.ShowCoroutine(CardHandMode.CardsSelection, …, maxCardsSelected: 2, …)</c>
+    /// (Choreographer.cs:3602) and that overload drives EVERY hand in <c>cardHandsUI</c>
+    /// (CardsHandManager.cs:856 in <c>ShowCoroutine</c>, :831 in the sibling <c>Show</c>), not
+    /// just the local one. So the first hand in the party's list armed a "burn flow" at scenario
+    /// load, and on the host that hand was the CO-PLAYER's:
+    /// <c>BURN FLOW ARM #1 … at t=28.732s (frame 1655) on hand 'Player handBrute'</c>
+    /// (2026-09-07 host Player.log:4587, twelve lines after the game's own <c>ShowHandManager</c>).
+    /// Only the owning hand's END edges can close a flow, and the host never drives a foreign hand
+    /// with a count of zero — the per-actor <c>Show</c> overload returns after the matching actor
+    /// (CardsHandManager.cs:761) — so that flow stood for the WHOLE session: ZERO
+    /// <c>PICK FLOW END</c> lines in 306,556 log lines. The peer's log carries five, because there
+    /// the first hand IS the local character. A pick mode never opens with a foreign owner again.
+    /// </para>
+    ///
+    /// <para><b>AND A LATER GENUINE OPEN EDGE NOW TAKES THE FLOW OVER.</b> The line that stood
+    /// here was <c>if (_live) return;</c> — written for the same hand redrawing its own pick, but
+    /// it also refused to move ownership when a DIFFERENT hand was genuinely asked for a pick.
+    /// That is what turned a stale foreign arm into a permanent refusal of every local pick:
+    /// <c>PICK GATE (LoseCard): pick=CLOSED … openEdgeOutstanding=True,
+    /// flowArmedOn='Player handBrute', thisHandOwnsTheFlow=False</c> (host Player.log:289743),
+    /// which is item 6b's own pre-registered falsifier firing word for word. Two hands can never
+    /// be mid-pick at once (the game's confirm popup is modal), so the newer OPEN edge is by
+    /// construction the real one and the standing flow is by construction stale.</para>
     /// </summary>
-    internal static void NoteViewDriven(CardsHandUI? hand, int maxCardsSelected)
+    internal static void NoteViewDriven(CardsHandUI? hand, CardHandMode mode, int maxCardsSelected)
     {
-        if (maxCardsSelected > 0)
+        // A MODAL PICK, not merely "the game wants cards": CardsSelection asks for 2 and is not a
+        // pick at all. Same predicate the whole mod already gates on (CardsGameApi.PickFlowLive
+        // ANDs it with the hand's latched mode), so narrowing the ARM to it narrows no consumer.
+        if (maxCardsSelected > 0 && CardsGameApi.IsPickMode(mode))
         {
-            if (_live)
-                return;
-            _live = true;
-            _openedAt = Time.unscaledTime;
-            _openedFrame = Time.frameCount;
-            _openedOn = 0;
-            _openedOnName = "?";
+            int id = 0;
+            string name = "?";
             try
             {
                 if (hand != null)
                 {
-                    _openedOn = hand.GetInstanceID();
+                    id = hand.GetInstanceID();
                     if (hand.gameObject != null)
-                        _openedOnName = hand.gameObject.name;
+                        name = hand.gameObject.name;
                 }
             }
             catch (Exception)
             {
                 // an unreadable hand still opened a flow — LiveFor falls back to the global answer
             }
+
+            if (_live)
+            {
+                if (id == 0 || _openedOn == 0 || id == _openedOn)
+                    return; // the same hand redrawing its own live pick — keep the original stamp
+                NoteEnd($"a pick opened on a DIFFERENT hand '{name}', so the flow standing on " +
+                        $"'{_openedOnName}' was STALE and is handed over — two hands cannot be " +
+                        "mid-pick at once (the game's confirm popup is modal), so the newer OPEN " +
+                        "edge is the real one");
+            }
+
+            _live = true;
+            _openedAt = Time.unscaledTime;
+            _openedFrame = Time.frameCount;
+            _openedOn = id;
+            _openedOnName = name;
             _armSeq++;
             return;
         }
 
-        // A ZERO IS A STAND-DOWN ONLY FOR THE HAND THAT OPENED THE FLOW. Every non-pick Show of
-        // every OTHER character's hand passes maxCardsSelected = 0, so without the ownership test
-        // a co-player's ordinary card-selection redraw ended this player's live burn pick.
+        // A STAND-DOWN IS ONLY FOR THE HAND THAT OPENED THE FLOW. Every non-pick Show of every
+        // OTHER character's hand passes maxCardsSelected = 0, so without the ownership test a
+        // co-player's ordinary card-selection redraw ended this player's live burn pick.
         if (!OwnsLiveFlow(hand))
             return;
-        NoteEnd("the game re-drove the hand's view asking for 0 cards (CardsHandUI.UpdateView)");
+        NoteEnd(maxCardsSelected > 0
+            ? $"the game re-drove the hand's view into {mode}, which is not a pick mode " +
+              "(CardsHandUI.UpdateView)"
+            : "the game re-drove the hand's view asking for 0 cards (CardsHandUI.UpdateView)");
     }
 
     /// <summary>END edge (a): the player answered and the game's commit is about to run.</summary>
@@ -361,8 +415,8 @@ internal static class PickFlowWatch
     typeof(bool), typeof(Action<AbilityCardUI>), typeof(Func<CAbilityCard, bool>))]
 internal static class CardsHandUI_UpdateView_PickFlowOpen
 {
-    private static void Postfix(CardsHandUI __instance, int maxCardsSelected)
-        => PickFlowWatch.NoteViewDriven(__instance, maxCardsSelected);
+    private static void Postfix(CardsHandUI __instance, CardHandMode mode, int maxCardsSelected)
+        => PickFlowWatch.NoteViewDriven(__instance, mode, maxCardsSelected);
 }
 
 /// <summary>

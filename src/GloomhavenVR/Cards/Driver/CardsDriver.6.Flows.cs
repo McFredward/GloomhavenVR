@@ -297,8 +297,14 @@ internal sealed partial class CardsDriver
                             $"t={Patches.PickFlowWatch.OpenedAt:F3}s (frame " +
                             $"{Patches.PickFlowWatch.OpenedFrame}) on hand " +
                             $"'{Patches.PickFlowWatch.OpenedOnName}' — armed by the game's own " +
-                            "CardsHandUI.UpdateView asking for at least one card, which is the ONE " +
-                            "writer of cardHandMode/maxCardsSelected. INHERITED FROM THE PREVIOUS " +
+                            "CardsHandUI.UpdateView driving that hand into a PICK MODE and asking " +
+                            "for at least one card, which is the ONE writer of " +
+                            "cardHandMode/maxCardsSelected. The MODE half of that sentence is new " +
+                            "in this build: without it, CardHandMode.CardsSelection (two cards, " +
+                            "every hand in the party, every round) armed this line at scenario " +
+                            "load on a FOREIGN hand and deadlocked every later local pick — the " +
+                            "2026-09-07 host log's ARM #1 named 'Player handBrute' at t=28.7s and " +
+                            "no PICK FLOW END ever followed it. INHERITED FROM THE PREVIOUS " +
                             $"FLOW (all three must be clear): inheritedOverlayBlinking=" +
                             $"{_tray.WantedSlotMask}, inheritedTargetArmed={_fieldCards.Count} " +
                             $"card(s) in the drop field, inheritedLockedBatches={_pickLockedCount}. " +
@@ -1311,7 +1317,7 @@ internal sealed partial class CardsDriver
             });
     }
 
-    private (bool selected, bool losing, bool done)? _longRestState;
+    private (bool selected, bool losing, bool done, bool pickRefused)? _longRestState;
 
     /// <summary>
     /// Prove the long-rest state machine from the log alone (test #28, item 3),
@@ -1320,6 +1326,14 @@ internal sealed partial class CardsDriver
     /// (2) the BURN step is live — <c>CardHandMode.LoseCard</c> while
     ///     <c>CharacterClass.LongRest</c> — lay a discarded card into the left slot,
     /// (3) RESOLVED — <c>HasLongRested</c> (card burnt, +2 heal applied).
+    ///
+    /// <para>A FOURTH TERM SINCE 2026-09-07, and it is the one the deadlock needed: whether the
+    /// mod's OWN pick gate is refusing the burn step it just announced. State (2) was printed
+    /// truthfully while the player sat stranded — the burn step WAS active — and the sentence
+    /// "lay a discarded card into the left slot" was, that session, a promise the mod did not
+    /// keep. <see cref="LongRestPickRefusal"/> names the term that broke it, and
+    /// <c>pickRefused</c> is in the dedup key so a refusal that arrives after the announcement
+    /// gets its own line instead of being swallowed as "no change".</para>
     /// </summary>
     private void LogLongRestState(CardsHandUI? hand)
     {
@@ -1332,19 +1346,85 @@ internal sealed partial class CardsDriver
         bool losing = CardsGameApi.IsLongResting(hand)
                       && CardsGameApi.Mode(hand) == CardHandMode.LoseCard;
         bool done = CardsGameApi.HasLongRested(hand);
-        var state = (selected, losing, done);
+        // THE BURN STEP IS OPEN AND THE MOD ITSELF IS REFUSING IT. This is the state the
+        // 2026-09-07 deadlock left the player in and NO line said so: the game had opened
+        // CardHandMode.LoseCard over the discard pile, and CardsDriver's pick branch answered
+        // PickIsOpen=false, fell back to FillHandFan and left him with no discard candidates and
+        // no placement target. Carried in the dedup key so the refusal gets its own line rather
+        // than hiding behind an unchanged (selected, losing, done).
+        bool pickRefused = losing && !CardsGameApi.PickFlowLive(hand);
+        var state = (selected, losing, done, pickRefused);
         if (_longRestState.HasValue && _longRestState.Value == state)
             return;
         _longRestState = state;
 
         if (losing)
-            VRLog.Info("Cards", "Long rest: BURN step active (CardHandMode.LoseCard, LongRest set) — " +
-                                "lay a discarded card into the left slot to lose it; the docked Confirm commits it.");
+        {
+            // HW-VERIFY: grep token "LONG REST FLOW". WORKING = exactly one line per long rest
+            // reading `pickRefusedBy=<nothing>` — the burn step opened and the mod's own pick gate
+            // accepted it — followed within a handful of lines by
+            // `Pick fan source (LoseCard): discard pile`. INERT (the instrument never ran) = zero
+            // LONG REST FLOW lines in a session whose log contains `STATE: Halted @ LongRest`;
+            // the long-rest pump never reached the burn step and the fault is upstream, in
+            // CardsGameApi.TryAdvanceLongRestTurn. BROKEN, and this is the deadlock reproducing =
+            // `pickRefusedBy=` naming a term: `armed on the FOREIGN hand '<name>'` is the
+            // 2026-09-07 cause verbatim (another character's CardsHandUI owning PickFlowWatch),
+            // `no OPEN edge is outstanding` is a pick the game never announced, `the game asks for
+            // 0 card(s)` is a hand the game re-drove behind the burn step. Both of the first two
+            // are now unreachable by construction and a reading of either is a NEW defect, not
+            // this one returning. STILL BEYOND THE INSTRUMENT: a refusal
+            // that happens with pickRefusedBy=<nothing> — the fan then had its candidates and
+            // something further down (the palm gate, the slot target) ate them, and the reading
+            // that decides it is the `fan state:` line's withheldBy/mode pair on the same frame.
+            VRLog.Note("Cards", "LONG REST FLOW: BURN step active (CardHandMode.LoseCard, LongRest set) — " +
+                                "lay a discarded card into the left slot to lose it; the docked " +
+                                $"Confirm commits it. Candidates SHOULD be the {CardsGameApi.DiscardedCount(hand)} " +
+                                "card(s) in the discard pile. Mod pick gate: " +
+                                $"pickRefusedBy={LongRestPickRefusal(hand)}.");
+        }
         else if (done)
-            VRLog.Info("Cards", "Long rest: RESOLVED — chosen card burnt, +2 heal applied (HasLongRested).");
+            VRLog.Note("Cards", "LONG REST FLOW: RESOLVED — chosen card burnt, +2 heal applied (HasLongRested).");
         else if (selected)
-            VRLog.Info("Cards", "Long rest: SELECTED in card selection (initiative 99, heal pending) — " +
+            VRLog.Note("Cards", "LONG REST FLOW: SELECTED in card selection (initiative 99, heal pending) — " +
                                 "waiting for this actor's turn to choose the card to lose.");
+    }
+
+    /// <summary>
+    /// WHY THE MOD IS REFUSING THE LONG REST'S BURN PICK, as the NAME of the term that said no and
+    /// the VALUE it read — or the empty phrase when nothing is refusing.
+    ///
+    /// <para>Every term here is a read of <see cref="CardsGameApi.PickFlowLive"/>'s own operands,
+    /// in the order that method evaluates them, so the answer can never disagree with the gate it
+    /// describes. It writes nothing and is called at most once per long-rest state change.</para>
+    ///
+    /// <para>The 2026-09-07 session is what this exists for: the burn step opened — that build
+    /// worded the line <c>Long rest: BURN step active</c>, host Player.log:289747 — and the player
+    /// could neither place a card nor see his seven discards, and the ONLY line that named the
+    /// cause was a <c>PICK GATE</c> falsifier clause four lines earlier that nobody was looking
+    /// for. A long rest that does not start must now say so in its own words.</para>
+    /// </summary>
+    private static string LongRestPickRefusal(CardsHandUI hand)
+    {
+        try
+        {
+            CardHandMode mode = CardsGameApi.Mode(hand);
+            if (!CardsGameApi.IsPickMode(mode))
+                return $"the hand's mode is {mode}, which is not a pick mode";
+            if (!Patches.PickFlowWatch.Live)
+                return "no OPEN edge is outstanding — the game never announced this pick "
+                       + "(PickFlowWatch.Live=False)";
+            if (!Patches.PickFlowWatch.LiveFor(hand))
+                return $"the pick flow is armed on the FOREIGN hand '{Patches.PickFlowWatch.OpenedOnName}', "
+                       + "so this hand does not own it (PickFlowWatch.LiveFor=False)";
+            int want = hand.MaxSelectedCards;
+            if (want <= 0)
+                return $"the game asks for {want} card(s) (CardsHandUI.MaxSelectedCards)";
+            return "<nothing — the gate accepts this pick>";
+        }
+        catch (System.Exception ex)
+        {
+            return $"<unreadable: {ex.GetType().Name}>";
+        }
     }
 
     /// <summary>
