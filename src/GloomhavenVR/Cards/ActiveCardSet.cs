@@ -576,6 +576,26 @@ internal static class ActiveCardSet
             if (i > 0)
                 s_sb.Append(", ");
             s_sb.Append(s_sort[i].ID).Append(':').Append(SafeName(s_sort[i]));
+            // ── WHERE THIS CARD IS GOING, AND THEREFORE WHAT IT MUST LOOK LIKE (item 4, 2026-09-07)
+            // ON THE MODEL ROW ONLY, AND THAT IS THE WHOLE POINT. The other two rows are PICTURES —
+            // what a seat DREW — and a destination is not something a picture can carry; putting it
+            // there would be the same category error this file's own header records ("a row that is
+            // not a picture of anything is the one row that cannot be fooled by every picture being
+            // wrong the same way"). The model row is the only row entitled to state a fact.
+            //
+            // THE BLIND SPOT IT CLOSES, measured. The user's correction — "dieser Effekt war bei
+            // manchen Aktiven Karten vorhanden und wurde dort auch angezeigt - aber nur eine Runde
+            // - die runde darauf war die Karte wieder blau" — turns on WHICH activated cards are
+            // bound for Lost, and this line carried no such term, so no line in either 71 MB
+            // ModBuild 476 log could classify the two activations those logs DO record
+            // ('TheMindsWeakness' at Player.log:83670, 'GnawingHorde' at :123923). A rule was
+            // shipped inverted because the instrument could not answer the question it was about.
+            //
+            // ONE EXPRESSION, NOT A SECOND COPY: Cards.BurnLookPolicy.Destination is the game's own
+            // CCharacterClass.cs:479 test and it is the very method the owner's board and the
+            // mirror both enforce through.
+            s_sb.Append(BurnLookPolicy.Destination(s_sort[i] as CAbilityCard) == CBaseCard.ECardPile.Lost
+                        ? "(->Lost)" : "(->Discard)");
         }
         s_sort.Clear();
         return s_sb.ToString();

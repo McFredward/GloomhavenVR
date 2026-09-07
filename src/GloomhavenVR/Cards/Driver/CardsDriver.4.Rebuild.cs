@@ -3734,7 +3734,28 @@ internal sealed partial class CardsDriver
                 ? $"DEADLINE — {BurnEffectMaxHoldSeconds:F1}s ran out" +
                   (effectActive ? " with the artwork STILL running" : " and the artwork was not running")
                 : hold.ArtworkSeen
-                    ? "ARTWORK END — the game's own BurnCardTimeline handle went null"
+                    // ─── THIS ARM SAID "ARTWORK END" AND COULD NOT KNOW THAT (2026-09-07, item 8) ─
+                    // CardEffects.coroutine is nulled by THREE different histories: the timeline's
+                    // own last statement (CardEffects.cs:618), RestoreCard() (:469-472) and every
+                    // ToggleAdditiveEffect (:404-407) — the last two being CANCELS. The short-rest
+                    // flow runs both several times on the same card
+                    // (CardsHandUI.AnimateCardsLost:1029/:1066 → AbilityCardUI.UpdateCard →
+                    // FullAbilityCard.SetPile), so "the handle went null" is the commonest reading
+                    // for a CANCEL, not for an end. ModBuild 476's peer log 60504 reports this arm
+                    // for 'ABILITY_CARD_ProvokingRoar' after 0,69s against a hard-coded
+                    // burnTime = 2f (:511): a finished ramp cannot be 0.69 s long, and the user's
+                    // report of that same burn is "kein verbrennen effekt darauf festellen können".
+                    //
+                    // SO THE ARM REPORTS THE PAINT, which IS the ramp's progress variable
+                    // (_GreyOut = Clamp01(dTime), :571) and therefore the one field that separates
+                    // the two histories. Under 1.00 = cancelled.
+                    ? "ARTWORK HANDLE CLEARED at paint _GreyOut "
+                      + BurnArtwork.PaintProgress(BurnArtwork.EffectsOf(card != null ? card.FullCard : null))
+                            .ToString("F2")
+                      + " of 1.00 — under 1.00 means the game CANCELLED its own 2 s ramp rather "
+                      + "than finishing it (RestoreCard and ToggleAdditiveEffect null the same "
+                      + "handle); BurnLookPolicy settles the card to the full burnt end state in "
+                      + "that case, so every board still agrees on the picture"
                     : $"START GRACE — the artwork NEVER started on this client, so " +
                       $"{BurnEffectStartGraceSeconds:F2}s was the whole wait";
             // HW-VERIFY (2026-09-05 item 11c "auch fuer mich blieb die Karte laenger liegen", and
@@ -3749,8 +3770,11 @@ internal sealed partial class CardsDriver
             // grace. The short-rest sacrifice never waited for an artwork at all and the instrument
             // asserted the opposite. BurnHold.ArtworkSeen is what separates them.
             //
-            // PROOF the wait is doing its job: "ARTWORK END" with held under
-            // BurnEffectMaxHoldSeconds (the real BurnCardTimeline is 2.0 s, so ~0.5-2.5 s).
+            // PROOF the wait is doing its job: "ARTWORK HANDLE CLEARED" with held under
+            // BurnEffectMaxHoldSeconds AND a paint reading at or near 1.00. The PAINT is the term
+            // that grades it, not the elapsed time: a 0.69 s hold that reports _GreyOut 0.35 is a
+            // cancelled ramp wearing a plausible-looking duration, which is exactly what the
+            // pre-correction "ARTWORK END" wording hid.
             // FALSIFIER — INERT: "DEADLINE" at 3.00-3.02 s again (the pre-2026-09-05 reading, 9 of
             // 9 burns on ModBuild 447), meaning the running-coroutine term never went false.
             // THE THIRD READING IS NOT A DEFECT BUT IS THE ANSWER TO THE SHORT-REST REPORT:

@@ -3592,8 +3592,21 @@ internal sealed partial class CardsDriver
     /// downstream of the very refresh it is supposed to trigger cannot fire until that refresh has
     /// happened: on the owner's own board it fired LATE, and on a focused peer's hand — whose 2D
     /// view no client but the owner ever refreshes — it never fired at all. <c>ActiveCardSet</c>
-    /// reads <c>CCharacterClass.ActivatedCards</c>, which the rules append to at the instant of
-    /// activation, so the dirty edge now lands on the frame the card went active.</para>
+    /// reads <c>CCharacterClass.ActivatedCards</c> instead, so the dirty edge lands on the frame
+    /// THE RULES moved the card rather than on the frame a 2D view happened to refresh.</para>
+    ///
+    /// <para>WHICH FRAME THAT IS, CORRECTED — the sentence that used to end the paragraph above was
+    /// wrong, and it is the twin of the one <c>ActiveCardSet.IsActive</c> now carries the
+    /// correction for. It said the rules append to that list "at the instant of activation", naming
+    /// <c>CCharacterClass.ActivateCard</c>. <c>ActivateCard</c> has exactly two call sites in the
+    /// whole game (<c>CActiveBonus.cs:401</c> and <c>:406</c>) and both sit inside a branch guarded
+    /// by <c>baseCard.CardType</c> being an ITEM, an ATTACK MODIFIER or an enemy AURA — an ability
+    /// card can never reach it. An ability card enters <c>m_ActivatedCards</c> at
+    /// <c>CCharacterClass.cs:467</c>, the <c>ECardPile.Activated</c> branch of
+    /// <c>MoveAbilityCardToPile</c>, reached from <c>DiscardRoundAbilityCard</c> — the END-OF-TURN
+    /// drain. The watchdog is unaffected (it hashes the list either way); what was false was the
+    /// claim about WHEN the edge arrives, and this file is one of the places a reader would have
+    /// gone looking for it.</para>
     /// </summary>
     private int ActiveSignature(CardsHandUI? hand)
     {

@@ -76,20 +76,22 @@ namespace GloomhavenVR.Cards;
 /// two cards are Lost-bound. NEITHER LOG CAN SAY WHICH THEY WERE: no line in either 71 MB file
 /// carries a destination, and the card data lives in the game's addressables rather than in
 /// anything readable offline. That blind spot is why this needed a user correction, and it is
-/// closed by <see cref="ReportDestination"/>, which prints the game's own expression per activated
-/// card, change-triggered.</para>
+/// closed from both ends: <c>[Cards] ACTIVE SET</c>'s MODEL row now carries each activated
+/// card's destination (the fact), and <see cref="ReportDestination"/> prints this board's
+/// picture against it, change-triggered, paired with the mirror's <c>[Net] REMOTE ACTIVE
+/// WASH</c>.</para>
 ///
-/// <para>THE MIRROR IS NOT YET DOING THIS, and this file cannot make it. A mod-built front has its
-/// <c>CardEffects</c> stripped (<c>Net.RemoteCardArt.StripFragileEffects</c>) and
-/// <see cref="CardHalfTone"/> resets its FX materials to <c>RestoreCard()</c>'s rest values before
-/// the first drawn frame — so a peer's mirrored active card is drawn FRESH, which under rule 1a is
-/// now WRONG for a Lost-bound one. The producer that would fix it lives in
-/// <c>Net/Remote/RemoteActiveCards.cs</c> (<c>RemoteCardArt.SetAbilityBurnProgress(1f)</c>, the
-/// same call <c>RemoteBurnFx</c> already makes on a burnt slab) and is another lane's file. What
-/// this lane CAN ship is the half that stops the two writers fighting:
-/// <see cref="CardHalfTone.HoldBurntLook"/>, the exact shape of the existing
-/// <c>HoldMirroredDim</c> hold, so the mirror can announce the faces it is deliberately painting
-/// burnt and <c>NormalizeCardFx</c> stands down for exactly those.</para>
+/// <para>THE MIRROR DOES THIS TOO, and rule 1a is one expression on both boards.
+/// <see cref="ActiveCardWearsBurntWash"/> is asked by this policy for the owner's adopted face and
+/// by <c>Net.Remote.RemoteActiveCards</c> → <c>RemoteBoardCard.SetActiveBurntWash</c> for every
+/// mirrored active cell, over the SAME local <c>CAbilityCard</c> object — not two copies that agree
+/// today. The mirror writes the settled end state with <c>RemoteCardArt.SetAbilityBurnProgress(1f)</c>
+/// and NEVER a ramp, because the separate 2026-09-06 item 8a ruling forbids the burn animation and
+/// sound at the moment of activation; the user drew that line himself when he said <i>"Ich meine
+/// nicht die Animation von 2 Sekunden, sondern den dauerhaften effekt"</i>. The write ordering there
+/// is hold-then-paint through <see cref="CardHalfTone.HoldBurntLook"/>, because
+/// <c>NormalizeCardFx</c> would otherwise swap the clone's images to a SHARED rest copy that the
+/// burn rig's next write would then char for every other clone using it.</para>
 ///
 /// <para>THIS WRITES PRESENTATION ONLY, THROUGH THE GAME'S OWN CALLS. Rule 1a and rule 2 use
 /// <see cref="BurnArtwork.TrySettleBurnLook"/>, which drains
@@ -319,8 +321,10 @@ internal static class BurnLookPolicy
     /// and PermanentlyLost arms but NOT on the Activated arm (:483-497), so
     /// <c>SelectedAction</c> is intact for exactly the population this policy asks about.</para>
     /// </summary>
-    private static CBaseCard.ECardPile Destination(CAbilityCard card)
+    internal static CBaseCard.ECardPile Destination(CAbilityCard? card)
     {
+        if (card == null)
+            return CBaseCard.ECardPile.Lost;
         try
         {
             CAction? selected = card.SelectedAction;
@@ -333,6 +337,26 @@ internal static class BurnLookPolicy
             return CBaseCard.ECardPile.Lost;   // the game's own default arm
         }
     }
+
+    /// <summary>
+    /// DOES THIS ACTIVATED CARD WEAR THE PERMANENT BURNT WASH? Rule 1a, as a single expression, so
+    /// the owner's board and every mirror ask the SAME question rather than two that happen to
+    /// agree today.
+    ///
+    /// <para>THE SHAPE IS DELIBERATE AND IT IS <see cref="BurnArtwork.Released"/>'s. That constant
+    /// pair was split across two files once and the ModBuild 474 logs measured the drift on three
+    /// burns in one session (+0.33 / −0.48 / −1.45 s). The mirror's caller —
+    /// <c>Net.Remote.RemoteActiveCards</c> → <c>RemoteBoardCard.SetActiveBurntWash</c> — asks THIS
+    /// method over the SAME <c>CAbilityCard</c> object, because the model is local: the peer's
+    /// activated list and its cards' <c>SelectedAction</c> are on every client already. No wire
+    /// field is owed for any of it and none is added.</para>
+    ///
+    /// <para>The caller supplies "this card is in the ACTIVE area" — the mirror already has it (its
+    /// buffer IS <c>ActiveCardSet.ActivatedCards</c>) and repeating the membership walk here would
+    /// be a second source for a fact the caller holds.</para>
+    /// </summary>
+    internal static bool ActiveCardWearsBurntWash(CAbilityCard? card)
+        => Destination(card) == CBaseCard.ECardPile.Lost;
 
     // ------------------------------------------------------------------------ the two rules --
 
@@ -491,15 +515,29 @@ internal static class BurnLookPolicy
     // ----------------------------------------------------------------------- the instrument --
 
     /// <summary>
-    /// NAME EVERY ACTIVATED CARD'S DESTINATION, change-triggered, per card.
+    /// THE OWNER'S OWN PICTURE OF AN ACTIVATED CARD, change-triggered, per card — and the near half
+    /// of the 1:1 pair.
     ///
-    /// <para>THE BLIND SPOT THIS CLOSES. <c>[Cards] ACTIVE SET</c> prints the model list and each
-    /// seat's list, so it can answer "do the surfaces agree" — but it carries no destination, and
-    /// therefore NO LINE in either 71 MB ModBuild 476 log can say which activated cards should be
-    /// marked. That is why the first version of this rule was inverted and why it took a user
-    /// correction rather than a grep to catch: the two activations the logs DO tie to a burn effect
-    /// (<c>TheMindsWeakness</c>, <c>GnawingHorde</c>) cannot be classified after the fact from
-    /// anything on disk. One line per activation closes it.</para>
+    /// <para>WHY THIS IS NOT A DUPLICATE OF <c>[Cards] ACTIVE SET</c>'s new destination column.
+    /// That column is on the MODEL row and states a FACT: where each activated card is bound. This
+    /// line states the PICTURE on this board against that fact — whether the card is actually
+    /// wearing the wash, and how far its paint reads — which a model row is not entitled to carry.
+    /// Fact and picture on one line is what makes it gradeable without cross-referencing a census
+    /// that may be fifteen seconds away.</para>
+    ///
+    /// <para>AND IT IS DELIBERATELY THE SAME SHAPE AS <c>[Net] REMOTE ACTIVE WASH</c>, the mirror's
+    /// half, so the owner's log and the peer's log diff literally for one card:
+    /// <c>ACTIVE WASH … bound for Lost … wearing=True</c> here must pair with
+    /// <c>REMOTE ACTIVE WASH … wash=True</c> there. Both sides read the SAME local model object
+    /// through the SAME expression, so a disagreement is a LOCAL GATE and never a lost packet.</para>
+    ///
+    /// <para>THE BLIND SPOT THE PAIR CLOSES. Before this round <c>ACTIVE SET</c> printed the model
+    /// list and each seat's list, so it could answer "do the surfaces agree" — and carried no
+    /// destination and no wash reading, so NO LINE in either 71 MB ModBuild 476 log could say which
+    /// activated cards should be marked or whether they were. That is why the first version of this
+    /// rule shipped inverted and why it took a user correction rather than a grep to catch: the two
+    /// activations those logs DO tie to a burn effect (<c>TheMindsWeakness</c>,
+    /// <c>GnawingHorde</c>) cannot be classified after the fact from anything on disk.</para>
     ///
     /// <para>Change-triggered on (destination, wearing-a-burn-look) per card, so a card that sits
     /// active for ten rounds prints once — and prints again the moment either half moves, which is
@@ -515,16 +553,20 @@ internal static class BurnLookPolicy
         if (s_reportedDest.Count >= MaxReportedFaces)
             s_reportedDest.Clear();
         s_reportedDest[id] = (card.CardInstanceID, dest, wearing);
-        // HW-VERIFY (2026-09-07 item 4): WHICH activated cards are bound for Lost, and whether each
-        // is actually wearing the permanent burnt wash. Grep token: "ACTIVE DESTINATION".
+        // HW-VERIFY (2026-09-07 item 4): whether an ACTIVATED card is actually wearing the
+        // permanent burnt wash on THIS board, beside where the game says it is bound. Grep token:
+        // "ACTIVE WASH" — and the mirror's half is "REMOTE ACTIVE WASH", same shape, so one card's
+        // two lines diff literally across the two logs.
         //
         // THE ONE GREP THAT ANSWERS ITEM 4 NEXT ROUND. A Lost-bound card reading wearing=False is
-        // the reported defect; a Discard-bound card reading wearing=True is the second defect
-        // 'ACTIVE BURN STRAY' names. Both were unanswerable in the ModBuild 476 logs.
-        VRLog.Note(Scope, $"ACTIVE DESTINATION: '{Name(card)}' is ACTIVATED and bound for {dest} " +
+        // the reported defect ("die runde darauf war die Karte wieder blau"); a Discard-bound card
+        // reading wearing=True is the second defect 'ACTIVE BURN STRAY' names. Both were
+        // unanswerable in the ModBuild 476 logs.
+        VRLog.Note(Scope, $"ACTIVE WASH: '{Name(card)}' is ACTIVATED and bound for {dest} " +
                           "(the game's own expression, CCharacterClass.cs:479: SelectedAction " +
-                          "Discard-bound → Discarded, otherwise Lost), and it is currently " +
-                          $"wearing a burn look = {wearing} (latched={latched}, _GreyOut " +
+                          "Discard-bound → Discarded, otherwise Lost — the same call the ACTIVE SET " +
+                          "MODEL row and the peer's REMOTE ACTIVE WASH line both make), and this " +
+                          $"board is wearing a burn look = {wearing} (latched={latched}, _GreyOut " +
                           $"{painted:F2}). THE RULE: bound for Lost ⇒ the permanent burnt wash " +
                           "belongs on it, every round, on every board; bound for Discarded ⇒ it " +
                           "never does. Change-triggered per card on exactly that pair.");

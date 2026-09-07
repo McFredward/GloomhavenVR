@@ -441,7 +441,14 @@ internal sealed class RemoteActiveCards
         if (!any)
         {
             for (int i = 0; i < _cards.Count; i++)
+            {
                 _cards[i].Set(null, showFronts, actor);
+                // ITEM 4 (2026-09-07): release the permanent burnt wash with the cell. Set(null)
+                // already drops it through ClearFace; this makes the release EXPLICIT at every
+                // blanking site so a future path that blanks some other way cannot leave
+                // CardHalfTone standing down for a face nobody is painting.
+                _cards[i].SetActiveBurntWash(_playerId, i, null, wanted: false);
+            }
             // ZERO IS A READING (see PeerCardFaceCensus): an empty active pile must overwrite this
             // population's census row rather than leave the last non-empty one standing.
             PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.ActiveMatrix, _playerId, 0, 0,
@@ -482,6 +489,7 @@ internal sealed class RemoteActiveCards
             if (i >= Count)
             {
                 _cards[i].Set(null, showFronts, actor);
+                _cards[i].SetActiveBurntWash(_playerId, i, null, wanted: false);
                 continue;
             }
             int row = i / Columns;
@@ -497,6 +505,13 @@ internal sealed class RemoteActiveCards
                 // does, then blanked through the same Set(null) every unused cell takes — one
                 // hiding mechanism with three callers, no second one to keep in step.
                 _cards[i].Set(null, showFronts, actor);
+                // ITEM 4: a seat blanked because the card is in their FIST or still in the AIR has
+                // no face to wash, and the hold must come off with it. Nothing is lost across the
+                // blank: this method is re-asserted on every refresh, so the wash goes back on in
+                // the same pass that re-seats the face when the card lands — before its first drawn
+                // frame, because Set() and this call are one pass. The wash on the FLYING slab
+                // itself belongs to RemoteCardFx's arc and is NOT claimed here.
+                _cards[i].SetActiveBurntWash(_playerId, i, _buffer[i], wanted: false);
                 continue;
             }
             // The ACTIVE column gets the same real-card treatment as the round slots: the actor is
@@ -508,6 +523,21 @@ internal sealed class RemoteActiveCards
             // Set() is change-gated, so the cadenced mip-bake rescan for a hosted face's async
             // header art rides this refresh instead (see RemoteBoardCard.MaintainMips).
             _cards[i].MaintainMips();
+            // ── RULE 1a, THE MIRROR HALF (user item 4, 2026-09-07) ──────────────────────────────
+            // "Ich meine nicht die Animation von 2 Sekunden, sondern den dauerhaften effekt der
+            // über eine verbrannte Karte liegt. Und dieser Effekt war bei manchen Aktiven Karten
+            // vorhanden und wurde dort auch angezeigt - aber nur eine Runde - die runde darauf war
+            // die Karte wieder blau" — and, from the same report, "lokal und remote".
+            //
+            // ONE EXPRESSION, BOTH BOARDS. Cards.BurnLookPolicy.ActiveCardWearsBurntWash is the
+            // game's own CCharacterClass.cs:479 test and it is the SAME method the owner's own
+            // board asks through BurnLookPolicy.Enforce — not an equivalent-looking copy. THE MODEL
+            // IS LOCAL: _buffer is this client's own walk of that peer's ActivatedCards and the
+            // SelectedAction it reads is on every client, so no wire field is owed and none is
+            // added. RIGHT AFTER Set(), which is where the face exists; the hold-before-paint
+            // ordering is inside SetActiveBurntWash, next to the art it protects.
+            _cards[i].SetActiveBurntWash(_playerId, i, _buffer[i],
+                Cards.BurnLookPolicy.ActiveCardWearsBurntWash(_buffer[i]));
             // …and the pulse pass's only way back from a hosted clone to the card it is showing.
             // Recorded HERE rather than derived again later, so the position the driver matches on
             // is the very Vector3 the cell was moved to and not a second evaluation of the same
