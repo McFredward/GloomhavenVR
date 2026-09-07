@@ -15,6 +15,9 @@
   <a>
     <img src="https://img.shields.io/badge/version-0.1.1-7c3aed.svg" alt="Mod version">
   </a>
+</p>
+
+<p align="center">
   <a href="https://buymeacoffee.com/mcfredward">
     <img src="https://img.shields.io/badge/Buy me a coffee-ffdd00.svg?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee">
   </a>
@@ -40,31 +43,9 @@
 
 ---
 
-<table>
-<tr><td>
-
-**🎬 VIDEO-PLATZHALTER 1 von 6 — `overview.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
-
-**Was der Clip zeigen muss** (10–12 s): am Tisch stehen in einem beleuchteten Szenario, dann das
-ganze Brett mit dem beidhändigen Weltgriff verschieben, drehen und zoomen. Nach drei Sekunden soll
-klar sein, worum es geht — ein echter Tisch, an dem du stehst, und ein Brett, das du anfasst.
-
-**So füllst du ihn:** aufnehmen, die mp4 über ein GitHub-Kommentarfeld hochladen
-([so geht das](docs/img/README.md#the-only-way-a-video-actually-plays-in-a-github-readme), englisch),
-dann die `user-attachments`-Adresse über `PASTE_UUID_HERE` in den HTML-Kommentar direkt unter diesem
-Kasten setzen. Dann diesen Kasten löschen und die zwei Kommentar-Zeilen um die Auszeichnung herum
-entfernen, damit sie kein Kommentar mehr ist, sondern ein Video. Derselbe
-Clip kommt an dieselbe Stelle in `README.md`. Vollständiger Auftrag:
-[docs/VIDEO-SHOTLIST.md](docs/VIDEO-SHOTLIST.md) (englisch).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for overview.mp4 — paste the UUID, delete this line and the closing marker
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video>
 </p>
--->
 
 - **Dein Kartenblatt liegt in deiner Handfläche.** Dreh sie nach oben, der Fächer geht auf, nimm
   eine Karte mit den Fingern und leg sie in ein Fach deines Bretts.
@@ -82,12 +63,9 @@ Clip kommt an dieselbe Stelle in `README.md`. Vollständiger Auftrag:
 
 ## Deine Karten und dein Brett
 
-<table>
-<tr>
-<td width="50%"><video src="https://github.com/user-attachments/assets/265e8b02-5b8b-4732-aad8-2ba134bf4225" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/c3611c21-964e-4983-ad4d-ef13518285ab" controls muted loop></video></td>
-</tr>
-</table>
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
+</p>
 
 Dein Kontrollbrett ist ein echter Tisch vor dir: zwei Fächer für die Karten der Runde, Tasten, die
 du mit der Fingerspitze eindrückst, und darunter eine Stange, mit der du das Ganze dorthin trägst,
@@ -108,7 +86,7 @@ liest den Zug, den sie gleich macht.
 ## Die Kampagnenkarte auf dem Tisch
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/99f7cf4d-d946-4b00-b2c0-6750b99f8abd" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" controls muted loop></video>
 </p>
 
 Zwischen den Szenarien stehst du in einem Gewölbe, und die Karte von Gloomhaven liegt ausgebreitet

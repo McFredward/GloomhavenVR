@@ -15,6 +15,9 @@
   <a>
     <img src="https://img.shields.io/badge/version-0.1.1-7c3aed.svg" alt="Mod version">
   </a>
+</p>
+
+<p align="center">
   <a href="https://buymeacoffee.com/mcfredward">
     <img src="https://img.shields.io/badge/Buy me a coffee-ffdd00.svg?logo=buymeacoffee&logoColor=black" alt="Buy me a coffee">
   </a>
@@ -40,30 +43,9 @@
 
 ---
 
-<table>
-<tr><td>
-
-**🎬 VIDEO PLACEHOLDER 1 of 6 — `overview.mp4` — this spot is still empty, nothing renders here yet.**
-
-**What it has to show** (10–12 s): standing at the table in a lit scenario, then dragging, rotating
-and zooming the whole board with the two-handed world grab. Three seconds in, a visitor should know
-what this mod is — a real table you stand at, and a board you take hold of.
-
-**How you fill it:** record it, upload the mp4 through a GitHub comment box
-([the procedure](docs/img/README.md#the-only-way-a-video-actually-plays-in-a-github-readme)), then
-paste the `user-attachments` URL it hands you over `PASTE_UUID_HERE` in the HTML comment directly
-below this box. Then delete this box, and delete the two comment marker lines around that markup so
-it stops being a comment and starts being a video. The same clip goes into the same spot in
-`README.de.md`. Full brief: [docs/VIDEO-SHOTLIST.md](docs/VIDEO-SHOTLIST.md).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for overview.mp4 — paste the UUID, delete this line and the closing marker
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video>
 </p>
--->
 
 - **Your hand of cards sits in your palm.** Turn it up, the fan opens, take a card with your
   fingers and drop it into a slot on the board.
@@ -81,12 +63,9 @@ it stops being a comment and starts being a video. The same clip goes into the s
 
 ## Your cards and your board
 
-<table>
-<tr>
-<td width="50%"><video src="https://github.com/user-attachments/assets/265e8b02-5b8b-4732-aad8-2ba134bf4225" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/c3611c21-964e-4983-ad4d-ef13518285ab" controls muted loop></video></td>
-</tr>
-</table>
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
+</p>
 
 Your control board is a real desk in front of you: two recesses for the round's cards, keys you push
 in with a fingertip, and a rod under it that carries the whole thing wherever you want it.
@@ -105,7 +84,7 @@ and touch it with a fingertip. Lift a miniature to read the turn it is about to 
 ## The campaign map on a table
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/99f7cf4d-d946-4b00-b2c0-6750b99f8abd" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" controls muted loop></video>
 </p>
 
 Between scenarios you stand in a cellar with the map of Gloomhaven spread out on the table in front
