@@ -481,7 +481,7 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// exactly what every build before ModBuild 307 drew.</para>
     ///
     /// <para>IT HAD NO CARD TERM, AND EVERY CARD ON THIS BAR WOULD HAVE PASSED ONE (2026-09-07).
-    /// <c>Net.RevealGate.PeersMaySeeOurCard</c> is the phase term this asked PLUS the burn/active
+    /// <c>Net.RevealGate.PeersMayNameOurCard</c> is the phase term this asked PLUS the burn/active
     /// exception for the particular card, "which can only widen" — and the cards this bar names are
     /// ACTIVE BONUSES, i.e. in <c>CCharacterClass.ActivatedCards</c> by construction, which is the
     /// first list <c>RevealGate.IsPubliclyRevealedCard</c> walks. So inside the game's secret
@@ -546,7 +546,7 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// <summary>
     /// Is <paramref name="bonus"/>'s source card ALREADY public to peers in its own right — the
     /// exception that outranks the phase (<c>Net.RevealGate.IsPubliclyRevealedCard</c>, reached
-    /// through <c>PeersMaySeeOurCard</c> so this file states no rule of its own)?
+    /// through <c>PeersMayNameOurCard</c> so this file states no rule of its own)?
     ///
     /// <para>Two things have to be named before the question can be asked at all: the card
     /// (<c>CBaseCard</c> carries no instance id — only <c>CAbilityCard</c> does) and the
@@ -561,10 +561,10 @@ internal sealed class DamageTooltipSurface : WorldSurface
             return false;
         int id = card.CardInstanceID;
         if (bonus.Actor is CPlayerActor owner && owner != null
-            && Net.RevealGate.PeersMaySeeOurCard(owner, id))
+            && Net.RevealGate.PeersMayNameOurCard(owner, id))
             return true;
         return bonus.Caster is CPlayerActor caster && caster != null
-               && Net.RevealGate.PeersMaySeeOurCard(caster, id);
+               && Net.RevealGate.PeersMayNameOurCard(caster, id);
     }
 
     /// <summary>The game's own mandatory-active-bonus test (TakeDamagePanel.cs:321), re-evaluated

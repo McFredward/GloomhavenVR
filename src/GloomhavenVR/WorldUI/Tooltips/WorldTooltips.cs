@@ -943,7 +943,7 @@ internal sealed class WorldTooltips
 
         // ─── THE PHASE IS NOT THE WHOLE RULE, AND THIS GATE HAD NO CARD TERM (2026-09-07) ───────
         // PeersSeeOurCardFronts is the PHASE half. Net.RevealGate owns a second half one line over
-        // — PeersMaySeeOurCard, "the SAME two terms in the same order: the phase, then the burn
+        // — PeersMayNameOurCard, "the SAME two terms in the same order: the phase, then the burn
         // exception for this particular card, which can only widen" — and this method never asked
         // it. So inside the game's secret selection window a watcher could read a peer's ALREADY
         // PUBLIC card face-up (an active-matrix card, a burnt one: RevealGate.IsPubliclyRevealedCard
@@ -951,7 +951,7 @@ internal sealed class WorldTooltips
         // beside it went blank. The method's own doc states the contract that breaks: "'what a peer
         // renders' and 'what we may say about it' can never drift apart again". They had.
         //
-        // IT ONLY EVER WIDENS, AND ONLY WHERE THE FACE IS ALREADY UP. PeersMaySeeOurCard's first
+        // IT ONLY EVER WIDENS, AND ONLY WHERE THE FACE IS ALREADY UP. PeersMayNameOurCard's first
         // term IS the predicate this used to return, so nothing that was public stops being public,
         // and nothing becomes public whose front a peer is not already being shown by the very same
         // exception. The phase rule for a covered card is untouched.
@@ -972,7 +972,7 @@ internal sealed class WorldTooltips
                 CPlayerActor? owner = widget.PlayerActor;
                 CAbilityCard? card = widget.AbilityCard;
                 if (owner != null && card != null)
-                    return Net.RevealGate.PeersMaySeeOurCard(owner, card.CardInstanceID);
+                    return Net.RevealGate.PeersMayNameOurCard(owner, card.CardInstanceID);
             }
             catch (System.Exception)
             {

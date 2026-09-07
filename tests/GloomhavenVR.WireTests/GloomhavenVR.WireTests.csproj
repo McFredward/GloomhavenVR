@@ -463,6 +463,18 @@
     <Compile Include="ActiveAnchorVectors.cs" />
   </ItemGroup>
 
+  <!-- TWO QUESTIONS THAT MUST NOT BECOME ONE PREDICATE — "may a peer SEE this card's face" and
+       "may a prompt NAME it in words". PURE SOURCE LINT, so nothing is linked in: Net/RevealGate.cs
+       and Net/DecisionLabelMask.cs both reach deep into the game's ScenarioRuleLibrary types and
+       cannot be compiled outside the mod, and the thing that breaks this rule is a CALL rather than
+       a type anyway. The vectors read the shipped .cs text under src/ method body by method body.
+       Without this the ModBuild 477 item 7 card-name leak has no guard at all: the one-line
+       widening that re-opens it (folding the discard pile into the predicate the mask reads) is
+       exactly the shape the 2026-09-07 pile-fan ruling invites. -->
+  <ItemGroup>
+    <Compile Include="CardIdentityMaskVectors.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="true" />
   </ItemGroup>

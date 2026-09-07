@@ -190,6 +190,13 @@ internal static class Program
             // shipped; these vectors pin the nibble, the transposition, and the older-build
             // degradation the addition relies on.
             ActiveAnchorVectors.Run(t);
+            // TWO QUESTIONS THAT MUST NOT BECOME ONE PREDICATE AGAIN — "may a peer SEE this card's
+            // face" and "may a prompt NAME it in words". The 2026-09-07 pile-fan ruling widened the
+            // first to the discard pile, and the short-rest sacrifice is a discard-pile card while
+            // the prompt naming it is on screen — so the obvious one-line widening of the SHARED
+            // predicate re-opens the ModBuild 477 item 7 card-name leak. A source lint, because
+            // what breaks the rule is a CALL and the only symptom is an identity on the wire.
+            CardIdentityMaskVectors.Run(t, repoRoot);
         }
         catch (Exception e)
         {

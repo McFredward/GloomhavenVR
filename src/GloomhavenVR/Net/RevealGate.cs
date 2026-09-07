@@ -198,19 +198,23 @@ internal static class RevealGate
         !(FFSNetwork.IsOnline && IsSecretSelectionPhase);
 
     /// <summary>
-    /// MAY OUR PEERS KNOW WHICH CARD THIS IS, right now? The owner-seat counterpart of
-    /// <see cref="CardFaces(PeerCardPopulation, CPlayerActor, int)"/>, and it is the SAME two terms
-    /// in the same order: the phase (<see cref="PeersSeeOurCardFronts"/>), then the burn exception
+    /// MAY OUR PEERS BE TOLD, IN WORDS, WHICH CARD THIS IS, right now? The owner-seat NAMING
+    /// predicate: the phase (<see cref="PeersSeeOurCardFronts"/>), then the burn/active exception
     /// for this particular card (<see cref="IsPubliclyRevealedCard"/>), which can only widen.
     ///
-    /// <para>IT EXISTS SO A CARD AND THE SENTENCE ABOUT IT CANNOT DISAGREE. A face and a WORDING
-    /// that name the same card are two surfaces answering one question, and this project has
+    /// <para>IT IS THE SISTER OF <see cref="CardFaces(PeerCardPopulation, CPlayerActor, int)"/> AND
+    /// NO LONGER ITS TWIN. Both were the same two terms in the same order until 2026-09-07 evening;
+    /// the face side has since gained the pile-fan ruling (<see cref="IsDiscardedCard"/>) and this
+    /// side deliberately has not. See the rename paragraph below for the leak that separation
+    /// prevents.</para>
+    ///
+    /// <para>IT EXISTS SO A CARD AND THE SENTENCE ABOUT IT CANNOT DISAGREE BY ACCIDENT. A face and a
+    /// WORDING that name the same card are two surfaces answering one question, and this project has
     /// already paid for letting two surfaces answer it separately (see the note on
     /// <see cref="CardFaces(PeerCardPopulation, CPlayerActor)"/>: the hand fan and the held card
-    /// each spelled their own gate and drifted apart the moment only one was edited). So the
-    /// decision row's identity mask asks THIS, and it is one expression away from the predicate the
-    /// recess beside it asks — the card is covered exactly while its name is masked, and it uncovers
-    /// and unmasks on the same tick.</para>
+    /// each spelled their own gate and drifted apart the moment only one was edited). Where they
+    /// disagree now they disagree ON PURPOSE, in ONE named term, with the ruling written beside
+    /// it — which is the opposite of two surfaces drifting.</para>
     ///
     /// <para>WHY IT IS ASKED AT THE SENDER AND NOT AT THE RECEIVER, and this is the whole reason the
     /// exemption below is an ANTI-CHEAT boundary rather than a presentation preference: a receiver
@@ -223,8 +227,30 @@ internal static class RevealGate
     /// peer, so <c>!IsUnderMyControl</c> folds out exactly as it does for
     /// <see cref="PeersSeeOurCardFronts"/>. Degrades to FALSE (mask it) on a null actor or an
     /// unknown card, which is this file's standing direction of failure.</para>
+    ///
+    /// <para>IT WAS CALLED <c>PeersMaySeeOurCard</c> UNTIL 2026-09-07 EVENING AND THE RENAME IS THE
+    /// FIX, NOT A TIDY-UP. Every one of its callers asks it about a SENTENCE — the mirrored decision
+    /// row's wording (<see cref="DecisionLabelMask"/>), the board tooltip's text
+    /// (<c>WorldUI.Tooltips.WorldTooltips</c>), the mandatory-use hint's card-name keys
+    /// (<c>WorldUI.Surfaces.DamageTooltipSurface</c>) — and not one asks it about a FACE. Faces go
+    /// through <see cref="CardFaces(PeerCardPopulation, CPlayerActor, int)"/>. While the two
+    /// questions had the same answer the shared name was harmless; item 3 separated them, because a
+    /// card in a peer's DISCARD fan may now be SEEN by everyone while its name may still not be
+    /// SPOKEN by a short-rest prompt, and a predicate whose name says "see" while it answers "name"
+    /// is one edit away from the ModBuild 477 item 7 leak coming back.</para>
+    ///
+    /// <para>THE LEAK, SO THE NEXT READER CAN SEE WHY THE TWO MAY NOT BE RE-MERGED. ModBuild 477
+    /// published <c>confirm='Verbrennen "Zusatzdolch"'</c> to every peer while
+    /// <see cref="PeersSeeOurCardFronts"/> was shut, and <c>SpareDagger</c> was sitting in that
+    /// character's <c>DiscardedAbilityCards</c> at the time.
+    /// <c>DecisionLabelMask.AddCovered</c> SKIPS every card this predicate permits — so the day
+    /// "discard membership" is folded in here, the mask stops masking the very card a short-rest
+    /// prompt names and 478's fix is undone. The two questions are compatible in SUBSTANCE and only
+    /// in substance: seeing every card in a peer's discard fan says nothing about WHICH of them the
+    /// game has singled out as the sacrifice, and that selection is the secret. Keep them two
+    /// predicates.</para>
     /// </summary>
-    public static bool PeersMaySeeOurCard(CPlayerActor? actor, int cardInstanceId) =>
+    public static bool PeersMayNameOurCard(CPlayerActor? actor, int cardInstanceId) =>
         PeersSeeOurCardFronts || IsPubliclyRevealedCard(actor, cardInstanceId);
 
     // ============================================================================================
@@ -421,12 +447,55 @@ internal static class RevealGate
         /// was public before the current selection window opened and hiding it now protects
         /// nothing. Vanilla agrees — <c>ActivePileViewer</c> has no phase term at all.</para>
         ///
-        /// <para>WHAT THIS DOES NOT COVER, stated so the next surface does not adopt it by
-        /// analogy: a peer's DISCARD pile is also "cards that were played", and it is deliberately
-        /// left in <see cref="Selectable"/>. The user ruled on the active matrix and on nothing
-        /// else, and this file's standing invariant is to show LESS when nobody has ruled.</para>
+        /// <para>WHAT THIS USED TO SAY IT DID NOT COVER, AND THE USER HAS SINCE RULED ON IT. The
+        /// paragraph here read: "a peer's DISCARD pile is also 'cards that were played', and it is
+        /// deliberately left in <see cref="Selectable"/>. The user ruled on the active matrix and on
+        /// nothing else, and this file's standing invariant is to show LESS when nobody has ruled."
+        /// That was the correct answer while nobody had ruled. He has now ruled, twice — 2026-09-07
+        /// afternoon for discard and burnt, 2026-09-07 evening for items as well — and the discard
+        /// pile is answered by <see cref="IsDiscardedCard"/>, a property of the CARD, rather than by
+        /// a second exempt member here. See <see cref="IsPublicPopulation"/> for why the split
+        /// between "a place is exempt" and "a card is public" is load-bearing and not cosmetic.
+        /// </para>
         /// </summary>
         AlreadyPublic,
+
+        /// <summary>
+        /// An ITEM card — a chip in a peer's equipped-item arc, or one in their fist that came out
+        /// of it. Exempt from the selection-phase carve-out.
+        ///
+        /// <para>USER, VERBATIM (2026-09-07 evening, item 3): "Wir haben beim Refactoring
+        /// vereinbart, dass es keinen Sinn macht die Fächer der Piles (Abgeworfen, Verbrannt und
+        /// Items) jemals (auch in der Auswahlphase) mit der Rückseite anzuzeigen. … Die Fächer der
+        /// piles werden also ab jetzt immer mit Vorderseiten gezeigt ohne Ausnahme."</para>
+        ///
+        /// <para>IT IS A KIND AND NOT A PLACE, WHICH IS THE ONLY REASON IT MAY SIT ON THE EXEMPT
+        /// SIDE OF <see cref="IsPublicPopulation"/>. The three members that were removed from that
+        /// side (a card in a recess, a card in the pick field) named WHERE a card was lying while a
+        /// decision about it was still in flight. This one names WHAT the card is: an item is not an
+        /// ability card, it is never part of the two-card commit the secret window protects, it
+        /// cannot be drawn, discarded or burnt by that commit, and the flat game shows a party
+        /// member's inventory to everybody. So it follows the item — a surface drawing an item
+        /// declares this member whether the item is in the arc, in a fist, or on the board — and
+        /// there is no state in which declaring it reveals something about the selection.</para>
+        ///
+        /// <para>WHY IT IS NOT ANSWERED AS A CARD PROPERTY LIKE THE DISCARD PILE IS. A card property
+        /// needs a <c>CAbilityCard.CardInstanceID</c> to ask about and an item has none — the mod's
+        /// item surfaces resolve <c>CItem</c> instances out of <c>CPlayerActor.Inventory.AllItems</c>
+        /// and never enter the instance-id space at all. The population is the only vocabulary the
+        /// two item surfaces share.</para>
+        ///
+        /// <para>THE FILE'S OWN PRIOR ASSERTION ABOUT ITEMS WAS HALF TRUE AND IS CORRECTED HERE.
+        /// <see cref="PickFan"/>'s flow list says "items are not ability cards and never carried the
+        /// selection-phase secret; they are drawn by <c>RemoteItemFan</c> through
+        /// <see cref="ShowRoundCardFronts"/>". The first clause is the ruling; the second clause
+        /// describes the code, and the code CONTRADICTED the first clause —
+        /// <c>ShowRoundCardFronts</c> is exactly the selection-phase term, so a peer's item fan went
+        /// to BACKS in the secret window and the ModBuild 478 logs measure it on both machines
+        /// (<c>item fan[p2] 0 FRONT / 2 BACK — Items: RevealGate.ShowRoundCardFronts(actor)=false</c>).
+        /// This member is what makes the sentence true.</para>
+        /// </summary>
+        ItemCard,
 
         /// <summary>The card a peer is SACRIFICING — the one the game lays into a round recess
         /// during a SHORT REST for its owner to accept or re-roll. NOT exempt from the
@@ -695,12 +764,25 @@ internal static class RevealGate
     /// hardware log say WHICH population is being drawn (and, for the exempt ones, which exemption
     /// is being claimed), never to compute a different answer.
     ///
-    /// <para>ONLY TWO MEMBERS ARE EXEMPT, AND BOTH BY AN EXPLICIT RULING ABOUT A THING THAT IS
-    /// ALREADY PUBLIC: <see cref="PeerCardPopulation.AlreadyPublic"/> (a card that was played
-    /// face-up in an earlier round) and <see cref="PeerCardPopulation.DecisionRowWording"/> (the
-    /// TEXT of a mirrored burn prompt, which is not a face at all). Every other population — the
-    /// hand, the held card, the round slots, the pile arcs, a pick fan, a short-rest sacrifice and
-    /// a card laid in a recess by a modal pick — gets the phase term.</para>
+    /// <para>THREE MEMBERS ARE EXEMPT, EACH BY AN EXPLICIT RULING, AND NONE OF THEM IS A PLACE:
+    /// <see cref="PeerCardPopulation.AlreadyPublic"/> (a card that was played face-up in an earlier
+    /// round), <see cref="PeerCardPopulation.DecisionRowWording"/> (the TEXT of a mirrored burn
+    /// prompt, which is not a face at all) and <see cref="PeerCardPopulation.ItemCard"/> (an item,
+    /// which is not an ability card and can never be part of the two-card commit). Every other
+    /// population — the hand, the held ability card, the round slots, the ability-card pile arcs, a
+    /// pick fan, a short-rest sacrifice and a card laid in a recess by a modal pick — gets the phase
+    /// term.</para>
+    ///
+    /// <para>THE DISCARD AND BURNT FANS ARE NOT ON THIS LIST, AND THAT IS THE POINT OF THE 2026-09-07
+    /// EVENING FIX RATHER THAN AN OMISSION FROM IT. The user's ruling covers them — "Die Fächer der
+    /// piles werden also ab jetzt immer mit Vorderseiten gezeigt ohne Ausnahme" — but a fan is a
+    /// PLACE, and the same message reported the falsifier for implementing it as one: "sobald ich
+    /// eine Karte aus dem Fächer … nehme, sehen die anderen Spieler bei der genommenen Karte nur die
+    /// Rückseite". A card leaving the fan for a fist leaves the place and keeps the ruling, so the
+    /// ruling has to live on the CARD. It does: <see cref="IsPubliclyRevealedCard"/> already answers
+    /// the burnt lists and <see cref="IsDiscardedCard"/> now answers the discard pile, and both are
+    /// asked by the card-aware <see cref="CardFaces(PeerCardPopulation, CPlayerActor, int)"/>
+    /// overload that every surface drawing a nameable card already routes through.</para>
     ///
     /// <para>THE SHORT REST IS THE REASON THIS EXPRESSION SHRANK, and the ruling is the user's,
     /// stated for the THIRD time (2026-09-07, item 6): "Kurze Rast habe ich die Vorderseite der
@@ -743,16 +825,64 @@ internal static class RevealGate
     /// settled it.</para>
     ///
     /// <para>A MEMBER ADDED TO THE EXEMPT SIDE OF THIS EXPRESSION OVERRIDES A RULING THE USER HAS
-    /// NOW STATED THREE TIMES. Do not add one for a PLACE ("the card is in a recess", "the card is
-    /// in the pick field"); a place rule is exactly what this expression used to be and it is what
-    /// showed him a front in a short rest. If the next card needs a front inside the secret window,
-    /// establish that it is public as a property of the CARD and put it in
-    /// <see cref="IsPubliclyRevealedCard"/>, which every surface already asks and which follows the
-    /// card wherever it goes.</para>
+    /// NOW STATED THREE TIMES, SO THE TEST FOR ADDING ONE IS WRITTEN OUT HERE RATHER THAN LEFT AS A
+    /// PROHIBITION. The prohibition used to read "do not add one for a PLACE" and it was the right
+    /// instinct with the wrong scope — the 2026-09-07 evening ruling made two more populations
+    /// public and only one of them could be expressed here at all. The test that separates them:
+    /// </para>
+    /// <list type="number">
+    /// <item><description>IS THE THING PUBLIC BECAUSE OF WHAT IT IS, or because of WHERE IT IS
+    /// LYING? A KIND may be exempt here (<see cref="PeerCardPopulation.ItemCard"/>: an item is never
+    /// part of the two-card commit, wherever it sits). A PLACE may not — the recess and the pick
+    /// field are places, they are where a card lies while the decision about it is STILL IN FLIGHT,
+    /// and a place rule is what showed him a front in a short rest. <see cref="PeerCardPopulation
+    /// .SacrificedCard"/> and <see cref="PeerCardPopulation.BoardPickSeat"/> are therefore still on
+    /// the NON-exempt side and must stay there: until <c>FinalizeShortRest</c> runs, the owner may
+    /// still re-draw the card in that recess.</description></item>
+    /// <item><description>CAN THE THING LEAVE THE SURFACE? If yes, the rule does not belong here at
+    /// all, because a population is evaluated per SURFACE and cannot follow a card off it. The pile
+    /// fans are the worked example: a discarded card in a fan and the same card in its owner's fist
+    /// are the same public card on two surfaces, so the answer lives in
+    /// <see cref="IsPubliclyRevealedCard"/> / <see cref="IsDiscardedCard"/>, which every surface
+    /// already asks and which follow the card wherever it goes.</description></item>
+    /// </list>
+    ///
+    /// <para>WHY THE RECESS AND THE PICK FIELD ARE STILL NOT EXEMPT EVEN THOUGH THE DISCARD PILE
+    /// NOW IS, which is the one question this expression will be re-litigated over. The short-rest
+    /// sacrifice IS a discard-pile card — <c>CardsHandUI.PerformShortRest</c> indexes
+    /// <c>DiscardedAbilityCards</c> and REMOVES NOTHING — so "in the discard pile" on its own would
+    /// hand that recess a front and reverse the ruling the user has stated three times. It does not,
+    /// because <see cref="PileFrontsReach"/> refuses the discard exemption to exactly those two
+    /// populations. The pile-fan ruling is about a pile the player is BROWSING; the recess is about
+    /// a card the game has singled out of it and is waiting for an answer on.</para>
     /// </summary>
     public static bool IsPublicPopulation(PeerCardPopulation population) =>
         population == PeerCardPopulation.AlreadyPublic
-        || population == PeerCardPopulation.DecisionRowWording;
+        || population == PeerCardPopulation.DecisionRowWording
+        || population == PeerCardPopulation.ItemCard;
+
+    /// <summary>
+    /// Does the PILE-FAN ruling reach <paramref name="population"/>? The one term that keeps
+    /// "a discarded card's face is public" (user, 2026-09-07 evening item 3) from colliding with
+    /// "a short-rest sacrifice is covered" (user, 2026-09-07 afternoon item 6) — because the
+    /// sacrifice is a discard-pile card and the two rulings would otherwise contradict each other on
+    /// the same card in the same tick.
+    ///
+    /// <para>IT IS A REFUSAL LIST AND NOT AN ALLOW LIST, DELIBERATELY. The ruling is "ohne Ausnahme"
+    /// and the two exceptions are the two places a card lies while a decision about it is still in
+    /// flight; writing it as an allow list would mean a surface added later is silently NOT covered
+    /// by a ruling that says it should be, which is the failure direction the user has reported
+    /// three rounds running. Written this way, a new population inherits the ruling and only a
+    /// deliberate addition here can take it away.</para>
+    ///
+    /// <para>NOTE WHAT IT DOES NOT GUARD: <see cref="IsPubliclyRevealedCard"/> (burnt / active) is
+    /// NOT routed through this term and must not be — that exception is the "EGAL AUS WELCHEM
+    /// GRUND" ruling and it reaches the recess ON PURPOSE, which is how a card burning inside a
+    /// short rest shows its front the instant the accept commits it.</para>
+    /// </summary>
+    private static bool PileFrontsReach(PeerCardPopulation population) =>
+        population != PeerCardPopulation.SacrificedCard
+        && population != PeerCardPopulation.BoardPickSeat;
 
     /// <summary>
     /// IS THIS PARTICULAR CARD'S FACE ALREADY PUBLIC, whatever phase the game is in and whatever
@@ -833,6 +963,68 @@ internal static class RevealGate
             // one its owner chose to burn.
             return HoldsAbility(cc.LostAbilityCards, cardInstanceId)
                    || HoldsAbility(cc.PermanentlyLostAbilityCards, cardInstanceId);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// IS THIS CARD LYING IN ITS OWNER'S DISCARD PILE? The pile-fan half of the 2026-09-07 evening
+    /// ruling, and — like <see cref="IsPubliclyRevealedCard"/> beside it — a property of the CARD
+    /// rather than of the surface drawing it.
+    ///
+    /// <para>USER, VERBATIM (item 3): "Wir haben beim Refactoring vereinbart, dass es keinen Sinn
+    /// macht die Fächer der Piles (Abgeworfen, Verbrannt und Items) jemals (auch in der
+    /// Auswahlphase) mit der Rückseite anzuzeigen. Aktuell ist nur bei den verbrannten Karten eine
+    /// Vorderseite zu sehen …, die Fächer der abgeworfenen Karten und der Items zeigen nach wie vor
+    /// Rückseiten. Die Fächer der piles werden also ab jetzt immer mit Vorderseiten gezeigt ohne
+    /// Ausnahme." He had already given the discard/burnt half on the afternoon of the same day
+    /// ("Auch offen - dann gilt das aber auch für den Verbrannt-Fächer"); that ruling was recorded
+    /// in the ModBuild 478 build note and never implemented, which is why he is restating it.</para>
+    ///
+    /// <para>WHY IT IS A SEPARATE PREDICATE AND NOT A FOURTH LIST INSIDE
+    /// <see cref="IsPubliclyRevealedCard"/>, WHICH WOULD HAVE BEEN ONE LINE. Two reasons, and both
+    /// are load-bearing:</para>
+    /// <list type="number">
+    /// <item><description>IT WOULD HAVE UNDONE THE 478 LEAK FIX.
+    /// <see cref="PeersMayNameOurCard"/> reads <see cref="IsPubliclyRevealedCard"/>, and
+    /// <c>DecisionLabelMask.AddCovered</c> SKIPS every card that predicate permits. Folding the
+    /// discard pile in would have stopped the mask masking the short-rest sacrifice's name —
+    /// ModBuild 477 item 7, the one live card-identity leak this mod has had. A face and a NAME are
+    /// two questions here; see <see cref="PeersMayNameOurCard"/>.</description></item>
+    /// <item><description>IT WOULD HAVE OPENED THE SHORT-REST RECESS. The sacrifice IS a
+    /// discard-pile card until <c>FinalizeShortRest</c> moves it, so an unscoped discard exemption
+    /// draws its front inside the secret window — the exact picture the user ruled against three
+    /// times ("Kurze Rast = Auswahlphase = verdeckt"). <see cref="PileFrontsReach"/> is the term
+    /// that keeps the two rulings from colliding, and it can only be applied to a predicate that is
+    /// separately nameable.</description></item>
+    /// </list>
+    ///
+    /// <para>WHY A DISCARDED CARD IS PUBLIC AT ALL, since this file may not take a ruling on trust
+    /// alone: it is the <see cref="IsPubliclyRevealedCard"/> argument one list over. A card reaches
+    /// <c>DiscardedAbilityCards</c> by having been PLAYED, face-up, in front of the whole table, and
+    /// the secret the selection window protects is which two cards a player is ABOUT to commit —
+    /// which the pile they have already spent says nothing about. Vanilla agrees twice over: the
+    /// initiative-track overview shows any player's whole card state outside the window, and the
+    /// game's own pile viewers carry no phase term.</para>
+    ///
+    /// <para>Degrades to FALSE — the answer that shows LESS — on a null actor, a missing character
+    /// class, an unknown instance id and any throw, exactly as its sister predicate does, and it is
+    /// on the OPEN side of every expression that reads it.</para>
+    /// </summary>
+    public static bool IsDiscardedCard(CPlayerActor? actor, int cardInstanceId)
+    {
+        if (actor == null || cardInstanceId == int.MinValue)
+            return false;
+        try
+        {
+            CCharacterClass? cc = actor.CharacterClass;
+            // The raw backing list, for the same allocation reason IsPubliclyRevealedCard walks
+            // ActivatedCards rather than ActivatedAbilityCards: this is asked from per-frame draw
+            // paths.
+            return cc != null && HoldsAbility(cc.DiscardedAbilityCards, cardInstanceId);
         }
         catch
         {
@@ -988,10 +1180,33 @@ internal static class RevealGate
         CardFaceSource byPopulation = CardFaces(population, actor);
         if (byPopulation != CardFaceSource.None)
             return byPopulation;
-        return IsPubliclyRevealedCard(actor, cardInstanceId)
+        return CardIsPubliclyVisible(population, actor, cardInstanceId)
             ? CardFaces(PeerCardPopulation.AlreadyPublic, actor)
             : CardFaceSource.None;
     }
+
+    /// <summary>
+    /// THE TWO CARD-PROPERTY EXCEPTIONS THAT OPEN A FACE THE POPULATION HAS ALREADY REFUSED, in one
+    /// expression so no surface can claim one of them and miss the other. Both are properties of the
+    /// CARD, so both follow it off the surface it was drawn on — which is the whole reason they are
+    /// not <see cref="PeerCardPopulation"/> members.
+    ///
+    /// <para>ONE OF THE TWO IS SCOPED AND THE OTHER IS NOT, AND THAT ASYMMETRY IS THE FIX RATHER
+    /// THAN AN INCONSISTENCY. <see cref="IsPubliclyRevealedCard"/> (burnt / active) reaches EVERY
+    /// population including the recess: "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer
+    /// mit der Vorderseite sichtbar sein". <see cref="IsDiscardedCard"/> reaches every population
+    /// EXCEPT the two that are a decision in flight (<see cref="PileFrontsReach"/>), because the
+    /// short-rest sacrifice is a discard-pile card and must stay covered. Two rulings, one
+    /// expression, and the term that separates them is named.</para>
+    ///
+    /// <para>It can only ever WIDEN: it is asked only after the population has already answered
+    /// <see cref="CardFaceSource.None"/>, so there is no state in which it hides something.</para>
+    /// </summary>
+    private static bool CardIsPubliclyVisible(PeerCardPopulation population,
+                                              ScenarioRuleLibrary.CPlayerActor? actor,
+                                              int cardInstanceId)
+        => IsPubliclyRevealedCard(actor, cardInstanceId)
+           || (PileFrontsReach(population) && IsDiscardedCard(actor, cardInstanceId));
 
     /// <summary>
     /// WHICH RULE CHOSE THE FACE — the named answer to the question every wrong-face report has
@@ -1081,8 +1296,23 @@ internal static class RevealGate
         /// only thing that does.</summary>
         BurnOrActivePublicCard,
 
+        /// <summary>FRONT, IN EVERY PHASE — the PILE-FAN ruling. This card is in its owner's
+        /// <c>DiscardedAbilityCards</c> (<see cref="IsDiscardedCard"/>) and the surface drawing it is
+        /// not one of the two the ruling does not reach. User, verbatim (2026-09-07 evening, item
+        /// 3): "Die Fächer der piles werden also ab jetzt immer mit Vorderseiten gezeigt ohne
+        /// Ausnahme."
+        ///
+        /// <para>IT IS KEPT DISTINCT FROM <see cref="BurnOrActivePublicCard"/> DELIBERATELY. The two
+        /// open the same front for different reasons, and this enum exists precisely because a
+        /// verdict whose REASON is guessed costs a round: a front on a discarded card is the item-3
+        /// ruling working, while the same front named as a BURN would send the next reader looking
+        /// for a burn that never happened. It is also the falsifier for the scoping in
+        /// <see cref="PileFrontsReach"/> — this rule appearing beside a SHORT-REST recess would mean
+        /// the sacrifice carve-out has been undone.</para></summary>
+        DiscardPileCard,
+
         /// <summary>FRONT. The surface declared a population that carries its own standing ruling —
-        /// the active-card matrix, or a mirrored decision row's WORDING. See
+        /// the active-card matrix, an ITEM card, or a mirrored decision row's WORDING. See
         /// <see cref="IsPublicPopulation"/>.</summary>
         PublicPopulation,
 
@@ -1142,15 +1372,23 @@ internal static class RevealGate
                 : FaceRule.ActionPhaseOpen;
             return byPopulation;
         }
-        // Refused by population. The burn exception is the one thing that reopens it, and it is a
-        // property of the CARD — asked second so it can only ever widen (see the overload above).
-        if (IsPubliclyRevealedCard(actor, cardInstanceId))
+        // Refused by population. TWO card properties reopen it — the burn/active exception and the
+        // pile-fan ruling — and both are asked second so they can only ever widen (see
+        // CardIsPubliclyVisible). They are asked SEPARATELY here, and only here, so the rule name is
+        // the one that actually decided: a log that says BURN when the card was merely discarded is
+        // the "a rule printed per population cannot name a rule that fires per card" defect this
+        // enum exists to kill, one level down.
+        bool burnOrActive = IsPubliclyRevealedCard(actor, cardInstanceId);
+        bool pileFan = !burnOrActive
+                       && PileFrontsReach(population)
+                       && IsDiscardedCard(actor, cardInstanceId);
+        if (burnOrActive || pileFan)
         {
             CardFaceSource asPublic =
                 CardFaces(PeerCardPopulation.AlreadyPublic, actor, scenarioEstablished);
             if (asPublic != CardFaceSource.None)
             {
-                rule = FaceRule.BurnOrActivePublicCard;
+                rule = burnOrActive ? FaceRule.BurnOrActivePublicCard : FaceRule.DiscardPileCard;
                 return asPublic;
             }
         }
@@ -1180,9 +1418,16 @@ internal static class RevealGate
             + "list, so its front is shown in EVERY phase including a short rest (user: 'Beim "
             + "Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar "
             + "sein')",
+        FaceRule.DiscardPileCard =>
+            "PILE FAN — this card is in its owner's discard pile, and a pile a player has already "
+            + "spent is public in EVERY phase (user 2026-09-07: 'Die Fächer der piles werden also "
+            + "ab jetzt immer mit Vorderseiten gezeigt ohne Ausnahme'). It follows the card, so it "
+            + "holds in the fan and in the owner's fist alike. This rule beside a SHORT-REST recess "
+            + "would be a DEFECT — the sacrifice is a discard-pile card and RevealGate"
+            + ".PileFrontsReach exists to keep it covered",
         FaceRule.PublicPopulation =>
             "PUBLIC POPULATION — this surface declared a population carrying its own standing "
-            + "ruling (the active-card matrix, or a decision row's wording)",
+            + "ruling (the active-card matrix, an ITEM card, or a decision row's wording)",
         FaceRule.MapLoadout =>
             "MAP LOADOUT — no scenario is running, so there is no phase to be secret in",
         _ =>

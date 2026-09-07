@@ -98,6 +98,25 @@ namespace GloomhavenVR.Net;
 /// lines, against two record-12 publishes inside the secret window one of which quotes a card. A
 /// mask that has never masked anything reads exactly like a mask with nothing to do.</para>
 ///
+/// <para>AND THAT LAST SENTENCE WAS STILL TRUE OF THE INSTRUMENTS AFTER THE FIX, WHICH IS WHY THERE
+/// IS NOW A THIRD LINE (2026-09-07 evening). The ModBuild 478 hardware round produced ZERO
+/// <c>DECISION LABEL MASK</c> lines on BOTH machines again — the identical reading the leak had
+/// before it was fixed — and the fix could not be told apart from the defect by grepping. It is the
+/// FIRST reading and not the second, established from the surrounding instruments rather than
+/// assumed: there are ZERO anchored <c>[Net] DECISION LABEL INSIDE THE SECRET WINDOW</c> lines on
+/// either machine, so no decision row was ever docked while <see cref="RevealGate
+/// .PeersSeeOurCardFronts"/> was shut and <see cref="Apply"/> returned on its fast path every single
+/// call; the only record-12 wording that travelled all session was the generic
+/// <c>"1 verfügbare Karte verbrennen|Schaden erhalten|2 abgeworfene Karten verbrennen"</c> (5 sends
+/// on one machine, 4 on the other, none of them naming a card), <c>Cap labels SENT</c> never carried
+/// anything but <c>'Fortfahren'</c> or <c>&lt;hidden&gt;</c>, and <c>SHORT REST SEAT</c> shows the
+/// sacrifice recess never held a nameable card. THE MASK IS UNVERIFIED, NOT BROKEN. (The "282 short
+/// rest lines" a first pass counted are 158 <c>PEER CARD FACE CENSUS</c> and 83 <c>ANONYMOUS
+/// RECESS</c> rows QUOTING the token in their own prose — this project's standing grep-discipline
+/// finding, and there are zero anchored <c>[Cards] … SHORT REST</c> lines.) <see cref="LogState"/>
+/// is the remedy: it prints the mask's STATE on every edge of it, so "armed with nothing to do"
+/// and "armed and matching nothing" stop reading the same.</para>
+///
 /// <para>THE FIX IS TO MASK THE STRING THE PLAYER ACTUALLY SEES, resolved through the same accessor
 /// the game itself used to letter the dialog: <c>Loc.Game(card.Name, …)</c> →
 /// <c>LocalizationManager.TryGetTranslation</c>. The raw key is kept in the search set as well, at
@@ -199,11 +218,15 @@ internal static class DecisionLabelMask
             // public, so there is nothing to mask and nothing to walk — one static property read on
             // a 4 Hz sampler.
             if (RevealGate.PeersSeeOurCardFronts)
+            {
+                LogState(windowOpen: true, coveredNames: -1, replaced: -1);
                 return label;
+            }
 
             NameScratch.Clear();
             if (!CollectCoveredNames(NameScratch))
             {
+                LogState(windowOpen: false, coveredNames: -1, replaced: -1);
                 // BLIND IS NOT CLEAN. The covered set could not be enumerated, or a covered card's
                 // DISPLAYED name could not be resolved — so this class cannot say whether the
                 // wording names it, and an unchecked wording must not be published inside the
@@ -215,7 +238,10 @@ internal static class DecisionLabelMask
                 return string.Empty;
             }
             if (NameScratch.Count == 0)
+            {
+                LogState(windowOpen: false, coveredNames: 0, replaced: 0);
                 return label;
+            }
 
             string sealedCard = Loc.Mod(MaskLocId);
             string result = label;
@@ -227,6 +253,7 @@ internal static class DecisionLabelMask
                 result = result.Replace(name, sealedCard);
                 masked++;
             }
+            LogState(windowOpen: false, coveredNames: NameScratch.Count, replaced: masked);
             if (masked > 0)
                 LogIfChanged(label, result, masked);
             return result;
@@ -249,7 +276,7 @@ internal static class DecisionLabelMask
     /// <summary>
     /// Every ability-card NAME belonging to a character we control whose identity our peers may not
     /// currently know — asked one card at a time through
-    /// <see cref="RevealGate.PeersMaySeeOurCard"/>, so a card that becomes public (it is burnt, it
+    /// <see cref="RevealGate.PeersMayNameOurCard"/>, so a card that becomes public (it is burnt, it
     /// is activated) stops being masked on the very tick it does. Returns FALSE when the covered set
     /// could not be enumerated at all, which the caller turns into a withheld label.
     ///
@@ -345,8 +372,23 @@ internal static class DecisionLabelMask
             CAbilityCard card = list[i];
             if (card == null)
                 continue;
-            if (RevealGate.PeersMaySeeOurCard(actor, card.CardInstanceID))
-                continue;   // already public — the burn exception, and it outranks the phase
+            // ALREADY PUBLIC — the burn/active exception, and it outranks the phase.
+            //
+            // IT ASKS THE *NAMING* PREDICATE AND NOT THE *FACE* ONE, AND THAT IS THE WHOLE OF THE
+            // 2026-09-07 EVENING CARE (item 3). This line SKIPS every card the predicate permits, so
+            // whatever the predicate permits stops being masked. On the same day the user ruled that
+            // a peer's DISCARD fan shows fronts in every phase — which widened what a peer may SEE,
+            // and RevealGate implements it on the FACE side (IsDiscardedCard, reached through
+            // CardFaces). Had that widening landed on the predicate THIS line reads, the mask would
+            // have stopped masking the short-rest sacrifice: PerformShortRest picks it out of
+            // DiscardedAbilityCards and removes nothing, so it is a discard-pile card while the
+            // prompt names it, and ModBuild 477 item 7 — confirm='Verbrennen "Zusatzdolch"' with
+            // SpareDagger sitting in that list — would be live again. Seeing a peer's whole discard
+            // fan is not being told WHICH of those cards the game has singled out; the second is the
+            // secret and this line is what keeps it. Do not point this at CardFaces or at
+            // IsDiscardedCard.
+            if (RevealGate.PeersMayNameOurCard(actor, card.CardInstanceID))
+                continue;
             string name = card.Name;
             if (string.IsNullOrEmpty(name))
             {
@@ -367,6 +409,63 @@ internal static class DecisionLabelMask
                 into.Add(title);
         }
         return complete;
+    }
+
+    /// <summary>Change-gate for <see cref="LogState"/> — the STATE of the mask, not its edges. Held
+    /// as a tuple of ints so the steady state is a struct compare and the line is never COMPOSED
+    /// unless it is going to be new; <c>Apply</c> runs on the 0.25 s decision cadence for as long as
+    /// a row is docked.</summary>
+    private static (int Window, int Covered, int Replaced) _lastState = (-2, -2, -2);
+
+    /// <summary>
+    /// WHETHER THIS MASK IS ARMED, AND WITH WHAT — the reading that was missing when ModBuild 479's
+    /// round asked whether the 478 fix works and neither log could answer.
+    ///
+    /// <para>THE PROBLEM IT SOLVES, VERBATIM FROM THE ROUND THAT FOUND IT: "a mask that has never
+    /// masked anything reads exactly like a mask with nothing to do". Both instruments beside this
+    /// one are EDGE instruments — <see cref="LogIfChanged"/> prints only when a name was actually
+    /// replaced, <see cref="LogWithheld"/> only when a wording was refused — so in a session where
+    /// no decision row was ever docked inside the secret window (which is exactly the ModBuild 478
+    /// session: ZERO anchored <c>DECISION LABEL INSIDE THE SECRET WINDOW</c> lines on both machines,
+    /// and the only record-12 wording that travelled at all was the generic "1 verfügbare Karte
+    /// verbrennen|Schaden erhalten|2 abgeworfene Karten verbrennen") the whole class is silent and
+    /// the silence proves nothing either way. That is this project's recorded "a held instrument
+    /// reads as dead" shape, and it cost the 477 leak a round to find.</para>
+    ///
+    /// <para>HOW TO READ IT (grep token <c>DECISION LABEL MASK STATE</c>). <c>WINDOW=OPEN</c> is the
+    /// ordinary state and means the class ran and had nothing to do BY RULING, which is a pass and
+    /// not a silence. <c>WINDOW=SHUT, covered=N, replaced=0</c> for a wording that names a card is
+    /// the ModBuild 477 defect's exact signature and the reason this line exists: the mask was armed,
+    /// it enumerated N names, and it matched none of them. <c>covered=-1</c> is the withheld path.
+    /// Any <c>replaced&gt;0</c> has <see cref="LogIfChanged"/> beside it with both strings.</para>
+    ///
+    /// <para>IT IS NOT A SECOND COPY OF THE VERDICT. It reports the three numbers the class already
+    /// computed on the path it took; it decides nothing and no branch reads it.</para>
+    /// </summary>
+    private static void LogState(bool windowOpen, int coveredNames, int replaced)
+    {
+        var key = (windowOpen ? 1 : 0, coveredNames, replaced);
+        if (key == _lastState)
+            return;
+        _lastState = key;
+        // HW-VERIFY: grep token "DECISION LABEL MASK STATE" — see this method's doc for the three
+        // readings and which one is the ModBuild 477 leak's signature.
+        VRLog.Note("Net", "DECISION LABEL MASK STATE: WINDOW="
+                        + (windowOpen ? "OPEN" : "SHUT")
+                        + $", covered={coveredNames}, replaced={replaced}. This line is the mask's "
+                        + "STATE and not one of its edges, and it exists because the two edge lines "
+                        + "beside it ('DECISION LABEL MASK', 'DECISION LABEL MASK: … WITHHELD') are "
+                        + "silent both when this class is working with nothing to do AND when it is "
+                        + "broken — the reading that cost ModBuild 477 item 7 a whole round. "
+                        + "WINDOW=OPEN means RevealGate.PeersSeeOurCardFronts is open, so every card "
+                        + "of ours is public by ruling and there is nothing to mask: a PASS. "
+                        + "WINDOW=SHUT with covered=-1 is the withheld path (the covered set could "
+                        + "not be read). WINDOW=SHUT with covered=N and replaced=0 beside a wording "
+                        + "that NAMES a card is the defect: the mask was armed, enumerated N name "
+                        + "strings and matched none — check the STRING FORM first (CAbilityCard.Name "
+                        + "is the YML key, the wording carries the translated title), then the LIST. "
+                        + "Cross-read it against 'DECISION LABEL INSIDE THE SECRET WINDOW', which "
+                        + "quotes the whole of what actually left this client.");
     }
 
     /// <summary>Change-gate for the withheld-label diagnostic, kept apart from
@@ -432,7 +531,7 @@ internal static class DecisionLabelMask
                         + ".SanitizeLabel) throws away again. THIS IS THE ONE APPROVED EXCEPTION TO THE 1:1 "
                         + "RULE (user, 2026-09-07: \"wegen dem Anti-Cheat-System in der Auswahlphase "
                         + "muss hier ein genehmigte Ausnahme der 1:1 Regel greifen\"), and it is in "
-                        + "force ONLY while RevealGate.PeersMaySeeOurCard is false for that card — "
+                        + "force ONLY while RevealGate.PeersMayNameOurCard is false for that card — "
                         + "the same predicate the recess beside it draws its face from, so the card "
                         + "and the sentence about it uncover together. READ IT LIKE THIS: the text "
                         + "printed above is the WHOLE of what left this client, so if a card name "
