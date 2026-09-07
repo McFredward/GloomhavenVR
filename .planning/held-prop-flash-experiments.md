@@ -15,7 +15,11 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
-## START AT §21 — ROUND FOURTEEN (2026-09-06): THE SWEEP ANSWERED AND IT **KILLED THE LIGHT**
+## START AT §25 — ROUND NINETEEN (2026-09-07): THE PHOTOMETER FAILED ITS OWN COHERENCE CHECK, AND FOUR OF ITS FIVE VERDICTS WERE PRODUCED BY THEIR OWN BARS
+
+See [§25](#25-round-nineteen--2026-09-07-against-the-modbuild-469-log-and-a-fresh-measurement-of-falle_aufblitzenmp4-the-photometer-witnessed-white-and-then-failed-its-own-coherence-check--and-four-of-its-five-verdicts-were-produced-by-their-own-bars). The sections below are in the order they were written.
+
+## §21 — ROUND FOURTEEN (2026-09-06): THE SWEEP ANSWERED AND IT **KILLED THE LIGHT**
 
 The user did the lift **while the white was showing**. `] [Props] HELD-PROP POSITION SWEEP`, 36
 samples, ModBuild 464 log line 5635.
@@ -3309,3 +3313,231 @@ Fixed two ways, both inside the existing census:
 * **the HOME TWIN is censused too** — a prop of the same kind on its own hex that this mod never
   touches, so its controller is live and its `GetBehaviours` answer is a real reading. That is also
   the population constraint 1 is about, so one clause answers both.
+
+---
+
+## 25. Round nineteen — 2026-09-07, against the ModBuild 469 log and a fresh measurement of `falle_aufblitzen.mp4`: **the photometer witnessed white, and then failed its own coherence check — and four of its five verdicts were produced by their own bars**
+
+The user, this round: *"Der weisse schleier der immer mal wieder kommt ist nach wie vor vorhanden."*
+**Schleier — a veil.** A veil is a thing laid OVER a picture that is still there.
+
+`] [Props] HELD-PROP FLASH PHOTOMETER` ran once, ModBuild 469, one line, closed because the scenario
+ended. The capture is alive: **718 complete samples over 23.9 s, 1436 readbacks landed, 0 errors, 0
+skipped, 0 faults**, and the ModBuild 191 dead-capture falsifier is clean (`PATCH CONTENT CHANGED` on
+714 prop and 703 control readings). Those pixels are real pixels. Everything below is about *which*
+pixels.
+
+### 25.1 THE COHERENCE CHECK FAILED, AND THE VIDEO NOW SAYS WHAT IT FAILED AGAINST
+
+469 printed:
+
+> `*** WHITE WITNESSED — the prop patch rose 0.9893 of linear light. RISE (10 % -> 90 %) 0.19 s,
+> FALL (90 % -> 10 %) 0.23 s.` … *"if these two disagree the in-process reading is not photographing
+> the same event and everything below is about something else."*
+
+They disagree by a factor of five in the rise **and in the opposite direction in the fall**. The
+instrument was right to withhold, and it was right to say so about itself. What it could not do was
+say *which* event it had photographed, because it had nothing in the frame to compare against.
+
+**So the video was re-measured, whole-frame, with ffmpeg `signalstats` over all 548 frames of
+`.planning/debug/falle_aufblitzen.mp4` (1280x720, 30 fps, 18.27 s).** This is a *new* reading and it
+is the one the instrument was missing:
+
+| quantity | value |
+|---|---|
+| whole-frame mean `YAVG`, at rest | **32.2 / 255** gamma = **0.0114 linear** |
+| whole-frame mean `YAVG`, at an episode's plateau | **49.8 / 255** = **0.0289 linear** |
+| largest whole-frame mean anywhere in 18.27 s | **52.3 / 255** |
+| rise, whole-frame mean (t 2.83 -> 3.90 s) | 32.4 -> 49.8, **~1.05 s** |
+| fall (t 4.27 -> **4.30**) | 49.76 -> 32.20 in **ONE 30 fps frame, under 0.04 s** |
+| episodes visible in the recording | 4 (t ~ 1.6, 4.3, 14.3, and one partial) |
+
+Two things follow immediately, and both are new constraints on every future instrument:
+
+1. **The frame NEVER approaches white.** The whole-frame mean peaks at 52/255. The veil is a
+   *regional* brightening of a picture that stays a picture — exactly what the user's word says.
+   **Any in-process reading that puts a patch at 0.99 linear with a 100 % near-white pixel fraction
+   is not photographing this event.** 469 read exactly that, on *both* patches.
+2. **The fall is under 0.04 s and the rise is ~1.0-1.4 s.** 469's 0.19 s / 0.23 s is not a noisy
+   version of that shape; the fall is *six times slower* than the video's while the rise is five
+   times faster. It is a different curve, not a badly-sampled one.
+
+`PhVideoFrameRest`, `PhVideoFramePeak`, `PhVideoRiseLo/Hi` and `PhVideoFallMax` in
+`PropAnimBelt.Photometer.cs` now hold these numbers, and the instrument prints them beside its own.
+
+### 25.2 FIVE DEFECTS, EACH OF WHICH MADE A VERDICT UNREADABLE
+
+Everything in this section is a defect in the *instrument*, not a finding about the prop. The 469
+line's three named causes for an inert baseline — (a) the patch is not on the prop, (b)
+`forceRenderingOff` does not reach these renderers, (c) the prop was not drawn — are all still open,
+and two of them are now decidable in-process instead of listed.
+
+#### 25.2.1 The control patch was very plausibly still on the prop
+
+469 read `PROP PATCH 0.0000..0.9893, CONTROL PATCH 0.0000..0.9938`. A control that swings as hard as
+its subject is not controlling anything.
+
+`PhControlOffsetPx` was a **constant 220 eye pixels, in X only**. This rig's eye texture is
+**3072x3264** (`] [Rig] EYE-TARGET DIAG (scenario rig built)`, same log), so 220 px is **7.2 % of the
+eye width** — on the 1280-wide video that is **92 px**, and a bear trap held in the palm spans more
+than 92 px of that recording. A constant pixel offset cannot be off an object whose drawn size is a
+free variable.
+
+**Fixed:** the offset is now `max(220, propProjectedWidth/2 + 32 + 48)`, where the projected width
+comes from the eight corners of `Renderer.bounds` projected per capture. The line prints the prop's
+projected box in pixels, the offset actually used, **and the count of placements on which a constant
+220 would still have landed on the prop** — which converts the 469 reading from a puzzle into a
+number.
+
+#### 25.2.2 The baseline blink was aimed at the darkest sample in the window, and then judged by a constant
+
+469: `BASELINE BLINK ... before 0.0158, during 0.0144 (drop 0.0015 over 5 sample(s))` ->
+`*** THE BLINK IS INERT — turning the prop's renderers off changed the patch by less than 0.005 of
+linear light.`
+
+Both halves of that were wrong, and they compounded:
+
+* **The aim.** `PhConsiderBlink` fired the null-perturbation control when
+  `_phPropLin <= lo + 0.15f * Mathf.Max(range, 0.02f)` — the **bottom 15 % of the observed range**.
+  With `lo = 0.0000` and `range = 0.9893` that gate is `<= 0.148`, and it fired at **0.0158**. The
+  control was aimed at the darkest moment of the window *by construction*.
+* **The bar.** A flat `0.005` against a patch whose entire content was `0.0158` demands the prop
+  account for **32 % of every photon in the patch** (0.005 / 0.0158). The drop actually measured,
+  0.0015, is **9.5 % RELATIVE**. Whether 9.5 % is signal or noise was never asked, because the
+  instrument had never measured its own noise.
+
+This is the recorded `a bar below the instrument floor` shape, and the fix is not a different
+constant. **Fixed two ways:** the baseline blink now fires in a band (0.6x..1.4x) around the
+**median** of the non-blink series, and every blink is judged against
+`max(3 x medianSampleStep, 0.0005)` **AND** a 5 % relative term, with the measured noise floor of
+all three columns printed on the line. If even the median is darker than `PhMinBlinkLight` (0.006,
+below the video's whole-frame rest level) the line states that **the patch was too dark for the test
+to be able to succeed** — an instrument limit, not a finding about the prop.
+
+**What this does to the 469 reading:** `THE BLINK IS INERT` was produced by the bar. It is neither
+confirmed nor refuted here — it is *unread*, and the noise floor is the number that will read it.
+
+#### 25.2.3 There was no A-B-A: a drop and an event ending look identical
+
+The white blink fires when a sample crosses **45 % of the range on the way up**, and lasts
+`PhBlinkFrames = 6` (~0.15 s). The video times the event's own fall at **under 0.04 s**. So a drop
+measured only against BEFORE cannot be told apart from the flash simply ending inside the blink
+window — and 469's headline candidate reading, `WHITE BLINK: before 0.4736, during 0.0079 (drop
+0.4657)`, sits squarely inside that confound.
+
+**Fixed:** every blink now reads **AFTER** — the maximum the patch recovers to over the four samples
+following the restore. Recovery below half the drop is reported as *the event ending*, and the white
+blink returns `NO VERDICT` on it rather than a bisection.
+
+#### 25.2.4 There was no scene reference at all
+
+Nothing in the 469 line could say whether the capture was photographing the eye image. Two 32 px
+patches that both read 0.0000..0.99 have no way to distinguish "the scene did that" from "these
+coordinates are not on the scene".
+
+**Fixed:** a fourth column. A scaling `Blit` from the *named* resolve temporary into a 32x32 target
+point-samples 1024 pixels of the whole eye frame per capture. That number is **directly comparable to
+the video measurement in §25.1** (0.0114 at rest, 0.0289 at peak), so the three cases now separate on
+the line itself:
+
+| whole-frame column reads | what it means |
+|---|---|
+| ~0.011..0.029, tracking the video's ramp, patches independent | the capture is right and the reading is about the veil |
+| ~0.011..0.029 but the patches track each other | the excursion is frame-wide; **no renderer perturbation can bisect it** |
+| 0.0..1.0 like the patches, 100 % near-white | **the resolve is not carrying the eye colour image** — the capture path is the finding and the next round's only job |
+
+The `Blit` is safe against the ModBuild 191 fault by the same construction argument as the resolve:
+191 read `CurrentActive` **twice**, so its second blit sampled its own destination. This one reads a
+mod-named source and writes a target that is never a source. It carries its own hash column and its
+own change count, so a dead thumbnail is visible rather than assumed live.
+
+#### 25.2.5 The rise and fall were measured on the first excursion in 23.9 s, not on the flash
+
+```csharp
+if (t10 < 0f && PhProp[i] >= trig10) t10 = PhT[i];
+if (t10 >= 0f && t90 < 0f && PhProp[i] >= trig90) t90 = PhT[i];
+```
+
+That is the **first** sample above 10 % and the **first** above 90 % anywhere in the window. On a
+23.9 s series containing more than one excursion, those describe whichever came first.
+
+**Fixed:** the peak is found, the crossings are walked outwards from it, and the number of separate
+episodes crossing the halfway line is printed beside the times.
+
+### 25.3 THE Y-ORIGIN QUESTION IS NOT UNSETTLEABLE, AND IT NEVER WAS
+
+469 named it as the likeliest cause of an inert baseline and called it *"the ONE thing on this capture
+path that cannot be settled without hardware — `CopyTexture`'s source ORIGIN, which is bottom-left on
+OpenGL and top-left on D3D"*. **That sentence is false, twice over.**
+
+1. `SystemInfo.graphicsDeviceType` and `SystemInfo.graphicsUVStartsAtTop` are plain property reads
+   that were available in every one of the eighteen rounds. Both are now printed, together with
+   `QualitySettings.antiAliasing` — which incidentally reads **4** on this rig, against the class
+   doc comment's claim of an "8x MSAA eye buffer". That sentence is corrected too.
+2. The API bit only states the hypothesis' *premise*. The **measurement** is a third region copy:
+   **the Y-MIRRORED twin of the prop patch**, at `renderHeight - 32 - y`, read at the same instant as
+   the prop patch and blinked with it. The blink therefore asks **both heights at once**, and only
+   one of them can contain the prop:
+
+   | mirror moves | aimed patch moves | verdict printed |
+   |---|---|---|
+   | yes | no | **THE Y AXIS IS FLIPPED** — read at `renderHeight - patch - y`; one subtraction |
+   | no | yes | **NOT FLIPPED** — cause (a) is DELETED |
+   | yes | yes | cannot separate: the prop spans both, or the event is frame-wide |
+   | no | no | the flip is not the cause: cause (a) deleted in favour of (b) or (c) |
+
+That is a one-bit answer taken from the picture, by construction, and it costs one 32x32 region copy
+per capture.
+
+### 25.4 A SIXTH FAULT IN THE BOUNDS CHECK, FOUND WHILE FIXING THE FIFTH
+
+`PhTryPatchOrigin` computed pixel coordinates as `vp.x * renderViewportScale * eyeTextureWidth` —
+correctly scaling into the **rendered** region — and then bounds-checked them against
+`eyeTextureWidth` itself, the **allocated** texture. With a viewport scale below 1 the allocated
+texture is larger than what the pass drew into, so a patch could be placed in a region the frame
+never wrote — the control patch especially, being pushed sideways from the prop. Its content would
+then be whatever that memory holds, plausibly black.
+
+`PhTryPlacement` now computes `renderW/renderH` once and bounds every one of the three patches
+against those. Not proven to have fired in 469 (`renderViewportScale` is not logged and
+`captures skipped ... 0` says nothing landed outside the *allocated* target), but it is a live hole on
+any rig that scales the viewport, and the scale is now printed.
+
+### 25.5 THE GREP TOKEN, AND WHAT EACH READING MEANS IN NUMBERS
+
+Anchored token: `] [Props] HELD-PROP FLASH PHOTOMETER`. One line per armed window, at most two per
+session, `VRLog.Note`.
+
+| clause | **WORKING** | **INERT** | **STILL BEYOND THE INSTRUMENT** |
+|---|---|---|---|
+| `THE PICTURE` | `readbacks landed` > 0, `rows stored with a column missing` near 0, all four `PATCH CONTENT CHANGED` counts > 0 | any capture counter 0, or all four change counts 0 (ModBuild 191 signature) | — |
+| `WHERE IT LOOKED` | prints eye texture, rendered viewport, all three patch origins, the prop's projected box in px | `0 placement(s)` | — |
+| `a CONSTANT 220 px offset would still have landed ON THE PROP on N of M` | N = 0: the 469 control was genuinely off the prop | N > 0: **§25.2.1 is the cause of the 469 control reading** | — |
+| `SAMPLE-TO-SAMPLE NOISE FLOOR` | three numbers > 0; every bar below is `3x` the first of them | all three exactly 0 => the series is constant => dead capture | — |
+| `r(prop, control)` | <= 0.3 — the control is independent, an excursion on one is local | >= 0.8 — **frame-wide; no renderer perturbation is a bisection** | 0.3..0.8: provisional |
+| `WHOLE FRAME` range | 0.011..0.029 => the capture agrees with the video's amplitude | 0.0..1.0 with 100 % near-white => **the resolve is not the eye colour image** | — |
+| `COHERENCE AGAINST THE VIDEO` | `THE TWO AGREE` => every co-recorded state reading is an EXCLUSION | `THEY DISAGREE` + a named alternative => every co-recorded reading stays an ABSENCE | — |
+| `Y-ORIGIN VERDICT` | `NOT FLIPPED` or `THE Y AXIS IS FLIPPED` — either deletes a cause | `UNREAD` (no baseline blink fired) | `BOTH heights moved` |
+| baseline blink | drop >= `max(3 x noise, 0.0005)` **and** >= 5 % relative | below either bar | `THE PATCH WAS TOO DARK` (before < 0.006) |
+| white blink | drop clears the bar, recovery >= half the drop, `r(prop,control)` < 0.8 | `NO VERDICT` with the reason named (no working baseline / no recovery / frame-wide) | never fired: no excursion >= 0.08 crossed 45 % |
+
+### 25.6 What round nineteen did NOT do, and why
+
+* **It did not decide who paints the white.** Every 469 bisection verdict was `NO VERDICT` and this
+  round does not overturn any of them; it makes the *next* one readable. The honest state is that
+  after eighteen rounds the picture has been photographed once, by an instrument whose placement was
+  unverified, whose control may have been on its subject, whose bar was a constant and which had no
+  scene reference — so **the bisection is still unanswered.**
+* **It did not touch `SpawnObjectAnimateMaterial_SMB`, the hush, or §24.** The census is unchanged.
+  §24.7's reading stands: 0 of 10 behaviours on a **live** home-twin animator, 0 of 3 renderers
+  instanced.
+* **It did not change one byte of what the instrument WRITES to the game.** Still only
+  `Renderer.forceRenderingOff`, still 6 frames, still at most twice, still handed back object for
+  object. The three extra readbacks are reads.
+* **It did not settle whether the 469 baseline drop of 0.0015 was signal.** That needs the noise
+  floor, which needs a run. This is stated as unread rather than assumed either way.
+* **The `WRITES 4, RESTORES 4` question is left to the roster line.** The 469 `HELD-PROP HOME TWIN`
+  line reports three renderers of which one (`VROverlay`) is mod-owned and destroyed at frame 1 and
+  one (`OcclusionVolume`) has `materials <none>` and is `DRAWING on 0/360` — so at most **one** of
+  the four writes could have reached anything that draws. That is cause (b) and it is decidable from
+  a line that already exists; it was not duplicated into this instrument.
