@@ -346,28 +346,56 @@ internal static class RevealGate
         AlreadyPublic,
 
         /// <summary>The card a peer is SACRIFICING — the one the game lays into a round recess
-        /// during a SHORT REST for its owner to accept or re-roll. Exempt from the selection-phase
-        /// carve-out for the same reason the active matrix is, and by the same kind of ruling.
+        /// during a SHORT REST for its owner to accept or re-roll. NOT exempt from the
+        /// selection-phase carve-out (<see cref="IsPublicPopulation"/> answers false for it); the
+        /// member survives to make a call site and the hardware log say WHICH population a recess
+        /// drew, which is the same reason <see cref="PickFan"/> exists.
         ///
-        /// <para>USER, VERBATIM (2026-09-05, item 15): "Bei einer kurzen Rast soll es sichtbar sein
-        /// welche Karte dort liegt — ich sehe nur die Rückseite."</para>
+        /// <para>USER, VERBATIM (2026-09-07, item 6 — the THIRD statement of this rule and the one
+        /// that governs): "Kurze Rast habe ich die Vorderseite der Karte gesehen, das ist die
+        /// Auswahlphase und darf daher nicht sein. Nochmal: Kurze Rast = Auswahlphase = verdeckt,
+        /// Lange Rast = Aktionsphase = alles offen."</para>
         ///
-        /// <para>WHY THE PHASE TERM IS WRONG HERE RATHER THAN MERELY INCONVENIENT. A short rest
-        /// always runs inside <c>SelectAbilityCardsOrLongRest</c> — that phase is what the game
-        /// OFFERS the rest in — so <see cref="IsSecretSelectionPhase"/> is true for its whole
-        /// duration and this card could never be shown while it was a term. But the secret that
-        /// phase protects is a DECISION IN FLIGHT: which two cards a player is about to commit. The
-        /// sacrifice is the opposite of a decision in flight — it is a card LEAVING the player's
-        /// resources, drawn from their DISCARD pile by the game's own RNG, and the whole point of
-        /// laying it face-up in a recess is that everyone watches it burn. Nothing about knowing it
-        /// tells you anything about the round the phase is protecting.</para>
+        /// <para>THIS MEMBER WAS AN EXEMPTION FOR TWO BUILDS, ON HIS EARLIER REQUEST (2026-09-05,
+        /// item 15): "Bei einer kurzen Rast soll es sichtbar sein welche Karte dort liegt — ich
+        /// sehe nur die Rückseite." THE CORRECTION IS RECORDED RATHER THAN OVERWRITTEN because the
+        /// two rulings look contradictory and are not: they are separated in time by
+        /// <c>FinalizeShortRest</c>. See <see cref="IsPublicPopulation"/> for the whole derivation.
+        /// The short version is that the paragraph below had the right argument about the WRONG
+        /// MOMENT.</para>
+        ///
+        /// <para>WHY THE ARGUMENT BELOW IS WRONG WHILE THE CARD MERELY LIES THERE. It reasons that
+        /// a sacrifice "is a card LEAVING the player's resources" and therefore not a decision in
+        /// flight. That is true of the card AFTER the accept and false before it: the very next
+        /// paragraph of this doc establishes that <c>CardsHandUI.PerformShortRest</c> REMOVES
+        /// NOTHING and only <c>FinalizeShortRest</c> moves it, so until the owner accepts, the card
+        /// can still be re-drawn and nothing has left anything — the file's own evidence falsified
+        /// its own conclusion one paragraph later. What actually makes a burning card public is a
+        /// property of the CARD, and <see cref="IsPubliclyRevealedCard"/> owns it: on accept the
+        /// card lands in <c>LostAbilityCards</c> BEFORE the burn artwork starts, that predicate
+        /// turns true, and the front opens for the whole burn — in a short rest as anywhere else.
+        /// Item 15's picture is delivered by the burn exception, one accept later.</para>
+        ///
+        /// <para>THE SUPERSEDED ARGUMENT, KEPT VERBATIM SO THE NEXT READER CAN SEE WHAT IT PROVED
+        /// AND WHAT IT DID NOT: "A short rest always runs inside
+        /// <c>SelectAbilityCardsOrLongRest</c> — that phase is what the game OFFERS the rest in —
+        /// so <see cref="IsSecretSelectionPhase"/> is true for its whole duration and this card
+        /// could never be shown while it was a term. But the secret that phase protects is a
+        /// DECISION IN FLIGHT: which two cards a player is about to commit. The sacrifice is the
+        /// opposite of a decision in flight — it is a card LEAVING the player's resources, drawn
+        /// from their DISCARD pile by the game's own RNG, and the whole point of laying it face-up
+        /// in a recess is that everyone watches it burn." The first sentence is a measurement and
+        /// stands; the rest is the inference the user overruled.</para>
         ///
         /// <para>THIS ONE IS NOT SUFFICIENT ON ITS OWN — the identity has to travel too, and it now
         /// does: extension record 39 (<c>NetProtocol.ExtIdSacrificeSeat</c>) names WHICH recess
         /// holds the sacrifice and WHERE that card sits in its owner's discard arc, and
         /// <c>RemoteControlBoard.TryResolveSacrifice</c> asks THIS member before drawing the front.
         /// Both halves shipped in the same build, so this member has never been a permission
-        /// without a picture behind it.</para>
+        /// without a picture behind it. THE RECORD IS UNCHANGED BY ITEM 6 and is still the only
+        /// thing that can name the card: it is what lets the burn exception resolve a FACE for the
+        /// sacrifice the instant the accept commits it, and what lets the recess draw an
+        /// identity-known back rather than an anonymous one before that.</para>
         ///
         /// <para>WHAT THIS PARAGRAPH USED TO SAY, AND WHY THE CORRECTION IS RECORDED RATHER THAN
         /// OVERWRITTEN. It said the card was unnameable — that the peer's pile counts going
@@ -511,12 +539,26 @@ internal static class RevealGate
         /// nur die Rueckseite. Wie gesagt - das ist NICHT als Auswahlphase zu klassifizieren, daher
         /// soll jeder die Karte voll mit der Vorderseite sehen."</para>
         ///
-        /// <para>IT IS EXEMPT, and by the same argument <see cref="SacrificedCard"/> is — which is
-        /// why it sits beside it rather than inside <see cref="PickFan"/>. The secret
-        /// <c>SelectAbilityCardsOrLongRest</c> protects is a DECISION IN FLIGHT: which two cards a
-        /// player is about to COMMIT. A card laid in a recess by a modal pick is the opposite — it
-        /// is a card being LOST or RECOVERED, drawn out of a pile everyone can already browse, and
-        /// laying it down is the announcement of that loss.</para>
+        /// <para>IT IS NO LONGER EXEMPT, and it lost the exemption with
+        /// <see cref="SacrificedCard"/> and for the same reason — which is why it still sits beside
+        /// it rather than inside <see cref="PickFan"/>. THE EXEMPTION COST NOTHING TO GIVE UP, and
+        /// that is a measurement rather than a hope: every flow this member covers except the short
+        /// rest RESOLVES IN THE ACTION PHASE, where <see cref="ShowRoundCardFronts"/> is open on its
+        /// own and this member's answer was never load-bearing. The long rest is committed during
+        /// selection and resolves as an action — the ModBuild 470 host log's <c>[Cards] REST
+        /// GATE</c> line prints a live long-rest flag in phase <c>MonsterClassesSelectAbilityCards</c>
+        /// and again in <c>ActionSelection</c>, never in the secret window — and
+        /// <c>RecoverDiscardedCard</c> / <c>RecoverLostCard</c> are turn actions. The ONE flow this
+        /// member covered INSIDE the secret window was the short-rest sacrifice, which is exactly
+        /// the picture the user ruled against.</para>
+        ///
+        /// <para>THE SUPERSEDED ARGUMENT, KEPT: "The secret <c>SelectAbilityCardsOrLongRest</c>
+        /// protects is a DECISION IN FLIGHT: which two cards a player is about to COMMIT. A card
+        /// laid in a recess by a modal pick is the opposite — it is a card being LOST or RECOVERED,
+        /// drawn out of a pile everyone can already browse, and laying it down is the announcement
+        /// of that loss." Sound for a card that has been lost; the short rest's had not been yet.
+        /// A card genuinely already lost is answered by <see cref="IsPubliclyRevealedCard"/>, which
+        /// is a property of the card and reaches this recess too.</para>
         ///
         /// <para>THE BOUNDARY THAT KEEPS IT FROM BEING A LEAK, and it is enforced in three
         /// independent places rather than asserted here. (1) The mod only ever lays a card in a
@@ -544,19 +586,64 @@ internal static class RevealGate
     /// hardware log say WHICH population is being drawn (and, for the exempt ones, which exemption
     /// is being claimed), never to compute a different answer.
     ///
+    /// <para>ONLY TWO MEMBERS ARE EXEMPT, AND BOTH BY AN EXPLICIT RULING ABOUT A THING THAT IS
+    /// ALREADY PUBLIC: <see cref="PeerCardPopulation.AlreadyPublic"/> (a card that was played
+    /// face-up in an earlier round) and <see cref="PeerCardPopulation.DecisionRowWording"/> (the
+    /// TEXT of a mirrored burn prompt, which is not a face at all). Every other population — the
+    /// hand, the held card, the round slots, the pile arcs, a pick fan, a short-rest sacrifice and
+    /// a card laid in a recess by a modal pick — gets the phase term.</para>
+    ///
+    /// <para>THE SHORT REST IS THE REASON THIS EXPRESSION SHRANK, and the ruling is the user's,
+    /// stated for the THIRD time (2026-09-07, item 6): "Kurze Rast habe ich die Vorderseite der
+    /// Karte gesehen, das ist die Auswahlphase und darf daher nicht sein. Nochmal: Kurze Rast =
+    /// Auswahlphase = verdeckt, Lange Rast = Aktionsphase = alles offen." He arrived at it himself
+    /// on the game's logic once this project measured the short rest running inside
+    /// <c>SelectAbilityCardsOrLongRest</c>: "während einer kurzen Rast ist man de facto noch in der
+    /// Auswahlphase und bleibt daher verdeckt".</para>
+    ///
+    /// <para>IT SUPERSEDES 2026-09-05 ITEM 15, AND THE TWO RULINGS DO NOT ACTUALLY CONFLICT —
+    /// THEY ARE SEPARATED IN TIME BY <c>FinalizeShortRest</c>. Item 15 asked to see WHICH card is
+    /// lying there; <see cref="PeerCardPopulation.SacrificedCard"/>'s own doc records the game
+    /// timing that settles it: <c>CardsHandUI.PerformShortRest</c> indexes
+    /// <c>DiscardedAbilityCards</c> and REMOVES NOTHING, and only <c>FinalizeShortRest</c>, on
+    /// ACCEPT, moves the card. So while the sacrifice merely LIES in the recess it is a decision
+    /// still in flight — its owner may re-draw it — and it is covered, which is item 6. The instant
+    /// they accept, the card lands in <c>LostAbilityCards</c> BEFORE the burn artwork starts
+    /// (<c>CardEffects.BurnCardTimeline</c>), <see cref="IsPubliclyRevealedCard"/> turns true for
+    /// it, and the burn exception opens the front for the whole of the burn — which is item 15's
+    /// picture and the "EGAL AUS WELCHEM GRUND" ruling in one. Nothing was traded away; the front
+    /// arrives one accept later than it used to.</para>
+    ///
+    /// <para>THE PHASE TERM IS ALREADY THE SHORT-REST/LONG-REST DISCRIMINATOR, WHICH IS WHY NO NEW
+    /// TERM WAS ADDED. Both rests are OFFERED in <c>SelectAbilityCardsOrLongRest</c>, so the state
+    /// name cannot tell them apart — but only the SHORT one RUNS there. A long rest is committed
+    /// during selection (<c>CCharacterClass.LongRest</c>) and RESOLVES as an action: the ModBuild
+    /// 470 host log carries both readings, <c>[Cards] REST GATE ... in phase
+    /// MonsterClassesSelectAbilityCards ... long=True</c> and the same line again <c>in phase
+    /// ActionSelection</c>, i.e. at both moments a long rest was live the phase was NOT the secret
+    /// window. These two carve-outs were the ONLY thing that made a short rest behave like the
+    /// action phase; removing them lets the phase term be the discriminator it always was. If a
+    /// future build ever finds a long-rest pick evaluating inside the secret window, the term to
+    /// add is <c>CCharacterClass.LongRest</c> — host-replicated, readable off the same
+    /// <c>actor.CharacterClass</c> this file already walks, and needing no wire field.</para>
+    ///
     /// <para><see cref="PeerCardPopulation.PickFan"/> IS NOT EXEMPT, and it is listed on the
     /// non-exempt side explicitly rather than by falling off the end of the expression: it is a
     /// member added for a defect that turned out NOT to be a secrecy defect at all, and the next
     /// reader has to be able to see that it grants nothing. See its own doc for the reading that
     /// settled it.</para>
     ///
-    /// <para><see cref="PeerCardPopulation.BoardPickSeat"/> IS exempt, and its own doc carries the
-    /// three-place boundary that makes the exemption safe — read it before adding a fourth member
-    /// on this side of the expression, because a member added here is exempt by DEFAULT.</para>
+    /// <para>A MEMBER ADDED TO THE EXEMPT SIDE OF THIS EXPRESSION OVERRIDES A RULING THE USER HAS
+    /// NOW STATED THREE TIMES. Do not add one for a PLACE ("the card is in a recess", "the card is
+    /// in the pick field"); a place rule is exactly what this expression used to be and it is what
+    /// showed him a front in a short rest. If the next card needs a front inside the secret window,
+    /// establish that it is public as a property of the CARD and put it in
+    /// <see cref="IsPubliclyRevealedCard"/>, which every surface already asks and which follows the
+    /// card wherever it goes.</para>
     /// </summary>
     public static bool IsPublicPopulation(PeerCardPopulation population) =>
-        population != PeerCardPopulation.Selectable
-        && population != PeerCardPopulation.PickFan;
+        population == PeerCardPopulation.AlreadyPublic
+        || population == PeerCardPopulation.DecisionRowWording;
 
     /// <summary>
     /// IS THIS PARTICULAR CARD'S FACE ALREADY PUBLIC, whatever phase the game is in and whatever
@@ -768,6 +855,129 @@ internal static class RevealGate
             ? CardFaces(PeerCardPopulation.AlreadyPublic, actor)
             : CardFaceSource.None;
     }
+
+    /// <summary>
+    /// WHICH RULE CHOSE THE FACE — the named answer to the question every wrong-face report has
+    /// cost a round to ask: not "was it a front or a back", which the census already prints, but
+    /// WHY.
+    ///
+    /// <para>IT EXISTS BECAUSE A COUNT AND A REASON CAME APART, AND THE ModBuild 470 HOST LOG
+    /// SHOWS IT. That census read <c>round slots[p2] 1 FRONT / 0 BACK —
+    /// RevealGate.ShowRoundCardFronts(actor)=false</c>: a front, beside the sentence saying fronts
+    /// were forbidden. Nothing was lying — the population's rule string was true of the POPULATION
+    /// and the front had been chosen for one CARD by a different rule (the short-rest carve-out
+    /// that item 6 has since retired, or the burn exception). A rule printed per population cannot
+    /// name a rule that fires per card, and this project has a recorded finding for exactly that
+    /// shape. This enum is per CARD.</para>
+    /// </summary>
+    public enum FaceRule
+    {
+        /// <summary>BACK. The game's own secret <c>SelectAbilityCardsOrLongRest</c> window is open
+        /// online for a character that is not ours, and this card's population is one the secret
+        /// applies to. THE SHORT REST LANDS HERE (user, 2026-09-07 item 6: "Kurze Rast =
+        /// Auswahlphase = verdeckt"), because a short rest runs inside that phase.</summary>
+        SelectionPhaseCovered,
+
+        /// <summary>FRONT. No secret is in flight — the action phase, our own character, offline, or
+        /// a scenario that is not in the selection window. THE LONG REST LANDS HERE (user: "Lange
+        /// Rast = Aktionsphase = alles offen"): it is committed during selection but RESOLVES as an
+        /// action, so its picks and its laid card are drawn under this rule and not the one
+        /// above.</summary>
+        ActionPhaseOpen,
+
+        /// <summary>FRONT, IN EVERY PHASE INCLUDING A SHORT REST — the burn exception. This card is
+        /// in its owner's <c>ActivatedCards</c>, <c>LostAbilityCards</c> or
+        /// <c>PermanentlyLostAbilityCards</c> (<see cref="IsPubliclyRevealedCard"/>). User,
+        /// verbatim: "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der
+        /// Vorderseite sichtbar sein." It OUTRANKS <see cref="SelectionPhaseCovered"/> and is the
+        /// only thing that does.</summary>
+        BurnOrActivePublicCard,
+
+        /// <summary>FRONT. The surface declared a population that carries its own standing ruling —
+        /// the active-card matrix, or a mirrored decision row's WORDING. See
+        /// <see cref="IsPublicPopulation"/>.</summary>
+        PublicPopulation,
+
+        /// <summary>FRONT, off the peer's replicated map loadout: no scenario is running, so there
+        /// is no phase to be secret in.</summary>
+        MapLoadout,
+
+        /// <summary>BACK. Not a secrecy verdict at all — there is no actor, no scenario and no map,
+        /// so no face could be resolved from anywhere. Kept distinct from
+        /// <see cref="SelectionPhaseCovered"/> because reading a CAPABILITY failure as a SECRECY
+        /// answer is this file's oldest recorded defect.</summary>
+        NoContext,
+    }
+
+    /// <summary>
+    /// <see cref="CardFaces(PeerCardPopulation, CPlayerActor, int)"/>, naming the rule that decided.
+    /// The verdict is unchanged — this overload adds no branch and can widen nothing; it only says
+    /// out loud which of the three sentences in the user's ruling produced the face, so the next
+    /// report of a wrong face is one grep instead of a round.
+    /// </summary>
+    public static CardFaceSource CardFaces(PeerCardPopulation population,
+                                           ScenarioRuleLibrary.CPlayerActor? actor,
+                                           int cardInstanceId,
+                                           out FaceRule rule)
+    {
+        CardFaceSource byPopulation = CardFaces(population, actor);
+        if (byPopulation == CardFaceSource.MapLoadout)
+        {
+            rule = FaceRule.MapLoadout;
+            return byPopulation;
+        }
+        if (byPopulation == CardFaceSource.Scenario)
+        {
+            rule = IsPublicPopulation(population)
+                ? FaceRule.PublicPopulation
+                : FaceRule.ActionPhaseOpen;
+            return byPopulation;
+        }
+        // Refused by population. The burn exception is the one thing that reopens it, and it is a
+        // property of the CARD — asked second so it can only ever widen (see the overload above).
+        if (IsPubliclyRevealedCard(actor, cardInstanceId))
+        {
+            CardFaceSource asPublic = CardFaces(PeerCardPopulation.AlreadyPublic, actor);
+            if (asPublic != CardFaceSource.None)
+            {
+                rule = FaceRule.BurnOrActivePublicCard;
+                return asPublic;
+            }
+        }
+        // A BACK, and the two reasons for one are not the same reading. InScenario with an actor
+        // means the phase covered it; anything else means no face could have been resolved at all.
+        rule = InScenario && actor != null
+            ? FaceRule.SelectionPhaseCovered
+            : FaceRule.NoContext;
+        return CardFaceSource.None;
+    }
+
+    /// <summary>The log wording for <paramref name="rule"/> — one sentence per rule, so a hardware
+    /// log names the ruling and not just the outcome. Kept beside the enum because a rule whose
+    /// wording lives at a call site is a rule two call sites can word differently.</summary>
+    public static string RuleText(FaceRule rule) => rule switch
+    {
+        FaceRule.SelectionPhaseCovered =>
+            "SELECTION PHASE — the game's own secret SelectAbilityCardsOrLongRest window is open "
+            + "for this remote character, so this card is COVERED (a SHORT REST runs inside this "
+            + "phase and is covered with it: user 2026-09-07 item 6)",
+        FaceRule.ActionPhaseOpen =>
+            "ACTION PHASE — no secret is in flight, so the real front is shown (a LONG REST "
+            + "resolves here, not in the selection window: user 2026-09-07 item 6)",
+        FaceRule.BurnOrActivePublicCard =>
+            "BURN/ACTIVE EXCEPTION — this card is in its owner's activated or lost/permanently-lost "
+            + "list, so its front is shown in EVERY phase including a short rest (user: 'Beim "
+            + "Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar "
+            + "sein')",
+        FaceRule.PublicPopulation =>
+            "PUBLIC POPULATION — this surface declared a population carrying its own standing "
+            + "ruling (the active-card matrix, or a decision row's wording)",
+        FaceRule.MapLoadout =>
+            "MAP LOADOUT — no scenario is running, so there is no phase to be secret in",
+        _ =>
+            "NO CONTEXT — no actor, no scenario and no map, so no face could be resolved from "
+            + "anywhere. This is a CAPABILITY failure and NOT a secrecy verdict",
+    };
 
     // ============================================================================================
     //  PER-CHARACTER GOALS — the SECOND secret this game has, and the one the free character focus

@@ -613,6 +613,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// <c>PeerCardFaceCensus.Surface.BoardPickSeat</c>.</summary>
     private int _slotPickSeatMask;
 
+    /// <summary>Which recesses hold a record-39 card this client HAS resolved and is lawfully
+    /// drawing FACE-DOWN (bit per slot) — the short rest inside the selection phase, 2026-09-07
+    /// item 6. Kept apart from <see cref="_slotAnonMask"/> because the two are different readings
+    /// with different fixes: an anonymous back means nothing could NAME the card, this one means the
+    /// card is named and the phase says cover it, and folding them together is how a lawful back
+    /// would read as a broken wire for the rest of the project.</summary>
+    private int _slotPickBackMask;
+
     /// <summary>What decided this frame's <see cref="_slotPickSeatMask"/> / <see cref="_slotAnonMask"/>
     /// split, in the short form the census quotes verbatim. Set every frame in
     /// <see cref="SeatSlots"/> so it can never describe an older frame's picture.</summary>
@@ -867,8 +875,17 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         if (_slotAnonMask == 0)
             _loggedAnonSlot = -1;
 
-        int seatedSlots = CountBits(_slotOccupiedMask);
-        int facedSlots = CountBits(_slotFaceMask);
+        // ─── A POPULATION MAY NOT COUNT A FACE ANOTHER POPULATION'S RULE CHOSE ─────────────────
+        // The ModBuild 470 host log read `round slots[p2] 1 FRONT / 0 BACK —
+        // RevealGate.ShowRoundCardFronts(actor)=false`: a front, printed beside the sentence saying
+        // fronts were forbidden. Nothing lied. The face belonged to the recess's record-39 card,
+        // which is reported below as its OWN population under its OWN rule, and _slotFaceMask
+        // carries both — so the one card was counted twice and attributed to the rule that did not
+        // choose it. A rule string is only evidence while its numerator is the set of cards that
+        // rule actually decided, so the record-39 recesses are subtracted from BOTH terms here.
+        int pickMask = _slotPickSeatMask | _slotPickBackMask;
+        int seatedSlots = CountBits(_slotOccupiedMask & ~pickMask);
+        int facedSlots = CountBits(_slotFaceMask & ~pickMask);
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.RoundSlots, _owner.PlayerId,
             facedSlots, seatedSlots - facedSlots,
             showFronts
@@ -883,7 +900,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // EVERY phase, and the rule beside it names which half — a seat the owner never sent, or a
         // seat this client could not resolve.
         int pickFronts = CountBits(_slotPickSeatMask);
-        int pickBacks = CountBits(_slotAnonMask);
+        // A BACK HERE IS NOW TWO DIFFERENT READINGS AND _pickSeatRule TELLS THEM APART: a recess
+        // nothing could NAME (_slotAnonMask — a wire or arithmetic defect) and a recess this client
+        // named and is lawfully covering (_slotPickBackMask — a short rest inside the selection
+        // phase, 2026-09-07 item 6, which is correct and must not be read as a defect).
+        int pickBacks = CountBits(_slotAnonMask | _slotPickBackMask);
         if (pickFronts > 0 || pickBacks > 0)
             PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.BoardPickSeat, _owner.PlayerId,
                 pickFronts, pickBacks, _pickSeatRule);
@@ -1532,6 +1553,56 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// <c>RoundAbilityCards</c>. That is a three-number proof that no receiver-side cleverness can
     /// close the gap.</para>
     /// </summary>
+    /// <summary>Per recess: the card, the face and the RULE that chose it, as last logged — so the
+    /// line below fires on a real change and never per frame. Keyed on all three, because the same
+    /// card can legitimately change face (a short-rest sacrifice going from covered to burning) and
+    /// the same face can legitimately change rule (the selection phase ending under a card that was
+    /// already public).</summary>
+    private readonly int[] _loggedFaceCard = { int.MinValue, int.MinValue };
+    private readonly int[] _loggedFaceRule = { -1, -1 };
+    private readonly bool[] _loggedFaceFront = new bool[SlotCount];
+
+    /// <summary>
+    /// WHICH FACE THIS RECESS IS SHOWING AND WHICH RULE CHOSE IT — one line per real change, so the
+    /// next report of a wrong face is one grep instead of a round.
+    ///
+    /// <para>WHY IT IS PER CARD AND NOT PER SURFACE. <c>Net.PeerCardFaceCensus</c> already prints a
+    /// rule per POPULATION every 10 s, and that is the granularity that failed: a population's rule
+    /// string is true of the population and says nothing about a card whose face a DIFFERENT rule
+    /// chose — the burn exception, which is a property of the card and fires inside a window the
+    /// population-level rule has just declared shut. The ModBuild 470 host log carries exactly that
+    /// reading (see the census attribution note in <see cref="Tick"/>). This line names the ruling
+    /// for the one card in front of the user.</para>
+    ///
+    /// <para>IT IS A STATEMENT ABOUT WHAT WAS DRAWN, taken at the draw site with the value that was
+    /// handed to <c>RemoteBoardCard.Set</c> — not a re-derivation, which is the shape that lets an
+    /// instrument agree with a picture it never measured.</para>
+    /// </summary>
+    private void LogRecessFaceRule(int slot, CAbilityCard card, bool front,
+                                   RevealGate.FaceRule rule, CPlayerActor? actor)
+    {
+        if (slot < 0 || slot >= SlotCount)
+            return;
+        int id = card != null ? card.CardInstanceID : int.MinValue;
+        if (_loggedFaceCard[slot] == id && _loggedFaceRule[slot] == (int)rule
+            && _loggedFaceFront[slot] == front)
+            return;
+        _loggedFaceCard[slot] = id;
+        _loggedFaceRule[slot] = (int)rule;
+        _loggedFaceFront[slot] = front;
+        string who = actor != null && actor.Class != null ? actor.Class.ID : "?";
+        string name = card != null ? card.Name : "?";
+        // HW-VERIFY
+        VRLog.Note("Net", $"CARD FACE RULE: peer [{_owner.PlayerId}] recess {slot + 1} is showing "
+                        + $"'{name}' ({who}) with its {(front ? "FRONT" : "BACK")} — chosen by "
+                        + RevealGate.RuleText(rule)
+                        + ". This is the face this client DREW, read off the value handed to the "
+                        + "slot, not a second derivation of the rule. A wrong face is therefore one "
+                        + "grep: the card is named, the face is named, and the ruling that chose it "
+                        + "is quoted — so the question is only ever whether the RULE is the one the "
+                        + "user stated for this moment, never which of several rules fired.");
+    }
+
     private void LogAnonymousRecess(int slot, CPlayerActor? actor)
     {
         if (_loggedAnonSlot == slot)
@@ -1648,25 +1719,28 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// A back is wrong in a way the player reads as "not loaded"; a confidently wrong FACE is wrong
     /// in a way he cannot read at all and would act on.</para>
     ///
-    /// <para>THE GATE IS ASKED HERE AND IS NOT RE-DERIVED. <c>RevealGate.IsPublicPopulation</c> over
-    /// the named <c>SacrificedCard</c> population is the one expression; the receiver asks it rather
-    /// than trusting the sender's willingness to write the record, so a future build that widened
-    /// the sender by mistake still cannot open a recess this client's own gate says is secret.</para>
+    /// <para>THIS IS A RESOLVE AND NOT A PERMISSION, AND THE SPLIT IS THE 2026-09-07 ITEM 6 FIX.
+    /// It used to refuse outright unless <c>RevealGate.IsPublicPopulation</c> answered true for the
+    /// two carved-out populations — which was harmless only while those two were unconditionally
+    /// exempt. They are not any more (a short rest is the selection phase and is COVERED), and
+    /// leaving the permission here would have taken the card's IDENTITY away with its face: the
+    /// recess would fall back to an ANONYMOUS back, and <see cref="TryNameArrivingRecessFace"/> —
+    /// which is how a burn flight learns which card left a recess — would answer nothing at all.
+    /// That would break the ruling that outranks item 6 ("Beim Verbrennen EGAL AUS WELCHEM GRUND
+    /// muss die Karte immer mit der Vorderseite sichtbar sein"), because the burn exception can only
+    /// fire for a card something can NAME. So: this method names the card, and
+    /// <c>RevealGate.CardFaces</c> at the one call site below decides whether that card is drawn
+    /// front or back. Resolve, then gate — never gate the resolve.</para>
+    ///
+    /// <para>THE ANTI-CHEAT BOUNDARY IS STRUCTURAL AND IS UNCHANGED. The record's own vocabulary
+    /// refuses the HAND list (see the refusal below), so a card of the two-card commit — the one
+    /// secret <c>SelectAbilityCardsOrLongRest</c> exists to keep — is not expressible here even in
+    /// principle. Naming a DISCARD or BURNT card grants nothing on its own: the face still has to
+    /// pass the gate, and in the secret window it does not.</para>
     /// </summary>
     private bool TryResolveSacrifice(int slot, CPlayerActor? actor, out CAbilityCard? card)
     {
         card = null;
-        // BOTH carve-outs are asked, because record 39 now carries both populations and the reveal
-        // gate must be able to refuse either one on its own. The BURNT list can only ever be a
-        // BoardPickSeat (a short-rest sacrifice is drawn from the discard pile by the game's own
-        // RNG and is never in the lost pile), and the DISCARD list can be either — which is why the
-        // permission below is the OR of the two rather than a branch on the list id: refusing a
-        // discard-arc pick because the sacrifice rule was asked would put a back where the user
-        // ruled a front, and there is no state in which one of these two is public and the other is
-        // not. If a future ruling ever separates them, the list id is the term to branch on.
-        if (!RevealGate.IsPublicPopulation(RevealGate.PeerCardPopulation.SacrificedCard)
-            && !RevealGate.IsPublicPopulation(RevealGate.PeerCardPopulation.BoardPickSeat))
-            return false;
         byte code = _owner.SacrificeSeatCode(slot);
         byte list = NetProtocol.HeldFaceList(code);
         // THE HAND LIST IS REFUSED HERE TOO, and not merely absent from the sender. This is the
@@ -2153,6 +2227,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _slotFaceMask = 0;
         _slotAnonMask = 0;
         _slotPickSeatMask = 0;
+        _slotPickBackMask = 0;
         _pickSeatRule = "no recess needed a record-39 seat this frame";
 
         // TWO resets, and only two (see _latchedFaces / _latchedActor):
@@ -2271,19 +2346,46 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // also cannot disturb that walk: it never advances `next`, because a sacrifice recess
             // is not holding a round card.
             //
-            // IT IS DRAWN FACE-UP EVEN WHILE THE GATE IS SHUT, and that is the whole point. A short
-            // rest always runs inside SelectAbilityCardsOrLongRest, so showFronts is false for its
-            // entire duration; RevealGate.PeerCardPopulation.SacrificedCard is the named carve-out
-            // that says the phase term is WRONG for this population rather than merely
-            // inconvenient, and IsPublicPopulation is the one expression that answers it.
+            // ITS FACE IS THE GATE'S ANSWER AND NOT THIS BRANCH'S — 2026-09-07 item 6, and it is
+            // the third statement of the rule: "Kurze Rast = Auswahlphase = verdeckt, Lange Rast =
+            // Aktionsphase = alles offen." This branch used to hardcode front:true because
+            // SacrificedCard/BoardPickSeat were exempt from the phase; they are not any more
+            // (RevealGate.IsPublicPopulation carries the whole derivation), so the identity resolved
+            // above is drawn through the same predicate every other card is. Three outcomes, all
+            // named in the log line below:
+            //   • short rest, still lying there  ⇒ SELECTION PHASE, a BACK — but an identity-KNOWN
+            //     back, not an anonymous one, which is why the resolve above is not gated;
+            //   • the owner accepts and it burns ⇒ BURN/ACTIVE EXCEPTION, a FRONT, because the card
+            //     lands in LostAbilityCards before the burn artwork starts;
+            //   • a long-rest / recover pick     ⇒ ACTION PHASE, a FRONT, as it always was.
             if (TryResolveSacrifice(i, actor, out CAbilityCard? sacrifice) && sacrifice != null)
             {
-                _slotFaceMask |= 1 << i;
-                _slotPickSeatMask |= 1 << i;
+                // THE SAME EXPRESSION THE ORDINARY ROUND CARD BELOW USES, and that identity is the
+                // point rather than a coincidence: now that SacrificedCard is no longer exempt,
+                // RevealGate.IsPublicPopulation answers false for it exactly as it does for
+                // Selectable, so the two populations have the SAME face rule and writing it once
+                // means a recess cannot draw one card by one rule and the next by another. See the
+                // note at the ordinary branch for why this is not routed through
+                // RevealGate.CardFaces (its InScenario term is a capability test this board's
+                // lifetime does not share).
+                bool pickPublic =
+                    RevealGate.IsPubliclyRevealedCard(actor, sacrifice.CardInstanceID);
+                bool pickFront = showFronts || pickPublic;
+                RevealGate.FaceRule pickRule =
+                    showFronts ? RevealGate.FaceRule.ActionPhaseOpen
+                  : pickPublic ? RevealGate.FaceRule.BurnOrActivePublicCard
+                  : RevealGate.FaceRule.SelectionPhaseCovered;
+                if (pickFront)
+                    _slotFaceMask |= 1 << i;
+                if (pickFront)
+                    _slotPickSeatMask |= 1 << i;
+                else
+                    _slotPickBackMask |= 1 << i;
                 _pickSeatRule = "extension record 39 named a seat and this client resolved it in "
-                    + "its own copy of that pile arc (RevealGate.PeerCardPopulation."
-                    + "SacrificedCard/BoardPickSeat — carved out of the phase)";
-                _cards[i].Set(sacrifice, front: true, actor);
+                    + "its own copy of that pile arc; the FACE was then chosen by "
+                    + RevealGate.RuleText(pickRule);
+                LogRecessFaceRule(i, sacrifice, pickFront, pickRule, actor);
+                _cards[i].Set(sacrifice, pickFront, actor);
                 // NOT LATCHED. _latchedFaces exists so a recess whose ROUND card the model has
                 // drained keeps the face it legitimately showed; a sacrifice is the opposite kind
                 // of card — it leaves the moment its owner accepts or re-draws, and a latch would
@@ -2339,9 +2441,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             //
             // IT CHANGES NO PERMISSION. The face goes up under `showFronts` exactly like every
             // other one below — a recess filling during the secret selection phase still draws a
-            // back on every peer, which is RevealGate's ruling and not this method's to widen. The
-            // sacrifice carve-out above is the ONLY face that is drawn while the gate is shut, and
-            // it stays the only one.
+            // back on every peer, which is RevealGate's ruling and not this method's to widen. As of
+            // 2026-09-07 item 6 the BURN EXCEPTION (RevealGate.IsPubliclyRevealedCard) is the ONLY
+            // thing that draws a face while the gate is shut, on this recess and on every other
+            // surface; the sacrifice carve-out that used to be the other one is retired.
             if (card == null)
                 card = _owner.HandFan.HandoffFor(i);
             if (card == null)
@@ -2376,7 +2479,22 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // the picture deliberately — a face this recess legitimately showed is exactly what the
             // latch is for, and a flight out of this recess (TryTakeDepartedFace) must be able to
             // inherit a burning card's front or item 6's first half comes straight back.
-            bool front = showFronts || RevealGate.IsPubliclyRevealedCard(actor, card.CardInstanceID);
+            // THE EXPRESSION IS UNCHANGED AND DELIBERATELY IS NOT RevealGate.CardFaces. That call
+            // folds in RevealGate.InScenario as its CAPABILITY half, and this board's own lifetime
+            // is gated on RemoteBoardScenarioGate instead — whose doc says in as many words that it
+            // is "deliberately NOT RevealGate.InScenario". In the window where the two disagree (the
+            // board is up, the save's CurrentGameState has not said Scenario yet) ShowRoundCardFronts
+            // answers TRUE by negation and this recess draws a front, while CardFaces would answer
+            // None and draw a BACK — i.e. routing this line through CardFaces would silently trade
+            // this recess into the one thing that is prohibited outright ("außerhalb der Auswahlphase
+            // NIEMALS Rückseiten"). The RULE is named without changing the verdict: the face is
+            // decided here, exactly as before, and the rule is derived from the term that decided it.
+            bool publicCard = RevealGate.IsPubliclyRevealedCard(actor, card.CardInstanceID);
+            bool front = showFronts || publicCard;
+            RevealGate.FaceRule rule = showFronts ? RevealGate.FaceRule.ActionPhaseOpen
+                                     : publicCard ? RevealGate.FaceRule.BurnOrActivePublicCard
+                                     : RevealGate.FaceRule.SelectionPhaseCovered;
+            LogRecessFaceRule(i, card, front, rule, actor);
             _cards[i].Set(card, front, actor);
             if (front)
             {
@@ -2852,6 +2970,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _slotFaceMask = 0;
         _slotAnonMask = 0;
         _slotPickSeatMask = 0;
+        _slotPickBackMask = 0;
         _pickSeatRule = "no recess needed a record-39 seat this frame";
         _loggedContent = string.Empty; // the next visible refresh must re-state what is drawn
     }

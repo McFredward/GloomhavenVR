@@ -459,8 +459,18 @@ internal sealed class RemoteCardFx
     {
         ScenarioRuleLibrary.CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
         // THE ARRIVING CARD IS A PILE CARD BY CONSTRUCTION — record 39's vocabulary cannot express a
-        // hand seat — so the population it is asked under is the one the user carved the recess out
-        // for, and the three-argument overload can only widen it further for a burned or active card.
+        // hand seat — so the population it is asked under is the recess's own, BoardPickSeat.
+        //
+        // THAT POPULATION IS NO LONGER EXEMPT FROM THE PHASE (2026-09-07 item 6: a short rest IS
+        // the selection phase and is covered with it), so what carries a flight's front inside that
+        // window is now the three-argument overload's second term and nothing else — the BURN
+        // EXCEPTION, RevealGate.IsPubliclyRevealedCard. That is the term that matters here and it is
+        // enough: the flight this method exists for is a card leaving a recess for a PILE, and the
+        // one that leaves during a short rest is the accepted sacrifice, which the game commits into
+        // LostAbilityCards BEFORE the burn artwork starts. So an accepted sacrifice still flies with
+        // its front ("Beim Verbrennen EGAL AUS WELCHEM GRUND"), and a REDRAWN one — a card going
+        // back to the discard pile, still secret, still re-drawable — now flies covered, which is
+        // the ruling. Outside the selection window nothing changed: the gate is open on its own.
         if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.BoardPickSeat, actor,
                                  card.CardInstanceID) == RevealGate.CardFaceSource.None)
             return null;

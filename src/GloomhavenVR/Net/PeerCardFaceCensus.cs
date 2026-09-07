@@ -225,10 +225,18 @@ internal static class PeerCardFaceCensus
             return $"PHASE={phase}, online={online}, POLICY="
                  + (secret && online
                      ? "BACKS ARE LAWFUL for a remote character's hand, held card, round slots, "
-                       + "pile arcs and item fan — this IS the game's own "
-                       + "SelectAbilityCardsOrLongRest window and the two-card commit it protects "
-                       + "is in flight. The active matrix and a short-rest sacrifice are carved out "
-                       + "of even this and must still read 0 BACK"
+                       + "pile arcs, item fan and the card lying in a recess — this IS the game's "
+                       + "own SelectAbilityCardsOrLongRest window and the two-card commit it "
+                       + "protects is in flight. A SHORT REST RUNS INSIDE THIS WINDOW AND IS "
+                       + "COVERED WITH IT (user 2026-09-07 item 6, his third statement of the "
+                       + "rule: 'Kurze Rast = Auswahlphase = verdeckt, Lange Rast = Aktionsphase = "
+                       + "alles offen') — so 'board pick seat' reading BACK here is CORRECT, and "
+                       + "its own rule says whether the card was named-and-covered or merely "
+                       + "unnameable. TWO things must still read 0 BACK even here: the active "
+                       + "matrix, and any card that is already public — activated, lost or "
+                       + "permanently lost — because the burn exception outranks the phase ('Beim "
+                       + "Verbrennen EGAL AUS WELCHEM GRUND'). Read the per-card [Net] CARD FACE "
+                       + "RULE lines for which rule chose any single face"
                      : "FRONTS EVERYWHERE — no secret is in flight, so ANY non-zero BACK below is a "
                        + "defect and the rule beside it names which one. A long rest is an ACTION "
                        + "and lands here, not in the window above, whichever phase it resolves in");
@@ -381,8 +389,14 @@ internal static class PeerCardFaceCensus
             + "BACK in any phase (user ruling 2026-09-05: an active card was played face-up, it is "
             + "no secret). 'flight slab' is EVENT-DRIVEN — its ticks are FLIGHTS, not samples, so "
             + "read its interval PEAK and not its live split (report item 5). 'board pick seat' 0 "
-            + "FRONT / n BACK is report item 7's card lying on the board: read the rule, which says "
-            + "whether record 39 named a seat or whether this client could not resolve one.");
+            + "FRONT / n BACK is the card lying on the board, and since 2026-09-07 item 6 it has "
+            + "THREE readings, not two — its rule says which: the phase covered a card this client "
+            + "HAD named (a short rest, and CORRECT), record 39 named no seat, or record 39 named "
+            + "one this client could not resolve. Only the last two are defects. NO ROW HERE NAMES "
+            + "THE RULE FOR A SINGLE CARD: a population's rule is true of the population, and the "
+            + "burn exception fires per CARD inside a window the population rule has just declared "
+            + "shut — which is how ModBuild 470 printed 'round slots 1 FRONT' beside "
+            + "'ShowRoundCardFronts(actor)=false'. For one card, grep [Net] CARD FACE RULE.");
 
         // Peaks are per-interval; the live values stay so a population that stops reporting keeps
         // its last picture rather than silently reading zero.

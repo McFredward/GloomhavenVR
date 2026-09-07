@@ -3631,6 +3631,41 @@ internal sealed partial class CardsDriver
         // REMEMBERED last position, not a seat, and naming a recess from it would be exactly the
         // approximation item 5's fix exists to remove.
         ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+        // ─── A STANDING VIOLATION OF THE BURN RULING, AND IT NOW SAYS SO EVERY TIME IT FIRES ────
+        // "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar
+        // sein." BurnSlab.Launch builds ONE mesh with an edge material and a BACK material and no
+        // front at all (see its own note), so every flight down this branch shows a card back on
+        // both faces — the one picture that ruling forbids outright, with no phase, pile or
+        // anti-cheat argument that outranks it.
+        //
+        // WHY IT IS NAMED HERE RATHER THAN FIXED HERE, stated so it cannot be read as an oversight.
+        // (1) It is the LOCAL owner's own flight, so it is invisible to the systematic face audit:
+        //     Net.PeerCardFaceCensus enumerates the surfaces that draw a PEER's card and this is not
+        //     one of them, which is exactly why a wrong face survived here while eight peer surfaces
+        //     were being audited. That blind spot is the finding; this line is what closes it.
+        // (2) Putting a real front on this slab is not a material swap. A card front in this mod is
+        //     a BORROWED uGUI widget on a FaceCanvas (Cards.CardFace), and putting one on a
+        //     self-destructing transient and restoring it is the machinery whose failure mode is
+        //     already recorded in this project ("Replaying them is how a burned card's face got put
+        //     back where it no longer belongs", CardFace.Restore). Doing that from the face lane
+        //     while the burn-sequencing lane is rewriting the callers is how two correct changes
+        //     make one broken flight.
+        // THE FALSIFIER IS THIS LINE'S OWN EXISTENCE: if it never appears in a hardware log, the
+        // branch is unreachable and the violation is theoretical; if it appears once, the front rig
+        // is owed and the log names the card it was owed for.
+        // HW-VERIFY
+        VRLog.Note("Cards", $"CARD FACE RULE [{origin}/slab]: '{CardsGameApi.CardName(widget)}' " +
+                            "burned and is flying with its BACK — chosen by NO RULE. This is a " +
+                            "KNOWN STANDING VIOLATION of the burn ruling ('Beim Verbrennen EGAL " +
+                            "AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar " +
+                            "sein'): the transient BurnSlab is built with an edge material and a " +
+                            "card-BACK material and carries no front at all. It is reached ONLY " +
+                            "when no live VR card is left for the burned widget, so this line " +
+                            "APPEARING AT ALL is the evidence that the front rig is owed — and its " +
+                            "absence across a session is the evidence that the branch is dead. " +
+                            "Every other burn surface gets its front from " +
+                            "Net.RevealGate.IsPubliclyRevealedCard, which is a property of the CARD " +
+                            "and needs no phase; this one has no face host to give it to.");
         VRLog.Info("Cards", $"BURN ANIM [{origin}/slab]: '{CardsGameApi.CardName(widget)}' burned — transient card-back slab " +
                             $"from {fromPos} (the burned card's true last position) → Burnt pile " +
                             $"({FlyToPileSeconds:F2}s, arc {slabArc:F3} m over the board), orientation held — no " +
@@ -3643,6 +3678,15 @@ internal sealed partial class CardsDriver
     /// <see cref="VRCard.FlyToPile"/>, then removes itself. Used only when the burned card has no
     /// live VR representation to fly. Parented under the cards anchor so it shares the diorama
     /// scale; works in world space on unscaled time (card phases pause timeScale).
+    ///
+    /// <para>IT DRAWS A CARD BACK ON BOTH FACES, AND THAT IS A KNOWN STANDING VIOLATION rather than
+    /// a design choice: the two materials below are the edge and the BACK, and there is no face host
+    /// on this object at all. The user's ruling is "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die
+    /// Karte immer mit der Vorderseite sichtbar sein", so a burn flight showing a back is wrong on
+    /// every path that reaches it. The caller emits a <c>CARD FACE RULE …/slab</c> line saying so
+    /// every time this launches — read that line's presence or absence before deciding whether the
+    /// front rig is worth building, because the branch is only reached when the burned widget has
+    /// no live VR card left and may well be dead.</para>
     /// </summary>
     private sealed class BurnSlab : MonoBehaviour
     {
