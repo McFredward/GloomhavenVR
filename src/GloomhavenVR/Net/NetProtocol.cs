@@ -448,7 +448,97 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 477;
+    public const ushort ModBuild = 478;
+    // Build 478: THE REVIEW ROUND. Five read-only reviews answering the maintainer's five standing
+    //   questions, then six fix lanes. NOT A HARDWARE ROUND — nothing here comes from a new test;
+    //   every defect below was found by reading the shipped code against the game and against the
+    //   ModBuild 476 logs we already had. The shape of it: THE SAME EXPRESSION, WRITTEN TWICE.
+    //   * A DEADLOCK, AND ITS MULTIPLAYER PATH NEEDS NO PLAYER ACTION. PickFlowWatch's END edge
+    //     treated every CardsHandUI.Hide() on the flow-owning hand as the player's answer, but
+    //     CardsHandManager.SwitchHand hides every non-target hand (CardsHandManager.cs:635) and
+    //     CardsHandUI.Show() does not re-drive UpdateView outside one narrow branch — so a hand-tab
+    //     switch during an open burn pick ENDED THE PICK FOR GOOD while the game still held
+    //     currentMode=LoseCard and Halted @ TakeDamageConfirmation. Worse, Choreographer's
+    //     SelectLoseCards handler runs Show(actor,…) unconditionally on EVERY client
+    //     (Choreographer.cs:7880) and Show calls SwitchHand first: A CO-PLAYER BEING ASKED TO
+    //     DISCARD ENDED YOUR LIVE PICK. Fixed as a SUSPEND, not a liveness heal — the lane checked
+    //     and a naive heal would re-arm a phantom pick after a long-rest commit, because
+    //     HandleLongRest calls ShowLongRested rather than Hide().
+    //   * A CONFIDENT WRONG CARD, AND THE PEER'S OWN LOG SAID SO. MapRoomHand.TryResolvePeerLoadout
+    //     tier 0 — the only tier a current build runs — returned the full loadout with NO
+    //     comparison against the wire count, while tiers 1 and 2 both gate on LoadoutSize != count.
+    //     Pluck a card out of a map fan and the receiver draws n-1 slabs from an n-length buffer:
+    //     every slab right of the plucked seat wears its NEIGHBOUR's card. Peer log raw 8565, one
+    //     census tick: `held card[p1/slot1] … SEAT 7 OF 10` beside `hand fan[p1] 9 FRONT / 0 BACK`,
+    //     standing 701 ticks. THE COUNT WAS GREEN AND THE CONTENT WAS WRONG — which is why nothing
+    //     caught it. This is the only defect of the round that fails UNSAFELY.
+    //   * FOUR IMPLEMENTATIONS OF ONE FLIGHT CURVE, THREE OF THEM WRONG. The owner eases with
+    //     SMOOTHERSTEP and bows on the EASED term (VRCard.cs:2164-2167); RemoteCardFx, RemoteBurnFx
+    //     and RemoteBrowserFan each wrote plain smoothstep with sin(pi*t) on the RAW t, and
+    //     CardsDriver's BurnSlab a fourth variant against FlyArcOffset's own doc. Separation
+    //     0.336 x Arc at BOTH ends — 0.70-1.11 m on this session's measured arcs; launch vertical
+    //     velocity zero for the owner, ~3.5 m/s for the mirror. INVISIBLE FOR EIGHT ROUNDS BECAUSE
+    //     EVERY ARC LINE PRINTS ONLY THE PEAK, which is identical under any symmetric ease. All
+    //     four now call VRCard.SmootherStep/FlyArcOffset through Net.RemoteFlightCurve.
+    //   * TWELVE SURFACES DECIDED A CARD FACE IN FOUR WAYS, and the burn ruling reached eight.
+    //     RevealGate's rule-naming overload had ZERO callers — every FaceRule value came from two
+    //     hand-written ternaries — so NoContext/PublicPopulation/MapLoadout were unreachable and
+    //     CARD FACE RULE could only ever print two of six. The burnt-pile arc and the held card
+    //     asked the 2-ARG overload, which cannot see a card id and therefore cannot reach
+    //     IsPubliclyRevealedCard: "Beim Verbrennen EGAL AUS WELCHEM GRUND" was breached on the two
+    //     surfaces RevealGate's own doc names as the reason the exception is a card property. Now
+    //     one call, with an explicit capability argument so EVERY RECESS VERDICT IS BIT-IDENTICAL
+    //     and only the reported RULE changed.
+    //   * A CLIENT'S ENCOUNTER PRESS COULD END THE TABLE'S SESSION. EncounterChoice sent the game's
+    //     own GameActionType.ContinueRoadEvent, whose dispatch is an unguarded
+    //     Singleton<UIEventPanel>.Instance deref (GameAction.cs:192) on a type with no
+    //     DontDestroyOnLoad; ProcessSideAction's catch is HandleDesync(ex); throw, and on a HOST
+    //     HandleDesync ends in Shutdown(). It was the ONLY one of the mod's three side-action
+    //     senders using a real GameActionType — the other two are sentinel-typed and already
+    //     consumed at the transport. Now consumed too. NOTE the correction to my own brief: it goes
+    //     to the HOST ONLY (SideActionRequest hardcodes sendToHostOnly), never to unmodded peers.
+    //   * SIZE, on three card populations at once. A mirrored burn lifted out of a 156.8 mm recess
+    //     at the 63.5 mm HAND width — 40 %, with no ramp, on all five mirrored burns in both logs;
+    //     every pile flight landed at 100 % on a stack the mirror itself draws at 62 %; and the
+    //     '-> Active' arc aimed at the block's MIDPOINT rather than the card's CELL.
+    //   * EVERY BOARD-ANCHORED FX RESOLVED AGAINST THE RAW WIRE POSE while the board RENDERS the
+    //     eased one (~73 ms of trailing at InterpolationSharpness 15). While a peer carried or
+    //     zoomed their board — exactly when the sender raises extras to 15 Hz — the cards flew
+    //     BESIDE the board. The slabs are deliberately unparented, so nothing compensated.
+    //   * THE ASSIGNMENT WINDOW OPENED DEAD AND ITS CONFIRM WAS NEVER ARMED. NoteLive was a POSTFIX
+    //     on the method whose own body does the greying, and onUpdatedPoints is invoked only from
+    //     the popup's private AddPoint/RemovePoint — a local hand — so a client could never press
+    //     Confirm at all. Both halves shipped together; fixing either alone exposes the other.
+    //   * A GATE FOR THE CLASS, WHICH IS THE PART THAT OUTLIVES THE ROUND. Maintainer, asked why
+    //     the mirror re-implements what the local board already does: "Warum haben wir so viel
+    //     redundanz? … Kann sich das remote board und das lokale board nicht einen großteil des
+    //     Codes teilen? Hätte das Nachteile?" — and then, before approving anything, "Vor so einer
+    //     Entscheidung will ich erst verstehen, warum das nicht schon direkt so gebaut hast".
+    //     IT WAS BUILT THAT WAY ON PURPOSE and the reasons still hold: ARCHITECTURE.md keeps Net/ a
+    //     separate module because "the 1:1 rule is checkable only when the mirror is in one place",
+    //     and RemoteBoardCard's face host is built INSIDE the if(front) branch so no face object can
+    //     render one frame ahead of the secrecy gate. So the ruling is narrow: PURE MATH is shared
+    //     now, PREDICATES only on proof of the same question over the same population, THE DRAWN
+    //     OBJECT never — and CALLS GO DOWN (Net/ -> Cards/), CODE NEVER UP. scripts/check-mirrors.sh
+    //     was extended from 21 constants to 41 constant groups PLUS 5 SHARED-EXPRESSION groups, and
+    //     was verified by PLANTING each forbidden pattern and watching the build fail — including
+    //     that the same text inside a STRING LITERAL does not fire it.
+    //   * FIFTY-ODD FALSE ASSERTIONS RETIRED across the five reviews, one of them written by the
+    //     integrator earlier the same day (a note claiming the ruled use-bar row's 1:1 was delivered
+    //     by 477; that row is not a RemoteWidgetMirror clone and 477 never touched it).
+    // RULINGS TAKEN THIS ROUND: an ability/aura/summon bonus KEEPS its decision-area row and owes
+    //   FIDELITY, not removal (his rule presupposes an item card to lay down; a CShieldActiveBonus
+    //   has none). ItemCueBeatSeconds follows the OWNER on both surfaces. [Voice] BadgeScale is an
+    //   approved viewer-local exception. The DISCARD and BURNT fans are PUBLIC in every phase —
+    //   with the trap named in the source: that must NOT make a discarded card's NAME quotable in a
+    //   prompt, or item 477/7's leak reopens.
+    // OWED ON HARDWARE: the burnt-pile arc has NEVER been measured (pile browse reads NEVER ASKED
+    //   in 146/146 host and 147/147 peer census lines); the pick-flow deadlock is source-confirmed
+    //   only, with the exact green/red steps in lane D's report; and item 477/8's covered-face half
+    //   is still unmeasured, though DressFace now returns a reason instead of null so one grep
+    //   answers it.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 477: AN EIGHT-ITEM MULTIPLAYER ROUND. Six lanes, disjoint file sets. FIVE of the eight
     //   were a mechanism that had ALREADY BEEN BUILT and was never reached — a producer with no
     //   consumer, a rule on the wrong path, a gate on one branch of two, a mask comparing the wrong
