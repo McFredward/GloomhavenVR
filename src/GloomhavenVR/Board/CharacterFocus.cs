@@ -1259,7 +1259,10 @@ internal static class CharacterFocus
     /// reaching into the fan hanging at ANOTHER PLAYER'S AVATAR and pulling a real card out of it -
     /// which <c>Net.Remote.RemoteHandFan</c> makes structurally impossible, since it never calls
     /// <c>VRCardFactory</c>, <c>AttachGameCard</c> or <c>CardsDriver.HookCard</c> and can therefore
-    /// only ever hand out a <c>Cards.CardBorrow</c> copy with no game widget behind it. Switching
+    /// only ever have handed out a copy with no game widget behind it — and since 2026-09-07 it hands
+    /// out NOTHING AT ALL: its slabs carry no collider anywhere in their subtree, so the proximity
+    /// election has nothing to win. He ruled on the copy too ("Interessante Beobachtung: Immerhin
+    /// ist es ein Klon aktuell" — noted, and still not wanted). Switching
     /// one's OWN focus to a foreign character is a different surface and a different question, and
     /// there he wants the fan shown AND handleable.</para>
     ///
@@ -1372,7 +1375,8 @@ internal static class CharacterFocus
         // HandInspectable both consume, so the verdict cannot drift from the behaviour.
         string verdict = !mine
             ? "REFUSED (foreign hand — the fan is a picture; a teammate's card is reachable only as "
-              + "a read-only Cards.CardBorrow copy from the mirrored fan)"
+              + "a lift-to-read card on YOUR OWN board after switching to that character; the "
+              + "fan at their avatar hands out nothing)"
             : readOnly
                 ? "own-hand READ-ONLY (a focus/floor view of one of this client's own characters)"
                 : "own-hand INTERACTIVE";

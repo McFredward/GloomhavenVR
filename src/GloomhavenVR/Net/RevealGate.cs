@@ -379,7 +379,8 @@ internal static class RevealGate
     ///
     /// <para>WHAT THIS DOES NOT GRANT. It says a hand may be READ; it says nothing about a hand
     /// being PLAYABLE. A peer's fan stays inspect-only on every path — see
-    /// <c>Cards.CardBorrow</c> and <c>RemoteHandFan</c>'s borrow section, whose guarantee is
+    /// <c>RemoteHandFan</c>'s "nothing is handed out" section — the borrow was removed on
+    /// 2026-09-07 and <c>Cards/CardBorrow.cs</c> with it — whose guarantee is
     /// structural (a borrowed copy carries no <c>VRCard.GameCard</c> and every commit seam in
     /// <c>Cards.CardsDriver</c> is reached only through one) and is untouched by this predicate.</para>
     /// </summary>
