@@ -3027,3 +3027,186 @@ round on it.
   recorded for it and nothing since has revived it.
 
 ---
+
+## 24. Round eighteen — 2026-09-07, against the ModBuild 468 log: **THE MECHANISM IS NAMED IN THE GAME'S OWN SOURCE**, and seventeen rounds of zeroes turn out to be unqualified rather than wrong
+
+### 24.1 THE STRUCTURAL FAULT, AND IT IS NOT ANY ONE CANDIDATE
+
+Every reading this file has produced has the same form: *over N frames, NOTHING CHANGED.*
+`BOARD PROP STANDING WATCH` reads `CHANGES 0` over 1794 frames; the twin comparison reads
+`0 slot(s) EVER DIFFERED`; `HELD-PROP RENDER-PASS PROBE` reads `AGREE` over 1436 pairs. **Every one
+of them is conditional on a premise no instrument in this file has ever measured: that the white was
+present in the window.**
+
+This is not a new thought — the instrument said it about itself, in the log, in ModBuild 465:
+
+> `THIS IS A NEW INSTRUMENT AND ITS FIRST OUTPUT IS A HYPOTHESIS: a 0 here on a window that
+> contained NO flash proves nothing either, so check it against whether the user saw white on this
+> hold`
+
+Nobody could check it, because checking it needs the picture, and §22 answered it with a *longer
+window* instead of a witness. A longer window is still a guess. So the honest statement of where
+this file stands is not "seventeen candidates are excluded" — it is **"seventeen readings are
+unqualified"**, and the difference is the whole of round eighteen.
+
+### 24.2 THE CANDIDATE THAT FITS EVERY TERM, FOUND IN `decompiled/`
+
+`decompiled/GH.Runtime/SpawnObjectAnimateMaterial_SMB.cs` — a 43-line `StateMachineBehaviour`.
+`OnStateUpdate` in full:
+
+```csharp
+t += Timekeeper.instance.m_GlobalClock.deltaTime / animTime;   // :30
+float value = myCurve.Evaluate(t) * animStrength;              // :31
+rend = animator.GetComponentsInChildren<Renderer>();           // :32  EVERY renderer, every frame
+rend[i].material.SetFloat(animProperty, value);                // :36  .material, not sharedMaterial
+```
+
+and `OnStateExit` is `t = 0f;` (`:42`). Term for term against the ModBuild 466 photometry:
+
+| measured signature | this class |
+|---|---|
+| saturating rise over ~1.0-1.4 s | `t += dt / animTime`, `animTime` serialized |
+| short plateau at the top | `AnimationCurve.Evaluate` **clamps** past its last key |
+| complete clear inside one 0.1 s step | `OnStateExit: t = 0f` → next update writes `Evaluate(0)` |
+| the WHOLE prop bleaches | `GetComponentsInChildren<Renderer>()` |
+| added light NEUTRAL (1.000/0.995/1.010) | it is a scalar `SetFloat`; the colour is the shader's |
+| all traps and chests together | every prop animator starts at scenario load |
+| the hand holding it stays normal | the hand is not under that animator |
+| ~8-10 s between episodes | the length of the looping animator state's clip |
+
+**Nothing in seventeen rounds has fitted the ramp at all.** This fits every term of it, including the
+two nobody could hold together (`auf ALLEN Fallen` and every state probe reading zero).
+
+It is also the only generic, data-driven material-ramp `StateMachineBehaviour` in the decompile: all
+29 `: StateMachineBehaviour` classes were enumerated; five touch materials and the other four are
+hardcoded to non-white properties. The runners-up are `RFX4_ShaderFloatCurve` /
+`RFX4_ShaderColorGradient` (both carry `IsLoop` and a hard `startTime` reset, so they share the
+snap-to-zero shape), and they are named here so a later round does not have to re-find them.
+
+**And it is why this round ships a CENSUS and not a fix.** `animProperty`, `animTime`,
+`animStrength` and `myCurve` are **serialized fields**: their values live in the AssetBundle, not in
+`decompiled/`. No amount of source reading can say what property is written, over how long, or
+whether the behaviour is attached to a trap's controller at all. One `Animator.GetBehaviours` call
+answers all of it from the live object — and it is **static data**, so unlike every other reading in
+this file it does not need the flash to happen while it looks.
+
+### 24.3 WHAT SHIPPED — `] [Props] HELD-PROP FLASH PHOTOMETER` (`PropAnimBelt.Photometer.cs`)
+
+Three readings in one line, self-arming from the existing hold and self-terminating on a 35 s wall
+clock. **No new row in the options UI**; no config key either.
+
+**(a) THE ANIMATOR-BEHAVIOUR CENSUS.** Every `StateMachineBehaviour` on every animator under the
+prop, by type name; and for each `SpawnObjectAnimateMaterial_SMB`, its `animProperty`, `animTime`,
+`animStrength`, curve key count and `Evaluate(1)`. A count of 0 **excludes the best-fitting candidate
+this file has ever had, from the game's own data rather than from another window of zeroes**; a count
+above 0 **names the property a fix must write**. It also names every component type under the prop —
+a collector typed on what we already suspect cannot see a shape nobody has named yet.
+
+**(b) THE MATERIAL-INSTANCE FINGERPRINT.** `Renderer.material` clones on first touch and Unity
+renames the clone `<name> (Instance)`. So the suffix is positive evidence that something took the
+`.material` path — which is exactly what this SMB does — and its absence is positive evidence that
+nothing has. **This already reads against the candidate on the bear trap**: the 468 roster prints
+`materials 'Trap_BearTrap_MAT' on Amp_Char_Shader`, with no suffix, at the grab frame. It matters
+twice, because `PropTable.Resolve` caches the material it found **at arm**, so an instantiation
+happening later would leave the property table reading an original nothing writes any more — a way
+for the flash to move a property while `0 of 57 tracked slot(s)` stays true.
+
+**(c) THE PHOTOMETER — THE WITNESS.** The actual pixels the eye receives, in a 32 px window centred
+on the prop's drawn bounds, at ~13-23 Hz, plus a control window offset 220 px sideways. It prints
+baseline, peak, rise time (10→90 %), fall time, near-white pixel fraction and the R:G:B of the added
+light at peak — the same quantities §22.2 measured by hand off the video, so the two either confirm
+each other or one of them is photographing a different event.
+
+Pre-registered: **INERT** (no readback, no support, or both patches bit-identical — the ModBuild 191
+dead-capture signature) / **NO WHITE IN THIS WINDOW** (control varied, prop never moved by the
+0.08 of linear light a flash needs → every other probe's zero this session is an **absence**) /
+**WHITE WITNESSED** (→ every state reading co-recorded this session becomes a genuine **exclusion**).
+
+**(d) THE BISECTION.** `Renderer.forceRenderingOff` on the prop's own roster renderers for 6 frames,
+twice: once at **baseline** (the null-perturbation control) and once when the photometer sees the
+white crossing 45 % of its own calibrated range. Patch falls to background ⇒ the prop's renderers
+were painting it, and everything outside its own shading is deleted. Patch stays bright while the
+same write moved it at baseline ⇒ **they are not painting it**, and the entire subject of seventeen
+rounds — this prop's materials, shaders, property blocks and state — is deleted in one reading.
+Neither answer can come back "no candidate", and the answer arrives in the LOG rather than through
+the user's eye on a one-frame blink.
+
+The baseline blink is not optional and is the lesson of round seventeen carried over: a blink that
+does nothing looks exactly like a blink proving the prop is not the painter. If it shows no drop the
+line prints `THE BLINK IS INERT`, names the three causes, and **withholds the verdict**.
+
+### 24.4 THE CAPTURE PATH IS NOT NEW, AND THE THREE DEAD ONES ARE AVOIDED BY CONSTRUCTION
+
+It is the one `WorldUI/EyeFrameProbe.cs` ran on this rig from ModBuild 192 until 219, when it was
+deleted as spent apparatus for a solved defect (`44084c18`): a `CommandBuffer` on the mod's head
+camera at `CameraEvent.AfterEverything`, re-recorded per pass in `Camera.onPreRender`, recording
+**exactly one** `Blit` from `BuiltinRenderTextureType.CurrentActive` into a full-eye single-sampled
+temporary (which resolves the 8x MSAA eye buffer), then `CopyTexture` region copies out of *that*,
+each followed immediately by `RequestAsyncReadback`.
+
+**ModBuild 191's fault is designed out rather than avoided by care.** `Blit` REBINDS the active
+render target, so a second `Blit` from `CurrentActive` is a blit of the probe's own destination onto
+itself — 191 read bit-identical pixels for a whole build because of it, and 192's record notes that
+blit #1 **did** honour its rect. `CopyTexture` takes explicit integer coordinates, uses no material
+and no full-screen quad, and rebinds nothing.
+
+The three capture paths this project has PROVEN DEAD are each excluded structurally, not hopefully:
+
+* **the game-view backbuffer** — this mod empties it on purpose (`FlatScreen.3.Desktop.cs` `_scrubRt`
+  plus the runtime-ignored mirror mode). Not used: `CurrentActive` inside the head camera's own pass
+  is the eye target, not the game view.
+* **a DEFERRED camera re-rendered into an RT we own** — `map-capture-bug`: pure black, spread 0, ~9
+  hardware attempts. Nothing is re-rendered here at all; and the rig line reads
+  `renderingPath=Forward/actual=Forward` for `GloomhavenVR.HeadCamera` anyway.
+* **a capture camera on a SHARED culling layer** — `one-shared-layer-leaks`. There is no capture
+  camera and no layer is touched.
+
+**And this is why the isolated re-render (the other way to ask the bisection question) was
+REJECTED.** It is unsound here on three independent grounds, each producing a *false negative* — the
+prop rendering clean in isolation while the real view bleaches. Isolating it needs either a private
+culling layer (a layer write on a game object, and the shared-layer finding above) or a hand-built
+`DrawRenderer`, and neither reproduces the main pass's per-camera state; the one off-screen
+re-render this project ever got working is the map's forward **unlit albedo** camera, which by
+construction cannot show a shading term; and a replacement shader — explicitly on the render-pass
+probe's own "still beyond this instrument" list — would not apply to an explicit `DrawRenderer`.
+Photographing the real frame has none of those asymmetries.
+
+**The one thing on this path that cannot be settled without hardware** is `CopyTexture`'s source
+origin (bottom-left on OpenGL, top-left on D3D). A Y flip would put both windows at the mirrored
+height. That is not left as a hope: **the baseline blink detects it**, and the clause that fires
+names it as cause (a) of three.
+
+### 24.5 THREE CORRECTIONS TO THE RECORD, FROM THE 468 LOG
+
+1. **The "count the population" blind spot is already half-instrumented, and the half that is
+   instrumented reads zero.** `PropAnimBelt.TickBoard` re-walks `_boardRoot` with
+   `GetComponentsInChildren` **every frame** and change-triggers both `child object COUNT` and
+   `renderer COUNT`; the 468 line reads `CHANGES: 0` over 1794 frames / 20.0 s, and the twin
+   comparison prints `AT ARM: 10 child object(s) (10 tracked by identity) and 2 renderer(s)
+   (2 tracked)` — identity, not merely a count. With the video's episodes ~10 s apart, a 20 s window
+   probably contained one, so **a renderer appearing inside the prop's own subtree is already close
+   to excluded**. What remains genuinely unmeasured is a renderer spawned **outside** the subtree,
+   which no subtree census can ever see; naming that is worth more than re-shipping the half that
+   exists.
+2. **`admits 4 of 5 tracked renderer(s) by layer` on a `0xFFFFFFFF` mask is not a layer exclusion.**
+   `0xFFFFFFFF` admits all 32 layers. The missing one is the mod's own `VROverlay`, which the same
+   log line reports `DESTROYED at frame 1 of the window` — a null entry, not a culled one. The line
+   currently reads as though a layer kept something out of the head camera.
+3. **`ScenarioCamera` and `UI Camera` both print `cullingMask 0x00000000` while rendering 360 passes
+   each.** A zero mask draws no scene geometry, so either these two contribute only through command
+   buffers and image effects (which is consistent with `commandBufferCount 2` / `OnRenderImage 4` and
+   `2`), or the mask was sampled at a moment it does not hold. It is not this defect, and it is
+   written down so nobody re-derives it.
+
+### 24.6 What round eighteen did NOT do
+
+* **No fix.** The mechanism is named in the game's source but its serialized parameters are not read
+  yet, and this project has a standing finding about remedies written for causes that are only
+  probable. The round ships a measurement. If the census returns a hit, the property name and
+  `animTime` arrive with it and a fix has something to write.
+* **No eighteenth state probe.** Nothing new reads a renderer flag, a material property or a shader
+  global.
+* **No options row and no config key.**
+* **The blink is a visible artefact** — about 0.15 s of the prop not being drawn, twice per armed
+  window. That is deliberate and it is the price of the only reading on the table that can delete
+  half the search space.

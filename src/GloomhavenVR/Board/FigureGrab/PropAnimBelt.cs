@@ -425,6 +425,10 @@ internal static partial class PropAnimBelt
         // no line at all, which reads exactly like a watch that never armed — the one confusion
         // this observer exists to prevent.
         EmitBoard("the scenario ended");
+        // Same rule for the photometer, and the same reason: a scenario change that dropped a
+        // part-finished observation with no line at all reads exactly like a window that never
+        // armed. EmitPhotometer disarms first, which hands every blinked renderer back.
+        EmitPhotometer("the scenario ended");
         _boardLeft = BoardBudget;
         _boardArmed = false;
         _boardLead = null;
@@ -1896,6 +1900,11 @@ internal static partial class PropAnimBelt
         // it re-suppresses nothing; it only installs a Camera.onPreRender reader, which
         // EmitRenderPass removes again the moment the window closes.
         ArmRenderPass();
+        // ROUND EIGHTEEN. Armed last, and its window is WALL CLOCK rather than the verdict's 360
+        // frames: it deliberately outlives the hold, because the flash the user reports also happens
+        // with the prop standing on the board. It photographs the roster's first drawing renderer
+        // and blinks the roster; it walks the subtree exactly once, for the census.
+        ArmPhotometer(go, label);
     }
 
     /// <summary>

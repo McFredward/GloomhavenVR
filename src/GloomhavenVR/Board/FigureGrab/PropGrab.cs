@@ -230,6 +230,11 @@ internal static class PropGrab
         // holding something. A reference compare per frame when nothing is armed.
         PropAnimBelt.TickBoard();
 
+        // THE PHOTOMETER, and it is above the gate for a third reason on top of the two above: its
+        // window outlives the hold on purpose, so it must keep ticking after the prop is back on its
+        // hex — and it must be able to hand back a blinked renderer on the frame the gate closes.
+        PropAnimBelt.TickPhotometer();
+
         // The belt sits above the gate for the same reason, and for one more: a prop still in a
         // hand when GrabProps is toggled off is released by the gate's ReleaseAll on THIS frame,
         // and the culling values it replaced must be handed back on that same frame or they are
