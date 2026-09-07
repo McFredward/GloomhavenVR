@@ -3122,6 +3122,13 @@ internal sealed partial class CardsDriver
             }
             card.FlyFromPile(pilePos, slabWidth, FlyToPileSeconds, arcUp, minArc);
             ReportCardFx(Net.CardFxAnchor.Discard, Net.CardFxAnchor.HandFan);
+            // ROW 9 OF THE FLIGHT INVENTORY, and it was a hole in the ledger until 2026-09-07. This
+            // is the one own-board producer that flies OUT of a pile into the hand, so the ledger's
+            // pile-shaped destination vocabulary had no word for it and the flight was invisible to
+            // the audit that the user's "Bestandsaufnahme aller Flüge" asked for. It is CORRECT
+            // behaviour — the game's own cancel put the card back and this is the reverse of the
+            // batch exit flight — but a correct flight still has to be countable.
+            CardFlightLedger.Note("own", "HandFan", "own-pick-restart-return", card.name);
             flew++;
             VRLog.Info("Cards", $"Pick restart RETURN: CARD FLIGHT '{card.name}' — WHY: the game's own " +
                                 "\"choose another card\" (DialogPopup cancel option) reopened the whole event " +

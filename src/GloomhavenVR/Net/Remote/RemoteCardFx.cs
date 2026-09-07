@@ -257,7 +257,8 @@ internal sealed class RemoteCardFx
         // The DUPLICATE half of report item 5 is a flight from HERE landing on a board RemoteBurnFx
         // has already flown a burn on. Neither class can see the other's line, so both report into
         // one ledger keyed on (board, destination) — this one has no card name to give, by design.
-        Cards.CardFlightLedger.Note($"peer {_owner.PlayerId}", to.ToString(), "remote-wire-fx", null);
+        Cards.CardFlightLedger.Note($"peer {_owner.PlayerId}", to.ToString(), "remote-wire-fx", null,
+                                    NearestNamedStack(b, to));
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.FlightSlab, _owner.PlayerId,
                                   f.HasFace ? 1 : 0, f.HasFace ? 0 : 1, faceRule);
         // HW-VERIFY: report items 5, 6 and 8 — "Die Animationen bei denen die Karten in den
@@ -631,6 +632,58 @@ internal sealed class RemoteCardFx
     }
 
     // ------------------------------------------------------------------ anchors --
+
+    /// <summary>
+    /// WHICH NAMED ANCHOR THIS FLIGHT'S ENDPOINT IS REALLY NEAREST TO, with the miss distance —
+    /// the resolved half of <c>CardFlightLedger</c>'s label/endpoint pair (2026-09-07 item 4c).
+    ///
+    /// <para>WHY A NEAREST-NEIGHBOUR SEARCH AND NOT AN EQUALITY TEST. <see cref="TryResolve"/> is a
+    /// pure function of <c>RemoteControlBoard.AnchorLocal</c>, so asking whether it returned the
+    /// point for <paramref name="intended"/> would compare a value against the expression that
+    /// produced it — a claim that measures itself, and this project has recorded that shape. Asking
+    /// which of the SIBLING anchors the endpoint is closest to instead is answerable from the
+    /// geometry alone: if the Discard and Burnt stacks ever coincided, or a per-board layout term
+    /// went missing on one end, a Discard-labelled flight would report Burnt here.</para>
+    ///
+    /// <para>The distance is printed because a small non-zero miss on the RIGHT anchor is the
+    /// healthy reading — the two stacks are <c>PileSpacing</c> apart (Oak 0.116 m), so a miss well
+    /// under half of that is the intended anchor with float noise, and a miss NEAR that spacing on
+    /// the named anchor means the endpoint is sitting between the two stacks.</para>
+    /// </summary>
+    private string NearestNamedStack(Vector3 endpoint, CardFxAnchor intended)
+    {
+        CardFxAnchor best = intended;
+        float bestSq = float.PositiveInfinity;
+        bool any = false;
+        foreach (CardFxAnchor candidate in NamedStacks)
+        {
+            if (!TryResolve(candidate, out Vector3 world))
+                continue;
+            float sq = (world - endpoint).sqrMagnitude;
+            if (sq >= bestSq)
+                continue;
+            bestSq = sq;
+            best = candidate;
+            any = true;
+        }
+        if (!any)
+            return "no anchor resolvable on this board right now, so the endpoint cannot be named";
+        float miss = Mathf.Sqrt(bestSq);
+        return best == intended
+            ? $"the {best} anchor, {miss * 1000f:F0} mm from its centre — label and endpoint AGREE"
+            : $"the {best} anchor ({miss * 1000f:F0} mm from its centre), NOT the {intended} anchor "
+              + "this flight is labelled with — label and endpoint DISAGREE, which is item 4c";
+    }
+
+    /// <summary>The anchors a flight can legitimately END on, for <see cref="NearestNamedStack"/>.
+    /// <c>Board</c> is excluded on purpose: it is the "unknown future id" fallback of
+    /// <c>RemoteControlBoard.AnchorLocal</c> and would win the nearest-neighbour search for any
+    /// endpoint the layout could not place, hiding the very failure this is meant to name.</summary>
+    private static readonly CardFxAnchor[] NamedStacks =
+    {
+        CardFxAnchor.Discard, CardFxAnchor.Burnt, CardFxAnchor.Items,
+        CardFxAnchor.Active, CardFxAnchor.Slot0, CardFxAnchor.Slot1, CardFxAnchor.HandFan,
+    };
 
     /// <summary>
     /// World position of one anchor on the SENDER's furniture. Board anchors are the sender's
