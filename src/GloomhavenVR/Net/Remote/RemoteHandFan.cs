@@ -5138,19 +5138,31 @@ internal sealed class RemoteHandFan
             // see-through's subtree census nor — until now — its follower registry, and a peer's
             // hand fan hung fully solid in front of a board that was dissolving behind it.
             //
-            // WhileOverBoard, NOT Always, and the distinction is the point. A hand fan is AVATAR
-            // content wherever its owner takes it (RemoteBoardGate says so in as many words and
-            // that classification is unchanged); it becomes one of "die Faecher vor dem Brett"
-            // only while it is actually parked over the board, which is what the see-through's own
-            // predicate measures, in the BOARD's local space, and freezes for the duration of a
-            // fade so membership can never strobe. See PeerBoardFade.Follow.
+            // HandOwned, AND THIS REVERSES ITEM 11a FOR THIS SURFACE. User, 2026-09-07, verbatim:
+            // "Der Handfaecher des Mitspielers wird transparent wenn das Board des Mitspielers
+            // wegen Verdeckung transparent wird - das will ich nicht. Nur die Karten auf dem Board
+            // selber sollen auch transparent werden." So the rule that mattered in item 11a — a fan
+            // parked over the board counts as board content — is exactly the rule he is now
+            // refusing. It was WhileOverBoard, which admitted the fan whenever the positional test
+            // said it was over the board; the ModBuild 474 census read "6 follower root(s) fade
+            // with this board ... and 0 registered root(s) are currently HELD OUT", four of those
+            // six being unconditional, so both hand-anchored roots were being admitted every time.
+            //
+            // The classification the old sentence rested on is still TRUE and is not what changed:
+            // a hand fan IS avatar content wherever its owner takes it. What changed is that being
+            // parked over the board no longer makes it board content for this purpose.
+            //
+            // STILL REGISTERED, DELIBERATELY, AND REFUSED AT THE CENSUS INSTEAD, so "does not fade"
+            // and "was never registered" stay distinguishable in one grep — see
+            // PeerBoardFade.FollowRule.HandOwned, and RemoteEmptyFanHint, which takes the same
+            // membership because it IS this fan whenever the hand is empty.
             //
             // REGISTERED HERE, at the one place a NEW root transform comes into existence, so the
             // self-heal above — which destroys and recreates this object wholesale — re-registers
             // as a matter of course. Registration is idempotent, and the see-through sweeps
             // Unity-null roots on its own census, so the dead one needs no teardown call.
             PeerBoardFade.Follow(_owner.PlayerId, _root.transform,
-                                 PeerBoardFade.FollowRule.WhileOverBoard);
+                                 PeerBoardFade.FollowRule.HandOwned);
         }
 
         // (Re)parent when the non-dominant holder changes (e.g. the sender flips dominant hand)
