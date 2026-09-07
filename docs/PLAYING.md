@@ -56,10 +56,7 @@ Three more that the picture cannot show:
 
 ## Your cards and your board
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
-</p>
-
+› **The board in motion** is on the front page: [Your cards and your board](../README.md#your-cards-and-your-board).
 
 Turn your palm up and your hand **fans out in front of it**. Take a card with the trigger and drop
 it into a slot on your control board — slot order is your initiative, exactly like the physical
@@ -78,13 +75,7 @@ above the board or in your palm.
 
 ## The board in front of you
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
-</p>
-
-<p align="center">
-  <img src="img/figure-lift.gif" width="480" alt="An ally lifted off the board to eye level, her stat card beside her">
-</p>
+› **Reaching into the board, and lifting a figure**, are on the front page: [The board in front of you](../README.md#the-board-in-front-of-you).
 
 Point the laser and pull the trigger to pick a hex, an enemy, a door or a chest — or hold the
 **grip** and touch it with a fingertip. The grip is required on purpose, so a hand that merely
@@ -135,9 +126,7 @@ and further with the stick while the laser holds it. Where you put one is where 
 
 ## The campaign map
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" controls muted loop></video>
-</p>
+› **The map room in motion** is on the front page: [The campaign map on a table](../README.md#the-campaign-map-on-a-table).
 
 Between scenarios the map is a **room with a table in it**. The guildmaster buttons are physical
 caps on the table rim, point at a location to see its quest placard, and your party token walks the
@@ -191,9 +180,7 @@ that choice is yours alone.
 
 ## Multiplayer
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
-</p>
+› **A session with three players** is on the front page: [Everyone at the same table](../README.md#everyone-at-the-same-table).
 
 - **Everyone in a VR session must run the same version.** A mismatch is blocked with a dialog rather
   than allowed to go quietly wrong — [update together](../INSTALL.md#updating).

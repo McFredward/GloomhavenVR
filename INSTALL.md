@@ -61,10 +61,6 @@ game. Set it in whichever app you stream with:
 
 Headset on, launch the game the way you always do. You are at the table.
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
-</p>
-
 > **On the first start after installing or updating, the game closes and reopens itself — once.**
 > That is meant to happen. It is not a crash.
 

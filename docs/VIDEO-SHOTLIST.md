@@ -20,6 +20,27 @@ grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING
 — **three per language, six in all, and every one of them is now in the playing guide.** The README
 was cleared on 2026-09-07. Each box repeats in place what that clip has to show.
 
+## Which document gets which clip — ONE CLIP, ONE PAGE
+
+**No clip appears in two documents.** Maintainer's ruling, 2026-09-07: *"Ich will das die Videos
+eigentlich nicht auf verschiedenen docs doppelt auftauchen."* Before it, every clip in the playing
+guide was a second copy of a README clip and one of them had a third copy in INSTALL. The split
+below is by what each document is FOR, and a new clip belongs to exactly one of them:
+
+| Document | What it is | What it shows |
+|---|---|---|
+| `README.md` / `README.de.md` | the pitch — someone deciding whether to install | the five broad clips: the overview, the control board, the board and the figure lift, the map room, a multiplayer session |
+| `docs/PLAYING.md` / `.de.md` | the manual — someone who has installed and wants to learn | only INSTRUCTIONAL clips, which by their nature exist nowhere else: the controls tutorial, windows, the grab rod, the environments. Plus its own labelled pictures, `controls-*.png` and `board-*.png`, which are the manual's real content and have no README twin |
+| `INSTALL.md` / `.de.md` | the steps | no clips at all. It has `install-tree-*.png`, which is the only picture the task needs |
+
+A guide section whose subject IS shown on the front page carries a one-line pointer to it (`› …`)
+instead of the clip. That keeps the reader routed without paying for the same video twice.
+
+**The two environment stills are the one duplication left standing**, and deliberately: `env-cellar`
+and `env-forest` are in both the README and the guide, because the guide's *The room you play in*
+would otherwise be a heading with nothing under it until `environments.mp4` lands. When that clip
+arrives, drop the stills from the guide.
+
 ## What still has to be recorded
 
 **Delivered on 2026-09-07 and no longer on this list:** `multiplayer.mp4` (slot 2, README and

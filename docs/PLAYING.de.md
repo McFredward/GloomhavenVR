@@ -58,10 +58,7 @@ Drei Sachen, die das Bild nicht zeigen kann:
 
 ## Deine Karten und dein Brett
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
-</p>
-
+› **Das Brett in Bewegung** steht auf der Startseite: [Deine Karten und dein Brett](../README.de.md#deine-karten-und-dein-brett).
 
 Dreh die Handfläche nach oben, und deine Hand **fächert sich davor auf**. Nimm eine Karte mit dem
 Trigger und leg sie in einen Slot deines Kontrollbretts — die Reihenfolge der Slots ist deine
@@ -80,13 +77,7 @@ Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett o
 
 ## Das Brett vor dir
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
-</p>
-
-<p align="center">
-  <img src="img/figure-lift.gif" width="480" alt="Eine Verbündete vom Brett auf Augenhöhe gehoben, ihre Werte-Karte daneben">
-</p>
+› **Ins Brett greifen und eine Figur hochheben** stehen auf der Startseite: [Das Brett vor dir](../README.de.md#das-brett-vor-dir).
 
 Zeig mit dem Laser darauf und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe
 auszuwählen — oder halt den **Grip** und berühr es mit der Fingerspitze. Der Grip muss mit, und zwar
@@ -140,9 +131,7 @@ du eine hinstellst, da bleibt sie.
 
 ## Die Kampagnenkarte
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" controls muted loop></video>
-</p>
+› **Der Kartenraum in Bewegung** steht auf der Startseite: [Die Kampagnenkarte auf dem Tisch](../README.de.md#die-kampagnenkarte-auf-dem-tisch).
 
 Zwischen den Szenarien ist die Karte ein **Raum mit einem Tisch darin**. Die Gildenmeister-Tasten
 sind echte Kappen am Tischrand, zeig auf einen Ort, um sein Auftragsschild zu sehen, und dein
@@ -198,9 +187,7 @@ unter **Umgebung ▸ Grusel**; diese Entscheidung gilt nur für dich.
 
 ## Mehrspieler
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
-</p>
+› **Eine Runde zu dritt** steht auf der Startseite: [Alle am selben Tisch](../README.de.md#alle-am-selben-tisch).
 
 - **Alle in einer VR-Sitzung brauchen dieselbe Version.** Passt sie nicht, blockiert die Mod mit
   einem Hinweis, statt die Sitzung still schiefgehen zu lassen —
