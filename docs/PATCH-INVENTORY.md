@@ -85,8 +85,8 @@ runtime, which is why a runtime audit could never do this job (see
 | `CardsHandManager_ShowList_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:60</sub> | `CardsHandManager.Show(CPlayerActor, CardHandMode, CardPileType, List<CardPileType>, int, bool, bool, bool, CardsHandUI.CardActionsCommand, bool, bool, Action<AbilityCardUI>, Func<CAbilityCard, bool>)` | postfix | `CardsModule`:41 |
 | `CardsHandManager_ShowAll_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:79</sub> | `CardsHandManager.Show(CardHandMode, CardPileType, List<CardPileType>, int, bool, bool, bool)` | postfix | `CardsModule`:42 |
 | `CardsHandManager_ShowHands_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/HandSuppressionPatches.cs:94</sub> | `CardsHandManager.ShowHands()` *(private)* | postfix | `CardsModule`:43 |
-| `CardsHandUI_UpdateView_PickFlowOpen`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:363</sub> | `CardsHandUI.UpdateView(CardHandMode, bool, CardPileType, List<CardPileType>, int, bool, bool, CardsHandUI.CardActionsCommand, bool, Action<AbilityCardUI>, Func<CAbilityCard, bool>)` | postfix | `CardsModule`:54 |
-| `CardsHandUI_Hide_PickFlowEnd`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:377</sub> | `CardsHandUI.Hide()` | postfix | `CardsModule`:55 |
+| `CardsHandUI_UpdateView_PickFlowOpen`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:620</sub> | `CardsHandUI.UpdateView(CardHandMode, bool, CardPileType, List<CardPileType>, int, bool, bool, CardsHandUI.CardActionsCommand, bool, Action<AbilityCardUI>, Func<CAbilityCard, bool>)` | postfix | `CardsModule`:54 |
+| `CardsHandUI_Hide_PickFlowEnd`<br/><sub>src/GloomhavenVR/Cards/Patches/PickFlowPatches.cs:634</sub> | `CardsHandUI.Hide()` | postfix | `CardsModule`:55 |
 
 ## Compat
 

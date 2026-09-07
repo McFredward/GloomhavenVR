@@ -433,7 +433,150 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 471;
+    public const ushort ModBuild = 472;
+    // Build 472: a nine-item multiplayer round, seven lanes, twelve commits — and the first round
+    //   in this series where BOTH logs came from the SAME build, which is the only reason half of
+    //   it could be proved instead of argued. Headline: a session-long DEADLOCK with no escape, a
+    //   fan-order desync caught on one packet boundary across two machines, and a burn that flew
+    //   twice. Two of the fixes had to be re-opened inside the round because a lane's own fix made
+    //   a second defect reachable — both caught before shipping, neither by luck.
+    //   * THE DEADLOCK (his #8, "SCHLIMMSTER BUG"), AND IT WAS A REGRESSION WITH AN AUTHOR.
+    //     `PickFlowWatch`'s OPEN edge had no MODE term, and the game's own
+    //     `PlayerToSelectAbilityCardsOrLongRest` drives EVERY hand in `cardHandsUI`, not just the
+    //     local one. So twelve lines after scenario load the latch armed on `Player handBrute` —
+    //     the PEER's character — and only the owning hand's END edges can close a flow. **Zero
+    //     `PICK FLOW END` lines in 306,556 host lines.** 1,770 s later the long rest asked for its
+    //     pick and read `pick=CLOSED … flowArmedOn='Player handBrute', thisHandOwnsTheFlow=False`,
+    //     fell back to `FillHandFan` with `_fanSourcePile = None`, and drew his 2 hand cards
+    //     instead of his 7 discards. `Pick fan source (LoseCard): discard pile` has 0 hits. That is
+    //     both of his sentences — no cards to place, no discards in hand.
+    //     THE AUTHOR: `ae7f043f` added the watch with a GLOBAL latch (permissive, long rest still
+    //     worked); `98b482ac` added ownership scoping, correct in itself. The COMBINATION is fatal.
+    //     And TWO PRE-REGISTERED FALSIFIERS FIRED IN THAT LOG AND NOBODY READ THEM — the `PICK
+    //     GATE` line names this defect word for word.
+    //     HE WAS GENUINELY STRANDED: `STATE: Halted @ LongRest`, `buttons=0x00`, and he quit the
+    //     game. The offered remedy was a 2D-hand escape hatch; HE REFUSED IT — "Nein das will ich
+    //     nicht. Sorge einfach dafür das so etwas nicht vorkommt." So the guarantee is two layers
+    //     and NO fallback surface: (1) the latch now declines to arm on a hand this client does not
+    //     control — which closed a hole the first fix did NOT, since a co-player's GENUINE pick
+    //     could still seize it (the peer's log already had one armed); the refusal is deliberately
+    //     ONE-WAY, an unclassifiable hand is armed rather than declined, because declining on a
+    //     guess loses a real local pick; and (2) `HealOwnerIfRefusingAnOpenPick`, once per frame
+    //     BEFORE the rebuild, deciding from the GAME's state and contributing only the one fact
+    //     that is wrong by definition when the other four hold. It is blind to LIVENESS
+    //     disagreements on purpose — healing those would reinstate the 87 s stale banner. Its line
+    //     says its healthy reading is its own ABSENCE: one firing is an unenumerated route, TWO IS
+    //     A NEW DEFECT REPORT. Target next session: heals=0, declines>0.
+    //   * THE FAN ORDER (his #2, "MUSS zwingend"), CAUGHT ON ONE PACKET BOUNDARY ACROSS TWO LOGS.
+    //     Aligned on nine `Called Init(topCard:)` anchors with interpolation (the offset drifts
+    //     x1.016 -> x0.944). Peer 197677 `fp=27e7dccb right='Scurry' … APPLIED`; peer 197756
+    //     `fp=5469e8a7 right='FearsomeBlade' … none stated`, 79 lines later, while the host's own
+    //     mirror line did not move. 27e7dccb is the owner's DRAWN order, 5469e8a7 the GAME's.
+    //     TWO CAUSES, BOTH PROTECTED BY A FALSE COMMENT. (a) The sender omitted record 44 when its
+    //     arc equalled the derived order, on the stated grounds that "silence always means use the
+    //     order you already had" — NO RECEIVER EVER KEPT ANYTHING; `RemoteHandFan` rebuilds from
+    //     the game's order every frame, so absence has always meant REVERT. (b) The sampler derived
+    //     its index space from `ActiveHand()`, which that method's own doc calls STALE, while the
+    //     arc is built from `ResolveHand(DecidingHand() ?? ActiveHand())` — when they differ,
+    //     `IndexOf` returns -1 and the record is withheld. The answer to "wieder": ModBuild 462 was
+    //     a RIGHT fix with a SECOND PATH into the same state that nobody closed.
+    //     Fixed: the sampler asks the ARC which hand lists it and refuses unless it is ours; the
+    //     identity shortcut is gone so absence means exactly one thing; the receiver HOLDS the last
+    //     applied order keyed on `CardInstanceID`. No wire-size change. FOUR false claims corrected,
+    //     one of them the shipped log string "the arc order is on no wire" — false for nine builds
+    //     and the first thing a reader greps.
+    //   * AND THE ORDER FIX MADE TWO OTHER DEFECTS REACHABLE. Both were found and closed INSIDE the
+    //     round, which is the part worth carrying forward: a lane's own correct fix widened the
+    //     window of a latent bug beside it.
+    //     (a) THE RETURN FLIGHT AIMED AT THE WRONG SEAT. Record 36 names a seat in the MODEL list; a
+    //     slab index is an ARC seat. The flight indexed `_cards` with the model seat — correct only
+    //     under the identity permutation, which record 44 had just stopped being. Two visible
+    //     defects per release: the WRONG slab yanked out of the release pose and eased into its own
+    //     seat while the real card pops — and the eased one looks deliberate.
+    //     `ResolveArcHeldSeats` has translated for exactly this reason since 462.
+    //     (b) A HELD ORDER HID THE WRONG SLAB. `TryHoldFanArcOrder` fills the gather with
+    //     `_owner.FanArcOrder` STILL NULL, so every held frame translated by the identity and the
+    //     mirror darkened the card the owner is LOOKING AT while the one in their fist stayed drawn.
+    //     The "one expression" estimate was wrong and instructively so: the site runs a whole method
+    //     BEFORE the order is applied, so the staged gather is empty there. The fix is
+    //     `_appliedOrder`, readable in BOTH windows of the frame — the old code mixed THIS frame's
+    //     wire array with LAST frame's buffer and agreed by luck. `ArcSeatOf` was DELETED rather
+    //     than left dead, because it was precisely what a future reader would reach for while
+    //     "simplifying" — the same trap that produced the regression.
+    //     A THIRD instance is left with a dated debt block and the reading that settles it. The
+    //     asymmetry is verified, not assumed: there a mis-map only seeds a stale START pose, so
+    //     every slab still eases to its own seat — a SNAP, never a wrong card. That is what makes
+    //     deferring it defensible where the hide was not.
+    //   * THE RETURN ANIMATION (his #1 and #4b) WAS A COVERAGE TABLE, NOT A MECHANISM. The owner's
+    //     half glides EVERYWHERE — every pickup site enumerated, no release path passes
+    //     `instant:true`, and the map-room fan is the same `Cards.CardFan`. The gap is entirely in
+    //     the MIRROR: of six arcs, only the scenario hand fan and the item fan glided. The map room
+    //     failed because `SingleHeldHandSeat` tested ONE literal and a map card is a different list
+    //     id; the browse arcs had no glide code at all. The map room was BELOW THE INSTRUMENT — the
+    //     peer's six mirrored map-room holds all precede the first `FAN RETURN VERDICT` line, so
+    //     six builds of return-glide work never touched it. A fifth row (the active matrix) is named
+    //     and unfixed.
+    //   * THE ACTIVE CARD (his #4a) — AND THE STRUCTURAL FACT BEHIND IT. `UpdateActive` opened with
+    //     a turn gate; `RemoteActiveCards` never had one. It was task #5 applied to the wrong
+    //     surface: #5 governs the two PLAYED cards, which belong to one turn, while an ACTIVE card
+    //     is active precisely because it OUTLIVES the turn that played it — and `UpdateActive`'s own
+    //     summary has read "always on — user ruling 2026-08-11" for every build the contradicting
+    //     gate sat beneath it. Symptom 2 is the gate; symptom 1 is the same gate via
+    //     `OverrideCurrentActorForOneAction`, which re-points the current actor mid-turn.
+    //     THE STRUCTURAL FACT, worth more than the bug: the peer's board is a SECOND VIEW OF THE
+    //     SAME LOCAL MODEL, not replicated data — Gloomhaven simulates every actor on every client.
+    //     No wire field could ever have fixed this. And the instrument AGREED WITH THE DEFECT
+    //     because both its rows were DRAWN PICTURES: it could only ask whether two boards agree with
+    //     each other, and printed `DISAGREE 0` on all 155 host lines of the session he reported.
+    //     Every live seat is now measured against the MODEL.
+    //   * THE BURN FLEW TWICE (his #5) — TWO INDEPENDENT TRIGGERS, BOTH ON THE OBSERVER. (a) The
+    //     2.0 s hold ceiling ended EVERY hold, though its doc claimed it applied only to a burn
+    //     whose recess this client could never place; the class's own line says so 3 times of 4.
+    //     (b) The stale-token sweep anchored on DISCOVERY with a 5.4 s window against a gap of a
+    //     whole turn, so the claim was always expired and the event fell through as a second,
+    //     anonymous slab flight. THE EARLIER RULING THAT THIS FAILS IN THE SAFE DIRECTION IS
+    //     WITHDRAWN: a lost event is a missing animation, but the user has now SEEN the duplicate.
+    //   * THE BURN SEQUENCE (his #7) — ONE CALLER DISCARDED A RETURN VALUE. `TryStartBurnFly` has
+    //     THREE outcomes; `RemoveShortRestCard` tested `!IsFlying`, so it parked the card the burn
+    //     path had just taken ownership of. Three consecutive peer lines are the whole report. NOT
+    //     three unsequenced effects — the gate was already right and one caller broke its premise.
+    //     No mod code plays the burn sound at all; it is the game's, so it could only ever be fixed
+    //     by not removing the card in front of it.
+    //   * THE SHORT-REST FACE (his #6) — AND THE TWO RULINGS ONLY LOOK CONTRADICTORY.
+    //     `IsPublicPopulation` answered TRUE for `SacrificedCard` and `BoardPickSeat` WITH NO PHASE
+    //     INPUT AT ALL: a PLACE rule substituted for the rule he stated. 3 of 65 selection-phase
+    //     census ticks drew a peer front; line 249738 is the one, and it is NOT a burning card.
+    //     The 2026-09-05 ruling (this front must be visible) and item 6 are separated in time by
+    //     `FinalizeShortRest` — while the sacrifice lies there the decision is still in flight and
+    //     re-drawable; on accept it lands in `LostAbilityCards` and the burn exception opens it.
+    //     Seven false assertions corrected; the sharpest is falsified one paragraph later by ITS OWN
+    //     doc.
+    //   * THE FIRST APPROVED EXCEPTION TO THE 1:1 RULING, AND HE NAMED IT HIMSELF. With the card
+    //     covered, the mirrored dialog still spelled its name in prose. His ruling: "wegen dem
+    //     Anti-Cheat-System … muss hier ein genehmigte Ausnahme der 1:1 Regel greifen … Nutz eine
+    //     immersive Art das ausblenden und bleib trotzdem so nah wie möglich am Dialog den der
+    //     Spieler auch sieht." Masked as "eine versiegelte Karte" / "a sealed card", driven by
+    //     `PeersMaySeeOurCard` — the owner-seat counterpart of `CardFaces`, the SAME two terms in
+    //     the same order, so the text and the card can never disagree. Plain letters and not a
+    //     glyph, for a STRUCTURAL reason: every mod-owned mirrored label runs through
+    //     `RichTextTags.Strip` while the two game-prefab paths render tags, so a sprite would be
+    //     inconsistent by construction. AND THE SWEEP FOUND A SECOND CHANNEL WITH NO GATE AT ALL —
+    //     record 13's CONFIRM/UNDO cap labels read the same live dialog option; masking record 12
+    //     alone would have moved the leak one surface over.
+    //   * THE ENEMY INFO (his #3) — IT WAS DEPTH, NOT DRAW ORDER, AND THE PREVIOUS ROUND'S COMMENT
+    //     CITED A SCREENSHOT THAT SHOWS THE OPPOSITE. `AdoptBoardOrder` skips `renderQueue <= 2500`
+    //     by design, so the board's opaque rail holds no cluster slot and no `sortingOrder` of ours
+    //     is ever compared with it; a world-space canvas draws `ZTest LEqual` and is z-rejected at
+    //     any order. The owner's board is right because it also gets `OnTopUiGraphics`, whose own
+    //     motivation names "the control board's raised wooden rail". The mirrored popup reached it
+    //     for none of three independent reasons. The 2026-09-06 ORDER fix is confirmed WORKING at
+    //     226 against 223 — right fix, not enough. The horizontal offset is a SEPARATE defect and
+    //     was NOT guessed at: the game writes every enemy popup to the same holder-local origin, so
+    //     there is no per-entry anchor in the wrong frame; a `SEAT:` diff in parent-local CENTRES
+    //     now answers it from one log.
+    // Wire: nothing new. Record 44 is now always stated when describable (3-9 bytes, already inside
+    // the worst case). Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 471: TWENTY ROUNDS IN, THE PHOTOMETER ANSWERED. The white on the held prop is painted by
     //   THE PROP'S OWN RENDERERS — measured, with the null perturbation and the recovery both
     //   satisfied — and the material-property class is excluded not by another null reading but by
