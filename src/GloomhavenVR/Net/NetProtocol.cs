@@ -448,7 +448,45 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 475;
+    public const ushort ModBuild = 476;
+    // Build 476: THE BANNER NAMED THE ACTION AND NEVER THE OCCASION, so two card losses from two
+    //   unrelated causes drew the identical line. User, after working out ModBuild 475's deadlock
+    //   himself: "erst habe ich den Schaden bekommen und DANACH musste ich nochmal eine Karte
+    //   abwerfen wegen der langen Rast … Eventuell wäre es besser wenn der Text oben kurz die lange
+    //   Rast erwähnt."
+    //   * THE EVIDENCE IS TWO IDENTICAL LINES. Host log, anchored: `Pick banner: "Testo: Wähle 1
+    //     Karte(n) zum Verlieren"` at 243479 and again at 249351 — and the game's own state machine
+    //     separates what the banner could not: `Halted @ TakeDamageConfirmation` before the first,
+    //     `Halted @ LongRest` before the second.
+    //   * EVERY OBVIOUS TERM IS WRONG AND THE LOG PROVES IT. `CCharacterClass.LongRest` is set when
+    //     the rest is CHOSEN and stays set until it resolves, so it is true during a damage loss in
+    //     the same round; `HasLongRested` is false for both; `LongRestTurnHand()` answers both.
+    //     Wiring the clause to any of them would have printed "Lange Rast" over a damage loss —
+    //     precisely the bug this item exists to remove. Damage is tested BY PHASE, never by the
+    //     absence of a long rest, and via `PhaseManager.PhaseType` rather than `ActionPhaseType`
+    //     because `Choreographer` sets the latter only inside `if (FFSNetwork.IsOnline)` and it is
+    //     therefore blind in single player.
+    //   * THE OCCASION IS RESOLVED WHERE THE STRING IS COMPOSED, so one line goes on extension
+    //     record 7 and every mirror draws it — 1:1 by construction rather than by a second write.
+    //     `ResolvePickOccasion` mirrors `CardsHandUI.OnLoseCardClick` branch for branch, and that
+    //     method is the single commit callback for every lose/discard pick, so the clause can never
+    //     name an occasion the game will not act on. Long rest, damage, ability and improved short
+    //     rest are named; anything else returns null and keeps today's wording. THE CLAUSE IS
+    //     ABSENT, NEVER WRONG.
+    //   * THE BYTE CAP HELD WITHOUT RAISING IT. Longest clause 13 B; worst composed German ask 83 B
+    //     bare, 149 B with a 32-character all-two-byte name, against `PickBannerTextMaxBytes` 160.
+    //     The reported line now reads 51 B. The clause is attached to the ASK only and never to the
+    //     confirm hint, which at 107 B is still the longest composed German line on that record —
+    //     so the first line that could ever breach the cap is the one this change did not touch.
+    //   * THREE MORE FALSE ASSERTIONS, all comment-only, all found by reading the log against the
+    //     source: `IsLongResting` claimed a `LoseCard` while true "is unambiguously the long-rest
+    //     step" (host 243480 is that exact reading on a DAMAGE loss); `HasLongRested` claimed it is
+    //     cleared on the next round, citing a line that sits inside `Reset()` when the real clear is
+    //     the actor's own turn end; and the `LONG REST FLOW` instrument asserted "BURN step active"
+    //     and was wrong once per session for the same reason. It now reports the resolved occasion
+    //     instead of asserting one.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 475: TEN ITEMS, SEVEN LANES, AND THE DEADLOCK WAS NOT A DEADLOCK — the mod re-opened a
     //   step he had already answered. Two lanes contradicted each other on a count the fix rested
     //   on and the integrator recounted it; two briefings of mine were falsified, one of them by an
