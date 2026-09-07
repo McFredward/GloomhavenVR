@@ -38,15 +38,36 @@ namespace GloomhavenVR.Cards;
 /// <para>THE USER'S REPORT IS THAT DIVERGENCE, MEASURED FROM THREE SEATS AT ONCE: the observer's
 /// remote board (model → correct and immediate), the owner's own board (widget cache → late), and a
 /// third seat with that character selected (widget cache that is NEVER re-stamped at all, because
-/// the game only ever drives the LOCAL player's hand view — plus a turn gate, see
-/// <c>CardsGameApi.IsPresentedActorTurn</c>). No wire field could have fixed any of it: the fact
-/// was already on all three machines. It was read from the wrong place on two of them.</para>
+/// the game only ever drives the LOCAL player's hand view — plus a turn gate that no longer exists,
+/// see the next paragraph). No wire field could have fixed any of it: the fact was already on all
+/// three machines. It was read from the wrong place on two of them.</para>
 ///
 /// <para>SO EVERY SURFACE ASKS HERE NOW, and the answer is the model, always. Sibling lanes that
 /// need "is this card currently active" — the burn-presentation trigger (activated-but-not-yet-lost
 /// must not look or sound burnt) and the face policy (an active card taken into the hand shows its
 /// FRONT even in the selection phase) — call <see cref="IsActive(CPlayerActor, CBaseCard)"/> and
 /// get the same answer this column draws, by construction rather than by agreement.</para>
+///
+/// <para>AND ONE SOURCE WAS NOT ENOUGH — USER ITEM 4 (2026-09-07, verbatim): "In meinem Zug habe
+/// ich eine Karte aktiviert. Sie wurde bei mir NICHT sofort lokal angezeigt. Allerdings sieht mein
+/// Mitspieler sie bei mir … Die aktive Karte ist lokal mal aufgetaucht und wieder verschwunden als
+/// ein anderer Spieler dran war. Auch hier hat das remote board sie richtig angezeigt." Making both
+/// surfaces read this file fixed WHAT they believed and left untouched WHETHER they drew it:
+/// <c>CardsDriver.UpdateActive</c> still opened with a turn gate that hid the owner's whole column
+/// on every turn that was not the presented character's, while <c>Net.RemoteActiveCards</c> has
+/// never had one. Same fact, same machine, same frame, one gate — ten disappearances of one card in
+/// a single ModBuild 470 session. The gate is now deleted; requirement #5, which it was a
+/// misapplication of, keeps its real choke point in <c>Board.CharacterFocus.RoundCardDock</c> and
+/// governs the two PLAYED round cards, which belong to one turn. An ACTIVE card by definition
+/// outlives the turn that played it, so no turn-scoped term may ever decide whether it is drawn.
+/// </para>
+///
+/// <para>THE CENSUS BELOW MISSED ALL OF THAT AND SAID SO IN NUMBERS, which is why it now has a
+/// <see cref="Belief.Model"/> row. Both of its rows used to be DRAWN pictures, so it could only ask
+/// "do my two boards agree with each other" and it excused a SUPPRESSED seat as deliberate — the
+/// exact shape of this defect. It printed 0 DISAGREE on 155 host and 146 peer lines of the session
+/// the user reported. A row that is not a picture of anything is the one row that cannot be fooled
+/// by every picture being wrong the same way.</para>
 ///
 /// <para>ALLOCATION: never <c>CCharacterClass.ActivatedAbilityCards</c>. That property is a LINQ
 /// projection that materialises a NEW list on every read (CCharacterClass.cs:99) and these are
@@ -152,6 +173,24 @@ internal static class ActiveCardSet
     /// machine and present on another is itself the reading.</summary>
     internal enum Belief : byte
     {
+        /// <summary>
+        /// NOT A SURFACE — the MODEL, <c>CCharacterClass.ActivatedCards</c> itself, which is what
+        /// every seat is supposed to be a picture of. It is stamped automatically beside every
+        /// report (see <see cref="StoreModel"/>), so it costs no call site and exists for exactly
+        /// the characters some seat draws.
+        ///
+        /// <para>ITS ABSENCE IS WHY THIS CENSUS READ CLEAN THROUGH USER ITEM 4 (2026-09-07). Both
+        /// of the other rows are DRAWN pictures, so the line could only ever answer "do my two
+        /// boards agree with each other". It could not answer "does either of them agree with the
+        /// truth" — and the defect was precisely that one seat drew NOTHING while a card was
+        /// active. With only drawn rows, that reads as a SUPPRESSED seat, which the disagreement
+        /// rule deliberately excused. DISAGREE therefore printed 0 on 155 host lines and 146 peer
+        /// lines of the ModBuild 470 session while the user watched the card appear and vanish ten
+        /// times. A row that is not a picture of anything is the one row that could not be fooled
+        /// by every picture being wrong the same way.</para>
+        /// </summary>
+        Model,
+
         /// <summary>This client's own control board drew it (<c>ActivePileViewer</c> via
         /// <c>CardsDriver.UpdateActive</c>) — for the character the board is PRESENTING, which is
         /// the local player's own or, under a read-only character focus, somebody else's.</summary>
@@ -212,6 +251,10 @@ internal static class ActiveCardSet
         if (klass == null)
             return;
         string charId = CharacterId(klass);
+        // THE MODEL ROW IS STAMPED FIRST AND UNCONDITIONALLY — before the unchanged fast path
+        // below, because a surface that has settled still has to keep the truth beside it alive or
+        // the truth expires while the picture does not.
+        StoreModel(klass, charId);
         int sig = DrawnSignature(drawn);
         if (s_rows.TryGetValue(Key(charId, belief), out Row prev) && prev.Cards != null
             && !prev.Suppressed && prev.Sig == sig)
@@ -258,6 +301,19 @@ internal static class ActiveCardSet
     /// that is hidden by a gate must overwrite its row rather than leave the last non-empty one
     /// standing, or the census would answer "in agreement" for the exact case the user reported
     /// (his board switched to the peer's character and showed no active card at all).
+    ///
+    /// <para>IT HAS NO CALLER TODAY, ON PURPOSE, AND THAT ABSENCE IS THE CONVICTING READING FOR
+    /// USER ITEM 4. Its only producer was <c>CardsDriver.UpdateActive</c>'s turn gate, and deleting
+    /// that gate was the fix — an active card outlives the turn that played it, so no turn-scoped
+    /// term may decide whether it is drawn. The method is KEPT rather than deleted because the
+    /// census still has to be able to tell "a surface refused to draw" apart from "a surface stopped
+    /// reporting": <see cref="Agrees"/> reads <c>Row.Suppressed</c> and now counts a suppressed seat
+    /// as a DISAGREEMENT whenever the model beside it is non-empty, so a future gate on this column
+    /// that calls this method convicts itself on the very first census line instead of hiding. A
+    /// future gate that just returns early hides completely — which is what happened here — so any
+    /// new early-out in an active-card surface MUST call this. Grep the shipped log for
+    /// "SUPPRESSED" inside an "] [Cards] ACTIVE SET" line: zero hits is the post-fix expectation,
+    /// and any hit names its own gate in the clause it prints.</para>
     /// </summary>
     internal static void ReportSuppressed(CPlayerActor? actor, Belief belief, string why)
     {
@@ -266,7 +322,33 @@ internal static class ActiveCardSet
         CCharacterClass? klass = SafeClass(actor);
         if (klass == null)
             return;
-        Store(CharacterId(klass), belief, string.Empty, 0, suppressed: true, why: why, sig: 0);
+        string charId = CharacterId(klass);
+        // …and especially here: "this seat drew nothing" is only half a reading. The other half is
+        // whether anything was SUPPOSED to be drawn, and that is the model row.
+        StoreModel(klass, charId);
+        Store(charId, belief, string.Empty, 0, suppressed: true, why: why, sig: 0);
+    }
+
+    /// <summary>
+    /// Refresh the <see cref="Belief.Model"/> row for one character straight from
+    /// <c>CCharacterClass.ActivatedCards</c>. Allocation-free unless the set actually moved: the
+    /// order-dependent <see cref="Signature(CCharacterClass?)"/> is compared first and the sorted
+    /// string is only rebuilt past that. Called from every report, so the model row lives and dies
+    /// with the surfaces that claim to depict it.
+    /// </summary>
+    private static void StoreModel(CCharacterClass klass, string charId)
+    {
+        int sig = Signature(klass);
+        if (s_rows.TryGetValue(Key(charId, Belief.Model), out Row prev) && prev.Cards != null
+            && prev.Sig == sig)
+        {
+            Touch(charId, Belief.Model);
+            return;
+        }
+        List<CBaseCard>? list = ActivatedCards(klass);
+        int count = 0;
+        string cards = FormatModel(list, ref count);
+        Store(charId, Belief.Model, cards, count, suppressed: false, why: null, sig: sig);
     }
 
     /// <summary>
@@ -372,6 +454,43 @@ internal static class ActiveCardSet
         return s_sb.ToString();
     }
 
+    /// <summary>
+    /// The model list in the SAME sorted <c>id:Name</c> form the drawn sets take, so a model row
+    /// and a board row are comparable as literal strings and a mismatch is the reading.
+    ///
+    /// <para>The <c>is CAbilityCard</c> filter is not a narrowing — it is exactly what BOTH drawing
+    /// surfaces keep (<c>RemoteActiveCards.Refresh</c>'s own <c>is CAbilityCard</c> test, and
+    /// <c>CardsGameApi.GetActivePileWidgets</c>, which can only match a card that has an
+    /// <c>AbilityCardUI</c>). Comparing the raw list against them would manufacture a disagreement
+    /// out of a non-ability activated card that no seat was ever asked to draw.</para>
+    /// </summary>
+    private static string FormatModel(List<CBaseCard>? cards, ref int count)
+    {
+        count = 0;
+        if (cards == null || cards.Count == 0)
+            return string.Empty;
+        s_sort.Clear();
+        for (int i = 0; i < cards.Count; i++)
+        {
+            if (!(cards[i] is CAbilityCard card))
+                continue;
+            int at = s_sort.Count;
+            while (at > 0 && s_sort[at - 1].ID > card.ID)
+                at--;
+            s_sort.Insert(at, card);
+        }
+        count = s_sort.Count;
+        s_sb.Clear();
+        for (int i = 0; i < s_sort.Count; i++)
+        {
+            if (i > 0)
+                s_sb.Append(", ");
+            s_sb.Append(s_sort[i].ID).Append(':').Append(SafeName(s_sort[i]));
+        }
+        s_sort.Clear();
+        return s_sb.ToString();
+    }
+
     private static string SafeName(CBaseCard card)
     {
         try { return card.Name ?? "?"; }
@@ -404,29 +523,44 @@ internal static class ActiveCardSet
         for (int i = s_characters.Count - 1; i >= 0; i--)
         {
             string gone = s_characters[i];
-            if (Expired(gone, Belief.OwnBoard, now) & Expired(gone, Belief.RemoteBoard, now))
+            if (Expired(gone, Belief.Model, now) & Expired(gone, Belief.OwnBoard, now)
+                & Expired(gone, Belief.RemoteBoard, now))
                 s_characters.RemoveAt(i);
         }
 
         for (int i = 0; i < s_characters.Count; i++)
         {
             string charId = s_characters[i];
+            bool hasModel = s_rows.TryGetValue(Key(charId, Belief.Model), out Row model);
             bool hasOwn = s_rows.TryGetValue(Key(charId, Belief.OwnBoard), out Row own);
             bool hasRemote = s_rows.TryGetValue(Key(charId, Belief.RemoteBoard), out Row remote);
             if (!hasOwn && !hasRemote)
                 continue;
+            bool modelLive = hasModel && now - model.ReportedAt <= RowLivesSeconds;
             bool ownLive = hasOwn && now - own.ReportedAt <= RowLivesSeconds;
             bool remoteLive = hasRemote && now - remote.ReportedAt <= RowLivesSeconds;
-            // A SUPPRESSED seat is not a disagreement about CONTENT — it is a seat that drew
-            // nothing on purpose, and its own clause already says which gate did it. Neither is an
-            // EXPIRED seat, which stopped reporting at all (peer gone / board hidden / character
-            // exhausted). Counting either would drown the real unequal-set case.
-            if (ownLive && remoteLive && !own.Suppressed && !remote.Suppressed
-                && !string.Equals(own.Cards, remote.Cards, System.StringComparison.Ordinal))
-                disagreements++;
+            // EVERY LIVE SEAT IS MEASURED AGAINST THE MODEL, NOT AGAINST THE OTHER SEAT. The old
+            // rule compared the two boards to each other and excused a SUPPRESSED one as "drew
+            // nothing on purpose" — which is exactly the shape of user item 4, where one board drew
+            // nothing on purpose while a card was active and the other drew it correctly. Excusing
+            // it made the instrument agree with the defect: 0 DISAGREE on both ModBuild 470 logs
+            // across a session in which the user watched the card vanish ten times. A seat that
+            // draws nothing while the model holds a card is now the LOUDEST reading here, because
+            // it is the one the user reported. An EXPIRED seat is still excused — it stopped
+            // reporting at all (peer gone / board hidden / character exhausted), which is silence
+            // rather than a wrong picture.
+            if (modelLive)
+            {
+                if (ownLive && !Agrees(own, model))
+                    disagreements++;
+                if (remoteLive && !Agrees(remote, model))
+                    disagreements++;
+            }
             if (sb.Length > 0)
                 sb.Append(" | ");
             sb.Append('\'').Append(charId).Append("': ");
+            Append(sb, "MODEL", hasModel, modelLive, model);
+            sb.Append(" / ");
             Append(sb, "own board", hasOwn, ownLive, own);
             sb.Append(" / ");
             Append(sb, "remote board", hasRemote, remoteLive, remote);
@@ -434,39 +568,69 @@ internal static class ActiveCardSet
         if (sb.Length == 0)
             return;
 
-        // HW-VERIFY: this line decides user item 8b ("Jederzeit muss synchron bleiben welche Karte
-        // aktiv ist … und das unmittelbar"). Grep token: "] [Cards] ACTIVE SET". It is the
-        // instrument the 2026-09-06 evidence did NOT have: the only active-card lines in those two
-        // 85/72 MB logs were COUNTS ("Active cards: 1", "Peer [2] active grid: 1 card(s)"), and a
-        // count cannot answer a question about WHICH card. This one names the cards.
+        // HW-VERIFY: this line decides user item 8b (2026-09-06, "Jederzeit muss synchron bleiben
+        // welche Karte aktiv ist … und das unmittelbar") and user item 4 (2026-09-07, "Sie wurde bei
+        // mir NICHT sofort lokal angezeigt … Allerdings sieht mein Mitspieler sie bei mir").
+        // Grep token: "] [Cards] ACTIVE SET".
         //
-        // HOW TO READ IT. Print it from BOTH logs, pick one character, and compare the bracketed
-        // list of every seat that names it. The sets are sorted by card id, so equal sets are
-        // byte-identical strings and any difference IS the desync. The frame beside each set is the
-        // frame that seat's belief last CHANGED, never the frame it was reported: "same set, frames
-        // 60 apart" is a latency reading, "different sets, both many seconds old" is a stuck
-        // surface, and a large "(Ns ago)" on a row whose board is not currently drawn is a STALE row
-        // rather than a live claim. A seat reading SUPPRESSED drew nothing on purpose and names the
-        // gate that did it.
+        // HOW TO READ IT — THE MODEL SEAT FIRST, THEN THE TWO PICTURES. Every character prints three
+        // seats: MODEL is CCharacterClass.ActivatedCards itself, and the other two are what this
+        // client's own control board and its mirror of that player's board are DRAWING. All three
+        // are sorted by card id, so equal sets are byte-identical strings and any difference is the
+        // reading. Compare each picture to the MODEL beside it, not to the other picture — two
+        // boards can agree with each other and both be wrong, which is the shape user item 4 took.
+        // The frame beside each set is the frame that seat's belief last CHANGED, never the frame it
+        // was reported: "same set, frames 60 apart" is latency, "different sets, both many seconds
+        // old" is a stuck surface, and a large "(Ns ago)" on a row whose board is not currently drawn
+        // is a STALE row rather than a live claim. SUPPRESSED means a seat drew nothing on purpose
+        // and names the gate that did it — and it now COUNTS as a disagreement whenever the MODEL
+        // beside it is non-empty, because that is exactly the user's symptom.
         //
-        // WHAT CONVICTS THIS FIX. On 2026-09-06 the owner's own board trailed its own mirrors by
-        // 390 s and 520 s (host frame 107724 vs peer frame 74216; peer frame 37174 vs host frame
-        // 142334). If a post-fix log shows any character whose 'own board' and 'remote board' sets
-        // differ for more than a couple of frames outside a SUPPRESSED clause, this fix did not
-        // work. If DISAGREE reads 0 for a whole session and the user still reports the symptom, the
-        // defect is downstream of the set — in what is DRAWN, not in what is believed — and this
-        // instrument has exonerated the sync and named where to look next.
+        // NOTHING HERE IS A WIRE READING AND NOTHING SHOULD BE. Both pictures resolve the same
+        // in-memory list on this machine: the own board through CardsGameApi.GetActivePileWidgets →
+        // ActiveCardSet.ActivatedCards, the mirror through ActiveCardSet.ActivatedCards directly. The
+        // rules model of every actor is simulated on every client, so a "remote board" is a SECOND
+        // VIEW OF THE SAME LOCAL MODEL, not a mirror of replicated data — which is why a peer could
+        // draw this player's active card correctly while the player's own board drew nothing, with
+        // no replication lag anywhere to blame. The only genuinely SENT length of a sender's active
+        // list is record 36's, printed by "ACTIVE MATRIX HELD SEAT" as recordLen; cross-check that
+        // against this MODEL row's count when a true wire question comes up.
+        //
+        // WHAT CONVICTS THE ITEM-4 FIX, IN NUMBERS. ModBuild 470, both logs, one card active all
+        // session (151:ABILITY_CARD_TheMindsWeakness): the host logged "Active cards: 1 shown" TEN
+        // times — ten re-appearances of one card — while the peer's mirror changed once, at its
+        // frame 53308, and held. WORKING: for every character, 'own board' equals 'MODEL' on every
+        // line, and DISAGREE reads 0 with no SUPPRESSED clause naming a turn gate anywhere in the
+        // log. INERT: any line where MODEL is non-empty and 'own board' reads [none] or SUPPRESSED
+        // — one such line is the bug, unfixed. STILL BEYOND THIS INSTRUMENT: a set that is drawn
+        // correctly but drawn in the wrong PLACE, at the wrong size, or behind something — this line
+        // reports membership only, so a correct set here plus a user still reporting an invisible
+        // card moves the search to ActivePileViewer's layout and visibility, not to the set.
         VRLog.Note("Cards", $"ACTIVE SET (change-triggered, re-stated every {RestateSeconds:F0} s "
             + $"even when unchanged; frame {Time.frameCount}): {sb}. Each seat's list is sorted by "
-            + "card id, so two clients' lines for the SAME character are comparable literally — an "
-            + "unequal pair is the 1:1 breach and the frame numbers say which seat is behind. Every "
-            + "seat reads one source (CCharacterClass.ActivatedCards via ActiveCardSet), so an "
-            + "unequal pair can no longer be a stale widget cache and means real replication lag. "
+            + "card id, so a seat and the MODEL beside it are comparable literally — a picture that "
+            + "differs from the MODEL is the defect, and the frame numbers say how long it has been "
+            + "wrong. Both pictures read one source (CCharacterClass.ActivatedCards via "
+            + "ActiveCardSet) on THIS machine, so a difference is never replication lag and never a "
+            + "stale widget cache: it is a gate or a draw. "
             + (disagreements > 0
-                ? $"{disagreements} character(s) DISAGREE between this client's own board and its "
-                  + "mirror of that player's board RIGHT NOW."
-                : "This client's own board and its remote mirrors agree on every character it "
-                  + "draws."));
+                ? $"{disagreements} seat(s) DISAGREE with the model RIGHT NOW — a seat reading "
+                  + "SUPPRESSED against a non-empty MODEL is a surface refusing to draw a card that "
+                  + "IS active, which is user item 4 and not a legitimate suppression."
+                : "Every seat this client draws agrees with the model."));
+    }
+
+    /// <summary>
+    /// Does one drawing seat's picture match the model? A SUPPRESSED seat agrees only with an EMPTY
+    /// model — "I deliberately drew nothing" is a correct picture of "nothing is active" and a wrong
+    /// one of anything else. That single clause is the whole difference between this census and the
+    /// one that read 0 DISAGREE through the session the user reported.
+    /// </summary>
+    private static bool Agrees(in Row seat, in Row model)
+    {
+        if (seat.Suppressed)
+            return model.Count == 0;
+        return string.Equals(seat.Cards, model.Cards, System.StringComparison.Ordinal);
     }
 
     /// <summary>Drop one seat's row if nobody has reported it for <see cref="RowForgetSeconds"/>.

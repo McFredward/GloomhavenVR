@@ -2388,40 +2388,50 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void UpdateActive(CardsHandUI hand)
     {
-        // #5: while ANOTHER actor is taking its turn (an enemy, or another character), the control board
-        // shows NO cards — only the cards of the character whose turn it currently is. The active pile is
-        // otherwise drawn every frame regardless of turn; gate it on it being the PRESENTED character's
-        // own action turn OR the shared card-selection phase (where everyone picks at once).
+        // THERE IS NO TURN GATE ON THIS COLUMN, and that removal is user item 4 (2026-09-07):
+        // "Die aktive Karte ist lokal mal aufgetaucht und wieder verschwunden als ein anderer
+        // Spieler dran war. Auch hier hat das remote board sie richtig angezeigt." Plus, of the
+        // same report: "Auf jeden Fall muss es auch lokal bei dem jeweiligen Character direkt nach
+        // einer Aktivierung direkt angezeigt werden."
         //
-        // THE GATE READ A CONTROL TERM AND THIS IS A DISPLAY SURFACE (user item 8b, 2026-09-06). It
-        // used to be CardsGameApi.IsActionTurn, whose last clause is `!FFSNetwork.IsOnline ||
-        // cur.IsUnderMyControl` — false for EVERY teammate's character, even while the Choreographer
-        // is standing on exactly that character. This method is handed
-        // CharacterFocus.ResolveHand(CurrentHand()), so the moment the board was focused on a peer
-        // the column hid itself and reported nothing: "Wenn ich auf meinem board seinen character
-        // gewechselt hab - habe ich die Aktive Karte auch nicht gesehen". IsPresentedActorTurn is
-        // the same test with the control clause dropped and nothing else changed; IsActionTurn keeps
-        // every one of its own callers, which are all asking the control question.
-        if (!CardsGameApi.IsPresentedActorTurn(hand) && !CardsGameApi.IsSelectionPhase(hand))
-        {
-            _active.SetVisible(false);
-            _activeBuffer.Clear();
-            _active.SetCards(_activeBuffer); // clear its list so Contains()/park stay accurate
-            // _activeFlown IS DELIBERATELY NOT CLEARED HERE — that clear WAS the replay defect. See
-            // the field's own note: this gate fires on every turn that is not this character's, so
-            // clearing the "already flown" marks here re-flew every long-lived active card the next
-            // time the column came back up.
-            if (_loggedActiveCount != -1)
-                _loggedActiveCount = -1;
-            // ZERO IS A READING: the census must carry "this seat drew nothing, and here is the gate
-            // that did it" rather than leaving the last non-empty picture standing and reading as
-            // agreement.
-            ActiveCardSet.ReportSuppressed(hand.PlayerActor, ActiveCardSet.Belief.OwnBoard,
-                "not this character's action turn and not the selection phase — "
-                + "CardsDriver.UpdateActive's turn gate");
-            return;
-        }
-
+        // WHAT USED TO BE HERE, and why it was wrong. The gate read
+        // `!IsPresentedActorTurn(hand) && !IsSelectionPhase(hand)` and, when it closed, hid the
+        // whole column and reported SUPPRESSED. It was task #5 applied to the wrong surface. #5 is
+        // "clear the control board after the own turn" and it is about the two PLAYED (round) cards
+        // docked in the board's recesses — cards that belong to ONE turn and must not still be lying
+        // there while an enemy is up. That requirement has its own choke point and keeps it:
+        // Board.CharacterFocus.RoundCardDock, consulted from CardsDriver.4's ActionSelection case.
+        // An ACTIVE card is the opposite kind of object: it is active precisely BECAUSE it outlives
+        // the turn that played it, and it stays active across turns and rounds until its bonus
+        // expires. There is no game state in which "it is not your turn" makes an active card not
+        // active, so there is none in which the column that shows it may be empty. This method's own
+        // summary above has said so since 2026-08-11 — "Empty → the area shows nothing (always on —
+        // user ruling 2026-08-11)" — and the gate contradicted that sentence for every build it
+        // stood.
+        //
+        // MEASURED, ModBuild 470, the pair of logs from the 2026-09-07 session. One card was active,
+        // 151:ABILITY_CARD_TheMindsWeakness, continuously. The peer's mirror of that board
+        // (Net.RemoteActiveCards, which has never had a turn gate) changed its belief exactly ONCE,
+        // at its frame 53308, and held that same picture for the remaining 75 census lines of the
+        // session. The owner's own board over the same span logged "Active cards: 1 shown" TEN
+        // separate times — ten re-appearances, so nine disappearances — and its census row read
+        // SUPPRESSED [… turn gate] in between, e.g. host frame 80618 drew [151:…] and host frame
+        // 80955 was SUPPRESSED, 337 frames later, with the mirror still drawing it.
+        //
+        // NOTHING IS ON THE WIRE HERE AND NOTHING NEEDED TO BE. Both surfaces resolve the identical
+        // in-memory list on the SAME machine in the SAME frame: this method reaches it through
+        // CardsGameApi.GetActivePileWidgets → ActiveCardSet.ActivatedCards(actor), and
+        // RemoteActiveCards.Refresh calls ActiveCardSet.ActivatedCards(actor) directly. The rules
+        // model of every actor is simulated on every client, so the "remote board" is a SECOND VIEW
+        // OF THE SAME LOCAL MODEL rather than a mirror of replicated data. That is why the peer's
+        // picture could be right while the owner's was wrong with no replication lag to blame, and
+        // it is why deleting a gate — not adding a field — is the whole fix.
+        //
+        // THE SELECTION PHASE IS UNAFFECTED because it was already inside the gate's OR. An active
+        // card is public by construction and the mirror draws its FRONT in every phase
+        // (RevealGate.PeerCardPopulation.AlreadyPublic, RemoteActiveCards.Refresh); the owner's
+        // column now agrees with that in every phase too, which is the standing face ruling read the
+        // only way that keeps the two boards 1:1.
         _active.EnsureBuilt(_tray);
         CardsGameApi.GetActivePileWidgets(hand, _activeWidgetBuffer);
         _activeBuffer.Clear();
@@ -2467,9 +2477,14 @@ internal sealed partial class CardsDriver
             //
             // IT REPLACES A TRIGGER THAT FIRED ON THE WRONG EVENT AND FIRED IT REPEATEDLY. The
             // previous test was `!_activeShown.Contains(widget.CardID)`, an edge on the game's
-            // active-pile WIDGET list — and _activeShown was cleared by the turn gate above, which
-            // fires on every turn that is not this character's. So a card that went active once
-            // re-flew every time the column came back up. MEASURED, ModBuild 462, both logs of the
+            // active-pile WIDGET list — and _activeShown was cleared by the turn gate this method
+            // used to open with, which fired on every turn that was not this character's. So a card
+            // that went active once re-flew every time the column came back up. That gate is GONE as
+            // of user item 4 (2026-09-07, see the head of this method), so the column no longer
+            // hides at all and the replay has lost its trigger as well as its cure — the prune below
+            // is kept because it is keyed on the only event that may ever drop a mark (the card
+            // leaving the active pile) and is therefore correct with or without a gate. MEASURED,
+            // ModBuild 462, both logs of the
             // 2026-09-06 session: the host's own board had exactly ONE active card all session
             // ('ACTIVE SET ... own board [151:ABILITY_CARD_TheMindsWeakness]', the only non-empty
             // own-board picture in the log), its 'Active cards: N shown' line toggled 1/0 nine
@@ -2558,14 +2573,21 @@ internal sealed partial class CardsDriver
     /// <c>CAbilityCard.CardInstanceID</c> (the game's own per-instance identity, not the repeating
     /// card DATA id), so the flight runs exactly ONCE per activation.
     ///
-    /// <para>IT REPLACES <c>_activeShown</c>, WHICH WAS CLEARED BY THE TURN GATE AND THEREFORE
+    /// <para>IT REPLACES <c>_activeShown</c>, WHICH WAS CLEARED BY A TURN GATE AND THEREFORE
     /// REPLAYED. Its own doc said so in as many words — "Cleared whenever the column is hidden, so
     /// the flight replays when it comes back up" — and read as a description of intended behaviour
-    /// rather than as the defect it was. UpdateActive's gate hides the column on every turn that is
-    /// not the presented character's, so on a two-player scenario that is every other turn. This set
-    /// is instead PRUNED to the ids still in the active list (see the IntersectWith at the end of
-    /// UpdateActive): a mark is dropped only when the card actually leaves the active pile, which is
-    /// the only event after which a new activation — and so a new flight — is correct.</para>
+    /// rather than as the defect it was. That gate hid the column on every turn that was not the
+    /// presented character's, so on a two-player scenario that was every other turn. This set is
+    /// instead PRUNED to the ids still in the active list (see the IntersectWith at the end of
+    /// <see cref="UpdateActive"/>): a mark is dropped only when the card actually leaves the active
+    /// pile, which is the only event after which a new activation — and so a new flight — is
+    /// correct.</para>
+    ///
+    /// <para>THE GATE ITSELF IS GONE (user item 4, 2026-09-07 — the column vanished when another
+    /// player's turn began while the peer's mirror kept drawing it correctly). The prune stays: it
+    /// was never a workaround for the gate, it is the right rule for the mark, and it is what keeps
+    /// this set finite now that the only wholesale clear left is the no-hand teardown in
+    /// <c>HideBoardContent</c>.</para>
     /// </summary>
     private readonly HashSet<int> _activeFlown = new(8);
 
@@ -2701,8 +2723,10 @@ internal sealed partial class CardsDriver
                 + $"{minArc:F3} m over the board — the SAME duration (NetProtocol.CardFxSeconds), "
                 + "the SAME 0.55 arc fraction and the SAME world-up bow the receiver replays, so "
                 + "the two machines draw one curve. ONE LINE PER ACTIVATION: the mark is kept "
-                + "across the column's turn gate and dropped only when the card leaves the active "
-                + "pile, which is the replay ModBuild 462 shipped (3 events for 1 activation).");
+                + "for the whole activation and dropped only when the card leaves the active "
+                + "pile, which is the replay ModBuild 462 shipped (3 events for 1 activation). The "
+                + "column that used to hide between turns no longer does (user item 4), so this "
+                + "line should now appear once per activation and never again for that card.");
         }
         _activeFlightBuffer.Clear();
     }
@@ -2916,12 +2940,14 @@ internal sealed partial class CardsDriver
         // return with the next active hand).
         _piles.SetVisible(false);
         _active.SetVisible(false); // feature 6: no active hand → no active-cards area
-        // THE ONE PLACE THE FLOWN MARKS ARE DROPPED WHOLESALE. Unlike UpdateActive's turn gate —
-        // which hides the column every turn that is not this character's and whose clear WAS the
-        // replay defect — this path means there is no hand and no character at all (scenario
-        // teardown, or the board with nobody assigned), so no mark can still be describing a card
-        // that is on a board. Keeping them here is the stale-mark risk the CardInstanceID key
-        // already narrows; clearing them here removes it outright.
+        // THE ONE PLACE THE FLOWN MARKS ARE DROPPED WHOLESALE, and since user item 4 (2026-09-07)
+        // the ONLY place the active column is emptied by anything other than an empty active list.
+        // UpdateActive used to open with a turn gate that hid the column every turn that was not
+        // this character's, and that gate's clear WAS the replay defect. This path is different in
+        // kind: it means there is no hand and no character at all (scenario teardown, or the board
+        // with nobody assigned), so no mark can still be describing a card that is on a board.
+        // Keeping them here is the stale-mark risk the CardInstanceID key already narrows; clearing
+        // them here removes it outright.
         _activeFlown.Clear();
         _activeBuffer.Clear();
         _active.SetCards(_activeBuffer);
