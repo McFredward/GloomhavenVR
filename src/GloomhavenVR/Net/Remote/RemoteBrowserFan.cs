@@ -281,28 +281,33 @@ internal sealed class RemoteBrowserFan
     // WHY IT IS THE SAME ANIMATION AND NOT A LOOKALIKE (1:1 outranks local legibility, and it
     // includes animation): the seed is the mirrored HELD SLAB's own last world pose — the pose that
     // peer's card was actually hanging at — and the ease is the owner's own [Cards] CardLerpSpeed
-    // off the wire (_emergeSharpness), over the owner's own ReleaseGlideSeconds. Nothing is
-    // invented, no new wire byte is owed, and no card identity is read on this path.
+    // off the wire (_emergeSharpness). Nothing is invented, no new wire byte is owed, and no card
+    // identity is read on this path. (The clause that stood here added "over the owner's own
+    // ReleaseGlideSeconds": that window is gone — see the block where the constant used to live.)
     //
     // WHY NO ARC ARITHMETIC IS NEEDED HERE, unlike RemoteHandFan's belts: the owner's browse arc
     // NEVER drops the plucked card from PileBrowser._cards (Relayout only declines to give it a
     // pose), so the wire count does not move across a pluck. The seat is stable, the gap is kept,
     // and the release edge is simply "this seat stopped being in their fist".
 
-    /// <summary>How long a released slab eases back to its arc seat. MIRROR of the owner's own
-    /// <c>Cards/VRCard.cs:ReleaseGlideSeconds</c> — held equal by scripts/check-mirrors.sh, exactly
-    /// as <c>RemoteHandFan.ReleaseGlideSeconds</c> and <c>RemoteItemFan.ReleaseGlideSeconds</c> are.
-    /// </summary>
-    private const float ReleaseGlideSeconds = 0.35f;
-
-    /// <summary>The arc seat currently gliding home, or -1. One at a time per pose slot.</summary>
-    private int _returnSeatA = -1;
-    private int _returnSeatB = -1;
-
-    /// <summary>Unscaled seconds of glide left for <see cref="_returnSeatA"/> / <see cref="_returnSeatB"/>.
-    /// </summary>
-    private float _returnGlideA;
-    private float _returnGlideB;
+    // ─── THIS FAN'S OWN ReleaseGlideSeconds IS GONE, AND SO IS ITS MIRROR GROUP (2026-09-07,
+    //     the 1:1 re-audit). It was `0.35f`, a copy of Cards/VRCard.cs:ReleaseGlideSeconds, and it
+    //     armed a per-seat WINDOW whose only job was to beat Layout's settled hard-assert branch
+    //     for long enough that a released slab could ease home instead of teleporting. That branch
+    //     is gone — Layout now eases EVERY slab EVERY frame, as the owner's PileBrowser.Relayout
+    //     does at all five of its `instant: false` call sites — so the window had no reader left.
+    //
+    //     AND ITS MIRROR CONTRACT DOES NOT SURVIVE THE CHECK EITHER. The OWNER's constant names the
+    //     window in which VRCard's home-lerp runs on UNSCALED time after a release. This whole
+    //     mirror already ticks on unscaled time (NetAvatarDriver.cs:868 `float dt =
+    //     Time.unscaledDeltaTime`), so there is nothing here for that window to switch: the term
+    //     the copy claimed to mirror does not exist on this side. What IS mirrored, and is the
+    //     thing that makes the return 1:1, is the RATE — `_emergeSharpness` is the owner's own
+    //     [Cards] CardLerpSpeed off record 28 — plus the SEED, which is the mirrored held slab's
+    //     own last world pose. Deleting the copy rather than keeping it in step is the outcome
+    //     scripts/check-mirrors.sh keeps recommending, and the group is retired there in the same
+    //     commit with this reasoning. RemoteHandFan's and RemoteItemFan's copies are untouched:
+    //     they have their own readers and their own groups.
 
     /// <summary>Last frame's fist, so the RELEASE EDGE can be taken. The pose slot is remembered with
     /// the seat because record 36 stops naming either the moment the fingers open — the seed pose
@@ -325,9 +330,22 @@ internal sealed class RemoteBrowserFan
     private float _collapseElapsed = -1f;
     private Vector3 _collapseTo;
     private Vector3 _collapseArcUp = Vector3.up;
+    /// <summary>The LARGEST of <see cref="_collapseArcs"/> — for the log line only. The arc that
+    /// is FLOWN is per card; see <see cref="_collapseArcs"/>.</summary>
     private float _collapseArc;
     private float _collapseTargetScale = 1f;
     private readonly List<Vector3> _collapseFrom = new(InitialSlots);
+
+    /// <summary>Each collapsing slab's OWN arc height, and its OWN starting scale. Both used to be
+    /// one number for the whole fan — the arc solved from <c>_cards[0]</c>'s distance and applied to
+    /// every card, the scale a constant <c>SlabScale</c> — while the owner's collapse is N separate
+    /// <c>VRCard.FlyToPile</c> calls, each solving its arc from ITS OWN travel (VRCard.cs:1606) and
+    /// each capturing ITS OWN live <c>localScale</c> (VRCard.cs:1597). A fan is an arc: the outer
+    /// cards travel much further than the middle one, so one shared height flattened the outside
+    /// and over-bowed the inside; and the card the owner was POPPING sat 18 % larger than
+    /// <c>SlabScale</c>, so it snapped down to slab size on frame 1 of the fold.</summary>
+    private readonly List<float> _collapseArcs = new(InitialSlots);
+    private readonly List<float> _collapseFromScale = new(InitialSlots);
     private int _collapseKind = -1;
 
     public RemoteBrowserFan(RemoteAvatar owner)
@@ -626,14 +644,14 @@ internal sealed class RemoteBrowserFan
         float step = n > 1 ? Mathf.Min(_maxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
-        bool easing = _emergeElapsed >= 0f;
-        float k = 0f;
-        if (easing)
+        // The emerge clock is still RUN — Tick and BeginEmerge both read it as "is this fan still
+        // opening" — but it no longer decides the pose WRITE. Every frame eases now; see the pose
+        // loop below for why the settle latch it used to arm was the defect.
+        if (_emergeElapsed >= 0f)
         {
             _emergeElapsed += dt;
-            k = 1f - Mathf.Exp(-_emergeSharpness * dt);
             if (_emergeElapsed >= EmergeSettleSeconds)
-                _emergeElapsed = -1f; // settled: assert the slots exactly from here on (see below)
+                _emergeElapsed = -1f;
         }
 
         // WHICH CARD THE OWNER IS SINGLING OUT in this arc (extension record 6 — defect (f), the
@@ -667,7 +685,6 @@ internal sealed class RemoteBrowserFan
         // release pose, which is a worse flick than the pop it is meant to fix (RemoteHandFan's
         // BeginReturnGlide carries the identical note).
         TakeReleaseEdges(heldSeatA, heldSeatB, heldPoseSlotA, n);
-        float returnK = 1f - Mathf.Exp(-_emergeSharpness * dt);
 
         for (int i = 0; i < _cards.Count; i++)
         {
@@ -709,30 +726,29 @@ internal sealed class RemoteBrowserFan
                 pos += rot * new Vector3(0f, PopUp * popT, -_popForward * popT);
             float scale = SlabScale * (1f + PopScale * popT);
             Transform t = _cards[i].transform;
-            // A RETURNING slab owns its own ease for ReleaseGlideSeconds and outranks the settled
-            // hard assert below — which is the write that was teleporting it. It does NOT outrank a
-            // running emerge: the two never overlap (an emerge is the fan opening, and a card can
-            // only be in the fist of a fan that is already open).
-            bool returning = !easing && IsReturning(i);
-            if (easing || returning)
-            {
-                float ke = easing ? k : returnK;
-                t.localPosition = Vector3.Lerp(t.localPosition, pos, ke);
-                t.localRotation = Quaternion.Slerp(t.localRotation, rot, ke);
-                if (returning)
-                    t.localScale = Vector3.Lerp(t.localScale, Vector3.one * scale, ke);
-            }
-            else
-            {
-                t.localPosition = pos;
-                t.localRotation = rot;
-                t.localScale = Vector3.one * scale;
-            }
+            // ─── ALWAYS EASED, ON ALL THREE TERMS (2026-09-07 1:1 re-audit) ─────────────────────
+            // A `if (easing || returning) … else { hard assert }` stood here, and past the 0.7 s
+            // emerge latch every pose change on this arc was a ONE-FRAME JUMP. The owner never
+            // jumps: PileBrowser.Relayout passes `instant: false` at ALL FIVE of its call sites, so
+            // his cards run VRCard.TickHome's exponential on position, rotation AND scale every
+            // frame. The two motions this snapped are the most frequent ones this fan has — the
+            // hover SPLIT (the neighbours' ~24.6 mm slide at the shipped defaults) and the pop LIFT
+            // of the singled-out card — so the mirrored fan twitched where the owner's glided,
+            // several times a second while he scanned a pile.
+            //
+            // ONE RATE, ONE BRANCH. The emerge ease and the return glide computed the identical
+            // k = 1 - exp(-_emergeSharpness * dt) and are now one term; the settle latch is gone
+            // and IsReturning/_returnGlide* survive only for the SEED they stamp (see
+            // TakeReleaseEdges), which is a pose write and not a rate.
+            //
+            // Convergence, since an exponential never formally arrives: at the shipped sharpness
+            // and 90 Hz a slab is within 1 % of its seat in about 0.2 s, which is the same
+            // "arrival" the owner's own cards make — his lerp does not terminate either.
+            float ke = 1f - Mathf.Exp(-_emergeSharpness * dt);
+            t.localPosition = Vector3.Lerp(t.localPosition, pos, ke);
+            t.localRotation = Quaternion.Slerp(t.localRotation, rot, ke);
+            t.localScale = Vector3.Lerp(t.localScale, Vector3.one * scale, ke);
         }
-        if (_returnGlideA > 0f && (_returnGlideA -= dt) <= 0f)
-            _returnSeatA = -1;
-        if (_returnGlideB > 0f && (_returnGlideB -= dt) <= 0f)
-            _returnSeatB = -1;
         LogHighlightIfChanged(hovered);
     }
 
@@ -741,17 +757,9 @@ internal sealed class RemoteBrowserFan
     /// rebuilt has no slab a stale seat could name.</summary>
     private void ClearReturns()
     {
-        _returnSeatA = -1;
-        _returnSeatB = -1;
-        _returnGlideA = 0f;
-        _returnGlideB = 0f;
         _prevHeldSeatA = -1;
         _prevHeldSeatB = -1;
     }
-
-    /// <summary>Is arc seat <paramref name="i"/> easing home right now?</summary>
-    private bool IsReturning(int i)
-        => (i == _returnSeatA && _returnGlideA > 0f) || (i == _returnSeatB && _returnGlideB > 0f);
 
     /// <summary>
     /// Take this frame's RELEASE EDGES off record 36 and arm the mirrored return glide for each.
@@ -771,9 +779,9 @@ internal sealed class RemoteBrowserFan
     {
         int poseSlotB = heldPoseSlotA == 1 ? 2 : 1;
         if (_prevHeldSeatA >= 0 && _prevHeldSeatA != heldSeatA && _prevHeldSeatA != heldSeatB)
-            ArmReturn(_prevHeldSeatA, _prevPoseSlotA, wireCount, slotA: true);
+            ArmReturn(_prevHeldSeatA, _prevPoseSlotA, wireCount);
         if (_prevHeldSeatB >= 0 && _prevHeldSeatB != heldSeatA && _prevHeldSeatB != heldSeatB)
-            ArmReturn(_prevHeldSeatB, _prevPoseSlotB, wireCount, slotA: false);
+            ArmReturn(_prevHeldSeatB, _prevPoseSlotB, wireCount);
         _prevHeldSeatA = heldSeatA;
         _prevHeldSeatB = heldSeatB;
         if (heldSeatA >= 0)
@@ -788,7 +796,7 @@ internal sealed class RemoteBrowserFan
     /// re-parent and <c>PileBrowser.Add</c> asks <c>Relayout(instant: false)</c> to carry it to the
     /// arc slot on VRCard's standing home-lerp.
     /// </summary>
-    private void ArmReturn(int seat, int poseSlot, int wireCount, bool slotA)
+    private void ArmReturn(int seat, int poseSlot, int wireCount)
     {
         _returnEdges++;
         string? refusal = null;
@@ -809,19 +817,16 @@ internal sealed class RemoteBrowserFan
             LogReturnVerdict(refusal);
             return;
         }
+        // THE SEED IS THE WHOLE MECHANISM NOW. It used to also arm a per-seat GLIDE WINDOW, whose
+        // only job was to win against Layout's settled hard-assert for ReleaseGlideSeconds; that
+        // branch is gone (Layout eases every slab every frame, as the owner does), so a released
+        // card is carried home by the standing ease like any other pose change and there is no
+        // second timer to keep in step. Deleting the window rather than keeping it is the outcome
+        // this codebase keeps arriving at: the counters and the verdict line below, which are what
+        // a hardware round reads, are untouched.
         Transform t = _cards[seat]!.transform;
         t.position = slab!.position;
         t.rotation = slab.rotation;
-        if (slotA)
-        {
-            _returnSeatA = seat;
-            _returnGlideA = ReleaseGlideSeconds;
-        }
-        else
-        {
-            _returnSeatB = seat;
-            _returnGlideB = ReleaseGlideSeconds;
-        }
         _returnsArmed++;
         LogReturnVerdict(null);
     }
@@ -838,9 +843,10 @@ internal sealed class RemoteBrowserFan
     ///     NOTHING about item 4. THIS IS THE READING ModBuild 470 GAVE FOR THE MAP ROOM, and it is
     ///     why the gap survived: below the instrument, not refused by it.</item>
     ///   <item><c>M &gt; 0</c> and <c>A == 0</c> — INERT. The refusal sentence names the term.</item>
-    ///   <item><c>A &gt; 0</c> and the user still sees the card pop — the glide armed and something
-    ///     overwrote it. The only writer left is Layout's settled hard-assert branch, which
-    ///     <see cref="IsReturning"/> gates.</item>
+    ///   <item><c>A &gt; 0</c> and the user still sees the card pop — the seed was stamped and
+    ///     something overwrote it in the same frame. Layout's settled hard-assert branch used to be
+    ///     that writer and is GONE (every slab eases every frame now), so a pop surviving an ARMED
+    ///     verdict indicts a writer outside this class.</item>
     /// </list></para>
     /// </summary>
     private void LogReturnVerdict(string? refusal)
@@ -1063,8 +1069,7 @@ internal sealed class RemoteBrowserFan
         // OwnerCardHeight). It read this client's NOMINAL card height before, so a peer with taller
         // cards got a shallower minimum fold than the one they were watching — the identical defect
         // RemoteCardFx records having fixed for itself.
-        _collapseArc = Mathf.Max(OwnerCardHeight * CollapseMinArcCardHeights * bs,
-                                 Vector3.Distance(_cards[0].transform.position, stackWorld) * CollapseArcFraction);
+        float arcFloor = OwnerCardHeight * CollapseMinArcCardHeights * bs;
 
         // Shrink toward the pile SLAB's real width (the local FlyToPile does exactly this, which is
         // what makes the card read as slotting into the pile rather than sinking through the board).
@@ -1077,13 +1082,32 @@ internal sealed class RemoteBrowserFan
         _collapseTargetScale = bs * PileViewer.PileStack.SlabFactor * WidthRatio / rootScale;
 
         _collapseFrom.Clear();
+        _collapseArcs.Clear();
+        _collapseFromScale.Clear();
+        _collapseArc = 0f;
         for (int i = 0; i < _cards.Count; i++)
-            _collapseFrom.Add(_cards[i].transform.position);
+        {
+            Transform ct = _cards[i].transform;
+            _collapseFrom.Add(ct.position);
+            // PER CARD, from ITS OWN travel — the owner runs one FlyToPile per card and each solves
+            // max(floor, its own distance x fraction). One height for the whole fan was solved from
+            // _cards[0], the leftmost slab, and applied to the middle one that barely moves.
+            float arc = Mathf.Max(arcFloor, Vector3.Distance(ct.position, stackWorld) * CollapseArcFraction);
+            _collapseArcs.Add(arc);
+            if (arc > _collapseArc)
+                _collapseArc = arc;
+            // …and from ITS OWN live scale, which is 18 % over SlabScale for the card the owner is
+            // popping. VRCard.FlyToPile captures transform.localScale; a constant start here made
+            // the lifted card shrink to slab size on the fold's first frame.
+            _collapseFromScale.Add(ct.localScale.x);
+        }
         _collapseElapsed = 0f;
 
         VRLog.Info("Net", $"Remote pile browse [player {_owner.PlayerId}]: {KindName(kind)} fan CLOSED — " +
                           $"{_cards.Count} card(s) collapse back into that stack ({NetProtocol.CardFxSeconds:F2}s, " +
-                          $"arc {_collapseArc:F3} m over their board), matching the local browse collapse. " +
+                          $"arc up to {_collapseArc:F3} m over their board, solved PER CARD from its "
+                          + "own travel exactly as the owner's N separate FlyToPile calls do), "
+                          + "matching the local browse collapse. " +
                           // The arc PEAK above is identical under every symmetric ease and therefore
                           // proves nothing about the path — which is why this line names the curve
                           // and samples it away from the midpoint. Debug tier, unlike the two
@@ -1114,8 +1138,10 @@ internal sealed class RemoteBrowserFan
         for (int i = 0; i < _cards.Count && i < _collapseFrom.Count; i++)
         {
             Transform t = _cards[i].transform;
-            t.position = RemoteFlightCurve.Pose(e, _collapseFrom[i], _collapseTo, _collapseArcUp, _collapseArc);
-            t.localScale = Vector3.one * Mathf.Lerp(SlabScale, _collapseTargetScale, e);
+            float arc = i < _collapseArcs.Count ? _collapseArcs[i] : _collapseArc;
+            float from = i < _collapseFromScale.Count ? _collapseFromScale[i] : SlabScale;
+            t.position = RemoteFlightCurve.Pose(e, _collapseFrom[i], _collapseTo, _collapseArcUp, arc);
+            t.localScale = Vector3.one * Mathf.Lerp(from, _collapseTargetScale, e);
         }
 
         if (u < 1f)

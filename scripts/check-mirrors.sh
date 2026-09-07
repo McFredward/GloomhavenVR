@@ -217,13 +217,22 @@ MIRRORS=(
   # item chip's own entry directly above.
   "ability card release glide seconds : Cards/VRCard.cs:ReleaseGlideSeconds Net/Remote/RemoteHandFan.cs:ReleaseGlideSeconds"
 
-  # ...AND THE THIRD MIRROR OF THE SAME WINDOW (2026-09-07, user report item 4). The browse arc is
-  # the SAME VRCard released by the SAME VRCard.OnRelease — a card plucked out of a peer's
-  # discard/burnt browser is an ability card, not a third kind of object — so the mirrored browse fan
-  # replays that one window too. It had no return glide at all until this build, which is precisely
-  # why it had no entry here; a fan with no mirror constant is invisible to this gate, and that
-  # invisibility is the shape of the defect (see RemoteBrowserFan's RETURN-TO-ARC GLIDE region).
-  "browse card release glide seconds : Cards/VRCard.cs:ReleaseGlideSeconds Net/Remote/RemoteBrowserFan.cs:ReleaseGlideSeconds"
+  # THE "browse card release glide seconds" GROUP IS GONE (2026-09-07, the 1:1 re-audit), and this
+  # is the sixth time a group has closed by DELETING the copy rather than keeping it in step. It was
+  # added earlier the same day, pairing Cards/VRCard.cs:ReleaseGlideSeconds with
+  # Net/Remote/RemoteBrowserFan.cs:ReleaseGlideSeconds. The copy armed a per-seat WINDOW whose only
+  # job was to beat that fan's settled hard-assert branch, so a released slab could ease home
+  # instead of teleporting. The re-audit deleted the hard assert instead — the mirrored arc now
+  # eases EVERY slab EVERY frame, which is what the owner's PileBrowser.Relayout does at all five of
+  # its `instant: false` call sites — and the window lost its only reader.
+  #
+  # THE MIRROR CONTRACT DID NOT SURVIVE EITHER, WHICH IS THE MORE USEFUL HALF. The OWNER's constant
+  # names the window in which VRCard's home-lerp runs on UNSCALED time after a release. The whole
+  # Net mirror already ticks on unscaled time (NetAvatarDriver.cs:868), so on that side there was
+  # nothing for the window to switch: the copy named a term that does not exist there. What is
+  # really mirrored is the RATE (the owner's [Cards] CardLerpSpeed, off record 28 — a wired dial,
+  # not a constant, so not this file's business) and the SEED pose. RemoteHandFan's and
+  # RemoteItemFan's copies are UNTOUCHED and their group above still stands: they have live readers.
 
   # THE TWO "cluster" GROUPS ARE GONE (2026-08-25), and this is what deleting a group looks
   # like when the ORIGINAL is deleted rather than retuned. "cluster proud seat" paired
@@ -357,6 +366,33 @@ EXPRESSIONS=(
   # reading rather than composing a new one per viewer), which is why its own
   # Quaternion.LookRotation is not what this group matches.
   "mirrored flight rotation | the OWNER's pose - _owner.BoardRotation, or _owner.HeadHolder for a billboard, never the local camera | Camera\.main|VRRigDriver\.HeadCamera | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBrowserFan.cs"
+  # ── THE CARD-FACE DECISION (2026-09-07 face round) ───────────────────────────────────────────
+  # Closed from TWELVE surfaces answering in FOUR ways down to one call: RevealGate.CardFaces (all
+  # four overloads) answers both halves at once — WHICH face, and WHICH RULE chose it. A surface
+  # that re-derives the rule by chaining FaceRule members through a conditional is answering the
+  # question again instead of asking it, which is the same shape as the flight curve above: several
+  # lookalike implementations of one question, each under a comment saying it matched.
+  #
+  # WHAT THIS PERMITS ON PURPOSE: a bare `= FaceRule.Something` INITIALISER seeding an `out`
+  # parameter before the CardFaces call (RemoteBurnFx does exactly that). What it refuses is a
+  # FaceRule member on either side of a `?` or a `:` — a decision, not a seed.
+  #
+  # RemoteControlBoard.cs IS DELIBERATELY NOT IN THIS SCOPE YET, AND THAT IS A HANDOVER RATHER THAN
+  # AN EXEMPTION. On the ModBuild 477 base this group was written against, that file still holds two
+  # such chains (:2408-2410 and :2547-2549); the face round removes them. ADD THE FILE TO THIS
+  # GROUP'S SCOPE once that lands and the group is complete. Listing it before then would fail the
+  # build on a defect the lane adding this gate does not own, which is how a gate gets switched off.
+  "mirrored card-face decision | RevealGate.CardFaces — ask it rather than re-deriving its FaceRule | FaceRule\\.[A-Za-z_][A-Za-z0-9_]* *[?:]|[?:] *([A-Za-z_][A-Za-z0-9_]*\\.)*FaceRule\\. | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBoardCard.cs Net/Remote/RemoteHandFan.cs Net/Remote/RemoteBrowserFan.cs Net/Remote/RemotePileFronts.cs Net/Remote/RemoteHeldCardFace.cs Net/Remote/RemoteActiveCards.cs"
+  # …AND THE POPULATION TERM BEHIND IT. RevealGate.ShowRoundCardFronts is the PHASE predicate — ONE
+  # input to the face question — so a card SURFACE that asks it directly is deciding a face from one
+  # term of the rule instead of taking the rule. The legitimate remaining callers are all outside
+  # this scope on purpose and are listed here so nobody adds them: RemoteControlBoard.cs:723 (the
+  # population term it hands INTO CardFaces), RemoteBoardVisibility.cs:136 (a board-VISIBILITY
+  # decision, not a face), RemoteHandFan.cs:1445/1771 and RemoteInitiativeTrack.cs:2471.
+  # Cards/Driver/** and Board/CharacterFocus.cs are the OWNER's own board and no business of the
+  # mirror's. This group is the weaker of the two — a call site is not by itself a second
+  # implementation — so it is scoped tightly and says so.
+  "mirrored card-face population term | RevealGate.CardFaces — it takes the population; do not ask the phase predicate on a card surface | RevealGate\\.ShowRoundCardFronts *\\( | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBoardCard.cs Net/Remote/RemoteBrowserFan.cs Net/Remote/RemotePileFronts.cs Net/Remote/RemoteHeldCardFace.cs Net/Remote/RemoteActiveCards.cs"
 )
 
 xfail=0
@@ -378,10 +414,17 @@ for entry in "${EXPRESSIONS[@]}"; do
             echo "error: expression-group scope file ${site} not found — did it move or get renamed?" >&2
             xfail=1; continue
         fi
-        # Blank out comments so the lint reads CODE only: whole-line // and /// comments, block
-        # comment continuation lines, and any trailing // tail. Substitutions, never deletions, so
-        # grep -n still reports the file's own line numbers.
-        hits="$(sed -E -e 's://.*$::' -e 's:^[[:space:]]*\*.*$::' -e 's:^[[:space:]]*/\*.*$::' "$file" \
+        # Blank out COMMENTS and STRING LITERALS so the lint reads CODE only: whole-line // and ///
+        # comments, block-comment continuation lines, any trailing // tail, and then every "..."
+        # span. The string pass is not optional and this repository has a named bug class for
+        # skipping it — "a token quoted in its own explanation". Nine log lines in the very files
+        # scoped below contain RevealGate.ShowRoundCardFronts( INSIDE A STRING, explaining what the
+        # real call means; a lint that read those as call sites would fire on every one of them and
+        # be switched off within the week. Stripping can only REMOVE text, so it costs recall and
+        # never precision. Substitutions, never deletions, so grep -n still reports the file's own
+        # line numbers.
+        hits="$(sed -E -e 's://.*$::' -e 's:^[[:space:]]*\*.*$::' -e 's:^[[:space:]]*/\*.*$::' \
+                       -e 's:"([^"\\]|\\.)*"::g' "$file" \
                 | grep -nE "$xpat" || true)"
         [[ -z "$hits" ]] && continue
         echo "error: a SECOND implementation of a shared expression — ${xgroup}" >&2

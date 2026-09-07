@@ -563,14 +563,16 @@ internal sealed class RemoteBurnFx
         // length of the hold and the arc.
         //
         // SAME RULE, SAME FIELDS, SAME SOURCE as RemoteCardFx.WidthForAnchor, which is where the
-        // argument is written out in full: a RECESS end is the owner's own slot card width (record
+        // argument is written out in full. A RECESS end is the owner's own slot card width (record
         // ExtIdSlotCardSize, RemoteAvatar.SlotCardWidth — the identical number RemoteControlBoard
-        // sizes its recess cards with), and the PILE end deliberately stays at the hand CardWidth
-        // because nothing on this mirror knows a peer's burnt-stack slab width, so writing one would
-        // be inventing a value rather than mirroring one. No new wire field.
+        // sizes its recess cards with). The BURNT end is that stack's SLAB
+        // (PileViewer.PileStack.SlabFactor = 0.62 of the card width), which is the product
+        // RemoteControlBoard.PileCounter draws the mirrored stack at and the one the owner's own
+        // PileViewer.TryGetPileWorld hands FlyToPile — so the card shrinks into the stack here
+        // exactly as it does there, instead of vanishing over it at full size. No new wire field.
         float slotWidth = _owner.SlotCardWidth;
         b.FromWidth = b.Recess >= 0 && slotWidth > 0.001f ? slotWidth : cardWidth;
-        b.ToWidth = cardWidth;
+        b.ToWidth = cardWidth * PileViewer.PileStack.SlabFactor;
         b.Go.transform.localScale = Vector3.one * (scale * (b.FromWidth / RemoteHandFan.DefaultCardWidth));
         // LYING ON THEIR BOARD, not billboarded at us: the owner's card rests in a recess of a
         // board this client already knows the rotation of, and FlyToPile holds that orientation for

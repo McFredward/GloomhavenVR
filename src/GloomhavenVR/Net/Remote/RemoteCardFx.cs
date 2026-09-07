@@ -257,20 +257,25 @@ internal sealed class RemoteCardFx
         // the slab was a different card size from the recess card sitting at the very same seat,
         // which is a small card inside a card, clipping through it, for the length of the arc.
         //
-        // TWO SIZES, BOTH ALREADY ON THE WIRE AND BOTH ALREADY DRAWN BY THIS CLIENT. A RECESS end is
-        // the owner's own slot card width (record ExtIdSlotCardSize, RemoteAvatar.SlotCardWidth —
-        // the identical number RemoteControlBoard sizes its recess cards with, so the two agree by
-        // construction rather than by arithmetic); every other end keeps the owner's hand CardWidth
-        // this surface has always used. No new wire field, and the 1:1 ruling names SIZE and
-        // ANIMATION explicitly.
+        // EVERY SIZE IS ALREADY ON THE WIRE AND ALREADY DRAWN BY THIS CLIENT — see
+        // <see cref="WidthForAnchor"/>, which is where each anchor's source is written out. No new
+        // wire field, and the 1:1 ruling names SIZE and ANIMATION explicitly.
         //
-        // THE PILE END IS DELIBERATELY LEFT AT THE HAND WIDTH. The owner ramps to the PILE SLAB's
-        // width, and this client does not hold that number — nothing on the mirror draws a peer's
-        // pile at a known slab size, so writing one here would be inventing a value rather than
-        // mirroring one. The recess end is where the double is (a recess is the only anchor where
-        // this client draws a second card at the same point), so that is the end this fixes; the
-        // pile end is unchanged from every previous build and is named here so the next reader does
-        // not read the omission as an oversight.
+        // ─── THE PARAGRAPH THAT STOOD HERE DECLINED THE PILE END AND ITS REASON WAS FALSE
+        //     (2026-09-07 1:1 re-audit). It read: "THE PILE END IS DELIBERATELY LEFT AT THE HAND
+        //     WIDTH. The owner ramps to the PILE SLAB's width, and this client does not hold that
+        //     number — nothing on the mirror draws a peer's pile at a known slab size, so writing
+        //     one here would be inventing a value rather than mirroring one."
+        //
+        //     THIS CLIENT HOLDS THAT NUMBER AND DRAWS IT, IN TWO PLACES. RemoteControlBoard's
+        //     PileCounter sizes the mirrored stack at `_cardWidth * PileViewer.PileStack.SlabFactor`
+        //     and RemoteBrowserFan collapses its browse fan onto the same product. The owner's own
+        //     PileViewer.TryGetPileWorld hands FlyToPile exactly
+        //     `lossyScale * CardWidth * SlabFactor` (0.62), so a full-size slab was arriving on a
+        //     stack this very board draws at 62 % — on EVERY discard and EVERY burn, and in reverse
+        //     for a short rest's sacrifice flying Discard -> Slot0, which started at 100 % where its
+        //     owner starts at 62 %. An omission argued from a premise nobody re-checked, which is
+        //     why the premise is quoted here rather than deleted.
         f.FromWidth = WidthForAnchor(from);
         f.ToWidth = WidthForAnchor(to);
         // Board scale × the owner's card width AT THE ORIGIN; the Body child under it carries the
@@ -816,12 +821,26 @@ internal sealed class RemoteCardFx
     /// that stood here said the recess was "the ONE anchor" — it was written before this class
     /// could fly to the matrix at all.</para>
     ///
-    /// <para>Falls back to the owner's hand <c>CardWidth</c> for every other anchor and for a peer
-    /// whose slot-card record has not arrived — which is the size every build before this one drew
-    /// the whole arc at, so a missing record costs nothing that was not already the case.</para>
+    /// <para>A PILE END is the third: the owner shrinks his card into the stack's SLAB
+    /// (<c>PileViewer.PileStack.SlabFactor</c> = 0.62 of the card width), and this board draws its
+    /// mirrored stack at exactly that product, so a flight that ended at 100 % was a full-size card
+    /// vanishing over a 62 % stack on every discard and every burn.</para>
+    ///
+    /// <para>Falls back to the owner's hand <c>CardWidth</c> for the HAND FAN and for a peer whose
+    /// slot-card record has not arrived — which is the size every build before this one drew the
+    /// whole arc at, so a missing record costs nothing that was not already the case.</para>
     /// </summary>
     private float WidthForAnchor(CardFxAnchor anchor)
     {
+        // A PILE END IS THE STACK'S SLAB, NOT A CARD. The owner's PileViewer.TryGetPileWorld hands
+        // VRCard.FlyToPile `lossyScale x CardWidth x PileStack.SlabFactor` and the card shrinks into
+        // it; this client draws that same product twice already — RemoteControlBoard.PileCounter's
+        // SlabW and RemoteBrowserFan's collapse target — so this is the mirror reading its own
+        // rendered stack size, not a number invented here. See the retired paragraph in Play.
+        if (anchor == CardFxAnchor.Discard || anchor == CardFxAnchor.Burnt
+            || anchor == CardFxAnchor.Items)
+            return _cardWidth * PileViewer.PileStack.SlabFactor;
+
         // THE ACTIVE MATRIX IS THE SECOND ANCHOR WHERE THIS CLIENT DRAWS THE CARD ITSELF, and it
         // had no arm here at all: every '-> Active' flight arrived at the owner's hand CardWidth
         // while the cell it lands in is drawn at that width times their ActiveCardScale.
