@@ -262,6 +262,63 @@ internal sealed class RemoteBrowserFan
     // EMERGE: seconds since the fan opened (-1 = settled / not emerging).
     private float _emergeElapsed = -1f;
 
+    // ─── RETURN-TO-ARC GLIDE (user report item 4, 2026-09-07) ───────────────────────────────────
+    //
+    // "Wenn man das remote board eines Mitspielers beobachtet und dieser die Fächer
+    // (Abgeworfen/Verbrannt) öffnet und dort eine Karte nimmt und dann loslässt — 'ploppen' diese
+    // Karten immer noch zurück statt in der Animation der Spieler selbst auch sieht wieder zurück zu
+    // gehen in den Fächer."
+    //
+    // THE OWNER GLIDES AND THIS FAN TELEPORTED. Their side: CardsDriver.OnCardReleased's browse arm
+    // is `_browser.Add(card)` (Cards/Driver/CardsDriver.5.Interactions.cs:369), which is
+    // PileBrowser.Relayout(instant: false) — VRCard keeps its world pose across the release
+    // (VRCard.OnRelease) and its standing home-lerp carries it to the arc slot over
+    // ReleaseGlideSeconds. This fan's own Layout, once the 0.7 s emerge has settled, writes
+    // `t.localPosition = pos` unconditionally every frame; the slab is simply SetActive(true)d again
+    // at its finished arc pose. There was no glide to defeat because there was none at all: this
+    // file contained no return-seat, no seed and no HeldSlab call.
+    //
+    // WHY IT IS THE SAME ANIMATION AND NOT A LOOKALIKE (1:1 outranks local legibility, and it
+    // includes animation): the seed is the mirrored HELD SLAB's own last world pose — the pose that
+    // peer's card was actually hanging at — and the ease is the owner's own [Cards] CardLerpSpeed
+    // off the wire (_emergeSharpness), over the owner's own ReleaseGlideSeconds. Nothing is
+    // invented, no new wire byte is owed, and no card identity is read on this path.
+    //
+    // WHY NO ARC ARITHMETIC IS NEEDED HERE, unlike RemoteHandFan's belts: the owner's browse arc
+    // NEVER drops the plucked card from PileBrowser._cards (Relayout only declines to give it a
+    // pose), so the wire count does not move across a pluck. The seat is stable, the gap is kept,
+    // and the release edge is simply "this seat stopped being in their fist".
+
+    /// <summary>How long a released slab eases back to its arc seat. MIRROR of the owner's own
+    /// <c>Cards/VRCard.cs:ReleaseGlideSeconds</c> — held equal by scripts/check-mirrors.sh, exactly
+    /// as <c>RemoteHandFan.ReleaseGlideSeconds</c> and <c>RemoteItemFan.ReleaseGlideSeconds</c> are.
+    /// </summary>
+    private const float ReleaseGlideSeconds = 0.35f;
+
+    /// <summary>The arc seat currently gliding home, or -1. One at a time per pose slot.</summary>
+    private int _returnSeatA = -1;
+    private int _returnSeatB = -1;
+
+    /// <summary>Unscaled seconds of glide left for <see cref="_returnSeatA"/> / <see cref="_returnSeatB"/>.
+    /// </summary>
+    private float _returnGlideA;
+    private float _returnGlideB;
+
+    /// <summary>Last frame's fist, so the RELEASE EDGE can be taken. The pose slot is remembered with
+    /// the seat because record 36 stops naming either the moment the fingers open — the seed pose
+    /// would be unfindable one frame later.</summary>
+    private int _prevHeldSeatA = -1;
+    private int _prevHeldSeatB = -1;
+    private int _prevPoseSlotA;
+    private int _prevPoseSlotB;
+
+    // Session counters for the verdict line. Same arithmetic contract RemoteHandFan states:
+    // armed + refused == edges.
+    private int _returnEdges;
+    private int _returnsArmed;
+    private int _returnsRefused;
+    private int _loggedReturnEdge = -1;
+
     // COLLAPSE: seconds into the fly-back (-1 = not collapsing). While collapsing the root pose is
     // FROZEN and the cards are driven in WORLD space toward the pile stack, exactly like the local
     // collapse re-parents its cards out of the browser root before flying them.
@@ -546,6 +603,11 @@ internal sealed class RemoteBrowserFan
             c.localScale = Vector3.one * SlabScale;
         }
         _emergeElapsed = 0f;
+        // A re-emerge has just re-seeded every slab at the pile stack: no seat is coming home, and
+        // the fist memory the release edge is taken against belongs to the list this fan was showing
+        // a moment ago. Keeping it would fire a spurious edge on the very first frame of a PILE
+        // SWITCH (discard → burnt), whose seats are a different index space entirely.
+        ClearReturns();
 
         VRLog.Info("Net", $"Remote pile browse [player {_owner.PlayerId}]: {KindName(kind)} fan OPEN with " +
                           $"{count} card(s), {(_owner.PileBrowseHeld ? $"held in their {(_owner.PileBrowseLeftHand ? "LEFT" : "RIGHT")} hand" : "above their board")} " +
@@ -596,8 +658,16 @@ internal sealed class RemoteBrowserFan
         // angle for its own unchanged index, which is exactly the arc the owner is looking at (their
         // Relayout `continue`s past the held card and re-spaces nothing). RemotePileFronts reads
         // HostDrawn and so neither prints a face onto a hidden slab nor counts it in the census.
-        int heldSeats = _owner.HeldPileSeats(PileListFor(_shownKind), out int heldSeatA, out int heldSeatB);
+        int heldSeats = _owner.HeldPileSeats(PileListFor(_shownKind), out int heldSeatA, out int heldSeatB,
+                                             out int heldPoseSlotA);
         ReportMembershipIfChanged(n, heldSeats, heldSeatA, heldSeatB);
+        // THE RELEASE EDGE, and the glide it arms. Runs BEFORE the pose loop below so the seed is
+        // stamped onto the slab in the same frame it is re-activated — a seed left for the next
+        // frame presents the card at its arc seat for one frame and then snaps it back to the
+        // release pose, which is a worse flick than the pop it is meant to fix (RemoteHandFan's
+        // BeginReturnGlide carries the identical note).
+        TakeReleaseEdges(heldSeatA, heldSeatB, heldPoseSlotA, n);
+        float returnK = 1f - Mathf.Exp(-_emergeSharpness * dt);
 
         for (int i = 0; i < _cards.Count; i++)
         {
@@ -639,10 +709,18 @@ internal sealed class RemoteBrowserFan
                 pos += rot * new Vector3(0f, PopUp * popT, -_popForward * popT);
             float scale = SlabScale * (1f + PopScale * popT);
             Transform t = _cards[i].transform;
-            if (easing)
+            // A RETURNING slab owns its own ease for ReleaseGlideSeconds and outranks the settled
+            // hard assert below — which is the write that was teleporting it. It does NOT outrank a
+            // running emerge: the two never overlap (an emerge is the fan opening, and a card can
+            // only be in the fist of a fan that is already open).
+            bool returning = !easing && IsReturning(i);
+            if (easing || returning)
             {
-                t.localPosition = Vector3.Lerp(t.localPosition, pos, k);
-                t.localRotation = Quaternion.Slerp(t.localRotation, rot, k);
+                float ke = easing ? k : returnK;
+                t.localPosition = Vector3.Lerp(t.localPosition, pos, ke);
+                t.localRotation = Quaternion.Slerp(t.localRotation, rot, ke);
+                if (returning)
+                    t.localScale = Vector3.Lerp(t.localScale, Vector3.one * scale, ke);
             }
             else
             {
@@ -651,7 +729,136 @@ internal sealed class RemoteBrowserFan
                 t.localScale = Vector3.one * scale;
             }
         }
+        if (_returnGlideA > 0f && (_returnGlideA -= dt) <= 0f)
+            _returnSeatA = -1;
+        if (_returnGlideB > 0f && (_returnGlideB -= dt) <= 0f)
+            _returnSeatB = -1;
         LogHighlightIfChanged(hovered);
+    }
+
+    /// <summary>Forget every armed glide and the fist memory the edges are taken against. Called
+    /// from the two teardown seams that already clear the emerge clock: a fan that is hidden or
+    /// rebuilt has no slab a stale seat could name.</summary>
+    private void ClearReturns()
+    {
+        _returnSeatA = -1;
+        _returnSeatB = -1;
+        _returnGlideA = 0f;
+        _returnGlideB = 0f;
+        _prevHeldSeatA = -1;
+        _prevHeldSeatB = -1;
+    }
+
+    /// <summary>Is arc seat <paramref name="i"/> easing home right now?</summary>
+    private bool IsReturning(int i)
+        => (i == _returnSeatA && _returnGlideA > 0f) || (i == _returnSeatB && _returnGlideB > 0f);
+
+    /// <summary>
+    /// Take this frame's RELEASE EDGES off record 36 and arm the mirrored return glide for each.
+    ///
+    /// <para>THE DENOMINATOR IS GATE-FREE, deliberately and for the same reason RemoteHandFan's is:
+    /// an edge is counted the moment a seat this fan saw in the peer's fist stops being named,
+    /// BEFORE the destination test and before the slab lookup — so a client that refuses every
+    /// flight still says how many it refused. A round in which this reads 0 edges proves nothing
+    /// about the fix; it proves nobody put a browse card back.</para>
+    ///
+    /// <para>The arc count is belted because a browse arc whose length moved across the edge is not
+    /// the arc the seat was measured against (the browser was closed under the hold, or the owner's
+    /// pile changed): the seat then names a different card, and a confidently wrong seat puts a slab
+    /// home on somebody else's — the one failure worth refusing a flight for.</para>
+    /// </summary>
+    private void TakeReleaseEdges(int heldSeatA, int heldSeatB, int heldPoseSlotA, int wireCount)
+    {
+        int poseSlotB = heldPoseSlotA == 1 ? 2 : 1;
+        if (_prevHeldSeatA >= 0 && _prevHeldSeatA != heldSeatA && _prevHeldSeatA != heldSeatB)
+            ArmReturn(_prevHeldSeatA, _prevPoseSlotA, wireCount, slotA: true);
+        if (_prevHeldSeatB >= 0 && _prevHeldSeatB != heldSeatA && _prevHeldSeatB != heldSeatB)
+            ArmReturn(_prevHeldSeatB, _prevPoseSlotB, wireCount, slotA: false);
+        _prevHeldSeatA = heldSeatA;
+        _prevHeldSeatB = heldSeatB;
+        if (heldSeatA >= 0)
+            _prevPoseSlotA = heldPoseSlotA;
+        if (heldSeatB >= 0)
+            _prevPoseSlotB = poseSlotB;
+    }
+
+    /// <summary>
+    /// Seed one returning slab at the pose the peer's card was released at and start its ease. The
+    /// mirror of the owner's own seam: <c>VRCard.OnRelease</c> keeps the world pose across the
+    /// re-parent and <c>PileBrowser.Add</c> asks <c>Relayout(instant: false)</c> to carry it to the
+    /// arc slot on VRCard's standing home-lerp.
+    /// </summary>
+    private void ArmReturn(int seat, int poseSlot, int wireCount, bool slotA)
+    {
+        _returnEdges++;
+        string? refusal = null;
+        if (!_open || _collapseElapsed >= 0f)
+            refusal = "the mirrored fan is closing/closed, so there is no arc seat to fly to";
+        else if (_builtCount != wireCount)
+            refusal = $"the arc length moved across the release ({_builtCount} slab(s) built vs "
+                      + $"{wireCount} on the wire), so seat {seat} no longer names the same card";
+        else if (seat >= _cards.Count || _cards[seat] == null)
+            refusal = $"seat {seat} is outside the {_cards.Count} slab(s) this fan has built";
+        Transform? slab = refusal == null ? _owner.HeldSlab(poseSlot) : null;
+        if (refusal == null && slab == null)
+            refusal = $"this peer's held-card slab for pose slot {poseSlot} was never built, so there "
+                      + "is no pose to fly FROM";
+        if (refusal != null)
+        {
+            _returnsRefused++;
+            LogReturnVerdict(refusal);
+            return;
+        }
+        Transform t = _cards[seat]!.transform;
+        t.position = slab!.position;
+        t.rotation = slab.rotation;
+        if (slotA)
+        {
+            _returnSeatA = seat;
+            _returnGlideA = ReleaseGlideSeconds;
+        }
+        else
+        {
+            _returnSeatB = seat;
+            _returnGlideB = ReleaseGlideSeconds;
+        }
+        _returnsArmed++;
+        LogReturnVerdict(null);
+    }
+
+    /// <summary>
+    /// HARDWARE EVIDENCE for report item 4 (2026-09-07). Grep token: <c>FAN RETURN VERDICT</c> — the
+    /// SAME token <see cref="RemoteHandFan"/> prints, on purpose, because the defect this round is
+    /// that six builds of return-glide work were readable for exactly ONE of four mirrored fans and
+    /// nothing said which fan a verdict was about. One token, a <c>fan=</c> clause on every line.
+    ///
+    /// <para>READ IT LIKE THIS. <c>armed A, refused R, of M release(s)</c>, and <c>A + R == M</c>:
+    /// <list type="bullet">
+    ///   <item><c>M == 0</c> — the wire never said this peer let go of a browse card. The round says
+    ///     NOTHING about item 4. THIS IS THE READING ModBuild 470 GAVE FOR THE MAP ROOM, and it is
+    ///     why the gap survived: below the instrument, not refused by it.</item>
+    ///   <item><c>M &gt; 0</c> and <c>A == 0</c> — INERT. The refusal sentence names the term.</item>
+    ///   <item><c>A &gt; 0</c> and the user still sees the card pop — the glide armed and something
+    ///     overwrote it. The only writer left is Layout's settled hard-assert branch, which
+    ///     <see cref="IsReturning"/> gates.</item>
+    /// </list></para>
+    /// </summary>
+    private void LogReturnVerdict(string? refusal)
+    {
+        if (_loggedReturnEdge == _returnEdges)
+            return;
+        _loggedReturnEdge = _returnEdges;
+        // HW-VERIFY: report item 4 (2026-09-07). Grep token: FAN RETURN VERDICT.
+        VRLog.Note("Net", $"FAN RETURN VERDICT [player {_owner.PlayerId}] "
+            + $"fan={RemoteAvatar.HeldFaceListName(PileListFor(_shownKind))}: this peer let go of a "
+            + $"browse card and the mirrored return flight was "
+            + (refusal == null ? "ARMED" : "REFUSED, term=" + refusal)
+            + $". Session: armed {_returnsArmed}, refused {_returnsRefused}, of {_returnEdges} "
+            + "release(s) the WIRE reported — the two add up to the third. The seed is the mirrored "
+            + "held slab's own last pose and the ease is the owner's own [Cards] CardLerpSpeed off "
+            + "record 28, so NOTHING NEW IS ON THE WIRE and no card identity is read on this path. "
+            + "0 release(s) means nobody put a browse card back and the round proves nothing — "
+            + "which is exactly the reading ModBuild 470 gave, because this line did not exist.");
     }
 
     // ---------------------------------------------------------------- highlight (record 6) --
@@ -822,6 +1029,7 @@ internal sealed class RemoteBrowserFan
     {
         _open = false;
         _emergeElapsed = -1f;
+        ClearReturns();
         int kind = _shownKind;
         _shownKind = -1;
 
@@ -1155,6 +1363,7 @@ internal sealed class RemoteBrowserFan
     private void Hide()
     {
         _emergeElapsed = -1f;
+        ClearReturns();
         _collapseElapsed = -1f;
         _collapseFrom.Clear();
         _fronts.HideAll(); // a hidden fan keeps no game-widget clones alive

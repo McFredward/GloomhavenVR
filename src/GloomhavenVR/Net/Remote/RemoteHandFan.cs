@@ -2137,6 +2137,13 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// read the slab it was released at.</summary>
     private int _fistPoseSlot;
 
+    /// <summary>WHICH arc list this fist's seat came out of — <c>HeldFaceListHand</c> in a scenario,
+    /// <c>HeldFaceListMapLoadout</c> in the map room. Carried for ONE reason: the verdict line has to
+    /// NAME the fan. Six builds of return-glide work were tested only against a scenario hand, and
+    /// nothing in the log said the other fan even existed (see <c>RemoteAvatar.IsHandArcList</c>).
+    /// </summary>
+    private byte _fistListId = NetProtocol.HeldFaceListNone;
+
     /// <summary>The hand seat the fist's card came out of — the arc index the card returns
     /// to when it is released into the void, because <c>CardFan.Add</c> re-inserts at
     /// <c>HomeIndexFor</c>, i.e. its OWN place and not the right-hand end.
@@ -2839,7 +2846,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // opening their fingers, and the release branch below would fire while the card is still
         // physically in their hand. So the record's own "a hand card is held" verdict gates the
         // branch, and the RESOLVE only decides whether we can name what is in there.
-        bool named = _owner.SingleHeldHandSeat(out int seat, out int listLength, out int poseSlot);
+        bool named = _owner.SingleHeldHandSeat(out int seat, out int listLength, out int poseSlot,
+                                              out byte listId);
 
         // THE RELEASE EDGE, COUNTED OFF THE WIRE AND NOTHING ELSE — the denominator of the verdict
         // line. Read before every belt below, because a belt that refuses is precisely what this
@@ -2973,6 +2981,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _fistCard = fist;
             _fistSeat = seat;
             _fistPoseSlot = poseSlot;
+            _fistListId = listId;
             _fistMask = mask;
             _fistCount = count;
             // WHICH OF THE TWO ARC STATES THIS HOLD IS IN, banked with the count it is measured
@@ -3312,8 +3321,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             : recess
                 ? "no flight owed (the card went into a ROUND RECESS)"
                 : "REFUSED, term=" + RefusalSentence();
-        // HW-VERIFY: report item 3 (2026-09-06). Grep token: FAN RETURN VERDICT.
-        VRLog.Note("Net", $"FAN RETURN VERDICT [player {_owner.PlayerId}]: this peer let go of a "
+        // HW-VERIFY: report item 3 (2026-09-06), fan NAMED for item 1 (2026-09-07). Grep token:
+        // FAN RETURN VERDICT.
+        VRLog.Note("Net", $"FAN RETURN VERDICT [player {_owner.PlayerId}] fan={RemoteAvatar.HeldFaceListName(_fistListId)}: "
+            + $"this peer let go of a "
             + $"hand card and the mirrored return flight was {verdict}. Session: armed "
             + $"{_returnsPlayed}, refused {_releaseRefused}, to a recess {_releaseToRecess}, of "
             + $"{_releaseEdges} release(s) the WIRE reported — the three add up to the fourth. THE "

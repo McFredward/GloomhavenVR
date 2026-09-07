@@ -421,13 +421,23 @@ internal sealed class RemoteAvatar
     /// recorded for the item arc.</para>
     /// </summary>
     internal int HeldPileSeats(byte pileList, out int seatA, out int seatB)
+        => HeldPileSeats(pileList, out seatA, out seatB, out _);
+
+    /// <summary>
+    /// <see cref="HeldPileSeats(byte, out int, out int)"/> plus the POSE SLOT
+    /// (<see cref="HeldSlab"/>'s argument) that <paramref name="seatA"/> came out of, so the mirrored
+    /// browse arc can seed its return glide at the very slab the card was hanging on rather than at a
+    /// pose of its own invention. 0 when nothing matched.
+    /// </summary>
+    internal int HeldPileSeats(byte pileList, out int seatA, out int seatB, out int poseSlotA)
     {
         seatA = -1;
         seatB = -1;
+        poseSlotA = 0;
         // A non-pile list can never name a browse seat, and asking with one would silently match the
         // HAND — the "two literals kept in step by hand" mistake this file has already paid for once.
         return NetProtocol.IsFanSourcePile(pileList)
-            ? HeldSeatsIn(pileList, out seatA, out seatB, out _)
+            ? HeldSeatsIn(pileList, out seatA, out seatB, out _, out poseSlotA)
             : 0;
     }
 
@@ -468,16 +478,24 @@ internal sealed class RemoteAvatar
     /// wire: a second copy is how the hand fan and the browse arc would come to disagree about what
     /// "in the fist" means, which is the whole class of defect both callers exist to fix.</summary>
     private int HeldSeatsIn(byte listId, out int seatA, out int seatB, out int listLength)
+        => HeldSeatsIn(listId, out seatA, out seatB, out listLength, out _);
+
+    /// <summary>As above, additionally reporting which pose slot (1 or 2) <paramref name="seatA"/>
+    /// was read out of — the argument <see cref="HeldSlab"/> takes.</summary>
+    private int HeldSeatsIn(byte listId, out int seatA, out int seatB, out int listLength,
+                            out int poseSlotA)
     {
         seatA = -1;
         seatB = -1;
         listLength = 0;
+        poseSlotA = 0;
         int n = 0;
         if (NetProtocol.HeldFaceNamesCard(_heldFaceCode)
             && NetProtocol.HeldFaceList(_heldFaceCode) == listId)
         {
             seatA = NetProtocol.HeldFaceIndex(_heldFaceCode);
             listLength = _heldFaceCount;
+            poseSlotA = 1;
             n++;
         }
         if (NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
@@ -485,7 +503,10 @@ internal sealed class RemoteAvatar
         {
             int seat = NetProtocol.HeldFaceIndex(_secondHeldFaceCode);
             if (n == 0)
+            {
                 seatA = seat;
+                poseSlotA = 2;
+            }
             else
                 seatB = seat;
             // BOTH POSE SLOTS NAME ONE LIST, so the two lengths are two readings of the same
@@ -560,22 +581,83 @@ internal sealed class RemoteAvatar
     /// </para>
     /// </summary>
     internal bool SingleHeldHandSeat(out int seat, out int listLength, out int poseSlot)
+        => SingleHeldHandSeat(out seat, out listLength, out poseSlot, out _);
+
+    /// <summary>
+    /// <see cref="SingleHeldHandSeat(out int, out int, out int)"/> plus WHICH of the two arc lists
+    /// the seat came out of — <see cref="NetProtocol.HeldFaceListHand"/> or
+    /// <see cref="NetProtocol.HeldFaceListMapLoadout"/>. The caller needs it only to NAME the fan
+    /// in its verdict line; every belt downstream is identical for the two, which is the whole
+    /// point of accepting both here.
+    /// </summary>
+    internal bool SingleHeldHandSeat(out int seat, out int listLength, out int poseSlot,
+                                     out byte listId)
     {
         seat = -1;
         listLength = 0;
         poseSlot = 0;
-        bool a = NetProtocol.HeldFaceNamesCard(_heldFaceCode)
-                 && NetProtocol.HeldFaceList(_heldFaceCode) == NetProtocol.HeldFaceListHand;
-        bool b = NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
-                 && NetProtocol.HeldFaceList(_secondHeldFaceCode) == NetProtocol.HeldFaceListHand;
+        listId = NetProtocol.HeldFaceListNone;
+        bool a = IsHandArcList(_heldFaceCode);
+        bool b = IsHandArcList(_secondHeldFaceCode);
         if (a == b)
             return false; // none, or two fists — no single card to hand off
-        seat = a ? NetProtocol.HeldFaceIndex(_heldFaceCode)
-                 : NetProtocol.HeldFaceIndex(_secondHeldFaceCode);
+        byte code = a ? _heldFaceCode : _secondHeldFaceCode;
+        seat = NetProtocol.HeldFaceIndex(code);
         listLength = a ? _heldFaceCount : _secondHeldFaceCount;
         poseSlot = a ? 1 : 2;
+        listId = NetProtocol.HeldFaceList(code);
         return true;
     }
+
+    /// <summary>
+    /// Does <paramref name="code"/> name a card of the ONE mirrored arc <see cref="RemoteHandFan"/>
+    /// draws?
+    ///
+    /// <para>TWO LIST IDS, ONE ARC, AND THAT IS NOT A WIDENING FOR CONVENIENCE. The mirrored hand
+    /// fan draws the scenario hand (<see cref="NetProtocol.HeldFaceListHand"/>) in a scenario and
+    /// the map-room loadout (<see cref="NetProtocol.HeldFaceListMapLoadout"/>) off-scenario — one
+    /// slab list, one arc order, one <c>_bankArcCount</c> — because the OWNER'S side is one object
+    /// too: <c>CardsDriver.TryRebuildOffScenarioFan</c> publishes the map loadout into the very
+    /// same <c>Cards.CardFan</c>, so a released map card comes home on the identical
+    /// <c>CardFan.Add -&gt; Relayout(instant: false)</c> glide a scenario card does.</para>
+    ///
+    /// <para>THIS PREDICATE USED TO BE THE LITERAL <c>== HeldFaceListHand</c>, and that is the whole
+    /// of the user's 2026-09-07 item 1 ("Animation dass die Karte zurück in den Fächer geht geht
+    /// nicht in der Map-Umgebung"). MEASURED, ModBuild 470, both logs: the peer's log carries six
+    /// <c>Remote held card FRONT ... map-room loadout</c> lines (21362, 21999, 22253, 22447, 49713,
+    /// 50390) against the host's six <c>[Cards] Inspect release ... MapRoomCard</c> lines — and its
+    /// FIRST <c>FAN RETURN VERDICT</c> line is at 60118, AFTER every one of them. Not one release
+    /// edge was counted, so not one was refused either: the map room was BELOW the instrument, which
+    /// is why six builds of return-glide work never touched it.</para>
+    ///
+    /// <para>The seat is an index into the same list on both machines either way — the map arm is
+    /// <c>MapRoomHand.TryNameLocalLoadoutSeat</c> over the initiative-sorted <c>_loadout</c> on the
+    /// sender and <c>MapRoomHand.TryResolvePeerLoadout</c> over the same sort on the receiver.</para>
+    /// </summary>
+    private static bool IsHandArcList(byte code)
+    {
+        if (!NetProtocol.HeldFaceNamesCard(code))
+            return false;
+        byte list = NetProtocol.HeldFaceList(code);
+        return list == NetProtocol.HeldFaceListHand || list == NetProtocol.HeldFaceListMapLoadout;
+    }
+
+    /// <summary>
+    /// The PLAYER'S name for one of record 36's lists, for the mirrored fans' return-flight verdict
+    /// lines. ONE expression, because the whole reason the map room went unnoticed for six builds of
+    /// return-glide work is that no line anywhere said WHICH fan a verdict was about — a reading of
+    /// "armed 10, refused 0" is worthless if it can only ever have come from one of four arcs.
+    /// </summary>
+    internal static string HeldFaceListName(byte listId) => listId switch
+    {
+        NetProtocol.HeldFaceListHand => "scenario hand fan",
+        NetProtocol.HeldFaceListDiscard => "discard pile browse arc",
+        NetProtocol.HeldFaceListBurnt => "burnt pile browse arc",
+        NetProtocol.HeldFaceListItems => "item fan",
+        NetProtocol.HeldFaceListMapLoadout => "map-room loadout fan",
+        NetProtocol.HeldFaceListActive => "active/persistent matrix",
+        _ => "none",
+    };
 
     /// <summary>
     /// The held-card SLAB for pose slot 1 or 2 — the mirrored card in this peer's fist, or null

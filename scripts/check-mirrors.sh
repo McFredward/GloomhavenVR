@@ -198,6 +198,14 @@ MIRRORS=(
   # item chip's own entry directly above.
   "ability card release glide seconds : Cards/VRCard.cs:ReleaseGlideSeconds Net/Remote/RemoteHandFan.cs:ReleaseGlideSeconds"
 
+  # ...AND THE THIRD MIRROR OF THE SAME WINDOW (2026-09-07, user report item 4). The browse arc is
+  # the SAME VRCard released by the SAME VRCard.OnRelease — a card plucked out of a peer's
+  # discard/burnt browser is an ability card, not a third kind of object — so the mirrored browse fan
+  # replays that one window too. It had no return glide at all until this build, which is precisely
+  # why it had no entry here; a fan with no mirror constant is invisible to this gate, and that
+  # invisibility is the shape of the defect (see RemoteBrowserFan's RETURN-TO-ARC GLIDE region).
+  "browse card release glide seconds : Cards/VRCard.cs:ReleaseGlideSeconds Net/Remote/RemoteBrowserFan.cs:ReleaseGlideSeconds"
+
   # THE TWO "cluster" GROUPS ARE GONE (2026-08-25), and this is what deleting a group looks
   # like when the ORIGINAL is deleted rather than retuned. "cluster proud seat" paired
   # ButtonCluster.ClusterProudOffset with RemoteBoardFurniture.ClusterProudLift, and "cluster dock
