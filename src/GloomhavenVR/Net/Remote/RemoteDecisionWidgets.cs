@@ -215,9 +215,19 @@ internal sealed class RemoteDecisionWidgets
     public string Reason { get; private set; } = "not built";
 
     /// <summary>Height of the mirrored row in BOARD-local metres (0 while it is not shown) — what
-    /// the use-bar drawer stacks below, instead of an assumed plate height. The mirror measures in
-    /// its own mount frame, so the dock scale converts it back (see the constructor).</summary>
-    public float RowHeight => Showing ? _mirror.FittedSize.y * _dockScale : 0f;
+    /// the use-bar drawer stacks below, instead of an assumed plate height.
+    ///
+    /// <para>IT IS THE PRESSABLE BLOCK, NOT THE CLONE'S ENVELOPE, since the short-rest position fix
+    /// (see <see cref="AnchorWidgetBlock"/>). The owner publishes exactly that —
+    /// <c>DecisionDockSurface.RowBottomUpMeters</c> is <c>d + blockBottomAbovePivot</c>, the widget
+    /// block's bottom, and its seat is the block's TOP — so a use-bar stack hung off the clone's
+    /// full height would sit the question's height too low on a short rest, the same error the
+    /// buttons themselves had. Falls back to the clone envelope (the mirror measures in its own
+    /// mount frame, so the dock scale converts it back — see the constructor) only while no block
+    /// has been measured yet.</para></summary>
+    public float RowHeight => !Showing
+        ? 0f
+        : _blockHeight > 0f ? _blockHeight : _mirror.FittedSize.y * _dockScale;
 
     /// <summary>
     /// THE OWNER's engraved-label FILL — their <c>[ButtonColors] LabelR/G/B</c> off record 28
@@ -359,6 +369,8 @@ internal sealed class RemoteDecisionWidgets
                      + $"world={mount.x * worldScale * 1000f:F1}x{mount.y * worldScale * 1000f:F1} mm | "
                      + $"mountScale={worldScale:F4} density="
                      + $"{Cards.PlayTray.TrayPixelsPerMeter * WorldUI.Surfaces.DecisionDockSurface.DensityScale:F1} | "
+                     + $"blockTop={_blockSeatResidual * 1000f:F2} mm blockH={_blockHeight * 1000f:F2} mm "
+                     + $"(lift {_blockLift * 1000f:F2} mm, source=MIRRORED CLONE TRANSFORM) | "
                      + WorldUI.Surfaces.DecisionDockSurface.SubtreeInventory(clone) + " | "
                      + WorldUI.Surfaces.DecisionDockSurface.DescribeWireOptions(roles, states, count)
                      + $" | labelRGB=({_ownerLabelColor.r:F3},{_ownerLabelColor.g:F3},{_ownerLabelColor.b:F3})";
@@ -373,7 +385,21 @@ internal sealed class RemoteDecisionWidgets
                        + "breach — the peer is looking at mod-made plates, not the owner's dialog. "
                        + "`words` may differ (each client letters its own copy in its own language, "
                        + "by design); `px`, `mount`, `world`, `mountScale`, `graphics` and `texts` "
-                       + "may not.");
+                       + "may not. THE POSITION IS THE TWO NEW FIELDS AND IT READS FROM THIS LOG "
+                       + "ALONE (user 2026-09-07 item 5): `blockTop` is where the PRESSABLE "
+                       + "widgets' top edge sits relative to the decision seat, MEASURED BEFORE "
+                       + "this tick's own correction, and every line after the first one of a "
+                       + "prompt MUST read 0.00 mm — the owner's own dock solves for exactly that "
+                       + "— while `blockH` must equal "
+                       + "the owner's. `lift` is how far this clone had to be raised to get there, "
+                       + "i.e. the size of the breach that was there before. On the ModBuild 472 "
+                       + "logs that breach was 44.3 mm board-local for the SHORT REST — the cloned "
+                       + "box carries the question ABOVE the buttons and used to take the seat with "
+                       + "it — so a lift reading 0.00 mm on a short rest means this pass never ran. "
+                       + "The take-damage and popup lifts are NOT predicted anywhere: their clone "
+                       + "is an isolated row that also holds the damage number and icons, which the "
+                       + "owner does not anchor on either, so this field is the only thing that "
+                       + "says how far those two moved.");
         }
         catch (System.Exception e)
         {
@@ -385,6 +411,122 @@ internal sealed class RemoteDecisionWidgets
 
     /// <summary>The 1:1 line's own change gate — see <see cref="NoteShortRestOneToOne"/>.</summary>
     private string _lastShortRestNote = string.Empty;
+
+    /// <summary>Clone rects handed to <c>DecisionDockSurface.WidgetBlockEdges</c> — the mirror's
+    /// counterpart of the owner's <c>ResolvePromptWidgets</c> scratch. A field so the anchor pass
+    /// allocates nothing on the 4 Hz cadence.</summary>
+    private readonly List<RectTransform> _blockRects = new(4);
+
+    /// <summary>The mirrored widget block's measured HEIGHT in board-local metres, 0 until one has
+    /// been measured — see <see cref="RowHeight"/> and <see cref="AnchorWidgetBlock"/>.</summary>
+    private float _blockHeight;
+
+    /// <summary>Where the mirrored widget block's TOP edge was MEASURED, relative to the decision
+    /// seat, in board-local metres — read on THIS tick BEFORE the tick's own correction, never
+    /// after. Zero is the pass condition, and taking it before the write is what keeps it a
+    /// measurement: a residual sampled after the rigid shift that zeroes it would be a claim
+    /// verifying itself, and would read 0.00 mm however wrong the seat was. So the FIRST line after
+    /// a clone rebuild states the raw breach and every line after it states 0.00.</summary>
+    private float _blockSeatResidual;
+
+    /// <summary>The total lift <see cref="AnchorWidgetBlock"/> has applied to <see cref="_frame"/>,
+    /// board-local metres (positive = the clone was raised). This is the size of the defect it
+    /// retires, so it is logged rather than kept private.</summary>
+    private float _blockLift;
+
+    /// <summary>
+    /// SEAT THE MIRRORED CLONE BY THE OWNER'S OWN RULE — the fix for user item 5 of 2026-09-07:
+    /// "Die Position des Kurze-Rast Dialogs ist verschieden beim lokalen Board und beim remote
+    /// Board. Er sieht den Button weiter oben als es im remote board der Fall ist."
+    ///
+    /// <para>THE MECHANISM, AND IT IS NOT A CANVAS-WIDTH STORY. Both sides of the 2026-09-07 logs
+    /// measure this dialog at <c>px=350x130</c>, <c>mount=0.1823x0.0677 m</c>,
+    /// <c>mountScale=20.2747</c> — identical to the last digit, and <c>roles=[4,5]</c> on the mirror
+    /// says the game's real dialog is what the peer is looking at. The SIZE was never wrong and the
+    /// mirror was never a re-implementation. What differed was which edge each side anchored:</para>
+    /// <list type="bullet">
+    /// <item>THE OWNER anchors the PRESSABLE WIDGETS. <c>DecisionDockSurface.Place</c> solves its
+    /// host shift as <c>targetBlockTopUp - blockTopAbovePivot</c>, where the block is exactly the
+    /// prompt's serialized option widgets (for this prompt, <c>YesNoDialog.yesButton</c> and
+    /// <c>noButton</c>) — so the BUTTONS' top edge lands on the decision area's ceiling and the
+    /// dialog's question is free to stand above it.</item>
+    /// <item>THE MIRROR anchored the whole clone. <see cref="RemoteWidgetMirror"/> grows content
+    /// down from the mount (<c>grow=(0,-1)</c>), so the cloned <c>box</c>'s TOP edge took the seat.
+    /// For every prompt whose docked source IS the button row that is the same edge; for the short
+    /// rest — the one prompt that deliberately clones the whole box so the question comes with it
+    /// (see <see cref="ResolveShortRestBox"/>) — it is the question's height lower.</item>
+    /// </list>
+    /// <para>The 2026-09-07 pair measures that height exactly. Owner: ceiling 1216 mm above the
+    /// mount, row top AT it, row bottom 900 mm, i.e. a 316 mm block, host shifted 1428 mm — so the
+    /// buttons' top is 212 mm BELOW the box centre and therefore 898 mm below the box top. Mirror:
+    /// <c>mount-local (0.000, -0.034, 0.000)</c>, i.e. the box's top edge exactly on the seat. The
+    /// peer's buttons stood 898 mm world = <b>44.3 mm board-local</b> too low. That is the report.</para>
+    ///
+    /// <para>THE FIX IS THE FRAME, NOT A FACTOR. This raises <see cref="_frame"/> until the CLONED
+    /// widgets' measured top edge lands on the drawer origin — the seat both sides already agree on
+    /// (<c>RemoteBoardFurniture.ApplyDecisionSeat</c> puts the drawer there, and the owner's
+    /// <c>targetBlockTopUp</c> is the same ceiling) — using the owner's own edge walk
+    /// (<c>DecisionDockSurface.WidgetBlockEdges</c>), not a second copy of it. It is a rigid
+    /// translation solved against the measurement, so it converges in one tick and is idempotent
+    /// afterwards; no constant, no per-board number, nothing to re-tune when a prefab changes.</para>
+    ///
+    /// <para>IT RUNS FOR ALL THREE PROMPTS ON PURPOSE, AND THEIR LIFT IS NOT PREDICTED HERE. The
+    /// owner anchors the same three take-damage widgets and the same pooled popup buttons — the
+    /// serialized options and nothing else — so whatever this pass moves on those two prompts moves
+    /// them TOWARD the owner by construction. It would be an assertion, not a finding, to write
+    /// that their lift is negligible: the take-damage clone is an isolated ROW, and that row also
+    /// holds the damage number and the damage/fatal icons, which are outside the block the owner
+    /// anchors and may well stand above it. The logged `lift` field is what settles each prompt's
+    /// magnitude in the next hardware log; no branch excuses any of them from the rule.</para>
+    /// </summary>
+    private void AnchorWidgetBlock()
+    {
+        _blockRects.Clear();
+        CollectBlockRects(_roles);
+        CollectBlockRects(_options);
+        Transform? seat = _frame != null ? _frame.parent : null;
+        if (seat == null || _blockRects.Count == 0)
+        {
+            // No resolvable widget: keep the clone where the mirror put it (its own top edge on the
+            // seat) rather than guessing, and say so through a zeroed height so RowHeight falls back.
+            _blockHeight = 0f;
+            _blockSeatResidual = 0f;
+            return;
+        }
+        float boardPerWorld = seat.lossyScale.y;
+        if (boardPerWorld <= 1e-6f)
+            return;
+        if (!WorldUI.Surfaces.DecisionDockSurface.WidgetBlockEdges(
+                _blockRects, seat.position, seat.up, out float topWorld, out float bottomWorld))
+        {
+            _blockHeight = 0f;
+            _blockSeatResidual = 0f;
+            return;
+        }
+        float top = topWorld / boardPerWorld;      // board-local metres above the seat
+        float bottom = bottomWorld / boardPerWorld;
+        _blockHeight = Mathf.Max(0f, top - bottom);
+        if (_frame == null)
+            return;
+        _blockSeatResidual = top; // MEASURED, and recorded before the line below moves anything
+        Vector3 p = _frame.localPosition;
+        _frame.localPosition = new Vector3(p.x, p.y - top, p.z);
+        _blockLift += -top;
+    }
+
+    /// <summary>Add every bound clone widget of <paramref name="nodes"/> to the block scratch — the
+    /// mirror's counterpart of <c>DecisionDockSurface.ResolvePromptWidgets</c>. One array is always
+    /// empty (roles for the popup, options for the other two), so the union is the prompt's own set;
+    /// visibility is not filtered here because the edge walk excludes inactive graphics itself,
+    /// exactly as it does on the owner.</summary>
+    private void CollectBlockRects(RoleNode[] nodes)
+    {
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            if (nodes[i].Clone is RectTransform rt && !_blockRects.Contains(rt))
+                _blockRects.Add(rt);
+        }
+    }
 
     /// <summary>The subtree <see cref="RefreshCore"/> last cloned FROM, held so the 1:1 line can
     /// census the clone that is actually on the board (never a second resolve, which could answer
@@ -462,6 +604,9 @@ internal sealed class RemoteDecisionWidgets
                 Bind(kind);
                 Apply(owner, roles ?? System.Array.Empty<byte>());
             }
+            // …and only NOW seat it: the anchor measures the clone the paint above just decided the
+            // visibility of, so it has to run after Apply and after the re-fit that follows it.
+            AnchorWidgetBlock();
             if (!Showing)
             {
                 Showing = true;
@@ -556,6 +701,17 @@ internal sealed class RemoteDecisionWidgets
     private bool Down(string reason)
     {
         _mirror.SetShown(false);
+        // Hand the seat back UNSHIFTED. The lift belongs to one clone of one prompt; leaving it on
+        // the frame would displace the next prompt's clone by the previous one's question height
+        // for the tick before AnchorWidgetBlock re-solves it.
+        if (_frame != null && _blockLift != 0f)
+        {
+            Vector3 p = _frame.localPosition;
+            _frame.localPosition = new Vector3(p.x, p.y - _blockLift, p.z);
+        }
+        _blockLift = 0f;
+        _blockHeight = 0f;
+        _blockSeatResidual = 0f;
         if (Showing || Reason != reason)
         {
             Showing = false;

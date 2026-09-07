@@ -1195,7 +1195,12 @@ internal sealed class DecisionDockSurface : WorldSurface
         }
 
         NoteShortRestOneToOne(rect, Mathf.Clamp(fitScale, MinDensityScale, MaxDensityScale) / density,
-                              scale, trayScale);
+                              scale, trayScale,
+                              // The two POSITION fields the size-only pair was missing — see the
+                              // method. Both are board-local (the tray scale divided out) so they
+                              // diff straight against the mirror's, which measures in the board frame.
+                              seatResidual: (RowTopUpMeters!.Value - targetBlockTopUp) / trayScale,
+                              blockHeight: (blockTopAbovePivot - blockBottomAbovePivot) / trayScale);
     }
 
     /// <summary>
@@ -1221,7 +1226,7 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// state change states itself again.</para>
     /// </summary>
     private void NoteShortRestOneToOne(Rect rect, float mountMetersPerPx, float worldMetersPerPx,
-                                       float trayScale)
+                                       float trayScale, float seatResidual, float blockHeight)
     {
         if (_active == null || _active.Name != ShortRestPromptName || Panel == null)
         {
@@ -1234,6 +1239,7 @@ internal sealed class DecisionDockSurface : WorldSurface
             + $"mount={rect.width * mountMetersPerPx:F4}x{rect.height * mountMetersPerPx:F4} m | "
             + $"world={rect.width * worldMetersPerPx * 1000f:F1}x{rect.height * worldMetersPerPx * 1000f:F1} mm | "
             + $"mountScale={trayScale:F4} density={PlayTray.TrayPixelsPerMeter * DensityScale:F1} | "
+            + $"blockTop={seatResidual * 1000f:F2} mm blockH={blockHeight * 1000f:F2} mm | "
             + SubtreeInventory(target) + " | "
             + DescribeWireOptions(_wireOptionRoles, _wireOptionStates, _wireOptionCount)
             + $" | labelRGB=({NativeButtonSkin.LabelColor.r:F3},{NativeButtonSkin.LabelColor.g:F3},"
@@ -1248,7 +1254,15 @@ internal sealed class DecisionDockSurface : WorldSurface
                    + "to the millimetre; `world` differs from it only by `mountScale`. TWO ZEROES IN "
                    + "`roles` MEAN THE MIRROR IS DEAD — the peers are drawing mod-made plates, not "
                    + "this dialog (the ModBuild 301..459 defect: the sampler reached the YesNoDialog "
-                   + "through a hierarchy the dock had already reparented it out of).");
+                   + "through a hierarchy the dock had already reparented it out of). THE TWO NEW "
+                   + "FIELDS ARE THE POSITION HALF (user 2026-09-07 item 5, 'er sieht den Button "
+                   + "weiter oben als es im remote board der Fall ist'): `blockTop` is where the "
+                   + "PRESSABLE WIDGETS' top edge sits relative to the decision area's seat, and it "
+                   + "is 0.00 mm here BY CONSTRUCTION — Place() solves the host shift for exactly "
+                   + "that. `blockH` is that block's own height. A mirror line whose `blockTop` is "
+                   + "not 0.00, or whose `blockH` differs from this one, IS the position breach: on "
+                   + "ModBuild 472 the mirror stood at blockTop = -44.3 mm on this very dialog, "
+                   + "because it seated the whole cloned box, question included.");
     }
 
     /// <summary>
@@ -2107,12 +2121,41 @@ internal sealed class DecisionDockSurface : WorldSurface
         float rowTopAbovePivot, float rowBottomAbovePivot, out float top, out float bottom)
     {
         ResolvePromptWidgets(WidgetRectScratch);
-        Vector3 origin = host.position;
+        if (!WidgetBlockEdges(WidgetRectScratch, host.position, up, out top, out bottom))
+        {
+            top = rowTopAbovePivot;
+            bottom = rowBottomAbovePivot;
+        }
+    }
+
+    /// <summary>
+    /// THE WIDGET-BLOCK EDGE RULE ITSELF, shared with the 1:1 mirror — the top- and bottom-most
+    /// VISIBLE graphics of <paramref name="widgets"/>, in world metres along <paramref name="up"/>
+    /// relative to <paramref name="origin"/>. Glyph-true for TMP labels (dialog labels are routinely
+    /// authored in rects far taller than their glyphs), rect corners for plates and images, and
+    /// inactive children excluded — an option the prompt is not showing is not part of the block.
+    /// Returns false when no widget resolved a single visible graphic, which is the caller's cue to
+    /// fall back to its own row edges.
+    ///
+    /// <para><b>INTERNAL SINCE THE SHORT-REST 1:1 POSITION FIX (user report 2026-09-07 item 5: "Die
+    /// Position des Kurze-Rast Dialogs ist verschieden beim lokalen Board und beim remote Board. Er
+    /// sieht den Button weiter oben als es im remote board der Fall ist.").</b> The owner's
+    /// <see cref="Place"/> seats the prompt so that THIS block's top lands on the decision area's
+    /// ceiling; <c>Net.RemoteDecisionWidgets</c> now seats the mirrored clone by the same rule over
+    /// the CLONED widgets. The defect was that it seated the whole cloned <c>box</c> instead, so on a
+    /// short rest — the one prompt whose docked source carries its question INSIDE the mirrored
+    /// envelope — the peer's buttons hung the height of that question below the owner's. Sharing the
+    /// walk rather than restating it is the point: two formulas that agree today are how the two
+    /// sides drifted apart in the first place.</para>
+    /// </summary>
+    internal static bool WidgetBlockEdges(List<RectTransform> widgets, Vector3 origin, Vector3 up,
+                                          out float top, out float bottom)
+    {
         top = float.MinValue;
         bottom = float.MaxValue;
-        for (int i = 0; i < WidgetRectScratch.Count; i++)
+        for (int i = 0; i < widgets.Count; i++)
         {
-            RectTransform w = WidgetRectScratch[i];
+            RectTransform w = widgets[i];
             if (w == null)
                 continue;
             GraphicScratch.Clear();
@@ -2147,11 +2190,7 @@ internal sealed class DecisionDockSurface : WorldSurface
                 }
             }
         }
-        if (top <= float.MinValue)
-        {
-            top = rowTopAbovePivot;
-            bottom = rowBottomAbovePivot;
-        }
+        return top > float.MinValue;
     }
 
     /// <summary>Highest/lowest of a rect's four world corners projected onto <paramref name="up"/>, relative to <paramref name="origin"/>.</summary>
