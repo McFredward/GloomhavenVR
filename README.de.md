@@ -47,6 +47,14 @@
   <video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video>
 </p>
 
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video>
+</p>
+
+**Heb eine Figur hoch, und sie kommt vom Brett in deine Hand** — so groß, wie du sie ziehst, und
+ihre Karte kommt mit: Gesundheit, Bewegung, Angriff, die Modifikatoren, der Zug, den sie gleich
+macht. Leg sie zurück, und sie setzt sich auf ihr Feld.
+
 - **Dein Kartenblatt liegt in deiner Handfläche.** Dreh sie nach oben, der Fächer geht auf, nimm
   eine Karte mit den Fingern und leg sie in ein Fach deines Bretts.
 - **Ein Kontrollbrett, das du mitnimmst.** Rückgängig, die beiden Rasten, die Stapel, die
@@ -60,6 +68,16 @@
 - **Räume, die für diese Mod gebaut sind.** Ein kerzenbeleuchteter Keller und ein Nachtwald unter
   einem echten Sternkatalog, beide reagieren auf die Elementinfusionen des Szenarios.
 - **Mixed Reality.** Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer.
+
+## Alle am selben Tisch
+
+Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Hochgehobene Miniaturen,
+verschobene Fenster und zeigende Finger sehen alle, und wer kein Headset hat, spielt am flachen
+Bildschirm in derselben Partie mit.
+
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
+</p>
 
 ## Deine Karten und dein Brett
 
@@ -82,14 +100,6 @@ Jedes Teil davon ist auf einem beschrifteten Bild im
 Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe zu
 nehmen — oder halt den Griff und tipp es mit der Fingerspitze an.
 
-**Oder heb eine Figur einfach hoch.** Sie kommt vom Brett in deine Hand, so groß, wie du sie ziehst,
-und ihre Karte kommt mit — Gesundheit, Bewegung, Angriff, die Modifikatoren, der Zug, den sie gleich
-macht. Leg sie zurück, und sie setzt sich auf ihr Feld.
-
-<p align="center">
-  <img src="docs/img/figure-lift.gif" width="560" alt="Eine Verbündete vom Brett auf Augenhöhe gehoben, ihre Werte-Karte daneben">
-</p>
-
 ## Die Kampagnenkarte auf dem Tisch
 
 <p align="center">
@@ -99,16 +109,6 @@ macht. Leg sie zurück, und sie setzt sich auf ihr Feld.
 Zwischen den Szenarien stehst du in einem Gewölbe, und die Karte von Gloomhaven liegt ausgebreitet
 auf dem Tisch vor dir. Die Aufträge hängen lesbar an der Wand, und wenn einer freigeschaltet wird,
 leuchtet der ganze Raum auf.
-
-## Alle am selben Tisch
-
-Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Hochgehobene Miniaturen,
-verschobene Fenster und zeigende Finger sehen alle, und wer kein Headset hat, spielt am flachen
-Bildschirm in derselben Partie mit.
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
-</p>
 
 ## Der Raum, in dem du spielst
 

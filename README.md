@@ -47,6 +47,14 @@
   <video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video>
 </p>
 
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video>
+</p>
+
+**Pick a figure up and it comes off the board into your hand** — at whatever size you pull it to,
+and its card comes with it: health, movement, attack, the modifiers, the turn it is about to take.
+Put it back and it settles onto its hex.
+
 - **Your hand of cards sits in your palm.** Turn it up, the fan opens, take a card with your
   fingers and drop it into a slot on the board.
 - **A control board you carry with you.** Undo, the two rests, the piles, the decision drawer —
@@ -60,6 +68,16 @@
 - **Rooms built for this mod.** A candle-lit cellar and a night forest under a real star catalogue,
   both reacting to the scenario's element infusions.
 - **Mixed reality.** The sky drops away and the table stands in your real room.
+
+## Everyone at the same table
+
+Every VR player has a mask, hands and their own control board. Lifted miniatures, moved windows and
+pointing fingers are visible to everyone, and players without a headset join the same game on a flat
+screen.
+
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
+</p>
 
 ## Your cards and your board
 
@@ -81,14 +99,6 @@ Every part of it is named on one labelled picture in the
 Point the laser and pull the trigger to take a hex, an enemy, a door or a chest — or hold the grip
 and touch it with a fingertip.
 
-**Or pick a figure up.** It comes off the board into your hand, at whatever size you pull it to, and
-its card comes with it — health, movement, attack, the modifiers, the turn it is about to take. Put
-it back and it settles onto its hex.
-
-<p align="center">
-  <img src="docs/img/figure-lift.gif" width="560" alt="An ally lifted off the board to eye level, her stat card beside her">
-</p>
-
 ## The campaign map on a table
 
 <p align="center">
@@ -97,16 +107,6 @@ it back and it settles onto its hex.
 
 Between scenarios you stand in a cellar with the map of Gloomhaven spread out on the table in front
 of you. Quests hang on the wall where you can read them, and unlocking one lights up the room.
-
-## Everyone at the same table
-
-Every VR player has a mask, hands and their own control board. Lifted miniatures, moved windows and
-pointing fingers are visible to everyone, and players without a headset join the same game on a flat
-screen.
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
-</p>
 
 ## The room you play in
 

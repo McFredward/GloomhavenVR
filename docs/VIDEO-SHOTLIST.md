@@ -17,8 +17,8 @@ Find them all with
 grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING.de.md
 ```
 
-— **three per language, six in all, and every one of them is now in the playing guide.** The README
-was cleared on 2026-09-07. Each box repeats in place what that clip has to show.
+— **three per language, six in all, and every one of them is in the playing guide.** The README has
+held no placeholder since 2026-09-07. Each box repeats in place what that clip has to show.
 
 ## Which document gets which clip — ONE CLIP, ONE PAGE
 
@@ -29,12 +29,16 @@ below is by what each document is FOR, and a new clip belongs to exactly one of 
 
 | Document | What it is | What it shows |
 |---|---|---|
-| `README.md` / `README.de.md` | the pitch — someone deciding whether to install | the five broad clips: the overview, the control board, the board and the figure lift, the map room, a multiplayer session |
+| `README.md` / `README.de.md` | the pitch — someone deciding whether to install | six clips. THE ORDER IS DELIBERATE and was set by the maintainer on 2026-09-07: the overview and the FIGURE LIFT together at the very top ("ziemlich präsent"), then the feature list, then MULTIPLAYER — moved up from seventh place because "der Multiplayer ist einer der größten Features" — and only then the control board, the scenario board and the map room |
 | `docs/PLAYING.md` / `.de.md` | the manual — someone who has installed and wants to learn | only INSTRUCTIONAL clips, which by their nature exist nowhere else: the controls tutorial, windows, the grab rod, the environments. Plus its own labelled pictures, `controls-*.png` and `board-*.png`, which are the manual's real content and have no README twin |
 | `INSTALL.md` / `.de.md` | the steps | no clips at all. It has `install-tree-*.png`, which is the only picture the task needs |
 
 A guide section whose subject IS shown on the front page carries a one-line pointer to it (`› …`)
 instead of the clip. That keeps the reader routed without paying for the same video twice.
+
+**No clip is a GIF any more.** `figure-lift.gif` was a stand-in for footage that had not been
+uploaded; when it was, the GIF went. If a moving image is ever needed again before an upload, the
+encoding is recorded in `img/README.md` — but the upload is the answer.
 
 **The two environment stills are the one duplication left standing**, and deliberately: `env-cellar`
 and `env-forest` are in both the README and the guide, because the guide's *The room you play in*
@@ -64,7 +68,8 @@ The cut points are the frames where it clears, verified frame by frame, and the 
 removed outright rather than muted.
 
 **The four rows left below are all in `docs/PLAYING*.md`.** Nothing in the README is waiting on
-anything.
+anything: the figure lift was the last thing it needed and it landed the same evening, as an
+attachment clip directly under the overview.
 
 | # | File | ~Length | Prepared spot | What it shows | What the viewer knows afterwards |
 |---|---|---:|---|---|---|

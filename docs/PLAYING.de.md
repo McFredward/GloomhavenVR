@@ -23,7 +23,7 @@ der Reihenfolge, in der sie nützlich werden. Abschalten unter **Komfort ▸ Hä
 <table>
 <tr><td>
 
-**🎬 VIDEO-PLATZHALTER 3 von 6 — `tutorial.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+**🎬 VIDEO-PLATZHALTER 1 von 4 — `tutorial.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
 
 **Was der Clip zeigen muss** (12 s): wie deine Hände zu dem Controller werden, den du wirklich
 in der Hand hältst, und wie eine Taste nach der anderen aufleuchtet, sobald die jeweilige Steuerung
@@ -92,7 +92,7 @@ mit Absicht: so wählt eine Hand, die nur über das Brett streicht, nie etwas au
 <table>
 <tr><td>
 
-**🎬 VIDEO-PLATZHALTER 4 und 5 von 6 — `windows.mp4` und `grab-rod.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+**🎬 VIDEO-PLATZHALTER 2 und 3 von 4 — `windows.mp4` und `grab-rod.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
 
 **Was die Clips zeigen müssen** (12 s und 8–10 s, nebeneinander): ein Spielfenster, an seiner
 Stange gegriffen, verschoben, in der Größe geändert, mit dem Stick näher herangeholt, während der
@@ -150,7 +150,7 @@ Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte?
 <table>
 <tr><td>
 
-**🎬 VIDEO-PLATZHALTER 6 von 6 — `environments.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
+**🎬 VIDEO-PLATZHALTER 4 von 4 — `environments.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
 
 **Was der Clip zeigen muss** (15 s): was die zwei Standbilder darüber nicht können — die Räume
 in Bewegung. Feuerschein und Tropfen im Keller, Mondstrahlen und bewegtes Blattwerk im Wald, eine

@@ -23,7 +23,7 @@ Switch it off under **Comfort ▸ Hands & aiming**.
 <table>
 <tr><td>
 
-**🎬 VIDEO PLACEHOLDER 3 of 6 — `tutorial.mp4` — this spot is still empty, nothing renders here yet.**
+**🎬 VIDEO PLACEHOLDER 1 of 4 — `tutorial.mp4` — this spot is still empty, nothing renders here yet.**
 
 **What it has to show** (12 s): your hands turning into the controller you are actually
 holding, and one key after another lighting up as each control becomes useful. Afterwards the reader
@@ -90,7 +90,7 @@ sweeps across the board never selects anything.
 <table>
 <tr><td>
 
-**🎬 VIDEO PLACEHOLDERS 4 and 5 of 6 — `windows.mp4` and `grab-rod.mp4` — this spot is still empty, nothing renders here yet.**
+**🎬 VIDEO PLACEHOLDERS 2 and 3 of 4 — `windows.mp4` and `grab-rod.mp4` — this spot is still empty, nothing renders here yet.**
 
 **What they have to show** (12 s and 8–10 s, side by side): a game window grabbed by its bar,
 moved, resized, reeled closer with the stick while the laser holds it, then closed with its X — and
@@ -144,7 +144,7 @@ route it travels. Prefer the original flat map? **World & sound ▸ Campaign map
 <table>
 <tr><td>
 
-**🎬 VIDEO PLACEHOLDER 6 of 6 — `environments.mp4` — this spot is still empty, nothing renders here yet.**
+**🎬 VIDEO PLACEHOLDER 4 of 4 — `environments.mp4` — this spot is still empty, nothing renders here yet.**
 
 **What it has to show** (15 s): what the two stills above cannot — the rooms in motion.
 Firelight and drips in the cellar, moonbeams and moving foliage in the forest, an element infusion

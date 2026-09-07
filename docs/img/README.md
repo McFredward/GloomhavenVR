@@ -163,30 +163,28 @@ figure-grab second). It cannot be checked from here — an attachment URL on a p
 without a session — so if the two clips ever appear under the wrong headings, that is the
 reason and swapping the two lines is the fix.
 
-## The clips that exist — ONE, AND IT IS NOT A CLIP
+## The clips that exist — NONE
 
-| File | Length | Size | Shows |
-|---|---:|---:|---|
-| `figure-lift.gif` | 6.5 s | 4.5 MB | README and playing guide, *The board in front of you* — the ice ally lifted to eye level with her stat card beside her |
+**Not one moving image is committed to this repository any more.** Every mp4 and its poster went on
+2026-09-07 — `control-board` first, then `card-fan`, `figure-grab`, `map-interaction` and
+`physical-interaction` — and `figure-lift.gif`, the last survivor, followed the same evening.
 
-**EVERY COMMITTED mp4 WAS DELETED ON 2026-09-07**, with its poster: `card-fan`, `figure-grab`,
-`map-interaction`, `physical-interaction`, and `control-board` earlier the same day. Eight files,
-7.7 MB. The maintainer's ruling, verbatim: *"Die Videos müssen von mir in einem Issue hochgeladen
-werden und ich gebe sie dir dann. An manchen Punkten findet sich noch solche absoluten Pfade zu
-Videos — die werden in GitHub nicht abgespielt."*
+The rule this directory runs on: **a video served from a repository path does not play on
+github.com.** Not in a README, not in a doc, not as a `<video src>`, and a poster thumbnail linking
+to one only gets the reader a download. The ONLY thing that plays is a file uploaded through a
+GitHub issue or comment box and referenced by its `user-attachments` URL. Clips are never committed:
+they are uploaded, and the docs carry the URL.
 
-He is right and it is worth stating as the rule this whole directory now runs on: **a video served
-from a repository path does not play on github.com.** Not in a README, not in a doc, not as a
-`<video src>`, and a poster thumbnail linking to one only gets the reader a download. The ONLY thing
-that plays is a file uploaded through a GitHub issue or comment box and referenced by its
-`user-attachments` URL. So clips are never committed any more: they are uploaded, and the docs carry
-the URL.
+**`figure-lift.gif` was the one exception and the maintainer retired it himself**, verbatim: *"Das
+Aufheben einer Figur soll auch als Video und nicht als gif existieren. Entferne das gif wieder."* It
+had existed for one reason — a GIF at a repo path DOES render inline, so it was the only way to show
+the figure lift without an upload. He uploaded the footage instead, so the reason is gone and 4.7 MB
+went with it. `promo.gif` at the top of the README is now the last moving image in the repository,
+and it is a title card rather than a clip.
 
-**`figure-lift.gif` is the one exception and it is deliberate.** A GIF at a repo path DOES render
-inline, which is the whole reason it exists — it was derived from `figure-grab.mp4` so that the
-figure lift could be shown at all without an upload. If that footage is ever uploaded, replace the
-GIF with the attachment `<video>`: better quality, a tenth of the bytes, and this file can go.
-`promo.gif` is the same case and predates all of it.
+WHAT IS LEFT HERE is stills — the controls picture, the board diagram, the environment and style
+shots — plus `env-default-surround.png`, which is not documentation at all but a build input for the
+environment picker's Default tile.
 
 WHAT IS LEFT IN THIS DIRECTORY is stills — the controls picture, the board diagram, the environment
 and style shots — plus `env-default-surround.png`, which is not documentation at all but a build
@@ -199,11 +197,10 @@ defect at one end or both: the Virtual Desktop overlay, the Quest status bar and
 Cut at the frames where it clears, and check the first and last frame of the RESULT, not of the
 source.
 
-`figure-lift.gif` is a **derivative**, not a capture: 4.4–10.9 s of `figure-grab.mp4` at 10 fps,
-560 px, 96 colours with a diff-mode palette. It is a GIF and not an mp4 for one reason — **a
-committed video does not play in a GitHub README and a GIF does.** If that footage is ever uploaded
-through a comment box, replace the GIF with the attachment `<video>`: better quality, a tenth of the
-bytes, and this file can go.
+`figure-lift.gif` WAS a derivative rather than a capture — 4.4–10.9 s of `figure-grab.mp4` at 10 fps,
+560 px, 96 colours with a diff-mode palette — and the encoding is recorded because the technique is
+the fallback whenever a moving image is needed and no upload has happened. It is not needed now: the
+figure lift is an attachment `<video>` at the top of the README, next to the overview.
 
 **THE CLUSTERS ARE HISTORY — the README no longer draws any of these four.** They were arranged in
 two pairs on the user's instruction ("Ordne die Videos logisch in zusammenhängenden Clustern"), and
@@ -213,10 +210,10 @@ each cluster was one sentence of prose plus two clips showing the same idea from
 reader who watched one already knew what the other was about; four clips under one heading would
 have read as four unrelated demos.
 
-Where these files stand now: **all five are deleted.** `control-board.mp4` went first that morning,
-then `card-fan`, `figure-grab`, `map-interaction` and `physical-interaction` the same evening, each
-with its poster. The only thing that survived any of them is `figure-lift.gif`, derived from
-`figure-grab.mp4` before it went, because a GIF is the one moving image a repo path can still play.
+Where these files stand now: **all five are deleted**, and so is the GIF derived from one of them.
+`control-board.mp4` went first that morning, then `card-fan`, `figure-grab`, `map-interaction` and
+`physical-interaction` the same evening, each with its poster; `figure-lift.gif` followed once its
+footage was uploaded.
 
 **Which attachment URL is which was taken on the maintainer's word**, in the order he sent them
 (`control-board` first, `physical-interaction` second). It cannot be checked from here — an
