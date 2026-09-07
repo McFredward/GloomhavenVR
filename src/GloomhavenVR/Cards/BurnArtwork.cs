@@ -113,6 +113,36 @@ internal static class BurnArtwork
     /// every burn on ModBuild 447 run the full ceiling; <c>coroutine</c> alone is also the GHOST
     /// (discard) timeline's handle, so the state test is what says the running timeline is a burn.
     /// </para>
+    ///
+    /// <para><b>THERE IS A THIRD TERM, AND IT COSTS EVERY BURN ON EVERY BOARD WITHOUT IT
+    /// (2026-09-07 review, D2).</b> <c>CardEffects.BurnCard</c> is
+    /// <c>coroutine = StartCoroutine(BurnCardTimeline(...))</c> (CardEffects.cs:450), and Unity
+    /// runs a coroutine body up to its first <c>yield</c> SYNCHRONOUSLY inside
+    /// <c>StartCoroutine</c>. The timeline's very first statement is
+    /// <c>if (!gameObject.activeInHierarchy &amp;&amp; !playOnDisabled) { coroutine = null; yield
+    /// break; }</c> (CardEffects.cs:508-513) — so on a bail the field is nulled and then the OUTER
+    /// assignment writes the finished handle straight back over the null. <c>coroutine</c> is
+    /// non-null for ever, and both terms above read TRUE for ever.</para>
+    ///
+    /// <para><b>AND IT IS THE COMMON CASE, NOT A RARITY.</b> In VR the game's 2D hand is
+    /// <c>SetActive(false)</c> for most of a session (<c>CardsHandUI.Hide</c> →
+    /// <c>ShowOrHideInternal(false)</c>, CardsHandUI.cs:514) and <c>CardsHandManager.SwitchHand</c>
+    /// deactivates every hand that is not the presented one (CardsHandManager.cs:635). Any burn
+    /// latched on a hand that is not the presented one therefore takes the trap, which in a party
+    /// is most of them — and because <c>RemoteBurnFx.Drive</c> evaluates THIS method over the
+    /// owner's widget, every mirror inherits the same stuck reading for ever. The cost is the 3 s
+    /// <see cref="MaxHoldSeconds"/> ceiling per burn (~+1 s of flight delay plus a 3 s wanted-slot
+    /// suppression) and a <c>BURN HOLD</c> line printing its own pre-registered INERT reading.</para>
+    ///
+    /// <para><b>THE DISCRIMINATOR IS THE PAINT, NOT THE HANDLE.</b> A genuinely running ramp writes
+    /// <c>_GreyOut = Mathf.Clamp01(dTime)</c> on its FIRST loop iteration, which executes before the
+    /// timeline's first <c>yield</c> and therefore before <c>coroutine</c> is even assigned
+    /// (CardEffects.cs:565-571). A BAILED timeline writes nothing at all. So a handle that is
+    /// non-null while <see cref="PaintProgress"/> still reads a hard zero, after the same
+    /// <see cref="StartGraceSeconds"/> the release expression already grants a burn to start, is a
+    /// bailed timeline and not a running one. A reading of -1 is UNKNOWN (the widget was never
+    /// <c>Initialize</c>d, or the game changed shape) and is never treated as unpainted — the
+    /// answer then stays "playing", i.e. the behaviour that shipped.</para>
     /// </summary>
     internal static bool Playing(CardEffects? fx)
     {
@@ -122,11 +152,70 @@ internal static class BurnArtwork
         {
             bool burning = fx.HasEffect(CardEffects.FXTask.BurnCard)
                            || fx.HasEffect(CardEffects.FXTask.LostMode);
-            return burning && fx.coroutine != null;
+            if (!burning || fx.coroutine == null)
+            {
+                Forget(fx);
+                return false;
+            }
+            return !HandleIsABailedTimeline(fx);
         }
         catch
         {
             return false; // a game-side shape change must never strand a card on a board
+        }
+    }
+
+    /// <summary>
+    /// A paint reading at or below this is "the timeline never touched this widget". The ramp's
+    /// first iteration already writes <c>deltaTime / 2f</c>, so any running burn clears it within a
+    /// frame; the slack is float noise only.
+    /// </summary>
+    private const float BailedPaintCeiling = 0.001f;
+
+    /// <summary>
+    /// First unscaled time each <see cref="CardEffects"/> was OBSERVED holding a burn handle, so the
+    /// <see cref="StartGraceSeconds"/> below is measured rather than assumed. Entries are dropped
+    /// the moment the widget stops holding one (<see cref="Forget"/>), so the table's size tracks
+    /// the burns in flight — a party's worth of card widgets at the very most.
+    /// </summary>
+    private static readonly System.Collections.Generic.Dictionary<int, float> HandleFirstSeen = new();
+
+    /// <summary>Hard cap on <see cref="HandleFirstSeen"/>. Reaching it means an id is leaking; the
+    /// whole table is dropped rather than grown, which costs at most one extra grace per burn.</summary>
+    private const int HandleTableCap = 256;
+
+    /// <summary>
+    /// Is this widget's non-null <c>CardEffects.coroutine</c> the corpse of a timeline that BAILED
+    /// on an inactive object? See <see cref="Playing"/> for the mechanism and the two source lines.
+    /// FALSE for everything it cannot establish, which is the reading that shipped.
+    /// </summary>
+    private static bool HandleIsABailedTimeline(CardEffects fx)
+    {
+        int id = fx.GetInstanceID();
+        float now = Time.unscaledTime;
+        if (!HandleFirstSeen.TryGetValue(id, out float since))
+        {
+            if (HandleFirstSeen.Count >= HandleTableCap)
+                HandleFirstSeen.Clear();
+            HandleFirstSeen[id] = now;
+            return false; // first sight — it has not had its grace yet
+        }
+        if (now - since < StartGraceSeconds)
+            return false;
+        float paint = PaintProgress(fx);
+        return paint >= 0f && paint <= BailedPaintCeiling;
+    }
+
+    /// <summary>Drop a widget's start stamp once it no longer holds a burn handle.</summary>
+    private static void Forget(CardEffects fx)
+    {
+        try
+        {
+            HandleFirstSeen.Remove(fx.GetInstanceID());
+        }
+        catch
+        {
+            // a widget mid-teardown owns no stamp worth chasing
         }
     }
 

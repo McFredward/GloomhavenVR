@@ -213,6 +213,44 @@ internal static class VRModeStateMachine
         { CMessageData.MessageType.PlayerShortRested, VRMode.TableIdle },
     };
 
+    /// <summary>
+    /// The two rows above that carry NO ACTOR TERM and are REPLICATED to every client — so a
+    /// co-player's rest arrives here indistinguishable from this player's own, and used to drop
+    /// THIS client straight out of <see cref="VRMode.CardSelection"/> while its own selection was
+    /// still open (2026-09-07 review, D4).
+    ///
+    /// <para><b>MEASURED, ON THE 476 HOST.</b> <c>PlayerToSelect…</c> raw 198249 →
+    /// <c>[Mode] TableIdle -&gt; CardSelection</c> 198256 → the PEER's <c>PlayerShortRested</c>
+    /// 204767 → <c>[Mode] CardSelection -&gt; TableIdle</c> 204771, with
+    /// <c>fan state … (vrMode=TableIdle)</c> at 204835 while the same line still read
+    /// <c>mode=CardsSelection</c>.</para>
+    ///
+    /// <para><b>SEVERITY, HONESTLY.</b> This did NOT cause that session's park and must not be
+    /// claimed to have: <see cref="InteractorPolicy"/> gives TableIdle and CardSelection the
+    /// IDENTICAL interactor set, and only two places read <c>CardSelection</c> at all. What it is,
+    /// is a FALSE STATE and a wrong wrist label during an open selection — exactly the ModBuild 475
+    /// class, a foreign edge writing a local latch, one future gate away from being a deadlock. It
+    /// is fixed as that.</para>
+    ///
+    /// <para><b>WHY A PREDICATE AND NOT A DIFFERENT VALUE.</b> <see cref="OnMessage"/> receives a
+    /// <c>ChoreoMessageEvent</c> that carries the message TYPE and nothing else — there is no actor
+    /// on it to compare against the local player — so the row cannot be made conditional by
+    /// changing what it maps to. The rule that needs no payload: a rest message may not stand a
+    /// CARD SELECTION down. A rest that genuinely ends this client's selection is followed by
+    /// <c>PlayersHaveSelectedAbilityCardsOrLongRest</c>, which is its own row and does exactly
+    /// that; every other exit (StartTurn, EndTurn, EndRound, NextRound) has a row too. So nothing
+    /// this suppresses is a transition the state machine actually needs.</para>
+    /// </summary>
+    private static readonly HashSet<CMessageData.MessageType> ActorlessRestMessages = new()
+    {
+        CMessageData.MessageType.PlayerLongRested,
+        CMessageData.MessageType.PlayerShortRested,
+    };
+
+    /// <summary>How many actorless rest messages were refused during a card selection this
+    /// session — the reading that says the rule is load-bearing. See the log line.</summary>
+    private static int _restMessagesRefused;
+
     /// <summary>Choreographer wait-states that mean "the board wants targets".</summary>
     private static readonly HashSet<Choreographer.ChoreographerStateType> TargetingStates = new()
     {
@@ -418,6 +456,30 @@ internal static class VRModeStateMachine
     {
         if (!MessageModeMap.TryGetValue(e.Type, out VRMode mode))
             return;
+        if (_flowMode == VRMode.CardSelection && ActorlessRestMessages.Contains(e.Type))
+        {
+            _restMessagesRefused++;
+            // HW-VERIFY: grep token "MODE REST REFUSED". WORKING = one of these in any multiplayer
+            // session in which a co-player rests while this player is still choosing cards, AND no
+            // "[Mode] CardSelection -> TableIdle" line anywhere that is not preceded by
+            // PlayersHaveSelectedAbilityCardsOrLongRest / StartTurn / EndTurn / EndRound /
+            // NextRound. INERT = a session containing a peer's rest during this client's own
+            // selection with ZERO of these lines: the predicate is not reaching this handler and
+            // the false state is back. NOT A DEFECT BY ITSELF — the count grows with party
+            // activity, and single player prints it only for this player's own selection-phase
+            // long rest, where holding CardSelection is equally correct.
+            VRLog.Note("Mode", $"MODE REST REFUSED (#{_restMessagesRefused} this session): the engine " +
+                               $"message {e.Type} would have driven this client's flow mode to " +
+                               "TableIdle while its OWN card selection is still open. That message is " +
+                               "REPLICATED and carries no actor, so it cannot be attributed — on the " +
+                               "476 host a co-player's PlayerShortRested wrote CardSelection -> " +
+                               "TableIdle here while the board's own line still read " +
+                               "mode=CardsSelection. A foreign edge may not write a local latch " +
+                               "(ModBuild 475 class). The selection's real exits — " +
+                               "PlayersHaveSelectedAbilityCardsOrLongRest, StartTurn, EndTurn, " +
+                               "EndRound, NextRound — all have rows of their own and are unaffected.");
+            return;
+        }
         _flowMode = mode;
         // A new flow decision point supersedes a stale targeting sub-state.
         if (mode == VRMode.CardSelection || mode == VRMode.TableIdle)

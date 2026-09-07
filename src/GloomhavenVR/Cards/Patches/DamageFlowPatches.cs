@@ -50,7 +50,7 @@ internal static class CardsHandUI_OnLoseCardClick_Gate
             // See BurnCommitRescue: the game's commit body is a StartCoroutine on THIS component,
             // and Unity refuses that outright on an inactive GameObject.
             BurnCommitRescue.EnsureHandCanRunItsCoroutine(__instance);
-            BurnCommitWatch.Arm();
+            BurnCommitWatch.Arm(__instance);
             // ITEMS 9 + 10 (2026-09-05) — END EDGE (a) of the pick flow. This prefix is the ONLY
             // commit callback of the lose/discard confirm popup and covers all three of its
             // branches, so it is the one place that means "the player has answered" for every
@@ -232,22 +232,84 @@ internal static class BurnCommitRescue
 /// <c>LONG REST RE-DRIVE HELD</c> / <c>LONG REST RE-DRIVE ONCE</c> in
 /// <c>CardsDriver.PumpLongRestTurn</c>. Read the two together — between them every burn commit
 /// this mod can route has a watch, and neither pretends to cover the other's flow.</para>
+///
+/// <para><b>AND SINCE 2026-09-07 THERE IS A SECOND, NETWORK-INDEPENDENT HALF (review item D5).</b>
+/// The phase watch above is online-only by construction, and <see cref="Arm"/> used to return early
+/// on <c>!FFSNetwork.IsOnline</c> for the WHOLE method — so single player had no instrument for the
+/// burn-commit hang at all. The second half watches the game's own <c>AnimatingLostCards</c> flag
+/// from the commit until it comes back down, which is the fingerprint of the REAL unbounded wait:
+/// <c>AnimateCardsLost</c>'s <c>WaitUntil(() =&gt; animations.Count == 0)</c> (CardsHandUI.cs:1103).
+/// Token: <c>BURN ANIM STUCK</c>. It reports and repairs nothing.</para>
 /// </summary>
 internal static class BurnCommitWatch
 {
     /// <summary>How long a commit may leave the client in TakeDamageConfirmation before it is a hang.</summary>
     private const float StuckSeconds = 8f;
 
+    /// <summary>
+    /// How long <c>CardsHandUI.AnimatingLostCards</c> may stand true after a commit before the
+    /// animation that carries the answer is called hung. Generous against any serialized tween
+    /// chain — <c>discardedCardsMoveTime</c> and <c>postAnimationWaitTime</c> are dials this mod
+    /// cannot read — and still far short of a lost session.
+    /// </summary>
+    private const float AnimatingStuckSeconds = 20f;
+
+    /// <summary>
+    /// How long the watch waits for <c>AnimatingLostCards</c> to come UP before concluding this
+    /// commit branch simply does not animate (the ability branches can take
+    /// <c>InstantCardLost</c>). Reaching it disarms SILENTLY: "no animation" is not a finding.
+    /// </summary>
+    private const float AnimatingArrivalSeconds = 5f;
+
     private static bool _armed;
     private static bool _reported;
     private static float _armedAt;
 
-    internal static void Arm()
+    /// <summary>The hand that committed, for the network-independent half of the watch.</summary>
+    private static CardsHandUI? _hand;
+    private static bool _animArmed;
+    private static bool _animSeenRunning;
+    private static bool _animReported;
+    private static float _animArmedAt;
+    private static float _animRunningSince;
+
+    /// <summary>
+    /// Arm both halves at the game's own commit.
+    ///
+    /// <para><b>THE `!FFSNetwork.IsOnline` EARLY RETURN THAT USED TO STAND HERE LEFT SINGLE PLAYER
+    /// WITH NO INSTRUMENT AT ALL for the burn-commit hang (2026-09-07 review, D5).</b> It is
+    /// correct about the PHASE watch — <c>FFSNet.ActionProcessor.CurrentPhase</c> only means
+    /// anything online — but it was applied to the whole method, so an offline commit that never
+    /// resolved produced not one line. The phase half is still gated (inside <see cref="Tick"/>,
+    /// where it belongs); the second half below is network-independent.</para>
+    ///
+    /// <para><b>THE SECOND HALF WATCHES THE REAL UNBOUNDED WAIT.</b> Every branch of
+    /// <c>OnLoseCardClick</c> that animates ends in <c>StartCoroutine(AnimateCardsLost(...))</c>,
+    /// and that coroutine's own bound is <c>yield return new WaitUntil(() =&gt;
+    /// animations.Count == 0)</c> (CardsHandUI.cs:1103) — a wait on a LeanTween list with no
+    /// timeout of any kind. Everything the flow depends on runs AFTER it:
+    /// <c>onCompleteCallback</c> (<c>GameState.PlayerAvoidingDamage</c> + <c>Hide()</c>, or
+    /// <c>ShowLongRested</c>), the UI-lock release, and <c>AnimatingLostCards = false</c> at :1115.
+    /// So <c>AnimatingLostCards</c> standing true is the exact fingerprint of that wait not
+    /// returning, and it is readable offline and online alike.</para>
+    ///
+    /// <para><b>IT IS AN INSTRUMENT AND NOTHING ELSE.</b> No remedy: forcing the game's
+    /// <c>animations</c> list empty would write game state from presentation code, which this
+    /// project forbids outright.</para>
+    /// </summary>
+    internal static void Arm(CardsHandUI? hand)
     {
         try
         {
+            _hand = hand;
+            _animArmed = hand != null;
+            _animSeenRunning = false;
+            _animReported = false;
+            _animArmedAt = Time.unscaledTime;
+            _animRunningSince = 0f;
+
             if (!FFSNetwork.IsOnline)
-                return; // the phase machine only runs online; offline has nothing to watch
+                return; // the PHASE half only: the action processor's phase means nothing offline
             _armed = true;
             _reported = false;
             _armedAt = Time.unscaledTime;
@@ -260,6 +322,7 @@ internal static class BurnCommitWatch
 
     internal static void Tick()
     {
+        TickAnimation();
         if (!_armed)
             return;
         try
@@ -294,13 +357,122 @@ internal static class BurnCommitWatch
                 "StartCoroutine being refused on an inactive hand object — look for a 'Coroutine couldn't " +
                 "be started' line, and for a 'BURN COMMIT RESCUE' line just above this one. If the RESCUE " +
                 "line is present and this one still fired, the coroutine started and something ELSE " +
-                "swallowed it (CardsHandUI.OnDisable -> CancelAnimateCardLost -> StopAllCoroutines is the " +
-                "next suspect). Reported once per commit.");
+                "swallowed it. THE NEXT SUSPECT IS THE WaitUntil AT CardsHandUI.cs:1103, NOT " +
+                "OnDisable: 'CardsHandUI.OnDisable -> CancelAnimateCardLost -> StopAllCoroutines' " +
+                "stood here for several builds and CANNOT be the cause — CancelAnimateCardLost " +
+                "(CardsHandUI.cs:1154-1178) releases the UI lock and INVOKES " +
+                "onAnimateCardLostCallback before nulling it, so that path advances the flow " +
+                "rather than swallowing it. AnimateCardsLost's own 'yield return new WaitUntil(() " +
+                "=> animations.Count == 0)' has no timeout of any kind, and everything the rules " +
+                "need runs after it. Read the BURN ANIM STUCK line below for that half. Reported " +
+                "once per commit.");
         }
         catch (System.Exception ex)
         {
             _armed = false;
             VRLog.Warn("Cards", $"Burn commit watch threw: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The network-independent half — see <see cref="Arm"/>. Watches the game's own
+    /// <c>AnimatingLostCards</c> flag from the commit until it comes back down, and reports ONCE if
+    /// it does not. Writes nothing.
+    /// </summary>
+    private static void TickAnimation()
+    {
+        if (!_animArmed)
+            return;
+        try
+        {
+            CardsHandUI? hand = _hand;
+            if (hand == null)
+            {
+                Disarm();
+                return;
+            }
+
+            float now = Time.unscaledTime;
+            bool animating = hand.AnimatingLostCards;
+
+            if (!_animSeenRunning)
+            {
+                if (animating)
+                {
+                    _animSeenRunning = true;
+                    _animRunningSince = now;
+                    return;
+                }
+                if (now - _animArmedAt >= AnimatingArrivalSeconds)
+                    Disarm(); // this commit branch does not animate — no claim, no line
+                return;
+            }
+
+            if (!animating)
+            {
+                if (_animReported)
+                {
+                    // HW-VERIFY: grep token "BURN ANIM STUCK CLEARED".
+                    VRLog.Note("Cards",
+                        $"BURN ANIM STUCK CLEARED after {now - _animRunningSince:0.0}s — " +
+                        "CardsHandUI.AnimatingLostCards came back down after all, so the " +
+                        "WaitUntil(animations.Count == 0) returned and the flow's completion " +
+                        "callback ran. The turn was not lost.");
+                }
+                Disarm();
+                return;
+            }
+
+            if (_animReported || now - _animRunningSince < AnimatingStuckSeconds)
+                return;
+
+            _animReported = true;
+            // HW-VERIFY: grep token "BURN ANIM STUCK".
+            // WORKING = absent from every log, offline and online alike.
+            // INERT = a session in which the player reports a burn that never finished and this
+            // line is missing: the arm is not reaching the commit, and single player is blind
+            // again — which is exactly what the `!FFSNetwork.IsOnline` early return in Arm() used
+            // to guarantee (2026-09-07 review, D5).
+            // STILL BEYOND THE INSTRUMENT = it cannot say WHICH LeanTween never completed, only
+            // that the list never emptied. It is a report, never a remedy: clearing the game's
+            // animation list would be presentation code writing game state.
+            VRLog.Alert("Cards",
+                $"BURN ANIM STUCK: {now - _animRunningSince:0.0}s after this client's lose/burn commit, " +
+                "CardsHandUI.AnimatingLostCards is STILL true on " +
+                $"'{HandName(hand)}'. AnimateCardsLost is parked, and its only bound is " +
+                "'yield return new WaitUntil(() => animations.Count == 0)' (CardsHandUI.cs:1103) — a " +
+                "wait on a LeanTween list with no timeout. Everything the flow needs comes AFTER it: " +
+                "the UI-lock release, onCompleteCallback (GameState.PlayerAvoidingDamage + Hide(), or " +
+                "ShowLongRested) and AnimatingLostCards = false. So the card is gone, the answer is " +
+                "given, and nothing advances. THIS HALF OF THE WATCH RUNS OFFLINE TOO — the phase " +
+                "half above cannot, because FFSNet.ActionProcessor.CurrentPhase only means anything " +
+                "online, and gating the WHOLE watch on that left single player with no instrument at " +
+                "all. Reported once per commit; no remedy is shipped, deliberately.");
+        }
+        catch (System.Exception ex)
+        {
+            Disarm();
+            VRLog.Warn("Cards", $"Burn animation watch threw: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private static void Disarm()
+    {
+        _animArmed = false;
+        _animSeenRunning = false;
+        _animReported = false;
+        _hand = null;
+    }
+
+    private static string HandName(CardsHandUI hand)
+    {
+        try
+        {
+            return hand.gameObject != null ? hand.gameObject.name : "?";
+        }
+        catch (System.Exception)
+        {
+            return "?";
         }
     }
 }

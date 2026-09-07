@@ -2422,17 +2422,48 @@ internal static class CardsGameApi
     /// - ReadyButton active + interactable → <see cref="ClickReady"/> →
     ///   <c>OnClickInternal</c> pops the queued alternative action → the game itself
     ///   opens the LoseCard burn step (heal focus + discarded-selectable fan).
-    /// HARD GATE on the armed state: the ReadyButton must hold a queued alternative
-    /// action in <c>EREADYBUTTONCONTINUE</c> — the exact arm Choreographer's
-    /// long-rest turn-start leaves behind — so this can never fire some unrelated
-    /// queued action (doors, movement confirms live in other states/turns). The
-    /// no-discards edge case resolves through the SAME queued action
+    /// GATE on the armed state: the ReadyButton must hold a queued alternative
+    /// action in <c>EREADYBUTTONCONTINUE</c> — the arm Choreographer's long-rest
+    /// turn-start leaves behind (Choreographer.cs:3974).
+    /// The no-discards edge case resolves through the SAME queued action
     /// (<c>PlayerLongRested(null)</c> directly, no LoseCard step).
-    /// Returns true when a step was actually performed (logged by the caller).
+    /// Returns true when a step was actually performed (logged by the caller);
+    /// <paramref name="readyClicked"/> says whether that step was the SECOND one, the
+    /// ReadyButton click that actually opens the burn step.
+    ///
+    /// <para><b>THE CLAIM THAT USED TO STAND HERE — "so this can never fire some unrelated
+    /// queued action" — WAS ASSERTED, NOT SHOWN, and it is not true of the button state on its
+    /// own (2026-09-07 review).</b> <c>EREADYBUTTONCONTINUE</c> has SIX other producers that
+    /// leave a queued alternative action behind:
+    /// <c>InitiativeTrack.cs:401</c> (<c>FinishAbilityCardsAnimation</c>),
+    /// <c>InitiativeTrack.cs:483</c> and <c>:504</c> (<c>PostEnemyCardAnimationProceed</c>), and
+    /// <c>Waypoint.cs:390</c> / <c>:399</c> / <c>:404</c> (the END PUSH / END PULL / CONFIRM
+    /// ATTACK re-arms). What actually excludes them is not the button state but the three gates
+    /// AROUND it, and the exclusion is an argument about turn and phase rather than an identity,
+    /// so it is written out here instead of being asserted:</para>
+    /// <list type="bullet">
+    ///   <item><description>The two <c>InitiativeTrack</c> arms belong to the round-start card and
+    ///   enemy-card animations. <see cref="LongRestTurnHand"/> requires
+    ///   <c>CurrentTurnActor()</c> to BE the long-resting player and the phase not to be
+    ///   <c>SelectAbilityCardsOrLongRest</c>, neither of which holds while those animations
+    ///   run.</description></item>
+    ///   <item><description>The three <c>Waypoint</c> arms belong to a push/pull/attack the ACTING
+    ///   actor is confirming. A player who chose long rest takes no move on his own turn, and a
+    ///   push during an enemy's turn makes <c>CurrentTurnActor()</c> the enemy, so
+    ///   <see cref="LongRestTurnHand"/> returns null.</description></item>
+    ///   <item><description>Both remaining terms are checked here regardless:
+    ///   <c>Mode(hand) != LoseCard</c> (the burn step is not already open) and
+    ///   <c>CanConfirm()</c> (step 2 only runs once the confirmation has been given).</description></item>
+    /// </list>
+    /// <para>So the residual risk is a queued action produced by one of those six sites AT THE
+    /// MOMENT the long-rester's own turn is current and the rest is still pending. Nothing
+    /// enumerated here makes that impossible; it makes it unreached in every flow the project has
+    /// walked. The caller's <c>LONG REST RE-DRIVE</c> lines are what would show it.</para>
     /// </summary>
-    internal static bool TryAdvanceLongRestTurn(CardsHandUI hand, out string step)
+    internal static bool TryAdvanceLongRestTurn(CardsHandUI hand, out string step, out bool readyClicked)
     {
         step = "";
+        readyClicked = false;
         if (hand == null || !ReferenceEquals(hand, LongRestTurnHand()))
             return false;
         if (Mode(hand) == CardHandMode.LoseCard)
@@ -2463,8 +2494,33 @@ internal static class CardsGameApi
         // the game's own LoseCard burn step (or resolves directly when no discards).
         if (!ClickReady())
             return false;
+        readyClicked = true;
         step = "'PERFORM LONG REST' ReadyButton clicked (game's queued turn action) — LoseCard burn step opening";
         return true;
+    }
+
+    /// <summary>
+    /// Is the game still running <c>CardsHandUI.AnimateCardsLost</c> on this hand — i.e. is it
+    /// visibly acting on an answer the player already gave? Verified:
+    /// <c>public bool AnimatingLostCards { get; private set; }</c> (CardsHandUI.cs:226), set true
+    /// at the coroutine's head (:1012) and cleared as its last statement (:1115).
+    ///
+    /// <para><b>IT CAN LATCH TRUE FOR EVER AND EVERY CALLER MUST BOUND IT.</b>
+    /// <c>CancelAnimateCardLost</c> (CardsHandUI.cs:1154-1178, reached from <c>OnDisable</c>) runs
+    /// <c>StopAllCoroutines()</c> and never clears this flag, so a hand deactivated mid-animation
+    /// leaves it standing. It is therefore a HOLD signal with no end of its own — good for "do not
+    /// act yet", useless as "the animation finished".</para>
+    /// </summary>
+    internal static bool AnimatingLostCards(CardsHandUI? hand)
+    {
+        try
+        {
+            return hand != null && hand.AnimatingLostCards;
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -2656,12 +2712,87 @@ internal static class CardsGameApi
             reason = "narrator/story dialog visible (StoryController.IsVisible)";
             return true;
         }
-        if (StoryController.DisplayDelayInEffect)
+        if (StoryController.DisplayDelayInEffect && StoryDisplayDelayIsAlive(story))
         {
             reason = "narrator/story message pending its display delay (StoryController.DisplayDelayInEffect)";
             return true;
         }
+        _storyDelayFirstSeen = 0f;
         reason = "";
+        return false;
+    }
+
+    /// <summary>Unscaled time the current <c>DisplayDelayInEffect</c> run was first observed; 0 = none.</summary>
+    private static float _storyDelayFirstSeen;
+
+    /// <summary>Has the stale-latch line already been printed for this run?</summary>
+    private static bool _storyDelayStaleReported;
+
+    /// <summary>
+    /// How long <c>DisplayDelayInEffect</c> may stand before this gate stops honouring it. A
+    /// <c>CLevelMessage.DisplayDelay</c> is a designer-authored pause before an intro line; 30 s is
+    /// far past any of them and far short of a lost scenario.
+    /// </summary>
+    private const float StoryDelayStaleSeconds = 30f;
+
+    /// <summary>
+    /// IS THIS <c>DisplayDelayInEffect</c> A LIVE DELAY OR A CORPSE?
+    ///
+    /// <para><b>THE FLAG CAN LATCH TRUE FOR THE WHOLE PROCESS (2026-09-07 review, D6).</b>
+    /// <c>StoryController.DisplayDelayInEffect</c> is a <c>public static bool</c>
+    /// (StoryController.cs:68) whose ONLY clear sits inside a coroutine —
+    /// <c>DisplayMessageInWindowAfterDelay</c> sets it true at :169, yields
+    /// <c>WaitForSecondsRealtime(msg.LevelMsg.DisplayDelay)</c>, and clears it at :174. A scene
+    /// transition (or anything else that stops that coroutine) inside the delay kills the clear,
+    /// and nothing anywhere resets the static on load. This gate would then refuse every card
+    /// commit for the rest of the session, permanently suppressing the recess overlays and slot
+    /// telegraphs.</para>
+    ///
+    /// <para><b>TWO TERMS, BOTH CHEAP.</b> (1) The controller must still EXIST: a delay with no
+    /// <c>StoryController</c> in the scene is by construction a corpse, and a scene transition is
+    /// exactly how the flag gets stranded. (2) A staleness ceiling, because the coroutine can also
+    /// be stopped with the controller alive. The <c>story.IsVisible</c> term one line above already
+    /// covers the case where the message actually got shown, so nothing legitimate is lost.</para>
+    ///
+    /// <para>NOT A DEADLOCK EITHER WAY — the radius fallback still drops cards — which is why this
+    /// is a narrowing and not a rescue, and why it writes nothing.</para>
+    /// </summary>
+    private static bool StoryDisplayDelayIsAlive(StoryController? story)
+    {
+        if (story == null)
+        {
+            _storyDelayFirstSeen = 0f;
+            return false; // no controller in the scene: the delay died with it
+        }
+
+        float now = UnityEngine.Time.unscaledTime;
+        if (_storyDelayFirstSeen <= 0f)
+        {
+            _storyDelayFirstSeen = now;
+            _storyDelayStaleReported = false;
+            return true;
+        }
+        if (now - _storyDelayFirstSeen < StoryDelayStaleSeconds)
+            return true;
+
+        if (!_storyDelayStaleReported)
+        {
+            _storyDelayStaleReported = true;
+            // HW-VERIFY: grep token "STORY DELAY STALE".
+            // WORKING = absent from every log. A real DisplayDelay is a few seconds at most.
+            // INERT/DEFECT = present. It names a latched static that would otherwise have
+            // suppressed every recess overlay and slot telegraph for the rest of the process.
+            VRLog.Note("Cards", $"STORY DELAY STALE: StoryController.DisplayDelayInEffect has stood " +
+                                $"true for {now - _storyDelayFirstSeen:F1}s, past the " +
+                                $"{StoryDelayStaleSeconds:F0}s ceiling, so this gate stops honouring " +
+                                "it. That static's ONLY clear is inside " +
+                                "DisplayMessageInWindowAfterDelay's coroutine (StoryController.cs:169 " +
+                                "sets it, :174 clears it, with a WaitForSecondsRealtime between), and " +
+                                "nothing resets it on scene load — so a transition inside the delay " +
+                                "latches it for the whole process and this gate would refuse every " +
+                                "card commit from here on. The story window's own IsVisible term " +
+                                "still gates a message that actually reached the screen.");
+        }
         return false;
     }
 

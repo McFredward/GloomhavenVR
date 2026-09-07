@@ -93,6 +93,10 @@ namespace GloomhavenVR.Cards.Patches;
 //               so `CardsHandUI.Hide()` runs when the lost-card animation COMPLETES. That is
 //               item 9's edge word for word: "in dem Moment in dem die Karte(n) verbrannt
 //               wurden". It is also the end of a flow that never reaches a commit at all.
+//               BUT `AnimateCardsLost` IS NOT THE ONLY CALLER OF `Hide()`, and reading it as if
+//               it were trapped the player for good — see `PickFlowWatch.NoteHandHidden` for the
+//               2026-09-07 D1 deadlock and for the two terms that now tell an ANSWER from
+//               `CardsHandManager.SwitchHand`'s PRESENTATION hide.
 //
 // This file owns those three edges and nothing else. It writes no game state, changes no
 // selection, and reads no field it does not print. The board re-reads the answer on its very
@@ -200,6 +204,13 @@ internal static class PickFlowWatch
     /// session. ZERO is the only healthy reading — see that method.
     /// </summary>
     private static int _heals;
+
+    /// <summary>
+    /// How many <c>CardsHandUI.Hide()</c> calls on the flow-owning hand were identified as
+    /// <c>CardsHandManager.SwitchHand</c> PRESENTATION hides and therefore SUSPENDED the flow
+    /// instead of ending it (2026-09-07 review, D1). See <see cref="NoteHandHidden"/>.
+    /// </summary>
+    private static int _suspends;
 
     /// <summary>
     /// <c>GetInstanceID</c> of the hand whose ANSWER the player has handed the game and whose
@@ -524,9 +535,65 @@ internal static class PickFlowWatch
     }
 
     /// <summary>
-    /// END edge (b): the game hid the hand that was answering. For the damage burn this is the
-    /// completion callback of <c>AnimateCardsLost</c> (CardsHandUI.cs:2354), i.e. the frame the
-    /// card has finished burning — item 9's edge exactly.
+    /// END edge (b): the game hid the hand that was answering — BUT ONLY WHEN THE HIDE IS AN
+    /// ANSWER. For the damage burn it is the completion callback of <c>AnimateCardsLost</c>
+    /// (CardsHandUI.cs:2354), i.e. the frame the card has finished burning — item 9's edge exactly.
+    ///
+    /// <para><b>THE SENTENCE THAT USED TO STAND HERE WAS WRONG AND IT TRAPPED THE PLAYER
+    /// (2026-09-07 deadlock review, D1).</b> It said the hide "is the completion callback of
+    /// <c>AnimateCardsLost</c>". That is ONE of its callers. The other is
+    /// <c>CardsHandManager.SwitchHand(CPlayerActor)</c>, which calls <c>item.Hide()</c> on every
+    /// NON-target hand (CardsHandManager.cs:635) — pure presentation, and it means the OPPOSITE of
+    /// an answer: the pick is still open, the game still holds <c>currentMode == LoseCard</c> and
+    /// <c>maxCardsSelected == 1</c>, and it is merely showing somebody else's tab.</para>
+    ///
+    /// <para><b>TWO ROUTES, ONE OF THEM NEEDING NO PLAYER ACTION AT ALL.</b>
+    /// SINGLE PLAYER: damage opens the burn pick, the player clicks a teammate's portrait on the
+    /// docked initiative track (<c>InitiativeTrackPlayerAvatar.Select</c> → <c>SwitchHand</c>,
+    /// InitiativeTrackPlayerAvatar.cs:26, whose gate excludes only StartTurn /
+    /// ActionSelectionPhaseStart / CheckForInitiativeAdjustments), his own hand is hidden and the
+    /// flow ended. Clicking back calls <c>CardsHandUI.Show()</c>, and <c>Show()</c>
+    /// (CardsHandUI.cs:481-505) does NOT call <c>UpdateView</c> except in one narrow
+    /// online / not-under-my-control / <c>shortRested</c> / selection-phase branch — so the OPEN
+    /// edge never re-fires, the banner, the drop field, the wanted-slot overlays and the pick fan
+    /// fill all stay off, and no legal input remains.
+    /// MULTIPLAYER: <c>Choreographer</c>'s <c>SelectLoseCards</c> handler runs
+    /// <c>CardsHandManager.Instance.Show(m_ActorLosingCards, LoseCard|DiscardCard, …)</c>
+    /// unconditionally on EVERY client (Choreographer.cs:7880), and that overload calls
+    /// <c>SwitchHand(actor)</c> first (CardsHandManager.cs:757). A CO-PLAYER BEING ASKED TO DISCARD
+    /// THEREFORE ENDED MY LIVE PICK, with no input from me.</para>
+    ///
+    /// <para><b>THE REMEDY IS A SUSPEND, NOT A LIVENESS HEAL.</b> A presentation hide stands the
+    /// flow down from VIEW and leaves it LIVE, so coming back to the tab resumes it — there is
+    /// nothing to re-arm and no phantom pick can be conjured. (Arming liveness inside
+    /// <see cref="HealOwnerIfRefusingAnOpenPick"/> instead was checked and rejected: it would
+    /// re-arm a phantom pick after a long-rest commit, because <c>HandleLongRest</c>'s delegate
+    /// calls <c>ShowLongRested</c> and never <c>Hide()</c>, leaving the hand active with
+    /// <c>currentMode</c> latched <c>LoseCard</c>.)</para>
+    ///
+    /// <para><b>THE DISCRIMINATOR, AND WHY THIS ONE.</b> Two independent terms, read off the game
+    /// at the instant of the hide:</para>
+    /// <list type="number">
+    ///   <item><description><c>CardsHandManager.Instance.CurrentHand</c>. Inside <c>SwitchHand</c>
+    ///   the loop is ordered <c>OrderBy(it =&gt; it.PlayerActor != cPlayer ? 1 : 0)</c>, so the
+    ///   MATCHING hand comes first and <c>currentHand = item</c> is assigned BEFORE any other hand
+    ///   is hidden (CardsHandManager.cs:617-636). A hide whose <c>CurrentHand</c> is a DIFFERENT,
+    ///   non-null hand is therefore a tab switch by construction, while <c>AnimateCardsLost</c>'s
+    ///   own <c>Hide()</c> leaves <c>currentHand == hand</c>.</description></item>
+    ///   <item><description><c>CardsHandUI.AnimatingLostCards</c>. <c>AnimateCardsLost</c> sets it
+    ///   true at its head (CardsHandUI.cs:1012), invokes the completion callback that calls
+    ///   <c>Hide()</c> at :1113, and only THEN clears it at :1115 — so it is TRUE for exactly the
+    ///   hide that IS an answer, and it does not depend on the ordering above at
+    ///   all.</description></item>
+    /// </list>
+    /// <para>The flow is suspended only when term 1 says "tab switch" AND term 2 says "not
+    /// mid-answer". Every other reading falls through to the END edge, i.e. to the behaviour that
+    /// shipped — so a wrong reading of either term costs a suspension that does not happen, never
+    /// an end edge that should have fired. A prefix/postfix depth flag on
+    /// <c>SwitchHand(CPlayerActor)</c> is the more explicit alternative and was NOT taken: it is a
+    /// new <c>[HarmonyPatch]</c> class, <c>docs/PATCH-INVENTORY.md</c> is closed to this lane, and
+    /// <c>scripts/patch-inventory.sh check</c> fails on the resulting drift. Term 2 already removes
+    /// the ordering dependence that was the depth flag's only real advantage.</para>
     /// </summary>
     internal static void NoteHandHidden(CardsHandUI? hand, string who)
     {
@@ -536,8 +603,98 @@ internal static class PickFlowWatch
         // remarks for the host log that recorded five of exactly those foreign edges.
         if (!OwnsLiveFlow(hand))
             return;
+
+        if (HideIsATabSwitch(hand, out string presenting))
+        {
+            _suspends++;
+            // HW-VERIFY: grep token "PICK FLOW SUSPENDED". WORKING = this line present whenever a
+            // hand tab is switched (a portrait click, or a co-player's discard prompt) while a pick
+            // of this player's is open, AND a later "BURN FLOW TEARDOWN" for the SAME flow whose
+            // EndedBy is a COMMIT rather than a hide. INERT = a "BURN FLOW TEARDOWN … torn down by
+            // the game HID the hand" line whose presentedHand names a DIFFERENT hand — that is D1
+            // firing and this discriminator not reaching it. NOT A DEFECT BY ITSELF: a suspension
+            // is the correct reading of a tab switch, and its count grows with party activity.
+            VRLog.Note("Cards", $"PICK FLOW SUSPENDED (#{_suspends} this session): the game hid " +
+                                $"'{who}' while a pick of this player's was still open on it, but " +
+                                $"CardsHandManager is now presenting '{presenting}' and this hand " +
+                                "is NOT mid-answer (AnimatingLostCards=false) — so the hide is " +
+                                "CardsHandManager.SwitchHand's presentation hide " +
+                                "(CardsHandManager.cs:635), NOT AnimateCardsLost's completion " +
+                                "callback. The flow stays LIVE and resumes when this tab comes " +
+                                "back. Treating this hide as an answer IS the 2026-09-07 D1 " +
+                                "deadlock: CardsHandUI.Show() does not re-drive UpdateView, so no " +
+                                "OPEN edge ever came back and the player was left with " +
+                                "currentMode=LoseCard, maxCardsSelected=1 and no legal input. In " +
+                                "multiplayer it needed NO player action at all — Choreographer's " +
+                                "SelectLoseCards runs CardsHandManager.Show(theirActor, …) on " +
+                                "every client and that calls SwitchHand first.");
+            return;
+        }
+
         NoteEnd($"the game HID the hand '{who}' — CardsHandUI.Hide, which for a damage burn is " +
                 "AnimateCardsLost's completion callback, i.e. the frame the card finished burning");
+    }
+
+    /// <summary>
+    /// Is this <c>CardsHandUI.Hide()</c> a PRESENTATION hide from <c>CardsHandManager.SwitchHand</c>
+    /// rather than the end of an answer? See <see cref="NoteHandHidden"/> for both terms and for
+    /// why an unreadable answer is NO (i.e. falls through to the END edge that shipped).
+    /// </summary>
+    /// <param name="presenting">Name of the hand the manager is presenting instead, for the log.</param>
+    private static bool HideIsATabSwitch(CardsHandUI? hand, out string presenting)
+    {
+        presenting = "?";
+        if (hand == null)
+            return false;
+        try
+        {
+            // Term 2 first: it is the cheaper read and it OVERRIDES term 1. A hand whose lost-card
+            // animation is still running is answering, whatever the manager happens to present.
+            if (hand.AnimatingLostCards)
+                return false;
+
+            CardsHandManager manager = CardsHandManager.Instance;
+            if (manager == null)
+                return false;
+            CardsHandUI current = manager.CurrentHand;
+            if (current == null || ReferenceEquals(current, hand))
+                return false; // nobody else is being presented — this is the game closing the hand
+
+            if (current.gameObject != null)
+                presenting = current.gameObject.name;
+            return true;
+        }
+        catch (Exception)
+        {
+            return false; // unreadable — never withhold an END edge on a guess
+        }
+    }
+
+    /// <summary>How many presentation hides were suspended rather than ended this session.</summary>
+    internal static int Suspends => _suspends;
+
+    /// <summary>
+    /// Name of the hand <c>CardsHandManager</c> is presenting right now, or "none"/"?" — log
+    /// decoration for the teardown line, never a gate. D1's falsifier is a <c>BURN FLOW TEARDOWN</c>
+    /// whose <c>EndedBy</c> is a HIDE while this names a DIFFERENT hand.
+    /// </summary>
+    internal static string PresentedHandName
+    {
+        get
+        {
+            try
+            {
+                CardsHandManager manager = CardsHandManager.Instance;
+                CardsHandUI? current = manager != null ? manager.CurrentHand : null;
+                if (current == null)
+                    return "none";
+                return current.gameObject != null ? current.gameObject.name : "?";
+            }
+            catch (Exception)
+            {
+                return "?";
+            }
+        }
     }
 
     private static void NoteEnd(string why)
@@ -586,11 +743,24 @@ internal static class PickFlowWatch
     /// something, which the caller turns into a rebuild so the healed frame is the SAME frame.
     ///
     /// <para><b>WHAT IT WILL AND WILL NOT TOUCH.</b> It corrects an OWNERSHIP disagreement and
-    /// never a LIVENESS one. With <c>_live</c> false there is no outstanding OPEN edge at all, and
-    /// a refusal then is <see cref="CardsGameApi.PickIsOpen"/> correctly reading a mode/count pair
-    /// the game left latched behind a finished flow — the 2026-09-05 items 9+10 defect, where the
-    /// banner stood 87 s past the burn. Healing that would put the defect straight back, so the
-    /// first term below is <c>_live</c> and the method is blind to everything else.</para>
+    /// never a LIVENESS one. With <c>_live</c> false, a refusal is USUALLY
+    /// <see cref="CardsGameApi.PickIsOpen"/> correctly reading a mode/count pair the game left
+    /// latched behind a finished flow — the 2026-09-05 items 9+10 defect, where the banner stood
+    /// 87 s past the burn. Healing that would put the defect straight back, so the first term below
+    /// is <c>_live</c> and the method is blind to everything else.</para>
+    ///
+    /// <para><b>THE SENTENCE THAT STOOD HERE — "with <c>_live</c> false there is no outstanding
+    /// OPEN edge at all" — WAS FALSE, and the 2026-09-07 review named the direction (D1).</b> A
+    /// <c>SwitchHand</c> presentation hide used to run END edge (b) on a pick the game still had
+    /// open, and <c>CardsHandUI.Show()</c> does not re-drive <c>UpdateView</c>, so <c>_live</c>
+    /// went false with a genuine OPEN edge outstanding and no route back. THAT IS FIXED AT THE
+    /// EDGE, IN <see cref="NoteHandHidden"/>, AND DELIBERATELY NOT HERE: a liveness heal in this
+    /// method would re-arm a PHANTOM pick after a long-rest commit, because
+    /// <c>CardsHandUI.HandleLongRest</c>'s completion delegate calls <c>ShowLongRested</c> and
+    /// never <c>Hide()</c> (CardsHandUI.cs:2427-2434), leaving the hand ACTIVE with
+    /// <c>currentMode</c> latched <c>LoseCard</c> and <c>maxCardsSelected</c> at 1 — all four
+    /// terms below would hold and this method would ask the player to burn a second card. The
+    /// first term stays <c>_live</c>; the fix belongs where the false end edge is.</para>
     ///
     /// <para><b>IT DOES NOT VALIDATE ITSELF.</b> The decision to hand the flow over is taken from
     /// the GAME's own state on the hand the board is presenting — its latched pick mode, its
@@ -708,6 +878,7 @@ internal static class PickFlowWatch
         _foreignArmsDeclined = 0;
         _lastDeclinedName = "";
         _heals = 0;
+        _suspends = 0;
         _answeredOn = 0;
         _answeredAt = 0f;
         _answerSeq = 0;

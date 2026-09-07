@@ -590,9 +590,19 @@ internal sealed partial class CardsDriver
         // rather than promised. FALSIFIER = any of the three nonzero here: that names exactly which
         // gate still reads the game's latched CardsHandUI.currentMode instead of
         // CardsGameApi.PickFlowLive, and it is this defect back.
+        // SECOND FALSIFIER, NEW 2026-09-07 (review item D1): presentedHand. A teardown whose
+        // EndedBy is "the game HID the hand" while presentedHand names a DIFFERENT hand is D1
+        // firing — CardsHandManager.SwitchHand's PRESENTATION hide being read as an answer, which
+        // leaves the game holding currentMode=LoseCard with no way back in. That pair must never
+        // appear; PickFlowWatch.NoteHandHidden suspends instead, and says so with its own token
+        // (PICK FLOW SUSPENDED). The suspends count below is that rule's activity reading.
         VRLog.Note("Cards", $"BURN FLOW TEARDOWN #{seq} (flow #{Patches.PickFlowWatch.ArmSeq} on " +
                             $"'{Patches.PickFlowWatch.OpenedOnName}'): torn down by " +
-                            $"{Patches.PickFlowWatch.EndedBy}. ALL THREE SYMPTOMS AFTER THE " +
+                            $"{Patches.PickFlowWatch.EndedBy}. PRESENTED HAND AT THE TEARDOWN — " +
+                            $"presentedHand='{Patches.PickFlowWatch.PresentedHandName}' " +
+                            $"(CardsHandManager.CurrentHand), suspends={Patches.PickFlowWatch.Suspends} " +
+                            "this session. A hide-driven teardown naming a DIFFERENT presented hand " +
+                            "is the D1 deadlock. ALL THREE SYMPTOMS AFTER THE " +
                             $"TEARDOWN — overlayBlinking={_tray.WantedSlotMask} (the wanted-slot " +
                             "mask this board publishes; it rides the board-UI record, so this is " +
                             "also every observer's mirrored blink), targetArmed=" +
@@ -1761,32 +1771,78 @@ internal sealed partial class CardsDriver
     //
     // THE RULE NOW. An UNANSWERED rest is driven exactly as before — that is what this pump is for
     // and the original stuck-long-rest bug is unchanged. Once the player has ANSWERED, the pump
-    // holds until the answer has had the game's own burn animation to resolve in
-    // (LongRestAnswerSettleSeconds), and may then re-drive AT MOST ONCE, saying so with its own
-    // token. It is not a timer standing in for a signal: the signal is
-    // PickFlowWatch.AnswerOutstandingFor, an EDGE recorded at the game's own commit choke point,
-    // and the seconds only bound how long we wait for the game to act on it. `ClearAnswer` at the
-    // top means a rest that resolves normally leaves nothing behind for the next one.
+    // holds while the game is visibly acting on the answer (CardsHandUI.AnimatingLostCards, the
+    // game's own flag, bounded by LongRestAnimatingCeilingSeconds because CancelAnimateCardLost
+    // latches it true) and for at least LongRestAnswerSettleSeconds, and may then re-drive, saying
+    // so with its own token. It is not a timer standing in for a signal: the signal is
+    // PickFlowWatch.AnswerOutstandingFor, an EDGE recorded at the game's own commit choke point.
+    // `ClearAnswer` at the top means a rest that resolves normally leaves nothing behind for the
+    // next one.
+    //
+    // ─── 2026-09-07 REVIEW, D3: THE ONE-SHOT COULD BE SPENT WITHOUT EVER MAKING A GAME CALL ───
+    //
+    // Two shapes, both fixed above and both worth naming because they recur:
+    //   (1) The retry was latched on the CLOCK (`_longRestRetryOpenedAt` + 3 s) rather than on the
+    //       step it exists to perform, and execution then fell through to a
+    //       `BlockingWindowModalActive` return. A blocking modal standing for those three seconds
+    //       closed the window with ZERO game calls, and the retry read spent for good — the
+    //       "gated remedy never ran" shape. The modal check now sits ABOVE the answer block, so a
+    //       modal DEFERS the window instead of consuming it, and the window is marked spent only
+    //       once TryAdvanceLongRestTurn reports the ReadyButton click itself.
+    //   (2) LongRestAnswerSettleSeconds is a number about the MOD's flight, standing in for the
+    //       GAME's `WaitUntil(animations.Count == 0)`. It is now a FLOOR beside the game's own
+    //       animation flag rather than the whole answer. See that constant.
     private float _longRestPumpNextTry;   // throttle for the actual game calls (state reads stay per-tick)
     private bool _longRestPumpQueued;     // at most one queued advance in flight
     private bool _longRestPumpAnnounced;  // change-deduped "turn arrived" log
-    private float _longRestRetryOpenedAt; // unscaled time the ONE post-answer re-drive opened; 0 = none
+    private float _longRestRetryOpenedAt; // unscaled time the current post-answer re-drive opened; 0 = none
     private int _longRestHoldPhaseLogged; // 0 none, 1 "settling", 2 "spent" — one line per phase
+    private int _longRestRetryAttempts;   // how many re-drive windows this answer has opened
+    private bool _longRestRetryReadyClicked; // a re-drive actually reached the ReadyButton click
 
     /// <summary>
-    /// How long an answered long rest is given to resolve before the pump may re-drive it once.
-    /// It is the game's own worst case for the animation that carries the answer — the artwork
-    /// hold ceiling plus the flight — so the pump can never act inside it.
+    /// The FLOOR under which an answered long rest is never re-driven, in seconds. It is the mod's
+    /// own worst case for the flight that carries the answer — the artwork hold ceiling plus the
+    /// flight.
+    ///
+    /// <para><b>IT IS A FLOOR AND NOT THE WAIT, AND SAYING OTHERWISE WAS THE ModBuild 475 DEFECT
+    /// (2026-09-07 review, D3).</b> 3.4 s is a number about the MOD's own presentation. The wait it
+    /// stands in for is the GAME's <c>WaitUntil(() =&gt; animations.Count == 0)</c>
+    /// (CardsHandUI.cs:1103), bounded by serialized LeanTween durations
+    /// (<c>discardedCardsMoveTime</c>, <c>postAnimationWaitTime</c>, <c>animationSpeed</c>) that
+    /// this mod never reads. A constant can only ever be a guess about that, and this one is the
+    /// last route by which the mod can re-answer a question the player already answered. So the
+    /// gate now ALSO reads the game's own <c>AnimatingLostCards</c> flag
+    /// (<see cref="CardsGameApi.AnimatingLostCards"/>): while the animation is running the pump
+    /// holds however long it takes, and this constant only says how long it holds when the game is
+    /// NOT visibly doing anything.</para>
     /// </summary>
     private const float LongRestAnswerSettleSeconds = BurnEffectMaxHoldSeconds + FlyToPileSeconds;
 
     /// <summary>
-    /// How long the ONE post-answer re-drive stays open. <c>TryAdvanceLongRestTurn</c> is a
+    /// The ceiling on the <c>AnimatingLostCards</c> hold, in seconds. That flag is a HOLD signal
+    /// with no end of its own — <c>CancelAnimateCardLost</c> stops the coroutine without ever
+    /// clearing it (CardsHandUI.cs:1154-1178) — so a latched-true flag must not be able to hold the
+    /// remedy off for the rest of the session. Generous against any plausible tween chain and still
+    /// far short of a lost turn.
+    /// </summary>
+    private const float LongRestAnimatingCeilingSeconds = 20f;
+
+    /// <summary>
+    /// How long ONE post-answer re-drive window stays open. <c>TryAdvanceLongRestTurn</c> is a
     /// two-step flow throttled to one game call every 0.5 s, so the allowance has to be a WINDOW:
     /// a single-tick allowance would toggle the long-rest confirmation and never reach the
     /// ReadyButton click, leaving the turn half-driven.
     /// </summary>
     private const float LongRestRetryWindowSeconds = 3f;
+
+    /// <summary>
+    /// How many re-drive windows one answered rest may open. A window that expires WITHOUT the
+    /// ReadyButton click made no game call at all, so it re-opens rather than counting as the one
+    /// remedy (D3, the "gated remedy never ran" shape); this bounds that loop. Reaching it is a
+    /// defect report in its own right — see the <c>LONG REST RE-DRIVE ONCE</c> line.
+    /// </summary>
+    private const int LongRestRetryMaxAttempts = 3;
 
     private void PumpLongRestTurn()
     {
@@ -1798,6 +1854,8 @@ internal sealed partial class CardsDriver
             // belonged to it may survive into the next one.
             _longRestRetryOpenedAt = 0f;
             _longRestHoldPhaseLogged = 0;
+            _longRestRetryAttempts = 0;
+            _longRestRetryReadyClicked = false;
             Patches.PickFlowWatch.ClearAnswer();
             return;
         }
@@ -1808,6 +1866,14 @@ internal sealed partial class CardsDriver
             // It is therefore necessary and NOT sufficient; the answer test below is the other half.
             return;
         }
+        // A BLOCKING MODAL DEFERS THE WINDOW, IT DOES NOT CONSUME IT — and this check used to sit
+        // BELOW the answer block, which is the "gated remedy never ran" shape (2026-09-07 review,
+        // D3). A story/results modal standing for the retry window's three seconds closed the
+        // window with ZERO game calls, and the retry then read spent for the rest of the turn.
+        // Read from the top: nothing about the answer may be decided while the turn cannot be
+        // advanced at all.
+        if (WorldUI.ModalFallback.BlockingWindowModalActive)
+            return; // never advance the turn under a blocking modal (story/results/…)
         if (Patches.PickFlowWatch.AnswerOutstandingFor(hand, out float sinceAnswer))
         {
             float nowAnswer = Time.unscaledTime;
@@ -1815,10 +1881,38 @@ internal sealed partial class CardsDriver
             // (confirmation toggle, then the ReadyButton click) throttled to one game call every
             // 0.5 s, so a retry that latched itself off after its FIRST tick would toggle the
             // confirmation and never click READY — a half-drive, which is worse than none.
-            bool retrySpent = _longRestRetryOpenedAt > 0f
-                              && nowAnswer - _longRestRetryOpenedAt >= LongRestRetryWindowSeconds;
-            bool retryRunning = _longRestRetryOpenedAt > 0f && !retrySpent;
-            if (!retryRunning && (sinceAnswer < LongRestAnswerSettleSeconds || retrySpent))
+            //
+            // AND IT IS SPENT BY THE STEP, NOT BY THE CLOCK (D3). The line that stood here read
+            // `retrySpent = _longRestRetryOpenedAt > 0f && now - _longRestRetryOpenedAt >= window`
+            // — a latch on elapsed time, for a remedy whose whole purpose is a game call. A window
+            // that expired without ever reaching the ReadyButton click (a modal, a throttle tick
+            // that fell the wrong side of a frame, a ReadyButton that was not armed yet) burned
+            // the one re-drive on nothing. The retry is now spent only once
+            // TryAdvanceLongRestTurn has reported the READY CLICK; an expired window with no
+            // click closes and may be re-opened, up to LongRestRetryMaxAttempts, which is what
+            // keeps a genuinely stuck game from being re-driven for ever.
+            bool retryWindowExpired = _longRestRetryOpenedAt > 0f
+                                      && nowAnswer - _longRestRetryOpenedAt >= LongRestRetryWindowSeconds;
+            if (retryWindowExpired && !_longRestRetryReadyClicked)
+            {
+                _longRestRetryOpenedAt = 0f; // no game call landed — the window is re-openable
+                _longRestHoldPhaseLogged = 0;
+            }
+            bool retrySpent = _longRestRetryReadyClicked
+                              || _longRestRetryAttempts >= LongRestRetryMaxAttempts;
+            bool retryRunning = _longRestRetryOpenedAt > 0f && !retryWindowExpired;
+            // THE SETTLE TERM IS THE GAME'S OWN ANIMATION FLAG NOW, NOT ONLY A CONSTANT. See
+            // LongRestAnswerSettleSeconds: 3.4 s is the MOD's flight ceiling, and the wait it
+            // stands in for is the game's `WaitUntil(animations.Count == 0)` (CardsHandUI.cs:1103),
+            // bounded by serialized tween durations this mod cannot read. While
+            // CardsHandUI.AnimatingLostCards is true the game is visibly acting on the answer and
+            // the pump may not touch it, however long that takes — bounded only by
+            // LongRestAnimatingCeilingSeconds, because that flag latches true for ever when
+            // CancelAnimateCardLost runs (CardsHandUI.cs:1154-1178 never clears it).
+            bool stillAnimating = CardsGameApi.AnimatingLostCards(hand)
+                                  && sinceAnswer < LongRestAnimatingCeilingSeconds;
+            if (!retryRunning
+                && (sinceAnswer < LongRestAnswerSettleSeconds || stillAnimating || retrySpent))
             {
                 int phase = retrySpent ? 2 : 1;
                 if (_longRestHoldPhaseLogged != phase)
@@ -1840,7 +1934,7 @@ internal sealed partial class CardsDriver
                     VRLog.Note("Cards", "LONG REST RE-DRIVE HELD: this player answered his long rest " +
                                         $"{sinceAnswer:F2}s ago (answer #{Patches.PickFlowWatch.AnswerSeq}) and the " +
                                         "game has not resolved it yet, so the PERFORM LONG REST drive is HELD " +
-                                        $"{(retrySpent ? "for good — its one re-drive is spent" : $"until {LongRestAnswerSettleSeconds:F2}s have passed")}. " +
+                                        $"{(retrySpent ? $"for good — its re-drives are spent ({_longRestRetryAttempts} attempt(s), readyClicked={_longRestRetryReadyClicked})" : stillAnimating ? "while CardsHandUI.AnimatingLostCards is still true — the game is visibly acting on the answer" : $"until {LongRestAnswerSettleSeconds:F2}s have passed")}. " +
                                         "On 2026-09-07 it was NOT held: CardsHandUI.currentMode had gone " +
                                         "back to ActionSelection while the game animated the answer away, " +
                                         "every gate here read 'rest pending, no burn step open', and the pump " +
@@ -1854,33 +1948,39 @@ internal sealed partial class CardsDriver
             // mid-flight and TryAdvanceLongRestTurn logs each step it actually performs.
             if (!retryRunning)
             {
-                // The settle window has passed and the game still has not taken the answer. This
-                // is the stuck state the pump exists for, so it gets its ONE retry — loudly,
-                // because a retry after an answer re-opens a step the player has already made.
+                // The settle window has passed, the game is no longer animating, and it still has
+                // not taken the answer. This is the stuck state the pump exists for, so it opens a
+                // retry window — loudly, because a retry after an answer re-opens a step the player
+                // has already made.
                 _longRestRetryOpenedAt = nowAnswer;
+                _longRestRetryAttempts++;
                 _longRestHoldPhaseLogged = 0;
                 // HW-VERIFY: grep token "LONG REST RE-DRIVE ONCE".
-                // WORKING = absent. The settle window is the game's own animation ceiling, so a
-                // rest that resolves normally never reaches this line.
-                // INERT/DEFECT = present. It means the game did not act on an answer it was given,
-                // and the number to quote is how many appear: ONE is the mod buying the turn back
-                // while naming the state; TWO OR MORE for one rest is impossible by construction
-                // (the window latch above), so a second one is a NEW defect in this gate and not
-                // the old one returning.
-                VRLog.Note("Cards", $"LONG REST RE-DRIVE ONCE: {sinceAnswer:F2}s after this player answered his " +
+                // WORKING = absent. The settle window plus the game's own AnimatingLostCards flag
+                // cover every route by which a rest resolves normally, so it never reaches here.
+                // INERT/DEFECT = present. It means the game did not act on an answer it was given.
+                // Read the attempt number in the line: attempt 1 is the mod buying the turn back
+                // while naming the state. An attempt 2 or 3 means the window before it opened and
+                // NEVER REACHED THE READY CLICK — that is a real reading now rather than an
+                // impossibility, because before 2026-09-07 the retry latched itself spent on the
+                // CLOCK and a window that made no game call at all still counted (D3).
+                // A LongRestRetryMaxAttempts-th line with no "LONG REST FLOW: RESOLVED" after it is
+                // upstream of this mod (see the report).
+                VRLog.Note("Cards", $"LONG REST RE-DRIVE ONCE (attempt {_longRestRetryAttempts} of " +
+                                    $"{LongRestRetryMaxAttempts}): {sinceAnswer:F2}s after this player answered his " +
                                     "long rest the game has still not resolved it (LongRest set, HasLongRested " +
-                                    "false, and CardsHandUI.currentMode is no longer LoseCard), which is past the " +
+                                    "false, CardsHandUI.currentMode is no longer LoseCard, and " +
+                                    "CardsHandUI.AnimatingLostCards is false), which is past the " +
                                     $"{LongRestAnswerSettleSeconds:F2}s its own burn animation can possibly need. " +
-                                    "Driving PERFORM LONG REST one more time so the turn is not lost — this is the " +
-                                    "ONLY re-drive an answered rest gets, and it re-opens a step the player has " +
+                                    "Driving PERFORM LONG REST one more time so the turn is not lost — a re-drive " +
+                                    "is only ever marked SPENT once the ReadyButton click itself lands, and it " +
+                                    "re-opens a step the player has " +
                                     "already made, so if it appears the fault is UPSTREAM of this pump: the game's " +
                                     "OnLoseCardClick took the damage-avoidance branch instead of the long-rest one " +
                                     "(CardsHandUI.cs:2369 needs LongRest && GameState.InternalCurrentActor == " +
                                     "playerActor, and this mod writes neither term).");
             }
         }
-        if (WorldUI.ModalFallback.BlockingWindowModalActive)
-            return; // never advance the turn under a blocking modal (story/results/…)
         if (!_longRestPumpAnnounced)
         {
             _longRestPumpAnnounced = true;
@@ -1894,6 +1994,7 @@ internal sealed partial class CardsDriver
         _longRestPumpNextTry = now + 0.5f;
         _longRestPumpQueued = true;
         bool advanced = false;
+        bool readyClicked = false;
         string step = "";
         CardActionQueue.Enqueue(
             () =>
@@ -1902,11 +2003,20 @@ internal sealed partial class CardsDriver
                 // pending card selects, and every gate is re-checked against fresh state.
                 CardsHandUI? fresh = CardsGameApi.LongRestTurnHand();
                 if (fresh != null)
-                    advanced = CardsGameApi.TryAdvanceLongRestTurn(fresh, out step);
+                    advanced = CardsGameApi.TryAdvanceLongRestTurn(fresh, out step, out readyClicked);
             },
             () =>
             {
                 _longRestPumpQueued = false;
+                if (readyClicked && _longRestRetryOpenedAt > 0f)
+                {
+                    // THE RETRY IS SPENT BY THIS CALL AND BY NOTHING ELSE (D3). Only the second
+                    // step re-opens the burn step the player already answered, so only the second
+                    // step may consume the allowance — a window that expired without reaching it
+                    // made no game call and is re-openable.
+                    _longRestRetryReadyClicked = true;
+                    _longRestHoldPhaseLogged = 0;
+                }
                 if (advanced)
                 {
                     VRLog.Info("Cards", $"Long rest: auto-advanced — {step}.");
