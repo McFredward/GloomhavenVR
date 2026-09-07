@@ -43,6 +43,12 @@ row and leave a gap on the other.
     off      cx 1974  bottom 1650  width 1330   f 0.729   -> lands 0.738
     mr       cx 2103  bottom 1660  width 1340   f 0.729   -> lands 0.745
 
+THE CAPTIONS SAY WHAT AN OPTION IS, NOT WHAT IT FEELS LIKE. The first version read "a moonlit
+swamp under a real star catalogue", and the maintainer put it in the same category as the page
+headings he had already had rewritten: a caption on a picker tile is a label, and a label that has
+to be decoded is not doing its job. The star catalogue is a real technical fact and it stays; it
+just stops being scenery.
+
 THE NAMES COME FROM Loc.cs, VERBATIM, AND THAT IS THE POINT. A gallery whose captions drift from the
 menu rows is a lookup, not a glance — the same argument the control-board callouts are written
 under. `sky_default` / `sky_cellar` / `sky_swamp` / `sky_off` are the four SkyStyle rows and
@@ -89,18 +95,18 @@ ACCENT = (226, 168, 74)
 # rooms and take the wide top row; the order inside each row follows VariantTilesTable's picker.
 TILES = [
     ("cellar", "Cellar", "Keller",
-     "a candle-lit stone room, with firelight and sound",
-     "ein kerzenbeleuchteter Steinraum mit Feuerschein und Klang"),
+     "Indoor room, firelight and ambient sound",
+     "Innenraum, Feuerschein und Umgebungsklang"),
     ("forest", "Night forest", "Nachtwald",
-     "a moonlit swamp under a real star catalogue",
-     "ein Mondsumpf unter einem echten Sternkatalog"),
+     "Outdoors at night, star field from a real catalogue",
+     "Außen bei Nacht, Sternfeld aus einem echten Katalog"),
     ("default", "Default", "Standard",
-     "the game's own scenario sky", "der Szenario-Himmel des Spiels"),
+     "The game's own scenario sky", "Der Szenario-Himmel des Spiels"),
     ("off", "Off (black)", "Aus (schwarz)",
-     "nothing around the table", "gar nichts rund um den Tisch"),
+     "No environment at all", "Gar keine Umgebung"),
     ("mr", "Mixed Reality", "Mixed Reality an",
-     "a green key for your streaming app",
-     "ein Greenscreen für die Streaming-App"),
+     "Green key for passthrough or streaming",
+     "Greenscreen für Passthrough oder Streaming"),
 ]
 
 # Only the two rooms wear it. It says what the size is already saying, in words.

@@ -182,9 +182,9 @@ from a repo path does not play on GitHub, which is why every committed clip was 
 </p>
 -->
 
-A candle-lit **cellar**, a **moonlit forest** under a real star catalogue, the game's own **Default**
-look, or **Off (black)**. Both built rooms have firelight, drips, moonbeams and quiet spatial
-ambience.
+An indoor **cellar**, an outdoor **night forest** with a star field from a real catalogue, the
+game's own **Default** sky, or **Off (black)**. Both built rooms have firelight, water drips,
+moonlight and quiet spatial audio.
 
 There are also rare apparitions hidden in them: a face at the barred window, someone standing in the
 dark of the stair shaft, eyes blinking in the undergrowth. They never appear over the board and

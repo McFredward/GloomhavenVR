@@ -462,8 +462,8 @@ LABELS = {
             ]),
             # Cards/Tray/PlayTray.1.Core.cs:1158-1273 (BuildHandle), :1043-1075 (carry).
             (CYAN, "The grab rod", [
-                "Grip it with one hand and the whole board comes with you —",
-                "cards, keys, stacks and panels together.",
+                "Grip it with one hand to carry the whole board: cards, keys,",
+                "stacks and panels together.",
                 "Grip it with both hands to make the board bigger or smaller.",
             ]),
             # PlayTray.1.Core.cs:890-897 (InitiativeMount), PlayTray.5.Status.cs:72-108 and

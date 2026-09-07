@@ -188,9 +188,9 @@ alle eingecheckten Clips entfernt wurden. Auftrag:
 </p>
 -->
 
-Ein kerzenbeleuchteter **Keller**, ein **Nachtwald** unter einem echten Sternkatalog, der
-**Standard**-Look des Spiels oder **Aus (schwarz)**. Beide gebauten Räume haben Feuerschein,
-Tropfen, Mondstrahlen und leisen räumlichen Klang.
+Ein **Keller** drinnen, ein **Nachtwald** draußen mit einem Sternfeld aus einem echten Katalog, der
+**Standard**-Himmel des Spiels oder **Aus (schwarz)**. Beide gebauten Räume haben Feuerschein,
+Wassertropfen, Mondlicht und leisen räumlichen Klang.
 
 In beiden stecken außerdem seltene Erscheinungen: ein Gesicht am vergitterten Fenster, jemand im
 Dunkel des Treppenschachts, Augen, die im Unterholz blinzeln. Sie tauchen nie über dem Brett auf und

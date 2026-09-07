@@ -66,8 +66,8 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
   von Gloomhaven, und die Aufträge hängen daneben an der Wand.
 - Vollwertiger VR-Mehrspieler. Masken, Hände, Bretter und zeigende Finger sehen alle anderen auch.
   Wer kein Headset hat, spielt in derselben Partie am flachen Bildschirm mit.
-- Räume, die für die Mod gebaut wurden. Ein kerzenbeleuchteter Keller und ein Nachtwald unter einem
-  echten Sternkatalog, beide reagieren auf die Elemente des Szenarios.
+- Zwei Umgebungen, die für die Mod gebaut wurden: ein Keller drinnen und ein Nachtwald draußen,
+  beide reagieren auf die Elemente des Szenarios.
 - Mixed Reality. Der Himmel verschwindet, und der Tisch steht in deinem echten Zimmer.
 
 <p align="center">
@@ -133,8 +133,8 @@ freigeschaltet wird, leuchtet der ganze Raum auf.
 
 ## Umgebungen
 
-Ein kerzenbeleuchteter Keller oder ein Nachtwald unter einem echten Sternkatalog. Beide wurden für
-die Mod gebaut, mit Feuerschein und Umgebungsklang, und mit dem, was ab und zu passiert, wenn man
+Ein Keller drinnen und ein Nachtwald draußen, beide für die Mod gebaut. Sie haben Feuerschein,
+Umgebungsklang, ein Sternfeld aus einem echten Katalog, und das, was ab und zu passiert, wenn man
 lange genug herumsteht.
 
 <p align="center">

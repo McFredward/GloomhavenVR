@@ -66,8 +66,8 @@ Drop it and it settles back onto a hex.
   with the quests on the wall next to you.
 - Full VR multiplayer. Masks, hands, boards and pointing fingers are visible to everyone, and people
   without a headset can play in the same game on a flat screen.
-- Rooms built for the mod. A candle-lit cellar and a night forest under a real star catalogue, both
-  reacting to the scenario's elements.
+- Two environments built for the mod: an indoor cellar and an outdoor night forest, both reacting
+  to the scenario's elements.
 - Mixed reality. The sky drops away and the table stands in your actual room.
 
 <p align="center">
@@ -130,8 +130,9 @@ of you. The quests hang on the wall where you can read them, and unlocking one l
 
 ## Environments
 
-A candle-lit cellar, or a night forest under a real star catalogue. Both were built for the mod,
-with firelight and ambient sound, and the odd thing that happens if you stand around long enough.
+An indoor cellar and an outdoor night forest, both built for the mod. They have firelight, ambient
+sound, a star field taken from a real catalogue, and the odd thing that happens if you stand around
+long enough.
 
 <p align="center">
   <img src="docs/img/env-cellar.jpg" width="350" alt="The cellar">

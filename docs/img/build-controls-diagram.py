@@ -233,7 +233,7 @@ LABELS = {
         "callouts": {
             "stick_click": "Click a stick in: pull yourself along",
             "recentre":    "Hold Y + B: recentre yourself",
-            "left_stick":  "Left stick: fly through the room",
+            "left_stick":  "Left stick: move through the room",
             "options":     "X: opens the pause menu",
             "trigger":     "Trigger, either hand: take a card, point and click",
             "right_stick": "Right stick: turn · reel a window in",
@@ -242,7 +242,7 @@ LABELS = {
         },
         "cells": [
             (BLUE, "Thumbstick — push", [
-                "Left stick: fly through the room.",
+                "Left stick: move through the room.",
                 "Right stick, left or right: turn.",
                 "Right stick, pull back: reel a window in.",
             ]),
@@ -274,8 +274,8 @@ LABELS = {
             ]),
         ],
         "note": "A Quest 3 is shown; every supported controller has the same keys in the same "
-                "places. Handedness, turning and every binding above are changeable in VR Options "
-                "— and the tutorial in the game teaches all of it without you reading anything.",
+                "places. Handedness, turning and every binding above are changeable in VR "
+                "Options. The in-game tutorial covers all of it.",
     },
     "de": {
         "left": "LINKS", "right": "RECHTS",
@@ -286,7 +286,7 @@ LABELS = {
         "callouts": {
             "stick_click": "Stick eindrücken: dich heranziehen",
             "recentre":    "Y + B halten: neu zentrieren",
-            "left_stick":  "Linker Stick: durch den Raum fliegen",
+            "left_stick":  "Linker Stick: durch den Raum bewegen",
             "options":     "X: öffnet das Pause-Menü",
             "trigger":     "Trigger, beide Hände: Karte nehmen, zeigen und klicken",
             "right_stick": "Rechter Stick: drehen, Fenster heranholen",
@@ -295,7 +295,7 @@ LABELS = {
         },
         "cells": [
             (BLUE, "Thumbstick — drücken", [
-                "Linker Stick: durch den Raum fliegen.",
+                "Linker Stick: durch den Raum bewegen.",
                 "Rechter Stick, links oder rechts: drehen.",
                 "Rechter Stick, zurückziehen: Fenster heranholen.",
             ]),
@@ -323,8 +323,8 @@ LABELS = {
             ]),
         ],
         "note": "Abgebildet ist eine Quest 3; jeder unterstützte Controller hat dieselben Tasten "
-                "an denselben Stellen. Händigkeit, Drehen und jede Belegung oben lassen sich in den "
-                "VR-Optionen ändern — und das Tutorial im Spiel bringt dir alles davon bei.",
+                "an denselben Stellen. Händigkeit, Drehen und jede Belegung oben lassen sich "
+                "in den VR-Optionen ändern. Das Tutorial im Spiel erklärt alles davon.",
     },
 }
 
