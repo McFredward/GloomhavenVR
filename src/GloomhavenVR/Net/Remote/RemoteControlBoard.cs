@@ -427,6 +427,70 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     }
 
     /// <summary>
+    /// WORLD position of one board anchor ON THE BOARD AS IT IS ACTUALLY DRAWN — the EASED root
+    /// this class lerps in <c>Tick</c>, not the raw wire pose the packet carried.
+    ///
+    /// <para>EVERY board-anchored card FX composed its own world point as
+    /// <c>_owner.BoardPosition + _owner.BoardRotation * (BoardAnchorLocal(a) * _owner.BoardScale)</c>,
+    /// and those three fields are the TARGET of the lerp a few lines above, not the root. The root
+    /// trails them at <c>NetProtocol.InterpolationSharpness</c> — about 73 ms — so while a peer
+    /// CARRIES or ZOOMS their board, which is exactly when the sender raises extras to 15 Hz, the
+    /// flying cards detached from the board and travelled beside it; during a zoom the same split
+    /// hit their SIZE, because <c>_easedScale</c> trails <c>BoardScale</c> the same way. The FX
+    /// slabs are deliberately NOT parented to this root (they must outlive a board rebuild and a
+    /// blank), so nothing compensated and nothing could have.</para>
+    ///
+    /// <para><c>TransformPoint</c> already applies the root's <c>localScale</c>, which IS
+    /// <c>_easedScale</c>, so a caller must NOT multiply by <c>BoardScale</c> again — that is the
+    /// one way to misuse this and it is the reason the raw composition is not simply patched in
+    /// place at each site.</para>
+    ///
+    /// <para>False before the first pose has landed (<c>_poseInit</c>) or while the root is gone.
+    /// The caller then keeps its old raw-pose composition, which is what every build before this
+    /// one did everywhere, so a degraded answer is never worse than the previous behaviour.</para>
+    /// </summary>
+    internal bool TryAnchorWorld(CardFxAnchor anchor, out Vector3 world)
+    {
+        world = default;
+        if (_root == null || !_poseInit)
+            return false;
+        world = _root.transform.TransformPoint(AnchorLocalLive(anchor));
+        return true;
+    }
+
+    /// <summary>The board's LIVE DRAWN pose and uniform scale — the eased root again, for the
+    /// same reason as <see cref="TryAnchorWorld"/>. A flight slab is not parented to the root, so
+    /// it has to READ these; a slab that took the raw wire rotation while the board it is lying on
+    /// turned under an eased one is the rotational half of the same defect.</summary>
+    internal bool TryDrawnBoardPose(out Vector3 pos, out Quaternion rot, out float scale)
+    {
+        pos = default;
+        rot = Quaternion.identity;
+        scale = 1f;
+        if (_root == null || !_poseInit)
+            return false;
+        Transform rt = _root.transform;
+        pos = rt.position;
+        rot = rt.rotation;
+        scale = _easedScale;
+        return true;
+    }
+
+    /// <summary>
+    /// BOARD-LOCAL seat of the ACTIVE-matrix cell that will draw <paramref name="cardInstanceId"/>,
+    /// or false when this board's column is not drawing that card. Same shape and same reason as
+    /// <see cref="AnchorLocalLive"/>'s two-slot branch — "this is a FLIGHT DESTINATION … so it has
+    /// to be the point the card actually renders at, or the slab jumps the moment the flight hands
+    /// over to the seated mirror" — and the active matrix is the one destination where that was
+    /// still false. See <c>RemoteActiveCards.TryCellBoardLocal</c>, which owns the expression.
+    /// </summary>
+    internal bool TryActiveCellLocal(int cardInstanceId, out Vector3 boardLocal)
+    {
+        boardLocal = default;
+        return _active != null && _active.TryCellBoardLocal(cardInstanceId, out boardLocal);
+    }
+
+    /// <summary>
     /// Board-local position of slot <paramref name="slot"/>'s recess ANCHOR — the REAL prefab point
     /// once the 3D asset is up, else the authored flat-board layout. The BARE anchor: no proud lift
     /// on it, no seat, no overlay term. <see cref="SlotCardSeatLocal"/> adds what the card needs and

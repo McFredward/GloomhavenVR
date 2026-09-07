@@ -103,8 +103,14 @@ internal sealed class RemoteCardFx
 
         /// <summary><c>CAbilityCard.CardInstanceID</c> of the card this slab is carrying INTO THE
         /// ACTIVE MATRIX, or <see cref="int.MinValue"/> for every other flight. See
-        /// <see cref="IsFlyingToActive"/>; nothing else reads it.</summary>
+        /// <see cref="IsFlyingToActive"/> and the per-frame cell re-resolve in <see cref="Tick"/>.
+        /// </summary>
         public int ActiveCardId = int.MinValue;
+
+        /// <summary>The anchor this flight is heading FOR, kept because the destination is not
+        /// fixed for every anchor: an ACTIVE arrival's cell moves when the owner's active pile
+        /// grows under a live arc. See the re-resolve in <see cref="Tick"/>.</summary>
+        public CardFxAnchor ToAnchor = CardFxAnchor.Board;
 
         /// <summary>What this slab's card BODY is wearing on its FRONT fan (true = the card back) —
         /// the edge gate for <see cref="SetFrontFace"/>. Seeded true because that is what
@@ -223,9 +229,12 @@ internal sealed class RemoteCardFx
         // because a wire value is never trusted; the struct's own fallback is already the default.
         _cardWidth = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth);
 
-        float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
+        // The board AS DRAWN, not the wire target — see DrawnBoardScale. Read once here for
+        // the arc FLOOR and the slab's opening size; Tick re-reads it every frame.
+        float scale = DrawnBoardScale;
         f.From = a;
         f.To = b;
+        f.ToAnchor = to;
         // WORLD up, never the owner's BOARD up. This used to be `_owner.BoardRotation * Vector3.up`,
         // which is the argument CardsDriver passes and which VRCard.FlyToPile DELIBERATELY THROWS
         // AWAY — its own sentence, kept here verbatim so the next reader does not "restore" it:
@@ -654,6 +663,24 @@ internal sealed class RemoteCardFx
             float t = NetProtocol.CardFxSeconds > 0f
                 ? Mathf.Clamp01(f.Elapsed / NetProtocol.CardFxSeconds)
                 : 1f;
+            // THE CELL, NOT THE MOUNT. RemoteControlBoard.AnchorLocal resolves CardFxAnchor.Active
+            // to layout.ActiveMount, and its own comment says the mount "IS the block's midpoint
+            // and a one-card column lands dead on its own cell" — both halves true, and the second
+            // is the defect: RemoteActiveCards CENTRES N cells on that midpoint, so with two active
+            // cards each cell sits half a column step off it (0.0337 m board-local at the shipped
+            // CardWidth 0.0635, ActiveGridSpacing.x 1.06 and ActiveCardScale 1.00) and every arc
+            // landed between them. The ModBuild 476 peer log has the case in one line:
+            // 'ACTIVE ARRIVAL … (cell 2 of 2)'.
+            //
+            // RE-RESOLVED PER FRAME, NOT CAPTURED AT Play. The active population can change under a
+            // live arc — a second card goes active — and that column re-seats EVERY cell when it
+            // does, so a destination taken once would be stale by the time the slab arrived. Same
+            // reason the position and the scale writes below are per frame. Silently keeps the
+            // mount when the column is not drawing that card, which is the old behaviour and is
+            // right for a one-card column.
+            if (f.ToAnchor == CardFxAnchor.Active && f.ActiveCardId != int.MinValue
+                && _owner.TryActiveCellLocal(f.ActiveCardId, out Vector3 cell))
+                f.To = BoardLocalToWorld(cell);
             // THE OWNER'S OWN CURVE, CALLED — not "the same shape as VRCard's fly", which is what
             // the sentence that stood here claimed while the code flew a DIFFERENT ONE. This wrote
             // out plain smoothstep along the chord and bowed with sin(pi*t) on the RAW t, against
@@ -669,10 +696,10 @@ internal sealed class RemoteCardFx
             // own scale on the same eased term it lerps the chord on: a slab that travelled on one
             // curve and resized on another would be a second animation, not a mirror of the first.
             // Re-read per frame because the board SCALE can move under a live flight (the owner may
-            // be dragging their diorama), which is the same reason the position write is per frame.
-            float liveScale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
+            // be dragging their diorama), which is the same reason the position write is per frame
+            // — and read off the board AS DRAWN, for the reason DrawnBoardScale states.
             f.Go.transform.localScale = Vector3.one
-                * (liveScale * (Mathf.Lerp(f.FromWidth, f.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
+                * (DrawnBoardScale * (Mathf.Lerp(f.FromWidth, f.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
             if (t >= 1f)
             {
                 f.Active = false;
@@ -889,10 +916,39 @@ internal sealed class RemoteCardFx
 
         if (!_owner.HasBoard)
             return false;
+        // THE BOARD AS IT IS DRAWN, NOT THE POSE THE PACKET CARRIED. RemoteControlBoard eases its
+        // root toward the wire pose at NetProtocol.InterpolationSharpness (~73 ms of trail), and
+        // BoardPosition/BoardRotation/BoardScale are that lerp's TARGET. A flight slab is not
+        // parented to the root — it has to outlive a board rebuild and a blank — so while a peer
+        // CARRIES or ZOOMS their board, which is exactly when the sender raises extras to 15 Hz,
+        // the cards detached and flew beside it. Falls back to the raw composition before this
+        // peer's first pose has landed, which is what every build before this one did everywhere.
+        if (_owner.TryBoardAnchorWorld(anchor, out world))
+            return true;
         float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         world = _owner.BoardPosition + _owner.BoardRotation * (_owner.BoardAnchorLocal(anchor) * scale);
         return true;
     }
+
+    /// <summary>A BOARD-LOCAL point on this peer's board resolved to world against the board AS
+    /// DRAWN — the composition <see cref="TryResolve"/> makes for a NAMED anchor, for the one
+    /// caller that has solved its own local point (the active CELL). Degrades to the raw wire pose
+    /// on exactly the same terms.</summary>
+    private Vector3 BoardLocalToWorld(Vector3 boardLocal)
+    {
+        if (_owner.TryDrawnBoardPose(out Vector3 drawnPos, out Quaternion drawnRot, out float drawnScale))
+            return drawnPos + drawnRot * (boardLocal * drawnScale);
+        float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
+        return _owner.BoardPosition + _owner.BoardRotation * (boardLocal * scale);
+    }
+
+    /// <summary>This peer's board SCALE as DRAWN — the eased root's, not the wire target. Same
+    /// argument as <see cref="TryResolve"/>'s: during a zoom the slab was sized off a number the
+    /// board underneath it had not reached yet.</summary>
+    private float DrawnBoardScale =>
+        _owner.TryDrawnBoardPose(out _, out _, out float s) && s > 0f
+            ? s
+            : (_owner.BoardScale > 0f ? _owner.BoardScale : 1f);
 
     /// <summary>
     /// THE SLAB'S ORIENTATION: the owner's own board rotation, for EVERY flight, faced or faceless.
@@ -927,8 +983,14 @@ internal sealed class RemoteCardFx
     /// than composing a new one per viewer. <c>scripts/check-mirrors.sh</c>'s "mirrored flight
     /// rotation" group fails the build on a flight surface that reaches for the local camera again.
     /// </para>
+    ///
+    /// <para>AND IT IS THE DRAWN ROTATION, not the wire one. The board root eases toward the
+    /// packet's pose and a flight slab is not parented to it, so a slab holding the TARGET rotation
+    /// while the board under it turns through the trail is the rotational half of the raw-vs-eased
+    /// split <see cref="TryResolve"/> documents.</para>
     /// </summary>
-    private Quaternion SlabRotation => _owner.BoardRotation;
+    private Quaternion SlabRotation =>
+        _owner.TryDrawnBoardPose(out _, out Quaternion rot, out _) ? rot : _owner.BoardRotation;
 
     // ------------------------------------------------------------------ pool --
 

@@ -3547,6 +3547,20 @@ internal sealed partial class CardsDriver
     /// along world up; the floor is <see cref="BoardArcMin"/> and <c>RemoteCardFx</c>'s
     /// <c>CardHeight × MinArcCardHeights × boardScale</c>, which is the same expression against the
     /// owner's own synced card height.</para>
+    ///
+    /// <para>…AND SINCE 2026-09-07 THE SAME CURVE, WHICH THOSE THREE TERMS NEVER IMPLIED. The
+    /// paragraph above lists duration, arc fraction and floor. All three agreed — and had agreed for
+    /// eight hardware rounds — while the OWNER eased with SMOOTHERSTEP and bowed on that eased term
+    /// and the RECEIVER eased with plain SMOOTHSTEP and bowed with sin(pi*t) on the RAW t. Same
+    /// duration, same peak, 0.336 × arc apart at t = 0.25; at t = 0.10 the owner is at 3.4 % of peak
+    /// lift and the mirror was at 30.9 %, and the owner's launch vertical velocity is ZERO by
+    /// construction against the mirror's ~3.5 m/s. The card LEAPT off the recess on a peer's board
+    /// and EASED off it on its owner's. Three matching numbers are not a matching curve, and the
+    /// sentence in the log line below used to say they were.</para>
+    ///
+    /// <para>The mirrors now CALL <c>VRCard.SmootherStep</c> and <c>VRCard.FlyArcOffset</c> through
+    /// <c>Net.RemoteFlightCurve</c>, and <c>scripts/check-mirrors.sh</c>'s "mirrored flight ease"
+    /// and "mirrored flight bow" groups fail the build on a further copy.</para>
     /// </summary>
     private void LaunchActiveFlights()
     {
@@ -3621,8 +3635,17 @@ internal sealed partial class CardsDriver
                 + $". DESTINATION wire anchor {Net.CardFxAnchor.Active} = this board's active-card "
                 + $"matrix. FRAME {Time.frameCount}, {FlyToPileSeconds:F2}s, arc floor "
                 + $"{minArc:F3} m over the board — the SAME duration (NetProtocol.CardFxSeconds), "
-                + "the SAME 0.55 arc fraction and the SAME world-up bow the receiver replays, so "
-                + "the two machines draw one curve. ONE LINE PER ACTIVATION: the mark is kept "
+                + "the SAME 0.55 arc fraction and the SAME world-up bow the receiver replays, and "
+                + "since 2026-09-07 the SAME EASE: this flight runs VRCard.SmootherStep with "
+                + "VRCard.FlyArcOffset on that eased term, and the mirror CALLS both through "
+                + "Net.RemoteFlightCurve. THIS LINE USED TO END 'so the two machines draw one "
+                + "curve' AFTER THOSE THREE TERMS, and it was false for eight rounds: three "
+                + "mirrors eased with plain smoothstep over a raw-t sine bow, 0.336 x arc away "
+                + "from this one at t=0.25. Compare the receiver's 'FLIGHT CURVE' line, which "
+                + "prints the chord fraction and the lift at t=0.25 — NEVER compare the arc PEAK, "
+                + "which is identical under every symmetric ease and is exactly why eight rounds "
+                + "of matching arc readings never contradicted the divergence. "
+                + "ONE LINE PER ACTIVATION: the mark is kept "
                 + "for the whole activation and dropped only when the card leaves the active "
                 + "pile, which is the replay ModBuild 462 shipped (3 events for 1 activation). The "
                 + "column that used to hide between turns no longer does (user item 4), so this "

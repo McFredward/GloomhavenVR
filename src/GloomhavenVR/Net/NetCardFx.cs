@@ -120,9 +120,13 @@ internal static class NetCardFx
     /// <item><description>CARRY TWO EVENTS IN ONE PACKET. Exact, no delay, no duplicate. COST: the
     /// FX block is a FLAG-BIT field in the extras packet, not a length-prefixed TLV record, so
     /// widening it in place breaks every older peer's parse. It would have to be a NEW additive TLV
-    /// record (id 44 is free) carrying the second pending event, with the documented worst case
-    /// (1738) and <c>PresenceSerializer.MaxSize</c> (2100) updated together and wire-test vectors
-    /// added.</description></item>
+    /// record (id 45 is the next free — 44 is <c>NetProtocol.ExtIdFanArcOrder</c>) carrying the
+    /// second pending event, with the documented worst case (1747) and
+    /// <c>PresenceSerializer.MaxSize</c> (2100) updated together and wire-test vectors added.
+    /// (Both numbers here were STALE and are corrected rather than deleted: the text said "id 44 is
+    /// free" after 44 had been allocated, and cited a 1738-byte worst case after it had grown to
+    /// 1747. A design note that names a taken id is worse than one that names none — it reads as
+    /// permission.)</description></item>
     /// </list>
     ///
     /// <para>WHATEVER IS CHOSEN, THE FAILURE DIRECTION MATTERS MORE THAN THE RATE: a LOST event is

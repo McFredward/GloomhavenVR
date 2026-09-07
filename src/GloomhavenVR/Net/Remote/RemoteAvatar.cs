@@ -789,6 +789,32 @@ internal sealed class RemoteAvatar
         _controlBoard.AnchorLocalLive(anchor);
 
     /// <summary>
+    /// The same anchor as <see cref="BoardAnchorLocal"/> resolved to WORLD against the board AS IT
+    /// IS DRAWN — the eased root — instead of against <see cref="BoardPosition"/> /
+    /// <see cref="BoardRotation"/> / <see cref="BoardScale"/>, which are the TARGET that root is
+    /// still travelling toward. Same shape and same reason as <see cref="BoardAnchorLocal"/>: the
+    /// board owns the answer, the consumers reach it through the avatar. False before this peer's
+    /// first board pose has landed; the caller then falls back to the raw composition, which is
+    /// what every build before this one did. See <c>RemoteControlBoard.TryAnchorWorld</c> — and
+    /// note that the returned point already carries the board's drawn scale.
+    /// </summary>
+    internal bool TryBoardAnchorWorld(CardFxAnchor anchor, out UnityEngine.Vector3 world) =>
+        _controlBoard.TryAnchorWorld(anchor, out world);
+
+    /// <summary>This peer's board POSE and uniform scale AS DRAWN (the eased root), for a surface
+    /// that is not parented to it. See <c>RemoteControlBoard.TryDrawnBoardPose</c>.</summary>
+    internal bool TryDrawnBoardPose(out UnityEngine.Vector3 pos, out UnityEngine.Quaternion rot,
+                                    out float scale) =>
+        _controlBoard.TryDrawnBoardPose(out pos, out rot, out scale);
+
+    /// <summary>BOARD-LOCAL seat of the ACTIVE-matrix cell that will draw
+    /// <paramref name="cardInstanceId"/>, for a '-&gt; Active' flight's destination. Same shape and
+    /// same reason as <see cref="BoardAnchorLocal"/>. See
+    /// <c>RemoteControlBoard.TryActiveCellLocal</c>.</summary>
+    internal bool TryActiveCellLocal(int cardInstanceId, out UnityEngine.Vector3 boardLocal) =>
+        _controlBoard.TryActiveCellLocal(cardInstanceId, out boardLocal);
+
+    /// <summary>
     /// Which of this peer's two round recesses is drawing the REAL FACE of the card with
     /// <paramref name="cardInstanceId"/> right now — 0, 1, or -1 for neither. Same shape and same
     /// reason as <see cref="BoardAnchorLocal"/>: the board owns the answer, the consumers reach it

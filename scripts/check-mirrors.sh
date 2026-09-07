@@ -414,15 +414,24 @@ done
 # comments now spell out the curve they no longer fly).
 EXPRESSIONS=(
   # The EASE. One implementation: VRCard.SmootherStep, reached from Net/ through
-  # RemoteFlightCurve.Ease. Catches a hand-written smoothstep `x*x*(3f-2f*x)`, a hand-written
-  # smootherstep `...*6f-15f...`, and Unity's Mathf.SmoothStep — a flight surface easing with any
-  # of the three is a second curve, whichever one it is.
-  "mirrored flight ease | VRCard.SmootherStep — from Net/, call RemoteFlightCurve.Ease(t) | [A-Za-z_][A-Za-z0-9_.]* *\* *[A-Za-z_][A-Za-z0-9_.]* *\* *\( *3f? *-|\* *6f? *- *15f?|Mathf\.SmoothStep *\( | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBrowserFan.cs Cards/Driver/CardsDriver.4.Rebuild.cs"
+  # RemoteFlightCurve.Ease. Catches a hand-written smoothstep, a hand-written smootherstep, Unity's
+  # Mathf.SmoothStep, and a hand-written quadratic ease-out — a flight surface easing with any of
+  # the four is a second curve, whichever one it is.
+  #
+  # THE EASE-OUT ARM WAS ADDED AFTER THE GATE MISSED ITS OWN ROUND'S FOURTH COPY. The first draft
+  # matched smoothstep and the sine bow, because those were the three mirrors it was seeded from.
+  # CardsDriver's BurnSlab was in scope and PASSED: it eased with the quadratic instead and fed
+  # FlyArcOffset the raw t, so it matched neither pattern while being exactly the defect the round
+  # was about. A gate that is silent on the case its own round found is the "instrument shipped and
+  # lying" shape, so the pattern was widened in the commit that fixed the site. Read it as a
+  # standing instruction: when a new flight curve turns up, the fix and the arm that would have
+  # caught it land together.
+  "mirrored flight ease | VRCard.SmootherStep — in Cards/ call it directly, from Net/ go through RemoteFlightCurve.Ease(t); never the reverse | [A-Za-z_][A-Za-z0-9_.]* *\* *[A-Za-z_][A-Za-z0-9_.]* *\* *\( *3f? *-|\* *6f? *- *15f?|Mathf\.SmoothStep *\(|1f? *- *\( *1f? *- *[A-Za-z_][A-Za-z0-9_.]* *\) *\* | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBrowserFan.cs Cards/Driver/CardsDriver.4.Rebuild.cs"
   # The BOW. One implementation: VRCard.FlyArcOffset, reached from Net/ through
   # RemoteFlightCurve.Pose (which also carries the chord, so the bow and the slide can never again
   # be fed two different parameters — that mismatch, not the formula, was the visible defect).
   # Catches a half-sine bow and the parabola written out by hand.
-  "mirrored flight bow | VRCard.FlyArcOffset — from Net/, call RemoteFlightCurve.Pose(eased, from, to, up, arc) | Mathf\.Sin *\([^)]*Mathf\.PI|4f? *\* *[A-Za-z_][A-Za-z0-9_.]* *\* *\( *1f? *- | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBrowserFan.cs Cards/Driver/CardsDriver.4.Rebuild.cs"
+  "mirrored flight bow | VRCard.FlyArcOffset(eased, up, arc) — in Cards/ call it directly, from Net/ go through RemoteFlightCurve.Pose(eased, from, to, up, arc); never the reverse | Mathf\.Sin *\([^)]*Mathf\.PI|4f? *\* *[A-Za-z_][A-Za-z0-9_.]* *\* *\( *1f? *- | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBrowserFan.cs Cards/Driver/CardsDriver.4.Rebuild.cs"
   # The ROTATION, and this one forbids a SOURCE rather than a formula - which is the only shape
   # that can catch it. A mirrored flight's pose is the OWNER's; nothing about it may be a
   # function of who is watching. RemoteCardFx billboarded a FACELESS slab at Camera.main until
@@ -448,12 +457,17 @@ EXPRESSIONS=(
   # parameter before the CardFaces call (RemoteBurnFx does exactly that). What it refuses is a
   # FaceRule member on either side of a `?` or a `:` — a decision, not a seed.
   #
-  # RemoteControlBoard.cs IS DELIBERATELY NOT IN THIS SCOPE YET, AND THAT IS A HANDOVER RATHER THAN
-  # AN EXEMPTION. On the ModBuild 477 base this group was written against, that file still holds two
-  # such chains (:2408-2410 and :2547-2549); the face round removes them. ADD THE FILE TO THIS
-  # GROUP'S SCOPE once that lands and the group is complete. Listing it before then would fail the
-  # build on a defect the lane adding this gate does not own, which is how a gate gets switched off.
-  "mirrored card-face decision | RevealGate.CardFaces — ask it rather than re-deriving its FaceRule | FaceRule\\.[A-Za-z_][A-Za-z0-9_]* *[?:]|[?:] *([A-Za-z_][A-Za-z0-9_]*\\.)*FaceRule\\. | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBoardCard.cs Net/Remote/RemoteHandFan.cs Net/Remote/RemoteBrowserFan.cs Net/Remote/RemotePileFronts.cs Net/Remote/RemoteHeldCardFace.cs Net/Remote/RemoteActiveCards.cs"
+  # RemoteControlBoard.cs IS NOW IN SCOPE, AND ITS ADMISSION IS THE GROUP'S ONLY REAL TEST SO FAR.
+  # This group was written on the ModBuild 477 base, where that file still held two FaceRule ladders
+  # (:2408-2410 and :2547-2549), and it was left out of the scope with a note saying "add it once
+  # the face round lands". The face round landed, routed both ladders through RevealGate.CardFaces,
+  # and the file was added here WITHOUT changing the pattern: it passes. That is worth more than
+  # either change on its own — the lane that consolidated the decision and the lint that forbids a
+  # second one agree, character for character, about where the single implementation lives. A
+  # repo-wide sweep at the same moment finds ZERO FaceRule conditionals anywhere outside
+  # Net/RevealGate.cs, and the only surviving RevealGate.ShowRoundCardFronts callers are the five
+  # named in the group below, all of them outside a card surface.
+  "mirrored card-face decision | RevealGate.CardFaces — ask it rather than re-deriving its FaceRule | FaceRule\\.[A-Za-z_][A-Za-z0-9_]* *[?:]|[?:] *([A-Za-z_][A-Za-z0-9_]*\\.)*FaceRule\\. | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBoardCard.cs Net/Remote/RemoteHandFan.cs Net/Remote/RemoteBrowserFan.cs Net/Remote/RemotePileFronts.cs Net/Remote/RemoteHeldCardFace.cs Net/Remote/RemoteActiveCards.cs Net/Remote/RemoteControlBoard.cs"
   # …AND THE POPULATION TERM BEHIND IT. RevealGate.ShowRoundCardFronts is the PHASE predicate — ONE
   # input to the face question — so a card SURFACE that asks it directly is deciding a face from one
   # term of the rule instead of taking the rule. The legitimate remaining callers are all outside

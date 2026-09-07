@@ -533,7 +533,9 @@ internal sealed class RemoteBurnFx
         b.ArtworkObserved = false;
         b.StationaryShown = 0f;
 
-        float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
+        // The board AS DRAWN, not the wire target — see DrawnBoardScale. Read once here for
+        // the arc FLOOR and the slab's opening size; Drive re-reads it every frame.
+        float scale = DrawnBoardScale;
         float cardWidth = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth);
         float cardHeight = cardWidth * (88f / 63.5f);
 
@@ -578,7 +580,7 @@ internal sealed class RemoteBurnFx
         // board this client already knows the rotation of, and FlyToPile holds that orientation for
         // the whole flight ("orientation locked"). Facing it at the local head instead would be a
         // pose the owner never sees.
-        b.Go.transform.SetPositionAndRotation(from, _owner.BoardRotation);
+        b.Go.transform.SetPositionAndRotation(from, DrawnBoardRotation);
         // …AND IT STARTS HIDDEN, ALWAYS. Drive() is the one place that reveals it, and it reveals it
         // for exactly two pictures: the ARC, and — since ModBuild 475, item 8's "die sehen auch dass
         // die Karte kurz liegen bleibt" — the owner's own hold on a burn NO recess is drawing.
@@ -844,7 +846,13 @@ internal sealed class RemoteBurnFx
                     else
                     {
                         b.StationaryShown += step;
-                        b.Go.transform.SetPositionAndRotation(b.From, _owner.BoardRotation);
+                        b.Go.transform.SetPositionAndRotation(b.From, DrawnBoardRotation);
+                        // …AND ITS SIZE, PER FRAME, for the same reason the arc's is: the
+                        // owner can be zooming their board while their card lies there,
+                        // and this slab is not parented to the board root. It was written
+                        // once at Present and then held for the whole hold.
+                        b.Go.transform.localScale = Vector3.one
+                            * (DrawnBoardScale * (b.FromWidth / RemoteHandFan.DefaultCardWidth));
                         if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(1f))
                             b.HasFace = false;
                     }
@@ -916,9 +924,8 @@ internal sealed class RemoteBurnFx
             // in Present). The board SCALE is re-read per frame for the reason RemoteCardFx states:
             // the owner may be dragging their diorama under a live flight, which is also why the
             // position write is per frame.
-            float liveScale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
             b.Go.transform.localScale = Vector3.one
-                * (liveScale * (Mathf.Lerp(b.FromWidth, b.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
+                * (DrawnBoardScale * (Mathf.Lerp(b.FromWidth, b.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
             if (t >= 1f)
             {
                 b.Active = false;
@@ -952,15 +959,42 @@ internal sealed class RemoteBurnFx
         }
     }
 
+    /// <summary>
+    /// One of this peer's board anchors in world, ON THE BOARD AS IT IS DRAWN — the eased root, not
+    /// the pose the packet carried.
+    ///
+    /// <para><c>RemoteControlBoard</c> lerps its root toward the wire pose at
+    /// <c>NetProtocol.InterpolationSharpness</c> (~73 ms of trail), and
+    /// <c>BoardPosition</c>/<c>BoardRotation</c>/<c>BoardScale</c> are that lerp's TARGET. A burn
+    /// slab is not parented to the root, so while a peer CARRIES or ZOOMS their board — exactly
+    /// when the sender raises extras to 15 Hz — the card lifted out of a recess that was no longer
+    /// under it. <c>RemoteCardFx.TryResolve</c> carries the same correction and the same fallback:
+    /// before this peer's first pose lands, the raw composition, which is what every build before
+    /// this one did everywhere.</para>
+    /// </summary>
     private bool TryAnchor(CardFxAnchor anchor, out Vector3 world)
     {
         world = default;
         if (!_owner.HasBoard)
             return false;
+        if (_owner.TryBoardAnchorWorld(anchor, out world))
+            return true;
         float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         world = _owner.BoardPosition + _owner.BoardRotation * (_owner.BoardAnchorLocal(anchor) * scale);
         return true;
     }
+
+    /// <summary>This peer's board ROTATION as DRAWN, for the slab that lies on it — same
+    /// raw-versus-eased argument as <see cref="TryAnchor"/>, on the rotational term.</summary>
+    private Quaternion DrawnBoardRotation =>
+        _owner.TryDrawnBoardPose(out _, out Quaternion rot, out _) ? rot : _owner.BoardRotation;
+
+    /// <summary>…and its SCALE as DRAWN. During a zoom the slab was sized off a number the board
+    /// underneath it had not reached yet.</summary>
+    private float DrawnBoardScale =>
+        _owner.TryDrawnBoardPose(out _, out _, out float s) && s > 0f
+            ? s
+            : (_owner.BoardScale > 0f ? _owner.BoardScale : 1f);
 
     /// <summary>Tell this burn slab's card BODY what its FRONT fan wears — see
     /// <c>CardMesh.SetBodyFrontFace</c>, which owns the rule and the (fade-aware) write.

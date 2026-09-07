@@ -204,6 +204,72 @@ internal sealed class RemoteActiveCards
     }
 
     /// <summary>
+    /// ActivePileViewer.Layout, term for term — the ROOT-LOCAL seat of cell <paramref name="seat"/>
+    /// of <paramref name="count"/>. Copying the CONSTRUCTION rather than the numbers is what makes
+    /// this column and the owner's identical by being the same expression instead of two formulas
+    /// that have to agree; the column COUNT and the row Z-stagger are read off ActivePileViewer for
+    /// the same reason.
+    ///
+    /// <para>IT IS A METHOD RATHER THAN AN INLINE BLOCK BECAUSE A SECOND SURFACE NEEDS IT.
+    /// <see cref="Refresh"/> moves its cells with this and <c>RemoteCardFx</c> lands its
+    /// '-&gt; Active' arcs on it, so a flight cannot arrive somewhere the cell is not — by
+    /// construction, not by two formulas agreeing. Root-local: the caller adds the root's own
+    /// <c>ActiveMount</c> and <c>ActiveCardScale</c>, which is what
+    /// <see cref="TryCellBoardLocal"/> does.</para>
+    /// </summary>
+    internal static Vector3 CellLocal(int seat, int count, float cardW, in Vector2 grid)
+    {
+        int cols = Columns;
+        int rows = (count + cols - 1) / cols;
+        float rowStep = cardW * (88f / 63.5f) * grid.y;
+        float colStep = cardW * grid.x;
+        float yTop = rowStep * (rows - 1) * 0.5f;
+        int row = seat / cols;
+        int col = seat % cols;
+        int colsInRow = Mathf.Min(cols, count - row * cols);
+        return new Vector3((col - (colsInRow - 1) * 0.5f) * colStep,
+                           yTop - row * rowStep,
+                           -ActivePileViewer.ZStagger * row);
+    }
+
+    /// <summary>
+    /// BOARD-LOCAL seat of the cell that will draw <paramref name="cardInstanceId"/> — for
+    /// <c>RemoteCardFx</c>'s '-&gt; Active' arc, which used to end on the block's MIDPOINT.
+    ///
+    /// <para><c>RemoteControlBoard.AnchorLocal</c> resolves <c>CardFxAnchor.Active</c> to
+    /// <c>layout.ActiveMount</c>, and its own comment says the mount "IS the block's midpoint and a
+    /// one-card column lands dead on its own cell". Both halves are true and the second one is the
+    /// whole defect: this column CENTRES N cells on that midpoint, so with two active cards each
+    /// cell sits half a column step off it — 0.0337 m board-local at the shipped CardWidth 0.0635,
+    /// ActiveGridSpacing.x 1.06 and ActiveCardScale 1.00 — and every arc landed between them. The
+    /// ModBuild 476 peer log has the case in one line: <c>ACTIVE ARRIVAL … (cell 2 of 2)</c>.</para>
+    ///
+    /// <para>It reads <see cref="_root"/>'s OWN <c>localPosition</c> and <c>localScale</c> rather
+    /// than re-deriving the mount and the card scale from the layout: those two are the terms the
+    /// root actually applies, so the answer is the seat this column is drawing at and not a second
+    /// evaluation that could drift from it. False when this column is not drawing that card — the
+    /// flight then keeps the mount, which is the old behaviour and is right for a one-card
+    /// column.</para>
+    /// </summary>
+    internal bool TryCellBoardLocal(int cardInstanceId, out Vector3 boardLocal)
+    {
+        boardLocal = default;
+        if (cardInstanceId == int.MinValue || Count <= 0)
+            return false;
+        for (int i = 0; i < _buffer.Count && i < Count; i++)
+        {
+            int id;
+            try { id = _buffer[i].CardInstanceID; }
+            catch { continue; }
+            if (id != cardInstanceId)
+                continue;
+            boardLocal = _root.localPosition + _root.localScale.x * CellLocal(i, Count, _cardW, _grid);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Re-read the actor's active pile and repaint.
     ///
     /// <para>IT ASKS THE FACE RULE ITSELF, and that is the fix for 2026-09-05 report item 2b: "Die
@@ -494,15 +560,11 @@ internal sealed class RemoteActiveCards
         while (_cards.Count < Count)
             _cards.Add(new RemoteBoardCard(_root, Vector3.zero, _cardW, _cardH));
 
-        int rows = (Count + Columns - 1) / Columns;
-        // ActivePileViewer.Layout, term for term: card metric x the owner's grid factor. Copying
-        // the CONSTRUCTION rather than the numbers is what makes the two columns identical by being
-        // the same expression instead of two formulas that have to agree. The COLUMN COUNT and the
-        // row Z-stagger are now read off ActivePileViewer too — they were the two terms this note
-        // claimed and did not have.
-        float rowStep = _cardH * _grid.y;
-        float colStep = _cardW * _grid.x;
-        float yTop = rowStep * (rows - 1) * 0.5f;
+        // ActivePileViewer.Layout, term for term — now in ONE place, <see cref="CellLocal"/>, which
+        // this loop moves its cells with AND RemoteCardFx lands its '-> Active' arcs on. It was
+        // written out here inline, and the flight had no way to reach it: RemoteControlBoard
+        // resolves CardFxAnchor.Active to layout.ActiveMount, i.e. the block's MIDPOINT, so every
+        // arc into a two-card column landed exactly between the two cells. See CellLocal.
         _cellPos.Clear();
         _cellCard.Clear();
         for (int i = 0; i < _cards.Count; i++)
@@ -513,11 +575,7 @@ internal sealed class RemoteActiveCards
                 _cards[i].SetActiveBurntWash(_playerId, i, null, wanted: false);
                 continue;
             }
-            int row = i / Columns;
-            int col = i % Columns;
-            int colsInRow = Mathf.Min(Columns, Count - row * Columns);
-            float x = (col - (colsInRow - 1) * 0.5f) * colStep;
-            var cellAt = new Vector3(x, yTop - row * rowStep, -ActivePileViewer.ZStagger * row);
+            Vector3 cellAt = CellLocal(i, Count, _cardW, _grid);
             _cards[i].Move(cellAt);
             if (i == activeSeatA || i == activeSeatB || _flyingSeats.Contains(i))
             {
@@ -585,7 +643,10 @@ internal sealed class RemoteActiveCards
                   + RevealGate.RuleText(faceRule));
 
         // Change-gated on the shape itself, so the line below fires on a human-paced event (a card
-        // going active) and never per refresh.
+        // going active) and never per refresh. The row count is re-derived here rather than carried
+        // down from the layout block: CellLocal owns that arithmetic now, and a diagnostic must not
+        // be the reason a layout local outlives the loop that needs it.
+        int rows = (Count + Columns - 1) / Columns;
         int shape = Count * 100 + rows;
         if (_loggedShape != shape)
         {

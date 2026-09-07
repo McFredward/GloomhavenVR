@@ -4084,9 +4084,23 @@ internal sealed partial class CardsDriver
         {
             _elapsed += Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fan anim
             float ft = _duration > 0f ? Mathf.Clamp01(_elapsed / _duration) : 1f;
-            float e = 1f - (1f - ft) * (1f - ft); // ease-out on the base slide
-            transform.position = Vector3.Lerp(_from, _to, e) + VRCard.FlyArcOffset(ft, _up, _height);
-            transform.localScale = Vector3.Lerp(_fromScale, _toScale, e);
+            // THE FOURTH FLIGHT CURVE, AND IT WAS THE OWNER'S OWN CLASS (2026-09-07). This eased the
+            // chord with a quadratic ease-out `1-(1-t)²` and then fed FlyArcOffset the RAW ft — two
+            // different parameters for one motion, and neither of them the SMOOTHERSTEP that
+            // VRCard.FlyToPile flies. FlyArcOffset's own doc comment already said what it expects:
+            // "The card flights feed the SMOOTHERSTEP-eased parameter here (peak stays at the
+            // temporal midpoint because smootherstep is symmetric), so the lift ramps up and settles
+            // as gently as the horizontal slide — no stepped/linear bow." This slab was the one
+            // caller that did not, so the bow peaked at the temporal midpoint while the slide was
+            // already 75 % of the way there — the lopsided arch issue 1 removed from the real card.
+            //
+            // ONE EASED TERM DRIVES ALL THREE now — chord, bow and scale — which is the identical
+            // shape VRCard's own tick uses and the mirrors call through Net.RemoteFlightCurve.
+            // scripts/check-mirrors.sh's "mirrored flight ease" group has this file in scope and now
+            // refuses a hand-written ease-out here as well as a hand-written smoothstep.
+            float s = VRCard.SmootherStep(ft);
+            transform.position = Vector3.Lerp(_from, _to, s) + VRCard.FlyArcOffset(s, _up, _height);
+            transform.localScale = Vector3.Lerp(_fromScale, _toScale, s);
             if (ft >= 1f)
                 Destroy(gameObject);
         }
