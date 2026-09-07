@@ -22253,16 +22253,39 @@ internal static class NetProtocol
     /// not carry. The receiver drops exactly those, by name, from its own list — never by
     /// arithmetic, never by position.</para>
     ///
-    /// <para>WRITTEN ONLY WHEN IT SAYS SOMETHING. The sender omits the record whenever the arc is
-    /// already in the derived order AND holds every member of it — the common case for a player who
-    /// has never dragged a card — so those packets stay byte-identical to ModBuild 461's. When the
-    /// arc is SHORTER the record is always written, identity or not: there the order is what names
-    /// the missing card, and its absence would be read as "the two lists agree". It is still
-    /// omitted whenever the sender cannot answer honestly: no open fan, a hand longer than the cap,
-    /// or an arc card the derived walk does not contain (a browse loan, a pick fan over a pile).
-    /// Silence always means "use the order you already had".</para>
+    /// <para>WRITTEN WHENEVER THE SENDER CAN DESCRIBE ITS ARC, IDENTITY OR NOT — and the sentence
+    /// that used to stand here is the 2026-09-07 defect. It read: "the sender omits the record
+    /// whenever the arc is already in the derived order AND holds every member of it … Silence
+    /// always means 'use the order you already had'." The second half was never true of any
+    /// receiver. <c>Net.RemoteHandFan</c> rebuilds its slab list from
+    /// <c>CardsGameApi.HandFanMember</c> — the GAME's order — every frame and applies whatever the
+    /// CURRENT packet states, so it had nothing to "use": absence meant "fall back to the game's
+    /// order". The two readings agree only in the case the omission rule was reasoning about and
+    /// differ in every other, so the mirrored fan snapped between its owner's arrangement and the
+    /// game's as the sender's arc drifted in and out of that identity. Measured cross-log in the
+    /// ModBuild 470 session: the peer's mirror of the host's two-card fan applies
+    /// <c>fp=27e7dccb</c> and 79 lines later prints <c>fp=5469e8a7 … none stated</c> with the
+    /// host's own <c>FAN ORDER MIRROR</c> unchanged — "ganz rechts eine andere Karte", twice, with
+    /// both hex words. The record is now stated on every packet whose arc the sender can describe,
+    /// and the receiver additionally HOLDS the last order it applied while the membership is
+    /// unchanged card for card, so the documented contract is finally the implemented one. Absence
+    /// now means ONE thing: the sender could not answer (no open fan, a hand past the cap, an arc
+    /// that is not this player's own character's hand, or an arc card the derived walk does not
+    /// contain — a browse loan, a pick fan over a pile). Its own edge says which:
+    /// <c>LocalRigSampler</c>'s <c>FAN ARC ORDER SENT</c> line.</para>
     /// </summary>
     public const byte ExtIdFanArcOrder = 44;
+
+    /// <summary>The first <see cref="ModBuild"/> that can SEND <see cref="ExtIdFanArcOrder"/>. A
+    /// peer below it (a FLAT player reads 0) cannot state an order and its fan will diverge for
+    /// every watcher until it updates — a stated limit of the feature, not a bug in it.
+    ///
+    /// <para>NAMED because the number was inlined nowhere and asserted in prose everywhere, and the
+    /// receiver's own log line then labelled ANY peer that had not yet stated an order as
+    /// <c>peer build N</c> under a sentence reading "that player CANNOT send an order". The first
+    /// grep of the 2026-09-07 host log returned <c>reason=peer build 470 … peer ModBuild 470, ours
+    /// 470</c> — a peer four builds PAST the record, accused of predating it.</para></summary>
+    public const ushort FanArcOrderMinPeerBuild = 462;
 
     /// <summary>Largest hand this record can express an order for — the same clamp the broadcast
     /// count uses (<c>RemoteHandFan.MaxCards</c>), which is what makes a 4-bit index total.

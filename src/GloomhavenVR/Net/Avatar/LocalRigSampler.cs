@@ -599,10 +599,117 @@ internal static class LocalRigSampler
     /// reused: this runs at the extras rate.</summary>
     private static readonly System.Collections.Generic.List<AbilityCardUI> s_fanOrderDerived = new(16);
 
+    /// <summary>Change key for <see cref="ReportFanArcOrder"/> — the verdict, the two lengths and
+    /// the arc's own fingerprint, so a standing arc costs ONE line and a reorder costs one more.
+    /// </summary>
+    private static long s_fanOrderSentKey = long.MinValue;
+
+    /// <summary>
+    /// The hand whose <c>cardsUI</c> LISTS <paramref name="widget"/> — the index space the arc was
+    /// actually built out of, asked of the arc itself rather than of a parallel lookup.
+    ///
+    /// <para>THIS EXISTS BECAUSE THE PARALLEL LOOKUP WAS WRONG, and it is the sender half of the
+    /// 2026-09-07 report item 2. <see cref="SampleFanArcOrder"/> used to derive its index space
+    /// from <c>CardsGameApi.ActiveHand()</c> alone, which is <c>CardsHandManager.CurrentHand</c> —
+    /// "whatever character tab the game last happened to switch to", in that method's own words,
+    /// "which is exactly why it can be STALE". The arc, however, is built by
+    /// <c>CardsDriver.Rebuild</c> out of <c>Board.CharacterFocus.ResolveHand(CurrentHand())</c>,
+    /// and <c>CardsDriver.CurrentHand</c> is <c>DecidingHand() ?? ActiveHand()</c> filtered by
+    /// <c>IsLocalHand</c>. The two answers differ for a whole named list of flows — an
+    /// action-selection hand-off inside one phase, the boots' ± step (where the game deliberately
+    /// never switches hands), a take-damage panel, an item surrender — and in every one of them the
+    /// sampler's derived walk held a DIFFERENT character's card widgets. <c>IndexOf</c> then
+    /// returned -1 for the first arc card, the sampler refused, no record went out, and the watcher
+    /// drew the fan in the game's order while its owner looked at their own. Silently, because the
+    /// sampler had no log line at all.</para>
+    ///
+    /// <para>Bounded by the party (four hands), allocation-free, and it cannot drift from the arc by
+    /// construction: it is the arc that names the hand.</para>
+    /// </summary>
+    private static CardsHandUI? HandListingArc(AbilityCardUI? widget)
+    {
+        if (widget == null)
+            return null;
+        CardsHandManager manager = CardsHandManager.Instance;
+        System.Collections.Generic.List<CardsHandUI>? hands =
+            manager != null ? manager.CardHandsUI : null;
+        if (hands == null)
+            return null;
+        for (int i = 0; i < hands.Count; i++)
+        {
+            // ONE EXPRESSION FOR "IS THIS CARD YOURS", shared with CardsDriver.OnCardReleased's
+            // wrong-hand belt — the same question must never be spelled twice.
+            if (Cards.CardsGameApi.HandOwnsWidget(hands[i], widget))
+                return hands[i];
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// HARDWARE EVIDENCE, SENDER EDGE, for report item 2 of 2026-09-07. Grep token:
+    /// FAN ARC ORDER SENT.
+    ///
+    /// <para>WHY IT HAD TO EXIST, and it is the whole reason that round could not be closed from
+    /// two logs. <see cref="SampleFanArcOrder"/> had a dozen ways to return false and not one line
+    /// of output, so every one of them arrived on the far end as the single word
+    /// <c>none stated</c> — which the receiver's own line then reads out as the BENIGN case ("they
+    /// can send one and chose not to, because their arc already matches"). "The sender could not
+    /// describe its arc" and "the sender had nothing to say" were the same reading, and they have
+    /// opposite meanings.</para>
+    ///
+    /// <para>READ IT LIKE THIS, and it is designed to be compared with ONE grep and no second
+    /// machine. <c>fp</c> is the same order-sensitive FNV fold over <c>CardInstanceID</c> that
+    /// <c>CardsDriver</c>'s <c>FAN ORDER MIRROR</c> and <c>Net.RemoteHandFan</c>'s
+    /// <c>MIRRORED ARC ORDER</c> print — the id is host-replicated, so THE SAME ARC IN THE SAME
+    /// ORDER PRINTS THE SAME WORD ON EVERY MACHINE IN THE SESSION.</para>
+    /// <list type="bullet">
+    ///   <item><c>SENT</c> with <c>fp=X</c> — record 44 is on this packet and states this arc. The
+    ///     watcher's <c>MIRRORED ARC ORDER</c> for this player must print <c>fp=X</c> too; if it
+    ///     prints a different word, the record arrived and the divergence is on the RECEIVER.</item>
+    ///   <item><c>WITHHELD</c> with <c>why=</c> — no record on this packet, and the reason names
+    ///     which exit fired. <c>arc is not our own character's hand</c> and <c>no hand lists this
+    ///     arc</c> are the two that used to be invisible and are the SENDER defect; <c>derived list
+    ///     shorter than the arc</c> is this client's own model lagging its own fan and is
+    ///     transient; <c>no open fan</c> is the resting state and is owed nothing.</item>
+    /// </list>
+    ///
+    /// <para>Change-gated on the verdict, the two lengths and the fingerprint, so a fan standing
+    /// still costs one line and a drag costs one more — never the 5 Hz extras rate.</para>
+    /// </summary>
+    private static bool ReportFanArcOrder(bool sent, int arc, int seats, uint fp, string why)
+    {
+        long key = ((long)fp << 24) ^ ((long)arc << 12) ^ ((long)seats << 4) ^ (sent ? 1L : 0L)
+                   ^ ((long)why.Length << 40);
+        if (key != s_fanOrderSentKey)
+        {
+            s_fanOrderSentKey = key;
+            // HW-VERIFY: report item 2 (2026-09-07). Grep token: FAN ARC ORDER SENT.
+            Core.VRLog.Note("Net", $"FAN ARC ORDER SENT: {(sent ? "SENT" : "WITHHELD")} — arc={arc} "
+                + $"seats={seats} fp={(sent ? fp.ToString("x8") : "--------")} "
+                + $"why={(sent ? "our own arc, stated in full" : why)}. This is the OWNER edge of "
+                + "extension record 44: 'the order I sent'. fp is an order-sensitive fold over "
+                + "CardInstanceID, which is host-replicated, so the same arc in the same order "
+                + "prints the SAME WORD on every machine — compare it with this player's "
+                + "'MIRRORED ARC ORDER ... fp=' on any watcher and with this machine's own 'FAN "
+                + "ORDER MIRROR ... drawn fp=', and the three settle \"exakt an den selben "
+                + "Stellen\" with no screenshot and no second log. SENT means record 44 rides this "
+                + "packet and states the arc in full — INCLUDING when it happens to equal the "
+                + "order a watcher would derive, which every build from ModBuild 462 to 471 "
+                + "deliberately omitted to save bytes. That omission was the defect: a receiver "
+                + "rebuilds its slab list from the game's own order every frame and has nothing to "
+                + "'keep', so silence never meant 'keep the order you had', it meant 'go back to "
+                + "the game's order' — and the fan visibly snapped between the two as the sender's "
+                + "arc drifted in and out of that identity. WITHHELD therefore now means exactly "
+                + "one thing: this client could not honestly describe its own arc, and 'why' names "
+                + "which exit fired.");
+        }
+        return sent;
+    }
+
     /// <summary>
     /// THE LEFT-TO-RIGHT ORDER OF OUR OWN HAND ARC — extension record
     /// <see cref="NetProtocol.ExtIdFanArcOrder"/>'s whole payload, as indices into the hand list
-    /// every receiver already builds. Report item 2 of 2026-09-06.
+    /// every receiver already builds. Report item 2 of 2026-09-06, and again of 2026-09-07.
     ///
     /// <para>WHAT IT WRITES: entry k is the position, in the list produced by walking
     /// <c>CardsHandUI.cardsUI</c> under <c>CardsGameApi.HandFanMember</c>, of the card the owner
@@ -616,51 +723,92 @@ internal static class LocalRigSampler
     /// count it permutes would describe a different moment, and the receiver would apply yesterday's
     /// order to today's fan. Both come off <c>CardFan.Current</c> in the same frame.</para>
     ///
+    /// <para><b>AND THE HAND IT DERIVES AGAINST IS NOW THE ARC'S OWN — 2026-09-07 REPORT ITEM 2.</b>
+    /// This method used to be handed <c>CardsGameApi.ActiveHand()</c>, i.e.
+    /// <c>CardsHandManager.CurrentHand</c>. The arc is not built from that: <c>CardsDriver.Rebuild</c>
+    /// builds it from <c>Board.CharacterFocus.ResolveHand(CurrentHand())</c>, and
+    /// <c>CardsDriver.CurrentHand</c> is <c>DecidingHand() ?? ActiveHand()</c> behind
+    /// <c>IsLocalHand</c>. Whenever the deciding chain claimed a hand the tab had not switched to —
+    /// an action-selection hand-off inside one phase, the boots' ± step, a take-damage panel, an
+    /// item surrender — the derived walk here held ANOTHER CHARACTER'S widgets, every
+    /// <c>IndexOf</c> returned -1, and the record was silently withheld for as long as that lasted.
+    /// <see cref="HandListingArc"/> asks the ARC which hand lists it instead, so the two cannot
+    /// drift; and the answer is refused outright unless that hand belongs to the very actor a
+    /// watcher resolves for us (<c>NetPlayerActors.ActorFor</c>), because an order sampled off a
+    /// character the watcher will not derive is not a saving — it is a well-formed permutation of
+    /// the WRONG list, the one failure <c>NetProtocol.ValidateFanArcOrder</c> exists to
+    /// prevent.</para>
+    ///
+    /// <para><b>IT NO LONGER STAYS SILENT ON AN IDENTITY, AND THAT IS THE OTHER HALF OF THE
+    /// 2026-09-07 FIX.</b> Every build from ModBuild 462 omitted the record whenever the arc
+    /// already equalled the derived order, on the stated grounds that "silence means keep the order
+    /// you already had". The receiver keeps nothing: <c>RemoteHandFan</c> rebuilds its slab list
+    /// from <c>CardsGameApi.HandFanMember</c> every frame and applies whatever the CURRENT packet
+    /// states, so absence has always meant "fall back to the game's order". The two readings agree
+    /// only in the case the sender was reasoning about and disagree in every other — which is why
+    /// the 2026-09-07 session shows the peer's mirror of the host's two-card fan APPLYING
+    /// <c>fp=27e7dccb</c> and then, 79 lines later, printing <c>fp=5469e8a7 … none stated</c> while
+    /// the host's own <c>FAN ORDER MIRROR</c> had not changed at all: the fan snapped from the
+    /// owner's order to the game's because one packet arrived without the record. So the record is
+    /// now written whenever this method can answer, identity or not; absence means ONLY "the sender
+    /// could not describe its arc", which is what <see cref="ReportFanArcOrder"/> prints. The cost
+    /// is 3-9 bytes on a packet whose fan is open, and it is inside the documented worst case
+    /// (1747 against <c>PresenceSerializer.MaxSize</c> 2100) because that case already counted this
+    /// record present.</para>
+    ///
     /// <para>IT RETURNS FALSE — and the caller then writes no record at all — in every case where
-    /// it cannot answer honestly, because silence means "keep the order you already had" and that
-    /// is always the safe answer:</para>
+    /// it cannot answer honestly, and every one of them now NAMES ITSELF in the log:</para>
     /// <list type="bullet">
-    ///   <item>no open fan, or no hand to derive the index space from;</item>
-    ///   <item>a hand past <see cref="NetProtocol.FanArcOrderMaxSeats"/>, which a 4-bit index
-    ///     cannot name;</item>
+    ///   <item>no open fan, or no hand that lists the arc;</item>
+    ///   <item>an arc belonging to a character a watcher will not resolve for us;</item>
+    ///   <item>a hand or an arc past <see cref="NetProtocol.FanArcOrderMaxSeats"/>, which a 4-bit
+    ///     index cannot name;</item>
     ///   <item>the derived list being SHORTER than the arc, which means this client's own model is
     ///     a beat behind its own fan and no index into it names the arc;</item>
     ///   <item>an arc card the derived walk does not contain — a browse loan, or a modal PICK fan
     ///     drawn over a pile (record 43), where the arc is not the hand at all and an index into
-    ///     the hand would be a confident lie;</item>
-    ///   <item><b>the arc already being in the derived order AND holding every member of it</b>,
-    ///     which is the common case and the reason an ordinary player's packet stays byte-identical
-    ///     to ModBuild 461's. The record exists to state a DIFFERENCE; identity is what its absence
-    ///     already means.</item>
+    ///     the hand would be a confident lie.</item>
     /// </list>
     ///
-    /// <para>A SHORTER ARC IS NOT A REFUSAL ANY MORE, AND THAT IS 2026-09-06 REPORT ITEM 4. The
-    /// derived list being LONGER than the arc is the normal, expected state whenever this player is
-    /// holding a card up or has laid a hand card in one of their round recesses: their own
-    /// <c>CardFan</c> has dropped it and <c>CardsGameApi.HandFanMember</c> has not, because the card
-    /// has not been played. This method used to refuse there — "the two lists differing in length"
-    /// — and the consequence was measured on the far end: the watcher's length belt had no statement
-    /// of which cards the arc held, so it refused every front and the whole fan went to BACKS for as
-    /// long as the pick stood (host census, eleven consecutive ticks at <c>8 model card(s) vs 7
-    /// slab(s) ... remainder 0</c>). What travels now is an INJECTION: <c>count</c> entries naming
-    /// distinct derived indices, so the receiver learns both the order AND which derived cards the
-    /// arc does not hold. Still no card identity — every entry is a position in a list the receiver
-    /// builds itself, from the same expression, off host-replicated state.</para>
+    /// <para>A SHORTER ARC IS NOT A REFUSAL, AND THAT IS 2026-09-06 REPORT ITEM 4. The derived list
+    /// being LONGER than the arc is the normal, expected state whenever this player is holding a
+    /// card up or has laid a hand card in one of their round recesses: their own <c>CardFan</c> has
+    /// dropped it and <c>CardsGameApi.HandFanMember</c> has not, because the card has not been
+    /// played. What travels is an INJECTION: <c>count</c> entries naming distinct derived indices,
+    /// so the receiver learns both the order AND which derived cards the arc does not hold. Still
+    /// no card identity — every entry is a position in a list the receiver builds itself, from the
+    /// same expression, off host-replicated state.</para>
     /// </summary>
-    internal static bool SampleFanArcOrder(CardsHandUI? hand, int[] order, out int count)
+    internal static bool SampleFanArcOrder(int localPlayerId, int[] order, out int count)
     {
         count = 0;
         try
         {
             Cards.CardFan? fan = Cards.CardFan.Current;
-            if (fan == null || hand == null || hand.cardsUI == null || order == null)
-                return false;
+            if (fan == null || order == null)
+                return ReportFanArcOrder(false, 0, 0, 0u, "no open fan");
             System.Collections.Generic.IReadOnlyList<Cards.VRCard> arc = fan.Cards;
             int n = arc.Count;
-            if (n <= 0 || n > NetProtocol.FanArcOrderMaxSeats || n > order.Length)
-                return false;
+            if (n <= 0)
+                return ReportFanArcOrder(false, 0, 0, 0u, "no open fan");
+            if (n > NetProtocol.FanArcOrderMaxSeats || n > order.Length)
+                return ReportFanArcOrder(false, n, 0, 0u,
+                    $"arc past the {NetProtocol.FanArcOrderMaxSeats}-seat 4-bit cap");
 
+            // THE ARC NAMES ITS OWN HAND. See HandListingArc for the whole of why this is no
+            // longer CardsGameApi.ActiveHand().
+            Cards.VRCard first = arc[0];
+            CardsHandUI? hand = HandListingArc(first != null ? first.GameCard : null);
+            if (hand == null || hand.cardsUI == null)
+                return ReportFanArcOrder(false, n, 0, 0u, "no hand lists this arc");
             CPlayerActor? actor = hand.PlayerActor;
+            // ONE INDEX SPACE, ENFORCED RATHER THAN ASSUMED. A watcher derives this fan against
+            // NetPlayerActors.ActorFor(ourPlayerId); an order sampled off any other character is a
+            // valid-looking permutation of the WRONG list.
+            CPlayerActor? mine = NetPlayerActors.ActorFor(localPlayerId);
+            if (actor == null || mine == null || !ReferenceEquals(actor, mine))
+                return ReportFanArcOrder(false, n, 0, 0u, "arc is not our own character's hand");
+
             s_fanOrderDerived.Clear();
             System.Collections.Generic.List<AbilityCardUI> all = hand.cardsUI;
             for (int i = 0; i < all.Count; i++)
@@ -673,16 +821,37 @@ internal static class LocalRigSampler
             // it is exactly the state the injection below exists to describe. SHORTER means this
             // client's own model has not caught up with its own fan, and then no index into it names
             // the arc at all — say nothing. A hand the 4-bit index cannot span is refused for the
-            // same reason it is refused above.
-            if (s_fanOrderDerived.Count < n
-                || s_fanOrderDerived.Count > NetProtocol.FanArcOrderMaxSeats)
+            // same reason the arc is refused above.
+            if (s_fanOrderDerived.Count < n)
             {
+                int had = s_fanOrderDerived.Count;
                 s_fanOrderDerived.Clear();
-                return false;
+                return ReportFanArcOrder(false, n, had, 0u, "derived list shorter than the arc");
             }
-            bool shorterArc = s_fanOrderDerived.Count != n;
+            if (s_fanOrderDerived.Count > NetProtocol.FanArcOrderMaxSeats)
+            {
+                int had = s_fanOrderDerived.Count;
+                s_fanOrderDerived.Clear();
+                return ReportFanArcOrder(false, n, had, 0u,
+                    $"hand past the {NetProtocol.FanArcOrderMaxSeats}-seat 4-bit cap");
+            }
 
-            bool identity = true;
+            // The SAME order-sensitive FNV fold over CardInstanceID that CardsDriver's FAN ORDER
+            // MIRROR and RemoteHandFan's MIRRORED ARC ORDER print, spelled here over the ARC so the
+            // three words are directly comparable across machines. Instrument only — no byte of it
+            // reaches the wire.
+            uint fp = 2166136261u;
+            unchecked
+            {
+                for (int k = 0; k < n; k++)
+                {
+                    Cards.VRCard c = arc[k];
+                    AbilityCardUI? w = c != null ? c.GameCard : null;
+                    fp = (fp ^ (uint)k) * 16777619u;
+                    fp = (fp ^ (uint)(w != null ? w.CardInstanceID : 0)) * 16777619u;
+                }
+            }
+
             for (int k = 0; k < n; k++)
             {
                 Cards.VRCard card = arc[k];
@@ -691,27 +860,26 @@ internal static class LocalRigSampler
                 if (at < 0)
                 {
                     s_fanOrderDerived.Clear();
-                    return false;   // an arc card the hand walk does not hold — a loan or a pick fan
+                    // An arc card the hand walk does not hold — a browse loan, or a pick fan drawn
+                    // over a pile (record 43), where the arc is not the hand at all.
+                    return ReportFanArcOrder(false, n, 0, 0u,
+                        "an arc card is not in this hand's fan walk (a loan or a pick fan)");
                 }
                 order[k] = at;
-                if (at != k)
-                    identity = false;
             }
             s_fanOrderDerived.Clear();
-            // IDENTITY IS ONLY SILENCE WHEN THE ARC HOLDS THE WHOLE LIST. With a shorter arc the
-            // entries can still read 0,1,2,… and the record is anything but redundant: it is the
-            // only thing that says the derived members past `n` are NOT in the arc. Omitting it
-            // there is exactly what the receiver reads as "the two lists agree", which is the
-            // reading that drew a whole fan of backs.
-            if (identity && !shorterArc)
-                return false;       // nothing to state: absence already means "this order"
+            // NO IDENTITY SHORTCUT. See the header: the receiver has nothing to "keep", so an
+            // omitted record is read as the GAME's order and the fan snaps back to it. State it.
             count = n;
-            return true;
+            return ReportFanArcOrder(true, n, n, fp, string.Empty);
         }
-        catch (System.Exception)
+        catch (System.Exception ex)
         {
             s_fanOrderDerived.Clear();
-            return false;           // a card mid-teardown must never take down the extras sender
+            count = 0;
+            // A card mid-teardown must never take down the extras sender — but it must not be
+            // indistinguishable from a resting fan either.
+            return ReportFanArcOrder(false, 0, 0, 0u, "sampler threw: " + ex.GetType().Name);
         }
     }
 

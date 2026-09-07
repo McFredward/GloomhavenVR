@@ -1068,14 +1068,23 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // 200 ms makes the peer's fan appear noticeably after the hand gesture that raised it. Send
         // on change too, same argument (and same tiny cost) as the card-FX pre-emption below.
         int handNow = CardFan.Current?.Count ?? 0;
-        // FAN ARC ORDER (extension record 44, report item 2 of 2026-09-06): the left-to-right order
-        // of our OWN arc, read HERE and not anywhere else — on the same call and the same frame as
-        // the count above, because a permutation that travels one packet apart from the count it
-        // permutes describes a different fan. Returns false (and writes no record) whenever the arc
-        // is already in the order every receiver derives, which is the common case and is what keeps
-        // an un-dragged player's packet byte-identical to ModBuild 461's.
+        // FAN ARC ORDER (extension record 44, report item 2 of 2026-09-06 and again of 2026-09-07):
+        // the left-to-right order of our OWN arc, read HERE and not anywhere else — on the same call
+        // and the same frame as the count above, because a permutation that travels one packet apart
+        // from the count it permutes describes a different fan. Returns false (and writes no record)
+        // only where it cannot honestly describe the arc, and it says which exit fired: see
+        // LocalRigSampler.ReportFanArcOrder, grep token FAN ARC ORDER SENT.
+        //
+        // IT IS HANDED OUR PLAYER ID AND NOT A HAND, and that IS the 2026-09-07 fix. This call used
+        // to pass CardsGameApi.ActiveHand() — CardsHandManager.CurrentHand, the tab the game last
+        // switched to, which is NOT the hand CardsDriver builds the arc from (that is
+        // CharacterFocus.ResolveHand(DecidingHand() ?? ActiveHand())). Whenever the two differed the
+        // sampler derived its indices against another character's widgets, refused, and the fan
+        // diverged for every watcher with nothing in either log to say so. The sampler now asks the
+        // ARC which hand lists it, and refuses unless that hand belongs to the very actor a watcher
+        // resolves for us — NetPlayerActors.ActorFor(this id), the receiver's own expression.
         bool fanArcOrder = LocalRigSampler.SampleFanArcOrder(
-            CardsGameApi.ActiveHand(), _fanArcOrderBuf, out int fanArcOrderCount);
+            _transport.LocalPlayerId, _fanArcOrderBuf, out int fanArcOrderCount);
         ItemsPile? itemsNow = ItemsPile.Current;
         int itemsCount = itemsNow != null && itemsNow.IsOpen ? itemsNow.Chips.Count : 0;
         bool countsChanged = handNow != _lastSentHandCount || itemsCount != _lastSentItemCount;

@@ -361,12 +361,16 @@ internal sealed partial class CardsDriver
     /// The two orders therefore differ for most of the session, in BOTH directions, and that is
     /// report item 2 with a number on it: "ganz rechts eine andere Karte".</para>
     ///
-    /// <para>NOTHING HERE IS A FIX. The order is NOT on the wire - <c>_fanOrder</c> is
-    /// session-local and no record carries a permutation - so a DIVERGED reading is a defect this
-    /// build reports and does not repair. Closing it needs the owner's arc order transmitted (one
-    /// nibble per seat over record 36's own index space is enough for a 15-card hand); that is a
-    /// wire change and is deliberately not made in the same build as the item-1 membership fix, so
-    /// that this line's verdict cannot be contaminated by it.</para>
+    /// <para>THE PARAGRAPH THAT STOOD HERE IS FALSE AND WAS FALSE FOR NINE BUILDS. It read
+    /// "NOTHING HERE IS A FIX. The order is NOT on the wire - <c>_fanOrder</c> is session-local and
+    /// no record carries a permutation". <c>NetProtocol.ExtIdFanArcOrder</c> (record 44) has
+    /// carried exactly that permutation since ModBuild 462, and the shipped log STRING said the
+    /// same thing to whoever grepped it. So read this line for what it now is: a statement about
+    /// THIS machine's two orders and nothing about the wire. A DIVERGED reading means the owner's
+    /// arc is not the game's order — which is the state record 44 exists to carry, not a defect on
+    /// its own. Whether it travelled is the <c>FAN ARC ORDER SENT</c> line beside it
+    /// (<c>LocalRigSampler</c>), and whether it landed is <c>MIRRORED ARC ORDER</c> on the watcher;
+    /// all three print the SAME fingerprint for the same arc.</para>
     /// </summary>
     private void LogFanOrderMirror()
     {
@@ -416,10 +420,15 @@ internal sealed partial class CardsDriver
             + "order-sensitive fold over CardInstanceID, which is host-replicated, so it is also "
             + "directly comparable with the peer's 'MIRRORED ARC ORDER' fp for this same hand when "
             + "their log IS present. n=A/B with A!=B is a MEMBERSHIP disagreement and not an order "
-            + "one: read it first, because the order verdict beside it is then meaningless. THIS "
-            + "BUILD DOES NOT FIX A DIVERGENCE — the arc order is on no wire (_fanOrder is "
-            + "session-local), so closing it needs a new record and that is deliberately not in "
-            + "the same build as the item-1 membership fix.");
+            + "one: read it first, because the order verdict beside it is then meaningless. THE "
+            + "ARC ORDER IS ON THE WIRE since ModBuild 462 (extension record 44), so a DIVERGED "
+            + "reading here is NOT by itself a divergence any watcher sees — it says only that the "
+            + "owner's arc is not the game's order, which is exactly what the record exists to "
+            + "carry. The reading that decides whether it TRAVELLED is this machine's own 'FAN ARC "
+            + "ORDER SENT' line beside it: SENT with the same fp means the arc was stated in full, "
+            + "WITHHELD names the exit that refused it. Before the 2026-09-07 fix this string ended 'THIS "
+            + "BUILD DOES NOT FIX A DIVERGENCE — the arc order is on no wire', which had been false "
+            + "for nine builds and sent the next reader looking for a record that already existed.");
     }
 
     /// <summary>A widget's card name for a log line, never null.</summary>

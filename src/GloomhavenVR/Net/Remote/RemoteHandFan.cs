@@ -2405,12 +2405,68 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// this fan had not already applied) — the "the order arrived" half of the falsifier.</summary>
     private int _orderStated;
 
-    /// <summary>How many of those were an exact permutation of the seats this client held and were
-    /// therefore APPLIED — the "the order was applied" half. Deliberately a SEPARATE number from
-    /// <see cref="_orderStated"/>: stated &gt; 0 with applied == 0 is the one reading that says the
-    /// record travelled and the belt refused it, which is a different defect from the record never
-    /// being sent at all.</summary>
+    /// <summary>How many of those DISTINCT orders were an exact permutation of the seats this
+    /// client held and were therefore APPLIED — the "the order was applied" half. Deliberately a
+    /// SEPARATE number from <see cref="_orderStated"/>: stated &gt; 0 with applied == 0 is the one
+    /// reading that says the record travelled and the belt refused it, which is a different defect
+    /// from the record never being sent at all.
+    ///
+    /// <para>COUNTED PER DISTINCT ORDER AND NOT PER FRAME, which it was not until 2026-09-07 — and
+    /// that made the pair unreadable in exactly the round it was shipped for. The 2026-09-06 logs
+    /// carry <c>stated=23 applied=37</c> and <c>stated=25 applied=131</c>: applied &gt; stated is
+    /// impossible under the reading the line's own prose gives ("how many of THEM were applied"),
+    /// because applied was counting FRAMES while stated counted orders. Two populations, one ratio
+    /// — the recorded failure this project calls "a ratio with two populations". Both numbers now
+    /// count orders, so <c>applied &lt; stated</c> is a real refusal count and the pair
+    /// subtracts.</para></summary>
     private int _orderApplied;
+
+    /// <summary>Change key for <see cref="_orderApplied"/>, so one standing order applied over
+    /// 200 frames counts once. Distinct from <see cref="_orderKey"/>: an order can be STATED for
+    /// many frames before the seats this client holds let it be applied.</summary>
+    private int _orderAppliedKey = int.MinValue;
+
+    /// <summary>How many times the arc was drawn in the order this fan LAST APPLIED because the
+    /// current packet stated none — see <see cref="_latchOrderIds"/>.</summary>
+    private int _orderHeld;
+
+    /// <summary>The last order this fan actually applied, as <c>CardInstanceID</c>s in arc order.
+    /// Empty when nothing has ever applied for this peer.
+    ///
+    /// <para>THE RECEIVER HAD NOTHING TO KEEP, AND EVERY COMMENT AROUND IT SAID IT DID. Four source
+    /// blocks — this file's, <c>LocalRigSampler.SampleFanArcOrder</c>'s, <c>NetProtocol</c>'s
+    /// record-44 header and the sender's own economy argument — asserted that omitting the record
+    /// is safe because "silence means keep the order you already had". It never did:
+    /// <c>_handBuffer</c> is rebuilt from <c>CardsGameApi.HandFanMember</c> every frame, in the
+    /// GAME's order, and <see cref="ApplyFanArcOrder"/> re-derives the arc from whatever the
+    /// CURRENT packet states. Absence therefore meant "go back to the game's order", and the fan
+    /// snapped between the owner's arrangement and the game's every time the sender's arc drifted
+    /// into the identity the sender was withholding on. MEASURED, cross-log, same session
+    /// (2026-09-07): remote 197677 applies <c>fp=27e7dccb</c> (right='Scurry', the host's own DRAWN
+    /// fingerprint at host 196933); 79 lines later remote 197756 prints <c>fp=5469e8a7</c>
+    /// (right='FearsomeBlade', the host's DERIVED fingerprint) with <c>none stated</c>, while the
+    /// host's own <c>FAN ORDER MIRROR</c> had not changed at all. "Ganz rechts eine andere Karte",
+    /// with both hex words and both card names.</para>
+    ///
+    /// <para>THE SENDER NOW STATES AN IDENTITY EXPLICITLY, so this latch is a belt and not the fix
+    /// — it covers a genuinely lost packet and a transient sender refusal. It is keyed on CARD
+    /// IDENTITY and expires the instant the membership changes, so it can never hold an order over
+    /// a hand it no longer describes: a draw, a burn, a play or a pluck all invalidate it and the
+    /// fan falls back to the game's order exactly as before.</para></summary>
+    private readonly List<int> _latchOrderIds = new(MaxCards);
+
+    /// <summary>The <c>CardInstanceID</c>s of the whole derived model list at the moment
+    /// <see cref="_latchOrderIds"/> was recorded, ASCENDING. The latch may only be re-applied while
+    /// the current model list holds exactly this set — same cards, any order.</summary>
+    private readonly List<int> _latchMemberIds = new(MaxCards);
+
+    /// <summary>Scratch for the latch's membership compare. Reused; this runs every frame the fan
+    /// is up and no order is stated.</summary>
+    private readonly List<int> _latchScratch = new(MaxCards);
+
+    /// <summary>True while the order in force this frame came from <see cref="_latchOrderIds"/>
+    /// rather than from a record on this packet — the HELD verdict of the log line.</summary>
+    private bool _orderFromLatch;
 
     /// <summary>Why the most recent stated order was refused, for the log line. Empty when the last
     /// one was applied.</summary>
@@ -2455,10 +2511,28 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private void ApplyFanArcOrder(int count)
     {
         _orderArcValid = false;
+        _orderFromLatch = false;
+        // A CLOSED FAN FORGETS. Nothing this latch holds survives the arc going away, so a fan
+        // raised again is never drawn in an order its owner left behind minutes ago.
+        if (count <= 0)
+            ClearFanArcLatch();
         int[]? order = _owner.FanArcOrder;
         int stated = _owner.FanArcOrderCount;
         if (order == null || stated <= 0)
         {
+            // SILENCE KEEPS THE ORDER, WHICH IS WHAT FOUR SOURCE COMMENTS HAVE CLAIMED SINCE
+            // ModBuild 462 AND NO CODE DID. See _latchOrderIds for the cross-log reading that
+            // convicts it. Keyed on card identity and on an UNCHANGED membership, so it holds a
+            // dropped packet and never a stale hand.
+            if (TryHoldFanArcOrder(count))
+            {
+                _orderRefusal = string.Empty;
+                _orderArcValid = true;
+                _orderFromLatch = true;
+                _orderHeld++;
+                ReportArcOrderIfChanged(count);
+                return;
+            }
             _orderRefusal = "none stated";
             ReportArcOrderIfChanged(count);
             return;
@@ -2519,8 +2593,129 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _orderScratch.Add(_handBuffer[order[k]]);
         _orderRefusal = string.Empty;
         _orderArcValid = true;
-        _orderApplied++;
+        // ONE COUNT PER DISTINCT ORDER APPLIED, for the same reason _orderStated is: this runs
+        // every frame the fan is up, and a per-frame count is not comparable with a per-order one.
+        if (key != _orderAppliedKey)
+        {
+            _orderAppliedKey = key;
+            _orderApplied++;
+        }
+        RecordFanArcLatch();
         ReportArcOrderIfChanged(count);
+    }
+
+    /// <summary>Forget the last applied order. Called when the arc goes away and whenever the
+    /// membership the latch was recorded over no longer holds.</summary>
+    private void ClearFanArcLatch()
+    {
+        _latchOrderIds.Clear();
+        _latchMemberIds.Clear();
+    }
+
+    /// <summary>
+    /// Remember the order just staged in <see cref="_orderScratch"/>, by CARD IDENTITY, together
+    /// with the membership of the whole derived model list it was gathered out of.
+    ///
+    /// <para>Identities, not indices: a derived index means nothing once the list it indexed
+    /// changes, which is precisely the state the latch must refuse to survive. Any card whose
+    /// <c>CardInstanceID</c> is 0 or repeated makes the whole latch unrecordable — a fold that
+    /// cannot name every card must not be used to reorder them.</para>
+    /// </summary>
+    private void RecordFanArcLatch()
+    {
+        ClearFanArcLatch();
+        for (int k = 0; k < _orderScratch.Count; k++)
+        {
+            AbilityCardUI? w = _orderScratch[k];
+            int id = w != null ? w.CardInstanceID : 0;
+            if (id == 0 || _latchOrderIds.Contains(id))
+            {
+                ClearFanArcLatch();
+                return;
+            }
+            _latchOrderIds.Add(id);
+        }
+        for (int i = 0; i < _handBuffer.Count; i++)
+        {
+            AbilityCardUI? w = _handBuffer[i];
+            int id = w != null ? w.CardInstanceID : 0;
+            if (id == 0 || _latchMemberIds.Contains(id))
+            {
+                ClearFanArcLatch();
+                return;
+            }
+            _latchMemberIds.Add(id);
+        }
+        _latchMemberIds.Sort();
+    }
+
+    /// <summary>
+    /// Re-lay <see cref="_handBuffer"/> into the order this fan LAST APPLIED, when the current
+    /// packet states none. Returns false — and changes nothing — unless every term holds.
+    ///
+    /// <para>THE TERMS, and each one is what stops a held order from becoming a lie:</para>
+    /// <list type="bullet">
+    ///   <item>an order was applied at least once for this peer, so the latch describes something
+    ///     they really stated rather than something this client invented;</item>
+    ///   <item>it names exactly <paramref name="count"/> seats — the arc on the wire NOW, so a
+    ///     draw, a burn, a play or a pluck since the latch was taken refuses it;</item>
+    ///   <item>the derived model list holds exactly the membership the latch was recorded over,
+    ///     compared as a SET of card identities, so the same cards in any order qualify and one
+    ///     different card does not;</item>
+    ///   <item>every latched id is found exactly once in that list.</item>
+    /// </list>
+    ///
+    /// <para>Fails closed in the same direction as everything else here: on any doubt the arc is
+    /// drawn in the game's order, which is what every build before ModBuild 462 drew.</para>
+    /// </summary>
+    private bool TryHoldFanArcOrder(int count)
+    {
+        if (_latchOrderIds.Count == 0 || _latchOrderIds.Count != count)
+            return false;
+        if (_handBuffer.Count == 0 || _handBuffer.Count != _latchMemberIds.Count)
+            return false;
+        _latchScratch.Clear();
+        for (int i = 0; i < _handBuffer.Count; i++)
+        {
+            AbilityCardUI? w = _handBuffer[i];
+            int id = w != null ? w.CardInstanceID : 0;
+            if (id == 0)
+                return false;
+            _latchScratch.Add(id);
+        }
+        _latchScratch.Sort();
+        for (int i = 0; i < _latchScratch.Count; i++)
+        {
+            if (_latchScratch[i] != _latchMemberIds[i])
+            {
+                // The membership moved on. The latch describes a hand that no longer exists and
+                // must not outlive it.
+                ClearFanArcLatch();
+                return false;
+            }
+        }
+        _orderScratch.Clear();
+        for (int k = 0; k < _latchOrderIds.Count; k++)
+        {
+            int want = _latchOrderIds[k];
+            AbilityCardUI? found = null;
+            for (int i = 0; i < _handBuffer.Count; i++)
+            {
+                AbilityCardUI? w = _handBuffer[i];
+                if (w != null && w.CardInstanceID == want)
+                {
+                    found = w;
+                    break;
+                }
+            }
+            if (found == null)
+            {
+                _orderScratch.Clear();
+                return false;
+            }
+            _orderScratch.Add(found);
+        }
+        return true;
     }
 
     /// <summary>
@@ -2601,23 +2796,34 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     {
         int build = VersionGuard.PeerBuild(_owner.PlayerId);
         // A PEER THAT CANNOT SEND ONE IS A DIFFERENT ANSWER FROM ONE THAT DID NOT, and only this
-        // term can tell them apart: the sender omits the record both when its arc already matches
-        // and when its build has never heard of record 44. Asked only where nothing was stated,
-        // so a peer who HAS sent orders this session is never mislabelled by a dropped packet.
+        // term can tell them apart. IT IS THE BUILD THAT DECIDES, NOT THE COUNTER — until
+        // 2026-09-07 this said "peer build {build}" for ANY peer that had not yet stated an order,
+        // so the very first grep of the 2026-09-07 host log returned `reason=peer build 470
+        // ... peer ModBuild 470, ours 470` on a peer that is four builds PAST the record, under a
+        // sentence reading "that player CANNOT send an order". A capable peer that has said nothing
+        // yet is 'none stated'; only a build that has never heard of record 44 is a build answer.
+        bool peerCanSend = build >= NetProtocol.FanArcOrderMinPeerBuild;
         string reason = _orderArcValid
             ? string.Empty
-            : _orderStated == 0 && _orderRefusal == "none stated"
+            : !peerCanSend && _orderRefusal == "none stated"
                 ? $"peer build {build}"
                 : _orderRefusal;
-        string verdict = _orderArcValid ? "APPLIED" : reason;
+        string verdict = _orderArcValid ? (_orderFromLatch ? "HELD" : "APPLIED") : reason;
         if (verdict == _loggedOrderVerdict)
             return;
         _loggedOrderVerdict = verdict;
-        // HW-VERIFY: report item 2 (2026-09-06). Grep token: ARC ORDER NOT APPLIED.
+        // HW-VERIFY: report item 2 (2026-09-06, again 2026-09-07). Grep token: ARC ORDER NOT
+        // APPLIED.
         VRLog.Note("Net", _orderArcValid
-            ? $"ARC ORDER NOT APPLIED [player {_owner.PlayerId}]: (cleared) — this arc IS now in "
-              + $"its owner's own left-to-right order, applied from extension record 44 over "
-              + $"{count} seat(s). stated={_orderStated} applied={_orderApplied}. The user's "
+            ? $"ARC ORDER NOT APPLIED [player {_owner.PlayerId}]: (cleared, {verdict}) — this arc "
+              + "IS in its owner's own left-to-right order over "
+              + $"{count} seat(s). stated={_orderStated} applied={_orderApplied} held={_orderHeld}"
+              + ". APPLIED means extension record 44 rode this packet and named it; HELD means this "
+              + "packet named none and the arc was drawn in the order this fan LAST applied, which "
+              + "is only allowed while the membership is unchanged card for card (see "
+              + "TryHoldFanArcOrder). Before the 2026-09-07 fix there was no HELD: an absent record meant "
+              + "the slab list stayed in the GAME's order, so the fan snapped back and forth every "
+              + "time the sender's arc drifted into the identity the sender withheld on. The user's "
               + "requirement for this fan is met: \"jegliche Umsortierungen die ein Spieler taetigt "
               + "MUESSEN zwingend auch so von allen anderen Spielern gesehen werden\"."
             : $"ARC ORDER NOT APPLIED [player {_owner.PlayerId}]: this client is drawing this "
@@ -3552,8 +3758,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             + $"{FanListName(_owner.FanSourceList)} arc={count} model={_handBuffer.Count} "
             + $"recordListLen={_arcHeldListLength} held={held} suppressed={suppressed} "
             + $"right='{rightMost}' fp={(haveIds ? fp.ToString("x8") : "--------")} | ORDER RECORD "
-            + $"44: stated={_orderStated} applied={_orderApplied} thisFrame="
-            + $"{(_orderArcValid ? "APPLIED" : "refused/" + (_orderRefusal.Length > 0 ? _orderRefusal : "none stated"))}"
+            + $"44: stated={_orderStated} applied={_orderApplied} held={_orderHeld} thisFrame="
+            + $"{(_orderArcValid ? (_orderFromLatch ? "HELD" : "APPLIED") : "refused/" + (_orderRefusal.Length > 0 ? _orderRefusal : "none stated"))}"
             + ". MEMBERSHIP: "
             + "held is how many seats record 36 names in THIS fan's list and suppressed is how "
             + "many slabs this fan is therefore not drawing; held>0 with suppressed=0 is the INERT "
@@ -3565,19 +3771,24 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             + "so THE SAME HAND IN THE SAME ORDER PRINTS THE SAME WORD ON EVERY MACHINE — compare "
             + "it with the owner's own 'FAN ORDER MIRROR' line for that hand, and compare 'right' "
             + "with what they say is at the right edge, which is the literal complaint. A "
-            + "DIFFERENT fp for one hand is report item 2 and nothing else can produce it: this "
-            + "fan draws cardsUI order while the owner's arc draws CardsDriver._fanOrder, their "
-            + "session-only drag-reorder, which is on no wire. '--------' means this client has no "
+            + "DIFFERENT fp for one hand is report item 2: this fan draws cardsUI order unless "
+            + "record 44 says otherwise, while the owner's arc draws CardsDriver._fanOrder, their "
+            + "session-only drag-reorder. (Until the 2026-09-07 fix this sentence ended 'which is on no "
+            + "wire' — false since 462, when record 44 shipped to carry exactly it.) '--------' "
+            + "means this client has no "
             + "resolved model list to fold (the reveal gate, or a lagging model), so the ORDER half "
             + "of the line proves nothing that frame while every count above still holds. ORDER "
-            + "RECORD 44 IS A SEPARATE VERDICT FROM BOTH OF THOSE, and its two numbers are "
-            + "deliberately not one: 'stated' counts the DISTINCT orders this peer put on the wire "
-            + "and 'applied' counts how many of them were an exact permutation of the seats this "
-            + "client held and were therefore used. stated=0 means no order travelled — a FLAT "
-            + "player, a peer predating ModBuild 462, or (the common case) a peer whose arc "
-            + "already matches, since the sender does not spend bytes restating an order the "
-            + "receiver would derive anyway; that is NOT a defect and item 2 simply cannot be "
-            + "measured from it. stated>0 with applied=0 IS the defect: the record travelled and "
+            + "RECORD 44 IS A SEPARATE VERDICT FROM BOTH OF THOSE, and its numbers are "
+            + "deliberately not one: 'stated' counts the DISTINCT orders this peer put on the wire, "
+            + "'applied' counts how many of THOSE were an exact permutation of the seats this "
+            + "client held and were therefore used, and 'held' counts the frames the arc was drawn "
+            + "in the last applied order because this packet stated none. Both of the first two "
+            + "count ORDERS since the 2026-09-07 fix; before it 'applied' counted FRAMES, which is why "
+            + "the 470 logs carry the impossible pair stated=23 applied=37. stated=0 means no order "
+            + "has travelled yet — a FLAT player, a peer below ModBuild 462, or a peer whose fan "
+            + "has not been up; since the 2026-09-07 fix a capable sender states its arc on every packet it can "
+            + "describe, identity or not, so a LIVE fan with stated=0 is now itself the finding. "
+            + "stated>0 with applied=0 IS the defect: the record travelled and "
             + "the belt refused it, and 'thisFrame' names which of the four terms did — "
             + "'not a permutation' is the serious one and means the wire's own numbers were "
             + "self-contradictory, while 'model length' and 'no fronts' are the ordinary transients "
