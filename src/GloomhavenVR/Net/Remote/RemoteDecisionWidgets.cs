@@ -144,6 +144,35 @@ internal sealed class RemoteDecisionWidgets
         /// them itself.</para></summary>
         public Color HighlightedTint;
         public Color PressedTint;
+
+        // ---- the HOVER/PRESS GROW, captured from the same source widget for the same reason ----
+
+        /// <summary>The CLONE of the rect the game scales when this option is hovered or pressed —
+        /// <c>ExtendedButton.overridedTargetRectScale</c> when the prefab overrides it, otherwise
+        /// <c>ExtendedButton.TargetRect</c> (which defaults to the button's own RectTransform).
+        /// Null when the source is not an <c>ExtendedButton</c> or scales by 1, i.e. when there is
+        /// no grow to reproduce.</summary>
+        public Transform? ScaleNode;
+
+        /// <summary><c>ExtendedButton.highlightScaleFactor</c>. 0 = this option does not grow.</summary>
+        public float HoverScale;
+
+        /// <summary><c>ExtendedButton.animationDuration</c>, or 0 when the prefab has
+        /// <c>animateScaling</c> off — the game then writes the scale with no tween at all.</summary>
+        public float ScaleSeconds;
+
+        /// <summary>Tween bookkeeping: where the grow started, where it is going, when it started
+        /// (unscaled seconds) and what was last written. Kept in the node so the drive is a pure
+        /// function of the wire bits plus the clock and allocates nothing.</summary>
+        public float ScaleFrom;
+        public float ScaleTo;
+        public float ScaleAt;
+        public float ScaleNow;
+
+        /// <summary>The PRESS bit as of the last target decision — the discriminator between the
+        /// game's two writes: a hover edge TWEENS (LeanTween easeOutExpo) and a press edge SNAPS
+        /// (<c>OnPointerDown</c>/<c>OnPointerUp</c> assign <c>localScale</c> outright).</summary>
+        public bool WasPressed;
     }
 
     private readonly RoleNode[] _roles = new RoleNode[RoleSlots];
@@ -579,6 +608,11 @@ internal sealed class RemoteDecisionWidgets
             // them invisible — the mirror would then keep its last fit and the re-shown row could
             // stand at a stale size for a whole cadence tick. Nothing is on screen yet either way:
             // the paint below happens in this same frame, before anything renders.
+            // EVERY MEASUREMENT IN THIS METHOD SEES THE REST POSE. The two Refresh calls below
+            // re-fit from the clone's visible graphics and AnchorWidgetBlock re-solves the seat from
+            // its rects, so a live hover grow would resize and re-seat the whole row on the content
+            // cadence — see SuspendHoverScales for the defect and why the tween state survives it.
+            SuspendHoverScales();
             _mirror.SetShown(true);
             if (!_mirror.Refresh(source))
                 return Down(_mirror.Reason);
@@ -607,6 +641,8 @@ internal sealed class RemoteDecisionWidgets
             // …and only NOW seat it: the anchor measures the clone the paint above just decided the
             // visibility of, so it has to run after Apply and after the re-fit that follows it.
             AnchorWidgetBlock();
+            // …and only after the last measurement is the owner's live grow put back on the clone.
+            TickHoverScales();
             if (!Showing)
             {
                 Showing = true;
@@ -655,6 +691,13 @@ internal sealed class RemoteDecisionWidgets
     {
         if (!Showing || _boundStamp != _mirror.RebuildStamp)
             return;
+        // THE GROW IS ADVANCED BEFORE THE GATE, and it has to be: the gate fires on the frame the
+        // owner's hover CHANGES, and what this pass draws is the 0.3 s of animation that follows it
+        // (ExtendedButton.animationDuration). A tween hung off a change gate would jump straight to
+        // its end value on the one frame the bit moved and then stand still — which is exactly the
+        // "one-frame switch wearing a ramp's clothes" this project has shipped before. Costs one
+        // float compare per option on a settled row and writes nothing.
+        TickHoverScales();
         // NOT gated on the roles being present: a DialogPopup has none by design (see _options),
         // and requiring them here would have silently switched the pointer drive off for exactly
         // the prompt this class most recently learned to mirror.
@@ -700,6 +743,12 @@ internal sealed class RemoteDecisionWidgets
     /// hardware log states whether a peer saw the real row or the fallback, and why).</summary>
     private bool Down(string reason)
     {
+        // The grow goes with the row. A clone parked at 1.05 would come back for the NEXT prompt
+        // already hovered and then ease down to rest, which is an animation the owner never played.
+        for (int i = 0; i < _roles.Length; i++)
+            RestHoverScale(ref _roles[i]);
+        for (int i = 0; i < _options.Length; i++)
+            RestHoverScale(ref _options[i]);
         _mirror.SetShown(false);
         // Hand the seat back UNSHIFTED. The lift belongs to one clone of one prompt; leaving it on
         // the frame would displace the next prompt's clone by the previous one's question height
@@ -846,6 +895,14 @@ internal sealed class RemoteDecisionWidgets
     /// </summary>
     private void Bind(byte kind)
     {
+        BindCore(kind);
+        NoteHoverGrow(kind);
+    }
+
+    /// <summary>The bind itself — see <see cref="Bind"/>, which wraps it so the hover-grow
+    /// census below runs whichever of the three prompt branches returned.</summary>
+    private void BindCore(byte kind)
+    {
         _boundStamp = _mirror.RebuildStamp;
         _appliedKey = -1; // a fresh clone repaints from scratch
         _appliedPointerBits = -1;
@@ -991,9 +1048,74 @@ internal sealed class RemoteDecisionWidgets
         };
         if (source is Toggle toggle && toggle.graphic != null)
             node.ChosenGraphic = CloneGraphic(toggle.graphic.transform);
+        BindHoverScale(ref node, source);
         var group = clone.GetComponent<CanvasGroup>();
         node.Group = group != null ? group : clone.gameObject.AddComponent<CanvasGroup>();
         return node;
+    }
+
+    /// <summary>
+    /// CAPTURE THE OWNER'S HOVER GROW — the animation half of the 1:1 ruling for this row.
+    ///
+    /// <para>USER RULING 2026-09-07 item 6b, verbatim: "WENN ein Item eine valide Entscheidung von
+    /// einem User möchte und es als Icon angezeigt wird, soll dieses Item 1:1 (d.h. selbe Größe,
+    /// selbes Icon, selbes Verhalten, selbe Animationen, selbe Position) am remote board angezeigt
+    /// werden." Everything in that list was already mirrored except the ANIMATION: this row
+    /// reproduced the owner's four <c>ColorBlock</c> tints and nothing else, so an option the owner
+    /// was hovering changed COLOUR on every board and changed SIZE only on theirs.</para>
+    ///
+    /// <para>WHY IT IS CAPTURED HERE AND NOT ASKED FOR LATER — the same argument the four tints
+    /// above carry: <see cref="RemoteWidgetMirror"/> destroys every <c>Selectable</c> on the clone
+    /// before it is shown, so by paint time there is no <c>ExtendedButton</c> left to hold a
+    /// <c>highlightScaleFactor</c>. The three numbers are read off the SOURCE widget while it still
+    /// exists, and the mirror animates them itself.</para>
+    ///
+    /// <para>WHICH OPTIONS THIS ACTUALLY REACHES, measured rather than assumed: only the ones whose
+    /// game widget IS an <c>ExtendedButton</c> — the short-rest <c>YesNoDialog.yesButton</c> /
+    /// <c>noButton</c> (YesNoDialog.cs:18-21) and every <c>DialogPopup</c> pooled option
+    /// (<c>InputButton.ExtendedButton</c>, DialogPopup.cs:178). The TAKE-DAMAGE row is deliberately
+    /// NOT among them and that is not a gap: <c>TakeDamagePanel</c>'s three widgets are
+    /// <c>TrackedButton</c> / <c>TrackedToggle</c> (TakeDamagePanel.cs:54-60), which derive from
+    /// plain <c>Button</c>/<c>Toggle</c> and carry no scale animation at all — so on that prompt
+    /// there is nothing to reproduce and the mirror is already 1:1 in this axis.</para>
+    ///
+    /// <para>THE GATE IS <c>IsInteractable</c>, AND THE SENDER OWNS IT. The game grows a
+    /// NON-interactable button too when its prefab has <c>scaleNonInteractable</c> (default true,
+    /// ExtendedButton.cs:22/411), but record 24's hover and press bits are deliberately withheld
+    /// for a non-interactable option (<c>DecisionDockSurface.SamplePointerBits</c>), so this drive
+    /// cannot see that case. It is left withheld ON PURPOSE: the same two bits also drive the
+    /// mod-drawn plate row's hover tint, which the owner's greyed widget does NOT show, so widening
+    /// the sampler would fix one axis and break another. Named here so the residual is a known,
+    /// bounded one rather than a rediscovery.</para>
+    /// </summary>
+    private void BindHoverScale(ref RoleNode node, Selectable source)
+    {
+        if (source is not ExtendedButton eb)
+            return;
+        float factor = eb.highlightScaleFactor;
+        // A prefab that scales by 1 (or by nothing at all) has no grow; a NEGATIVE or absurd factor
+        // is a prefab this build does not understand and is refused rather than reproduced.
+        if (!(factor > 0f) || factor > 4f || Mathf.Approximately(factor, 1f))
+            return;
+        // ExtendedButton.TargetRect's getter WRITES its own cache when targetRect is null
+        // (ExtendedButton.cs:124-133). This is presentation code reading a game component, so the
+        // getter's fallback is reproduced here instead of invoked — the mod never writes a field of
+        // somebody else's widget, not even a lazily-initialised one.
+        RectTransform? target = eb.overridedTargetRectScale != null
+            ? eb.overridedTargetRectScale
+            : eb.targetRect != null ? eb.targetRect : source.transform as RectTransform;
+        Transform? cloneTarget = _mirror.CloneOf(target);
+        if (cloneTarget == null)
+            return;
+        node.ScaleNode = cloneTarget;
+        node.HoverScale = factor;
+        // animateScaling off ⇒ ToggleHighlight assigns the scale with no tween (ExtendedButton.cs:462-468).
+        node.ScaleSeconds = eb.animateScaling ? Mathf.Max(0f, eb.animationDuration) : 0f;
+        node.ScaleFrom = 1f;
+        node.ScaleTo = 1f;
+        node.ScaleNow = 1f;
+        node.ScaleAt = 0f;
+        node.WasPressed = false;
     }
 
     private Graphic? CloneGraphic(Transform? src)
@@ -1094,7 +1216,7 @@ internal sealed class RemoteDecisionWidgets
         Color antique = WorldUI.Surfaces.DecisionDockSurface.AntiqueTint;
         for (int role = 1; role < RoleSlots; role++)
         {
-            if (PaintOption(_roles[role], present[role], antique))
+            if (PaintOption(ref _roles[role], present[role], antique))
                 shown++;
         }
 
@@ -1106,7 +1228,7 @@ internal sealed class RemoteDecisionWidgets
             byte state = states != null && i < states.Length
                 ? states[i]
                 : NetProtocol.DecisionOptionOfferedBit;
-            if (PaintOption(_options[i], (byte)(state | 0x80), antique))
+            if (PaintOption(ref _options[i], (byte)(state | 0x80), antique))
                 shown++;
         }
 
@@ -1155,7 +1277,7 @@ internal sealed class RemoteDecisionWidgets
     /// uGUI colour write dirties the canvas, and this runs on the content cadence AND on the
     /// per-frame pointer drive.</para>
     /// </summary>
-    private static bool PaintOption(RoleNode node, byte packed, Color antique)
+    private static bool PaintOption(ref RoleNode node, byte packed, Color antique)
     {
         if (node.Clone == null)
             return false;
@@ -1163,7 +1285,13 @@ internal sealed class RemoteDecisionWidgets
         if (node.Clone.gameObject.activeSelf != on)
             node.Clone.gameObject.SetActive(on);
         if (!on)
+        {
+            // An option the owner has stopped showing goes back to its rest size, with no tween: a
+            // widget that is not on screen has no animation to be seen mid-way through, and leaving
+            // a grown scale on a hidden node would show the NEXT prompt's option pre-hovered.
+            RestHoverScale(ref node);
             return false;
+        }
         {
             byte state = (byte)(packed & 0x7F);
             bool offered = (state & NetProtocol.DecisionOptionOfferedBit) != 0;
@@ -1171,6 +1299,8 @@ internal sealed class RemoteDecisionWidgets
             bool chosen = (state & NetProtocol.DecisionOptionChosenBit) != 0;
             bool hovered = (state & NetProtocol.DecisionOptionHoveredBit) != 0;
             bool pressed = (state & NetProtocol.DecisionOptionPressedBit) != 0;
+
+            AimHoverScale(ref node, offered, hovered, pressed);
 
             if (node.Background != null)
             {
@@ -1209,6 +1339,216 @@ internal sealed class RemoteDecisionWidgets
                 node.ChosenGraphic.enabled = chosen; // what Toggle.graphic does when it is on
         }
         return true;
+    }
+
+    // =====================================================================================
+    // THE HOVER GROW — the owner's own ExtendedButton animation, replayed from records 24/29.
+    // =====================================================================================
+
+    /// <summary>Last hover-grow census printed, so a settled prompt states itself once.</summary>
+    private string _lastGrowNote = string.Empty;
+
+    /// <summary>
+    /// SAY WHAT THIS BIND CAN ANIMATE, AND WHAT IT CANNOT — the falsifier for the 1:1 animation
+    /// claim, printed once per prompt whose census changes.
+    ///
+    /// <para>A "0 of N" line is not a failure and must not be read as one: on the TAKE-DAMAGE
+    /// prompt it is the CORRECT answer, because <c>TrackedButton</c>/<c>TrackedToggle</c> have no
+    /// grow to reproduce. It IS a failure on a short rest or a popup, where every option is an
+    /// <c>ExtendedButton</c> — so the prompt name is in the line, and it is the field to read
+    /// first.</para>
+    /// </summary>
+    private void NoteHoverGrow(byte kind)
+    {
+        int withGrow = 0, bound = 0;
+        float factor = 0f, seconds = 0f;
+        for (int i = 0; i < _roles.Length; i++)
+            CountGrow(_roles[i], ref bound, ref withGrow, ref factor, ref seconds);
+        for (int i = 0; i < _options.Length; i++)
+            CountGrow(_options[i], ref bound, ref withGrow, ref factor, ref seconds);
+        if (bound == 0)
+            return;
+        string note = $"{PromptName(kind)}: {withGrow} of {bound} option(s) grow "
+                    + $"(factor {factor:F3}, {seconds * 1000f:F0} ms easeOutExpo)";
+        if (note == _lastGrowNote)
+            return;
+        _lastGrowNote = note;
+        // HW-VERIFY
+        VRLog.Note("Net", $"MIRRORED DECISION GROW: {note} — the OWNER's own "
+            + "ExtendedButton.highlightScaleFactor / animationDuration, read off THIS client's copy "
+            + "of the widget at bind time and replayed from record 24's hover and press bits, so a "
+            + "peer's option grows and pops exactly as the owner's does (user 2026-09-07 item 6b: "
+            + "\"selbe Animationen\"). READING IT: '0 of N' is the RIGHT answer for the take-damage "
+            + "prompt — TakeDamagePanel's widgets are TrackedButton/TrackedToggle and have no grow "
+            + "at all — and the WRONG answer for a short rest or a popup, whose options are all "
+            + "ExtendedButtons; a 0 there means CloneOf did not resolve the scale target and the "
+            + "row is back to colour-only. The grow is SUSPENDED for every measurement in Refresh, "
+            + "so it can move no geometry: if the mirrored row's size or seat changes while the "
+            + "owner's beam crosses it, THIS pass is not the cause and SuspendHoverScales is where "
+            + "to look. A non-interactable option never grows here even though the game grows it "
+            + "(scaleNonInteractable) — record 24 withholds pointer bits for it on purpose.");
+    }
+
+    private static void CountGrow(in RoleNode node, ref int bound, ref int withGrow,
+                                  ref float factor, ref float seconds)
+    {
+        if (node.Clone == null)
+            return;
+        bound++;
+        if (node.ScaleNode == null || !(node.HoverScale > 0f))
+            return;
+        withGrow++;
+        factor = node.HoverScale;
+        seconds = node.ScaleSeconds;
+    }
+
+    /// <summary>
+    /// Point one option's grow at where the OWNER's widget is going, from the two wire pointer bits.
+    ///
+    /// <para>THE THREE TARGETS ARE THE GAME'S OWN, not a curve invented here:
+    /// <c>ExtendedButton.ToggleHighlight</c> tweens to <c>highlightScaleFactor</c> on hover and back
+    /// to 1 on exit (ExtendedButton.cs:451-453), <c>OnPointerDown</c> writes
+    /// <c>(highlightScaleFactor + 1) / 2</c> (ExtendedButton.cs:215) and <c>OnPointerUp</c> writes
+    /// <c>highlightScaleFactor</c> (ExtendedButton.cs:233) — the last two with NO tween. So a hover
+    /// edge is animated and a press edge SNAPS, and that difference is reproduced rather than
+    /// smoothed over: the press pop is the whole feel of the button.</para>
+    ///
+    /// <para>A NON-OFFERED option is pinned at rest. That follows the sender, which publishes no
+    /// pointer bit at all for a non-interactable widget — see <see cref="BindHoverScale"/> for why
+    /// that asymmetry is deliberate and what it costs.</para>
+    ///
+    /// <para>Writes NOTHING to a transform: it only aims. <see cref="TickHoverScales"/> owns every
+    /// write, so the fit and the block measurement can neutralise the row for one statement without
+    /// having to know anything about the tween's state.</para>
+    /// </summary>
+    private static void AimHoverScale(ref RoleNode node, bool offered, bool hovered, bool pressed)
+    {
+        if (node.ScaleNode == null || !(node.HoverScale > 0f))
+            return;
+        float want = !offered ? 1f
+            : pressed ? (node.HoverScale + 1f) * 0.5f
+            : hovered ? node.HoverScale
+            : 1f;
+        if (!Mathf.Approximately(want, node.ScaleTo))
+        {
+            // A PRESS EDGE SNAPS (both directions: down writes the half value, up writes the full
+            // one), everything else eases. Compared against the bit the last aim saw, so the
+            // discriminator is the transition and not the state.
+            bool pressEdge = pressed != node.WasPressed;
+            node.ScaleTo = want;
+            node.ScaleFrom = pressEdge || node.ScaleSeconds <= 0f ? want : node.ScaleNow;
+            node.ScaleAt = Time.unscaledTime;
+        }
+        node.WasPressed = pressed;
+    }
+
+    /// <summary>Put one option's grow back at rest immediately, tween state and all.</summary>
+    private static void RestHoverScale(ref RoleNode node)
+    {
+        if (node.ScaleNode == null || !(node.HoverScale > 0f))
+            return;
+        node.ScaleFrom = 1f;
+        node.ScaleTo = 1f;
+        node.ScaleAt = 0f;
+        node.WasPressed = false;
+        WriteHoverScale(ref node, 1f);
+    }
+
+    /// <summary>
+    /// Advance every option's grow one frame and write it. The ONLY writer of a clone's scale.
+    ///
+    /// <para>THE EASE IS LEANTWEEN'S <c>easeOutExpo</c>, which is what the game asks for
+    /// (ExtendedButton.cs:453) and is <c>1 - 2^(-10 t)</c> normalised so it lands exactly on the
+    /// target at t = 1 — a curve that stopped 0.1 % short would leave every settled button
+    /// permanently the wrong size, which is precisely the axis this pass exists to get right. The
+    /// clock is <c>Time.unscaledTime</c> because the game's own tween is
+    /// <c>setIgnoreTimeScale(true)</c>.</para>
+    ///
+    /// <para>CHEAP ON THE FRAMES THAT MATTER: a settled option costs one float compare and returns
+    /// before touching a transform, so the steady state of a mirrored row is
+    /// <c>RoleSlots + DecisionStateMaxOptions</c> compares per frame and zero writes.</para>
+    /// </summary>
+    private void TickHoverScales()
+    {
+        float now = Time.unscaledTime;
+        for (int i = 0; i < _roles.Length; i++)
+            AdvanceHoverScale(ref _roles[i], now);
+        for (int i = 0; i < _options.Length; i++)
+            AdvanceHoverScale(ref _options[i], now);
+    }
+
+    private static void AdvanceHoverScale(ref RoleNode node, float now)
+    {
+        if (node.ScaleNode == null || !(node.HoverScale > 0f))
+            return;
+        float s;
+        if (node.ScaleSeconds > 0f)
+        {
+            float t = Mathf.Clamp01((now - node.ScaleAt) / node.ScaleSeconds);
+            // easeOutExpo, normalised to reach 1 exactly at t = 1 (LeanTweenType.easeOutExpo).
+            float e = t >= 1f ? 1f : 1f - Mathf.Pow(2f, -10f * t);
+            s = Mathf.LerpUnclamped(node.ScaleFrom, node.ScaleTo, e);
+        }
+        else
+        {
+            s = node.ScaleTo;
+        }
+        if (Mathf.Approximately(s, node.ScaleNow))
+            return;
+        WriteHoverScale(ref node, s);
+    }
+
+    private static void WriteHoverScale(ref RoleNode node, float s)
+    {
+        node.ScaleNow = s;
+        Transform t = node.ScaleNode!;
+        Vector3 cur = t.localScale;
+        // Z is left alone: the game writes (f, f, 1) on a uGUI rect whose Z scale is 1 anyway, and
+        // preserving whatever the clone was authored with is the change that cannot surprise.
+        if (!Mathf.Approximately(cur.x, s) || !Mathf.Approximately(cur.y, s))
+            t.localScale = new Vector3(s, s, cur.z);
+    }
+
+    /// <summary>
+    /// Put every grow back to rest for the duration of a MEASUREMENT — the fit and the widget-block
+    /// walk both measure the clone, and a hovered option is 5 % bigger than the same option a
+    /// moment later.
+    ///
+    /// <para>WHY THIS EXISTS AT ALL. <see cref="RemoteWidgetMirror.Refresh"/> re-fits on every
+    /// content tick, and <see cref="AnchorWidgetBlock"/> re-solves the seat from the clone's own
+    /// rects. Letting either of them see a live hover would resize and re-seat the whole mirrored
+    /// row four times a second while the owner's beam crossed it — the identical defect
+    /// <c>WorldUI.Surfaces.UseBarsSurface</c> documents at length on the owner's own dock ("the
+    /// docked symbol jumps on hover/press", 88x152 → 94x165 → 94x217 px). The measurement therefore
+    /// always sees the REST pose, which is also the pose it saw in every build before the grow
+    /// existed — so this pass cannot move a single millimetre of the row's geometry.</para>
+    ///
+    /// <para>Nothing renders between this and the <see cref="TickHoverScales"/> that follows it in
+    /// the same frame, so there is no flash to see.</para>
+    ///
+    /// <para>IT SUSPENDS, IT DOES NOT RESET. The tween's own state (where it came from, where it is
+    /// going, when it started) is left exactly as it was — clobbering it here would restart the
+    /// grow from 1 on every content tick, i.e. re-animate a settled hover four times a second,
+    /// which is a worse artefact than the one this guard exists to prevent. Only the WRITTEN value
+    /// is invalidated (NaN), which is what makes the next
+    /// <see cref="AdvanceHoverScale"/> write again instead of short-circuiting on "unchanged".</para>
+    /// </summary>
+    private void SuspendHoverScales()
+    {
+        for (int i = 0; i < _roles.Length; i++)
+            SuspendHoverScale(ref _roles[i]);
+        for (int i = 0; i < _options.Length; i++)
+            SuspendHoverScale(ref _options[i]);
+    }
+
+    private static void SuspendHoverScale(ref RoleNode node)
+    {
+        if (node.ScaleNode == null || !(node.HoverScale > 0f))
+            return;
+        Vector3 cur = node.ScaleNode.localScale;
+        if (!Mathf.Approximately(cur.x, 1f) || !Mathf.Approximately(cur.y, 1f))
+            node.ScaleNode.localScale = new Vector3(1f, 1f, cur.z);
+        node.ScaleNow = float.NaN; // "what is on the transform is not what the tween says"
     }
 
     /// <summary>
