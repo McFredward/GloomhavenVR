@@ -2134,25 +2134,45 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// would mean the two machines build the discard arc differently — one expression has grown a
     /// second copy again, and CardsGameApi.GetPileArcWidgets is the place to look.</para>
     /// </summary>
-    private void LogSacrificeSeat(int slot, CAbilityCard card, CPlayerActor? actor)
+    private void LogSacrificeSeat(int slot, CAbilityCard card, CPlayerActor? actor, bool front,
+                                  RevealGate.FaceRule rule)
     {
-        int key = slot * 1000 + card.ID;
+        int key = (slot * 1000 + card.ID) * 2 + (front ? 1 : 0);
         if (_loggedSacrifice == key)
             return;
         _loggedSacrifice = key;
         // HW-VERIFY: report item 15, the RECEIVER edge. Note tier because the co-player runs at the
         // shipped default level and either tester can be the one watching.
+        //
+        // THIS LINE USED TO STATE ITS OWN VERDICT AS A CONSTANT, AND IT WAS FALSE (found 2026-09-07
+        // while reading report item 8). It printed "draws the REAL FRONT of 'X'" and "it is drawn
+        // face-up even though the game's secret selection phase is open — RevealGate.
+        // PeerCardPopulation.SacrificedCard is the named carve-out" on EVERY call, unconditionally,
+        // while the branch that calls it had already stopped hardcoding front:true and that carve-out
+        // had already been RETIRED by the same 2026-09-07 item 6 that made a short rest covered. So
+        // the ModBuild 476 host log's `SHORT REST SEAT [player 2]: round slot 1 draws the REAL FRONT
+        // of 'ABILITY_CARD_SpareDagger'` (raw 199601) is NOT evidence that a front was drawn there —
+        // it is evidence that this string was never re-derived. Anything concluded from those eight
+        // lines about which face a sacrifice recess showed has to be re-measured. It now quotes the
+        // term that actually decided, through the same RevealGate.RuleText every other face line
+        // uses, and the dedupe key carries the verdict so a recess that FLIPS prints again instead
+        // of being swallowed by the key it already printed under.
         VRLog.Note("Net", $"SHORT REST SEAT [player {_owner.PlayerId}]: round slot {slot + 1} draws "
-            + $"the REAL FRONT of '{card.Name}' (card id {card.ID}) — resolved from the DISCARD "
+            + $"'{card.Name}' (card id {card.ID}) with its "
+            + (front ? "REAL FRONT" : "BACK — an identity-KNOWN back, never an anonymous one")
+            + $", by {RevealGate.RuleText(rule)}. A SHORT REST'S SACRIFICE IS COVERED WHILE IT "
+            + "MERELY LIES THERE (2026-09-07 item 6, the user's third statement of it: \"Kurze Rast "
+            + "= Auswahlphase = verdeckt, Lange Rast = Aktionsphase = alles offen\") and turns "
+            + "face-up the instant its owner accepts, because the card lands in LostAbilityCards "
+            + "before the burn artwork starts and RevealGate.IsPubliclyRevealedCard answers for it "
+            + "from then on. A long-rest or recover pick is the ACTION phase and is open on its "
+            + $"own. Resolved from the DISCARD "
             + $"arc at seat {NetProtocol.HeldFaceIndex(_owner.SacrificeSeatCode(slot))} of "
             + $"{_owner.SacrificeSeatCount(slot)} (extension record 39), for character "
-            + $"'{Board.CharacterFocus.Describe(actor)}'. This is the SACRIFICE a short rest lays "
-            + "face-up, and it is drawn face-up even though the game's secret selection phase is "
-            + "open — RevealGate.PeerCardPopulation.SacrificedCard is the named carve-out and the "
-            + "user's ruling behind it is verbatim in that member. WHAT ARRIVED IS A SEAT, never a "
+            + $"'{Board.CharacterFocus.Describe(actor)}'. WHAT ARRIVED IS A SEAT, never a "
             + "card id and never a card name: the owner's own client indexed the card in "
             + "CardsGameApi.GetPileArcWidgets(hand, burnt: false) and this client re-walked the same "
-            + "call, and the front is refused outright unless both copies of that list are exactly "
+            + "call, and the seat is refused outright unless both copies of that list are exactly "
             + "as long. Compare this card id with the owner's own 'SHORT REST SEAT ... SENT' seat and with "
             + "their 'SHORT REST SACRIFICE' line: two "
             + "different names for one rest is the 1:1 failure and means the two machines have "
@@ -2322,6 +2342,12 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // its edge.
         if (compact)
             _owner.HandFan.ClearHandoff();
+        // …AND THE HAND-OFF'S OWN SAFETY IS NOW DRIVEN FROM HERE TOO (2026-09-07 items 5a/5b). The
+        // fan's copy of this test only runs while the fan is TICKING, and RemoteHandFan.Tick returns
+        // before it the moment the owner's arc empties — which is precisely when a peer has finished
+        // laying their picked card down. The memory has to survive that (or the recess falls to an
+        // anonymous back in the action phase), so its expiry may not be the fan's job any more.
+        _owner.HandFan.ExpireHandoffAgainst(wire);
 
         int next = 0;
         for (int i = 0; i < SlotCount; i++)
@@ -2423,7 +2449,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 // come back.
                 _sacrificeSeatId[i] = sacrifice.CardInstanceID;
                 _sacrificeSeatAt[i] = Time.unscaledTime;
-                LogSacrificeSeat(i, sacrifice, actor);
+                LogSacrificeSeat(i, sacrifice, actor, pickFront, pickRule);
                 continue;
             }
             CAbilityCard? card = null;
@@ -2461,13 +2487,33 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 // lying on the board lands HERE when the owner's record 39 said nothing about it,
                 // and on the other branch when it said something this client could not resolve —
                 // two different fixes, so the rule has to tell them apart.
-                _pickSeatRule = NetProtocol.HeldFaceNamesCard(_owner.SacrificeSeatCode(i))
+                // THIS STRING USED TO BLAME RECORD 39 FOR EVERY ANONYMOUS RECESS, INCLUDING THE ONE
+                // CASE RECORD 39 CANNOT POSSIBLY ANSWER (2026-09-07 items 5a/5b). An avoid-damage
+                // burn lays a HAND card in a recess, and NetProtocol.RecessSeatListAllowed refuses
+                // HeldFaceListHand at the DECODE — the format cannot express that card even in
+                // principle — so "the sampler wrote no pile seat" was true, unhelpful and pointed a
+                // whole round of hardware testing at the wrong end of the wire. The FOURTH resolve,
+                // the fist's RECESS HAND-OFF, is the one that owes an answer for a hand card, and it
+                // never appeared in this string at all. It does now, so the next log says which of
+                // the two mechanisms was silent instead of naming the one that was never asked.
+                bool namedSeat = NetProtocol.HeldFaceNamesCard(_owner.SacrificeSeatCode(i));
+                bool handoffArmed = _owner.HandFan.HandoffFor(i) != null;
+                _pickSeatRule = namedSeat
                     ? "extension record 39 NAMED a seat for this recess and this client could not "
                       + "resolve it — the two copies of that pile arc disagree in LENGTH, or there "
                       + "is no hand for the character (read the owner's own seat line)"
                     : "extension record 39 named NO seat for this recess, so nothing can name the "
                       + "card in it: the owner's model does not list it in RoundAbilityCards and "
-                      + "their sampler wrote no pile seat either";
+                      + "their sampler wrote no pile seat either. THE FOURTH RESOLVE IS THE FIST'S "
+                      + "RECESS HAND-OFF and it "
+                      + (handoffArmed
+                          ? "IS armed for this recess, so it was overruled above and this line is "
+                            + "describing the wrong frame — read this method"
+                          : "is NOT armed, which for an avoid-damage burn is the WHOLE cause and "
+                            + "not a footnote: that card is a HAND card, and record 39 refuses "
+                            + "HeldFaceListHand at the decode (NetProtocol.RecessSeatListAllowed), "
+                            + "so the sampler was never able to name it. Read 'RECESS HAND-OFF' for "
+                            + "this peer, never the owner's 'SHORT REST SEAT' line");
                 _cards[i].SetAnonymousBack();
                 LogAnonymousRecess(i, actor);
                 continue;

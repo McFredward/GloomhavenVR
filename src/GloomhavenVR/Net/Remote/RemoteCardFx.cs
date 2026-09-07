@@ -108,6 +108,12 @@ internal sealed class RemoteCardFx
         /// the edge gate for <see cref="SetFrontFace"/>. Seeded true because that is what
         /// <see cref="Acquire"/> builds it with.</summary>
         public bool WearsBack = true;
+
+        /// <summary>The owner's own card WIDTH at this flight's origin and at its destination, in
+        /// metres. The slab ramps between them across the arc — see <see cref="WidthForAnchor"/>
+        /// and the scale write in <see cref="Tick"/>.</summary>
+        public float FromWidth = RemoteHandFan.DefaultCardWidth;
+        public float ToWidth = RemoteHandFan.DefaultCardWidth;
     }
 
     private readonly List<Flight> _flights = new(MaxFlights);
@@ -149,8 +155,11 @@ internal sealed class RemoteCardFx
     /// cards gets the bigger minimum arch they do.</summary>
     private float CardHeight => _cardWidth * (88f / 63.5f);
 
-    /// <summary>How much bigger/smaller than the nominal body the owner's cards are.</summary>
-    private float WidthRatio => _cardWidth / RemoteHandFan.DefaultCardWidth;
+    // WidthRatio (_cardWidth / DefaultCardWidth) USED TO LIVE HERE and is gone rather than left
+    // unused: the slab no longer has ONE width. It has an origin width and a destination width and
+    // ramps between them, exactly as VRCard.FlyToPile ramps its own scale — see WidthForAnchor and
+    // the block in Play(). A single ratio is the shape that produced report item 8's "kleine Karte
+    // in der Karte".
 
     public RemoteCardFx(RemoteAvatar owner)
     {
@@ -232,9 +241,41 @@ internal sealed class RemoteCardFx
                           Vector3.Distance(a, b) * ArcFraction);
         f.Elapsed = 0f;
         f.Active = true;
-        // Board scale × the owner's card width; the Body child under it carries the printed-face
-        // squash (see the _cardWidth block and Acquire).
-        f.Go.transform.localScale = Vector3.one * (scale * WidthRatio);
+        // ─── THE SLAB IS THE SIZE THE OWNER'S CARD IS, AT BOTH ENDS OF THE ARC (2026-09-07,
+        //     report item 8: "Die anderen Spieler am remote board sehen beim Flug kurz die offene
+        //     ... kleine Karte in der Karte clippen, und dann zum stapel fliegen.")
+        //
+        // A "kleine Karte in der Karte" is exactly what a CONSTANT scale produces here, and this
+        // line used to write one. The owner's own flight does not hold its size: VRCard.FlyToPile
+        // captures `_flyFromScale = transform.localScale` — the DOCKED scale, PlayTray.SlotCardScale
+        // — and ramps to `_flyToScale`, the pile slab's width, over the whole arc. So a card leaving
+        // a round recess starts at the RECESS card's size on its owner's board, and a short rest's
+        // sacrifice flying INTO the recess (Discard -> Slot0) grows into that seat. This mirror drew
+        // one fixed size for the whole flight — the owner's HAND card width — so at the recess end
+        // the slab was a different card size from the recess card sitting at the very same seat,
+        // which is a small card inside a card, clipping through it, for the length of the arc.
+        //
+        // TWO SIZES, BOTH ALREADY ON THE WIRE AND BOTH ALREADY DRAWN BY THIS CLIENT. A RECESS end is
+        // the owner's own slot card width (record ExtIdSlotCardSize, RemoteAvatar.SlotCardWidth —
+        // the identical number RemoteControlBoard sizes its recess cards with, so the two agree by
+        // construction rather than by arithmetic); every other end keeps the owner's hand CardWidth
+        // this surface has always used. No new wire field, and the 1:1 ruling names SIZE and
+        // ANIMATION explicitly.
+        //
+        // THE PILE END IS DELIBERATELY LEFT AT THE HAND WIDTH. The owner ramps to the PILE SLAB's
+        // width, and this client does not hold that number — nothing on the mirror draws a peer's
+        // pile at a known slab size, so writing one here would be inventing a value rather than
+        // mirroring one. The recess end is where the double is (a recess is the only anchor where
+        // this client draws a second card at the same point), so that is the end this fixes; the
+        // pile end is unchanged from every previous build and is named here so the next reader does
+        // not read the omission as an oversight.
+        f.FromWidth = WidthForAnchor(from);
+        f.ToWidth = WidthForAnchor(to);
+        // Board scale × the owner's card width AT THE ORIGIN; the Body child under it carries the
+        // printed-face squash (see the _cardWidth block and Acquire), and Tick ramps this to the
+        // destination width across the arc.
+        f.Go.transform.localScale =
+            Vector3.one * (scale * (f.FromWidth / RemoteHandFan.DefaultCardWidth));
 
         // ─── THE FACE (2026-09-06 report item 5) ────────────────────────────────────────────────
         string faceRule = ResolveFace(f, from, to);
@@ -550,6 +591,15 @@ internal sealed class RemoteCardFx
             float e = t * t * (3f - 2f * t);
             Vector3 p = Vector3.Lerp(f.From, f.To, e) + f.ArcUp * (Mathf.Sin(t * Mathf.PI) * f.Arc);
             f.Go.transform.SetPositionAndRotation(p, RotationFor(f, p));
+            // …AND THE SIZE RAMPS WITH IT (report item 8 — see the FromWidth/ToWidth block in Play).
+            // On the SMOOTHSTEPPED parameter, not the raw one, because VRCard.FlyToPile lerps its
+            // own scale on the same eased term it lerps the chord on: a slab that travelled on one
+            // curve and resized on another would be a second animation, not a mirror of the first.
+            // Re-read per frame because the board SCALE can move under a live flight (the owner may
+            // be dragging their diorama), which is the same reason the position write is per frame.
+            float liveScale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
+            f.Go.transform.localScale = Vector3.one
+                * (liveScale * (Mathf.Lerp(f.FromWidth, f.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
             if (t >= 1f)
             {
                 f.Active = false;
@@ -684,6 +734,27 @@ internal sealed class RemoteCardFx
         CardFxAnchor.Discard, CardFxAnchor.Burnt, CardFxAnchor.Items,
         CardFxAnchor.Active, CardFxAnchor.Slot0, CardFxAnchor.Slot1, CardFxAnchor.HandFan,
     };
+
+    /// <summary>
+    /// THE OWNER'S OWN CARD WIDTH AT ONE ANCHOR, in metres — the term the flight slab's scale ramp
+    /// is built from (see the block in <see cref="Play"/>).
+    ///
+    /// <para>A ROUND RECESS is the one anchor where this client draws a SECOND card at the very same
+    /// point (<c>RemoteBoardCard</c>, sized from <c>RemoteAvatar.SlotCardWidth</c>), so it is the one
+    /// anchor where a size disagreement shows up as one card clipping through another. Reading the
+    /// same field that surface reads means the flight and the recess card cannot be two sizes.</para>
+    ///
+    /// <para>Falls back to the owner's hand <c>CardWidth</c> for every other anchor and for a peer
+    /// whose slot-card record has not arrived — which is the size every build before this one drew
+    /// the whole arc at, so a missing record costs nothing that was not already the case.</para>
+    /// </summary>
+    private float WidthForAnchor(CardFxAnchor anchor)
+    {
+        if (anchor != CardFxAnchor.Slot0 && anchor != CardFxAnchor.Slot1)
+            return _cardWidth;
+        float slot = _owner.SlotCardWidth;
+        return slot > 0.001f ? slot : _cardWidth;
+    }
 
     /// <summary>
     /// World position of one anchor on the SENDER's furniture. Board anchors are the sender's

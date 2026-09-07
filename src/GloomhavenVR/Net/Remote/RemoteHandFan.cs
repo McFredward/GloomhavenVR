@@ -1340,7 +1340,18 @@ internal sealed class RemoteHandFan
             if (_cards.Count > 0)
                 Rebuild(0);
             PoseFan(holder, dt);
-            UpdateFaces(0, null);
+            // THE DISPLAYED CHARACTER, NOT `null` (2026-09-07 report items 5a/5b). An empty arc is a
+            // statement about the fan's LENGTH; it says nothing about whose fan it is. Handing null
+            // down here made TrackFist's character-change reset fire — `!ReferenceEquals(actor,
+            // _fistActor)` is true for every non-null previous actor — and that reset calls
+            // ClearHandoff(). So the RECESS HAND-OFF, the only local fact that can name a card a
+            // peer has just laid in one of their recesses, was destroyed by the owner's fan running
+            // out of cards: exactly the frame after they lay the last picked card down. The face
+            // that was about to be handed to RemoteControlBoard.SeatSlots was thrown away one tick
+            // before it was asked for, and the recess fell to an anonymous BACK in the ACTION phase.
+            // Nothing else about this call changes: count is 0, so the face loop below draws backs
+            // either way, and the gate is asked per frame as before.
+            UpdateFaces(0, _shownActor);
             return;
         }
 
@@ -2144,7 +2155,7 @@ internal sealed class RemoteHandFan
     /// <summary>WHICH arc list this fist's seat came out of — <c>HeldFaceListHand</c> in a scenario,
     /// <c>HeldFaceListMapLoadout</c> in the map room. Carried for ONE reason: the verdict line has to
     /// NAME the fan. Six builds of return-glide work were tested only against a scenario hand, and
-    /// nothing in the log said the other fan even existed (see <c>RemoteAvatar.IsHandArcList</c>).
+    /// nothing in the log said the other fan even existed (see <c>RemoteAvatar.IsFanArcList</c>).
     /// </summary>
     private byte _fistListId = NetProtocol.HeldFaceListNone;
 
@@ -2203,6 +2214,11 @@ internal sealed class RemoteHandFan
     /// client could name. The pair is the falsifier — see <see cref="LogHandoff"/>.</summary>
     private int _handoffGains;
     private int _handoffArmed;
+
+    /// <summary>WHICH TERM left the fist without a NAME on the last frame the wire named it — the
+    /// sentence <see cref="LogHandoff"/>'s NOT-ARMED branch prints. Empty while the fist IS named.
+    /// See the block in <see cref="TrackFist"/> for why this had to become a measurement.</summary>
+    private string _fistNameMiss = string.Empty;
     private int _loggedHandoff = -1;
 
     /// <summary>The occupancy mask this fan last saw, for the arrival census's gain edge.</summary>
@@ -3341,6 +3357,31 @@ internal sealed class RemoteHandFan
             AbilityCardUI? w = _handBuffer[seat];
             fist = w != null ? w.AbilityCard : null;
         }
+        // ─── WHY THE FIST HAS NO NAME, BANKED WHERE IT IS DECIDED (2026-09-07 items 5a/5b) ──────
+        // The RECESS HAND-OFF's own NOT-ARMED line told its reader to "read the FAN RETURN VERDICT
+        // line beside this one, and if it says term=seatUsable ...". That clause is NEVER EMITTED on
+        // the recess path: the arming branch below resolves with RefusalTerm.None by construction
+        // ("a card laid on the board owes no fan flight either way"). Measured on ModBuild 476 —
+        // every one of the 9 host and 8 peer occurrences of the token `term=` in those two logs is
+        // this very line QUOTING it, and not one is a measurement. So a mechanism that armed 1 of 15
+        // recess arrivals across a two-hour session could not say which of its four terms refused,
+        // and two rounds of hardware testing had nothing to read. It is banked here instead, on the
+        // frame the name is actually decided, and printed verbatim by LogHandoff.
+        if (named)
+            _fistNameMiss =
+                fist != null ? string.Empty
+              : !armed ? "armed — the front path resolved no hand list this frame (the reveal gate "
+                         + "is shut for this character, or the fan is drawing the map loadout), so "
+                         + "there was no buffer to take a name out of. Inside the secret selection "
+                         + "window this is CORRECT and nothing is owed"
+              : !seatInRange ? $"seatInRange — record 36 named seat {seat} of a {listLength}-card "
+                               + "list, which is not a seat in that list at all"
+              : listLength != _handBuffer.Count
+                    ? $"nameUsable — the two copies of that list disagree in LENGTH: the owner says "
+                      + $"{listLength}, this client resolves {_handBuffer.Count}. A positional seat "
+                      + "is only a name while both machines build the list with the same expression, "
+                      + "so this refuses rather than naming the card beside the right one"
+              : $"the widget at seat {seat} carried no AbilityCard";
 
         if (named)
         {
@@ -3606,6 +3647,35 @@ internal sealed class RemoteHandFan
         _handoffGainEpoch = -1;
     }
 
+    /// <summary>
+    /// THE HAND-OFF'S SAFETY, DRIVEN BY THE BOARD INSTEAD OF BY THE FAN — drop an armed hand-off
+    /// whose recess is no longer occupied on the owner's own board. Called from
+    /// <c>RemoteControlBoard.SeatSlots</c> with the wire's occupancy nibble, every board pass.
+    ///
+    /// <para>WHY IT CANNOT LIVE IN <see cref="ExpireHandoff"/> ALONE, which is the same test one
+    /// caller over. That one runs inside <see cref="TrackFist"/>, i.e. inside
+    /// <see cref="UpdateFaces"/>, i.e. inside <see cref="Tick"/> — and <see cref="Tick"/> returns
+    /// early, before any of them, the moment the owner's arc is empty and no slab is left
+    /// (`count == 0 &amp;&amp; _leaving.Count == 0 &amp;&amp; _cards.Count == 0` → <see cref="Hide"/>).
+    /// A peer who lays their picked card down and then closes their fan therefore froze the whole
+    /// mechanism: nothing retired the hand-off either. Keeping the memory alive across a closed fan
+    /// (which is what report items 5a/5b need) without this would be trading an anonymous back for
+    /// a STALE FRONT — a face from an earlier pick drawn confidently in a recess that has since
+    /// been refilled, which is the one failure this project ranks above every missing picture.
+    /// So the memory now outlives the fan and its expiry no longer depends on the fan at all.</para>
+    ///
+    /// <para>IT ONLY EVER CLEARS. It touches no counter and no epoch, so it cannot race
+    /// <see cref="TrackFist"/>'s arming arithmetic in a frame where both run: the arrival counting
+    /// and the epoch stamp stay exactly where they were, and this is a pure refusal on top.</para>
+    /// </summary>
+    internal void ExpireHandoffAgainst(int occupancyMask)
+    {
+        if (HandoffCard == null)
+            return;
+        if (_handoffRecess < 0 || (occupancyMask & (1 << _handoffRecess)) == 0)
+            ClearHandoff();
+    }
+
     /// <summary>The card this client saw handed into round recess <paramref name="recess"/>, or
     /// null. Read by <c>RemoteControlBoard.SeatSlots</c> only where its own walk and its own face
     /// latch have both come up empty, so a resolved model always wins.</summary>
@@ -3811,10 +3881,20 @@ internal sealed class RemoteHandFan
                 + "named a card, so the recess draws an anonymous back and the fan has nothing to "
                 + "drop from its own length. The name comes from record 36's seat, resolved one "
                 + "frame before the wire stopped naming it, so a nameless arrival means the fist "
-                + "was never resolved — read the 'FAN RETURN VERDICT' line beside this one, and if "
-                + "it says term=seatUsable read the seated-hand-card number in it: that is the term "
-                + "added for report item 6 and a 0 there while a card is visibly on their board "
-                + "means RemoteControlBoard.SeatedHandCardExcess is not seeing it.");
+                + "was never resolved. THE TERM THAT REFUSED, measured on the frame it refused: "
+                + (_fistNameMiss.Length > 0
+                    ? _fistNameMiss
+                    : "none banked — the fist was never named at all this session, i.e. record 36 "
+                      + "never reported a card of THIS FAN'S OWN LIST in their hand. Before "
+                      + "ModBuild 477 that was the standing state for every modal pick over a PILE, "
+                      + "because RemoteAvatar.IsFanArcList tested the literal pair "
+                      + "Hand||MapLoadout while the long rest's pick fan is the DISCARD arc")
+                + ". (This clause replaces a pointer at a 'term=' reading that the recess path never "
+                + "emits — the release below resolves with RefusalTerm.None by construction, so the "
+                + "old sentence sent every reader to a number that is not printed.) Beside it: "
+                + $"{_owner.SeatedHandCardExcess} hand card(s) of theirs are lying in a recess, and "
+                + "a 0 there while a card is visibly on their board means "
+                + "RemoteControlBoard.SeatedHandCardExcess is not seeing it.");
             return;
         }
         // HW-VERIFY: report item 5. Grep token: RECESS HAND-OFF.

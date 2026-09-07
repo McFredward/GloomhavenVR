@@ -614,8 +614,8 @@ internal sealed class RemoteAvatar
         listLength = 0;
         poseSlot = 0;
         listId = NetProtocol.HeldFaceListNone;
-        bool a = IsHandArcList(_heldFaceCode);
-        bool b = IsHandArcList(_secondHeldFaceCode);
+        bool a = IsFanArcList(_heldFaceCode);
+        bool b = IsFanArcList(_secondHeldFaceCode);
         if (a == b)
             return false; // none, or two fists — no single card to hand off
         byte code = a ? _heldFaceCode : _secondHeldFaceCode;
@@ -651,11 +651,50 @@ internal sealed class RemoteAvatar
     /// <c>MapRoomHand.TryNameLocalLoadoutSeat</c> over the initiative-sorted <c>_loadout</c> on the
     /// sender and <c>MapRoomHand.TryResolvePeerLoadout</c> over the same sort on the receiver.</para>
     /// </summary>
-    private static bool IsHandArcList(byte code)
+    private bool IsFanArcList(byte code)
     {
         if (!NetProtocol.HeldFaceNamesCard(code))
             return false;
         byte list = NetProtocol.HeldFaceList(code);
+        // ─── THE FAN IS NOT ALWAYS THE HAND, AND THIS PREDICATE WAS THE LAST PLACE THAT SAID IT
+        //     WAS (2026-09-07 report item 5b, and the user has now reported it THREE times:
+        //     "Selbes Problem besteht weiterhin auch bei der langen Rast. Die Karte die auf das
+        //     board gelegt wird wird mit der Rückseite dargestellt und in dem Moment in dem dort
+        //     eine Karte liegt ist auch der Fächer für die anderen Spieler nurnoch aus Rückseiten
+        //     bestehend. ... Diesen Fehler habe ich bereits wiederholt gemeldet!").
+        //
+        // ITS SIBLING WAS FIXED AND IT WAS NOT. HeldHandSeats already reads "the list the FAN is
+        // drawn from" off extension record 43 (see its own doc block, which records that exact fix
+        // for report item 7), and this method — the ONE thing that names the card a peer hands from
+        // their fist into a round recess — was left testing the literal pair Hand||MapLoadout. So
+        // during a modal pick over a PILE (the long rest's burn step fans the DISCARD pile) the
+        // card in the peer's fist is named in the DISCARD index space, this returned false, and
+        // TrackFist never resolved the fist at all. With no fist there is no release edge, with no
+        // release edge the RECESS HAND-OFF cannot arm, and with no hand-off:
+        //   * RemoteControlBoard.SeatSlots has nothing left to name the recess with and draws an
+        //     ANONYMOUS BACK — the card on the board (item 5b, first half), and
+        //   * RemoteHandFan's LENGTH BELT cannot drop the seated card from _handBuffer, the two
+        //     lengths disagree by one, and the belt refuses the WHOLE FAN — "in dem Moment in dem
+        //     dort eine Karte liegt ist auch der Fächer ... nurnoch aus Rückseiten" (second half).
+        // ONE predicate, both halves of one report item.
+        //
+        // MEASURED, ModBuild 476, both logs. `RECESS HAND-OFF ... NOT ARMED` reads 9 recess
+        // arrival(s) / 0 named on the host and 6 / 1 on the peer — 1 of 15 over a two-hour session.
+        // The peer log then carries the defect in the open: an ANONYMOUS RECESS at raw 171427
+        // during the host's LONG REST burn step, standing through SEVEN consecutive live census
+        // intervals (raws 172285, 173421, 174629, 175826, 176999, 178129, 179307), every one of
+        // them reading `PHASE=ActionSelection, POLICY=FRONTS EVERYWHERE ... round slots[p1]
+        // 0 FRONT / 1 BACK`. Not STALE, not the secret window, ~70 s long.
+        //
+        // WHY THIS IS THE SAME INDEX SPACE AND NOT A WIDENING. RemoteHandFan resolves that fan's
+        // faces out of the very pile record 43 names (_handBuffer IS the pile arc while a pick is
+        // open), so record 36's seat indexes the buffer the caller is about to read — which is
+        // exactly the relationship the Hand arm has always had. A card on loan from a pile BROWSE
+        // arc carries the same list id, and it is still refused by the caller's own length belt
+        // (nameUsable), unchanged: a browse loan does not shorten the arc, so the lengths do not
+        // come out even and no name is taken. Nothing crosses the wire that did not before.
+        if (NetProtocol.IsFanSourcePile(FanSourceList))
+            return list == FanSourceList;
         return list == NetProtocol.HeldFaceListHand || list == NetProtocol.HeldFaceListMapLoadout;
     }
 

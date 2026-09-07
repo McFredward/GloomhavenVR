@@ -2110,10 +2110,54 @@ internal sealed partial class CardsDriver
             AbilityCardUI widget = _widgetBuffer[i];
             if (widget.AbilityCard == null || widget.IsLongRest)
                 continue;
+            bool staticPair = (first != null && widget.fullAbilityCard == first)
+                              || (second != null && widget.fullAbilityCard == second);
+            // ─── A CARD THAT IS SITTING IN A PILE IS NOT A ROUND CARD, WHATEVER THE STATIC PAIR
+            //     SAYS (2026-09-07, the user's second item 5, verbatim: "Ich habe beim Schaden
+            //     erhalten des Mitspielers auf seinem remote-board eine Flug animation einer
+            //     verdeckten Karte sehen können! Wenn man den Schaden nimmt passiert gar nichts mit
+            //     den Karten - hier einen Flug macht absolut keinen Sinn.")
+            //
+            // THE CHAIN, MEASURED END TO END ACROSS BOTH ModBuild 476 LOGS. The game's own
+            // TakeDamagePanel offers "2 abgeworfene Karten verbrennen", and to offer it, it STAGES
+            // the two candidate cards OUT of DiscardedAbilityCards and exposes live AbilityCardUI
+            // widgets for them (peer raw 148862 publishes the three-option prompt; 148980 reads
+            // `Piles: discard=1` where 149216 reads `discard=3`). The player then clicks 'Receive
+            // Damage' (peer raw 148934) — the option under which NO CARD MOVES AT ALL. The panel
+            // closes, 'Cards Hands Manager' re-shows (148964), a rebuild runs, and this supplement
+            // admitted both staged widgets: peer 148973 `Dock seats [Steel]: 4 card(s) docked in the
+            // recesses`, four `Card appear` lines at 148974-148978 (two of them SpareDagger and
+            // OverwhelmingAssault, already discarded 172 s earlier at 127912/127916), and
+            // `Rebuild: mode=ActionSelection fan=2 tray=True half=4` at 148979. The game then
+            // un-stages them, they drop out of the dock, and TryStartFlyToPile sees its exact
+            // trigger signature — was in _lastHalfCards, is in no zone now, RoundCardExitOf answers
+            // Discarded — and fires TWICE: peer 149156/149160 `PILE FLIGHT [own] ... own-turn-clear
+            // ... game phase ActionSelection`, each with `FLIGHT ORIGIN [turn-clear]: this client's
+            // own card left the board CENTRE (no recess ...)` because both had been seated on the
+            // beside-Slot2 overflow, which RecessSeatOfCard refuses. The host mirrored both as
+            // face-down flights (host raw 167487/167494), and that is what he saw.
+            //
+            // WHY RoundCardExitOf COULD NOT CATCH IT, AND WHY THE FIX BELONGS HERE. That method is a
+            // MEMBERSHIP query, not an edge detector: a card that has lain in DiscardedAbilityCards
+            // for three minutes answers `Discarded` forever, and the only thing standing between it
+            // and a flight is this dock's membership. So the card must never enter the dock. There
+            // is already a gate of exactly this shape one branch up — the 2026-08-04 LONG REST
+            // hardening, written because the same static topCard/bottomCard singleton resurrected
+            // the previous round's pair — and the two failures are the same failure: the singleton
+            // is stale and the supplement believed it. That gate keys on a FLOW; this one keys on
+            // the CARD, so it covers every future flow that stages a pile card into a live widget
+            // without anybody having to enumerate them.
+            //
+            // IT CANNOT COST THE SUPPLEMENT ITS JOB. The supplement exists for the EXTRA-TURN pile
+            // (`CCharacterClass.ExtraTurnCards`, cards deliberately not in RoundAbilityCards), and
+            // an extra-turn card is in that list rather than in a pile, so it still passes. What is
+            // refused is only a card the model itself says has already left: discarded, burnt,
+            // permanently lost, or activated.
             bool isActionCard =
-                CardsGameApi.IsInRound(hand, widget.AbilityCard) ||
-                (first != null && widget.fullAbilityCard == first) ||
-                (second != null && widget.fullAbilityCard == second);
+                CardsGameApi.IsInRound(hand, widget.AbilityCard)
+                || (staticPair && !HasLeftTheRound(hand, widget));
+            if (staticPair && !isActionCard)
+                LogStaleStaticPairRefused(widget);
             if (isActionCard)
             {
                 VRCard card = AdoptedCard(widget);
@@ -2128,6 +2172,84 @@ internal sealed partial class CardsDriver
         }
 
         OrderRoundPairByInitiative(hand, into);
+    }
+
+    /// <summary>
+    /// HAS THIS WIDGET'S CARD ALREADY LEFT THE ROUND, according to the game's own authoritative
+    /// lists? The gate the static <c>CardsActionControlller.topCard/bottomCard</c> supplement in
+    /// <see cref="CollectRoundCards"/> is asked before it may dock a card.
+    ///
+    /// <para>ONE EXPRESSION, AND THE SAME ORDER <see cref="RoundCardExitOf"/> USES: the "is it still
+    /// a round card" question first, so <c>ExtraTurnCards</c> — the entire reason the supplement
+    /// exists — can never be read as "left". Only then the four lists that mean it is gone. It is a
+    /// separate predicate rather than a call into <see cref="RoundCardExitOf"/> because that method
+    /// takes a <c>VRCard</c>, which this loop does not have yet: reaching one would mean calling
+    /// <c>AdoptedCard</c>, i.e. ADOPTING the very card we are about to refuse.</para>
+    ///
+    /// <para>The card's OWN owner is authoritative, exactly as in <see cref="RoundCardExitOf"/> —
+    /// in a sequential two-character turn the staged widget can belong to a different actor than
+    /// the presented hand. Falls back to the hand's actor when the widget names none, and answers
+    /// FALSE (i.e. "not proven to have left", the answer that changes nothing) whenever the model
+    /// cannot be read at all.</para>
+    ///
+    /// <para><c>ActivatedCards</c> is the RAW <c>List&lt;CBaseCard&gt;</c> field, never the
+    /// <c>ActivatedAbilityCards</c> LINQ projection, which allocates a fresh list on every read —
+    /// this runs inside a rebuild.</para>
+    /// </summary>
+    private static bool HasLeftTheRound(CardsHandUI hand, AbilityCardUI widget)
+    {
+        CAbilityCard? ac = widget.AbilityCard;
+        CPlayerActor? owner = widget.PlayerActor != null ? widget.PlayerActor : hand.PlayerActor;
+        if (ac == null || owner == null)
+            return false;
+        CCharacterClass klass = owner.CharacterClass;
+        if (klass == null)
+            return false;
+        if (klass.RoundAbilityCards.Contains(ac) || klass.ExtraTurnCards.Contains(ac))
+            return false;
+        return klass.DiscardedAbilityCards.Contains(ac)
+               || klass.LostAbilityCards.Contains(ac)
+               || klass.PermanentlyLostAbilityCards.Contains(ac)
+               || klass.ActivatedCards.Contains(ac);
+    }
+
+    /// <summary>Widgets whose stale static-pair docking has already been reported, so the line below
+    /// is one per card per session rather than one per rebuild (the condition stands for as long as
+    /// the singleton is stale, which on the measured take-damage flow was ~3.7 s of rebuilds).
+    /// </summary>
+    private readonly HashSet<AbilityCardUI> _loggedStaleStaticPair = new();
+
+    private void LogStaleStaticPairRefused(AbilityCardUI widget)
+    {
+        if (!_loggedStaleStaticPair.Add(widget))
+            return;
+        // HW-VERIFY: 2026-09-07, the user's SECOND item 5 — "Ich habe beim Schaden erhalten des
+        // Mitspielers auf seinem remote-board eine Flug animation einer verdeckten Karte sehen
+        // können! Wenn man den Schaden nimmt passiert gar nichts mit den Karten". Grep token:
+        // STALE ROUND PAIR REFUSED.
+        //
+        // WORKING = this line firing on a take-damage decision, with NO 'Card appear' for that card
+        //           beside it and NO later '[Cards] PILE FLIGHT [own] ... own-turn-clear' naming it
+        //           in phase ActionSelection. On the ModBuild 476 peer log the same moment produced
+        //           `Dock seats: 4 card(s)`, four 'Card appear' lines and two spurious flights
+        //           (raws 148973-148978, 149156, 149160).
+        // INERT   = a repeat of that 476 signature with NO line here: the widget reached the dock
+        //           through CardsGameApi.IsInRound instead, i.e. the game really had put the card
+        //           back in RoundAbilityCards and this gate is not the one that owes the refusal.
+        // BEYOND  = this line firing on an EXTRA-TURN card (its own 'Dock seats' line then reports
+        //           fewer cards than the owner can see). That would mean ExtraTurnCards did not
+        //           hold a card the supplement exists for, and the term to add is that list's own
+        //           reading, never a loosening of the four pile tests.
+        VRLog.Note("Cards", "STALE ROUND PAIR REFUSED: the phase machine's static "
+            + $"CardsActionControlller pair still names '{CardName(widget.AbilityCard)}', but that "
+            + "card is sitting in one of its owner's PILES (discard / burnt / permanently lost / "
+            + "active) right now, so it is not a round card and does not dock. This is the "
+            + "take-damage staging window: the game's TakeDamagePanel lifts candidate cards out of "
+            + "DiscardedAbilityCards to offer 'X abgeworfene Karten verbrennen' and puts them back "
+            + "when the player takes the damage instead. Docking them made them appear on the "
+            + "board, and un-docking them made TryStartFlyToPile fly them to the discard pile a "
+            + "second time — a flight for a card that never moved, mirrored to every peer as an "
+            + "anonymous BACK because the overflow seat gives it no recess to inherit a face from.");
     }
 
     /// <summary>
