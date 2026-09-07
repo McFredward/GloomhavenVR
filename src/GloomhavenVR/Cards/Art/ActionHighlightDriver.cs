@@ -79,9 +79,13 @@ internal static class ActionHighlightDriver
 
         /// <summary>A peer's mirrored round-card recess (<c>Net.RemoteBoardCard.ApplyHalf</c>).</summary>
         MirroredRecess = 1,
+
+        /// <summary>A peer's mirrored ACTIVE-card matrix (<c>Net.RemoteActiveCardPulse</c>) — user
+        /// item 3 of 2026-09-07, the surface that had no driver at all until that round.</summary>
+        MirroredActiveMatrix = 2,
     }
 
-    private const int SiteCount = 2;
+    private const int SiteCount = 3;
 
     // ------------------------------------------------------------------ the assert --
 
@@ -233,6 +237,15 @@ internal static class ActionHighlightDriver
     /// once, because "plötzlich" is precisely a bucket change.</summary>
     private static int s_loggedBucket = int.MinValue;
 
+    /// <summary>The site's name as the census prints it — one expression, so a new site cannot be
+    /// added to the enum and silently print as an older one's label.</summary>
+    private static string SiteName(Site site) => site switch
+    {
+        Site.ActiveColumn => "OWN ACTIVE COLUMN",
+        Site.MirroredRecess => "MIRRORED RECESS",
+        _ => "MIRRORED ACTIVE MATRIX",
+    };
+
     /// <summary>Record one pulse restart and the gap since this object's previous one.</summary>
     private static void NoteRestart(CardActionHighlight target, Site site, bool steady)
     {
@@ -323,9 +336,12 @@ internal static class ActionHighlightDriver
 
         int columnRestarts = s_restarts[(int)Site.ActiveColumn];
         int mirrorRestarts = s_restarts[(int)Site.MirroredRecess];
+        int matrixRestarts = s_restarts[(int)Site.MirroredActiveMatrix];
         int columnGated = s_gated[(int)Site.ActiveColumn];
         int mirrorGated = s_gated[(int)Site.MirroredRecess];
-        if (columnRestarts + mirrorRestarts + columnGated + mirrorGated == 0)
+        int matrixGated = s_gated[(int)Site.MirroredActiveMatrix];
+        if (columnRestarts + mirrorRestarts + matrixRestarts
+            + columnGated + mirrorGated + matrixGated == 0)
         {
             s_nextCensus = now + CensusIntervalSeconds; // nothing asserted at all: no reading to give
             s_windowOpened = now;
@@ -337,12 +353,13 @@ internal static class ActionHighlightDriver
             ? "NOT SHORTENED (no highlight object was restarted twice this window, so the game's own "
               + "loop owned the phase end to end)"
             : $"{s_worstDeliveredSeconds:F3} s, i.e. {1f / s_worstDeliveredSeconds:F2} Hz, worst on "
-              + $"the {(s_worstSite == Site.ActiveColumn ? "OWN ACTIVE COLUMN" : "MIRRORED RECESS")}";
+              + $"the {SiteName(s_worstSite)}";
         string authored = leg > 0f
             ? $"{leg * 2f:F2} s ({leg:F2} s per leg x 2, alpha {s_authoredFromAlpha:F2} to "
               + $"{s_authoredToAlpha:F2}), read off the live CardActionHighlight"
             : "not read yet (no pulse restart has happened, so no component has been sampled)";
-        int steady = s_steadyRestarts[(int)Site.ActiveColumn] + s_steadyRestarts[(int)Site.MirroredRecess];
+        int steady = s_steadyRestarts[(int)Site.ActiveColumn] + s_steadyRestarts[(int)Site.MirroredRecess]
+                     + s_steadyRestarts[(int)Site.MirroredActiveMatrix];
 
         // HW-VERIFY: ITEM 7's whole answer, and the instrument the active column has never had.
         // WORKING = 'DELIVERED PERIOD NOT SHORTENED' on every line of the session, with the own
@@ -359,10 +376,12 @@ internal static class ActionHighlightDriver
             + $"re-stated every {CensusIntervalSeconds:F0} s; frame {Time.frameCount}): "
             + $"AUTHORED PERIOD {authored}. DELIVERED PERIOD {delivered}. "
             + "PHASE SOURCE: the game's own CardActionHighlight LeanTween chain, restarted "
-            + $"{columnRestarts} time(s) by the OWN ACTIVE COLUMN and {mirrorRestarts} time(s) by the "
-            + $"MIRRORED RECESS over the last {window:F1} s ({steady} of those were the STEADY "
+            + $"{columnRestarts} time(s) by the OWN ACTIVE COLUMN, {mirrorRestarts} time(s) by the "
+            + $"MIRRORED RECESS and {matrixRestarts} time(s) by the MIRRORED ACTIVE MATRIX over the "
+            + $"last {window:F1} s ({steady} of those were the STEADY "
             + "ShowSelected look, which has no period to shorten); the gate refused "
-            + $"{columnGated} own-column and {mirrorGated} mirrored assert(s) in the same window. "
+            + $"{columnGated} own-column, {mirrorGated} mirrored-recess and {matrixGated} "
+            + "mirrored-matrix assert(s) in the same window. "
             + $"DRIVERS ON ONE HALF, high-water: {s_driversHighWater} (2 = the big action region and "
             + "its standard-action chip are lit at once on the same half, so the eye sums two "
             + "pulses; the game's own RefreshHighlight keeps exactly one). READ THIS AS A RATE, NOT "
@@ -379,7 +398,13 @@ internal static class ActionHighlightDriver
                 + "surface until that method's body routes through VRCard.SetActionHighlight")
             + $", mirrored recess={(s_seen[(int)Site.MirroredRecess] ? "YES" : "NO — no peer board "
                 + "has drawn a real card face this session, so that column of numbers is empty by "
-                + "absence of a subject, not by a gate")}.");
+                + "absence of a subject, not by a gate")}"
+            + $", mirrored active matrix={(s_seen[(int)Site.MirroredActiveMatrix] ? "YES" : "NO — no "
+                + "peer's ACTIVE matrix has hosted a real card face this session (nobody has had an "
+                + "active card while their board was mirrored), so item 3's own numbers are empty by "
+                + "absence of a subject rather than by a gate; a peer WITH an active card and this "
+                + "still reading NO means Net.RemoteActiveCardPulse never found the hosted "
+                + "FullAbilityCard clone, which is the finding")}.");
 
         s_loggedBucket = bucket;
         s_nextCensus = now + CensusIntervalSeconds;

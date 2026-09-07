@@ -473,6 +473,23 @@ internal sealed class RemoteAvatar
     internal int HeldActiveSeats(out int seatA, out int seatB, out int listLength) =>
         HeldSeatsIn(NetProtocol.HeldFaceListActive, out seatA, out seatB, out listLength);
 
+    /// <summary>
+    /// As above, additionally reporting which POSE SLOT (<see cref="HeldSlab"/>'s argument)
+    /// <paramref name="seatA"/> came out of — so a caller can say WHICH FIST that active card is
+    /// in, not merely that it is in one. <paramref name="seatB"/>, when it exists, is always the
+    /// other slot by construction (see <see cref="HeldSeatsIn(byte, out int, out int, out int, out int)"/>).
+    ///
+    /// <para>Its one caller is <c>Net.RemoteActiveCards</c>'s pulse pass: the matrix cell of a held
+    /// active card is deliberately BLANK (report item 1, 2026-09-06) and the pulse has to follow
+    /// the card to the slab — "auch wenn der Spieler die jeweilige aktive Karte in die Hand nimmt
+    /// soll das pulsieren sichtbar sein" (user item 3, 2026-09-07). The same length belt the
+    /// blanking already applies governs it: a seat only names a card while the sender's walk and
+    /// this client's are the same length.</para>
+    /// </summary>
+    internal int HeldActiveSeats(out int seatA, out int seatB, out int listLength, out int poseSlotA) =>
+        HeldSeatsIn(NetProtocol.HeldFaceListActive, out seatA, out seatB, out listLength,
+                    out poseSlotA);
+
     /// <summary>Record 36's two pose slots, filtered to ONE list id — the single expression behind
     /// <see cref="HeldHandSeats"/> and <see cref="HeldPileSeats"/>. Two callers, one reading of the
     /// wire: a second copy is how the hand fan and the browse arc would come to disagree about what
@@ -787,6 +804,16 @@ internal sealed class RemoteAvatar
                                             out ScenarioRuleLibrary.CAbilityCard? card,
                                             out RemoteControlBoard.DepartedFaceVerdict verdict) =>
         _controlBoard.TryTakeDepartedFace(slot, destination, out card, out verdict);
+
+    /// <summary>
+    /// Is that card in the air RIGHT NOW on its way into this peer's ACTIVE matrix? The one
+    /// question <c>Net.RemoteActiveCards</c> asks of the flight pool, so the matrix cell can stay
+    /// empty for exactly as long as the owner's own cell is — see
+    /// <see cref="RemoteCardFx.IsFlyingToActive"/>, which has carried the answer since the stamp
+    /// shipped and had no caller at all until this one.
+    /// </summary>
+    internal bool IsCardFlyingToActive(int cardInstanceId) =>
+        _cardFx.IsFlyingToActive(cardInstanceId);
 
     /// <summary>
     /// NAME the card ARRIVING in one of this peer's round recesses — the opposite direction of the

@@ -24,30 +24,43 @@ namespace GloomhavenVR.Net;
 /// In practice an active card is public by definition (it was played face-up in front of everybody),
 /// so the gate can only ever be stricter than vanilla, never looser.
 ///
-/// <para>OPEN, MEASURED, AND NOT FIXED HERE — THE 0.4 s OVERLAP. Since ModBuild 462 a card going
-/// active also flies a mirrored slab into this column (<c>CardFxAnchor.Active</c>), and this column
-/// is rebuilt from the host-replicated <c>ActivatedCards</c>, which holds the card from the moment
-/// the model moved it. So for the flight's 0.4 s an observer sees the card in its CELL and a second
-/// copy of it in the AIR, while the owner sees exactly one — their flying card IS the cell's card
+/// <para>CLOSED — THE 0.4 s OVERLAP, WHICH WAS ALSO THE WRONG-TIMING HALF OF USER ITEM 2. Since
+/// ModBuild 462 a card going active also flies a mirrored slab into this column
+/// (<c>CardFxAnchor.Active</c>), and this column is rebuilt from the host-replicated
+/// <c>ActivatedCards</c>, which holds the card from the moment the model moved it. So for the
+/// flight's 0.4 s an observer saw the card SEATED IN ITS CELL and a second copy of it in the AIR,
+/// while the owner sees exactly one — their flying card IS the cell's card
 /// (<c>ActivePileViewer.Relayout</c> hands it the cell and <c>VRCard</c> ignores its home while
-/// <c>IsFlying</c>), so the owner's cell is empty for the whole arc. Two copies of one card is the
-/// failure this project ranks above a missing animation, and ModBuild 461 hid the flight slab for
-/// the round recesses for exactly this reason.</para>
+/// <c>IsFlying</c>), so the owner's cell is EMPTY for the whole arc and the card APPEARS when the
+/// arc lands.</para>
 ///
-/// <para>IT IS NOT FIXED IN THIS FILE BECAUSE THE ONLY EXACT SIGNAL IS IN ANOTHER ONE. Suppressing
-/// the cell needs the IDENTITY of the card currently in the air, and that is resolved inside
-/// <c>RemoteCardFx.ResolveFace</c> (via <c>RemoteAvatar.TryTakeDepartedRecessFace</c>) and kept in
-/// its private <c>Flight</c> pool; nothing on <see cref="RemoteAvatar"/> exposes it. THE EXACT
-/// CHANGE OWED: <c>RemoteCardFx</c> records the claimed <c>CAbilityCard</c>'s
-/// <c>CardInstanceID</c> on the <c>Flight</c> it starts for a <c>-&gt; Active</c> destination and
-/// exposes a <c>bool IsFlyingToActive(int cardInstanceId)</c> that scans its live flights; this
-/// class then blanks that card's cell through the SAME <c>Set(null, showFronts, actor)</c> the
-/// held-seat suppression below already uses — one hiding mechanism, no second one to keep in step.
-/// A DERIVED CLOCK WAS DELIBERATELY REJECTED: this surface refreshes at 4 Hz
-/// (<c>RemoteBoardContent.RefreshSeconds</c>) and the arc lasts 0.4 s, so a timer started from the
-/// arrival this class can see would blank the cell for up to a full arc AFTER the slab had already
-/// landed — a card popping out of the matrix and back, which is worse than the overlap and would be
-/// a second, drifting copy of a fact the flight already knows.</para>
+/// <para>THE USER READ THAT AS THE FLIGHT HAVING ALREADY HAPPENED, and said so (2026-09-07, item 2,
+/// verbatim): "Der Mitspieler hat eine Karte aktiviert und ich habe auf dem remote baord direkt
+/// schon den Flug zur Aktiven karten gesehen. … Am Ende des Zuges am remote board gab es dann gar
+/// kein FLug mehr wo der Flug hätte sein sollen zu den aktiven Karten (weil es ihn schon bereits
+/// davor gab). Am lokalen Board passt alles." A cell that fills BEFORE its arc is a card that has
+/// arrived, and an arc that then lands on an already-occupied cell delivers nothing — so the
+/// mirror's active card gained no moment of arrival at all. 1:1 covers TIMING, and the owner's
+/// timing is: empty cell, arc, card.</para>
+///
+/// <para>THE FIX IS A CONSUMER, NOT A MECHANISM. <c>RemoteCardFx</c> has stamped the flown card's
+/// <c>CardInstanceID</c> on its <c>Flight</c> and exposed <c>bool IsFlyingToActive(int)</c> since
+/// that half shipped — and until this build NOTHING CALLED IT. A producer with no consumer reads
+/// exactly like a fix that is in place, which is why the overlap survived the build that "closed"
+/// it. <see cref="Refresh"/> now asks (through <c>RemoteAvatar.IsCardFlyingToActive</c>) and blanks
+/// that card's cell through the SAME <c>Set(null, showFronts, actor)</c> the held-seat suppression
+/// below uses — one hiding mechanism, no second one to keep in step. A DERIVED CLOCK WAS
+/// DELIBERATELY REJECTED: this surface refreshes at 4 Hz (<c>RemoteBoardContent.RefreshSeconds</c>)
+/// and the arc lasts 0.4 s, so a timer started from the arrival this class can see would blank the
+/// cell for up to a full arc AFTER the slab had already landed — a card popping out of the matrix
+/// and back. The flight's own clock cannot drift from the flight.</para>
+///
+/// <para>AND A LOST <c>-&gt; Active</c> EVENT COSTS NOTHING. The extras stream is unreliable by
+/// contract; a dropped event means no flight starts, <c>IsFlyingToActive</c> answers false, and the
+/// cell draws immediately — the pre-ModBuild-462 picture, i.e. a missing animation and never a
+/// hidden card. <see cref="ReportArrivals"/> is keyed on the DRAWN set for the same reason, so its
+/// line still fires exactly once per activation, at the moment the card actually becomes visible
+/// here.</para>
 /// </summary>
 /// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. Source:
 /// <c>CCharacterClass.ActivatedAbilityCards</c> off the host-replicated actor
@@ -123,6 +136,30 @@ internal sealed class RemoteActiveCards
     /// than a player id.</summary>
     private readonly RemoteAvatar _owner;
 
+    /// <summary>The pulsing ACTIVE REGION on this board's mirrored active cards, and on that
+    /// peer's fist while they are holding one — user item 3 of 2026-09-07. Zero wire; it resolves
+    /// the half off the same local model this column reads. See
+    /// <see cref="RemoteActiveCardPulse"/>.</summary>
+    private readonly RemoteActiveCardPulse _pulse;
+
+    /// <summary>Cells held back this pass because that card is in the AIR on its way here (user
+    /// item 2) — indices into <see cref="_buffer"/>. Reused, never re-allocated.</summary>
+    private readonly HashSet<int> _flyingSeats = new(2);
+
+    /// <summary>Card instance ids that have already spent their one pass of grace waiting for an
+    /// arc to start (see the block in <see cref="Refresh"/>). Pruned with
+    /// <see cref="_seatedIds"/>, so a card that goes active, expires and goes active again gets a
+    /// fresh grace rather than appearing instantly the second time.</summary>
+    private readonly HashSet<int> _gracedIds = new(InitialSlots);
+
+    /// <summary>The cell-local position of every cell this pass actually SEATED a card in, and the
+    /// card that went into it — parallel lists, handed to <see cref="RemoteActiveCardPulse"/> so a
+    /// hosted clone can be traced back to its card. A blanked cell is deliberately absent: its
+    /// object is switched off and hosts nothing. See the pulse class for why the clone's own
+    /// <c>AbilityCard</c> can never answer this.</summary>
+    private readonly List<Vector3> _cellPos = new(InitialSlots);
+    private readonly List<CAbilityCard> _cellCard = new(InitialSlots);
+
     public RemoteActiveCards(RemoteAvatar owner, int playerId, Transform boardRoot,
                              in RemoteBoardLayout layout)
     {
@@ -134,6 +171,7 @@ internal sealed class RemoteActiveCards
         // and card scale, keyed by the peer's synced style (RemoteBoardLayout). The old hardcoded
         // base dropped both, so on Steel/Bronze this column sat 20–40 mm behind the owner's and at
         // the wrong card size — part of defect (c) of the 1:1-parity round.
+        _pulse = new RemoteActiveCardPulse(playerId);
         _root.localPosition = layout.ActiveMount;
         _root.localScale = Vector3.one * layout.ActiveCardScale;
 
@@ -221,6 +259,62 @@ internal sealed class RemoteActiveCards
             + "until now RemoteHeldCardFace was its only consumer.");
     }
 
+    /// <summary>Has <c>IsFlyingToActive</c> EVER answered true on this board? The one term that
+    /// separates "the hold is working" from "the hold never had a flight to hold for" — see
+    /// <see cref="ReportFlightHoldIfChanged"/>.</summary>
+    private bool _seenInAir;
+
+    /// <summary>Change key for <see cref="ReportFlightHoldIfChanged"/>.</summary>
+    private int _loggedHold = int.MinValue;
+
+    /// <summary>
+    /// HARDWARE EVIDENCE for user item 2 (2026-09-07). Grep token: ACTIVE FLIGHT HOLD.
+    ///
+    /// <para>READ IT LIKE THIS. <c>held=H ofMatrix=N sawFlight=B</c>:</para>
+    /// <list type="bullet">
+    ///   <item><c>held&gt;0 with sawFlight=True</c> — WORKING. A card is in the air into this
+    ///     matrix and its cell is empty for the arc, which is the picture the owner is looking at.
+    ///     Its counterpart is <c>[Net] Remote card FX … -&gt; Active</c> in the same interval, and
+    ///     the <c>[Net] ACTIVE ARRIVAL</c> line for that card must come AFTER both.</item>
+    ///   <item><c>held&gt;0 with sawFlight=False</c> — this is the ONE PASS OF GRACE and nothing
+    ///     more. If it is followed by an <c>ACTIVE ARRIVAL</c> and never by a
+    ///     <c>Remote card FX … -&gt; Active</c>, that peer's event was LOST (cross-check
+    ///     <c>[Net] CARD FX LOST</c>) and the card correctly appeared one tick late without an
+    ///     animation.</item>
+    ///   <item>this line ABSENT for a session in which a peer activated a card — INERT, and the
+    ///     fault is upstream of the hold: either this column never saw the card enter
+    ///     <c>ActivatedCards</c> (read <c>[Cards] ACTIVE SET</c>'s MODEL row for that character) or
+    ///     <c>Refresh</c> is not running for that board at all.</item>
+    /// </list>
+    /// </summary>
+    private void ReportFlightHoldIfChanged()
+    {
+        int key = (_flyingSeats.Count * 401 + Count) * 2 + (_seenInAir ? 1 : 0);
+        if (key == _loggedHold)
+            return;
+        _loggedHold = key;
+        if (_flyingSeats.Count == 0)
+            return;   // a matrix with nothing held back is the resting state, not a reading
+        // HW-VERIFY: user item 2 (2026-09-07). Grep token: ACTIVE FLIGHT HOLD.
+        VRLog.Note("Net", $"ACTIVE FLIGHT HOLD [player {_playerId}]: held={_flyingSeats.Count} "
+            + $"ofMatrix={Count} sawFlight={_seenInAir}. THE CELL IS KEPT EMPTY WHILE THE CARD IS IN "
+            + "THE AIR, because the owner's own cell is: ActivePileViewer.Relayout hands the flying "
+            + "card its home and VRCard ignores that home while IsFlying, so on their board the card "
+            + "APPEARS when the arc lands. This column used to fill the cell the moment the model "
+            + "moved the card — up to a refresh BEFORE the arc started — and then play the arc into "
+            + "an occupied cell, which is what the user saw: 'ich habe auf dem remote baord direkt "
+            + "schon den Flug zur Aktiven karten gesehen … Am Ende des Zuges am remote board gab es "
+            + "dann gar kein FLug mehr'. 1:1 covers TIMING. THE SIGNAL IS RemoteCardFx's own "
+            + "IsFlyingToActive, which has carried the flown card's CardInstanceID since that half "
+            + "shipped and had NO CALLER AT ALL until this build — a producer with no consumer reads "
+            + "exactly like a fix that is in place. sawFlight=False on every line of a session in "
+            + "which a peer DID activate a card means only the one pass of grace ever fired and the "
+            + "wire event never arrived; read '[Net] CARD FX LOST' for that peer before blaming this "
+            + "hold. A card this column has already DRAWN is never taken back, whatever the flight "
+            + "pool says, because a card popping out of the matrix and back is worse than the "
+            + "overlap this replaces.");
+    }
+
     public void Refresh(CPlayerActor actor)
     {
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It
@@ -285,6 +379,53 @@ internal sealed class RemoteActiveCards
             activeSeatB = -1;
         }
         ReportActiveHeldIfChanged(heldActive, activeListLen, activeSeatA, activeSeatB);
+
+        // ─── THE CELL STAYS EMPTY WHILE THE CARD IS IN THE AIR (user item 2, 2026-09-07) ─────────
+        // "Am Ende des Zuges am remote board gab es dann gar kein FLug mehr wo der Flug hätte sein
+        // sollen zu den aktiven Karten (weil es ihn schon bereits davor gab)."
+        //
+        // The owner's cell is empty for the whole 0.4 s arc — ActivePileViewer.Relayout hands the
+        // flying card its home and VRCard ignores that home while IsFlying — so the card APPEARS
+        // when the arc lands. This column was filling the cell the moment the model moved the card,
+        // which is up to a refresh BEFORE the arc even starts, and then playing an arc into an
+        // occupied cell. Same two events, opposite order: that is a TIMING breach of the 1:1 rule,
+        // not a missing animation, and it is why the flight looked like it had "already happened".
+        //
+        // THE SIGNAL IS THE FLIGHT'S OWN and it is exact — RemoteCardFx stamps the flown card's
+        // CardInstanceID on the Flight and answers IsFlyingToActive for as long as that arc is
+        // running on THIS client's clock. It had no caller until this line; see the class note.
+        //
+        // ONE PASS OF GRACE, AND IT IS NOT A DERIVED CLOCK. The two facts reach an observer over
+        // two INDEPENDENT transports — the card enters ActivatedCards through the game's own
+        // network sync, the arc through the mod's unreliable extras stream — so their order is not
+        // fixed, and the ModBuild 476 host log shows the model winning: '[Net] ACTIVE ARRIVAL
+        // [player 2] … at frame 78590' (raw line 96419) is followed by '[Net] Remote card FX
+        // [player 2]: Slot1 -> Active playing' at raw line 96463, INSIDE the same 0.25 s
+        // RemoteBoardContent tick but after this column's pass. Blanking on the flight alone would
+        // therefore have drawn the card, then taken it away again when the arc started — a card
+        // popping out of the matrix and back, which is worse than the overlap it replaces. So a
+        // card this column has NEVER DRAWN is held for at most ONE further pass while it waits to
+        // see an arc; a card it HAS drawn is never retracted, whatever the flight pool says.
+        //
+        // WHAT IT COSTS WHEN THE EVENT IS LOST: the card appears one 4 Hz tick late with no
+        // animation, which is the pre-ModBuild-462 picture. What it must never cost is a retraction,
+        // and the _seatedIds term is what makes that impossible.
+        _flyingSeats.Clear();
+        for (int i = 0; i < _buffer.Count; i++)
+        {
+            int flying;
+            try { flying = _buffer[i].CardInstanceID; }
+            catch { continue; }
+            if (_seatedIds.Contains(flying))
+                continue;                       // already drawn here: never take it back
+            bool firstSighting = _gracedIds.Add(flying);
+            bool inTheAir = _owner.IsCardFlyingToActive(flying);
+            if (firstSighting || inTheAir)
+                _flyingSeats.Add(i);
+            if (inTheAir)
+                _seenInAir = true;
+        }
+        ReportFlightHoldIfChanged();
         // The comparable half of item 8b's answer: what THIS client believes is active for THAT
         // player, in the same format and the same sort order the owner's own board reports, so two
         // logs' lines for one character diff literally. Reported BEFORE the empty early-out below,
@@ -305,6 +446,14 @@ internal sealed class RemoteActiveCards
             // population's census row rather than leave the last non-empty one standing.
             PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.ActiveMatrix, _playerId, 0, 0,
                 "this character has no active cards");
+            // AN EMPTY PILE STILL HAS TO RUN THE PULSE PASS. It is what takes the highlight back
+            // OFF a face this driver was lighting a moment ago — a card whose bonus just expired,
+            // or one still hosted on that peer's held slab — and what prunes the isolated
+            // materials. A driver that only runs while there is something to light cannot turn
+            // anything off.
+            _cellPos.Clear();
+            _cellCard.Clear();
+            DrivePulse(actor);
             return;
         }
 
@@ -326,6 +475,8 @@ internal sealed class RemoteActiveCards
         float rowStep = _cardH * _grid.y;
         float colStep = _cardW * _grid.x;
         float yTop = rowStep * (rows - 1) * 0.5f;
+        _cellPos.Clear();
+        _cellCard.Clear();
         for (int i = 0; i < _cards.Count; i++)
         {
             if (i >= Count)
@@ -337,12 +488,14 @@ internal sealed class RemoteActiveCards
             int col = i % Columns;
             int colsInRow = Mathf.Min(Columns, Count - row * Columns);
             float x = (col - (colsInRow - 1) * 0.5f) * colStep;
-            _cards[i].Move(new Vector3(x, yTop - row * rowStep, -ActivePileViewer.ZStagger * row));
-            if (i == activeSeatA || i == activeSeatB)
+            var cellAt = new Vector3(x, yTop - row * rowStep, -ActivePileViewer.ZStagger * row);
+            _cards[i].Move(cellAt);
+            if (i == activeSeatA || i == activeSeatB || _flyingSeats.Contains(i))
             {
-                // In their fist, not in their matrix. Moved to its own cell first so the gap sits
-                // where the owner's does, then blanked through the same Set(null) every unused cell
-                // takes — no second hiding mechanism to keep in step with this one.
+                // Either in their fist and not in their matrix, or still in the AIR on its way
+                // here (user item 2). Moved to its own cell first so the gap sits where the owner's
+                // does, then blanked through the same Set(null) every unused cell takes — one
+                // hiding mechanism with three callers, no second one to keep in step.
                 _cards[i].Set(null, showFronts, actor);
                 continue;
             }
@@ -355,6 +508,12 @@ internal sealed class RemoteActiveCards
             // Set() is change-gated, so the cadenced mip-bake rescan for a hosted face's async
             // header art rides this refresh instead (see RemoteBoardCard.MaintainMips).
             _cards[i].MaintainMips();
+            // …and the pulse pass's only way back from a hosted clone to the card it is showing.
+            // Recorded HERE rather than derived again later, so the position the driver matches on
+            // is the very Vector3 the cell was moved to and not a second evaluation of the same
+            // formula that could drift from it.
+            _cellPos.Add(cellAt);
+            _cellCard.Add(_buffer[i]);
         }
 
         // The standing picture for the census — this population must NEVER read a BACK, in any
@@ -383,7 +542,59 @@ internal sealed class RemoteActiveCards
                             + $"{Columns} col(s) — the owner's own ActivePileViewer.Columns, and the "
                             + "list is uncapped, so a 7th active card is drawn here too.");
         }
+
+        // LAST, because it asserts onto the faces the loop above has just seated: a pulse pushed at
+        // a cell whose Set() had not run yet would be writing to the previous card's clone.
+        DrivePulse(actor);
     }
+
+    /// <summary>
+    /// The pulsing active REGION, on this column's cells AND on that peer's fist — user item 3
+    /// (2026-09-07). Split out so the empty-pile early-out above can run it too; see
+    /// <see cref="RemoteActiveCardPulse"/> for why the held slabs are a second root and why no wire
+    /// field is involved.
+    /// </summary>
+    private void DrivePulse(CPlayerActor actor)
+    {
+        _pulse.Begin();
+        _pulse.DriveMatrix(_root, actor, _cellPos, _cellCard);
+
+        // AND THE FIST. The seats come from the SAME record-36 read the blanking above uses, under
+        // the SAME length belt: a seat only names a card while the sender's ActivatedCards walk and
+        // this client's are the same length, because a positional guess across a frame where they
+        // differ would pulse the wrong card's half. A slab whose seat resolves to nothing is driven
+        // with a null card, which takes any highlight this driver left on it back OFF rather than
+        // stranding one.
+        int held = _owner.HeldActiveSeats(out int seatA, out int seatB, out int listLen,
+                                          out int poseSlotA);
+        CAbilityCard? slab1 = null;
+        CAbilityCard? slab2 = null;
+        if (held > 0 && listLen == Count)
+        {
+            if (poseSlotA == 1)
+            {
+                slab1 = CardAtSeat(seatA);
+                slab2 = CardAtSeat(seatB);
+            }
+            else if (poseSlotA == 2)
+            {
+                slab2 = CardAtSeat(seatA);   // seatB cannot exist on this branch, by construction
+            }
+        }
+        // BOTH SLABS, ALWAYS, even when neither names an active card: a null card is what takes a
+        // highlight this driver left on a slab back OFF. Driving only the resolved one would strand
+        // a pulse on a card that was active, was picked up, and then stopped being active while it
+        // was still in the fist.
+        _pulse.DriveSingle(_owner.HeldSlab(1), actor, slab1);
+        _pulse.DriveSingle(_owner.HeldSlab(2), actor, slab2);
+        _pulse.End();
+    }
+
+    /// <summary>The card at one record-36 seat of this client's own <c>ActivatedCards</c> walk, or
+    /// null when the seat names nothing. Bounds-checked here rather than at the two call sites: an
+    /// out-of-range seat is a wire reading, not a programming error.</summary>
+    private CAbilityCard? CardAtSeat(int seat) =>
+        seat >= 0 && seat < _buffer.Count ? _buffer[seat] : null;
 
     /// <summary>Last logged (count, rows) shape (−1 = never), so the grid diagnostic fires on a real
     /// change and never per refresh.</summary>
@@ -428,11 +639,13 @@ internal sealed class RemoteActiveCards
     ///     correctly in the cell below, never stranded mid-flight. Read <c>[Net] CARD FX LOST</c>
     ///     for this peer against their <c>[Net] CARD FX OUTBOX</c>; it stood at 1 of 7 this
     ///     session.</item>
-    ///   <item>BEYOND THE INSTRUMENT = the OVERLAP. This line says the cell is drawn; it cannot say
-    ///     whether a flight slab was in the air at the same instant, because the in-flight card's
-    ///     identity lives in <c>RemoteCardFx</c> and this surface has no read of it. See the class
-    ///     note above <see cref="Refresh"/> for the exact two-line change that would close it and
-    ///     why it was not made here.</item>
+    ///   <item>NO LONGER BEYOND THE INSTRUMENT — THE OVERLAP. This line used to say "the cell is
+    ///     drawn" without being able to say whether a slab was in the air at the same instant. It
+    ///     now cannot fire while one is: the cell is held empty for the length of the arc
+    ///     (<c>RemoteAvatar.IsCardFlyingToActive</c>), so this line marks the moment the card
+    ///     becomes VISIBLE here, which is the moment the owner's own arc lands. Its FRAME minus the
+    ///     owner's <c>ACTIVE FLIGHT</c> frame is therefore the end-to-end delay PLUS one arc, not
+    ///     the delay alone.</item>
     /// </list>
     /// </summary>
     private void ReportArrivals()
@@ -451,6 +664,13 @@ internal sealed class RemoteActiveCards
             }
             catch { continue; }
             _passIds.Add(instanceId);
+            // IN THE AIR IS NOT ARRIVED (user item 2). The card is in the model but this column is
+            // deliberately holding its cell empty until the arc lands, exactly as the owner's does,
+            // so calling it "now drawn" here would be this line asserting a picture that is not on
+            // the screen. It stays in _passIds so the prune below does not forget it and make the
+            // landing read as a second arrival.
+            if (_flyingSeats.Contains(i))
+                continue;
             if (!_seatedIds.Add(instanceId))
                 continue;   // already drawn on an earlier pass — not an arrival
             // HW-VERIFY: user item 7 (2026-09-06 late), the OBSERVER's half. Grep token:
@@ -471,9 +691,18 @@ internal sealed class RemoteActiveCards
                 + "'[Net] FLIGHT FACE ... -> Active' line for this peer in the same interval says "
                 + "which anchors the mirror actually flew and whether it drew the FRONT; its ABSENCE "
                 + "means the event was lost and the card simply appeared here, which is a missing "
-                + "animation and never a wrong picture.");
+                + "animation and never a wrong picture. SINCE USER ITEM 2 (2026-09-07) THIS LINE IS "
+                + "GATED ON THE CELL BEING DRAWN, NOT ON THE MODEL: while that card is in the air "
+                + "into this matrix the cell is held EMPTY, exactly as the owner's is, so this frame "
+                + "is the frame the card became VISIBLE here and the arc that preceded it delivered "
+                + "something. Before that gate the cell filled first and the arc landed on an "
+                + "occupied cell, which the user read as the flight having already happened.");
         }
         _seatedIds.IntersectWith(_passIds);
+        // The grace marks live and die with the arrival marks: a card that leaves the active pile
+        // and comes back is a NEW arrival and is owed a new arc, so it must not inherit the spent
+        // grace of the previous one.
+        _gracedIds.IntersectWith(_passIds);
     }
 
     public void SetActive(bool active)
@@ -497,6 +726,9 @@ internal sealed class RemoteActiveCards
     {
         for (int i = 0; i < _cards.Count; i++)
             _cards[i]?.Destroy();
+        // The pulse driver mints one Material per mirrored face it lights (see its class note on
+        // why the shared one may never be written); they are ours and they die here.
+        _pulse.Destroy();
     }
 
     /// <summary>How many of the drawn active cards currently show a REAL game card face (as opposed

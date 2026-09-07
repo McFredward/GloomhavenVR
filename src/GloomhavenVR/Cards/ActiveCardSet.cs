@@ -20,8 +20,8 @@ namespace GloomhavenVR.Cards;
 /// SAME machine for the SAME actor:</para>
 /// <list type="bullet">
 /// <item><description>the peer's mirror (<c>Net.RemoteActiveCards</c>) read the MODEL —
-/// <c>CCharacterClass.ActivatedCards</c>, the list <c>CCharacterClass.ActivateCard</c>
-/// (CCharacterClass.cs:362) appends to at the instant of activation;</description></item>
+/// <c>CCharacterClass.ActivatedCards</c>, the list the rules themselves move a card into;
+/// </description></item>
 /// <item><description>the owner's OWN column (<c>ActivePileViewer</c>, fed by
 /// <c>CardsGameApi.GetActivePileWidgets</c>) read the WIDGET — <c>AbilityCardUI.CardType ==
 /// CardPileType.Active</c>.</description></item>
@@ -103,8 +103,25 @@ internal static class ActiveCardSet
 
     /// <summary>
     /// THE authoritative "is this card active right now" for one character. Model-sourced, so it is
-    /// true on the frame <c>CCharacterClass.ActivateCard</c> ran and on every client that has the
-    /// actor — not on the frame the game next refreshes a 2D hand view.
+    /// true on the frame THE RULES moved the card and on every client that has the actor — not on
+    /// the frame the game next refreshes a 2D hand view.
+    ///
+    /// <para>WHICH FRAME THAT IS, MEASURED IN THE DECOMPILED SOURCE RATHER THAN ASSERTED — and the
+    /// sentence that used to stand here was wrong. It read "true on the frame
+    /// <c>CCharacterClass.ActivateCard</c> ran", and named CCharacterClass.cs:362 as the append an
+    /// ABILITY card takes "at the instant of activation". <c>ActivateCard</c> has exactly two call
+    /// sites in the whole game (CActiveBonus.cs:401 and :406) and both sit inside a branch guarded
+    /// by <c>baseCard.CardType</c> being an ITEM, an ATTACK MODIFIER or an enemy AURA — an ability
+    /// card can never reach it. An ability card enters <c>m_ActivatedCards</c> at
+    /// CCharacterClass.cs:467, the <c>ECardPile.Activated</c> branch of
+    /// <c>MoveAbilityCardToPile</c>, which is reached from <c>DiscardRoundAbilityCard</c> — the
+    /// END-OF-TURN drain. That is not a quibble: it is the difference between "the mirror may draw
+    /// an active card the moment its bonus starts" and "the mirror must draw it when the owner's
+    /// board does", which is user item 2 of 2026-09-07. BOTH LOGS OF THE ModBuild 476 SESSION AGREE
+    /// WITH THE CORRECTED READING and not with the old comment: the peer's own MODEL row for
+    /// 'BruteID' moved to [7:ABILITY_CARD_WardingStrength] at their frame 36252, in the same block
+    /// as <c>End of ability syncing finished</c>, and the host's row for the same character moved
+    /// at host frame 78590, in ITS copy of that block.</para>
     ///
     /// <para>The game's piles are mutually exclusive by construction (its own duplicate check,
     /// CCharacterClass.cs:318-350, logs an error if a card is in two), so a TRUE here also means the
@@ -126,6 +143,79 @@ internal static class ActiveCardSet
     /// <inheritdoc cref="IsActive(CCharacterClass?, CBaseCard?)"/>
     internal static bool IsActive(CPlayerActor? actor, CBaseCard? card) =>
         actor != null && IsActive(SafeClass(actor), card);
+
+    /// <summary>
+    /// WHICH HALF (or halves) of an active card is the one that is ACTUALLY ACTIVE — the region the
+    /// owner's own board pulses.
+    ///
+    /// <para>USER ITEM 3 (2026-09-07, verbatim): "Der Spieler sieht bei den aktiven Karten
+    /// pulsierend den Bereich der aktiv ist - das ist aber nicht der Fall beim remote board. Dort
+    /// soll das auch entsprechend synchronisiert angezeigt werden - auch wenn der Spieler die
+    /// jeweilige aktive Karte in die Hand nimmt soll das pulsieren sichtbar sein."</para>
+    ///
+    /// <para>IT NEEDS NO WIRE FIELD AND THAT IS THE WHOLE POINT. The answer is a pure function of
+    /// <c>CCharacterClass.FindCasterActiveBonuses</c> and <c>CAbilityCard.GetAbilityActionType</c>
+    /// — two reads of the rules model, which every client simulates for every actor. So the
+    /// observer's mirror can resolve the SAME half from the SAME objects the owner's board reads,
+    /// in the same frame, and a wire field would only be a second, lossier copy of a fact that is
+    /// already on the machine. This is the same argument that made the whole of this file
+    /// model-sourced; the highlight is simply the last surface that had not asked.</para>
+    ///
+    /// <para>BOTH TRUE IS A REAL ANSWER, NOT A FAILURE. A whole-card or unresolvable bonus lights
+    /// the WHOLE card on the owner's board, and the fallback at the bottom says so explicitly: an
+    /// active card with no nameable half is drawn fully lit rather than dark, because "this card is
+    /// doing something" is the fact the pulse carries.</para>
+    ///
+    /// <para>ONE EXPRESSION, TWO CALLERS — AND TODAY IT IS TWO EXPRESSIONS. <c>CardsGameApi</c>'s
+    /// <c>GetActiveHalves(CardsHandUI, CAbilityCard, out, out)</c> is the OWNER's copy of this and
+    /// is term-for-term identical; it takes a hand only to reach <c>hand.PlayerActor</c>, which is
+    /// the single argument this one takes directly. It is not folded into this method here because
+    /// that file belongs to another lane this round. THE OWED CHANGE, and it is two lines: make
+    /// that method's body <c>ActiveHalves(hand?.PlayerActor, card, out top, out bottom)</c>, so the
+    /// owner's pulse and the mirror's are the same expression rather than two that have to agree.
+    /// </para>
+    /// </summary>
+    internal static void ActiveHalves(CPlayerActor? actor, CAbilityCard? card,
+                                      out bool top, out bool bottom)
+    {
+        top = false;
+        bottom = false;
+        if (actor == null || card == null)
+            return;
+        try
+        {
+            CCharacterClass? klass = SafeClass(actor);
+            if (klass == null)
+                return;
+            List<CActiveBonus> bonuses = klass.FindCasterActiveBonuses(actor);
+            for (int i = 0; i < bonuses.Count; i++)
+            {
+                CActiveBonus bonus = bonuses[i];
+                if (bonus == null || !ReferenceEquals(bonus.BaseCard, card))
+                    continue;
+                CBaseCard.ActionType type = card.GetAbilityActionType(bonus.Ability);
+                if (type == CBaseCard.ActionType.TopAction)
+                    top = true;
+                else if (type == CBaseCard.ActionType.BottomAction)
+                    bottom = true;
+                else
+                {
+                    top = true;   // whole-card / NA bonus → the whole card is the active region
+                    bottom = true;
+                }
+            }
+        }
+        catch
+        {
+            top = false;
+            bottom = false;
+        }
+        if (!top && !bottom)   // active card with no resolvable half → the whole card, as the owner
+        {
+            top = true;
+            bottom = true;
+        }
+    }
 
     /// <summary>
     /// Change-gate hash of one character's ACTIVE SET, model-sourced and allocation-free.
