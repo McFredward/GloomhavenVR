@@ -2420,11 +2420,13 @@ internal sealed partial class CardsDriver
     /// <see cref="RoundCardExitOf"/>: the card flies only when it genuinely LEFT
     /// <c>RoundAbilityCards</c> FOR a pile, and it flies to the pile it actually entered.</para>
     ///
-    /// <para>Returns true only when the fly was actually launched — the caller then skips the
-    /// instant park; the fly's completion callback parks the card on arrival. Returns false (→ the
-    /// caller's shrink-and-fade / instant hide fallback) when the card isn't a cleared round card,
-    /// is already flying, isn't visible, did not move in the model, moved somewhere that is not a
-    /// pile, or the target pile is off / not built.</para>
+    /// <para>Returns true when this path OWNS the card — either the fly launched (the completion
+    /// callback parks it on arrival) or, for a BURNT fate, the flight is HELD while the game's burn
+    /// artwork plays on the card where it lies (<see cref="TryTakeBurnFlightSlot"/>, the one wait
+    /// every burn producer and every peer's mirror share). In both cases the caller must skip the
+    /// instant park. Returns false (→ the caller's shrink-and-fade / instant hide fallback) when the
+    /// card isn't a cleared round card, is already flying, isn't visible, did not move in the model,
+    /// moved somewhere that is not a pile, or the target pile is off / not built.</para>
     /// </summary>
     private bool TryStartFlyToPile(CardsHandUI hand, VRCard card)
     {
@@ -2475,6 +2477,46 @@ internal sealed partial class CardsDriver
         if (!_piles.TryGetPileWorld(fate, out Vector3 worldPos, out float slabWidth))
             return false; // pile offscreen / not built → fall back to the instant hide
 
+        // ─── A BURN IS A BURN "EGAL AUS WELCHEM GRUND", INCLUDING THIS ONE ──────────────────────
+        // (2026-09-07 round, item 8: "Prüfe das nochmal bei allen Verbrennen-Flows!")
+        //
+        // THIS WAS THE UNWAITED PRODUCER. A played round card whose own action is a LOST action
+        // reaches the park sweep with fate Burnt, and this method sits FIRST in that sweep's
+        // if/else chain (Rebuild ~:1425), ahead of TryStartBurnFly — so for that card it won the
+        // race, flew immediately, and then dropped the artwork hold outright so the waiting
+        // producer could never re-claim it. The user's ruling from 2026-08-03 ("Ich möchte, dass
+        // die Karte erst liegen bleibt, man auf der Karte selber die Verbrannt-Animation abwartet
+        // und DANN in das jeweilige Pile geht") had one flow that never obeyed it, and it was this
+        // one. Three rounds of per-flow patches never reached it because it is not in the burn
+        // file's call graph at all — it is the DISCARD path that also handles burns.
+        //
+        // THE FIX IS THE SAME GATE, NOT A NEW ONE. TryTakeBurnFlightSlot is the single wait
+        // (BurnArtwork.Released), which RemoteBurnFx evaluates too, so obeying it here adds no
+        // signal and no sequencer — it removes an exception. Returning TRUE while held is the
+        // contract TryStartBurnFly already uses at :2811: "the burn path owns this card, leave it
+        // lying exactly where it is", so the caller does not park or vanish it.
+        //
+        // WHO RE-OFFERS IT. Not this method — the next rebuild recomputes _lastHalfCards and the
+        // card drops out of the wasDocked pre-filter. That is exactly the frame TryAnimateBurn's
+        // ownedElsewhere gate (:3567, `_lastHalfCards.Contains(card)`) stops refusing it, so the
+        // pile watcher picks the hold up and finishes it. The two gates are complementary by
+        // construction, and because the hold lives in _burnHoldSince keyed on the WIDGET, the wait
+        // is continuous across the handover: TryTakeBurnFlightSlot reads the same Since and the
+        // total is measured from the pile-count edge, not restarted.
+        //
+        // NOT DONE THE OTHER TWO WAYS, and here is why each loses. (a) Deleting the ClearBurnHold
+        // below: that line is what stops a second slab flying for a card this path already flew, so
+        // removing it while the flight still went unwaited would trade a missing wait for a double
+        // flight. (b) Making this method DECLINE a Burnt fate and letting the else-if below take
+        // it: TryStartBurnFly requires IsFreshBurn, which demands hand == _burnWatchHand, an owner
+        // match and absence from _knownBurntWidgets — on the first frame after a hand change those
+        // are false, the card would fall through to the Vanish branch, and that is verbatim the
+        // "burn artwork plays, then the card just VANISHES" report of 2026-08-04. Narrowing a burn's
+        // safety net to widen its wait is the wrong trade.
+        if (fate == PileKind.Burnt && card.GameCard != null
+            && !TryTakeBurnFlightSlot(card.GameCard, card))
+            return true; // HELD: this path owns the card and it stays lying exactly where it is
+
         Vector3 arcUp = BoardUp();
         float minArc = BoardArcMin();
         float arcHeight = Mathf.Max(minArc, Vector3.Distance(card.transform.position, worldPos) * VRCard.FlyArcHeightFraction);
@@ -2482,6 +2524,12 @@ internal sealed partial class CardsDriver
         // A burnt-fate round card may have a pending artwork HOLD from the pile watcher (the burn
         // artwork played on the docked card mid-turn). This flight consumes the burn — drop the
         // hold so its later release can never fly a second slab for the same card.
+        //
+        // IT IS A BELT NOW, NOT THE MECHANISM. Since the gate above, a Burnt fate reaching this
+        // line has just been RELEASED by TryTakeBurnFlightSlot, which removes the entry itself — so
+        // for the burn path this call is provably a no-op. It stays because it still covers a hold
+        // taken against the same widget by another producer, and because deleting a line whose
+        // absence would strand state is the edit this file has been burned by before.
         if (card.GameCard != null)
             ClearBurnHold(card.GameCard);
         VRCard flying = card;
@@ -3373,17 +3421,63 @@ internal sealed partial class CardsDriver
         }
     }
 
-    /// <summary>Seconds the flight waits for the game's burn artwork to START before giving up on
-    /// it (the pile count commits several frames earlier — see TryAnimateBurn).</summary>
-    private const float BurnEffectStartGraceSeconds = 0.5f;
+    /// <summary>
+    /// Seconds the flight waits for the game's burn artwork to START before giving up on it (the
+    /// pile count commits several frames earlier — see <see cref="TryAnimateBurn"/>).
+    ///
+    /// <para>NOT A VALUE ANY MORE, AN ALIAS. The number lives once, in
+    /// <see cref="BurnArtwork.StartGraceSeconds"/>, because the peer's mirror
+    /// (<c>RemoteBurnFx</c>) has to hold a burn for exactly as long as this board does — "Das soll
+    /// so synchron mit den anderen Spielern sein". Two constants that merely happened to agree is
+    /// what the ModBuild 474 logs measured going wrong (+0.33 / −0.48 / −1.45 s over three burns);
+    /// an alias cannot drift. The NAME stays because <c>CardsDriver.6.Flows.cs</c> names it in
+    /// prose and that prose must not start pointing at a symbol that is gone.</para>
+    /// </summary>
+    private const float BurnEffectStartGraceSeconds = BurnArtwork.StartGraceSeconds;
 
     /// <summary>Hard ceiling on the whole wait: however long the artwork runs, a burned card is on
     /// its way to the pile after this. A stranded card on the board is worse than a clipped
-    /// animation.</summary>
-    private const float BurnEffectMaxHoldSeconds = 3f;
+    /// animation. <inheritdoc cref="BurnEffectStartGraceSeconds" path="/summary/para"/></summary>
+    private const float BurnEffectMaxHoldSeconds = BurnArtwork.MaxHoldSeconds;
 
-    /// <summary>Burned widgets whose flight is being held back, and when the hold started.</summary>
-    private readonly Dictionary<AbilityCardUI, float> _burnHoldSince = new();
+    /// <summary>
+    /// One burned widget's pending artwork hold: when it started, and whether this client has ever
+    /// actually SEEN the game's burn artwork run on it.
+    ///
+    /// <para>THE SECOND FIELD EXISTS BECAUSE THE LOG LIED (2026-09-07 round, item 8's tail). The
+    /// release condition <c>effectActive == false</c> is reached by two completely different
+    /// histories — the artwork FINISHED, or it never started at all — and <c>BURN HOLD</c> printed
+    /// "artwork finished" for both. ModBuild 474's peer log has the pair one entry apart:
+    /// <c>BURN ANIM: holding 'ABILITY_CARD_SpareDagger' … (effect not started yet)</c> at 177184
+    /// and <c>BURN HOLD: … waited 0,50s … (artwork finished)</c> at 177185. 0.50 s IS
+    /// <see cref="BurnEffectStartGraceSeconds"/>, so the short-rest sacrifice never waited for an
+    /// artwork at all and the line said the opposite. A reader had to hold two lines in their head
+    /// to see it; now one line names the arm.</para>
+    ///
+    /// <para>IT RIDES IN THE HOLD ENTRY rather than in a set of its own so that every existing
+    /// clear of <see cref="_burnHoldSince"/> clears it too — including the two in
+    /// <c>CardsDriver.2.Update.cs</c> (:331, :469), a file this change may not touch. A parallel
+    /// <c>HashSet</c> would have accumulated dead widgets for a whole scenario at exactly those two
+    /// seams.</para>
+    /// </summary>
+    private readonly struct BurnHold
+    {
+        internal BurnHold(float since, bool artworkSeen)
+        {
+            Since = since;
+            ArtworkSeen = artworkSeen;
+        }
+
+        /// <summary>Unscaled time the hold began — the pile-count edge, not the artwork's start.</summary>
+        internal float Since { get; }
+
+        /// <summary>Has <see cref="BurnArtworkActive"/> ever read TRUE for this widget during this
+        /// hold? False at release means the artwork never ran here and the grace arm let it go.</summary>
+        internal bool ArtworkSeen { get; }
+    }
+
+    /// <summary>Burned widgets whose flight is being held back, and the state of that hold.</summary>
+    private readonly Dictionary<AbilityCardUI, BurnHold> _burnHoldSince = new();
 
     /// <summary>Widgets whose hold has been logged once (one line per burn, not per frame).</summary>
     private readonly HashSet<AbilityCardUI> _burnHoldLogged = new();
@@ -3431,6 +3525,26 @@ internal sealed partial class CardsDriver
         for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
         {
             AbilityCardUI widget = _burnHoldPruneScratch[i];
+            // ─── AND THE GATE BYPASS BELOW IS DELIBERATE AND CORRECT (2026-09-07 round, item 8) ──
+            // The round asked whether EVERY producer waits, and this one does not — LaunchBurnFlight
+            // skips TryTakeBurnFlightSlot entirely. That is not the oversight the other producer was
+            // (TryStartFlyToPile, which now waits): making a FLUSH wait would strand the card
+            // FOREVER, and the mechanism is exact. A flush runs because the presented hand is
+            // changing or going away, and the only thing that re-offers a held widget is
+            // TickBurnToPile walking the PRESENTED hand's burnt pile. One frame later this widget is
+            // not in that pile, so nothing would ever call the gate again, nothing would release the
+            // hold, and the card would lie on the board for the rest of the scenario. That exact
+            // sequence is the 2026-08-07 report ("die verbrannte Karte … bleibt liegen"), which is
+            // why the flush exists at all. Deadline semantics is the honest reading: the artwork has
+            // had whatever moment it was going to get.
+            //
+            // WHAT IT COSTS, STATED RATHER THAN HIDDEN. A flush is the ONE burn whose owner and
+            // mirror cannot release on the same term, because the trigger — this client's own 2D
+            // card-UI focus changing — is local presentation the rules model does not hold. The
+            // mirror closes it from the other end instead, with no new wire field: the owner's
+            // presented character already rides extension record 22, so RemoteBurnFx.Watch sees the
+            // same edge and flushes its own presentations on it (see its FOCUS FLUSH region). Same
+            // event, both sides, no third signal.
             VRLog.Info("Cards", $"BURN ANIM: FLUSHING the held flight of '{CardsGameApi.CardName(widget)}' — " +
                                 $"{reason}. A burned card must never be left lying on the board when the " +
                                 "character it belongs to is no longer the presented one.");
@@ -3448,19 +3562,26 @@ internal sealed partial class CardsDriver
     private bool TryTakeBurnFlightSlot(AbilityCardUI widget, VRCard? card)
     {
         float now = Time.unscaledTime;
-        if (!_burnHoldSince.TryGetValue(widget, out float since))
+        if (!_burnHoldSince.TryGetValue(widget, out BurnHold hold))
         {
-            since = now;
-            _burnHoldSince[widget] = since;
+            hold = new BurnHold(now, artworkSeen: false);
+            _burnHoldSince[widget] = hold;
         }
-        float held = now - since;
+        float held = now - hold.Since;
 
         bool effectActive = BurnArtworkActive(card);
-        bool release = held >= BurnEffectMaxHoldSeconds                     // deadline: always go
-                       || (effectActive == false && held >= BurnEffectStartGraceSeconds); // never started / already done
-
-        if (effectActive && held < BurnEffectMaxHoldSeconds)
-            release = false; // still burning ON the card — that is the whole point of the wait
+        if (effectActive && !hold.ArtworkSeen)
+        {
+            hold = new BurnHold(hold.Since, artworkSeen: true);
+            _burnHoldSince[widget] = hold; // latched for the whole hold — see BurnHold.ArtworkSeen
+        }
+        // ONE RELEASE EXPRESSION, SHARED WITH EVERY MIRROR. This used to be three lines of local
+        // boolean algebra; it is now BurnArtwork.Released, which RemoteBurnFx.Drive evaluates over
+        // the OWNER'S OWN widget on the peer's machine. The arithmetic is unchanged — deadline
+        // wins, a running artwork holds, otherwise the start grace — and moving it was the whole
+        // point: "Das soll so synchron mit den anderen Spielern sein" cannot be a property of two
+        // copies that agree today.
+        bool release = BurnArtwork.Released(effectActive, held);
 
         if (!release)
         {
@@ -3476,20 +3597,43 @@ internal sealed partial class CardsDriver
         _burnHoldLogged.Remove(widget);
         if (held > 0.01f)
         {
-            // HW-VERIFY (2026-09-05 item 11c "auch fuer mich blieb die Karte laenger liegen"): WHICH
-            // arm released the hold, and after how long. Grep token: "BURN HOLD".
-            // PROOF the fix landed: "artwork finished" with held well under
-            // BurnEffectMaxHoldSeconds (the real BurnCardTimeline is 2.0 s, so ~2.0-2.5 s).
-            // FALSIFIER — the fix is INERT, not the defect gone: "DEADLINE reached" at
-            // 3.00-3.02 s again. That is the pre-fix reading (9 of 9 burns across both clients on
-            // ModBuild 447) and it means the running-coroutine term in BurnArtworkActive never went
-            // false, i.e. the handle is not the one the timeline nulls.
+            string arm = held >= BurnEffectMaxHoldSeconds
+                ? $"DEADLINE — {BurnEffectMaxHoldSeconds:F1}s ran out" +
+                  (effectActive ? " with the artwork STILL running" : " and the artwork was not running")
+                : hold.ArtworkSeen
+                    ? "ARTWORK END — the game's own BurnCardTimeline handle went null"
+                    : $"START GRACE — the artwork NEVER started on this client, so " +
+                      $"{BurnEffectStartGraceSeconds:F2}s was the whole wait";
+            // HW-VERIFY (2026-09-05 item 11c "auch fuer mich blieb die Karte laenger liegen", and
+            // the 2026-09-07 round's item 8): WHICH ARM released the hold, and after how long.
+            // Grep token: "BURN HOLD".
+            //
+            // THREE ARMS, NAMED — because the old line had TWO and the release condition has three
+            // histories. It printed "artwork finished" whenever effectActive was false at release,
+            // which is ALSO what "the artwork never started" looks like, and ModBuild 474's peer log
+            // caught it: BURN ANIM at 177184 says '(effect not started yet)' and BURN HOLD at 177185
+            // says '(artwork finished)' about the same card, 0.50 s apart — 0.50 s being exactly the
+            // grace. The short-rest sacrifice never waited for an artwork at all and the instrument
+            // asserted the opposite. BurnHold.ArtworkSeen is what separates them.
+            //
+            // PROOF the wait is doing its job: "ARTWORK END" with held under
+            // BurnEffectMaxHoldSeconds (the real BurnCardTimeline is 2.0 s, so ~0.5-2.5 s).
+            // FALSIFIER — INERT: "DEADLINE" at 3.00-3.02 s again (the pre-2026-09-05 reading, 9 of
+            // 9 burns on ModBuild 447), meaning the running-coroutine term never went false.
+            // THE THIRD READING IS NOT A DEFECT BUT IS THE ANSWER TO THE SHORT-REST REPORT:
+            // "START GRACE" says the game never played an artwork on this card, so there was
+            // nothing to wait for and the 0.50 s is the whole wait by design. If he still reports
+            // "nicht ausreichend gewartet" on a line reading START GRACE, the lead is the GAME's
+            // burn timeline not starting, not this gate.
             VRLog.Note("Cards", $"BURN HOLD: '{CardsGameApi.CardName(widget)}' waited {held:F2}s on the board " +
-                                $"({(effectActive ? "artwork still running — DEADLINE reached" : "artwork finished")}) " +
-                                "— flying to the Burnt pile now. The release term is the game's OWN running " +
-                                "BurnCardTimeline handle (CardEffects.coroutine), not its latched " +
-                                "toggledEffects membership, which for a LOST card never clears and used to " +
-                                "make every burn run the full ceiling.");
+                                $"(released by: {arm}) — flying to the Burnt pile now. The release term is " +
+                                "BurnArtwork.Released over the game's OWN running BurnCardTimeline handle " +
+                                "(CardEffects.coroutine), not its latched toggledEffects membership, which " +
+                                "for a LOST card never clears and used to make every burn run the full " +
+                                "ceiling. EVERY PEER'S MIRROR EVALUATES THIS SAME EXPRESSION over this same " +
+                                "widget (RemoteBurnFx.Drive; the model is local), so this number and the " +
+                                "'held=' on their BURN FLIGHT line for this card must agree — that pair IS " +
+                                "the 1:1 claim.");
         }
         return true;
     }
@@ -3519,24 +3663,16 @@ internal sealed partial class CardsDriver
     /// <see cref="TryTakeBurnFlightSlot"/> is unchanged and stays the belt for a burn whose timeline
     /// never starts.</para>
     /// </summary>
+    /// <remarks>
+    /// THE BODY MOVED, THE MEANING DID NOT (2026-09-07 round, item 8). Both terms and both reasons
+    /// above are now <see cref="BurnArtwork.Playing"/>, so that <c>RemoteBurnFx</c> can ask the
+    /// same question about the same widget on a peer's machine and get the owner's answer instead
+    /// of an equivalent-looking one. This wrapper stays rather than being inlined at its single
+    /// call site because <c>CardsDriver.6.Flows.cs</c> names it in prose (:128, :259) and a comment
+    /// that points at a deleted symbol is the class of false sentence this project keeps finding.
+    /// </remarks>
     private static bool BurnArtworkActive(VRCard? card)
-    {
-        CardEffects? fx = card?.FullCard != null ? card.FullCard.cardEffects : null;
-        if (fx == null)
-            return false;
-        try
-        {
-            bool burning = fx.HasEffect(CardEffects.FXTask.BurnCard)
-                           || fx.HasEffect(CardEffects.FXTask.LostMode);
-            // THE PICTURE, not the state: the running BurnCardTimeline handle. A lost card keeps its
-            // toggled state forever, so without this term the hold always ran its full ceiling.
-            return burning && fx.coroutine != null;
-        }
-        catch
-        {
-            return false; // a game-side shape change must never strand the card on the board
-        }
-    }
+        => BurnArtwork.Playing(BurnArtwork.EffectsOf(card != null ? card.FullCard : null));
 
     /// <summary>
     /// Fly one freshly-burned card into the burnt pile. Prefers the card's LIVE VR representation

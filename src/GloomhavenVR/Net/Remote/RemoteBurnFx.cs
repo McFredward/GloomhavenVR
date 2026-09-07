@@ -381,6 +381,42 @@ internal sealed class RemoteBurnFx
         }
         if (actorId != _watchActor)
         {
+            // ─── FOCUS FLUSH — the mirror half of CardsDriver.FlushBurnHolds (item 8) ───────────
+            // The owner's own hold does not survive his presented character changing: he FLUSHES,
+            // landing every pending burn flight at once, because the only thing that would re-offer
+            // a held widget is his TickBurnToPile walking the PRESENTED hand's burnt pile, and one
+            // frame later the widget is not in it. That bypass is correct on his side (waiting would
+            // strand the card forever — the 2026-08-07 report) and it is the ONE burn whose release
+            // term this mirror cannot share, because the trigger is his local 2D card-UI focus and
+            // the rules model does not hold it.
+            //
+            // BUT THIS CLIENT SEES THE SAME EDGE, AND WITHOUT A NEW WIRE FIELD. His presented
+            // character already rides extension record 22 (RemoteBoardFocus, ExtIdCharFocus), which
+            // is what DisplayedActor above resolves — so the frame his focus changes is the frame
+            // this actorId changes. Before this, that edge only reset the BASELINE and left live
+            // presentations holding: he flew, this mirror kept the card lying, and the two diverged
+            // by however much of his hold was left (up to the full 3 s deadline). Handing over here
+            // is the same event on both sides, not a second sequencer.
+            //
+            // AND THE EDGE HAS A SECOND CAUSE, WHICH IS NOT HIS FLUSH. RemoteBoardFocus rule 1
+            // IGNORES the focus id during the game's secret selection window and falls back to the
+            // owner's owned character, so entering or leaving that window can move actorId without
+            // him switching anything — and then he did NOT flush. This still lands rather than
+            // holds, deliberately: the same edge already clears _known and re-seeds below, so a
+            // presentation left holding through it is holding against a baseline that no longer
+            // knows about it, and it would run to its own 3 s deadline anyway. Landing it bounds the
+            // divergence by the same number in the common case and removes it in the frequent one.
+            // The BURN FLIGHT line names this arm, so a log can tell the two causes apart by
+            // whether the owner's BURN ANIM FLUSHING line for the same card is beside it.
+            for (int i = 0; i < _burns.Count; i++)
+            {
+                Burn b = _burns[i];
+                if (b.Active && !b.HandoverLogged)
+                    Handover(b, "the OWNER's presented character changed, which flushes his own "
+                                + "pending burn holds (CardsDriver.FlushBurnHolds) — this mirror "
+                                + "flushes on the same edge, read locally off his focus record, so "
+                                + "his card and this one leave on the same frame");
+            }
             _watchActor = actorId;
             _seeded = false;
             _known.Clear();
@@ -1055,6 +1091,14 @@ internal sealed class RemoteBurnFx
     /// <c>BURN HOLD</c> by more than 0.10 s. Zero in particular means <see cref="Burn.Widget"/> came
     /// back null and the whole predicate degenerated — the lead is then <c>Watch()</c>'s widget, not
     /// the hold. A <c>released by: their recess</c> clause anywhere is the pre-fix build.</para>
+    ///
+    /// <para>THE FOURTH ARM IS NOT A DEFECT AND MUST NOT BE READ AS ONE. <c>released by: the
+    /// OWNER's presented character changed</c> is the focus flush, and the owner-side pair for it
+    /// is his <c>BURN ANIM: FLUSHING the held flight of …</c> line for the same card, not a
+    /// <c>BURN HOLD</c> with a matching <c>held=</c>. If that flush line is absent, this mirror
+    /// flushed on the reveal-gate's fallback edge instead (RemoteBoardFocus rule 1) and the owner
+    /// kept holding — bounded by his 3 s deadline, and the one case in the burn flow where the two
+    /// sides are knowingly not on one term.</para>
     ///
     /// <para><b>STILL BEYOND THE INSTRUMENT</b> = matched <c>held=</c> figures on both clients and
     /// the user still reporting that the card does not lie still. The hold would then be right and
