@@ -8,7 +8,7 @@ that the topic tree above it exists to empty. He tested ModBuild 340 and reporte
 "Weiterhin finde ich den offset für die healthbar nicht". The feature was delivered and
 unreachable, and nothing in the build said so.
 
-Nothing here judges taste. It checks six things a machine can decide, each of which has already
+Nothing here judges taste. It checks seven things a machine can decide, each of which has already
 cost this project a round:
 
   1. ADVERTISED BUT ABSENT. Every (Section, Key) named in `VROptionsTab.4.Curated.cs`,
@@ -65,13 +65,24 @@ cost this project a round:
      object today; separating them is a design change per entry, not a missing translation. The
      five affected keys are listed at ENUM_LABELS_NOT_LOCALIZED's foot so the size of that class
      is written down rather than merely unmeasured.
+  7. A ROW HANDED TO A PAGE THAT DOES NOT DRAW IT. `VROptionsTab.8.Dependencies.OwnPageRows` names
+     the keys the catalog's own listings must NOT draw because a hand-built page owns them —
+     `[FigureGrab] OcclusionMapOffOnHeadCamera` is drawn on Erweitert > Test-Ausloeser, because
+     filing it by its section put it under Haende > "Figuren-Offsets" and the user could not find
+     it ("Ich konnte die OcclusionMapOffOnHeadCamera in Erweitert nirgends finden, wo ist sie?").
+     The hand-off has exactly one failure mode: the page stops drawing it and the filter keeps
+     hiding it, and the setting is then reachable from NEITHER door with nothing saying so. So:
+     every key in that set must be bound, and must be named literally by some other file under
+     Options/ — the page that took responsibility for it.
 
 WHAT IS NOT CHECKED, AND WHY. "Every key is reachable" is not checked because it is TRUE BY
 CONSTRUCTION and checking it would be checking the wrong thing: Erweitert is the catalog's own
 index and the catalog is a reflection walk over the live BepInEx registry
 (`ConfigCatalog.Rebuild`), so a bound entry appears there whether anyone remembers it or not.
 The only keys that leave the menu are the ones ConfigCatalog deliberately withholds
-(`NotOffered`, `RetiredMarkers`), each with its reason written beside it. What is NOT true by
+(`NotOffered`, `RetiredMarkers`), each with its reason written beside it, and the ones a hand-built
+page has taken over (`OwnPageRows`) — which do not leave the menu at all, only the catalog's
+listings, and which check 7 holds to that promise. What is NOT true by
 construction — and what actually failed — is that a key is findable by someone who does not
 know its name. That is what 1-4 measure.
 
@@ -456,6 +467,38 @@ def not_offered():
             for m in NOT_OFFERED_ENTRY.finditer(body[at:body.find("};", at)])}
 
 
+OWN_PAGE_ENTRY = re.compile(r'"([^"/]+)/([^"/]+)"')
+
+
+def own_page_rows():
+    """(Section, Key) the catalog's listings skip because a hand-built page draws them.
+
+    VROptionsTab.8.Dependencies.OwnPageRows. Read from the STRIPPED body for the same reason
+    every other reader here does: the set is documented in prose that quotes the very key it
+    names, and a comment counted as an entry makes the census lie.
+    """
+    path = os.path.join(OPTIONS, "VROptionsTab.8.Dependencies.cs")
+    with open(path, encoding="utf-8") as fh:
+        body = strip_comments(fh.read())
+    at = body.find("OwnPageRows = new(")
+    if at < 0:
+        return set()
+    return {(m.group(1), m.group(2))
+            for m in OWN_PAGE_ENTRY.finditer(body[at:body.find("};", at)])}
+
+
+def drawn_outside_the_filter(section, key):
+    """Is this key named literally by a page under Options/, i.e. does something draw it?"""
+    for name in sorted(os.listdir(OPTIONS)):
+        if not name.endswith(".cs") or name == "VROptionsTab.8.Dependencies.cs":
+            continue
+        with open(os.path.join(OPTIONS, name), encoding="utf-8") as fh:
+            body = strip_comments(fh.read())
+        if f'"{key}"' in body and f'"{section}"' in body:
+            return name
+    return None
+
+
 def loc_ids():
     ids = set()
     for name in os.listdir(LOC_DIR):
@@ -782,6 +825,21 @@ def main():
             failures.append(f"TOPIC-TREE KEY DOES NOT EXIST: [{section}] {key} ({filename}) — "
                             f"the tree names a key nothing binds; it draws nothing.")
 
+    # ---- 7. a row handed to a page that does not draw it -------------------------------------
+    own_page = own_page_rows()
+    for section, key in sorted(own_page):
+        if not known(section, key, keys, wild):
+            failures.append(f"OWN-PAGE KEY DOES NOT EXIST: [{section}] {key} "
+                            f"(VROptionsTab.8.Dependencies.OwnPageRows) — the filter hides a key "
+                            f"nothing binds; delete the entry.")
+            continue
+        if drawn_outside_the_filter(section, key) is None:
+            failures.append(f"OWN-PAGE KEY IS DRAWN NOWHERE: [{section}] {key} — OwnPageRows keeps "
+                            f"it out of every catalog listing, and no other file under "
+                            f"WorldUI/Options names it, so it is reachable from NEITHER door. "
+                            f"Either the page that owned it stopped drawing it, or the entry "
+                            f"should go.")
+
     # ---- 2. two doors -----------------------------------------------------------------------
     seen = {}
     for cat, _ck, sec, _sk, section, key, _cap in curated:
@@ -918,6 +976,7 @@ def main():
         print(f"\n{len(failures)} option-menu coverage failure(s).")
         return 1
     print("options coverage: every curated and topic-tree key exists, every caption resolves, "
+          f"{len(own_page)} row(s) handed to a page of their own and drawn there, "
           f"{two_names} row(s) named on both doors agree, "
           f"{len(DUPLICATE_ALLOWED)} deliberate second door(s), "
           f"{len(KNOWN_ORPHANS)} known family orphan(s) in the frozen backlog, no NEW split "

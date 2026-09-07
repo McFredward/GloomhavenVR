@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Rig;
 using UnityEngine;
@@ -53,11 +54,23 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// default, and why its description says so in both languages: the user turns it on for one hold
 /// and turns it off again.</para>
 ///
-/// <para><b>WHY A MISSED RESTORE CANNOT LATCH.</b> The <c>SetGlobalFloat(_EnableOcclusionMap, 1f)</c>
-/// is INSIDE the generator's command buffer, which re-executes every frame the ScenarioCamera
-/// renders. So even if <c>onPostRender</c> never fires for a head-camera pass, the game itself puts
-/// the global back on the very next frame. This class restores it anyway, and its line reports the
-/// restore count beside the suppress count so a mismatch is visible rather than assumed.</para>
+/// <para><b>WHY A MISSED RESTORE CANNOT LATCH — AND IT IS MEASURED, NOT ASSERTED.</b> The
+/// <c>SetGlobalFloat(_EnableOcclusionMap, 1f)</c> is INSIDE the generator's command buffer
+/// (decompiled <c>GH.Runtime/TilesOcclusionGenerator.cs:191</c>, added at
+/// <c>CameraEvent.BeforeGBuffer</c> on line 192), which re-executes every frame that camera
+/// renders. VR does not stop it rendering: <c>VRCameraPolicy</c> forces game cameras to
+/// <c>StereoTargetEyeMask.None</c>, which makes them desktop-only, NOT disabled. So even if
+/// <c>onPostRender</c> never fires for a head-camera pass, the game itself puts the global back on
+/// the very next frame the ScenarioCamera draws.</para>
+///
+/// <para>That was the whole argument until ModBuild 467, and it was an assertion about a camera
+/// nobody had counted. The line now carries <c>GENERATOR CAMERA PASSES</c> beside the head-camera
+/// count: they are the renders of <c>TilesOcclusionGenerator.s_Instance</c>'s own camera seen from
+/// the same hook, in the same session. A count at or above the head-camera count means the buffer
+/// really did re-run between our passes and the worst case of a missed restore is one frame; a
+/// count of 0 means the premise did NOT hold this session and a restore shortfall would latch until
+/// the dial is turned off. The class restores it anyway, and reports the restore count beside the
+/// suppress count so a mismatch is visible rather than assumed.</para>
 ///
 /// <para><b>WHY THE WRITE IN THE RENDER PHASE IS ALLOWED HERE.</b> The project's rule
 /// (<c>CanvasConversion.AssertNotInRenderPhase</c>, quoted in <c>CameraOrderProbe</c>) is about
@@ -97,6 +110,38 @@ internal static class PropOcclusionGate
     private static string _camName = "";
     private static bool _reported;
 
+    // ---- WHAT THE HOOK ACTUALLY SAW, so the "it never matched" verdict can NAME its cause ----
+    //
+    // ModBuild 466 shipped a verdict that asserted a mechanism it could not observe. Its whole
+    // INERT branch keyed on `_suppressed == 0` and said "THE HOOK NEVER MATCHED A HEAD CAMERA" —
+    // which is only ONE of the two ways that count reaches zero, and it was the wrong one. The 466
+    // log has `OCCLUSION GATE A/B ARMED` ZERO times and the INERT line exactly once, from module
+    // teardown: the hook was never installed at all, because the dial was off all session (the user
+    // could not find it — see the Test-Auslöser row that now carries it). Meanwhile the sibling
+    // instrument in this same folder read `HEAD CAMERA: 'GloomhavenVR.HeadCamera'` FOUR times in
+    // that same session off the very same `VRRigDriver.HeadCamera` property, so the camera match
+    // this line accused was demonstrably fine. A reader who trusted the sentence would have spent a
+    // round rewriting a correct match.
+    //
+    // These five fields are what it takes for the line to report the cause rather than guess it:
+    // whether the hook was ever installed, how many camera renders went past it, how many of those
+    // found a null head camera, which cameras they were, and how often the generator's own camera
+    // rendered (the missed-restore premise, counted instead of asserted).
+    private static bool _everArmed;
+    private static int _armedAtFrame = -1;
+    private static int _camPasses;
+    private static int _headNullPasses;
+    private static int _genPasses;
+
+    /// <summary>Distinct non-matching camera names, capped: this names a cause, it is not a census.</summary>
+    private static readonly List<string> OtherCameras = new(MaxNamedCameras);
+
+    private const int MaxNamedCameras = 8;
+
+    /// <summary>Cached so the generator lookup is a static field read per callback, not a GetComponent.</summary>
+    private static TilesOcclusionGenerator? _gen;
+    private static Camera? _genCam;
+
     /// <summary>
     /// Arm or disarm to match the dial. Idempotent, so it is safe to call from module init AND from
     /// the config's <c>SettingChanged</c> — the user flipping it in the VR options menu takes effect
@@ -113,10 +158,16 @@ internal static class PropOcclusionGate
         if (wanted)
         {
             _suppressed = _restored = _preAlreadyZero = _readBackNonZero = 0;
+            _camPasses = _headNullPasses = _genPasses = 0;
+            OtherCameras.Clear();
+            _gen = null;
+            _genCam = null;
             _preMin = float.PositiveInfinity;
             _preMax = float.NegativeInfinity;
             _camName = "";
             _reported = false;
+            _everArmed = true;
+            _armedAtFrame = Time.frameCount;
             Camera.onPreRender += OnPreRender;
             Camera.onPostRender += OnPostRender;
             // HW-VERIFY: this line says the experiment is ARMED. It is not the answer — the
@@ -159,8 +210,28 @@ internal static class PropOcclusionGate
 
     private static void OnPreRender(Camera cam)
     {
-        if (cam == null || !ReferenceEquals(cam, VRRigDriver.HeadCamera))
+        if (cam == null)
             return;
+
+        // EVERY camera render is counted BEFORE the match, and that is the whole repair to round
+        // fifteen's verdict: a hook that saw 0 renders, a hook that saw 4000 renders and none of
+        // them the head, and a hook that was never installed are three different findings, and the
+        // shipped line could tell none of them apart.
+        _camPasses++;
+        Camera? head = VRRigDriver.HeadCamera;
+        if (head == null)
+            _headNullPasses++;
+        NoteGeneratorPass(cam);
+
+        if (!ReferenceEquals(cam, head))
+        {
+            // Name what DID render, so an "it never matched" line points at a camera list instead of
+            // at a mechanism. Collected only until the head is found: after that it has answered,
+            // and this project has already paid for a probe that kept measuring past its answer.
+            if (_suppressed == 0 && OtherCameras.Count < MaxNamedCameras && !OtherCameras.Contains(cam.name))
+                OtherCameras.Add(cam.name);
+            return;
+        }
 
         // A pass that never reached OnPostRender (camera torn down mid-render). Hand the value back
         // before taking a new one, so we can never save our own 0 over the game's 1.
@@ -195,6 +266,35 @@ internal static class PropOcclusionGate
         Report("the first head-camera passes are on record", force: false);
     }
 
+    /// <summary>
+    /// Count the renders of the camera the occlusion generator's command buffer hangs on.
+    ///
+    /// <para>THIS IS THE NO-LATCH PREMISE, MEASURED. The class doc argues that a missed restore
+    /// cannot latch because <c>TilesOcclusionGenerator</c> re-publishes
+    /// <c>_EnableOcclusionMap = 1</c> from inside a command buffer at
+    /// <c>CameraEvent.BeforeGBuffer</c> every frame its camera renders. That is true of the
+    /// decompiled source (line 191) and says nothing about whether the camera renders HERE, under a
+    /// VR rig — which is exactly the shape of assumption this file has now been burned by once. So
+    /// it is counted: the report prints these passes beside the head-camera passes, and a reader can
+    /// see the buffer re-running instead of taking it on the source's word.</para>
+    ///
+    /// <para>The generator is resolved through its own static instance and cached, so the per-render
+    /// cost is a static field read and a reference compare — never a <c>GetComponent</c> per camera
+    /// per frame, which on a four-camera scene is 240 calls a second for a diagnostic.</para>
+    /// </summary>
+    private static void NoteGeneratorPass(Camera cam)
+    {
+        TilesOcclusionGenerator? gen = TilesOcclusionGenerator.s_Instance;
+        if (!ReferenceEquals(gen, _gen))
+        {
+            _gen = gen;
+            _genCam = gen != null ? gen.GetComponent<Camera>() : null;
+        }
+
+        if (_genCam != null && ReferenceEquals(cam, _genCam))
+            _genPasses++;
+    }
+
     private static void RestoreNow(string why)
     {
         if (!_inside)
@@ -217,6 +317,16 @@ internal static class PropOcclusionGate
     /// a reader most needs told, because it is the one where "the white was unchanged" says
     /// nothing. Disarm and shutdown force the line out whatever the count is. A silent instrument
     /// reads exactly like a negative result, and this file has been burned by that before.</para>
+    ///
+    /// <para><b>AND THE FORCED LINE THEN NAMED THE WRONG CAUSE, which is the ModBuild 467 repair.</b>
+    /// Round fifteen's verdict had ONE branch for <c>_suppressed == 0</c> and it read "THE HOOK NEVER
+    /// MATCHED A HEAD CAMERA". Zero is reached two ways and that sentence only describes one of them.
+    /// In the 466 session it described the wrong one: <c>OCCLUSION GATE A/B ARMED</c> appears zero
+    /// times in that log, so the hook was never installed — the dial was off all session — while the
+    /// sibling sweep in this folder printed <c>HEAD CAMERA: 'GloomhavenVR.HeadCamera'</c> four times
+    /// off the same property the match uses. The three states are now separate branches with separate
+    /// numbers behind them, and NEVER-ARMED is a short line of its own rather than three paragraphs
+    /// of epistemology about an experiment nobody ran.</para>
     /// </summary>
     private static void Report(string closing, bool force)
     {
@@ -226,29 +336,72 @@ internal static class PropOcclusionGate
             return; // unreachable via the render-loop caller; forced callers own the INERT line
         _reported = true;
 
-        string verdict = _suppressed == 0
-            ? "*** INERT — THE HOOK NEVER MATCHED A HEAD CAMERA, so the gate was never down and "
-              + "NOTHING was switched off. This session's report says nothing about the occlusion "
-              + "map either way; do not read 'the white was unchanged' as an exclusion. ***"
-            : _preAlreadyZero == _suppressed
-                ? "*** NULL PERTURBATION — the global was ALREADY 0 on every pass, so nothing was "
-                  + "switched off and 'the white is unchanged' would be an ABSENCE and not an "
-                  + "EXCLUSION. This is the reading round twelve's experiment turned out to have. ***"
-                : _readBackNonZero > 0
-                    ? "*** THE WRITE DID NOT TAKE on some passes — read-back was non-zero "
-                      + $"{_readBackNonZero} time(s). Treat any 'no change' report as INERT. ***"
-                    : "*** WORKING — the gate was genuinely down for every head-camera pass. A 'no "
-                      + "change' report is now a real EXCLUSION of the occlusion channel. ***";
+        // THE DIAL WAS NEVER TURNED ON. Short and separate on purpose: this is the reading almost
+        // every session will produce, it is not a result about the occlusion map, and three
+        // paragraphs of how-to-read-the-picture under it would be noise in every log the mod writes.
+        // It still has to be SAID, because a session that ran no experiment and a session whose
+        // experiment changed nothing look identical from the outside.
+        if (!_everArmed)
+        {
+            // HW-VERIFY: the NEVER-ARMED reading of round fifteen's A/B. Distinct from the INERT and
+            // WORKING readings below by construction — this branch is the only one that can print
+            // without an ARMED line above it in the same log.
+            VRLog.Note(Scope, "[Props] OCCLUSION GATE A/B — NEVER ARMED. The dial "
+                + "[FigureGrab] OcclusionMapOffOnHeadCamera was OFF for this whole session, so the "
+                + "experiment did not run and NOTHING about the occlusion map was measured either "
+                + "way. This is NOT a camera-match failure and it is NOT a null result: do not read "
+                + "'the white was unchanged' as an exclusion of anything. The switch is in the VR "
+                + "options under Erweitert > Test-Ausloeser (Test triggers), captioned "
+                + "'Test: occlusion map off in VR' / 'Test: Verdeckungskarte in VR aus'; turn it on, "
+                + "pick a trap up once, turn it off again, and this line becomes a reading.");
+            return;
+        }
+
+        int armedFrames = _armedAtFrame < 0 ? 0 : Mathf.Max(0, Time.frameCount - _armedAtFrame);
+        string others = OtherCameras.Count == 0
+            ? "<none>"
+            : string.Join(", ", OtherCameras.ToArray())
+              + (OtherCameras.Count >= MaxNamedCameras ? ", ... (list capped)" : "");
+
+        string verdict = _camPasses == 0
+            ? $"*** INERT — ARMED, but Camera.onPreRender did not fire ONCE in {armedFrames} frame(s): "
+              + "no camera rendered through the built-in callback at all, so the hook cannot have "
+              + "matched or missed anything. This says nothing about the occlusion map. ***"
+            : _suppressed == 0
+                ? $"*** INERT — ARMED, and {_camPasses} camera render(s) went past this hook over "
+                  + $"{armedFrames} frame(s), but NONE of them was the rig's own head camera "
+                  + $"(VRRigDriver.HeadCamera). It read null on {_headNullPasses} of those renders; "
+                  + $"the cameras that DID render were: {others}. The gate was never down, so do not "
+                  + "read 'the white was unchanged' as an exclusion. ***"
+                : _preAlreadyZero == _suppressed
+                    ? "*** NULL PERTURBATION — the global was ALREADY 0 on every pass, so nothing was "
+                      + "switched off and 'the white is unchanged' would be an ABSENCE and not an "
+                      + "EXCLUSION. This is the reading round twelve's experiment turned out to have. ***"
+                    : _readBackNonZero > 0
+                        ? "*** THE WRITE DID NOT TAKE on some passes — read-back was non-zero "
+                          + $"{_readBackNonZero} time(s). Treat any 'no change' report as INERT. ***"
+                        : "*** WORKING — the gate was genuinely down for every head-camera pass. A 'no "
+                          + "change' report is now a real EXCLUSION of the occlusion channel. ***";
+
+        // The no-latch premise, counted rather than quoted. The old line asserted the command buffer
+        // re-runs every frame; this one says how many times it was SEEN to.
+        string latch = _genPasses == 0
+            ? "GENERATOR CAMERA PASSES 0 — the camera carrying TilesOcclusionGenerator's command "
+              + "buffer was NOT seen rendering while the gate was armed, so the 'a missed restore "
+              + "cannot latch' argument is UNSUPPORTED this session and a shortfall above would "
+              + "stand until the dial is turned off."
+            : $"GENERATOR CAMERA PASSES {_genPasses} against {_suppressed} head pass(es) — the "
+              + "command buffer that re-publishes _EnableOcclusionMap = 1 "
+              + "(GH.Runtime/TilesOcclusionGenerator.cs:191, CameraEvent.BeforeGBuffer) really did "
+              + "re-run, so the worst case of a restore shortfall is one frame. MEASURED, not assumed.";
 
         // HW-VERIFY: this is the answer-bearing line of round fifteen's experiment. It must stay at
         // a tier the DEFAULT log level prints. scripts/check-hw-verify.py enforces the position of
         // this comment.
         VRLog.Note(Scope, $"[Props] OCCLUSION GATE A/B — {closing}. {verdict} "
             + $"HEAD CAMERA MATCHED: '{(_camName.Length == 0 ? "<none>" : _camName)}'. "
-            + $"Head-camera passes SUPPRESSED {_suppressed}, RESTORED {_restored} "
-            + $"(a shortfall does not latch: the game re-publishes _EnableOcclusionMap = 1 from "
-            + $"inside TilesOcclusionGenerator's command buffer every frame the ScenarioCamera "
-            + $"renders, so the worst case is one frame). VALUE FOUND BEFORE THE WRITE: "
+            + $"Head-camera passes SUPPRESSED {_suppressed}, RESTORED {_restored}. {latch} "
+            + "VALUE FOUND BEFORE THE WRITE: "
             + $"{_preMin:0.###}..{_preMax:0.###} over those passes, already 0 on {_preAlreadyZero} "
             + $"of them. READ-BACK AFTER THE WRITE was non-zero on {_readBackNonZero}. "
             + "HOW TO READ THIS AGAINST THE PICTURE, AND THE BAR IS THE USER'S EYE AND NOT A "

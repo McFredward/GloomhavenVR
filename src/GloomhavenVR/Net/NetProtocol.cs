@@ -473,6 +473,21 @@ internal static class NetProtocol
     //     change" is this file's recurring trap. A missed restore cannot latch: the generator
     //     re-publishes the global from inside its command buffer every frame. The cost — flames
     //     drawn unoccluded while it is on — is stated to the user in both languages.
+    //     AND THE EXPERIMENT DID NOT RUN. The 466 log holds ZERO `OCCLUSION GATE A/B ARMED` lines
+    //     and one forced report from teardown, because the dial was off the whole session: it
+    //     shipped uncurated, so `ConfigCatalog.TopicOf` filed it by its SECTION into Erweitert >
+    //     Haende > "Figuren-Offsets" and the user could not find it ("Ich konnte die
+    //     OcclusionMapOffOnHeadCamera in Erweitert nirgends finden, wo ist sie?"). It is drawn on
+    //     Erweitert > Test-Ausloeser now, with its cost as a note in both languages, and the
+    //     catalog listings hand it over rather than duplicating it (`OwnPageRows`, check 7 of
+    //     check-options-coverage.py).
+    //     AND THE FORCED REPORT NAMED A CAUSE IT COULD NOT SEE: its only zero-suppression branch
+    //     read "THE HOOK NEVER MATCHED A HEAD CAMERA", which is one of the TWO ways that count
+    //     reaches zero and was the wrong one — the sibling sweep printed
+    //     `HEAD CAMERA: 'GloomhavenVR.HeadCamera'` four times in that same log off the same
+    //     `VRRigDriver.HeadCamera` the match uses. NEVER-ARMED, ARMED-BUT-NO-MATCH and ARMED are
+    //     three separate branches now, each with its own numbers, and the no-latch premise above is
+    //     COUNTED (`GENERATOR CAMERA PASSES`) instead of quoted from the decompiled source.
     //     AND `Amp_Char_Shader` CANNOT BE DUMPED ON THIS MACHINE, verified rather than assumed:
     //     `tools/ShaderDisasm` works and has produced real DXBC for four shaders, but `ressources/`
     //     holds only `Managed/` — no GH_Data, no resources.assets, no asset bundle anywhere. A

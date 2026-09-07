@@ -500,7 +500,9 @@ internal static class FigureGrabConfig
         OcclusionMapOffOnHeadCamera = config.Bind(
             "FigureGrab", "OcclusionMapOffOnHeadCamera", Defaults.OcclusionMapOffOnHeadCamera,
             "DIAGNOSTIC A/B, not a feature - leave this OFF unless you were asked to switch " +
-            "it on. It holds the game's occlusion map switch OFF for the VR view only, to " +
+            "it on. In the VR menu it is on the Erweitert > Test-Ausloeser page, with the other " +
+            "test aids, and NOT among the figure settings. It holds the game's occlusion map " +
+            "switch OFF for the VR view only, to " +
             "test whether that map is what makes a trap or chest in your hand turn bright " +
             "white. WHILE IT IS ON YOU WILL SEE A SIDE EFFECT: flames and other effects stop " +
             "being hidden by walls, because the same switch controls them. Turn it on, pick " +

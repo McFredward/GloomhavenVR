@@ -370,10 +370,52 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// THE one row filter: the per-variant fold and the dependency fold together. Every view —
-    /// curated tabs, automatic topic pages, the hand-arranged trees — asks this and nothing else,
-    /// so the two mechanisms can never disagree between pages.
+    /// Rows a PAGE OF THIS MENU draws by hand, so the catalog's own listings must not draw them a
+    /// second time.
+    ///
+    /// <para><b>WHY THIS EXISTS, and it is a repeat of a recorded defect rather than a new idea.</b>
+    /// <c>[FigureGrab] OcclusionMapOffOnHeadCamera</c> is not a setting: it is a one-hold diagnostic
+    /// A/B with a side effect the player can see (flames stop being hidden by walls). It shipped
+    /// uncurated in ModBuild 466, so <c>ConfigCatalog.TopicOf</c> filed it by its SECTION and it
+    /// landed under Erweitert ▸ Hände ▸ "Figuren-Offsets", between the grab radius and the cloth
+    /// reach. The user, who had been asked to switch it on, could not find it — verbatim: "Ich
+    /// konnte die OcclusionMapOffOnHeadCamera in Erweitert nirgends finden, wo ist sie?" — and the
+    /// experiment did not run at all that session (<c>OCCLUSION GATE A/B ARMED</c> appears zero
+    /// times in the 466 log). The rule that came out of the last time this happened is that a
+    /// setting is filed by what the PLAYER would look for, not by which module owns the key, and a
+    /// test aid is looked for on the test page.</para>
+    ///
+    /// <para><b>WHY HERE AND NOT IN <c>ConfigCatalog</c>.</b> The catalog's two withholding tables
+    /// (<c>RetiredMarkers</c>, <c>NotOffered</c>) take a key OUT of the catalog entirely — and this
+    /// key must stay in it, because the page that draws it resolves it through <c>Lookup</c>, which
+    /// is built from the catalog's own topic groups. Withholding it there would make the row
+    /// unreachable from BOTH doors. This is a DISPLAY decision and belongs in the display filter,
+    /// which is also the one place every view already agrees on: curated tabs, the automatic topic
+    /// pages, the board topic and the hand-arranged trees all ask this method and nothing else, so a
+    /// key named here cannot leak back into one of them. The hand-built page that owns the row calls
+    /// <c>Lookup</c> + <c>BuildItem</c> directly and never asks this filter, which is what lets it
+    /// draw the row it is responsible for.</para>
+    ///
+    /// <para>Nothing here is withheld from the player: every key in this set is drawn, once,
+    /// somewhere else in the same menu. Keep the comment beside each entry naming that page — an
+    /// entry whose page is deleted would silently hide a working setting.</para>
+    /// </summary>
+    private static readonly HashSet<string> OwnPageRows = new(StringComparer.Ordinal)
+    {
+        // Drawn by VROptionsTab.9.TestTriggers.cs on Erweitert ▸ Test-Auslöser, with the note that
+        // states its cost. It is a test aid, not a figure offset.
+        "FigureGrab/OcclusionMapOffOnHeadCamera",
+    };
+
+    /// <summary>Does another page of this menu draw this row by hand?</summary>
+    private static bool HasItsOwnPage(ConfigCatalog.ConfigItem item) =>
+        OwnPageRows.Contains(Id(item.Section, item.Key));
+
+    /// <summary>
+    /// THE one row filter: the own-page hand-off, the per-variant fold and the dependency fold
+    /// together. Every view — curated tabs, automatic topic pages, the hand-arranged trees — asks
+    /// this and nothing else, so the three mechanisms can never disagree between pages.
     /// </summary>
     private static bool IsRowVisible(ConfigCatalog.ConfigItem item) =>
-        IsShownForCurrentVariant(item) && DependencyMet(item);
+        !HasItsOwnPage(item) && IsShownForCurrentVariant(item) && DependencyMet(item);
 }
