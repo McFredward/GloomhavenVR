@@ -6,7 +6,7 @@ using UnityEngine;
 namespace GloomhavenVR.Board.Patches;
 
 /// <summary>
-/// THE INITIATIVE TRACK IS EMPTY DURING A FORCED CARD PICK, AND THE GAME NEVER FILLED IT.
+/// THE INITIATIVE TRACK IS EMPTY IN EVERY DECISION FLOW THE GAME NEVER FILLED IT FOR.
 ///
 /// <para>USER REPORT 2026-08-24 (verbatim): "Die Initativreihenfolge verschwindet während dessen
 /// komplett. Das darf niemals sein, die bereits implementierte Logik soll davon NICHT berührt
@@ -45,8 +45,9 @@ namespace GloomhavenVR.Board.Patches;
 /// POSTFIXES, which cannot suppress the original, and no mod code anywhere calls
 /// <c>UpdateInitiativeTrack</c>, <c>NormalizeActorsPool</c> or <c>SetActive</c> on a row).</para>
 ///
-/// <para>THE REMEDY IS THE GAME'S OWN METHOD WITH THE GAME'S OWN ARGUMENTS. When a forced pick is
-/// open and the track has zero visible rows, this asks
+/// <para>THE REMEDY IS THE GAME'S OWN METHOD WITH THE GAME'S OWN ARGUMENTS. When a decision flow is
+/// open (until ModBuild 474 that read "a forced card pick" — see the 2026-09-07 section below for
+/// why that was the defect) and the track has zero visible rows, this asks
 /// <c>UpdateInitiativeTrack(actors, playersSelectable: true, enemiesSelectable: false,
 /// selectActor: false)</c> — the same <c>List&lt;CActor&gt;</c> overload every other call site ends
 /// in (InitiativeTrack.cs:587), built from <c>Choreographer.m_ClientPlayers</c> +
@@ -94,16 +95,212 @@ namespace GloomhavenVR.Board.Patches;
 /// <c>Choreographer</c> state the game already replicates; no channel is opened, no game state is
 /// written, and with <c>selectActor: false</c> not even a UI selection event is raised. Every seat
 /// makes the same decision independently from data it already has.</para>
+///
+/// ══════════════════════════════════════════════════════════════════════════════════════════════
+/// <para><b>2026-09-07 (ModBuild 474), item 4 — THE TRIGGER WAS THE DEFECT, NOT THE REMEDY.</b>
+/// Verbatim: "In den Flows am Anfang eines Szenarios zB Gegenstand oder Karten ablegen - ist die
+/// Initiativreihenfolge nicht sichtbar an allen boards. Die soll auch da schon sichtbar sein und
+/// zeigen wer dran ist und eine Entscheidung treffen muss. Ich weiß aus Tests bei Kartenabwurf dass
+/// es da sichtbar war. Im Test jetzt war explizit der Flow dass ein Spieler einen Gegenstand
+/// abwerfen musste. <b>Bei allen Flows soll die Initiativreihenfolge sichtbar sein.</b>"</para>
+///
+/// <para>Everything above this line is CORRECT and was re-verified against the decompile on
+/// 2026-09-07 — including the generic-refresh whitelist at Choreographer.cs:12534, which really
+/// does exclude <c>SelectLoseCards</c> and really does additionally require
+/// <c>GameState.InitiativeSortedActors.Count &gt; 0</c>. What was wrong is narrower and it is the
+/// FIRST TEST this class ran: <b>the repair was keyed on a CARD HAND.</b> It asked
+/// <c>CardsGameApi.ActiveHand()</c> and then demanded <see cref="IsForcedPickMode"/> of that hand's
+/// <c>currentMode</c>. Every flow that is not presented through <c>CardsHandManager</c> failed that
+/// test on its first line and the band stayed blank — which is the report exactly.</para>
+///
+/// <para><b>THE CONTROLLED COMPARISON, RUN AGAINST SOURCE.</b> The user handed us one: a CARD
+/// discard where the track was visible against an ITEM discard where it was not. It could NOT be
+/// run against this round's two logs — <c>grep -c 'SelectLoseCards'</c> and
+/// <c>grep -c 'DiscardCard'</c> are BOTH 0 on both clients, so the card flow simply did not occur
+/// this session and a log diff would have compared one flow against nothing. Run against the
+/// decompiled handlers instead, the two flows differ in exactly the term this class tested:</para>
+/// <list type="table">
+///   <item><term>CARD discard — <c>SelectLoseCards</c> (Choreographer.cs:7854-7910)</term>
+///     <description><c>CardsHandManager.Instance.Show(actor, DiscardCard|LoseCard, …)</c> at :7880
+///       runs UNCONDITIONALLY — there is no <c>IsUnderMyControl</c> gate in front of it. So on
+///       EVERY client <c>ActiveHand()</c> came back non-null in a forced mode, the old trigger hit,
+///       and the band was refilled. That is precisely why the user remembers it working.</description></item>
+///   <item><term>ITEM discard — <c>SelectRefreshOrConsumeItems</c> (Choreographer.cs:5853-5905)</term>
+///     <description>presents <c>ItemCardRefreshPicker.Show(…)</c> at :5880, behind
+///       <c>if (!FFSNetwork.IsOnline || m_ActorBeenRefreshed.IsUnderMyControl)</c>. There is NO
+///       card hand in this flow at all, on ANY client — so <c>ActiveHand()</c> was null or a stale
+///       leftover tab, <see cref="IsForcedPickMode"/> was false, and the tick returned before it
+///       ever counted a row.</description></item>
+/// </list>
+///
+/// <para><b>AND A LOCAL-CONTROL FIX WOULD HAVE MISSED THE REPORTER.</b> This is the half that
+/// decides the shape of the remedy, so it is worth being blunt about. The obvious repair — swap
+/// <c>ActiveHand()</c> for the mod's own <c>CardsGameApi.DecidingHand()</c> chain — is WRONG on its
+/// own: every member of that chain (<c>TakeDamageHand</c>, <c>ActionSelectionHand</c>,
+/// <c>ItemPickHand</c>, <c>LoseRewardPickHand</c>, <c>InitiativeAdjustHand</c>) ends in an
+/// <c>IsUnderMyControl</c> gate, so it is non-null ONLY on the client that must decide. The logs
+/// say that is the wrong client: the item pick of 2026-09-07 is in the PEER's log
+/// (<c>remote/Player.log:43604</c> "ITEM SURRENDER pick OPEN (consume): the game demands 1 item(s)
+/// from 'Testi'") and appears NOWHERE in the host's (<c>grep -c ItemCardRefreshPicker</c> = 0),
+/// because :5880 only Shows it on the controlling seat. The host — the man who filed the report —
+/// was the client that had nothing to decide and therefore nothing to look at. His words are
+/// "zeigen WER dran ist und eine Entscheidung treffen muss": the surface exists for the players who
+/// are WAITING. A trigger that can only fire on the decider answers the opposite question.</para>
+///
+/// <para><b>THE GENERAL TERM: <see cref="IsDecisionWait"/> over <c>Choreographer.m_WaitState</c>.</b>
+/// One term is true on EVERY client in EVERY one of these flows, and both halves of the user's
+/// controlled comparison set it on the line after the presenter they disagree about:
+/// <c>SetChoreographerState(WaitingForCardSelection, …)</c> at Choreographer.cs:7887 for the card
+/// discard, and <c>SetChoreographerState(WaitingForItemRefresh, …)</c> at :5892 for the item pick —
+/// the latter OUTSIDE the <c>IsUnderMyControl</c> gate that owns the picker. The rules model is
+/// local (every client runs the same Choreographer off the same messages), so this is a rendering
+/// gate read from a purely local state machine, not a wire question. The card hand and the picker
+/// are still consulted, but only to NAME the flow in the log — never to decide it.</para>
+///
+/// <para><b>WHY WIDENING THE TRIGGER DOES NOT START A FIGHT WITH THE GAME.</b> The old scope note
+/// on <see cref="IsForcedPickMode"/> warned that "a repair that fires where nothing is broken is a
+/// repair that will one day fight the game", and that warning is right — it is answered, not
+/// ignored. The safety was never the mode test; it is that the fill fires ONLY on <b>zero visible
+/// rows</b>, and the two places the game deliberately reshapes this band during a decision wait
+/// both leave rows STANDING, so this class latches and writes nothing:
+/// <list type="number">
+///   <item><c>InitiativeTrack.ShowMonsterClassesForSelectingRoundAbilityCards</c>
+///     (InitiativeTrack.cs:741-779) ADDS enemy rows via <c>NormalizeEnemiesUiPool</c> into the same
+///     <c>initiativeTrackHolder</c> and only <c>Deselect()</c>s the player rows — it never
+///     deactivates one. <see cref="VisibleRows"/> is &gt; 0 throughout the enemy-info screen.</item>
+///   <item>Round-start card selection: <c>OnShow</c> calls <c>UpdateInitiativeTrack</c> at
+///     Choreographer.cs:12601 and only THEN sets <c>WaitingForCardSelection</c> at :12613. The band
+///     is already populated by the time this class is allowed to look at it.</item>
+/// </list>
+/// The window that is left is the one the report is about: scenario start, before any card has been
+/// chosen, where <c>GameState.InitiativeSortedActors.Count</c> is still 0 and the game's own generic
+/// refresh is blocked by its own precondition.</para>
+///
+/// <para><b>THE EVIDENCE THAT NAMES IT, from the two ModBuild 474 logs.</b> The host's initiative
+/// panel was measured blank across the whole item decision. Aligning on the two anchor pairs either
+/// side of it — the scenario gate OPEN edge (<c>Player.log:50045</c> / <c>remote/Player.log:40961</c>)
+/// and the first <c>[CardsActionController.cs] Called Init(topCard:</c>
+/// (<c>Player.log:103668</c> / <c>remote/Player.log:89316</c>) — the peer's item window
+/// (<c>remote/Player.log:43604→53343</c>) interpolates onto the host's timeline at roughly
+/// <c>Player.log:52,976→63,775</c>. The host's own panel instrument brackets that interval with two
+/// CONSECUTIVE commits and nothing elided between them:
+/// <c>Player.log:51233</c> "HIT RECT 'GloomhavenVR.Panel_InitiativeTrack' (commit #1 …) DRAWN
+/// CONTENT 1920x1080 px at (0,0) from <b>0 visible graphic(s)</b>" and <c>Player.log:66076</c>
+/// "(commit #2 …) DRAWN CONTENT 805x204 px at (-990,996) from <b>40 visible graphic(s)</b>". A
+/// change-triggered instrument that does not re-fire is the statement that nothing changed, so the
+/// band was blank from before the decision opened until after it closed. The panel itself was never
+/// withdrawn — it is the CONTENT that was empty, the same picture as 2026-08-24.</para>
+///
+/// <para><b>WHAT THIS STILL DOES NOT COVER.</b> A decision the Choreographer does not park in one
+/// of <see cref="IsDecisionWait"/>'s states is invisible here, and deliberately so: the animation
+/// and sync waits (<c>WaitingFor*Anim</c>, <c>WaitingForPlayerIdle</c>, <c>WaitingFor*Sync</c>,
+/// <c>WaitingForRewardsProcess</c>, <c>WaitingForAutosave</c>) are the game moving, not a human
+/// choosing, and refilling a band during them would be inventing a cue.
+/// <c>WaitingForAttackModifierCards</c> is excluded for the same reason — it waits on the modifier
+/// DRAW to finish (see <c>FigureGrab.FigureBusy</c>, which classifies it as an unbounded FLOW wait,
+/// not a decision). If a future report names a flow that is still blank, the log line below prints
+/// the exact <c>m_WaitState.m_State</c> that was standing when it happened, so adding it is one
+/// enum member rather than another round of archaeology.</para>
 /// </summary>
 internal static class PickPhaseInitiativeTrack
 {
-    /// <summary>The card-hand modes this repair covers: the FORCED picks the game raises through
-    /// <c>SelectLoseCards</c> (Choreographer.cs:7877 maps the ability type to exactly these two).
-    /// Recover/card-limit picks are deliberately absent — they are raised by other messages and
-    /// have not been observed with a blank track, and a repair that fires where nothing is broken
-    /// is a repair that will one day fight the game.</summary>
+    /// <summary>The card-hand modes the game raises through <c>SelectLoseCards</c>
+    /// (Choreographer.cs:7877 maps the ability type to exactly these two).
+    ///
+    /// <para>THIS IS NO LONGER THE TRIGGER — see <see cref="IsDecisionWait"/>. Until ModBuild 474
+    /// it was, and being a CARD-hand test it excluded every flow the game does not present through
+    /// <c>CardsHandManager</c>; the item pick of user report 2026-09-07 item 4 was one. It survives
+    /// as a NAMING term only: when it is true the log line below can say which forced pick was
+    /// standing, which is strictly more than the wait state alone can say.</para></summary>
     private static bool IsForcedPickMode(CardHandMode mode) =>
         mode == CardHandMode.DiscardCard || mode == CardHandMode.LoseCard;
+
+    /// <summary>
+    /// "IS THE GAME BLOCKED ON A HUMAN CHOOSING SOMETHING?" — the general trigger, and the whole
+    /// point of the 2026-09-07 rework. Read off <c>Choreographer.m_WaitState.m_State</c> because
+    /// that is the ONE term in these flows that is set on EVERY client rather than only on the seat
+    /// holding the decision (Choreographer.cs:5892 and :7887 both set it outside any
+    /// <c>IsUnderMyControl</c> gate), and the party waiting on one player is exactly who the
+    /// initiative band has to answer for.
+    ///
+    /// <para>Enumerated, not pattern-matched on the name: three states spell "WaitingForPlayer…"
+    /// and one of them (<c>WaitingForPlayerIdle</c>) is an ANIMATION wait with no decision in it at
+    /// all. The class doc says what is left out and why.</para>
+    /// </summary>
+    private static bool IsDecisionWait(Choreographer.ChoreographerStateType s) =>
+        s == Choreographer.ChoreographerStateType.WaitingForCardSelection
+        || s == Choreographer.ChoreographerStateType.WaitingForItemRefresh
+        || s == Choreographer.ChoreographerStateType.WaitingForLoseGoalChestRewardSelection
+        || s == Choreographer.ChoreographerStateType.WaitingForElementPicked
+        || s == Choreographer.ChoreographerStateType.WaitingForTileSelected
+        || s == Choreographer.ChoreographerStateType.WaitingForPlayerWaypointSelection
+        || s == Choreographer.ChoreographerStateType.WaitingForPlayerPushWaypointSelection
+        || s == Choreographer.ChoreographerStateType.WaitingForPlayerPullWaypointSelection
+        || s == Choreographer.ChoreographerStateType.WaitingForAreaAttackFocusSelection;
+
+    /// <summary>
+    /// The LOCAL presenter of the open decision, for the log line and for the re-fire latch —
+    /// never for the trigger. Returns the object whose identity distinguishes one decision from the
+    /// next (so a SECOND character's pick re-fires rather than being swallowed), and names it in
+    /// <paramref name="presenter"/>.
+    ///
+    /// <para>Null is a MEANINGFUL answer and the common one on a waiting client: it says this seat
+    /// holds no part of the decision. That case is the reported defect, so the string says so
+    /// rather than reading as a failure to look.</para>
+    ///
+    /// <para><paramref name="describe"/> IS NOT A CONVENIENCE. This runs every frame for as long as
+    /// any decision wait is open, and a mid-turn tile/waypoint selection holds one for seconds at a
+    /// time; building <paramref name="presenter"/> unconditionally would allocate several strings
+    /// per frame for a line that is emitted at most once per flow. The three tests themselves are
+    /// allocation-free — each short-circuits on a phase compare or a singleton/window null check
+    /// (see <c>CardsGameApi.DecidingHand</c>'s own note) — so only the prose is deferred, and the
+    /// identity the latch compares is computed on exactly the same path either way.</para>
+    /// </summary>
+    private static object? LocalClaim(bool describe, out string presenter)
+    {
+        presenter = "";
+
+        // 1. A forced CARD pick. Named first and explicitly because it is the user's WORKING
+        //    REFERENCE: if this ever stops appearing, the regression is this class's, not the
+        //    game's. Present on every client (Choreographer.cs:7880 has no control gate).
+        CardsHandUI? hand = Cards.CardsGameApi.ActiveHand();
+        if (hand != null && IsForcedPickMode(Cards.CardsGameApi.Mode(hand)))
+        {
+            if (describe)
+                presenter = $"the card hand in {Cards.CardsGameApi.Mode(hand)} mode for " +
+                            $"'{CharacterFocus.Describe(hand.PlayerActor)}'";
+            return hand;
+        }
+
+        // 2. The ITEM refresh/consume picker — the flow of the 2026-09-07 report. Local to the
+        //    deciding seat only (Choreographer.cs:5880).
+        object? picker = Cards.CardsGameApi.OpenItemPicker(out CPlayerActor? itemActor,
+                                                           out bool refreshing);
+        if (picker != null)
+        {
+            if (describe)
+                presenter = $"the item {(refreshing ? "REFRESH" : "CONSUME")} picker for " +
+                            $"'{CharacterFocus.Describe(itemActor)}'";
+            return picker;
+        }
+
+        // 3. Everything else this client owns, through the mod's own deciding-actor chain rather
+        //    than a fourth hand-resolution rule of our own (take-damage, action selection, goal-
+        //    chest forfeit, the boots ± phase).
+        CardsHandUI? deciding = Cards.CardsGameApi.DecidingHand();
+        if (deciding != null)
+        {
+            if (describe)
+                presenter = "the deciding-actor chain, hand of " +
+                            $"'{CharacterFocus.Describe(deciding.PlayerActor)}'";
+            return deciding;
+        }
+
+        if (describe)
+            presenter = "NONE on this client — the decision belongs to another seat and this " +
+                        "client is one of the WAITING ones, which is the case the report is about";
+        return null;
+    }
 
     /// <summary>Re-arm interval. A fill that did NOT take (the pool was mid-build, an actor object
     /// was not resolvable yet) must be retried, but never per frame — <c>UpdateInitiativeTrack</c>
@@ -113,10 +310,25 @@ internal static class PickPhaseInitiativeTrack
 
     private static float _nextTryAt;
 
-    /// <summary>The hand identity the last successful fill was made for (RuntimeHelpers-style
-    /// reference identity via <see cref="object.ReferenceEquals"/>), so a SECOND character's forced
-    /// pick re-fires rather than being swallowed by the first one's latch.</summary>
-    private static object? _filledForHand;
+    /// <summary>The decision the last verdict was reached for: the wait state, plus the presenter's
+    /// reference identity (via <see cref="object.ReferenceEquals"/>) so a SECOND character's pick
+    /// re-fires rather than being swallowed by the first one's latch. The state alone is not enough
+    /// — two consecutive forced discards are both <c>WaitingForCardSelection</c>; the presenter
+    /// alone is not enough either, because on a waiting client it is null for every flow.</summary>
+    private static Choreographer.ChoreographerStateType _judgedState =
+        Choreographer.ChoreographerStateType.NA;
+
+    private static object? _judgedClaim;
+
+    /// <summary>How many decision-flow opens each wait state has produced this session, and whether
+    /// its "the band was already up" verdict has been stated once. A track that is UP is the
+    /// EXPECTED reading and mid-turn waits (tile/waypoint selection) produce dozens of them per
+    /// round, so that verdict class is capped at one line per state and carries its own running
+    /// count — the flood ModBuild 331 removed must not come back through this door. The DOWN
+    /// verdicts are never capped: they are the defect, they are rare, and they are the answer.</summary>
+    private static readonly Dictionary<Choreographer.ChoreographerStateType, int> Opens = new(16);
+
+    private static readonly HashSet<Choreographer.ChoreographerStateType> UpStated = new();
 
     /// <summary>Set once if the tick ever throws, so a bad frame reports and goes quiet instead of
     /// writing a line per frame for the rest of the session.</summary>
@@ -130,7 +342,10 @@ internal static class PickPhaseInitiativeTrack
     internal static void Reset()
     {
         _nextTryAt = 0f;
-        _filledForHand = null;
+        _judgedState = Choreographer.ChoreographerStateType.NA;
+        _judgedClaim = null;
+        Opens.Clear();
+        UpStated.Clear();
     }
 
     /// <summary>
@@ -158,30 +373,60 @@ internal static class PickPhaseInitiativeTrack
 
     /// <summary>
     /// Per frame while an initiative track exists — see <see cref="TickGuarded"/> for the seam.
-    /// Three compares in the steady state (no forced pick open ⇒ the mode test fails first).
+    ///
+    /// <para>The steady state is TWO field reads and <see cref="IsDecisionWait"/>'s compare chain:
+    /// outside a decision wait — which is nearly all of a scenario — nothing else runs, and
+    /// <see cref="LocalClaim"/> is not reached at all. Inside one the extra cost is that method's
+    /// three short-circuiting presence tests, allocation-free until a line is actually emitted.</para>
     /// </summary>
     private static void Tick(InitiativeTrack? track)
     {
         if (track == null)
             return;
 
-        CardsHandUI? hand = Cards.CardsGameApi.ActiveHand();
-        if (hand == null || !IsForcedPickMode(Cards.CardsGameApi.Mode(hand)))
+        // THE TRIGGER — the choreographer's wait state, not a card hand. See IsDecisionWait.
+        Choreographer chor = Choreographer.s_Choreographer;
+        Choreographer.CWaitState? wait = chor != null ? chor.m_WaitState : null;
+        Choreographer.ChoreographerStateType state =
+            wait != null ? wait.m_State : Choreographer.ChoreographerStateType.NA;
+        if (!IsDecisionWait(state))
         {
-            // Not our situation any more — drop the latch so the NEXT forced pick (the second
-            // character's, a mid-scenario discard ability) is judged from scratch.
-            _filledForHand = null;
+            // No decision open — drop the latch so the NEXT flow is judged from scratch.
+            _judgedState = Choreographer.ChoreographerStateType.NA;
+            _judgedClaim = null;
             return;
         }
-        if (ReferenceEquals(_filledForHand, hand))
-            return; // already filled for this pick; the rows are the game's from here on
+
+        object? claim = LocalClaim(describe: false, out _);
+        if (state == _judgedState && ReferenceEquals(claim, _judgedClaim))
+            return; // already judged for this decision; the rows are the game's from here on
 
         int rows = VisibleRows(track);
         if (rows > 0)
         {
-            // The game filled it (or we did on an earlier frame). Latch so the per-frame cost
-            // collapses to the compares above for the rest of this pick.
-            _filledForHand = hand;
+            // The band is up — the game filled it, or we did on an earlier frame. Latch so the
+            // per-frame cost collapses to the compares above for the rest of this decision.
+            _judgedState = state;
+            _judgedClaim = claim;
+            Opens[state] = Opens.TryGetValue(state, out int seenUp) ? seenUp + 1 : 1;
+            if (UpStated.Add(state))
+            {
+                LocalClaim(describe: true, out string upPresenter);
+                // HW-VERIFY: the "which gate answered" half of user report 2026-09-07 item 4. It
+                // must stay at a tier the DEFAULT log level prints — a flow that is FINE has to be
+                // distinguishable from a flow the instrument never saw, or the next missing flow
+                // costs another round. scripts/check-hw-verify.py enforces the tier.
+                VRLog.Note("Board", $"[PickTrack] decision flow OPEN in {state}: initiative band is " +
+                                    $"UP with {rows} visible row(s) — nothing to repair. Gate that " +
+                                    $"answered: the game's own fill (this class wrote nothing). " +
+                                    $"Local presenter: {upPresenter}. Phase {PhaseManager.PhaseType}, " +
+                                    "InitiativeSortedActors " +
+                                    $"{GameState.InitiativeSortedActors.Count}. This is open #" +
+                                    $"{Opens[state]} of {state} and the FIRST AND ONLY 'UP' line " +
+                                    "for it this session — later opens of this state are counted " +
+                                    "silently and the running total is printed by the next DOWN " +
+                                    "line for it; a DOWN verdict is never capped.");
+            }
             return;
         }
         if (Time.unscaledTime < _nextTryAt)
@@ -192,7 +437,6 @@ internal static class PickPhaseInitiativeTrack
         // (InitiativeTrack.cs:593 uses ScenarioManager.Scenario.HasActor, the guard is only at
         // :599) and Choreographer.s_Choreographer unconditionally at :606 — so both are OUR
         // preconditions, not its.
-        Choreographer chor = Choreographer.s_Choreographer;
         if (chor == null || ScenarioManager.Scenario == null)
             return;
 
@@ -209,29 +453,41 @@ internal static class PickPhaseInitiativeTrack
         // not resolvable yet — and that state returns above, before the call, without logging. Once
         // the game's own method has actually RUN and still produced nothing, running it again half a
         // second later will produce nothing again; retrying would only turn one honest diagnosis
-        // into a line every 0.5 s for the whole pick.
-        _filledForHand = hand;
+        // into a line every 0.5 s for the whole decision.
+        _judgedState = state;
+        _judgedClaim = claim;
+        Opens[state] = Opens.TryGetValue(state, out int seen) ? seen + 1 : 1;
+        LocalClaim(describe: true, out string presenter);
 
         // THE FALSIFIER. It prints the two numbers that can convict this class — the row count
-        // BEFORE and AFTER — plus the inputs the fill was made from. A line that says "0 → 0" means
-        // the call ran and produced nothing (the actor list was filtered away by the game's own
-        // IsHeroSummon / IsPropActor / Scenario.HasActor / dedupe tests at InitiativeTrack.cs:
-        // 591-598) and the diagnosis in this file's header is WRONG. A line that never appears at
-        // all while the band is blank means the trigger never fired, and the mode/rows it would
-        // have printed are the first thing to check.
-        VRLog.Info("Board", $"[PickTrack] initiative rows {rows} → {after} for a forced " +
-                            $"{Cards.CardsGameApi.Mode(hand)} pick (owner " +
-                            $"'{CharacterFocus.Describe(hand.PlayerActor)}', phase " +
-                            $"{PhaseManager.PhaseType}): the game presents this pick through " +
-                            "CMessageData.SelectLoseCards, whose handler never refreshes the track " +
-                            "(Choreographer.cs:7854-7910) and whose message is not on the generic " +
-                            "refresh whitelist (:12534) — so the band stayed blank and the rows " +
-                            "could not be clicked to switch character. Refilled with the game's own " +
-                            $"UpdateInitiativeTrack from {players} client player(s) + {monsters} " +
-                            "monster object(s), playersSelectable=true, selectActor=FALSE (selecting " +
-                            "would run InitiativeTrackPlayerAvatar.Select → CardsHandManager." +
-                            "SwitchHand and could switch the hand out from under the open pick). " +
-                            "Local presentation only — no game state written, nothing on the wire.");
+        // BEFORE and AFTER — plus the inputs the fill was made from and the wait state that let it
+        // run. A line that says "0 → 0" means the call ran and produced nothing (the actor list was
+        // filtered away by the game's own IsHeroSummon / IsPropActor / Scenario.HasActor / dedupe
+        // tests at InitiativeTrack.cs:591-598) and the diagnosis in this file's header is WRONG. A
+        // band still blank with NO line at all means the trigger never fired: the wait state the
+        // Choreographer was actually parked in is then the one term to add to IsDecisionWait, and
+        // it is one enum member rather than another round of archaeology.
+        // HW-VERIFY: this is the answer-bearing line of user report 2026-09-07 item 4 ("Bei allen
+        // Flows soll die Initiativreihenfolge sichtbar sein"). It must stay at a tier the DEFAULT
+        // log level prints; scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Board", $"[PickTrack] decision flow OPEN in {state} (open #{Opens[state]} of " +
+                            "this state this session): initiative band was DOWN — " +
+                            $"rows {rows} → {after} after this class refilled it. Gate that " +
+                            $"answered: IsDecisionWait({state}) on Choreographer.m_WaitState, which " +
+                            "every client sets whether or not it owns the decision — the card hand " +
+                            "decides NOTHING here any more, and that CARD-ONLY trigger is exactly " +
+                            "what hid this flow before ModBuild 475. Local presenter: " +
+                            $"{presenter}. Phase {PhaseManager.PhaseType}, InitiativeSortedActors " +
+                            $"{GameState.InitiativeSortedActors.Count} (0 = nobody has chosen cards " +
+                            "yet, so the game's generic refresh at Choreographer.cs:12534 is blocked " +
+                            $"by its own precondition). Refilled from {players} client player(s) + " +
+                            $"{monsters} monster object(s) with the game's own UpdateInitiativeTrack, " +
+                            "playersSelectable=true, selectActor=FALSE (selecting would run " +
+                            "InitiativeTrackPlayerAvatar.Select → CardsHandManager.SwitchHand and " +
+                            "could switch the hand out from under the open decision). Local " +
+                            "presentation only — no game state written, nothing on the wire; every " +
+                            "seat reaches this independently and the mirrored boards clone the " +
+                            "widget this repaired.");
     }
 
     /// <summary>Map a client actor-object list onto <see cref="Actors"/>, skipping anything whose
@@ -269,12 +525,13 @@ internal static class PickPhaseInitiativeTrack
         }
         catch (System.Exception e)
         {
-            _filledForHand = null;
+            _judgedState = Choreographer.ChoreographerStateType.NA;
+            _judgedClaim = null;
             _nextTryAt = Time.unscaledTime + 60f; // back right off; do not retry-storm on a bad state
             if (_reportedThrow)
                 return;
             _reportedThrow = true;
-            VRLog.Warn("Board", "[PickTrack] the forced-pick track refill threw and is backing off " +
+            VRLog.Warn("Board", "[PickTrack] the decision-flow track refill threw and is backing off " +
                                 "for 60 s — the initiative band stays exactly as the game left it " +
                                 $"and nothing was written. {e}");
         }
