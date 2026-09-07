@@ -3363,33 +3363,27 @@ internal sealed partial class CardsDriver
     /// <c>FullAbilityCard.ToggleHighlightHover</c> (the animated <c>CardActionHighlight</c>
     /// pulse) / <c>UntoggleHighlightHover</c> render on the VR card automatically. A side
     /// resolved active shows its region; an inactive side is explicitly untoggled so a
-    /// reused card carries no stale highlight. <c>isDefault:false</c> = a normal ability
-    /// region.
+    /// reused card carries no stale highlight.
+    ///
+    /// <para><b>ASSERTED THROUGH <c>Cards.Art.ActionHighlightDriver</c>, WHICH NEVER RESTARTS A
+    /// PULSE THAT IS ALREADY RUNNING (user item 7, 2026-09-07).</b> These two methods used to call
+    /// <c>ToggleHighlightHover</c>/<c>UntoggleHighlightHover</c> unconditionally on every
+    /// <c>UpdateActive</c>, i.e. on every <c>Rebuild</c>, and <c>CardActionHighlight.ShowHover</c>
+    /// is NOT idempotent: it cancels the running LeanTween chain and re-seeds the alpha to
+    /// <c>fromAlfa</c>. The authored cycle is 1.0 s (<c>fromAlfa 1 / toAlfa 0.3 /
+    /// hoverDuration 0.5</c>) — his "ruhige Frequenz" — but the DELIVERED period was the rebuild
+    /// interval whenever that fell under a 0.5 s leg, so the blink ran fast exactly while the board
+    /// was busy. That is a term which varies DURING a session, which is what "ploetzlich viel
+    /// hoeher" requires and a wrong constant cannot supply. The mirrored twin
+    /// (<c>RemoteBoardCard.ApplyHalf</c>) has carried this gate since it was written and its own
+    /// comment names the symptom verbatim; the local path never had it.</para>
     /// </summary>
     private static void SetActiveHighlight(VRCard card, bool top, bool bottom)
-    {
-        FullAbilityCard? full = card.FullCard;
-        if (full == null)
-            return;
-        if (top)
-            full.ToggleHighlightHover(active: true, isTopSide: true, isDefault: false);
-        else
-            full.UntoggleHighlightHover(isTopSide: true);
-        if (bottom)
-            full.ToggleHighlightHover(active: true, isTopSide: false, isDefault: false);
-        else
-            full.UntoggleHighlightHover(isTopSide: false);
-    }
+        => card.SetActionHighlight(top, bottom);
 
     /// <summary>Clear the native action-region highlight on both halves (feature 6).</summary>
     private static void ClearActiveHighlight(VRCard card)
-    {
-        FullAbilityCard? full = card.FullCard;
-        if (full == null)
-            return;
-        full.UntoggleHighlightHover(isTopSide: true);
-        full.UntoggleHighlightHover(isTopSide: false);
-    }
+        => card.SetActionHighlight(top: false, bottom: false);
 
     /// <summary>
     /// Active-set watchdog (feature 6): active cards/halves change during a turn (a bonus
