@@ -2332,9 +2332,18 @@ internal static class CardsGameApi
     /// selection (<c>OnCardSelected</c> long-rest branch sets
     /// <c>CharacterClass.LongRest = true</c>, CardsHandUI.cs:1953) and cleared inside
     /// <c>GameState.PlayerLongRested</c> once the burn resolves (GameState.cs:2569).
-    /// A <c>CardHandMode.LoseCard</c> while this is true is unambiguously the long-rest
-    /// "lose one card" step (vs an avoid-damage / discard pick). Verified:
-    /// <c>public bool LongRest</c> (CCharacterClass.cs:156, publicized).
+    /// <para><b>IT DOES NOT IDENTIFY THE BURN STEP, AND THE SENTENCE THAT SAID SO WAS FALSE
+    /// (corrected 2026-09-07).</b> This doc used to claim "a <c>CardHandMode.LoseCard</c> while
+    /// this is true is unambiguously the long-rest 'lose one card' step (vs an avoid-damage /
+    /// discard pick)". It is not. The flag is set when the rest is CHOSEN and stays set until it
+    /// resolves, so ANY loss suffered in between satisfies the pair — the 2026-09-07 host log has
+    /// a damage loss doing exactly that (line 243480, committed as <c>#166 BurnAvailableCard @
+    /// TakeDamageConfirmation</c>) 5,800 lines before the real burn step (249351, <c>#168
+    /// ConfirmAction @ LongRest</c>). It is also true for the IMPROVED SHORT REST, which sets
+    /// <c>LongRest = true</c> in its own right (CardsHandUI.cs:730). To ask WHY a lose pick is
+    /// open, use <c>CardsDriver.ResolvePickOccasion</c>, which mirrors
+    /// <c>CardsHandUI.OnLoseCardClick</c>'s commit branch.</para>
+    /// Verified: <c>public bool LongRest</c> (CCharacterClass.cs:156, publicized).
     /// </summary>
     internal static bool IsLongResting(CardsHandUI hand) =>
         hand.PlayerActor != null && hand.PlayerActor.CharacterClass.LongRest;
@@ -2342,9 +2351,13 @@ internal static class CardsGameApi
     /// <summary>
     /// True once a long rest has RESOLVED this round (heal +2 applied, chosen card
     /// burnt) — <c>GameState.PlayerLongRested</c> sets <c>HasLongRested = true</c>
-    /// (GameState.cs:2545) and it is cleared on the next round
-    /// (CCharacterClass.cs:1183). Verified: <c>public bool HasLongRested</c>
-    /// (CCharacterClass.cs:168, publicized).
+    /// (GameState.cs:2545) and it is cleared at the END OF THAT ACTOR'S OWN TURN
+    /// (<c>GameState.EndTurnCheckNextActorAndMoveToNextPhase</c>, GameState.cs:1735, on
+    /// <c>s_LastActor</c>) — so the latch window is the tail of the long-rester's turn, NOT the
+    /// rest of the round. (Corrected 2026-09-07: this said "cleared on the next round
+    /// (CCharacterClass.cs:1183)"; that line is inside <c>CCharacterClass.Reset()</c>, a full
+    /// character/scenario reset, and is not a per-round hook.) Verified:
+    /// <c>public bool HasLongRested</c> (CCharacterClass.cs:168, publicized).
     /// </summary>
     internal static bool HasLongRested(CardsHandUI hand) =>
         hand.PlayerActor != null && hand.PlayerActor.CharacterClass.HasLongRested;

@@ -536,6 +536,21 @@ internal static partial class Loc
                                      "Alle Karten liegen — mit der Board-Taste abschließen (oder eine Karte zum Tauschen zurücknehmen)"),
         // The intermediate batch confirm for >2-card requirements (batches of two).
         ["pick_batch_next"] = Pair("NEXT", "WEITER"),
+        // ---- WHY the game is asking (user 2026-09-07): the OCCASION, not the action ----
+        // The verbs above name what to DO and are identical for a long rest's burn and for a
+        // damage loss — CardHandMode.LoseCard is the same value for both — so two card losses in
+        // a row read as one banner repeating and a diagnosable defect looked like a stuck game.
+        // Appended as a parenthetical by CardsDriver.UpdatePickStatus ONLY when the game's own
+        // state names the occasion; the parentheses are punctuation and live at the call site,
+        // the same way the " — " before pick_progress does. Kept to two words: this rides the
+        // 160-byte ExtIdPickBanner wire cap and German is the long side.
+        ["pick_occasion_long_rest"] = Pair("long rest", "Lange Rast"),
+        ["pick_occasion_damage"] = Pair("damage", "Schaden"),
+        // Deliberately unattributed: a monster ability, a trap, a scenario-rule effect and a
+        // played card all reach the pick as one CAbility and nothing on it records which.
+        ["pick_occasion_ability"] = Pair("ability", "Fähigkeit"),
+        // The IMPROVED short rest — the only short rest that lets the player pick the burnt card.
+        ["pick_occasion_short_rest"] = Pair("short rest", "Kurze Rast"),
         // Item-surrender pick (event ConsumeSmallItem mali / refresh picks): the item-slot
         // confirm must NEVER read like the normal "USE" — the player is GIVING an item UP
         // (consumed as a malus), so the keycap says "abgeben" (surrender); the refresh

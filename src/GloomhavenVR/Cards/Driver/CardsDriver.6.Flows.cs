@@ -993,6 +993,7 @@ internal sealed partial class CardsDriver
         string banner;
         string? confirmLabel = null;
         string? undoLabel = null;
+        string occasionTerm = "not resolved — the game's confirm popup owns the banner";
         if (dialogOpen)
         {
             // All required cards are selected — the game's confirm popup is up. The tray
@@ -1019,6 +1020,15 @@ internal sealed partial class CardsDriver
             {
                 line = $"{placed}/{total}"; // a malformed Loc entry must never kill the tick
             }
+            // THE OCCASION, WHEN THE GAME NAMES IT. Deliberately on the ASK and not on
+            // pick_confirm_hint above: the ask is the line the player reads while he is wondering
+            // WHY he is being asked, and the confirm hint is already the longest composed German
+            // line on this wire record (107 B with a 5-char name) — leaving it untouched means
+            // this clause cannot move it any closer to the 160-byte cap.
+            (string? occasionKey, string term) = ResolvePickOccasion(hand, mode, total);
+            occasionTerm = term;
+            if (occasionKey != null)
+                line += " (" + Core.Loc.Mod(occasionKey) + ")";
             banner = Compose(who, line);
             // Batch lock available (>1 full batch still outstanding + the live batch is
             // full): the CONFIRM keycap becomes "WEITER" and routes to TryLockPickBatch.
@@ -1027,8 +1037,144 @@ internal sealed partial class CardsDriver
         }
         _tray.SetPickStatus(banner, confirmLabel, undoLabel);
 
+        // HW-VERIFY: report item "the banner says what to do and never why" (2026-09-07).
+        // Grep token: PICK OCCASION.
+        //
+        // WORKING = every long-rest burn reads `occasion=long rest` with
+        // `term=CCharacterClass.LongRest && GameState.InternalCurrentActor==actor`, every
+        // damage-driven loss reads `occasion=damage`, and EVERY line reads `bytes=<n>/160` with
+        // n < 160. In the 2026-09-07 host log the two losses at lines 243479 and 249351 were
+        // BYTE-IDENTICAL; working means those two now differ in exactly this clause.
+        // INERT = `occasion=<none>` on a loss the user can name, with `term=` saying which phase
+        // fell through — that names the branch to add, and the clause is simply absent (the line
+        // is never wrong, only terse).
+        // STILL BEYOND THE INSTRUMENT = `bytes=160/160`. EncodePickBannerText truncates by
+        // dropping trailing characters and logs nothing, so at exactly the cap the tail may
+        // already have been eaten and this line cannot tell you what was cut; the peer-side
+        // `RemotePickBanner` Alert is the reading that decides it.
+        // Change-gated by _pickStatusKey above (one line per real banner change), and the KEY
+        // ALREADY CARRIES the occasion transitively: mode, total, locked, placed and dialogOpen
+        // move whenever the flow does. A long rest opening behind a damage loss changes `locked`
+        // and `placed`, which is the transition the two identical banners came from.
+        VRLog.Note("Cards", $"PICK OCCASION: mode={mode}, occasion="
+            + $"{(occasionTerm.Length > 0 ? occasionTerm : "n/a")} — banner \"{banner}\" is "
+            + $"{System.Text.Encoding.UTF8.GetByteCount(banner)}/{Net.NetProtocol.PickBannerTextMaxBytes} "
+            + "bytes on extension record 7, the SAME string every peer's mirror of this board "
+            + "draws. The occasion mirrors CardsHandUI.OnLoseCardClick's own commit branch, so it "
+            + "can never name an occasion the game will not act on.");
+
         static string Compose(string who, string line) =>
             who.Length > 0 ? who + ": " + line : line;
+    }
+
+    /// <summary>
+    /// WHY the game is asking for this card — the OCCASION, as a <see cref="Core.Loc"/> id plus
+    /// the NAME of the term that resolved it, or <c>null</c> when the game names none.
+    ///
+    /// <para><b>THE MODE IS NOT THE OCCASION, AND THAT IS THE WHOLE DEFECT.</b>
+    /// <c>CardHandMode.LoseCard</c> is the same value for a long rest's burn and for a
+    /// damage-driven loss, so the composed banner read identically for both — user 2026-09-07:
+    /// "Mich hat verwirrt, dass kein Overlay angezeigt wurde… Eventuell wäre es besser wenn der
+    /// Text oben kurz die lange Rast erwähnt." Two losses back to back from two unrelated causes
+    /// looked like one banner repeating, and a diagnosable defect looked like a stuck game.</para>
+    ///
+    /// <para><b>IT MIRRORS <c>CardsHandUI.OnLoseCardClick</c> (CardsHandUI.cs:2295-2410) BRANCH
+    /// FOR BRANCH, DELIBERATELY.</b> That method is the ONE commit callback for every lose/discard
+    /// pick, and its phase/ability/long-rest tree is the game's own classifier: whichever branch it
+    /// will take is what the card loss IS. Reading the same terms in the same order means this can
+    /// never name an occasion the game will not then act on — and it is why this is a read of the
+    /// existing authority rather than a second, parallel notion of "why".</para>
+    ///
+    /// <para><b>THE OBVIOUS TERMS ARE ALL WRONG, AND THE 2026-09-07 LOG PROVES IT.</b>
+    /// <c>CCharacterClass.LongRest</c> is set the moment the long rest is CHOSEN in card selection
+    /// and stays set until it resolves, so it is true during a damage loss suffered in the same
+    /// round — which is exactly that session: the host's damage loss at log line 243479 and the
+    /// long rest's burn at 249351 BOTH read "LongRest set". <c>HasLongRested</c> is false for both.
+    /// <c>LongRestTurnHand()</c> returns the hand for both. The phase split below is what separates
+    /// them, and the game's own wire actions confirm it: <c>#166 BurnAvailableCard @
+    /// TakeDamageConfirmation</c> for the first, <c>#168 ConfirmAction @ LongRest</c> for the
+    /// second. DAMAGE IS THEREFORE TESTED BY PHASE, NEVER BY THE ABSENCE OF A LONG REST.</para>
+    ///
+    /// <para>An <c>ActionPhaseType</c> read would ALSO separate the two and is what the log shows
+    /// most directly — but <c>Choreographer</c> sets those two phases only inside
+    /// <c>if (FFSNetwork.IsOnline)</c> (Choreographer.cs:3992, :5491, :14590), so it is blind in
+    /// single player. The classifier below reads <c>PhaseManager.PhaseType</c>, which the game
+    /// keeps in both, and needs no online/offline split.</para>
+    ///
+    /// <para>WHAT IT WILL NOT NAME, on purpose. An ability-driven loss cannot be attributed
+    /// further: a monster ability, a trap, a scenario-rule effect and a played card all arrive as
+    /// one <c>CAbility</c> through the same branch, and nothing on the pick records which — so it
+    /// says "ability" and stops. A plain short rest never opens a pick at all (the game burns a
+    /// RANDOM card, CardsHandUI.cs:756); only the IMPROVED one does. Anything else returns null and
+    /// the banner keeps today's wording: a clause that guesses would be a new defect of exactly the
+    /// shape this one is.</para>
+    /// </summary>
+    private static (string? locId, string term) ResolvePickOccasion(CardsHandUI hand, CardHandMode mode, int total)
+    {
+        if (mode != CardHandMode.LoseCard && mode != CardHandMode.DiscardCard)
+            return (null, $"<none> — mode {mode} is not a lose/discard ask");
+        try
+        {
+            CPlayerActor? actor = hand.PlayerActor;
+            CCharacterClass? klass = actor != null ? actor.CharacterClass : null;
+            if (actor == null || klass == null)
+                return (null, "<none> — the hand carries no CPlayerActor/CCharacterClass");
+
+            CPhase.PhaseType phase = PhaseManager.PhaseType;
+            switch (phase)
+            {
+                // OnLoseCardClick :2300 — the ability branch, then avoid-damage as its else.
+                case CPhase.PhaseType.StartTurn:
+                case CPhase.PhaseType.Action:
+                case CPhase.PhaseType.EndTurn:
+                case CPhase.PhaseType.EndRound:
+                {
+                    CAbility? ability = Choreographer.s_Choreographer != null
+                        ? Choreographer.s_Choreographer.m_CurrentAbility : null;
+                    if (ability != null && ability.AbilityType == CAbility.EAbilityType.LoseCards)
+                        return ("pick_occasion_ability", $"phase {phase}, CAbility.EAbilityType.LoseCards");
+                    if (ability != null && ability.AbilityType == CAbility.EAbilityType.DiscardCards)
+                        return ("pick_occasion_ability", $"phase {phase}, CAbility.EAbilityType.DiscardCards");
+                    // The else IS avoid-damage — but only where the game will actually run it:
+                    // it calls Lose1HandCardToAvoidAttack / Lose2DiscardCardsToAvoidAttack on
+                    // maxCardsSelected 1 or 2 and does NOTHING for any other count (:2342-2351),
+                    // so any other count is a pick this branch would not commit and must not name.
+                    // `total` is the SAME PickCardsWanted() the banner prints, so the clause and
+                    // the count in the line beside it can never disagree.
+                    if (total == 1 || total == 2)
+                        return ("pick_occasion_damage", $"phase {phase}, no lose/discard ability, {total} card(s) — the avoid-damage branch");
+                    return (null, $"<none> — phase {phase}, no ability and {total} card(s), a count the avoid-damage branch would not commit");
+                }
+
+                // OnLoseCardClick :2367 — the long rest, then avoid-damage as its else.
+                case CPhase.PhaseType.ActionSelection:
+                case CPhase.PhaseType.EndTurnLoot:
+                case CPhase.PhaseType.StartRoundEffects:
+                {
+                    if (klass.LongRest && ReferenceEquals(GameState.InternalCurrentActor, actor))
+                        return ("pick_occasion_long_rest",
+                                "CCharacterClass.LongRest && GameState.InternalCurrentActor==actor");
+                    if (total == 1 || total == 2)
+                        return ("pick_occasion_damage", $"phase {phase}, not this actor's long rest, {total} card(s) — the avoid-damage branch");
+                    return (null, $"<none> — phase {phase}, not a long rest and {total} card(s), a count the avoid-damage branch would not commit");
+                }
+
+                // OnLoseCardClick :2405 — the IMPROVED short rest, the only short rest that picks.
+                case CPhase.PhaseType.SelectAbilityCardsOrLongRest:
+                    if (klass.ImprovedShortRest && klass.LongRest)
+                        return ("pick_occasion_short_rest",
+                                "CCharacterClass.ImprovedShortRest && LongRest — the improved short rest");
+                    return (null, $"<none> — phase {phase} without the improved-short-rest pair");
+
+                default:
+                    return (null, $"<none> — phase {phase} reaches no branch of OnLoseCardClick");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            // A banner must never be worth an exception: fall through to today's wording.
+            return (null, $"<none> — {ex.GetType().Name} reading the game's phase/ability state");
+        }
     }
 
     // Change-gate for the exhausted placard: (actor, language, tray instance). Null = we are not
@@ -1891,8 +2037,14 @@ internal sealed partial class CardsDriver
 
         if (losing)
         {
-            // HW-VERIFY: grep token "LONG REST FLOW". WORKING = exactly one line per long rest
-            // reading `pickRefusedBy=<nothing>` — the burn step opened and the mod's own pick gate
+            (string? _, string occasion) = ResolvePickOccasion(hand, CardHandMode.LoseCard,
+                                                              CardsGameApi.PickCardsWanted());
+            // HW-VERIFY: grep token "LONG REST FLOW". WORKING = one line per OPEN LOSE PICK taken
+            // while a long rest is pending — which is NOT one line per long rest, because a damage
+            // loss in the same round satisfies this gate too (2026-09-07, host lines 243480 and
+            // 249352); read `occasion=` to tell which, and expect a long rest to produce a line
+            // reading `occasion=…LongRest && GameState.InternalCurrentActor==actor`. That line
+            // reads `pickRefusedBy=<nothing>` — the pick opened and the mod's own gate
             // accepted it — followed within a handful of lines by
             // `Pick fan source (LoseCard): discard pile`. INERT (the instrument never ran) = zero
             // LONG REST FLOW lines in a session whose log contains `STATE: Halted @ LongRest`;
@@ -1912,11 +2064,24 @@ internal sealed partial class CardsDriver
             // that happens with pickRefusedBy=<nothing> — the fan then had its candidates and
             // something further down (the palm gate, the slot target) ate them, and the reading
             // that decides it is the `fan state:` line's withheldBy/mode pair on the same frame.
-            VRLog.Note("Cards", "LONG REST FLOW: BURN step active (CardHandMode.LoseCard, LongRest set) — " +
-                                "lay a discarded card into the left slot to lose it; the docked " +
-                                $"Confirm commits it. Candidates SHOULD be the {CardsGameApi.DiscardedCount(hand)} " +
-                                "card(s) in the discard pile. Mod pick gate: " +
-                                $"pickRefusedBy={LongRestPickRefusal(hand)}.");
+            // 2026-09-07: THIS LINE USED TO ASSERT "BURN step active" AND WAS WRONG ONCE PER
+            // SESSION. Its terms are `IsLongResting && Mode == LoseCard`, and CCharacterClass
+            // .LongRest is set from the moment the rest is CHOSEN in card selection — so a DAMAGE
+            // loss suffered in the same round satisfies both. The host log carries it verbatim:
+            // line 243480 printed "BURN step active" for the damage loss the user described
+            // ("erst habe ich den Schaden bekommen und DANACH… wegen der langen Rast"), while the
+            // game was in TakeDamageConfirmation and committed it as `#166 BurnAvailableCard @
+            // TakeDamageConfirmation`. The real burn step was 5,800 lines later at 249351/#168.
+            // It now reports the occasion ResolvePickOccasion RESOLVED instead of asserting one,
+            // so the two readings are told apart by the same authority the banner uses.
+            VRLog.Note("Cards", "LONG REST FLOW: a LoseCard pick is open while LongRest is set — " +
+                                $"occasion={occasion}. THAT IS NOT ALWAYS THE BURN STEP: LongRest " +
+                                "stays set from card selection until the rest resolves, so a damage " +
+                                "loss in the same round reads here too — the occasion is what tells " +
+                                "them apart. Lay a discarded card into the left slot to lose it; the " +
+                                "docked Confirm commits it. Candidates SHOULD be the " +
+                                $"{CardsGameApi.DiscardedCount(hand)} card(s) in the discard pile. " +
+                                $"Mod pick gate: pickRefusedBy={LongRestPickRefusal(hand)}.");
         }
         else if (done)
             VRLog.Note("Cards", "LONG REST FLOW: RESOLVED — chosen card burnt, +2 heal applied (HasLongRested).");
