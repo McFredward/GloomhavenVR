@@ -433,7 +433,113 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 469;
+    public const ushort ModBuild = 470;
+    // Build 470: the round the flash's SIGNATURE turned out to be two causes, one of them ours BY
+    //   DESIGN and chased for nineteen rounds; and the round the instrument meant to settle it was
+    //   found to have six faults, two of which wrote its own verdict. Two lanes, four commits, NO
+    //   FIX — because no candidate is named to the point of one, and this file has been wrong more
+    //   often by fitting a story than by admitting a gap.
+    //   * THE HEADLINE, AND IT RETIRES A PREMISE HELD SINCE THE THIRTEENTH ROUND: "near-white pixel
+    //     count" is AREA x BRIGHTNESS, and on the user's clip the two terms run CONSECUTIVELY.
+    //     t=2.83..3.30 (0.47 s): the prop's silhouette grows 23,669 -> 111,482 px, 4.7x in AREA,
+    //     while the luminance INSIDE it moves only 145 -> 197. t=3.30..4.27 (0.97 s): the area is
+    //     FLAT at 110-113k and the BRIGHTNESS ramps 197 -> 238 mean, saturating. So ModBuild 466's
+    //     exclusion of POSITION — "the centroid moves under 30 px across both the ramp and the
+    //     cliff" — is TRUE and structurally blind to exactly this: a centroid is invariant under
+    //     scale about a stationary centre. The prop was never "effectively still".
+    //     AND THE TWO TERMS ARE TWO CAUSES, WHICH EPISODE 2 SETTLES. They start on the same frame in
+    //     episode 1, which is why nineteen rounds read them as one event, but only one repeats and
+    //     only one ends. THE SCALE TERM IS THE PICK-UP, AND IT IS OURS AND INTENDED: scale-search
+    //     NCC against the t=2.83 trap-ring patch reads 1.00 -> 2.53 over 0.47 s and then FLAT at
+    //     2.50, re-references to 1.00 at t=5.97, and the prop is still full size at t=12.83. It
+    //     never changes size again. The 469 log prints its identity outright — `lossyScale held
+    //     3.153,3.153,3.153 vs home 1,1,1`. THE BRIGHTNESS TERM IS THE DEFECT and the only thing on
+    //     the schedule: measured inside a disc that TRACKS the growing prop (so it is not the
+    //     fixed-window fill artefact), mean luma 130.2 -> 245.7 over 1.14 s, fraction >=250 going
+    //     0 % -> 65 %, and EPISODE 2 REPEATS IT EXACTLY (117 -> 237, 0 % -> 43 %) WITH NO SCALE
+    //     CHANGE AT ALL. The frame after each termination shows the prop still large and normally
+    //     shaded — grey stone, brown wood, the arm's teal runes. Only the white clears.
+    //     INFLATING vs APPROACHING IS MEASURED, NOT ARGUED: the same scale search on four other
+    //     landmarks between the same two frames (two discarded for a flat NCC response rather than
+    //     quoted) has the head contributing AT MOST 1.15x while the prop grew 2.50x. The
+    //     integrator's framing was wrong in its EVIDENCE though not its conclusion: the 469 log's
+    //     `head-to-prop 3.797..5.802 wu` bounds a DIFFERENT SESSION from the video and says nothing
+    //     about this clip. The in-clip landmark measurement does, and needs nothing else.
+    //     AND THE CADENCE IS EXACT: the two episode terminations are 300 frames apart at 30 fps —
+    //     10.000 s to the frame — with both lit spans 1.40-1.43 s.
+    //   * OUR OWN OVERLAY IS EXCLUDED, THIS TIME PROPERLY, AND THE INTEGRATOR'S SATURATION DOUBT WAS
+    //     WELL FOUNDED BUT DOES NOT CHANGE IT. At peak, 33.4 % of the stone-ring pixels carry a
+    //     channel at 255 and 77.5 % sit within 5/255 of the ceiling, so the ModBuild 466 sentence
+    //     WAS stated on a heavily clipped population and that caveat belonged on it — corrected in
+    //     place. But on the strictly unclipped subpopulation (every channel < 245 at both times,
+    //     n = 29k-89k per frame) the added light reads 1.000 / 0.85-0.90 / 0.78-0.86, nowhere near
+    //     GlowTint's 1.000/0.620/0.260; and simulating a real additive amber pass over the clip's
+    //     own baseline shows clipping can only neutralise amber by driving the patch to 255/255/255
+    //     EVERYWHERE (k >= 5), where the observed peak is mean 232/231/231 with 16 % saturated.
+    //     THE SWEEP THAT CONVICTED IT WAS BLIND BY CONSTRUCTION. ModBuild 455's "exactly one
+    //     mechanism in either codebase with no per-instance phase, and it is ours" grepped C# for a
+    //     defect class that lives in compiled HLSL: `decompiled/` holds 4646 .cs files and ZERO
+    //     .shader / .mat / .anim / .controller / .prefab. The blind spot is not empty — the game's
+    //     own hex decal binds `_SinTime`, and `VFX/ParticleMasterUnlitAdd_Shd` flipbooks on
+    //     `_Time.y` with its only phase term carrying ZERO writers in the whole game C#. Both are
+    //     board-wide synchronous by construction and both are the game's. `OverlayPulse` is not even
+    //     unique inside this mod: 11 other files share the same absolute clock, and
+    //     Board/FocusCue.cs documents shared phase as a DELIBERATE DESIGN RULE.
+    //     AND THE LEAK CANNOT HAPPEN: PropGrab.Scan drops stale entries BEFORE it adds, Drop ->
+    //     Restore -> ClearHighlight destroys the overlay root unconditionally, and that root is a
+    //     child of the prop's own visual besides. The census ModBuild 455 said it was shipping was
+    //     NEVER WRITTEN — `VRFigureHighlight` occurs five times in all of src/, none of them a
+    //     count. It ships now as two integers off Unity's own OnEnable/OnDisable, reported as a
+    //     high-water mark: CLEAN = 0/1/2 (single-winner), LEAKING = 3+, INSTRUMENT BROKEN = 0 on a
+    //     session that also holds a `highlight ENGAGED` line.
+    //   * THE PHOTOMETER DID NOT WITNESS THE USER'S VEIL, AND ITS OWN COHERENCE CLAUSE WAS RIGHT.
+    //     ffmpeg signalstats over all 548 frames: the whole frame's mean luma is 32.2/255 at rest,
+    //     49.8 at an episode's plateau, and 52.3 is the LARGEST value anywhere in 18.27 s. The frame
+    //     never approaches white. So 469's `PROP PATCH 0.0000..0.9893` with a 100 % near-white pixel
+    //     fraction was photographing something else, and its rise (5x too fast) and fall (6x too
+    //     slow) are a different curve, not a noisy one. `*** WHITE WITNESSED ***` is WITHDRAWN.
+    //     SIX FAULTS, AND TWO OF THEM WROTE THE VERDICT. (1) The control patch offset was a constant
+    //     220 px against an eye texture of 3072x3264 — 7.2 % of the width, ~92 px on the 1280-wide
+    //     video, and a bear trap in the palm is wider than that: the control was very plausibly
+    //     still ON the prop. Now derived per capture from the prop's projected 8-corner box, with
+    //     the count of placements a constant 220 would have got wrong printed beside it. (2) The
+    //     baseline blink fired at `lin <= lo + 0.15*range` — THE DARKEST 15 % OF THE WINDOW BY
+    //     CONSTRUCTION, landing on 0.0158 — and the flat 0.005 bar then demanded the prop be 32 %
+    //     of every photon in a near-black patch. The drop it got, 0.0015, is 9.5 % RELATIVE. `THE
+    //     BLINK IS INERT` was written by the bar, not by the picture. Now aimed at a band around the
+    //     series MEDIAN and judged against max(3x the measured median sample step, 0.0005) AND 5 %
+    //     relative, with the noise floor of all three columns printed and an explicit "the patch was
+    //     too dark for the test to succeed" instrument limit. (3) NO A-B-A: the white blink fired ON
+    //     THE RISE for 6 frames against a sub-0.04 s fall, so its 0.4736 -> 0.0079 drop was
+    //     confounded with the event ENDING; every blink now reads AFTER, and no recovery means NO
+    //     VERDICT. (4) Rise/fall were measured on the first excursion in 23.9 s rather than on the
+    //     flash; now peak-anchored with an episode count. (5) Coordinates were scaled into the
+    //     RENDERED viewport and then bounds-checked against the ALLOCATED eye texture, so a patch
+    //     could land where the frame never drew. (6) A Y-mirrored twin of the prop patch is now read
+    //     at the same instant and blinked with it, so the perturbation asks both heights at once and
+    //     only one can hold the prop — which makes the origin question decidable by construction.
+    //     AND 469's "CopyTexture's source origin cannot be settled without hardware" IS A FALSE
+    //     SENTENCE: `SystemInfo.graphicsUVStartsAtTop` and `graphicsDeviceType` are property reads
+    //     that were available in all eighteen rounds. Corrected, along with "the 8x MSAA eye buffer"
+    //     — this rig's QualitySettings.antiAliasing reads 4 in the same log.
+    //   * WHAT SURVIVES, AND IT IS TWO THINGS, BOTH IN THE ASSET BLIND SPOT. `Amp_Char_Shader` — the
+    //     shader that actually draws this trap — has NEVER been extracted; the name appears twice in
+    //     decompiled/, both string comparisons. And `ParticleMasterUnlitAdd_Shd`'s flipbook, whose
+    //     one-frame tile step is the best morphological fit in the whole search, is material-
+    //     authored with zero C# writers. Game C# has 2 InvokeRepeating sites in TOTAL and 190
+    //     WaitForSeconds, NONE at 10 s or 1.4 s. Our own two 10.000 s cadences (PropGrab's 5 x 2 s
+    //     idle sweep, LightStabiliser's 10 s rescan) fail on SHAPE and not on period: both are
+    //     instantaneous scans and neither starts anything that ramps monotonically for 1.14 s — and
+    //     the cheap falsifier, if anyone doubts that, is to move one off 10 s and see whether the
+    //     visual period follows.
+    //     ONE NUMBER SHIPPED TO DECIDE THE NEXT ROUND: a trap idle clip of exactly 5.0000 s puts two
+    //     loops on 10.000 s to the frame and "the flash is one phase of this clip, every other loop"
+    //     survives; the 4.95 s implied by the 0.202 normalized/s four rounds have quoted gives 297
+    //     frames, three outside the measurement, and is EXCLUDED. The length is not in decompiled/
+    //     and never can be, but AnimatorStateInfo.length returns it at runtime. Grep token
+    //     `] [FigureGrab] ... THE CLIP'S OWN PERIOD:`; INERT reads `NOT READ`.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 469: the user re-diagnosed the wall himself and was right, and the flash's best-fitting
     //   candidate in eighteen rounds was named — by the LANE, from the game's own source, after it
     //   threw out both of the integrator's proposed experiments. Two lanes, three commits, and BOTH
