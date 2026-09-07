@@ -937,8 +937,59 @@ internal static class RevealGate
         /// <summary>FRONT. No secret is in flight — the action phase, our own character, offline, or
         /// a scenario that is not in the selection window. THE LONG REST LANDS HERE (user: "Lange
         /// Rast = Aktionsphase = alles offen"): it is committed during selection but RESOLVES as an
-        /// action, so its picks and its laid card are drawn under this rule and not the one
-        /// above.</summary>
+        /// action, so its picks and its laid card are drawn under this rule and not the one above.
+        ///
+        /// <para>THAT SENTENCE WAS CHALLENGED AS THIS PROJECT'S SEVENTEENTH FALSE ASSERTION AND IT
+        /// MEASURED TRUE. The 2026-09-07 report item 9 ("Wenn man bei der langen Rast die Karte auf
+        /// das Board legt sehen die anderen Spieler wieder nur eine Rueckseite … Das Problem hatte
+        /// ich bereits einmal gemeldet") reads exactly like a phase misclassification, and the
+        /// obvious reading is that a long rest runs inside <c>SelectAbilityCardsOrLongRest</c>
+        /// because the phase's own NAME says so. It does not, and the ModBuild 472 pair of logs says
+        /// so three independent ways. It is recorded HERE rather than in a plan file because the next
+        /// round will re-derive it from the phase name otherwise, as this one did.</para>
+        ///
+        /// <list type="number">
+        /// <item><description>THE OWNER'S OWN LONG-REST FLAG, against the phase it was live in. The
+        /// host log's <c>[Cards] REST GATE</c> line prints <c>long=True</c> in phase
+        /// <c>MonsterClassesSelectAbilityCards</c> and again in phase <c>Action</c> — and NEVER in
+        /// <c>SelectAbilityCardsOrLongRest</c>. So while a long rest was live,
+        /// <see cref="IsSecretSelectionPhase"/> was false and <see cref="ShowRoundCardFronts"/> was
+        /// OPEN.</description></item>
+        /// <item><description>THE OBSERVER'S CENSUS, on the tick the peer was covered. Every
+        /// <c>PEER CARD FACE CENSUS</c> line on the observing client that carries a non-zero BACK
+        /// reads <c>PHASE=ActionSelection, online=True, POLICY=FRONTS EVERYWHERE</c>. Not one of them
+        /// is in the secret window.</description></item>
+        /// <item><description>THE RULE STRING BESIDE EVERY BACK. Across BOTH logs, 37 of 37
+        /// per-population breach rows name an OPEN gate as the reason — the length belt, a seat the
+        /// sender could not name, or a widget that did not resolve. ZERO name
+        /// <c>ShowRoundCardFronts(actor)=false</c> and ZERO name
+        /// <see cref="SelectionPhaseCovered"/>.</description></item>
+        /// </list>
+        ///
+        /// <para>THE MEASUREMENT, REPRODUCIBLE:
+        /// <c>grep -a '\] \[Net\] PEER CARD FACE CENSUS' Player.log | grep 'POLICY=FRONTS' |
+        /// grep -v 'and 0 showing a BACK right now' | grep -c 'ShowRoundCardFronts(actor)=false'</c>
+        /// — a NON-ZERO reading is the first evidence this paragraph is wrong, and then (and only
+        /// then) the term to add is <c>CCharacterClass.LongRest</c>. It is available and it is sound:
+        /// host-replicated (<c>PlayerState.IsLongResting</c>, <c>CPlayerActor.cs:449</c>), and
+        /// DESYNC-CHECKED by the game itself across clients (<c>PlayerState.cs:321</c>, "Player State
+        /// IsLongResting does not match"), so it is required to agree on every machine and needs no
+        /// wire field. It would have to be spelled <c>LongRest &amp;&amp; !ImprovedShortRest</c>: an
+        /// IMPROVED short rest sets the same flag (<c>CardsHandUI.cs:730</c>) because the game runs
+        /// it through the long-rest confirmation UI, and a short rest must stay
+        /// <see cref="SelectionPhaseCovered"/>. Nothing was added, because a term that can only widen
+        /// a gate that already measured OPEN cannot fix a back and can only cost secrecy.</para>
+        ///
+        /// <para>WHERE ITEM 9 ACTUALLY COMES FROM, so the next round starts where this one finished:
+        /// the fronts are refused downstream of this file, by ARITHMETIC, on surfaces whose rule
+        /// strings already say the gate was open. The card laid on the board is
+        /// <c>extension record 39 named NO seat for this recess</c>; the vanished FAN — the report's
+        /// second symptom — is <c>Net.Remote.RemoteHandFan</c>'s LENGTH BELT refusing a pick fan
+        /// whose arc order (record 44) the OWNER withheld, 42 change-gated times, with its own
+        /// reason: <c>FAN ARC ORDER SENT: WITHHELD … why=an arc card is not in this hand's fan walk
+        /// (a loan or a pick fan)</c>. That sender derives record 44 against the HAND unconditionally
+        /// and has no record-43 branch, so a long rest's DISCARD arc can never be described at
+        /// all.</para></summary>
         ActionPhaseOpen,
 
         /// <summary>FRONT, IN EVERY PHASE INCLUDING A SHORT REST — the burn exception. This card is

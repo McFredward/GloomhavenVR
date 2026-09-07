@@ -36,6 +36,45 @@ internal sealed class PileViewer
         = (int.MinValue, int.MinValue, 0, false);
     private (int items, int actorId) _loggedItems = (int.MinValue, 0);
 
+    /// <summary>Scratch for the ARC-MEMBER count in <see cref="TickStatus"/>'s change-gated line —
+    /// the population the browse fan and every mirror of it actually walk
+    /// (<c>CardsGameApi.GetPileArcWidgets</c>). Static and reused: this is a diagnostic on a change
+    /// EDGE, never a per-frame allocation. It must never be read outside that block, because it
+    /// holds whichever pile was measured last.</summary>
+    private static readonly System.Collections.Generic.List<AbilityCardUI> s_arcCountBuffer = new(16);
+
+    /// <summary>How many of <paramref name="hand"/>'s <paramref name="kind"/> cards are members of
+    /// the ARC — the population <c>CardsDriver.UpdateBrowser</c> fills the browse fan from and
+    /// <c>Net.Remote.RemotePileFronts</c> walks for a peer's mirrored arc, both through the one
+    /// shared expression (<c>CardsGameApi.GetPileArcWidgets</c>).
+    ///
+    /// <para>IT IS A DIFFERENT NUMBER FROM THE BADGE'S BASE COUNT AND THAT IS THE WHOLE POINT.
+    /// <see cref="CardsGameApi.DiscardedCount"/> / <see cref="CardsGameApi.BurntCount"/> are raw
+    /// <c>CCharacterClass</c> LIST sizes; this is a count of RESOLVED WIDGETS that pass the arc's own
+    /// membership test. A model card with no widget in <c>cardsUI</c>, or one carrying the long-rest
+    /// placeholder, is in the first number and not in the second — and the fan can then open emptier
+    /// than the badge claims, which is the 2026-09-07 report item 4b ("Im Stapel steht eine '2' aber
+    /// der Faecher zeigt nur eine Karte"). Answers -1 when it cannot be measured at all, so "we did
+    /// not look" is never printed as "they agree".</para>
+    /// </summary>
+    private static int ArcMemberCount(CardsHandUI? hand, PileKind kind)
+    {
+        if (hand == null || hand.PlayerActor == null)
+            return -1;
+        try
+        {
+            CardsGameApi.GetPileArcWidgets(hand, kind == PileKind.Burnt, s_arcCountBuffer);
+            int n = s_arcCountBuffer.Count;
+            s_arcCountBuffer.Clear();
+            return n;
+        }
+        catch (System.Exception)
+        {
+            s_arcCountBuffer.Clear();
+            return -1;
+        }
+    }
+
     // Usable-item highlight diagnostic (throttled + change-gated) — see TickItemsUsableHighlight.
     private float _nextUsableLogAt;
     private int _loggedUsable = int.MinValue;
@@ -568,6 +607,14 @@ internal sealed class PileViewer
             _loggedCounts = (discard, burnt, countedId, offTurn);
             int modelDiscard = CardsGameApi.DiscardedCount(counted);
             int modelBurnt = CardsGameApi.BurntCount(counted);
+            // ─── THE BADGE AND THE FAN COUNT TWO DIFFERENT POPULATIONS ──────────────────────────
+            // Measured on this change EDGE only — GetPileArcWidgets is an O(pile x cardsUI) scan and
+            // TickStatus runs twice a frame, so it must never sit on the steady-state path. See
+            // ArcMemberCount for what the two numbers are.
+            int arcDiscard = ArcMemberCount(counted, PileKind.Discard);
+            int arcBurnt = ArcMemberCount(counted, PileKind.Burnt);
+            bool arcSplit = (arcDiscard >= 0 && arcDiscard != modelDiscard)
+                            || (arcBurnt >= 0 && arcBurnt != modelBurnt);
             // HW-VERIFY: ModBuild 348 item 11 — the co-player runs at the shipped default level, so
             // the ONE line that decides whether a burn reached his board has to survive it. Note
             // tier, not Info; still strictly change-gated (counts + character + the off-turn state),
@@ -591,9 +638,50 @@ internal sealed class PileViewer
                                       $"burnt={modelBurnt}, but {modelDiscard - discard} discard / " +
                                       $"{modelBurnt - burnt} burnt card(s) are still ON THEIR WAY " +
                                       "(lying on the board, held by their burn artwork, or in " +
-                                      "flight). The label becomes true when they LAND — so the fan " +
-                                      "can never open emptier than the number claims."
-                                    : "."));
+                                      "flight). The label becomes true when they LAND."
+                                    : ".") +
+                                // The 2026-09-07 report item 4b clause of the line above (which
+                                // carries this file's HW-VERIFY marker at its own call). User,
+                                // verbatim: "Im Stapel steht eine '2' aber der Faecher zeigt nur
+                                // eine Karte (remote und lokal)". Grep token: PILE BADGE VS ARC.
+                                //
+                                // THE SENTENCE THAT STOOD HERE WAS FALSE AND IS DELETED ABOVE: "so
+                                // the fan can never open emptier than the number claims". It can,
+                                // and item 4b is it. The badge's base count is a raw CCharacterClass
+                                // LIST size; the fan's is a count of RESOLVED WIDGETS passing the
+                                // arc's own membership test, minus the cards whose visual the board
+                                // still owns. Those are two populations, and only the FIRST of the
+                                // two subtractions (PendingPileArrivals) was ever asked here.
+                                //
+                                // WORKING = every line reads "the arc agrees". INERT = a line reads
+                                // "SPLIT" with the same two numbers the user is looking at, which
+                                // names the divergence but fixes nothing — this is a MEASUREMENT and
+                                // not a remedy, and the remedy is one term in the shared classifier
+                                // (CardsDriver.PileArrivalsPending's cheap exit, which omits the
+                                // ACTIVE column). STILL BEYOND THE INSTRUMENT = the two numbers agree
+                                // here and the fan is STILL shorter on screen: the difference is then
+                                // the board-owned/en-route residue, which is sender-local VR state
+                                // and is named by the browse ledger's own "left on the control
+                                // board" count instead.
+                                (arcSplit
+                                    ? $" PILE BADGE VS ARC — SPLIT: the badge counts the MODEL " +
+                                      $"lists (discard={modelDiscard}, burnt={modelBurnt}) while " +
+                                      "the browse fan and every mirror of it walk the ARC " +
+                                      $"(discard={arcDiscard}, burnt={arcBurnt}, " +
+                                      "CardsGameApi.GetPileArcWidgets). A model card with no widget " +
+                                      "in cardsUI, or one carrying the long-rest placeholder, is in " +
+                                      "the first and not in the second, so the fan opens EMPTIER " +
+                                      "than the stack label — report item 4b. This same split is " +
+                                      "what makes a peer's mirrored arc refuse every front: " +
+                                      "Net.Remote.RemotePileFronts walks the ARC count against the " +
+                                      "owner's slab count off the wire and shows backs when they " +
+                                      "disagree (its Gate.CountMismatch), which is report item 4a."
+                                    : " PILE BADGE VS ARC — the arc agrees: " +
+                                      $"discard={arcDiscard}, burnt={arcBurnt} card(s) pass the " +
+                                      "arc's own membership test, so the fan cannot open emptier " +
+                                      "than these numbers for a membership reason. A fan that is " +
+                                      "STILL shorter is short by the board-owned/en-route residue " +
+                                      "instead."));
         }
         _discard.SetCount(discard);
         _burnt.SetCount(burnt);
