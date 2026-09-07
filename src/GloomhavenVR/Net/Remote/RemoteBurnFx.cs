@@ -205,6 +205,13 @@ internal sealed class RemoteBurnFx
         /// the edge gate for <see cref="SetFrontFace"/>. Seeded true because that is what
         /// <see cref="Acquire"/> builds it with.</summary>
         public bool WearsBack = true;
+
+        /// <summary>The owner's own card WIDTH at this burn's ORIGIN and at the burnt pile, in
+        /// metres. The slab ramps between them across the arc on the SAME eased term the position
+        /// uses — see <see cref="Drive"/> and the block in <see cref="Present"/> that seeds them, and
+        /// <c>RemoteCardFx.WidthForAnchor</c>, whose rule this is.</summary>
+        public float FromWidth = RemoteHandFan.DefaultCardWidth;
+        public float ToWidth = RemoteHandFan.DefaultCardWidth;
     }
 
     private readonly List<Burn> _burns = new(MaxBurns);
@@ -528,7 +535,6 @@ internal sealed class RemoteBurnFx
 
         float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         float cardWidth = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth);
-        float widthRatio = cardWidth / RemoteHandFan.DefaultCardWidth;
         float cardHeight = cardWidth * (88f / 63.5f);
 
         b.Elapsed = 0f;
@@ -539,7 +545,33 @@ internal sealed class RemoteBurnFx
         // resolves for every other mirrored flight — read its ArcFraction note before touching
         // either number, they are code literals that simply have to be the same on both sides.
         b.Arc = Mathf.Max(cardHeight * 1.5f * scale, Vector3.Distance(from, to) * VRCard.FlyArcHeightFraction);
-        b.Go.transform.localScale = Vector3.one * (scale * widthRatio);
+        // ─── ONE CONSTANT SCALE FOR A RAMPED ARC — the same defect ModBuild 477 item 8 fixed one
+        //     class over, still standing here. ("Die anderen Spieler am remote board sehen beim Flug
+        //     kurz die offene ... kleine Karte in der Karte clippen, und dann zum stapel fliegen.")
+        //
+        // This line used to be the ONLY scale write in the class, taken from the owner's HAND card
+        // width, and Drive never touched it again. The owner's own burn does not hold its size:
+        // VRCard.FlyToPile captures the DOCKED scale and ramps to the pile-slab scale across the
+        // arc, so a card leaving a round recess starts at THAT recess card's size.
+        //
+        // IT FIRED ON EVERY BURN OF THE ModBuild 476 SESSION, AND THE GAP IS 2.5x. All five
+        // mirrored burns across the two logs (3 host + 2 peer) report 'DURING THE HOLD the card was
+        // drawn by their recess 1', so every one of them had a recess origin; and both clients'
+        // 'Slot-card size RECEIVED' line reads card 156.8 mm against a hand CardWidth of 63.5 mm.
+        // The slab therefore lifted out of the recess at 40 % of the size of the card already
+        // sitting in that very seat — a small card inside a card, clipping through it, for the
+        // length of the hold and the arc.
+        //
+        // SAME RULE, SAME FIELDS, SAME SOURCE as RemoteCardFx.WidthForAnchor, which is where the
+        // argument is written out in full: a RECESS end is the owner's own slot card width (record
+        // ExtIdSlotCardSize, RemoteAvatar.SlotCardWidth — the identical number RemoteControlBoard
+        // sizes its recess cards with), and the PILE end deliberately stays at the hand CardWidth
+        // because nothing on this mirror knows a peer's burnt-stack slab width, so writing one would
+        // be inventing a value rather than mirroring one. No new wire field.
+        float slotWidth = _owner.SlotCardWidth;
+        b.FromWidth = b.Recess >= 0 && slotWidth > 0.001f ? slotWidth : cardWidth;
+        b.ToWidth = cardWidth;
+        b.Go.transform.localScale = Vector3.one * (scale * (b.FromWidth / RemoteHandFan.DefaultCardWidth));
         // LYING ON THEIR BOARD, not billboarded at us: the owner's card rests in a recess of a
         // board this client already knows the rotation of, and FlyToPile holds that orientation for
         // the whole flight ("orientation locked"). Facing it at the local head instead would be a
@@ -867,12 +899,24 @@ internal sealed class RemoteBurnFx
             float t = NetProtocol.CardFxSeconds > 0f
                 ? Mathf.Clamp01((b.Elapsed - HoldSeconds) / NetProtocol.CardFxSeconds)
                 : 1f;
-            float e = t * t * (3f - 2f * t);
-            // WORLD up, never the owner's board up — VRCard.FlyToPile deliberately throws the
-            // caller's board-up away so a tilted board can never lean the arch sideways, and
-            // RemoteCardFx carries that sentence verbatim. Same rule here.
-            Vector3 p = Vector3.Lerp(b.From, b.To, e) + Vector3.up * (Mathf.Sin(t * Mathf.PI) * b.Arc);
+            // THE OWNER'S OWN CURVE, CALLED. "The same over-the-board arc every other pile flight
+            // uses" was true of the SHAPE nobody had compared and false of the path: this wrote out
+            // plain smoothstep along the chord and bowed with sin(pi*t) on the RAW t, while
+            // VRCard.FlyToPile eases with SMOOTHERSTEP and bows with FlyArcOffset on that EASED s.
+            // See RemoteFlightCurve for the separation that produced and why no arc reading on
+            // either machine could see it. WORLD up, never the owner's board up — VRCard.FlyToPile
+            // deliberately throws the caller's board-up away so a tilted board can never lean the
+            // arch sideways, and RemoteCardFx carries that sentence verbatim. Same rule here.
+            float e = RemoteFlightCurve.Ease(t);
+            Vector3 p = RemoteFlightCurve.Pose(e, b.From, b.To, Vector3.up, b.Arc);
             b.Go.transform.position = p;
+            // …AND THE SIZE RAMPS WITH IT, on the SAME eased term (see the FromWidth/ToWidth block
+            // in Present). The board SCALE is re-read per frame for the reason RemoteCardFx states:
+            // the owner may be dragging their diorama under a live flight, which is also why the
+            // position write is per frame.
+            float liveScale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
+            b.Go.transform.localScale = Vector3.one
+                * (liveScale * (Mathf.Lerp(b.FromWidth, b.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
             if (t >= 1f)
             {
                 b.Active = false;
@@ -1195,6 +1239,19 @@ internal sealed class RemoteBurnFx
                           "AbilityCardUI is a real object on this machine). Any other reading is a " +
                           "1:1 breach with a number on it. ModBuild 474, the build this replaced, " +
                           "read 1.00/0.02/0.56s against owner holds of 0.67/0.50/2.01s.");
+        // HW-VERIFY: grep token "BURN FLIGHT CURVE" — the SHAPE and the SIZE of the arc this
+        // hand-over starts, the pair no burn line has ever printed. Every arc reading here was the
+        // peak height, which is identical under any symmetric ease, so it could never have shown
+        // that this class flew a different curve from its owner; and the slab's scale was written
+        // ONCE, so a burn leaving a recess arrived there at the wrong card size with no line saying
+        // so. One line per burn, beside the BURN FLIGHT line it belongs to.
+        VRLog.Note("Net", $"BURN FLIGHT CURVE [peer {_owner.PlayerId}]: '{b.Name}'. "
+                          + $"{RemoteFlightCurve.Describe(b.Arc)} SIZE ramps on the same eased term: "
+                          + $"{b.FromWidth * 1000f:F1} mm -> {b.ToWidth * 1000f:F1} mm "
+                          + $"({(b.Recess >= 0 ? "a RECESS origin, so the origin width is the owner's "
+                                                 + "own SlotCardWidth and the slab can no longer be a "
+                                                 + "second card size inside their recess card"
+                                               : "no recess origin, so both ends are their hand CardWidth")}).");
     }
 
     /// <summary>

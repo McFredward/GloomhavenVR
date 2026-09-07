@@ -1083,25 +1083,38 @@ internal sealed class RemoteBrowserFan
 
         VRLog.Info("Net", $"Remote pile browse [player {_owner.PlayerId}]: {KindName(kind)} fan CLOSED — " +
                           $"{_cards.Count} card(s) collapse back into that stack ({NetProtocol.CardFxSeconds:F2}s, " +
-                          $"arc {_collapseArc:F3} m over their board), matching the local browse collapse.");
+                          $"arc {_collapseArc:F3} m over their board), matching the local browse collapse. " +
+                          // The arc PEAK above is identical under every symmetric ease and therefore
+                          // proves nothing about the path — which is why this line names the curve
+                          // and samples it away from the midpoint. Debug tier, unlike the two
+                          // hardware-marked curve lines on the card-flight surfaces (FLIGHT CURVE,
+                          // BURN FLIGHT CURVE): a browse collapse is player-driven and the round's
+                          // 1:1 evidence is those two.
+                          RemoteFlightCurve.Describe(_collapseArc));
     }
 
-    /// <summary>Drive the collapse: smoothstep along each card's own chord plus a shared sine bow
-    /// along WORLD up (see <see cref="BeginCollapse"/>), orientation held — the shape
-    /// <c>VRCard.FlyToPile</c> flies and <see cref="RemoteCardFx"/> already replays.</summary>
+    /// <summary>Drive the collapse: <see cref="RemoteFlightCurve"/> along each card's own chord,
+    /// orientation held — the shape <c>VRCard.FlyToPile</c> flies, CALLED rather than rebuilt.
+    ///
+    /// <para>THE SENTENCE THAT STOOD HERE — "smoothstep along each card's own chord plus a shared
+    /// sine bow … the shape <c>VRCard.FlyToPile</c> flies and <see cref="RemoteCardFx"/> already
+    /// replays" — was an assertion about a shape nobody had compared, and it was false on both
+    /// halves. The owner eases with SMOOTHERSTEP and bows with <c>FlyArcOffset</c> on that EASED
+    /// term; this bowed with sin(pi*u) on the RAW u. It was true that RemoteCardFx "already
+    /// replayed" it: all three mirrors carried the same wrong copy, which is the whole reason the
+    /// curve is now one call. See <see cref="RemoteFlightCurve"/>.</para></summary>
     private void TickCollapse(float dt)
     {
         _collapseElapsed += dt;
         float u = NetProtocol.CardFxSeconds > 0f
             ? Mathf.Clamp01(_collapseElapsed / NetProtocol.CardFxSeconds)
             : 1f;
-        float e = u * u * (3f - 2f * u);
-        float bow = Mathf.Sin(u * Mathf.PI) * _collapseArc;
+        float e = RemoteFlightCurve.Ease(u);
 
         for (int i = 0; i < _cards.Count && i < _collapseFrom.Count; i++)
         {
             Transform t = _cards[i].transform;
-            t.position = Vector3.Lerp(_collapseFrom[i], _collapseTo, e) + _collapseArcUp * bow;
+            t.position = RemoteFlightCurve.Pose(e, _collapseFrom[i], _collapseTo, _collapseArcUp, _collapseArc);
             t.localScale = Vector3.one * Mathf.Lerp(SlabScale, _collapseTargetScale, e);
         }
 

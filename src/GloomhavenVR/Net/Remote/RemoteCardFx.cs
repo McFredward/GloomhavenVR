@@ -1,7 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
-using GloomhavenVR.Rig;
 using UnityEngine;
 
 namespace GloomhavenVR.Net;
@@ -22,7 +21,9 @@ namespace GloomhavenVR.Net;
 /// The owner's own flying card is a live <see cref="VRCard"/> that was lying FACE-UP in the recess,
 /// and <see cref="VRCard.FlyToPile"/> locks that rotation for the whole arc — so a back was a 1:1
 /// breach on both the face and the pose, and both are fixed together (see
-/// <c>RotationFor</c>).</para>
+/// <c>SlabRotation</c>, which since 2026-09-07 holds the owner's board rotation for EVERY flight
+/// rather than only for a faced one — the faceless arm billboarded at the LOCAL viewer's camera,
+/// the last client-local geometry term on this board).</para>
 ///
 /// WHY A LOCAL REPLAY AND NOT A POSE STREAM: the flight lasts ~0.4 s. Streaming it would need the
 /// full 15 Hz pose channel for its whole duration (~20 B per packet) and would still stutter under
@@ -95,8 +96,9 @@ internal sealed class RemoteCardFx
         public float Arc;
         public float Elapsed;
         public bool Active;
-        /// <summary>True while this slab is carrying the real card FRONT rather than a back. It
-        /// also decides the slab's ORIENTATION — see the FaceHeadRotation note.</summary>
+        /// <summary>True while this slab is carrying the real card FRONT rather than a back. It no
+        /// longer decides the slab's ORIENTATION: that forked here until 2026-09-07 and the faceless
+        /// arm billboarded at the LOCAL viewer's camera — see <see cref="SlabRotation"/>.</summary>
         public bool HasFace;
 
         /// <summary><c>CAbilityCard.CardInstanceID</c> of the card this slab is carrying INTO THE
@@ -288,13 +290,24 @@ internal sealed class RemoteCardFx
         // the "do not put an edge ring around a card back" half.
         SetFrontFace(f, showsBack: !f.HasFace);
 
-        f.Go.transform.SetPositionAndRotation(a, RotationFor(f, a));
+        f.Go.transform.SetPositionAndRotation(a, SlabRotation);
         if (!f.Go.activeSelf)
             f.Go.SetActive(true);
 
         _played++;
         VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} playing " +
                           $"({NetProtocol.CardFxSeconds:F2}s, arc {f.Arc:F3} m) — flight #{_played}.");
+        // HW-VERIFY: the reading that did not exist while four flight curves did. Grep token:
+        // FLIGHT CURVE. One line per mirrored flight (a handful per turn), at Note tier because the
+        // co-player runs at the shipped default level and either machine can be the one watching.
+        // It names the easing FUNCTION and samples it at t = 0.25, because every arc line on both
+        // machines printed only the PEAK — identical under any symmetric ease, which is exactly why
+        // eight rounds of matching arc readings never once contradicted a 0.8 m divergence. Compare
+        // against the owner's own flight: he flies VRCard.SmootherStep + VRCard.FlyArcOffset, and
+        // this line prints the values read back out of those same two functions.
+        VRLog.Note("Net", $"FLIGHT CURVE [player {_owner.PlayerId}]: their {from} -> {to} flight, "
+            + $"{NetProtocol.CardFxSeconds:F2}s. {RemoteFlightCurve.Describe(f.Arc)} SIZE ramps on "
+            + $"the same eased term: {f.FromWidth * 1000f:F1} mm -> {f.ToWidth * 1000f:F1} mm.");
         // The DUPLICATE half of report item 5 is a flight from HERE landing on a board RemoteBurnFx
         // has already flown a burn on. Neither class can see the other's line, so both report into
         // one ledger keyed on (board, destination) — this one has no card name to give, by design.
@@ -636,14 +649,18 @@ internal sealed class RemoteCardFx
             float t = NetProtocol.CardFxSeconds > 0f
                 ? Mathf.Clamp01(f.Elapsed / NetProtocol.CardFxSeconds)
                 : 1f;
-            // Same shape as VRCard's fly: smoothstep along the chord + a sine bow along WORLD up
-            // (see the ArcUp assignment in Play), so the card visibly clears the board instead of
-            // skimming it.
-            float e = t * t * (3f - 2f * t);
-            Vector3 p = Vector3.Lerp(f.From, f.To, e) + f.ArcUp * (Mathf.Sin(t * Mathf.PI) * f.Arc);
-            f.Go.transform.SetPositionAndRotation(p, RotationFor(f, p));
+            // THE OWNER'S OWN CURVE, CALLED — not "the same shape as VRCard's fly", which is what
+            // the sentence that stood here claimed while the code flew a DIFFERENT ONE. This wrote
+            // out plain smoothstep along the chord and bowed with sin(pi*t) on the RAW t, against
+            // VRCard.FlyToPile's SMOOTHERSTEP and its FlyArcOffset parabola on the EASED s. Same
+            // duration, same peak, different path — about 0.8 m apart at t = 0.25 on the arc the
+            // ModBuild 476 session measured. RemoteFlightCurve holds the whole argument and the
+            // reason no arc reading could ever see it.
+            float e = RemoteFlightCurve.Ease(t);
+            Vector3 p = RemoteFlightCurve.Pose(e, f.From, f.To, f.ArcUp, f.Arc);
+            f.Go.transform.SetPositionAndRotation(p, SlabRotation);
             // …AND THE SIZE RAMPS WITH IT (report item 8 — see the FromWidth/ToWidth block in Play).
-            // On the SMOOTHSTEPPED parameter, not the raw one, because VRCard.FlyToPile lerps its
+            // On the EASED parameter, not the raw one, because VRCard.FlyToPile lerps its
             // own scale on the same eased term it lerps the chord on: a slab that travelled on one
             // curve and resized on another would be a second animation, not a mirror of the first.
             // Re-read per frame because the board SCALE can move under a live flight (the owner may
@@ -790,10 +807,14 @@ internal sealed class RemoteCardFx
     /// THE OWNER'S OWN CARD WIDTH AT ONE ANCHOR, in metres — the term the flight slab's scale ramp
     /// is built from (see the block in <see cref="Play"/>).
     ///
-    /// <para>A ROUND RECESS is the one anchor where this client draws a SECOND card at the very same
-    /// point (<c>RemoteBoardCard</c>, sized from <c>RemoteAvatar.SlotCardWidth</c>), so it is the one
-    /// anchor where a size disagreement shows up as one card clipping through another. Reading the
-    /// same field that surface reads means the flight and the recess card cannot be two sizes.</para>
+    /// <para>TWO ANCHORS ARE POINTS WHERE THIS CLIENT DRAWS THE CARD ITSELF, and they are the two
+    /// where a size disagreement shows up as one card clipping through, or popping into, another.
+    /// A ROUND RECESS is one (<c>RemoteBoardCard</c>, sized from <c>RemoteAvatar.SlotCardWidth</c>);
+    /// the ACTIVE MATRIX is the other (<c>RemoteActiveCards</c>, sized from the owner's
+    /// <c>CardWidth</c> on a root scaled by their <c>ActiveCardScale</c>). Reading the same fields
+    /// those surfaces read means the flight and its destination cannot be two sizes. The sentence
+    /// that stood here said the recess was "the ONE anchor" — it was written before this class
+    /// could fly to the matrix at all.</para>
     ///
     /// <para>Falls back to the owner's hand <c>CardWidth</c> for every other anchor and for a peer
     /// whose slot-card record has not arrived — which is the size every build before this one drew
@@ -801,6 +822,23 @@ internal sealed class RemoteCardFx
     /// </summary>
     private float WidthForAnchor(CardFxAnchor anchor)
     {
+        // THE ACTIVE MATRIX IS THE SECOND ANCHOR WHERE THIS CLIENT DRAWS THE CARD ITSELF, and it
+        // had no arm here at all: every '-> Active' flight arrived at the owner's hand CardWidth
+        // while the cell it lands in is drawn at that width times their ActiveCardScale.
+        // RemoteActiveCards sizes its cells from layout.ActiveCardWidth (= BoardTuning.CardWidth,
+        // the very term _cardWidth holds) carried on a root scaled by layout.ActiveCardScale, so
+        // the product below is that surface's own expression and not a second one that has to
+        // agree with it. Guarded above zero for the same reason every wire dial here is.
+        //
+        // IT IS INERT AT THE SHIPPED DEFAULTS AND THAT IS STATED RATHER THAN ASSUMED.
+        // Defaults.ActiveCardScale_{Oak,Steel,Bronze} are all 1f, and the ModBuild 476 session's
+        // own board census reads 'active=(0.502, 0.000, -0.004)(x1.00)' on both clients — so this
+        // line changes nothing anybody has yet watched. It closes a structural gap: the moment a
+        // peer moves [Cards] ActiveCardScale_{board} (a wired dial, record 28) their teammates
+        // would have watched a slab of one size settle into a cell of another, which is precisely
+        // the picture ModBuild 477's item 8 fixed for the recess end of the same ramp.
+        if (anchor == CardFxAnchor.Active)
+            return _cardWidth * Mathf.Max(0.01f, _owner.BoardTuning.ActiveCardScale);
         if (anchor != CardFxAnchor.Slot0 && anchor != CardFxAnchor.Slot1)
             return _cardWidth;
         float slot = _owner.SlotCardWidth;
@@ -838,36 +876,40 @@ internal sealed class RemoteCardFx
     }
 
     /// <summary>
-    /// THE SLAB'S ORIENTATION, and it depends on whether this flight is carrying a real face.
+    /// THE SLAB'S ORIENTATION: the owner's own board rotation, for EVERY flight, faced or faceless.
+    /// The peer's own synced pose, re-read per frame because a 0.4 s flight over a board the owner
+    /// is dragging must travel with it.
     ///
-    /// <para>A FACELESS slab BILLBOARDS at the local head, as every build before ModBuild 461 did:
-    /// an anonymous card back has no pose of its own to be faithful to, and edge-on it is invisible.
+    /// <para>THIS USED TO FORK ON <c>f.HasFace</c>, AND THE FACELESS ARM BILLBOARDED AT
+    /// <c>Camera.main</c> — the LOCAL viewer's head. It was the last client-local geometry term on
+    /// the remote board, and it fired: 3 of the host's 8 mirrored flights in the ModBuild 476
+    /// session drew a BACK (raw 167489, 167496, 199598), and a back is exactly when that arm was
+    /// taken. A term that reads the local camera cannot be 1:1 by construction — the same flight
+    /// tumbled differently for every watcher, and matched none of them to the owner, whose
+    /// <c>VRCard.FlyToPile</c> LOCKS the captured rotation for the whole arc and says so three
+    /// times ("the card slides in flat, as it sat on the board", "orientation locked", "never
+    /// rotates or billboards"). The standing ruling is explicit that 1:1 includes ROTATION and
+    /// outranks local legibility.</para>
+    ///
+    /// <para>THE TRADE-OFF IT REPLACED WAS ARGUED FROM A PREMISE THAT DOES NOT SURVIVE ITS OWN
+    /// OTHER BRANCH. "An anonymous card back has no pose of its own to be faithful to, and edge-on
+    /// it is invisible" — but (1) invisibility is a property of the SLAB, not of what is printed on
+    /// it, and the FRONT branch was board-locked on 1:1 grounds in ModBuild 461 over the identical
+    /// geometry, so the same plane cannot be invisible for a back and fine for a front; and (2) a
+    /// card whose FACE this client could not resolve still has a ROTATION on its owner's board —
+    /// "no pose to be faithful to" is an IDENTITY answer standing in for a GEOMETRY question, the
+    /// substitution this codebase has paid for before. In practice the board plate sits 30° off
+    /// horizontal at the shipped <c>BoardTilt</c>, so a slab lying on it is nothing like edge-on
+    /// for a viewer who can see that board at all.</para>
+    ///
+    /// <para>WHAT A BILLBOARD MAY LEGITIMATELY READ, if a later round wants one: the OWNER'S head,
+    /// never this client's. <c>RemoteBrowserFan.TryFanPose</c> is the worked example — it billboards
+    /// its fan at <c>_owner.HeadHolder</c>, which reproduces the picture the owner is reading rather
+    /// than composing a new one per viewer. <c>scripts/check-mirrors.sh</c>'s "mirrored flight
+    /// rotation" group fails the build on a flight surface that reaches for the local camera again.
     /// </para>
-    ///
-    /// <para>A slab carrying the card's own FRONT LIES ON THE OWNER'S BOARD instead. That is not a
-    /// preference, it is the same 1:1 ruling <c>RemoteBurnFx</c> already carries in as many words:
-    /// the owner's card is a live <c>VRCard</c> lying flat in a recess and
-    /// <c>VRCard.FlyToPile</c> LOCKS that rotation for the whole arc ("the card slides in flat, as
-    /// it sat on the board", "orientation locked"), so facing the card at the local head would be a
-    /// pose its owner never sees — a new 1:1 breach introduced by fixing an old one. The board
-    /// rotation is the peer's own synced pose, re-read per frame because a 0.4 s flight over a board
-    /// the owner is dragging must travel with it.</para>
     /// </summary>
-    private Quaternion RotationFor(Flight f, Vector3 at) =>
-        f.HasFace ? _owner.BoardRotation : FaceHeadRotation(at);
-
-    /// <summary>Billboard the slab so its BACK faces the local viewer (the mod's card convention:
-    /// +Z points away from the reader). A flying card is only ever seen edge-on otherwise.</summary>
-    private static Quaternion FaceHeadRotation(Vector3 at)
-    {
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-            return Quaternion.identity;
-        Vector3 away = at - head.transform.position;
-        return away.sqrMagnitude > 1e-6f
-            ? Quaternion.LookRotation(away.normalized, Vector3.up)
-            : Quaternion.identity;
-    }
+    private Quaternion SlabRotation => _owner.BoardRotation;
 
     // ------------------------------------------------------------------ pool --
 

@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
-# Mirrored-constant lint — the cheap alternative to merging constants across a layer.
+# Mirrored-constant AND mirrored-expression lint — the cheap alternative to merging a value, and
+# the enforcement of a merge once one has happened.
+#
+# PART 1 (MIRRORS) lints CONSTANTS that are deliberately NOT merged: they must hold one value.
+# PART 2 (EXPRESSIONS), added 2026-09-07 with the sharing ruling, lints an expression that HAS
+# been merged: a second implementation of it must fail the build. See that part's own header —
+# every duplication defect the 2026-09-07 review found was in an expression, not a number.
 #
 # WHY A LINT AND NOT A SHARED CONSTANT
 # ------------------------------------
@@ -289,5 +295,113 @@ for entry in "${MIRRORS[@]}"; do
     fi
 done
 
-[[ $fail -eq 0 ]] && echo "mirrors: ${#MIRRORS[@]} mirrored-constant groups agree"
+
+# ==============================================================================================
+# PART 2 — MIRRORED EXPRESSIONS (2026-09-07, the sharing ruling)
+# ==============================================================================================
+#
+# Everything above lints CONSTANTS. Every duplication defect found in the 2026-09-07 review was
+# in an EXPRESSION, and the worst of them had survived eight hardware rounds:
+#
+#   VRCard.FlyToPile eases a card flight with SMOOTHERSTEP and bows it with FlyArcOffset ON THAT
+#   EASED TERM. RemoteCardFx, RemoteBurnFx and RemoteBrowserFan each wrote out plain SMOOTHSTEP
+#   along the chord and bowed with sin(pi*t) on the RAW t. Four implementations of "the card
+#   flight", three of them a different curve from the one the owner watches — same duration, same
+#   peak, ~0.8 m apart at t = 0.25 on the arc the ModBuild 476 session measured. All three carried
+#   a comment asserting they flew "the same shape as VRCard's fly".
+#
+# The maintainer's ruling: PURE MATH IS SHARED, CALLS GO DOWN (Net/ may call Cards/; Cards/ must
+# never learn a mirror exists), THE DRAWN OBJECT IS NEVER SHARED. Once a shared expression exists,
+# a SECOND IMPLEMENTATION of it must fail the build — which is this part.
+#
+# HOW A GROUP IS SHAPED, and why it is SCOPED rather than repo-wide. The smoothstep polynomial
+# appears ~20 times in this repo (sound envelopes, fan weights, the window materialise field) and
+# `Mathf.Sin(t * Mathf.PI)` appears in every card fan's SWAP DUCK. Those are different expressions
+# that happen to share a formula, and a lint that fired on them would be noise, and noise gets
+# deleted. So a group names the SURFACES that draw the one thing (here: a card flight) and forbids
+# a hand-written curve THERE. Deliberately NOT in scope: RemoteHandFan / CardFan / ItemsPile (the
+# fan swap-duck bow, a different animation over a different population — see the sharing ruling's
+# "if you cannot show the population is the same, do not merge"), and RemoteBrowserFan's own
+# Mathf.Sin(rad) fan ARCH layout, which is trigonometry and not an ease.
+#
+# Each group is one line, four | -separated fields:
+#   name | WHAT TO CALL INSTEAD | ERE the copy would match | files in scope (relative to src/GloomhavenVR)
+# The message tells the reader what to call, never what to delete — the whole point is that the
+# next person writing a flight finds the one implementation instead of writing a fifth.
+#
+# Comments are stripped before matching, because this repository's comments quote the very
+# expressions being censused (the paragraph above is itself an example, and the mirrors' own doc
+# comments now spell out the curve they no longer fly).
+EXPRESSIONS=(
+  # The EASE. One implementation: VRCard.SmootherStep, reached from Net/ through
+  # RemoteFlightCurve.Ease. Catches a hand-written smoothstep `x*x*(3f-2f*x)`, a hand-written
+  # smootherstep `...*6f-15f...`, and Unity's Mathf.SmoothStep — a flight surface easing with any
+  # of the three is a second curve, whichever one it is.
+  "mirrored flight ease | VRCard.SmootherStep — from Net/, call RemoteFlightCurve.Ease(t) | [A-Za-z_][A-Za-z0-9_.]* *\* *[A-Za-z_][A-Za-z0-9_.]* *\* *\( *3f? *-|\* *6f? *- *15f?|Mathf\.SmoothStep *\( | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBrowserFan.cs Cards/Driver/CardsDriver.4.Rebuild.cs"
+  # The BOW. One implementation: VRCard.FlyArcOffset, reached from Net/ through
+  # RemoteFlightCurve.Pose (which also carries the chord, so the bow and the slide can never again
+  # be fed two different parameters — that mismatch, not the formula, was the visible defect).
+  # Catches a half-sine bow and the parabola written out by hand.
+  "mirrored flight bow | VRCard.FlyArcOffset — from Net/, call RemoteFlightCurve.Pose(eased, from, to, up, arc) | Mathf\.Sin *\([^)]*Mathf\.PI|4f? *\* *[A-Za-z_][A-Za-z0-9_.]* *\* *\( *1f? *- | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBrowserFan.cs Cards/Driver/CardsDriver.4.Rebuild.cs"
+  # The ROTATION, and this one forbids a SOURCE rather than a formula - which is the only shape
+  # that can catch it. A mirrored flight's pose is the OWNER's; nothing about it may be a
+  # function of who is watching. RemoteCardFx billboarded a FACELESS slab at Camera.main until
+  # 2026-09-07, so one flight tumbled differently on every watcher's machine and matched none of
+  # them to the owner, whose VRCard.FlyToPile locks the captured rotation for the whole arc. It
+  # fired on 3 of the host's 8 mirrored flights in the ModBuild 476 session. A local-camera read
+  # cannot be 1:1 BY CONSTRUCTION, so there is no value to lint and no formula to share - only a
+  # source to forbid.
+  #
+  # A BILLBOARD IS STILL ALLOWED; IT MUST JUST FACE THE OWNER'S HEAD. RemoteBrowserFan.TryFanPose
+  # is the worked example (it reads _owner.HeadHolder and so reproduces the picture the owner is
+  # reading rather than composing a new one per viewer), which is why its own
+  # Quaternion.LookRotation is not what this group matches.
+  "mirrored flight rotation | the OWNER's pose - _owner.BoardRotation, or _owner.HeadHolder for a billboard, never the local camera | Camera\.main|VRRigDriver\.HeadCamera | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBrowserFan.cs"
+)
+
+xfail=0
+for entry in "${EXPRESSIONS[@]}"; do
+    # The PATTERN field contains '|' alternations of its own, so the fields are peeled off by
+    # position — name and call from the FRONT, scope from the BACK, and whatever is left in the
+    # middle is the pattern, alternations intact. A plain 4-way split would cut the ERE in half.
+    xgroup="${entry%%|*}"; rest="${entry#*|}"
+    xcall="${rest%%|*}"; rest="${rest#*|}"
+    xscope="${rest##*|}"; xpat="${rest%|*}"
+    # trim the padding spaces around each field
+    xgroup="${xgroup%"${xgroup##*[![:space:]]}"}"
+    xcall="${xcall#"${xcall%%[![:space:]]*}"}"; xcall="${xcall%"${xcall##*[![:space:]]}"}"
+    xpat="${xpat#"${xpat%%[![:space:]]*}"}";    xpat="${xpat%"${xpat##*[![:space:]]}"}"
+    xscope="${xscope#"${xscope%%[![:space:]]*}"}"
+    for site in $xscope; do
+        file="$S/$site"
+        if [[ ! -f "$file" ]]; then
+            echo "error: expression-group scope file ${site} not found — did it move or get renamed?" >&2
+            xfail=1; continue
+        fi
+        # Blank out comments so the lint reads CODE only: whole-line // and /// comments, block
+        # comment continuation lines, and any trailing // tail. Substitutions, never deletions, so
+        # grep -n still reports the file's own line numbers.
+        hits="$(sed -E -e 's://.*$::' -e 's:^[[:space:]]*\*.*$::' -e 's:^[[:space:]]*/\*.*$::' "$file" \
+                | grep -nE "$xpat" || true)"
+        [[ -z "$hits" ]] && continue
+        echo "error: a SECOND implementation of a shared expression — ${xgroup}" >&2
+        while IFS= read -r hit; do
+            echo "    ${site}:${hit}" >&2
+        done <<<"$hits"
+        echo "  CALL ${xcall}" >&2
+        echo "  This expression has ONE implementation and every mirror is meant to call it." >&2
+        echo "  WHY THIS GATE EXISTS: four copies of the card flight existed until 2026-09-07 and" >&2
+        echo "  three were a DIFFERENT CURVE from the owner's, which no reading on either machine" >&2
+        echo "  could see (every arc line printed the PEAK, identical under any symmetric ease)." >&2
+        echo "  Each copy carried a comment asserting it matched. A second implementation is not" >&2
+        echo "  caught by review and it is not caught by a log; it is caught here or not at all." >&2
+        echo "  IF THIS SITE REALLY NEEDS SOMETHING ELSE it is not this expression: give it its" >&2
+        echo "  own name, say in one line what population it serves and why the owner's answer" >&2
+        echo "  does not apply to it, and take the file out of this group's scope above." >&2
+        xfail=1
+    done
+done
+
+[[ $xfail -ne 0 ]] && fail=1
+[[ $fail -eq 0 ]] && echo "mirrors: ${#MIRRORS[@]} mirrored-constant groups agree; ${#EXPRESSIONS[@]} shared-expression groups have one implementation each"
 exit $fail
