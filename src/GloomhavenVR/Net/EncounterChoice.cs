@@ -536,6 +536,91 @@ internal static class EncounterChoice
         ApplyRemoteRequest(panel, action);
         return false;
     }
+
+    /// <summary>
+    /// CONSUME THE REQUEST AT THE TRANSPORT SEAM, BECAUSE THE GAME'S DISPATCH DEREFERENCES A
+    /// SINGLETON THAT IS NOT ALWAYS THERE — and no prefix of ours can save it.
+    ///
+    /// <para><b>THE TRAP, READ IN THE GAME'S OWN SOURCE.</b> This request rides the game's real
+    /// <c>GameActionType.ContinueRoadEvent</c>, whose dispatch entry is
+    /// <c>Singleton&lt;UIEventPanel&gt;.Instance.ClientContinueRoadEvent(a)</c>
+    /// (decompiled/GH.Runtime/FFSNet/GameAction.cs:189-193) with <b>no null test</b>.
+    /// <c>UIEventPanel</c> is a plain <c>Singleton&lt;T&gt;</c> — a static field written in
+    /// <c>Awake</c> and set back to <c>null</c> in <c>OnDestroy</c> (Singleton.cs:11-19) — and it
+    /// carries no <c>DontDestroyOnLoad</c>, so it is null the moment the host leaves the campaign
+    /// map scene. A client's press that was in flight while the host left therefore throws a
+    /// <c>NullReferenceException</c> at the CALL SITE, i.e. before
+    /// <c>ClientContinueRoadEvent</c> is entered, so
+    /// <see cref="UIEventPanel_ClientContinueRoadEvent_Patch"/>'s prefix — and with it
+    /// <see cref="ApplyRemoteRequest"/>'s own "there is no UIEventPanel on this machine" refusal —
+    /// <b>cannot run</b>. <c>GameAction.Execute</c> has no catch of its own (GameAction.cs:1047),
+    /// so it lands in <c>ActionProcessor.ProcessSideAction</c>'s
+    /// <c>catch { FFSNetwork.HandleDesync(ex); throw; }</c> (ActionProcessor.cs:194-198), and on a
+    /// HOST <c>HandleDesync</c> ends in <c>Shutdown()</c> (FFSNetwork.cs:80-83) — the whole table's
+    /// session, not just the host's.</para>
+    ///
+    /// <para><b>SO THE FIX IS THE PATTERN THE TWO SIBLING REQUESTS ALREADY USE:</b> recognise the
+    /// request in <see cref="FfsNetTransport"/>'s existing <c>ProcessSideAction</c> prefix and
+    /// return FALSE, so <c>Execute()</c> — and with it the unguarded deref — never runs at all. The
+    /// judgement then reads <c>Singleton&lt;UIEventPanel&gt;.Instance</c> HERE, where a null is a
+    /// value and not a throw, and <see cref="ApplyRemoteRequest"/>'s existing refusal line finally
+    /// becomes reachable.</para>
+    ///
+    /// <para><b>NOTHING IS TAKEN AWAY FROM A MODDED RECEIVER.</b> Today the request reaches
+    /// <see cref="ApplyRemoteRequest"/> through <c>Execute()</c> → the dispatch table → our prefix
+    /// on <c>ClientContinueRoadEvent</c>; after this it reaches the SAME method one call earlier.
+    /// <c>ProcessSideAction</c> contributes nothing else on this path: its
+    /// <c>TargetPlayerID == 0 || == MyPlayer.PlayerID</c> test (:188) is satisfied by construction
+    /// because <see cref="SendRequest"/> sends <c>targetPlayerId: 0</c>, and <c>Execute</c>'s
+    /// return value is discarded by the caller.</para>
+    ///
+    /// <para><b>AND NOTHING IS TAKEN AWAY FROM AN UNMODDED ONE.</b> The request is only ever SENT
+    /// when <see cref="HostCanHonourRequests"/> holds, which requires
+    /// <c>VersionGuard.IsModdedPeer(PlayerRegistry.HostPlayerID)</c> — a host is only in that
+    /// registry once a valid GVR1 packet has arrived FROM it, and those packets come out of
+    /// <see cref="FfsNetTransport"/>. A host whose transport did not install therefore never
+    /// appears modded, so no client ever sends it one; the receive seam this method is called from
+    /// is guaranteed installed on every machine that can receive a request. It also never travels
+    /// to a non-host at all: <see cref="SideActionRequest.Send"/> passes
+    /// <c>sendToHostOnly: true</c>, which <c>Synchronizer.SendSideAction</c> turns into
+    /// <c>GlobalTargets.OnlyServer</c> (Synchronizer.cs:28) — an unmodded CLIENT never receives
+    /// this action in the first place.</para>
+    ///
+    /// <para><b>THE REPLAY DEPTH IS RAISED HERE FOR THE SAME REASON THE PREFIX RAISED IT</b>: the
+    /// judgement drives <c>EventButton.Click()</c>, which re-enters <c>ContinueEvent</c>, and a
+    /// machine that somehow judged a request while counting as a CLIENT must run the game's own
+    /// advance instead of answering with a fresh request. Released in a <c>finally</c> so a throw
+    /// inside the judgement cannot latch it — the same contract the
+    /// <c>[HarmonyFinalizer]</c> gives on the other seam.</para>
+    ///
+    /// <para>Returns TRUE when the action was OURS and has been dealt with (the caller then skips
+    /// vanilla), FALSE for anything else — every vanilla side action included. A vanilla
+    /// <c>ContinueRoadEvent</c> can never match: the game sends that type only through
+    /// <c>Synchronizer.SendGameAction</c> (UIEventPanel.cs:606/:610/:724), never as a side action,
+    /// and all three of those pass <c>ActionPhaseType.MapEvent</c> while
+    /// <see cref="IsRemotePressRequest"/> demands <c>TargetPhaseID == 0</c>.</para>
+    /// </summary>
+    internal static bool TryHandleSideAction(object? action)
+    {
+        if (action is not GameAction ga)
+            return false;
+        if (ga.ActionTypeID != (int)GameActionType.ContinueRoadEvent || !IsRemotePressRequest(ga))
+            return false;
+        // CONSUMED EITHER WAY. The action is ours, so the game's dispatch must not see it; a throw
+        // inside the judgement is named by DispatchGuard and costs the requesting player one press,
+        // which they can simply repeat because nothing about it was consumed on their machine.
+        EnterReplay();
+        try
+        {
+            DispatchGuard.Run("EncounterChoice.ApplyRemoteRequest",
+                () => ApplyRemoteRequest(Singleton<UIEventPanel>.Instance, ga));
+        }
+        finally
+        {
+            ExitReplay();
+        }
+        return true;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -606,11 +691,16 @@ internal static class UIEventPanel_CompleteEvent_Patch
 /// Two jobs on one seam, <c>UIEventPanel.ClientContinueRoadEvent(GameAction)</c>
 /// (decompiled/GH.Runtime/UIEventPanel.cs:869).
 ///
-/// <para>(1) It is where a CLIENT'S REQUEST lands on the host. <c>ProcessSideAction</c> executes a
-/// side action through the same dispatch table as a queued one, so our request reaches this method
-/// — with <c>SupplementaryDataIDMed</c> unset, which the vanilla body would read as option 0. The
-/// prefix therefore recognises the request by its own three terms and handles it, returning FALSE.
-/// A vanilla arrival matches none of them and the original runs untouched.</para>
+/// <para>(1) It is a SECOND, unreachable-in-practice line of defence for a CLIENT'S REQUEST. A
+/// request is now consumed one call earlier, in <see cref="EncounterChoice.TryHandleSideAction"/>
+/// off the mod's existing <c>ProcessSideAction</c> prefix, because the game's dispatch entry for
+/// this action type derefences <c>Singleton&lt;UIEventPanel&gt;.Instance</c> unguarded and an NRE
+/// there is thrown before this method is ever entered — see that method's own doc comment for the
+/// source lines and for why a prefix here cannot help. This branch is kept because it costs one
+/// property read and its terms are exact: if a request ever did reach the dispatch table (a game
+/// build whose <c>ProcessSideAction</c> the transport could not patch), the vanilla body would read
+/// the unset <c>SupplementaryDataIDMed</c> as option 0 and press the wrong thing. A vanilla arrival
+/// matches none of the three terms and the original runs untouched.</para>
 ///
 /// <para>(2) It marks the REPLAY WINDOW. The vanilla body calls <c>EventButton.Click()</c>, which
 /// re-enters <c>ContinueEvent</c> — and on a client that must run the game's own advance, not send

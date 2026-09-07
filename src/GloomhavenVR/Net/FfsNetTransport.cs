@@ -24,6 +24,10 @@ namespace GloomhavenVR.Net;
 ///          <c>GameAction.Execute()</c> and desync on an unknown type — GameAction.cs:1055)
 ///          never runs on a modded peer. On a non-modded peer the sentinel TargetPlayerID
 ///          makes vanilla ignore it anyway (ActionProcessor.cs:188) → no desync, ever.
+///          The same prefix also consumes the mod's three CONTROL REQUESTS (a client asking
+///          the host to press something on its behalf). Two ride the sentinel; the encounter
+///          one rides the game's real <c>GameActionType.ContinueRoadEvent</c> and so is
+///          recognised BEFORE the sentinel test — see the branch order in ReceivePrefix.
 ///
 /// EVERYTHING here is done through reflection so the mod keeps ZERO compile-time dependency
 /// on the Photon-Bolt assemblies (bolt.dll etc.) and no csproj edit is required. If any FFSNet
@@ -194,6 +198,28 @@ internal sealed class FfsNetTransport : INetTransport
             return true;
         try
         {
+            // THE THIRD CONTROL REQUEST, AND THE ONLY ONE THAT RIDES A REAL GameActionType — so it
+            // has to be recognised BEFORE the sentinel test below, which would hand it straight to
+            // the game ("not ours"). It is the encounter option press (EncounterChoice — "any
+            // player may answer a city/road encounter"), which travels as the game's own
+            // GameActionType.ContinueRoadEvent because that is the only type the host's
+            // Halted @ MapEvent will let through, and it is told apart from a vanilla arrival by
+            // three terms of its own (TargetPhaseID 0, which the game's three senders never send;
+            // the boolean marker; a non-zero screen stamp).
+            //
+            // WHY IT MUST BE CONSUMED HERE AND NOT JUDGED IN ITS OWN PREFIX FURTHER DOWN. The
+            // game's dispatch entry for that type is
+            // `Singleton<UIEventPanel>.Instance.ClientContinueRoadEvent(a)` with NO null test
+            // (GameAction.cs:189-193), and UIEventPanel is a plain Singleton<T> with no
+            // DontDestroyOnLoad — null the moment the host leaves the campaign-map scene. The NRE
+            // is thrown at the CALL SITE, so the mod's prefix on ClientContinueRoadEvent (and the
+            // "there is no UIEventPanel on this machine" refusal inside it) never runs, and
+            // ProcessSideAction's own `catch { HandleDesync(ex); throw; }` (ActionProcessor.cs:194)
+            // takes the host's whole session down with it (FFSNetwork.cs:80-83 → Shutdown). Making
+            // this branch return false means Execute() — and with it that deref — never runs.
+            if (EncounterChoice.TryHandleSideAction(action))
+                return false;
+
             if (self._gaActionTypeId?.GetValue(action) is not int typeId || typeId != NetProtocol.SentinelActionTypeId)
                 return true; // not ours — let the game process it normally
 

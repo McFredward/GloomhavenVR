@@ -142,10 +142,20 @@ internal static class AssignmentWindows
     /// <c>DistributeRewardProcess</c> entries keeps this a single source of truth and costs one
     /// property read per frame.</para>
     ///
-    /// <para>Deliberately NOT <c>Singleton&lt;UIDistributePointsPopup&gt;.Instance.IsShown</c>:
-    /// there are FIVE popup instances in the map scene (one per <c>DistributeRewardProcess</c>, each
-    /// reached through its own <c>UIDistributeReward.popup</c> serialized field), and the singleton
-    /// is only one of them — the flag would be false for four raises out of five.</para>
+    /// <para>Deliberately NOT <c>Singleton&lt;UIDistributePointsPopup&gt;.Instance.IsShown</c>. Each
+    /// of the five <c>DistributeRewardProcess</c> entries holds its OWN
+    /// <c>[SerializeField] UIDistributeReward processUI</c>, and each of those holds its own
+    /// <c>popup</c> serialized field, so the singleton is at best one of several — and it is
+    /// whichever copy <c>Awake</c>d last, since <c>Singleton&lt;T&gt;</c> simply overwrites its
+    /// static field (Singleton.cs:11-14). <b>HOW MANY DISTINCT POPUP OBJECTS THERE ACTUALLY ARE IS
+    /// NOT MEASURED HERE AND WAS NEVER MEASURED ANYWHERE</b> — an earlier revision of this comment
+    /// asserted "FIVE" as a fact, which it is not; whether the five serialized fields point at five
+    /// objects or at one shared object is a scene-authoring question the decompiled source cannot
+    /// answer. <c>Net/AssignmentChoice.NotePopupIdentity</c> settles it on hardware with the
+    /// <c>ASSIGNMENT POPUP IDENTITY</c> line, which prints the <c>GetInstanceID()</c> of the reward
+    /// UI, of its popup and of the singleton at every raise. Reading the manager's own
+    /// <c>IsDistributing</c> is correct either way, which is why this property does not wait for
+    /// that answer.</para>
     /// </summary>
     internal static bool Raised =>
         Singleton<UIDistributeRewardManager>.IsInitialized

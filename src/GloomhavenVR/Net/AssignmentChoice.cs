@@ -181,7 +181,16 @@ internal static class AssignmentChoice
     /// <c>SetButtonInteractable</c>, i.e. <c>service.AvailablePoints == 0</c>. Read on the host to
     /// judge a confirm request rather than re-deriving the rule, and captured rather than read off
     /// the button because in gamepad mode the game writes <c>SetActive</c> instead of
-    /// <c>interactable</c> and the field would be stale.</summary>
+    /// <c>interactable</c> and the field would be stale.
+    ///
+    /// <para><b>IT IS ONLY THE GAME'S ANSWER IF THE REGISTRATION IS ALREADY IN PLACE WHEN THE GAME
+    /// COMPUTES IT.</b> <see cref="ReapplyConfirmButton"/> reaches
+    /// <see cref="NoteConfirmReady"/> only past its <see cref="IsLiveReward"/> test, and the FIRST
+    /// and — for the gold window — ONLY <c>SetInteractable</c> call is inside
+    /// <c>UIDistributeReward.Distribute</c> itself. That is why
+    /// <see cref="UIDistributeReward_Distribute_Patch"/> is a PREFIX. Turn it back into a postfix
+    /// and this field is a latch nothing but <see cref="NoteLive"/>'s own zeroing ever writes — a
+    /// claim measuring itself, and a client CONFIRM refused forever.</para></summary>
     private static bool _confirmReady;
 
     /// <summary>Unconditional liveness counter for the HW-VERIFY lines: how many local presses this
@@ -197,6 +206,67 @@ internal static class AssignmentChoice
         _livePopup = reward != null ? reward.PopUp : null;
         _liveType = type;
         _confirmReady = false;
+        NotePopupIdentity(type);
+    }
+
+    /// <summary>Every distinct <c>UIDistributePointsPopup</c> instance id this process has raised,
+    /// in first-seen order. At most one entry per popup object in the map scene, so a handful; a
+    /// list rather than a set because the CENSUS line prints it and the ORDER is the answer.</summary>
+    private static readonly System.Collections.Generic.List<int> SeenPopupIds = new();
+
+    /// <summary>
+    /// HOW MANY <c>UIDistributePointsPopup</c> OBJECTS ARE THERE, REALLY — one shared by all five
+    /// reward processes, or one each?
+    ///
+    /// <para><b>WHY IT IS MEASURED AND NOT REASONED ABOUT.</b> Two places in this mod assert an
+    /// answer and neither measured it: <c>WorldUI/Modal/AssignmentWindows.cs</c> says "there are
+    /// FIVE popup instances in the map scene (one per <c>DistributeRewardProcess</c>)", while four
+    /// of the five processes refresh <c>Singleton&lt;UIDistributePointsPopup&gt;.Instance</c> rather
+    /// than their own <c>processUI.PopUp</c> (DistributeItemsProcess.cs:249-252 and the three
+    /// siblings; only <c>DistributeGoldProcess</c> does not) — which is only correct if there IS
+    /// just one. <c>UIDistributePointsPopup</c> is a <c>Singleton&lt;T&gt;</c> whose static field is
+    /// simply overwritten by whichever copy <c>Awake</c>s last (Singleton.cs:11-14), so with five
+    /// copies four of those <c>Refresh()</c> calls poke a popup that is not on screen and the
+    /// client's mirrored view of a remote point press would not update — a 1:1 breach, and a
+    /// GAME-side one that this file could not fix from here.</para>
+    ///
+    /// <para>The reward UI's own id is printed beside it because that one IS five by construction
+    /// (a <c>[SerializeField] processUI</c> per process), so a line where the reward ids differ and
+    /// the popup ids do not is a complete answer on its own.</para>
+    /// </summary>
+    private static void NotePopupIdentity(DistributeRewardProcess.EDistributeRewardProcessType type)
+    {
+        UIDistributeReward? reward = _liveReward;
+        UIDistributePointsPopup? popup = _livePopup;
+        int popupId = popup != null ? popup.GetInstanceID() : 0;
+        if (popup != null && !SeenPopupIds.Contains(popupId))
+            SeenPopupIds.Add(popupId);
+        UIDistributePointsPopup? singleton =
+            Singleton<UIDistributePointsPopup>.IsInitialized
+                ? Singleton<UIDistributePointsPopup>.Instance
+                : null;
+        int singletonId = singleton != null ? singleton.GetInstanceID() : 0;
+        // HW-VERIFY: are the five reward processes sharing ONE UIDistributePointsPopup or holding
+        // one each, and is the one being raised the one the Singleton points at? THE FALSIFIER:
+        // "distinct popups so far" reaching 2 or more PROVES they are not shared, and every line
+        // whose `singleton matches this popup` reads False is one where four of the five processes'
+        // ProxyAddPoint/ProxyRemovePoint would call Refresh() on the WRONG object. All-equal ids
+        // across a whole reward flow, with `matches` always True, proves the opposite. One line per
+        // raised assignment window — at most a handful per scenario end, never per frame.
+        VRLog.Note(Scope, $"ASSIGNMENT POPUP IDENTITY: process {type} raised reward UI "
+                        + $"{(reward != null ? reward.GetInstanceID().ToString() : "<null>")} "
+                        + $"whose UIDistributeReward.PopUp is "
+                        + $"{(popup != null ? popupId.ToString() : "<null>")}; "
+                        + "Singleton<UIDistributePointsPopup>.Instance is "
+                        + $"{(singleton != null ? singletonId.ToString() : "<none>")}, singleton "
+                        + $"matches this popup={popup != null && singletonId == popupId}. Distinct "
+                        + $"popup instance ids seen in this process so far: {SeenPopupIds.Count} "
+                        + $"[{string.Join(", ", SeenPopupIds)}]. WHY THIS IS ASKED: four of the "
+                        + "five DistributeRewardProcess classes refresh the SINGLETON rather than "
+                        + "their own processUI.PopUp, which is only correct when the count is 1. A "
+                        + "count above 1 with a False match means the game refreshes a popup that "
+                        + "is not on screen, so a remote point press is not mirrored — a game-side "
+                        + "1:1 breach, not one this mod introduced.");
     }
 
     internal static void NoteConfirmReady(bool ready) => _confirmReady = ready;
@@ -675,18 +745,41 @@ internal static class AssignmentChoice
 // ---------------------------------------------------------------------------------------------
 
 /// <summary>
-/// WHICH assignment is being distributed right now. A postfix on the public
+/// WHICH assignment is being distributed right now. A PREFIX on the public
 /// <c>UIDistributeReward.Distribute(service, type, …)</c>
 /// (decompiled/GH.Runtime/UIDistributeReward.cs:47), the one call every one of the five processes
 /// makes to raise its popup. Records the reward UI, its popup (<c>PopUp</c>, public) and the
 /// process type, so no patch below has to scan for them or reach through a private field.
+///
+/// <para><b>IT WAS A POSTFIX FOR THREE BUILDS AND THAT MADE EVERY CONTROL IN THE WINDOW DEAD ON
+/// A CLIENT — the registration arrived after the very body that needed it.</b> Everything the two
+/// re-appliers below exist to correct happens INSIDE this method:
+/// <list type="number">
+/// <item><c>SetInteractable(service.AvailablePoints == 0)</c> at :52 — the CONFIRM. With a postfix
+/// <see cref="AssignmentChoice.IsLiveReward"/> was still false when
+/// <see cref="AssignmentChoice.ReapplyConfirmButton"/> ran, so it bailed at its first line and
+/// <see cref="AssignmentChoice.NoteConfirmReady"/> never saw the value; then
+/// <see cref="AssignmentChoice.NoteLive"/> zeroed <c>_confirmReady</c>. For the GOLD window that is
+/// PERMANENT, because <c>DistributeGoldService</c>'s constructor pre-distributes the whole reward
+/// (DistributeGoldProcess.cs:18-41) — it opens with <c>AvailablePoints == 0</c>, so this is the ONLY
+/// call that ever arms the confirm and there is no later point press to re-arm it. A client's
+/// CONFIRM was then refused forever with "the host's CONFIRM is not armed".</item>
+/// <item><c>popup.Show(…)</c> at :56 ends in <c>RefreshAssignedPoints</c>
+/// (UIDistributePointsPopup.cs:124/212-227), which is what calls <c>EnableAddPoints</c> and
+/// <c>EnableRemovePoints</c> on every slot. With a postfix <c>_livePopup</c> was still null, so
+/// <see cref="AssignmentChoice.IsRewardSlot"/> answered false for every slot and the <c>+</c>/<c>−</c>
+/// buttons stayed greyed until the HOST pressed something.</item>
+/// </list>
+/// A prefix registers the window before the body builds it, so both re-appliers see the game's own
+/// values on the very first pass and nothing else about them changes. It cannot itself skip the
+/// original — it returns <c>void</c>.</para>
 /// </summary>
 [HarmonyPatch(typeof(UIDistributeReward), nameof(UIDistributeReward.Distribute))]
 internal static class UIDistributeReward_Distribute_Patch
 {
-    [HarmonyPostfix]
-    private static void Postfix(UIDistributeReward __instance,
-                                DistributeRewardProcess.EDistributeRewardProcessType type) =>
+    [HarmonyPrefix]
+    private static void Prefix(UIDistributeReward __instance,
+                               DistributeRewardProcess.EDistributeRewardProcessType type) =>
         DispatchGuard.Run("UIDistributeReward.Distribute(AssignmentChoice)",
             () => AssignmentChoice.NoteLive(__instance, type));
 }
