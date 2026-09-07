@@ -32,6 +32,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -93,7 +94,7 @@ namespace GloomhavenVR.Net;
 /// fan's whole geometry is DERIVED on the receiver from the synced hand + head, so curvature,
 /// toe-in, bow and fan-out timing cost nothing; the KNOWN GAPS above are the fields deliberately
 /// not bought. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
-internal sealed class RemoteHandFan : IBorrowedCardSource
+internal sealed class RemoteHandFan
 {
     // ---- fan geometry (real meters / degrees, seeded to CardsConfig Fan* defaults) -----------
 
@@ -132,9 +133,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// letterboxes into the NOMINAL card, and <see cref="RemoteCardArt"/> is handed
     /// <c>DefaultCardWidth/Height</c> on purpose ("handing the tuned width here fitted the face a
     /// second time and squared the ratio"). One uniform scale on the root is therefore the only
-    /// term that may carry the owner's size — and <see cref="FanSweep.StripWidth"/>'s
-    /// <c>cardLocalScale</c> argument is a fourth consumer that divides the arc chord by exactly
-    /// this number to express the borrow collider in the card's own frame.</para>
+    /// term that may carry the owner's size. It had a fourth consumer until 2026-09-07 —
+    /// <see cref="FanSweep.StripWidth"/>'s <c>cardLocalScale</c>, which divided the arc chord by
+    /// exactly this number to size the borrow collider's strip in the card's own frame. That
+    /// collider is gone with the borrow (report 2); the three above are the whole list.</para>
     ///
     /// <para>1 AT THE SHIPPED DEFAULT, by construction: the numerator IS
     /// <see cref="DefaultCardWidth"/> for a peer who has not moved the dial. The bind's range is
@@ -766,125 +768,115 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// the length belt for why it is latched rather than change-gated.</summary>
     private bool _loggedHeldSeatDrop;
 
-    // ---- BORROWING A CARD OFF THIS FAN (report 7, 2026-08-15) ---------------------------------
+    // ---- NOTHING IS HANDED OUT BY THIS FAN (report 2, 2026-09-07) -----------------------------
     //
-    // "Ich will auch in der Lage sein, dass man die fremden Handkarten jederzeit auch in der Hand
-    // nehmen kann (inklusive Hand wechsel etc) damit man sie näher betrachten kann. Nur
-    // interagieren oder umsortieren etc soll man nicht können. Es geht hier rein um die Info."
+    // "Es geht mir explizit darum, dass mein Mitspieler ein Fächer öffnet und ich hineingreife und
+    // eine Karte von ihm in der Hand hab. Das darf nicht sein." — and, naming the very copy this
+    // section used to hand out: "Immerhin ist es ein Klon aktuell, also es verschwindet dann
+    // wenigstens keine Karte aus seinem Fächer die ich genommen habe."
     //
-    // NOTHING NEW CROSSES THE WIRE FOR THIS, and nothing could: the whole feature is a second
-    // consumer of the mechanism this fan's FRONTS already run on. The count is the only thing this
-    // fan is told; the card CONTENT is read locally off the host-replicated CPlayerActor hand and
-    // rendered as a throwaway CLONE (RemoteCardArt) strictly under RevealGate.ShowRoundCardFronts.
-    // A borrow re-asks that same gate, per slot, on the grab AND on every frame of the hold — see
-    // BorrowAllowed, which is literally the predicate UpdateFaces already computed this frame.
+    // THE LINE IS A SURFACE LINE, NOT AN OWNERSHIP ONE, and both halves must be read together:
+    //   * HIS OWN board's fan, showing whatever character he switched to — including a teammate's —
+    //     stays exactly as ModBuild 474 shipped it: shown, and a card may be LIFTED to be read
+    //     (CardFan.FanMode.Inspect, gated on RevealGate.ShowRoundCardFronts). Board/CharacterFocus
+    //     and Cards/CardsGameApi own that rule and it did not move.
+    //   * THIS fan — the one hanging at the TEAMMATE'S AVATAR — hands out nothing. Not a real card,
+    //     and not a clone either.
     //
-    // WHICH PHASES: exactly the ones this fan already shows fronts in. During the secret
-    // card-selection window the gate is false, the slabs are BACKS, BorrowAllowed is false, and the
-    // slab is not even a sweep candidate — so the affordance itself disappears rather than
-    // promising a look it may not give. Cards/CardBorrow.cs states the full list.
+    // THIS OVERTURNS THE 2026-08-15 RULING that built Cards/CardBorrow.cs ("Ich will auch in der
+    // Lage sein, dass man die fremden Handkarten jederzeit auch in der Hand nehmen kann"), and it is
+    // NOT a contradiction on his part — recorded here because a future reader who finds the deleted
+    // file in the history would otherwise read it as an accident. In August, switching to a
+    // teammate's character on one's OWN board did not produce a handleable fan, so reaching into the
+    // peer's avatar fan was the ONLY way to read a teammate's card. ModBuild 474 made the own-board
+    // route work (HandInspectable moved from the OWNER term to the FRONT term). The borrow is
+    // therefore now both REDUNDANT and UNWANTED, and the whole of Cards/CardBorrow.cs — the
+    // IBorrowedCardSource interface, the BorrowTarget slab component, the sweep, the copy and
+    // BorrowedCardWatch — went with it. This fan was its only implementer and its only caller.
     //
-    // The GEOMETRY of the affordance lives here because the slabs do: Rebuild puts a BorrowTarget
-    // and a strip-sized trigger collider on each slab (the same tiling-collider trick the local fan
-    // uses so a sweep picks one card at a time — FanSweep's class doc explains why full-width
-    // colliders on overlapping cards make a sweep skip cards).
+    // THE REFUSAL IS STRUCTURAL, NOT A DECLINE, and that is the whole of it: the slabs carry NO
+    // collider of any kind any more (the borrow trigger box was the only one they ever had), no
+    // IGrabbable, no IFanSweepTarget and no registration in any sweep. ProximityGrabber elects over
+    // colliders, so there is nothing here for a hand to win; the routing does not exist rather than
+    // being blocked. The layer-2 re-stamp that used to follow VRLayers.Apply went with the collider
+    // — it existed ONLY to keep that trigger box out of RayInteractor's Physics.Raycast mask, and a
+    // slab root with no collider and no renderer is invisible to both the world ray and the camera.
+    //
+    // THE PICTURE IS UNTOUCHED, and that is the standing 1:1 ruling: a watcher still sees the
+    // owner's fan, its card count, its arc, its order, its highlight pop, its open/close animation
+    // and its cloned FRONTS under RevealGate. This removes an INTERACTION, never a picture.
 
-    /// <summary>Whether the fronts gate was OPEN on the last <see cref="UpdateFaces"/> pass — the
-    /// borrow's permission, kept as a field so it is the SAME verdict the faces were drawn under
-    /// rather than a second, separately-derived one (the ModBuild 84 mismatch, one surface over).</summary>
-    private bool _borrowGateOpen;
-
-    /// <summary>The cloned face of a borrowed copy (null = nothing borrowed off this fan). Its own
-    /// overlay, never one of <see cref="_faces"/>: the owner's slab keeps its face for the whole
-    /// hold, so the fan a peer is looking at never changes because someone borrowed from it.</summary>
-    private RemoteCardArt? _borrowArt;
-
-    /// <summary>The transform <see cref="_borrowArt"/> was built against, so a second borrow on a
-    /// fresh copy rebuilds rather than re-using an overlay parented to a destroyed card.</summary>
-    private Transform? _borrowHost;
-
-    string IBorrowedCardSource.BorrowOwnerLabel => $"player {_owner.PlayerId}";
-
-    Color IBorrowedCardSource.BorrowTint => _owner.Tint;
-
-    string IBorrowedCardSource.BorrowGateLabel =>
-        _mapFronts
-            ? "RevealGate.ShowMapPhaseHandFronts — the map phase, where no scenario is running and "
-              + "therefore no card choice is in flight; the hand is public and INSPECT-ONLY"
-            : "RevealGate.ShowRoundCardFronts(the owner's displayed character) — the game's own rule, "
-              + "false in the secret SelectAbilityCardsOrLongRest window for a character not under my control";
-
-    /// <summary>The per-slot permission: the fronts gate this frame AND a resolved card behind that
-    /// slot — a hand WIDGET in a scenario, a loadout MODEL in the map phase. Both halves are exactly
-    /// what <see cref="UpdateFaces"/> requires before it draws a front, and the buffer asked is the
-    /// one it drew from (<see cref="_mapFronts"/>), so a card can never be borrowed that is not
-    /// already legally visible on that very slab.</summary>
-    bool IBorrowedCardSource.BorrowAllowed(int slot)
-    {
-        if (!_borrowGateOpen || slot < 0)
-            return false;
-        if (_mapFronts)
-            return slot < _mapBuffer.Count && _mapBuffer[slot] != null;
-        return slot < _handBuffer.Count
-               && _handBuffer[slot] != null && _handBuffer[slot].fullAbilityCard != null;
-    }
-
-    /// <summary>Build or refresh the borrowed copy's cloned face. Same class, same clone, same
-    /// non-interactive neutralisation and same mip-bake upkeep the fan's own faces get — the copy
-    /// is not a second rendering path, it is one more instance of the existing one.
+    /// <summary>
+    /// THE INSTRUMENT FOR THE REFUSAL — it grants nothing and costs nothing.
     ///
-    /// <para>CardBorrow calls this EVERY FRAME of a hold (it relies on the dedup for the refresh),
-    /// so the map path carries the same id latch the fan's slabs do — see
-    /// <see cref="PrintMapFace"/> for why a pooled borrow cannot use RemoteCardArt's own dedup.</para></summary>
-    bool IBorrowedCardSource.ShowBorrowedFace(int slot, Transform host, float cardWidth, float cardHeight)
+    /// <para>A structural removal is invisible in a log: "he reached in and got nothing" and "he
+    /// never reached in" produce the same silence, and that is exactly the reading this round needs
+    /// to distinguish. So the fan answers ONE question, on the TRIGGER-DOWN EDGE ONLY: was an empty
+    /// hand inside this fan's slab cloud when the player pulled? No hover state, no haptic, no
+    /// trigger claim, no collider and no per-frame sweep — a bounded loop over at most
+    /// <see cref="MaxCards"/> slab centres, on the frames a human presses a trigger.</para>
+    ///
+    /// <para>The envelope is deliberately GENEROUS: palm-to-slab-CENTRE against
+    /// <c>FanSweep.ResolveReach(...).Palm</c> plus the slab's own centre-to-corner half-diagonal,
+    /// which is the upper bound of the surface distance the deleted sweep measured with
+    /// <c>Collider.ClosestPoint</c>. Over-approximating can only make the probe report MORE reaches
+    /// than the old affordance would have taken, which is the safe direction for an instrument whose
+    /// only output is a log line.</para>
+    /// </summary>
+    private void ReportRefusedReach()
     {
-        if (!((IBorrowedCardSource)this).BorrowAllowed(slot))
-            return false;
+        if (_cards.Count == 0 || _root == null || !_root.activeInHierarchy)
+            return;
 
-        bool map = _mapFronts;
-        FullAbilityCard? full = map ? null : _handBuffer[slot].fullAbilityCard;
-        CAbilityCard? model = map ? _mapBuffer[slot] : null;
-        if (!map && full == null)
-            return false;
-
-        if (_borrowArt != null && !ReferenceEquals(_borrowHost, host))
-            ((IBorrowedCardSource)this).ReleaseBorrowedFace();
-        if (_borrowArt == null)
+        for (int h = 0; h < 2; h++)
         {
-            _borrowArt = new RemoteCardArt(host, cardWidth, cardHeight);
-            _borrowHost = host;
-        }
+            VRHand? hand = h == 0 ? VRHands.Left : VRHands.Right;
+            if (hand == null || !hand.HasPose || !hand.TriggerDown || hand.Grabber.Held != null)
+                continue;
 
-        if (!map)
-        {
-            _borrowMapId = -1;
-            return _borrowArt.ShowFront(full!);
-        }
+            Vector3 palm = hand.Rig.PalmCenter.position;
+            int nearest = -1;
+            float nearestDistance = float.MaxValue;
+            float envelope = 0f;
+            for (int i = 0; i < _cards.Count; i++)
+            {
+                GameObject slab = _cards[i];
+                if (slab == null)
+                    continue;
+                float faceWidthWorld = _visibleFace.x * slab.transform.lossyScale.x;
+                float faceHeightWorld = _visibleFace.y * slab.transform.lossyScale.y;
+                float halfDiagonal =
+                    0.5f * Mathf.Sqrt(faceWidthWorld * faceWidthWorld + faceHeightWorld * faceHeightWorld);
+                float reach = Cards.FanSweep.ResolveReach(hand.WorldScale, faceWidthWorld).Palm + halfDiagonal;
+                float distance = Vector3.Distance(palm, slab.transform.position);
+                if (distance <= reach && distance < nearestDistance)
+                {
+                    nearest = i;
+                    nearestDistance = distance;
+                    envelope = reach;
+                }
+            }
+            if (nearest < 0)
+                continue;
 
-        if (_borrowMapId == model!.ID)
-        {
-            _borrowArt.MaintainMipBake();
-            return true;
+            _refusedReaches++;
+            // HW-VERIFY
+            VRLog.Note("Net", $"PEER FAN REACH REFUSED [player {_owner.PlayerId}]: the {hand.Side} "
+                + $"hand pulled the trigger {nearestDistance * 100f / Mathf.Max(hand.WorldScale, 1e-4f):F1} cm "
+                + $"from slab {nearest} of {_cards.Count} (envelope "
+                + $"{envelope * 100f / Mathf.Max(hand.WorldScale, 1e-4f):F1} cm, real metres) and got "
+                + $"NOTHING — refusal #{_refusedReaches} on this fan. This surface is the fan hanging "
+                + "at ANOTHER PLAYER'S AVATAR (Net.Remote.RemoteHandFan) and it hands out nothing BY "
+                + "CONSTRUCTION: its slabs carry no collider, no IGrabbable and no sweep target, so "
+                + "there is no card here to take and nothing to decline. Report 2 of 2026-09-07. "
+                + "To read a teammate's card, switch to that character on YOUR OWN board — that fan "
+                + "is CardFan.FanMode.Inspect and a card may be lifted there.");
         }
-        if (RemoteAbilityCardSource.ShowFullFace(_borrowArt, null, model)
-            == RemoteAbilityCardSource.FacePath.None)
-            return false;
-        _borrowMapId = model.ID;
-        return true;
     }
 
-    void IBorrowedCardSource.ReleaseBorrowedFace()
-    {
-        _borrowArt?.Destroy();
-        _borrowArt = null;
-        _borrowHost = null;
-        _borrowMapId = -1;
-    }
-
-    /// <summary>Card id currently printed on the borrowed copy through the MAP path (-1 = none).
-    /// See <see cref="PrintMapFace"/>: a pooled borrow has no stable source instance id, so the
-    /// per-frame refresh needs a latch of its own or it re-clones every frame of the hold.</summary>
-    private int _borrowMapId = -1;
+    /// <summary>How many trigger pulls this fan has refused since it was built — the count that
+    /// makes the removal falsifiable (see <see cref="ReportRefusedReach"/>).</summary>
+    private int _refusedReaches;
 
     /// <summary>Reused scratch buffer for the remote actor's HAND-pile card widgets (no per-frame alloc).</summary>
     private readonly List<AbilityCardUI> _handBuffer = new(MaxCards);
@@ -1073,8 +1065,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private string _loggedMapVerdict = string.Empty;
 
     /// <summary>True while the faces currently up came from <see cref="_mapBuffer"/> (the map phase)
-    /// rather than from <see cref="_handBuffer"/> (a scenario). Drives the borrow, which must read a
-    /// card out of the same buffer the slab's face was drawn from.</summary>
+    /// rather than from <see cref="_handBuffer"/> (a scenario). It used to drive the borrow as well
+    /// — a borrow had to read a card out of the same buffer the slab's face was drawn from — and
+    /// since report 2 of 2026-09-07 removed the borrow it drives the printing and the diagnostics
+    /// only.</summary>
     private bool _mapFronts;
 
     /// <summary>Seconds between map-loadout resolves at a steady card count.</summary>
@@ -1146,12 +1140,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 
     public void Tick(float dt)
     {
-        // THE BORROW GESTURE (report 7). Driven from here because this lane owns no module-level
-        // ticker and the borrowable slabs are this class's own; CardBorrow.Tick is frame-guarded,
-        // so every peer's fan may call it and only the first one in a frame does the work. It is
-        // FIRST, before every early return below, so a hand already on a peer's card keeps its
-        // hover and its trigger claim even on a frame this particular fan bails out of.
-        CardBorrow.Tick();
+        // THE REFUSED REACH (report 2, 2026-09-07). This used to drive CardBorrow.Tick — the sweep
+        // that handed a hand a read-only copy of a teammate's card. The gesture is gone; what is
+        // left is the INSTRUMENT that says so, on the trigger-down edge only. FIRST, before every
+        // early return below, so a pull at a fan this particular frame bails out of is still seen.
+        ReportRefusedReach();
 
         SyncTuning();
         SyncFaceRect(); // AFTER SyncTuning: the printed rect is derived from the card size it resolves
@@ -1678,17 +1671,14 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         if (_countBelt != null)
             showFronts = false;
 
-        // Which buffer this frame's faces come from, latched for the borrow — a borrow must read the
-        // card out of the SAME buffer the slab's face was drawn from, which is the ModBuild 84 rule
-        // one surface over.
+        // Which buffer this frame's faces come from. Latched rather than re-derived by each reader,
+        // because two readers disagreeing about which buffer is live is the ModBuild 84 defect one
+        // surface over (n slabs from one character wearing another's faces).
         _mapFronts = mapFronts;
 
-        // THE BORROW PERMISSION IS THIS VERY VERDICT (report 7), latched here rather than
-        // re-derived on demand: a borrow that asked its own copy of the rule could answer
-        // differently from the slab it is looking at, which is the ModBuild 84 defect one surface
-        // over. Closing the gate also EMPTIES the widget buffer, so a stale entry from the last
-        // open frame can never be borrowed after the phase turned secret.
-        _borrowGateOpen = showFronts;
+        // A CLOSED GATE EMPTIES THE WIDGET BUFFER, so no stale entry from the last open frame can
+        // be printed after the phase turned secret. (This used to also latch the borrow permission
+        // — report 2 of 2026-09-07 removed the borrow, so the buffer clear is all that is left.)
         if (!showFronts)
             _handBuffer.Clear();
 
@@ -5439,12 +5429,6 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             }
         }
 
-        // A BORROWED COPY MUST NEVER OUTLIVE THE SLABS IT WAS READ FROM (report 7). The hand it
-        // came from is being replaced — a card was played, burnt, drawn, or the owner switched
-        // character — so the slot index it names stops meaning what it meant. It glides back and
-        // dies here rather than becoming a card of unknown provenance in someone's hand.
-        CardBorrow.EndIfFrom(this, "the owner's fan was rebuilt");
-
         // Tear down existing front overlays first (each owns cloned game widgets — no leaks), then the
         // slabs they hang off.
         for (int i = _faces.Count - 1; i >= 0; i--)
@@ -5453,15 +5437,6 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // The per-slab map-print latch is INDEX-ALIGNED with _faces, so it dies with them: a fresh
         // slab must re-print rather than inherit the id of the slab that used to be at its index.
         _mapPrinted.Clear();
-
-        for (int i = _cards.Count - 1; i >= 0; i--)
-        {
-            if (_cards[i] == null)
-                continue;
-            // Drop the slab's borrow registration BEFORE the deferred Destroy, so the sweep never
-            // considers a slab that is on its way out this frame.
-            _cards[i].GetComponent<BorrowTarget>()?.Retire();
-        }
 
         for (int i = _cards.Count - 1; i >= 0; i--)
         {
@@ -5480,12 +5455,6 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 
         // THE BODY IS SIZED TO THE FACE IT WILL WEAR (report 12, 2026-08-15) — see _visibleFace.
         Vector2 vis = _visibleFace;
-
-        // The arc pitch this hand is laid out on — LayoutCards' own `step`, needed here so the
-        // borrow collider can be shrunk to the visible strip between neighbouring cards.
-        float stepDegrees = count > 1
-            ? Mathf.Min(_perCardStepDegrees, _arcSweepDegrees / (count - 1))
-            : 0f;
 
         for (int i = 0; i < count; i++)
         {
@@ -5527,21 +5496,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
 
-            // BORROW AFFORDANCE (report 7): a trigger collider on the slab ROOT plus the reach
-            // surface the shared sweep elects over. It is sized to the slab's VISIBLE STRIP, not
-            // to the whole card — the peer's slabs overlap by 40-60 % exactly like the local fan's,
-            // and FanSweep's class doc records what full-width colliders on overlapping cards do to
-            // a sweep (several cards measure 0.0 cm at once, ties never switch the incumbent, cards
-            // are skipped). The collider is a trigger and is used only for ClosestPoint, so it
-            // never touches game physics and the slab stays a purely cosmetic ghost.
-            var borrow = card.AddComponent<BorrowTarget>();
-            borrow.Configure(this, i, vis.x, vis.y,
-                // The last argument is the CARD's own local scale, which StripWidth divides the arc
-                // chord by to express the collider strip in the card's frame. It has always been
-                // handed SlabScale and the card has not worn SlabScale since this fan was written,
-                // so the borrow strip was off by the ratio for any retuned peer — a third consumer
-                // the overwrite falsified, beside the drawn size and RemoteCardArt's nominal face.
-                FanSweep.StripWidth(count, _radius, stepDegrees, vis.x, SlabScale));
+            // NO COLLIDER, AND THAT IS THE FIX (report 2, 2026-09-07). A trigger box plus a
+            // BorrowTarget used to live on this slab root so the shared fan sweep could elect it and
+            // hand the player a read-only copy of a teammate's card. Both are gone: a slab in a
+            // PEER'S fan is a purely cosmetic ghost with no collider anywhere in its subtree, so
+            // ProximityGrabber — which elects over colliders — has nothing here to win. See the
+            // section header above for the ruling and for why the own-board fan is untouched.
 
             // OLD INDEX OF THE CARD THIS SLAB IS. A pluck at seat k closes the gap, so new i is
             // old i below k and old i+1 at or above it; a release at seat k opens one, so new i is
@@ -5597,35 +5557,20 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // when VR is not running, exactly like the local fan/hands).
         VRLayers.Apply(_root!);
 
-        // …and then take the BORROW COLLIDERS back off it, onto Unity's built-in Ignore Raycast
-        // layer (2). This is not tidiness, it is the one way this feature could have broken
-        // something unrelated: RayInteractor's world pick is a real Physics.Raycast against
-        // Physics.DefaultRaycastLayers with triggers enabled (RayInteractor.cs:590), and the mod
-        // layer is an ordinary layer inside that mask. A trigger box floating around every peer's
-        // hand would therefore have become a laser hit — stealing hex, figure and furniture picks
-        // whenever a teammate's fan crossed the beam. Layer 2 is excluded from
-        // DefaultRaycastLayers by Unity itself, and Collider.ClosestPoint (the only thing the borrow
-        // sweep uses) does not consult layers at all, so the affordance keeps working with zero
-        // exposure to the world ray. Only the slab ROOT moves — it carries no renderer, so nothing
-        // leaves the owned head camera's cull mask; the Body and FrontArt children keep the mod
-        // layer VRLayers just gave them.
-        for (int i = 0; i < _cards.Count; i++)
-        {
-            if (_cards[i] != null)
-                _cards[i].layer = IgnoreRaycastLayer;
-        }
+        // THE LAYER-2 RE-STAMP THAT USED TO FOLLOW IS GONE WITH THE COLLIDER IT PROTECTED (report 2,
+        // 2026-09-07). Each slab root used to carry a borrow trigger box, and RayInteractor's world
+        // pick is a real Physics.Raycast against Physics.DefaultRaycastLayers WITH TRIGGERS ENABLED
+        // (RayInteractor.cs:590) — the mod layer is an ordinary layer inside that mask, so a trigger
+        // floating around every peer's hand would have stolen hex, figure and furniture picks
+        // whenever a teammate's fan crossed the beam, and Unity's built-in Ignore Raycast layer was
+        // the exclusion. With no collider left anywhere in the slab subtree there is nothing for the
+        // world ray to hit, so the whole subtree can stay on the mod layer VRLayers just gave it —
+        // which is also what keeps the Body and FrontArt children inside the owned head camera's
+        // cull mask, exactly as before.
     }
-
-    /// <summary>Unity's built-in "Ignore Raycast" layer — the one layer
-    /// <c>Physics.DefaultRaycastLayers</c> excludes. See the note at the end of <see cref="Rebuild"/>.</summary>
-    private const int IgnoreRaycastLayer = 2;
 
     private void Hide()
     {
-        // A hidden fan has no slabs on screen to have borrowed from, so a copy in the air would be
-        // orphaned the moment the owner lowered their hand (report 7's "must not survive").
-        CardBorrow.EndIfFrom(this, "the owner's fan was hidden");
-
         // ZERO IS A READING (see PeerCardFaceCensus): a hidden fan must overwrite its census row
         // rather than leave the last frame's front count standing for the rest of the session.
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.HandFan, _owner.PlayerId, 0, 0,
@@ -5643,7 +5588,6 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         for (int i = 0; i < _mapPrinted.Count; i++)
             _mapPrinted[i] = -1;
         _mapFronts = false;
-        _borrowGateOpen = false;
         if (_frontsShown)
         {
             _frontsShown = false;
@@ -5689,12 +5633,6 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // Leave the live-fan registry FIRST, so nothing can be handed a fan whose slabs are about to
         // be destroyed. Remove is O(n) over at most a handful of peers and runs once per departure.
         s_live.Remove(this);
-
-        // THE PEER LEFT (or the scenario tore down). A borrowed copy of their card dies with them
-        // — report 7's second lifetime rule, and the only one a hardware session can hit by
-        // accident (a disconnect mid-look).
-        CardBorrow.EndIfFrom(this, "the owner's avatar was destroyed (peer left / teardown)");
-        ((IBorrowedCardSource)this).ReleaseBorrowedFace();
 
         EndSwap(); // any outgoing wave dies with the fan — no orphaned slabs, no leaked clones
         _shownActorId = 0;
