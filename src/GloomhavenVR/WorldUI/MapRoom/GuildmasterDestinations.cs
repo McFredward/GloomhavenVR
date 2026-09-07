@@ -705,6 +705,25 @@ internal static class GuildmasterDestinations
     }
 
     /// <summary>
+    /// THE CURRENT MODE, FOR CALLERS OUTSIDE THIS CLASS — <c>None</c> unless the mode is one of the
+    /// six that own a window. Same single field load as <see cref="CurrentMode"/>, filtered through
+    /// <see cref="IsWindowMode"/> so a caller asking "which destination is the player standing at?"
+    /// cannot accidentally be handed <c>WorldMap</c> or <c>City</c>, which are map SURFACES and own
+    /// no window to seat anything on.
+    ///
+    /// <para>Added for <c>MapDialogSeat</c>, which must know which destination raised a confirmation
+    /// dialog so it can seat the dialog on that destination's own window. It deliberately goes
+    /// through this class rather than reading <c>UIGuildmasterHUD.CurrentMode</c> itself, for
+    /// <see cref="IsWindowMode"/>'s own reason: THE ONE TABLE. A second reader with its own idea of
+    /// which modes have windows is how two paths come to disagree about the same press.</para>
+    /// </summary>
+    internal static EGuildmasterMode CurrentDestinationMode()
+    {
+        EGuildmasterMode mode = CurrentMode();
+        return IsWindowMode(mode) ? mode : EGuildmasterMode.None;
+    }
+
+    /// <summary>
     /// WHAT ONE PRESS OF A TABLE CAP CAN DO. Exactly one of these, decided once, in
     /// <see cref="Decide"/> — see section 8 of the class doc.
     /// </summary>

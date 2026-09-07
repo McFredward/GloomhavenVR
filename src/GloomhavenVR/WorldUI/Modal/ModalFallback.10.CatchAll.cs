@@ -188,6 +188,21 @@ internal static partial class ModalFallback
         // audit. See the class note on EnchantressComposite for why that is structural.
         EnchantressComposite.Tick();
 
+        // ModBuild 473 — THE MAP-ROOM DIALOG SEATS, beside the enchantress composite because they
+        // are the same shape of thing (a park that must be able to hand back on a tick where every
+        // one of its own preconditions is false) and the SAME USER REPORT one generalisation later:
+        // 235 seated the enchantress' card list on the enchantress' window, and item 12 of the
+        // 2026-09-07 round asks for the rule that covers every dialog a map-room window can raise.
+        //
+        // IT DOES NOT FIGHT ANY GATE IN THIS FILE, AND THE REASON IS DIFFERENT FROM THE ONE ABOVE.
+        // The objects it moves DO carry a UIWindow, so unlike EnchantressComposite they are
+        // legitimate subjects of "parent wins". That is the point rather than a hazard: the dialog
+        // is already refused a float of its own by RendersInsideFloatedAncestor (it is nested inside
+        // a converted window either way), and re-parenting it only changes WHICH floated ancestor
+        // that rule finds. It is never converted, never in Converted, and never counted by the churn
+        // fuse, before or after the move — so no gate here changes its answer, only its subject.
+        MapDialogSeat.Tick();
+
         // ModBuild 351 — THE BOARD-KEYCAP STAND-IN, and it sits above the early return for the
         // third time in this method for the third instance of the same reason. It owns a CLAIM that
         // FloatRefusalTable ROW 2 reads, and above all a DEADLOCK FLOOR that has to be able to stand
@@ -1431,6 +1446,11 @@ internal static partial class ModalFallback
         // about to forget. Same ordering rule, same reason, as the StoryComposite.Reset call in
         // ModalFallback.9.Spawn.cs:1803.
         EnchantressComposite.Reset();
+        // ModBuild 473 — the map-room dialog seats, for the identical ordering reason: Reset()
+        // hands both confirmation boxes back to the windows the game parented them under BEFORE
+        // anything below forgets a host, so a shutdown can never leave a GAME singleton re-parented
+        // under a destroyed window. That would lose the dialog for the rest of the session.
+        MapDialogSeat.Reset();
         HudVerdict.Clear();
         FloatChurn.Clear();
         ChurnSuppressed.Clear();
