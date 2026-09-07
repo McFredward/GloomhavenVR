@@ -3210,3 +3210,102 @@ names it as cause (a) of three.
 * **The blink is a visible artefact** — about 0.15 s of the prop not being drawn, twice per armed
   window. That is deliberate and it is the price of the only reading on the table that can delete
   half the search space.
+
+### 24.7 CAN OUR OWN HUSH LATCH THE SMB'S FLOAT? Decidable statically — and the answer is three clauses, not one
+
+**(a) MECHANICALLY YES, AND THE MECHANISM IS ALREADY IN THIS FILE.** `OnStateExit` (`:42`) is the
+only thing that resets `t`; `OnStateUpdate` (`:36`) is the only thing that writes the material
+float; and Unity does not run `OnStateExit` when an `Animator` is **disabled** — the state machine
+is simply not updated. `PropAnimBelt.RewindAndStop` sets `a.enabled = false` on every animator under
+the held prop (`PropAnimBelt.cs:728`). So a hush landing **mid-ramp** freezes `t` and leaves the last
+written value on the material for the whole hold.
+
+This is not new: it is round seven's §12 verdict, and `RewindAndStop`'s own doc comment states it in
+so many words — *"`Animator.enabled = false` does not undo a clip; it stops the clip WHERE IT IS …
+Grabbing during the bright part therefore LATCHES the bright part for as long as the prop is held"*.
+§12 is marked *superseded by §13*, and that supersession stands for the **board-wide** event. It
+never covered this specific channel.
+
+**(b) THE SHIPPED REMEDY HAS A REAL GAP, AND THIS PART IS NEW.** `RewindAndStop` calls
+`a.WriteDefaultValues()` **before** the disable (`:715`) precisely to undo the latch, and the 468 log
+confirms it ran: `REWOUND FIRST: 1 taken back to their BOUND DEFAULT VALUES with
+Animator.WriteDefaultValues before being switched off, 0 refused`.
+
+**`WriteDefaultValues` cannot undo an SMB write.** It writes the defaults of properties **bound to
+the animator** — i.e. animated by clip curves. `SpawnObjectAnimateMaterial_SMB` writes its float
+**imperatively**, `rend[i].material.SetFloat(animProperty, value)`, on a material the animator does
+not bind. Nothing in the rewind reaches it. **So the round-seven remedy covers a clip-animated latch
+and leaves an SMB-written latch standing.** That is a genuine gap in shipped code and it is written
+down here whether or not the SMB turns out to be present.
+
+**(c) ON THE 468 PROP IT DID NOT HAPPEN, and that is a positive reading rather than an argument.**
+`OnStateUpdate` calls `rend[i].material`, which instantiates and Unity renames the clone
+`<name> (Instance)`. The roster prints `mat.name` (`PropAnimBelt.cs:1970`), and the 468 line reads
+`materials 'Trap_BearTrap_MAT' on Amp_Char_Shader` — **no suffix** — for the only drawing renderer,
+at the grab frame, after that trap had stood on the board long enough for many episodes. So
+`OnStateUpdate` had **never written** on that renderer. **No write, no latch.**
+
+#### 24.7.1 The three constraints, answered
+
+**1. It cannot be the board-wide event, and it does not replace the primary finding.** The hush
+walks `b.Visual`'s subtree only. The home twin and every other trap and chest are untouched — the
+447 A/B reads `advancing home=359/360` on the twin while the held prop is `hand=0/655`. So a
+hush-latch can at most explain **persistence in the hand**; it can never explain white appearing on
+every trap and on chests at once. It is a **second mechanism**, subordinate to
+`SpawnObjectAnimateMaterial_SMB` itself, and §24.2 stands unchanged.
+
+**2. The particles reconciliation, and the two readings do NOT conflict — they agree.**
+`OnStateEnter` does `Object.Destroy(Object.Instantiate(particles, animator.transform), lifetime)`.
+The standing watch walks `_boardRoot` with `GetComponentsInChildren` into a `List<Transform>` every
+frame and change-triggers `child object COUNT`; and `_boardRoot` is **the animator's own
+GameObject** (`FindHomeTwin`, `PropAnimBelt.cs:1381`) — *exactly* the transform the SMB parents its
+particles to. A spawn would therefore have produced two count changes (appear, then destroy). The
+468 line reads `CHANGES: 0` over 1794 frames / 20.0 s.
+
+So three readings have to be held together:
+
+| # | reading | conditional on the flash occurring? |
+|---|---|---|
+| i | board watch: 0 child-count changes in 20.0 s on the SMB's own spawn parent | yes |
+| ii | roster: no `(Instance)` on the held prop's material at the grab frame | **no** |
+| iii | video: episodes ~10 s apart | — |
+
+(i) and (ii) are independent instruments on the same object in the same session and **they agree**:
+the SMB's state was not entered on that bear trap. **I trust (ii) most**, and the reason is
+specifically that it is the only one of the three that is *not* conditional on the flash happening
+while something looked: `Renderer.material` instantiation is permanent and one-way, so the fingerprint
+records the whole session up to the grab, not a window of it. (iii) is a *different session and a
+different prop instance*, so it does not contradict them — it constrains them only if the video's
+trap is the same object, which nothing establishes.
+
+**The honest summary: the fingerprint reads AGAINST `SpawnObjectAnimateMaterial_SMB` on this
+particular bear trap.** The census settles it for chests and for the twin, and it must be allowed to
+return zero.
+
+**3. The hush is untouched.** Nothing about `RewindAndStop`, `WriteDefaultValues`, the disable or the
+restore was changed. If the gap in (b) is ever implicated, the remedy is a question for the user,
+because the hush is a behaviour he asked for by name.
+
+#### 24.7.2 A DEFECT IN THE CENSUS THIS FOLLOW-UP FOUND, AND IT WOULD HAVE MADE THE INSTRUMENT LIE
+
+`Engage` calls `Apply(b)` — which runs `RewindAndStop` and disables every animator under the held
+prop — and **then** `ArmVerdict` → `ArmPhotometer` → the census. **By the time the census ran, every
+held-prop animator was already switched off.** A disabled `Animator`'s controller instance is gone —
+this file already records one reporting `layerCount 0` — so `GetBehaviours` can answer **empty
+whatever the controller carries**. The census as committed at `9e4b5d95` would have printed
+`0 are SpawnObjectAnimateMaterial_SMB` on a prop that carries one, and §24.3's own promise that a
+zero "excludes the best-fitting candidate this file has ever had" would have been false. That is the
+`an instrument shipped and lying` shape, caught before hardware rather than after.
+
+The codebase already knew this: `DrivesRules` (`PropAnimBelt.cs:638`) takes its
+`GetBehaviours<DelayedDeactivatePropAnimSMB>` reading **before** the disable, and the 468 log carries
+its answer (`0 LEFT RUNNING on purpose…`).
+
+Fixed two ways, both inside the existing census:
+
+* every animator's **live state** (`enabled && layerCount > 0`) is recorded and printed, the count of
+  animators already disabled at census time is printed, and the line states in its own text that
+  **a zero on a disabled animator is a NON-READING, not an exclusion**;
+* **the HOME TWIN is censused too** — a prop of the same kind on its own hex that this mod never
+  touches, so its controller is live and its `GetBehaviours` answer is a real reading. That is also
+  the population constraint 1 is about, so one clause answers both.

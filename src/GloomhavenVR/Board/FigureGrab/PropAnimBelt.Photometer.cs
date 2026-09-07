@@ -353,7 +353,7 @@ internal static partial class PropAnimBelt
 
         // The census FIRST and unconditionally: it is static data, it needs no window and no white,
         // and it must still be taken on a machine where the capture path turns out to be dead.
-        CensusPropAnimators(go, out _phSmbReport, out _phTypeReport, out _phMatReport);
+        CensusPropAnimators(go, _twinRoot, out _phSmbReport, out _phTypeReport, out _phMatReport);
 
         if (_phDead || !PhSupported())
         {
@@ -921,7 +921,7 @@ internal static partial class PropAnimBelt
     /// project has a recorded incident of exactly that — so the type list is enumerated and its
     /// population size is printed beside it.</para>
     /// </summary>
-    private static void CensusPropAnimators(GameObject go, out string smbReport,
+    private static void CensusPropAnimators(GameObject go, GameObject? twin, out string smbReport,
         out string typeReport, out string matReport)
     {
         var smb = new System.Text.StringBuilder(512);
@@ -930,12 +930,30 @@ internal static partial class PropAnimBelt
 
         var animators = new List<Animator>(4);
         go.GetComponentsInChildren(includeInactive: true, animators);
-        int found = 0, behaviours = 0;
+        int heldAnimators = animators.Count;
+        // THE HOME TWIN IS WALKED TOO, AND IT IS THE HALF THAT CAN ANSWER. See the ordering note in
+        // the summary below: by the time this runs the held prop's animators are already switched
+        // off by our own hush, and a disabled Animator's controller instance is gone — this file
+        // already records that one reporting layerCount 0. The twin is a prop of the same kind
+        // standing on its own hex that this class never touches, so its controller is live and its
+        // GetBehaviours answer is a reading rather than a non-reading. _twinRoot is the ANIMATOR'S
+        // OWN GameObject (FindHomeTwin, PropAnimBelt.cs:1381), which is also exactly the transform
+        // SpawnObjectAnimateMaterial_SMB.OnStateEnter parents its particles prefab to.
+        if (twin != null && !ReferenceEquals(twin, go))
+        {
+            var twinAnimators = new List<Animator>(4);
+            twin.GetComponentsInChildren(includeInactive: true, twinAnimators);
+            animators.AddRange(twinAnimators);
+        }
+        int found = 0, behaviours = 0, offAtCensus = 0, foundOnLive = 0;
         for (int a = 0; a < animators.Count; a++)
         {
             Animator anim = animators[a];
             if (anim == null || anim.runtimeAnimatorController == null)
                 continue;
+            bool live = anim.enabled && anim.layerCount > 0;
+            if (!live)
+                offAtCensus++;
             StateMachineBehaviour[] all;
             try
             {
@@ -956,13 +974,17 @@ internal static partial class PropAnimBelt
                 if (b is SpawnObjectAnimateMaterial_SMB flash)
                 {
                     found++;
+                    if (live)
+                        foundOnLive++;
                     AnimationCurve? curve = flash.myCurve;
                     int keys = curve != null ? curve.length : -1;
                     float last = curve != null && curve.length > 0
                         ? curve.Evaluate(1f)
                         : float.NaN;
                     smb.Append("*** SpawnObjectAnimateMaterial_SMB FOUND on animator '")
-                       .Append(anim.gameObject.name).Append("': animProperty '")
+                       .Append(anim.gameObject.name)
+                       .Append(live ? "' (LIVE, a real reading)" : "' (DISABLED at census)")
+                       .Append(": animProperty '")
                        .Append(string.IsNullOrEmpty(flash.animProperty)
                            ? "<empty>"
                            : flash.animProperty)
@@ -976,16 +998,25 @@ internal static partial class PropAnimBelt
                 }
                 else
                 {
-                    smb.Append(b.GetType().Name).Append(' ');
+                    smb.Append(b.GetType().Name).Append(live ? " " : "(off) ");
                 }
             }
         }
 
-        smbReport = "ANIMATOR BEHAVIOUR CENSUS: " + animators.Count
-                       + " animator(s) under the prop carrying " + behaviours
-                       + " StateMachineBehaviour(s) in total, of which "
-                       + found + " are SpawnObjectAnimateMaterial_SMB. "
-                       + (smb.Length == 0 ? "<none named>" : smb.ToString());
+        smbReport = "ANIMATOR BEHAVIOUR CENSUS: " + animators.Count + " animator(s) ("
+                    + heldAnimators + " under the HELD prop, the rest under the untouched HOME TWIN) "
+                    + "carrying " + behaviours + " StateMachineBehaviour(s) in total, of which "
+                    + found + " are SpawnObjectAnimateMaterial_SMB (" + foundOnLive
+                    + " of those on a LIVE animator). " + offAtCensus
+                    + " animator(s) were ALREADY DISABLED when this census ran. "
+                    + "*** READ A ZERO ON A DISABLED ANIMATOR AS A NON-READING, NOT AN EXCLUSION: "
+                    + "this class arms from ArmVerdict, which Engage calls AFTER Apply, and Apply's "
+                    + "RewindAndStop has already set Animator.enabled = false on every animator "
+                    + "under the held prop (PropAnimBelt.cs:728). A disabled Animator's controller "
+                    + "instance is gone — this file already records one reporting layerCount 0 — so "
+                    + "GetBehaviours on it can answer empty whatever the controller carries. THE "
+                    + "HOME TWIN IS THE HALF THAT DECIDES, because nothing in this mod touches it. "
+                    + "*** " + (smb.Length == 0 ? "<none named>" : smb.ToString());
 
         var comps = new List<Component>(64);
         go.GetComponentsInChildren(includeInactive: true, comps);
@@ -1080,6 +1111,23 @@ internal static partial class PropAnimBelt
                   + "another window of zeroes; a count above 0 NAMES THE PROPERTY a fix must write, "
                   + "which no amount of reading decompiled/ could give because animProperty is a "
                   + "serialized string that lives in the AssetBundle. ")
+          .Append("AND THE ONE THING OUR OWN HUSH CAN DO TO IT, WHICH THE SHIPPED REMEDY DOES "
+                  + "NOT COVER: OnStateExit is the ONLY thing that resets t, OnStateUpdate is "
+                  + "the ONLY thing that writes the float, and Unity does not run OnStateExit "
+                  + "when an Animator is DISABLED. RewindAndStop (PropAnimBelt.cs:728) disables "
+                  + "every animator under the held prop, so a hush landing mid-ramp freezes t "
+                  + "and leaves the last written value on the material for the whole hold. The "
+                  + "round-seven remedy on the line above it, Animator.WriteDefaultValues, "
+                  + "CANNOT undo that: it writes the defaults of properties BOUND TO THE "
+                  + "ANIMATOR by clip curves, and this float is written imperatively through "
+                  + "Renderer.material by code the animator does not bind. So the rewind covers "
+                  + "a clip-animated latch and leaves an SMB-written one standing. THAT IS A "
+                  + "SECOND MECHANISM AND NOT A REPLACEMENT FOR THE FIRST: the hush touches "
+                  + "only the held prop's own subtree, so it can explain PERSISTENCE IN THE "
+                  + "HAND and can never explain a board-wide event on every trap and chest. THE "
+                  + "FINGERPRINT BELOW IS ITS FALSIFIER — no (Instance) means OnStateUpdate "
+                  + "never wrote on that renderer, and with no write there is nothing to "
+                  + "latch. ")
           .Append(_phMatReport).Append(' ')
           .Append(_phTypeReport).Append(' ');
 
