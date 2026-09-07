@@ -2463,6 +2463,14 @@ internal static partial class WallSegmentFade
                     : "";
                 _pwNames.Add($"'{wall}' r{seg.RoomIndex} ema {seg.Smooth:F2} "
                     + $"blk {seg.LastBlocked}/{seg.LastRoomTotal} "
+                    // ModBuild 469 — the SOLE-OCCLUDER terms beside the room ones, on the line
+                    // that already carries the per-cell attribution they are derived from. `excl`
+                    // is how many of the cells listed below no OTHER segment hid, `by:` is the
+                    // rule the last evaluation used. A row reading `blk 5/24 excl 3 by:EXCLUSIVE`
+                    // with `cells #4,#5,#6,#7,#8` says in one place which two of those five some
+                    // other wall is hiding as well.
+                    + $"excl {seg.LastExclusive}/{WallFadeTuning.ExclusiveCellBar} "
+                    + $"by:{seg.LastCarriedBy} "
                     + (seg.State ? "FADED" : "solid")
                     + $" cells {cells}{blocker}{latch}");
             }

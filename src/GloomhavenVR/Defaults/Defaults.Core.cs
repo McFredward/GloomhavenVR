@@ -180,6 +180,15 @@ internal static partial class Defaults
     // scenario before it fades. 6 is that historical ceiling, written down: no room's enter bar
     // may be stricter, IN CELLS, than the strictest bar the lattice could ever produce.
     internal const int MaxEnterCells = 6;                     // => [WallFade] MaxEnterCells
+    // ModBuild 469 — THE SOLE-OCCLUDER BAR, IN CELLS. Both bars above divide by the WHOLE room,
+    // so a wall that completely seals a three-hex dead end reads 3/24 = 0.13 and a wall lying
+    // across the room reads 0.87 for floor the player can walk around. 3 is read off the
+    // ModBuild 468 log's own per-cell attribution: of the wall-passes the 6-cell room bar does
+    // not already carry, `exclusive >= 3` adds 21 and every one of them is 'Wall 7' (the house
+    // in hauswand2.mp4), always the same three cells; `exclusive >= 4` adds none at all; and no
+    // other segment in that log reaches 3 while under the bar, the highest being 2. So the bar
+    // has a full cell of margin in both directions on the evidence that exists. 0 = rule off.
+    internal const int MinExclusiveCells = 3;                 // => [WallFade] MinExclusiveCells
     // BepInEx keeps whatever is already in the cfg, so correcting the two constants above only
     // ever reaches a FRESH install — every existing install would keep the transposed pair and
     // the group churn with it. This marker carries the correction across exactly once; see the

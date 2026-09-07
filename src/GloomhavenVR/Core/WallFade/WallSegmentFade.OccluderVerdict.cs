@@ -222,6 +222,8 @@ internal static partial class WallSegmentFade
             // ── Classify EVERY segment; ray work only for the solid, considered ones ────────
             int occluders = 0, clear = 0, offGridSolid = 0, droppedSolid = 0, ceiling = 0;
             int belowBar = 0;
+            int exclusiveBar = WallFadeTuning.ExclusiveCellBar;
+            int carriedExclusive = 0, carriedBoth = 0, atExclusiveBar = 0;
             int notConsidered = 0, noBounds = 0, noRoomGrid = 0, doorways = 0, gates = 0, engulf = 0;
             int sweptSegs = 0, unsweptSolid = 0;
             _verdictOffGridNamed.Clear();
@@ -288,6 +290,16 @@ internal static partial class WallSegmentFade
                             + "(room unanchored or holds no sample grid — held FAIL-SAFE solid)");
                     continue;
                 }
+                // ModBuild 469 — the sole-occluder census, taken over the CONSIDERED population
+                // and before the occluder/solid split, because "which rule is holding the walls
+                // that ARE faded" and "how many solid walls are sitting on the new bar" are the
+                // two readings that decide whether this rule shipped working or inert.
+                if (seg.LastCarriedBy == "EXCLUSIVE")
+                    carriedExclusive++;
+                else if (seg.LastCarriedBy == "BOTH")
+                    carriedBoth++;
+                if (seg.LastExclusive >= exclusiveBar && exclusiveBar > 0)
+                    atExclusiveBar++;
                 if (seg.State)
                 {
                     occluders++;
@@ -362,7 +374,17 @@ internal static partial class WallSegmentFade
                 // ModBuild 468 — `bar N` is the enter bar THIS room is judged by, in cells, so
                 // 'blk 7/24 bar6' reads as a verdict and not as a number needing arithmetic.
                 string nums = $"{id} r{seg.RoomIndex} ema{seg.Smooth:F2} blk{seg.LastBlocked}/"
-                    + $"{seg.LastRoomTotal} bar{segOnCells} xz[{seg.Bounds.min.x:F1}..{seg.Bounds.max.x:F1}]"
+                    + $"{seg.LastRoomTotal} bar{segOnCells} "
+                    // ModBuild 469 — THE SOLE-OCCLUDER TERM, ON EVERY NAMED ENTRY. `excl N` is
+                    // how many of `blk` no OTHER segment hid on the previous pass, `xsm` its EMA
+                    // (the number the Schmitt actually reads, so a wall stuck one tenth of a cell
+                    // under the bar is visible rather than inferred), `xbar` the bar in cells and
+                    // `by:` the rule the LAST EVALUATION actually used — written by the decision,
+                    // not re-derived here. Read `excl` >= xbar with `by:-` as the rule failing to
+                    // fire; `by:EXCLUSIVE` as it carrying a wall the room bar could not.
+                    + $"excl{seg.LastExclusive} xsm{seg.ExclusiveSmooth:F2} "
+                    + $"xbar{WallFadeTuning.ExclusiveCellBar} by:{seg.LastCarriedBy} "
+                    + $"xz[{seg.Bounds.min.x:F1}..{seg.Bounds.max.x:F1}]"
                     + $"[{seg.Bounds.min.z:F1}..{seg.Bounds.max.z:F1}] "
                     + $"vis{seg.LastRoomVisible} ceil{ceil:F2} — hides "
                     + $"{hidesCounted} counted + {hidesDropped} FOOTPRINT-DROPPED + "
@@ -429,7 +451,11 @@ internal static partial class WallSegmentFade
                       .Append('/').Append(droppedSolid).Append('/').Append(ceiling).Append('/')
                       .Append(belowBar).Append('/')
                       .Append(noBounds).Append('/').Append(noRoomGrid).Append('/').Append(doorways)
-                      .Append('/').Append(gates).Append('/').Append(engulf);
+                      .Append('/').Append(gates).Append('/').Append(engulf)
+                      // ModBuild 469: WHICH RULE is carrying the walls is a class, not a number —
+                      // it must open the gate, or the first pass where the sole-occluder rule
+                      // takes over a wall would print nothing until the 20 s heartbeat.
+                      .Append('/').Append(carriedExclusive).Append('/').Append(carriedBoth);
             for (int i = 0; i < named; i++)
             {
                 // The id and the class carry the identity; the numbers after the em dash do not.
@@ -494,7 +520,21 @@ internal static partial class WallSegmentFade
                 + "'the wall the user is pointing at reads CLEAR' moves the search upstream of "
                 + $"coverage entirely), {notConsidered} NOT-CONSIDERED (NO-BOUNDS "
                 + $"{noBounds}, NO-ROOM-GRID {noRoomGrid}, DOORWAY {doorways}, GATE {gates}, "
-                + $"ENGULF {engulf}). Hex sweep covered {sweptSegs} solid segment(s) this pass, "
+                + $"ENGULF {engulf}). "
+                + "SOLE-OCCLUDER RULE (ModBuild 469, [WallFade] MinExclusiveCells): bar "
+                + $"{exclusiveBar} cell(s)"
+                + (exclusiveBar <= 0 ? " — RULE OFF, every verdict below is the 468 one" : string.Empty)
+                + $", {OcclusionOwnershipClause()}. {carriedExclusive} wall(s) are faded by it "
+                + $"ALONE and {carriedBoth} by both rules at once; {atExclusiveBar} considered "
+                + "wall(s) currently sit at or above the bar. THE THREE READINGS THIS LINE EXISTS "
+                + "FOR: a wall printing 'excl N' with N at or above 'xbarK' and 'by:EXCLUSIVE' is "
+                + "the rule WORKING; 'excl0' on every named entry while walls still read blk>0 is "
+                + "the rule INERT and the ownership map is what to suspect (a non-zero 'claim(s)' "
+                + "count says it was filled, an xlag above 1 says a pass was skipped); and a wall "
+                + "the user is still pointing at that reads 'excl' BELOW the bar is neither — its "
+                + "hidden hexes are hidden by some other segment too, so fading it alone would "
+                + "not show him anything and the search moves to WHICH segment shares them. "
+                + $"Hex sweep covered {sweptSegs} solid segment(s) this pass, "
                 + $"{unsweptSolid} deferred to the next (rotating cursor — a deferred wall still "
                 + "carries a class, only its hex counts wait). NAMED, contradicted class first — "
                 + "the id is the anchor INSTANCE ID because scenario wall names REPEAT across map "

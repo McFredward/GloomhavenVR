@@ -28,6 +28,10 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 468: ceiling on the enter bar expressed in FLOOR CELLS, so a big room
     /// cannot make a fraction bar unreachable in absolute terms. See <see cref="EnterBarForRoom"/>.</summary>
     internal static ConfigEntry<int>? MaxEnterCells;
+    /// <summary>ModBuild 469: SOLE-OCCLUDER bar in floor hexes — fade a wall that is the only
+    /// thing hiding this many playable hexes, whatever fraction of the room they are. 0 switches
+    /// the rule off. See WallSegmentFade.SoleOccluder.cs.</summary>
+    internal static ConfigEntry<int>? MinExclusiveCells;
     /// <summary>Seconds continuously below the low bar before un-fading after a recent perspective change.</summary>
     internal static ConfigEntry<float>? ExitDwellMoved;
     /// <summary>Un-fade dwell when the head only rotated (no recent translation/world-grab/recenter).</summary>
@@ -117,6 +121,16 @@ internal static class WallFadeTuning
             "large room; set it above the room's hex count to switch the cap off entirely. The " +
             "un-fade bar keeps its ratio to the fade bar, so the hysteresis band is preserved. " +
             "Live; clamped 1-96.");
+        MinExclusiveCells = config.Bind("WallFade", "MinExclusiveCells", Defaults.MinExclusiveCells,
+            "Also fade a wall when it is the ONLY thing hiding this many playable hexes, however " +
+            "small a fraction of the room they are. OnFraction and MaxEnterCells both measure a " +
+            "wall against the WHOLE room, so a house sealing a small dead end scores low however " +
+            "completely it seals it, while a wall lying across the room scores high for floor you " +
+            "can simply walk around. This bar measures what the wall itself hides: hexes no OTHER " +
+            "wall hides too, i.e. the ones that appear if and only if this wall fades. Raise it " +
+            "if small walls now fade too eagerly; 0 switches the rule off and restores the " +
+            "previous behaviour exactly. It can only ever ADD fades, never remove one. Live; " +
+            "clamped 0-96.");
         ExitDwellMoved = config.Bind("WallFade", "ExitDwellMovedSeconds", Defaults.ExitDwellMovedSeconds,
             "Seconds the fraction must stay below OffFraction before the wall un-fades when the " +
             "PERSPECTIVE recently changed (real head translation / world-grab / recenter). Live.");
@@ -528,6 +542,14 @@ internal static class WallFadeTuning
             return OcclusionFade.SchmittLowBar(Clamped(OffFraction, 0.10f, 0.01f, 0.95f), on);
         }
     }
+    /// <summary>
+    /// ModBuild 469 — THE SOLE-OCCLUDER BAR IN CELLS, 0 = rule off. Clamped live; safe before
+    /// Bind(). Read once per segment per evaluation, so a cfg edit takes effect on the next tick.
+    /// </summary>
+    internal static int ExclusiveCellBar =>
+        Mathf.Clamp(MinExclusiveCells != null ? MinExclusiveCells.Value : Defaults.MinExclusiveCells,
+                    0, 96);
+
     /// <summary>ModBuild 468 — the enter-bar ceiling in CELLS. Clamped live; safe before Bind().</summary>
     internal static int EnterCellCap =>
         Mathf.Clamp(MaxEnterCells != null ? MaxEnterCells.Value : Defaults.MaxEnterCells, 1, 96);
@@ -546,7 +568,18 @@ internal static class WallFadeTuning
     /// mod had ever measured. Whole-set sampling (465, and correct — it fixed a real resolution
     /// defect) gave this room 24 samples, and the same fraction now reads NINE hexes. The wall
     /// the user is pointing at ('Wall 7' #-19106 in the ModBuild 467 log) peaks at 7 hidden
-    /// hexes and its EMA at 0.28, so it cannot reach 9 from any viewpoint that exists.</para>
+    /// hexes and its EMA at 0.28.</para>
+    ///
+    /// <para><b>CORRECTED ModBuild 469 — THE LAST CLAUSE OF THAT SENTENCE WAS FALSE.</b> It read
+    /// "so it cannot reach 9 from any viewpoint that exists", and the very next hardware log
+    /// falsifies it: the same house reads <c>blk 11/24</c> at <c>ema 0.36</c> from head
+    /// (-6.0,2.95,-1.0) and <c>blk 12/24</c> at <c>ema 0.49</c> on the PER-WALL line beside it.
+    /// It reaches nine. What it cannot do is reach nine from a viewpoint he PLAYS from, which is
+    /// what he then reported in his own words — "es faded, aber erst wenn man super nah rangeht
+    /// oder aus einem winkel in dem fast die ganze map verdeckt ist". The measurement behind the
+    /// sentence was right and the universal it was generalised into was not; the cap below is
+    /// unaffected either way, and the case the sentence was really about is now carried by the
+    /// sole-occluder bar (WallSegmentFade.SoleOccluder.cs).</para>
     ///
     /// <para><b>MONOTONE BY CONSTRUCTION, WHICH IS THE NO-REGRESSION PROOF.</b> The returned bar
     /// is <c>min(On, cap/total) ≤ On</c> and <see cref="ExitBarForRoom"/> scales with it, so both
@@ -1227,6 +1260,24 @@ internal static partial class WallSegmentFade
         /// <summary>EMA-smoothed view-coverage fraction the Schmitt trigger reads.</summary>
         public float Smooth;
         public bool SmoothInit;
+
+        /// <summary>SOLE-OCCLUDER RULE — EMA of the CELL COUNT (not a fraction) this wall is the
+        /// only occluder of, its own Schmitt latch, and the raw count for the instruments. See
+        /// WallSegmentFade.SoleOccluder.cs for the whole rule and the evidence behind its bar.
+        /// The latch is separate from <see cref="State"/> on purpose: sharing one would let the
+        /// room rule's verdict move this rule's band.</summary>
+        public float ExclusiveSmooth;
+        public bool ExclusiveSmoothInit;
+        public bool ExclusiveLatch;
+        /// <summary>Cells of <see cref="LastBlockedCells"/> that NO other segment blocked on the
+        /// previous pass — the hexes that become visible if and only if THIS wall fades.</summary>
+        public int LastExclusive;
+        /// <summary>Which of the two rules carried the last evaluation: <c>"ROOM"</c>,
+        /// <c>"EXCLUSIVE"</c>, <c>"BOTH"</c> or <c>"-"</c>. A literal; no allocation.
+        /// <para>Written by the DECISION, never re-derived by a diagnostic: an instrument that
+        /// recomputed the verdict it is explaining could agree with itself while disagreeing with
+        /// the rule, which is the failure this project has paid for repeatedly.</para></summary>
+        public string LastCarriedBy = "-";
         // Last-tick raw numbers, kept for the throttled diagnostic.
         public float LastRaw;
         public int LastBlocked;
@@ -2390,6 +2441,21 @@ internal static partial class WallSegmentFade
             // MP WALL-FADE SYNC census (user item 7, fackel.jpg) — per TICK, like the per-wall
             // census beside it, because the line it feeds reports what the loop below just did.
             BeginPeerFadeCensus();
+            // ModBuild 469 — publish the ownership map the last EVALUATING pass accumulated and
+            // start a fresh one. It must run before EvaluateSplitRuns below, because those
+            // members' BlockedFraction calls are part of this pass's accumulation too. This is
+            // mechanism, not a census: with it skipped, no wall can ever read an exclusive cell.
+            //
+            // `evaluate` IS THE ARGUMENT AND NOT AN OPTIMISATION. The decision cadence is
+            // throttled — the ModBuild 468 log reads 1.8 BlockedFraction calls per tick against
+            // 16 segments per tick, i.e. roughly one tick in nine measures anything — so a pass
+            // that does not evaluate accumulates NOTHING. Rotating on such a pass would publish
+            // an empty map, and an empty map makes every blocked cell read "no other segment
+            // hides this", which turns the sole-occluder rule into a bare `blocked >= 3` bar: the
+            // 43-wall-pass mass regression this rule was chosen over. So the map rotates on
+            // evaluating passes only, and `xlag` on the verdict line prints the resulting gap in
+            // frames rather than leaving it to be assumed.
+            BeginOcclusionOwnership(evaluate);
             _lastHeadPos = headPos;
             // ModBuild 259 (user ruling 2026-08-24: "Entweder verschwindet die ganze Wand mit
             // ALLEM was dazu gehört … oder sie ist vollständig da"). A wall run that
@@ -2510,6 +2576,17 @@ internal static partial class WallSegmentFade
                     // Split runs need no equivalent: EvaluateSplitRuns keeps running above, so
                     // their EMA is already live when the latch drops.
                     seg.SmoothInit = false;
+                    // ModBuild 469 — THE SAME ARGUMENT, FOR THE SAME REASON, ON THE SOLE-OCCLUDER
+                    // EMA. This branch skips the evaluation, so without this every wall would
+                    // leave the mode holding the exclusive-cell reading it had when the player
+                    // stepped in — and if he stood inside for a minute they would all come out
+                    // holding a minute-old one and could re-fade together on the next dwell.
+                    // That is exactly the "alle auf einmal" he rejected in ModBuild 251. Dropping
+                    // the seed costs nothing while the mode holds and makes the first evaluation
+                    // after the release start from that wall's OWN live count.
+                    seg.ExclusiveSmoothInit = false;
+                    seg.ExclusiveLatch = false;
+                    seg.LastCarriedBy = "-";
                 }
                 // SPLIT-RUN MEMBER (ModBuild 259): its coverage was already measured in
                 // EvaluateSplitRuns and its verdict belongs to the RUN, not to it. The flow is
@@ -2520,6 +2597,11 @@ internal static partial class WallSegmentFade
                 else if (seg.RunDriven)
                 {
                     bool want = RunStateOf(seg);
+                    // ModBuild 469: the RUN decided this piece, so neither rule of the branch
+                    // below did. Say so rather than leaving the instruments quoting whichever one
+                    // last did — a stale attribution is how an instrument comes to disagree with
+                    // the rule it exists to explain.
+                    seg.LastCarriedBy = "-";
                     seg.PendingRaw = want;
                     if (seg.State != want)
                         seg.State = want; // the RUN FADE line logs the edge once for the whole run
@@ -2544,7 +2626,18 @@ internal static partial class WallSegmentFade
                     // them across in two further shadow copies and diffs them BY NAME; only the
                     // RULE moved, and it is now literally the statements a peer board runs.
                     OcclusionFade.AdvanceCoverage(fraction, fracStep, ref seg.Smooth, ref seg.SmoothInit);
-                    bool raw = OcclusionFade.Above(seg.Smooth, seg.State, segOn, segOff);
+                    bool roomRaw = OcclusionFade.Above(seg.Smooth, seg.State, segOn, segOff);
+                    // ModBuild 469 — THE SOLE-OCCLUDER RULE, OR-ed IN AND NEVER SUBSTITUTED. Both
+                    // bars above divide by the WHOLE room, which is why the house in
+                    // hauswand2.mp4 sits at 5 of 24 while completely sealing a three-hex dead end
+                    // ("teile der map sind sichtbar aber die 'Sackgasse' bleibt verdeckt"). This
+                    // term counts the hexes THIS wall alone hides. An OR can only ever ADD a
+                    // fade, so no wall that fades today can stop — the downward crossing count is
+                    // 0 by construction. The whole rule, its evidence and that proof live in
+                    // WallSegmentFade.SoleOccluder.cs.
+                    bool exclusiveRaw = ExclusiveVerdict(seg, fracStep);
+                    bool raw = roomRaw || exclusiveRaw;
+                    seg.LastCarriedBy = CarriedBy(roomRaw, exclusiveRaw);
                     if (OcclusionFade.StepDwell(raw, now, EnterDwellSeconds,
                             reevalArmed ? exitDwellMoved : exitDwellStationary,
                             ref seg.PendingRaw, ref seg.PendingSince, ref seg.State))
@@ -3126,6 +3219,13 @@ internal static partial class WallSegmentFade
                 seg.LastRoomTotal = altTotal;
                 seg.LastDecidingRoom = alt;
             }
+            // ModBuild 469 — book this segment's OWN-ROOM cells into the pass in flight, so the
+            // NEXT pass can tell which of them nobody else hides. Placed here rather than at the
+            // call sites because this is the one method that produces the attribution, so every
+            // measured segment contributes exactly once — the split-run members EvaluateSplitRuns
+            // measures included, whose masonry occludes whether or not it gets to vote. It is a
+            // load-bearing write and NOT a diagnostic: see WallSegmentFade.SoleOccluder.cs.
+            AccumulateOcclusionOwnership(seg);
             return fraction;
         }
 
