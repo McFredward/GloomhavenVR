@@ -1978,9 +1978,25 @@ internal sealed class RemoteCardArt
     /// </summary>
     internal enum FxSurface
     {
-        /// <summary>Nobody has driven a card-FX look on this face. The ACTIVE-CARDS column sits here
-        /// permanently and that is the correct reading for it — an activated card is not burnt, so
-        /// no look is driven, so no rig is built and no line is printed.</summary>
+        /// <summary>Nobody has driven a card-FX look on this face.
+        ///
+        /// <para>THE ACTIVE-CARDS COLUMN STILL SITS HERE, BUT THE REASON GIVEN FOR IT WAS RETIRED ON
+        /// 2026-09-07 AND WAS NEVER TRUE. This member used to say the column belongs here because
+        /// "an activated card is not burnt". The user's own correction that day —
+        /// <i>"Ich meine nicht die Animation von 2 Sekunden, sondern den dauerhaften effekt der über
+        /// eine verbrannte Karte liegt. Und dieser Effekt war bei manchen Aktiven Karten vorhanden
+        /// und wurde dort auch angezeigt"</i> — says otherwise, and the game agrees: an activated
+        /// card BOUND FOR LOST wears the permanent burnt wash and keeps it
+        /// (<c>CCharacterClass.cs:479</c> is the game's own destination expression, and
+        /// <c>Cards.Art.BurnLookPolicy</c> is where both boards read it).</para>
+        ///
+        /// <para>The column reads <c>Unnamed</c> for a DIFFERENT reason: the wash is written as a
+        /// settled end state through <c>SetAbilityBurnProgress(1f)</c> and reported on its own
+        /// <c>REMOTE ACTIVE WASH</c> line, so no FX LOOK is driven here and no rig is built. If a
+        /// surface tag is ever wanted for it, add an <c>Active</c> member rather than borrowing
+        /// <c>Pile</c> or <c>Recess</c> — this enum is instrument-only and nothing behavioural
+        /// reads it, so the cost of the wrong label is a misleading log line, which is the cost
+        /// this whole enum exists to avoid.</para></summary>
         Unnamed,
 
         /// <summary>A peer's round-card RECESS — <c>RemoteBoardCard.DriveUsedCardFx</c>, a live 2 s

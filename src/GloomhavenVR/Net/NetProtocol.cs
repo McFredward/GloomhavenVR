@@ -448,7 +448,118 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 476;
+    public const ushort ModBuild = 477;
+    // Build 477: AN EIGHT-ITEM MULTIPLAYER ROUND. Six lanes, disjoint file sets. FIVE of the eight
+    //   were a mechanism that had ALREADY BEEN BUILT and was never reached — a producer with no
+    //   consumer, a rule on the wrong path, a gate on one branch of two, a mask comparing the wrong
+    //   string form, a predicate asking a question that cannot be true. Nothing here needed new
+    //   wire; every fact was already local or already on the wire and simply not read.
+    //   * ITEM 1 — THE QUEST WINDOW'S RIGHT-CORNER RULE WAS ON THE LOCAL PATH ONLY. The popup
+    //     carries SharedWindowKind.QuestConfirm, so TrySharedWindowAnchor runs FIRST and returns a
+    //     finished pose from the ModBuild 250 half-ring; ArcSeats.TryCornerWindowSide, which
+    //     already answers "right corner", was never asked. Host :30012 seats it at frame-local
+    //     (0.6511,1.1543,0.4648) m on a table of half-width 0.776 m — the middle of the far half,
+    //     his "davor". The new corner is built in the SHARED frame (parchment bounds + the host's
+    //     published gaze byte), never from MapRoomDriver.SeatFloor, which is this client's own seat
+    //     and would put the window somewhere different for each player. Grep PRIVATE QUEST CORNER.
+    //   * ITEM 2 — THE MIRRORED ACTIVE CARD ARRIVED BEFORE ITS OWN FLIGHT. RemoteCardFx
+    //     .IsFlyingToActive had been shipped and RemoteActiveCards' own class note called calling it
+    //     "THE EXACT CHANGE OWED"; grep returned the definition and its doc comment and nothing
+    //     else. So the mirror seated the card the instant the model moved it while the owner's cell
+    //     stays empty for the whole 0.4 s arc. NOT A TURN EARLY, and my brief was wrong to say so:
+    //     host :96419 and peer :78778 both sit immediately after the SAME shared transition
+    //     ("Setting Next Phase: ActionSelection" / "End of ability syncing finished"), 78 and 42
+    //     lines behind it. The user's "der Flug war schon davor" and "am Ende gab es gar keinen
+    //     Flug mehr" are ONE event seen in the wrong order.
+    //   * ITEM 3 — NOTHING DROVE THE ACTIVE MATRIX AT ALL. Record 14's half highlight reached the
+    //     two round recesses only; ActionHighlightDriver's own census said so (Site had two
+    //     members). Zero wire: which half of an activated card is live is in the local model, which
+    //     every client simulates. Survives the card being lifted into the hand.
+    //   * ITEM 4 — RULE 1 SHIPPED INVERTED AND THE USER CAUGHT IT MID-ROUND. Lane C first ruled "an
+    //     activated card is never burnt". His correction: "Ich meine nicht die Animation von 2
+    //     Sekunden, sondern den dauerhaften effekt der über eine verbrannte Karte liegt. Und dieser
+    //     Effekt war bei manchen Aktiven Karten vorhanden und wurde dort auch angezeigt - aber nur
+    //     eine Runde - die runde darauf war die Karte wieder blau". The game draws that distinction
+    //     itself: CCharacterClass.cs:479 computes an activated card's destination while it sits in
+    //     the pile, and :302 counts Discard-bound activated cards into the discard size. So a
+    //     Lost-bound active card wears the permanent wash and KEEPS it, every round, both boards.
+    //     HIS WORD "MANCHE" HAD ALREADY FALSIFIED THE FIRST RULE — a refresh-order defect hits every
+    //     activation, and 2 of 2 were measured. An unexplained qualifier in a user report is a
+    //     falsifier. Trigger is the LATCH, never the paint: GhostOutOnTimeline drives the same
+    //     _GreyOut, so a paint test would have erased the discard ghost.
+    //   * ITEM 5a/5b — ONE PREDICATE, BOTH HALVES OF BOTH REPORTS, and his third telling of it.
+    //     RemoteAvatar.IsHandArcList tested the literal pair Hand||MapLoadout; its sibling had
+    //     already been moved to read the list the fan is DRAWN from off record 43, this one had
+    //     not. A long rest's burn step fans the DISCARD pile, so the predicate said no, TrackFist
+    //     never resolved, and the RECESS HAND-OFF — the only local fact that can name a card a peer
+    //     laid in a recess — never armed. Hence an anonymous BACK, and hence the fan too: the length
+    //     belt could not drop the seated card, the lengths disagreed by one, and it refused the
+    //     whole fan. Peer :171427 stood anonymous through seven consecutive live census intervals
+    //     (~70 s), each printing POLICY=FRONTS EVERYWHERE beside it. RECESS HAND-OFF read 9
+    //     arrivals / 0 named. THE SECRECY POLICY WAS NEVER THE DEFECT and the census proved it in
+    //     both logs; my "fallback direction" lead was the wrong shape — you cannot fall back to a
+    //     FRONT for a card you cannot NAME.
+    //   * ITEM 5 (second) — A FLIGHT WITH NO CARD BEHIND IT. TakeDamagePanel stages candidates out
+    //     of DiscardedAbilityCards; clicking Receive Damage (peer :148934) moves nothing, but the
+    //     staged widgets had docked, left the dock, and CollectRoundCards' turn-clear matched the
+    //     signature and fired twice — peer PILE FLIGHT #4/#5, host Remote card FX #4/#5, the same
+    //     two flights. The two "Board -> Discard drawn as a BACK, WINDOW EXPIRED" lines I had
+    //     pointed a lane at ARE these; widening the departed-face claim would have "fixed" the
+    //     picture of an animation that must not play.
+    //   * ITEM 6a — THE ITEM STACK CANNOT LIGHT ON SOMEBODY ELSE'S TURN. Both arms of
+    //     ItemsPile.UsableMask fail during a take-damage decision: IsActionTurn is false (you are
+    //     attacked off your turn) and an OnAttacked shield is not a PlaceableBonusForItem. Two
+    //     instruments contradicted each other and nobody had read them side by side — TAKE-DAMAGE
+    //     item place ARMED fired at peer :53941 and :108268 while Item usable mask SENT read 0x0000
+    //     across both windows. The new arm's gate is the DROP ROUTER's own predicate, so the
+    //     highlight cannot promise a placement the router would bounce.
+    //   * ITEM 6a (the shield he photographed) — A RULING, NOT A GAP. It is
+    //     ABILITY_CARD_WardingStrength (CShieldActiveBonus), BaseCard is CItem: False, "nothing to
+    //     place" (peer :108287). His rule presupposes an item card to lay down and there is none.
+    //     Offered the choice between routing it through the ACTIVE CARD on the board and keeping the
+    //     icon, HE CHOSE TO KEEP THE ICON on condition it is strictly 1:1. Written at the branch
+    //     that keeps the row so a later round cannot delete it on a plain reading of the rule.
+    //   * ITEM 6b — THE MIRROR DREW A GAME PANEL AT ONE WORLD UNIT PER PIXEL. RemoteWidgetMirror
+    //     .EnsureHost leaves the host at identity scale on a world-space Canvas and BuildClone
+    //     activates it before any fit commits. The gate for exactly this existed and its doc says
+    //     "no fit, no picture" — reachable only under LayoutOwner.CloneAtBoardOwnersWidth. Every
+    //     LayoutOwner.Source mirror had none. The initiative track fits at 0.000418 m/px, so
+    //     identity is ~2400x: a 20 px label becomes 20 world units against a 9.83-unit board. That
+    //     is riesiger_text.jpg. Separately the mirrored option copied the four ColorBlock tints and
+    //     not the SIZE change, so it changed colour on every board and grew only on the owner's;
+    //     the hover and press facts were already on record 24 bits 3/4.
+    //   * ITEM 7 — THE MASK SEARCHED FOR A YML KEY INSIDE A TRANSLATED LABEL. AddCovered collected
+    //     CAbilityCard.Name ("ABILITY_CARD_SpareDagger") and searched for it in a wording carrying
+    //     FullAbilityCard.Title ("Zusatzdolch"); Replace never matched and the change-gated log
+    //     never printed. ZERO emitted DECISION LABEL MASK lines across 115 MB of logs — the mask had
+    //     never masked one string in its life. Peer :181268 caught it: record 12 publishing
+    //     'Verbrennen "Zusatzdolch"' while PeersSeeOurCardFronts is SHUT. THE PHASE PREDICATE WAS
+    //     FINE and my diagnosis was wrong — a short rest genuinely does run inside
+    //     SelectAbilityCardsOrLongRest. A covered set that cannot be fully read now WITHHOLDS the
+    //     label instead of sending it.
+    //   * ITEM 8 — THE MIRROR WROTE ONE CONSTANT SCALE FOR A RAMPED ARC. VRCard.FlyToPile ramps
+    //     from the docked slot scale to the pile slab width; RemoteCardFx wrote the owner's HAND
+    //     CardWidth for the whole flight, which at a recess end is a different card size at the same
+    //     seat — literally a small card inside a card. Now ramped between WidthForAnchor(from) and
+    //     WidthForAnchor(to). Its "kein Verbrennen-Effekt" half: BurnCardTimeline's burnTime is a
+    //     hard-coded 2f (CardEffects.cs:515), so the 0.69 s "released by ARTWORK END" at peer :60504
+    //     CANNOT be an end — it is a cancel, and the instrument asserted a mechanism it could not
+    //     observe. Its proof-note graded on elapsed time (0.5-2.5 s), which is exactly what let a
+    //     cancelled ramp read as healthy; it grades on the PAINT now.
+    //   * TWELVE FALSE ASSERTIONS RETIRED, every one of them a comment or a log string that stated a
+    //     mechanism it could not observe. The two that cost this round the most: SHORT REST SEAT
+    //     printed "draws the REAL FRONT of 'X'" UNCONDITIONALLY — it takes no front argument at all,
+    //     so all eight of those lines in the host log prove nothing; and Cap labels SENT ended "a
+    //     card name still in it is a DEFECT" without the clause "inside the secret window", which is
+    //     what sent me to the wrong cause for item 7.
+    // OWED ON HARDWARE, AND NAMED SO IT IS NOT FORGOTTEN: item 8's "die offene Karte soll verdeckt
+    //   sein" half is NOT fixed — its only evidence was the SHORT REST SEAT line now falsified, so
+    //   no measurement currently says which face that flight drew. The corrected line answers it
+    //   next round. Which of the two logged activations were Lost-bound is likewise unsettled
+    //   offline (card data lives in the game's addressables); ACTIVE SET's MODEL row now carries
+    //   the destination and settles it with one grep.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 476: THE BANNER NAMED THE ACTION AND NEVER THE OCCASION, so two card losses from two
     //   unrelated causes drew the identical line. User, after working out ModBuild 475's deadlock
     //   himself: "erst habe ich den Schaden bekommen und DANACH musste ich nochmal eine Karte
