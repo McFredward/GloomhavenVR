@@ -217,9 +217,12 @@ internal sealed class RemoteBrowserFan
     private int _tuningRevision = -1;
     private int _tuningKind = -1;
 
-    /// <summary>How long the emerge keeps easing before the slots are simply asserted. The
-    /// exponential above is ~99.9 % settled well inside this; it exists only so a settled fan stops
-    /// paying for the lerp.</summary>
+    /// <summary>How long a fan counts as still OPENING. It used to be the point at which the arc
+    /// stopped easing and simply asserted every slot — and that assert was the defect the
+    /// 2026-09-07 re-audit removed: past this the mirrored fan JUMPED on every hover change while
+    /// the owner's glided (his PileBrowser.Relayout passes `instant: false` at all five call
+    /// sites). Every slab eases every frame now; this constant survives only as the "is the fan
+    /// still opening" flag that Tick and BeginEmerge read.</summary>
     private const float EmergeSettleSeconds = 0.7f;
 
     /// <summary>Arc height as a fraction of the collapse distance — <c>VRCard.FlyArcHeightFraction</c>.

@@ -285,7 +285,16 @@ MIRRORS=(
   # issue 3. Every mirrored play, discard and burn flight bowed at 50.9 % of the height its owner
   # watched, for every build until a review happened to catch it. That is exactly the failure this
   # file exists to prevent, already realised once, and it was unlinted the whole time.
-  "card flight arc fraction (1:1) : Cards/VRCard.cs:FlyArcHeightFraction Net/Remote/RemoteCardFx.cs:ArcFraction"
+  # THREE sites, not two: RemoteBrowserFan.CollapseArcFraction is the browse fold's copy of the
+  # same term and it carried the SAME stale 0.28f under the SAME comment naming the constant it
+  # was supposed to be. One defect, two files, one review to catch both — which is the argument
+  # for the group rather than against it.
+  "card flight arc fraction (1:1) : Cards/VRCard.cs:FlyArcHeightFraction Net/Remote/RemoteCardFx.cs:ArcFraction Net/Remote/RemoteBrowserFan.cs:CollapseArcFraction"
+  # …and the FLOOR beside it. CardsDriver.BoardArcMin is `boardScale * CardHeight * 1.5f` with
+  # the 1.5 as an INLINE literal, so the owner's half cannot be linted until somebody names it;
+  # the two mirrors that copied it can be held to each other in the meantime, which at least
+  # means a retune of one is caught by the other.
+  "card flight arc floor, in card heights (1:1) : Net/Remote/RemoteCardFx.cs:MinArcCardHeights Net/Remote/RemoteBrowserFan.cs:CollapseMinArcCardHeights"
   # The RECESS CARD METRIC. RemoteControlBoard.CardW's own comment says "Defaults.CardWidth x
   # PlayTray.SlotScale" and NetProtocol.SlotCardWidthLegacy is the identical product — it is the
   # value a pre-record peer's recess cards are drawn at, so the two must be one number or an old
