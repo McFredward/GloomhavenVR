@@ -468,6 +468,43 @@ EXPRESSIONS=(
   # Net/RevealGate.cs, and the only surviving RevealGate.ShowRoundCardFronts callers are the five
   # named in the group below, all of them outside a card surface.
   "mirrored card-face decision | RevealGate.CardFaces — ask it rather than re-deriving its FaceRule | FaceRule\\.[A-Za-z_][A-Za-z0-9_]* *[?:]|[?:] *([A-Za-z_][A-Za-z0-9_]*\\.)*FaceRule\\. | Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteBoardCard.cs Net/Remote/RemoteHandFan.cs Net/Remote/RemoteBrowserFan.cs Net/Remote/RemotePileFronts.cs Net/Remote/RemoteHeldCardFace.cs Net/Remote/RemoteActiveCards.cs Net/Remote/RemoteControlBoard.cs"
+  # ── THE CARD'S LOOK (2026-09-07 evening round) ───────────────────────────────────────────────
+  # The face round closed one question across twelve surfaces and nobody did the same for the
+  # LOOK, so four of the maintainer's eight items that evening were the same defect again, one
+  # surface at a time: a peer's discard fan drew fresh cards where the owner saw them greyed, a
+  # burnt card alternated fire-on/fire-off forever, an active card went grey and then blue again a
+  # round later, and a card taken into the hand lost its char entirely.
+  #
+  # ONE DURABLE IMPLEMENTATION: Cards.Art.BurnLookPolicy.ForCard / ForActivatedCard, which read the
+  # card's pile and its spent halves and answer BurnLookPolicy.Look. Net/ reaches it through the
+  # single map in Net.Remote.UsedCardLook.FromPolicy — calls go DOWN, per the sharing ruling. Any
+  # OTHER mirrored surface that reaches for ECardPile itself is re-deriving that answer, which is
+  # how RemotePileFronts came to carry `content == Content.Burnt` as a stand-in for it and shipped
+  # a discard fan that asked for no look at all under a comment claiming the owner's own fan showed
+  # those cards fresh. (It does not: SetPile(Discarded) runs GhostOutOnTimeline.)
+  #
+  # RemoteBoardCard.cs IS DELIBERATELY OUT OF SCOPE, and the exclusion is the interesting part.
+  # Its ResolveUsedCardLook is the RECESS's live-ramp resolver, and its pile switch is that
+  # surface's own membership test — is this card still seated in the round, or has it left — not a
+  # second durable answer to "what look does this card wear". The sharing ruling's own bar applies
+  # here in the direction that REFUSES a merge: two questions that look alike over different
+  # populations stay two questions. If that file ever yields a look straight out of a pile test
+  # without going through the policy, this note is the thing that has gone stale, not the group.
+  "the durable card look | Cards.BurnLookPolicy.ForCard / ForActivatedCard — from Net/ go through UsedCardLook.FromPolicy; never re-derive the pile-to-look answer | ECardPile\\.(Lost|PermanentlyLost|Discarded|Activated) | Net/Remote/RemotePileFronts.cs Net/Remote/RemoteHeldCardFace.cs Net/Remote/RemoteActiveCards.cs Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteHandFan.cs Net/Remote/RemoteBrowserFan.cs Net/Remote/RemoteCardArt.cs"
+  # ── THE ONE-WRITER HOLD FOR A MIRRORED LOOK (2026-09-07 evening round) ────────────────────────
+  # CardHalfTone.NormalizeCardFx swaps a clone's card-FX materials to a shared rest copy; the
+  # mirrored surfaces re-assert a settled burn at 4 Hz. Left to fight they alternate per rebuild,
+  # and CardHalfTone.HoldCardFxLook's own doc had written that failure down IN ADVANCE — "the user
+  # sees a flicker instead of an answer" — a full build before the maintainer reported exactly
+  # that, in exactly those terms, for a peer's burnt fan.
+  #
+  # The hold shipped with ONE caller (the active cell) and three surfaces that needed it forgot to
+  # take it. So it no longer belongs to the surfaces at all: RemoteCardArt takes it inside
+  # SetAbilityCardFxProgress / ClearAbilityCardFx / DestroyClone, the one choke point through which
+  # any mirrored look is ever written. A new mirrored surface now gets it for free and CANNOT omit
+  # it — which is the difference between a convention and a construction, and this group is what
+  # keeps it a construction.
+  "the mirrored-look one-writer hold | RemoteCardArt.SetAbilityCardFxProgress — it takes the hold at the write choke point; a surface that takes it by hand is a surface that can forget it | CardHalfTone\\.HoldCardFxLook | Net/Remote/RemotePileFronts.cs Net/Remote/RemoteHeldCardFace.cs Net/Remote/RemoteActiveCards.cs Net/Remote/RemoteCardFx.cs Net/Remote/RemoteBurnFx.cs Net/Remote/RemoteHandFan.cs Net/Remote/RemoteBrowserFan.cs Net/Remote/RemoteBoardCard.cs Net/Remote/RemoteControlBoard.cs"
   # …AND THE POPULATION TERM BEHIND IT. RevealGate.ShowRoundCardFronts is the PHASE predicate — ONE
   # input to the face question — so a card SURFACE that asks it directly is deciding a face from one
   # term of the rule instead of taking the rule. The legitimate remaining callers are all outside
