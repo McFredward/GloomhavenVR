@@ -257,6 +257,11 @@ internal sealed class WorldUIModule : IVRModule
             new ElementBoardSurface(),
             new CombatLogSurface(),
             new ObjectivesSurface(),
+            // AFTER the objectives, and the order matters: ScenarioRulesSurface seats itself from
+            // ObjectivesSurface.DockedHeightMeters, which the objectives dock republishes in its
+            // own Place(). Ticking it second means the rules read THIS frame's anchor instead of
+            // last frame's — the same reason the docked panels re-place in LateTick at all.
+            new ScenarioRulesSurface(),
         };
         private readonly DialogSurface _dialogs = new();
         private readonly StatPanelSurface _statPanels = new();

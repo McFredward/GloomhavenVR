@@ -103,6 +103,19 @@ MIRRORS=(
   # the local keycap look and the remote boards must follow, or the two boards drift apart.
   # (The two Color statics of the recipe — WallWarm / BevelHighlight — cannot be linted by
   # this float/string-only extractor; they are called out as mirrors in both doc comments.)
+  # 2026-09-07, the scenario SPECIAL RULES round. The rules section is stacked under the objectives
+  # on BOTH boards — locally by ScenarioRulesSurface.MountOffset, on a peer's board by
+  # RemoteObjectivesPanel.SeatRules — and this gap is the only thing that decides how far under.
+  # It straddles WorldUI <-> Net, so a shared constant would mean routing a surface's protected
+  # geometry into Net/ (rejected there for the same reason ObjectivesDensityScale is a linted-style
+  # copy). It MUST match: an owner and a peer that disagreed about it would render one panel as two
+  # different pictures, which is the 1:1 ruling broken by a number nobody would think to check.
+  "objectives→rules stack gap (1:1) : WorldUI/Surfaces/TablePanelSurfaces.cs:StackGapMeters Net/Remote/RemoteObjectivesPanel.cs:ScenarioRulesStackGap"
+  # Same pair, second number: the section's HEIGHT BUDGET. The dock fit divides this by the measured
+  # content, so two different budgets render one paragraph at two different sizes on the two boards
+  # — and this one also has a geometry job (clearing the element board's top edge), so a drift here
+  # is a panel sitting over the elements on one client and not the other.
+  "objectives→rules height budget (1:1) : WorldUI/Surfaces/TablePanelSurfaces.cs:RulesBudgetMeters Net/Remote/RemoteObjectivesPanel.cs:ScenarioRulesBudget"
   "keycap cap seat Z : Cards/Tray/PlayTray.7.Nested.cs:CapRestZ Net/Remote/RemoteBoardFurniture.cs:CapRestZ"
   # THE "keycap bevel width" GROUP IS GONE (2026-08-25, board-button round 2), and again by
   # DELETING BOTH COPIES rather than keeping them in step — which is the outcome this file keeps

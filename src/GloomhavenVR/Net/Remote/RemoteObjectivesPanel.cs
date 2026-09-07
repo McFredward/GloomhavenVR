@@ -46,6 +46,13 @@ namespace GloomhavenVR.Net;
 /// <c>MissionObjectiveUI.UpdateMissionText/UpdateMissionProgress</c> make. Which of the two is live
 /// is stated in the <c>Remote board content</c> log line.
 ///
+/// SPECIAL RULES ("Spezialregeln") — a SECOND mirror in this same dock, stacked under the
+/// objectives, over <c>UIManager.Instance.ScenarioModifierContainer</c>. See
+/// <see cref="RefreshRules"/> for the mechanism and <c>WorldUI.Surfaces.ScenarioRulesSurface</c>
+/// for the local half. Vanilla stacks the two the same way (<c>UIQuestDescription</c> draws
+/// <c>specialRulesText</c> directly under <c>goalText</c>), which is what the user asked for:
+/// "links bei den Questzielen auch solche 'Spezialregeln'".
+///
 /// SEAT — <see cref="RemoteBoardLayout.ObjectivesMount"/> and <c>ObjectivesScale</c>, i.e.
 /// <c>PlayTray.ObjectivesMountBase</c> plus the authored per-board <c>ObjectivesOffset</c> the
 /// owner's own mount carries, keyed by that peer's synced style. The old remote-only constant
@@ -72,6 +79,8 @@ internal sealed class RemoteObjectivesPanel
     private readonly Transform _root;
     private readonly Transform _fallbackRoot;
     private readonly RemoteWidgetMirror _mirror;
+    private readonly Transform _rulesRoot;
+    private readonly RemoteWidgetMirror _rulesMirror;
     private readonly MeshRenderer _plate;
     private readonly TextMeshPro _title;
     private readonly List<Row> _rows = new(MaxRows);
@@ -88,6 +97,16 @@ internal sealed class RemoteObjectivesPanel
     /// <summary>Which mechanism is drawing the panel right now (diagnostics).</summary>
     public RemoteWidgetMirror.Fidelity Source { get; private set; } = RemoteWidgetMirror.Fidelity.None;
 
+    /// <summary>How many SPECIAL RULE rows the mirrored rules section is showing (diagnostics).
+    /// 0 is a scenario with no special rules, which is a normal and common scenario.</summary>
+    public int RuleRowCount { get; private set; }
+
+    /// <summary>Which mechanism is drawing the SPECIAL RULES section (diagnostics). Only ever
+    /// <c>MirroredWidget</c> or <c>None</c> — this section has no mod-drawn rung, see
+    /// <see cref="RefreshRules"/>.</summary>
+    public RemoteWidgetMirror.Fidelity RulesSource { get; private set; } =
+        RemoteWidgetMirror.Fidelity.None;
+
     /// <summary>Why the real widget is not being mirrored, for the diagnostic line (empty when it is).</summary>
     public string Reason => _mirror.Reason;
 
@@ -102,6 +121,33 @@ internal sealed class RemoteObjectivesPanel
     /// reason as every other constant on the remote board: reading WorldUI's protected override is
     /// not possible, and a mirrored panel drawn at a different density is not a mirror.</summary>
     private const float ObjectivesDensityScale = 0.6f;
+
+    /// <summary>
+    /// Gap between the objectives panel's bottom edge and the special-rules section's top edge,
+    /// board-local metres.
+    ///
+    /// <para>MIRROR of <c>WorldUI.Surfaces.ScenarioRulesSurface.StackGapMeters</c>, linted as one
+    /// value by <c>scripts/check-mirrors.sh</c>. A local copy for the same reason
+    /// <see cref="ObjectivesDensityScale"/> above is one — reading a WorldUI surface's protected
+    /// geometry from <c>Net/</c> is not possible — and linted because this number is the ONLY thing
+    /// that decides how far the rules sit under the goals: an owner and a peer that disagreed about
+    /// it would show two different pictures of one panel, which is exactly the 1:1 ruling broken by
+    /// a number nobody thinks to check.</para>
+    /// </summary>
+    private const float ScenarioRulesStackGap = 0.012f;
+
+    /// <summary>
+    /// Height budget of the special-rules section, board-local metres.
+    ///
+    /// <para>MIRROR of <c>WorldUI.Surfaces.ScenarioRulesSurface.RulesBudgetMeters</c>, linted by
+    /// <c>scripts/check-mirrors.sh</c> — that constant carries the full derivation (it is what is
+    /// left of the objectives' own budget above the element board's top edge at -0.172 m, sized so
+    /// the section still clears the elements at the tallest objectives panel the objectives surface
+    /// derives). It must match the owner's: the dock fit divides this budget by the measured
+    /// content, so two different budgets would render the same paragraph at two different sizes on
+    /// the two boards.</para>
+    /// </summary>
+    private const float ScenarioRulesBudget = 0.09f;
 
     public RemoteObjectivesPanel(Transform boardRoot, in RemoteBoardLayout layout)
     {
@@ -159,6 +205,38 @@ internal sealed class RemoteObjectivesPanel
             densityScale: ObjectivesDensityScale,
             layoutOwner: RemoteWidgetMirror.LayoutOwner.CloneAtBoardOwnersWidth);
 
+        // ---- SPECIAL RULES ("Spezialregeln"), stacked under the objectives -------------------
+        //
+        // The user's item 3 of 2026-09-07: "In dem Szenario das wir gespielt haben, haben wir jede
+        // Runde einen Schaden bekommen - diese Info ist aber in VR nirgendwo ersichtlich. Ich
+        // möchte das du (lokal & remote) links bei den Questzielen auch solche 'Spezialregeln'
+        // eines Szenarios hinzufügst!"
+        //
+        // SAME SHAPE AS THE OBJECTIVES ABOVE, and that is the whole design: the game holds the
+        // rules in a REAL WIDGET, UIManager.ScenarioModifierContainer — the exact sibling of the
+        // MissionObjectiveContainer this panel already mirrors, filled in the same call
+        // (UIManager.InitScenario). So the peers' copy is a live CLONE of the owner's own rules
+        // panel, at the owner's column, in the game's own localised prose, for the same reasons and
+        // through the same machinery. Nothing is redrawn, nothing is translated by the mod, and no
+        // wire field exists or is needed: ScenarioModifiers are scenario-global model state that
+        // every client builds this container from for itself (CLASSIFICATION: GLOBAL).
+        //
+        // GROW (-1,-1) rather than the objectives' (-1,0): the mount point is this section's
+        // TOP-RIGHT CORNER, so its seat needs only the panel ABOVE it and never its own height —
+        // which is not known until the first fit has run. ScenarioRulesSurface uses the identical
+        // vector on the local board for the identical reason.
+        //
+        // The MOUNT is re-seated every Refresh from _mirror.FittedSize (see SeatRules) — the
+        // objectives panel changes height whenever a row is ticked off or the owner's width dial
+        // re-wraps the column, and a fixed drop would leave a widening hole or an overlap.
+        _rulesRoot = new GameObject("ScenarioRules").transform;
+        _rulesRoot.SetParent(_root, worldPositionStays: false);
+        _rulesMirror = new RemoteWidgetMirror("ScenarioRules", _rulesRoot,
+            layout.ObjectivesWidth, ScenarioRulesBudget, new Vector2(-1f, -1f),
+            fitWidth: false,
+            densityScale: ObjectivesDensityScale,
+            layoutOwner: RemoteWidgetMirror.LayoutOwner.CloneAtBoardOwnersWidth);
+
         _fallbackRoot = new GameObject("Fallback").transform;
         _fallbackRoot.SetParent(_root, worldPositionStays: false);
         _fallbackRoot.localPosition = new Vector3(-Width * 0.5f, 0f, 0f);
@@ -182,12 +260,26 @@ internal sealed class RemoteObjectivesPanel
 
     /// <summary>Per-FRAME: keep the mirrored container in step with the original, so a progress bar
     /// filling or a row ticking off plays out at the source's own rate. No-op on the fallback.</summary>
-    public void TickLive() => _mirror.TickLive();
+    public void TickLive()
+    {
+        _mirror.TickLive();
+        _rulesMirror.TickLive();
+    }
 
-    public void Destroy() => _mirror.Destroy();
+    public void Destroy()
+    {
+        _mirror.Destroy();
+        _rulesMirror.Destroy();
+    }
 
     /// <summary>Mirror the REAL container when it exists; else repaint the mod-drawn fallback.</summary>
     public void Refresh()
+    {
+        RefreshObjectives();
+        RefreshRules();
+    }
+
+    private void RefreshObjectives()
     {
         MissionObjectiveContainer? container = null;
         try
@@ -215,6 +307,158 @@ internal sealed class RemoteObjectivesPanel
         Source = RemoteWidgetMirror.Fidelity.ModDrawn;
         _mirror.SetShown(false);
         RefreshFallback();
+    }
+
+    // ---------------------------------------------------------------- SPECIAL RULES ------------
+
+    /// <summary>Last (rows, source) pair reported, so the rules line is one per real change.</summary>
+    private int _loggedRuleRows = -1;
+    private RemoteWidgetMirror.Fidelity _loggedRuleSource = RemoteWidgetMirror.Fidelity.None;
+
+    /// <summary>
+    /// Mirror the peer-visible SPECIAL RULES — the game's own
+    /// <c>UIManager.ScenarioModifierContainer</c> — under the objectives.
+    ///
+    /// <para><b>MIRROR OR NOTHING, deliberately, and it is the 1:1 answer rather than a gap in the
+    /// work.</b> The objectives above keep a mod-drawn fallback because their previous mod-drawn
+    /// version was already shipped and rejected in that shape, so it survives as the ladder's last
+    /// rung. The rules have no such history and must not acquire one: the LOCAL board
+    /// (<c>ScenarioRulesSurface</c>) converts the real widget or draws nothing at all, so a peer
+    /// board that fell back to mod-drawn rows would be showing team-mates a picture the owner
+    /// himself never sees. Absent on both sides beats different on each.</para>
+    /// </summary>
+    private void RefreshRules()
+    {
+        ScenarioModifierContainer? container = null;
+        try
+        {
+            UIManager? manager = UIManager.Instance;
+            container = manager != null ? manager.ScenarioModifierContainer : null;
+        }
+        catch { container = null; }
+
+        int rows = CountRuleRows(container);
+
+        // Seat BEFORE the fit: the mirror measures itself against its mount, so the mount has to be
+        // where this section belongs by the time Refresh runs, or the first fitted frame lands on
+        // last frame's drop.
+        SeatRules();
+
+        bool live = rows > 0
+                    && container != null
+                    && _rulesMirror.Refresh(container.transform);
+        if (!live)
+        {
+            // No rules in this scenario (the common case), or no container yet. Tear the clone down
+            // rather than leave a stale one parked under the objectives.
+            if (rows <= 0 || container == null)
+                _rulesMirror.Refresh(null);
+            _rulesMirror.SetShown(false);
+            RulesSource = RemoteWidgetMirror.Fidelity.None;
+            RuleRowCount = 0;
+            LogRules(0, RemoteWidgetMirror.Fidelity.None);
+            return;
+        }
+
+        _rulesMirror.SetShown(true);
+        RulesSource = RemoteWidgetMirror.Fidelity.MirroredWidget;
+        RuleRowCount = rows;
+        // The clone hangs under _root, so the objectives' own relief sweep covers it — but that
+        // sweep only runs on the objectives' MIRRORED branch, and these two sections resolve
+        // independently. Running it here as well is what keeps a mirrored rules paragraph relieved
+        // while the objectives are on their fallback.
+        StyleMirroredText();
+        LogRules(rows, RemoteWidgetMirror.Fidelity.MirroredWidget);
+    }
+
+    /// <summary>
+    /// Drop this section to just under the objectives, board-local.
+    ///
+    /// <para>The objectives sit CENTRED on the panel root (their grow.y is 0), so their bottom edge
+    /// is half their height below it; this section's mount is its own TOP-RIGHT corner (grow
+    /// (-1,-1)), so the drop is that half-height plus the column's clearance and nothing else. Both
+    /// terms are LIVE: <c>FittedSize</c> is republished by every fit, and the objectives panel
+    /// changes height whenever a row is ticked off or the owner re-wraps the column.</para>
+    ///
+    /// <para>On the objectives' mod-drawn fallback there is no fit to read, so the drawn plate's
+    /// own height is the anchor — the same measurement, taken from the thing that is actually on
+    /// screen. Measuring the mirror's stale <c>FittedSize</c> in that state is how a section ends
+    /// up floating over a panel that is no longer the size it was.</para>
+    /// </summary>
+    private void SeatRules()
+    {
+        float half = Source == RemoteWidgetMirror.Fidelity.MirroredWidget
+            ? _mirror.FittedSize.y * 0.5f
+            : Mathf.Max(RowHeight + Mathf.Max(_shownRows, 0) * RowHeight + 0.010f, RowHeight) * 0.5f;
+        float drop = half + ScenarioRulesStackGap;
+
+        Vector3 p = _rulesRoot.localPosition;
+        if (Mathf.Abs(p.y + drop) < 1e-5f)
+            return;
+        _rulesRoot.localPosition = new Vector3(p.x, -drop, p.z);
+    }
+
+    /// <summary>
+    /// The rules the peer's owner can actually READ, counted as the container's live
+    /// <c>ScenarioModifierUI</c> children.
+    ///
+    /// <para>THE WIDGETS ARE THE POPULATION, NOT THE MODEL LIST, and that is the whole reason this
+    /// count can be trusted. <c>ScenarioModifierContainer.InitialiseScenarioModifier</c> spawns a
+    /// row only for a modifier that is neither <c>IsHidden</c> nor <c>Deactivated</c> AND whose
+    /// <c>LocalizeText(scenarioID)</c> came back non-empty — and the second filter is not
+    /// reconstructible from the model without re-implementing
+    /// <c>LocalizationScenarioModifierConveter</c>, whose <c>default:</c> branch returns
+    /// <c>string.Empty</c> for 15 of the 18 modifier types. Counting the model would therefore
+    /// report rules the game deliberately shows nobody.</para>
+    /// </summary>
+    private static int CountRuleRows(ScenarioModifierContainer? container)
+    {
+        try
+        {
+            if (container == null)
+                return 0;
+            int n = 0;
+            foreach (ScenarioModifierUI row in
+                     container.GetComponentsInChildren<ScenarioModifierUI>(includeInactive: false))
+                if (row != null && row.gameObject.activeInHierarchy)
+                    n++;
+            return n;
+        }
+        catch { return 0; }
+    }
+
+    /// <summary>Change-gated rules report — see the string for how to read the numbers.</summary>
+    private void LogRules(int rows, RemoteWidgetMirror.Fidelity source)
+    {
+        if (rows == _loggedRuleRows && source == _loggedRuleSource)
+            return;
+        _loggedRuleRows = rows;
+        _loggedRuleSource = source;
+
+        // HW-VERIFY
+        VRLog.Note("Net", $"PEER SCENARIO RULES: {rows} special-rule row(s) mirrored under a peer's " +
+            $"objectives, source={source} (mirror reason '{_rulesMirror.Reason}'), seated " +
+            $"{-_rulesRoot.localPosition.y:F3} m under the objectives mount against an objectives " +
+            $"panel {(Source == RemoteWidgetMirror.Fidelity.MirroredWidget ? _mirror.FittedSize.y : 0f):F3} m " +
+            $"tall (objectives source={Source}). SOURCE ANSWERED: the game's own " +
+            "UIManager.ScenarioModifierContainer, cloned — the same widget the owner's own board " +
+            "docks, so the sentences are the game's localised prose and the mod supplies no text " +
+            "in any language. ZERO WIRE: ScenarioModifiers are scenario-global model state that " +
+            "every client already holds, so there is nothing here for a peer to send. READ IT LIKE " +
+            "THIS, and the two zeroes are DIFFERENT. WORKING: rows>0 with source=MirroredWidget on " +
+            "a scenario that has special rules, and the drop above equals half the objectives " +
+            "height plus 12 mm to the millimetre — that is this section sitting ON the objectives' " +
+            "bottom edge rather than at a guessed offset. A LEGITIMATE ZERO: rows=0 with " +
+            "source=None means this scenario HAS no readable special rules, the section collapses, " +
+            "and the local board shows nothing either — the flat game's DecorateSpecialRules does " +
+            "exactly this. INERT: rows=0 with source=None on a scenario where the party is taking " +
+            "damage every round; then the container exists but spawned no widget, and the mirror " +
+            "reason above says whether it was even asked. STILL BEYOND THE INSTRUMENT: rows>0 with " +
+            "source=None — the container has rows and the clone refused them, which is a " +
+            "RemoteWidgetMirror question and the reason field is the only thing that names it. A " +
+            "count that RISES without the scenario changing would mean the game is adding " +
+            "modifiers mid-scenario (ModifyUpdatedHiddenOrDeactivatedState), which is legal and is " +
+            "why this line is gated on the count rather than printed once.");
     }
 
     /// <summary>How many mirrored labels the last sweep had to relieve (change-gated log).</summary>
