@@ -4706,19 +4706,83 @@ internal static partial class ModalFallback
     private const float MapRoomWindowMinBarHeightMeters = 0.05f;
 
     /// <summary>Ceiling on a map-room window's TOP EDGE, real metres above the table top. A common
-    /// bar height means a TALL window's top rides higher than a short one's, and past some height
-    /// that stops being "one height for every window" and becomes a window nobody can read without
-    /// tipping their head back.
+    /// bar height means a TALL window's top rides higher than a short one's, and this is the height
+    /// past which that stops being "one height for every window" and becomes a window that does not
+    /// fit in the room.
     ///
-    /// <para>IT IS A CONSTANT OF THE TABLE AND NOT OF THE HEAD, and that is not a detail: a ceiling
-    /// derived from THIS player's eye height would make a SHARED window's pose per-client, which is
-    /// the one thing the shared anchor exists to prevent. 1.90 m is set against the surveyed eye
-    /// height over this table (ModBuild 250 log: eye 231.57 wu, table top 0.00 wu, 198.12 wu/m ⇒
-    /// 1.169 m), i.e. ~0.73 m above the eye — around +25° at the map room's reading distances. At
-    /// the shipped default it is UNREACHED by every window that session placed: the tallest is
-    /// 'New Party display' at 1.134 m, whose top lands at 1.752 m. It exists for the window that has
-    /// not been measured yet, and when it fires it SAYS SO, by name, on its own line.</para></summary>
-    private const float MapRoomWindowTopCeilingMeters = 1.90f;
+    /// <para><b>ModBuild 479 — IT IS NOW THE CELLAR'S OWN CEILING, AND THE OLD NUMBER STOOD ABOVE
+    /// IT.</b> User report, verbatim: <i>"Mach die Spawnpunkte an den Ecken des Tisches etwas
+    /// niedriger. Der Greifbalken muss zwingend über dem Tisch bleiben. In der Keller umgebung
+    /// clipped das Fenster sonst durch die Decke und ist nicht voll lesbar."</i> The previous 1.90 m
+    /// was set against the surveyed EYE height (~0.73 m above the eye, +25° at reading distance) —
+    /// a comfort bound, and the only bound this rule had. Nothing in it knew the room, and 1.90 m is
+    /// ABOVE the cellar's own ceiling, so the rule as shipped explicitly PERMITTED a window standing
+    /// through it. THE ARITHMETIC, from the authored room and the shipped placement rule, all in
+    /// perceived metres above the map table's top surface:</para>
+    /// <list type="bullet">
+    ///   <item><description>The cellar is authored 10.5 x 9.0 x <b>3.30</b> m
+    ///   (<c>unity/.../BuildEnvironmentRooms.cs</c> <c>CW/CD/CH</c>), its plank ceiling pinned at
+    ///   exactly <c>CH</c> on every wall and beam and sagging at most 18 mm mid-bay
+    ///   (<c>CellarCeilY</c>), and its four ceiling BEAMS bear at <c>CH − 0.26</c> = 3.02–3.05 m
+    ///   with up to 40 mm of sag and wander at mid-span (<c>AddCellarBeam</c>) — soffit ≈ 2.98 m.
+    ///   </description></item>
+    ///   <item><description>The room is NOT life-size. <c>SkyAlternative.TryPlaceRoom</c> scales it
+    ///   by <c>PlaySpaceToBoardRatio (4.5) × subjectExtent / authoredPlayExtent</c>, and the cellar's
+    ///   <c>PlaySpace</c> marker is 6.5 authored m against a 1.20 m campaign map
+    ///   (<c>MapRoomSeat.TargetMapWidthMeters</c>) — so one authored metre is
+    ///   4.5 × 1.20 / 6.5 = <b>0.831</b> perceived metres.</description></item>
+    ///   <item><description>The same method floats the subject <c>FloatGapToBoardRatio (0.75) ×
+    ///   extent</c> = <b>0.90 m</b> above the room floor, which is the table top's own height over
+    ///   it (and is independently the 0.78 m <c>MapRoomSeat.TableTopHeightMeters</c> plus the
+    ///   0.12 m the player stands above the room floor, <c>MapTableLegs</c>'s quoted session).
+    ///   </description></item>
+    ///   <item><description>So above the TABLE TOP the cellar's planks are at
+    ///   3.282 × 0.831 − 0.90 = <b>1.83 m</b> and its beam soffits at
+    ///   2.98 × 0.831 − 0.90 = <b>1.58 m</b>. The old 1.90 m ceiling was 70 mm over the PLANKS and
+    ///   320 mm over the BEAMS; the tallest window this rule ever placed ('New Party display',
+    ///   1.134 m) landed its top at 1.752 m, i.e. 176 mm inside a beam.</description></item>
+    /// </list>
+    /// <para><b>A BEAM IS NOT A CORNER CASE.</b> The beams run at authored z = ±0.90 and ±2.70, i.e.
+    /// perceived ±0.748 m and ±2.243 m from the table centre, on the table's own axes (the room
+    /// takes the parchment's yaw). The ModBuild 250 shared ring stands at
+    /// <c>SharedWindowArcRadiusMeters</c> = 0.80 m and the tested log seats the quest popup at
+    /// depth 0.729 m — 19 mm from a beam. So the BEAM soffit is the bound, not the planks.</para>
+    ///
+    /// <para>1.45 m is that 1.58 m less ~0.13 m, which buys three things this arithmetic cannot
+    /// pin exactly: the content a window draws PROUD of its own frame (the tested log's quest log
+    /// grows its capture by 32 px = 34 mm for exactly that, and the loadout window's ink stands
+    /// 51 px past its frame), the plank sag where a window is between beams, and the few per cent
+    /// of survey error in the measured parchment extent every term above is proportional to.</para>
+    ///
+    /// <para><b>IT STAYS A CONSTANT OF THE TABLE AND NOT OF THE ROOM, AND THAT IS FORCED.</b> The
+    /// obvious "honest" fix is to read the live room's ceiling — and it is refused, twice over.
+    /// (1) Nothing in the mod can: <c>SkyAlternative.MeasureAuthoredRoomExtent</c> takes
+    /// <c>Mathf.Max(b.size.x, b.size.z)</c> and DISCARDS <c>size.y</c>, and
+    /// <c>MapTableLegs.TryFindRoomFloor</c> reads the room root's y and nothing else — the mod has
+    /// no vertical measurement of a room anywhere. (2) Even with one it would be WRONG: <c>[Sky]
+    /// Style</c> is a local dial, two players can hold different rooms, and a SHARED window's pose
+    /// may never be a function of anything client-local. So the bound is the TIGHTEST bundled room,
+    /// compiled in on every client, exactly as this constant already was — only measured against
+    /// the room instead of against an eye. The other styles have no ceiling at all (SwampNight is
+    /// outdoors, Default and OffBlack have no room), so the cellar IS the tightest.</para>
+    ///
+    /// <para>WHAT IT COSTS, STATED: at 1.45 m every window taller than 1.432 m − 0.018 m of drop
+    /// now takes the LOWERED branch, so the room's bars are level only within the short family and
+    /// each lowered window says so by name on its own <c>MAP ROOM WINDOW BAR HEIGHT</c> line. That
+    /// is the sanctioned exception the ModBuild 251 ruling already carries, and it is what "mach
+    /// die Spawnpunkte an den Ecken etwas niedriger" asks for: the two corner windows ARE the tall
+    /// ones ('New Party display' 1.134 m and 'Quest Log Manager' 0.924 m), so they come down by
+    /// 302 mm and 92 mm while the 0.675 m family keeps the common 0.600 m bar.</para>
+    ///
+    /// <para>THE HARD FLOOR IS UNTOUCHED AND STILL WINS. At this ceiling the tallest window
+    /// measured takes bar 1.45 − 0.018 − 1.134 = 0.298 m, six times
+    /// <see cref="MapRoomWindowMinBarHeightMeters"/> — and the rod that actually hangs under it
+    /// clears the table by at least that less the worst frame-to-rod drop the
+    /// <c>GRAB BAR PLATE FLOOR</c> instrument reports on any map-room window (77 px on
+    /// 'UI Loadout Window' = 48 mm; every other map-room window reads 15 px = 16 mm). "Der
+    /// Greifbalken muss zwingend über dem Tisch bleiben" therefore holds with ≈250 mm to spare, and
+    /// it is the ROD that was checked and not the frame.</para></summary>
+    private const float MapRoomWindowTopCeilingMeters = 1.45f;
 
     /// <summary>
     /// THE ONE HEIGHT, resolved for one window: how far above the map table's top surface this
@@ -4758,10 +4822,13 @@ internal static partial class ModalFallback
                    + $"tall, so the common bar height {dial:F3} m would put its top edge at "
                    + $"{top:F3} m, above the {MapRoomWindowTopCeilingMeters:F2} m ceiling "
                    + "(MapRoomWindowTopCeilingMeters — a constant of the TABLE and of no head, so "
-                   + "this decision is identical on every client). The bar is lowered to "
-                   + $"{lowered:F3} m, the least that brings the top under the ceiling, and THIS "
-                   + "WINDOW'S BAR IS THEREFORE NOT LEVEL WITH THE OTHERS: a stated trade, not a "
-                   + "silent one ***";
+                   + "this decision is identical on every client, and since ModBuild 479 it is the "
+                   + "CELLAR's own ceiling: its beam soffits stand 1.58 m over this table and its "
+                   + "planks 1.83 m, so a window whose top edge passes 1.45 m is a window inside a "
+                   + "beam — 'In der Keller umgebung clipped das Fenster sonst durch die Decke'). "
+                   + $"The bar is lowered to {lowered:F3} m, the least that brings the top under "
+                   + "the ceiling, and THIS WINDOW'S BAR IS THEREFORE NOT LEVEL WITH THE OTHERS: a "
+                   + "stated trade, not a silent one ***";
             return lowered;
         }
 
