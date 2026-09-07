@@ -2505,6 +2505,9 @@ internal sealed partial class CardsDriver
             flightSeat = _tray.SlotOf(card);
         Net.CardFxAnchor flightOrigin = SlotAnchor(flightSeat);
         ReportCardFx(flightOrigin, PileAnchor(fate));
+        CardFlightLedger.Note("own", fate.ToString(),
+            wasPickField ? "own-pick-field-commit" : "own-turn-clear",
+            CardsGameApi.CardName(card.GameCard!));
         card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
             _flyingToPile.Remove(flying);
@@ -2810,6 +2813,7 @@ internal sealed partial class CardsDriver
         // position, so both ends of this flight now agree on both machines.
         ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt);
         LogBurnAttribution(widget, "park-sweep");
+        CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
         VRCard flying = card;
         card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
@@ -3569,6 +3573,7 @@ internal sealed partial class CardsDriver
             // still live at its true board position, so the seat is there to be read.
             ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt);
             LogBurnAttribution(widget, origin);
+            CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
             {
                 _flyingToPile.Remove(flying);
@@ -3609,6 +3614,7 @@ internal sealed partial class CardsDriver
         float slabArc = Mathf.Max(minArc, Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction);
         BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp, minArc);
         LogBurnAttribution(widget, origin + "/slab");
+        CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin + "/slab", CardsGameApi.CardName(widget));
         // MP parity (report 6): the fallback slab is the same event on the wire.
         // Board STAYS HARDCODED HERE, and that is the honest answer rather than the unfixed one:
         // this branch is reached precisely because there is no live VR card left for the widget

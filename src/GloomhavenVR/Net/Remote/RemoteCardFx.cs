@@ -254,6 +254,10 @@ internal sealed class RemoteCardFx
         _played++;
         VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} playing " +
                           $"({NetProtocol.CardFxSeconds:F2}s, arc {f.Arc:F3} m) — flight #{_played}.");
+        // The DUPLICATE half of report item 5 is a flight from HERE landing on a board RemoteBurnFx
+        // has already flown a burn on. Neither class can see the other's line, so both report into
+        // one ledger keyed on (board, destination) — this one has no card name to give, by design.
+        Cards.CardFlightLedger.Note($"peer {_owner.PlayerId}", to.ToString(), "remote-wire-fx", null);
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.FlightSlab, _owner.PlayerId,
                                   f.HasFace ? 1 : 0, f.HasFace ? 0 : 1, faceRule);
         // HW-VERIFY: report items 5, 6 and 8 — "Die Animationen bei denen die Karten in den

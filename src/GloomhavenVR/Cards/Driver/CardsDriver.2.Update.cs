@@ -330,6 +330,7 @@ internal sealed partial class CardsDriver
         _knownBurntWidgets.Clear();
         _burnHoldSince.Clear(); // artwork holds die with the driver — no orphaned release later
         _burnHoldLogged.Clear();
+        CardFlightLedger.Reset(); // one scenario's flight ordinals never accuse the next one's first
         _loggedStaleHandCard.Clear(); // item 10 model-belt dedupe dies with the driver
         _fanOriginCards.Clear();
         _fanOrder.Clear();

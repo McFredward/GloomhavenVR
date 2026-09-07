@@ -1427,6 +1427,8 @@ internal sealed partial class CardsDriver
             // beside-Slot2 overflow seat the card is being spared from ever taking.
             int recess = i - firstIndex;
             ReportCardFx(SlotAnchor(recess), PileAnchor(PileKind.Discard));
+            CardFlightLedger.Note("own", "Discard", "own-pick-page-turn",
+                card.GameCard != null ? CardsGameApi.CardName(card.GameCard) : card.name);
             card.FlyToPile(pilePos, slabWidth, FlyToPileSeconds, arcUp, () =>
             {
                 _flyingToPile.Remove(flying);
@@ -1772,6 +1774,8 @@ internal sealed partial class CardsDriver
         VRCard flying = card;
         // MP parity (report 6): the redrawn sacrifice flying back into the discard pile.
         Net.NetCardFx.Report(Net.CardFxAnchor.Slot0, Net.CardFxAnchor.Discard);
+        CardFlightLedger.Note("own", "Discard", "own-short-rest-redraw",
+            card.GameCard != null ? CardsGameApi.CardName(card.GameCard) : card.name);
         card.FlyToPile(pos, width, FlyToPileSeconds, BoardUp(), () =>
         {
             _flyingToPile.Remove(flying);
@@ -1802,11 +1806,52 @@ internal sealed partial class CardsDriver
             // with no recorded pose and logged "animation skipped" (hardware log 2026-07-26,
             // 'ABILITY_CARD_LeapingCleave'), so the sacrifice simply blinked out of the left slot.
             // Launch the flight here instead, while the card is still seated and live; the claim
-            // inside TryStartBurnFly stops the watcher from starting a second one. Only a card that
-            // is NOT flying afterwards is parked — a running flight (this one, or the redraw's
-            // fly-back to the discard pile) parks itself in its completion callback.
-            TryStartBurnFly(CurrentHand(), _shortRestCard, "short-rest sacrifice");
-            if (!_shortRestCard.IsFlying)
+            // inside TryStartBurnFly stops the watcher from starting a second one.
+            //
+            // ─── "ONLY A CARD THAT IS NOT FLYING AFTERWARDS IS PARKED" WAS THE BUG, AND IT WAS
+            // ─── WRITTEN HERE AS AN ASSERTION (2026-09-07 report item 7) ────────────────────────
+            // Verbatim: "Der Spieler berichtet, dass die Karte wegploppt, man das Verbrenne-Geräusch
+            // hört (obwohl man die Karte nicht mehr sieht) und danach die Fluganimation in den
+            // Stapel 'aus dem Nichts' kam." All three pictures are this one line.
+            //
+            // TryStartBurnFly has THREE outcomes, not two, and the discarded return value carried
+            // the third. It returns true when the burn path OWNS the card — which is EITHER "the
+            // flight launched" OR "the flight is HELD while the game's burn artwork still plays ON
+            // the lying card", the user-ruled order (artwork first, THEN the pile flight). Its own
+            // doc states the contract: "In the held case the caller must leave the card exactly
+            // where it lies (no park, no vanish)." A HELD card is not flying, so `!IsFlying` was
+            // true and this parked the very card the burn path had just taken ownership of.
+            //
+            // WHAT THAT PRODUCED, MEASURED, in the ModBuild 470 peer log, three consecutive lines:
+            //   235407  BURN ANIM: holding 'ABILITY_CARD_GrabandGo' ON THE BOARD while its burn
+            //           artwork plays (effect running)          <- the hold was taken
+            //   235408  Short rest: sacrificed card removed from the board centre
+            //                                                    <- and this parked it anyway
+            //   235709  BURN HOLD: 'ABILITY_CARD_GrabandGo' waited 2,00s on the board (artwork
+            //           finished) - flying to the Burnt pile now
+            //   235711  BURN ANIM [pile-watch/slab]: transient card-back slab from (-13.25, 7.14,
+            //           -14.03) -> Burnt pile
+            // The card popped at 235408; the game's own PlaySound_CardUI_BurnedCard and its
+            // 2 s BurnCardTimeline then played on a widget with no VR card in front of the player;
+            // and 2.00 s later the release found no live card (`_factory.Find` null, hence the
+            // `/slab` branch) and flew a transient slab out of the empty seat. "Aus dem Nichts" is
+            // literally what the /slab suffix means.
+            //
+            // THE FIX IS TO USE THE RETURN VALUE. Held or flying, the burn path owns the card and
+            // parks it itself: TickBurnToPile re-offers a held widget every tick (a held widget is
+            // deliberately kept OUT of _knownBurntWidgets), and the release launches the same
+            // FlyToPile arc from the card's true, still-live pose — so the sequence becomes the one
+            // the user asked for: burn artwork to completion, THEN the flight, the card
+            // disappearing as part of it. `IsFlying` STAYS as the belt for the OTHER flight that
+            // can own this card here, the redraw's fly-back to the discard pile
+            // (FlyShortRestCardToDiscard), which the burn path knows nothing about.
+            //
+            // THE FACE RULING IS SATISFIED BY CONSTRUCTION AND WAS NOT BEFORE: "Beim Verbrennen
+            // EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar sein." The
+            // slab this used to fall back to is a card BACK on both faces; the real VR card that
+            // now flies carries the front it was already showing.
+            bool burnPathOwnsIt = TryStartBurnFly(CurrentHand(), _shortRestCard, "short-rest sacrifice");
+            if (!burnPathOwnsIt && !_shortRestCard.IsFlying)
                 _factory.Park(_shortRestCard);
             _shortRestCard = null;
         }

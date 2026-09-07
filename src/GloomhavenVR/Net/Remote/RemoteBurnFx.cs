@@ -74,12 +74,23 @@ internal sealed class RemoteBurnFx
     /// CEILING on how long a burned card may be held before it flies, in seconds — NOT a duration
     /// any more.
     ///
-    /// <para>IT STOPPED BEING A DURATION IN THIS BUILD, and that is report item 9's third clause.
-    /// The hold now lasts exactly as long as the OWNER's own card is still seated in the recess this
-    /// client mirrors: <see cref="Drive"/> hands over to the arc on the frame that seat empties, and
-    /// a burn this client could never seat flies at once. Both are strictly closer to the owner's
-    /// timing than a fixed two seconds was, because the seat emptying IS his flight starting. What
-    /// this number still does is stop a card being held forever by a recess that never lets go.</para>
+    /// <para>IT STOPPED BEING A DURATION (report item 9's third clause) AND HAS NOW STOPPED BEING A
+    /// CEILING TOO (report item 5). The hold lasts exactly as long as the OWNER's own card is still
+    /// seated in the recess this client mirrors: <see cref="Drive"/> hands over to the arc on the
+    /// frame that seat empties, and a burn this client could never seat flies at once. Both are
+    /// strictly closer to the owner's timing than a fixed two seconds was, because the seat
+    /// emptying IS his flight starting. Applying this number as a ceiling ON TOP of that ended
+    /// three of four mirrored burns in the ModBuild 470 host log at 2.00 s while the owner's card
+    /// was still lying in his recess — his "direkt bei der ersten Karte" — so the belt against a
+    /// recess that never lets go is now <see cref="SeatedHoldBeltSeconds"/> and this is no longer
+    /// consulted by the hold at all.</para>
+    ///
+    /// <para>WHAT IT STILL IS: the ORIGIN of phase 2's clock. <see cref="Drive"/> reads
+    /// <c>(Elapsed - HoldSeconds) / CardFxSeconds</c> for the arc's parameter and
+    /// <see cref="Handover"/> re-bases <c>Elapsed</c> to exactly this value when the hold ends, so
+    /// every arc runs its full length however long the hold before it took. Any value would do for
+    /// that arithmetic; it is kept AT the game's burn duration because that is what the number
+    /// means everywhere else it is quoted.</para>
     ///
     /// <para>MIRRORED CONSTANT, and the thing it mirrors is the GAME's, not ours:
     /// <c>CardEffects.BurnCardTimeline</c> opens with <c>float burnTime = 2f</c>
@@ -91,6 +102,26 @@ internal sealed class RemoteBurnFx
     /// is what made every burn on ModBuild 447 run the full 3 s.</para>
     /// </summary>
     private const float HoldSeconds = 2f;
+
+    /// <summary>
+    /// LEAK BELT, NOT A TIMING DIAL: the longest a presentation whose card this client can still
+    /// SEE seated in the owner's recess may wait before it flies anyway.
+    ///
+    /// <para>It is deliberately far longer than a turn. A held presentation costs nothing visually
+    /// — <see cref="Drive"/> keeps its slab DISABLED for the whole hold and the card the viewer is
+    /// looking at is the recess mirror's, exactly as on the owner's own board — so the only thing
+    /// this number protects against is a recess mirror that never stops drawing the card, which
+    /// would otherwise strand a <see cref="Burn"/> slot and a wire claim forever. It is NOT the
+    /// answer to "how long should a burn lie there": that answer is the owner's recess emptying,
+    /// and it is read per frame.</para>
+    ///
+    /// <para>THE SEAT TEST IS KEYED ON THE CARD, not on the seat, so this belt is almost
+    /// unreachable in practice: <c>RecessShowingCard(b.CardId)</c> stops matching the moment the
+    /// owner's recess draws ANY other card or empties, and the next round reseats both recesses. A
+    /// reading of this arm in <c>BURN FLIGHT</c> is therefore a report against
+    /// <c>RemoteBoardCard</c>, not against this class.</para>
+    /// </summary>
+    private const float SeatedHoldBeltSeconds = 300f;
 
     /// <summary>
     /// Seconds between two walks of the peer's host-replicated Lost pile — THE UPPER BOUND ON HOW
@@ -200,6 +231,23 @@ internal sealed class RemoteBurnFx
     /// <see cref="ConsumesWireEvent"/>.</summary>
     private float _lastPresentedAt = float.NegativeInfinity;
 
+    /// <summary>Unscaled time of the most recent HAND-OVER (a hold ending, an arc beginning). The
+    /// claim window in <see cref="ConsumesWireEvent"/> runs from this rather than from the
+    /// discovery, because the owner reports his flight when his card is really cleared and that can
+    /// be a whole turn after this mirror learned of the burn.</summary>
+    private float _lastHandoverAt = float.NegativeInfinity;
+
+    /// <summary>Is any presentation still HOLDING (discovered, not yet handed over)? While one is,
+    /// the owner has not cleared his card and his wire event cannot have been sent, so the claim
+    /// sweep must not expire.</summary>
+    private bool AnyHoldPending()
+    {
+        for (int i = 0; i < _burns.Count; i++)
+            if (_burns[i].Active && !_burns[i].HandoverLogged)
+                return true;
+        return false;
+    }
+
     /// <summary>How many of the owner's <c>Board -&gt; Burnt</c> events this mirror still owes a
     /// swallow, i.e. how many burns it has presented whose wire event has not arrived yet.
     ///
@@ -248,7 +296,30 @@ internal sealed class RemoteBurnFx
         // The window is the STALE-TOKEN sweep, not the claim itself: an event that never arrived
         // (a dropped packet on an unreliable stream, an owner whose report was suppressed by a
         // read-only character focus) must not leave a token behind to eat the NEXT burn's event.
-        if (Time.unscaledTime - _lastPresentedAt > HoldSeconds + NetProtocol.CardFxSeconds + ClaimSlackSeconds)
+        //
+        // ─── IT IS ANCHORED ON THE HAND-OVER, NOT ON THE DISCOVERY, AND THAT IS THE SECOND HALF
+        // ─── OF REPORT ITEM 5 ("Die Animation kam noch ZUSÄTZLICH am Ende des Zuges") ──────────
+        // The owner reports his Board→Burnt event when HIS card is really cleared away, which is
+        // when he ends the turn. This mirror learns of the burn when the game commits the pile
+        // move, which is when the card's ACTION resolves — and between those two moments sits the
+        // whole rest of his turn. A window measured from DISCOVERY (`_lastPresentedAt`) is
+        // therefore 2.0 + 0.4 + 3.0 = 5.4 s against a gap that is routinely tens of seconds: the
+        // sweep zeroed the claim long before the owner's event arrived, the event fell through to
+        // RemoteCardFx, and the same burn flew a SECOND time as an anonymous back slab.
+        //
+        // MEASURED on ModBuild 470, host Player.log: this class flew 'Trample' at line 221429 and
+        // 'OverwhelmingAssault' at 229787, and RemoteCardFx then flew 'Slot1 -> Burnt' at 230415
+        // and 'Slot0 -> Burnt' at 230510 — two burns, four flights, and BURN MIRROR SKIPPED absent
+        // from the whole session, so nothing had declined to present them.
+        //
+        // SO THE CLAIM LIVES AS LONG AS THE PRESENTATION DOES. While any presentation is still
+        // HOLDING, the owner has by definition not cleared his card yet and his event cannot have
+        // been sent — nothing may expire. Once the last one has handed over, the old window runs
+        // from THAT instant, which is the one the owner's own flight starts from, so the slack
+        // still covers the difference between his hold releasing and ours.
+        float anchor = Mathf.Max(_lastPresentedAt, _lastHandoverAt);
+        if (!AnyHoldPending()
+            && Time.unscaledTime - anchor > HoldSeconds + NetProtocol.CardFxSeconds + ClaimSlackSeconds)
         {
             _claims = 0;
             return false;
@@ -528,7 +599,7 @@ internal sealed class RemoteBurnFx
             if (TryAnchor(CardFxAnchor.Burnt, out Vector3 liveTo))
                 b.To = liveTo;
 
-            if (b.Elapsed < HoldSeconds)
+            if (!b.HandoverLogged)
             {
                 // PHASE 1 — it lies on their board and chars, exactly as it does on theirs, AND THE
                 // ONLY THING THAT MAY DRAW IT IS THEIR OWN RECESS. RemoteBoardCard.DriveUsedCardFx
@@ -554,29 +625,69 @@ internal sealed class RemoteBurnFx
                 // SO THE HAND-OVER IS THE EDGE, AND THAT IS STRICTLY MORE 1:1, NOT LESS. The hold no
                 // longer runs a clock of its own: it lasts precisely as long as the owner's card is
                 // still seated in the recess this client is mirroring, and the arc begins on the
-                // frame that seat empties. HoldSeconds survives as the CEILING it always was for a
-                // burn whose recess this client could never place (a short rest whose sacrifice had
-                // already left, a hidden board) — and there the flight starts at once, because a
-                // card nobody can seat has nowhere to lie either.
+                // frame that seat empties. A burn whose recess this client could never place (a
+                // short rest whose sacrifice had already left, a hidden board) flies at once,
+                // because a card nobody can seat has nowhere to lie either.
+                //
+                // ─── AND THE SENTENCE THAT USED TO END THAT PARAGRAPH WAS FALSE. It read
+                // "HoldSeconds survives as the CEILING it always was for a burn whose recess this
+                // client could never place ... and there the flight starts at once", which is two
+                // incompatible claims about the same burn, and the CODE agreed with the second: an
+                // unseatable burn fell through to the hand-over on its FIRST frame and never met a
+                // ceiling at all. HoldSeconds was reachable only while the recess WAS drawing the
+                // card, i.e. in precisely the case that sentence excluded. It is not a hold ceiling
+                // any more at all (see below); it is only the base of phase 2's clock.
+                //
+                // ─── AND THE SENTENCE ABOVE WAS TRUE OF THE COMMENT AND FALSE OF THE CODE
+                // ─── (2026-09-07 report item 5) ────────────────────────────────────────────────
+                // "HoldSeconds survives as the CEILING it always was for a burn whose recess this
+                // client could never place" — but the ceiling was applied to EVERY burn, seated or
+                // not, because the branch this block sits in used to be `if (b.Elapsed <
+                // HoldSeconds)`. A card the owner is still looking at in his recess therefore flew
+                // on this client after 2.0 s regardless, which is the FIRST half of his report:
+                // "Die Animation dass die Karte in den Verbrannt-Stapel geht ist direkt bei der
+                // ersten Karte gestartet, aber die Karte bleibt ja noch so lange liegen bis der
+                // Spieler den Zug beendet."
+                //
+                // THE HOST LOG SAYS IT IN ITS OWN WORDS, THREE TIMES OUT OF FOUR. ModBuild 470,
+                // .planning/debug/Player.log, this class's own BURN FLIGHT line:
+                //   166904  'ABILITY_CARD_ShieldBash'          2.00s … "the 2.0s ceiling ran out
+                //   221429  'ABILITY_CARD_Trample'             2.00s     while their recess was
+                //   229787  'ABILITY_CARD_OverwhelmingAssault' 2.00s     STILL drawing the card"
+                //   250648  'ABILITY_CARD_GrabandGo'           0.02s   "their recess stopped
+                //                                                       drawing that card"
+                // Only the fourth — a short-rest sacrifice, the case the ceiling was written for —
+                // took the intended edge. Meanwhile the OWNER of those cards flew all of them at
+                // turn-clear and only then (remote/Player.log 216971/216973, one frame apart), so
+                // the 2.0 s ceiling was a pure 1:1 breach: the mirror animated a card its owner was
+                // still watching lie in his recess.
+                //
+                // SO THE HOLD HAS EXACTLY ONE TERM NOW, AND IT IS THE OWNER'S RECESS. Held while
+                // his recess draws the card; handed over on the first frame it does not — which
+                // covers the never-seated burn on frame 1, exactly as before. The only clock left
+                // is SeatedHoldBeltSeconds, a leak belt against a recess mirror that never lets go,
+                // and it is two orders of magnitude away from anything one turn can take.
                 bool recessDraws = b.CardId != int.MinValue
                                    && _owner.RecessShowingCard(b.CardId) == b.Recess
                                    && b.Recess >= 0;
-                if (recessDraws)
+                if (recessDraws && b.Elapsed < SeatedHoldBeltSeconds)
                 {
                     b.SeatedFrames++;
                     if (b.Go.activeSelf)
                         b.Go.SetActive(false);
                     continue;
                 }
-                // The recess is not drawing it, so nothing may hold it any longer: skip whatever is
-                // left of the hold and fall through into the arc on this very frame.
-                LogHandover(b, b.Elapsed, "their recess stopped drawing that card");
-                b.Elapsed = HoldSeconds;
-            }
-            else
-            {
-                LogHandover(b, HoldSeconds, "the " + HoldSeconds.ToString("F1")
-                    + "s ceiling ran out while their recess was STILL drawing the card");
+                Handover(b, recessDraws
+                    ? "the " + SeatedHoldBeltSeconds.ToString("F0")
+                      + "s STRANDED-MIRROR belt ran out while their recess was STILL drawing the "
+                      + "card — the recess mirror never let go, which is a defect in THAT surface "
+                      + "and not a dial here"
+                    : b.SeatedFrames > 0
+                        ? "their recess stopped drawing that card, which is the same instant the "
+                          + "owner's own card left that seat and his own flight began"
+                        : "their recess never drew this card at all (a sacrifice that had already "
+                          + "left its seat, or a board this client cannot place) — so there is "
+                          + "nowhere for it to lie and it flies immediately");
             }
 
             // THE HAND-OVER. The flight always draws the slab, and it draws it ALREADY CHARRED: a
@@ -816,6 +927,33 @@ internal sealed class RemoteBurnFx
     }
 
     /// <summary>
+    /// THE HAND-OVER, AS MECHANISM: this presentation stops holding and its arc begins now.
+    ///
+    /// <para>Every load-bearing write of the transition lives here and none of it in
+    /// <see cref="LogHandover"/>. <see cref="_lastHandoverAt"/> in particular is READ by
+    /// <see cref="ConsumesWireEvent"/> to decide whether the owner's <c>Board -&gt; Burnt</c> wire
+    /// event is swallowed or flies a second time, so it is the mechanism's state and not a
+    /// diagnostic's.</para>
+    ///
+    /// <para>THE CLOCK IS RE-BASED, NOT CARRIED. Phase 2 reads
+    /// <c>(Elapsed - HoldSeconds) / CardFxSeconds</c>, and since the hold now lasts as long as the
+    /// owner's recess draws the card, a hold that spanned a whole turn would enter the arc at
+    /// t &gt;= 1 — the card would appear in the stack without ever being seen to fly, which is the
+    /// exact teleport this class exists to remove.</para>
+    /// </summary>
+    private void Handover(Burn b, string why)
+    {
+        if (b.HandoverLogged)
+            return;
+        float after = b.Elapsed;
+        b.HandoverLogged = true;
+        _lastHandoverAt = Time.unscaledTime;
+        b.Elapsed = HoldSeconds;
+        Cards.CardFlightLedger.Note($"peer {_owner.PlayerId}", "Burnt", "remote-burn-mirror", b.Name);
+        LogHandover(b, after, why);
+    }
+
+    /// <summary>
     /// HARDWARE VERIFICATION (2026-09-06 late report, item 9): the instant the mirrored burn stops
     /// being the owner's seated card and becomes a flight, and how long — if at all — a STATIONARY
     /// slab was visible before it. Grep token <c>BURN FLIGHT</c>. One line per burn, at the
@@ -849,9 +987,13 @@ internal sealed class RemoteBurnFx
     /// </summary>
     private void LogHandover(Burn b, float after, string why)
     {
-        if (b.HandoverLogged)
-            return;
-        b.HandoverLogged = true;
+        // NOTHING LOAD-BEARING IS WRITTEN HERE, DELIBERATELY. The hand-over's bookkeeping —
+        // `HandoverLogged`, `_lastHandoverAt`, the arc's re-based clock — all lives in
+        // <see cref="Handover"/>, because `_lastHandoverAt` is READ by ConsumesWireEvent to decide
+        // whether a peer's burn flies once or twice. A state write inside a logger is the shape
+        // that once nearly latched the wall fade off forever when a spent log line was deleted;
+        // check-instrument-writes.py caught this one on its first draft. This method may be gated
+        // off, retired or demoted and the behaviour is identical.
         // HW-VERIFY: grep token "BURN FLIGHT" — see this method's doc for the three readings.
         VRLog.Note("Net", $"BURN FLIGHT [peer {_owner.PlayerId}]: '{b.Name}' leaves for their Burnt " +
                           $"stack now, {after:F2}s after this mirror discovered the burn, because " +
