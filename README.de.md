@@ -141,12 +141,12 @@ Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen.
   <img src="docs/img/env-forest.jpg" width="350" alt="Der Nachtwald">
 </p>
 
-**Fünf Möglichkeiten, ein Regler.** Derselbe Tisch und dasselbe Szenario in jedem Raum, den der Mod
-darum herum stellen kann — auch ganz ohne Raum, und mit dem Greenscreen, der den Tisch an deine
-Streaming-App übergibt.
+**Ein Regler, fünf Einstellungen.** Derselbe Tisch und dasselbe Szenario in jeder davon. Die beiden
+Räume oben sind die, die für diesen Mod gebaut wurden; die anderen drei sind der Himmel des Spiels,
+gar kein Himmel, und der Greenscreen, der den Tisch an deine Streaming-App übergibt.
 
 <p align="center">
-  <img src="docs/img/env-styles-de.png" width="720" alt="Die fünf Umgebungen: Standard-Himmel, Keller, Nachtwald, Aus (schwarz) und Mixed Reality">
+  <img src="docs/img/env-styles-de.png" width="720" alt="Die fünf Umgebungen: Keller und Nachtwald, beide für diesen Mod gebaut, darunter der Himmel des Spiels, Aus (schwarz) und Mixed Reality">
 </p>
 
 ### Die Räume reagieren auf die Elemente

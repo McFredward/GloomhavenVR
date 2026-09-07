@@ -139,11 +139,12 @@ with firelight, ambient sound and rare events.
   <img src="docs/img/env-forest.jpg" width="350" alt="The night forest">
 </p>
 
-**Five choices, one dial.** The same table and the same scenario, in every room the mod can put
-around it — including no room at all, and the green key that hands the table to your streaming app.
+**One dial, five settings.** The same table and the same scenario in each of them. The two rooms
+above are the ones built for this mod; the other three are the game's own sky, no sky at all, and
+the green key that hands the table to your streaming app.
 
 <p align="center">
-  <img src="docs/img/env-styles-en.png" width="720" alt="The five environment options: default sky, cellar, night forest, off (black) and mixed reality">
+  <img src="docs/img/env-styles-en.png" width="720" alt="The five environment settings: cellar and night forest, both built for this mod, above the game's own sky, off (black) and mixed reality">
 </p>
 
 ### The rooms react to the elements
