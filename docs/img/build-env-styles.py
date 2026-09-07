@@ -15,12 +15,33 @@ THE SOURCE CAPTURES AND WHY THEY NEEDED CROPPING. The maintainer shot all five f
 and said so himself: *"Ich habe versucht immer aus dem gleichen Winkel ein Screenshot zu machen -
 das ist mir nicht ganz gelungen."* They are hand-held VR captures, so the board lands in a different
 place and at a slightly different apparent size in each. The crop is therefore not a framing
-preference, it is the thing that makes the five COMPARABLE: each window is centred on that shot's
-board and sized as a fixed multiple of that shot's board width, so the board occupies the same
-fraction of every tile and the eye is left comparing the ROOM, which is the only variable the
-picture is about. The board centres and widths are read off a coordinate-grid overlay of each
-capture and recorded in CROPS below; re-shooting a room means re-reading those four numbers for it
-and nothing else.
+preference, it is the thing that makes the five COMPARABLE: every window is sized as the SAME
+multiple of that shot's own board width (K = 2.6), so the board occupies the same fraction of every
+tile and the eye is left comparing the ROOM, which is the only variable the picture is about.
+
+AND THE WINDOW HANGS UPWARD FROM THE BOARD RATHER THAN CENTRING ON IT. Maintainer, second pass:
+*"Schneide die Perspektive so, dass das Spielfeld am unteren Rand ist bei allen Bildern so dass man
+bei unseren maps mehr sieht nach oben hinweg."* The board's BOTTOM edge is placed just above the
+caption band - the lowest it can sit and still leave the words readable - and everything the window
+gains, it gains above the board, which is where the cellar's brazier and wall and the forest's
+trunks and light shafts live. A first attempt at this moved the window the wrong way: in the
+centred crop the board's bottom already sat at ~0.79 of the frame, so pinning it at 0.67 raised it
+and cut the brazier off the top. Seeing more upward needs a WIDER window, not a shifted one - hence
+K going 2.0 -> 2.6 in the same change.
+
+THE CROP NUMBERS, so a re-shoot is four numbers and not a re-derivation. Per capture: the board's
+centre X, its BOTTOM edge Y and its width, all in 3840x2160 source pixels and all read off a
+coordinate-grid overlay; plus the fraction of the tile height the board's bottom should land at,
+which differs by row because the two caption bands are different heights against different tile
+heights (122/402 wide, 64/266 narrow) and one fraction would put the board through the words on one
+row and leave a gap on the other.
+
+    cellar   cx 2022  bottom 1470  width 1160   f 0.667   -> lands 0.667
+    forest   cx 1990  bottom 1750  width 1250   f 0.667   -> lands 0.776 (clamped: only 410 px of
+                                                            source lie below that board)
+    default  cx 2048  bottom 1560  width 1290   f 0.729   -> lands 0.729
+    off      cx 1974  bottom 1650  width 1330   f 0.729   -> lands 0.738
+    mr       cx 2103  bottom 1660  width 1340   f 0.729   -> lands 0.745
 
 THE NAMES COME FROM Loc.cs, VERBATIM, AND THAT IS THE POINT. A gallery whose captions drift from the
 menu rows is a lookup, not a glance — the same argument the control-board callouts are written
