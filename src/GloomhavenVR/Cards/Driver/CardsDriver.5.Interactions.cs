@@ -952,10 +952,13 @@ internal sealed partial class CardsDriver
             return;
         // Grab-time reopen applies to PLACED field cards only (take it back / re-seat
         // it): the choice must reopen the instant the placement is physically undone.
-        // Grabbing a FAN card leaves the popup alone — a swap only commits on the
-        // release INTO a slot (BeginPickSwapReopen from HandlePickRelease), so a
-        // change-of-mind void release changes nothing. Browse/active cards are
-        // read-only and never reach this.
+        // Grabbing a FAN card leaves the popup alone, and SINCE 2026-09-07 SO DOES RELEASING
+        // ONE INTO A SLOT — that release is REFUSED outright (HandlePickRelease's
+        // `target < 0` branch, report item 11), so a fan card can no longer displace a
+        // committed one by any route and this is the ONLY reopen the player's hand can start.
+        // The sentence here used to read "a swap only commits on the release INTO a slot
+        // (BeginPickSwapReopen from HandlePickRelease)"; that method no longer exists.
+        // Browse/active cards are read-only and never reach this.
         if (!_fieldCards.Contains(card))
             return;
 
@@ -972,44 +975,30 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>
-    /// Task #11 (free swap, fan → slot while the popup is open): a fan candidate was
-    /// dropped into a slot while the confirm popup still showed the full selection.
-    /// Reopen through the game's cancel seam first, keeping all placements EXCEPT the
-    /// most recent one (its slot goes to the incoming card — it returns to the fan);
-    /// the caller then queues the incoming card's select, which re-completes the
-    /// selection and re-opens the popup with the swapped set. Runs before the commit
-    /// so the game never sees a select while the popup locks the cards.
+    /// THE PICK FIELD, NAMED, for the refusal line — the cards this flow is holding COMMITTED
+    /// right now, in seat order, with the locked prefix marked. Never null, never throws, and
+    /// deliberately not a count: item 11's whole symptom was a count and a picture disagreeing,
+    /// so the line that reports the refusal has to say WHICH card stayed, not how many did.
+    /// Allocates only on the refusal edge (one drop), never per frame.
     /// </summary>
-    private void BeginPickSwapReopen(CardsHandUI hand, VRCard incoming)
+    private string DescribeFieldCards()
     {
-        if (_pickReopenBusy || !CardsGameApi.IsPickConfirmDialogOpen(hand))
-            return;
-
-        _reopenKeep.Clear();
-        for (int i = 0; i < _fieldCards.Count - 1; i++) // all but the most recent placement
+        if (_fieldCards.Count == 0)
+            return "(none)";
+        var sb = new System.Text.StringBuilder(64);
+        for (int i = 0; i < _fieldCards.Count; i++)
         {
+            if (i > 0)
+                sb.Append(", ");
             VRCard placed = _fieldCards[i];
-            if (placed == null || ReferenceEquals(placed, incoming) || placed.GameCard == null)
-                continue;
-            _reopenKeep.Add(placed.GameCard.AbilityCard);
+            sb.Append(placed != null && placed.GameCard != null
+                ? CardsGameApi.CardName(placed.GameCard)
+                : "?");
+            sb.Append('@').Append(PickSeatOfIndex(i));
+            if (i < _pickLockedCount)
+                sb.Append("[locked]");
         }
-        // Physically free the displaced placement now — the queued cancel deselects it
-        // and it is not re-selected, so it returns to the fan instead of waiting for
-        // the reconcile prune.
-        if (_fieldCards.Count > 0)
-        {
-            VRCard displaced = _fieldCards[_fieldCards.Count - 1];
-            if (displaced != null && !ReferenceEquals(displaced, incoming))
-            {
-                _fieldCards.RemoveAt(_fieldCards.Count - 1);
-                _pickExitFlown.Remove(displaced); // never a flown card here (the flown ones are the
-                                                  // locked PREFIX and this is the tail) — kept so the
-                                                  // set can never outlive its list
-                RelayoutField();
-                _fan.Add(displaced);
-            }
-        }
-        EnqueuePickReopen(hand, "fan card swap-in");
+        return sb.ToString();
     }
 
     /// <summary>Queue the actual reopen: the game's own "choose another card"
@@ -1074,21 +1063,89 @@ internal sealed partial class CardsDriver
         // beside-Slot2 stack for a locked one — see PickSeatOfIndex).
         int target = wasOnField ? PickSeatOfIndex(_fieldCards.IndexOf(card)) : PickTargetSlot();
 
-        // EVENT-DISCARD BATCHING: a FRESH candidate dropped while the current batch is
-        // already full (both recesses placed, total requirement not yet reached, no
-        // confirm popup to swap under) is REFUSED back to the fan — the player must
-        // press the tray CONFIRM ("WEITER") to lock the batch first. Without this the
-        // third card silently piled beside Slot2 and the "batches of two" structure
-        // (and its step display) meant nothing. The dialog-open case stays a SWAP
-        // (BeginPickSwapReopen below), and a reopen in flight is left alone. Checked
-        // BEFORE the drop log so the one line per drop tells the true outcome.
-        if (accept && !wasOnField && target < 0
-            && !_pickReopenBusy && !CardsGameApi.IsPickConfirmDialogOpen(gameHand))
+        // A FRESH CANDIDATE THE FLOW HAS NO SEAT FOR IS REFUSED, AND SINCE 2026-09-07 THAT
+        // INCLUDES THE CASE WHERE THE GAME'S CONFIRM POPUP IS ALREADY UP (report item 11).
+        //
+        // Two states share one rule because they are one state: `target < 0` means the pick
+        // flow is not asking for another card right now — either the current batch of two is
+        // full and the tray CONFIRM ("WEITER") has to lock it first, or the FULL requirement
+        // is already lying on the board and the game has opened its own
+        // "verbrennen / Wähle eine andere Karte" popup over it.
+        //
+        // ─── THE `!IsPickConfirmDialogOpen` TERM WAS THE DEFECT, AND IT IS MEASURED ──────────
+        // Verbatim (2026-09-07): "Wenn ich bei der langen Rast eine Karte hinlege und dann mit
+        // einer weiteren Karte dort hingehe ohne den Button 'Wähle eine weitere Karte' gedrückt
+        // zu haben - ist das board leer aber die Karte ist noch eingeloggt."
+        //
+        // With the term present, a long rest (PickCardsWanted() == 1, one card laid, popup
+        // open) fell through to BeginPickSwapReopen, which COMMITTED THE VISUAL HALF OF A SWAP
+        // BEFORE THE MODEL HALF COULD LAND: it removed the laid card from _fieldCards and
+        // _fan.Add()-ed it home on the spot, then queued the game's cancel and, behind it, the
+        // incoming card's select. CardActionQueue runs ONE entry per frame, and the reopen's
+        // last entry clears _pickReopenBusy and sets _dirty — so the rebuild it triggers lands
+        // a WHOLE FRAME BEFORE the incoming card's SelectCard, with the incoming card in
+        // _fieldCards and its widget still unselected. Rebuild's field prune
+        // (`!_pickReopenBusy && !occupant.GameCard.IsSelected`, CardsDriver.4.Rebuild.cs:1063-1066)
+        // is then exactly true and fans the incoming card home too. The select lands one frame
+        // later and is ACCEPTED. Board empty, model holding a card: his sentence, verbatim.
+        //
+        // ALL SEVEN of the host log's swap-ins read that way, with no exception (ModBuild 472,
+        // .planning/debug/Player.log 232073 / 232343 / 232561 / 233863 / 234075 / 234289 /
+        // 234619). Each one is the same four readings in the same order:
+        //   cardsLyingInThePickField=1  →  cardsLyingInThePickField=0
+        //   →  "Pick commit (LoseCard): '<card>' via drop-slot → CardsHandUI.SelectCard accepted."
+        //   →  Pick banner: "Testo: Alle Karten liegen — mit der Board-Taste abschließen …"
+        // A banner saying every card is laid, over two empty recesses. And it is NOT the
+        // "cancel did not fire" failure the swap path documents: "Pick confirm CANCEL:
+        // optionButtons[cancelOption] is ACTIVE" precedes every one of them and the Warn is
+        // absent from the whole session, so the swap worked exactly as written and the written
+        // thing is what produced the picture.
+        //
+        // 1:1 IS THE REFUSAL, NOT THE SWAP. While that popup stands the GAME has every widget
+        // unselectable (CardsHandUI.OnCardSelected's LoseCard branch, CardsHandUI.cs:2051, plus
+        // LockCard on each shown card, :2064-2065) — the flat player cannot lay a second card
+        // either. The free swap was the mod's own invention, so removing it removes a
+        // divergence rather than adding one. And it is what the user asked for in the same
+        // breath: "Der Kartentausch muss in dem Fall abgelehnt werden und die Karte geloggt bis
+        // dieser Button die freigibt."
+        //
+        // NOBODY IS STRANDED, WHICH IS WHY THIS IS A REFUSAL AND NOT A DEAD END. Two releases
+        // already exist and both are the game's own "choose another card" seam: the tray UNDO
+        // keycap, which carries the popup's own GUI_CHOOSE_OTHER_CARD label
+        // (CardsDriver.6.Flows.cs:631 → OnUndoRequested → CancelPickConfirmDialog), and
+        // GRABBING THE LAID CARD BACK (MaybeReopenPickSelection), which the 2026-08-04 ruling
+        // made the dock's substitute for that button. The banner the board is already showing
+        // names the second one in words.
+        //
+        // Checked BEFORE the drop log so the one line per drop tells the true outcome.
+        if (accept && !wasOnField && target < 0 && !_pickReopenBusy)
         {
-            VRLog.Info("Cards", $"Drop ({hand.Side}): {probe.Describe()}, " +
-                                $"rule={rule} → REFUSED: current batch of " +
-                                $"{Mathf.Min(2, CardsGameApi.PickCardsWanted() - _pickLockedCount)} is full — " +
-                                "press the board CONFIRM to lock it in before choosing more. Card returns to the fan.");
+            bool confirmStanding = CardsGameApi.IsPickConfirmDialogOpen(gameHand);
+            // HW-VERIFY: report item 11 (2026-09-07). Grep token: PICK SWAP REFUSED.
+            //
+            // WORKING = one line per second card brought to an occupied pick flow, naming a
+            // NON-EMPTY `committed=` list, and NO "Pick commit … accepted" line following it for
+            // the refused card. Zero lines in a session where he never brings a second card is
+            // correct, not inert.
+            // INERT = a `Pick reopen (fan card swap-in)` line anywhere in the log: the swap path
+            // is reachable again and the field/board pair below will go 1 → 0 as it did seven
+            // times on 472. That string is the falsifier; it should now be UNREACHABLE, and
+            // grepping for its ABSENCE is the cheaper test than grepping for this line's presence.
+            // STILL BEYOND THE INSTRUMENT = `committed=` printing the card that stayed while the
+            // RECESS is empty. This line reads _fieldCards, i.e. the mod's bookkeeping; a card
+            // held there whose visual is not in a recess is a SEATING defect and the lead is
+            // RelayoutField / PlacePickCard, not this gate.
+            VRLog.Note("Cards", $"PICK SWAP REFUSED ({hand.Side}): {probe.Describe()}, rule={rule} → " +
+                                (confirmStanding
+                                    ? "the full pick is already laid and the game's own confirm popup is up"
+                                    : $"the current batch of {Mathf.Min(2, CardsGameApi.PickCardsWanted() - _pickLockedCount)} is full") +
+                                $", so this card goes home. committed={DescribeFieldCards()} " +
+                                $"(field={_fieldCards.Count}, locked={_pickLockedCount}, " +
+                                $"wanted={CardsGameApi.PickCardsWanted()}, popup={confirmStanding}). " +
+                                "The laid card STAYS committed and stays in its recess; release it with the " +
+                                "board's \"choose another card\" keycap (UNDO) or by grabbing it back — " +
+                                "then a new pick is possible. A refused drop takes the same animated glide " +
+                                "home every other refused drop takes; no card state was written.");
             _tray.NoteSlotActivity(); // the gesture still happened right next to CONFIRM
             _fan.Add(card);
             return;
@@ -1110,12 +1167,16 @@ internal sealed partial class CardsDriver
         if (accept)
         {
             hand.SendHaptic(HapticPreset.ClickPulse); // snap feedback (test #13)
-            // Task #11 (free swap): a fan candidate dropped into a slot while the
-            // confirm popup shows the completed selection — reopen through the game's
-            // own "choose another card" first (displaces the most recent placement),
-            // THEN queue this card's select; the popup reopens with the swapped set.
-            if (!wasOnField)
-                BeginPickSwapReopen(gameHand, card);
+            // THE FREE SWAP THAT USED TO SIT HERE IS GONE (report item 11, 2026-09-07). A fan
+            // candidate dropped while the game's confirm popup shows the completed selection can
+            // no longer reach this branch at all — the refusal above returns first — so the
+            // "displace the most recent placement, then reopen through the game's own cancel"
+            // path has no caller left, and BeginPickSwapReopen is deleted rather than left dead.
+            // The reason is in the refusal's own block: it committed the visual half of the swap
+            // one frame before the model half, and Rebuild's field prune ate the incoming card in
+            // the gap. The reopen seam that REMAINS is the grab-back one
+            // (MaybeReopenPickSelection), which is driven by the player's own hand and displaces
+            // nothing on its own authority.
             // Task #5 (double sound): a commit queues CardsHandUI.SelectCard, whose
             // AbilityCardUI.ToggleSelect plays the card's own serialized profile click
             // (mouseDownAudioItem, AbilityCardUI.cs:1184) one frame later — our thunk on

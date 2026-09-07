@@ -1247,7 +1247,25 @@ internal sealed partial class PlayTray
         {
             _occupants[slot] = null;
             card.SetDockGrabPad(false); // apron off with the dock (grab already clears it too)
-            VRLog.Info("Cards", $"Board: card taken back from slot {slot + 1}.");
+            // HW-VERIFY: report item 6 (2026-09-07). Grep token: SLOT RELEASED.
+            //
+            // THE ONE PLACE A ROUND-CARD RECESS IS GIVEN UP, and since 2026-09-07 that includes
+            // the rest path (SyncFromGameState's eviction calls this instead of inlining it), so
+            // the line is now answer-bearing rather than colour. It was VRLog.Info — DEBUG tier,
+            // invisible at the shipped default — which is the same trap `REST GATE` was pulled
+            // out of one build ago; the text is unchanged apart from naming the card.
+            //
+            // WORKING (item 6) = one line per recess when a rest is chosen, immediately before
+            // the REST BOARD line that reads recesses=0. INERT = a REST BOARD burst ending with
+            // recesses>0 and round=0 with NO line here: the eviction never ran and the board is
+            // holding a card the rules model has already un-chosen.
+            // Every OTHER reading of this line is an ordinary take-back / swap and is expected;
+            // it is one line per deliberate hand gesture, never per frame.
+            VRLog.Note("Cards", $"SLOT RELEASED: card '{card.name}' taken back from slot {slot + 1} " +
+                                "— the recess is free and this board no longer claims the card. Every " +
+                                "release of a round-card recess goes through here: a take-back, a swap's " +
+                                "displaced occupant, a wrong-hand refusal, and the rest eviction in " +
+                                "SyncFromGameState.");
         }
     }
 
@@ -1315,13 +1333,30 @@ internal sealed partial class PlayTray
         bool changed = false;
         // (a) Evict any occupant that is no longer one of the two round cards (unselected
         // / swapped out) — its slot frees up for the surviving/new card.
+        //
+        // THIS IS THE PATH A REST TAKES, and until 2026-09-07 it was the only slot release in the
+        // class that said nothing (report item 6: "In diesem Moment muss das Spiel die Karten
+        // wieder vom Board abräumen die dort liegen. Selbes gilt für lange Rast."). Choosing
+        // either rest deselects every card already laid — the long rest inside
+        // CardsHandUI.OnCardSelected's IsLongRest branch (CardsHandUI.cs:1946-1949, which
+        // ToggleSelect(false)s every other entry of selectedCardsUI) and the short rest inside
+        // PerformShortRest's DeselectAllCards() (CardsHandUI.cs:770) — and each deselect runs
+        // OnCardDeselected's MoveAbilityCard(RoundAbilityCards → HandAbilityCards)
+        // (CardsHandUI.cs:2239-2242). So the GAME's answer to "where does a laid card go when a
+        // rest is chosen" is BACK INTO THE HAND, it is the same answer for both rests, and the
+        // loop below is exactly where this board learns it: RoundAbilityCards empties, both
+        // occupants fail the test, and the rebuild's fan fill / park sweep re-home them.
+        //
+        // It used to inline RemoveCard's two statements rather than call it, which cost the one
+        // line naming the release. That is not a cosmetic difference for this item: "how many
+        // cards were on the board when the rest was pressed and how many left" is the reading the
+        // item asks for, and neither half of it was printable.
         for (int s = 0; s < 2; s++)
         {
             VRCard? occ = _occupants[s];
             if (occ != null && occ != roundInit && occ != roundOther)
             {
-                occ.SetDockGrabPad(false); // evicted from the slot → apron off
-                _occupants[s] = null;
+                RemoveCard(occ); // apron off + slot freed + the ONE release line, in one place
                 changed = true;
             }
         }

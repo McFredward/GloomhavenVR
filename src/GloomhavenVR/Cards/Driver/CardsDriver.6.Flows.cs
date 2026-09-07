@@ -106,6 +106,43 @@ internal sealed partial class CardsDriver
             _tray.SetWantedSlots(0);
             return;
         }
+        // ITEM 7 (2026-09-07) — THE OVERLAYS FOR THE NEXT SELECTION ARRIVED ON TOP OF THE BURN.
+        // Verbatim: "Nachdem der Spieler eine Karte im Kontext der kurzen Rast verbrannt hat,
+        // sieht er direkt schon die Overlays für die kommende Auswahl - das kollidiert mit der
+        // Verbennen Animation. Ich will das diese erst abgewartet wird und danach erscheinen die
+        // Overlays zur weiteren Auswahl." Re-stated the round before as a SEQUENCE: "Das Spiel
+        // muss warten bis die Verbrennen animation fertig abgespielt wurde, dann die
+        // Fluganimation inklusive verschwinden der Karte und dann ist der Flow beendet."
+        //
+        // THE GATE ONE LINE UP IS THE WHOLE CAUSE, and it is not wrong so much as EARLY. Its term
+        // is the game's ShortRestedCard, which CardsHandUI.FinalizeShortRest nulls at the moment
+        // the player COMMITS the sacrifice (CardsHandUI.cs:973) — before the game's own 2 s
+        // BurnCardTimeline has started, and a whole hold-plus-flight before the card is gone. On
+        // that frame IsShortRestChoosing goes false, the mode is still CardsSelection,
+        // IsSelectionReady is false and SelectionCardsStillWanted is 2, so the branch below lights
+        // BOTH teal recess overlays — one of them around and behind the card that is lying there
+        // burning. That is his picture.
+        //
+        // THIS IS NOT A SECOND WAITER. There is exactly one completion signal in the burn path and
+        // it already existed before this round: TryTakeBurnFlightSlot's artwork hold
+        // (CardsDriver.4.Rebuild.cs:3409), whose release term is BurnArtworkActive — the game's own
+        // running CardEffects.coroutine handle ANDed with HasEffect(BurnCard|LostMode) — bounded by
+        // BurnEffectStartGraceSeconds (0.5 s) and BurnEffectMaxHoldSeconds (3 s); and then the
+        // flight itself, which ends when FlyToPile's completion callback parks the card. The pair
+        // of sets those two states live in is (_burnHoldSince, _flyingToPile), and reading THAT
+        // pair is what BoardStillOwnsACardsExit does. It is the same pair CardEnRouteToPile and
+        // PileArrivalsPending's cheap exit already read for the pile LABELS
+        // (CardsDriver.4.Rebuild.cs:2936 / :2973) — the deferred discard/burnt counts the user
+        // already accepted are gated on precisely this, so the overlays are now late by exactly
+        // the amount the pile numbers are already late by, and for the same reason. No new clock,
+        // no new state, no second sequencer on one animation.
+        if (BoardStillOwnsACardsExit(out int holds, out int flights))
+        {
+            LogOverlayHeldByExit(holds, flights);
+            _tray.SetWantedSlots(0);
+            return;
+        }
+        _overlayExitHeldSince = 0f;
         // ITEM 6b (2026-09-06) — A DEAD FLOW MAY NOT PULSE A SLOT. His words: "Beim zweiten Schaden
         // nach einer direkten Verbrennung hat das Overlay zum Verbrennen schon geblinkt, obwohl die
         // Entscheidung noch nicht getroffen wurde". The pick branch below used to read IsPickMode
@@ -201,6 +238,94 @@ internal sealed partial class CardsDriver
             }
         }
         _tray.SetWantedSlots(mask);
+    }
+
+    /// <summary>Unscaled time the current exit-hold started, 0 while nothing is being held. Only
+    /// <see cref="LogOverlayHeldByExit"/> writes and reads it — it is a log cadence, never a
+    /// gate.</summary>
+    private float _overlayExitHeldSince;
+
+    /// <summary>Change-dedup for the exit-hold line: the (holds, flights) pair last printed.</summary>
+    private (int holds, int flights)? _loggedOverlayExit;
+
+    /// <summary>
+    /// IS THE MOD STILL PHYSICALLY MOVING A CARD OFF THIS BOARD INTO A PILE? The one question
+    /// item 7's overlay gate has to ask, answered from the two sets that already carry the
+    /// burn path's ownership and from nothing else:
+    ///
+    /// <list type="bullet">
+    /// <item><c>_burnHoldSince</c> — the artwork hold <see cref="TryTakeBurnFlightSlot"/> keeps a
+    ///   card in WHILE the game's own burn timeline plays on it, released on
+    ///   <c>BurnArtworkActive</c> going false (or the 3 s ceiling / a hand switch's
+    ///   <c>FlushBurnHolds</c> / the prune, all of which land the flight rather than dropping
+    ///   it).</item>
+    /// <item><c>_flyingToPile</c> — the arc itself, cleared by the flight's own completion
+    ///   callback the frame it parks the card.</item>
+    /// </list>
+    ///
+    /// <para>IT CANNOT LATCH THE OVERLAYS OFF, and that matters more here than anywhere else
+    /// because a permanently dark hint is a worse defect than an early one. The region header
+    /// above <c>CardEnRouteToPile</c> (CardsDriver.4.Rebuild.cs:2895-2917) enumerates every way
+    /// a flight can end — land, cancel, destroy, board switch, hand switch, artwork deadline —
+    /// and states that each converges the count on the very next frame, so "an entry for a card
+    /// nobody will ever land is not representable". This method adds no third set and therefore
+    /// inherits that argument whole rather than restating it.</para>
+    ///
+    /// <para>DELIBERATELY NOT NARROWED TO THE SHORT-REST SACRIFICE. The card is handed to the
+    /// burn path by <c>RemoveShortRestCard</c>, which nulls <c>_shortRestCard</c> in the same
+    /// breath — after that the mod's only handle on it is the WIDGET key in
+    /// <c>_burnHoldSince</c>, so a card-scoped question could not be asked at the moment it
+    /// matters. Asking the board-wide one instead also covers the two other flights that can be
+    /// in the air when a selection phase opens (a turn-clear and a pick-page exit), and for those
+    /// the answer is the same one the user gave for the burn: the overlay for the NEXT choice
+    /// does not belong on a board that is still clearing the LAST one.</para>
+    /// </summary>
+    private bool BoardStillOwnsACardsExit(out int holds, out int flights)
+    {
+        holds = _burnHoldSince.Count;
+        flights = _flyingToPile.Count;
+        return holds > 0 || flights > 0;
+    }
+
+    /// <summary>
+    /// The item-7 falsifier. Change-gated on the (holds, flights) pair, so a hold that spans
+    /// 180 frames prints once — a held instrument reading as dead is a shape this project has
+    /// already paid for, so the line states its own cadence and prints the elapsed hold when the
+    /// pair changes again.
+    /// </summary>
+    private void LogOverlayHeldByExit(int holds, int flights)
+    {
+        float now = Time.unscaledTime;
+        if (_overlayExitHeldSince <= 0f)
+            _overlayExitHeldSince = now;
+        var key = (holds, flights);
+        if (_loggedOverlayExit.HasValue && _loggedOverlayExit.Value == key)
+            return;
+        _loggedOverlayExit = key;
+        // HW-VERIFY: report item 7 (2026-09-07). Grep token: OVERLAY HELD BY EXIT.
+        //
+        // WORKING = at least one line per short-rest burn, its FIRST reading printing
+        // held=0.00s with holds>=1, and the LAST reading of that burst printing a `held=` value
+        // at or above the game's own 2 s BurnCardTimeline — i.e. the overlays waited out the
+        // artwork AND the 0.40 s flight. The gap the item asks for is this line's `held=` at the
+        // burst's end: it IS the delay between the completion signal and the overlays.
+        // INERT = zero of these lines in a session that contains a `BURN HOLD:` line. The gate is
+        // then not being reached and the overlays are lighting on FinalizeShortRest again, which
+        // is the 472 behaviour verbatim.
+        // STILL BEYOND THE INSTRUMENT = lines whose `held=` climbs past
+        // BurnEffectMaxHoldSeconds + FlyToPileSeconds (3.40 s) without the burst ending. Nothing
+        // in the two sets can do that (see BoardStillOwnsACardsExit), so a reading like that
+        // means a flight completion callback did not run and the lead is VRCard.FlyToPile /
+        // the park sweep, NOT this gate — and the overlays would be dark for as long as it lasts.
+        VRLog.Note("Cards", $"OVERLAY HELD BY EXIT: the wanted-slot overlays for the NEXT selection are " +
+                            $"suppressed because this board is still moving {holds + flights} card(s) off it " +
+                            $"— {holds} inside the game's burn artwork (TryTakeBurnFlightSlot's hold, released " +
+                            $"on CardEffects.coroutine going null) and {flights} in flight to a pile. " +
+                            $"held={now - _overlayExitHeldSince:F2}s so far. This is the SAME completion " +
+                            "signal the flight itself waits on, not a second one: the user's order is burn " +
+                            "artwork, then the flight with the card disappearing, THEN the next choice's " +
+                            "overlays. Change-gated on the (holds, flights) pair — one line per change, so a " +
+                            "long hold looks quiet on purpose; the burst's LAST held= is the gap to read.");
     }
 
     // ------------------------------------------------------ pick progress + confirm routing --
@@ -546,6 +671,107 @@ internal sealed partial class CardsDriver
         return true;
     }
 
+    /// <summary>The rest census's change gate: (a rest is chosen, cards physically in the two
+    /// recesses, cards the model still lists for the round). Written and read by
+    /// <see cref="ReportRestBoardClear"/> alone.</summary>
+    private (bool resting, int recesses, int round)? _restBoardKey;
+
+    /// <summary>
+    /// ITEM 6 (2026-09-07) — DID PRESSING A REST TAKE THE LAID CARDS OFF THIS BOARD?
+    ///
+    /// <para>Verbatim: "Im Test hatte der Spieler eine Karte bereits liegen und hat dann auf
+    /// kurze Rast gedrückt. In diesem Moment muss das Spiel die Karten wieder vom Board abräumen
+    /// die dort liegen. Selbes gilt für lange Rast."</para>
+    ///
+    /// <para>THE DESTINATION IS THE GAME'S, NOT A CHOICE THIS MOD MAKES, and it is the same for
+    /// both rests: BACK INTO THE HAND. The long rest deselects every other selected card inside
+    /// <c>CardsHandUI.OnCardSelected</c>'s <c>IsLongRest</c> branch (CardsHandUI.cs:1946-1949);
+    /// the short rest does it with <c>DeselectAllCards()</c> inside <c>PerformShortRest</c>
+    /// (CardsHandUI.cs:770), which the game runs on the YES of its own confirmation dialog and
+    /// NOT on the press — <c>ShortRest.Select</c> only shows that dialog (ShortRest.cs:207-234).
+    /// Either deselect reaches <c>OnCardDeselected</c>, whose non-long-rest arm is
+    /// <c>MoveAbilityCard(RoundAbilityCards → HandAbilityCards)</c> (CardsHandUI.cs:2239-2242).
+    /// Neither <c>GameState.PlayerShortRested</c> nor <c>PlayerLongRested</c> touches
+    /// <c>RoundAbilityCards</c> at all. So a laid card is not discarded and not kept: it is
+    /// un-chosen, and the board must show a hand card again.</para>
+    ///
+    /// <para>WHY THIS SHIPS AS A MEASUREMENT AND NOT AS A REMEDY, said plainly. The mod's board
+    /// already follows that model move, and by two independent routes:
+    /// <c>PlayTray.SyncFromGameState</c>'s eviction frees the recess the frame
+    /// <c>RoundAbilityCards</c> stops naming the card, and the rebuild then either re-homes it
+    /// into the fan (<c>FillHandFan</c> → <c>HandFanMember</c>, true again once the widget's
+    /// <c>cardType</c> reverts to <c>Hand</c> in <c>AbilityCardUI.ToggleSelect</c>) or parks it
+    /// (the zone sweep, for which <c>inTray</c> is now false). The edge is not missed either:
+    /// <c>PollHandCards</c>' signature is folded over <c>HandFanMember</c> precisely so that a
+    /// model move marks the driver dirty. Reading the ModBuild 472 pair does not close it and
+    /// cannot: the session contains no instance of the reported gesture — every rest edge in it
+    /// (host Player.log 159889 / 208746 / 209426 / 209725) is preceded by a board-UI record with
+    /// <c>recess=False</c>, i.e. an EMPTY board. So the honest statement is that the evidence
+    /// does not name the cause, and the thing this build adds is the reading that WOULD name it,
+    /// beside the one release line the eviction now prints.</para>
+    ///
+    /// <para>It measures the PICTURE and the MODEL side by side on purpose. The recess count is
+    /// <c>PlayTray.OccupiedSlotMask</c>'s question — does the slot anchor physically parent a
+    /// live, un-held card — which is also the bit a peer's mirrored board is driven from
+    /// (extension record 4), so one reading covers "the local board" and "every mirror" at once.
+    /// The round count is the rules model. They are supposed to fall together.</para>
+    /// </summary>
+    private void ReportRestBoardClear(CardsHandUI? hand)
+    {
+        if (hand == null || hand.PlayerActor == null)
+        {
+            _restBoardKey = null;
+            return;
+        }
+        bool resting;
+        int round;
+        try
+        {
+            resting = CardsGameApi.IsShortRestSelected(hand)
+                      || CardsGameApi.IsLongRestSelected(hand)
+                      || CardsGameApi.IsShortRestChoosing(hand);
+            round = hand.PlayerActor.CharacterClass.RoundAbilityCards.Count;
+        }
+        catch (System.Exception)
+        {
+            return; // a half-torn hand answers nothing; the next frame re-asks
+        }
+        int mask = _tray.OccupiedSlotMask;
+        int recesses = ((mask & 1) != 0 ? 1 : 0) + ((mask & 2) != 0 ? 1 : 0);
+        var key = (resting, recesses, round);
+        if (_restBoardKey.HasValue && _restBoardKey.Value == key)
+            return;
+        bool wasResting = _restBoardKey.HasValue && _restBoardKey.Value.resting;
+        int wasRecesses = _restBoardKey.HasValue ? _restBoardKey.Value.recesses : 0;
+        _restBoardKey = key;
+        if (!resting && !wasResting)
+            return; // ordinary card selection — not this item's window
+        // HW-VERIFY: report item 6 (2026-09-07). Grep token: REST BOARD.
+        //
+        // WORKING = for every rest, a line with recesses>0 on the edge the rest is chosen,
+        // followed within a second by one reading recesses=0 AND round=0. `left=` on that second
+        // line is the count the item asks for: how many cards left the board.
+        // INERT = a burst that ends on recesses>0 with round=0 — the model un-chose the cards and
+        // the board kept drawing them, which is the report verbatim; the lead is then
+        // PlayTray.SyncFromGameState's eviction (it prints `SLOT RELEASED` at Note tier since this
+        // build, so that token's ABSENCE beside such a line says the eviction never ran) or the
+        // zone sweep that should have parked the card.
+        // ALSO INERT, and a different defect: a burst that ends recesses=0 with round>0 — the
+        // board dropped cards the rules model still counts for the round.
+        // STILL BEYOND THE INSTRUMENT = a rest taken with recesses=0 and round=0 throughout. That
+        // is the ModBuild 472 session in full (every rest edge in it reads that way), and it says
+        // only that the gesture was not performed — never that it works.
+        VRLog.Note("Cards", $"REST BOARD ({(resting ? "rest chosen" : "rest window closed")}): " +
+                            $"recesses={recesses} (physically drawn, the same bit peers mirror), " +
+                            $"round={round} (CCharacterClass.RoundAbilityCards), " +
+                            $"left={System.Math.Max(0, wasRecesses - recesses)} since the last reading. " +
+                            "Both rests un-choose every laid card and the GAME moves it " +
+                            "RoundAbilityCards → HandAbilityCards (OnCardDeselected), so the board must end " +
+                            "this burst at recesses=0 AND round=0. Ending it with recesses>0 and round=0 is " +
+                            "the reported defect; recesses=0 with round>0 is its mirror image and a " +
+                            "different one. Change-gated on the triple, so one line per real transition.");
+    }
+
     private void UpdatePickStatus(CardsHandUI? hand)
     {
         // ITEM 6b: BOTH EDGES ARE REPORTED BEFORE ANY EARLY RETURN. The END report used to sit
@@ -555,6 +781,11 @@ internal sealed partial class CardsDriver
         // not print.
         ReportBurnFlowArm();
         ReportPickFlowEnd();
+        // ITEM 6 (2026-09-07) rides the same per-frame, pre-early-return spot for the same
+        // reason: a rest edge can be taken while the item-surrender or floating-panel banner
+        // owns the placard, and a census that only runs when the pick banner does would miss
+        // exactly the sessions worth reading. Seq/change-gated like its two neighbours.
+        ReportRestBoardClear(hand);
         if (UpdateItemDemandStatus(hand))
         {
             _exhaustedStatusKey = null; // another owner holds the placard; re-push ours when it lets go
