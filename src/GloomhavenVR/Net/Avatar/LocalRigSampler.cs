@@ -686,7 +686,14 @@ internal static class LocalRigSampler
             // HW-VERIFY: report item 2 (2026-09-07). Grep token: FAN ARC ORDER SENT.
             Core.VRLog.Note("Net", $"FAN ARC ORDER SENT: {(sent ? "SENT" : "WITHHELD")} — arc={arc} "
                 + $"seats={seats} fp={(sent ? fp.ToString("x8") : "--------")} "
-                + $"why={(sent ? "our own arc, stated in full" : why)}. This is the OWNER edge of "
+                // THE LIST THE INDICES ARE IN, on the SENT path — record 44 is indices into the
+                // list record 43 NAMES, not into the hand by definition (see SampleFanArcOrder's
+                // index-space block). A watcher's own 'FAN SOURCE [player N]' line names the same
+                // list from the other end, so the two settle in one grep whether both ends chose
+                // the same population; they cannot differ within a packet, because one read of
+                // SampleFanSource() feeds both records.
+                + $"why={(sent ? $"our own arc, stated in full, as indices into the {why}" : why)}"
+                + ". This is the OWNER edge of "
                 + "extension record 44: 'the order I sent'. fp is an order-sensitive fold over "
                 + "CardInstanceID, which is host-replicated, so the same arc in the same order "
                 + "prints the SAME WORD on every machine — compare it with this player's "
@@ -809,12 +816,51 @@ internal static class LocalRigSampler
             if (actor == null || mine == null || !ReferenceEquals(actor, mine))
                 return ReportFanArcOrder(false, n, 0, 0u, "arc is not our own character's hand");
 
+            // ─── THE INDEX SPACE IS RECORD 43'S TO CHOOSE, NOT THIS METHOD'S TO ASSUME ──────────
+            // This walk was the HAND unconditionally, and that is the whole of 2026-09-07 report
+            // item 9's second symptom ("sehen die anderen Spieler auch die Faecher nicht mehr").
+            // While the game has its owner stepping through a modal card pick it re-Shows the hand
+            // OVER a pile, so CardFan.Current is the DISCARD or LOST arc — every card of which
+            // correctly fails a HandFanMember walk, and the IndexOf below then refused the whole
+            // record. Measured on the ModBuild 472 host: 42 change-gated
+            // `FAN ARC ORDER SENT: WITHHELD ... why=an arc card is not in this hand's fan walk (a
+            // loan or a pick fan)` lines, against ZERO on the peer — the only asymmetric refusal
+            // between the two logs, and the peer is the client whose fan went to backs.
+            //
+            // THE RECEIVER WAS ALREADY WRITTEN TO THIS CONTRACT AND ONLY THIS END BROKE IT, which
+            // is why no receiver change goes with this one. Net.Remote.RemoteHandFan.UpdateFaces
+            // calls ResolveHandFronts(actor, fanList) — which branches on
+            // NetProtocol.IsFanSourcePile and fills _handBuffer from GetPileArcWidgets for a pick
+            // fan — and only THEN calls ApplyFanArcOrder, which indexes into whatever _handBuffer
+            // holds. Record 44 has therefore always meant "indices into the list record 43 names";
+            // this end was the one that hardcoded the hand.
+            //
+            // ONE DECISION, BOTH RECORDS. The term is SampleFanSource(), the very expression record
+            // 43 carries, read here rather than re-derived — so the two records cannot name
+            // different populations in one packet. Re-deriving the pile from the game's
+            // selectableCardType would be a second expression for one fact, which is the defect
+            // NameHeldCard's own block is written about.
+            //
+            // AND IT IS BELTED BY THE IndexOf BELOW. If the two reads ever DID disagree, every arc
+            // card would fail to be found in the derived list and the record is withheld exactly as
+            // it is today — the failure direction is silence, never a valid-looking permutation of
+            // the wrong list.
+            byte fanList = SampleFanSource();
+            bool pickFan = NetProtocol.IsFanSourcePile(fanList);
             s_fanOrderDerived.Clear();
-            System.Collections.Generic.List<AbilityCardUI> all = hand.cardsUI;
-            for (int i = 0; i < all.Count; i++)
+            if (pickFan)
             {
-                if (Cards.CardsGameApi.HandFanMember(all[i], actor))
-                    s_fanOrderDerived.Add(all[i]);
+                Cards.CardsGameApi.GetPileArcWidgets(
+                    hand, fanList == NetProtocol.HeldFaceListBurnt, s_fanOrderDerived);
+            }
+            else
+            {
+                System.Collections.Generic.List<AbilityCardUI> all = hand.cardsUI;
+                for (int i = 0; i < all.Count; i++)
+                {
+                    if (Cards.CardsGameApi.HandFanMember(all[i], actor))
+                        s_fanOrderDerived.Add(all[i]);
+                }
             }
             // THE DERIVED LIST MAY BE LONGER THAN THE ARC AND MUST NEVER BE SHORTER. Longer is the
             // ordinary state of a card in this player's fist or lying in one of their recesses, and
@@ -860,10 +906,14 @@ internal static class LocalRigSampler
                 if (at < 0)
                 {
                     s_fanOrderDerived.Clear();
-                    // An arc card the hand walk does not hold — a browse loan, or a pick fan drawn
-                    // over a pile (record 43), where the arc is not the hand at all.
+                    // An arc card the walk of the list record 43 NAMES does not hold. A pick fan is
+                    // no longer one of these — that was this refusal's commonest cause and it is
+                    // fixed above — so the reason string no longer says it is, and a reading of it
+                    // now means a genuine foreign card in the arc (a browse loan) or the two reads
+                    // of FanSourcePile disagreeing inside one packet.
                     return ReportFanArcOrder(false, n, 0, 0u,
-                        "an arc card is not in this hand's fan walk (a loan or a pick fan)");
+                        "an arc card is not in the " + (pickFan ? "pick fan's pile" : "hand")
+                        + " walk (a browse loan, or record 43 naming a list this arc is not)");
                 }
                 order[k] = at;
             }
@@ -871,7 +921,8 @@ internal static class LocalRigSampler
             // NO IDENTITY SHORTCUT. See the header: the receiver has nothing to "keep", so an
             // omitted record is read as the GAME's order and the fan snaps back to it. State it.
             count = n;
-            return ReportFanArcOrder(true, n, n, fp, string.Empty);
+            return ReportFanArcOrder(true, n, n, fp,
+                pickFan ? "pick fan pile arc" : "hand");
         }
         catch (System.Exception ex)
         {

@@ -75,6 +75,58 @@ internal static class RevealGate
     }
 
     /// <summary>
+    /// THE PARTITIONED OWNERSHIP TERM — "does THIS client control this character?", asked of the
+    /// record the game itself keeps rather than of the cached bool that answers it wrong.
+    ///
+    /// <para>WHY <c>CActor.IsUnderMyControl</c> IS NOT A PARTITION (Lane F's finding, 2026-09-07
+    /// report item 10, read from the game's own source). It is a plain auto-property — a CACHED
+    /// PER-CLIENT BOOLEAN — and its two FFSNet writers are asymmetric:
+    /// <c>CharacterManager.OnControlAssigned</c> (CharacterManager.cs:479-486) sets it TRUE only
+    /// when <c>PlayerRegistry.MyPlayer.PlayerID == controller.PlayerID</c>, so the SET is scoped;
+    /// <c>OnControlReleased</c> (CharacterManager.cs:488-495) clears it with NO identity test at
+    /// all. A scoped set with an unscoped clear can be stale TRUE on the wrong client and stale
+    /// FALSE on the right one AT THE SAME TIME — so <c>IsUnderMyControl</c> and
+    /// <c>!IsUnderMyControl</c> are not complements across the table, which is precisely what a
+    /// secrecy predicate needs them to be.</para>
+    ///
+    /// <para>STRICTLY MORE ACCURATE, NEVER MORE PERMISSIVE BY GUESS — Lane F's contract, kept
+    /// verbatim here because this file is the one place where "more permissive" means a LEAK.
+    /// <c>Cards.CardsGameApi.LocalControlsActor</c> reads <c>NetworkPlayer.MyControllables</c>,
+    /// which is scoped at both edges and is the record the game subscribes to; when it cannot
+    /// answer (offline, FFSNet absent, reflection incomplete, no local player yet) the flag is read
+    /// exactly as before, so single player and every non-FFSNet build are byte-identical. Only a
+    /// DISAGREEMENT changes an answer.</para>
+    ///
+    /// <para>ITS DEGRADATION IS THIS FILE'S STANDING DIRECTION, and that is checkable rather than
+    /// asserted: all three call sites read the term NEGATED inside a product this predicate
+    /// negates, so <c>false</c> here means "not ours" means SHOW LESS. A null actor answers false
+    /// for that reason. A non-player <c>CActor</c> keeps the flag, which is today's behaviour
+    /// unchanged — <c>MyControllables</c> would not list one anyway.</para>
+    ///
+    /// <para>DELIBERATELY NOT <c>Board.CharacterFocus.IsForeign</c>: <c>CharacterFocus</c> carries
+    /// <c>using GloomhavenVR.Net;</c> and routing through it would point this file's dependency back
+    /// at a consumer of it. <c>CardsGameApi</c> is the low-level game-read API every remote surface
+    /// in this namespace already calls directly, so this follows the established direction.</para>
+    ///
+    /// <para>NOT SUBSTITUTED INTO <see cref="PeersSeeOurCardFronts"/>, and that is a statement: the
+    /// ownership term FOLDS OUT there by construction (every character we control is "somebody
+    /// else's" to a peer), so there is no read to correct and adding one would invent a term the
+    /// predicate's whole derivation says must not exist.</para>
+    /// </summary>
+    private static bool LocallyControls(CActor? actor)
+    {
+        if (actor == null)
+            return false;
+        if (actor is CPlayerActor player)
+        {
+            bool byList = Cards.CardsGameApi.LocalControlsActor(player, out bool answerable);
+            if (answerable)
+                return byList;
+        }
+        return actor.IsUnderMyControl;
+    }
+
+    /// <summary>
     /// True when <paramref name="actor"/>'s round-card FRONTS may be shown to us. Mirrors the
     /// vanilla reveal rule: hide fronts only while online, for an actor NOT under our control,
     /// during the secret selection phase. In every other case (offline / single player / map /
@@ -102,7 +154,7 @@ internal static class RevealGate
     public static bool ShowRoundCardFronts(CPlayerActor actor) =>
         !(FFSNetwork.IsOnline
           && actor != null
-          && !actor.IsUnderMyControl
+          && !LocallyControls(actor)
           && IsSecretSelectionPhase);
 
     /// <summary>
@@ -1155,7 +1207,7 @@ internal static class RevealGate
     /// term in this file whose degradation is inherited rather than chosen.</para>
     /// </summary>
     public static bool ShowBattleGoal(CActor? actor) =>
-        !(FFSNetwork.IsOnline && (actor == null || !actor.IsUnderMyControl));
+        !(FFSNetwork.IsOnline && (actor == null || !LocallyControls(actor)));
 
     /// <summary>
     /// May <paramref name="actor"/>'s PERSONAL QUEST (campaign life goal) be shown? Verbatim
@@ -1192,7 +1244,7 @@ internal static class RevealGate
             }
             if (quest == null)
                 return false;
-            return !(quest.IsConcealed && FFSNetwork.IsOnline && !actor.IsUnderMyControl);
+            return !(quest.IsConcealed && FFSNetwork.IsOnline && !LocallyControls(actor));
         }
         catch
         {
