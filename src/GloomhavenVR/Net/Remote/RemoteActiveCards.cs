@@ -18,11 +18,19 @@ namespace GloomhavenVR.Net;
 /// the pile stacks.
 ///
 /// SOURCE (per-actor model, zero wire): <c>CCharacterClass.ActivatedAbilityCards</c> — the very list
-/// the local <c>ActivePileViewer</c> is fed from, read off the host-replicated actor. Card FRONTS
-/// (name) are shown only through <see cref="RevealGate.ShowRoundCardFronts"/>, so during the secret
-/// selection phase a peer's active column shows BACKS — the same stance the round-card slots take.
-/// In practice an active card is public by definition (it was played face-up in front of everybody),
-/// so the gate can only ever be stricter than vanilla, never looser.
+/// the local <c>ActivePileViewer</c> is fed from, read off the host-replicated actor.
+///
+/// THIS COLUMN MUST NEVER SHOW A BACK, IN ANY PHASE, AND THE SENTENCE THAT USED TO STAND HERE SAID
+/// THE OPPOSITE. It read: "Card FRONTS are shown only through RevealGate.ShowRoundCardFronts, so
+/// during the secret selection phase a peer's active column shows BACKS — the same stance the
+/// round-card slots take." That is the exact inverse of the user's ruling (2026-09-06 item 9: "Die
+/// aktiven Karten sind immer sichtbar … d.h. aber auch, dass wenn ein Spieler eine aktive Karte in
+/// die Hand nimmt, soll diese auch mit der Vorderseite AUCH in der Auswahlphase sichtbar sein"),
+/// and it described a stance this class had already stopped taking — the population is
+/// <see cref="RevealGate.PeerCardPopulation.AlreadyPublic"/>, which
+/// <see cref="RevealGate.IsPublicPopulation"/> exempts from the phase term outright. An active card
+/// was played face-up in front of everybody; there is no secret left in it to keep. The census line
+/// at the foot of <see cref="Refresh"/> has said so all along, which is how the comment was caught.
 ///
 /// <para>CLOSED — THE 0.4 s OVERLAP, WHICH WAS ALSO THE WRONG-TIMING HALF OF USER ITEM 2. Since
 /// ModBuild 462 a card going active also flies a mirrored slab into this column
@@ -318,9 +326,22 @@ internal sealed class RemoteActiveCards
     public void Refresh(CPlayerActor actor)
     {
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It
-        // still needs a running scenario and a character to resolve against (both are inside the
-        // call); the ONLY term it drops is the phase.
-        bool showFronts = RevealGate.CardFaces(RevealGate.PeerCardPopulation.AlreadyPublic, actor)
+        // still needs a character to resolve against; the ONLY term it drops is the phase.
+        //
+        // THE CAPABILITY HALF IS THIS BOARD'S, NOT RevealGate.InScenario's (2026-09-07 review, item
+        // B3). The two-argument overload folds in RevealGate.InScenario, which is false for a null
+        // SaveData.Instance, an unassigned SaveData.Global, or a campaign with no MapState — and
+        // this column's neighbour one method away, RemoteControlBoard's round-card recesses, has no
+        // such term at all. So in the window where the board is up and CurrentGameState has not said
+        // Scenario yet, the recesses drew FRONTS and this matrix drew BACKS: the one population in
+        // the mod whose own census string says it "must NEVER read a BACK, in any phase". This class
+        // is only ever ticked from RemoteControlBoard.RefreshContent, whose whole lifetime is gated
+        // on RemoteBoardScenarioGate, so the capability question is already answered above it and is
+        // passed in rather than asked a second way. Nothing else about the call changes, and the
+        // rule it names is reported beside the count below.
+        bool showFronts = RevealGate.CardFaces(RevealGate.PeerCardPopulation.AlreadyPublic, actor,
+                                               int.MinValue, scenarioEstablished: true,
+                                               out RevealGate.FaceRule faceRule)
                           != RevealGate.CardFaceSource.None;
         _buffer.Clear();
         try
@@ -556,9 +577,12 @@ internal sealed class RemoteActiveCards
             fronts, Count - fronts,
             showFronts
                 ? $"RevealGate.CardFaces(AlreadyPublic) — {RealFaceCount} real game-card face(s), "
-                  + "the rest the mod-drawn fallback panel"
-                : "RevealGate.CardFaces(AlreadyPublic) named NO source — off-scenario, or no "
-                  + "character resolved. NOT the selection phase: this population is exempt from it");
+                  + "the rest the mod-drawn fallback panel; rule: " + RevealGate.RuleText(faceRule)
+                : "RevealGate.CardFaces(AlreadyPublic) named NO source — no character resolved. "
+                  + "NOT the selection phase (this population is exempt from it) and NOT the "
+                  + "scenario capability either (this board's own gate answered that above and it "
+                  + "is passed in), so the ONLY way to read this line is a null actor; rule: "
+                  + RevealGate.RuleText(faceRule));
 
         // Change-gated on the shape itself, so the line below fires on a human-paced event (a card
         // going active) and never per refresh.

@@ -220,10 +220,31 @@ internal sealed class RemoteHeldCardFace
             // more — no clone, no face object — so the anti-cheat contract of
             // RemoteAbilityCardSource.ShowFullFace ("only ever call this when the gate is OPEN") is
             // untouched: the SHOW below still happens only under a non-None source.
-            if (source == RevealGate.CardFaceSource.None
-                && NetProtocol.HeldFaceList(code) == NetProtocol.HeldFaceListActive)
+            //
+            // ─── AND THE BURNT LIST WIDENS FOR THE SAME REASON (2026-09-07 review, item B2) ─────
+            // This peek covered HeldFaceListActive and NOTHING ELSE, so it implemented half of one
+            // ruling. RevealGate.IsPubliclyRevealedCard reads THREE lists — ActivatedCards,
+            // LostAbilityCards and PermanentlyLostAbilityCards — and the user's ruling for the
+            // second and third pair is the strongest he has stated for any face: "Beim Verbrennen
+            // EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar sein." The
+            // sender can and does name a held card as HeldFaceListBurnt (LocalRigSampler's pile arm
+            // and its CardType arm both encode it), so a peer picking a burnt card out of their own
+            // burnt arc during a short rest held a BACK on every watcher — the exact picture the
+            // exception exists to prevent, on the surface closest to the player's eye.
+            //
+            // HeldFaceListDiscard IS DELIBERATELY NOT HERE. A discarded card is not burnt and it is
+            // not in any of the three lists; its identity is still the selection window's secret,
+            // and widening to it would be a PLACE rule of exactly the kind
+            // RevealGate.IsPublicPopulation's own doc forbids adding.
+            if (source == RevealGate.CardFaceSource.None)
             {
-                CAbilityCard? peek = TryPeekActiveSeat(actor, code, count);
+                byte heldList = NetProtocol.HeldFaceList(code);
+                CAbilityCard? peek =
+                    heldList == NetProtocol.HeldFaceListActive
+                        ? TryPeekActiveSeat(actor, code, count)
+                  : heldList == NetProtocol.HeldFaceListBurnt
+                        ? TryPeekBurntSeat(actor, code, count)
+                  : null;
                 if (peek != null)
                     source = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
                                                   peek.CardInstanceID);
@@ -238,7 +259,11 @@ internal sealed class RemoteHeldCardFace
         if (source == RevealGate.CardFaceSource.None)
         {
             Report(0, 1, "RevealGate.CardFaces(Selectable) named no source — the game's own secret "
-                       + "SelectAbilityCardsOrLongRest window, or no context to resolve a face in");
+                       + "SelectAbilityCardsOrLongRest window, or no context to resolve a face in. "
+                       + "The two card-property exceptions were both asked and both refused: this "
+                       + "card is not in that character's ActivatedCards and not in their "
+                       + "Lost/PermanentlyLost lists, so neither the active-card ruling nor the "
+                       + "burn ruling reaches it");
             // A BACK, BUT STILL AN ITEM-SHAPED BACK. This branch is the report's second half almost
             // word for word — "in der Auswahlphase … man nur die Rückseite sieht" — and it used to
             // call Hide(), which resets the silhouette to ABILITY. The gate governs the FACE; it
@@ -457,6 +482,39 @@ internal sealed class RemoteHeldCardFace
     /// called once from the gate (to ask whether the card is exempt) and once from
     /// <see cref="Resolve"/> (to keep it), and both are on the cadenced path.</para>
     /// </summary>
+    /// <summary>
+    /// THE SAME PEEK, ONE LIST OVER: the model card at the seat record 36 names in that character's
+    /// BURNT arc, or null when the two copies of that arc disagree in length.
+    ///
+    /// <para>IT IS THE ARC AND NOT THE RAW LISTS. <c>CardsGameApi.GetPileArcWidgets</c> is the index
+    /// space the SENDER counted into (<c>LocalRigSampler.NameHeldCard</c>) and the one
+    /// <see cref="Resolve"/> reads the face from a few lines down, so the seat this peek reads and
+    /// the seat the face is drawn from are the same seat by construction rather than by two
+    /// expressions that happen to agree. Reading <c>CCharacterClass.LostAbilityCards</c> directly
+    /// would be a third index space and is exactly the defect this file has paid for twice.</para>
+    ///
+    /// <para>NO CLONE AND NO FACE OBJECT — a length-checked list index and a field read, exactly as
+    /// <see cref="TryPeekActiveSeat"/> is. The permission it feeds is still asked before anything is
+    /// shown.</para>
+    /// </summary>
+    private CAbilityCard? TryPeekBurntSeat(CPlayerActor? actor, byte code, byte count)
+    {
+        if (actor == null)
+            return null;
+        CardsHandManager manager = CardsHandManager.Instance;
+        CardsHandUI? hand = manager != null ? manager.GetHand(actor) : null;
+        if (hand == null)
+            return null;
+        CardsGameApi.GetPileArcWidgets(hand, burnt: true, _pileBuf);
+        int at = NetProtocol.HeldFaceIndex(code);
+        CAbilityCard? found = _pileBuf.Count == count && at >= 0 && at < _pileBuf.Count
+                              && _pileBuf[at] != null
+            ? _pileBuf[at].AbilityCard
+            : null;
+        _pileBuf.Clear();
+        return found;
+    }
+
     private static CAbilityCard? TryPeekActiveSeat(CPlayerActor? actor, byte code, byte count)
     {
         if (actor == null)

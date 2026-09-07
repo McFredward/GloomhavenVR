@@ -158,6 +158,21 @@ internal sealed class RemotePileFronts
     private float _nextResolveAt;
     private int _resolvedCount = -1;
     private int _resolvedContent = -1;
+
+    /// <summary>The gate the faces currently up were resolved under, so a gate CHANGE forces the
+    /// resolve on the very frame it happens instead of on the next cadence tick.
+    ///
+    /// <para>IT EXISTS BECAUSE <see cref="Gate.BurnException"/> ADDED A THIRD STATE TO A TEST THAT
+    /// HAD TWO. Before it, every non-<see cref="Gate.Open"/> gate took the tear-down path per frame,
+    /// so the class's own stated anti-leak property held by construction: "putting the gate on the
+    /// cadence too would leave up to a quarter of a second of fronts standing after the secret
+    /// selection phase opens, and a leak window that exists 'only for 250 ms' is still a leak
+    /// window." An Open ⇒ BurnException transition does NOT take that path — it must not, the whole
+    /// point is that the arc keeps drawing — so without this field the per-card ask would not run
+    /// until the next cadence tick and the fronts standing in between would be the OLD gate's. That
+    /// is the same window, reintroduced by the fix. -1 = nothing resolved.</para></summary>
+    private int _resolvedGate = -1;
+
     private int _frontCount;
 
     /// <summary>Change key for <see cref="Log"/> — the packed (gate, content, fronts, slabs) word
@@ -187,6 +202,34 @@ internal sealed class RemotePileFronts
         /// <summary>The game's own secret selection window — THE one rule that hides fronts.</summary>
         SecretPhase,
 
+        /// <summary>
+        /// THE SECRET WINDOW IS OPEN AND THIS IS THE BURNT PILE, so the gate is asked PER CARD
+        /// instead of per fan (2026-09-07 review, item B2).
+        ///
+        /// <para>USER, VERBATIM, AND IT IS THE STRONGEST TERM HE HAS USED FOR ANY FACE: "Beim
+        /// Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar
+        /// sein." <c>RevealGate.IsPubliclyRevealedCard</c> owns that ruling and it is a property of
+        /// the CARD — <c>RevealGate</c>'s own note says the exception exists as a card property
+        /// "so every surface that can name the card it is drawing gets the ruling by asking". This
+        /// surface could NAME every card it draws and never asked: it took the two-argument
+        /// <c>RevealGate.CardFaces</c>, which cannot reach the exception, and drew a whole burnt
+        /// arc as backs inside a peer's short rest. EVERY card in a burnt browse arc is in that
+        /// character's <c>LostAbilityCards</c> / <c>PermanentlyLostAbilityCards</c> BY
+        /// CONSTRUCTION, which is the same list the exception reads.</para>
+        ///
+        /// <para>ONLY THE BURNT ARM, AND ONLY THIS ONE REFUSAL. <see cref="Content.Discard"/> and
+        /// <see cref="Content.Items"/> keep the whole-fan gate — a discarded card is not burnt and
+        /// its identity is still the selection window's secret. And only
+        /// <see cref="SecretPhase"/> converts: <see cref="NoActor"/>, <see cref="OffScenario"/> and
+        /// <see cref="Errored"/> are CAPABILITY failures, not secrecy verdicts, and a capability
+        /// failure cannot be argued away by a ruling about what may be shown.</para>
+        ///
+        /// <para>THE ANTI-CHEAT ORDERING IS UNTOUCHED. The per-card ask below still happens BEFORE
+        /// any face object is shown, and a card that fails it is torn down on the same frame — the
+        /// carve-out lets the resolve RUN, it does not let a face exist ahead of a permission.</para>
+        /// </summary>
+        BurnException,
+
         /// <summary>A game read threw; treated exactly like a shut gate.</summary>
         Errored,
 
@@ -210,6 +253,14 @@ internal sealed class RemotePileFronts
         Gate.OffScenario => "RevealGate.InScenario=false",
         Gate.SecretPhase => "RevealGate.ShowRoundCardFronts(actor)=false — the game's own secret " +
                             "SelectAbilityCardsOrLongRest phase for a remote actor",
+        Gate.BurnException => "RevealGate.ShowRoundCardFronts(actor)=false, but this is the BURNT " +
+                              "pile, so the gate is asked PER CARD through the card-aware " +
+                              "RevealGate.CardFaces overload: every card in this arc is in that " +
+                              "character's Lost/PermanentlyLost lists by construction and " +
+                              "RevealGate.IsPubliclyRevealedCard therefore opens it — user, " +
+                              "verbatim: 'Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte " +
+                              "immer mit der Vorderseite sichtbar sein'. A BACK on this line is a " +
+                              "card the exception refused, which for this arc is a finding",
         Gate.CountMismatch => "RevealGate.ShowRoundCardFronts(actor)=true, but this client's copy of " +
                               "the peer's pile is a different LENGTH from the arc they are looking " +
                               "at — a positional zip across a length disagreement draws the WRONG " +
@@ -354,6 +405,7 @@ internal sealed class RemotePileFronts
     {
         _resolvedCount = -1;
         _resolvedContent = -1;
+        _resolvedGate = -1;
         _nextResolveAt = 0f;
         // The log key deliberately survives a Reset: it tracks what was last SAID, not what was last
         // resolved, so a fan that closes and reopens in the same state does not re-announce itself.
@@ -417,8 +469,17 @@ internal sealed class RemotePileFronts
                                $"({ex.Message}) — backs.");
         }
 
+        // ─── THE BURN EXCEPTION IS A CARD PROPERTY, SO THE BURNT ARC ASKS PER CARD ─────────────
+        // See Gate.BurnException. The whole-fan refusal below is right for the discard and item
+        // arcs and wrong for this one, and it was wrong in the direction the user has now ruled on
+        // three times. Converting the gate here rather than adding a second early-out keeps ONE
+        // shut path and ONE open path; the per-card ask is in the resolve loop, where the card is
+        // in hand.
+        if (gate == Gate.SecretPhase && content == Content.Burnt && actor != null)
+            gate = Gate.BurnException;
+
         int contentKey = (int)content;
-        if (gate != Gate.Open)
+        if (gate != Gate.Open && gate != Gate.BurnException)
         {
             // Shut gate: tear every face down THIS frame, then say so once.
             if (_frontCount > 0 || _resolvedCount >= 0)
@@ -437,6 +498,7 @@ internal sealed class RemotePileFronts
         // ---- THE RESOLVE, ON THE CONTENT CADENCE ----------------------------------------------
         bool due = contentKey != _resolvedContent
                    || _resolvedCount != _arts.Count
+                   || (int)gate != _resolvedGate
                    || Time.unscaledTime >= _nextResolveAt;
         if (!due)
         {
@@ -457,6 +519,7 @@ internal sealed class RemotePileFronts
             _frontCount = 0;
         }
         _resolvedContent = contentKey;
+        _resolvedGate = (int)gate;
 
         bool resolved = false;
         try
@@ -521,6 +584,10 @@ internal sealed class RemotePileFronts
 
         int fronts = 0;
         int burntLook = 0;
+        // Slabs the PER-CARD burn exception refused. Zero is the expected reading (every card in a
+        // burnt arc is in the owner's lost lists by construction), so a non-zero one is the
+        // falsifier for that sentence and not a footnote.
+        int carvedBacks = 0;
         for (int i = 0; i < _arts.Count; i++)
         {
             RemoteCardArt art = _arts[i];
@@ -550,7 +617,19 @@ internal sealed class RemotePileFronts
                 else if (i < _abilityBuf.Count)
                 {
                     AbilityCardUI widget = _abilityBuf[i];
-                    FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
+                    // THE PER-CARD HALF OF Gate.BurnException, asked BEFORE any face is shown. On
+                    // the ordinary open path this is not asked at all — the fan-wide gate already
+                    // answered — so the steady state costs nothing; under the carve-out it is one
+                    // walk of two host-replicated lists per slab per cadence tick.
+                    bool permitted = gate != Gate.BurnException
+                        || (widget != null
+                            && RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
+                                                    widget.CardInstanceID)
+                               != RevealGate.CardFaceSource.None);
+                    if (!permitted)
+                        carvedBacks++;
+                    FullAbilityCard? full =
+                        permitted && widget != null ? widget.fullAbilityCard : null;
                     shown = full != null && art.ShowFront(full);
                     // A CARD IN THE BURNT PILE IS A BURNT CARD, AND IT LOOKS LIKE ONE (2026-09-06
                     // report, item 9b: "Die verbrannt-animation die über der Karte liegt ist bei
@@ -609,10 +688,58 @@ internal sealed class RemotePileFronts
         _frontCount = fronts;
         _resolvedCount = _arts.Count;
 
-        Census(content, fronts, resolved ? Gate.Open : Gate.NoSource);
-        Log(content, resolved ? Gate.Open : Gate.NoSource, fronts, actor);
+        Gate outcome = !resolved ? Gate.NoSource
+                     : gate == Gate.BurnException ? Gate.BurnException
+                     : Gate.Open;
+        Census(content, fronts, outcome);
+        Log(content, outcome, fronts, actor);
+        if (gate == Gate.BurnException && carvedBacks > 0)
+            LogBurnCarveRefusal(carvedBacks, fronts, actor);
         if (content == Content.Burnt)
             LogBurntLook(burntLook, fronts, actor);
+    }
+
+    /// <summary>Change key for <see cref="LogBurnCarveRefusal"/>, so the line fires on a real edge
+    /// and not on the 4 Hz cadence.</summary>
+    private (int Key, int ActorId) _loggedCarveRefusal = (int.MinValue, 0);
+
+    /// <summary>
+    /// THE FALSIFIER FOR THIS CLASS'S BURN CARVE-OUT (<see cref="Gate.BurnException"/>). Grep token
+    /// <c>BURNT ARC CARVE-OUT REFUSED</c>.
+    ///
+    /// <para>The carve-out rests on ONE claim: every card in a peer's burnt browse arc is in that
+    /// character's <c>LostAbilityCards</c> or <c>PermanentlyLostAbilityCards</c>, which is the very
+    /// membership <c>RevealGate.IsPubliclyRevealedCard</c> tests, so the per-card ask can only ever
+    /// say yes. This line fires exactly when it said no — i.e. when the claim is false — and it is
+    /// the only way to find that out, because a refused slab draws the SAME card back the old
+    /// whole-fan gate drew and is invisible in every other reading.</para>
+    ///
+    /// <para>SILENCE IS THE EXPECTED READING, and it is not a "held instrument": the enclosing arm
+    /// only runs while a viewer has a peer's BURNT pile open DURING that peer's secret selection
+    /// window, so nothing at all is owed outside that intersection. The reading that means the
+    /// carve-out is live and working is <c>Gate.BurnException</c> appearing in this surface's
+    /// census line with a non-zero front count.</para>
+    /// </summary>
+    private void LogBurnCarveRefusal(int refused, int fronts, CPlayerActor? actor)
+    {
+        int key = (refused << 8) | (fronts & 0xFF);
+        int actorId = NetFigures.StableActorId(actor);
+        if (key == _loggedCarveRefusal.Key && actorId == _loggedCarveRefusal.ActorId)
+            return;
+        _loggedCarveRefusal = (key, actorId);
+        // HW-VERIFY: grep token "BURNT ARC CARVE-OUT REFUSED" — see this method's doc.
+        VRLog.Note("Net", $"BURNT ARC CARVE-OUT REFUSED [player {_owner.PlayerId}]: {refused} slab(s) "
+                          + $"of this burnt arc stayed BACKS beside {fronts} front(s) for "
+                          + $"'{Board.CharacterFocus.Describe(actor)}', inside that peer's secret "
+                          + "selection window. The premise of the carve-out is that every card in a "
+                          + "burnt browse arc is in that character's Lost/PermanentlyLost lists by "
+                          + "construction, so RevealGate.IsPubliclyRevealedCard cannot refuse one. "
+                          + "THIS LINE IS THAT PREMISE BEING FALSE. The two candidates are a widget "
+                          + "with no model CAbilityCard behind it (CardsGameApi.PileWidgetIsArcMember "
+                          + "should already have dropped it) and a length disagreement that slipped "
+                          + "past the belt above — read the fan's own count line beside this one. "
+                          + "The user's ruling is 'Beim Verbrennen EGAL AUS WELCHEM GRUND', so any "
+                          + "occurrence is a finding and not a footnote.");
     }
 
     /// <summary>Change key for <see cref="LogBurntLook"/>: the (looks, fronts) pair plus the

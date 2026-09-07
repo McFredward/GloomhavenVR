@@ -852,13 +852,20 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             OrderRoundCards(actor);
         else
             _ordered[0] = _ordered[1] = null; // actorless peer: an EMPTY board, never stale cards
-        // THE reveal decision for this peer's played cards, taken ONCE per frame here and passed
-        // down: showFronts is RevealGate.ShowRoundCardFronts(actor) verbatim — false for a remote
-        // actor while the game is in its own secret SelectAbilityCardsOrLongRest phase, true once
-        // the selection is locked in and the characters are acting (and always true offline / for
-        // our own actor / off-scenario). The slot only ever CREATES a face object inside its
-        // front branch, so the fronts cannot exist a frame early. The actor is handed through purely
-        // so the slot can find that player's own card widget to clone — it is never written to.
+        // THE POPULATION's reveal decision for this peer's played cards, taken ONCE per frame here
+        // and passed down: showFronts is RevealGate.ShowRoundCardFronts(actor) verbatim — false for
+        // a remote actor while the game is in its own secret SelectAbilityCardsOrLongRest phase,
+        // true once the selection is locked in and the characters are acting (and always true
+        // offline / for our own actor / off-scenario).
+        //
+        // IT IS NOT THE LAST WORD ON ANY PARTICULAR CARD, AND SAYING SO HERE IS THE POINT. Every
+        // recess re-asks RevealGate.CardFaces with the CARD in hand, and the burn exception
+        // (RevealGate.IsPubliclyRevealedCard) can open a front this bool refuses — that is the
+        // user's ruling, "Beim Verbrennen EGAL AUS WELCHEM GRUND". This value is the population's
+        // answer and the input to that call; _slotFaceMask, which SeatSlots writes, is what was
+        // actually drawn. The slot only ever CREATES a face object inside its front branch, so the
+        // fronts cannot exist a frame early. The actor is handed through purely so the slot can find
+        // that player's own card widget to clone — it is never written to.
         // EXHAUSTED: the recesses are forced empty regardless of the owner's occupancy nibble —
         // that mask is the last one they sent while alive, and a latched wire fact is exactly how
         // a "cleared" board keeps two card backs (see ApplyExhaustedCardRule).
@@ -915,7 +922,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // state, and the 4 Hz content cadence would sample straight past a two-second burn's start.
         // It runs AFTER SeatSlots because it reads what that pass seated — the card, its owner and
         // whether a real face is up — rather than resolving any of it a second time.
-        TickSlotPlumes(actor, showFronts);
+        TickSlotPlumes(actor);
 
         // HALF HOVER + SELECTION (extension record 14): glow the action half the OWNER's pointer
         // is on (pulsing) and the half they have CLICKED (steady — the game's own presentation
@@ -1030,6 +1037,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // budget. The expensive halves (row rebuilds, the widget-mirror walk, the use-bar symbol
         // resolve) stay on the 4 Hz cadence above, where they always were.
         _furniture?.TickWire(_owner, _slotOccupiedMask);
+
+        // THE BOARD TOOLTIP, PER FRAME — beside the furniture's wire half, after the cadence block,
+        // and for the identical reason both of those were lifted.
+        TickBoardTooltip();
 
         // THE MIRRORED WIDGETS RUN PER FRAME, not on the content cadence. They are clones of live
         // game panels driven from the original (RemoteWidgetMirror), and the user's requirement is
@@ -1169,6 +1180,45 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         return Vector3.Distance(eye, rt.TransformPoint(onFace));
     }
 
+    /// <summary>
+    /// THE PEER'S BOARD TOOLTIP (extension record 9), APPLIED ON THE FRAME THE VALUE CHANGES.
+    ///
+    /// <para>IT USED TO SIT INSIDE THE 4 Hz CONTENT CADENCE, IN BOTH REFRESH PATHS, AND THE SENDER
+    /// HAD ALREADY RULED THE OTHER WAY. <c>NetAvatarDriver</c> samples <c>WorldTooltips.WireText</c>
+    /// BEFORE its own extras rate gate and lists <c>tooltipChanged</c> among the terms that PRE-EMPT
+    /// that gate outright, with its own comment saying so — "so its appearance/disappearance/
+    /// text-change edges pre-empt it". The owner therefore pays to get the edge onto the wire on the
+    /// next frame, and this receiver put it back in a queue for up to 250 ms. A hover shorter than
+    /// the gate period appeared on the owner's board and NEVER on the mirror at all: the value went
+    /// up and back down between two samples. One end of a pair buying responsiveness the other end
+    /// spends is not a tuning choice; it is half a decision.</para>
+    ///
+    /// <para>COST ON THE UNCHANGED PATH, MEASURED FROM THE SOURCE RATHER THAN ASSUMED — because
+    /// "cheap" per-frame calls have owned the frame in this project before.
+    /// <c>RemoteBoardTooltip.Apply</c> with an unchanged non-empty string is: one
+    /// <c>string.IsNullOrEmpty</c>, one static bool (<c>GameSkin.TryEnsure</c> returns on
+    /// <c>_sampled</c> before it touches the scene), one ordinal string compare over a line bounded
+    /// by <c>NetProtocol</c>'s own byte cap, then a return. No allocation, no
+    /// <c>GetComponent</c>, no scene query, no layout. With the record absent it is one length test.
+    /// The only path that touches the scene is the skin SAMPLE, which has not happened yet and which
+    /// carries its own 15-frame retry gate, so at 90 Hz it attempts at ~6 Hz instead of 4 Hz and
+    /// then never again for the session.</para>
+    ///
+    /// <para>THE PICK BANNER (record 7) DELIBERATELY STAYS ON THE CADENCE, and that is the same
+    /// rule applied rather than an inconsistency: its sender does NOT pre-empt. <c>bannerNow</c> is
+    /// sampled well AFTER <c>NetAvatarDriver</c>'s rate gate, so the edge is already on the owner's
+    /// 5 Hz extras cadence before it leaves that machine and there is nothing here for a per-frame
+    /// apply to recover. (The tooltip's own sender comment claims it pre-empts "like the pick
+    /// banner's do" — that half of the sentence is false, and the file it is in is not this lane's
+    /// to edit; it is reported instead.) Moving this end alone would be exactly the defect this
+    /// method fixes, in the other direction.</para>
+    ///
+    /// <para>AFTER the cadence block, never before: a tooltip coming UP re-measures the board's
+    /// corner (<c>RemoteBoardTooltip.Reseat</c>) and that walk must see the geometry this frame's
+    /// structural pass has already written, not the previous tick's.</para>
+    /// </summary>
+    private void TickBoardTooltip() => _boardTooltip?.Apply(_owner.TooltipText);
+
     /// <summary>The actorless subset of <see cref="RefreshContent"/> (join-time, before the host
     /// assigns this peer a character): objectives, element infusions and the initiative track are
     /// GLOBAL scenario state and render fine without an actor; everything per-actor stays blank.</summary>
@@ -1180,7 +1230,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             _elements?.Refresh();
             _track?.Refresh();
             _pickBanner?.Apply(_owner.PickBannerText);
-            _boardTooltip?.Apply(_owner.TooltipText);
+            // The board TOOLTIP is NOT applied here any more — it runs per frame beside
+            // _furniture.TickWire. See TickBoardTooltip.
             SyncInitiativeBadge();
             // The furniture's SYNCED half (board-UI record: buttons + wanted glow) is wire-fed and
             // must follow the owner's board with or without an actor. The slot flags used to be
@@ -1220,7 +1271,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             _objectives?.Refresh();
             _elements?.Refresh();
             _pickBanner?.Apply(_owner.PickBannerText);
-            _boardTooltip?.Apply(_owner.TooltipText);
+            // The board TOOLTIP is NOT applied here any more — it runs per frame beside
+            // _furniture.TickWire. See TickBoardTooltip.
             _status?.Refresh(actor, showFronts);
             // NO showFronts HANDED DOWN (report item 2b): the active matrix asks the face rule
             // for its OWN population, which is exempt from the selection phase. See
@@ -1381,7 +1433,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // FIDELITY + ANTI-CHEAT in one greppable line: which mechanism drew each round card
         // (LiveWidget / PooledBorrow = the REAL game card face; None = the mod-drawn fallback panel),
         // together with the gate answer that allowed a face at all. Grep: "Remote board content".
-        string slots = $"{FaceTag(0, showFronts)}/{FaceTag(1, showFronts)}";
+        string slots = $"{FaceTag(0)}/{FaceTag(1)}";
         // The CHARACTER rides this line too: the pile counts below are that character's, and the
         // owner's board switches which one it presents whenever they focus a teammate. Without the
         // name, "die Zahlen auf seinem Brett stimmen nicht" ("the numbers on his board are
@@ -1421,11 +1473,17 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             return;
         _loggedContent = line;
         VRLog.Info("Net", line + " — all read LOCALLY from the replicated model (zero wire traffic); " +
-                          "fronts gated by RevealGate.ShowRoundCardFronts (false ⇒ BACKS only, which " +
-                          "is exactly the game's secret SelectAbilityCardsOrLongRest phase for a " +
-                          "remote actor). A round-card face of LiveWidget/PooledBorrow is the REAL " +
+                          "fronts gated per CARD by RevealGate.CardFaces, whose POPULATION term is " +
+                          "the fronts=... bool above (RevealGate.ShowRoundCardFronts — false is " +
+                          "exactly the game's secret SelectAbilityCardsOrLongRest phase for a remote " +
+                          "actor) and whose CARD term is the burn exception " +
+                          "(RevealGate.IsPubliclyRevealedCard). SO fronts=False DOES NOT MEAN BACKS " +
+                          "ONLY: a card in that character's activated or lost lists still draws its " +
+                          "front, which is the user's ruling and not a leak — read the per-recess " +
+                          "'CARD FACE RULE' line for which rule chose each face. A round-card face " +
+                          "of LiveWidget/PooledBorrow is the REAL " +
                           "game card at full detail; 'panel' is the mod-drawn name+initiative " +
-                          "fallback; 'back' means the gate is shut; 'anon-back' means the OWNER's " +
+                          "fallback; 'back' means both terms refused; 'anon-back' means the OWNER's " +
                           "own recess occupancy (board-UI record byte 1 bits 3..4, reported as " +
                           "'slot-occupancy=0x..(synced)') says a card lies there while this client " +
                           "holds no identity for it — a pick candidate, a drop whose SelectCard is " +
@@ -1483,10 +1541,16 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     }
 
     /// <summary>Per-slot fidelity tag for <see cref="LogContent"/>: the face path when a real face is
-    /// up, otherwise what the slot is actually showing (mod panel when the gate is open but neither
-    /// source resolved; a card BACK when the gate is shut; nothing at all when the slot is empty).
-    /// Pure read of already-computed state — it re-derives no gate of its own.</summary>
-    private string FaceTag(int slot, bool showFronts)
+    /// up, otherwise what the slot is actually showing (mod panel when a front was permitted but
+    /// neither source resolved; a card BACK when it was not; nothing at all when the slot is empty).
+    /// Pure read of already-computed state — it re-derives no gate of its own.
+    ///
+    /// <para>IT READS <see cref="_slotFaceMask"/> AND NOT THE BOARD-WIDE <c>showFronts</c>, which is
+    /// what it used to do: a recess drawing a BURN-EXCEPTION front whose clone failed was tagged
+    /// "back" while the mod panel was on screen, because the population's verdict was false for a
+    /// card the CARD's verdict had opened. The mask is what <see cref="SeatSlots"/> actually
+    /// seated.</para></summary>
+    private string FaceTag(int slot)
     {
         if ((_slotOccupiedMask & (1 << slot)) == 0)
             return "empty";
@@ -1502,7 +1566,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // "I see his card back but he sees nothing / vice versa" report is answered from.
         if ((_slotAnonMask & (1 << slot)) != 0)
             return "anon-back";
-        return showFronts ? "panel" : "back";
+        return (_slotFaceMask & (1 << slot)) != 0 ? "panel" : "back";
     }
 
     /// <summary>
@@ -2263,10 +2327,33 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         //     previous action phase exists any more;
         //   • the DISPLAYED CHARACTER changing — a face approved for one character must never be
         //     repeated in another character's recess just because the recess index matched.
-        if (!showFronts || !ReferenceEquals(actor, _latchedActor))
+        //
+        // …AND THE FIRST OF THE TWO NOW ASKS THE CARD, WHICH IS THE WHOLE OF THE BURN CARVE-OUT ON
+        // THIS FIELD (2026-09-07 review, item B4). The latch was WRITTEN under `front` — which has
+        // included RevealGate.IsPubliclyRevealedCard since the carve-out shipped — and CLEARED and
+        // READ under the bare `showFronts`, so a burn-exception front was latched and erased on the
+        // very next frame. The case that costs is the one the carve-out exists for: the game drains
+        // RoundAbilityCards under a card that is burning inside the owner's short rest, the walk
+        // below can no longer name the recess, the latch has been wiped, and the recess falls to
+        // SetAnonymousBack() — an anonymous back for the exact picture the user ruled must be a
+        // front ("Beim Verbrennen EGAL AUS WELCHEM GRUND"). Only a card that is STILL in that
+        // character's activated / lost / permanently-lost lists survives the gate shutting, so the
+        // exception this widens by is the one RevealGate already owns and nothing else: an ordinary
+        // round card latched during the action phase is still erased the instant the gate closes.
+        if (!ReferenceEquals(actor, _latchedActor))
         {
             for (int i = 0; i < _latchedFaces.Length; i++)
                 _latchedFaces[i] = null;
+        }
+        else if (!showFronts)
+        {
+            for (int i = 0; i < _latchedFaces.Length; i++)
+            {
+                CAbilityCard? held = _latchedFaces[i];
+                if (held != null
+                    && !RevealGate.IsPubliclyRevealedCard(actor, held.CardInstanceID))
+                    _latchedFaces[i] = null;
+            }
         }
         // THE SACRIFICE SEAT MEMORY FOLLOWS ONLY THE SECOND OF THOSE TWO. It is not gate-scoped —
         // the sacrifice is drawn face-up WHILE the gate is shut, which is the whole of the carve-out
@@ -2289,11 +2376,28 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             SeatedHandCardExcess = 0;
             for (int i = 0; i < SlotCount; i++)
             {
-                _cards[i].Set(_ordered[i], showFronts, actor);
-                if (_ordered[i] == null)
+                CAbilityCard? legacy = _ordered[i];
+                // THE SAME ONE EXPRESSION THE MODERN BRANCH BELOW USES. This branch spelled a bare
+                // `showFronts` and therefore had NO burn carve-out at all — the third copy of the
+                // recess face decision in this one method, and the only one that could still draw a
+                // burning card as a back. It is a JOIN-WINDOW TRANSIENT (a sender with no occupancy
+                // nibble; it drew nothing at all in the ModBuild 476 session), so this is a
+                // consistency fix and not a live defect — but a decision written three ways is how
+                // the next reader picks the wrong one.
+                if (legacy == null)
+                {
+                    _cards[i].Set(null, showFronts, actor);
                     continue;
+                }
+                bool legacyFront =
+                    RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
+                                         legacy.CardInstanceID, scenarioEstablished: true,
+                                         out RevealGate.FaceRule legacyRule)
+                    != RevealGate.CardFaceSource.None;
+                _cards[i].Set(legacy, legacyFront, actor);
+                LogRecessFaceRule(i, legacy, legacyFront, legacyRule, actor);
                 _slotOccupiedMask |= 1 << i;
-                if (showFronts)
+                if (legacyFront)
                     _slotFaceMask |= 1 << i;
             }
             return;
@@ -2393,21 +2497,25 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             //   • a long-rest / recover pick     ⇒ ACTION PHASE, a FRONT, as it always was.
             if (TryResolveSacrifice(i, actor, out CAbilityCard? sacrifice) && sacrifice != null)
             {
-                // THE SAME EXPRESSION THE ORDINARY ROUND CARD BELOW USES, and that identity is the
+                // THE SAME ONE CALL THE ORDINARY ROUND CARD BELOW MAKES, and that identity is the
                 // point rather than a coincidence: now that SacrificedCard is no longer exempt,
                 // RevealGate.IsPublicPopulation answers false for it exactly as it does for
-                // Selectable, so the two populations have the SAME face rule and writing it once
-                // means a recess cannot draw one card by one rule and the next by another. See the
-                // note at the ordinary branch for why this is not routed through
-                // RevealGate.CardFaces (its InScenario term is a capability test this board's
-                // lifetime does not share).
-                bool pickPublic =
-                    RevealGate.IsPubliclyRevealedCard(actor, sacrifice.CardInstanceID);
-                bool pickFront = showFronts || pickPublic;
-                RevealGate.FaceRule pickRule =
-                    showFronts ? RevealGate.FaceRule.ActionPhaseOpen
-                  : pickPublic ? RevealGate.FaceRule.BurnOrActivePublicCard
-                  : RevealGate.FaceRule.SelectionPhaseCovered;
+                // Selectable, so the two populations have the SAME face rule and asking once means
+                // a recess cannot draw one card by one rule and the next by another.
+                //
+                // IT IS ROUTED THROUGH RevealGate.CardFaces AND THE VERDICT DID NOT MOVE. This was
+                // a hand-written ternary - one of two copies of one ladder, and the reason
+                // FaceRule.NoContext could not be produced anywhere in the mod. The capability half
+                // is passed EXPLICITLY (scenarioEstablished: true) rather than left to
+                // RevealGate.InScenario, which is exactly what the ordinary branch's own note below
+                // says must not happen here: this board's lifetime is gated on
+                // RemoteBoardScenarioGate, and handing CardFaces its InScenario term instead would
+                // draw a BACK in the window where the two disagree.
+                bool pickFront =
+                    RevealGate.CardFaces(RevealGate.PeerCardPopulation.SacrificedCard, actor,
+                                         sacrifice.CardInstanceID, scenarioEstablished: true,
+                                         out RevealGate.FaceRule pickRule)
+                    != RevealGate.CardFaceSource.None;
                 if (pickFront)
                     _slotFaceMask |= 1 << i;
                 if (pickFront)
@@ -2459,10 +2567,24 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // model can no longer name — the game drained RoundAbilityCards as the owner used the
             // cards mid-turn — keeps showing the face this board already legitimately showed
             // there, instead of degrading to an anonymous back for the rest of the action phase.
-            // Strictly gate-scoped: the latch is only ever FILLED here under showFronts, only
-            // ever READ here under showFronts, and cleared above the moment the gate shuts.
-            if (card == null && showFronts)
-                card = _latchedFaces[i];
+            //
+            // THE THREE TERMS ARE NOW ONE TERM, AND THEY USED NOT TO BE. The sentence that stood
+            // here — "the latch is only ever FILLED here under showFronts, only ever READ here
+            // under showFronts, and cleared above the moment the gate shuts" — was contradicted by
+            // its own file: the FILL below is under `front`, which has included the burn exception
+            // since that carve-out shipped, so the write and the read disagreed by exactly the set
+            // of cards the ruling is about. Read (here), cleared (above) and written (below) now
+            // all ask RevealGate.IsPubliclyRevealedCard, so a burning card whose round-card entry
+            // the game has drained keeps the front the user ruled it must have, and nothing else
+            // does.
+            if (card == null)
+            {
+                CAbilityCard? latched = _latchedFaces[i];
+                if (latched != null
+                    && (showFronts
+                        || RevealGate.IsPubliclyRevealedCard(actor, latched.CardInstanceID)))
+                    card = latched;
+            }
             // ─── THE FIST'S HAND-OFF, ASKED LAST (report item 5) ────────────────────────────────
             // The walk has been refused and the latch has nothing — which is what a card ARRIVING
             // in this recess looks like, because a recess the model has never named has no face to
@@ -2472,12 +2594,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // zip. Asked LAST on purpose: the model and the latch are both stronger facts, and the
             // hand-off may only fill a hole, never overrule one of them.
             //
-            // IT CHANGES NO PERMISSION. The face goes up under `showFronts` exactly like every
-            // other one below — a recess filling during the secret selection phase still draws a
-            // back on every peer, which is RevealGate's ruling and not this method's to widen. As of
-            // 2026-09-07 item 6 the BURN EXCEPTION (RevealGate.IsPubliclyRevealedCard) is the ONLY
-            // thing that draws a face while the gate is shut, on this recess and on every other
-            // surface; the sacrifice carve-out that used to be the other one is retired.
+            // IT CHANGES NO PERMISSION. The face goes up under the SAME RevealGate.CardFaces call
+            // every other card in this loop is asked through — a recess filling during the secret
+            // selection phase still draws a back on every peer unless the BURN EXCEPTION
+            // (RevealGate.IsPubliclyRevealedCard) opens it, which is RevealGate's ruling and not
+            // this method's to widen. That exception is the ONLY thing that draws a face while the
+            // gate is shut, on this recess and on every other surface; the sacrifice carve-out that
+            // used to be the other one is retired.
             if (card == null)
                 card = _owner.HandFan.HandoffFor(i);
             if (card == null)
@@ -2532,21 +2655,27 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // the picture deliberately — a face this recess legitimately showed is exactly what the
             // latch is for, and a flight out of this recess (TryTakeDepartedFace) must be able to
             // inherit a burning card's front or item 6's first half comes straight back.
-            // THE EXPRESSION IS UNCHANGED AND DELIBERATELY IS NOT RevealGate.CardFaces. That call
-            // folds in RevealGate.InScenario as its CAPABILITY half, and this board's own lifetime
-            // is gated on RemoteBoardScenarioGate instead — whose doc says in as many words that it
-            // is "deliberately NOT RevealGate.InScenario". In the window where the two disagree (the
-            // board is up, the save's CurrentGameState has not said Scenario yet) ShowRoundCardFronts
-            // answers TRUE by negation and this recess draws a front, while CardFaces would answer
-            // None and draw a BACK — i.e. routing this line through CardFaces would silently trade
-            // this recess into the one thing that is prohibited outright ("außerhalb der Auswahlphase
-            // NIEMALS Rückseiten"). The RULE is named without changing the verdict: the face is
-            // decided here, exactly as before, and the rule is derived from the term that decided it.
-            bool publicCard = RevealGate.IsPubliclyRevealedCard(actor, card.CardInstanceID);
-            bool front = showFronts || publicCard;
-            RevealGate.FaceRule rule = showFronts ? RevealGate.FaceRule.ActionPhaseOpen
-                                     : publicCard ? RevealGate.FaceRule.BurnOrActivePublicCard
-                                     : RevealGate.FaceRule.SelectionPhaseCovered;
+            // IT IS RevealGate.CardFaces NOW, AND THE VERDICT DID NOT MOVE — the capability half is
+            // handed to it EXPLICITLY instead of being left to RevealGate.InScenario, which is what
+            // used to make this call impossible here. This board's own lifetime is gated on
+            // RemoteBoardScenarioGate, whose doc says in as many words that it is "deliberately NOT
+            // RevealGate.InScenario". In the window where the two disagree (the board is up, the
+            // save's CurrentGameState has not said Scenario yet) ShowRoundCardFronts answers TRUE by
+            // negation and this recess draws a front, while an InScenario-flavoured CardFaces would
+            // answer None and draw a BACK — the one thing prohibited outright ("außerhalb der
+            // Auswahlphase NIEMALS Rückseiten"). scenarioEstablished: true says that this surface
+            // has already answered the capability question somewhere else, so the only thing left
+            // for the call to decide is SECRECY, which is the whole point of the split.
+            //
+            // WHAT IT BUYS OVER THE TERNARY IT REPLACES: the ternary could not produce
+            // FaceRule.NoContext, so an actorless recess reported a SECRECY verdict for what is a
+            // CAPABILITY failure — this file's oldest recorded defect, in the instrument built to
+            // stop it. It also removes the second of two hand-written copies of one ladder; a rule
+            // spelled at a call site is a rule two call sites can spell differently.
+            bool front = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
+                                              card.CardInstanceID, scenarioEstablished: true,
+                                              out RevealGate.FaceRule rule)
+                         != RevealGate.CardFaceSource.None;
             LogRecessFaceRule(i, card, front, rule, actor);
             _cards[i].Set(card, front, actor);
             if (front)
@@ -2563,18 +2692,27 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// the slots decide nothing.
     ///
     /// <para>THE GATE HAS EXACTLY THREE TERMS, and each is the OWNER's or the game's, never the
-    /// viewer's: the owner's permission bit off the wire, this client's reveal verdict for the
-    /// displayed actor (<c>RevealGate.ShowRoundCardFronts</c>, already computed once per frame in
-    /// <see cref="Tick"/> — re-deriving it here is the ModBuild 84 mismatch), and an actor to look
+    /// viewer's: the owner's permission bit off the wire, the FACE THIS RECESS ACTUALLY DREW
+    /// (<see cref="_slotFaceMask"/>, as <see cref="SeatSlots"/> seated it), and an actor to look
     /// cards up on. The receiver's own <c>[Cards] GameCardParticles</c> is NOT a term; a viewer who
     /// wants none of a peer's board switches the board off ([Net] RemoteBoards), which is the
     /// standing ruling this feature was built under.</para>
     ///
-    /// <para>WHY THE REVEAL GATE BOUNDS IT rather than merely accompanying it: nothing burns during
-    /// the secret selection phase, and a plume hanging on ONE specific face-down recess would name
-    /// WHICH card the owner is doing something to — the exact leak the backs-only rule exists to
-    /// prevent. <see cref="RemoteBoardCard.TickPlume"/> then adds a second, structural guard on top
-    /// (the face on the slab must have been cloned from the very widget it reads the effect off).</para>
+    /// <para>THE SECOND TERM USED TO BE <c>showFronts</c> AND THAT WAS A DEFECT IN THE ONE CASE
+    /// THIS FEATURE IS MOST ABOUT (2026-09-07 review, item B4). <c>showFronts</c> is the POPULATION's
+    /// verdict; a recess drawing a burn-exception front is drawing it under the CARD's verdict, and
+    /// the two differ by exactly the set of burning cards. So the one burn the carve-out exists to
+    /// draw face-up — a card burning inside its owner's short rest — was the one burn that got no
+    /// smoke, while the ARMED line below asserted the opposite. Reading the mask instead is also
+    /// the ModBuild 84 rule kept rather than broken: it is what the slot was HANDED, not a second
+    /// derivation of the same question that could disagree with it.</para>
+    ///
+    /// <para>WHY THE FACE BOUNDS IT rather than merely accompanying it: a plume hanging on ONE
+    /// specific face-DOWN recess would name WHICH card the owner is doing something to — the exact
+    /// leak the backs-only rule exists to prevent — and a recess showing a front has no such secret
+    /// left to give away. <see cref="RemoteBoardCard.TickPlume"/> then adds a second, structural
+    /// guard on top (the face on the slab must have been cloned from the very widget it reads the
+    /// effect off).</para>
     ///
     /// <para>THE ARMED LINE IS THE POINT OF THE THREE-STATE LOG. Read together with the slot's own
     /// "Remote card plume SOURCE" line and <see cref="RemoteCardPlume"/>'s spawn line, a hardware
@@ -2585,17 +2723,18 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// spawn line = the widget is there but the game runs no card effect on it on this client, so
     /// again the TRIGGER is what is missing, not the effect.</para>
     /// </summary>
-    private void TickSlotPlumes(CPlayerActor? actor, bool showFronts)
+    private void TickSlotPlumes(CPlayerActor? actor)
     {
-        bool allowed = _gameCardParticlesOn && showFronts && actor != null;
+        bool armed = _gameCardParticlesOn && actor != null;
+        bool allowed = armed && _slotFaceMask != 0;
 
         if (allowed && !_plumeArmedLogged)
         {
             _plumeArmedLogged = true;
             VRLog.Info("Net", $"Remote card plume ARMED [player {_owner.PlayerId}]: this owner has " +
-                              "[Cards] GameCardParticles ON (wire id 236) and their round-card " +
-                              "recesses are past the reveal gate, so a burn/lost/discard on a card " +
-                              "lying in one of them hosts the game's own CardSmoke on that slab " +
+                              "[Cards] GameCardParticles ON (wire id 236) and at least one of their " +
+                              "round-card recesses is drawing a FRONT, so a burn/lost/discard on a " +
+                              "card lying in that recess hosts the game's own CardSmoke on that slab " +
                               "(RemoteCardPlume). This is the PLAYED/round-slot half of the bit — " +
                               "RemoteHandFan.TickMirroredPlumes is the hand half, and the owner's " +
                               "own picture here comes from Cards.BurnCardFx on their docked VRCard. " +
@@ -2605,8 +2744,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                               "the TRIGGER is what would need a wire field, never the effect.");
         }
 
+        // PER RECESS, against the face THAT recess drew. A board with one covered round card and
+        // one burning card is the state the whole item exists for, and a single board-wide bool
+        // cannot express it: the burning recess plumes and the covered one does not.
         for (int s = 0; s < SlotCount; s++)
-            _cards[s]?.TickPlume(allowed, _owner.PlayerId, s);
+            _cards[s]?.TickPlume(armed && (_slotFaceMask & (1 << s)) != 0, _owner.PlayerId, s);
     }
 
     /// <summary>

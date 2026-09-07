@@ -8,8 +8,16 @@ namespace GloomhavenVR.Net;
 /// client renders. Chosen in the in-VR settings panel; a purely LOCAL rendering decision — it
 /// never affects game state or what we transmit. The anti-cheat reveal gate (see
 /// <see cref="RevealGate"/>) always applies ON TOP of this: even in <see cref="Always"/>, a
-/// remote player's round cards show as BACKS until the game's own secret card-selection phase
-/// ends (exactly the vanilla client rule).
+/// remote player's round cards show as BACKS during the game's own secret card-selection phase.
+///
+/// <para>"UNTIL THE PHASE ENDS" IS WHAT THIS SAID AND IT IS NOT THE RULE (corrected 2026-09-07).
+/// The phase is the POPULATION's term and it is no longer the only term: a card that is already
+/// public — in its owner's <c>ActivatedCards</c>, <c>LostAbilityCards</c> or
+/// <c>PermanentlyLostAbilityCards</c> — draws its FRONT inside the selection window too, on every
+/// surface, by the user's ruling ("Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit
+/// der Vorderseite sichtbar sein"). <see cref="RevealGate.CardFaces"/> owns both terms; this dial
+/// owns neither and never did. Three sentences in this file described the phase as the whole gate,
+/// which is how a future reader deletes the exception as redundant.</para>
 /// </summary>
 internal enum RemoteBoardVisibility
 {
@@ -22,8 +30,9 @@ internal enum RemoteBoardVisibility
     ActionPhaseOnly = 1,
 
     /// <summary>Always render remote boards. During the secret selection phase the board frame is
-    /// visible but the round cards are shown as BACKS (anti-cheat); they flip to the real faces at
-    /// reveal.</summary>
+    /// visible but the round cards are shown as BACKS (anti-cheat) unless they are ALREADY PUBLIC
+    /// (<see cref="RevealGate.IsPubliclyRevealedCard"/> — a burning or active card, which shows its
+    /// front in every phase); the rest flip to the real faces at reveal.</summary>
     Always = 2,
 }
 
@@ -166,7 +175,10 @@ internal static class RemoteBoardGate
                 "is hidden during the game's secret SelectAbilityCardsOrLongRest phase and appears at reveal.",
             _ =>
                 "a peer's board is always drawn; during the secret selection phase its round cards show " +
-                "BACKS (RevealGate) and flip to the real faces at reveal.",
+                "BACKS (RevealGate) and flip to the real faces at reveal — EXCEPT a card that is " +
+                "already public (burning, or active), which shows its front in every phase by the " +
+                "user's own ruling; read the per-recess 'CARD FACE RULE' line for which rule chose " +
+                "a given face.",
         }
         // Every sentence above describes the dial INSIDE a scenario, which is the only place it
         // decides anything. Saying so here is not decoration: this line is change-gated on the dial,

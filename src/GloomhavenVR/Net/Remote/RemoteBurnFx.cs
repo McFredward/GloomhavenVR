@@ -38,8 +38,15 @@ namespace GloomhavenVR.Net;
 /// <para>SO NO WIRE FIELD IS OWED, and adding one would have been the wrong fix twice over: it
 /// would have put a card identity on the wire for the first time (the anti-cheat line every remote
 /// card surface is built to hold) to transmit a fact the receiver already has. The identity is
-/// resolved LOCALLY here, gated by the identical <see cref="RevealGate.ShowRoundCardFronts"/> call
-/// the board slots, the hand fan, the pile fans and the held-card face all make.</para>
+/// resolved LOCALLY here, gated by the identical <see cref="RevealGate.CardFaces"/> call the board
+/// slots, the hand fan, the pile fans and the held-card face all make.</para>
+///
+/// <para>THAT SENTENCE NAMED <c>RevealGate.ShowRoundCardFronts</c> UNTIL 2026-09-07 AND THIS FILE
+/// HAS NEVER CALLED IT. The difference is not cosmetic and it is the whole of report item 6: the
+/// bare phase predicate draws a BACK for the entire duration of a burn that happens inside its
+/// owner's own selection window, which is what he reported. The card-aware overload is what carries
+/// the burn exception, and a comment naming the narrower predicate is how a future reader
+/// "simplifies" the wider one away.</para>
 ///
 /// <para>THE CHOREOGRAPHY MIRRORS THE OWNER'S, TERM FOR TERM. The owner's card lies on his board
 /// while the game's <c>BurnCardTimeline</c> plays on it (<c>burnTime = 2 s</c>) and only then
@@ -551,6 +558,7 @@ internal sealed class RemoteBurnFx
         // THE FACE — resolved locally, gated exactly as every other remote card surface is.
         b.HasFace = false;
         bool fronts = false;
+        RevealGate.FaceRule faceRule = RevealGate.FaceRule.NoContext;
         try
         {
             // THE BURN CARVE-OUT (2026-09-06 report item 6). The user's ruling is absolute — "Beim
@@ -561,8 +569,26 @@ internal sealed class RemoteBurnFx
             // Slot -> Burnt flight in RemoteCardFx and any surface added later. The old expression
             // (ShowRoundCardFronts alone) drew a BACK for the whole of a burn that happened inside
             // the peer's own selection window, which is exactly what he reported.
+            //
+            // ─── AN UNRESOLVABLE ID MAY NOT FALL BACK ONTO THE PHASE (2026-09-07 review) ───────
+            // cardId is int.MinValue when the widget has no model CAbilityCard behind it — and,
+            // because CardInstanceIdOf swallows, on ANY throw as well. RevealGate.CardFaces answers
+            // that id by dropping straight through to the population's own verdict, i.e. onto the
+            // phase term, so a burn that happened inside the owner's short rest drew a BACK for
+            // exactly the reason the carve-out exists to deny. THE WIDGET'S PROVENANCE IS ITSELF
+            // THE PROOF and it costs nothing to use: this method is only ever reached from the
+            // burnt-pile walk (CardsGameApi.GetPileWidgets(hand, burnt: true), narrowed by
+            // PileWidgetIsArcMember), so the card is in that character's Lost/PermanentlyLost lists
+            // by construction — which is the very membership IsPubliclyRevealedCard would have
+            // tested had it been given a usable id. So the fallback is AlreadyPublic, the population
+            // that names that fact, and never Selectable, which would let the phase decide a
+            // question the ruling has already settled.
+            bool idKnown = cardId != int.MinValue;
             fronts = actor != null
-                     && RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor, cardId)
+                     && RevealGate.CardFaces(
+                            idKnown ? RevealGate.PeerCardPopulation.Selectable
+                                    : RevealGate.PeerCardPopulation.AlreadyPublic,
+                            actor, cardId, out faceRule)
                         != RevealGate.CardFaceSource.None;
             FullAbilityCard? full = fronts && widget != null ? widget.fullAbilityCard : null;
             if (full != null && b.Art != null)
@@ -596,12 +622,18 @@ internal sealed class RemoteBurnFx
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.FlightSlab, _owner.PlayerId,
             b.HasFace ? 1 : 0, b.HasFace ? 0 : 1,
             b.HasFace
-                ? "BURN: FRONT off this client's own copy of that character's LostAbilityCards"
+                ? "BURN: FRONT off this client's own copy of that character's LostAbilityCards — "
+                  + RevealGate.RuleText(faceRule)
                 : fronts
                     ? "BURN: RevealGate was OPEN but the front did not resolve — read the "
                       + "'BURN CARD [peer n]' line beside this for which half failed"
-                    : "BURN: RevealGate.ShowRoundCardFronts(actor)=false — the game's own secret "
-                      + "SelectAbilityCardsOrLongRest window for a remote character");
+                    : "BURN: RevealGate.CardFaces refused this card. THIS FILE NEVER CALLS "
+                      + "ShowRoundCardFronts and the sentence that used to stand here said it did; "
+                      + "the rule that actually decided is: " + RevealGate.RuleText(faceRule)
+                      + (actor == null
+                          ? " (and there was no displayed actor at all, which is a CAPABILITY "
+                            + "failure and not a secrecy verdict)"
+                          : string.Empty));
         LogAttribution(name, fronts, b.HasFace, actor, recess, recessHow);
     }
 
@@ -1041,7 +1073,10 @@ internal sealed class RemoteBurnFx
                           $"{BurnArtwork.StartGraceSeconds:F2}s / deadline " +
                           $"{BurnArtwork.MaxHoldSeconds:F1}s), then flying " +
                           $"it into their Burnt stack ({NetProtocol.CardFxSeconds:F2}s). " +
-                          $"face={(face ? "REAL" : "BACK")}, revealGate={(fronts ? "open" : "shut")}, " +
+                          $"face={(face ? "REAL" : "BACK")}, " +
+                          $"RevealGate.CardFaces={(fronts ? "open" : "shut")} (the CARD-aware " +
+                          "overload, which carries the burn exception — NOT ShowRoundCardFronts, " +
+                          "so 'shut' here is never by itself a statement about the phase), " +
                           $"char='{Board.CharacterFocus.Describe(actor)}', burn #{_played}. TIMING: " +
                           $"found on the burnt-pile walk at frame {_lastWalkFrame}, " +
                           (_sinceLastWalk < 0f

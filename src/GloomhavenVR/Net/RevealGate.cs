@@ -916,10 +916,38 @@ internal static class RevealGate
     /// </summary>
     public static CardFaceSource CardFaces(PeerCardPopulation population,
                                            ScenarioRuleLibrary.CPlayerActor? actor)
+        => CardFaces(population, actor, InScenario);
+
+    /// <summary>
+    /// THE SAME CALL WITH THE CAPABILITY HALF SUPPLIED BY THE CALLER — for the ONE surface whose
+    /// own lifetime already answered it, and which must not be made to answer it twice.
+    ///
+    /// <para><paramref name="scenarioEstablished"/> IS THE <see cref="InScenario"/> TERM AND NOTHING
+    /// ELSE. This method's own doc block is written about what happens when a CAPABILITY test is
+    /// left standing as the answer to a SECRECY question; the remedy is not to hide the capability
+    /// term inside the predicate for every caller, it is to let a caller that has ALREADY
+    /// established the capability say so, so that the secrecy half is the only thing left to get
+    /// wrong. <c>Net.Remote.RemoteControlBoard</c> is that caller: its whole lifetime is gated on
+    /// <c>RemoteBoardScenarioGate</c>, whose own doc says in as many words that it is "deliberately
+    /// NOT RevealGate.InScenario". In the window where the two disagree (the board is up, the
+    /// save's <c>CurrentGameState</c> has not said Scenario yet) <see cref="ShowRoundCardFronts"/>
+    /// answers TRUE by negation and that board's recesses draw FRONTS — and passing
+    /// <c>InScenario</c> here instead would trade them into the one thing the user prohibited
+    /// outright ("außerhalb der Auswahlphase NIEMALS Rückseiten").</para>
+    ///
+    /// <para>IT MAY ONLY EVER BE PASSED <c>true</c> BY A SURFACE WHOSE OWN GATE IS AT LEAST AS
+    /// STRICT AS THE PICTURE IT DRAWS. It is not a permission to show fronts — the secrecy terms
+    /// below are untouched by it — it is a statement that "a face can be resolved here" has already
+    /// been decided somewhere else. Everything that has NOT decided it calls the two-argument
+    /// overload above and gets <see cref="InScenario"/>, which is still the default.</para>
+    /// </summary>
+    public static CardFaceSource CardFaces(PeerCardPopulation population,
+                                           ScenarioRuleLibrary.CPlayerActor? actor,
+                                           bool scenarioEstablished)
     {
         try
         {
-            if (InScenario)
+            if (scenarioEstablished)
             {
                 if (actor == null)
                     return CardFaceSource.None;
@@ -1079,8 +1107,29 @@ internal static class RevealGate
                                            ScenarioRuleLibrary.CPlayerActor? actor,
                                            int cardInstanceId,
                                            out FaceRule rule)
+        => CardFaces(population, actor, cardInstanceId, InScenario, out rule);
+
+    /// <summary>
+    /// THE RULE-NAMING OVERLOAD WITH THE CAPABILITY HALF SUPPLIED — see
+    /// <see cref="CardFaces(PeerCardPopulation, CPlayerActor, bool)"/> for why a caller may own that
+    /// term, and why passing it is the opposite of loosening the gate.
+    ///
+    /// <para>THE VERDICT IS THE THREE-ARGUMENT OVERLOAD'S, TERM FOR TERM, and this method adds no
+    /// branch to it. What it adds is the NAME of the rule that produced it — including the one
+    /// distinction the hand-written ladders that used to stand at the call sites could not make:
+    /// a BACK because the phase COVERED the card (<see cref="FaceRule.SelectionPhaseCovered"/>)
+    /// versus a BACK because no face could be resolved from anywhere
+    /// (<see cref="FaceRule.NoContext"/>). Reading a CAPABILITY failure as a SECRECY answer is this
+    /// file's oldest recorded defect and a call site spelling its own ternary cannot tell them
+    /// apart, because it has already folded the two into one bool.</para>
+    /// </summary>
+    public static CardFaceSource CardFaces(PeerCardPopulation population,
+                                           ScenarioRuleLibrary.CPlayerActor? actor,
+                                           int cardInstanceId,
+                                           bool scenarioEstablished,
+                                           out FaceRule rule)
     {
-        CardFaceSource byPopulation = CardFaces(population, actor);
+        CardFaceSource byPopulation = CardFaces(population, actor, scenarioEstablished);
         if (byPopulation == CardFaceSource.MapLoadout)
         {
             rule = FaceRule.MapLoadout;
@@ -1097,16 +1146,18 @@ internal static class RevealGate
         // property of the CARD — asked second so it can only ever widen (see the overload above).
         if (IsPubliclyRevealedCard(actor, cardInstanceId))
         {
-            CardFaceSource asPublic = CardFaces(PeerCardPopulation.AlreadyPublic, actor);
+            CardFaceSource asPublic =
+                CardFaces(PeerCardPopulation.AlreadyPublic, actor, scenarioEstablished);
             if (asPublic != CardFaceSource.None)
             {
                 rule = FaceRule.BurnOrActivePublicCard;
                 return asPublic;
             }
         }
-        // A BACK, and the two reasons for one are not the same reading. InScenario with an actor
-        // means the phase covered it; anything else means no face could have been resolved at all.
-        rule = InScenario && actor != null
+        // A BACK, and the two reasons for one are not the same reading. A running scenario with an
+        // actor means the phase covered it; anything else means no face could have been resolved at
+        // all.
+        rule = scenarioEstablished && actor != null
             ? FaceRule.SelectionPhaseCovered
             : FaceRule.NoContext;
         return CardFaceSource.None;

@@ -408,6 +408,13 @@ internal sealed class RemoteCardFx
         // widening of that window could ever have been right. The arriving card is not a memory: it
         // is extension record 39, on the wire, right now, for exactly this recess.
         int arriving = to == CardFxAnchor.Slot0 ? 0 : to == CardFxAnchor.Slot1 ? 1 : -1;
+        // WHY THE ARRIVAL PATH DID NOT DRESS THIS FLIGHT — null while it was never TRIED, a named
+        // reason once it was. See DressFace: it used to return a bare `null` for three completely
+        // different refusals, so the caller below could only fall through to a sentence blaming
+        // record 39 for something record 39 may well have answered. That sentence is the whole
+        // measurement behind the maintainer's open item 8 ("die offene Karte soll verdeckt sein"
+        // during the short-rest flight), and it was pointing at the wrong end of the wire.
+        string? arrivalRefusal = null;
         try
         {
             if (slot < 0 && arriving >= 0
@@ -416,7 +423,8 @@ internal sealed class RemoteCardFx
                 && incoming != null)
             {
                 string? arrivalRule = DressFace(f, incoming,
-                    $"the card record 39 says is arriving in their round recess {arriving + 1}");
+                    $"the card record 39 says is arriving in their round recess {arriving + 1}",
+                    out arrivalRefusal);
                 if (arrivalRule != null)
                     return arrivalRule;
             }
@@ -424,13 +432,18 @@ internal sealed class RemoteCardFx
                                                   out RemoteControlBoard.DepartedFaceVerdict verdict)
                 || card == null)
                 return $"BACK — no departed face claimable for {from} -> {to}: {Why(verdict)}"
-                     + (arriving >= 0
-                         ? ". THIS IS AN ARRIVAL, NOT A DEPARTURE — the memory quoted above is about "
-                           + "the card that LEFT that recess and is the wrong question here; the "
-                           + "right one is extension record 39, and it named no seat for that recess "
-                           + "(read the owner's own 'SHORT REST SEAT' line and its SAMPLER SAYS "
-                           + "clause)"
-                         : string.Empty);
+                     + (arriving < 0
+                         ? string.Empty
+                         : arrivalRefusal != null
+                             ? ". THIS IS AN ARRIVAL, NOT A DEPARTURE — the memory quoted above is "
+                               + "about the card that LEFT that recess and is the wrong question "
+                               + "here. RECORD 39 DID NAME A SEAT and this client resolved it; what "
+                               + "refused the front is: " + arrivalRefusal
+                             : ". THIS IS AN ARRIVAL, NOT A DEPARTURE — the memory quoted above is "
+                               + "about the card that LEFT that recess and is the wrong question "
+                               + "here; the right one is extension record 39, and it named no seat "
+                               + "for that recess that this client could resolve (read the owner's "
+                               + "own 'SHORT REST SEAT' line and its SAMPLER SAYS clause)");
             // ─── THE ONE FACT THE ACTIVE MATRIX CANNOT GET ANYWHERE ELSE ────────────────────────
             // Stamped HERE and not in Play(), because this is the only point at which the flying
             // card has a NAME: the claim above is what resolves it, and it lives in this class's
@@ -496,9 +509,28 @@ internal sealed class RemoteCardFx
     /// <para>Shared with the departure path on purpose: two copies of "ask the gate, then build the
     /// clone" is exactly how one surface ends up with a permission the other does not have, which is
     /// the defect <c>RevealGate.CardFaces</c>'s own file note is written about.</para>
+    ///
+    /// <para><paramref name="refusal"/> IS THE INSTRUMENT, AND ITS ABSENCE WAS THE DEFECT. This
+    /// method has three refusals — the reveal gate said no, this pooled slab has no face overlay,
+    /// the face clone failed to build — and it used to answer all three with a bare <c>null</c>.
+    /// The caller then printed "extension record 39 named NO seat for this recess", which is a
+    /// statement about the SENDER, for three receiver-side outcomes in which record 39 had done its
+    /// job perfectly. That string is the only measurement standing behind the maintainer's open item
+    /// 8 ("die offene Karte soll verdeckt sein" during the short-rest flight) — the line that looked
+    /// like it settled the item was falsified in ModBuild 477 — so it had to stop guessing. Read
+    /// this beside the owner's own <c>[Cards] SHORT REST SACRIFICE</c> line and one grep answers it:
+    /// a GATE refusal names the phase and is the ruling working (a sacrifice still lying in the
+    /// recess is covered; an accepted one burns and is not), while a BUILDER refusal is a defect on
+    /// this client and has nothing to do with any ruling at all.</para>
+    ///
+    /// <para><c>null</c> in <paramref name="refusal"/> means the arrival path was never TRIED — the
+    /// caller distinguishes "not asked" from "asked and refused", which is the distinction the old
+    /// single return value flattened.</para>
     /// </summary>
-    private string? DressFace(Flight f, ScenarioRuleLibrary.CAbilityCard card, string origin)
+    private string? DressFace(Flight f, ScenarioRuleLibrary.CAbilityCard card, string origin,
+                              out string? refusal)
     {
+        refusal = null;
         ScenarioRuleLibrary.CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
         // THE ARRIVING CARD IS A PILE CARD BY CONSTRUCTION — record 39's vocabulary cannot express a
         // hand seat — so the population it is asked under is the recess's own, BoardPickSeat.
@@ -514,14 +546,33 @@ internal sealed class RemoteCardFx
         // back to the discard pile, still secret, still re-drawable — now flies covered, which is
         // the ruling. Outside the selection window nothing changed: the gate is open on its own.
         if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.BoardPickSeat, actor,
-                                 card.CardInstanceID) == RevealGate.CardFaceSource.None)
+                                 card.CardInstanceID, out RevealGate.FaceRule rule)
+            == RevealGate.CardFaceSource.None)
+        {
+            refusal = $"THE REVEAL GATE, for '{card.Name}' — {RevealGate.RuleText(rule)}. This is a "
+                    + "RULING and not a fault: a short-rest sacrifice still lying in the recess is "
+                    + "covered with the selection phase (user 2026-09-07 item 6), and an ACCEPTED "
+                    + "one is in LostAbilityCards before the artwork starts and flies with its "
+                    + "front. Compare against the owner's own '[Cards] SHORT REST SACRIFICE' line "
+                    + "for which of the two this moment was";
             return null;
+        }
         if (f.Art == null)
+        {
+            refusal = $"THIS POOLED SLAB HAS NO FACE OVERLAY for '{card.Name}' (its GameObject "
+                    + "failed to build) — a receiver-side fault with no ruling behind it";
             return null;
+        }
         RemoteAbilityCardSource.FacePath path =
             RemoteAbilityCardSource.ShowFullFace(f.Art, actor, card);
         if (path == RemoteAbilityCardSource.FacePath.None)
+        {
+            refusal = $"THE FACE CLONE FAILED TO BUILD for '{card.Name}' — the gate was OPEN and "
+                    + "RemoteAbilityCardSource found neither a live widget nor a poolable one. A "
+                    + "receiver-side fault, and the same one the departure path reports one branch "
+                    + "down; nothing about the phase or the sender is implicated";
             return null;
+        }
         f.HasFace = true;
         return $"FRONT via RemoteAbilityCardSource.{path}, from {origin}";
     }
