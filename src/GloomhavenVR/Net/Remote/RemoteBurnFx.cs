@@ -74,16 +74,14 @@ internal sealed class RemoteBurnFx
     /// CEILING on how long a burned card may be held before it flies, in seconds — NOT a duration
     /// any more.
     ///
-    /// <para>IT STOPPED BEING A DURATION (report item 9's third clause) AND HAS NOW STOPPED BEING A
-    /// CEILING TOO (report item 5). The hold lasts exactly as long as the OWNER's own card is still
-    /// seated in the recess this client mirrors: <see cref="Drive"/> hands over to the arc on the
-    /// frame that seat empties, and a burn this client could never seat flies at once. Both are
-    /// strictly closer to the owner's timing than a fixed two seconds was, because the seat
-    /// emptying IS his flight starting. Applying this number as a ceiling ON TOP of that ended
-    /// three of four mirrored burns in the ModBuild 470 host log at 2.00 s while the owner's card
-    /// was still lying in his recess — his "direkt bei der ersten Karte" — so the belt against a
-    /// recess that never lets go is now <see cref="SeatedHoldBeltSeconds"/> and this is no longer
-    /// consulted by the hold at all.</para>
+    /// <para>IT STOPPED BEING A DURATION (report item 9's third clause), THEN STOPPED BEING A
+    /// CEILING (report item 5), AND THE THING THAT REPLACED IT WAS ALSO WRONG (report item 8). The
+    /// hold ran for as long as the OWNER's card stayed seated in the recess this client mirrors —
+    /// a proxy for his artwork that ModBuild 474 measured against his own hold on all three burns
+    /// of the session and found early, late and early again (+0.33 / −0.48 / −1.45 s; the table is
+    /// in <see cref="Drive"/>). The hold now runs on <see cref="BurnArtwork.Released"/>, the
+    /// owner's own release expression over the owner's own widget, and the recess decides only who
+    /// DRAWS the card while it lies there. This number is not consulted by the hold at all.</para>
     ///
     /// <para>WHAT IT STILL IS: the ORIGIN of phase 2's clock. <see cref="Drive"/> reads
     /// <c>(Elapsed - HoldSeconds) / CardFxSeconds</c> for the arc's parameter and
@@ -102,26 +100,6 @@ internal sealed class RemoteBurnFx
     /// is what made every burn on ModBuild 447 run the full 3 s.</para>
     /// </summary>
     private const float HoldSeconds = 2f;
-
-    /// <summary>
-    /// LEAK BELT, NOT A TIMING DIAL: the longest a presentation whose card this client can still
-    /// SEE seated in the owner's recess may wait before it flies anyway.
-    ///
-    /// <para>It is deliberately far longer than a turn. A held presentation costs nothing visually
-    /// — <see cref="Drive"/> keeps its slab DISABLED for the whole hold and the card the viewer is
-    /// looking at is the recess mirror's, exactly as on the owner's own board — so the only thing
-    /// this number protects against is a recess mirror that never stops drawing the card, which
-    /// would otherwise strand a <see cref="Burn"/> slot and a wire claim forever. It is NOT the
-    /// answer to "how long should a burn lie there": that answer is the owner's recess emptying,
-    /// and it is read per frame.</para>
-    ///
-    /// <para>THE SEAT TEST IS KEYED ON THE CARD, not on the seat, so this belt is almost
-    /// unreachable in practice: <c>RecessShowingCard(b.CardId)</c> stops matching the moment the
-    /// owner's recess draws ANY other card or empties, and the next round reseats both recesses. A
-    /// reading of this arm in <c>BURN FLIGHT</c> is therefore a report against
-    /// <c>RemoteBoardCard</c>, not against this class.</para>
-    /// </summary>
-    private const float SeatedHoldBeltSeconds = 300f;
 
     /// <summary>
     /// Seconds between two walks of the peer's host-replicated Lost pile — THE UPPER BOUND ON HOW
@@ -192,6 +170,26 @@ internal sealed class RemoteBurnFx
         /// hold this presentation actually observed rather than the one it used to run on a clock of
         /// its own. Zero means the card was never seated where this client could see it.</summary>
         public int SeatedFrames;
+
+        /// <summary>The owner's OWN burnt widget, kept so the hold can read the OWNER'S completion
+        /// signal — <see cref="BurnArtwork.Playing"/> over this widget's <c>CardEffects</c> — rather
+        /// than a proxy for it. The model is local, so this is the same object the owner's own
+        /// <c>CardsDriver.TryTakeBurnFlightSlot</c> reads on his machine.</summary>
+        public AbilityCardUI? Widget;
+
+        /// <summary>Did this client ever OBSERVE the owner's burn artwork running on
+        /// <see cref="Widget"/>? False for the whole hold means the game's own
+        /// <c>BurnCardTimeline</c> bailed here (its first statement refuses an inactive hierarchy),
+        /// so the hold fell back to <see cref="BurnArtwork.StartGraceSeconds"/> — the SAME constant
+        /// the owner then used, which is why the fallback is still one signal and not a second
+        /// sequencer. Printed on the hand-over line; it is what separates a measured 1:1 from an
+        /// assumed one.</summary>
+        public bool ArtworkObserved;
+
+        /// <summary>Seconds this presentation's own slab stood STILL at the flight's origin before
+        /// the arc. Non-zero only for a burn the owner's recess never drew — the card has to lie
+        /// somewhere or the peer cannot "sehen dass die Karte kurz liegen bleibt".</summary>
+        public float StationaryShown;
 
         /// <summary>Has the arc been reported? One line per burn, at the hand-over instant.</summary>
         public bool HandoverLogged;
@@ -481,6 +479,9 @@ internal sealed class RemoteBurnFx
         b.Name = name;
         b.SeatedFrames = 0;
         b.HandoverLogged = false;
+        b.Widget = widget;
+        b.ArtworkObserved = false;
+        b.StationaryShown = 0f;
 
         float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         float cardWidth = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth);
@@ -501,13 +502,13 @@ internal sealed class RemoteBurnFx
         // the whole flight ("orientation locked"). Facing it at the local head instead would be a
         // pose the owner never sees.
         b.Go.transform.SetPositionAndRotation(from, _owner.BoardRotation);
-        // …AND IT STARTS HIDDEN, ALWAYS. The slab's only appearance is the ARC (report item 9's
-        // third clause — the viewer may never be shown a mini card lying at the flight's origin),
-        // and Drive() is the one place that reveals it, on the frame the recess stops drawing this
-        // card. Two copies of one card is also a worse divergence than the one this class was built
-        // to fix, and the recess copy is the better of the two by construction: it is the card the
-        // owner is looking at, in the recess he is looking at, wearing the char
-        // RemoteBoardCard.DriveUsedCardFx is ramping on it.
+        // …AND IT STARTS HIDDEN, ALWAYS. Drive() is the one place that reveals it, and it reveals it
+        // for exactly two pictures: the ARC, and — since ModBuild 475, item 8's "die sehen auch dass
+        // die Karte kurz liegen bleibt" — the owner's own hold on a burn NO recess is drawing.
+        // Never both, and never while the recess draws the card: two copies of one card is a worse
+        // divergence than the one this class was built to fix, and the recess copy is the better of
+        // the two by construction — it is the card the owner is looking at, in the recess he is
+        // looking at, wearing the char RemoteBoardCard.DriveUsedCardFx is ramping on it.
         if (b.Go.activeSelf)
             b.Go.SetActive(false);
 
@@ -667,27 +668,97 @@ internal sealed class RemoteBurnFx
                 // covers the never-seated burn on frame 1, exactly as before. The only clock left
                 // is SeatedHoldBeltSeconds, a leak belt against a recess mirror that never lets go,
                 // and it is two orders of magnitude away from anything one turn can take.
+                //
+                // (SeatedHoldBeltSeconds IS GONE, 2026-09-07. Once the hold releases on the owner's
+                // own expression it is bounded by HIS BurnArtwork.MaxHoldSeconds deadline of 3 s, so
+                // a 300 s belt behind it was unreachable code — a branch no reading could ever
+                // produce, which is worse than no belt at all because a reader believes it.)
+                // ─── AND THE SENTENCE ABOVE IS FALSE, AND ITS OWN INSTRUMENT SAYS SO (2026-09-07
+                // ─── late report, item 8) ───────────────────────────────────────────────────────
+                // "the recess empties the moment the owner's occupancy nibble clears, which is the
+                // same instant HIS card leaves it" is a claim about the OWNER'S FLIGHT that was
+                // never measured against it. ModBuild 474 measures it on all three burns of the
+                // session, each pair clocked from the same host-replicated pile change:
+                //
+                //   card           owner's own BURN HOLD        this mirror's BURN FLIGHT   gap
+                //   ShieldBash     0.67s  remote/…:151241       1.00s  Player.log:170102   +0.33s
+                //   SpareDagger    0.50s  remote/…:177185       0.02s  Player.log:197139   -0.48s
+                //   FeedbackLoop   2.01s  Player.log:249415     0.56s  remote/…:225114     -1.45s
+                //
+                // Three burns, three different signs and magnitudes. A proxy that is early on one
+                // card, late on the next and 1.45 s early on the third is not a dial to tune; it is
+                // a SECOND SEQUENCER, and two sequencers on one animation is why this item has now
+                // been reported three rounds running.
+                //
+                // SO THE HOLD READS THE OWNER'S OWN SIGNAL INSTEAD, and it may, because THE MODEL IS
+                // LOCAL. b.Widget is the owner's real AbilityCardUI, resolved out of his
+                // host-replicated LostAbilityCards by Watch() — the same object his own
+                // CardsDriver.TryTakeBurnFlightSlot reads on his machine. BurnArtwork.Released is
+                // his release expression, character for character, with his two bounds. No wire
+                // field is owed and none is added.
+                //
+                // WHEN THE ARTWORK IS NOT OBSERVABLE HERE, the fallback is still HIS: CardEffects's
+                // own BurnCardTimeline refuses an inactive hierarchy in its first statement
+                // (CardEffects.cs:510), so a peer's card whose 2D UI this client is not presenting
+                // never starts one, Playing() reads false throughout, and the hold ends at
+                // BurnArtwork.StartGraceSeconds — which is exactly the 0.50s his own hold measured
+                // for the short-rest sacrifice above. One expression, one pair of constants, two
+                // clients: that is the whole of "das soll so synchron mit den anderen Spielern
+                // sein", and ArtworkObserved prints which arm each burn actually took.
+                //
+                // THE RECESS IS NO LONGER A TIMING TERM AT ALL. It decides only WHO DRAWS the card
+                // while it lies there, which is the question it can actually answer.
                 bool recessDraws = b.CardId != int.MinValue
                                    && _owner.RecessShowingCard(b.CardId) == b.Recess
                                    && b.Recess >= 0;
-                if (recessDraws && b.Elapsed < SeatedHoldBeltSeconds)
+                bool playing = BurnArtwork.Playing(BurnArtwork.EffectsOf(b.Widget));
+                if (playing)
+                    b.ArtworkObserved = true;
+                if (!BurnArtwork.Released(playing, b.Elapsed))
                 {
-                    b.SeatedFrames++;
-                    if (b.Go.activeSelf)
-                        b.Go.SetActive(false);
+                    // WHO DRAWS THE CARD DURING THE HOLD. While the owner's recess is still drawing
+                    // it, this slab must stay hidden — RemoteBoardCard.DriveUsedCardFx is ramping
+                    // the very same face in that seat and two copies of one card is a worse
+                    // divergence than the one this class fixes.
+                    //
+                    // BUT WHEN NOBODY IS DRAWING IT, THIS SLAB MUST. "Das soll so synchron mit den
+                    // anderen Spielern sein (also die sehen auch dass die Karte kurz liegen bleibt
+                    // und erst dann kommt die Animation)" is this round's ruling and it is explicit:
+                    // the peer has to SEE the card lie still. A short-rest sacrifice is precisely
+                    // the case with no recess to draw it — SpareDagger above — and hiding the slab
+                    // there showed the viewer nothing at all for the owner's whole hold.
+                    //
+                    // THIS DOES NOT RE-BREAK THE PREVIOUS ROUND'S RULING ("Ich will aber gar nicht
+                    // sehen, wie die Karte in mini auf dem Board liegt … das soll unmittelbar nach
+                    // dem Verschwinden geschehen"). That one is about a slab left standing AFTER the
+                    // owner's card had already gone. Here the owner has NOT let go — his own hold is
+                    // still running, on the same expression, on this same frame. The slab is shown
+                    // only while he is showing his, and never for a moment longer.
+                    if (b.Go.activeSelf != !recessDraws)
+                        b.Go.SetActive(!recessDraws);
+                    if (recessDraws)
+                        b.SeatedFrames++;
+                    else
+                    {
+                        b.StationaryShown += step;
+                        b.Go.transform.SetPositionAndRotation(b.From, _owner.BoardRotation);
+                        if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(1f))
+                            b.HasFace = false;
+                    }
                     continue;
                 }
-                Handover(b, recessDraws
-                    ? "the " + SeatedHoldBeltSeconds.ToString("F0")
-                      + "s STRANDED-MIRROR belt ran out while their recess was STILL drawing the "
-                      + "card — the recess mirror never let go, which is a defect in THAT surface "
-                      + "and not a dial here"
-                    : b.SeatedFrames > 0
-                        ? "their recess stopped drawing that card, which is the same instant the "
-                          + "owner's own card left that seat and his own flight began"
-                        : "their recess never drew this card at all (a sacrifice that had already "
-                          + "left its seat, or a board this client cannot place) — so there is "
-                          + "nowhere for it to lie and it flies immediately");
+                Handover(b, b.Elapsed >= BurnArtwork.MaxHoldSeconds
+                        ? "the owner's own " + BurnArtwork.MaxHoldSeconds.ToString("F1")
+                          + "s DEADLINE ran out with his burn artwork still running — the same arm "
+                          + "his own BURN HOLD line reports as 'artwork still running'"
+                        : b.ArtworkObserved
+                            ? "the owner's own burn artwork finished (CardEffects.coroutine went "
+                              + "null on HIS widget, read here on this machine) — the identical "
+                              + "term his own TryTakeBurnFlightSlot released on"
+                            : "the owner's " + BurnArtwork.StartGraceSeconds.ToString("F2")
+                              + "s START GRACE ran out without his burn artwork ever being "
+                              + "observable on this client — CardEffects.BurnCardTimeline refuses "
+                              + "an inactive hierarchy, so his own hold used this same constant");
             }
 
             // THE HAND-OVER. The flight always draws the slab, and it draws it ALREADY CHARRED: a
@@ -904,8 +975,10 @@ internal sealed class RemoteBurnFx
         // CardsDriver.LogBurnAttribution prints, so one grep across the two hardware logs decides
         // the 1:1 question. See this method's doc for the three falsifiers.
         VRLog.Note("Net", $"BURN CARD [peer {_owner.PlayerId}]: that player burned '{name}' — " +
-                          $"showing it {where}, charring in that seat for as long as their own card " +
-                          $"is still in it (ceiling {HoldSeconds:F1}s), then flying " +
+                          $"showing it {where}, charring there for as long as the OWNER's own burn " +
+                          $"artwork holds his card (BurnArtwork.Released, his expression: grace " +
+                          $"{BurnArtwork.StartGraceSeconds:F2}s / deadline " +
+                          $"{BurnArtwork.MaxHoldSeconds:F1}s), then flying " +
                           $"it into their Burnt stack ({NetProtocol.CardFxSeconds:F2}s). " +
                           $"face={(face ? "REAL" : "BACK")}, revealGate={(fronts ? "open" : "shut")}, " +
                           $"char='{Board.CharacterFocus.Describe(actor)}', burn #{_played}. TIMING: " +
@@ -965,25 +1038,30 @@ internal sealed class RemoteBurnFx
     /// ever shown standing still. A report about a discovery cannot answer a question about a
     /// hand-over.</para>
     ///
-    /// <para><b>WORKING</b> = one line per burn reading <c>stationary slab shown for 0.00s</c> — the
-    /// number is a CONSTANT ZERO by construction now (the slab's only appearance is the arc), so any
-    /// other value is a code defect and not a tuning question — with <c>seated for N frame(s)</c>
-    /// non-zero and <c>arc began 0.5s..2.0s after discovery</c> for a card the owner played onto his
-    /// board, beside a <c>BURN CARD</c> line naming a recess.</para>
+    /// <para>AND SINCE ModBuild 475 IT IS ALSO THE 1:1 CLAIM ITSELF (item 8). The hold no longer
+    /// runs on the recess proxy; it runs on <see cref="BurnArtwork.Released"/>, the owner's own
+    /// expression over the owner's own widget. That makes the owner-vs-mirror gap a number this line
+    /// can be CHECKED against instead of one it has to assert: <c>held=X.XXs</c> here and
+    /// <c>BURN HOLD: … waited X.XXs</c> for the SAME card name in the other client's log must agree
+    /// to within the 0.08 s watch cadence. The report is the pair, not this line alone.</para>
     ///
-    /// <para><b>INERT</b> = <c>arc began 0.00s after discovery</c> with <c>seated for 0 frame(s)</c>
-    /// on a burn whose <c>BURN CARD</c> line DID name a recess: the recess never drew the card this
-    /// client placed there, so the viewer got a flight with no char in front of it. The lead is then
-    /// <c>RemoteControlBoard.RecessShowingCard</c> and the <c>ANONYMOUS RECESS</c> line, not this
-    /// class. The same reading on a burn whose <c>BURN CARD</c> line named the board CENTRE is the
-    /// CORRECT outcome, not a defect — a short-rest sacrifice that had already left its seat has
-    /// nowhere to lie, and flying it at once is exactly what item 9 asks for.</para>
+    /// <para><b>WORKING</b> = one line per burn whose <c>held=</c> figure matches the same card's
+    /// owner-side <c>BURN HOLD</c> seconds to within 0.10 s, with <c>artwork=observed</c> on a
+    /// client that is presenting that character's 2D UI and <c>artwork=not-observable</c> on one
+    /// that is not. For the three burns of the ModBuild 474 session that means 0.67 / 0.50 / 2.01 s
+    /// against the pre-fix 1.00 / 0.02 / 0.56 s.</para>
     ///
-    /// <para><b>STILL BEYOND THE INSTRUMENT</b> = every line reading 0.00s stationary and the user
-    /// still reporting a mini card lying on the board. This class would then not be the thing
-    /// drawing it, and the next surface to look at is the RECESS mirror itself
-    /// (<c>RemoteBoardCard</c>), which keeps drawing the burnt card face-up for as long as the
-    /// owner's occupancy nibble says his own card is still seated — a picture the owner has too.</para>
+    /// <para><b>INERT</b> = <c>held=0.00s</c>, or any <c>held=</c> still differing from the owner's
+    /// <c>BURN HOLD</c> by more than 0.10 s. Zero in particular means <see cref="Burn.Widget"/> came
+    /// back null and the whole predicate degenerated — the lead is then <c>Watch()</c>'s widget, not
+    /// the hold. A <c>released by: their recess</c> clause anywhere is the pre-fix build.</para>
+    ///
+    /// <para><b>STILL BEYOND THE INSTRUMENT</b> = matched <c>held=</c> figures on both clients and
+    /// the user still reporting that the card does not lie still. The hold would then be right and
+    /// the DRAWING wrong, and the next surfaces are the recess mirror (<c>RemoteBoardCard</c>, which
+    /// draws the card for <c>seated=N frame(s)</c> of the hold) and this class's own slab (which
+    /// draws it for <c>stationary=X.XXs</c>): those two must together cover the whole of
+    /// <c>held=</c>, and this line prints all three so the arithmetic can be done from the log.</para>
     /// </summary>
     private void LogHandover(Burn b, float after, string why)
     {
@@ -996,19 +1074,23 @@ internal sealed class RemoteBurnFx
         // off, retired or demoted and the behaviour is identical.
         // HW-VERIFY: grep token "BURN FLIGHT" — see this method's doc for the three readings.
         VRLog.Note("Net", $"BURN FLIGHT [peer {_owner.PlayerId}]: '{b.Name}' leaves for their Burnt " +
-                          $"stack now, {after:F2}s after this mirror discovered the burn, because " +
-                          $"{why}. It was seated in their recess " +
+                          $"stack now. held={after:F2}s since this mirror discovered the burn, " +
+                          $"signal=BurnArtwork.Released (the OWNER's own expression, grace " +
+                          $"{BurnArtwork.StartGraceSeconds:F2}s / deadline " +
+                          $"{BurnArtwork.MaxHoldSeconds:F1}s), " +
+                          $"artwork={(b.ArtworkObserved ? "observed" : "not-observable")}, " +
+                          $"released by: {why}. DURING THE HOLD the card was drawn by their recess " +
                           $"{(b.Recess >= 0 ? (b.Recess + 1).ToString() : "(none — board centre)")} " +
-                          $"for {b.SeatedFrames} frame(s) of that, and the STATIONARY SLAB WAS SHOWN " +
-                          "FOR 0.00s — the slab this class owns is only ever revealed by the arc " +
-                          "itself. THAT ZERO IS THE WHOLE OF REPORT ITEM 9's third clause ('Ich " +
-                          "will aber gar nicht sehen, wie die Karte in mini auf dem Board liegt … " +
-                          "das soll unmittelbar nach dem Verschwinden geschehen'): the hold is no " +
-                          "longer a clock of its own, it lasts exactly as long as the OWNER's card " +
-                          "is still seated in the recess this client mirrors, and the arc starts on " +
-                          $"the frame that seat empties. {HoldSeconds:F1}s remains only as the " +
-                          "ceiling for a card that never appears in a recess at all. A non-zero " +
-                          "stationary figure would be a code defect, not a dial.");
+                          $"for seated={b.SeatedFrames} frame(s) and by this class's own slab for " +
+                          $"stationary={b.StationaryShown:F2}s; those two must cover the whole of " +
+                          "held= or the peer saw nothing lying there. THE 1:1 CLAIM IS THE PAIR, " +
+                          "NOT THIS LINE: grep the OWNER's 'BURN HOLD' for this same card name in " +
+                          "the other client's log — 'waited X.XXs' must equal held= to within the " +
+                          $"{WatchSeconds:F2}s watch cadence, because both clients now evaluate ONE " +
+                          "expression over ONE widget (the model is local; the owner's " +
+                          "AbilityCardUI is a real object on this machine). Any other reading is a " +
+                          "1:1 breach with a number on it. ModBuild 474, the build this replaced, " +
+                          "read 1.00/0.02/0.56s against owner holds of 0.67/0.50/2.01s.");
     }
 
     /// <summary>

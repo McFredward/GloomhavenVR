@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Rig;
 using TMPro;
@@ -329,8 +330,132 @@ internal sealed class PileBrowser
             _cards.Add(cards[i]);
         if (_title != null && _title.text != title)
             _title.text = title;
+        SettleBurntLook();
         if (IsOpen)
             Relayout(instant: false);
+    }
+
+    // -------------------------------------------------------- the burnt fan's look --
+
+    /// <summary>Change key for <see cref="LogBurntLook"/>: (fan, latched, painted, repainted).</summary>
+    private (int Fan, int Latched, int Painted, int Repainted) _loggedBurntLook
+        = (int.MinValue, 0, 0, 0);
+
+    /// <summary>
+    /// EVERY CARD IN THE BURNT FAN CARRIES THE BURN, NOT JUST THE ONES THIS CLIENT WATCHED BURN
+    /// (2026-09-07 late report, item 10, <c>brennen_nicht_überall.jpg</c>).
+    ///
+    /// <para>WHAT HE REPORTED, VERBATIM: "Die Brennen-Animation wurde nicht auf allen Karten im
+    /// 'Verbrannt' Stapel angezeigt wenn ich auf meinem Board auf den Character meines Mitspielers
+    /// gewechselt habe … Darauf siehst du mein lokales Board das auf den gleichen Character
+    /// eingestellt ist. Die rechte Karte brennt nicht. Auf dem remote Board wo der selbe Character
+    /// ausgewählt ist sieht es richtig aus."</para>
+    ///
+    /// <para>TWO VIEWS OF ONE PILE ON ONE MACHINE, AND ONLY ONE OF THEM HAD A POPULATION. The
+    /// mirrored fan asserts the settled burn on EVERYTHING its walk of the model lists —
+    /// <c>RemotePileFronts.Tick</c> calls <c>SetAbilityBurnProgress(1f)</c> per front and counts it
+    /// ("Remote burnt pile look: N of M"). The local fan asserted nothing at all: it hosts the
+    /// game's REAL widget and simply inherited whatever <c>CardEffects.BurnCardTimeline</c> had
+    /// left on it. That is not a smaller population, it is an IMPLICIT one, and the game names its
+    /// own boundary in the timeline's first statement:</para>
+    /// <code>
+    ///   if (!base.gameObject.activeInHierarchy &amp;&amp; !playOnDisabled)
+    ///   { coroutine = null; yield break; }          // CardEffects.cs:510-513
+    /// </code>
+    /// <para>A card burned while this client's 2D card UI was presenting a DIFFERENT character is
+    /// therefore LATCHED (<c>ToggleEffect</c> adds to <c>toggledEffects</c> BEFORE it starts the
+    /// timeline) and NEVER PAINTED — and nothing afterwards ever paints it. Which is exactly his
+    /// case: he switched his own board to his co-player's character, so the burns that happened
+    /// while he was on his own character came back bare. The two cards in the screenshot are the
+    /// session's two peer burns, 'ABILITY_CARD_ShieldBash' and 'ABILITY_CARD_SpareDagger'.</para>
+    ///
+    /// <para>SO THIS RAISES THE LOCAL PATH TO THE MIRROR'S POPULATION rather than adding a third
+    /// one: every card the fan holds, every rebuild, idempotently. The painter is the game's OWN
+    /// no-ramp arm (<see cref="BurnArtwork.TrySettleBurnLook"/>) — the settled end state in one
+    /// frame, never a fire replayed minutes later, and reversible by the game's own
+    /// <c>RestoreCard()</c> if the card is recovered.</para>
+    ///
+    /// <para>THE RULING THIS SERVES IS ABSOLUTE: "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die
+    /// Karte immer mit der Vorderseite sichtbar sein." The burn presentation is not optional and
+    /// not phase-dependent, so it may not be a function of which character the board happened to
+    /// be showing when the card burned.</para>
+    /// </summary>
+    private void SettleBurntLook()
+    {
+        if (Kind != PileKind.Burnt)
+            return;
+        int latched = 0, painted = 0, repainted = 0;
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            VRCard c = _cards[i];
+            CardEffects? fx = c != null ? BurnArtwork.EffectsOf(c.FullCard) : null;
+            if (!BurnArtwork.Latched(fx))
+                continue;
+            latched++;
+            if (BurnArtwork.SettledBurnPainted(fx, out float grey))
+            {
+                painted++;
+                continue;
+            }
+            // grey < 0 is UNKNOWN (no readable image), never "unpainted" — writing on a reading we
+            // could not take is how an instrument becomes the defect it was shipped to find.
+            if (grey >= 0f && BurnArtwork.TrySettleBurnLook(fx))
+            {
+                repainted++;
+                painted++;
+            }
+        }
+        LogBurntLook(_cards.Count, latched, painted, repainted);
+    }
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (item 10): does the LOCAL burnt fan char every card in it, and if not,
+    /// which of the two populations lost the card? Grep token <c>LOCAL BURNT LOOK</c>. One line per
+    /// distinct reading, change-gated — a browse held open does not reprint.
+    ///
+    /// <para>IT PRINTS BOTH POPULATIONS SIDE BY SIDE, which is the whole point. <c>latched</c> is
+    /// what the MODEL says burned (the game's <c>toggledEffects</c> membership, written at the burn
+    /// and never cleared) and it is the same population the mirrored fan walks. <c>painted</c> is
+    /// what the game's timeline actually put on the materials on THIS client. The gap between them
+    /// is the <c>activeInHierarchy</c> bail, and it is the screenshot.</para>
+    ///
+    /// <para><b>WORKING</b> = <c>fan=2 latched=2 painted=2</c> with <c>repainted=1</c> on the first
+    /// build after a character switch, and <c>repainted=0</c> on every build after that (the write
+    /// is idempotent and the settled state persists). <c>painted == fan</c> is the pass.</para>
+    ///
+    /// <para><b>INERT</b> = <c>fan=2 latched=2 painted=1 repainted=0</c> — literally the
+    /// screenshot. That means the repaint was refused on every unpainted card, and the two refusals
+    /// are distinguishable: <c>repainted=0</c> with <c>painted &lt; latched</c> means either a
+    /// timeline was running (<c>coroutine != null</c>, so this stands aside deliberately) or the
+    /// widget was never <c>Initialize</c>d, i.e. <c>imgComp</c>/<c>txtAffected</c> were null.</para>
+    ///
+    /// <para><b>STILL BEYOND THE INSTRUMENT</b> = <c>latched &lt; fan</c>. The fan then holds a card
+    /// the game does not consider burnt at all, so no repaint is owed and the defect is upstream in
+    /// what <c>CardsDriver.UpdateBrowser</c> put in the fan — <c>CardsGameApi.GetPileWidgets</c>
+    /// and <c>PileWidgetIsArcMember</c>, not this class. Also beyond it: the header and initiative
+    /// TEXT colours. The game's no-ramp arm greys them rather than using <c>burntTextColor</c>, so
+    /// a repainted card's title is grey where a natively-burned one is red. Materials are settled,
+    /// text tint is not, and no count here would show that.</para>
+    /// </summary>
+    private void LogBurntLook(int fan, int latched, int painted, int repainted)
+    {
+        if ((fan, latched, painted, repainted) == _loggedBurntLook)
+            return;
+        _loggedBurntLook = (fan, latched, painted, repainted);
+        // HW-VERIFY: grep token "LOCAL BURNT LOOK" — see this method's doc for the three readings.
+        VRLog.Note("Cards", $"LOCAL BURNT LOOK: fan={fan} card(s) in this board's own Verbrannt " +
+                            $"browse, latched={latched} (the population the MODEL lists as burnt — " +
+                            "CardEffects.toggledEffects, written at the burn and never cleared, the " +
+                            $"same population the mirrored fan walks), painted={painted} (the " +
+                            "population the game's own BurnCardTimeline actually put on the " +
+                            $"materials ON THIS CLIENT), repainted={repainted} just now by the " +
+                            "game's no-ramp arm. painted==fan is the pass; painted<latched is " +
+                            "report item 10's screenshot and its cause is CardEffects.cs:510, " +
+                            "'if (!activeInHierarchy && !playOnDisabled) yield break' — a card " +
+                            "burned while this client's 2D UI was on a DIFFERENT character is " +
+                            "latched but never painted. Compare with the mirrored board's " +
+                            "'Remote burnt pile look' line for the same character: the two counts " +
+                            "must agree, and that agreement IS the 1:1 claim for this surface.");
     }
 
     /// <summary>Drop one card (widget recycled mid-browse); remaining cards close the gap.</summary>
