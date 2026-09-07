@@ -13,7 +13,7 @@ Not installed yet? → [install guide](../INSTALL.md)
 ## The controls
 
 <p align="center">
-  <img src="img/controls-en.png" width="860" alt="A Quest 3 controller pair, every binding named on the picture: left stick to fly, right stick to turn or reel a window in, click a stick in to pull yourself along, X for the pause menu, A to ping a hex, hold Y+B to recentre, and the trigger and grip that work in either hand">
+  <img src="img/controls-en.png" width="820" alt="A Quest 3 controller pair, every binding named on the picture: left stick to fly, right stick to turn or reel a window in, click a stick in to pull yourself along, X for the pause menu, A to ping a hex, hold Y+B to recentre, and the trigger and grip that work in either hand">
 </p>
 
 **You do not have to learn this.** The tutorial turns your hands into the controller you are actually
@@ -42,7 +42,7 @@ from a repo path does not play on GitHub, which is why every committed clip was 
 
 <!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" width="720" controls muted loop></video>
 </p>
 -->
 
@@ -68,7 +68,7 @@ recess for using items, and the discard, burnt and item piles — each opens as 
 above the board or in your palm.
 
 <p align="center">
-  <img src="img/board-en.png" width="860" alt="The control board with every part labelled: the two card recesses, the three keys on the right, the two rest keys on the left, the grab rod, the initiative track, the objectives and elements, the discard, burnt and item stacks, the matrix of the cards you have active, and your hand of cards">
+  <img src="img/board-en.png" width="820" alt="The control board with every part labelled: the two card recesses, the three keys on the right, the two rest keys on the left, the grab rod, the initiative track, the objectives and elements, the discard, burnt and item stacks, the matrix of the cards you have active, and your hand of cards">
 </p>
 
 ---
@@ -97,9 +97,11 @@ moved, resized, reeled closer with the stick while the laser holds it, then clos
 beside it the control board carried to a new place by the rod under it, once with the hand and once
 with the laser from across the table. One idea, shown twice: everything in the room hangs from a rod.
 
-**How you fill it:** record it, then **upload the mp4 in a GitHub issue or comment box** and send
-the maintainer the `user-attachments` link it hands back. Paste that link over `PASTE_UUID_HERE` in
-the ready-made markup directly below, then delete this box and the two comment markers around it.
+**How you fill it:** record BOTH, then **upload each mp4 in a GitHub issue or comment box** and send
+the maintainer the two `user-attachments` links it hands back. Paste them over `PASTE_WINDOWS_UUID`
+and `PASTE_GRAB_ROD_UUID` in the ready-made markup directly below — they are a side-by-side pair, so
+the markup is a two-cell table and each clip renders at half the column — then delete this box and
+the two comment markers around it.
 The same clip goes into the same spot in `PLAYING.de.md`. **Do not commit the mp4** — a video served
 from a repo path does not play on GitHub, which is why every committed clip was removed on
 2026-09-07. Brief: [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) · cutting and encoding:
@@ -109,13 +111,12 @@ from a repo path does not play on GitHub, which is why every committed clip was 
 </table>
 
 <!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the link is pasted in
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
-</p>
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
-</p>
+<table>
+<tr>
+<td width="50%"><video src="https://github.com/user-attachments/assets/PASTE_WINDOWS_UUID" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/PASTE_GRAB_ROD_UUID" controls muted loop></video></td>
+</tr>
+</table>
 -->
 
 The game's windows — character sheets, the merchant, dialogs, the story — become **panels in the
@@ -137,8 +138,8 @@ route it travels. Prefer the original flat map? **World & sound ▸ Campaign map
 ## The room you play in
 
 <p align="center">
-  <img src="img/env-cellar.jpg" width="420" alt="The cellar">
-  <img src="img/env-forest.jpg" width="420" alt="The night forest">
+  <img src="img/env-cellar.jpg" width="350" alt="The cellar">
+  <img src="img/env-forest.jpg" width="350" alt="The night forest">
 </p>
 
 <table>
@@ -163,7 +164,7 @@ from a repo path does not play on GitHub, which is why every committed clip was 
 
 <!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" width="720" controls muted loop></video>
 </p>
 -->
 

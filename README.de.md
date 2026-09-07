@@ -43,13 +43,12 @@
 
 ---
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video>
-</p>
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video>
-</p>
+<table>
+<tr>
+<td width="50%"><video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
+</tr>
+</table>
 
 **Heb eine Figur hoch, und sie kommt vom Brett in deine Hand** — so groß, wie du sie ziehst, und
 ihre Karte kommt mit: Gesundheit, Bewegung, Angriff, die Modifikatoren, der Zug, den sie gleich
@@ -76,13 +75,13 @@ verschobene Fenster und zeigende Finger sehen alle, und wer kein Headset hat, sp
 Bildschirm in derselben Partie mit.
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" width="720" controls muted loop></video>
 </p>
 
 ## Deine Karten und dein Brett
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
 </p>
 
 Dein Kontrollbrett ist ein echter Tisch vor dir: zwei Fächer für die Karten der Runde, Tasten, die
@@ -94,7 +93,7 @@ Jedes Teil davon ist auf einem beschrifteten Bild im
 ## Das Brett vor dir
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" width="720" controls muted loop></video>
 </p>
 
 Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe zu
@@ -103,7 +102,7 @@ nehmen — oder halt den Griff und tipp es mit der Fingerspitze an.
 ## Die Kampagnenkarte auf dem Tisch
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" width="720" controls muted loop></video>
 </p>
 
 Zwischen den Szenarien stehst du in einem Gewölbe, und die Karte von Gloomhaven liegt ausgebreitet
@@ -116,8 +115,8 @@ Ein kerzenbeleuchteter Keller oder ein Nachtwald unter einem echten Sternkatalog
 Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen.
 
 <p align="center">
-  <img src="docs/img/env-cellar.jpg" width="345" alt="Der Keller">
-  <img src="docs/img/env-forest.jpg" width="345" alt="Der Nachtwald">
+  <img src="docs/img/env-cellar.jpg" width="350" alt="Der Keller">
+  <img src="docs/img/env-forest.jpg" width="350" alt="Der Nachtwald">
 </p>
 
 **Mixed Reality** blendet den Himmel aus, damit deine Streaming-App den Tisch in dein echtes Zimmer
@@ -131,7 +130,7 @@ Blattwerk, Erde treibt Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelhei
 Mond.
 
 <p align="center">
-  <img src="docs/img/env-elements.jpg" width="700" alt="Dieselbe Kamera mit ausgeschaltetem und mit eingeschaltetem Element"><br>
+  <img src="docs/img/env-elements.jpg" width="720" alt="Dieselbe Kamera mit ausgeschaltetem und mit eingeschaltetem Element"><br>
   <i>Dieselbe Kamera, links Element aus, rechts an.</i>
 </p>
 
@@ -141,7 +140,7 @@ Drei Handpaare, drei Masken, drei Kontrollbretter — je ein Dropdown, mitten in
 umstellbar, und die anderen Spieler sehen deine Wahl.
 
 <p align="center">
-  <img src="docs/img/styles.png" width="680" alt="Drei Handpaare, drei Masken und drei Kontrollbretter mit der Greifstange, die zu jedem gehört">
+  <img src="docs/img/styles.png" width="720" alt="Drei Handpaare, drei Masken und drei Kontrollbretter mit der Greifstange, die zu jedem gehört">
 </p>
 
 Jedes Fenster und jedes Brett hängt an einer gedrechselten Stange und wird bewegt, indem du sie

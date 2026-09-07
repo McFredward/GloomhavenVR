@@ -13,7 +13,7 @@ Noch nicht installiert? → [Installationsanleitung](../INSTALL.de.md)
 ## Die Steuerung
 
 <p align="center">
-  <img src="img/controls-de.png" width="860" alt="Ein Quest-3-Controllerpaar, jede Belegung direkt im Bild benannt: linker Stick zum Fliegen, rechter Stick zum Drehen und Heranholen von Fenstern, Stick eindrücken zum Heranziehen, X für das Pause-Menü, A zum Markieren eines Feldes, Y+B halten zum Neuzentrieren, dazu Trigger und Grip, die in beiden Händen gleich sind">
+  <img src="img/controls-de.png" width="820" alt="Ein Quest-3-Controllerpaar, jede Belegung direkt im Bild benannt: linker Stick zum Fliegen, rechter Stick zum Drehen und Heranholen von Fenstern, Stick eindrücken zum Heranziehen, X für das Pause-Menü, A zum Markieren eines Feldes, Y+B halten zum Neuzentrieren, dazu Trigger und Grip, die in beiden Händen gleich sind">
 </p>
 
 **Du musst das nicht lernen.** Das Tutorial macht aus deinen Händen den Controller, den du
@@ -44,7 +44,7 @@ alle eingecheckten Clips entfernt wurden. Auftrag:
 
 <!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" width="720" controls muted loop></video>
 </p>
 -->
 
@@ -70,7 +70,7 @@ Auf dem Brett neben dir liegen außerdem Rückgängig, die Marken für kurze und
 Verbranntes und Gegenstände — jeder klappt als Fächer auf, über dem Brett oder in der Handfläche.
 
 <p align="center">
-  <img src="img/board-de.png" width="860" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenmulden, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände, die Matrix deiner aktiven Karten sowie deine Handkarten">
+  <img src="img/board-de.png" width="820" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenmulden, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände, die Matrix deiner aktiven Karten sowie deine Handkarten">
 </p>
 
 ---
@@ -100,10 +100,11 @@ Strahl es hält, und über sein X geschlossen — und daneben das Kontrollbrett,
 darunter woandershin getragen wird, einmal mit der Hand und einmal mit dem Strahl quer über den
 Tisch. Eine Idee, zweimal gezeigt: alles im Raum hängt an einer Stange.
 
-**So füllst du ihn:** aufnehmen, dann **die mp4 in einem GitHub-Issue oder Kommentarfeld hochladen**
-und die `user-attachments`-Adresse weitergeben. Diese Adresse über `PASTE_UUID_HERE` in die
-vorbereitete Auszeichnung direkt unter diesem Kasten setzen, dann den Kasten und die zwei
-Kommentar-Zeilen löschen. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. **Die mp4 nicht
+**So füllst du sie:** BEIDE aufnehmen, dann **jede mp4 in einem GitHub-Issue oder Kommentarfeld
+hochladen** und die zwei `user-attachments`-Adressen weitergeben. Diese über `PASTE_WINDOWS_UUID`
+und `PASTE_GRAB_ROD_UUID` in die vorbereitete Auszeichnung darunter setzen — sie stehen
+nebeneinander, die Auszeichnung ist also eine zweispaltige Tabelle und jeder Clip füllt eine halbe
+Spalte — dann den Kasten und die zwei Kommentar-Zeilen löschen. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. **Die mp4 nicht
 einchecken** — ein Video aus einem Repo-Pfad wird auf GitHub nicht abgespielt, weshalb am 07.09.2026
 alle eingecheckten Clips entfernt wurden. Auftrag:
 [VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
@@ -113,13 +114,12 @@ alle eingecheckten Clips entfernt wurden. Auftrag:
 </table>
 
 <!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the link is pasted in
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
-</p>
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
-</p>
+<table>
+<tr>
+<td width="50%"><video src="https://github.com/user-attachments/assets/PASTE_WINDOWS_UUID" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/PASTE_GRAB_ROD_UUID" controls muted loop></video></td>
+</tr>
+</table>
 -->
 
 Die Fenster des Spiels — Charakterbögen, Händler, Dialoge, die Geschichte — werden zu **Tafeln im
@@ -143,8 +143,8 @@ Gruppenmarker läuft die Strecke wirklich ab. Lieber die alte flache Karte?
 ## Der Raum, in dem du spielst
 
 <p align="center">
-  <img src="img/env-cellar.jpg" width="420" alt="Der Keller">
-  <img src="img/env-forest.jpg" width="420" alt="Der Nachtwald">
+  <img src="img/env-cellar.jpg" width="350" alt="Der Keller">
+  <img src="img/env-forest.jpg" width="350" alt="Der Nachtwald">
 </p>
 
 <table>
@@ -170,7 +170,7 @@ alle eingecheckten Clips entfernt wurden. Auftrag:
 
 <!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the link is pasted in
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" width="720" controls muted loop></video>
 </p>
 -->
 

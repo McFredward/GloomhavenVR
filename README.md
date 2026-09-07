@@ -43,13 +43,12 @@
 
 ---
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video>
-</p>
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video>
-</p>
+<table>
+<tr>
+<td width="50%"><video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
+</tr>
+</table>
 
 **Pick a figure up and it comes off the board into your hand** — at whatever size you pull it to,
 and its card comes with it: health, movement, attack, the modifiers, the turn it is about to take.
@@ -76,13 +75,13 @@ pointing fingers are visible to everyone, and players without a headset join the
 screen.
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" width="720" controls muted loop></video>
 </p>
 
 ## Your cards and your board
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
 </p>
 
 Your control board is a real desk in front of you: two recesses for the round's cards, keys you push
@@ -93,7 +92,7 @@ Every part of it is named on one labelled picture in the
 ## The board in front of you
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" width="720" controls muted loop></video>
 </p>
 
 Point the laser and pull the trigger to take a hex, an enemy, a door or a chest — or hold the grip
@@ -102,7 +101,7 @@ and touch it with a fingertip.
 ## The campaign map on a table
 
 <p align="center">
-  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" controls muted loop></video>
+  <video src="https://github.com/user-attachments/assets/dadbad52-bde7-48bc-9518-b3a831096550" width="720" controls muted loop></video>
 </p>
 
 Between scenarios you stand in a cellar with the map of Gloomhaven spread out on the table in front
@@ -114,8 +113,8 @@ A candle-lit cellar or a night forest under a real star catalogue — both built
 with firelight, ambient sound and rare events.
 
 <p align="center">
-  <img src="docs/img/env-cellar.jpg" width="345" alt="The cellar">
-  <img src="docs/img/env-forest.jpg" width="345" alt="The night forest">
+  <img src="docs/img/env-cellar.jpg" width="350" alt="The cellar">
+  <img src="docs/img/env-forest.jpg" width="350" alt="The night forest">
 </p>
 
 **Mixed reality** drops the sky, so your streaming app can put the table in your real room.
@@ -127,7 +126,7 @@ Fire sets props burning, Ice grows frost, Air moves flames and foliage, Earth br
 lifts the ambient level, Dark eclipses the moon.
 
 <p align="center">
-  <img src="docs/img/env-elements.jpg" width="700" alt="The same camera with the element off and on"><br>
+  <img src="docs/img/env-elements.jpg" width="720" alt="The same camera with the element off and on"><br>
   <i>Same camera, element off left and on right.</i>
 </p>
 
@@ -137,7 +136,7 @@ Three pairs of hands, three masks, three control boards — one dropdown each, c
 and the other players see your choice.
 
 <p align="center">
-  <img src="docs/img/styles.png" width="680" alt="Three hands, three masks, and three control boards with the grab rod each one comes with">
+  <img src="docs/img/styles.png" width="720" alt="Three hands, three masks, and three control boards with the grab rod each one comes with">
 </p>
 
 Every window and every board hangs from a turned rod and is moved by taking hold of it — with your

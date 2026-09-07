@@ -20,6 +20,34 @@ grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING
 — **three per language, six in all, and every one of them is in the playing guide.** The README has
 held no placeholder since 2026-09-07. Each box repeats in place what that clip has to show.
 
+## How big — THREE WIDTHS, AND NOTHING ELSE
+
+**Every picture and every clip in every document carries an explicit width, and it is one of three.**
+Maintainer's ruling, 2026-09-07: *"Mach die zwei ersten Videos kleiner und nebeneinander. Die
+verbrauchen zu viel Platz. Generell überdenke in allen Docs nochmal die Größe der Medien. Es soll gut
+und übersichtlich aussehen."*
+
+The defect was not that the numbers were wrong. It was that **not one `<video>` had a width at all** —
+a clip with no width renders at the full content column (~830 px), so six of them in a row was most
+of the page. The stills each had a width and they were all different: 345, 420, 680, 700, 720, 820,
+860. Two of those (860) were wider than the column and were being scaled down by GitHub anyway.
+
+| Width | For | Where |
+|---:|---|---|
+| **820** | a labelled reference picture that has to be READ | the controls picture, the board diagram, the install tree |
+| **720** | a single clip, or a wide still | every standalone video; `promo.gif`; `styles.png`; the element comparison |
+| **350** | one half of a side-by-side pair | the opening pair; the two environment stills; the windows/grab-rod pair |
+
+Two at 350 plus the table gutter come to about 720, so a pair and a single occupy the same block of
+page. That is the whole point of the scale: **nothing should look like it was sized by whoever added
+it.**
+
+A pair is a two-cell table, not two `<video width>` tags — the cells carry `width="50%"` and the
+clips fill them. That markup is the one this repository has used for pairs since 2026-08-24 and it
+survives GitHub's HTML sanitiser; a `width` attribute on `<video>` is used only for singles, where
+losing it to the sanitiser would merely restore the old full-width behaviour rather than break the
+layout.
+
 ## Which document gets which clip — ONE CLIP, ONE PAGE
 
 **No clip appears in two documents.** Maintainer's ruling, 2026-09-07: *"Ich will das die Videos
