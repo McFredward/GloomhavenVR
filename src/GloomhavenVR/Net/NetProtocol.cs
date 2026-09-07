@@ -433,7 +433,84 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 470;
+    public const ushort ModBuild = 471;
+    // Build 471: TWENTY ROUNDS IN, THE PHOTOMETER ANSWERED. The white on the held prop is painted by
+    //   THE PROP'S OWN RENDERERS — measured, with the null perturbation and the recovery both
+    //   satisfied — and the material-property class is excluded not by another null reading but by
+    //   a LOGICAL argument that no amount of further sampling could have produced. One lane, one
+    //   commit, no fix: the channel is now narrow enough to name and still one reading short.
+    //   * THE BISECTION LANDED. `] [Props] HELD-PROP FLASH PHOTOMETER`, rebuilt in ModBuild 470 with
+    //     six faults fixed, emitted and answered. `PROP PATCH linear luminance 0.0000..0.9199`,
+    //     peak near-white fraction 93.6 %, added light at peak 1.000/0.997/0.979 — NEUTRAL, which
+    //     excludes this mod's amber and cool-blue overlays by colour on an in-process reading this
+    //     time rather than on video. `r(prop, control) -0.041`, so the excursion is LOCAL and the
+    //     470 fault of a control patch sitting on its own subject is repaired in the reading as
+    //     well as in the code. `*** THE TWO AGREE`: the in-process episode shape matches the video's
+    //     and the whole-frame amplitude matches ffmpeg's, which is the coherence clause that FAILED
+    //     in 469 and is the reason anything below it can be believed.
+    //     AND THE VERDICT: `*** THE PROP'S OWN RENDERERS WERE PAINTING THE WHITE.`
+    //     `forceRenderingOff` dropped the patch 99.2 % AND IT CAME BACK — the A-B-A that 470 added
+    //     precisely because 469's blink fired on the rise and confounded "the white stopped" with
+    //     "the event ended". The baseline blink now reads 82.3 %, so the perturbation demonstrably
+    //     reaches the picture, which is the clause 469 got wrong by writing its verdict with a bar
+    //     that demanded the prop be 32 % of every photon in a near-black patch. And the Y axis is
+    //     NOT flipped, settled by the mirrored twin patch rather than by the sentence 469 shipped
+    //     claiming it could not be settled without hardware.
+    //   * THE COLLISION NOBODY HAD STATED, AND IT IS THE ROUND'S REAL PRODUCT. The SAME session
+    //     reads `1 of the held prop's material(s) are THE SAME ASSET as the twin's and 0 are
+    //     per-prop instances`, `0 of 57 tracked slot(s)` moved, and `0 slot(s) EVER DIFFERED`. The
+    //     held prop and the twin DRAW WITH THE SAME Material OBJECT. So no value reachable through
+    //     `Material.Get*` CAN differ between them — by construction, not by measurement. Yet one of
+    //     them drew white. THE MATERIAL-PROPERTY CLASS IS NOT "NULL", IT IS LOGICALLY INCAPABLE OF
+    //     CARRYING THIS DIFFERENCE, and ten rounds of "0 of 57" were reading a channel that could
+    //     never have answered. What remains that is PER-RENDERER: a MaterialPropertyBlock (applied
+    //     at draw time, never touching the material — and nothing in this file had EVER called
+    //     `Renderer.HasPropertyBlock`); the object-to-world matrix, where the asymmetry is already
+    //     printed and is ours (`lossyScale 3.153 vs 1`, `determinant 31.33432 vs 1`); per-renderer
+    //     lighting; and a replacement shader.
+    //   * THE INTEGRATOR'S LEAD WAS WRONG AT THE JOINT HE NAMED, AND THE DEFECT WAS NEXT TO IT.
+    //     `PropTable.Resolve` (PropAnimBelt.cs:955-985) ALREADY enumerates each material's own
+    //     shader through `Shader.GetPropertyCount / GetPropertyType / GetPropertyNameId /
+    //     GetPropertyName`. Nothing was hand-written, 57 IS `Amp_Char_Shader`'s complete Properties
+    //     block, and `VerdictPropCap` is 96 so there was no truncation. BUT `PropTable.Describe()`,
+    //     `.Declared` and `.Truncated` all existed, all computed the denominator, and ALL HAD ZERO
+    //     CALL SITES — no log line has ever carried it — while the doc comment above
+    //     `VerdictPropCap` asserted "the declared count is printed beside the tracked count per
+    //     material either way, so a truncation is visible rather than silent". FALSE FOR TWO
+    //     BUILDS. That is the sixteenth false assertion this project has found in its own source.
+    //     Sentence corrected and the emission shipped.
+    //     AND A DENOMINATOR WAS WRONG IN THE SAME PLACE: the 470 line's "twin worst 0 of 2" counts
+    //     an UNBOUND slot in its denominator; the real bind is 1 of 2, because the second material
+    //     is our own overlay, which the twin has not got. Now printed as `TWIN BIND: n of m`.
+    //   * ALSO CLOSED, FROM EVIDENCE ALREADY IN THE LOG: `ObjectPosToMaterial` is dead on this prop.
+    //     It writes only in `OnEnable`, through `GetComponent<SkinnedMeshRenderer>().material` which
+    //     INSTANTIATES — and the photometer's fingerprint reads `0 of 3 renderer(s) carry an
+    //     instanced material`. Its other branch needs a `Projector` and 0 are censused. The
+    //     spatial-phase lead that four rounds carried dies here.
+    //   * SHIPPED, ALL MEASUREMENT: the property-table provenance (declared vs tracked per material,
+    //     the cap, a TRUNCATED flag, the twin bind, and a plain statement of the three things
+    //     enumeration cannot reach — a CGPROGRAM-only uniform fed by Shader.SetGlobal*, a keyword,
+    //     and a property block); `MATERIAL PROPERTY BLOCKS`, gated on `HasPropertyBlock()` so it
+    //     costs nothing when absent, where a slot in the DIFFERED list IS the channel and the HOME
+    //     value beside it is what a fix writes, and where `held 0 of 3, twin 0 of 2` EXCLUDES the
+    //     channel rather than reading nothing in it; a full property census naming every tracked
+    //     slot with its held value and the twin's where they differ, which is the runtime substitute
+    //     for extracting the shader AND NEEDS NOTHING FROM THE USER'S INSTALL; and `CLOCK OR
+    //     SPATIAL, AND THE USER NEVER HAD TO HOLD ANYTHING STILL`, which keeps the longest
+    //     sub-millimetre run with the patch luminance measured across it and correlates patch
+    //     against world step over the whole series — `r ~ 0` with a MOVING patch is a CLOCK by a
+    //     route that needs no stillness at all, and it accumulates over ordinary play.
+    //   * THE ASSET ASK, NAMED EXACTLY AND THEN RECOMMENDED AGAINST. `Amp_Char_Shader` would come
+    //     from `<Gloomhaven>/Gloomhaven_Data/StreamingAssets/aa/StandaloneWindows64/` — first
+    //     `misc_high_shaders_assets_all.bundle` (where the same-family `Amp_Basic_Unseen` sits per
+    //     tools/ShaderOcclusionPatcher/README.md:83), then `misc_shaders_assets_all.bundle` (the
+    //     source of all four shaders already disassembled). `dotnet ShaderDisasm.dll out
+    //     "Amp_Char_Shader" <bundle>` prints a SHADER banner on a hit and nothing on a miss, and it
+    //     accepts many files at once. But the bundle only adds the FRAGMENT LOGIC, and that is not
+    //     the question: the question is which INPUT differs between two renderers sharing one
+    //     material, and the runtime census now answers that on his machine without sending anything.
+    // Wire: nothing. Worst case stays 1747, MaxSize 2100, 45 free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 470: the round the flash's SIGNATURE turned out to be two causes, one of them ours BY
     //   DESIGN and chased for nineteen rounds; and the round the instrument meant to settle it was
     //   found to have six faults, two of which wrote its own verdict. Two lanes, four commits, NO
