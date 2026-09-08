@@ -576,7 +576,34 @@ internal sealed class RemoteActiveCards
                 continue;
             }
             Vector3 cellAt = CellLocal(i, Count, _cardW, _grid);
-            _cards[i].Move(cellAt);
+            // ─── A RESIDENT GLIDES, AN ARRIVAL IS SEATED (2026-09-07 review R3, F4) ────────────
+            // ActivePileViewer.Relayout:293-299 passes `instant || arriving` to VRCard.SetHome, so
+            // on the OWNER's board a card already in this column slides to its new cell when the
+            // column re-centres, and only a card the column has never seated before is placed
+            // outright. This call used to be a bare localPosition write for both, so a peer
+            // activating a SECOND persistent card watched his first card slide sideways while every
+            // mirror of his board jumped it — the same owner-glides/viewer-snaps shape ModBuild 479
+            // fixed for the ARRIVAL half of this very line.
+            //
+            // WHY THE TEST IS "IS THIS CELL KEEPING ITS CARD" AND NOT THE OWNER'S SET MEMBERSHIP.
+            // His model is card-indexed (a VRCard that owns its pose); this one is CELL-indexed (a
+            // panel that is handed a card). Asking the cell whether the card about to go into it is
+            // the card already in it reproduces his `arriving` term EXACTLY for the case that
+            // produced this defect — an append, where every resident keeps its index — and it is
+            // asked BEFORE Set() below overwrites what the cell is showing, which is the only frame
+            // in which the question is answerable at all.
+            //
+            // WHERE THE TWO MODELS DIVERGE, AND THIS DOES NOT PRETEND OTHERWISE: a card removed from
+            // the MIDDLE shifts every later card down one index, so his card 2 glides from cell 2 to
+            // cell 1 while this mirror's cell 1 is handed a different card and seats it. That case
+            // degrades to the snap that shipped rather than inventing a motion, because a cell-based
+            // mirror has no object to carry the glide. Closing it means re-keying this column on the
+            // CARD, which is a rebuild of this class and not a fix to this line.
+            bool residentKeepsItsCard = _cards[i].ShowsCard(_buffer[i].CardInstanceID);
+            // THE OWNER'S OWN RATE, off his synced BoardTuning ([Cards] CardLerpSpeed, wire id
+            // NetProtocol.TuneCardLerpSpeed) — never this client's config. A mirror may not read the
+            // viewer's dial, and this is the very number VRCard.Update runs his glide at.
+            _cards[i].Move(cellAt, instant: !residentKeepsItsCard, _owner.BoardTuning.CardLerpSpeed);
             if (i == activeSeatA || i == activeSeatB || _flyingSeats.Contains(i))
             {
                 // Either in their fist and not in their matrix, or still in the AIR on its way

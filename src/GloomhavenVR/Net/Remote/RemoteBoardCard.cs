@@ -96,6 +96,18 @@ internal sealed class RemoteBoardCard
     /// STATIC: one line means "at least one recess reached this size", never "exactly one did".</summary>
     private static bool s_loggedBodyRect;
 
+    /// <summary>Where <see cref="Move"/> was last told to seat this panel, in the parent's local
+    /// space, and whether the panel is still on its way there. See <see cref="TickGlide"/> for the
+    /// expression and the 1:1 reason it exists at all.</summary>
+    private Vector3 _glideTo;
+    private bool _gliding;
+
+    /// <summary>The OWNER's own <c>[Cards] CardLerpSpeed</c>, handed in by <see cref="Move"/> — a
+    /// mirror may never read the viewer's dial. Seeded to the shipped default so a glide asked for
+    /// before that peer's tuning record has arrived still runs at the authored rate rather than
+    /// at zero (which would strand the panel between two cells).</summary>
+    private float _glideSpeed = Defaults.CardLerpSpeed;
+
     private int _shownId = int.MinValue;
     private bool _shownFront;
     private bool _shownEmpty = true;
@@ -129,6 +141,17 @@ internal sealed class RemoteBoardCard
         !_shownEmpty && _shownFront && Path != RemoteAbilityCardSource.FacePath.None
             ? _shownId
             : int.MinValue;
+
+    /// <summary>
+    /// Is this panel ALREADY holding <paramref name="cardInstanceId"/>? Deliberately blind to the
+    /// face, the owner and the reveal gate, because the question it answers is about the OBJECT and
+    /// not about the picture: <see cref="Move"/> needs "is the thing that is about to be seated here
+    /// the thing that is already here", which is the mirror's reading of the owner's
+    /// <c>ActivePileViewer._seated</c> membership test. An empty panel answers false for every id,
+    /// including the anonymous-back key, which is what an empty cell should answer.
+    /// </summary>
+    public bool ShowsCard(int cardInstanceId) =>
+        !_shownEmpty && cardInstanceId != int.MinValue && _shownId == cardInstanceId;
 
     /// <summary>
     /// <paramref name="materialiseOwner"/> is the ONE parameter that says WHICH KIND of slot this
@@ -206,9 +229,18 @@ internal sealed class RemoteBoardCard
             new Color(0.14f, 0.11f, 0.09f), TextAlignmentOptions.Center, FontStyles.Normal, wrap: true);
 
         // The ramp's own clock — only for a recess that has one (see the constructor doc), so the
-        // active-card column adds no component and pays nothing.
+        // active-card column pays nothing for an animation it must not play.
         if (materialiseOwner != null)
             _root.AddComponent<MaterialisePump>().Slot = this;
+
+        // THE RE-SEAT GLIDE's clock. On EVERY panel because Move() is a property of the PANEL and
+        // not of one of its two roles — the active column is its only caller today (R3's F4), and a
+        // pump added only for that caller is a rule the next caller has to remember. It costs a
+        // no-op Update on a recess: TickGlide early-returns while nothing has asked this panel to
+        // move, and only Move() can set that flag. Separate from the pump above because the two are
+        // separate animations — the materialise is a recess-only appear/crumble ramp with an owner
+        // to ask about dust, the glide is a layout move with neither.
+        _root.AddComponent<GlidePump>().Slot = this;
 
         // Start HIDDEN and in step with the _shownEmpty seed: Set() early-returns while nothing
         // changed, so a panel that never receives a card (an unused active-grid cell, an empty
@@ -216,8 +248,90 @@ internal sealed class RemoteBoardCard
         _root.SetActive(false);
     }
 
-    /// <summary>Re-seat the panel (the active-card grid relays its cards as the pile changes).</summary>
-    public void Move(Vector3 localPos) => _root.transform.localPosition = localPos;
+    /// <summary>
+    /// Re-seat the panel (the active-card grid relays its cards as the pile changes) — INSTANTLY for
+    /// a cell that is taking a different card, and on the OWNER'S OWN HOME GLIDE for one that is
+    /// keeping the card it already has.
+    ///
+    /// <para>WHAT WAS MEASURED (2026-09-07 review R3, F4). This was a bare
+    /// <c>localPosition</c> write, and the owner's counterpart is not:
+    /// <c>ActivePileViewer.Relayout</c> asks <c>_seated.Add(card)</c> and passes
+    /// <c>instant: instant || arriving</c> to <c>VRCard.SetHome</c> — an ARRIVAL is seated, a
+    /// RESIDENT glides (<c>ActivePileViewer.cs:293-299</c>). So when a peer activated a second
+    /// persistent card, his own first card slid sideways to make room while every mirror of that
+    /// board jumped it to the new cell, up to one content-cadence tick late. The arrival half of
+    /// that same line was closed in ModBuild 479; this is the other half. 1:1 covers ANIMATION,
+    /// not only the end state.</para>
+    ///
+    /// <para>THE CALLER SAYS WHICH, AND IT SAYS IT FROM THE CARD. <paramref name="instant"/> is the
+    /// mirror's reading of the owner's <c>arriving</c> term: a cell that is about to be handed a
+    /// card it is not already showing is this column's version of "this column has never asserted a
+    /// home for it". It is a parameter rather than a branch in here because only the caller holds
+    /// the card that is about to go in, and because a cell-indexed mirror cannot answer the owner's
+    /// question in the one case where the two models genuinely differ — see
+    /// <c>RemoteActiveCards.Refresh</c>, which carries that limit.</para>
+    ///
+    /// <para><paramref name="lerpSpeed"/> is the OWNER's <c>[Cards] CardLerpSpeed</c>
+    /// (<c>NetProtocol.TuneCardLerpSpeed</c>, off his synced <c>BoardTuning</c>), never this
+    /// client's — a mirror may not read the viewer's dial, and this is the very number the owner's
+    /// own glide runs at.</para>
+    /// </summary>
+    public void Move(Vector3 localPos, bool instant, float lerpSpeed)
+    {
+        _glideTo = localPos;
+        _glideSpeed = lerpSpeed > 0f ? lerpSpeed : Defaults.CardLerpSpeed;
+        if (instant)
+        {
+            _gliding = false;
+            _root.transform.localPosition = localPos;
+            return;
+        }
+        // Already there (the ordinary case — this runs on every content refresh, and a column that
+        // has not re-centred asks for the seat it is already in): no glide to start, and no
+        // per-frame lerp toward a point we are standing on.
+        _gliding = (localPos - _root.transform.localPosition).sqrMagnitude > GlideEpsilonSq;
+        if (!_gliding)
+            _root.transform.localPosition = localPos;
+    }
+
+    /// <summary>Square of the distance at which a glide is finished — 0.1 mm, well under a pixel at
+    /// any board scale this mod draws, and the same order as the residual an exponential lerp leaves
+    /// behind for ever if nothing snaps it.</summary>
+    private const float GlideEpsilonSq = 1e-8f;
+
+    /// <summary>
+    /// Advance an in-progress re-seat by one frame — the OWNER's own home-lerp expression,
+    /// <c>1 - exp(-CardLerpSpeed * dt)</c>, called rather than re-derived in the sense that matters:
+    /// it is the same closed form <c>VRCard.Update</c> runs on his card (<c>VRCard.cs:2291</c>) with
+    /// HIS speed, so the two curves are identical because they are one formula and not because two
+    /// numbers were made to agree.
+    ///
+    /// <para>UNSCALED TIME, WITH <c>VRCard.Update</c>'S OWN 0.05 s HITCH CAP. The owner's home lerp
+    /// reads <c>Time.deltaTime</c>, but <c>Time.timeScale</c> is a VIEWER-LOCAL value on this
+    /// machine — the local player's own pause menu, his own card phase — and a mirror may never
+    /// read the viewer's dial. The sibling ramp in this same class (<see cref="TickMaterialise"/>)
+    /// took the identical decision for the identical reason. At <c>timeScale == 1</c>, which is
+    /// every frame of ordinary play, the two clocks are the same clock.</para>
+    ///
+    /// <para>Driven by <see cref="GlidePump"/>: this class is plain C# and its owners refresh
+    /// content on a 4 Hz cadence, which cannot carry a glide. A cell whose root is deactivated under
+    /// it simply stops — invisible either way, and the next <see cref="Move"/> re-asserts the
+    /// seat.</para>
+    /// </summary>
+    internal void TickGlide()
+    {
+        if (!_gliding)
+            return;
+        float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap — VRCard.Update's own
+        Transform t = _root.transform;
+        Vector3 next = Vector3.Lerp(t.localPosition, _glideTo, 1f - Mathf.Exp(-_glideSpeed * dt));
+        if ((next - _glideTo).sqrMagnitude <= GlideEpsilonSq)
+        {
+            next = _glideTo;
+            _gliding = false;
+        }
+        t.localPosition = next;
+    }
 
     /// <summary>
     /// Mip-bake upkeep for a hosted real face (see <see cref="RemoteCardArt.MaintainMipBake"/>).
@@ -2334,4 +2448,16 @@ internal sealed class MaterialisePump : MonoBehaviour
     internal RemoteBoardCard? Slot;
 
     private void Update() => Slot?.TickMaterialise();
+}
+
+/// <summary>Per-frame clock for <see cref="RemoteBoardCard.TickGlide"/> — the same device, and for
+/// the same reason, as <see cref="MaterialisePump"/> beside it: the panel is plain C# and its owners
+/// refresh content four times a second, which cannot carry an animation. See
+/// <see cref="RemoteBoardCard.Move"/> for what the glide mirrors.</summary>
+internal sealed class GlidePump : MonoBehaviour
+{
+    /// <summary>The panel this pump drives. Assigned once, at build time.</summary>
+    internal RemoteBoardCard? Slot;
+
+    private void Update() => Slot?.TickGlide();
 }
