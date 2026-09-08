@@ -170,23 +170,8 @@ internal sealed class RemotePileFronts
     /// record 35's raw mask index needs to reach it.</summary>
     private readonly List<CItem> _itemBuf = new(16);
 
-    private float _nextResolveAt;
     private int _resolvedCount = -1;
     private int _resolvedContent = -1;
-
-    /// <summary>The gate the faces currently up were resolved under, so a gate CHANGE forces the
-    /// resolve on the very frame it happens instead of on the next cadence tick.
-    ///
-    /// <para>IT EXISTS BECAUSE <see cref="Gate.BurnException"/> ADDED A THIRD STATE TO A TEST THAT
-    /// HAD TWO. Before it, every non-<see cref="Gate.Open"/> gate took the tear-down path per frame,
-    /// so the class's own stated anti-leak property held by construction: "putting the gate on the
-    /// cadence too would leave up to a quarter of a second of fronts standing after the secret
-    /// selection phase opens, and a leak window that exists 'only for 250 ms' is still a leak
-    /// window." An Open ⇒ BurnException transition does NOT take that path — it must not, the whole
-    /// point is that the arc keeps drawing — so without this field the per-card ask would not run
-    /// until the next cadence tick and the fronts standing in between would be the OLD gate's. That
-    /// is the same window, reintroduced by the fix. -1 = nothing resolved.</para></summary>
-    private int _resolvedGate = -1;
 
     private int _frontCount;
 
@@ -476,8 +461,6 @@ internal sealed class RemotePileFronts
     {
         _resolvedCount = -1;
         _resolvedContent = -1;
-        _resolvedGate = -1;
-        _nextResolveAt = 0f;
         // The log key deliberately survives a Reset: it tracks what was last SAID, not what was last
         // resolved, so a fan that closes and reopens in the same state does not re-announce itself.
     }
@@ -611,21 +594,9 @@ internal sealed class RemotePileFronts
             return;
         }
 
-        // ---- THE RESOLVE, ON THE CONTENT CADENCE ----------------------------------------------
-        bool due = contentKey != _resolvedContent
-                   || _resolvedCount != _arts.Count
-                   || (int)gate != _resolvedGate
-                   || Time.unscaledTime >= _nextResolveAt;
-        if (!due)
-        {
-            // Steady state: the clones are already up and correct. All that is left is the mip-bake
-            // upkeep for their ASYNC art, and that self-throttles to 1 Hz per overlay.
-            for (int i = 0; i < _arts.Count; i++)
-                _arts[i].MaintainMipBake();
-            return;
-        }
-        _nextResolveAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
-
+        // Resolve the current membership and state every frame. Equal counts do not identify
+        // the same inventory/pile, and no owner animation owes a 250 ms observer-only delay.
+        // Front hosts and mip maintenance keep their own identity/dirty gates below.
         // A pile switch on the same slabs must not carry the old pile's dedup keys across.
         if (contentKey != _resolvedContent && _resolvedContent >= 0)
         {
@@ -635,7 +606,6 @@ internal sealed class RemotePileFronts
             _frontCount = 0;
         }
         _resolvedContent = contentKey;
-        _resolvedGate = (int)gate;
 
         bool resolved = false;
         try

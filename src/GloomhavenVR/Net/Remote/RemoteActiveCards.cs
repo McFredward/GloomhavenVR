@@ -191,11 +191,9 @@ internal sealed class RemoteActiveCards
         _cardH = _cardW * (88f / 63.5f);
         _grid = layout.ActiveGridSpacing;
 
-        _title = RemoteBoardContent.Label(_root, "Title", new Vector3(0f, 0.075f, 0f),
-            new Vector2(0.09f, 0.024f), 0.045f,
-            new Color(1f, 0.9f, 0.6f), TextAlignmentOptions.Center, FontStyles.Bold);
-        RemoteBoardContent.SetText(_title, ActivePileViewer.Caption().ToUpperInvariant());
-        WorldUI.MrBacking.Label(_title); // off-board title → sky/room behind it in MR
+        // Use the owner's caption construction: its 0.22 font ceiling, normal weight, native
+        // font, -2.5 mm depth and free-label rank. The old replica used 0.045 and bold at z=0.
+        _title = ActivePileViewer.CreateTitle(_root);
 
         for (int i = 0; i < InitialSlots; i++)
             _cards.Add(new RemoteBoardCard(_root, Vector3.zero, _cardW, _cardH));

@@ -5752,6 +5752,8 @@ internal sealed class RemoteHandFan
             + "own hosted card widget.");
     }
 
+    private readonly int[] _reflowFrom = new int[MaxCards];
+
     /// <summary>Destroy and recreate exactly <paramref name="count"/> back-on-both-faces slabs, each
     /// with its own (initially hidden) cloned-front overlay. Only called when the count changes
     /// (cheap). Re-applies the mod layer so the owned head camera renders the new slabs.</summary>
@@ -5784,87 +5786,35 @@ internal sealed class RemoteHandFan
             }
         }
 
-        // ─── AND CARRY EVERY OTHER SLAB'S POSE ACROSS THE SAME TEARDOWN ─────────────────────────
-        // The owner's arc does not blink when a card leaves or joins it: CardFan.Remove/Add hand
-        // every card a new home and VRCard's standing lerp glides it there. This mirror throws its
-        // slabs away and builds new ones, so the ONLY way the reflow can ease is for a fresh slab
-        // to start where the slab representing the same card ended. That needs an index map, and
-        // the map needs a key.
-        //
-        // THE KEY IS RECORD 36's HELD SEAT, and it is the only thing on the wire that says WHICH
-        // arc position changed. It is stable in the sense that matters here: it is the sender's own
-        // index into the sender's own hand list, belted by the sender's own two numbers
-        // (listLength == arc + 1 — see TrackFist), and it is the identical key BeginReturnGlide
-        // already flies the returning card on. Nothing else on the wire distinguishes a pluck from
-        // a draw, so nothing else could carry this.
-        //
-        // TWO TRANSITIONS ONLY, AND EVERY OTHER ONE SNAPS. A count that moved for any other reason
-        // — a card drawn, a card burnt, a character exchange, a card-size rebuild — has no key, and
-        // guessing one is exactly the "confidently wrong" failure this file's belts exist to
-        // refuse. Those keep today's picture, and the verdict line counts them so the gap is
-        // readable rather than assumed.
-        // ─── DEBT, 2026-09-07: THESE TWO ARE MODEL SEATS USED AS ARC INDICES ────────────────────
-        // NAMED AND LEFT, deliberately, so the next round picks it up from evidence instead of
-        // rediscovering the confusion a fifth time. It is the same index-space defect the same round
-        // fixed at three other sites (the return flight's destination, its mid-flight retarget, and
-        // ResolveArcHeldSeats' slab-hiding — all now through AppliedArcSeatOf): record 36's seat
-        // indexes the MODEL list, `_carryPos` is indexed over the ARC, and the two are one number
-        // only while the applied permutation is the identity. `liveSeat` and `_fistSeat` below are
-        // both model seats.
-        //
-        // WHY IT WAS NOT FIXED WITH THE OTHER THREE, and the reason is a frame ordering and not an
-        // oversight. Rebuild is called from Tick BEFORE UpdateFaces — the count test sits a few
-        // lines above PoseFan/LayoutCards, while ApplyFanArcOrder runs inside UpdateFaces after
-        // them. So at this point:
-        //   * `_appliedOrder` is LAST frame's permutation, and `_fistSeat` is last frame's seat
-        //     (this frame's TrackFist has not run yet);
-        //   * `carryFrom` is worse than a lag: it indexes the OLD arc, of length `_builtCount`,
-        //     which the current permutation does not describe at all — the card it names is still
-        //     IN that arc, and the order that would translate it is the one that was in force when
-        //     that arc was built, which this class does not keep.
-        // Translating either of them through AppliedArcSeatOf as it stands would be applying a
-        // permutation to the wrong list, which is precisely the "confidently wrong" failure every
-        // belt in this file exists to refuse. It needs a kept previous-permutation, and inventing
-        // one without a reading to check it against is tuning a second set of numbers.
-        //
-        // THE READING THAT WOULD SETTLE IT, in one hardware round with a peer who has REORDERED
-        // their fan (the ModBuild 470 logs cannot: nothing in them says the order was non-identity
-        // across a rebuild). On the observer, for one release:
-        //   * 'MIRRORED ARC ORDER ... thisFrame=APPLIED|HELD' with 'hidden=m->a' where m != a —
-        //     proof a non-identity permutation was in force across the rebuild;
-        //   * 'FAN RETURN VERDICT ... ARMED' on the same release, with its 'arc reflow: E of B
-        //     slab(s) carried' clause. E == B-1 says the carry map was right; E == 0 with B > 0 is
-        //     the documented "the fix worked and the symptom stayed" combination and, WITH a
-        //     non-identity order beside it, convicts these two lines specifically rather than the
-        //     key being absent.
-        // Until that pair is in a log, the honest state is: the reflow carries poses correctly for
-        // an unreordered fan and snaps for a reordered one — a snap, never a wrong slab, because a
-        // mis-mapped `from` only sources a stale pose and every slab still lands at its own seat.
-        int carryFrom = -1;   // pluck: the seat that LEFT the arc (MODEL seat — see the debt above)
-        int carryInto = -1;   // release: the seat that REJOINED it (MODEL seat — ditto)
+        // Preserve each surviving slab's actual pose across the rebuild. Record 36 names a
+        // MODEL seat, while these transforms are in the previously APPLIED arc order. The old
+        // direct index shift moved the wrong neighbours after a user reorder. Record 44 already
+        // carries the incoming arc order; mapping both generations through model seats preserves
+        // the same card even when the two arrays have different lengths. No face lookup is needed.
+        bool carry = false;
         if (_builtCount > 0 && _cards.Count == _builtCount)
         {
+            int heldSeat = -1;
             if (count == _builtCount - 1
                 && _owner.SingleHeldHandSeat(out int liveSeat, out int liveLen, out _)
-                && liveSeat >= 0 && liveLen == count + 1 && liveSeat <= _builtCount)
-            {
-                carryFrom = liveSeat;
-            }
-            else if (count == _builtCount + 1 && _fistSeat >= 0 && _fistSeat <= _builtCount
-                     && _fistCount == _builtCount)
-            {
-                carryInto = _fistSeat;
-            }
+                && liveLen == count + 1)
+                heldSeat = liveSeat;
+            else if (count == _builtCount + 1 && _fistCount == _builtCount)
+                heldSeat = _fistSeat;
+            if (heldSeat >= 0)
+                carry = FanReflowMap.TryBuild(_builtCount, count, heldSeat,
+                    _appliedOrder, _appliedOrderCount, _owner.FanArcOrder, _owner.FanArcOrderCount, _reflowFrom);
             else if (count == _builtCount)
             {
-                carryFrom = count;   // identity map: a size-only rebuild keeps every slab in place
+                carry = true;
+                for (int i = 0; i < count; i++) _reflowFrom[i] = i;
             }
         }
 
         _carryPos.Clear();
         _carryRot.Clear();
         _carryScale.Clear();
-        if (carryFrom >= 0 || carryInto >= 0)
+        if (carry)
         {
             for (int i = 0; i < _cards.Count; i++)
             {
@@ -5875,8 +5825,7 @@ internal sealed class RemoteHandFan
                     _carryPos.Clear();
                     _carryRot.Clear();
                     _carryScale.Clear();
-                    carryFrom = -1;
-                    carryInto = -1;
+                    carry = false;
                     break;
                 }
                 Transform t = _cards[i].transform;
@@ -5961,15 +5910,7 @@ internal sealed class RemoteHandFan
             // ProximityGrabber — which elects over colliders — has nothing here to win. See the
             // section header above for the ruling and for why the own-board fan is untouched.
 
-            // OLD INDEX OF THE CARD THIS SLAB IS. A pluck at seat k closes the gap, so new i is
-            // old i below k and old i+1 at or above it; a release at seat k opens one, so new i is
-            // old i below k, the RETURNING card at k (seeded from the fist by BeginReturnGlide,
-            // never from this list) and old i-1 above it.
-            int from = carryFrom >= 0
-                ? (i < carryFrom ? i : i + 1)
-                : carryInto >= 0
-                    ? (i < carryInto ? i : i == carryInto ? -1 : i - 1)
-                    : -1;
+            int from = carry ? _reflowFrom[i] : -1;
             bool carried = from >= 0 && from < _carryPos.Count;
             if (carried)
             {

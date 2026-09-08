@@ -232,8 +232,6 @@ internal sealed class RemoteItemFan
     // An unreadable inventory leaves the list empty, which draws every chip upright: the state a
     // fresh arc is in, so the failure direction is "no tap", never "a tap on a guess".
     private readonly List<bool> _spent = new(MaxCards);
-    private float _nextSpentResolveAt;
-    private int _spentResolvedCount = -1;
     private int _loggedSpent = -1;
 
     /// <summary>True iff arc slab <paramref name="i"/> is a SPENT item — see <see cref="_spent"/>.
@@ -290,10 +288,8 @@ internal sealed class RemoteItemFan
     /// when the arc's slab count has changed under them.</summary>
     private void SyncSpentStates(int count)
     {
-        if (count == _spentResolvedCount && Time.unscaledTime < _nextSpentResolveAt)
-            return;
-        _nextSpentResolveAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
-        _spentResolvedCount = count;
+        // Inventory state can change without changing the chip count. Read the same bounded
+        // list every frame so tapping and raw-index mapping follow the live replicated state.
         // ONE WALK, BOTH PROJECTIONS. The spent flags and the raw-index mapping are two readings of
         // the same list under the same membership rule, and the doc on TryResolveItemArc records
         // what it cost the last time that rule was spelled out twice. The mapping rides this
@@ -1938,25 +1934,15 @@ internal sealed class RemoteItemFan
     /// mirrored arc disagree with its owner in the one phase the 1:1 ruling grants no exception
     /// to.</para>
     ///
-    /// <para>THE BEAT PERIOD IS THE VIEWER'S OWN <c>[Cards] ItemCueBeatSeconds</c> AND THAT IS
-    /// DELIBERATE. It is not a per-sub-feature sync carve-out: the dial is not a property of the
-    /// owner's board at all, it is the rhythm THIS client already beats every one of its own item
-    /// cues on, and the whole point of <see cref="WorldUI.SoftFramePulse"/> reading
-    /// <c>Time.unscaledTime</c> is that every framed card in the room breathes in phase. Following
-    /// the owner's period here would put a peer's frames out of phase with the viewer's own — one
-    /// cue rendered as two — which is the opposite of what the 1:1 rule is protecting. WHICH cards
-    /// are framed is the owner's answer and rides the wire; how fast the room breathes is the room's.
-    /// </para>
+    /// <para>The beat period comes from this owner's board tuning. The viewer's dial never
+    /// changes another player's cue.</para>
     /// </summary>
     private void TickUsableFrames(int count)
     {
         ushort mask = _owner.ItemUsableMask;
-        bool dirty = mask != _usableMask || count != _usableBuiltCount;
-        _usableMask = mask;
-        _usableBuiltCount = count;
-        if (!dirty)
-            return;
-
+        // A failed inventory resolve must retry even when mask/count stay unchanged. The old
+        // pre-committed cache made a temporary model gap suppress usable frames indefinitely.
+        // Re-seating the raw mask is a bounded read and also follows same-size actor changes.
         if (mask == 0)
         {
             // Nothing is playable on that board — or the sender predates record 35. Both mean the
@@ -2037,8 +2023,6 @@ internal sealed class RemoteItemFan
         }
         _usableFrames.Clear();
         _usableSlots.Clear();
-        _usableMask = 0;
-        _usableBuiltCount = -1;
         _loggedUsableMask = 0;
     }
 
@@ -2050,8 +2034,6 @@ internal sealed class RemoteItemFan
     /// </summary>
     private readonly System.Collections.Generic.List<bool> _usableSlots = new();
 
-    private ushort _usableMask;
-    private int _usableBuiltCount = -1;
     private ushort _loggedUsableMask;
 
     private void Hide()
@@ -2087,7 +2069,6 @@ internal sealed class RemoteItemFan
         // …and a re-opened fan re-reads WHICH chips lie tapped on its first frame rather than
         // wearing up to a cadence tick of the flags it closed with. An item is very often spent
         // BETWEEN a close and the next open — that is what the fan is opened for.
-        _spentResolvedCount = -1;
     }
 
     public void Destroy()

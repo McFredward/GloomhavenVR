@@ -68,13 +68,8 @@ internal sealed class RemoteHeldCardFace
     /// matter what it was: 2026-09-06 report item 5, second half.</para></summary>
     private CardBodyKind _bodyKind = CardBodyKind.Ability;
 
-    // What we last RESOLVED, so the walk over the peer's lists runs on an edge + a cadence rather
-    // than every frame; the SHOW call below is per-frame on purpose (RemoteCardArt dedups it and
-    // uses the steady path for its mip-bake upkeep, exactly as the hand fan does).
-    private byte _resolvedCode = 0xFF;
-    private byte _resolvedCount;
-    private int _resolvedActor;
-    private float _nextResolveAt;
+    // Current model references. Resolve runs every frame; RemoteCardArt keeps its own clone
+    // identity and mip-dirty gates, so unchanged references do not rebuild their artwork.
     private FullAbilityCard? _face;             // resolved ability face, if any
     private CItem? _item;                       // resolved item, if any
 
@@ -300,15 +295,9 @@ internal sealed class RemoteHeldCardFace
             return;
         }
 
-        int actorId = NetFigures.StableActorId(actor);
-        bool due = code != _resolvedCode || count != _resolvedCount || actorId != _resolvedActor
-                   || Time.unscaledTime >= _nextResolveAt;
-        if (due)
+        // Seat/count equality does not prove that the replicated model or map character stayed
+        // the same. Resolve this bounded list read each frame; the art layer still reuses clones.
         {
-            _nextResolveAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
-            _resolvedCode = code;
-            _resolvedCount = count;
-            _resolvedActor = actorId;
             _face = null;
             _item = null;
             _mapCard = null;
@@ -818,9 +807,6 @@ internal sealed class RemoteHeldCardFace
         _item = null;
         _mapCard = null;
         _activeCard = null;
-        _resolvedCode = 0xFF;
-        _resolvedCount = 0;
-        _resolvedActor = 0;
         EnsureBody(kind);
         SetFrontFace(showsBack: true);
         if (_loggedShown)
