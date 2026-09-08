@@ -11,9 +11,9 @@ namespace GloomhavenVR.Net;
 /// world transform (<c>owner.BoardPosition/BoardRotation/BoardScale</c>, valid only while
 /// <c>owner.HasBoard</c>). Since the 3D-parity pass the board SURFACE is the REAL bundled
 /// control-board asset — <see cref="RemoteTrayVisual"/> clones the same Oak/Steel/Bronze prefab
-/// the owner's own <c>PlayTray</c> instantiates, chosen by their synced style — and the old flat
-/// "Frame" quad (the user-rejected "komisch 2D" board) survives only as the procedural fallback
-/// for when the asset bundle is not resident. It shows that player's TWO round cards, seated in
+/// the owner's own <c>PlayTray</c> instantiates, chosen by their synced style. ModBuild 486
+/// recovers a missing resident bundle through the original factory and retries native construction;
+/// the rejected flat "Frame" quad is no longer a presentation fallback. It shows TWO round cards, seated in
 /// the prefab's REAL slot recesses, so everyone can "see who placed what", in initiative order
 /// (<c>InitiativeAbilityCard</c> first — mirrors the local board's
 /// <c>PlayTray.SyncFromGameState</c> ordering).

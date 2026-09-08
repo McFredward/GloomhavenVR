@@ -13,9 +13,13 @@ namespace GloomhavenVR.Net;
 // =================================================================================================
 
 /// <summary>
-/// ModBuild 486: native widgets are the sole presentation. The historical procedural composition
-/// below is retained only as uncalled diagnostic/source history; it is not an availability fallback.
-/// The remote-only initiative badge is likewise permanently hidden.
+/// ModBuild 486: native widgets are the sole presentation. Message10/record52 supplies the OWNER'S
+/// rendered element state, original animation outputs, FX values and fitted geometry. The original
+/// local singleton supplies matching native art and binding targets only. RemoteNativeElements
+/// applies owner output after mirror/layout writes; viewer-local availability or animation phase
+/// cannot substitute for the owner's picture. The historical GLOBAL and procedural-composition
+/// discussion below documents retired paths, retained only as uncalled diagnostic/source history.
+/// It is not an availability fallback. The remote-only initiative badge is permanently hidden.
 ///
 /// The element infusion board, drawn in the LEFT column below the objectives — the mirror of the
 /// local board's docked <c>ElementBoardSurface</c>, seated at
@@ -1470,8 +1474,8 @@ internal sealed class RemoteElementStrip
     /// the animated material instance, so the animator's output arrives without the animator. That
     /// list also happens to contain every term the composition got wrong.</para>
     ///
-    /// <para>Returns false — and shows the mod-drawn strip — whenever there is no infusion board on
-    /// this client (menu / loading) or the clone could not be built or fitted.</para>
+    /// <para>Returns false while the original source, owner frame or safe native fit is unavailable.
+    /// The normal refresh path retries; no procedural strip replaces the missing native content.</para>
     /// </summary>
     private bool TryMirror()
     {
@@ -1504,20 +1508,8 @@ internal sealed class RemoteElementStrip
         return true;
     }
 
-    /// <summary>
-    /// Per-FRAME: re-copy the owner's live element board onto the clone.
-    ///
-    /// <para>THIS IS THE SECOND HALF OF "manchmal komplett weg". <see cref="Refresh"/> runs on the
-    /// board's 4 Hz content cadence, and the whole creating cell is an animation the game can start
-    /// and finish inside ONE of those periods — <c>InfusionBoardUI.UpdateBoard</c> drops an element
-    /// from <c>elementsInCreation</c> the instant its column goes non-inert, so a fast infusion can
-    /// be born and gone between two samples and the cadence-driven composition would never draw a
-    /// frame of it. The clone is driven here instead, at frame rate, off the same widget the owner
-    /// is watching.</para>
-    ///
-    /// <para>No-op while the mod-drawn fallback is up (there is no clone to drive) and while the
-    /// board is not being ticked at all.</para>
-    /// </summary>
+    /// <summary>Refresh original clone content, then apply the owner's source-time rendered frame.
+    /// The owner has the final write after any mirror layout or viewer animation synchronization.</summary>
     public void TickLive()
     {
         _native.Configure(_mirror);
