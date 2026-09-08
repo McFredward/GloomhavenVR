@@ -448,7 +448,61 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 481;
+    public const ushort ModBuild = 482;
+    // Build 482: THE FOUR RULINGS HE GAVE ON 481's DEFERRED LIST, built one lane each. Each was
+    //   deferred because it needed a decision rather than a refactor; he made all four.
+    //
+    //   1. THE WALL FADE'S RESCAN NO LONGER RETRIES A ~73 ms COMMIT EVERY FRAME. A throw left the
+    //      stage latched at Commit, and the cycle stepper has no Commit block, so the next tick
+    //      fell through and re-ran the whole commit — for the rest of the session, behind ONE log
+    //      line that VRLog.Warn puts on the DEBUG tier, i.e. below the shipped level. A driver
+    //      throwing every frame for a whole session produced one line a default log does not
+    //      print; that is why this survived 41 builds. The lane widened the guarded region by one
+    //      statement past the review's proposal (the stage is set BEFORE VerifyPrepareStillValid,
+    //      which the review's braces excluded) and proved the abandon path is sufficient rather
+    //      than assuming it: `_committedSigValid = false` is read FIRST by the skip test, so a
+    //      skip over a half-built table is impossible, not merely unlikely. His accepted trade:
+    //      a transient throw now heals on the next cadence (<= 2 s) instead of the next frame.
+    //      New readable line `WALL COMMIT THREW`, change-gated with a 30 s heartbeat.
+    //   2. THE PANEL LADDER NO LONGER ACCUSES A BY-DESIGN OFFSET. The materialise debris is split
+    //      either side of the window at +1/-1 because a converted panel writes no depth; the bound
+    //      check refused the -1 at Alert once per session while applying it anyway, and
+    //      PanelOrderStep's own doc LISTED that -1 two paragraphs above the sentence excluding it,
+    //      both written in one commit. Resolution (c), his choice: a named `allowBehind` exemption
+    //      that lowers the floor by exactly one for the one caller. No number and no draw order
+    //      moved. The lane proved both directions against the SHIPPED DLL by reflection: silent on
+    //      -1/exempt, 0, 1, 2, 4, 10, 12; still fires on -2/exempt, -1/non-exempt, 16 and 99.
+    //      It also refused to write a claim it could not read from source ("they never overlap")
+    //      and corrected the review: the tie with the reserved slot is CONDITIONAL, not standing.
+    //   3. THE VR SETTINGS MENU SURVIVES ONE FAILED INJECTION. `_degraded` was a process-lifetime
+    //      latch on a class whose own doc promises re-injection when the options window is
+    //      replaced, and Forget cleared eleven other flags but not it. Now: Forget clears it, the
+    //      failed window is remembered by identity and refused, and a counter of consecutive
+    //      failed WINDOWS latches the process at three. THE LANE CORRECTED THE RULING AS I WROTE
+    //      IT: clearing the latch alone would have re-tried the same broken window on the next
+    //      frame and burned all three attempts in three frames — today's behaviour, delayed. The
+    //      per-instance refusal is what makes the counter mean anything. All five Degrade sites
+    //      were classified first: four per-window, one catch-all, none process-scoped.
+    //   4. FOUR HUMAN-PACED EDGES PRE-EMPT THE 5 Hz CADENCE. Records 36 (held-card face), 39
+    //      (sacrifice seat), 41 (spent half) and 43 (fan source) were sampled only when a packet
+    //      was already going out, so a pluck that changed the held face reached peers up to 200 ms
+    //      after the rig packet that moved the slab and the mirrored slab showed a BACK for that
+    //      window. His ruling: 1:1 covers TIMING, these edges are rare, the packet costs nothing.
+    //      Record 41 was the one chatter candidate and was checked rather than assumed — its alpha
+    //      is written in exactly one place in the game, a two-state assignment, never a tween.
+    //      The never-updated-latch failure mode was excluded by construction, including a check
+    //      that no return, throw or goto sits between the gate and the latch writes.
+    //
+    //   README/INSTALL/PLAYING, his list the same day: the control-board and scenario-board
+    //   sections merged (both clips showed the control board), the two environment stills dropped
+    //   (the five-option matrix already shows both rooms), "or standing" removed everywhere, the
+    //   plain rules in INSTALL replaced by the small divider, every video PLACEHOLDER removed from
+    //   both playing guides, and the closing paragraph now says what is behind the mod: two months,
+    //   3,000 commits, 481 test builds, activity in more than 500 separate hours.
+    //   check-docs-i18n.py caught the dangling anchors the heading merge created, which is exactly
+    //   what it is for.
+    //
+    //   DLL-only; bundle unchanged; wire format untouched (46 still free for the short-rest bit).
     // Build 481: THE REFACTOR ROUND HE ASKED FOR — "den Code auf einen wartbaren Stand halten,
     //   Redundanzen beseitigen, toten Code entfernen und Fehler, Lücken und Risiken entdecken",
     //   review first, then fixes, and "versuche Regression zu vermeiden". Five lanes on disjoint

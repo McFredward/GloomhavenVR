@@ -2054,6 +2054,20 @@ internal static partial class WallSegmentFade
         private bool _roomCenterInit;
         private bool _roomBoundsMoved;
         private bool _wasActive;
+        /// <summary>The driver's session latch: LateUpdate's catch prints ONCE and is then
+        /// silent forever. Deliberate — a per-frame throw would otherwise write a line per frame
+        /// — but the silence is one-directional, and the wording is a grep token, so neither is
+        /// changed here.
+        ///
+        /// <para>WHAT IT COST, and what now covers it. This line is <c>VRLog.Warn</c>, which the
+        /// ModBuild 331 mapping puts on the DEBUG tier: a default log does not print it at all.
+        /// So a commit that threw on every single frame (see the catch in
+        /// <see cref="StepRescanCycle"/> for that defect and its ruling) produced ONE invisible
+        /// line for a whole session, and that is how the retry loop survived forty-one builds.
+        /// The commit path now has its own counted, change-gated line at a tier the default
+        /// level prints — <c>WALL COMMIT THREW</c>, see <see cref="NoteCommitThrew"/>. A throw
+        /// from the rest of the tick is still only this one line; that is a separate finding and
+        /// not this round's ruling.</para></summary>
         private bool _failureLogged;
         private bool _heartbeatLogged;
 
@@ -4987,50 +5001,105 @@ internal static partial class WallSegmentFade
                 }
             }
 
-            // PERF S4: the warm was allowed by a gate taken one or more frames ago. Re-ask it
-            // here, on the frame that will consume it — see VerifyPrepareStillValid.
-            VerifyPrepareStillValid(gen);
-
-            // ('WallFade.Rescan' covers the COMMIT only since PERF S2 — the sweep and the
-            // census report as 'WallFade.Sweep' and 'WallFade.Classify', so the three costs are
-            // separable.)
-            // PERF B step 3 — the CHURN gate, and it is DELIBERATELY OUTSIDE the scope below.
+            // ModBuild 481 / USER RULING 2026-09-08 — A THROW IN THE COMMIT MAY NOT LATCH THE
+            // STAGE. Everything from here down to `_rescanStage = RescanStage.Idle` runs with
+            // the cycle standing in RescanStage.Commit, and StepRescanCycle has no `Commit`
+            // stage block to fall into: before this catch existed, a throw anywhere below
+            // unwound straight past that assignment and LEFT THE STAGE AT Commit — so the next
+            // frame, and every frame after it, skipped the three stage blocks, fell through to
+            // here and re-ran the whole ~73 ms commit. Not a hypothesis: this subsystem's own
+            // record is the reading (WallSegmentFade.CommitPhases.cs, ModBuild 441 — "aborted
+            // RescanCore … NO WALL FADED AT ALL while the retry burned the frame"). That round
+            // guarded the two instruments that were throwing; it did not change the shape, so
+            // the shape was still here. The WALL-PATH AUDIT is gated on
+            // `_rescanStage == RescanStage.Idle` in the heartbeat, so it was starved for
+            // exactly as long as the latch held — a second symptom with no second cause.
             //
-            // The gate copies the committed table before and after the commit and diffs the pair
-            // (WallSegmentFade.CommitGate.cs). It is read-only and cannot change a pixel. But
-            // 'WallFade.Rescan' is the step whose ~95 ms IS the user's Ruckler and the number
-            // this whole round is judged against, and _cycleWorstCommitMillis feeds the BUDGET
-            // line's worst-commit figure. Taking the snapshots inside either one would fold the
-            // instrument into the quantity it exists to protect, and would make the ModBuild 281
-            // log incomparable with ModBuild 280's — an instrument that becomes part of its own
-            // measurement, which is a defect class this project has a ledger entry for. Outside
-            // both, the gate reports separately as 'WallFade.TableGate' and the commit's number
-            // means in this build exactly what it meant in the last one.
+            // WHAT WAS TRIED AND REFUSED: merely moving `_rescanStage = RescanStage.Idle` into
+            // a `finally`. That clears the latch and leaves `_committedSigValid` TRUE over a
+            // HALF-BUILT table, so the next cycle's survey could agree with a signature banked
+            // for a table that was never finished and SKIP its commit — a table that then never
+            // gets built at all, which is worse than the loop it replaced. AbandonRescanCycle
+            // is the call that cannot get that wrong (see its own comments): it drops
+            // _committedSigValid, the banked facts, the drift ring, the skip run, the prepare
+            // and survey state, the node-fact window, the standing scope AND the renderer
+            // snapshot itself, so the next cadence opens a fresh sweep with nothing banked.
             //
-            // THE RETURN VALUE IS LOAD-BEARING: an AFTER snapshot with no BEFORE would compare a
-            // full table against an empty one and print a spectacular, entirely fictional churn
-            // figure.
-            bool tableGate = BeginCommitTableGate();
+            // THE TRADE-OFF, RULED ON BY THE USER 2026-09-08 KNOWING BOTH SIDES: a TRANSIENT
+            // throw now heals on the next CADENCE (RescanIntervalSeconds, shipped 2 s) instead
+            // of on the next frame. In exchange a PERSISTENT throw costs one commit every 2 s
+            // instead of one every frame, the wall-path audit runs again, and the half-torn
+            // table is no longer re-torn at frame rate.
+            //
+            // RETHROW, NEVER SWALLOW. LateUpdate's own catch is what turns this into a logged
+            // failure and what keeps a throwing driver from starving the game loop; swallowing
+            // here would silence "driver tick threw (logged once)" and let the rest of the tick
+            // run on past a commit that did not happen.
+            //
+            // THE BODY IS RE-INDENTED under this try, unlike CollectWallMountedProps' (which
+            // says at its own site why it is not): that block is 1,200 lines and shifting it
+            // would have been a whole-method rewrite, this one is forty, and an unindented try
+            // body around the subsystem's most safety-critical stretch would be its own
+            // readability defect. `git diff -w` on this commit shows only the lines that are
+            // genuinely new.
             try
             {
-                // PERF S1 kept its own scope here and the name is load-bearing: 'WallFade.Rescan'
-                // is what the [Perf] STEPS line ranks and what the integrator greps.
-                using (PerfMonitor.Scope("WallFade.Rescan"))
+                // PERF S4: the warm was allowed by a gate taken one or more frames ago. Re-ask it
+                // here, on the frame that will consume it — see VerifyPrepareStillValid.
+                VerifyPrepareStillValid(gen);
+
+                // ('WallFade.Rescan' covers the COMMIT only since PERF S2 — the sweep and the
+                // census report as 'WallFade.Sweep' and 'WallFade.Classify', so the three costs are
+                // separable.)
+                // PERF B step 3 — the CHURN gate, and it is DELIBERATELY OUTSIDE the scope below.
+                //
+                // The gate copies the committed table before and after the commit and diffs the pair
+                // (WallSegmentFade.CommitGate.cs). It is read-only and cannot change a pixel. But
+                // 'WallFade.Rescan' is the step whose ~95 ms IS the user's Ruckler and the number
+                // this whole round is judged against, and _cycleWorstCommitMillis feeds the BUDGET
+                // line's worst-commit figure. Taking the snapshots inside either one would fold the
+                // instrument into the quantity it exists to protect, and would make the ModBuild 281
+                // log incomparable with ModBuild 280's — an instrument that becomes part of its own
+                // measurement, which is a defect class this project has a ledger entry for. Outside
+                // both, the gate reports separately as 'WallFade.TableGate' and the commit's number
+                // means in this build exactly what it meant in the last one.
+                //
+                // THE RETURN VALUE IS LOAD-BEARING: an AFTER snapshot with no BEFORE would compare a
+                // full table against an empty one and print a spectacular, entirely fictional churn
+                // figure.
+                bool tableGate = BeginCommitTableGate();
+                try
                 {
-                    float c0 = (float)RescanClock.Elapsed.TotalMilliseconds;
-                    Rescan(gen);
-                    float ms = (float)RescanClock.Elapsed.TotalMilliseconds - c0;
-                    if (ms > _cycleWorstCommitMillis)
-                        _cycleWorstCommitMillis = ms;
+                    // PERF S1 kept its own scope here and the name is load-bearing: 'WallFade.Rescan'
+                    // is what the [Perf] STEPS line ranks and what the integrator greps.
+                    using (PerfMonitor.Scope("WallFade.Rescan"))
+                    {
+                        float c0 = (float)RescanClock.Elapsed.TotalMilliseconds;
+                        Rescan(gen);
+                        float ms = (float)RescanClock.Elapsed.TotalMilliseconds - c0;
+                        if (ms > _cycleWorstCommitMillis)
+                            _cycleWorstCommitMillis = ms;
+                    }
+                }
+                finally
+                {
+                    // In a finally so a commit that THROWS still closes the gate: leaving a BEFORE
+                    // snapshot standing would make the next commit's report a diff across two
+                    // commits, silently doubling every churn count it prints.
+                    if (tableGate)
+                        EndCommitTableGate(Time.unscaledTime);
                 }
             }
-            finally
+            catch (System.Exception e)
             {
-                // In a finally so a commit that THROWS still closes the gate: leaving a BEFORE
-                // snapshot standing would make the next commit's report a diff across two
-                // commits, silently doubling every churn count it prints.
-                if (tableGate)
-                    EndCommitTableGate(Time.unscaledTime);
+                // ORDER. The churn gate's `finally` is nested INSIDE this try, so it has
+                // already run by the time we get here and the gate is closed against the table
+                // as the commit left it. AbandonRescanCycle then touches only the cycle's own
+                // state — it does not write `_live`, so it cannot alter what that snapshot
+                // reported either way.
+                NoteCommitThrew(_rescanStage, now, e);
+                AbandonRescanCycle();
+                throw;
             }
             _rescanStage = RescanStage.Idle;
             _rescanUrgent = false;
@@ -5053,10 +5122,28 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
-        /// Drop the cycle in flight and every reference it holds. Called on scene load and
-        /// teardown: a census taken over the OLD scene may never reach a commit, and the
-        /// snapshot array must not keep a scene's worth of dead renderers alive. The next tick
-        /// opens a fresh cycle with a fresh sweep (the signature check sees an empty snapshot).
+        /// Drop the cycle in flight and every reference it holds. Called on scene load, on
+        /// teardown, and — since ModBuild 481 — from the catch around the COMMIT in
+        /// <see cref="StepRescanCycle"/>: a census taken over the OLD scene may never reach a
+        /// commit, and the snapshot array must not keep a scene's worth of dead renderers
+        /// alive. The next tick opens a fresh cycle with a fresh sweep (the signature check
+        /// sees an empty snapshot).
+        ///
+        /// <para>WHY IT IS ALSO THE RIGHT CALL AFTER A THROW, checked against this body rather
+        /// than assumed. The third caller hands it a HALF-BUILT table, which the other two never
+        /// do, so the property that matters there is that nothing banked can outlive it: the one
+        /// line that decides whether the NEXT cycle may skip its commit is
+        /// <c>_committedSigValid = false</c> below, and <c>CommitWouldChangeNothing</c> tests it
+        /// FIRST — a false there refuses the skip outright and names itself on the budget line
+        /// ("signature banked: no"). <c>_bankedFactsValid</c>, the drift ring, the skip run and
+        /// the culprit baseline go the same way, and <c>_lastCommitAt</c> returns to negative
+        /// infinity so <c>NoteTableAge</c> reports nothing rather than an age measured from a
+        /// commit that did not finish. Everything the commit itself opens is closed on the way
+        /// out by a <c>finally</c> that was already there — the figure memo (<c>Rescan</c>), the
+        /// per-node fact window and the phase accumulators (<c>EndCommitPhases</c>), the mounted
+        /// stage window (<c>CollectWallMountedProps</c>) and the churn gate — so this method has
+        /// NOT been extended for the new caller. If a future commit phase opens a window that
+        /// none of those finallys closes, close it here.</para>
         /// </summary>
         private void AbandonRescanCycle()
         {
@@ -5102,6 +5189,79 @@ internal static partial class WallSegmentFade
             float ms = (float)RescanClock.Elapsed.TotalMilliseconds - frameStart;
             if (ms > _cycleWorstFrameMillis)
                 _cycleWorstFrameMillis = ms;
+        }
+
+        /// <summary>How many commits have thrown this session. Session total, never reset: the
+        /// log line below is change-gated, so the COUNT is the only place a reader learns that
+        /// a single printed occurrence stands for four hundred.</summary>
+        private int _commitThrewCount;
+
+        /// <summary>Type+message of the last printed commit throw, and the next heartbeat due
+        /// for it. Same shape as the churn gate's <c>_gateLastShape</c> pair
+        /// (WallSegmentFade.CommitGate.cs) and for the same reason: reprinting an identical
+        /// paragraph every two seconds is how a useful instrument becomes a thing people
+        /// filter out. Null until the first throw — no initialiser on purpose, so nothing here
+        /// participates in field-initialiser order.</summary>
+        private string? _commitThrewShape;
+        private float _commitThrewNextHeartbeat;
+
+        /// <summary>Heartbeat for the commit-throw line: an UNCHANGED failure reprints at most
+        /// this often. Sized against the failure it describes rather than against a frame — one
+        /// throwing commit per <see cref="RescanIntervalSeconds"/> (shipped 2 s) would be 1 800
+        /// lines an hour unthrottled, and 120 at this interval, which is a log a person can
+        /// still read. Not a tuning value: no hardware round settled it and nothing but this
+        /// line reads it.</summary>
+        private const float CommitThrowLogIntervalSeconds = 30f;
+
+        /// <summary>
+        /// Record and report a commit that threw. Called from the catch in
+        /// <see cref="StepRescanCycle"/>, BEFORE <see cref="AbandonRescanCycle"/> — the stage
+        /// is passed in rather than read here because that call resets it.
+        ///
+        /// <para>WHY THIS EXISTS AT ALL, and at a tier the default level prints. Until ModBuild
+        /// 481 the only trace of a throwing commit was LateUpdate's <c>_failureLogged</c> catch:
+        /// ONE line for the whole session, at <c>VRLog.Warn</c>, which the ModBuild 331 mapping
+        /// puts on the DEBUG tier — invisible in a default log. So a driver that threw on every
+        /// single frame for a whole session printed one line nobody would see at the level they
+        /// were running, and the defect survived forty-one builds. A failure that now costs a
+        /// commit every two seconds has to be readable, or the fix is only half made.</para>
+        ///
+        /// <para>CHANGE-GATED, NOT CAPPED. A cap that goes silent is its own defect class in
+        /// this project's ledger; this prints the FIRST occurrence of every distinct failure
+        /// immediately, then repeats it at most every
+        /// <see cref="CommitThrowLogIntervalSeconds"/> — and every line carries the session
+        /// total, so a run of identical throws is one readable line whose count still says how
+        /// many there were.</para>
+        /// </summary>
+        private void NoteCommitThrew(RescanStage stage, float now, System.Exception e)
+        {
+            _commitThrewCount++;
+            // The SHAPE is type+message and NOT the stack: two throws from the same site with
+            // different messages are different findings, and a stack in the key would make an
+            // identical failure look new whenever an inlining decision changed.
+            string shape = stage + "|" + e.GetType().FullName + "|" + e.Message;
+            bool due = now >= _commitThrewNextHeartbeat;
+            if (shape == _commitThrewShape && !due)
+                return;
+            _commitThrewShape = shape;
+            _commitThrewNextHeartbeat = now + CommitThrowLogIntervalSeconds;
+            // HW-VERIFY — the line a hardware round reads to answer "is the commit throwing at
+            // all", which no log before this build could answer. Alert, because the default
+            // level prints Warning and above and because the player-visible consequence is that
+            // no wall in the game fades; rate-limited above, so it cannot rebuild the flood
+            // ModBuild 331 removed.
+            VRLog.Alert(Name, "WALL COMMIT THREW — occurrence " + _commitThrewCount
+                + " this session, in stage " + stage + ". The segment table is HALF-BUILT, so "
+                + "this cycle is ABANDONED and not retried (user ruling 2026-09-08): the next "
+                + "cadence (~" + RescanIntervalSeconds.ToString("F1") + " s) re-sweeps and "
+                + "rebuilds from scratch, and until then the walls stay exactly as they are. "
+                + "Before ModBuild 481 the stage stayed latched at Commit and this same commit "
+                + "re-ran EVERY FRAME. The stage above is Commit by construction today — it is "
+                + "printed so that a future widening of the guarded region reads correctly "
+                + "instead of quietly mislabelling itself. This line is change-gated on the "
+                + "exception's type and message and repeats at most every "
+                + CommitThrowLogIntervalSeconds + " s; the occurrence count is the true total. "
+                + "The stack below names the commit phase. " + e);
         }
 
         /// <summary>

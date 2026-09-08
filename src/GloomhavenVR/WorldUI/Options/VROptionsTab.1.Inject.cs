@@ -132,7 +132,78 @@ internal static partial class VROptionsTab
     private static UISubmenuGOWindow? _window;
 
     private static bool _probed;
+
+    /// <summary>
+    /// THE PROCESS-WIDE LATCH: no VR settings menu for the rest of the run. Set ONLY by
+    /// <see cref="Degrade"/> once <see cref="MaxConsecutiveInjectionFailures"/> options windows IN
+    /// A ROW have failed to take the injection — never by a single failure.
+    ///
+    /// <para>SCOPED TO THE WINDOW INSTANCE (his ruling, 2026-09-08, on refactor finding F-76).
+    /// It used to be set by the FIRST failure and cleared by nothing: <see cref="Forget"/> cleared
+    /// eleven other flags and not this one, so <see cref="Shutdown"/>'s <c>finally { Forget(); }</c>
+    /// did not either — and since <see cref="Tick"/>'s first statement is
+    /// <c>if (_degraded) return;</c>, the re-injection machinery this class's own doc promises
+    /// ("Re-injects when the options window is replaced — it is a <c>Singleton</c> that does not
+    /// survive every scene") sat downstream of a latch nothing could clear. Four of the five
+    /// <see cref="Degrade"/> reasons measure ONE options window — its <c>m_Tabs</c>, its donor tab,
+    /// an <c>Instantiate</c> of its own objects, its canvas ancestry — and the fifth is a catch-all
+    /// around the whole injection; not one of them is a statement about the process. So the
+    /// per-window half of the refusal is <see cref="_failedHost"/>, this flag is only the backstop,
+    /// and <see cref="Forget"/> clears it with the rest of the per-pane state.</para>
+    ///
+    /// <para>THE TWO SIBLINGS IN THIS FOLDER NOW AGREE, DELIBERATELY. <see cref="VRMenuEntry"/> has
+    /// always cleared its own <c>_degraded</c> in its teardown, and until this build the two classes
+    /// held one concept at opposite lifetimes with neither saying why. What makes the agreement SAFE
+    /// is the counter: <see cref="VRMenuEntry"/>'s latch is set by a throw out of a per-frame tick
+    /// and is cleared only at module teardown, so it can never retry inside a session, whereas this
+    /// one guards an injection that <see cref="Tick"/> would otherwise re-attempt at every
+    /// opportunity. <see cref="_consecutiveInjectionFailures"/> is what bounds those retries, and
+    /// without it "clear the latch" would just be the retry loop the latch was built to prevent.
+    /// </para>
+    /// </summary>
     private static bool _degraded;
+
+    /// <summary>
+    /// The options window whose injection has just failed — the PER-WINDOW half of the refusal, and
+    /// the reason a single failure no longer costs the session. Deliberately NOT cleared by
+    /// <see cref="Forget"/> (which <see cref="Degrade"/> calls immediately after setting this):
+    /// <see cref="Tick"/> compares it by reference and drops it the moment a DIFFERENT window
+    /// appears, so the next window gets the fresh attempt the class doc has always promised while
+    /// the broken one is never re-cloned.
+    ///
+    /// <para>IDENTITY ONLY — it is never dereferenced, so a destroyed window here is harmless. A
+    /// reference rather than <c>GetInstanceID()</c> because an id can in principle be recycled once
+    /// its object is gone, and the cost of a wrong match would be exactly the silently missing tab
+    /// this class exists to prevent.</para>
+    ///
+    /// <para>WITHOUT THIS FIELD THE COUNTER WOULD BE SPENT IN THREE FRAMES. <see cref="Tick"/> runs
+    /// every frame and <see cref="Forget"/> nulls <c>_host</c>, so a window that failed would be
+    /// re-injected on the very next frame and fail identically — three attempts against ONE broken
+    /// window, after which no later window could ever be tried. The counter counts consecutive
+    /// failed WINDOWS, which is what his ruling asks for.</para>
+    /// </summary>
+    private static UIOptionsWindow? _failedHost;
+
+    /// <summary>
+    /// How many options windows in a row have failed to take the injection. Survives
+    /// <see cref="Forget"/> — that is the whole point of it — and a successful injection resets it
+    /// to zero, so it only ever describes an unbroken run of failures.
+    /// </summary>
+    private static int _consecutiveInjectionFailures;
+
+    /// <summary>
+    /// Consecutive failed windows before the VR menu is given up on for the process.
+    ///
+    /// <para>THREE IS HIS RULING (2026-09-08) AND IS DELIBERATELY NOT A CONFIG KEY. The number is
+    /// not a taste dial: it is the width of the gap between "this options window instance was
+    /// broken" (one failure, and the reason the per-window scope exists) and "this build of the
+    /// game cannot take the injection at all" (every window fails, and re-cloning a pane per window
+    /// forever helps nobody). One was the old behaviour and was too few — it turned any transient
+    /// per-instance failure into a dead settings menu for the session. A player has nothing to
+    /// decide here and a key he could raise would only let him re-arm an unbounded retry, so the
+    /// number stays in the source with its reasoning beside it.</para>
+    /// </summary>
+    private const int MaxConsecutiveInjectionFailures = 3;
 
     /// <summary>
     /// The clone's own <c>ControllerInputAreaLocal</c> — the component <c>UISubmenuGOWindow</c>
@@ -282,6 +353,18 @@ internal static partial class VROptionsTab
             return;
         }
 
+        // THE PER-WINDOW REFUSAL (his ruling, 2026-09-08, F-76). This window has already failed;
+        // re-injecting into it would fail the same way every frame. A DIFFERENT window is exactly
+        // the case the class doc promises to serve, so the refusal is spent the moment one arrives.
+        // ReferenceEquals, not `!= null`, because a destroyed window compares equal to null through
+        // Unity's operator and the identity question here is a managed one.
+        if (!ReferenceEquals(_failedHost, null))
+        {
+            if (ReferenceEquals(host, _failedHost))
+                return;
+            _failedHost = null;
+        }
+
         // THE GUARD MUST ASK FOR WHAT THIS MODE ACTUALLY BUILDS. It used to require a toggle, and
         // a standalone menu never has one — so the guard could never be satisfied and Inject would
         // have run EVERY FRAME, cloning a fresh pane per frame. The fire exit keeps the old
@@ -311,14 +394,14 @@ internal static partial class VROptionsTab
 
             if (host.m_Tabs == null || host.m_Tabs.Count == 0)
             {
-                Degrade("the options window has no tabs to clone from");
+                Degrade(host, "the options window has no tabs to clone from");
                 return;
             }
 
             UIOptionsWindow.OptionTab? donor = PickDonor(host, out int donorIndex);
             if (donor == null)
             {
-                Degrade("no usable donor tab (need one with both a toggle and a tab window)");
+                Degrade(host, "no usable donor tab (need one with both a toggle and a tab window)");
                 return;
             }
 
@@ -330,7 +413,7 @@ internal static partial class VROptionsTab
             UISubmenuGOWindow? window = CloneWindow(donor.TabWindow);
             if (window == null)
             {
-                Degrade("the tab window could not be cloned");
+                Degrade(host, "the tab window could not be cloned");
                 return;
             }
 
@@ -366,7 +449,7 @@ internal static partial class VROptionsTab
                 if (toggle == null)
                 {
                     UnityEngine.Object.Destroy(window.gameObject);
-                    Degrade("the pane could not be detached AND the tab toggle could not be cloned");
+                    Degrade(host, "the pane could not be detached AND the tab toggle could not be cloned");
                     return;
                 }
 
@@ -375,6 +458,10 @@ internal static partial class VROptionsTab
                 host.m_Tabs.Add(new UIOptionsWindow.OptionTab { OptionToggle = toggle, TabWindow = window });
                 host.InitializeOption(toggle, window);
                 HookShownForTabSelect(host);
+
+                // A REACHABLE MENU IS A SUCCESS, worse mode or not: the run of failures the
+                // process-wide latch counts is broken here as much as on the standalone path.
+                _consecutiveInjectionFailures = 0;
 
                 VRLog.Warn("WorldUI",
                     "VR options: the pane could NOT be detached from the options window, so it is "
@@ -386,6 +473,8 @@ internal static partial class VROptionsTab
                 return;
             }
 
+            _consecutiveInjectionFailures = 0;
+
             VRLog.Info("WorldUI",
                 $"VR options: STANDALONE menu built (pane cloned from tab #{donorIndex} "
                 + $"'{donor.OptionToggle.name}', {paneSize.x:F0}x{paneSize.y:F0} px, label "
@@ -396,7 +485,7 @@ internal static partial class VROptionsTab
         }
         catch (Exception e)
         {
-            Degrade($"injection threw: {e}");
+            Degrade(host, $"injection threw: {e}");
         }
     }
 
@@ -1445,27 +1534,54 @@ internal static partial class VROptionsTab
             sb.Append('\n').Append(indent).Append("… ").Append(parent.childCount - 12).Append(" more");
     }
 
-    /// <summary>Log the first failure, then stay silent for the rest of the session.</summary>
-    private static void Degrade(string reason)
+    /// <summary>
+    /// This options window gets no VR menu, and say so. The THIRD such window in a row gives the
+    /// menu up for the process (<see cref="MaxConsecutiveInjectionFailures"/>).
+    ///
+    /// <para>WAS: "log the first failure, then stay silent for the rest of the session" — one
+    /// failure latched <see cref="_degraded"/> for the process and nothing cleared it, so the
+    /// re-injection this class's doc promises could never run again (refactor finding F-76;
+    /// scoped to the window instance by his ruling, 2026-09-08).</para>
+    /// </summary>
+    /// <param name="host">The window that failed — recorded as <see cref="_failedHost"/> so
+    /// <see cref="Tick"/> refuses THIS instance and nothing else.</param>
+    /// <param name="reason">What was measured, in the words the log line carries.</param>
+    private static void Degrade(UIOptionsWindow host, string reason)
     {
         if (_degraded)
             return;
-        // THIS LATCH IS PROCESS-LIFETIME, AND Forget() BELOW DOES NOT CLEAR IT (recorded 2026-09
-        // refactor, F-76 — an open question, not a change). Tick's FIRST statement is
-        // `if (_degraded) return;`, so once this is set the re-injection machinery this class's own
-        // doc describes ("Re-injects when the options window is replaced — it is a Singleton that
-        // does not survive every scene") never runs again, and CanOpen stays false for the rest of
-        // the process. Four of the five Degrade reasons measure ONE options-window instance and the
-        // fifth is a catch-all around the whole injection. The sibling class chose the opposite:
-        // VRMenuEntry.cs:950 clears its own _degraded in its reset. THE QUESTION FOR THE USER is
-        // whether a single failed injection should disable the VR settings menu for the process or
-        // only for that window instance; changing it risks an injection retry loop on a genuinely
-        // broken game build, which is why the latch exists and why this is a comment, not a commit.
-        _degraded = true;
+
+        // THE ORDER MATTERS. Forget() clears _degraded along with the eleven per-pane flags it
+        // always cleared, which is what lets a replaced options window be tried again; the
+        // process-wide latch is therefore set BELOW it, never above. _failedHost and the counter
+        // are the two pieces of state that survive Forget on purpose.
+        _failedHost = host;
+        _consecutiveInjectionFailures++;
         Forget();
+
+        if (_consecutiveInjectionFailures < MaxConsecutiveInjectionFailures)
+        {
+            // HW-VERIFY (2026-09, F-76) — A RETRY MUST BE OBSERVABLE. The old code had one visible
+            // state ("gone for the session") and the new one has two, so the difference has to be
+            // readable in a shipped log or the scope change is unfalsifiable. Bounded by
+            // construction: at most MaxConsecutiveInjectionFailures - 1 of these can ever print,
+            // because the next failure takes the branch below and no failure prints twice for one
+            // window (Tick refuses _failedHost). Note, not Alert: the settings menu is still
+            // expected to appear on the next window, so there is nothing for him to act on yet.
+            VRLog.Note("WorldUI",
+                $"VR options: injection attempt {_consecutiveInjectionFailures} of "
+                + $"{MaxConsecutiveInjectionFailures} FAILED — {reason}. This options window instance "
+                + "gets no VR menu and will not be retried, but the next one that appears is tried "
+                + "again from scratch; the game's own options window is untouched either way. If "
+                + $"{MaxConsecutiveInjectionFailures} windows fail in a row the menu is given up on "
+                + "for this run, with a line saying so.");
+            return;
+        }
+
+        _degraded = true;
         // HW-VERIFY (2026-09 refactor, F-74) — this line IS "the VR settings menu is gone", which
         // falls under the standing ruling that it must always be possible to open the options menu.
-        // Latched by _degraded, set two lines above: one line per session, no flood argument.
+        // Latched by _degraded, set one line above: one line per session, no flood argument.
         // The reference implementation is Patches/EscMenuShowSafety.cs:114-124 — the identical
         // "log the first failure and thereafter stay silent" shape, at Alert and marked,
         // whose sibling Report carries the rule: "AT THE ALERT TIER, NOT Warn (ModBuild 439,
@@ -1503,6 +1619,14 @@ internal static partial class VROptionsTab
         _selectOnShow = false;
         _showHooked = false;
         _loggedShowRemedy = false;
+        // THE TWELFTH FLAG, AND THE ONE THAT WAS MISSING (his ruling, 2026-09-08, F-76). Every
+        // other flag here is a property of THIS pane's lifetime, and so is a failed injection: the
+        // four measurable Degrade reasons are all readings of one options window. Clearing it here
+        // is what makes this class's own doc ("re-injects when the options window is replaced")
+        // true, and it is what leaves Shutdown, whose finally runs this method, in the same state
+        // VRMenuEntry's teardown leaves that class. The retry it permits is bounded by
+        // _consecutiveInjectionFailures, which deliberately does NOT belong in this method.
+        _degraded = false;
         // The area component belongs to the pane that has just gone; a stale reference here would
         // make the next open's LeaveInputAreaStack act on a dead object.
         _inputArea = null;

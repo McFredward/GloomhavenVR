@@ -1877,6 +1877,67 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         int tuningLength = BoardTuningSampler.Sample(tuningBoard, _tuningBuffer);
         bool tuningChanged = _tuningPager.Update(_tuningBuffer, tuningLength);
 
+        // ─── THE FOUR HELD-CARD RECORDS ARE SAMPLED HERE SO THEIR EDGES CAN PRE-EMPT ────────────
+        // Records 36 (held-card face), 39 (sacrifice seat), 41 (spent half) and 43 (fan source)
+        // used to be sampled AFTER this gate, inside FillHeldCardRecords, and were therefore the
+        // only discrete human-paced edges in this method that could not pre-empt it: a pluck that
+        // changed the held face reached peers up to 200 ms after the RIG packet that had already
+        // moved the slab, so the slab showed a BACK for that window (REVIEW-net.md N7). Every other
+        // edge here pre-empts, each with a paragraph saying why 200 ms matters.
+        //
+        // THE USER'S RULING, 2026-09-08: 1:1 covers TIMING. These four are human-paced and
+        // therefore rare, so the extra packet per edge costs practically nothing — chosen over
+        // spending a hardware round to measure the delay first.
+        //
+        // THE SAMPLE IS TAKEN ONCE AND HANDED TO THE WRITER. FillHeldCardRecords now takes these
+        // as parameters instead of re-reading the samplers, because a second read is a second
+        // answer — the defect shape record 35's comment below refuses in exactly these words. The
+        // record payloads, their order in the packet and their four SENT lines are byte-for-byte
+        // what they were; only the moment the packet leaves changes.
+        //
+        // ALL FOUR ARE DISCRETE STATE, NOT A CONTINUOUS VALUE, which is what makes them safe to put
+        // in a gate. 36 keys on Grabber.Held — a grab or a release. 39 keys on CardsDriver's
+        // _shortRestCard / _fieldCards latches. 41 keys on FullAbilityCardAction.canvasGroup.alpha,
+        // written in exactly ONE place in the whole game — `alpha = (active ? 1f : 0.5f)`,
+        // FullAbilityCardAction.cs:334, a two-state assignment and never a tween. (The LeanTween
+        // pulse on that surface animates CardActionHighlight's OWN CanvasGroup, a different
+        // component on a different object; it cannot reach this alpha.) 43 keys on CardsDriver's
+        // _fanSourcePile enum. So none of the four can chatter at frame rate, and none can turn the
+        // 5 Hz cadence into a stream — which is the one thing that would have made this ruling cost
+        // something.
+        //
+        // SAMPLING EVERY TICK RATHER THAN EVERY 5th COSTS NULL CHECKS. Each sampler early-returns
+        // on the state that holds almost all the time (neither hand holds a card shape; no short
+        // rest is presented and _fieldCards is empty; no HalfSelection is visible). The deep paths
+        // run only while a card really is in a fist or a rest is really up, are bounded by the hand
+        // and the discard arc, and allocate nothing — LocalRigSampler.s_heldFaceBuf is a reused
+        // buffer whose own note says this send path must stay allocation-free.
+        LocalRigSampler.SampleHeldCardFaces(out byte faceCode0, out byte faceCount0,
+                                            out byte faceCode1, out byte faceCount1);
+        LocalRigSampler.SampleSacrificeSeats(out byte seatCode0, out byte seatCount0,
+                                             out byte seatCode1, out byte seatCount1,
+                                             out string seatReason);
+        Cards.HalfSelection.SampleLocalSpent(out byte spentMask);
+        byte fanSource = LocalRigSampler.SampleFanSource();
+        // THE CHANGE DETECTORS ARE THE SAME EXPRESSIONS FillHeldCardRecords ALREADY GATES ITS FOUR
+        // SENT LINES ON, against the same _lastSent* latches — deliberately. A Changed term whose
+        // latch is never updated pre-empts on EVERY tick and turns the cadence into a per-frame
+        // stream; that is excluded here by construction rather than by inspection, because each
+        // latch is written UNCONDITIONALLY inside FillHeldCardRecords, FillHeldCardRecords runs on
+        // every packet that goes out, and a true term forces a packet out. So a term that opens the
+        // gate is cleared by the very packet it forced, on the same tick.
+        bool heldFaceChanged = faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1;
+        bool sacrificeSeatChanged = seatCode0 != _lastSentSeatCode0
+                                    || seatCode1 != _lastSentSeatCode1;
+        bool spentHalfChanged = spentMask != _lastSentSpentMask;
+        bool fanSourceChanged = fanSource != _lastSentFanSource;
+        // Did one of the four FORCE this packet, or is it merely riding a cadence tick? Read here
+        // because _extrasAccumulator is zeroed the moment the gate opens, so after it the answer is
+        // no longer recoverable.
+        bool heldEdgePreempt = _extrasAccumulator < interval
+            && (heldFaceChanged || sacrificeSeatChanged || spentHalfChanged || fanSourceChanged);
+        float heldEdgeEarlyMs = (interval - _extrasAccumulator) * 1000f;
+
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
@@ -1892,6 +1953,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !useBarsChanged
             && !capLabelsChanged && !focusChanged && !trackSelChanged && !trackOrderChanged
             && !emptyFanHintChanged && !tuningChanged && !itemClipChanged
+            // THE FOUR HELD-CARD EDGES (records 36, 39, 41, 43) — the N7 ruling; see the
+            // sampling block above for why each is discrete and what it costs.
+            && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
+            && !fanSourceChanged
             // A DEBUG PRESS PRE-EMPTS THE CADENCE. It is a discrete, human-paced act whose entire
             // purpose is to be looked at, so up to 200 ms of cadence latency between two headsets is
             // exactly the "did that work?" the test page exists to remove. Also true throughout the
@@ -3250,7 +3315,43 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
         _lastSentCardGripMask = cardGripMask;
 
-        FillHeldCardRecords(ref extras);
+        if (heldEdgePreempt)
+        {
+            // HW-VERIFY: the N7 ruling's own falsifier, and the ONLY line that can prove the
+            // pre-emption ran on hardware. Grep token: HELD-CARD EDGE PRE-EMPT. Note tier because
+            // the co-player runs at the shipped default level (Info is below it since ModBuild 331)
+            // and either tester can be the one plucking a card.
+            //
+            // WORKING = this line naming a term, immediately followed by that term's own SENT line
+            // (Held-card face SENT / SHORT REST SEAT / SPENT HALF SENT / FAN SOURCE SENT), and the
+            // peer's matching receive line (Remote held card FRONT / SHORT REST SEAT / SPENT HALF)
+            // within a packet of it — with the 'early' figure below showing the delay that is no
+            // longer being paid.
+            //
+            // INERT = a whole session of the four SENT lines with NOT ONE of these beside them.
+            // Then every one of those edges happened to land on a cadence tick, which for a human
+            // hand is a 1-in-5 coincidence repeated N times — i.e. the terms are not in the gate at
+            // all and this fix never ran.
+            //
+            // NOISY = this line at anything approaching frame rate. Then one of the four IS
+            // chattering despite the sampling block's argument that all four are discrete, the term
+            // it names is the one to pull, and the 5 Hz cadence has become a stream.
+            VRLog.Note("Net", "HELD-CARD EDGE PRE-EMPT: extras packet forced out "
+                + $"{heldEdgeEarlyMs:F0} ms before its 5 Hz slot by"
+                + (heldFaceChanged ? " HELD-CARD FACE (record 36)" : "")
+                + (sacrificeSeatChanged ? " SACRIFICE SEAT (record 39)" : "")
+                + (spentHalfChanged ? " SPENT HALF (record 41)" : "")
+                + (fanSourceChanged ? " FAN SOURCE (record 43)" : "")
+                + " — before ModBuild 481 these four rode the cadence and were the only discrete "
+                + "human-paced edges in this method that did not pre-empt it, so the peer's slab "
+                + "kept the face it had for up to one 200 ms interval after the rig packet had "
+                + "already moved it (REVIEW-net.md N7). NO byte of any record changed: this line is "
+                + "about WHEN the packet leaves, never what is in it. The term's own SENT line "
+                + "follows immediately and carries the value.");
+        }
+        FillHeldCardRecords(ref extras, faceCode0, faceCount0, faceCode1, faceCount1,
+                            seatCode0, seatCount0, seatCode1, seatCount1, seatReason,
+                            spentMask, fanSource);
 
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
         // breaking the "only when non-default" rule the other records follow — its ABSENCE is
@@ -3273,11 +3374,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// VERBATIM out of <see cref="TickExtrasSend"/> in the 2026-09 refactor (pure motion): the
     /// block read nothing from the sampling half of that method — only the samplers, the
     /// <c>_lastSent*</c> fields and the packet being filled — so it moves as a unit. Its position
-    /// in the packet is unchanged (last before the version record). NOTE these four are sampled
-    /// AFTER the pre-emption gate, so their edges ride the 5 Hz cadence rather than pre-empting
-    /// it (REVIEW-net.md N7; a ruling, not a refactor).
+    /// in the packet is unchanged (last before the version record).
+    ///
+    /// <para>THE SAMPLE IS NOW TAKEN BY THE CALLER, IN FRONT OF THE PRE-EMPTION GATE, and handed
+    /// here as parameters — the N7 ruling of 2026-09-08. These four were the only discrete,
+    /// human-paced edges in <see cref="TickExtrasSend"/> that could not pre-empt the 5 Hz cadence,
+    /// because they were sampled AFTER the gate and so could only be read on a tick where a packet
+    /// was already leaving; a pluck therefore reached peers up to 200 ms after the rig packet that
+    /// had moved the slab, and the slab showed a BACK for that window. Nothing about the records
+    /// themselves moved: the payload writes, the four SENT lines, their change detectors and their
+    /// order in the packet are byte-for-byte what they were. They are parameters rather than a
+    /// second read of the samplers because a second read is a second answer.</para>
     /// </summary>
-    private void FillHeldCardRecords(ref PresenceState extras)
+    private void FillHeldCardRecords(ref PresenceState extras,
+                                     byte faceCode0, byte faceCount0,
+                                     byte faceCode1, byte faceCount1,
+                                     byte seatCode0, byte seatCount0,
+                                     byte seatCode1, byte seatCount1,
+                                     string seatReason,
+                                     byte spentMask, byte fanSource)
     {
         // HELD-CARD FACE (extension record 36 — the 2026-09-02 report's item 6, "Die Vorderseite
         // SOLL man sehen auch von Karten die ein Spieler gerade in der Hand hat"): WHICH card each
@@ -3289,8 +3404,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // Sampled here rather than in the rig path because it belongs with the second card's slot
         // and the grip mask: all three describe the same two POSE SLOTS, filled by the same
         // left-first rule, and a sampler that disagreed with them would name the other hand's card.
-        LocalRigSampler.SampleHeldCardFaces(out byte faceCode0, out byte faceCount0,
-                                            out byte faceCode1, out byte faceCount1);
         if (faceCode0 != 0 || faceCode1 != 0)
         {
             extras.HasHeldCardFace = true;
@@ -3308,9 +3421,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // answers the same KIND of question they do — a seat in a host-replicated list — and shares
         // their encoder. The occupancy nibble that says a card LIES there is record 4's; this says
         // WHICH card, and only for the one population the reveal gate carves out.
-        LocalRigSampler.SampleSacrificeSeats(out byte seatCode0, out byte seatCount0,
-                                             out byte seatCode1, out byte seatCount1,
-                                             out string seatReason);
         if (seatCode0 != 0 || seatCode1 != 0)
         {
             extras.HasSacrificeSeat = true;
@@ -3356,7 +3466,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // beside the other per-slot records because it describes the same two recesses they do.
         // It is the owner's OWN PICTURE — the half's CanvasGroup alpha, which is what "grau" means
         // — and never a model of when a half counts as played; see HalfSelection.SampleLocalSpent.
-        Cards.HalfSelection.SampleLocalSpent(out byte spentMask);
         if (spentMask != 0)
         {
             extras.HasRoundHalfSpent = true;
@@ -3399,7 +3508,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // Sampled here beside the held-card face because the two describe ONE arc: the card in the
         // fist came out of the fan beside it, and before this build the two disagreed about which
         // list that was.
-        byte fanSource = LocalRigSampler.SampleFanSource();
         if (NetProtocol.IsFanSourcePile(fanSource))
         {
             extras.HasFanSource = true;

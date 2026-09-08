@@ -88,28 +88,22 @@ flat screen.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Cards and the control board
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
-</p>
+## Cards, the control board and the table
 
 The control board is a desk that stands in front of you: two recesses for this round's cards, keys
 you press with a fingertip, and a rod underneath for moving the whole thing. There is a labelled
 picture of every part of it in the [playing guide](docs/PLAYING.md#cards-and-the-control-board).
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
 </p>
 
-## The scenario board
+The scenario itself lies on the table in front of the board. Point the laser and pull the trigger to
+pick a hex, an enemy, a door or a chest. Or hold grip and touch it with a fingertip.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" width="720" controls muted loop></video>
 </p>
-
-Point the laser and pull the trigger to pick a hex, an enemy, a door or a chest. Or hold grip and
-touch it with a fingertip.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -133,11 +127,6 @@ of you. The quests hang on the wall where you can read them, and unlocking one l
 An indoor cellar and an outdoor night forest, both built for the mod. They have firelight, ambient
 sound, a star field taken from a real catalogue, and the odd thing that happens if you stand around
 long enough.
-
-<p align="center">
-  <img src="docs/img/env-cellar.jpg" width="350" alt="The cellar">
-  <img src="docs/img/env-forest.jpg" width="350" alt="The night forest">
-</p>
 
 There is one setting for this, with five options. Same table, same scenario in all of them. The two
 rooms above are the ones built for the mod. The other three are the game's own sky, no sky at all,
@@ -182,7 +171,7 @@ not yours.
 ## Requirements and install
 
 **Gloomhaven (Digital)** for PC (Steam or GOG) · Windows · a PC-VR headset with two tracked
-controllers · room-scale or standing. It was developed on a Quest 3 over Virtual Desktop.
+controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
 [→ Install guide](INSTALL.md). It comes down to two archives into the game folder. After that,
 [the controls](docs/PLAYING.md#the-controls) and the [playing guide](docs/PLAYING.md).
@@ -191,8 +180,11 @@ controllers · room-scale or standing. It was developed on a Quest 3 over Virtua
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-The mod is free and will stay free. If it gave you a good evening at the table and you feel like
-saying thanks, there is [a coffee](https://buymeacoffee.com/mcfredward).
+The mod is free and will stay free. For a sense of what is behind it: two months of work, 3,000
+commits and 481 test builds, with the commit log showing activity in more than 500 separate hours —
+and the parts that decide whether this feels right in a headset were not written once, they were
+re-measured against hardware round after round. If it gave you a good evening at the table and you
+feel like saying thanks, there is [a coffee](https://buymeacoffee.com/mcfredward).
 
 <details>
 <summary><b>Credits and licence</b></summary>

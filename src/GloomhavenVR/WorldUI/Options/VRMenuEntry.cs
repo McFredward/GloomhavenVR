@@ -138,7 +138,26 @@ internal static class VRMenuEntry
     private static bool _loggedInject;
     private static bool _loggedIcon;
     private static bool _loggedMain;
+
+    /// <summary>
+    /// The menu entries are off for this session: something in <see cref="Tick"/> or
+    /// <see cref="LateTick"/> threw, and a settings row must never be able to take a menu down with
+    /// it. Both tick methods return on it immediately, and <see cref="Shutdown"/> clears it with the
+    /// rest of the latches — this class has never held it past its own teardown.
+    ///
+    /// <para>THE SAME SHAPE AS <see cref="VROptionsTab"/>'s LATCH, DELIBERATELY (his ruling,
+    /// 2026-09-08, refactor finding F-76). Until that ruling the two classes held one concept at
+    /// opposite lifetimes and neither said why: this one cleared its latch in its teardown, and
+    /// <c>VROptionsTab._degraded</c> was cleared by nothing at all, so a single failed injection
+    /// disabled the VR settings menu for the process. That one is now scoped to the options window
+    /// instance and backstopped by a counter of consecutive failed windows. THIS one needs no such
+    /// counter, and that asymmetry is the design rather than an oversight: the failure recorded
+    /// here is a THROW out of a per-frame tick, so clearing it inside a session would re-enter the
+    /// same throwing path every frame; the failure recorded there is one reading of one window,
+    /// which the next window can perfectly well contradict.</para>
+    /// </summary>
     private static bool _degraded;
+
     private static bool _loggedDetach;
     private static bool _loggedLatch;
 

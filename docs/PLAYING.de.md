@@ -22,34 +22,6 @@ Noch nicht installiert? → [Installationsanleitung](../INSTALL.de.md)
 tatsächlich hältst, und lässt für jede der vierzehn Steuerungen die passende Taste aufleuchten — in
 der Reihenfolge, in der sie nützlich werden. Abschalten unter **Komfort ▸ Hände & Zielen**.
 
-<table>
-<tr><td>
-
-**🎬 VIDEO-PLATZHALTER 1 von 4 — `tutorial.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
-
-**Was der Clip zeigen muss** (12 s): wie deine Hände zu dem Controller werden, den du wirklich
-in der Hand hältst, und wie eine Taste nach der anderen aufleuchtet, sobald die jeweilige Steuerung
-gebraucht wird. Danach ist klar: die vierzehn Belegungen oben werden beigebracht, nicht auswendig
-gelernt.
-
-**So füllst du ihn:** aufnehmen, dann **die mp4 in einem GitHub-Issue oder Kommentarfeld hochladen**
-und die `user-attachments`-Adresse weitergeben. Diese Adresse über `PASTE_UUID_HERE` in die
-vorbereitete Auszeichnung direkt unter diesem Kasten setzen, dann den Kasten und die zwei
-Kommentar-Zeilen löschen. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. **Die mp4 nicht
-einchecken** — ein Video aus einem Repo-Pfad wird auf GitHub nicht abgespielt, weshalb am 07.09.2026
-alle eingecheckten Clips entfernt wurden. Auftrag:
-[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
-[img/README.md](img/README.md#encoding-a-new-clip) (englisch).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for tutorial.mp4 — delete this line and the closing marker once the link is pasted in
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" width="720" controls muted loop></video>
-</p>
--->
-
 Drei Sachen, die das Bild nicht zeigen kann:
 
 - Eine gehaltene Figur größer oder kleiner machen: mit einer Hand halten, den **Trigger der anderen
@@ -63,7 +35,7 @@ Drei Sachen, die das Bild nicht zeigen kann:
 
 ## Karten und Kontrollbrett
 
-› Video: [Karten und Kontrollbrett](../README.de.md#karten-und-kontrollbrett), auf der Startseite.
+› Video: [Karten, Kontrollbrett und Tisch](../README.de.md#karten-kontrollbrett-und-tisch), auf der Startseite.
 
 Dreh die Handfläche nach oben, und deine Hand fächert sich davor auf. Nimm eine Karte mit dem
 Trigger und leg sie in einen Slot deines Kontrollbretts. Die Reihenfolge der Slots ist deine
@@ -85,7 +57,7 @@ Handfläche.
 
 ## Das Szenario-Brett
 
-› Video: [Das Szenario-Brett](../README.de.md#das-szenario-brett), auf der Startseite.
+› Video: [Karten, Kontrollbrett und Tisch](../README.de.md#karten-kontrollbrett-und-tisch), auf der Startseite.
 
 Zeig mit dem Laser darauf und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe
 auszuwählen. Oder halt den **Grip** und berühr es mit der Fingerspitze. Der Grip muss mit Absicht
@@ -98,39 +70,6 @@ Heb eine Figur mit dem Trigger hoch, dann siehst du ihren kommenden Zug.
 </p>
 
 ## Fenster
-
-<table>
-<tr><td>
-
-**🎬 VIDEO-PLATZHALTER 2 und 3 von 4 — `windows.mp4` und `grab-rod.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
-
-**Was die Clips zeigen müssen** (12 s und 8–10 s, nebeneinander): ein Spielfenster, an seiner
-Stange gegriffen, verschoben, in der Größe geändert, mit dem Stick näher herangeholt, während der
-Strahl es hält, und über sein X geschlossen — und daneben das Kontrollbrett, das an der Stange
-darunter woandershin getragen wird, einmal mit der Hand und einmal mit dem Strahl quer über den
-Tisch. Eine Idee, zweimal gezeigt: alles im Raum hängt an einer Stange.
-
-**So füllst du sie:** BEIDE aufnehmen, dann **jede mp4 in einem GitHub-Issue oder Kommentarfeld
-hochladen** und die zwei `user-attachments`-Adressen weitergeben. Diese über `PASTE_WINDOWS_UUID`
-und `PASTE_GRAB_ROD_UUID` in die vorbereitete Auszeichnung darunter setzen — sie stehen
-nebeneinander, die Auszeichnung ist also eine zweispaltige Tabelle und jeder Clip füllt eine halbe
-Spalte — dann den Kasten und die zwei Kommentar-Zeilen löschen. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. **Die mp4 nicht
-einchecken** — ein Video aus einem Repo-Pfad wird auf GitHub nicht abgespielt, weshalb am 07.09.2026
-alle eingecheckten Clips entfernt wurden. Auftrag:
-[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
-[img/README.md](img/README.md#encoding-a-new-clip) (englisch).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for windows.mp4 + grab-rod.mp4 — delete this line and the closing marker once the link is pasted in
-<table>
-<tr>
-<td width="50%"><video src="https://github.com/user-attachments/assets/PASTE_WINDOWS_UUID" controls muted loop></video></td>
-<td width="50%"><video src="https://github.com/user-attachments/assets/PASTE_GRAB_ROD_UUID" controls muted loop></video></td>
-</tr>
-</table>
--->
 
 Die Fenster des Spiels werden zu Tafeln im Raum: Charakterbögen, Händler, Dialoge, die Geschichte.
 Greif die Stange oben, um eine zu bewegen, ihre Größe zu ändern oder sie über ihr X zu schließen.
@@ -160,33 +99,6 @@ läuft die Strecke wirklich ab. Wenn dir die alte flache Karte lieber ist, finde
   <img src="img/env-cellar.jpg" width="350" alt="Der Keller">
   <img src="img/env-forest.jpg" width="350" alt="Der Nachtwald">
 </p>
-
-<table>
-<tr><td>
-
-**🎬 VIDEO-PLATZHALTER 4 von 4 — `environments.mp4` — hier ist noch nichts, an dieser Stelle wird bislang nichts angezeigt.**
-
-**Was der Clip zeigen muss** (15 s): was die zwei Standbilder darüber nicht können — die Räume
-in Bewegung. Feuerschein und Tropfen im Keller, Mondstrahlen und bewegtes Blattwerk im Wald, eine
-Elementinfusion, die den Raum umfärbt, und der Wechsel der Umgebung in den Einstellungen.
-
-**So füllst du ihn:** aufnehmen, dann **die mp4 in einem GitHub-Issue oder Kommentarfeld hochladen**
-und die `user-attachments`-Adresse weitergeben. Diese Adresse über `PASTE_UUID_HERE` in die
-vorbereitete Auszeichnung direkt unter diesem Kasten setzen, dann den Kasten und die zwei
-Kommentar-Zeilen löschen. Derselbe Clip kommt an dieselbe Stelle in `PLAYING.md`. **Die mp4 nicht
-einchecken** — ein Video aus einem Repo-Pfad wird auf GitHub nicht abgespielt, weshalb am 07.09.2026
-alle eingecheckten Clips entfernt wurden. Auftrag:
-[VIDEO-SHOTLIST.md](VIDEO-SHOTLIST.md) (englisch) · Schnitt und Kodierung:
-[img/README.md](img/README.md#encoding-a-new-clip) (englisch).
-
-</td></tr>
-</table>
-
-<!-- READY MARKUP for environments.mp4 — delete this line and the closing marker once the link is pasted in
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/PASTE_UUID_HERE" width="720" controls muted loop></video>
-</p>
--->
 
 Ein **Keller** drinnen, ein **Nachtwald** draußen mit einem Sternfeld aus einem echten Katalog, der
 **Standard**-Himmel des Spiels oder **Aus (schwarz)**. Beide gebauten Räume haben Feuerschein,

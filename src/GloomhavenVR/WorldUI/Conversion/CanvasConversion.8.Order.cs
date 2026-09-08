@@ -162,10 +162,20 @@ internal static partial class CanvasConversion
     /// <c>ModalCloseButton.XOrderOffset</c> 2, <c>WorldTooltips.MenuPanelSortingLift</c> 10, the
     /// table surfaces' 12, <c>WindowMaterialiseDebris</c>'s +/-1, plus prose restatements in
     /// <c>WristHud</c>, <c>FreeLabelOrder</c>, <c>HandGhost</c>, <c>BoardVisual</c> and
-    /// <c>MapRoomHand.3.Wrist</c> that each quote "(16)" as a number. 2 &lt; 4 &lt; 10 &lt; 12 &lt;
-    /// 16 is consistent today and there was no assert: an offset written at 16 or above would pierce
-    /// the next panel on the ladder SILENTLY, which is the one failure mode this whole file exists
-    /// to prevent.</para>
+    /// <c>MapRoomHand.3.Wrist</c> that each quote "(16)" as a number. -1 &lt; 1 &lt; 2 &lt; 4 &lt;
+    /// 10 &lt; 12 &lt; 16 is consistent today and there was no assert: an offset written at 16 or
+    /// above would pierce the next panel on the ladder SILENTLY, which is the one failure mode this
+    /// whole file exists to prevent.</para>
+    ///
+    /// <para><b>THE -1 IN THAT CHAIN IS REAL, AND THE FIRST VERSION OF THIS DOC DROPPED IT.</b> The
+    /// sentence above used to read "2 &lt; 4 &lt; 10 &lt; 12 &lt; 16": it enumerated
+    /// <c>WindowMaterialiseDebris</c>'s +/-1 two lines earlier and then excluded the negative half
+    /// from its own consistency claim, in the same commit that added the check below. The check was
+    /// written from the second sentence rather than the first, so from ModBuild 439 every session in
+    /// which a window materialised with debris on shouted <c>PANEL ORDER FOLLOWER OUT OF BAND</c> at
+    /// the player, at the Alert tier, about an offset the design had chosen on purpose - and then
+    /// applied that offset anyway. The offset is the one value below zero the seam accepts and it
+    /// now has a name: <see cref="BehindPanelOrderOffset"/>.</para>
     ///
     /// <para>The check is at the REGISTRATION SEAM (<see cref="CheckFollowerOffset"/>) rather than a
     /// compile-time assertion over a hand-kept list of constants, because a hand-kept list is the
@@ -174,6 +184,47 @@ internal static partial class CanvasConversion
     /// authored in, so the seam sees all ten and anything a later round adds.</para>
     /// </summary>
     internal const int PanelOrderStep = 16;
+
+    /// <summary>
+    /// <b>THE ONE FOLLOWER OFFSET BELOW ZERO THE LADDER ACCEPTS, and only from a caller that asks
+    /// for it by name</b> (<c>allowBehind: true</c> on
+    /// <see cref="RegisterOrderFollower(ConvertedPanel, Renderer, int, bool)"/>). Exactly one
+    /// registration in the mod passes it: <c>WindowMaterialiseDebris</c>'s BEHIND half, whose whole
+    /// reason to exist is to draw behind a window that writes no depth. <c>sortingOrder</c> is the
+    /// only thing that can put geometry there, so "behind the window" and "a negative offset" are
+    /// the same statement (<c>WindowMaterialiseDebris.cs</c>, the two-renderer essay).
+    ///
+    /// <para>THE EXEMPTION IS ONE SLOT WIDE, NOT "ANY NEGATIVE". With it the accepted range is
+    /// <c>[-1, <see cref="PanelOrderStep"/>)</c>; without it, <c>[0, PanelOrderStep)</c>. -2 is
+    /// still reported, from an exempt caller as loudly as from any other, because -2 leaves the
+    /// panel's own slot entirely and lands inside the furniture band under it. The debris' own
+    /// constant is defined AS this one, so the two cannot drift apart.</para>
+    ///
+    /// <para><b>THE TIE THIS SLOT CARRIES, WRITTEN DOWN RATHER THAN OMITTED.</b> Slot-1 is not
+    /// empty: it is the seat reserved for the free-floating identity plates
+    /// (<c>FurnitureClusterTopOffset</c> leaves <c>FurnitureBandWidth</c>-1 for them;
+    /// <c>Net.BoardVisual.OrderWithPanels</c> is the caller). The arithmetic, from
+    /// <see cref="OrderAboveDistanceAndClusters"/>: a free plate clamped UP by a furniture cluster
+    /// behind it takes <c>FurnitureBandBase(rank) + FurnitureBandWidth - 1</c>, which is
+    /// <c>PanelOrderBase + rank*PanelOrderStep - 1</c> - a panel-of-that-rank's own order minus one,
+    /// the same number this offset produces. So the two collide EXACTLY when the deciding cluster's
+    /// applied rank equals the materialising panel's ladder rank; at any other rank, and whenever
+    /// the plate's answer is instead the unclamped <c>slot + lift</c> (+12, i.e. ABOVE its panel),
+    /// there is no tie at all.</para>
+    ///
+    /// <para>What the tie costs: nothing that can be reasoned about as an ordering bug. An equal
+    /// sortingOrder falls through to renderQueue and then to camera distance (the transparent sort
+    /// spelled out on the Canvas overload below), i.e. back-to-front, which is the physically
+    /// correct answer; and both subjects are under the window either way, since both numbers are
+    /// strictly below the panel's own order. <b>What is NOT claimed here:</b> that the debris cloud
+    /// and a peer's identity plate never overlap on screen. That is a spatial claim and it cannot be
+    /// read out of this source. What CAN be read is that the cloud is a transient of one
+    /// appear/vanish animation, hard-capped at <c>WindowMaterialise.HardCeilingSeconds</c> (2 s),
+    /// and that its carrier is destroyed on that effect's single exit. No report has ever named
+    /// this tie. It is recorded here so that a future report about an identity tag and a dissolving
+    /// window finds a decision instead of a silence.</para>
+    /// </summary>
+    internal const int BehindPanelOrderOffset = -1;
 
     /// <summary>Highest ladder rank that still gets its own order slot; deeper panels share the top
     /// slot. Keeps the whole ladder (100 + 180*16 = 2980) below the adopted dropdown overlays
@@ -290,6 +341,12 @@ internal static partial class CanvasConversion
     /// symptom is a panel painted over by a farther panel's decoration, which is exactly the defect
     /// class this file was written for.
     ///
+    /// <para>The <c>allowBehind</c> flag lowers the floor by exactly one, to
+    /// <see cref="BehindPanelOrderOffset"/>, for the single registration whose PURPOSE is to draw
+    /// behind a depthless panel. It is not a way to turn the check off: -2 and lower still report,
+    /// and the ceiling is untouched. The reserved tie that slot carries is documented on that
+    /// constant, not deleted.</para>
+    ///
     /// <para>Reported once per offending offset value (not per registration), at the Alert tier
     /// because it is player-visible, and NOT refused: clamping would hide the mistake behind
     /// almost-correct behaviour, and the follower still has to draw. The line names the number and
@@ -297,17 +354,19 @@ internal static partial class CanvasConversion
     /// </summary>
     private static readonly HashSet<int> ReportedBadOffsets = new();
 
-    private static void CheckFollowerOffset(int offset, string what)
+    private static void CheckFollowerOffset(int offset, string what, bool allowBehind)
     {
-        if (offset >= 0 && offset < PanelOrderStep)
+        int floor = allowBehind ? BehindPanelOrderOffset : 0;
+        if (offset >= floor && offset < PanelOrderStep)
             return;
         if (!ReportedBadOffsets.Add(offset))
             return;
         // HW-VERIFY
         VRLog.Alert("WorldUI",
             $"PANEL ORDER FOLLOWER OUT OF BAND: '{what}' registered at offset {offset}, which is "
-            + $"outside [0, {PanelOrderStep}). The panel ladder gives each converted window a slot "
-            + $"{PanelOrderStep} orders wide and its own decorations the {PanelOrderStep - 1} values "
+            + $"outside [{floor}, {PanelOrderStep}). The panel ladder gives each converted window "
+            + $"a slot {PanelOrderStep} orders wide and its own decorations the "
+            + $"{PanelOrderStep - 1} values "
             + "above it; an offset at or above the step lands in the NEXT panel's slot, so this "
             + "decoration will paint OVER a window that is genuinely nearer than the one it belongs "
             + "to, and a negative one ties with the furniture band under its own panel. Nothing is "
@@ -326,13 +385,15 @@ internal static partial class CanvasConversion
     /// sort: sortingLayer → sortingOrder → renderQueue → distance). That is the MR backing plate's
     /// contract (<see cref="MrBacking"/>, queue 2998 vs the content's ~3000): above every farther
     /// panel and above the furniture band (whose top is slot−1 — a NEGATIVE offset would tie with
-    /// it, so negative offsets stay forbidden), yet still behind its own content.</para>
+    /// it, so negative offsets are refused here and on the Renderer overload alike, save for the
+    /// ONE named exemption that overload carries: <see cref="BehindPanelOrderOffset"/>, which takes
+    /// that tie deliberately and says why), yet still behind its own content.</para>
     /// </summary>
     internal static void RegisterOrderFollower(ConvertedPanel panel, Canvas canvas, int offset)
     {
         if (panel == null || canvas == null)
             return;
-        CheckFollowerOffset(offset, canvas.name);
+        CheckFollowerOffset(offset, canvas.name, allowBehind: false);
         for (int i = 0; i < panel.OrderFollowers.Count; i++)
         {
             if (ReferenceEquals(panel.OrderFollowers[i].Canvas, canvas))
@@ -349,11 +410,23 @@ internal static partial class CanvasConversion
     /// ladder is a sortingOrder value, not a hierarchy relation, so that makes no difference here -
     /// and by <see cref="MrBacking"/> for the per-panel MR backing plate at offset 0.
     /// </summary>
-    internal static void RegisterOrderFollower(ConvertedPanel panel, Renderer renderer, int offset)
+    /// <param name="panel">The converted panel whose ladder order the renderer must ride.</param>
+    /// <param name="renderer">The mod-owned renderer to seat.</param>
+    /// <param name="offset">In-slot offset, normally <c>0..<see cref="PanelOrderStep"/>-1</c>.</param>
+    /// <param name="allowBehind">Opt in to the ONE offset below zero the ladder accepts,
+    /// <see cref="BehindPanelOrderOffset"/> (-1), making the accepted range
+    /// <c>[-1, <see cref="PanelOrderStep"/>)</c> instead of <c>[0, PanelOrderStep)</c>. Nothing
+    /// wider: -2 and lower still report, and the ceiling is unchanged. It exists for a follower that
+    /// must draw BEHIND its panel, which is only expressible as a sortingOrder because a converted
+    /// panel writes no depth, and <c>WindowMaterialiseDebris</c>'s behind half is the only such
+    /// follower in the mod. That seat is shared with the free-floating identity plates; the constant
+    /// states the tie and its consequences.</param>
+    internal static void RegisterOrderFollower(ConvertedPanel panel, Renderer renderer, int offset,
+                                               bool allowBehind = false)
     {
         if (panel == null || renderer == null)
             return;
-        CheckFollowerOffset(offset, renderer.name);
+        CheckFollowerOffset(offset, renderer.name, allowBehind);
         for (int i = 0; i < panel.OrderFollowers.Count; i++)
         {
             if (ReferenceEquals(panel.OrderFollowers[i].Renderer, renderer))

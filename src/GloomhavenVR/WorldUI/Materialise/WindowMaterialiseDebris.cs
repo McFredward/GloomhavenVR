@@ -110,7 +110,16 @@ internal static partial class WindowMaterialise
     /// </summary>
     private const int DebrisFrontOrderOffset = 1;
 
-    private const int DebrisBehindOrderOffset = -1;
+    /// <summary>
+    /// The behind half's offset. <b>Defined AS the ladder's named exemption</b>
+    /// (<c>CanvasConversion.BehindPanelOrderOffset</c>, -1) rather than as a second literal that
+    /// happens to agree with it: the registration below is the only caller in the mod allowed to
+    /// pass <c>allowBehind: true</c>, and the seam's check accepts exactly this one value below
+    /// zero. Writing it twice is how the two drifted apart the first time - see that constant's
+    /// doc, and the doc of <c>PanelOrderStep</c> which listed this -1 and then excluded it one
+    /// sentence later.
+    /// </summary>
+    private const int DebrisBehindOrderOffset = CanvasConversion.BehindPanelOrderOffset;
 
     /// <summary>
     /// Vertices per mote: FOUR, one per corner, shared across the four faces — so a mote is
@@ -519,7 +528,26 @@ internal static partial class WindowMaterialise
         // every LateUpdate from measured eye distance. Registering rather than writing a sortingOrder
         // means the debris keeps its place when the ladder reshuffles, and the registration self-
         // prunes when these renderers are destroyed (CanvasConversion.8.Order.cs:630).
-        CanvasConversion.RegisterOrderFollower(panel, cl.Behind, DebrisBehindOrderOffset);
+        // allowBehind: THE BEHIND HALF IS THE LADDER'S ONE SANCTIONED NEGATIVE OFFSET, and this is
+        // the only site in the mod that says so. The seam's bound check (CheckFollowerOffset) is
+        // otherwise [0, PanelOrderStep) and, from ModBuild 439 until this parameter existed, it
+        // shouted PANEL ORDER FOLLOWER OUT OF BAND at the player once per session about this very
+        // registration - at the Alert tier, and then applied the offset anyway. Nothing about the
+        // draw order changed here: -1 was and is the number, because a converted panel writes no
+        // depth and sortingOrder is the only way to put geometry behind one.
+        //
+        // WHAT THE EXEMPTION ACCEPTS: slot-1 is also the seat reserved for the free-floating
+        // identity plates (Net.BoardVisual.OrderWithPanels, via the furniture band's top slot), so
+        // this half TIES with them whenever a board cluster's applied rank equals this panel's
+        // ladder rank. An equal sortingOrder resolves on renderQueue and then camera distance -
+        // back-to-front, the physically correct answer - and both are under the window either way.
+        // The two overlapping on screen is a spatial question this source cannot answer; what it
+        // can say is that the cloud lives for one appear/vanish animation (<= 2 s,
+        // WindowMaterialise.HardCeilingSeconds) and is destroyed on that effect's single exit. The
+        // full statement, including why the tie was not resolved by widening a band, is on
+        // CanvasConversion.BehindPanelOrderOffset.
+        CanvasConversion.RegisterOrderFollower(panel, cl.Behind, DebrisBehindOrderOffset,
+                                               allowBehind: true);
         CanvasConversion.RegisterOrderFollower(panel, cl.Front, DebrisFrontOrderOffset);
 
         LogGeometryOnce(panel, r, lossy, worldScale, metresPerCanvas, panelWm, panelHm,

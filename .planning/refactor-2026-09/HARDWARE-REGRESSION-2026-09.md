@@ -157,6 +157,45 @@ list instead of listing them bare (`7587e1e5`), which matters the next time a de
 is read.
 
 
+## wallfade-rescan
+
+**N2 — a throw inside the wall-fade COMMIT no longer re-runs that commit on every frame.**
+(`REVIEW-core.md` §8.4, deferred there because the trade-off needed a ruling; **he ruled on it
+2026-09-08**.) `_rescanStage` was left standing at `Commit` when a commit phase threw, and
+`StepRescanCycle` has no `Commit` stage block — so every subsequent `LateUpdate` fell through to
+the commit and re-ran the whole ~73 ms pass against a half-built table, for the rest of the
+session. The wall-path audit is gated on `_rescanStage == RescanStage.Idle`, so it was starved
+for exactly as long. The cycle is now abandoned and the next one starts clean from a fresh sweep.
+
+*What to do:* nothing special — play a scenario as usual, ideally the "advanced tileset" one that
+has produced the previous wall-fade rounds, and walk far enough that walls fade in several rooms.
+
+*What he should observe: **nothing different at all**.* This path only exists once a commit has
+thrown. In a healthy session the commit does not throw, and then not one line of this changes:
+same fade, same cadence, same commit cost. **The `[WallSegmentFade] BUDGET` line must keep
+printing every ~5 s with a non-zero cycle count** — that is the proof the pipeline still runs.
+
+*The log token that proves the new path ran:* **`WALL COMMIT THREW`** (`VRLog.Alert`, so it
+prints at the shipped default level; marked `// HW-VERIFY`). Every occurrence carries
+`occurrence <n> this session` and the stage, and the exception's own stack names the commit
+phase. It is change-gated on the exception's type+message with a 30 s heartbeat, so a persistent
+failure is one line plus a heartbeat and never a flood — but the **count keeps rising**, so a
+single printed line reading `occurrence 412` is the honest report of 412 failures.
+
+*How to read it:*
+
+| what the log says | what it means |
+|---|---|
+| no `WALL COMMIT THREW` anywhere | the commit never threw. This build behaves exactly like ModBuild 480. |
+| one line, `occurrence 1`, and the fade keeps working | a transient throw. It healed on the next cadence (≤ 2 s, `[WallFade] RescanIntervalSeconds`). **This is the trade-off he accepted**: before this build it would have healed on the next FRAME instead — and before that, in the persistent case, never. |
+| a line whose count climbs across heartbeats | a persistent throw. The stack in the line names the phase; that is the bug to fix. The cost is now one commit per ~2 s instead of one per frame, and the wall-path audit runs between them. |
+
+*If it is wrong:* the failure mode to watch for is walls that stop fading and **stay** unfaded
+while the log is silent. That would mean the cycle is being abandoned without the line printing —
+the opposite of what this change is for. `[General] LogLevel = Debug` then also brings back
+`driver tick threw (logged once)`, which is unchanged and still one line per session.
+
+
 ## integrator (ModBuild 481)
 
 Cross-lane changes made at integration, none of them a pixel move:
@@ -169,3 +208,135 @@ Cross-lane changes made at integration, none of them a pixel move:
 The keys are deliberately NOT removed. A removed key reverts a player's tuned value with no
 message; a withheld one keeps its value and simply stops offering a row whose only effect is to
 re-run a migration against numbers he has since tuned.
+
+
+## options-degrade-scope
+
+**One behaviour change: a failed VR-menu injection now costs ONE options window instead of the
+whole run** (his ruling on F-76, 2026-09-08 — scope the latch to the window instance, with a
+consecutive-failure counter as the backstop).
+
+`VROptionsTab._degraded` was set by the FIRST failed injection and cleared by nothing: `Forget`
+cleared eleven other per-pane flags and not that one, and `Tick`'s first statement is
+`if (_degraded) return;`, so the re-injection the class's own doc promises ("re-injects when the
+options window is replaced") could never run again. `Forget` now clears it as its twelfth flag; the
+window that failed is refused by identity so it is never re-cloned; and the process-wide give-up is
+moved to the THIRD consecutive failed window (`MaxConsecutiveInjectionFailures`, a const, not a
+config key).
+
+*What to do:* nothing special. Play a session that crosses scenes — main menu → campaign map →
+scenario → back — and open the VR settings from the pause menu and from the main-menu row in each.
+The options window is a `Singleton` that does not survive every scene, so this is exactly the path
+that builds a second and third one.
+
+*What he should observe:* **nothing different, on a healthy session.** The injection succeeds on the
+first options window, the counter is never incremented and neither latch is ever set — the code
+below the threshold does not run at all. The change is only visible on a run where the menu was
+already failing, and there it can only ever add a menu that used to be missing.
+
+| token (grep) | what its appearance means |
+|---|---|
+| `VR options: injection attempt` | **NEW, and the whole point of the round.** One options window failed to take the injection and got no VR menu — the line names the attempt number, the threshold and the reason. The NEXT options window is tried from scratch. At most two of these can ever print in a session, and a run that shows one followed by no third line is the case the old code turned into a dead settings menu for the session. |
+| `VR options: no VR settings menu this session` | unchanged wording, changed meaning: it now means **three** options windows in a row failed, not one. Its absence where it used to appear is the fix working. |
+
+*If it is wrong:* the failure mode to watch for is the opposite of the old one — a `VR options:
+injection attempt` line repeating far more than twice, or repeating for the same window, would mean
+the per-window refusal is not holding and the retry has become a loop. It cannot flood: the line is
+below the threshold by construction and the third failure latches the process. The other direction
+(the menu still missing after a scene change, with NO new line in the log) means the injection never
+failed and the menu is missing for some other reason entirely.
+
+## cadence-edges
+
+One change, and it is a TIMING change only: **no byte of any record moved.** Records 36
+(held-card face), 39 (sacrifice seat), 41 (spent half) and 43 (fan source) were sampled AFTER
+`NetAvatarDriver.TickExtrasSend`'s pre-emption gate, so they were the only discrete, human-paced
+edges in that method that could not force a packet out. A pluck therefore reached peers up to one
+200 ms interval after the rig packet that had already moved the slab, and the peer's slab showed a
+BACK for that window (`REVIEW-net.md` N7). His ruling of 2026-09-08: **1:1 covers TIMING**, these
+four are human-paced and therefore rare, so the extra packet per edge costs practically nothing —
+chosen over spending a hardware round to measure the delay first.
+
+| what | what he should see | how to tell it ran |
+|---|---|---|
+| the four edges now pre-empt the 5 Hz cadence | a card plucked out of a hand or a pile shows its FRONT on the peer's board at the same moment the slab arrives, instead of up to 200 ms later; likewise the short-rest sacrifice's face, a half going grey, and a long rest's fan switching to the DISCARD pile | new grep token **`HELD-CARD EDGE PRE-EMPT`** at `Note` (prints at the shipped default level), naming WHICH of the four terms forced the packet and how many ms early it went |
+
+**Read it as a pair.** The pre-empt line is immediately followed by that term's own existing SENT
+line — `Held-card face SENT`, `SHORT REST SEAT`, `SPENT HALF SENT`, `FAN SOURCE SENT` — and then by
+the peer's receive line (`Remote held card FRONT`, `SHORT REST SEAT`, `SPENT HALF`). None of those
+tokens was touched.
+
+**Falsifiers, and they say different things.**
+1. *A whole session of the four SENT lines with NOT ONE `HELD-CARD EDGE PRE-EMPT` beside them* —
+   then every one of those edges happened to land on a cadence tick, which for a human hand is a
+   1-in-5 coincidence repeated N times. The terms are not in the gate and this change never ran.
+2. *`HELD-CARD EDGE PRE-EMPT` at anything approaching frame rate* — then one of the four IS
+   chattering despite all four being discrete latched state, the term the line names is the one to
+   pull, and the 5 Hz cadence has become a stream. This is the one outcome that would cost
+   something, and the line names the culprit without a second round.
+3. *The pre-empt line fires, the peer's receive line follows, and he still sees a BACK for a beat* —
+   then the delay was never on the send side. The receiver's own face resolve is throttled to
+   `RefreshSeconds` (250 ms), which is a longer window than the one this change closes, and it is
+   the next thing to read rather than anything in `TickExtrasSend`.
+
+**Cost, and why it is close to nil.** A pre-empted packet zeroes `_extrasAccumulator`, so an edge
+SHIFTS the next cadence packet earlier rather than inserting an extra one. Extra packets happen only
+where two edges land inside one 200 ms interval. Worst realistic case per record: record 36 a
+two-handed pluck, ~2 edges/s for a second or two; record 39 one edge per short rest or modal pick;
+record 41 at most four edges per ROUND (two halves on each of two cards); record 43 two edges per
+long rest. Against the 5 Hz baseline the steady state is therefore still 5 packets/s, with a brief
+peak near 10/s during a pluck burst. Nothing here can sustain a higher rate, because all four read
+discrete latched state and none is derived from a continuously-varying value.
+
+## panel-order-behind
+
+One commit, one finding (**F-46**, `REVIEW-worldui-frame.md` §6). The change is a **log-only
+change with a negative observable**: a line that has fired once per session since ModBuild 439
+must now never fire.
+
+**F-46 — the panel ladder stops accusing the window-materialise debris of an out-of-band offset.**
+
+The debris cloud that flies off a window as it materialises or dissolves is drawn by two
+renderers, one at ladder offset `+1` and one at `-1`, with the window drawn between them: a
+converted panel writes no depth, so `sortingOrder` is the only thing that can put geometry behind
+one. The ladder's bound check (`CheckFollowerOffset`, ModBuild 439, survey row R41) accepted only
+`[0, 16)` and was applied to that registration unconditionally, so **every session in which a
+window materialised with debris on emitted `PANEL ORDER FOLLOWER OUT OF BAND` at the Alert tier**
+— a player-visible warning about an offset the design had chosen on purpose — and then applied
+the offset anyway. `PanelOrderStep`'s own doc listed the debris' `+/-1` and excluded it one
+sentence later, in the same commit; the check was written from the second sentence.
+
+*What to do:* nothing special — open and close any floated window (a character sheet, the combat
+log, an item card) with **`[WorldUI] WindowMaterialise*`** left at its shipped values, so the
+debris is on. One appear and one vanish is enough. Repeat once in multiplayer with a peer's board
+visible, so a free-floating identity plate is on the ladder at the same time.
+
+*What he should observe:* **nothing different in the picture.** The debris still flies from where
+the window broke up, half of it in front of the window and half behind it. No number and no draw
+order changed: `-1` and `+1` are still the compiled constants (the guard's decompiled assembly
+shows `RegisterOrderFollower(panel, debrisCloud.Behind, -1, allowBehind: true)`).
+
+*The log token, and it is the ABSENCE that is the pass:*
+
+| token (grep) | before this build | now |
+|---|---|---|
+| `PANEL ORDER FOLLOWER OUT OF BAND` | once per session, at `Alert`, naming `'Behind' registered at offset -1` | **must not appear at all** |
+
+- **If it appears naming `'Behind'` at offset `-1`,** the exemption did not reach the registration
+  and the fix is inert.
+- **If it appears naming anything else** — any name, any offset — that is a REAL out-of-band
+  follower and a genuine finding: the check was not weakened, only its floor was lowered by
+  exactly one for the one caller that asks by name. `-2` still reports, from that caller as
+  loudly as from any other, and the printed bound now names the floor the check actually used
+  (`outside [-1, 16)` for the exempt caller, `outside [0, 16)` for everyone else), so the line
+  cannot quote a bound it did not apply.
+
+*The tie that was accepted rather than removed:* slot−1 is also the seat the furniture band
+reserves for the free-floating identity plates (`Net.BoardVisual.OrderWithPanels`), so the
+debris' behind-half shares it whenever a board cluster's ladder rank equals the materialising
+panel's. Both are under the window either way, and an equal `sortingOrder` resolves back-to-front
+on camera distance. **This has never been reported and is not something to go looking for**; it is
+written down at `CanvasConversion.BehindPanelOrderOffset` and at the registration site so that a
+future report about a peer's name tag flickering against a dissolving window has somewhere to
+land. If he ever does see the name tag and the debris trade places, that is the tie and the note
+names it.

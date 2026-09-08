@@ -89,11 +89,7 @@ Bildschirm in derselben Partie mit.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-## Karten und Kontrollbrett
-
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
-</p>
+## Karten, Kontrollbrett und Tisch
 
 Das Kontrollbrett ist ein Tisch, der vor dir steht: zwei Fächer für die Karten dieser Runde, Tasten,
 die du mit der Fingerspitze eindrückst, und darunter eine Stange zum Tragen. Im
@@ -101,17 +97,16 @@ die du mit der Fingerspitze eindrückst, und darunter eine Stange zum Tragen. Im
 beschriftet.
 
 <p align="center">
-  <img src="docs/img/divider-small.png" width="340" alt="">
+  <video src="https://github.com/user-attachments/assets/51b8518b-6bd9-4ab8-9699-a201e8bd1342" width="720" controls muted loop></video>
 </p>
 
-## Das Szenario-Brett
+Das Szenario selbst liegt auf dem Tisch vor dem Brett. Ziel mit dem Strahl und drück den Trigger, um
+ein Feld, einen Gegner, eine Tür oder eine Truhe zu nehmen. Oder halt den Griff und tipp es mit der
+Fingerspitze an.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/8ab499e0-0140-4e84-807b-1752b41cf625" width="720" controls muted loop></video>
 </p>
-
-Ziel mit dem Strahl und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe zu
-nehmen. Oder halt den Griff und tipp es mit der Fingerspitze an.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -136,11 +131,6 @@ freigeschaltet wird, leuchtet der ganze Raum auf.
 Ein Keller drinnen und ein Nachtwald draußen, beide für die Mod gebaut. Sie haben Feuerschein,
 Umgebungsklang, ein Sternfeld aus einem echten Katalog, und das, was ab und zu passiert, wenn man
 lange genug herumsteht.
-
-<p align="center">
-  <img src="docs/img/env-cellar.jpg" width="350" alt="Der Keller">
-  <img src="docs/img/env-forest.jpg" width="350" alt="Der Nachtwald">
-</p>
 
 Dafür gibt es eine Einstellung mit fünf Möglichkeiten. Derselbe Tisch, dasselbe Szenario in allen.
 Die beiden Räume oben sind die, die für die Mod gebaut wurden. Die anderen drei sind der Himmel des
@@ -186,7 +176,7 @@ behält dessen Stange, nicht deine.
 ## Voraussetzungen und Installation
 
 **Gloomhaven (Digital)** für den PC (Steam oder GOG) · Windows · ein PC-VR-Headset mit zwei
-getrackten Controllern · Room-Scale oder im Stehen. Entwickelt wurde die Mod auf einer Quest 3 über
+getrackten Controllern · Room-Scale. Entwickelt wurde die Mod auf einer Quest 3 über
 Virtual Desktop.
 
 [→ Installationsanleitung](INSTALL.de.md). Es läuft auf zwei Archive hinaus, die in den Spielordner
@@ -197,8 +187,12 @@ entpackt werden. Danach [die Steuerung](docs/PLAYING.de.md#die-steuerung) und di
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-Die Mod ist kostenlos und bleibt es. Wenn sie dir einen guten Abend am Tisch beschert hat und du
-Danke sagen möchtest: [ein Kaffee](https://buymeacoffee.com/mcfredward) geht immer.
+Die Mod ist kostenlos und bleibt es. Damit klar ist, was dahintersteckt: zwei Monate Arbeit, 3.000
+Commits und 481 Testbuilds, und das Commit-Log weist Aktivität in über 500 einzelnen Stunden aus —
+die Teile, die darüber entscheiden, ob sich das im Headset richtig anfühlt, sind nicht einmal
+geschrieben, sondern Runde für Runde gegen echte Hardware nachgemessen worden. Wenn sie dir einen
+guten Abend am Tisch beschert hat und du Danke sagen möchtest:
+[ein Kaffee](https://buymeacoffee.com/mcfredward) geht immer.
 
 <details>
 <summary><b>Danksagungen und Lizenz</b></summary>

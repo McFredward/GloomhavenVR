@@ -19,13 +19,15 @@ Es läuft auf zwei Archive in den Spielordner hinaus und dauert etwa fünf Minut
 | **Spiel** | Gloomhaven (digital) für den PC, v1.1.x — Steam oder GOG |
 | **PC** | Windows, ein PC-VR-Headset, zwei getrackte Controller mit Thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — Schritt 1 installiert ihn, einmalig |
-| **Platz** | Room-Scale oder im Stehen. Wenig Platz reicht. |
+| **Platz** | Room-Scale. Wenig Platz reicht. |
 
 > **Das ist eine PC-VR-Mod.** Das Spiel läuft auf deinem PC, und du streamst das Headset dorthin oder
 > hängst es per Kabel an — wie bei jedem anderen PC-VR-Titel. Entwickelt und gespielt auf einer
 > **Quest 3 über Virtual Desktop**.
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 ## 1. BepInEx installieren
 
@@ -35,7 +37,9 @@ Es läuft auf zwei Archive in den Spielordner hinaus und dauert etwa fünf Minut
    *(Bei Steam: Rechtsklick auf das Spiel → Verwalten → Lokale Dateien durchsuchen.)*
 3. Starte das Spiel einmal, dann beenden. `BepInEx/LogOutput.log` gibt es jetzt — das ist dein Beweis.
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 ## 2. Die Mod installieren
 
@@ -47,7 +51,9 @@ Ordner; lass Windows `BepInEx/` zusammenführen. Dann kontrollier, ob diese zwei
   <img src="docs/img/install-tree-de.png" width="820" alt="Der Gloomhaven-Ordner nach der Installation: BepInEx/plugins/GloomhavenVR/ und BepInEx/patchers/GloomhavenVR/ müssen beide da sein">
 </p>
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 ## 3. OpenXR-Runtime einstellen
 
@@ -58,7 +64,9 @@ Stell sie in der App ein, mit der du streamst:
 - **Quest Link / Air Link** — Meta-Quest-Link-App → Einstellungen → Allgemein → OpenXR-Laufzeit → *als aktiv festlegen*.
 - **Steam Link / SteamVR** — SteamVR-Einstellungen → OpenXR → *SteamVR als OpenXR-Laufzeit festlegen*.
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 ## 4. Das Spiel starten
 
@@ -76,7 +84,9 @@ es zurück über `boot.config`.
 <sub>Warum sie neu startet und wie du es vermeidest:
 [docs/DEVELOPING.md](docs/DEVELOPING.md#the-restart-on-the-first-start) (nur auf Englisch)</sub>
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 ## Updates
 
@@ -93,7 +103,9 @@ wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben una
 - **Im Mehrspieler brauchen alle dieselbe Version.** Passt sie nicht, blockiert die Mod mit einem
   Hinweis, statt die Sitzung still schiefgehen zu lassen. Aktualisiert gemeinsam.
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 ## Einstellungen
 
@@ -118,7 +130,9 @@ Wenn du eine Weile völlig unverändert spielen willst, setz `[General] Enabled 
 `BepInEx/config/dev.gloomhavenvr.cfg`. Das ist einfacher als deinstallieren. Jede Einstellung gibt
 es auch als Textdatei in diesem Ordner, brauchen solltest du sie aber nicht.
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 ## Fehlersuche
 
@@ -134,7 +148,9 @@ es auch als Textdatei in diesem Ordner, brauchen solltest du sie aber nicht.
 dein Headset und die App, mit der du streamst. Setz vorher `[General] LogLevel = Debug` und
 reproduzier es dann. Das Standard-Log ist zu leise, um damit eine Meldung zu beantworten.
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 ## Deinstallieren
 
@@ -146,7 +162,9 @@ ist auch der Loader weg.
 Diese hier sind optional und tun ohne die Mod nichts: `GH_Data/Plugins/x86_64/UnityOpenXR.dll`,
 `GH_Data/Plugins/x86_64/openxr_loader.dll`, `GH_Data/UnitySubsystems/UnityOpenXR/`.
 
----
+<p align="center">
+  <img src="docs/img/divider-small.png" width="340" alt="">
+</p>
 
 Eine Kurzfassung dieser Seite liegt als `INSTALL-DEUTSCH.txt` im Release-Zip. Aus dem Quellcode
 bauen: [`docs/DEVELOPING.md`](docs/DEVELOPING.md) (nur auf Englisch).
