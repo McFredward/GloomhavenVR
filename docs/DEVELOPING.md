@@ -198,13 +198,19 @@ python3 scripts/rebase-defaults.py check     # needs a tester's cfg drop, see be
 python3 scripts/check-docs-i18n.py # the four player-facing docs and their German twins
 ```
 
-`refactor-guard.sh check` is an umbrella: it already runs `patch-inventory.sh check`,
+`refactor-guard.sh check` is an umbrella: it runs **seventeen** checkers before it diffs the
+compiled form — `patch-inventory.sh check`,
 `check-frame-order.sh`, `check-mirrors.sh`, `check-partial-order.py`, `check-instrument-writes.py`,
 `check-remote-defaults.py`, `check-wire-coverage.py`, `check-tune-fields.py`,
 `check-desync-surface.py`, `check-hw-verify.py`, `check-options-coverage.py`,
 `check-card-identity-mask.py`, `check-mirror-dials.py`, `check-enum-arrays.py`, `wire-tests.sh`,
-`check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is duplicated work, not extra coverage. The three lines
-beside it are the ones it does **not** cover.
+`check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is
+duplicated work, not extra coverage. The three lines beside it are the ones it does **not** cover.
+
+`ci.yml` runs sixteen of those seventeen (everything but `wire-tests.sh`, which is compile-only on a
+runner — see [`CI-CD.md`](CI-CD.md) §5) plus `check-refasm.py`. So the desk guard is the *stricter*
+of the two, not a convenience: the surface diff runs against a stored baseline here and only against
+the PR base there, and push events skip it entirely.
 
 `check-card-identity-mask.py` is a standalone **twin** of
 `tests/GloomhavenVR.WireTests/CardIdentityMaskVectors.cs`. The C# original is a pure text lint that
@@ -218,8 +224,10 @@ than to the wire-test project, where CI cannot execute it. See docs/CI-CD.md §5
 runner — CI prints a notice and skips. It is a **local** gate, and the one that catches a value the
 user tuned on hardware being silently overwritten by a later edit.
 
-`check-docs-i18n.py` currently has no automatic caller — no workflow runs it. Until one does, it is
-on you.
+`check-docs-i18n.py` runs in `ci.yml` ("User-facing docs ship in English and German"). It had no
+automatic caller until the 2026-09 tooling review wired it, along with seven other checkers the desk
+guard ran and the workflow did not. Run it locally anyway: a red PR after the fact is a slower way
+to learn that a German twin fell behind.
 
 ## Repo layout
 
@@ -232,7 +240,7 @@ GloomhavenVR.sln
 │   │   ├── Startup/            getting an OpenXR runtime up before anything touches Unity.XR
 │   │   ├── Events/             the game-event bridge and the VR mode state machine
 │   │   ├── Perf/               the frame budget: measuring it, and spending less of it
-│   │   ├── WallFade/           the wall-fade driver (20 files) and its prop classifiers
+│   │   ├── WallFade/           the wall-fade driver (32 files) and its prop classifiers
 │   │   ├── Haunt/              the apparitions and their schedule
 │   │   ├── Sound/              ambience: what the room sounds like
 │   │   ├── Environment/        what the room looks like beyond the board (sky, mood, lights)
@@ -333,7 +341,7 @@ is otherwise unverified. Both fired during the restructure and both were right.
 | [`TESTING-FULL-LOOP.md`](TESTING-FULL-LOOP.md) | the end-to-end hardware session script |
 | [`TESTING-P1.md`](TESTING-P1.md), [`-P2`](TESTING-P2.md), [`-P3A`](TESTING-P3A.md), [`-P3B`](TESTING-P3B.md), [`-P3C`](TESTING-P3C.md), [`-P4`](TESTING-P4.md) | per-phase hardware checklists; P1 §4 is the stage-by-stage failure-triage table. **Do not retire these:** shipping code cites P1, P2, P3B and P3C by path — P1 §4 from a user-visible error message (`Core/Startup/OpenXRBootstrap.cs`, `Preload/Patcher.cs`), the rest from source comments |
 | [`CI-CD.md`](CI-CD.md) | the two GitHub workflows, the release order of operations, and why each gate sits where it does |
-| [`NET-ACTION-SURFACE.md`](NET-ACTION-SURFACE.md) | **generated** — the game types that dispatch network actions, and which of them the mod patches |
+| [`NET-ACTION-SURFACE.md`](NET-ACTION-SURFACE.md) | hand-maintained ledger — the game types that dispatch network actions, which of them the mod patches, and a recorded verdict per patch. **Not generated:** `check-desync-surface.py generate` only *prints* candidate rows with the note column blank; the verdict and the note are human judgements and the gate checks they exist, never what they say |
 | [`ASSET-GUIDE-MITWIRKENDE.md`](ASSET-GUIDE-MITWIRKENDE.md) | the brief for the external 3D artist who edits the meshes and textures; file names, paths and bone/anchor names are contracts. German on purpose — it has exactly one reader and he works in German |
 | [`PLAYING.md`](PLAYING.md) / [`PLAYING.de.md`](PLAYING.de.md) | player-facing; listed here so you know to change both and to run `check-docs-i18n.py` after |
 | [`img/README.md`](img/README.md) | how every image and clip in the README was produced |

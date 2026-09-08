@@ -1,5 +1,12 @@
 # Phase 1 Windows validation — stereo + head tracking (R1)
 
+> **Audited 2026-09-08 at ModBuild 483** (base `49ceab21`). Every `[Section] Key`, log
+> marker, type, method and file path named below was grepped against the tree. Config
+> keys: no doc here names a live key that has been removed, and every key described as
+> DELETED really is gone. What an audit of names cannot establish is that each step's
+> expected BEHAVIOUR is still current — where a step was found asserting something the
+> code now forbids, it says so in place.
+
 Code-complete checklist for validating the XR bootstrap on a real Windows machine
 with a headset. Target result (ROADMAP Phase 1 "done when"): *scenario visible as a
 stereo diorama on Quest 3 (Link + SteamVR tested), head-tracked, stable frametime,
@@ -64,7 +71,7 @@ game still fully mouse-playable in parallel.*
 | Rig armed | `[Rig] Rig driver + comfort stack installed — waiting for a scenario camera.` (without a headset: `Comfort stack installed in dev mode …`) |
 | Compat | `[Compat] Kill-switches armed for: PostProcessLayer, PostProcessVolume, VolumetricFog.` |
 | Intro (pre-menu) | `[WorldUI] Starting indicator shown (pre-menu scene, FlatScreen gated).` — intro plays vanilla on the desktop, HMD shows a grey void + "starting…" label |
-| Menu scene up | `[Rig] Menu rig built at vantage of camera '<name>' (…)`, `[WorldUI] FlatScreen shown …`, `[WorldUI] FlatScreen quad placed: …`, `[WorldUI] Desktop mirror active — FlatScreen RT …`, `[WorldUI] UICamera '<name>' excluded from XR rendering …` |
+| Menu scene up | `[Rig] Menu rig built at vantage of camera '<name>' (…)`, `[WorldUI] FlatScreen shown …`, `[WorldUI] FlatScreen quad placed: …`, `[WorldUI] Desktop mirror active — FlatScreen RT …`, `[Core] Stereo policy: '<name>' forced to StereoTargetEyeMask.None (…)` |
 | Per menu scene load | `[WorldUI] Camera inventory after scene '<name>' (N active):` + one line per camera (tag/depth/clear/mask/stereo/target) — **quote these in every menu-rendering report** |
 | In scenario | `[Rig] VR rig built at focus (...), world scale <s> ...` then `[Rig] Recentered — ...` |
 

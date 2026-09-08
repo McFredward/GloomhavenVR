@@ -27,7 +27,8 @@ Drei Sachen, die das Bild nicht zeigen kann:
 - Eine gehaltene Figur größer oder kleiner machen: mit einer Hand halten, den **Trigger der anderen
   Hand** ziehen, dann die Hände auseinander oder zusammen bewegen.
 - 45°-Sprünge statt fließendem Drehen: **Komfort ▸ Drehen**.
-- Steigen und sinken auf dem rechten Stick. Standardmäßig aus, einschalten unter **Komfort**.
+- Steigen und sinken auf dem Dreh-Stick. Standardmäßig aus, einschalten unter
+  **Komfort ▸ Fortbewegung**.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -107,7 +108,7 @@ Wassertropfen, Mondlicht und leisen räumlichen Klang.
 In beiden stecken außerdem seltene Erscheinungen: ein Gesicht am vergitterten Fenster, jemand im
 Dunkel des Treppenschachts, Augen, die im Unterholz blinzeln. Sie tauchen nie über dem Brett auf und
 nie zwei gleichzeitig, und alle in einer Sitzung sehen dieselbe im selben Moment. Unter
-**Umgebung ▸ Grusel** kannst du sie herunterregeln oder abschalten, und diese Einstellung gilt nur
+**Umgebung & Ton ▸ Grusel** kannst du sie herunterregeln oder abschalten, und diese Einstellung gilt nur
 für dich.
 
 <p align="center">

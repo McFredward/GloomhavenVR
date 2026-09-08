@@ -19,8 +19,9 @@
 > patch surface has since grown by well over an order of magnitude. **Never quote a count
 > from this page** — `docs/PATCH-INVENTORY.md` is the count of record and
 > `scripts/patch-inventory.sh check` prints it (`patch surface: N classes, M methods, all
-> registered exactly once`). At the time of this pass it printed 85 classes / 141 methods
-> against a table of 17. The newer patches are documented where they live — in a block comment above the patch class
+> registered exactly once`). At ModBuild 483 (2026-09-08) it printed **107 classes / 165
+> methods** against the table of 17 below — the pass before this one read 85 / 141, which is
+> both the drift rate and the reason for the rule. The newer patches are documented where they live — in a block comment above the patch class
 > itself, which by project convention states the user report verbatim, the root cause and the
 > rejected alternatives. `docs/PATCH-INVENTORY.md` lists all of them; `.planning/STATE.md` says
 > where the project stands.
@@ -76,7 +77,7 @@ IS shared across modules, see the contention table below.
 | **Face buttons** | Recenter chord (Rig): **B+Y held on BOTH hands**; the non-dominant **A/X** (WorldUI, `WorldUI/Grab/NonDominantHold.cs`) | Different buttons — no overlap. The A/X side no longer opens a settings panel (that panel is deleted): one tracker, one press, at most one action — a HOLD for `[WorldUI] ManualScreenChordSeconds` closes the top floating modal, else toggles the flat screen (the self-rescue); an unconsumed release inside 0.35 s is a TAP that toggles the game OPTIONS window. Single B/Y presses remain free. |
 | **Laser/ray visuals** | One laser: **dominant hand only, in EVERY mode** (`VRModeStateMachine.InteractorsFor`) | Enforced by two unconditional rules applied last: the dominant hand always gets Ray (test #19 — desktop parity: the mouse can always point and the game gates by state), and the non-dominant hand never does, in any mode under any config (user ruling 2026-08-03: *"Nur die aktive Hand … soll einen Laser haben."*). The far pick (`BoardPick`) exclusively consumes `VRHands.PrimaryPick`, so the non-dominant laser was pure noise. The ModalUI **cone gate is deleted** with its `[Hands] ModalRayConeDegrees` key — `RayInteractor.VisualsAllowed` is unconditionally true, because the gate WAS the tutorial's "no laser at all on the playfield while the instruction box is open". |
 | **`Camera.main` per-frame lookups** | evaluated, left in place | Unity 2021.3 caches `Camera.main` internally (no tag scan since 2020.2). All WorldUI sites already funnel through `CanvasConversion.WorldCamera` (HeadCamera → Camera.main fallback); the remaining per-frame uses (PalmGate, CardFan, VRCard, HandsDriver sim path) are single cached-property reads — centralizing further buys nothing measurable. |
-| **`FindObjectOfType<Plugin>` (the config lookup)** | retired, and it stays retired | `BoardModule.ResolvePluginConfig` was the offender; the P5 config migration (`ModuleConfig.Create`) replaced it and both names are now zero-hit in `src/`. **Scope: this row is about that ONE call.** It is not a blanket audit of scene sweeps — `src/` currently contains ~238 `FindObject(s)OfType` sites and nothing enforces a policy over them. `FindObjectsOfType` is a full scene sweep and is not "near-free"; measure before adding one on a per-frame path. |
+| **`FindObjectOfType<Plugin>` (the config lookup)** | retired, and it stays retired | `BoardModule.ResolvePluginConfig` was the offender; the P5 config migration (`ModuleConfig.Create`) replaced it and both names are now zero-hit in `src/`. **Scope: this row is about that ONE call.** It is not a blanket audit of scene sweeps — `src/` currently contains **269** `FindObject(s)OfType` sites (counted 2026-09-08 at ModBuild 483; ~238 when this row was written) and nothing enforces a policy over them. `FindObjectsOfType` is a full scene sweep and is not "near-free"; measure before adding one on a per-frame path. |
 | **`TakeDamagePanel` burn-hover methods** | **Cards AND WorldUI both prefix them** | The one genuinely shared PATCH TARGET across modules. `OnMouseEnterBurnOne/Two` and `OnMouseExitBurnOne/Two` each carry two prefixes: Cards' `TakeDamagePanel_BurnHover_Skip` (`Cards/Patches/DamageFlowPatches.cs`) returns **`false` unconditionally** — hovering a burn option must not open the full hand preview, and the exits are skipped symmetrically because `ResetPreviewing` on exit would still re-run `BurnAvailableCard`/`BurnDiscardedCards` as a hidden side effect — while WorldUI's `TakeDamagePanelSafety` returns its `AllowHover(...)` verdict. **Either can return false**, so neither module may assume its own prefix decides the outcome, and a change to one must be read against the other. Harmony orders unprioritised prefixes by registration; do not depend on that order. |
 
 **Intra-module double prefixes** (same module, one game method, two patch classes) —
@@ -104,9 +105,10 @@ Patches whose cost lands outside their own subsystem. Full list and targets:
   `ActorBehaviour.Update` **and** `LateUpdate` for **every actor**, plus
   `SetHilighted`. It contends directly with the rest of `Board/FigureGrab/` for who
   owns a held figure's transform; read them together.
-- **`TooltipWindowPatches`** and **`TakeDamagePanelSafety`** (both WorldUI) — the two
-  largest patch classes in the repo by method count. A change to either is a wide
-  change.
+- **`TooltipWindowPatches`** (19 methods) and **`TakeDamagePanelSafety`** (17) — both
+  WorldUI, and still the two largest patch classes in the repo by method count; third
+  place is `MapPartyTravel.TravelDrivePatches` at 5. A change to either is a wide change.
+  (Counted from `docs/PATCH-INVENTORY.md` on 2026-09-08; that file is the count of record.)
 - **`MapPartyTravel.TravelDrivePatches`** (`WorldUI/MapRoom/MapTravelConfirm.cs`) —
   prefixes `PartyToken.PartyMoveTo`, i.e. the map's travel drive itself.
 - **The ESC-menu set** — four suppressors/finalizers in
@@ -114,8 +116,12 @@ Patches whose cost lands outside their own subsystem. Full list and targets:
   (`ShowUIWindowSuppressor`, `EscMenuEscapeSuppressor`, `EscMenuTransitionFinalizer`,
   `EscMenuMultiplayerCheckFinalizer`), plus `ESCMenu_OnShow_LatchGuard_Patch`. All
   resolve their targets at runtime and degrade by design.
-- **`ConfirmationBoxRescue`** — three finalizers over the `ConfirmationBox.Show…`
-  overloads, likewise runtime-resolved.
+- **`WorldUI/Patches/ConfirmationBoxRescue.cs`** — three **prefix** patches over the
+  `ConfirmationBox.Show…` overloads, likewise runtime-resolved. There is no patch class
+  called `ConfirmationBoxRescue`: the three are
+  `ConfirmationBox_ShowGenericConfirmation_Pair_Rescue_Patch`,
+  `…_Single_Rescue_Patch` and `ConfirmationBox_ShowGenericSpendConfirmation_Rescue_Patch`;
+  `ConfirmationBoxRescueTargets` beside them resolves the targets and patches nothing.
 
 ## Per-mode / per-hand interactor matrix (final)
 

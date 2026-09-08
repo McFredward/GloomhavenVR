@@ -18,6 +18,17 @@
 > 3. Verify a suspected-dead name against **`src/` AND `decompiled/`** before calling it
 >    dead. Several names here (`InputManager.DisableAllMouses`, `MethodType.Getter`) are
 >    *game* API, not ours; a `src/`-only grep reports them as dangling and they are not.
+> 4. **A "not implemented yet" is a claim with an expiry date, and nothing rings it.**
+>    §4 called `[Rig] Experimental3DMap` "a reserved, unimplemented placeholder" for
+>    seventy-odd builds after the map room shipped behind it. Rules 1-3 all held and none
+>    of them caught it, because nothing here was restated, retired or misgrepped — the
+>    world simply moved. When you write that something does not exist yet, name the
+>    symbol, so the next audit can grep it.
+>
+> **Audited 2026-09-08 at ModBuild 483.** Every type, member, enum, config key and numeric
+> constant below was checked against the tree; one claim (§4's, above) was false and the
+> rest agreed. What this cannot establish is that the *behaviour* behind each surviving
+> name is unchanged.
 
 ## Threading rules (apply to every event below)
 
@@ -344,8 +355,16 @@ orbit `CameraController` exists (the map has one too — decompiled
 `ClickTrackerMap.cs:78`), and NOT `EGameState.Scenario` (a MapState phase flag that
 flips during travel/loading — `GlobalData.cs:563`). The rig follows the same signal:
 menu rig + flat screen pre-scenario, diorama rig only on a real board.
-(`[Rig] Experimental3DMap` is a reserved, unimplemented placeholder for a future 3D
-map view.)
+(**`[Rig] Experimental3DMap` no longer exists, and the sentence that stood here — "a
+reserved, unimplemented placeholder for a future 3D map view" — was false from ModBuild
+158, when the 3D map room shipped behind that very switch, until it was corrected on
+2026-09-08.** The key was renamed and INVERTED at ModBuild 230 on a user ruling: it is
+`[Rig] Vanilla2DMap` now, default `false`, so a fresh install stands IN the map room and
+the flat 2D map is the opt-out. `Plugin.cs`'s doc on `Vanilla2DMap` is the authority and
+cites this line as one of the two documents that inherited the error. Do not describe a
+config row as "RESERVED —": that prefix is one of `ConfigCatalog.RetiredMarkers`, so a
+description rewritten to match the old sentence would have deleted the row from every
+menu page in the mod.)
 
 **Extension points (data, not patches)** — call from your module `Init()`:
 

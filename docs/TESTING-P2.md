@@ -1,5 +1,12 @@
 # Phase 2 — Windows/HMD validation checklist (hands & interaction primitives)
 
+> **Audited 2026-09-08 at ModBuild 483** (base `49ceab21`). Every `[Section] Key`, log
+> marker, type, method and file path named below was grepped against the tree. Config
+> keys: no doc here names a live key that has been removed, and every key described as
+> DELETED really is gone. What an audit of names cannot establish is that each step's
+> expected BEHAVIOUR is still current — where a step was found asserting something the
+> code now forbids, it says so in place.
+
 > Prereq: Phase-1 validation passed (stereo diorama, head tracking — docs/TESTING-P1.md).
 > Deploy as for P1 (`scripts/install.ps1`), Quest 3 over Link / Virtual Desktop / Steam
 > Link, or any OpenXR HMD with Touch-style controllers.
@@ -70,8 +77,10 @@ in `BepInEx/config/dev.gloomhavenvr.hands.cfg`, under `[Hands]`:
 | `<Style>ForwardOffset` | device-space Z, metres, positive = toward the fingertips |
 | `<Style>SpreadOffset` | how far APART the two hands sit (MIRRORED) |
 
-Shipped values are the hardware-measured `DefaultSeat*` tables in
-`src/GloomhavenVR/Hands/HandsConfig.cs` — read them there rather than from this doc.
+The shipped values are in **`src/GloomhavenVR/Defaults/Defaults.Hands.cs`** — read them
+there rather than from this doc. The `DefaultSeat*` tables in
+`src/GloomhavenVR/Hands/HandsConfig.cs:209-218` are what this line used to name, and they
+hold no numbers: every element forwards to a `Defaults.{Glove,Plate,Arcane}*` constant.
 
 1. Wear the style you want to tune, hold the controller like a relaxed pointing hand.
 2. Adjust `<Style>GripPitchDegrees` in 10° steps until the virtual fingers extend

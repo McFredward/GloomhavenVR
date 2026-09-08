@@ -219,6 +219,39 @@ jobs:
       - name: Enum-keyed array sizes
         run: python3 scripts/check-enum-arrays.py
 
+      # THE EIGHT THE RELEASE PATH WAS MISSING. Found by the 2026-09 documentation audit,
+      # which was checking whether docs/CI-CD.md's "the same gates as CI" was true. It was not:
+      # the 2026-09 tooling round wired these into ci.yml and nobody carried them across, so the
+      # RELEASE path — one push, no undo, straight to players — was the WEAKER of the two. What
+      # covered the gap in practice is that a released commit has already been through ci.yml on
+      # dev, which is a property of how the maintainer works and not of this pipeline.
+      # All eight read only src/, docs/ and tracked files under .planning/refactor/: if they can
+      # run on a runner for ci.yml they can run here, which is the argument ci.yml's own comment
+      # block makes for them.
+      - name: Static initialiser order across partial types
+        run: python3 scripts/check-partial-order.py
+
+      - name: Load-bearing writes inside diagnostics
+        run: python3 scripts/check-instrument-writes.py
+
+      - name: Remote constants resolve to the local defaults
+        run: python3 scripts/check-remote-defaults.py
+
+      - name: Board-tuning field ids in range and in order
+        run: python3 scripts/check-tune-fields.py
+
+      - name: Patches on network-action receivers are classified
+        run: python3 scripts/check-desync-surface.py
+
+      - name: HW-VERIFY lines print at the default log level
+        run: python3 scripts/check-hw-verify.py
+
+      - name: Every option is reachable in the menu
+        run: python3 scripts/check-options-coverage.py
+
+      - name: User-facing docs ship in English and German
+        run: python3 scripts/check-docs-i18n.py
+
       # Skipped with a notice on a runner: the tester's cfg drop it compares against
       # lives in gitignored .planning/debug/. See the same step in ci.yml.
       - name: Config defaults rebase

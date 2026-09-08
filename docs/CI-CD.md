@@ -38,9 +38,16 @@ Two things that are often assumed and are worth stating plainly:
   `scripts/check-bundle-format.sh` runs in CI in full — it is not skipped.
 
   It is **not** frozen. It is rebuilt whenever an asset changes, and has been many times
-  (ModBuild 291-296, 324-326, 330, 335-336, 340, 352, 363 among others). `git log --
-  prebuilt/gloomhavenvr.bundle` is the record; do not assume a build is DLL-only without
-  checking it.
+  (ModBuild 291-296, 324-326, 330, 335-336, 340, 352, 363, 368 and 483 among others).
+  `git log --oneline -- prebuilt/gloomhavenvr.bundle` is the record; **do not assume a build
+  is DLL-only without running it.** The list above is a snapshot taken at ModBuild 483
+  (2026-09-08) and will be stale the next time an asset changes; that log will not be.
+
+  The reason this keeps mattering: 368 rebuilt the bundle, then **369 through 482 were all
+  DLL-only** — long enough for "the bundle does not change any more" to become received
+  wisdom — and then **483 rebuilt it** (74,943,671 -> 74,943,763 bytes) and is a FULL
+  INSTALL. A tester handed only the CI artifact for 483 would have run 483's code against
+  482's assets.
 * **Nothing about the pipeline requires a self-hosted runner.** That option was on the
   table and is not needed.
 
@@ -484,7 +491,25 @@ Order of operations, and why it is that order:
    bump-commit *before* building to achieve that; this design gets it for free and
    asserts it (step 1, and again after packaging) rather than assuming it. A release
    stamped `…-dirty` is a bug report waiting to happen.
-3. **The same gates as CI**, plus `fetch-natives.sh`.
+3. **The gates — and this is NOT the same set `ci.yml` runs.** Verified at ModBuild 483
+   (2026-09-08) by diffing the two workflows: `release.yml` runs `check-refasm.py`,
+   `build-runtimedeps.sh`, `fetch-natives.sh` (which `ci.yml` does not), `ci-build.sh`,
+   `check-mirrors.sh`, `check-frame-order.sh`, `patch-inventory.sh check`,
+   `check-wire-coverage.py`, `check-card-identity-mask.py`, `check-mirror-dials.py`,
+   `check-enum-arrays.py`, `rebase-defaults.py` (skipped with a notice, same as CI),
+   `check-bundle-format.sh`, and the wire-test **compile**.
+
+   It does **not** run the eight the 2026-09 tooling review wired into `ci.yml` only:
+   `check-partial-order.py`, `check-instrument-writes.py`, `check-remote-defaults.py`,
+   `check-tune-fields.py`, `check-desync-surface.py`, `check-hw-verify.py`,
+   `check-options-coverage.py`, `check-docs-i18n.py` — nor the `check-surface.py` diff,
+   which is a pull-request-only step and has no base to diff against on a release push.
+
+   **So the release path is the weaker of the two, not the stricter one.** In practice the
+   commit being released has already passed `ci.yml` on `dev`, which is what covers the gap —
+   but the surface diff is skipped even there on a straight push. Until `release.yml` catches
+   up, run `scripts/refactor-guard.sh check` locally before `dev:main`; it is the only place
+   all seventeen run together.
 4. **`package-release.sh`**, then an explicit assertion that
    `dist/GloomhavenVR-<version>.zip` exists under that exact name, that the asset bundle
    is inside it, and that the build did not dirty a tracked file behind our back.

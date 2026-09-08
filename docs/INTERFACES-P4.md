@@ -93,6 +93,13 @@ ComfortSettings.AnyChanged                    // event Action<string /*key*/> �
 — that file is the default of record.** A number inside a `Clamped(...)` / range call
 in `ComfortSettings.cs` is a pre-bind fallback, not a default; do not quote it.
 
+**These numbers move without anyone editing this file.** `scripts/rebase-defaults.py`
+folds the tester's tuned `.cfg` drop back into `Defaults.Rig.cs` — that is how
+`SavedScaleMultiplier` went from 0.83443 to 1.6092 at ModBuild 406, and this table said
+0.83443 until 2026-09-08. Re-read `Defaults.Rig.cs` rather than this column, and if you
+are here to change a default, change it there. Table checked against the tree on
+2026-09-08 at ModBuild 483; every other row agreed.
+
 | Accessor | Type | Default | Meaning |
 |---|---|---|---|
 | `WorldGrabEnabled` | bool | true | Master switch for the **stick-click** world grab (not the grip — the grip is figure-grab since P8) |
@@ -113,7 +120,7 @@ in `ComfortSettings.cs` is a pre-bind fallback, not a default; do not quote it.
 | `LaserCarryReel` | bool | **true** | Wind a laser-held window closer/further with that hand's stick Y (`WorldUI.PanelGrabHandle.TickCarryReel`). On because the user asked for the BEHAVIOUR and named the switch only so it can be turned off |
 | `LaserCarryReelSpeed` | float | 2.0 | Reel speed at full deflection, apparent m/s (0.25–6) |
 | `RecenterHoldSeconds` | float | 1.0 | B+Y both-hands hold time; 0 disables the chord |
-| `SavedScaleMultiplier` | float | **0.83443** | Auto-persisted pinch-scale (written after each two-hand gesture, re-applied on rig build). A one-time migration in `ComfortSettings.Bind` lifts an EXISTING config sitting at exactly 1.0 to 2.5 and marks itself done via `[Comfort] TableScaleDefault25Applied`; a fresh install starts at the default above |
+| `SavedScaleMultiplier` | float | **1.6092** | Auto-persisted pinch-scale (written after each two-hand gesture, re-applied on rig build). A one-time migration in `ComfortSettings.Bind` lifts an EXISTING config sitting at exactly 1.0 to 2.5 and marks itself done via `[Comfort] TableScaleDefault25Applied`; a fresh install starts at the default above |
 | `DebugGizmos` | bool | false | `[Comfort] DebugGizmos` overlay |
 | `KeepPlaceOnReorigin` | bool | true | Compensate a runtime re-origin (typical after an HMD doff/don) so the player stays where they were — `VRRigDriver.TickOriginGuard` |
 

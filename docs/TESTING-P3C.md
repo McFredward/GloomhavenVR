@@ -1,5 +1,12 @@
 # TESTING — Phase 3c (World-space UI), HMD checklist
 
+> **Audited 2026-09-08 at ModBuild 483** (base `49ceab21`). Every `[Section] Key`, log
+> marker, type, method and file path named below was grepped against the tree. Config
+> keys: no doc here names a live key that has been removed, and every key described as
+> DELETED really is gone. What an audit of names cannot establish is that each step's
+> expected BEHAVIOUR is still current — where a step was found asserting something the
+> code now forbids, it says so in place.
+
 > Prereqs: Phases 1–2 pass (`docs/TESTING-P1.md`, `docs/TESTING-P2.md`). Quest 3 (Link,
 > Virtual Desktop or Steam Link) or any OpenXR HMD. Config lives in
 > `BepInEx/config/dev.gloomhavenvr.worldui.cfg` (created on first run; renamed from
@@ -30,8 +37,19 @@
 
 ## 1. Physical button cluster
 
-- [ ] In a scenario, a three-button cluster (Undo | Ready | Skip) sits at the table
-      edge in front of you, tilted like a control panel.
+> **THE TABLE-EDGE CLUSTER IS GONE (retired 2026-08-25).** This section used to open
+> "a three-button cluster (Undo | Ready | Skip) sits at the table edge in front of you,
+> tilted like a control panel". There is no cluster and no `ButtonClusterMount`:
+> `Cards/Tray/PlayTray.1.Core.cs:393` says so in as many words, and
+> `PlayTray.6.Build.cs:474` calls the old owner "the retired cluster". CONFIRM, UNDO and
+> SKIP are **keycaps in the control board's own recesses** now — SKIP is a generic cap in
+> the third recess, seated by `SetConfirmUndoOffset` with its two siblings. The checks
+> below still apply, to those caps; only the location has changed.
+> (`PanelSlot.ButtonCluster` survives as a dummy-panel layout slot for
+> `[WorldUI] DevShowAllPanels` and is not this.)
+
+- [ ] In a scenario, CONFIRM, UNDO and SKIP are keycaps in the control board's recesses,
+      reachable by poke and by laser.
 - [ ] Labels mirror the 2D buttons **including state changes**: end turn ("End Turn"),
       confirm movement, open door, long rest, confirm targets … — walk one full turn
       and compare every label against the 2D button (set `DevForceConvert` off on a
@@ -108,13 +126,20 @@ Boot phases (menu-blackscreen fix, `fix/menu-blackscreen`):
    "GloomhavenVR starting…" label. Log: `Starting indicator shown (pre-menu
    scene, FlatScreen gated).`
 2. **Main menu** (`Gloomhaven_unified` and later menu scenes): the screen engages.
-   Log sequence: `FlatScreen shown (…)`, `FlatScreen: UICamera '<name>' →
-   RenderTexture.`, `FlatScreen quad placed: pos=… shader=… | head '<name>' …`,
-   `Desktop mirror active — FlatScreen RT (WxH) blits to the backbuffer …`,
-   `UICamera '<name>' excluded from XR rendering (stereoTargetEye … → None …)`.
-3. **Scenario**: screen hides, UICamera restored (`FlatScreen hidden — UICamera
-   restored to the backbuffer.` + `UICamera '<name>' restored to vanilla XR
-   behavior`).
+   Log sequence: `FlatScreen shown (backbuffer camera stack → RenderTexture; …)`, one
+   `FlatScreen stack capture: '<cam>' → RenderTexture (depth …)` **per captured camera**,
+   `FlatScreen quad placed: pos=… shader=… | head '<name>' …`,
+   `Desktop mirror active — FlatScreen RT (WxH) blits to the backbuffer …`, and
+   `[Core] Stereo policy: '<cam>' forced to StereoTargetEyeMask.None (…)` per camera plus
+   a `Stereo policy sweep (…)` summary.
+   (**None of the five lines this step used to name still exist.** It quoted a single
+   `FlatScreen: UICamera '<name>' → RenderTexture.` and a `UICamera … excluded from XR
+   rendering` — both predate the change from redirecting ONE camera to capturing the whole
+   backbuffer STACK, and the move of stereo exclusion into `Core/VRCameraPolicy.cs`, which
+   logs under `[Core]`. See `docs/CAMERA-POLICY.md` §1 and §6.)
+3. **Scenario**: screen hides, the captured cameras go back to the backbuffer
+   (`FlatScreen hidden — captured cameras restored to the backbuffer.` +
+   `[Core] Stereo policy released — N camera(s) restored to vanilla stereo behavior.`).
 
 Checklist:
 
@@ -159,7 +184,8 @@ Checklist:
       switches back. The choice persists ([Hands] PrimaryHand) and the card fan /
       wrist HUD side follows in scenarios.
 - [ ] Screen size/distance feel OK (defaults: [WorldUI] ScreenWidth = 2.2 m at
-      ScreenDistance = 1.6 m; both live-tunable).
+      ScreenDistance = **1.7** m — `Defaults/Defaults.WorldUI.cs:273-274`, which is the
+      default of record; both live-tunable).
 - [ ] The void around the screen is pure black (a constant; there is no colour key).
 - [ ] **Text input caveat**: clicking a text field focuses it, but typing requires the
       physical keyboard — expected limitation, document anything worse.
@@ -196,9 +222,15 @@ the §10 triage table and attach the `Camera inventory` lines.
 - [ ] With a gamepad plugged in and used in the menu BEFORE starting VR: once VR is up,
       the log shows `InputModeGuard: switching the game from gamepad to mouse mode`,
       and loading a scenario loads the `Game` scene (log scene name), not
-      `Game_gamepad`.
+      `Game_gamepad`. **This one has been observed to FAIL on a shipped build** —
+      `Board/FigureGrab/FigureClothHands.cs:64-66` records a real ModBuild 286 VR log
+      containing `Added scene: Game_gamepad`, because `SceneController` picks that scene
+      whenever `InputManager.GamePadInUse`. Treat a `Game_gamepad` here as a finding to
+      report, not as a mis-run step.
 - [ ] Pressing gamepad buttons during VR does not flip the UI to gamepad mode
-      (log: `blocked switch to gamepad mode`).
+      (log: `blocked switch to gamepad mode` — **`VRLog.Debug`, so BepInEx's default disk
+      config drops it entirely**. Raise the log level before this step, or judge the step
+      by the UI rather than by the log).
 - [ ] VR off → gamepad mode works again normally.
 
 ## 9. Reversibility / stability
@@ -219,7 +251,7 @@ For any "black desktop / black HMD in the menus" report, grep the BepInEx log fo
 | `Camera inventory after scene '<name>' (N active):` + per-camera lines | Full disposition of every active camera (tag, depth, clear, cullingMask, stereoTargetEye, render target, `[VR head]` marker), logged 2 frames after each scene load while in Menu2D. **Attach these lines to every report.** |
 | `FlatScreen quad placed: … shader='…' … head '…' mask=…` | Quad pose + shader + head camera state at each instant placement. `shader='NULL'` = no usable shader shipped (report immediately). |
 | `Desktop mirror active — FlatScreen RT …` | The end-of-frame RT→backbuffer blit engaged. If the desktop is still black WITH this line present, the RT itself is black (UICamera not rendering into it — check the inventory for `target=GloomhavenVR.FlatScreenRT`). |
-| `UICamera '…' excluded from XR rendering …` / `… restored to vanilla XR behavior` | Hypothesis-B guard (screen-space UI kept out of the HMD / desktop backbuffer kept). |
+| `[Core] Stereo policy: '…' forced to StereoTargetEyeMask.None (…)` / `[Core] Stereo policy released — N camera(s) restored to vanilla stereo behavior.` | Game cameras kept out of the HMD, and the restore on VR-off. Owner is `Core/VRCameraPolicy` — note the `[Core]` prefix, not `[WorldUI]`. (This row used to quote a `UICamera '…' excluded from XR rendering` pair that no longer exists.) |
 | `FlatScreen quad was destroyed externally — rebuilding.` | A scene swap killed the quad; it self-heals. Frequent repeats = report. |
 | `Starting indicator shown (pre-menu scene, FlatScreen gated).` | Intro gate active — FlatScreen deliberately idle during scene 0/`Intro`. |
 | `Menu rig built at vantage of camera '…' (…)` | Menu rig camera + clear-color override. HMD **grey** = camera renders, content missing; HMD **black** = camera not reaching the HMD at all. |

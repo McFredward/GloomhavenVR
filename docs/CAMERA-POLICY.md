@@ -1,5 +1,14 @@
 # Camera & Layer Policy (fix/rig-camera-ownership + fix/menu-freeze-visuals + fix/menu-stack-input)
 
+> **Audited 2026-09-08 at ModBuild 483.** Every type, file path, method, config key,
+> constant and log marker named below was checked against the tree and still exists; the
+> constants quoted (mod-layer sweep every 30 frames, heartbeat every 10 s,
+> `BackplaneGapMeters` 6 cm, `NoUiFallbackSeconds` 3 s, 63 mm IPD fallback, the 64-canvas /
+> 8-per-frame repair budget) match their declarations. What an audit of this kind CANNOT
+> establish is that the *behaviour* described is still what the code does at each of those
+> names — for that, the hardware-test sections in `docs/TESTING-*.md` and the source's own
+> comments are the authority. The newest section here is §7, written at ModBuild 426.
+
 Outcome of hardware tests #3/#4 (Quest 3 + Virtual Desktop, 2026-07). Test #3 fixed
 stereo hijacking, layer masks and rig lifetime. Test #4 proved the remaining
 structural flaw: the rig head-tracked a GAME-owned camera, and the HMD froze with no
@@ -23,7 +32,7 @@ GloomhavenVR.VRRig            (root: DontDestroyOnLoad+hidden; at orbit focus /
   frame), far plane. It is never reparented, retargeted or pose-driven — game
   camera writers, component toggles and VideoPlayer interactions can no longer
   break HMD pose application, whatever the exact trigger.
-- Applies to ALL THREE rig kinds — `RigKind { None, Scenario, Map, Menu }`
+- Applies to ALL THREE rig kinds — `RigKind { None, Scenario, Menu, Map }`
   (`Rig/VRRigDriver.cs`, selection in `UpdateBody`) — one owned stereo camera
   everywhere, game cameras always desktop-only.
 - **Map rig** (`Rig/VRRigDriver.MapRig.cs`): the 3D campaign map. Reached ONLY

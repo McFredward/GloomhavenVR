@@ -1,5 +1,12 @@
 # Full-loop hardware session — M4 / v0.1 validation script
 
+> **Audited 2026-09-08 at ModBuild 483** (base `49ceab21`). Every `[Section] Key`, log
+> marker, type, method and file path named below was grepped against the tree. Config
+> keys: no doc here names a live key that has been removed, and every key described as
+> DELETED really is gone. What an audit of names cannot establish is that each step's
+> expected BEHAVIOUR is still current — where a step was found asserting something the
+> code now forbids, it says so in place.
+
 > The end-to-end pass that gates the v0.1 release: **fresh install → main menu →
 > campaign map → scenario (hero placement) → two full rounds → guildmaster
 > return**. Run it on Quest 3 over at least one runtime (ideally all three: Quest
@@ -10,10 +17,13 @@
 > **What this script covers**, of the twelve modules the plugin registers
 > (`Plugin.RegisterModules`): Core, VREvents, Rig, Hands, Cards, Board, WorldUI,
 > Compat — plus the map room (station 1b). **What it does NOT cover** — run these
-> separately, they have no station here: multiplayer (Net) and spatial voice
-> (Voice), SelfUpdate, MixedReality, WallFade, the mod's environments, and the
-> ControlsLesson controls tutorial. A green run of this script says nothing about
-> any of them.
+> separately, they have no station here: the remaining four registered modules,
+> multiplayer (**Net**), spatial voice (**Voice**), **SelfUpdate** and **DevModule**;
+> and, though they are subsystems rather than modules, MixedReality, WallFade, the mod's
+> environments and the ControlsLesson controls tutorial (`[Compat] WallFade` and
+> `[Compat] ControlsLesson`). A green run of this script says nothing about any of them.
+> (8 covered + 4 uncovered = the twelve; `DevModule` was missing from both lists until
+> 2026-09-08, which is how a census of twelve listed eleven.)
 >
 > Keep `BepInEx/LogOutput.log` after every run — attach it to any issue.
 
@@ -160,8 +170,11 @@ Turn (movement):
 ## 4. Round 2 — attack + AoE (P3a) + rest + modals (P3c)
 
 - [ ] Select an AoE attack; pattern follows the hovered/touched hex; **thumbstick
-      left/right rotates it in 60° steps** with haptic ticks; snap turn does NOT
-      fire while targeting (stick contention rule); confirm the attack.
+      left/right rotates it in 60° steps** with haptic ticks — on the hand `[Comfort]
+      TurnHand` does NOT use. **Snap turn keeps working throughout**: this step used to
+      say it "does NOT fire while targeting (stick contention rule)", and ModBuild 138
+      reversed exactly that (*"Die drehung soll nie blockiert sein!"*). A turn that
+      refuses to fire here is the defect. Confirm the attack.
 - [ ] Element board / initiative track / combat log panels update live around the
       table; actor HP bars float above miniatures and track damage.
 - [ ] Wrist HUD: look at the non-dominant wrist (watch gesture) → HP/XP/gold panel.
@@ -169,7 +182,10 @@ Turn (movement):
       **world-space modal**; the laser stays visible wherever the hand points (the
       old ModalUI cone gate is retired — `[Hands] ModalRayConeDegrees` no longer
       exists) and clamps to the dialog when it crosses it; poke or trigger Yes/No.
-- [ ] Settings via the tray's SET gear (or the non-dominant A/X tap): change
+- [ ] Settings via the non-dominant A/X **tap** — under 0.35 s, which opens the game's
+      own options window where the mod's settings live as a VR row. (This step used to
+      offer "the tray's SET gear" as the alternative; there is no gear cap and no
+      separate mod settings panel — see `TESTING-P3B.md`.) Change
       `[Comfort] SnapTurnDegrees` and `TurnHand` live — the very next stick flick
       obeys them; values persist in `dev.gloomhavenvr.comfort.cfg` after quitting.
       (There is no seated-mode switch and no table-scale slider any more: the

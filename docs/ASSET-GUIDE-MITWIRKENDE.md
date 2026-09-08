@@ -23,7 +23,7 @@ Ein Zip des Ordners `unity/GloomhavenVR.Assets/Assets/Bundle/` mit drei Asset-Fa
 |---|---|---|
 | `Hands/` | 3 Handpaare (Stile: Standard „Glove", Panzer „Plate", Arkan „Arcane"), je L+R | `VRHand[Stil]_{L,R}_rig.fbx` + `VRHand[Stil]_albedo.png` + `VRHand[Stil]_normal.png` (Plate zusätzlich `VRHandPlate_mrs.png`) |
 | `Head/` | 3 Kopfmasken (Avatar-Köpfe im Multiplayer) | `Mask_{0,1,2}.fbx` + `Mask_{0,1,2}_albedo.png` |
-| `Table/` | Kontrollbretter (3 Stile: Oak, Steel, Bronze) | `PlayTray*.fbx` + `PlayTray*_{albedo,normal,mrs}.png` |
+| `Table/` | Kontrollbretter (3 Stile: Oak, Steel, Bronze) | siehe die Namenstabelle in §4 — die Dateinamen verraten den Stil **nicht** |
 
 Der Ordner `Bundle/` enthält noch weitere Unterordner (`Controllers/`, `Environments/`, `UI/`,
 `Test/`). Die sind **nicht** Teil des Auftrags — `Controllers/` sind fremdlizenzierte
@@ -58,7 +58,9 @@ sehen kannst — **bitte nicht bearbeiten**, die regeneriert unsere Pipeline.
 - **Fingerachsen — das ganze Knochen-Frame ist der Vertrag, nicht nur der Roll:** Die
   Fingerkrümmung rotiert um die lokale **+X-Achse** jedes Fingerknochens
   (`FingerCurler` schreibt `Quaternion.Euler(maxWinkel * curl, 0, 0)` auf die
-  authored local rotation). Damit das stimmt, muss pro Fingerknochen gelten:
+  authored local rotation; einzige Ausnahme ist der **Wurzelknochen des kleinen Fingers**,
+  der zusätzlich ein curl-gekoppeltes lokales Z bekommt — die Gegen-Abduktion des
+  Handschuhs. Die X-Achse ist davon unberührt.) Damit das stimmt, muss pro Fingerknochen gelten:
   **lokal +X = Scharnierachse, lokal +Y = Fingerrichtung.** Ein Blender-Bone-*Roll*
   allein reicht dafür nicht — Roll dreht die Beugeachse nur innerhalb der Ebene
   senkrecht zum Knochen. `unity/hand-prep/aim_curl_axes.py` richtet die Frames
@@ -77,6 +79,19 @@ sehen kannst — **bitte nicht bearbeiten**, die regeneriert unsere Pipeline.
   Augen-Mittelpunkt, keine Collider, unlit-tauglich (Albedo trägt alles).
 
 ### Kontrollbretter (`Table/`)
+- **Welche Datei welcher Stil ist, steht nirgends im Dateinamen.** Zwei der drei tragen
+  einen Hash, und das FBX des Standard-Bretts heißt anders als seine Texturen. Die
+  Zuordnung ist ein Vertrag (`unity/…/Editor/BuildBoard.cs`, `Cards/VRCardFactory.cs`):
+
+  | Stil im Menü | FBX | Texturen / Material / Prefab |
+  |---|---|---|
+  | **Oak** (Eiche, Standard) | `PlayTray_prepped.fbx` | `PlayTray_{albedo,normal,mrs}.png`, `PlayTray.mat`, `PlayTray.prefab` |
+  | **Steel** (Stahl) | `PlayTray_9capjqp6.fbx` | `PlayTray_9capjqp6_{albedo,normal,mrs}.png` … |
+  | **Bronze** | `PlayTray_16vm268h.fbx` | `PlayTray_16vm268h_{albedo,normal,mrs}.png` … |
+
+  Die Hashes sind **Namen und damit Verträge** — nicht „aufräumen“ und nicht nach dem
+  Stil umbenennen. Die `Keycap{Oak,Steel,Bronze,Grain}_*.png` daneben sind die Tastenkappen,
+  eine eigene Familie, und folgen nicht dieser Aufteilung.
 - Anker-/Kind-Objekte im FBX (Slots, Knöpfe usw.) sind Positionsverträge — Namen und
   Pivots erhalten. Geometrie/Textur frei verbesserbar.
 - Texturen: `_albedo` + `_normal` + `_mrs` (Metallic/Roughness/Smoothness-Packung; liegt

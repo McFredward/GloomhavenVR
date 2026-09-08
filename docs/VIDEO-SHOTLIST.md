@@ -1,24 +1,23 @@
 # Video shot list — the clips that still have to be recorded
 
 **This is the only list.** Everything the docs are waiting for is one row below, with the filename
-it has to be saved as and the spot that is already prepared for it. Record one, drop it in, delete
-two comment markers — nothing else in the repo has to be hunted through.
+it has to be saved as and the section it belongs in.
 
-Every prepared spot **announces itself on the rendered page** — a bordered box saying which clip is
-missing, what it has to show, and exactly what to replace to fill it. That is a deliberate change
-from 2026-09-07: the spots used to be HTML comments, which render as nothing at all, and the person
-who has to shoot the clips reported the obvious consequence — *"die sehe ich in der README nicht"*.
-An invisible reminder is not a reminder. The finished markup still sits in a comment directly under
-each box, so nothing is broken while a clip is missing; the box above it is what you can see.
-
-Find them all with
-
-```
-grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING.de.md
-```
-
-— **three per language, six in all, and every one of them is in the playing guide.** The README has
-held no placeholder since 2026-09-07. Each box repeats in place what that clip has to show.
+> **THERE ARE NO PLACEHOLDER BOXES IN THE TREE (checked 2026-09-08 at ModBuild 483).** This page
+> used to describe a bordered "VIDEO PLACEHOLDER" box rendered at each waiting spot, and told you to
+> find them with
+> `grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING.de.md` —
+> "three per language, six in all". That grep returns **nothing**: not one marker survives, and
+> `docs/PLAYING.md` and `docs/PLAYING.de.md` carry **zero `<video>` tags** between them. The four
+> rows in *What still has to be recorded* therefore have **no prepared spot** — their "Prepared
+> spot" column names where a clip WOULD go, not something that exists. Whoever fills one writes the
+> markup from scratch, from the block under *Every spot takes the same markup* below.
+>
+> The 2026-09-07 reasoning for making an empty spot visible on the page still stands
+> (*"die sehe ich in der README nicht"* — an invisible reminder is not a reminder). If you re-add
+> boxes, re-add the grep token with them and correct this paragraph; if you decide the guide reads
+> better without them, delete the *Prepared spot* column instead of leaving it describing a
+> mechanism the tree does not have.
 
 ## The ornament — TWO assets, and which one goes where
 
@@ -61,9 +60,12 @@ won on the measurement above.
 
 | Document | Ornaments | Why |
 |---|---:|---|
-| `README*.md` | 9 — every break, and above every section heading; **1 rule + 8 marks** | the pitch. It should read as chapters, not as a list. Roughly one per screenful on a page carrying six clips |
+Counted in the tree on 2026-09-08; both language twins of each document agree, which is the
+property that matters most here.
+
+| `README*.md` | 8 — **1 rule + 7 marks** | the pitch. It should read as chapters, not as a list. Roughly one per screenful on a page carrying six clips |
 | `docs/PLAYING*.md` | 7 — at its existing rules only, never above headings; **1 rule + 6 marks** | the manual is SCANNED; an ornament before every heading would slow the scan |
-| `INSTALL*.md` | 1 — under the nav, as the page's identity; **the rule, no marks** | a task page. Its ten rules separate NUMBERED steps that already carry their own rhythm, and an ornament between step 2 and step 3 would compete with the numbers. Mixed styles inside one document read as accidental, so the steps keep plain rules and the ornament appears once |
+| `INSTALL*.md` | 10 — **1 rule + 9 marks** | a task page whose breaks separate NUMBERED steps. **This row used to say "1 — the rule, no marks", and argued that the steps must keep plain rules so the ornament could not compete with the numbers.** The tree does not do that and has not for some time: every break on the page is a mark. Nobody has recorded which way was decided, so treat neither the old prose nor the current markup as a ruling — if the numbers really do read better without ornaments, change the page and this row together |
 
 ## How big — THREE WIDTHS, AND NOTHING ELSE
 
@@ -113,10 +115,11 @@ instead of the clip. That keeps the reader routed without paying for the same vi
 uploaded; when it was, the GIF went. If a moving image is ever needed again before an upload, the
 encoding is recorded in `img/README.md` — but the upload is the answer.
 
-**The two environment stills are the one duplication left standing**, and deliberately: `env-cellar`
-and `env-forest` are in both the README and the guide, because the guide's *The room you play in*
-would otherwise be a heading with nothing under it until `environments.mp4` lands. When that clip
-arrives, drop the stills from the guide.
+**The two environment stills are no longer duplicated** — this paragraph used to say they were the
+one duplication left standing, in both the README and the guide. At 2026-09-08 `env-cellar.jpg` and
+`env-forest.jpg` appear only in `docs/PLAYING*.md`, under the heading **`## Environments`** (which
+is what that section is called; several rows below still name it *The room you play in*). They are
+holding the section open until `environments.mp4` lands; drop them when it does.
 
 ## What still has to be recorded
 
@@ -140,16 +143,18 @@ Virtual Desktop overlay — the Quest status bar and the app tiles — at the he
 The cut points are the frames where it clears, verified frame by frame, and the audio track is
 removed outright rather than muted.
 
-**The four rows left below are all in `docs/PLAYING*.md`.** Nothing in the README is waiting on
+**The four rows left below all belong in `docs/PLAYING*.md`.** Nothing in the README is waiting on
 anything: the figure lift was the last thing it needed and it landed the same evening, as an
-attachment clip directly under the overview.
+attachment clip directly under the overview. Confirmed 2026-09-08 — the README carries six
+`<video>` tags and no placeholder, and the playing guide carries none of either, so the *Prepared
+spot* column below is a destination rather than a slot (see the note at the top of this page).
 
 | # | File | ~Length | Prepared spot | What it shows | What the viewer knows afterwards |
 |---|---|---:|---|---|---|
-| 3 | `tutorial.mp4` | 12 s | `docs/PLAYING*.md` ▸ *The controls*, under "You do not have to learn this" | Your hands turning into the controller you are actually holding, and one key after another lighting up as each control becomes useful. | The fourteen bindings on the controls picture are **taught, not memorised**. |
-| 4 | `windows.mp4` | 12 s | `docs/PLAYING*.md` ▸ *Windows* (left of the pair) | A game window grabbed by its bar, moved, resized, reeled closer and further with the stick while the laser holds it, then closed with its X. | The game's windows are **furniture you place once**, not a UI that reappears where it likes. |
-| 5 | `grab-rod.mp4` | 8-10 s | `docs/PLAYING*.md` ▸ *Windows* (right of the pair) | The control board taken by the rod under it and carried to a new place — once with the hand, once with the laser from across the table. | **Everything in the room hangs from a rod**, and the same grab moves all of it. |
-| 6 | `environments.mp4` | 15 s | `docs/PLAYING*.md` ▸ *The room you play in*, under the two stills | Firelight and drips in the cellar, moonbeams and moving foliage in the forest, an element infusion fading the room over, and the environment switched in the settings. | The rooms are **alive and react to the scenario** — which the three stills cannot show at all. |
+| 3 | `tutorial.mp4` | 12 s | `docs/PLAYING*.md` ▸ `## The controls`, under "You do not have to learn this" | Your hands turning into the controller you are actually holding, and one key after another lighting up as each control becomes useful. | The fourteen bindings on the controls picture are **taught, not memorised**. |
+| 4 | `windows.mp4` | 12 s | `docs/PLAYING*.md` ▸ `## Windows` (left of the pair, once one exists) | A game window grabbed by its bar, moved, resized, reeled closer and further with the stick while the laser holds it, then closed with its X. | The game's windows are **furniture you place once**, not a UI that reappears where it likes. |
+| 5 | `grab-rod.mp4` | 8-10 s | `docs/PLAYING*.md` ▸ `## Windows` (right of the pair, once one exists) | The control board taken by the rod under it and carried to a new place — once with the hand, once with the laser from across the table. | **Everything in the room hangs from a rod**, and the same grab moves all of it. |
+| 6 | `environments.mp4` | 15 s | `docs/PLAYING*.md` ▸ `## Environments`, under the two stills | Firelight and drips in the cellar, moonbeams and moving foliage in the forest, an element infusion fading the room over, and the environment switched in the settings. | The rooms are **alive and react to the scenario** — which the three stills cannot show at all. |
 
 Clips 4 and 5 are one pair under one heading, on the same principle as the two README clusters: one
 idea (*it hangs from a rod, you take hold of it*), shown twice.

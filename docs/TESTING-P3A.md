@@ -1,5 +1,12 @@
 # Phase 3a — Windows/HMD validation checklist (board touch targeting)
 
+> **Audited 2026-09-08 at ModBuild 483** (base `49ceab21`). Every `[Section] Key`, log
+> marker, type, method and file path named below was grepped against the tree. Config
+> keys: no doc here names a live key that has been removed, and every key described as
+> DELETED really is gone. What an audit of names cannot establish is that each step's
+> expected BEHAVIOUR is still current — where a step was found asserting something the
+> code now forbids, it says so in place.
+
 > Prereq: Phase-2 validation passed (hands articulated, poke clicks Ready, ray hovers
 > a hex — docs/TESTING-P2.md). Deploy as for P1/P2 (`scripts/install.ps1`).
 >
@@ -93,9 +100,15 @@ restores the mouse. (In real VR the game camera is rig-driven, so this is moot.)
 ### AoE placement & rotation
 
 - [ ] Select a ranged AoE ability: pattern preview follows the hover as with the
-      mouse. Flick the primary thumbstick right = pattern rotates 60° clockwise,
+      mouse. Flick the **non-turn** thumbstick right = pattern rotates 60° clockwise,
       left = counter-clockwise; one haptic tick per step; holding the stick repeats
-      (~3 steps/s).
+      (~3 steps/s, floored at 0.3 s between steps).
+      **NOT the primary hand any more.** AoE rotation moved to the hand `[Comfort]
+      TurnHand` does NOT use (`Board/AoeControl.ResolveRotationHand`), so at the
+      shipped defaults (`PrimaryHand` Right, `TurnHand` Right) it is the **LEFT**
+      stick. The two used to share one physical axis and the project answered that by
+      suppressing turning; ModBuild 138 forbade suppressing turning at all
+      (*"Die drehung soll nie blockiert sein!"*), so the axis is split instead.
 - [ ] Melee/adjacent AoE (range ≤ 1): the pattern facing follows the hovered hex
       (the game's own mouse-facing logic riding our pick) — the stick intentionally
       does nothing.

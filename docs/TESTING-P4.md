@@ -1,5 +1,12 @@
 # Phase 4 — Comfort & table manipulation: hardware test checklist
 
+> **Audited 2026-09-08 at ModBuild 483** (base `49ceab21`). Every `[Section] Key`, log
+> marker, type, method and file path named below was grepped against the tree. Config
+> keys: no doc here names a live key that has been removed, and every key described as
+> DELETED really is gone. What an audit of names cannot establish is that each step's
+> expected BEHAVIOUR is still current — where a step was found asserting something the
+> code now forbids, it says so in place.
+
 > Prereqs: P1/P2 checklists pass (stereo rig + tracked hands in a scenario).
 > Config: `BepInEx/config/dev.gloomhavenvr.comfort.cfg` (created on first run).
 > Turn on `[Comfort] DebugGizmos = true` for all of this — it shows grab state,
@@ -11,8 +18,11 @@
       `rig DEV-PROXY`, both hands `free`.
 - [ ] Hold **G**: gizmos flips to `TWO-HAND (rotate/scale)`, both hands `WORLD`;
       the proxy yaw/scale numbers drift with the hand sway animation.
-- [ ] Release **G**: back to `idle`; `savedScaleMult` updated and written to
-      `dev.gloomhavenvr.comfort.cfg`.
+- [ ] Release **G**: back to `idle`; the gizmo's scale reading
+      `scale <s> (x<mult> of base <base>)` settles, and the multiplier is written to
+      `dev.gloomhavenvr.comfort.cfg` as `[Comfort] SavedScaleMultiplier`.
+      (This step used to name an on-screen token `savedScaleMult`; the overlay has never
+      printed that string — `Rig/ComfortGizmos.cs:50-52` is the format above.)
 - [ ] **F11** (desktop dev mode only — `[Dev] Enabled` and VR NOT running) logs
       `Dev recenter requested (F11).` and requests a recenter (no rig — safe no-op).
 - [ ] F6 hot reload (ScriptEngine): no errors, comfort stack reinstalls, config
@@ -59,10 +69,21 @@
       does not translate; `ClickPulse` haptic on the turn hand.
 - [ ] Hold the stick: exactly ONE step; re-arm only after the stick re-centers.
 - [ ] `SnapTurnDegrees = 30`, `TurnHand = Left`, `TurnMode = Smooth/Off`: each behaves.
-- [ ] **AoE non-contention:** start an AoE-targeting action (mode gizmo shows
-      `BoardTargeting`): stick rotates the AoE pattern (P3a), NO snap turn fires
-      (gizmos: `SUPPRESSED: BoardTargeting owns the stick`). Leave targeting with the
-      stick still deflected: no stale turn fires on exit.
+- [ ] **AoE non-contention — INVERTED since ModBuild 138, and this step used to assert
+      the opposite.** It read "stick rotates the AoE pattern (P3a), NO snap turn fires
+      (gizmos: `SUPPRESSED: BoardTargeting owns the stick`)". Board state may no longer
+      suppress turning at all (*"Die drehung soll nie blockiert sein!"*), and the two
+      controls no longer share a stick: AoE rotation moved to the hand `[Comfort] TurnHand`
+      does not use. That gizmo string does not exist; `Rig/ComfortGizmos.cs:66-70` names
+      this doc's old expectation as "the next round's bug report".
+
+      What to check now: start an AoE-targeting action (mode gizmo shows
+      `BoardTargeting`). The **turn stick still turns** — that is the requirement — and the
+      gizmo reads `(targeting up, nothing claims the turn stick — turning stays mine)`.
+      The **other** hand's stick rotates the pattern. A reading of
+      `(SUPPRESSED: a live AoE pattern claims the TURN stick — not expected, the hands
+      should be split)` is a real defect: report it. Leave targeting with either stick
+      still deflected: no stale turn fires on exit.
 - [ ] While the turn hand is world-grabbing: stick does nothing.
 
 ## 4. Recenter & height

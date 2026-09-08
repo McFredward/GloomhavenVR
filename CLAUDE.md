@@ -77,10 +77,14 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
 ## The gates — run all of them before you push
 
 ```bash
-bash scripts/refactor-guard.sh check --summary   # 17 checkers + the compiled-form diff
-EXPECT_WARNINGS=0 bash scripts/ci-build.sh       # 0 errors, 0 warnings (TreatWarningsAsErrors)
+bash scripts/refactor-guard.sh check --summary   # 17 checkers, then the compiled-form diff
+bash scripts/ci-build.sh Release                 # 0 errors, 0 warnings (TreatWarningsAsErrors)
 python3 scripts/check-docs-i18n.py               # EN/DE docs agree
 ```
+
+`EXPECT_WARNINGS=0` is assigned INSIDE `ci-build.sh` and is not read from the environment, so the
+`EXPECT_WARNINGS=0 …` prefix you will find in older commit messages and docs does nothing. It is
+harmless, but it is not what makes the gate strict — the assignment in the script is.
 
 The guard's **exit code is 1 whenever the compiled form differs at all**, which is normal after
 any change — read the printed verdict, not the status. Its baseline is per-worktree and
@@ -94,9 +98,12 @@ A number that has moved is not automatically wrong — but it must be explained 
 two wire vectors from being reached; the suite stayed green while the assertion count fell by two,
 and only the count caught it. Print counts in commit messages.
 
-**CI runs nine of the gates.** The wire vectors cannot run on a hosted runner (they need the
-game's real `UnityEngine.CoreModule.dll` for `Mathf`'s banker's rounding). Run the full set
-locally before a release.
+**CI and the release workflow now run the same thirteen checkers**, plus one PR-only step: the
+surface diff against the pull request's base, which needs a base commit and therefore cannot run
+on a release. Until 2026-09-08 the RELEASE path ran eight fewer than CI — the path with no undo
+was the weaker one. **The wire vectors cannot run on a hosted runner at all** (they need the
+game's real `UnityEngine.CoreModule.dll` for `Mathf`'s banker's rounding), so run the full local
+set before pushing to `main`.
 
 **Bundles are built ONLY with `/home/claw/unity-2021.3.5`**, never `unity-2021.3`. The wrong
 editor produces a bundle that loads nothing and fails silently into the procedural fallback;

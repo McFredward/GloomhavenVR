@@ -27,7 +27,8 @@ Three more that the picture cannot show:
 - Resizing a figure you are holding: keep it in one hand, pull the **other hand's trigger**, then
   move your hands apart or together.
 - 45° snap turning instead of smooth turning: **Comfort ▸ Turning**.
-- Rise and sink on the right stick. It is off by default; switch it on under **Comfort**.
+- Rise and sink on the turning stick. It is off by default; switch it on under
+  **Comfort ▸ Locomotion**.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">
@@ -105,7 +106,7 @@ moonlight and quiet spatial audio.
 There are also rare apparitions hidden in them: a face at the barred window, someone standing in the
 dark of the stair shaft, eyes blinking in the undergrowth. They never appear over the board and
 never two at once, and everyone in a session sees the same one at the same moment. You can turn them
-down or off under **World ▸ Creepy**, and that setting is yours alone.
+down or off under **World & sound ▸ Creepy**, and that setting is yours alone.
 
 <p align="center">
   <img src="img/divider-small.png" width="340" alt="">

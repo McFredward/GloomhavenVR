@@ -1,5 +1,12 @@
 # TESTING-P3B — Physical card hand (feat/cards) HMD checklist
 
+> **Audited 2026-09-08 at ModBuild 483** (base `49ceab21`). Every `[Section] Key`, log
+> marker, type, method and file path named below was grepped against the tree. Config
+> keys: no doc here names a live key that has been removed, and every key described as
+> DELETED really is gone. What an audit of names cannot establish is that each step's
+> expected BEHAVIOUR is still current — where a step was found asserting something the
+> code now forbids, it says so in place.
+
 > Prereqs: P1 rig + P2 hands validated (`TESTING-P1.md`, `TESTING-P2.md`).
 > Config: `BepInEx/config/dev.gloomhavenvr.cfg` (`[General] Enabled = true`) and
 > `BepInEx/config/dev.gloomhavenvr.cards.cfg` (`[Cards]` — created on first run).
@@ -101,8 +108,11 @@
 
 - [ ] Entering card selection places the CONTROL BOARD in front of you at chest
       height, tilted toward you like a card-table edge / lectern
-      (`[Cards] TrayTilt` = 30° from horizontal; `TrayForward/TrayDown/TrayRight`
-      adjust). It reads as a desk, NOT a floating vertical panel.
+      (`[Cards] BoardTilt_<board>` = 30° from horizontal for Oak;
+      `TrayForward/TrayDown/TrayRight` adjust). It reads as a desk, NOT a floating
+      vertical panel. **Do not tune `[Cards] TrayTilt`** — it is still bound so old cfg
+      files load, but its own description says "LEGACY — no effect … Nothing reads this
+      value"; the per-board key replaced it in the pose math.
 - [ ] Board layout is self-explanatory: REST zone (left, labeled, two captioned
       tokens) | two large framed card slots, left one captioned INITIATIVE with a
       gold number badge above it | CONFIRM + UNDO buttons (right).
@@ -177,9 +187,12 @@
 Layout — the tray is now the central dashboard, visible for the WHOLE scenario
 (not only during card selection): TOP edge = the game's REAL initiative track
 (converted canvas); LEFT = converted objectives panel + rest zone; CENTER = the
-two card slots + initiative badge; RIGHT = CONFIRM / UNDO / SET (settings gear);
-bottom-right frame corner = the PIN follow-toggle; bottom edge = the brass grab
-handle. The element board stays a separate world panel.
+two card slots + initiative badge; RIGHT = CONFIRM / UNDO; bottom-right frame corner =
+the PIN follow-toggle; bottom edge = the brass grab handle. The element board stays a
+separate world panel. (**There is no SET gear.** This line listed one until 2026-09-08;
+`CapRole` — `Cards/Caps/CapCellMath.cs` — has no gear or settings member, and
+`PlayTray.CreateDashboardButtons` builds only the follow/pin toggle. The mod's settings
+live in the game's own options window; see the A/X tap below.)
 
 - [ ] **Real initiative track on the tray**: portraits (not text chips) sit right
       above the tray's top edge, sized to the tray width. The old free-floating
@@ -212,10 +225,19 @@ handle. The element board stays a separate world panel.
       - Toggle back to FOLLOW → it re-anchors at the configured rig offsets.
 - [ ] **Tray grab during dialogs (ModalUI)**: open any dialog (short-rest
       confirm, story box). Gripping the handle still moves/resizes the tray;
-      the PIN/SET/CONFIRM/UNDO pokes still respond. Cards do NOT react to grabs
+      the PIN/CONFIRM/UNDO pokes still respond (there is no SET cap). Cards do NOT react to grabs
       (fan closed, slotted cards refuse the pluck) until the dialog closes.
-- [ ] SET (gear) on the tray toggles the same in-VR settings panel as the
-      table-edge gear / short A-X chord.
+- [ ] **REPLACED.** This step read "SET (gear) on the tray toggles the same in-VR
+      settings panel as the table-edge gear / short A-X chord", and all three things it
+      names are gone: there is no SET cap, no table-edge gear (that cluster was retired —
+      see `TESTING-P3C.md` §1) and **no separate in-VR settings panel at all**
+      (`grep -rn "class SettingsPanel" src/` is empty; `WorldUI/Grab/NonDominantHold.cs`
+      says "the mod's settings panel and its configurable short-hold are gone").
+      Check instead: a SHORT tap of the non-dominant A/X (under 0.35 s) opens the game's
+      own pause/Options window, where the mod's settings are a VR row —
+      log `OPTIONS TAP: <menu> OPENED (X tap)`. A LONG hold of the same button is a
+      different action (`[WorldUI] ManualScreenChordSeconds`, default 2 s), and while a
+      modal floats the hold closes THAT first.
 - [ ] Hot reload (F6) mid-scenario: dashboard rebuilds, track/objectives re-dock,
       pinned pose stays pinned (world), converted panels release/re-convert
       cleanly (2D intact after VR off).
@@ -252,7 +274,8 @@ handle. The element board stays a separate world panel.
 
 - [ ] Reticle keeps a CONSTANT apparent size while zooming the diorama in/out (it
       used to balloon when zoomed out); same for the beam thickness.
-- [ ] Open the settings panel (physical SET button): the dominant laser clamps to the
+- [ ] Open the game's options window (short non-dominant A/X tap — the "physical SET
+      button" this step used to name does not exist): the dominant laser clamps to the
       panel, hovering widgets highlights them, TRIGGER clicks them — no more
       pass-through. Same for converted world dialogs.
 - [ ] **Dot everywhere (test #13 fix)**: on a FLOATED modal dialog (story box —
@@ -261,7 +284,9 @@ handle. The element board stays a separate world panel.
       half (the ModalUI visuals cone used to hide them past ~25° off the panel
       center while clicks kept landing). The log prints one
       `Ray-uGUI canvas …: world rect …` line per registered canvas for
-      verification.
+      verification — **at the `VRLog.Debug` tier, which BepInEx's default disk config
+      drops entirely** (test #19 saw zero such lines while laser clicks worked). Raise
+      the log level before relying on this, or judge the step by the clicks.
 - [ ] While the beam is clamped to a panel or fan card, the trigger must NOT also
       fire a board click behind it (nearest UI wins).
 - [ ] A fan card or miniature physically in front of a panel blocks the panel hover
@@ -368,9 +393,11 @@ Needs a second player. `[Net] RemoteBoards` is a purely LOCAL display choice —
 
 - Confirmations (short-rest yes/no, burn/redraw, lose-card) are the game's 2D
   dialogs — world-space versions are P3c.
-- CONFIRM and UNDO are physical on the board now; SKIP and the in-turn item/bonus
-  bars remain 2D (the board is a persistent dashboard since test #15; slots are
-  interactive only during card selection — see CONTROLBOARD.md §5-§8).
+- CONFIRM, UNDO **and SKIP** are physical on the board now — SKIP is a generic keycap
+  in the board's third recess (`CapRole.Skip`, `PlayTray.6.Build.cs`), inheriting the
+  accent colour the retired 2D cluster used. Only the in-turn item/bonus bars remain 2D.
+  (The board is a persistent dashboard since test #15; slots are interactive only during
+  card selection — see CONTROLBOARD.md §5-§8.)
 - Extra-turn card selection and multi-hand (multi-merc tab) flows fall back to the
   active hand only; switching mercs mid-selection uses the 2D tabs for now.
 - Text sizes/poses of badge, captions, buttons and tokens are first-pass values —

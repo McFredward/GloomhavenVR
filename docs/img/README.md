@@ -93,8 +93,11 @@ nothing, and there were TWO independent reasons, either of which alone is fatal:
 
 1. **The URL named `main`.** The clips are committed on `dev`; `main` is the release branch and did
    not have them. The tag pointed at a 404.
-2. **The repository is private**, so a `raw` URL needs authentication and a `<video>` element has no
-   way to ask for it. It renders empty even when the path is right.
+2. **The repository was private at the time**, so a `raw` URL needed authentication and a
+   `<video>` element has no way to ask for it: it rendered empty even when the path was right.
+   The repository is public now, so this second reason has expired — but reason 1 and reason 3
+   have not, and reason 1 alone is fatal. Do not read "it was only because we were private" as
+   permission to try a `raw` URL again.
 
 And a third that is not GitHub's fault: `<video>` is only conditionally allowed through GitHub's
 HTML sanitiser, so a tag that works today is not a thing to build a pitch on.
@@ -138,30 +141,33 @@ Notes that matter here:
 - **Limits are fine for us**: 10 MB through the web editor, 25 MB through a comment box. Our clips
   are 1.2 MB and 1.3 MB.
 - **MP4/H.264, MOV and WebM** are the accepted formats. Ours is already MP4/H.264.
-- **While this repository is PRIVATE**, an attachment URL still needs the reader to be signed in
-  and permitted — so it will play for the maintainer and be blank for a stranger, and it starts
-  working for everyone the day the repository goes public.
-- The file then lives OUTSIDE the repository. Keep the committed `docs/img/*.mp4` as the durable
-  copy: it is the thing a clone carries, and the attachment can be regenerated from it.
+- **The repository is PUBLIC now**, so attachment URLs play for everyone. This bullet used to warn
+  that a stranger would see a blank player until the repository went public; that day has come and
+  the warning is spent.
+- The file then lives OUTSIDE the repository, and **that is now the only copy** — see *The clips
+  that exist — NONE* below. This bullet used to say "keep the committed `docs/img/*.mp4` as the
+  durable copy"; there are no committed mp4s any more and adding one back is the thing the
+  2026-09-07 ruling forbids.
 
 **THIS IS NOW DONE.** The user uploaded both clips through a comment box and handed back the two
 `user-attachments` URLs.
 
-**They are now `<video>` tags in a two-column table**, not bare URLs on their own lines, because
-the page was too long and the user asked for them side by side ("skalier die Videos dass sie etwas
-kleiner sind oder nebeneinander"). THIS IS THE ONE THING ON THE PAGE THAT IS NOT GUARANTEED: a bare
-attachment URL on its own line is turned into a player by GitHub's own Markdown pipeline and always
-works, whereas `<video>` goes through the HTML sanitiser, which allows it but has never promised
-to. If the two clips ever render as nothing, that is the cause and the fix is to put the two URLs
-back on their own lines and accept the height. The poster JPGs and the
-`docs/img/*.mp4` files stay committed: the mp4 is the durable copy a clone carries and the one
-an attachment can be regenerated from, and the posters are the fallback if the attachment CDN
-is ever not an option.
+**Clips are `<video>` tags, not bare URLs on their own lines**, because the page was too long and
+the user asked for them side by side ("skalier die Videos dass sie etwas kleiner sind oder
+nebeneinander"). THIS IS THE ONE THING ON THE PAGE THAT IS NOT GUARANTEED: a bare attachment URL on
+its own line is turned into a player by GitHub's own Markdown pipeline and always works, whereas
+`<video>` goes through the HTML sanitiser, which allows it but has never promised to. If a clip
+ever renders as nothing, that is the cause and the fix is to put the URL back on its own line and
+accept the height.
 
-**Which URL is which was taken on the user's word**, in the order he sent them (card-fan first,
-figure-grab second). It cannot be checked from here — an attachment URL on a private repo 404s
-without a session — so if the two clips ever appear under the wrong headings, that is the
-reason and swapping the two lines is the fix.
+(The two sentences that stood here about `card-fan` and `figure-grab` being served from committed
+mp4s and posters were retired with the files: neither clip, neither poster and no `docs/img/*.mp4`
+exists. The README carries six attachment clips today.)
+
+**Which URL is which is taken on the maintainer's word**, in the order he sends them. It used to be
+impossible to check from here because an attachment URL on a private repo 404s without a session —
+**the repository is public now, so it CAN be checked**: open the `user-attachments` URL and look.
+Do that before assuming a mis-ordered pair, and swap the two `src` attributes if it really is one.
 
 ## The clips that exist — NONE
 
@@ -181,10 +187,6 @@ had existed for one reason — a GIF at a repo path DOES render inline, so it wa
 the figure lift without an upload. He uploaded the footage instead, so the reason is gone and 4.7 MB
 went with it. `promo.gif` at the top of the README is now the last moving image in the repository,
 and it is a title card rather than a clip.
-
-WHAT IS LEFT HERE is stills — the controls picture, the board diagram, the environment and style
-shots — plus `env-default-surround.png`, which is not documentation at all but a build input for the
-environment picker's Default tile.
 
 WHAT IS LEFT IN THIS DIRECTORY is stills — the controls picture, the board diagram, the environment
 and style shots — plus `env-default-surround.png`, which is not documentation at all but a build
@@ -216,9 +218,10 @@ Where these files stand now: **all five are deleted**, and so is the GIF derived
 footage was uploaded.
 
 **Which attachment URL is which was taken on the maintainer's word**, in the order he sent them
-(`control-board` first, `physical-interaction` second). It cannot be checked from here — an
-attachment URL on a private repo 404s without a session — so if a clip appears under the wrong
-heading, that is the reason and swapping the two `src` attributes is the fix.
+(`control-board` first, `physical-interaction` second). That was unverifiable while the repository
+was private — an attachment URL 404s without a session — but **the repository is public now and the
+URLs open for anyone**, so a clip suspected of sitting under the wrong heading should be OPENED
+rather than reasoned about. Swapping the two `src` attributes is still the fix if it is one.
 
 ## Encoding a new clip
 

@@ -18,9 +18,20 @@ thrown anywhere under that dispatch — **including out of one of our patch bodi
 not logged as a mod bug. It is shown to the player as the *game's* "Desynchronization
 occurred" dialog, and the session is shut down with a single Main Menu button.
 
-The mod patches the five heaviest receivers in the game's dispatch table: `Choreographer`
-(27 of ~121 actions), `CardsHandManager` (13), `NewPartyDisplayUI` (10), `UIReadyToggle`
-(8), `TakeDamagePanel` (3). Full analysis, with the evidence:
+`check-desync-surface.py` knows **37** such receiver types, weighted by how many of the
+~121 dispatch entries reach each one. The mod patches **seven** of them, and the table
+below carries **17** patch classes (3 CANNOT-THROW, 4 GUARDED-DEEPER, 6 ISOLATED,
+4 SELF-GUARDED) — the gate prints those figures every run, so read them from it rather
+than from here.
+
+The seven, with their weight: `Choreographer` (27 actions — the heaviest in the game),
+`CardsHandManager` (13), `NewPartyDisplayUI` (10), `UIReadyToggle` (8),
+`TakeDamagePanel` (3), `UIAbilityCardPicker` (2), `UIEventPanel` (1). Note that this is
+*not* "the top seven": `MapChoreographer` (11) outweighs four of them and the mod does
+not patch it. Weight is how much traffic a receiver sees, not how exposed our patch is —
+`UIEventPanel` is one action and is the most carefully guarded row in the table.
+
+Full analysis, with the evidence:
 [`.planning/multiplayer/DESYNC-ANALYSIS.md`](../.planning/multiplayer/DESYNC-ANALYSIS.md).
 
 ## The verdicts
