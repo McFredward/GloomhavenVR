@@ -41,6 +41,14 @@ internal static class ShortRestStateVectors
             t.True(!NetProtocol.IsNewCardFxSequence((byte)(accepted + 128), (byte)accepted), "ambiguous half-cycle");
             t.True(NetProtocol.IsNewCardFxSequence((byte)(accepted + 32), (byte)accepted), "forward packet loss");
         }
+        t.Case("burn release: an invisible local coroutine never launches an occupied owner recess");
+        t.True(!BurnReleasePolicy.MayFallback(true, 0, 1, 0.51f, 3f), "MB482 early phantom is refused");
+        t.True(!BurnReleasePolicy.MayFallback(true, 0, 1, 60f, 3f), "still seated through the turn");
+        t.True(!BurnReleasePolicy.MayFallback(true, 0, 0, 1f, 3f), "empty seat waits for owner event");
+        t.True(BurnReleasePolicy.MayFallback(true, 0, 0, 3f, 3f), "lost event has bounded fallback");
+        t.True(BurnReleasePolicy.MayFallback(true, 1, 1, 3f, 3f), "other recess does not block release");
+        t.True(BurnReleasePolicy.MayFallback(false, -1, 0, 3f, 3f), "unseatable legacy burn remains bounded");
+
         t.Case("use slot: native mandatory highlight has a distinct additive state bit");
         t.Equal(32, (int)NetProtocol.UseSlotMandatoryBit, "mandatory is bit 5");
         t.Equal(63, (int)NetProtocol.UseSlotDefinedMask, "all six states survive sanitization");

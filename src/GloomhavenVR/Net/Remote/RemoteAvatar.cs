@@ -818,6 +818,8 @@ internal sealed class RemoteAvatar
         _controlBoard.TryActiveCellLocal(cardInstanceId, out boardLocal);
 
     /// <summary>The visible burn slab owns one recess until its animation finishes.</summary>
+    internal void PlayUnclaimedBurnEvent(byte endpoints) => _cardFx.Play(endpoints);
+
     internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
     internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
 
