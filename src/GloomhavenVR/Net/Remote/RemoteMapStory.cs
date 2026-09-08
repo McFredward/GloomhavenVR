@@ -468,9 +468,10 @@ internal static class RemoteMapStory
             // the edge would not pre-empt: the box being GONE is one way this client has clicked
             // its story through, and the GAME saying the window is closed while the mod's sticky
             // re-show keeps drawing it is the other - and it is the one that actually happens.
-            bool finished = (box == null && StoryLocal.Key != 0u
-                             && Time.unscaledTime < StoryLocal.FinishedUntil)
-                            || StoryClickedThroughHere(box);
+            // It IS the same test now: both sides call StoryFinishedHere, which is why that helper
+            // exists rather than the expression being written out twice. See its doc for what the
+            // second copy cost.
+            bool finished = StoryFinishedHere(box, Time.unscaledTime);
             bool questOpen = QuestPopup() != null;
             // The encounter's OPEN EDGE pre-empts for the same reason the quest window's does: the
             // record is what makes a peer's blue bar and pose apply to it at all, and a window that
@@ -585,6 +586,38 @@ internal static class RemoteMapStory
         && OnLastPage(box)
         && _storyGameClosedFrame >= 0
         && Time.frameCount - _storyGameClosedFrame >= StoryClosedSettleFrames;
+
+    /// <summary>
+    /// "This client has finished its map story" - the ONE expression <see cref="SendDue"/> compares
+    /// and <see cref="Sample"/> records. Both sides call this; neither writes it out.
+    ///
+    /// <para><b>WHY IT IS A METHOD (ModBuild 480, R2 finding F17).</b> The two copies had drifted
+    /// into different SHAPES, and the difference made the send gate impossible to satisfy. The
+    /// getter tested two branches - the box being gone, OR
+    /// <see cref="StoryClickedThroughHere"/> - while the bookkeeping write at the tail of
+    /// <see cref="Sample"/> tested only the first. <see cref="StoryClickedThroughHere"/> requires
+    /// <c>box != null</c>, so in exactly the state it names (the game says the window is closed
+    /// while <c>ModalFallback.ReassertStickyVisible</c> keeps the mod's copy floating, on the last
+    /// page, past the settle) the getter read <c>true</c> while the field was written
+    /// <c>false</c> on every single send. <c>finished != _sentStoryFinished</c> was therefore
+    /// PERMANENTLY true: a convergence test that could never converge.</para>
+    ///
+    /// <para><b>WHAT THAT COST, and it is a RESOURCE defect rather than a picture defect.</b>
+    /// <c>NetAvatarDriver</c>'s pre-emption gate is an <c>if (...all false...) return;</c> with
+    /// <c>!RemoteMapStory.SendDue</c> as one conjunct, so a stuck-true <c>SendDue</c> means the
+    /// gate is never taken and <c>_extrasAccumulator</c> is re-zeroed every frame. The whole extras
+    /// packet then goes out at FRAME RATE instead of the designed 5 Hz - about 18x the intended
+    /// load on the UNRELIABLE side channel every mirrored surface rides, and the same multiple of
+    /// sender CPU in the samplers behind it - for the rest of that map-room session. It does not
+    /// self-clear when the 60 s linger expires, because the click-through branch deliberately KEEPS
+    /// <c>StoryLocal.Key</c>; only a new story window or the room standing down cleared it.</para>
+    ///
+    /// <para>PURE: reads live game state and this file's own clocks and writes nothing, which is
+    /// what lets <see cref="SendDue"/> keep its documented "mutates nothing" contract.</para>
+    /// </summary>
+    private static bool StoryFinishedHere(UICharacterStoryBox? box, float now) =>
+        (box == null && StoryLocal.Key != 0u && now < StoryLocal.FinishedUntil)
+        || StoryClickedThroughHere(box);
 
     /// <summary>
     /// Track the GAME's close edge for the map story window, once per frame, and print the one line
@@ -782,6 +815,84 @@ internal static class RemoteMapStory
 
     // ---- send side ---------------------------------------------------------------------------
 
+    // ---- the send-rate instrument (ModBuild 480, R2 finding F17) ------------------------------
+    //
+    // WHAT IT DECIDES, and why it is a RATE and not a state. F17 was a gate that never closed:
+    // SendDue latched true and the extras packet went out at frame rate rather than 5 Hz, for the
+    // rest of a map-room session, with NO wrong picture anywhere and no line in any log. Eight
+    // rounds of this project's history say a state probe cannot see a sampling problem, so the
+    // instrument here measures the thing that was wrong - HOW OFTEN Sample() actually runs - and
+    // nothing else. Sample() runs only on the frames NetAvatarDriver's pre-emption gate lets
+    // through, so this count IS the extras send rate.
+    //
+    // NOT A LATCH THAT GOES QUIET: the window is sized in SECONDS (never in frames - a frame budget
+    // on a 38 fps rig is a window that never closes), it prints at most one line per window while
+    // over the bar, and it prints one line on the way BACK under it. Silence therefore means "the
+    // cadence has never been exceeded", and it means that at any frame rate.
+
+    /// <summary>Length of the rate window, seconds. Two seconds is long enough that a legitimate
+    /// burst of pre-empting EDGES (a page turned, the quest window opened) inside one window cannot
+    /// reach the bar, and short enough that a stuck gate is named within two seconds of starting.</summary>
+    private const float SendRateWindowSeconds = 2f;
+
+    /// <summary>Sends per second above which the cadence is not being obeyed. The designed rate is
+    /// 5 Hz; a human turning pages adds a handful of pre-empting edges per second on top of it.
+    /// 15 Hz can only be a gate that is not closing.</summary>
+    private const float SendRateBarHz = 15f;
+
+    private static float _rateWindowOpenedAt = -1f;
+    private static int _rateWindowSends;
+    private static bool _rateOverBar;
+
+    /// <summary>
+    /// Count this send into the rolling window and name the gate term that is asserting, once per
+    /// window, whenever the extras packet is leaving faster than its cadence allows.
+    ///
+    /// <para>INSTRUMENT-ONLY: the three fields it writes are read by nothing but this method, so
+    /// retiring it can break nothing - the shape <c>RemoteWidgetMirror</c>'s "the state write lives
+    /// next to the write it records" note was written after this project nearly deleted a
+    /// load-bearing write together with its logger.</para>
+    /// </summary>
+    private static void TickSendRate(float now)
+    {
+        if (_rateWindowOpenedAt < 0f || now - _rateWindowOpenedAt >= SendRateWindowSeconds)
+        {
+            float span = _rateWindowOpenedAt < 0f ? 0f : now - _rateWindowOpenedAt;
+            float hz = span > 0.01f ? _rateWindowSends / span : 0f;
+            bool over = hz > SendRateBarHz;
+            if (over)
+            {
+                UICharacterStoryBox? box = MapBox();
+                // HW-VERIFY: grep MAP STORY SEND RATE. One line per 2 s window while the extras
+                // packet is leaving above the bar; the four values are SendDue's own terms, and the
+                // one whose live value never equals its "last sent" copy is the stuck one.
+                VRLog.Note("Net", $"MAP STORY SEND RATE: the extras packet left {_rateWindowSends} "
+                    + $"time(s) in {span:F1} s = {hz:F0} Hz, over the {SendRateBarHz:F0} Hz bar "
+                    + "(designed cadence 5 Hz). Something in NetAvatarDriver's pre-emption gate is "
+                    + "not closing. SendDue's own terms right now: page="
+                    + $"{(box != null ? box.currentDialogIndex.ToString() : "<no box>")} "
+                    + $"(last sent {_sentStoryPage}), finished={StoryFinishedHere(box, now)} "
+                    + $"(last sent {_sentStoryFinished}), questOpen={QuestPopup() != null} "
+                    + $"(last sent {_sentQuestOpen}), encounterOpen={EventPanel() != null} "
+                    + $"(last sent {_sentEncounterOpen}). A term whose live value never equals its "
+                    + "'last sent' copy is a convergence test that cannot converge - which is "
+                    + "exactly what StoryFinishedHere was written to stop happening again. This "
+                    + "channel is UNRELIABLE and every mirrored surface rides it, so a sustained "
+                    + "line here is a dropped-packet risk on all of them, not only on this record.");
+            }
+            else if (_rateOverBar)
+            {
+                VRLog.Note("Net", $"MAP STORY SEND RATE: back under the bar - {hz:F0} Hz over the "
+                    + $"last {span:F1} s. The gate is closing again.");
+            }
+            _rateOverBar = over;
+            _rateWindowOpenedAt = now;
+            _rateWindowSends = 0;
+        }
+        _rateWindowSends++;
+    }
+
+
     /// <summary>
     /// Fill the shared-window fields of the outgoing extras packet. Leaves
     /// <see cref="PresenceState.HasSharedWindow"/> false — and therefore the whole record absent —
@@ -801,6 +912,7 @@ internal static class RemoteMapStory
 
         float now = Time.unscaledTime;
         int n = 0;
+        TickSendRate(now);
 
         // ---- entry 1: the map story box ------------------------------------------------------
         UICharacterStoryBox? box = MapBox();
@@ -936,7 +1048,12 @@ internal static class RemoteMapStory
 
         _sentValid = true;
         _sentStoryPage = box != null ? box.currentDialogIndex : int.MinValue;
-        _sentStoryFinished = box == null && StoryLocal.Key != 0u && now < StoryLocal.FinishedUntil;
+        // THE SAME EXPRESSION THE GATE COMPARES, through the same helper - see StoryFinishedHere
+        // for the 18x traffic the one-branch copy that stood here was costing. Re-evaluated rather
+        // than reusing `clickedThrough` from the top of this method on purpose: the branches above
+        // may have cleared StoryLocal.Key, and what has to be recorded is the answer SendDue will
+        // compute on the NEXT frame, not the one that steered this send.
+        _sentStoryFinished = StoryFinishedHere(box, now);
         _sentQuestOpen = popup != null;
         _sentEncounterOpen = evPanel != null;
 
