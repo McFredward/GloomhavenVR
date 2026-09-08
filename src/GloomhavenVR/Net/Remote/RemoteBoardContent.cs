@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.Net;
 
@@ -84,32 +86,122 @@ namespace GloomhavenVR.Net;
 ///
 /// Style: unlit (<see cref="BoardVisual"/>) like every other remote-board visual, change-gated TMP
 /// writes (a per-frame <c>TMP.text</c> assignment re-triggers auto-size layout — the badge-flicker
-/// lesson), and content re-read on a 4 Hz cadence rather than per frame so a table of four peers
-/// costs nothing measurable.
+/// lesson). Visible source/model/presence changes trigger content refresh; idle recovery and
+/// draw-order maintenance retain a separate budget.
 /// </summary>
 /// <remarks>CLASSIFICATION: n/a — this type is the shared TMP/label plumbing for the widgets below,
 /// not content of its own. Each widget carries its own CLASSIFICATION tag.</remarks>
 internal static class RemoteBoardContent
 {
-    /// <summary>Content re-read cadence (seconds). The board POSE follows every frame; only the
-    /// model reads + TMP rebuilds are throttled.</summary>
+    /// <summary>Maintenance/recovery cadence only. Received presence and changes to native
+    /// presentation/model state bypass it; viewer preferences cannot delay another board.</summary>
     internal const float DefaultRefreshSeconds = 0.25f;
 
-    /// <summary>
-    /// EFFECTIVE content re-read cadence. [Optimize] RemoteContentInterval can widen it: this walk
-    /// scales with the number of PEERS (every remote board's model reads, furniture, card faces,
-    /// fans and FX ride this one cadence), so on a four-player table it is the mod cost that grows
-    /// while a single-player capture shows nothing at all. 0 in config = keep the 0.25 s default,
-    /// which is what ships — the trade it buys is purely how fast a PEER's board contents catch up,
-    /// never anything about the local player's own board, and it is worth nothing in single player.
-    /// </summary>
-    internal static float RefreshSeconds
+    /// <summary>Compatibility seam for existing resolver maintenance callers. The former viewer
+    /// Optimize.RemoteContentInterval override is inert under the full parity ruling.</summary>
+    internal static float RefreshSeconds => DefaultRefreshSeconds;
+
+    /// <summary>Native panel layout/content revision, shared across observers for this frame.
+    /// Live mirror puppeteering already copies motion every frame. This stamp detects new rows,
+    /// text, art and fitted rectangles which require structural refresh/remeasure immediately.
+    /// It never reads a viewer tuning and never writes the source's hasChanged flag.</summary>
+    internal static ulong NativeRevision(Transform? source)
     {
-        get
+        if (source == null) return 0;
+        NativeCache? cache = null;
+        int oldest = 0;
+        for (int i = 0; i < NativeCaches.Count; i++)
         {
-            float over = Core.PerfConfig.RemoteContentSeconds;
-            return over > 0f ? over : DefaultRefreshSeconds;
+            if (ReferenceEquals(NativeCaches[i].Source, source)) cache = NativeCaches[i];
+            if (NativeCaches[i].Frame < NativeCaches[oldest].Frame) oldest = i;
         }
+        if (cache == null)
+        {
+            cache = new NativeCache(source);
+            if (NativeCaches.Count < 8) NativeCaches.Add(cache);
+            else NativeCaches[oldest] = cache; // bounded across scene reloads and destroyed sources
+        }
+        if (cache.Frame == Time.frameCount) return cache.Revision;
+        cache.Frame = Time.frameCount;
+        using var timing = PerfMonitor.Scope("Net.Board.NativeRevision");
+        ulong hash = 14695981039346656037UL;
+        int at = 0;
+        ScanNative(source, cache, ref at, ref hash);
+        if (cache.Nodes.Count > at) cache.Nodes.RemoveRange(at, cache.Nodes.Count - at);
+        if (source.parent is RectTransform parent) Mix(ref hash, parent.rect.GetHashCode());
+        cache.Revision = hash;
+        return hash;
+    }
+
+    private sealed class NativeCache
+    {
+        internal readonly Transform Source;
+        internal readonly List<NativeNode> Nodes = new();
+        internal int Frame = -1;
+        internal ulong Revision;
+        internal NativeCache(Transform source) => Source = source;
+    }
+
+    private sealed class NativeNode
+    {
+        internal readonly Transform Transform;
+        internal readonly RectTransform? Rect;
+        internal readonly Graphic? Graphic;
+        internal readonly Image? Image;
+        internal readonly RawImage? RawImage;
+        internal readonly TMP_Text? Text;
+        internal NativeNode(Transform node)
+        {
+            Transform = node;
+            Rect = node as RectTransform;
+            Graphic = node.GetComponent<Graphic>();
+            Image = Graphic as Image;
+            RawImage = Graphic as RawImage;
+            Text = Graphic as TMP_Text;
+        }
+    }
+
+    private static readonly List<NativeCache> NativeCaches = new(8);
+
+    private static void ScanNative(Transform source, NativeCache cache, ref int at, ref ulong hash)
+    {
+        NativeNode node;
+        if (at < cache.Nodes.Count)
+        {
+            node = cache.Nodes[at];
+            if (!ReferenceEquals(node.Transform, source)) cache.Nodes[at] = node = new NativeNode(source);
+        }
+        else { node = new NativeNode(source); cache.Nodes.Add(node); }
+        at++;
+        Mix(ref hash, source.GetInstanceID());
+        Mix(ref hash, source.gameObject.activeSelf ? 1 : 0);
+        int count = source.childCount;
+        Mix(ref hash, count);
+        if (node.Rect != null)
+        {
+            Mix(ref hash, node.Rect.rect.GetHashCode());
+            Mix(ref hash, node.Rect.anchorMin.GetHashCode());
+            Mix(ref hash, node.Rect.anchorMax.GetHashCode());
+        }
+        if (node.Graphic != null) Mix(ref hash, node.Graphic.enabled ? 1 : 0);
+        if (node.Image != null)
+        {
+            Mix(ref hash, node.Image.sprite != null ? node.Image.sprite.GetInstanceID() : 0);
+            Mix(ref hash, node.Image.type.GetHashCode());
+        }
+        if (node.RawImage != null)
+            Mix(ref hash, node.RawImage.texture != null ? node.RawImage.texture.GetInstanceID() : 0);
+        if (node.Text != null)
+        {
+            Mix(ref hash, node.Text.text != null ? node.Text.text.GetHashCode() : 0);
+            Mix(ref hash, node.Text.fontSize.GetHashCode());
+        }
+        for (int i = 0; i < count; i++) ScanNative(source.GetChild(i), cache, ref at, ref hash);
+    }
+
+    internal static void Mix(ref ulong hash, int value)
+    {
+        unchecked { hash = (hash ^ (uint)value) * 1099511628211UL; }
     }
 
     /// <summary>A fitted, unlit world-space label under <paramref name="parent"/>. Shared by every

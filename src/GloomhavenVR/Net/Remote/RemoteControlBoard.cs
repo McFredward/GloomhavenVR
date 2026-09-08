@@ -657,10 +657,12 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                                                   //   items counts, deliberately UNGATED (vanilla lets
                                                   //   anyone open any player's card overview)
 
-    /// <summary>Next content re-read time (unscaled). The POSE follows every frame; the model reads
-    /// and the TMP repaints run on the <see cref="RemoteBoardContent.RefreshSeconds"/> cadence so a
-    /// four-peer table stays free.</summary>
+    /// <summary>Idle recovery deadline only. Actual received/model/native content changes are
+    /// consumed immediately; an observer preference may not hold visible state behind this timer.</summary>
     private float _nextRefreshAt;
+    private uint _contentPresenceRevision;
+    private ulong _contentNativeRevision;
+    private ulong _contentModelRevision;
 
     /// <summary>Next unscaled time this board re-adopts its transparent subtree into its
     /// draw-order cluster (<see cref="BoardVisual.AdoptBoardOrder"/>). The content cadence: the
@@ -1081,9 +1083,16 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // the furniture's own structural half — row rebuilds, a cloned-widget mirror walk, a
         // localized string composition, a TMP re-measure and a walk over this client's live use-bar
         // children. Read RemoteBoardFurniture.Refresh / TickWire for the itemised split.
-        if (Time.unscaledTime >= _nextRefreshAt)
+        ulong nativeRevision = NativeContentRevision();
+        ulong modelRevision = ModelContentRevision(actor, showFronts);
+        if (_owner.PresenceRevision != _contentPresenceRevision
+            || nativeRevision != _contentNativeRevision || modelRevision != _contentModelRevision
+            || Time.unscaledTime >= _nextRefreshAt)
         {
-            _nextRefreshAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
+            _contentPresenceRevision = _owner.PresenceRevision;
+            _contentNativeRevision = nativeRevision;
+            _contentModelRevision = modelRevision;
+            _nextRefreshAt = Time.unscaledTime + RemoteBoardContent.DefaultRefreshSeconds;
             if (actor != null)
                 RefreshContent(actor, showFronts);
             else
@@ -1191,7 +1200,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         {
             // The CONTENT cadence (live-tunable like every other cadence on this board), for the
             // reason stated at _nextOrderSweepAt.
-            _nextOrderSweepAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
+            _nextOrderSweepAt = Time.unscaledTime + RemoteBoardContent.DefaultRefreshSeconds;
             BoardVisual.BoardOrderSweep sweep =
                 BoardVisual.AdoptBoardOrder(this, _root.transform, _tag?.Root);
             // One line per REAL change of what this board carries (the split is the gate), never
@@ -1303,6 +1312,63 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// structural pass has already written, not the previous tick's.</para>
     /// </summary>
     private void TickBoardTooltip() => _boardTooltip?.Apply(_owner.TooltipText);
+
+    private static ulong NativeContentRevision()
+    {
+        ulong hash = 14695981039346656037UL;
+        UIManager? ui = UIManager.Instance;
+        MixRevision(ref hash, RemoteBoardContent.NativeRevision(ui != null && ui.MissionObjectiveContainer != null
+            ? ui.MissionObjectiveContainer.transform : null));
+        MixRevision(ref hash, RemoteBoardContent.NativeRevision(ui != null && ui.ScenarioModifierContainer != null
+            ? ui.ScenarioModifierContainer.transform : null));
+        InitiativeTrack? track = InitiativeTrack.Instance;
+        MixRevision(ref hash, RemoteBoardContent.NativeRevision(track != null ? track.transform : null));
+        InfusionBoardUI? elements = InfusionBoardUI.Instance;
+        MixRevision(ref hash, RemoteBoardContent.NativeRevision(elements != null ? elements.transform : null));
+        return hash;
+    }
+
+    private static void MixRevision(ref ulong hash, ulong revision)
+    {
+        RemoteBoardContent.Mix(ref hash, (int)revision);
+        RemoteBoardContent.Mix(ref hash, (int)(revision >> 32));
+    }
+
+    private static ulong ModelContentRevision(CPlayerActor? actor, bool showFronts)
+    {
+        ulong hash = 14695981039346656037UL;
+        RemoteBoardContent.Mix(ref hash, CardsGameApi.RoundNumber());
+        RemoteBoardContent.Mix(ref hash, (int)PhaseManager.PhaseType);
+        RemoteBoardContent.Mix(ref hash, showFronts ? 1 : 0);
+        for (int i = 0; i < 6; i++)
+        {
+            int column;
+            try { column = (int)ElementInfusionBoardManager.ElementColumn((ElementInfusionBoardManager.EElement)i); }
+            catch { column = -1; } // no scenario model during join/teardown
+            RemoteBoardContent.Mix(ref hash, column);
+        }
+        RemoteElementStrip.ReadOverlay(out int creating, out int reserved, out int available);
+        RemoteBoardContent.Mix(ref hash, creating);
+        RemoteBoardContent.Mix(ref hash, reserved);
+        RemoteBoardContent.Mix(ref hash, available);
+        if (actor == null) return hash;
+        RemoteBoardContent.Mix(ref hash, NetFigures.StableActorId(actor));
+        if (showFronts) RemoteBoardContent.Mix(ref hash, actor.Initiative());
+        CCharacterClass? cards = actor.CharacterClass;
+        if (cards != null)
+        {
+            RemoteBoardContent.Mix(ref hash, cards.DiscardedAbilityCards.Count);
+            RemoteBoardContent.Mix(ref hash, cards.LostAbilityCards.Count);
+            RemoteBoardContent.Mix(ref hash, cards.PermanentlyLostAbilityCards.Count);
+            System.Collections.Generic.List<CBaseCard>? active = ActiveCardSet.ActivatedCards(cards);
+            if (active != null)
+                for (int i = 0; i < active.Count; i++)
+                    if (active[i] is CAbilityCard ability)
+                        RemoteBoardContent.Mix(ref hash, ability.CardInstanceID);
+        }
+        RemoteBoardContent.Mix(ref hash, actor.Inventory?.AllItems?.Count ?? 0);
+        return hash;
+    }
 
     /// <summary>The actorless subset of <see cref="RefreshContent"/> (join-time, before the host
     /// assigns this peer a character): objectives, element infusions and the initiative track are

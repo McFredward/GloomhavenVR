@@ -33,13 +33,15 @@ namespace GloomhavenVR.Core;
 /// CONFIG-FILE ONLY now. A settings row asks the player to make a decision, and these offer no
 /// decision to make — the measurement changes nothing visible, and the work-removal switches are
 /// invisible by construction (that is exactly why they default ON). They are A/B harnesses for
-/// this debug phase, so they live here, described here, and nowhere else. The three interval
-/// levers below (<see cref="FanRelayoutMinInterval"/>, <see cref="WallFadeEvalInterval"/>,
-/// <see cref="RemoteContentInterval"/>) DO trade freshness for work, so they kept a UI row — but
+/// this debug phase, so they live here, described here, and nowhere else. The local interval
+/// levers below (<see cref="FanRelayoutMinInterval"/> and <see cref="WallFadeEvalInterval"/>)
+/// trade freshness for work, so they kept a UI row — but
 /// in the Debug pane (<c>SettingsPanel.BuildTimingCategory</c>), not the user-facing category,
 /// because the measurement says the CPU is ~2.5% of frame time and pointing a stuttering player
 /// at a CPU lever would aim them at the wrong problem. The user-facing performance rows are the
-/// GPU quality trade only (<c>SettingsPanel.BuildPerformanceCategory</c> → Rig.RenderQuality).</para>
+/// GPU quality trade only (<c>SettingsPanel.BuildPerformanceCategory</c> → Rig.RenderQuality).
+/// RemoteContentInterval is retained as an INERT compatibility key: observer-side delay is not
+/// an approved exception to the owner's board presentation.</para>
 /// </summary>
 internal static class PerfConfig
 {
@@ -124,7 +126,7 @@ internal static class PerfConfig
     /// <summary>Suppress the high-cadence per-subsystem diagnostic lines (wall fade, fan depth curve, uGUI clicks).</summary>
     internal static ConfigEntry<bool> QuietDiagnostics = null!;
 
-    /// <summary>Seconds between remote-board content refreshes (0 = leave the subsystem's own cadence).</summary>
+    /// <summary>INERT compatibility key. An observer cannot delay the owner's board content.</summary>
     internal static ConfigEntry<float> RemoteContentInterval = null!;
 
     /// <summary>Keep the head camera's forward depth-texture prepass (a full extra scene submission per eye).</summary>
@@ -184,9 +186,8 @@ internal static class PerfConfig
     /// <summary>[Optimize] QuietDiagnostics, defaulting to off (keep today's diagnostics) while unbound.</summary>
     internal static bool Quiet => QuietDiagnostics != null && QuietDiagnostics.Value;
 
-    /// <summary>[Optimize] RemoteContentInterval, 0 = keep the subsystem's own cadence.</summary>
-    internal static float RemoteContentSeconds =>
-        RemoteContentInterval == null ? 0f : Mathf.Clamp(RemoteContentInterval.Value, 0f, 2f);
+    /// <summary>INERT compatibility accessor: remote content follows its actual state changes.</summary>
+    internal static float RemoteContentSeconds => 0f;
 
     /// <summary>[Perf] SceneProfile, defaulting to off while unbound (it is off when bound too).</summary>
     internal static bool SceneProfileOn => SceneProfile != null && SceneProfile.Value;
@@ -602,11 +603,9 @@ internal static class PerfConfig
             + "and they measured well under one line per second on hardware — switch it ON for a "
             + "clean performance capture where only the [Perf] lines matter.");
         RemoteContentInterval = _file.Bind("Optimize", "RemoteContentInterval", Defaults.RemoteContentInterval, new ConfigDescription(
-            "Override the refresh interval (seconds) of the REMOTE player board content scan — the "
-            + "4 Hz walk that rebuilds other players' board contents in multiplayer. 0 = leave the "
-            + "subsystem's own 0.25 s cadence. Raising it (e.g. 0.5) halves that walk's cost; it only "
-            + "delays how fast a peer's board contents catch up, and it does nothing at all in single "
-            + "player.",
+            "INERT — retained for existing configuration files. Remote board content refreshes "
+            + "when the owner's received state or the native presentation changes. A viewer's "
+            + "performance preference cannot delay another player's visible content.",
             new AcceptableValueRange<float>(0f, 2f)));
         HeadDepthPrepass = _file.Bind("Optimize", "HeadDepthPrepass", Defaults.HeadDepthPrepass,
             "Keep the head camera's DepthTextureMode.Depth. ON is today's behaviour and it is NOT "

@@ -401,6 +401,7 @@ internal sealed class RemoteElementStrip
     /// the board while the owner's own element board was showing something. See the demotion in
     /// <see cref="Refresh"/>.</summary>
     private int _mirrorBlankTicks;
+    private float _nextBlankProbeAt;
 
     /// <summary>Latched by that demotion; cleared by an empty board or a clone rebuild.</summary>
     private bool _mirrorBlanked;
@@ -1061,6 +1062,7 @@ internal sealed class RemoteElementStrip
             // about anything.
             _mirrorStamp = _mirror.RebuildStamp;
             _mirrorBlankTicks = 0;
+            _nextBlankProbeAt = 0f;
             _mirrorBlanked = false;
         }
 
@@ -1069,7 +1071,15 @@ internal sealed class RemoteElementStrip
             _drawnBy = RemoteWidgetMirror.Fidelity.MirroredWidget;
             _mirrorStamp = _mirror.RebuildStamp;
             bool blank = ownerHasPicture && !MirrorHasPicture();
-            _mirrorBlankTicks = blank ? _mirrorBlankTicks + 1 : 0;
+            if (!blank)
+                _mirrorBlankTicks = 0;
+            else if (Time.unscaledTime >= _nextBlankProbeAt)
+            {
+                // Content now refreshes on real state edges. The diagnostic's three samples
+                // must not become three frames merely because several changes arrived together.
+                _nextBlankProbeAt = Time.unscaledTime + RemoteBoardContent.DefaultRefreshSeconds;
+                _mirrorBlankTicks++;
+            }
             if (_mirrorBlankTicks < BlankTicksBeforeFallback)
             {
                 // The composition must repaint FROM SCRATCH if the mirror ever falls over, so the
@@ -1595,7 +1605,7 @@ internal sealed class RemoteElementStrip
     /// 0..5, or a throw — yields all-zero masks, which is precisely the picture this strip drew
     /// before the overlay existed. Absence keeps the old behaviour, deliberately.</para>
     /// </summary>
-    private static void ReadOverlay(out int creating, out int reserved, out int available)
+    internal static void ReadOverlay(out int creating, out int reserved, out int available)
     {
         creating = 0;
         reserved = 0;
