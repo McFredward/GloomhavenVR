@@ -3395,7 +3395,7 @@ internal sealed class RemoteBoardFurniture
                           $"authored ×{scale:F2} dock scale, " +
                           $"{(_shownDecisionLines != null ? "hung below the mirrored decision row" : "at the drawer zone top (no decision row up)")}. " +
                           "Original game slot widgets replace the replica caption, plate and tiles. " +
-                          "Icons resolve from record 45 or the owner-matched local bar; native " +
+                          "SLOT SYMBOLS resolve from record 45 or the owner-matched local bar; native " +
                           "subwidgets follow record 47. Display-only and colliderless.");
     }
 

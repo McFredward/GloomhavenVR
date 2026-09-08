@@ -20,11 +20,13 @@ internal sealed class RemoteUseBarSubwidgets
     private Image? _unfocus;
     private Color _unfocused;
     private List<IOption> _candidates = new();
+    private UseBarWidgetState? _painted;
+    private bool _layoutSource;
 
     internal static RemoteUseBarSubwidgets Capture(UIUseActiveBonus source, CActiveBonus? model,
         CActor? actor, UseBarWidgetState? state, bool initialize)
     {
-        var result = new RemoteUseBarSubwidgets();
+        var result = new RemoteUseBarSubwidgets { _layoutSource = initialize };
         if (initialize && state != null)
         {
             Normalize(source.consumeElements, state.ConsumeIcons.Length, source.consumeElements.Count > 0
@@ -35,6 +37,13 @@ internal sealed class RemoteUseBarSubwidgets
         }
         if (model != null && actor != null)
             result._candidates = UseBarWidgetSampler.Options(model, actor, source.initiativePickerIcon);
+        if (initialize && model != null && source.previewEffect != null)
+        {
+            // UIUseActiveBonus.Decorate's pure visual half. UIUsePreview writes only its own
+            // original image/text controls; no tooltip, input handler or bonus callback runs.
+            if (model.BaseCard is CItem item) source.previewEffect.SetDescription(item);
+            else source.previewEffect.SetDescription(model.Ability);
+        }
         foreach (UIUseOption ui in source.consumeElements)
             result._consumes.Add(new Inline(ui));
         foreach (UIUseOption ui in source.optionsUI)
@@ -117,6 +126,10 @@ internal sealed class RemoteUseBarSubwidgets
 
     internal void Paint(UseBarWidgetState state)
     {
+        // The source stage and the visible clone both receive immutable owner snapshots. A steady
+        // picture needs no new numeric/rich text strings and no repeated canvas dirties.
+        if (ReferenceEquals(_painted, state)) return;
+        _painted = state;
         Active(_elementContent, (state.Flags & 1) != 0);
         Active(_optionContent, (state.Flags & 2) != 0);
         if (_unfocus != null)
@@ -135,13 +148,12 @@ internal sealed class RemoteUseBarSubwidgets
             if (ui.Icon != null && value != 0)
                 ui.Icon.sprite = UIInfoTools.Instance.GetElementPickerSprite((ElementInfusionBoardManager.EElement)(value - 1));
         }
-        foreach (Inline ui in _inline) Active(ui.Root, false);
-        for (int i = 0; i < state.InlineSlots.Length; i++)
+        for (int native = 0; native < _inline.Count; native++)
         {
-            int index = state.InlineSlots[i];
-            if (index >= _inline.Count) continue;
-            Inline ui = _inline[index];
-            Active(ui.Root, true);
+            Inline ui = _inline[native];
+            int i = Array.IndexOf(state.InlineSlots, (byte)native);
+            Active(ui.Root, i >= 0);
+            if (i < 0) continue;
             Active(ui.Icon != null ? ui.Icon.gameObject : null, false);
             byte value = state.InlineOptions[i];
             string text = value == UseBarWidgetState.NumericOption
@@ -151,15 +163,24 @@ internal sealed class RemoteUseBarSubwidgets
             if (ui.Text != null)
             {
                 if (ui.Text.text != text) ui.Text.text = text;
-                if (value > 0 && value <= _candidates.Count)
-                    ui.Text.color = _candidates[value - 1] is InitiativeOption initiative
+                Color color = value == UseBarWidgetState.NumericOption && _candidates.Count > 0
+                    && _candidates[0] is InitiativeOption ? UIInfoTools.Instance.basicTextColor
+                    : value > 0 && value <= _candidates.Count && _candidates[value - 1] is InitiativeOption initiative
                         ? initiative.GetSelectedTextColor() : UIInfoTools.Instance.White;
+                if (ui.Text.color != color) ui.Text.color = color;
             }
         }
         foreach (Picker ui in _elements)
             ui.Paint(ui.Element >= 0 && ui.Element < 6 ? state.ElementStates[ui.Element] : (byte)0);
         for (int i = 0; i < _options.Count; i++)
             _options[i].Paint(i < state.OptionStates.Length ? state.OptionStates[i] : (byte)0);
+    }
+
+    internal void TickHover()
+    {
+        if (_layoutSource) return; // native fit measures rest geometry, not the pointer grow
+        foreach (Picker picker in _elements) picker.TickHover();
+        foreach (Picker picker in _options) picker.TickHover();
     }
 
     private static GameObject? Node(RemoteWidgetMirror m, GameObject? source) =>
@@ -191,6 +212,8 @@ internal sealed class RemoteUseBarSubwidgets
         internal ColorBlock Colors;
         internal float LitAlpha, UnlitAlpha;
         internal int Element = -1;
+        private Transform? _scaleNode;
+        private float _factor = 1f, _seconds, _from = 1f, _now = 1f, _target = 1f, _at;
         private Picker() { }
         internal Picker(UIElementPickerSlot source)
         {
@@ -199,6 +222,7 @@ internal sealed class RemoteUseBarSubwidgets
             LitSprite = source.highlightedBackground; UnlitSprite = source.unhighlightedBackground;
             LitAlpha = source.highlightedBackgroundAlpha; UnlitAlpha = source.unhighlightedBackgroundAlpha;
             ButtonGraphic = source.button.targetGraphic; Colors = source.button.colors;
+            BindHover(source.button);
         }
         internal Picker(UIPickerSlot source)
         {
@@ -206,6 +230,7 @@ internal sealed class RemoteUseBarSubwidgets
             LitSprite = source.highlightedBackground; UnlitSprite = source.unhighlightedBackground;
             LitAlpha = source.highlightedBackgroundAlpha; UnlitAlpha = source.unhighlightedBackgroundAlpha;
             ButtonGraphic = source.button.targetGraphic; Colors = source.button.colors;
+            BindHover(source.button);
         }
         internal Picker Map(RemoteWidgetMirror mirror) => new()
         {
@@ -213,10 +238,31 @@ internal sealed class RemoteUseBarSubwidgets
             ElementHighlight = Component(mirror, ElementHighlight), ButtonGraphic = Component(mirror, ButtonGraphic),
             LitSprite = LitSprite, UnlitSprite = UnlitSprite, LitAlpha = LitAlpha, UnlitAlpha = UnlitAlpha,
             Colors = Colors, Element = Element,
+            _scaleNode = mirror.CloneOf(_scaleNode), _factor = _factor, _seconds = _seconds,
         };
+        private void BindHover(ExtendedButton button)
+        {
+            _scaleNode = button.overridedTargetRectScale != null ? button.overridedTargetRectScale
+                : button.targetRect != null ? button.targetRect : button.transform;
+            _factor = button.highlightScaleFactor > 0f ? button.highlightScaleFactor : 1f;
+            _seconds = button.animateScaling ? button.animationDuration : 0f;
+        }
+        internal void TickHover()
+        {
+            if (_scaleNode == null) return;
+            float t = _seconds > 0f ? Mathf.Clamp01((Time.unscaledTime - _at) / _seconds) : 1f;
+            _now = Mathf.LerpUnclamped(_from, _target, t >= 1f ? 1f : 1f - Mathf.Pow(2f, -10f * t));
+            Vector3 scale = _scaleNode.localScale;
+            Vector3 desired = new(_now, _now, scale.z);
+            if (scale != desired) _scaleNode.localScale = desired;
+        }
         internal void Paint(byte state)
         {
             Active(Root, (state & UseBarWidgetState.VisibleBit) != 0);
+            float target = (state & NetProtocol.UseSlotOfferedBit) == 0 ? 1f
+                : (state & NetProtocol.UseSlotPressedBit) != 0 ? (_factor + 1f) * 0.5f
+                : (state & NetProtocol.UseSlotHoveredBit) != 0 ? _factor : 1f;
+            if (_target != target) { _from = _now; _target = target; _at = Time.unscaledTime; }
             bool lit = (state & (NetProtocol.UseSlotChosenBit | NetProtocol.UseSlotHoveredBit)) != 0;
             if (ElementHighlight != null) ElementHighlight.enabled = lit;
             if (Background != null)

@@ -11,8 +11,29 @@ namespace GloomhavenVR.Net;
 /// <summary>Read original active-bonus subwidgets; never invokes a slot or picker controller.</summary>
 internal static class UseBarWidgetSampler
 {
+    private sealed class Cache
+    {
+        internal UIUseActiveBonus? Source;
+        internal CActiveBonus? Model;
+        internal string[] SelectedText = Array.Empty<string>();
+        internal readonly UseBarWidgetState Scratch = new();
+        internal UseBarWidgetState? Published;
+        internal string? Refusal;
+    }
+    private static readonly Cache?[] Slots = new Cache?[NetProtocol.UseBarsMaxSlots];
+    internal static void Reset() => Array.Clear(Slots, 0, Slots.Length);
+
+    private static void Size<T>(ref T[] buffer, int count)
+    {
+        if (count > UseBarWidgetState.CountMax)
+            throw new InvalidOperationException("native subwidget count exceeds record 47 bounds; no truncation permitted");
+        if (buffer.Length != count) buffer = new T[count];
+    }
+
     internal static UseBarWidgetState? Sample(UIUseActiveBonus slot, byte index)
     {
+        if (index >= Slots.Length) return null;
+        Cache cache = Slots[index] ??= new Cache();
         try
         {
             CActiveBonus? model = null;
@@ -21,22 +42,38 @@ internal static class UseBarWidgetSampler
                     model = item.Key;
             if (model == null)
                 return null;
-            List<IOption> options = Options(model, slot.actor, slot.initiativePickerIcon);
-            var state = new UseBarWidgetState { Slot = index };
+            if (!ReferenceEquals(cache.Source, slot) || !ReferenceEquals(cache.Model, model))
+            {
+                cache.Source = slot; cache.Model = model; cache.Published = null;
+                List<IOption> options = Options(model, slot.actor, slot.initiativePickerIcon);
+                cache.SelectedText = new string[options.Count];
+                for (int o = 0; o < options.Count; o++) cache.SelectedText[o] = options[o].GetSelectedText();
+            }
+            UseBarWidgetState state = cache.Scratch;
+            state.Slot = index; state.Flags = 0;
+            state.SlotAlpha = (byte)Mathf.RoundToInt(Mathf.Clamp01(slot.canvasGroup != null ? slot.canvasGroup.alpha : 1f) * 255f);
+            Array.Clear(state.ElementStates, 0, state.ElementStates.Length);
             UIElementPicker? element = slot.elementPicker;
             UIOptionPicker? picker = slot.optionPicker;
             if (element != null && element.IsOpen)
                 state.Flags |= 1;
             if (picker != null && picker.IsOpen)
                 state.Flags |= 2;
-            var consumes = new List<byte>();
+            int consumeCount = 0;
+            foreach (UIUseOption consume in slot.consumeElements)
+                if (consume != null && consume.gameObject.activeSelf) consumeCount++;
+            Size(ref state.ConsumeIcons, consumeCount);
+            int consumeAt = 0;
             foreach (UIUseOption consume in slot.consumeElements)
                 if (consume != null && consume.gameObject.activeSelf)
-                    consumes.Add(ElementIcon(consume.icon));
-            state.ConsumeIcons = consumes.ToArray();
-            var inlineSlots = new List<byte>();
-            var inlineOptions = new List<byte>();
-            var inlineNumbers = new List<short>();
+                    state.ConsumeIcons[consumeAt++] = ElementIcon(consume.icon);
+            int inlineCount = 0;
+            foreach (UIUseOption ui in slot.optionsUI)
+                if (ui != null && ui.gameObject.activeSelf) inlineCount++;
+            Size(ref state.InlineSlots, inlineCount);
+            Size(ref state.InlineOptions, inlineCount);
+            Size(ref state.InlineNumbers, inlineCount);
+            int inlineAt = 0;
             for (int i = 0; i < slot.optionsUI.Count; i++)
             {
                 UIUseOption ui = slot.optionsUI[i];
@@ -44,7 +81,7 @@ internal static class UseBarWidgetSampler
                     continue;
                 if (i >= UseBarWidgetState.CountMax)
                     throw new InvalidOperationException("native inline slot index exceeds record 47 bounds");
-                inlineSlots.Add((byte)i);
+                state.InlineSlots[inlineAt] = (byte)i;
                 byte selected = 0;
                 short number = 0;
                 if (ui.text != null && ui.text.gameObject.activeSelf && !string.IsNullOrEmpty(ui.text.text))
@@ -53,19 +90,16 @@ internal static class UseBarWidgetSampler
                         selected = UseBarWidgetState.NumericOption;
                     else
                     {
-                        for (int o = 0; o < options.Count; o++)
-                            if (options[o].GetSelectedText() == ui.text.text)
+                        for (int o = 0; o < cache.SelectedText.Length; o++)
+                            if (cache.SelectedText[o] == ui.text.text)
                                 selected = checked((byte)(o + 1));
                         if (selected == 0)
                             throw new InvalidOperationException("native inline wording does not match a public bonus option");
                     }
                 }
-                inlineOptions.Add(selected);
-                inlineNumbers.Add(number);
+                state.InlineOptions[inlineAt] = selected;
+                state.InlineNumbers[inlineAt++] = number;
             }
-            state.InlineSlots = inlineSlots.ToArray();
-            state.InlineOptions = inlineOptions.ToArray();
-            state.InlineNumbers = inlineNumbers.ToArray();
             if (element != null)
                 foreach (UIElementPickerSlot button in element.elementButtons)
                     if (button != null && (int)button.element >= 0 && (int)button.element < 6)
@@ -73,22 +107,28 @@ internal static class UseBarWidgetSampler
                             button.IsSelected, button.gameObject.activeSelf);
             if (picker != null)
             {
-                state.OptionStates = new byte[picker.optionButtons.Count];
+                Size(ref state.OptionStates, picker.optionButtons.Count);
                 for (int i = 0; i < state.OptionStates.Length; i++)
                 {
                     UIPickerSlot button = picker.optionButtons[i];
-                    if (button != null)
-                        state.OptionStates[i] = ButtonState(button.Selectable, button.IsSelected,
-                            button.gameObject.activeSelf);
+                    state.OptionStates[i] = button != null ? ButtonState(button.Selectable, button.IsSelected,
+                            button.gameObject.activeSelf) : (byte)0;
                 }
             }
+            else Size(ref state.OptionStates, 0);
             if (!state.Validate())
                 throw new InvalidOperationException("native subwidget count exceeds record 47 bounds; no truncation permitted");
-            return state;
+            cache.Refusal = null;
+            if (!UseBarWidgetState.SameState(cache.Published, state)) cache.Published = state.Snapshot();
+            return cache.Published;
         }
         catch (Exception e)
         {
-            VRLog.Warn("Net", $"USE BAR WIDGET SAMPLE: slot {index} refused ({e.Message}); no card text or identity substituted.");
+            if (cache.Refusal != e.Message)
+            {
+                cache.Refusal = e.Message;
+                VRLog.Warn("Net", $"USE BAR WIDGET SAMPLE: slot {index} refused ({e.Message}); no card text or identity substituted.");
+            }
             return null;
         }
     }

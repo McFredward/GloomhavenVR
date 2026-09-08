@@ -378,6 +378,7 @@ internal sealed class UseBarsSurface
         // record 25 explicitly, or peers would keep the last drawer standing on a board that no
         // longer has one (the same contract DecisionDockSurface's undock publish honours).
         WireWidgetStates = null;
+        Net.UseBarWidgetSampler.Reset();
         SampleWire();
     }
 
@@ -671,8 +672,7 @@ internal sealed class UseBarsSurface
         }
     }
 
-    /// <summary>Next unscaled time the wire sample runs while bars are up (the shared content
-    /// cadence the decision dock uses — the states move on human-paced clicks, not per frame).</summary>
+    /// <summary>Immutable owner appearance snapshot; reuse its arrays while the picture is unchanged.</summary>
     internal static Net.UseBarWidgetState[]? WireWidgetStates { get; private set; }
     private static readonly List<Net.UseBarWidgetState> WidgetStateScratch = new(8);
 
@@ -813,9 +813,13 @@ internal sealed class UseBarsSurface
                 WireSlotIdBuffer[at + s] = Net.UseBarSlotIdentity.NoIdentity;
             }
         }
-        Net.UseBarWidgetState[]? widgets = WidgetStateScratch.Count > 0 ? WidgetStateScratch.ToArray() : null;
-        if (!Net.UseBarWidgetState.Equivalent(WireWidgetStates, widgets))
-            WireWidgetStates = widgets;
+        if ((mask & Net.NetProtocol.UseBarActiveBonusBit) == 0)
+            WidgetStateScratch.Clear();
+        bool sameWidgets = WidgetStateScratch.Count == (WireWidgetStates?.Length ?? 0);
+        for (int i = 0; sameWidgets && i < WidgetStateScratch.Count; i++)
+            sameWidgets = ReferenceEquals(WidgetStateScratch[i], WireWidgetStates![i]);
+        if (!sameWidgets)
+            WireWidgetStates = WidgetStateScratch.Count > 0 ? WidgetStateScratch.ToArray() : null;
         Publish(mask);
     }
 

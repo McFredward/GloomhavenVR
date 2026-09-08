@@ -90,10 +90,9 @@ internal static class UseBarSlotSymbol
     /// <c>Class.ID</c>), and its wrapper cannot be rebuilt off the model alone because it is
     /// constructed from the widget's own option UI.</para>
     ///
-    /// <para>So this excludes exactly one model type. It is applied on BOTH sides — the sender
-    /// withholds the id, and the receiver refuses one it is nevertheless handed — because a future
-    /// or hostile sender must not be able to talk this receiver into a sprite it cannot verify.
-    /// </para>
+    /// <para>Native widget conversion also resolves the forgo icon through its exact pure actor-art
+    /// lookup, without constructing its simulation-changing wrapper. This predicate now selects
+    /// the correct lookup; it no longer excludes that public slot identity from record 45.</para>
     /// </summary>
     internal static bool TakesPlainIcon(CActiveBonus bonus) =>
         bonus is not CForgoActionsForCompanionActiveBonus;

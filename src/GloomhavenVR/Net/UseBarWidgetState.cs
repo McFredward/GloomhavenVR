@@ -15,6 +15,7 @@ internal sealed class UseBarWidgetState
     internal const byte NumericOption = 0xFF;
     internal byte Slot;
     internal byte Flags;
+    internal byte SlotAlpha = 255;
     internal byte[] ConsumeIcons = Array.Empty<byte>();
     internal byte[] InlineSlots = Array.Empty<byte>();
     internal byte[] InlineOptions = Array.Empty<byte>();
@@ -35,9 +36,12 @@ internal sealed class UseBarWidgetState
         foreach (byte element in ConsumeIcons)
             if (element > 7)
                 return false;
+        uint inlineSeen = 0;
         foreach (byte slot in InlineSlots)
-            if (slot >= CountMax)
-                return false;
+        {
+            if (slot >= CountMax || (inlineSeen & (1u << slot)) != 0) return false;
+            inlineSeen |= 1u << slot;
+        }
         foreach (byte option in InlineOptions)
             if (option != NumericOption && option > CountMax)
                 return false;
@@ -58,16 +62,24 @@ internal sealed class UseBarWidgetState
             return false;
         for (int i = 0; i < a.Length; i++)
         {
-            UseBarWidgetState x = a[i], y = b[i];
-            if (x == null || y == null || x.Slot != y.Slot || x.Flags != y.Flags
-                || !Same(x.InlineSlots, y.InlineSlots)
-                || !Same(x.ConsumeIcons, y.ConsumeIcons) || !Same(x.InlineOptions, y.InlineOptions)
-                || !Same(x.InlineNumbers, y.InlineNumbers) || !Same(x.ElementStates, y.ElementStates)
-                || !Same(x.OptionStates, y.OptionStates))
-                return false;
+            if (!SameState(a[i], b[i])) return false;
         }
         return true;
     }
+
+    internal static bool SameState(UseBarWidgetState? x, UseBarWidgetState? y) =>
+        ReferenceEquals(x, y) || (x != null && y != null && x.Slot == y.Slot && x.Flags == y.Flags && x.SlotAlpha == y.SlotAlpha
+            && Same(x.InlineSlots, y.InlineSlots) && Same(x.ConsumeIcons, y.ConsumeIcons)
+            && Same(x.InlineOptions, y.InlineOptions) && Same(x.InlineNumbers, y.InlineNumbers)
+            && Same(x.ElementStates, y.ElementStates) && Same(x.OptionStates, y.OptionStates));
+
+    internal UseBarWidgetState Snapshot() => new()
+    {
+        Slot = Slot, Flags = Flags, SlotAlpha = SlotAlpha, ConsumeIcons = (byte[])ConsumeIcons.Clone(),
+        InlineSlots = (byte[])InlineSlots.Clone(), InlineOptions = (byte[])InlineOptions.Clone(),
+        InlineNumbers = (short[])InlineNumbers.Clone(), ElementStates = (byte[])ElementStates.Clone(),
+        OptionStates = (byte[])OptionStates.Clone(),
+    };
 
     private static bool Same<T>(T[] a, T[] b) where T : IEquatable<T>
     {

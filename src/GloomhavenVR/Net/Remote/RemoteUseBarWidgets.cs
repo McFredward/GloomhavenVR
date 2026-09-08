@@ -35,7 +35,9 @@ internal sealed class RemoteUseBarWidgets
     private readonly Sprite?[] _wantedIcons;
     private int _stamp = -1;
     private bool _failedLogged;
-    private int _stageKey;
+    private readonly ushort[] _stageIds;
+    private readonly int[] _stageConsumeCounts, _stageOptionCounts;
+    private readonly CActiveBonus?[] _stageModels;
 
     internal RemoteUseBarWidgets(Transform mount, int bar, int count)
     {
@@ -43,6 +45,10 @@ internal sealed class RemoteUseBarWidgets
         _bar = bar;
         _count = count;
         _wantedIcons = new Sprite?[count];
+        _stageIds = new ushort[count];
+        _stageConsumeCounts = new int[count];
+        _stageOptionCounts = new int[count];
+        _stageModels = new CActiveBonus?[count];
         // Width-only fit, like UseBarsSurface.StackDocked; open pickers grow downward.
         _mirror = new RemoteWidgetMirror("UseBar" + bar, mount, Cards.PlayTray.DecisionMountWidth,
             float.MaxValue, new Vector2(0f, -1f), densityScale: WorldUI.Surfaces.UseBarsSurface.DensityScale, contentOutsideFrame: true);
@@ -69,8 +75,7 @@ internal sealed class RemoteUseBarWidgets
                 source = container;
             else
             {
-                int key = StageKey(actor, owner);
-                if ((_stage == null || key != _stageKey) && container != null)
+                if ((_stage == null || !StageMatches(actor, owner)) && container != null)
                 {
                     if (_stageHost != null)
                     {
@@ -79,12 +84,12 @@ internal sealed class RemoteUseBarWidgets
                     }
                     _stage = null;
                     BuildPrefabStage(container, actor, owner);
-                    _stageKey = key;
                 }
                 for (int i = 0; i < _stageSlots.Length; i++)
                 {
                     UseBarWidgetState? state = Descriptor(owner, i);
                     if (state != null) _stageSlots[i].Subwidgets?.Paint(state);
+                    PaintMasks(_stageSlots[i], State(owner, i), state);
                 }
                 if (_stage != null) LayoutRebuilder.ForceRebuildLayoutImmediate(_stage);
                 source = _stage;
@@ -216,6 +221,12 @@ internal sealed class RemoteUseBarWidgets
         {
             GameObject go = Object.Instantiate(prefab.gameObject, _stage, false);
             _stageSlots[i] = Capture(go.transform);
+            _stageIds[i] = SlotId(owner, i);
+            _stageModels[i] = Model(actor, owner, i);
+            _stageConsumeCounts[i] = Descriptor(owner, i)?.ConsumeIcons.Length ?? 0;
+            _stageOptionCounts[i] = Descriptor(owner, i)?.OptionStates.Length ?? 0;
+            if (_stageSlots[i].Icon != null)
+                _stageSlots[i].Icon!.sprite = UseBarSlotSymbol.ResolveIcon(_bar, actor, _stageIds[i], out _);
             FinishNativeShowPose(go.transform);
             // Clear template controls, then materialize the OWNER's original native subwidgets.
             // Only clone-owned components receive these writes, while the hierarchy is inactive.
@@ -252,19 +263,45 @@ internal sealed class RemoteUseBarWidgets
         return UseBarSlotSymbol.ResolveBonusModel(actor, owner.UseBarSlotIds[at], out _);
     }
 
-    private int StageKey(CPlayerActor? actor, RemoteAvatar owner)
+    private ushort SlotId(RemoteAvatar owner, int slot)
     {
-        int key = 17;
+        int at = _bar * NetProtocol.UseBarsMaxSlots + slot;
+        return owner.UseBarSlotIds != null && at < owner.UseBarSlotIds.Length ? owner.UseBarSlotIds[at] : (ushort)0;
+    }
+
+    private bool StageMatches(CPlayerActor? actor, RemoteAvatar owner)
+    {
         for (int i = 0; i < _count; i++)
         {
-            int at = _bar * NetProtocol.UseBarsMaxSlots + i;
-            key = key * 31 + (owner.UseBarSlotIds != null && at < owner.UseBarSlotIds.Length ? owner.UseBarSlotIds[at] : 0);
-            key = key * 31 + (Model(actor, owner, i) != null ? 1 : 0);
             UseBarWidgetState? state = Descriptor(owner, i);
-            key = key * 31 + (state?.ConsumeIcons.Length ?? 0);
-            key = key * 31 + (state?.OptionStates.Length ?? 0);
+            if (_stageIds[i] != SlotId(owner, i) || !ReferenceEquals(_stageModels[i], Model(actor, owner, i))
+                || _stageConsumeCounts[i] != (state?.ConsumeIcons.Length ?? 0)
+                || _stageOptionCounts[i] != (state?.OptionStates.Length ?? 0))
+                return false;
         }
-        return key;
+        return true;
+    }
+
+    private byte State(RemoteAvatar owner, int slot)
+    {
+        int at = _bar * NetProtocol.UseBarsMaxSlots + slot;
+        return owner.UseBarSlotStates != null && at < owner.UseBarSlotStates.Length
+            ? owner.UseBarSlotStates[at] : NetProtocol.UseSlotOfferedBit;
+    }
+
+    private static void PaintMasks(Slot slot, byte state, UseBarWidgetState? descriptor)
+    {
+        bool offered = (state & NetProtocol.UseSlotOfferedBit) != 0;
+        bool chosen = (state & NetProtocol.UseSlotChosenBit) != 0;
+        SetActive(slot.Selected, chosen);
+        SetActive(slot.Optional, chosen && offered);
+        SetActive(slot.Mandatory, (state & NetProtocol.UseSlotMandatoryBit) != 0);
+        if (slot.Group != null)
+        {
+            float alpha = descriptor != null ? descriptor.SlotAlpha / 255f
+                : (state & NetProtocol.UseSlotDimmedBit) != 0 ? slot.DisabledAlpha : 1f;
+            if (slot.Group.alpha != alpha) slot.Group.alpha = alpha;
+        }
     }
 
     internal void SetIcon(int index, Sprite? sprite)
@@ -287,22 +324,11 @@ internal sealed class RemoteUseBarWidgets
         for (int i = 0; i < _slots.Length; i++)
         {
             Slot slot = _slots[i];
-            int at = _bar * NetProtocol.UseBarsMaxSlots + i;
-            byte state = owner.UseBarSlotStates != null && at < owner.UseBarSlotStates.Length
-                ? owner.UseBarSlotStates[at] : NetProtocol.UseSlotOfferedBit;
+            byte state = State(owner, i);
             bool offered = (state & NetProtocol.UseSlotOfferedBit) != 0;
-            bool chosen = (state & NetProtocol.UseSlotChosenBit) != 0;
             bool hovered = (state & NetProtocol.UseSlotHoveredBit) != 0;
             bool pressed = (state & NetProtocol.UseSlotPressedBit) != 0;
-            SetActive(slot.Selected, chosen);
-            SetActive(slot.Optional, chosen && offered);
-            SetActive(slot.Mandatory, (state & NetProtocol.UseSlotMandatoryBit) != 0);
-            if (slot.Group != null)
-            {
-                float alpha = (state & NetProtocol.UseSlotDimmedBit) != 0 ? slot.DisabledAlpha : 1f;
-                if (slot.Group.alpha != alpha)
-                    slot.Group.alpha = alpha;
-            }
+            PaintMasks(slot, state, Descriptor(owner, i));
             if (slot.Background != null)
             {
                 // UIUseSlot never disables its ExtendedButton: the CanvasGroup carries disabled
@@ -310,7 +336,8 @@ internal sealed class RemoteUseBarWidgets
                 Color tint = (offered && pressed ? slot.Colors.pressedColor
                     : offered && hovered ? slot.Colors.highlightedColor : slot.Colors.normalColor)
                     * slot.Colors.colorMultiplier;
-                slot.Background.canvasRenderer.SetColor(tint);
+                if (slot.Background.canvasRenderer.GetColor() != tint)
+                    slot.Background.canvasRenderer.SetColor(tint);
             }
             PaintHover(ref slot, offered, hovered, pressed);
             _slots[i] = slot;
@@ -319,6 +346,7 @@ internal sealed class RemoteUseBarWidgets
             if (descriptor != null)
             {
                 slot.Subwidgets?.Paint(descriptor);
+                slot.Subwidgets?.TickHover();
                 continue;
             }
             // A watcher may retain an old local popup. The owner's closed flags close that branch;
