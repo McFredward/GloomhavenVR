@@ -1,0 +1,60 @@
+=== METHOD size by CODE lines (8184 methods) ===
+     0..20      4996   61.0%
+    21..50      2230   27.2%
+    51..100      742    9.1%
+   101..200      174    2.1%
+   201..inf       42    0.5%
+
+=== 40 largest by CODE lines (span in parens) ===
+   1091 code ( 1921 span) nest4   Net/Avatar/NetAvatarDriver.cs:1108  TickExtrasSend
+   1055 code ( 1214 span) nest3   Cards/CardsConfig.cs:636  Bind
+    987 code ( 1482 span) nest7   Net/PresenceState.cs:3641  TryRead
+    805 code ( 1325 span) nest6   Net/PresenceState.cs:1791  Write
+    610 code ( 1228 span) nest6   Core/WallFade/WallSegmentFade.Mounted.cs:1853  CollectWallMountedProps
+    510 code (  560 span) nest4   Board/FigureGrab/PropAnimBelt.Photometer.cs:1652  EmitPhotometer
+    464 code (  520 span) nest0   WorldUI/WorldUIConfig.cs:569  Bind
+    450 code (  472 span) nest0   WorldUI/Sharpness/PanelSupersample.3.Report.cs:22  Report
+    417 code ( 1019 span) nest4   WorldUI/Modal/ModalFallback.4.Tick.cs:2682  Tick
+    403 code (  472 span) nest5   WorldUI/EyeReachCensus.cs:395  LogEyeReachCensus
+    400 code (  644 span) nest2   Net/Remote/RemoteAvatar.cs:1492  SetExtras
+    389 code (  496 span) nest3   WorldUI/Modal/ArcSeats.cs:2489  TryClaimArcSeat
+    388 code (  618 span) nest3   WorldUI/ActorBars.cs:1474  MeasureAnchorOffsetWU
+    380 code (  514 span) nest2   Plugin.cs:386  Awake
+    377 code (  849 span) nest4   Core/WallFade/WallSegmentFade.cs:2170  Tick
+    337 code (  393 span) nest2   Core/WallFade/WallSegmentFade.cs:100  Bind
+    325 code (  405 span) nest3   Core/WallFade/WallSegmentFade.OccluderVerdict.cs:142  LogOccluderVerdicts
+    313 code (  869 span) nest3   Cards/Driver/CardsDriver.4.Rebuild.cs:719  Rebuild
+    294 code (  392 span) nest1   Core/Perf/PerfConfig.cs:317  Bind
+    292 code (  500 span) nest2   Net/Board/BoardTuning.cs:121  Sample
+    258 code (  467 span) nest4   Cards/Driver/CardsDriver.5.Interactions.cs:290  OnCardReleased
+    256 code (  278 span) nest2   Core/Sound/EnvSound.5.Shelf.cs:915  LogBuilt
+    249 code (  548 span) nest3   WorldUI/Modal/ModalFallback.9.Spawn.cs:848  ComputeHmdPose
+    244 code (  309 span) nest3   Core/WallFade/WallSegmentFade.cs:9168  LogSampleGridCensus
+    242 code (  283 span) nest1   Board/FigureGrab/FigureGrabConfig.cs:495  Bind
+    240 code (  276 span) nest0   Net/Board/BoardTuning.cs:1119  RemoteBoardTuning
+    240 code (  245 span) nest6   WorldUI/MapRoom/MapTableLegs.cs:2629  Report
+    238 code (  309 span) nest4   Board/FigureGrab/FigureGrabDriver.cs:725  LogPropCensus
+    232 code (  341 span) nest5   Cards/Art/CardMesh.cs:1332  BuildBeveledKeycap
+    230 code (  415 span) nest3   Net/Remote/RemoteElementStrip.cs:980  Refresh
+    228 code (  401 span) nest3   WorldUI/Modal/ModalFallback.9.Spawn.cs:3540  TickWindowLiveness
+    224 code (  274 span) nest2   WorldUI/Conversion/CanvasConversion.3.Fit.cs:4040  LogFixedFit
+    221 code (  263 span) nest4   Core/Water/WaterTerrainVR.cs:3070  LogWaterSurfaceOnce
+    221 code (  242 span) nest3   Core/Environment/DoorOpenWatch.cs:1005  SampleOpenClip
+    219 code (  692 span) nest4   WorldUI/Modal/ModalFallback.8.Convert.cs:182  TryConvertWindow
+    219 code (  263 span) nest3   WorldUI/Conversion/CanvasConversion.3.Fit.cs:3338  MeasureFixedFitParts
+    218 code (  259 span) nest4   WorldUI/Modal/ArcSeats.cs:3523  LogArcOverlapAudit
+    216 code (  356 span) nest4   WorldUI/Conversion/CanvasConversion.3.Fit.cs:6120  TickHitRect
+    212 code (  250 span) nest4   Cards/Piles/PileBrowser.cs:860  TryRaycast
+    208 code (  259 span) nest1   Hands/HandsConfig.cs:369  Bind
+
+=== per-directory: methods over 100 code lines ===
+  WorldUI        74 of  2991  (2.5%)
+  Core           62 of  1467  (4.2%)
+  Net            32 of  1288  (2.5%)
+  Cards          20 of  1134  (1.8%)
+  Board          13 of   695  (1.9%)
+  Rig             9 of   133  (6.8%)
+  Hands           4 of   242  (1.7%)
+  (root)          1 of     8  (12.5%)
+  Compat          1 of   192  (0.5%)
+  Voice           0 of    34  (0.0%)

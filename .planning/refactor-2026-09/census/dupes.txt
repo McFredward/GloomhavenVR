@@ -1,0 +1,140 @@
+=== duplicate runs of >= 12 normalised code lines: 167 groups ===
+    154 span more than one file, 13 are within a single file
+
+   58 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:204-261
+        WorldUI/Surfaces/StatPanelSurface.cs:510-545
+   38 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:236-273
+        WorldUI/Surfaces/StatPanelSurface.cs:520-558
+   38 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:237-274
+        WorldUI/Surfaces/StatPanelSurface.cs:521-559
+   37 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:235-271
+        WorldUI/Surfaces/StatPanelSurface.cs:519-556
+   35 lines x 2 sites:
+        Net/Remote/RemoteControlBoard.cs:3610-3644
+        Cards/Piles/PileViewer.cs:1147-1180
+   31 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:245-275
+        WorldUI/Surfaces/StatPanelSurface.cs:528-560
+   29 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:251-279
+        WorldUI/Surfaces/StatPanelSurface.cs:534-561
+   27 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5360-5386
+        Cards/CardFan.cs:1305-1336
+   26 lines x 2 sites:
+        WorldUI/Surfaces/DamageTooltipSurface.cs:326-351
+        WorldUI/Surfaces/DecisionDockSurface.cs:2780-2807
+   26 lines x 2 sites:
+        Core/WallFade/WallSegmentFade.Body.cs:191-216
+        Core/WallFade/WallSegmentFade.Stacked.cs:400-427
+   26 lines x 2 sites:
+        Core/WallFade/WallSegmentFade.Body.cs:194-219
+        Core/WallFade/WallSegmentFade.Stacked.cs:403-430
+   26 lines x 2 sites:
+        Core/WallFade/WallSegmentFade.Body.cs:196-221
+        Core/WallFade/WallSegmentFade.Stacked.cs:405-432
+   25 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5359-5383
+        Cards/CardFan.cs:1304-1333
+   25 lines x 2 sites:
+        WorldUI/Composites/LoadoutConfirmPark.cs:1063-1087
+        WorldUI/Composites/StoryComposite.cs:4352-4376
+   25 lines x 2 sites:
+        WorldUI/Composites/LoadoutConfirmPark.cs:1065-1089
+        WorldUI/Composites/StoryComposite.cs:4354-4378
+   25 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:633-657
+        WorldUI/Surfaces/StatPanelSurface.cs:1066-1088
+   25 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:634-658
+        WorldUI/Surfaces/StatPanelSurface.cs:1067-1089
+   25 lines x 2 sites:
+        Core/WallFade/WallSegmentFade.Body.cs:193-217
+        Core/WallFade/WallSegmentFade.Stacked.cs:402-428
+   24 lines x 2 sites:
+        Net/Remote/RemoteFanEnhancementRefresh.cs:191-214
+        Cards/HandFanEnhancementRefresh.cs:176-199
+   24 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5356-5379
+        Cards/CardFan.cs:1301-1329
+   24 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5358-5381
+        Cards/CardFan.cs:1303-1331
+   24 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5365-5388
+        Cards/CardFan.cs:1310-1338
+   24 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5366-5389
+        Cards/CardFan.cs:1311-1339
+   24 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5367-5390
+        Cards/CardFan.cs:1312-1340
+   24 lines x 2 sites:
+        WorldUI/Composites/LoadoutConfirmPark.cs:1067-1090
+        WorldUI/Composites/StoryComposite.cs:4356-4379
+   24 lines x 2 sites:
+        WorldUI/Composites/LoadoutConfirmPark.cs:1068-1091
+        WorldUI/Composites/StoryComposite.cs:4357-4380
+   24 lines x 2 sites:
+        WorldUI/Composites/LoadoutConfirmPark.cs:1070-1093
+        WorldUI/Composites/StoryComposite.cs:4359-4382
+   23 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5355-5377
+        Cards/CardFan.cs:1300-1327
+   23 lines x 2 sites:
+        WorldUI/Composites/EnchantressComposite.cs:806-828
+        WorldUI/Composites/StoryComposite.cs:4572-4594
+   23 lines x 2 sites:
+        WorldUI/Composites/LoadoutConfirmPark.cs:1072-1094
+        WorldUI/Composites/StoryComposite.cs:4361-4383
+   23 lines x 2 sites:
+        WorldUI/Composites/LoadoutConfirmPark.cs:1073-1095
+        WorldUI/Composites/StoryComposite.cs:4362-4384
+   23 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:172-194
+        WorldUI/Surfaces/StatPanelSurface.cs:477-496
+   23 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:639-661
+        WorldUI/Surfaces/StatPanelSurface.cs:1071-1092
+   22 lines x 2 sites:
+        Net/Remote/RemoteFanEnhancementRefresh.cs:179-200
+        Cards/HandFanEnhancementRefresh.cs:164-185
+   22 lines x 2 sites:
+        Net/Remote/RemoteFanEnhancementRefresh.cs:180-201
+        Cards/HandFanEnhancementRefresh.cs:165-186
+   22 lines x 2 sites:
+        Net/Remote/RemoteFanEnhancementRefresh.cs:181-202
+        Cards/HandFanEnhancementRefresh.cs:166-187
+   22 lines x 2 sites:
+        Net/Remote/RemoteFanEnhancementRefresh.cs:186-207
+        Cards/HandFanEnhancementRefresh.cs:171-192
+   22 lines x 2 sites:
+        Net/Remote/RemoteFanEnhancementRefresh.cs:188-209
+        Cards/HandFanEnhancementRefresh.cs:173-194
+   22 lines x 2 sites:
+        Net/Remote/RemoteFanEnhancementRefresh.cs:190-211
+        Cards/HandFanEnhancementRefresh.cs:175-196
+   22 lines x 2 sites:
+        Net/Remote/RemoteHandFan.cs:5354-5375
+        Cards/CardFan.cs:1299-1325
+   22 lines x 2 sites:
+        WorldUI/Composites/EnchantressComposite.cs:808-829
+        WorldUI/Composites/StoryComposite.cs:4574-4595
+   22 lines x 2 sites:
+        WorldUI/Composites/EnchantressComposite.cs:809-830
+        WorldUI/Composites/StoryComposite.cs:4575-4596
+   22 lines x 2 sites:
+        WorldUI/Composites/EnchantressComposite.cs:810-831
+        WorldUI/Composites/StoryComposite.cs:4576-4597
+   22 lines x 2 sites:
+        WorldUI/Composites/LoadoutConfirmPark.cs:866-887
+        WorldUI/Composites/StoryComposite.cs:1947-1969
+   22 lines x 2 sites:
+        WorldUI/Surfaces/PropInfoSurface.cs:630-651
+        WorldUI/Surfaces/StatPanelSurface.cs:1063-1083
+
+redundant span in the listed groups: ~1165 lines
