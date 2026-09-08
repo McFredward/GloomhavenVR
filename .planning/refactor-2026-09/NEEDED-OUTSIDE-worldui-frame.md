@@ -1,5 +1,19 @@
 # NEEDED-OUTSIDE — lane `worldui-frame` (refactor 2026-09)
 
+> **[verified 2026-09-08 against `49ceab21` (ModBuild 483)] SOME OF THESE HAVE BEEN APPLIED, AND
+> THIS FILE DOES NOT SAY WHICH.** A NEEDED-OUTSIDE list is written at the moment the lane closes
+> and is never revisited, so its standing claim that "nothing here has been applied" decays into a
+> false statement the first time the integrator lands one of them. Per-item status was **spot
+> checked, not exhaustively re-derived** — check the item against source before acting on it, and
+> read the line numbers as advisory (they are from the lane's base commit, not from `49ceab21`).
+>
+> Verified in this pass:
+> - **§1a `["Hands/GhostHandOnFan"]` German description — DONE.** It reads *"Standardmäßig AN"*,
+>   matching `Defaults.Hands.cs:18` (`GhostHandOnFan = true`).
+> - **§2 `INVARIANTS-Hands-Board-Core.md`, all three bullets — DONE.** The palm-gate entry (§5),
+>   the modal pick-block entries (§1) and the §15 grep-token tier problem are all corrected in that
+>   file, with the old approaches kept as rejected approaches.
+
 Changes this lane needs in files it does not own (BRIEF §1.4). Each entry: the file, the exact
 diff, the reason, and the lane finding it belongs to. Nothing here has been applied.
 

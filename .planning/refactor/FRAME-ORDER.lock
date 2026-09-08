@@ -1,5 +1,16 @@
 # FRAME-ORDER.lock — the second of two levers.
 #
+# LAST VERIFIED 2026-09-08 against 49ceab21 (ModBuild 483).
+# `bash scripts/check-frame-order.sh` -> "frame order: 11 locked orderings verified against
+# source and lock", exit 0. This file is MACHINE-CHECKED, so its ENTRIES cannot go stale without
+# the gate going red: the eleven orderings below are current by construction and need no audit.
+# What CAN go stale is the prose. One number in it has: the 2026-08 audit note below says the mod
+# "is now 485" files -- it is 621 (551 166 lines) at 49ceab21. The audit's REASONING (lock an
+# ordering only when it spans more than one method or is non-obvious at the site; a call list
+# visible in one diff needs nothing here) is unchanged and is the part to reuse. The
+# NOT-LOCKED-ON-PURPOSE lists were not re-derived by this pass -- they name sites, not counts,
+# and a site that has since been rewritten would not announce itself here.
+#
 # Per-frame step order is the one class of regression in this mod that can ship
 # completely silently: refactor-guard.sh proves BLAST RADIUS, and a reorder inside
 # BoardDriver.Update is an ordinary diff inside a type the refactor legitimately

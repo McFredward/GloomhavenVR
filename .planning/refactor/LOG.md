@@ -1,5 +1,15 @@
 # Refactor execution log
 
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** This file is the record of the
+> **2026-07 programme** and is read as history, not as status. Two later programmes exist
+> (`LOG-2026-08.md`, and `.planning/refactor-2026-09/`); see `CHARTER.md` section 6.
+>
+> The audit re-ran every checker and re-checked every open item. **Two statements below are now
+> false and both are marked in place**: the checker-status block (its numbers are the 2026-07
+> totals) and the "compiler-checked doc comments" entry under *Claims that did NOT reproduce*
+> (the property was later made to work and is on today). The open-items list has a verified
+> status column appended at the end of this file.
+
 Charter §7 requires the guard output per commit. It lives in the **commit messages** — the four
 parallel workers correctly refused to write into one shared file, which would have collided.
 This file records the per-batch totals and the decisions taken during execution.
@@ -17,7 +27,7 @@ This file records the per-batch totals and the decisions taken during execution.
 Totals: **~1 400 lines removed**, build warnings **4 → 0**, 11 changed types across the whole of
 C/D/E — every one predicted in advance.
 
-Checker status at the end of E:
+Checker status at the end of E — **a 2026-07 snapshot; see the current numbers below the block**:
 
 ```
 patch surface: 34 classes, 56 methods, all registered exactly once
@@ -25,6 +35,31 @@ frame order:   7 locked orderings verified against source and lock
 mirrors:       3 mirrored-constant groups agree
 wire tests:    188 assertions passed
 ```
+
+> **[verified 2026-09-08]** The same four checkers at `49ceab21`, run for this audit. Quote these,
+> not the block above — the block is what those numbers were when batch E closed. Every one of them
+> has grown since, and by wildly different factors (patch surface 3x, frame order 1.6x, mirrors 13x,
+> wire assertions 1100x), so none of the old numbers can be scaled into a current one:
+>
+> ```
+> patch surface: 107 classes, 165 methods, all registered exactly once
+> frame order:   11 locked orderings verified against source and lock
+> mirrors:       41 mirrored-constant groups agree; 7 shared-expression groups have one
+>                implementation each; 2 subset-guard groups keep the game's terms together
+> wire tests:    210 164 assertions passed
+> ```
+>
+> There are now **seventeen** checkers, not four. The other thirteen, all green at `49ceab21`:
+> `check-partial-order` (23 multi-part types, 179 parts, 0 cross-part dependencies),
+> `check-instrument-writes` (549 diagnostic-written fields, 61 load-bearing, baseline 61),
+> `check-enum-arrays` (15 literal-sized arrays, 15 agree),
+> `check-mirror-dials` (7 live reads under `Net/Remote`, 1 still OPEN),
+> `check-hw-verify` (615 marked lines across 207 files, all above the default level),
+> `check-options-coverage`, `check-tune-fields` (145 ids, 131 sampled in ascending order),
+> `check-remote-defaults` (95 frozen constants), `check-wire-coverage` (194 board dials on
+> record 28, 80 exempt, 0 PENDING), `check-desync-surface` (17 patch classes on 37 receiver
+> types, all classified), `check-card-identity-mask`, `check-surface`, `check-bundle-format`.
+> The authoritative list is the call sequence in `scripts/refactor-guard.sh`.
 
 ## What the execution corrected in the plan
 
@@ -58,6 +93,13 @@ Four workers ran the plan rather than reading it, and each found something the p
   ran looks like. Not added to the guard. If someone wants this, the property has to be made to
   take effect first, and the proof is a deliberately broken cref producing a warning — not a
   clean run.
+  > **[verified 2026-09-08] SUPERSEDED — and by exactly the proof this entry demanded.** The
+  > property was made to take effect on 2026-08-27 (`LOG-2026-08.md` section 3.2, commit
+  > `4d87cf76`) and `Directory.Build.props:82` carries `<GenerateDocumentationFile>true</GenerateDocumentationFile>`
+  > today. The finding above is still correct about what was measured at the time and is kept for
+  > it: **"zero CS1574" from a check that never ran looks identical to "zero CS1574" from a clean
+  > tree**, and the only thing that separates them is a deliberately broken cref. That is the
+  > lesson, and it survived the reversal. Its residue is `STALE-DOC-REFS.md`.
 - **`DisableAllMouses` is not dead code.** It is `InputManager.DisableAllMouses`, a *game* API. A
   `src/`-only sweep reports every game symbol as dangling — the sweep was the defect.
 - **Batch A's "five-way" mirror group is four.** The lint's table always listed four; the prose
@@ -144,3 +186,24 @@ the charter exists to prevent.
 - `SettingsPanel` part 1 needs a pointer that `Build()` must clear `_refreshers` / `_debugRows` /
   `_debugRowVisible` first — an NRE-flood fix whose `Build()` now lives two files away from the
   lists it guards.
+
+
+---
+
+## Status of "Open items routed to the user" — **[verified 2026-09-08 against `49ceab21`]**
+
+Re-checked against source, because a list of open items nobody re-reads becomes a list of
+problems everybody believes are still open. Four of six are closed.
+
+| Item | Status at `49ceab21` | Evidence |
+|---|---|---|
+| `PalmGate.UseDevicePalmNormal` half-removal | **CLOSED** | `grep -rn "UseDevicePalmNormal" src/` returns nothing. Both halves are gone. |
+| `ComfortSettings` tells the user to press the grip | **CLOSED** | `ComfortSettings.cs:304` now reads *"THE BUTTON IS THE STICK CLICK, not the grip: … which moved it off the grip so a grip could stay reserved for grabbing things."*, and `:155` carries the same correction in the summary. |
+| `docs/TESTING-P4.md` section 5 asks for a comfort vignette that does not exist | **CLOSED** | `grep -i vignette docs/TESTING-P4.md` returns nothing. |
+| `BoardScale` fresh-install vs migrated: bind default `0.5`, migration writes `0.4`, marker key says `04` | **SUPERSEDED, half open** | The default is neither 0.5 nor 0.4 any more: `Defaults.Cards.cs:297-299`, `BoardScale_{Oak,Steel,Bronze} = 0.54265f`, hardware-tuned. The marker key **still** says `04` — `BoardScaleDefault04Applied` (`:347`, pinned, *"a fresh install must start false"*). That is now deliberate rather than a discrepancy: renaming a one-shot migration marker re-runs the migration on every existing install. **Do not rename it.** |
+| Item-fan vs browse-fan scale divergence (rig scale vs board scale on a board-anchored fan) | **NOT RE-CHECKED in this audit** | Documentation audit only; this needs a hardware round and is Tier 3, exactly as recorded above. |
+| The remote board shows a pick field the local board never showed | **NOT RE-CHECKED in this audit** | Same. Note that `check-mirror-dials.py` now exists and reports **1 OPEN** verdict among 7 live reads under `Net/Remote` — that gate is the place to start, not this line. |
+
+The two "NOT RE-CHECKED" rows are marked so rather than left silent: this pass verified
+documentation against source and did not run a hardware round. **An unverified row is not a
+closed row.**

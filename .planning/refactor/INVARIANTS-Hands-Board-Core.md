@@ -10,7 +10,25 @@
 > is documented in-source but the exact commit is inferred from the log subject, confidence
 > is marked accordingly.
 >
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** Corrections from that pass carry
+> **[verified 2026-09-08]**. Read this before trusting an unmarked entry:
+>
+> - The audit checked **every symbol named in a `Where:` line of sections 1, 5, 15 and 16**, plus
+>   spot checks elsewhere. **Five entries named members that no longer exist**, and three of them
+>   had gone further than a rename — the MECHANISM had inverted, so the entry forbade what ships.
+>   Those are the dangerous ones and they are rewritten in place with the old approach kept as a
+>   rejected approach.
+> - Entries **outside** sections 1, 5, 15 and 16 were **not** re-derived symbol by symbol. Treat
+>   an unmarked entry as "believed true, last read 2026-09-08", not as re-measured.
+> - The 2026-08 ruling that "the beam always picks; only COMMITS are gated" invalidated more of
+>   section 1 than the two entries the brief for this audit named. Where a section-1 entry talks
+>   about *gating the pick*, check it against `RayInteractor`'s current class doc first.
+>
 > Scope: `src/GloomhavenVR/Hands/`, `Board/`, `Core/`, `Compat/`, `Plugin.cs`.
+> **[verified 2026-09-08]** Measured at `49ceab21`: `Hands/` 25 files / 11 834 lines, `Board/`
+> 62 / 38 082, `Core/` 122 / 101 683 — 209 files, 151 599 lines across the three. The registry
+> was written against a far smaller tree; **its silence about a file is not evidence that
+> nothing load-bearing lives there.**
 > Cards / WorldUI / Rig / Net invariants are out of scope here except where a
 > Hands/Board/Core symbol depends on them (noted inline).
 
@@ -112,19 +130,23 @@
   pick instead of `CardsDriver`'s independent fan raycast.
 - **Confidence:** high
 
-### Modal pick-block keys on **Blocking**WindowModalActive, not WindowModalActive
-- **Where:** `RayInteractor.UpdateModalPickBlock`, `RayInteractor._modalPickBlocked`
-- **Rule:** only BLOCKING floated windows (story/results/durability) plus `VRMode.ModalUI`
-  gate the physics pick. A reachable non-blocking menu (pause/ESC, Options, Multiplayer,
-  Compendium) must NOT gate board/card/tray picks.
-- **Why:** with the broader predicate, opening the pause menu froze all board and card
-  picking while the player was still expected to interact.
-- **Established by:** `bd790d5` fix(hands): non-blocking pause menu no longer gates board/card ray picks (item 4 wiring)
-- **Breaks if:** simplified back to `WorldUI.ModalFallback.WindowModalActive`.
-- **Confidence:** high
+### The beam ALWAYS picks; only COMMITS are modal-gated, and the two targets gate differently
+**[verified 2026-09-08 — this entry replaces "Modal pick-block keys on BlockingWindowModalActive".
+Every symbol the old entry named is gone from `src/`, and the mechanism inverted: it is no longer
+the pick that is gated.]**
 
-### Modal pick-block is computed once per frame and SHARED by both hands
-- **Where:** `RayInteractor._modalPickFrame` (static), `UpdateModalPickBlock`
+- **Where:** `RayInteractor.UpdateCommitSuppression` (static), `RayInteractor._cardTrayCommitsSuppressed`, `RayInteractor._boardClickCommitsSuppressed`, `RayInteractor._commitPolicyFrame`. The predicates it reads are `WorldUI.ModalFallback.BlockingWindowModalActive` (card/tray) and `WorldUI.ModalFallback.HardCommitLockActive` (board clicks).
+- **Rule:** the physics pick **always runs**. No modal state suppresses it. What is suppressed is the *commit*: card and tray commits while a BLOCKING floated window is up; board clicks only under the **hard** lock (results screens / error box). A reachable non-blocking menu (pause/ESC, Options, Multiplayer, Compendium) imposes **zero** restrictions on either.
+- **Why:** the two reasons, in the order they were learned. (1) The original one, still true: with a broader predicate, opening the pause menu froze all board and card picking while the player was still expected to interact. (2) The 2026-08 user ruling that inverted the mechanism: suppressing the *pick* also killed the beam's collision and every hover behind the menu — the reported *"laser appears but collides only with the grab bar"*. The anti-click-through duty moved entirely to the commit layer, where the modal's own uGUI wins the trigger by nearest-hit arbitration plus `HasFreshUiHit`. The full per-target decision table is at `ModalFallback.HardCommitLockActive`.
+- **Established by:** `bd790d5` (the Blocking-vs-plain distinction, item 4 wiring), then the 2026-08 commit-layer ruling that made the pick unconditional.
+- **Breaks if:** the pick is gated on any modal predicate again — that is the regression this entry exists to prevent, and it is *not* what the old sentence said. Also: collapsing the two flags into one. They are deliberately different predicates; `BlockingWindowModalActive` is wider than `HardCommitLockActive`, and a board click under a merely blocking window must still land.
+- **Confidence:** high (re-read at `49ceab21`)
+
+**REJECTED APPROACH, kept so it is not retried: `VRMode.ModalUI` as a pick gate.** The old rule named it. It no longer gates anything here, and `Board/BoardPick.cs` records the ruling at the site: *"ModalUI deliberately does NOT bail any more (user ruling 2026-08…)"*. The enum member still exists and is still used elsewhere; only its role as a pick gate is gone.
+
+### The commit-suppression policy is computed once per frame and SHARED by both hands
+**[verified 2026-09-08 — the invariant holds; the symbols are renamed.]**
+- **Where:** `RayInteractor._commitPolicyFrame` (static), `RayInteractor.UpdateCommitSuppression` (was `_modalPickFrame` / `UpdateModalPickBlock`)
 - **Rule:** static, frame-memoized; the transition log fires once, not per hand.
 - **Why:** it is a global mode fact; per-hand evaluation double-logs and can disagree
   mid-frame if a window closes between the two hands' `Tick`s.
@@ -157,16 +179,14 @@
 - **Breaks if:** the double-compensation is "simplified" to one factor.
 - **Confidence:** high
 
-### `VisualsAllowed` short-circuits on `HasFreshUiHit` BEFORE the cone test
-- **Where:** `RayInteractor.VisualsAllowed`
-- **Rule:** if the ray is demonstrably on a UI surface this frame, visuals show regardless of
-  `ModalRayConeDegrees`.
-- **Why:** hardware test #13 — the cone measures the angle to the canvas CENTRE only. On a
-  floated story window (1920 px × 0.7 ≈ 1.3 m wide at 1.2 m) the outer half sat outside the
-  25° cone, so the dot vanished while clicks kept landing.
-- **Established by:** `a3e752f`
-- **Breaks if:** the early-out is moved below the cone loop or removed.
-- **Confidence:** high
+### ~~`VisualsAllowed` short-circuits on `HasFreshUiHit` BEFORE the cone test~~ — RETIRED, the whole gate is gone
+**[verified 2026-09-08 — struck out, not deleted: the measurement below is why the gate was removed, and it is the argument against building another one.]**
+- **Where:** `RayInteractor.VisualsAllowed` still exists as a **seam**, with the body `=> true;`. There is no cone, no short-circuit and no `HasFreshUiHit` test in it. The signature is deliberately kept so a future policy slots back in at that one place; the class doc says so.
+- **Rule at HEAD:** the beam's visuals are shown wherever the hand points, in every phase.
+- **Why the old rule is kept as a record:** hardware test #13 — the cone measured the angle to the canvas CENTRE only. On a floated story window (1920 px x 0.7 ≈ 1.3 m wide at 1.2 m) the outer half sat outside the 25° cone, so the dot vanished while clicks kept landing. The short-circuit was the patch; removing the cone altogether was the fix. **`[Hands] RayAlwaysOn` and `[Hands] ModalRayConeDegrees` are DELETED config keys** (2026-08 dead-settings sweep; `ConfigSteps.cs` records `Hands/ModalRayConeDegrees is GONE`). `ModalRayConeDegrees` survives in comments only — a grep for it finds prose, not a binding.
+- **Established by:** `a3e752f` (the short-circuit), retired by the 2026-08 sweep.
+- **Breaks if:** someone re-introduces an angular gate on beam visuals. If that is ever wanted, it goes in `VisualsAllowed` — that is what the seam is for — and it must handle the wide-canvas case above, which a centre-angle cone cannot.
+- **Confidence:** high (re-read at `49ceab21`)
 
 ### Beam visual origin is the knuckle PROJECTED onto the aim line, and clamped to 90 % of length
 - **Where:** `RayInteractor.UpdateVisuals` (`Plugin.LaserFingerOrigin` branch),
@@ -663,17 +683,23 @@
   any construction with a degenerate pose.
 - **Confidence:** high
 
-### The gate measures the VISUAL hand frame (`HandRig.Root`), not the device transform
-- **Where:** `PalmGate.Tick` (`Transform? root = _hand.Rig?.Root`)
-- **Rule:** the frame is `HandRig.Root`, which hangs below the offset `HandRoot` and therefore
-  INCLUDES the debug-menu seat offsets/trims. Device transform is a fallback only.
-- **Why:** the user tunes those trims to make the visual hand sit right; the gate must agree
-  with what they SEE. Also: the device grip frame is NOT mirrored between hands, which is why
-  the per-side sign (`left +, right −`) is load-bearing.
-- **Established by:** `6b5c38c`
-- **Breaks if:** switched back to `_hand.transform.rotation` (that is what `UseDevicePalmNormal`
-  used to select — now vestigial, see §11).
-- **Confidence:** high
+### The gate measures the DEVICE frame times the SHIPPED seat — never the tuned hand
+**[verified 2026-09-08 — INVERTED. The old entry said the gate measures `HandRig.Root` and that
+switching to `_hand.transform.rotation` would break it. The shipped code does exactly what the
+old "Breaks if" forbids, and `HandRig.Root` is the approach that was tried and rejected. An
+entry whose "Breaks if" describes the current code is the worst failure mode in this registry:
+it recruits a successor to revert a fix.]**
+
+- **Where:** `PalmGate.Tick` — `Quaternion frame = _hand.transform.rotation * HandsConfig.ShippedSeatRotation(style);` where `style` is `_hand.Rig.VisualStyle` (falling back to `HandVisuals.LocalStyle()`). `HandsConfig.ShippedSeatRotation(int style)` returns `Quaternion.Euler(-Seat(DefaultSeatPitch, style), 0f, 0f)` — the **shipped** seat pitch for that hand style, never the player's tuned one.
+- **Rule:** the frame keeps +Z along the fingers and +Y out of the back of the hand (v4), and is built from the **device rotation plus the shipped seat**. The per-side sign (`left +, right −`) stays load-bearing: the device grip frame is NOT mirrored between hands.
+- **Why:** the gesture is a property of the CONTROLLER, not of how the hands are seated. Reading `HandRig.Root` made re-seating the hands silently re-tune the gesture — turning them to sit right on the controller moved the wrist angle at which the fan opens, **which is not something a cosmetic setting may do.** Anchoring on the shipped seat keeps "how far do I turn my wrist" identical for every player at every hand tuning, while leaving the frame exactly what v4 chose for the default seat.
+- **Established by:** `6b5c38c` (v4 frame), re-anchored to the shipped seat afterwards; the source carries the whole argument at `PalmGate.Tick` and in the class doc.
+- **Breaks if:** switched (back) to `HandRig.Root` or to any live, user-tuned transform — **that is the rejected approach, and it is the one the old version of this entry demanded.** Also breaks if `ShippedSeatRotation` is made to read the tuned seat "for consistency": the whole point is that it does not.
+- **Confidence:** high (re-read at `49ceab21`)
+
+**REJECTED APPROACH — `HandRig.Root`.** Kept because the old entry's REASON was not stupid, and a successor will think of it again: the user tunes the seat trims so the visual hand sits right, and it is tempting to argue the gate should agree with what they SEE. It was tried and rejected on the ground above — a cosmetic dial must not move a gesture threshold. `HandRig.Root` itself is very much alive (`HandRig.cs`, read by `VRHand`, `RayInteractor`, `AvatarMirror`, `RemoteAvatar`, `FlatScreen`, `HeldPoseReport`); it is only `PalmGate` that no longer reads it.
+
+**Also corrected:** the old entry pointed at "§11" for the vestigial `UseDevicePalmNormal`. §11 is *Wall fade*; the vestigial section is **§15**. And `UseDevicePalmNormal` no longer exists anywhere in `src/` — see §15 and §16.
 
 ### Hysteresis cannot be inverted by a hand-edited config
 - **Where:** `PalmGate.MinHysteresisDegrees` (3), `PalmGate.Tick`
@@ -2135,11 +2161,16 @@
 - **`FingerCurler.StyleCurlScale`** — all three entries are 1.0. The array + comment record why
   the earlier 0.72/0.85 clamps were removed once the round-3 adaptive digit caps landed
   (`f31264f`), and it is the tuning hook for a future style whose rest pose over-closes.
-- **`PalmGate.UseDevicePalmNormal`** — genuinely vestigial *as a behaviour* since roll gate v4
+- ~~**`PalmGate.UseDevicePalmNormal`** — genuinely vestigial *as a behaviour* since roll gate v4
   (the gate always reads `HandRig.Root`), but it is still written every frame by
   `CardsDriver` (`gate.UseDevicePalmNormal = !_gateHand.IsSimulated;`). The field is documented
   as kept so that assignment stays source-stable. Removing it is a two-file change that touches
-  Cards (out of scope) — propose in `PLAN.md`, do not do it inline.
+  Cards (out of scope) — propose in `PLAN.md`, do not do it inline.~~
+  **[verified 2026-09-08] DONE and doubly stale.** `grep -rn "UseDevicePalmNormal" src/` returns
+  **nothing**: both the field and the `CardsDriver` write are gone, and `PalmGate`'s class doc
+  records the retirement (*"v3 selected a raw device pose through a flag on this class; the flag
+  was retired once nothing read it"*). The parenthesis was also wrong on its own terms — the gate
+  does **not** "always read `HandRig.Root`"; see the corrected §5 entry.
 - **`Plugin.Experimental3DMap`** — bound but explicitly UNIMPLEMENTED. It is a **config key**
   (§5): removing it silently drops a user's persisted setting, and the long description is the
   only record of the test-#8 decision to keep the campaign map flat. `VRRigDriver` carries the
@@ -2259,13 +2290,65 @@ declaring file.
 
 ### Log lines that are grep tokens, not debug residue (CHARTER §5)
 
-`Modal input-block ENGAGED/RELEASED`, `ray ON/OFF — <reason>`, `uGUI hover ENTER/EXIT`,
-`uGUI click:`, `GRAB STATE heal:`, `grab refused —`, `Ghost hand ON/OFF`, `FIST <side>`,
-`squeeze released: peak raw grip=`, `index touch source:`, `Global skinWeights raised`,
-`[Placement] …`, `LASER INFO SUPPRESSION`, `fade ON/OFF '<wall>' … [HIGH|LOW]`,
-`diag: vis … !ABOVE-WALL … !UNANCHORED`, `SkyBackdrop mechanism =`, `MR: disabled sky/background renderer`,
-`stable hex decal ZTest=`, `Session resumed after …`, `Tick '<name>' threw and was ISOLATED`,
-`IF THIS IS NOT THE COMMIT YOU EXPECTED`.
+**[verified 2026-09-08] This list is right about WHICH lines matter and was silent about the one
+thing a successor needs to know before using it: SIXTEEN of the twenty-one print NOTHING at the
+shipped log level, and one has no call site at all.** The list is unchanged in substance — every
+token below is still a line the debug workflow depends on and none of them may be deleted or
+reworded. What is added is the tier, because a token that cannot be read is not a token.
+
+**Why.** ModBuild 331 made the log quiet, correctly and on the user's own request, by re-deciding
+what each severity MEANS rather than by deleting anything (`Core/VRLog.cs`):
+
+| method | tier it emits at | printed at the shipped default (`[General] LogLevel = Info`)? |
+|---|---|---|
+| `VRLog.Error` | Error | **yes** |
+| `VRLog.Alert` | Warning | **yes** |
+| `VRLog.Note` | Info | **yes** — the usual choice for a line a hardware round waits on |
+| `VRLog.Warn` | **Debug** | no |
+| `VRLog.Info` | **Debug** | no |
+| `VRLog.Debug` | Debug | no |
+
+`Defaults.Plugin.cs` ships `LogLevel = VRLogLevel.Info`. So **`VRLog.Info` does not print by
+default**, and most of this list was written with it. The first hardware round after 331 came back
+with fifteen mod lines and answered nothing; `scripts/check-hw-verify.py` was built for exactly
+that failure — but it only enforces sites carrying a `// HW-VERIFY` comment, and **only three of
+the twenty-one tokens below are marked**. The rest are outside every gate, which is precisely why
+this section could go stale with the whole suite green.
+
+**To capture any token marked "Debug" below, the tester must set `[General] LogLevel = Debug`.**
+
+| # | grep token | emitter | tier | default? |
+|---|---|---|---|---|
+| 1 | ~~`Modal input-block ENGAGED/RELEASED`~~ | **none — 0 hits in `src/`** | — | **the line is gone.** It was deleted with the modal pick-block (§1); `RayInteractor` now calls it *"the former 'modal input-block'"* and logs `laser gating: …` in its place. |
+| 2 | `ray ON/OFF — <reason>` | `Hands/Interact/RayInteractor.cs` `VRLog.Debug` | Debug | no |
+| 3 | `uGUI hover ENTER/EXIT` | `Hands/Interact/UguiPointer.cs` `VRLog.Info` | Debug | no |
+| 4 | `uGUI click:` | `Hands/Interact/UguiPointer.cs` `VRLog.Info` | Debug | no |
+| 5 | `GRAB STATE heal:` | `Hands/Interact/ProximityGrabber.cs` `VRLog.Note`, **`// HW-VERIFY`** | Info | **yes** |
+| 5b | `GRAB STATE heal:` *(same token, other subsystem)* | `WorldUI/Grab/PanelGrab.cs` `VRLog.Warn` | Debug | no — **one grep token, two tiers.** A capture at the default level shows the Hands half and silently omits the WorldUI half. |
+| 6 | `grab refused —` | `Hands/Interact/ProximityGrabber.cs` `VRLog.Note`, **`// HW-VERIFY`** | Info | **yes** |
+| 7 | `Ghost hand ON/OFF` | `Hands/HandGhost.cs` `VRLog.Info` | Debug | no |
+| 8 | `FIST <side>` | `Hands/VRHand.cs` `VRLog.Info` | Debug | no |
+| 9 | `squeeze released: peak raw grip=` | `Hands/VRHand.cs` `VRLog.Info` | Debug | no |
+| 10 | `index touch source:` | `Hands/VRHand.cs` `VRLog.Info` | Debug | no |
+| 11 | `Global skinWeights raised` | `Hands/HandsDriver.cs` `VRLog.Info` | Debug | no |
+| 12 | `[Placement] …` | `Board/Patches/PlacementDiagnostics.cs`, `Board/BoardClickDriver.cs`, `Board/CameraArrivalGuard.cs` — all `VRLog.Info` | Debug | no |
+| 13 | `LASER INFO SUPPRESSION` | `Board/TargetingUx.cs` `VRLog.Info` | Debug | no |
+| 14 | `fade ON/OFF '<wall>' … [HIGH\|LOW]` | `Core/WallFade/WallSegmentFade.cs` `VRLog.Info` | Debug | no |
+| 15 | `diag: vis … !ABOVE-WALL … !UNANCHORED` | `Core/WallFade/WallSegmentFade.cs` `VRLog.Info` | Debug | no |
+| 16 | `SkyBackdrop mechanism =` | `Core/Environment/SkyBackdrop.cs` `VRLog.Info` | Debug | no |
+| 17 | `MR: disabled sky/background renderer` | `Core/MixedReality/MixedReality.cs` `VRLog.Info` | Debug | no |
+| 18 | `stable hex decal ZTest=` | `Board/HexHighlightFix.cs` `VRLog.Note`, **`// HW-VERIFY`** | Info | **yes** |
+| 19 | `Session resumed after …` | `Core/VRPresenceWatch.cs` `VRLog.Info` | Debug | no |
+| 20 | `Tick '<name>' threw and was ISOLATED` | `Core/Perf/TickGuard.cs` and `Net/Desync/DispatchGuard.cs` `VRLog.Error` | Error | **yes** |
+| 21 | `IF THIS IS NOT THE COMMIT YOU EXPECTED` | `Plugin.cs` `VRLog.Note` | Info | **yes** |
+
+**What NOT to conclude from this table.** Do not promote these lines to `VRLog.Note` in bulk. The
+331 quiet was a user request and several of these fire per frame or per hover — promoting them
+re-creates the flood 331 removed, which is why `check-hw-verify.py` refuses a marked site inside
+`Update`/`LateUpdate`. The correct move is per round: when a hardware question depends on a token,
+mark that ONE site `// HW-VERIFY` and move it to `VRLog.Note` in the same commit, and let the gate
+hold it there. `ProximityGrabber.cs` shows the intended form — its marker comment cites this very
+section by name.
 
 ---
 
@@ -2276,12 +2359,15 @@ Answered during Batches C/D/E; kept with their answers so the questions are not 
 - ~~Retire the three `PlacementDiagnostics` patch classes?~~ **KEEP** until the next placement
   question — the blocker is a clean HMD pass, not a code argument. Decision and measured cost
   recorded at the top of `Board/Patches/PlacementDiagnostics.cs` and in §15.
-- **STILL OPEN — retire `PalmGate.UseDevicePalmNormal` together with the `CardsDriver`
-  assignment.** Confirmed vestigial at HEAD (the gate never reads it; one write, in Cards).
-  **Not done**: the two halves are in different subsystems worked by different workers, and
-  removing the Hands half alone does not compile. Whoever removes the `CardsDriver` write must
-  delete the field in the SAME commit; the field's doc now carries the instruction and the
-  completed CHARTER §5 sweep. The `INTERFACES-P2.md` half of the job is done (Batch C).
+- ~~**STILL OPEN — retire `PalmGate.UseDevicePalmNormal` together with the `CardsDriver`
+  assignment.**~~ **[verified 2026-09-08] CLOSED.** It was done exactly as prescribed — both
+  halves in one commit. `grep -rn "UseDevicePalmNormal" src/` returns nothing. The original text
+  is kept below because the *method* is the reusable part: a field in one subsystem written from
+  another cannot be retired by either owner alone, and the entry that says so is what made the
+  single-commit removal happen. Original: *"Confirmed vestigial at HEAD (the gate never reads it;
+  one write, in Cards). **Not done**: the two halves are in different subsystems worked by
+  different workers, and removing the Hands half alone does not compile. Whoever removes the
+  `CardsDriver` write must delete the field in the SAME commit."*
 - ~~Extract the mirrored reach/depth constants into a shared location?~~ **NO** — replaced by
   `scripts/check-mirrors.sh` (Batch A). Merging would worsen the Hands↔Board layering. Every
   mirrored site now says so at the constant. Note the exposure is wider than the review stated:

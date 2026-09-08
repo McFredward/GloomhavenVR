@@ -1,5 +1,18 @@
 # Hardware regression pass — what this refactor could plausibly have broken
 
+> ## ⚠ **[verified 2026-09-08 against `49ceab21`] SPENT — this is the 2026-07 refactor's test pass.**
+>
+> The sentence below — *"Everything else in the mod is provably byte-identical"* — was true of the
+> build this list shipped with and is **false now**: roughly two hundred builds have landed since,
+> up to ModBuild 483. Running this list today tests the 2026-07 refactor against a tree it does not
+> describe.
+>
+> **The current hardware pass is `.planning/refactor-2026-09/HARDWARE-REGRESSION-2026-09.md`**
+> (and `HARDWARE-REGRESSION-2026-08.md` for the round between). This file is kept for its §0 —
+> *check the startup line names the commit you expect, because a stale DLL is the single most
+> common way a "regression" turns out not to be one* — which is still the first thing to do in
+> every round.
+
 > Not a generic test script. This lists **only** what the refactor actually touched, ordered by
 > how likely a defect is and how hard it would be to attribute later. Everything else in the mod
 > is provably byte-identical (`scripts/refactor-guard.sh check`), so testing it tests nothing.

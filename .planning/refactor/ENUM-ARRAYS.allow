@@ -1,6 +1,12 @@
 # Latch arrays whose literal length disagrees with the enum that indexes them — the sites a
 # review has already convicted and a lane is repairing.
 #
+# LAST VERIFIED 2026-09-08 against 49ceab21 (ModBuild 483): this file has ZERO live entries.
+# `python3 scripts/check-enum-arrays.py` -> "15 literal-sized array(s) index an enum declared in
+# this repository; 15 agree with their enum's member count, 0 excused in ENUM-ARRAYS.allow."
+# The file did its job and emptied, exactly as its "TEMPORARY BY CONSTRUCTION" note intends.
+# Do not delete it: the gate reads it, and an empty allow-list is the correct steady state.
+#
 # One line per (file, field):    Net/Remote/File.cs | fieldName | the finding, and the build
 #
 # THIS FILE IS TEMPORARY BY CONSTRUCTION. check-enum-arrays.py FAILS on a line whose site is

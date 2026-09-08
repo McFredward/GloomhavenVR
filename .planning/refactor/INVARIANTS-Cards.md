@@ -1,7 +1,14 @@
 # Invariant registry — `src/GloomhavenVR/Cards/`
 
-> Subsystem: 25 files, ~23 900 lines. The largest and most heavily iterated part of
-> the mod (269 commits touching this directory, of which ~120 are `fix(...)`).
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** Corrections carry
+> **[verified 2026-09-08]**. Read the STALE SYMBOL INDEX below before trusting any `Where:` line.
+>
+> Subsystem: ~~25 files, ~23 900 lines~~ **67 files / 70 699 lines at `49ceab21`**. The largest and
+> most heavily iterated part of the mod. **The registry has not grown with it**: it was written
+> against the 25-file tree, so its silence about a file is not evidence that nothing load-bearing
+> lives there. The 2026-09 round added entries for the two biggest uncovered types in
+> `.planning/refactor-2026-09/REVIEW-cards.md` §3 (`CardsGameApi`, `CardFan`) rather than here —
+> read those there.
 >
 > **What this document is.** Every entry below is a piece of logic that *looks*
 > arbitrary, redundant or trivially simplifiable, and is in fact the residue of a bug
@@ -22,6 +29,29 @@
 > explicitly · **medium** = inferred from the diff or from surrounding code · **low** = guess.
 
 ---
+
+## STALE SYMBOL INDEX — **[verified 2026-09-08 against `49ceab21`]**
+
+Every identifier in every `- **Where:**` line of this file (575 distinct) was tested against
+`src/`. **Twenty-one no longer exist anywhere in the tree.** They are listed here in one place
+because the failure they cause is specific and expensive: a successor greps for the symbol, finds
+nothing, and cannot tell whether the invariant was *deleted*, *renamed*, or *never existed*. Three
+of these groups were deliberately removed, and one of them must never come back — so "cannot find
+it, assume it is gone, re-add it" is exactly the wrong inference.
+
+| gone symbol(s) | what took the job over |
+|---|---|
+| `CardsDriver.ContactStickyMargin`, `PileBrowser.ContactStickyMargin`, `ItemsPile.ContactStickyMargin`, bare `ContactStickyMargin`, `ContactPalmReach` | **MERGED into `Cards/FanSweep.cs`** — four copies of the tip reach became one. `FanSweep.TipReachMeters` (0.035), `FanSweep.PalmReachMeters` (0.13), `FanSweep.StickyMarginMeters` (0.02). **The mechanism also changed**: tip reach and the sticky margin are now scale-RELATIVE (`FanSweep.ResolveReach`, `FanReach.RelativeSize`, clamped 0.30–2.50), while the palm reach deliberately stays a real-metre constant because it mirrors `ProximityGrabber.ReachMeters` — candidacy must mean exactly "this hand could grab this card". |
+| `CardFace.TryCaptureSilhouette`, `CardFace.ReadTexture`, `s_silhouetteTried`, `s_silhouetteAttempts` | `Cards/Art/CardFace.cs`: `TryCapture(RectTransform, CardBodyKind, SilhouetteState)`, `ReadSpriteRegion(Texture, Rect)`, and the per-kind `s_silhouette` array of `SilhouetteState` with `MaxSilhouetteAttempts` / `SilhouetteAttemptInterval`. |
+| `PlayTray.WatchReachMeters`, `WatchFindableMeters`, `WatchViewMargin`, `WatchLostDwellSeconds`, `_lostSince` | **DELETED ON A USER RULING (2026-08-03) AND MUST NOT COME BACK.** See the corrected entries in §6 and the DO-NOT-RE-ADD block at the top of `Cards/Tray/PlayTray.2.Watchdog.cs`. |
+| `_pinPoseVersion`, `_rigLocalPinValid`, `_rigLocalPinRot` | Moved out of `PlayTray` into the shared **`Core/FollowPinAnchor.cs`**, so the combat log's pin and the board's pin share one cache instead of two copies. `PlayTray` kept only what is its own: the freeze-sentinel announcement, the issue-C move label and the log. |
+| `PlayTray.GenericCount`, `DockedLabelProud`, `_capTopLocalY` | The docked-label and generic-cluster geometry was reworked; `GenericClusterButtonSize`'s **cap auto-shrink is gone and `PlayTray.3.Pose.cs` says it "MUST NOT COME BACK"** (a third cluster member used to shrink every cap). |
+| `VRCard.SetPopped` | `_popped` still exists and still means the hand-driven proximity pop; the setter is gone (it is written internally). `VRCard.SetLaserHover` / `_laserPopped` are unchanged, and the resting-vs-live distinction §1 protects is intact. |
+| `_nextPressTime` | `PlayTray.BoardButton`'s poke cooldown bookkeeping; `ButtonTuning.PokePressCooldownSeconds` is still the dial. |
+
+**What this index does NOT say.** It says nothing about entries whose symbols all still exist —
+those were not re-derived, only checked for existence. A live symbol name is not proof the
+sentence around it is still true.
 
 ## Contents
 
@@ -487,21 +517,39 @@
 - **Breaks if:** Replacing the tick with a `SessionResumed` subscription "to save per-frame work". The absence of that signal is precisely the bug.
 - **Confidence:** high
 
-### Lost = neither reachable nor findable, for 3 s, in REAL metres
-- **Where:** `PlayTray.WatchReachMeters` (1.8), `WatchFindableMeters` (4), `WatchViewMargin` (0.35), `WatchLostDwellSeconds` (3), all divided by the rig scale; `Time.unscaledTime`
-- **Rule:** Within reach the board is never recalled *no matter where the head is looking*; a board that is far but inside the frustum (with viewport slack) is findable and must not be yanked back; the verdict must hold continuously for 3 s.
-- **Why:** A lectern below the chin legitimately leaves the frustum whenever the player looks up at the dungeon, so a frustum-only test recalls it constantly. The view margin exists because a board half off the view edge is findable by turning the head. The dwell is long enough that leaning away or turning around never moves it. Unscaled time because the pause menu freezes `timeScale`.
-- **Established by:** `fb2e6e3`
-- **Breaks if:** Dropping the `/ scale` (at the ~20× diorama scale the thresholds become meaningless), making the reach test frustum-only, or shortening the dwell "to feel responsive".
-- **Confidence:** high
+### THE AUTOMATIC RECALL IS GONE — the absence of the code IS the invariant
+**[verified 2026-09-08. This entry REPLACES two entries — "Lost = neither reachable nor findable,
+for 3 s, in REAL metres" and "A grabbed board is never recalled, and a missing head yields no
+verdict" — which described the envelope-and-dwell recall as live law. It was deleted on a user
+ruling on 2026-08-03. Both old entries are quoted below, because their reasoning is the argument
+against the FIRST version of the feature and a successor needs it to understand why re-tuning the
+envelope is not the answer either. `Cards/Tray/PlayTray.2.Watchdog.cs` cites "INVARIANTS-Cards §6"
+as the holder of this invariant, and until this pass §6 did not hold it.]**
 
-### A grabbed board is never recalled, and a missing head yields no verdict
-- **Where:** `PlayTray.TickLostWatchdog` (grab and no-head guards both **clear** `_lostSince`)
-- **Rule:** Both cases reset the dwell timer rather than merely returning.
-- **Why:** Yanking a panel out of the user's hand mid-carry is worse than losing it; and with no head there is no verdict possible, so no timer may run. Returning without clearing lets the dwell accumulate across a long carry and fire the moment the user lets go.
-- **Established by:** `fb2e6e3`
-- **Breaks if:** Turning them into plain `return false`.
-- **Confidence:** high
+- **Where:** the DO-NOT-RE-ADD comment block at the top of `Cards/Tray/PlayTray.2.Watchdog.cs`. It has **no code under it, and that is the point.**
+- **Rule:** **DO NOT RE-ADD A DISTANCE- OR VISIBILITY-BASED RECALL**, and do not delete the comment block because nothing follows it. `PlayTray.WatchReachMeters` (1.8), `WatchFindableMeters` (4), `WatchViewMargin` (0.35), `WatchLostDwellSeconds` (3) and `_lostSince` **no longer exist in `src/`**.
+- **Why:** the feature did exactly what it was written to do, and *that* was the bug. USER RULING, 2026-08-03, after it fired while the options menu was open in a tutorial: *"das darf niemals passieren, das Controllboard muss immer wie angewurzelt an der Position sein — es darf niemals (egal was passiert) eine Position plötzlich wechseln (Respektiere natürlich nach wie vor fixed/Folgen)."* The hardware log of that run shows the mechanism exactly: reading a menu parks the head away from a PINNED board for longer than the dwell, so `CONTROL BOARD RECOVERED — out of reach AND out of view for 3.0s (2.64 m out, -1.12 m vertical, 69° off the view axis, mode PINNED, rig scale 8.1)` fired **four times in one session**, each time teleporting the board in front of the player. **No envelope tuning can fix that**: "the player is not looking at it and it is more than an arm away" is the NORMAL state of a pinned board, not evidence of a glitch. The same ruling deleted `WorldUI.ModalFallback`'s lost-menu recall at ModBuild 149, so the precedent the watchdog was modelled on is gone too — nothing in WorldUI recalls anything on a timer any more.
+- **What survives:** the **non-finite verdict** (a NaN/Inf transform is not a position at all, nothing parented to it renders, and it can never heal by itself — see the entry below), plus the pose-PRESERVING pin housekeeping. The user-facing recovery is the **explicit** one, `CardsDriver.RequestBoardRecall` → `_recallBoard`, which is a deliberate action and therefore always allowed. **It has had a button since 2026-09-06** — the first row of *Brett & Karten ▸ Steuerbrett*, reached from the PAUSE menu and deliberately not from the board itself, which is the whole point when the board is what is missing.
+- **Breaks if:** any per-frame test that moves the board because of where the player is or is looking. Re-read the ruling first; this is Tier 3 and it is settled.
+- **Confidence:** high (source comment states the ruling verbatim; re-read at `49ceab21`)
+
+**The two superseded entries, kept for their reasoning.** Both were true of the deleted feature
+and both are the record of how carefully it was built — which is the point: it was carefully built
+and still wrong, so a more careful envelope is not the fix.
+
+> ~~**Lost = neither reachable nor findable, for 3 s, in REAL metres.** Within reach the board is
+> never recalled *no matter where the head is looking*; a board that is far but inside the frustum
+> (with viewport slack) is findable and must not be yanked back; the verdict must hold continuously
+> for 3 s. A lectern below the chin legitimately leaves the frustum whenever the player looks up at
+> the dungeon, so a frustum-only test recalls it constantly. The view margin exists because a board
+> half off the view edge is findable by turning the head. The dwell is long enough that leaning away
+> or turning around never moves it. Unscaled time because the pause menu freezes `timeScale`.
+> Established by `fb2e6e3`.~~
+>
+> ~~**A grabbed board is never recalled, and a missing head yields no verdict.** Both cases reset
+> the dwell timer rather than merely returning: yanking a panel out of the user's hand mid-carry is
+> worse than losing it, and with no head there is no verdict possible. Returning without clearing
+> lets the dwell accumulate across a long carry and fire the moment the user lets go.~~
 
 ### A non-finite transform bypasses the dwell
 - **Where:** `PlayTray.TickLostWatchdog` (NaN/Inf branch returns `true` immediately)
@@ -537,7 +585,13 @@
 - **Confidence:** high
 
 ### Pin carry keys on `RigPoseVersion` and nothing else
-- **Where:** `PlayTray.SyncPinHolder` (`_pinPoseVersion`, `_rigLocalPinValid`, `_rigLocalPinPos`/`_rigLocalPinRot`)
+**[verified 2026-09-08 — the rule holds; the state moved.]** `_pinPoseVersion`, `_rigLocalPinValid`
+and `_rigLocalPinPos`/`Rot` are **no longer fields of `PlayTray`**: the origin version and the
+rig-relative cache now live in the shared **`Core/FollowPinAnchor.cs`**, because the combat log's
+pin needs the identical sentence and a second copy was the alternative. `PlayTray` kept the three
+things that are its own — the freeze-sentinel announcement, the issue-C move label, and the log.
+Everything below still describes the mechanism; read the fields at `FollowPinAnchor`.
+- **Where:** `PlayTray.SyncPinHolder`, with the origin version and rig-local cache in `Core.FollowPinAnchor` (was `_pinPoseVersion`, `_rigLocalPinValid`, `_rigLocalPinPos`/`_rigLocalPinRot` on `PlayTray`)
 - **Rule:** The pinned board is carried by its cached **rig-relative** pose exactly when `VRRigDriver.RigPoseVersion` changes; the rig-local cache is refreshed every frame while the origin is stable; the FOLLOW/no-pin early return still stamps the version first.
 - **Why:** `RigPoseVersion` bumps on exactly two events — a rig (re)build and a deliberate recentre — and on nothing else: snap turns and world-grab deliberately do **not** bump it. It is therefore the only stable signal. The per-frame cache refresh exists so the next origin change carries the board from where the user last dragged it, not from where it was pinned. The early-return stamp prevents a stale version triggering a bogus carry the first frame after switching to PINNED.
 - **Established by:** `fb2e6e3`
@@ -561,7 +615,12 @@
 - **Confidence:** high — the mechanism is measured in the log, the fix is not yet hardware-confirmed (`// HW-VERIFY` on `CONTROL BOARD ARRIVAL SEAT`).
 
 ### Watchdog state is reset in `Destroy`
-- **Where:** `PlayTray.Destroy` (`_lostSince`, `_pinPoseVersion`, `_rigLocalPinValid`, `_pinHousekeepingMove`)
+**[verified 2026-09-08 — the rule holds; three of the four fields are gone.]** `_lostSince` went
+with the deleted recall (see *THE AUTOMATIC RECALL IS GONE*); `_pinPoseVersion` and
+`_rigLocalPinValid` moved to `Core.FollowPinAnchor`. `_pinHousekeepingMove` is still a `PlayTray`
+field. The invariant is unchanged and is the reason it must be re-checked after any such move:
+**whatever pin/watchdog bookkeeping exists must be cleared on teardown, wherever it now lives.**
+- **Where:** `PlayTray.Destroy` (was `_lostSince`, `_pinPoseVersion`, `_rigLocalPinValid`, `_pinHousekeepingMove`)
 - **Rule:** All watchdog/pin bookkeeping is cleared on teardown.
 - **Why:** The `PlayTray` **instance outlives its root** (board switch, rebuild), so a stale dwell timer could recover a board that was never lost.
 - **Established by:** `fb2e6e3`

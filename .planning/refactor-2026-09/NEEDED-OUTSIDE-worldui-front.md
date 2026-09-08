@@ -1,5 +1,16 @@
 # NEEDED-OUTSIDE — lane worldui-front (refactor 2026-09)
 
+> **[verified 2026-09-08 against `49ceab21` (ModBuild 483)] SOME OF THESE HAVE BEEN APPLIED, AND
+> THIS FILE DOES NOT SAY WHICH.** A NEEDED-OUTSIDE list is written at the moment the lane closes
+> and is never revisited, so its standing claim that "nothing here has been applied" decays into a
+> false statement the first time the integrator lands one of them. Per-item status was **spot
+> checked, not exhaustively re-derived** — check the item against source before acting on it, and
+> read the line numbers as advisory (they are from the lane's base commit, not from `49ceab21`).
+>
+> Verified in this pass:
+> - **§1 `["WorldUI/MapRoomWindowBarHeightMeters"]` German description — DONE.** It now names the
+>   shared (*"blau beleisteten"*) map-room windows on the semicircle.
+
 Changes this lane needs in files it does not own. Each is an exact diff with its reason; the
 owning lane (or the integrator) applies it.
 

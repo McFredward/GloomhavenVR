@@ -1,5 +1,38 @@
 # VR-Menü — Struktur und Begründung
 
+> ## ⚠ **[verified 2026-09-08 against `49ceab21`] THIS DOCUMENT IS A HISTORICAL PROPOSAL AGAINST A MENU THAT NO LONGER EXISTS.**
+>
+> Everything below is written against `SettingsPanel.*`. **`SettingsPanel` was deleted**
+> (`9a6db78c` *"remove the old VR settings panel and everything that fed it"*, after `f64393ec`
+> split it into six partials). No file named `SettingsPanel*` exists in `src/`, and neither do
+> `SettingsPanel.7.Tooltips.cs` or `SettingsPanel.8.ConfigBrowser.cs`, which §0 cites as the homes
+> for tooltips and the generic browser.
+>
+> **Where the live menu is instead:** `src/GloomhavenVR/WorldUI/Options/` —
+> `VROptionsTab.1.Inject.cs` … `VROptionsTab.10.Skin.cs`, plus `ConfigCatalog.cs` (the generic
+> browser, a reflection walk over the live BepInEx registry) and `VRMenuEntry.cs` (the pause-menu
+> entry point).
+>
+> **The authority on what is curated and where it sits is `scripts/check-options-coverage.py`,
+> not this file.** It reads `VROptionsTab.4.Curated.cs`, `VROptionsTab.6.BoardTopic.cs` and
+> `VROptionsTab.7.TopicTrees.cs` and fails on a curated key nothing binds, a caption `Loc.cs`
+> lacks, an unargued duplicate, and a key that joins a curated family without joining its heading.
+> It exists because ModBuild 339 built a dial the user then **could not find**. Green at
+> `49ceab21`.
+>
+> **Do not cite a row of this file as current.** `Cards/Driver/CardsDriver.2.Update.cs` already
+> had to write that correction into its own source: the row it used to cite here
+> (*"Komfort ▸ Neu zentrieren · Board zurückholen"*) is a proposal against the dead menu, and the
+> *"Neu zentrieren"* half **was never built** — recentring is a controller chord
+> (`VRRigDriver.RequestRecenter`), not a menu row, so there was no neighbour to sit beside.
+>
+> **Why it is kept.** §0's five rules and §1's diagnosis are the reasoning the current menu was
+> built on, and §4's four open questions (Geisterhand/Geist-Stärke, Aufrecht, Blick-Neigung, and
+> what Debug opens on) were addressed to the user and are **not re-verified by this audit** — they
+> may or may not still be open. Read this for the *arguments*; read `VROptionsTab.*` for the
+> *structure*.
+
+
 > Umbau der KURATIERTEN Kategorien des In-VR-Einstellungsmenüs
 > (`SettingsPanel.*`). Der generische Konfigurations-Browser
 > (Debug ▸ Alle Einstellungen, `SettingsPanel.8.ConfigBrowser.cs` +

@@ -1,5 +1,19 @@
 # NEEDED-OUTSIDE — lane **net** (refactor 2026-09)
 
+> **[verified 2026-09-08 against `49ceab21` (ModBuild 483)] SOME OF THESE HAVE BEEN APPLIED, AND
+> THIS FILE DOES NOT SAY WHICH.** A NEEDED-OUTSIDE list is written at the moment the lane closes
+> and is never revisited, so its standing claim that "nothing here has been applied" decays into a
+> false statement the first time the integrator lands one of them. Per-item status was **spot
+> checked, not exhaustively re-derived** — check the item against source before acting on it, and
+> read the line numbers as advisory (they are from the lane's base commit, not from `49ceab21`).
+>
+> Verified in this pass:
+> - **P1 (the gaze-bias lean) is STILL OPEN.** No shared helper exists — `grep -rn "GazeBiasStep"
+>   src/` returns nothing, and both `CardFan.UpdateGazeBias` and
+>   `RemoteHandFan.UpdateGazeBias` are still there, term for term. The six constants are still
+>   pinned by `check-mirrors.sh` (green), which remains the weaker half of what a merge would give.
+> - P2 and P3 were **not** re-checked.
+
 Three changes lane net needs in another lane's files, and nothing else. All three are the same
 class — **parallel construction across the Net↔Cards seam**: one concept the player experiences
 once, implemented twice, with the two copies in two lanes' file sets. Per BRIEF §1.4 a merge whose

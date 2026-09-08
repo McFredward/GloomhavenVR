@@ -650,10 +650,19 @@ namespace GloomhavenVR
             UnityEngine.Object.DestroyImmediate(_inst);
             _inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
             Shader.SetGlobalFloat("_GhvrIndoor", 1f);       // the cellar's own ambient rules
+            // NO DOME SINCE ModBuild 483, and that is the SHIPPED state rather than a failure:
+            // he reported two star skies in the cellar ("der gekrümmte reicht"), so BuildCellar
+            // stopped calling AddNightSky and this room's only sky is now the NightSky patch
+            // inside RoomGeo. The lookup STAYS — an old bundle still carries the node and these
+            // frames have to keep working against one — but it may no longer be dereferenced
+            // blind. Every other station in this file already guarded its lookup; this one did
+            // not, and NEEDED-OUTSIDE-cellar-one-sky.md §1 predicted the throw before 483 shipped
+            // the premise. Null is already a supported value for both renderers: each is only
+            // ever read behind an `!= null` test.
             var dome = _inst.transform.Find("StarDome");
-            _domeRen = dome.GetComponent<Renderer>();
-            _starsRen = dome.Find("StarField")?.GetComponent<Renderer>();
-            _cloudBand = dome.Find("CloudBand")?.gameObject;
+            _domeRen = dome != null ? dome.GetComponent<Renderer>() : null;
+            _starsRen = dome != null ? dome.Find("StarField")?.GetComponent<Renderer>() : null;
+            _cloudBand = dome != null ? dome.Find("CloudBand")?.gameObject : null;
             _roomGeo = _inst.transform.Find("RoomGeo")?.gameObject;
             FastForward(_inst.transform);
             SetClock(413.7f);

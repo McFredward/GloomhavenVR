@@ -1,5 +1,15 @@
 # Lane cards — changes needed OUTSIDE this lane's file set
 
+> **[verified 2026-09-08 against `49ceab21` (ModBuild 483)] SOME OF THESE HAVE BEEN APPLIED, AND
+> THIS FILE DOES NOT SAY WHICH.** A NEEDED-OUTSIDE list is written at the moment the lane closes
+> and is never revisited, so its standing claim that "nothing here has been applied" decays into a
+> false statement the first time the integrator lands one of them. Per-item status was **spot
+> checked, not exhaustively re-derived** — check the item against source before acting on it, and
+> read the line numbers as advisory (they are from the lane's base commit, not from `49ceab21`).
+>
+> Verified in this pass: **§1's pairs are STILL OPEN** — no shared helper was created for any of
+> the three, so the side-by-sides below are still the current state of the code.
+
 > Each entry: the files, the reason, and the exact change (or the side-by-side when the change is
 > a merge the integrator has to decide). Nothing here was committed by lane cards.
 

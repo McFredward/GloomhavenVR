@@ -1,11 +1,98 @@
 # Invariants — `src/GloomhavenVR/WorldUI/`
 
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** Corrections carry
+> **[verified 2026-09-08]**. **Read the STALE SYMBOL INDEX below before trusting any `Where:`
+> line** — this file's addressing scheme is symbol names, and that is the part that has rotted.
+>
 > Companion to `CHARTER.md`. **This file is evidence, not opinion.** Every entry
 > below is code that looks arbitrary and is in fact the residue of a bug that
 > took one or more Quest 3 hardware rounds to corner. Recovering the reason is
 > the point; the refactor's job is to preserve it.
 >
 > **Symbols only — no line numbers.** Files are being edited concurrently.
+> **[verified 2026-09-08]** That choice was right for the reason given and has a cost this file
+> did not anticipate: a renamed or deleted symbol leaves NO trace here, and a reader who greps and
+> finds nothing cannot tell *deleted* from *renamed* from *never existed*. Hence the index below.
+>
+> Scope measured at `49ceab21`: `src/GloomhavenVR/WorldUI/` is **200 files / 193 102 lines**, and
+> many entries legitimately reach outside it (`Rig/`, `Hands/Interact/`, `Compat/`, `Core/`).
+> **246 entries, 587 distinct symbols, all tested for existence.**
+
+---
+
+## STALE SYMBOL INDEX — **[verified 2026-09-08 against `49ceab21`]**
+
+**17 symbols named in `Where:` lines have ZERO occurrences anywhere in `src/`**, and about 25 more
+survive only inside tombstone comments. Almost all of it is three structural deletions, so the
+index is organised by those rather than alphabetically — knowing *which subsystem went* answers
+more entries at once than knowing which name went.
+
+### A. The depth-mask subsystem is GONE — panels write no depth at all
+Dead: `MaskMinAlpha`, `CollectVisibleMaskRects`, `DepthMaskQuadPaddingPx`, `DepthMaskMaxQuads`
+(plus `GrabbableModal.BuildDepthMask`, `CanvasConversion.5.Depth.cs` and `.7.Ink.cs`, all deleted).
+**Replaced by distance ordering:** panels compose far-to-near by eye distance —
+`Conversion/CanvasConversion.8.Order.cs` carries the whole argument, and `ConvertedPanel.cs`
+names every field that went with it. This was a **user ruling on the third attempt**, after the
+first two shipped and failed on hardware. Entries affected: *Content fit and depth-mask emission
+use DIFFERENT alpha floors* (`FitMinAlpha` survives, `MaskMinAlpha` does not, so its "Breaks if:
+the two floors are merged" now guards nothing), *Invisible clippers and raycast catchers must NOT
+stamp depth*, *The depth mask is PER-GRAPHIC, not one union quad*, *The fit CLAMPS to the target
+frame; the depth mask deliberately does NOT*, *DepthMaskQuadPaddingPx is 3*, and the
+`CollectVisibleMaskRects` half of *ClipperMemo is cleared per measurement PASS* (`ClipperMemo`,
+`ScrollScratch` and `BgGraphicScratch` are all still live; `CanvasScratch` is now
+`HideCanvasScratch`). **Do not "restore" any of it.**
+
+### B. `WorldUI/ButtonCluster.cs` is DELETED — 1 885 lines
+Dead: `ClusterProudOffset`, `DockedLabelProud`, `_capTopLocalY`, `ClickUiButton`,
+`ButtonCluster.PhysicalButton.Fire`. The name survives only as a `PanelSlot` enum member;
+`NetProtocol.cs` records the deletion and where the skip cap went (onto `ButtonSeat3`). The cap
+code that remains is under `WorldUI/Buttons/`. **The invariants are mostly still real** — in
+particular *ButtonCluster.ClickUiButton needs an EXPLICIT lock gate* is a live rule with no live
+symbol in it: `CanvasConversion.IsLockedNow` and the `ExecuteEvents.pointerClickHandler` pattern
+both still exist (`Hands/Interact/UguiPointer.cs`, `WorldUI/MapRoom/MapButtonRail.cs`), so the
+gate still has to be asked. *Keycap presses are DEPTH-fired* is otherwise intact
+(`ButtonTuning.PressFireFraction` and friends are live).
+
+### C. `WorldUI.SettingsPanel` is DELETED — replaced by `WorldUI/Options/VROptionsTab.*`
+Dead: `_refreshers`, `_debugRows`, `_debugRowVisible`, `_sizeScale`, and the whole of the settings
+section. `Rig/RenderQuality.cs` and `Rig/Comfort.cs` both state the deletion at the site. See also
+`MENU-STRUCTURE.md`, which is a proposal against this dead menu and is stamped accordingly.
+Entries affected: *FOLLOW placement is EVENT-gated*, *Build() must clear the three accumulation
+lists first*, *The sidebar column is pinned rigid*, *The settings panel size is decoupled from
+diorama zoom*, and the second-consumer half of *PanelGrabHandle.MinScale / MaxScale are internal,
+as one source of truth* (`PanelGrabHandle` itself is live in `Grab/PanelGrab.cs`).
+
+### D. Individually renamed or retired
+| gone | what took over |
+|---|---|
+| `WristHud.FlatBackOfHand` | **`WristHud.PalmFlat` — and the geometry INVERTED.** See the corrected entry; this is the most dangerous line in the file. |
+| `RayInteractor.UpdateModalPickBlock` | `RayInteractor.UpdateCommitSuppression`, which reads `BlockingWindowModalActive` **and** a second term `HardCommitLockActive`. The pick is no longer gated at all — see `INVARIANTS-Hands-Board-Core.md` §1, corrected in the same pass. |
+| `NonBlockingMenus` | `MenuWindowFamily.IsGameOwnedMenu` (`Modal/ModalFallback.8.Convert.cs`); `ModalFallback.7.Close.cs` says "It used to be `!NonBlockingMenus.Contains(window.ID)`". |
+| `RowSeatTopUp` | `DecisionDockSurface.RowTopUpMeters` — which the same `Where:` line already names correctly, so only the fallback name is dead. |
+| `DecisionRowGapPx` | Superseded by a 2026-08-03 user ruling; tombstone and replacement rationale at `Surfaces/DecisionDockSurface.cs`. |
+| `CombatLogUserClosed` | **Deliberately UNBOUND.** `Surfaces/CombatLogSurface.cs`: *"a persisted latch that outlives the only thing able to clear it is a trap … Visibility is SESSION state — one bool, no file."* The entry's "persists that as the new layout" is now wrong. |
+| `_everShown`, `_ticked` | Replaced, and the source calls the replacement *"a bug fix, not a tidy-up"* (`CardsDriver.1.Core.cs`, `PlayTray.7.Nested.cs`). |
+| `BarColliderPad` | `Core/GrabBarVisual.cs` (*"The box it replaces was `BarColliderPad = 1.5`"*), with a block in `Grab/GrabbableModal.cs` headed "WHAT BECAME OF BarColliderPad, AND WHAT DID NOT GO WITH IT". |
+| `PanelGrabHandle.TwistYawDegrees` | `LevelPose.TwistDegrees(rotation, axis)` — generalised from world-up-only. `PanelGrab` is a FILE, not a type. |
+| `ScaleReDerived` | `ScaleReDerivedAtFit` (rename only; `OneShotFitted` is live). |
+| the whole vestigial map set (`MapCaptureMode`, `MapStrip*`, `MapUv*`, `MapExposure`, `MapSrgbFix`, `BoostAmbientForMapRender`, `EnsureMapLight`, `BuildUv0`, `ReadRealUv*`, `ApplyOrientation`, `_backdropMenuQueue`, `DebugElement`, `OcclusionProbe`, …) | Deleted, as that section recommended. **But its repeated "the config entries are user data — deprecate, do not delete" was NOT followed**: `FlatScreenStereo.3.Map.cs` says *"the old MapUvChannel config key, **deleted**"*. Two entries in that section still hold: *TrayControlDockSurface as a whole* and *The renderOnTop remnants*. |
+
+### E. What this index does NOT say
+- It says nothing about entries whose symbols all exist. Those were checked for **existence
+  only**, not re-derived. A live symbol name is not proof the sentence around it is still true —
+  *Modal hosts convert at sortingOrder 1000 to break an order-0 depth tie* is the example: every
+  name in it resolves, and `CanvasConversion.8.Order.cs` says the ladder now rewrites
+  `sortingOrder` **every frame from eye distance**, so the static-1000 framing is superseded.
+  **Marked cannot-verify, deliberately: re-derive it before relying on it.**
+- Five symbols were EXCLUDED from the dead list as false positives and are named here so nobody
+  re-reports them: `ZoomOutExtraHeight` (game API, live as `cc.m_ZoomOutExtraHeight`),
+  `get_IsLethalDamage` (a game property this mod patches — live patch target),
+  `flexibleHeight` (Unity `LayoutElement`), and `renderOnTop` / `ApplyDrawOnTop` /
+  `GraphicOverlayRecord`, whose entries **assert their own absence** and are therefore correct.
+- **A known gap, not a wrong claim:** this file has **no entry** for the two-clients / two-canvas-
+  widths hazard (the peer's authored canvas being a different width from the host's). `1920`
+  appears once, describing the game's authored window rect in a laser-latch entry, and `2580` not
+  at all.
 >
 > Reading order: entries are grouped by area. `Breaks if:` names the specific
 > "simplification" that would put the bug back. When in doubt, the charter's
@@ -1003,14 +1090,21 @@
 - **Established by:** `4b1bff6` (item 6)
 - **Confidence:** medium
 
-### `WristHud.FlatBackOfHand` is a single PROPER rotation — no handedness branch, no baked pitch
-- **Where:** `WristHud.FlatBackOfHand` = `Quaternion.LookRotation(Vector3.up, Vector3.forward)`, applied in `WristHud.Build` / `WristHud.ApplyPose`
-- **Rule:** one rotation for both hands. canvas +Z → wrist +Y (readable front out the back of the hand, toward the HMD); canvas +Y → wrist +Z (12 o'clock toward the fingers); canvas +X → wrist −X. The plane spans wrist X and Z. It is a **proper** rotation (det +1), so the front face is never mirrored. Tilt is `FlatBackOfHand * Euler(Pitch, Yaw, Roll)` from live per-style config — **never** baked into the base rotation.
+### `WristHud.PalmFlat` is a single PROPER rotation — no handedness branch, no baked pitch
+**[verified 2026-09-08 — THE MOST DANGEROUS ENTRY IN THIS FILE, and it was not merely a rename.
+The symbol changed AND the geometry inverted: the plate is read off the PALM now, not the back of
+the hand, and the doc preserved the exact reasoning the current build was written to fix.]**
+
+- **Where:** `WristHud.PalmFlat` = `Quaternion.Euler(0f, 180f, 0f)` (`WorldUI/WristHud.cs`), applied in `WristHud.ApplyPose` as `PalmFlat * Quaternion.Euler(PitchDeg, YawDeg, RollDeg)`. `MapRoomHand.3.Wrist.cs` carries the identical `WristPalmFlat` and says so. `FlatBackOfHand` does not exist.
+- **Rule:** one rotation for both hands, and it is a **half turn about +Y**. canvas **−Z** (the READABLE face of a uGUI canvas) → wrist **+Z**, out of the **PALM**, toward a player looking at their own palm; canvas +Y (text top) → wrist +Y, toward the FINGERS; canvas +X → wrist −X. The plate spans the wrist X/Y **palm plane** and its normal is the palm normal. A half turn is proper (det +1) so **the text is never mirrored**, and because the wrist frame is anatomically identical on both hands this needs **no per-hand sign flip** — unlike the seat roll/yaw and the pinky counter-abduction, which mirror because they are stated in the CONTROLLER's frame. Tilt stays live per-style config, **never** baked into the base.
+- **Why:** unchanged in kind — four orientation commits each fixing the last — plus the correction that produced the current base. The user report was *"Weiterhin sehe ich das HUD jetzt spiegelverkehrt!"* (2026-08-09): the look-at gate revealed the plate from the palm side while the base put the readable face out the back, so the player was shown the canvas's **back** face, which uGUI's Cull-Off shader draws mirror-reversed.
+- **REJECTED, and this entry used to assert it as law: "this TMP canvas reads from local +Z".** It does not. **A uGUI canvas is read from its −Z side**, and the source names the mistake precisely: the previous round *"took the 'readable +Z' note of commit `3cc7ac8` at face value"*, but that commit measured a plate whose +Z pointed along the FINGERS and reasoned in the root frame, so its screenshot could not tell the two sides apart. Three independent confirmations of −Z: `PanelPlacement.Facing` (*"+Z away from viewer"*), `VRCard` (*"viewer on the −Z side"*), and Unity's own default setup. A fourth is the user's own hand-tuned trims from the back-of-hand era, which compose to within 12° of identity — i.e. that plate's +Z pointed out of the palm, away from someone reading it off the back of their hand.
+- **Also superseded:** the pre-turn-around per-style trims. They were the correction for a base that no longer exists and their KEYS could not be carried over. `HandsConfig` now ships 0° because *"WristHud's PalmFlat IS the wanted orientation"*.
 - **Why:** four orientation commits, each fixing the previous one's regression, converged here. The repo's card/tray canvases read from local **−Z** (`PanelPlacement.Facing` "+Z away from viewer"; `VRCard` "viewer on the −Z side") and the wrist code inherited that assumption — but this TMP canvas reads from local **+Z**. The failure sequence was: vertical panel → edge-on invisible panel (normal put on the finger axis) → upside-down → **mirror-reversed back face**.
-  **The absence of a per-side branch and of a hard-coded 90° pitch is itself the invariant.** `3cc7ac8` (un-mirror the LEFT wrist) and `123f596` (fold a 90° pitch) are both *superseded*; reintroducing either re-opens its bug. The in-code FLIP FALLBACK recipe is explicit that the normal and the gate axis must move **together**.
-- **Established by:** `c66372a` → `4ad81b1` → `123f596` → `3cc7ac8` → `a0d4211` fix(worldui): WristHud flat on back-of-hand, +Y normal + matching gate
-- **Breaks if:** a handedness sign flip is added "to un-mirror the left hand", or a pitch is baked into `FlatBackOfHand` instead of going through the config.
-- **Confidence:** high
+- **STILL THE INVARIANT, unchanged by any of the above:** the absence of a per-side branch and of a hard-coded 90° pitch. `3cc7ac8` (un-mirror the LEFT wrist) and `123f596` (fold a 90° pitch) are both superseded; reintroducing either re-opens its bug.
+- **Established by:** `c66372a` → `4ad81b1` → `123f596` → `3cc7ac8` → `a0d4211`, then the 2026-08-09 palm-side correction that produced `PalmFlat`.
+- **Breaks if:** a handedness sign flip is added "to un-mirror the left hand"; a pitch is baked into `PalmFlat` instead of going through the config; the readable face is moved back to the BACK of the hand without moving the look-at gate with it; or the base rotation and `ReadableFace` (the single source the gate reads) are allowed to drift apart again — they were unified for exactly that reason.
+- **Confidence:** high (re-read at `49ceab21`)
 
 ### The wrist look-at gate tests `Root.up` (+Y) — the gate axis and the panel normal are one decision
 - **Where:** `WristHud` visibility gate, `ShowDot` 0.35 / `HideDot` 0.2 (asymmetric Schmitt trigger)
@@ -1112,7 +1206,19 @@
 - **Confidence:** high
 
 ### Deprecated config entries stay BOUND
-- **Where:** `[Comfort] SeatedMode`, `ComfortSettings.Vignette*`, `[Cards] DebugMenu`, legacy `[TransientButtons]`/`[SquareCaps]` handling
+**[verified 2026-09-08 — the RULE is charter law and stands; BOTH of its headline exemplars have
+since been deleted, and so was a key another entry recommended deprecating. The entry is cited as
+precedent by three others, so it is corrected rather than left to lend authority it no longer has.]**
+`[Comfort] SeatedMode` and `ComfortSettings.Vignette*` have **zero occurrences in `src/`**. So does
+the `MapUvChannel` key, which the vestigial section explicitly asked to deprecate rather than
+delete — `FlatScreenStereo.3.Map.cs` records it as *"the old MapUvChannel config key, **deleted**"*.
+The migration half of the rule is the half that held: `[TransientButtons]` → `[RoundButtons]` and
+the `[SquareCaps]` fan-out are still the pattern to follow. **The rule is not weakened by having
+been broken** — CHARTER §5 is unchanged, and `scripts/check-surface.py` now enforces it
+mechanically (a REMOVED config key fails the gate; additions are free), which is the enforcement
+this entry was asking for by hand. What a successor must NOT do is cite this entry's exemplars as
+live proof: check the surface census instead.
+- **Where:** ~~`[Comfort] SeatedMode`, `ComfortSettings.Vignette*`~~ (both deleted), `[Cards] DebugMenu`, legacy `[TransientButtons]`/`[SquareCaps]` handling — and, as the live mechanism, `scripts/check-surface.py`
 - **Rule:** an entry whose feature was removed stays **bound** (marked deprecated / no-op) as long as any other seam still reads it, and legacy sections are **migrated** on `Bind()` rather than dropped.
 - **Why:** charter §5 — an unread config key is still a user's persisted setting, and removing it silently changes behaviour on their machine. Concretely: `SeatedMode` is still read by `ComfortGizmos` and `VRRigDriver` for diagnostics; `Vignette*` is still referenced by `SettingsPanel` after the vignette component was deleted; `[TransientButtons]` values migrate 1:1 into `[RoundButtons]` and nonzero `[SquareCaps]` values are copied into **every** category they used to affect, so the current look is preserved.
 - **Established by:** `7bb5757`, `8454e88`, `e0432fe` (item 3), `6910388` (item 5)

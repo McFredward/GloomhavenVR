@@ -51,8 +51,9 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
 2. **`NetProtocol.ModBuild` +1 on every build handed to another player**, with a full build note.
    It is the multiplayer handshake key; mismatched peers get a blocking dialog.
 3. **Wire:** magic `GVR1`, `Version` byte stays **3**, every change is an **additive TLV** record
-   that old readers skip by length. **Record ids 1–45 are in use; 46 is next free and is reserved
-   for the short-rest bit.** No id has ever been retired or renumbered and none ever may be.
+   that old readers skip by length. **42 records exist, the highest id is 45, and 38/40/42 are
+   holes that may never be reused. 46 is next free and is reserved for the short-rest bit.** No id
+   has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
    `scripts/wire-tests.sh` (210,164 golden assertions) is the proof; a `Write`+`TryRead` change
    made in lockstep is invisible to a round trip, which is why the golden vectors exist.

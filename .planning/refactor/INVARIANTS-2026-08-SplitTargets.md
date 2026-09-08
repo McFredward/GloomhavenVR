@@ -1,5 +1,10 @@
 # Invariant registry — the 2026-08 split targets
 
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** Corrections carry
+> **[verified 2026-09-08]**. Two of this file's statements had gone stale and both were the kind a
+> successor acts on: the config-key census number in §8, and §9's claim that `CardFan` and
+> `CardsGameApi` had never been read. Everything else was re-read and left alone.
+>
 > Companion to `PLAN-2026-08.md` phase 4 and `CHARTER.md`. The four 2026-07 registries
 > (`INVARIANTS-Cards.md`, `-Hands-Board-Core.md`, `-Net-Rig.md`, `-WorldUI.md`) describe the mod as
 > it stood at 182 files. This one covers the types phase 4 will actually cut apart, and nothing
@@ -199,13 +204,47 @@ one thing worth stating that a splitter could still get wrong:
 - **Where:** `CardsConfig.Bind` (966 code lines), `WorldUIConfig.Bind` (448), `WallSegmentFade.Bind` (312), `PerfConfig.Bind` (292), `FigureGrabConfig.Bind` (221), `HandsConfig.Bind` (208), and the other 18.
 - **Rule:** **the order of `Bind` calls is the order of sections and keys in the player's generated `.cfg` file.** It is not an implementation detail.
 - **Breaks if:** splitting per section in any order other than the existing one, or sorting the calls "for readability". The player's tuned file is rewritten, and his hand-tuned values are what every recent hardware round was measured against — see `[[tuned-cfg-drops-are-current]]`.
-- **How to verify a split:** guard empty **and** `check-surface.py` config-key census unchanged (385) **and** a before/after diff of a freshly generated `.cfg`. The first two alone do not see order.
+- **How to verify a split:** guard empty **and** `check-surface.py` config-key census unchanged **and** a before/after diff of a freshly generated `.cfg`. The first two alone do not see order.
+  **[verified 2026-09-08]** The number in the original sentence was **385**; the census reports
+  **625 config keys** (plus 150 Harmony patches and 4 698 log tokens) at `49ceab21`. **Do not
+  hard-code it.** The verification is *unchanged across your commit*, which is what
+  `check-surface.py diff` asserts against the stored `surface.json` — a literal in this document
+  is stale the next time anyone binds a key, and quoting one turns a working check into a
+  false alarm. `CardsConfig.Bind` is likewise no longer 966 lines; `CardsConfig.cs` alone is 2 172.
+  Take the shape of the rule from here and every number from the tool.
 - **Confidence:** high.
 
 ---
 
 ## 9. Still uncovered, and named so nobody assumes otherwise
 
-`CardFan` and `CardsGameApi` are phase-4 split targets and have **no entry here yet**. Both are
+~~`CardFan` and `CardsGameApi` are phase-4 split targets and have **no entry here yet**. Both are
 densely documented at the site; neither has been read end-to-end for cross-file couplings. They
-must be read before they are cut, and this section is the reminder that they were not.
+must be read before they are cut, and this section is the reminder that they were not.~~
+
+**[verified 2026-09-08] THEY HAVE NOW BEEN READ, AND THEY WERE DELIBERATELY NOT SPLIT.** The
+reminder above worked: the 2026-09 cards lane read both for structure and wrote the entries this
+section demanded, **before** deciding. The entries live in
+**`.planning/refactor-2026-09/REVIEW-cards.md` §3.1 (`CardsGameApi`) and §3.2 (`CardFan`)**, in
+this registry's format. Read them there before cutting either file; they are not duplicated here
+because a registry entry copied into two places goes stale in one of them.
+
+**Neither file was split, and the reason is the finding.** Both are pinned by **file-scoped
+gates**, and a split that moves a pinned symbol out of the scoped file does not fail loudly in
+both cases:
+
+- `CardsGameApi` — `scripts/check-mirrors.sh` PART 3 scopes the rules-engine-busy subset guard to
+  **the file** `Cards/CardsGameApi.cs`. A file *in* scope that stops reading the trigger term is
+  simply skipped, so moving `RulesEngineBusy` into a new part **passes the gate** and silently
+  takes the expression out of coverage. **A split that silently narrows a gate is worse than a
+  long file.** If it is ever split, the PART 3 scope entry changes in the same commit.
+- `CardFan` — `check-mirrors.sh` pins seven constants by **file and name**
+  (`GazeBiasDeadzoneDeg`, `GazeBiasReleaseDeg`, `GazeBiasFullDeg`, `GazeBiasMaxYawDeg`,
+  `GazeBiasGain`, `GazeBiasSmoothing`, `ZStagger`) against `Net/Remote/RemoteHandFan.cs`. Here the
+  gate **does** fail loudly on a move, so a split is safe — the pins simply have to move in the
+  same commit.
+
+Sizes at `49ceab21`, for scale: `Cards/CardsGameApi.cs` **4 280 lines**, `Cards/CardFan.cs`
+**2 889** — both single files, both grown since the 2026-08 plan proposed cutting them
+(`PLAN-2026-08.md` listed 3 348 and 2 805). **Growth is not by itself an argument for the split**;
+the gate-scoping problem above is unchanged by it.

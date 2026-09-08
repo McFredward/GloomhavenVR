@@ -1,5 +1,17 @@
 # Phase 2 — Dead code and duplication census
 
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** A **2026-07 census** of a
+> 197-file tree; the tree is now 621 files. **Its candidate lists are spent** — Phase 4 acted on
+> them (`LOG.md` batches C/D/E) and three programmes have run since. Do not re-open a candidate
+> from here without re-measuring it.
+>
+> **What is still worth reading, and is why this file was not deleted:** the *method note* below.
+> "Which `ConfigEntry<T>` is never read as `<name>.Value`?" returned **54 of 257** entries and was
+> almost entirely wrong, because per-board settings live in an array behind an accessor and the
+> consumer never names the field. Narrowing to "mentioned in only one file" took 54 down to **3**.
+> That is the charter's burden-of-proof rule in miniature and it is a trap the next sweep will
+> walk into again. The config surface is **625 keys** now, not 257.
+
 > Findings are recorded here as they are verified. Nothing in this file has been deleted yet;
 > deletions happen in Phase 4 against `PLAN.md`, one commit per group, guard-checked.
 > Every candidate is tested against `CHARTER.md` §5 before it may be removed.

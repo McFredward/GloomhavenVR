@@ -1,5 +1,17 @@
 # Review — `src/GloomhavenVR/WorldUI/`
 
+> **[verified 2026-09-08 against `49ceab21` (ModBuild 483)] "Nothing here has been applied" is
+> no longer true.** This is the 2026-07 Phase-1 review; **`PLAN.md` selected from it and `LOG.md`
+> records what was executed** (batches A–F), and two further programmes have run since
+> (`PLAN-2026-08.md` / `LOG-2026-08.md`, then `.planning/refactor-2026-09/`). Read this file as a
+> **reading of the code at that date**, never as a work list — a proposal here may have been done,
+> rejected with a recorded reason, or superseded. `LOG.md`'s "Claims that did NOT reproduce" and
+> "Open items" sections are where the verdicts are.
+>
+> The line/file counts in the header below are 2026-07 measurements; the tree is **621 files /
+> 551 166 lines** at `49ceab21`. This audit did **not** re-derive the findings themselves — it
+> checked the framing. An individual finding in here is unverified against current source.
+
 > Phase 1 output. Companion to `CHARTER.md` (rules, risk tiers) and
 > `INVARIANTS-WorldUI.md` (244 load-bearing behaviours — the constraint set).
 > **Nothing in this document has been applied.** No source file was modified.

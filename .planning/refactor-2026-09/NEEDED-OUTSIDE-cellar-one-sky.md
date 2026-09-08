@@ -1,5 +1,34 @@
 # NEEDED OUTSIDE — lane `cellar-one-sky`
 
+> **[verified 2026-09-08 against `49ceab21` (ModBuild 483)] SOME OF THESE HAVE BEEN APPLIED, AND
+> THIS FILE DOES NOT SAY WHICH.** A NEEDED-OUTSIDE list is written at the moment the lane closes
+> and is never revisited, so its standing claim that "nothing here has been applied" decays into a
+> false statement the first time the integrator lands one of them. Per-item status was **spot
+> checked, not exhaustively re-derived** — check the item against source before acting on it, and
+> read the line numbers as advisory (they are from the lane's base commit, not from `49ceab21`).
+>
+> ## ⚠ **§1 IS STILL OPEN AND ITS PREMISE HAS NOW SHIPPED.**
+>
+> `unity/GloomhavenVR.Assets/Assets/Editor/PreviewClouds.cs:653-656` still reads
+>
+> ```csharp
+> var dome = _inst.transform.Find("StarDome");
+> _domeRen  = dome.GetComponent<Renderer>();
+> _starsRen = dome.Find("StarField")?.GetComponent<Renderer>();
+> _cloudBand = dome.Find("CloudBand")?.gameObject;
+> ```
+>
+> unguarded, and **ModBuild 483 shipped the prefab without the node**: `49ceab21`'s own message
+> says *"BuildCellar no longer calls AddNightSky; Env_Cellar carries no StarDome and no
+> StarField"*, and the bundle changed (74,943,763 bytes) to carry it. So `Find` returns null and
+> the very next line throws `NullReferenceException`.
+>
+> **Scope, stated precisely so it is not over- or under-read:** this is the Unity **Editor**
+> preview tool, not the shipped mod. No player can reach it and the runtime is unaffected. What it
+> costs is the next person who runs the cloud/sky preview against the current bundle — a
+> hard-to-attribute NRE in a diagnostic, in a room whose sky was just changed, which is exactly
+> when someone would reach for it. The diff below is still the fix and is still unapplied.
+
 Base `6efa4acf` (ModBuild 482). One finding acted on in-lane (the cellar's `StarDome` is gone from
 the bake); three sites outside the lane's file set:
 

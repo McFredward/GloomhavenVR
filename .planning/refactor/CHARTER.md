@@ -1,9 +1,23 @@
 # Refactoring Charter
 
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** An audit is a snapshot;
+> what follows was true at that commit. Corrections made in this pass are marked
+> **[verified 2026-09-08]** where the old sentence had gone wrong; everything unmarked was
+> re-read and left alone because it was still true.
+>
+> **§1's numbers are the 2026-07 starting state, not the current one.** At `49ceab21` the mod is
+> **621 `.cs` files / 551 166 lines** under `src/GloomhavenVR` (~255 600 of them non-comment).
+> The growth is features and load-bearing comment added by the hardware rounds since, not
+> refactoring debt — but do not quote §1 as a description of today's tree.
+>
 > The rules this refactor operates under. Written before any code was touched.
-> Companion documents: `INVARIANTS.md` (what must not change), `REVIEW-*.md`
+> Companion documents: the five registries — `INVARIANTS-Cards.md`,
+> `INVARIANTS-Net-Rig.md`, `INVARIANTS-WorldUI.md`, `INVARIANTS-Hands-Board-Core.md` and
+> `INVARIANTS-2026-08-SplitTargets.md` — (what must not change), `REVIEW-*.md`
 > (per-subsystem findings), `PLAN.md` (the ordered work list), `LOG.md` (what was
-> actually done, commit by commit).
+> actually done, commit by commit). *There has never been a single `INVARIANTS.md`; the
+> original sentence named one and a successor would look for a file that does not exist.*
+> The 2026-09 round's own artefacts live one directory over, in `.planning/refactor-2026-09/`.
 
 ## 1. Goal
 
@@ -44,6 +58,19 @@ not, by itself, a reason to touch it.
 `scripts/refactor-guard.sh` builds Release, decompiles the DLL back to C# with
 `ilspycmd -p`, masks the build stamp, and diffs against a stored baseline.
 
+**[verified 2026-09-08] `check` is no longer only the diff.** Before it builds, the script runs
+**seventeen checkers**, each of which hard-exits on failure — `patch-inventory.sh`,
+`check-frame-order.sh`, `check-mirrors.sh`, `check-partial-order.py`,
+`check-instrument-writes.py`, `check-remote-defaults.py`, `check-wire-coverage.py`,
+`check-tune-fields.py`, `check-desync-surface.py`, `check-hw-verify.py`,
+`check-options-coverage.py`, `check-card-identity-mask.py`, `check-mirror-dials.py`,
+`check-enum-arrays.py`, `wire-tests.sh`, `check-bundle-format.sh` and `check-surface.py`
+(snapshot + diff). Each exists because of a named defect that shipped; the reason is written at
+its call site in the script, and that call site is the authoritative list — this paragraph will
+go stale before the script does. The full gate at `49ceab21` is
+`bash scripts/refactor-guard.sh check --summary`, plus `EXPECT_WARNINGS=0 bash scripts/ci-build.sh`
+and `python3 scripts/check-docs-i18n.py`.
+
 Because `-p` groups output **by namespace and type**, the snapshot is completely
 independent of our source file layout. That yields the property this refactor
 is built on:
@@ -75,7 +102,9 @@ is built on:
   moved line a whole method body.
   *This is not a safety proof:* swapping two statements that DO depend on each other is also a
   permutation. It narrows "what changed" to "only the order changed" — which is the question a
-  human then has to answer, and is exactly where frame-ordering constraints live (§8).
+  human then has to answer, and is exactly where frame-ordering constraints live (§3b.2 —
+  *the original text said "§8", and there is no §8; the frame-ordering blind spot is §3b.2 and
+  the lock file is `FRAME-ORDER.lock`*).
 - Config `Bind` descriptions are **string literal arguments**, so they DO appear in the
   snapshot. XML doc comments and `//` comments do not (measured: 0 `<summary>` tags in the whole
   snapshot). Implicit sequential enum values are not rendered, so making them explicit is
@@ -87,7 +116,31 @@ hash, both of which the script masks. A no-op check reports "no compiled behavio
 This does not prove a refactor is *correct*. It proves the exact blast radius,
 which is the thing that is otherwise invisible and is how regressions get in.
 
-**Rule: every refactor commit records its guard output in `LOG.md`.**
+**[verified 2026-09-08] …and for a time it did not prove even that.** The 2026-09 tooling review
+found the guard capable of printing a GREEN verdict on a RED build, twice over, and both are
+fixed. Keep both, because both are the same mistake and it is easy to make again:
+
+1. **A `grep` standing in for an exit status.** The build ran as
+   `dotnet build … | grep -E "error|Build FAILED" && { echo "error: build failed"; exit 1; }`.
+   Under `set -euo pipefail` that can NEVER fire on a failed build: `pipefail` makes the
+   pipeline's status `dotnet`'s non-zero exit, so `&&` skips the block, and `set -e` does not act
+   on the left-hand side of `&&`. The block fired only when `dotnet` **succeeded** and its output
+   happened to contain the substring "error" — so a build that failed sailed on to diff a stale
+   DLL and reported "no compiled behaviour differs from the baseline". Falsified with three
+   stubbed `dotnet`s: `{echo "error CS1"; exit 1}` continued, `{exit 1}` continued, and
+   `{echo "error-prone"; exit 0}` aborted — exactly inverted. It now branches on the exit status
+   and uses the grep only to *print* the reason.
+2. **`diff … || true` swallowing the verdict.** Plain `refactor-guard.sh check` exited 0 on a
+   differing snapshot, so `refactor-guard.sh check && commit` passed on anything; only
+   `--summary` carried a real status. Plain `check` now exits 1 when the snapshot differs.
+
+The lesson the charter should have carried from the start: **a gate's own green reading is a
+hypothesis until the gate has been observed going red.** Every checker added since has been run
+against a deliberately broken input before being trusted.
+
+**Rule: every refactor commit records its guard output.** In practice that is the **commit
+message**, not this file — the four parallel workers refused to share one file and were right to
+(see `LOG.md`'s opening). `LOG.md` carries per-batch totals and decisions.
 
 ## 3b. Where the guard is blind
 
@@ -103,6 +156,17 @@ Stated plainly, because a safety net you trust too far is worse than none:
 3. **Anything not in the assembly**: the Harmony registration wiring (a patch class nobody
    references compiles and ships inert — that has happened twice), config keys disappearing from
    a user's `.cfg`, log grep tokens the debug workflow depends on.
+   **[verified 2026-09-08] These three now have checkers and are no longer blind** — that is the
+   whole reason `patch-inventory.sh` and `check-surface.py` exist, and `check-hw-verify.py`
+   additionally catches the case the original sentence could not imagine: a grep token that still
+   exists but sits below the DEFAULT log level, so the hardware round it was written for comes
+   back silent (ModBuild 331/334). The item stays because the *class* of failure is still real:
+   anything user-facing that the assembly does not carry is invisible to the diff, and the
+   remedy is always a text checker, never the guard.
+4. **[verified 2026-09-08] The checkers themselves.** Seventeen of them now gate every commit,
+   and a checker that cannot fail is worse than no checker — it converts an unexamined area into
+   a green tick. Two shipped guards were found green-on-red in 2026-09 (§3). A new checker is
+   not trusted until it has been observed going RED on a deliberately broken input.
 
 ## 4. Risk tiers
 
@@ -148,13 +212,27 @@ check it is not:
 | Phase | Output | State |
 |---|---|---|
 | 0 | Charter, guard harness, baseline | **done** |
-| 1 | Per-subsystem code review → `REVIEW-*.md`; invariant registry → `INVARIANTS.md` | **done** |
+| 1 | Per-subsystem code review → `REVIEW-*.md`; invariant registry → the four `INVARIANTS-*.md` | **done** |
 | 2 | Dead-code and duplication census, cross-checked against §5 | **done** |
 | 3 | `PLAN.md`: ordered, tiered work list with a guard expectation per item | **done** |
 | 4 | Execution — small commits, guard-checked, one subsystem at a time | **done** |
 | 5 | Final report + a regression test script for the user's hardware pass | **done** |
 
 Phase 4 does not begin until the user has seen the plan from Phase 3.
+
+**[verified 2026-09-08] This table is the FIRST programme (2026-07) only.** Two more have run
+since, and a successor who reads "done" here and stops will miss both:
+
+| Programme | Where it lives | State |
+|---|---|---|
+| 2026-07 (this table) | `PLAN.md`, `LOG.md`, `REVIEW-*.md`, `INVARIANTS-*.md` | done |
+| 2026-08 (splitting) | `PLAN-2026-08.md`, `LOG-2026-08.md`, `INVARIANTS-2026-08-SplitTargets.md`, `census-2026-08/` | done |
+| 2026-09 (review + fix) | `.planning/refactor-2026-09/` — `BRIEF.md` first, then `REVIEW-<lane>.md`, `NEEDED-OUTSIDE-<lane>.md`, `HARDWARE-REGRESSION-2026-09.md` | done |
+
+**`BRIEF.md` in `.planning/refactor-2026-09/` amends this charter for that round** and says so in
+its own §1: Tier 3 was lifted for source-demonstrable defects only, parallel construction was put
+in scope, and comments were declared load-bearing rather than clutter. Read it before assuming
+§4's tiers are the whole rule set.
 
 ## 7. Working rules
 

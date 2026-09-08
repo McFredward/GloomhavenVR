@@ -1,5 +1,23 @@
 # NEEDED-OUTSIDE — lane core (refactor 2026-09)
 
+> **[verified 2026-09-08 against `49ceab21` (ModBuild 483)] SOME OF THESE HAVE BEEN APPLIED, AND
+> THIS FILE DOES NOT SAY WHICH.** A NEEDED-OUTSIDE list is written at the moment the lane closes
+> and is never revisited, so its standing claim that "nothing here has been applied" decays into a
+> false statement the first time the integrator lands one of them. Per-item status was **spot
+> checked, not exhaustively re-derived** — check the item against source before acting on it, and
+> read the line numbers as advisory (they are from the lane's base commit, not from `49ceab21`).
+>
+> Verified in this pass:
+> - **§0 `docs/PATCH-INVENTORY.md` regeneration — DONE.** `bash scripts/patch-inventory.sh check`
+>   prints `patch surface: 107 classes, 165 methods, all registered exactly once` with **no**
+>   line-shift warning.
+> - **§3 `INVARIANTS-Net-Rig.md` "one sentence wider than the code" — DONE, and §3's own diagnosis
+>   was too narrow.** The entry is rewritten (see that file, "The MODE gate re-arms on the way
+>   out"). §3 names **two** returns that do not re-arm; there are **six**. `SnapTurn.Update` has
+>   seven early returns and exactly one — the mode gate — touches `_armed`. §3's proposed narrowing
+>   ("every MODE-gate early return re-arms first") is nevertheless the right rule and is what the
+>   entry now says; only its count of the exceptions was wrong.
+
 ## 0. `docs/PATCH-INVENTORY.md` — one regeneration, ONCE, after all five lanes merge
 
 The final guard run ends with:

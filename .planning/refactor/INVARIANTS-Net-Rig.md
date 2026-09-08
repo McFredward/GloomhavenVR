@@ -1,9 +1,29 @@
 # Load-Bearing Behaviour Registry — `Net/` and `Rig/`
 
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** Corrections from that pass are
+> marked **[verified 2026-09-08]**; every entry without the marker was re-read and left alone
+> because it was still true. What the pass found, so a successor knows how far to trust the rest:
+>
+> - **PART I's fixed-format description is exact and PART I's totals are not.** The byte layouts,
+>   the flag-bit order rule and the four compatibility rules all still hold literally. But this
+>   document was written in 2026-07, **before the TLV extension tail existed**, and three of its
+>   summary statements were wrong by omission rather than by error: the extras `MaxSize`, the
+>   "one free bit left" corollary, and the feature count in the version history. All three are
+>   corrected in place below with the old sentence kept, because the old sentence explains why
+>   the tail was built.
+> - **The re-arm entry in the Rig section was wrong about the code** and is corrected there.
+> - Everything in PART II was spot-checked at its named symbols, not re-derived. Treat an
+>   unmarked PART II entry as "believed true, last read 2026-09-08" - not as re-measured.
+>
 > Companion to `CHARTER.md`. Written **before** any refactor touches these two subsystems.
 >
-> Scope: `src/GloomhavenVR/Net/` (29 files, ~9 100 lines) and `src/GloomhavenVR/Rig/`
-> (10 files, ~2 900 lines).
+> Scope: `src/GloomhavenVR/Net/` and `src/GloomhavenVR/Rig/`.
+> **[verified 2026-09-08]** The original scope line said *"(29 files, ~9 100 lines)"* and
+> *"(10 files, ~2 900 lines)"*. At `49ceab21` it is **Net: 87 files / 112 230 lines** and
+> **Rig: 21 files / 10 470 lines** - the 2026-08 split programme and the features since.
+> The old numbers are kept here only as the date-stamp they really are: an entry written against
+> a 9 100-line `Net/` may be silent about a file that did not exist then, and **silence in this
+> registry is not a statement that nothing load-bearing lives there.**
 >
 > **Symbol names only — no line numbers.** Files are being edited concurrently; a line
 > number in this document would be a lie within a day.
@@ -23,11 +43,24 @@ Two byte-oriented packets ride the game's own Photon-Bolt "side action" channel.
 no schema language, no version negotiation beyond a single byte, no checksum on the body,
 and **no test**. Both serializers are hand-written index-walkers (`int i = 0; buffer[i++] = …`).
 
+> **[verified 2026-09-08] "and no test" is no longer true, and that is the single largest change
+> to this section's premise.** `tests/GloomhavenVR.WireTests/` exists and runs as one of the
+> guard's checkers (`scripts/wire-tests.sh`), **210 164 assertions** at `49ceab21`. The rest of
+> the paragraph still stands: no schema language, no negotiation past one byte, no body checksum,
+> and both serializers are still hand-written index-walkers. Read the round-trip vectors before
+> touching a layout - they are the cheapest falsifier in this repo.
+
 Consequences that must be internalised before editing anything in
 `AvatarSerializer` / `PresenceSerializer` / `NetProtocol`:
 
 1. **Field order is the schema.** There are no tags. Moving a `buffer[i++]` one statement
    earlier or later re-interprets every subsequent byte on every peer.
+   **[verified 2026-09-08] True of the FIXED part, and only of it.** Behind the fixed part the
+   extras packet now carries a **TLV tail** which *is* a tagged scheme: `id, length, payload`
+   per record, so an unknown id is skipped by its length instead of corrupting the rest. The
+   sentence above therefore governs everything up to the tail and nothing inside it. See the
+   TLV note at the head of section 4. The distinction to hold on to: **the fixed part is
+   positional and frozen; the tail is tagged and extensible.**
 2. **A flag bit's numeric value is the schema.** `FlagCardFx = 1 << 5` is not an
    implementation detail; it determines *where in the byte stream* the card-FX block sits,
    because blocks are ordered by flag-bit index.
@@ -156,7 +189,34 @@ demand* — that is the forward-compatibility contract, not an oversight.
 ## 4. Packet type 1 — EXTRAS (`PresenceSerializer`)
 
 Rate: `NetProtocol.ExtrasSendRateHz = 5f`, **plus on-change pre-emption** (see §II).
-`MaxSize = 44` (real worst case 39).
+~~`MaxSize = 44` (real worst case 39).~~
+
+> **[verified 2026-09-08] `PresenceSerializer.MaxSize` is `2100`, real worst case `1798`**
+> (`src/GloomhavenVR/Net/PresenceState.cs:1785`; the worst-case arithmetic is recorded in
+> `NetProtocol.cs`'s build ledger at the ModBuild 477 entry - *"Worst case 1747 -> 1798, MaxSize
+> unchanged at 2100, margin 302 against the 257-byte largest single record"*). The struck-out
+> `44/39` is the pre-TLV figure and is kept because it is the measure of what the tail added: the
+> fixed part described in 4a-4d is still ~44 bytes, and everything above that is tail. The rig
+> packet's `AvatarSerializer.MaxSize = 132` (worst case 127) in section 3 is **unchanged and
+> still correct**.
+>
+> **THE TLV TAIL - what section 4 does not describe.** Everything below in section 4 describes
+> the FIXED extras format and describes it correctly. Appended after it is a tagged extension
+> tail:
+>
+> - **42 records exist** at `49ceab21` - `grep -c 'public const byte ExtId' src/GloomhavenVR/Net/NetProtocol.cs`.
+> - **Ids run 1-45 with three deliberate holes: 38, 40 and 42.** They are unclaimed numbers from
+>   the parallel lanes of the 2026-09-05 round and are **never to be reused** - `NetProtocol.cs`
+>   states the rule at the id-41 declaration: *"a shipped record id can never be renumbered, and
+>   a lane taking 'the next free number' is exactly the habit that produced this file's one id
+>   collision"*. **46 is next free**, and `NetProtocol.cs` says so in two places; take the id from
+>   there, never by counting the constants.
+> - **Dispatch is an `if / else if` ladder on the id**, not a `switch` - in the presence reader
+>   (`src/GloomhavenVR/Net/PresenceState.cs`, from around line 3777). `grep -c "case NetProtocol.ExtId"`
+>   is **0**. A reader looking for the receive site by searching for a switch will not find it.
+> - `scripts/check-tune-fields.py` exists because of this tail: an id outside every width range,
+>   or out of the sampler's ascending order, kills the WHOLE board-tuning record and is invisible
+>   to a build, a golden vector and the config surface alike.
 
 ### 4a. Extras flag byte (offset 6) — **FULL, all 8 bits spent**
 
@@ -272,9 +332,18 @@ one version number. **All four must hold simultaneously; each is useless alone.*
    fan ⇒ no fan. Absent mask size ⇒ 1.00×. Absent board style bits ⇒ Oak. Absent card FX ⇒
    no flight. This is why "send only when non-default" is safe for mask size and board style.
 
-Corollary — **there is exactly one free bit left in the entire protocol**: byte A bit 7.
+~~Corollary — **there is exactly one free bit left in the entire protocol**: byte A bit 7.
 Both flag bytes are full. The next extras extension must go there (as another sub-block
-header), or it needs a version bump and a coordinated release.
+header), or it needs a version bump and a coordinated release.~~
+
+> **[verified 2026-09-08] This corollary was the PROBLEM STATEMENT, and the TLV tail is its
+> answer.** It is kept, struck out rather than deleted, because it is the reason the tail exists -
+> delete it and the next reader re-derives the bit budget from scratch. The four rules above it
+> are all still literally true. What changed: **a new extras feature no longer needs a flag bit
+> at all.** It takes the next free `ExtId` (46 at `49ceab21`), costs `2 + payload` bytes in the
+> tail, and old peers skip it by its length. Byte A bit 7 is still the last free flag bit and
+> should stay free: the flag bytes are the FIXED part, where a mistake is unrecoverable, and
+> there is now no reason to spend one.
 
 ### 5a. Version history — and why only one field addition ever bumped it
 
@@ -284,6 +353,7 @@ header), or it needs a version bump and a coordinated release.
 | v2 | Added the 1-byte head-mask id to the **fixed header** — the *only* field addition that ever required a bump, precisely because it went into the fixed header rather than behind a flag |
 | v3 | Inserted the **message-type byte** after the version, extended the rig packet with the held-figure block + dominant-hand flag, and added the **second (extras) packet type** |
 | v3, unchanged | hand style, held card, ghost strength, item fan (+held/left), card FX, pile-browse block, head-mask size, control-board style — **eight additive features, zero bumps** |
+| v3, unchanged **[verified 2026-09-08]** | ...and then **42 TLV extension records** on top of those eight, still zero bumps. The count of "additive features on one version number" is now the record count, not eight; the row above is the pre-TLV list and is left as written because it is the evidence the discipline works. |
 
 The lesson is in the table: v2's bump is what motivated the additive-flag discipline that has
 held for every feature since. Anything added to a *fixed* header costs a version bump and
@@ -1391,13 +1461,34 @@ track; players, **enemies** and objects alike). (See the wire tables in Part I.)
 - **Breaks if:** the pivot is "simplified" to the rig transform, which is the obvious `transform.Rotate` idiom.
 - **Confidence:** high
 
-### Every stick-gate early return re-arms first
-- **Where:** `SnapTurn.Update` — the `BoardTargeting` and `Menu2D` branches both set `_armed = true` before returning; per-hand suppression while `WorldGrab.Instance.IsHandGrabbing(hand)`
-- **Rule:** Never return from the mode gate without re-arming.
-- **Why:** Otherwise the very first frame after leaving AoE targeting fires a **phantom turn** from a stick that was already deflected. The commit calls this out explicitly: "re-armed on exit so no stale flicks".
+### The MODE gate re-arms on the way out - and it is the only return that does
+**[verified 2026-09-08 - the heading and the rule were both wrong; corrected against source, not inferred.]**
+
+- **Where:** `SnapTurn.Update` (`src/GloomhavenVR/Rig/SnapTurn.cs`). **One** early return re-arms: the mode gate `if (LocalTurnControl.TargetingOwnsStick || (vrMode == VRMode.Menu2D && !RigTarget.IsDevProxy))`, which sets `_armed = true` *and* `_scrollGate.Reset()` before returning. The latch is `SnapTurn._armed`, exposed read-only as `SnapTurn.WaitingForRearm` (read by `ComfortGizmos`).
+- **Rule:** **When a MODE takes the turn stick away and later hands it back, re-arm on the way out.** That is the invariant, and it is intact.
+- **Why:** unchanged and still the reason - otherwise the first frame after the mode releases the stick fires a **phantom turn** from a stick that was already deflected. The commit says it in those words: *"re-armed on exit so no stale flicks"*, and the line still carries the comment `// never fire a stale flick when the stick is handed back`.
 - **Established by:** `dd1d637`, extended by `6700316`
-- **Breaks if:** a guard-clause cleanup hoists the returns above the re-arm.
-- **Confidence:** high
+- **Breaks if:** the re-arm is moved below the `return`, or a NEW mode gate is added that takes the stick without re-arming on exit.
+- **Confidence:** high (re-read at `49ceab21`)
+
+**What the old sentence got wrong, and why it mattered.** It read *"Every stick-gate early return re-arms first / Never return from the mode gate without re-arming"*. A successor obeying it literally would have "restored" re-arms at six sites that have never had one. `SnapTurn.Update` has **seven** early returns and **one** of them re-arms:
+
+| # | the return | re-arms `_armed`? | resets `_scrollGate`? |
+|---|---|---|---|
+| 1 | `rig == null` or `!ComfortSettings.IsBound` | no | no |
+| 2 | `mode == TurnMode.Off` | no | **yes** - `// fail open: no latch survives turning being switched off` |
+| 3 | `TargetingOwnsStick` or (`Menu2D` and `!IsDevProxy`) - **the mode gate** | **yes** | **yes** |
+| 4 | `hand == null` or `!hand.HasPose` | no | **yes**, and `_gateHand = null`; the source argues the fail-open at length (`HoldPoseThroughGap` means reaching this line is a REAL controller loss, so the last stick value "is no longer information") |
+| 5 | `WorldGrab.Instance.IsHandGrabbing(hand)` | no | no |
+| 6 | `!_scrollGate.Evaluate(...)` - scroll owns the stick | no | no (that return *is* the scroll latch) |
+| 7 | Smooth branch, `ax <= SmoothDeadzone` | no | no |
+
+Two further corrections in the same entry:
+
+- The **`BoardTargeting` branch named in the old `Where:` no longer exists.** The mode test was replaced by a question to the consumer - `LocalTurnControl.TargetingOwnsStick` - at ModBuild 138 on a user ruling, and the class doc records both the ruling and the rejected alternative. Anyone grepping `SnapTurn` for `BoardTargeting` finds nothing and cannot tell whether the invariant was deleted or renamed. It was renamed in substance: the two branches are now one `if` with one re-arm.
+- **`_armed` and `_scrollGate` are two different latches** and the old entry ran them together. `_scrollGate` fails OPEN at four of the seven returns; `_armed` is touched at exactly one.
+
+**Open question, NOT a claimed defect.** Six returns leave `_armed` as they found it and **no comment anywhere says whether that is deliberate**. `grep -rn "stale flick" src/` has exactly one hit, at the mode gate. The one worth a thought before anyone "fixes" it is #5 (`WorldGrab`): if the latch is armed when the world grab starts and the player's thumb is on the stick when the grab ends, the next frame can fire a snap turn. It is plausibly unreachable in practice - a world grab is the grip, not the stick - and it has never been reported. **Do not add a re-arm there on the strength of this paragraph;** measure it first. Adding one changes turn behaviour, which is Tier 3 and a hardware question.
 
 ### `RigPoseVersion` bumps on build and recenter ONLY
 - **Where:** `VRRigDriver.RigPoseVersion`, bumped in `BuildRig` / `BuildMenuRig` / `Recenter` / `RecenterMenu` / `ApplyRingSeat`; consumed by `PanelLayout` and `PlayTray.SyncPinHolder`

@@ -1,5 +1,12 @@
 # Hardware regression pass — 2026-08 refactor
 
+> **[verified 2026-09-08 against `49ceab21`] SPENT — this is the 2026-08 refactor's test pass**, and
+> its "exactly one type's compiled form changed" is a statement about *that* refactor's commits,
+> not about the tree today. **The current pass is
+> `.planning/refactor-2026-09/HARDWARE-REGRESSION-2026-09.md`.** Kept for the same reason as its
+> predecessor: §0's stale-DLL check, and as the record of what a short list looks like when the
+> guard has done its job.
+
 > **This list is short, and its shortness is the deliverable.** Across the whole refactor exactly
 > **one** type's compiled form changed, and it is item 1. Everything else — 251 moved files, ~700
 > edited comment lines, five new parts of `EnvSound`, four new checkers, the build settings — is

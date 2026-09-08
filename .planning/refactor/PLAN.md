@@ -1,5 +1,15 @@
 # Refactoring Plan — Phase 3
 
+> **Last verified 2026-09-08 against `49ceab21` (ModBuild 483).** **This plan was EXECUTED.** Its
+> opening line — *"Nothing here has been executed"* — was true when it was written on 2026-07-27
+> and has been false ever since; `LOG.md` is the record of what was done. Read this file for the
+> **conclusions in §0**, which are the reason the whole programme is shaped as it is and which
+> three subsequent rounds have not overturned: the code is not tangled, duplication is essentially
+> absent, and the real exposure is the blind spots no compiler can see. Two of its numbers are
+> historical: the "five blind spots" are now covered by **seventeen** checkers, and the
+> "~800 load-bearing behaviours" counts the four 2026-07 registries only. Do **not** read the
+> per-item work list as a to-do; that is what `LOG.md` and `PLAN-2026-08.md` supersede.
+
 > The ordered work list. Nothing here has been executed. Phase 4 does not begin until the user
 > has seen this. Detail per item lives in the four `REVIEW-*.md` files; this document is the
 > curated decision, not a paste of them.
