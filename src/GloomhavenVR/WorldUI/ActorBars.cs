@@ -252,6 +252,17 @@ internal static class ActorBars
         public Quaternion LastRot;
         public Vector3 LastScale;
 
+        // ---- held-figure hide refusals (the two coroutine-holding terms) -----------------------
+        // One bit per TERM, per adoption. The refusal is evaluated every frame the mini is in the
+        // hand, so an unlatched line would be a per-frame flood; a latch keyed on the term rather
+        // than on the fact of refusing keeps "the attack flow held it" and "the health animation
+        // held it" as two separate readings instead of one that says only that something did.
+        // Cleared with the adoption, so a second pick-up of the same figure in a later episode
+        // does NOT re-report — this line answers "does the health term ever fire at all", and the
+        // count is not the question.
+        public bool HideRefusedFlowLogged;
+        public bool HideRefusedHealthLogged;
+
         // ---- attack-modifier icon facing (user report 2026-09-05 #6) --------------------------
         // Per-EPISODE accumulators for the "+1" modifier icons the game pools into this bar's
         // AttackModBar during an attack. An episode is one attack-modifier flow on THIS bar; it
@@ -593,8 +604,60 @@ internal static class ActorBars
                 // top (see the guard above with panel.HostGo), and re-testing it reset the compiler's
                 // flow state, which turned the TryGetTrackPoint call below into a fresh CS8604. The
                 // seventh nullability warning in this project's build was born and died right here.
-                if (hide && controller.FlowControlActive())
+                //
+                // ...AND UNLESS ITS HEALTH BAR IS MID-ANIMATION. THE LINE ABOVE READ ONE OF THE
+                // GAME'S TWO TERMS FOR NINE BUILDS. `FlowControlActive()` is, in full,
+                // `return m_AttackModBar.IsFlowActive;` (WorldspacePanelUIController.cs:674-677) —
+                // it says NOTHING about the health bar. The game never asks that question with one
+                // term: at all five of its own sites it writes the PAIR
+                // `FlowControlActive() || m_HealthBar.IsAnimated` — `Destroy` (:683), `Hide` (:698),
+                // `Show` (:711), and the two `WaitWhile`s inside `DestroyDelayed` (:724) and
+                // `WaitEndAnimation` (:732). Reading a SUBSET of the game's own expression for the
+                // same question is the shape of all five deadlocks fixed so far (ModBuilds 361, 364,
+                // 370, 371, 479); this is the sixth, and it is the same file the FIRST one was in.
+                //
+                // The latch needs no race. `HealthBar.UpdateHealth` writes `m_IsAnimActive = true`
+                // BEFORE `StartCoroutine` (HealthBar.cs:292 and :319), and the ONLY writer of false
+                // is the `AnimateSlider` completion delegate (:300, :329). Unity refuses
+                // `StartCoroutine` on an inactive GameObject outright, so a health change arriving
+                // while this host is deactivated latches `IsAnimated` TRUE FOR THE REST OF THE
+                // SESSION — and releasing the mini does not heal it, because the latch is on the
+                // game's field, not on our hide.
+                //
+                // What that costs, traced to the end and stated at the severity it actually has:
+                //   1. every later `UpdateHealth` on that actor takes the early-out at
+                //      HealthBar.cs:248-254, enqueues a closure and returns — the bar shows stale HP
+                //      for the rest of the scenario and each update leaks;
+                //   2. `Show()`/`Hide()` park in `WaitEndAnimation`'s `WaitWhile` for ever;
+                //   3. when that actor DIES, `Choreographer`'s ActorDead handler calls
+                //      `m_WorldspacePanelUI.Destroy(onDestroy)` (Choreographer.cs:9259), which takes
+                //      the `DestroyDelayed` branch whose `WaitWhile` never ends. `onDestroy` is
+                //      `PhaseBannerHandler.ShowDie` (:9221) — and ShowDie is the ONLY caller of
+                //      `Show()` on the death banner in the whole game. `ShowPreDie` (:9222) does not
+                //      show anything: it is `SetData` + `SetPhase` and merely STORES
+                //      `checkActorsDeadAction` in the banner's `onClosed`
+                //      (PhaseBannerHandler.cs:255-259). The only invoker of `onClosed` is
+                //      `OnHidden` (:169-179), reached only after the banner has been SHOWN and its
+                //      animation has hidden it again. So the delegate that calls
+                //      `WinScenario()`/`LoseScenario()` sits behind this `WaitWhile` too — and worse,
+                //      the next banner of any kind overwrites it via `SetData` without invoking it
+                //      (`ShowPhase` only forwards the old callback when `window.IsOpen`, and it is
+                //      not open). The scenario-end check on the ActorDead path is not delayed; it is
+                //      DESTROYED.
+                // Two other end-of-scenario routes survive (`PlayersExhausted`, Choreographer.cs:3494,
+                // and `EndRound`, :9436), so this is not a guaranteed unendable scenario — but it is a
+                // dead character whose bar never leaves the board, every bar's HP frozen, and one of
+                // three win/lose paths gone. The narrow branch is
+                // `Health <= 0 && PhaseType != EndTurn` (:9218); outside it the check runs directly.
+                //
+                // Price of the guard, same trade as the AttackModBar term above: the bar of a figure
+                // you are holding stays visible for the ~0.3 s an HP animation runs.
+                bool healthAnimating = controller.m_HealthBar != null && controller.m_HealthBar.IsAnimated;
+                if (hide && (controller.FlowControlActive() || healthAnimating))
+                {
+                    LogHeldBarHideRefused(adopted, controller, healthAnimating);
                     hide = false;
+                }
             }
 
             // Anchor in BOARD units (P6 fix #4): the cached bounds-derived offset
@@ -834,6 +897,15 @@ internal static class ActorBars
         // (WorldspacePanelUIController.cs:674 -> AttackModBar.IsFlowActive) and is false for every
         // bar on the board except one, for the two or three seconds an attack resolves. A bar with
         // no flow and no open episode leaves this method having done nothing else.
+        //
+        // GAME-EXPRESSION-OK: the bare term is the RIGHT one here, and this is the exception that
+        // proves the rule the hide guard broke. The game pairs FlowControlActive() with
+        // m_HealthBar.IsAnimated wherever it asks "may this panel be torn down or toggled", because
+        // both answers own a coroutine on the panel. This method asks a different question entirely
+        // — "is an attack-modifier episode open, so are there pooled '+1' icons to keep facing the
+        // head?" — and a health-bar slider animation neither spawns a modifier icon nor moves one.
+        // Adding the term here would run the whole icon scan through every HP change on every bar
+        // on the board, for nothing.
         bool flow = controller.FlowControlActive();
         if (!flow && !adopted.ModIconEpisode)
             return;
@@ -993,6 +1065,49 @@ internal static class ActorBars
                               "line. ZERO of those lines after this one means no attack modifier was ever " +
                               "drawn in this session, NOT that every icon was aimed correctly; the absence " +
                               "of this line means the watch is not in the build at all.");
+    }
+
+    /// <summary>
+    /// ONE line per (adoption, term) for a held figure's bar-hide that was REFUSED because the game
+    /// still has a coroutine-held flag up on that controller. Not a watchdog and not a remedy: the
+    /// refusal IS the remedy, and this line only says which of the two terms did it.
+    ///
+    /// <para>HOW TO READ IT NEXT ROUND. <c>HEALTH ANIM</c> is the term added this build and is the
+    /// whole question: if it never appears, the health-bar half of this guard is INERT in play and
+    /// the F1 failure scenario was unreachable — say so and stop paying for the guard's cost.
+    /// <c>ATTACK FLOW</c> is the ModBuild 107 term and has fired before; it is here so that "the
+    /// health term never fired" and "no mini was ever picked up during a busy moment" are different
+    /// readings. This instrument ships no armed line of its own on purpose — <c>MOD ICON FACING:
+    /// watch ARMED</c> directly above is printed by this same class on the first bar of the session,
+    /// so its presence already proves this file is in the build, and a second one-shot would say
+    /// nothing the first does not.</para>
+    /// </summary>
+    private static void LogHeldBarHideRefused(Adopted adopted, WorldspacePanelUIController controller,
+                                              bool healthAnimating)
+    {
+        bool flow = controller.FlowControlActive();
+        bool wantFlow = flow && !adopted.HideRefusedFlowLogged;
+        bool wantHealth = healthAnimating && !adopted.HideRefusedHealthLogged;
+        if (!wantFlow && !wantHealth)
+            return;
+        adopted.HideRefusedFlowLogged |= flow;
+        adopted.HideRefusedHealthLogged |= healthAnimating;
+        string who = LabelOf(controller, adopted.Actor);
+        string term = wantHealth && wantFlow ? "ATTACK FLOW + HEALTH ANIM"
+                    : wantHealth ? "HEALTH ANIM" : "ATTACK FLOW";
+        // HW-VERIFY: grep token "HELD BAR HIDE REFUSED".
+        VRLog.Note("WorldUI", $"HELD BAR HIDE REFUSED ({term}): '{who}' is in the hand, but the game " +
+                              $"still holds this controller — FlowControlActive() {flow}, " +
+                              $"m_HealthBar.IsAnimated {healthAnimating}. The bar stays VISIBLE until " +
+                              "both are clear. Deactivating the host under either one latches the flag " +
+                              "for the session: Unity refuses StartCoroutine on an inactive GameObject " +
+                              "and HealthBar.UpdateHealth sets m_IsAnimActive BEFORE it starts the " +
+                              "coroutine that is the flag's only clearer (HealthBar.cs:292/:319 vs " +
+                              ":300/:329). READ IT SO: a 'HEALTH ANIM' line is the first evidence that " +
+                              "the health term of this guard is reachable in play; ZERO of them across " +
+                              "a session in which minis were picked up during combat means the term is " +
+                              "inert and its cost (a held figure's bar visible for the ~0.3 s an HP " +
+                              "animation runs) is being paid for nothing.");
     }
 
     // ==============================================================================================

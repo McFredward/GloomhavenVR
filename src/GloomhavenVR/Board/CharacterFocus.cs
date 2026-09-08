@@ -399,7 +399,7 @@ internal static class CharacterFocus
         CPlayerActor? turn = TurnActor;
         if (turn == null || hand.PlayerActor == null || !ReferenceEquals(turn, hand.PlayerActor))
             return false;
-        return !FFSNetwork.IsOnline || turn.IsUnderMyControl;
+        return CardsGameApi.ControlsActor(turn); // F5: partitioned list; offline still true
     }
 
     /// <summary>Stable wire id of <see cref="TurnActor"/> (0 = nobody / no scenario).</summary>
@@ -473,7 +473,7 @@ internal static class CharacterFocus
         get
         {
             CPlayerActor? actor = AttentionActor;
-            return actor != null && (!FFSNetwork.IsOnline || actor.IsUnderMyControl);
+            return CardsGameApi.ControlsActor(actor); // F5: partitioned list (null ⇒ false, as before)
         }
     }
 
@@ -484,7 +484,7 @@ internal static class CharacterFocus
         get
         {
             CPlayerActor? turn = TurnActor;
-            return turn != null && (!FFSNetwork.IsOnline || turn.IsUnderMyControl);
+            return CardsGameApi.ControlsActor(turn); // F5: partitioned list (null ⇒ false, as before)
         }
     }
 
@@ -621,7 +621,7 @@ internal static class CharacterFocus
                 CPlayerActor? acting = TurnActor;
                 if (acting == null || acting.IsDead)
                     return null;
-                if (FFSNetwork.IsOnline && !acting.IsUnderMyControl)
+                if (!CardsGameApi.ControlsActor(acting)) // F5: partitioned list
                     return null;
                 return acting;
             }
@@ -722,7 +722,10 @@ internal static class CharacterFocus
             // actor once and ask the ownership question of THAT object, instead of calling
             // LocalOwnsAttention and then re-resolving for the comparison below.
             CPlayerActor? attention = AttentionActor;
-            if (attention == null || (FFSNetwork.IsOnline && !attention.IsUnderMyControl))
+            // F5: the partitioned list. This is the cue that points the player back at a decision
+            // he cannot see, so a stale FALSE here is dark on his board AND on every peer's mirror
+            // (Sample below must stay term-for-term identical to this line — it is).
+            if (!CardsGameApi.ControlsActor(attention))
                 return FocusTurnMark.None;
             // NO OVERRIDE ⇒ we are looking at whatever the game presents, and the game presents
             // the character it is waiting on: during our own turn the acting character (it selects
@@ -1163,11 +1166,12 @@ internal static class CharacterFocus
             return; // same turn as last time we decided — the player owns the view from here on
         _followedTurnId = id;
 
-        if (FFSNetwork.IsOnline && !turn.IsUnderMyControl)
+        if (FFSNetwork.IsOnline && !CardsGameApi.ControlsActor(turn)) // F5: partitioned list
         {
             VRLog.Info("Board", $"[Focus] AUTO-FOLLOW suppressed — '{Describe(turn)}' is now at " +
-                                "turn but this client does not control it (CActor.IsUnderMyControl " +
-                                "is false here), so the view was left exactly where the player put " +
+                                "turn but this client does not control it (the game's own " +
+                                "MyControllables list does not name it), so the view was left " +
+                                "exactly where the player put " +
                                 $"it ('{Describe(LookingAt)}'). A teammate's hand-off never moves " +
                                 "anybody else's camera.");
             return;
@@ -1915,7 +1919,7 @@ internal static class CharacterFocus
             // card board presents DecidingHand() ?? ActiveHand() — so the wire payload is unchanged
             // in every pre-existing situation; it only stops depending on a rebuild having landed.
             CPlayerActor? attention = AttentionActor; // one chain walk — per-frame consumer
-            if (attention != null && (!FFSNetwork.IsOnline || attention.IsUnderMyControl))
+            if (CardsGameApi.ControlsActor(attention)) // F5: partitioned list, as LocalMark
                 return attention;
             return PresentedActor;
         }
@@ -1936,7 +1940,9 @@ internal static class CharacterFocus
                                out bool ownsAttention)
     {
         CPlayerActor? attention = AttentionActor; // ONE chain walk per packet
-        ownsAttention = attention != null && (!FFSNetwork.IsOnline || attention.IsUnderMyControl);
+        // F5: MUST stay the same expression LocalMark uses — the receiver derives the mark from
+        // this bit term for term, so a divergence here is a mark that never existed on this screen.
+        ownsAttention = CardsGameApi.ControlsActor(attention);
         attentionActorId = ownsAttention ? NetFigures.StableActorId(attention) : 0;
         focusActorId = NetFigures.StableActorId(LookingAt);
     }

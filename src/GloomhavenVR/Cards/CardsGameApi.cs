@@ -154,7 +154,8 @@ internal static class CardsGameApi
             return null;
         if (!(SelectedActor() is CPlayerActor selected) || selected.IsDead)
             return null;
-        if (FFSNetwork.IsOnline && !selected.IsUnderMyControl)
+        // F5: the game's partitioned MyControllables list, not the stale-able CActor flag.
+        if (!ControlsActor(selected))
             return null;
         CardsHandManager manager = CardsHandManager.Instance;
         if (manager == null)
@@ -220,7 +221,7 @@ internal static class CardsGameApi
             return false;
         if (!ReferenceEquals(cur, hand.PlayerActor))
             return false;
-        return !FFSNetwork.IsOnline || cur.IsUnderMyControl;
+        return ControlsActor(cur); // F5: partitioned list; offline still answers true
     }
 
     /// <summary>
@@ -428,6 +429,42 @@ internal static class CardsGameApi
             answerable = false;
             return false;
         }
+    }
+
+    /// <summary>
+    /// <b>THE ownership question, asked once.</b> Does this client control <paramref name="actor"/>?
+    /// The game's partitioned list first (<see cref="LocalControlsActor"/>), falling back to
+    /// <c>CActor.IsUnderMyControl</c> only where the registry cannot answer at all — the exact
+    /// two-line shape <see cref="IsLocalHand"/> shipped at ModBuild 479, hoisted so that it is
+    /// written once instead of ten times.
+    ///
+    /// <para><b>WHY THIS IS A METHOD AND NOT A COMMENT.</b> ModBuild 479 raised the wrong term to
+    /// the right one in six places and left ten reading the flag: <see cref="SelectionHandDrift"/>,
+    /// <see cref="IsActionTurn"/>, <see cref="ItemPickHand"/>, <see cref="LongRestTurnHand"/>,
+    /// <see cref="IsConfirmed"/>, <see cref="DrivableTakeDamageSubject"/>,
+    /// <see cref="TakeDamageHand"/>, <see cref="InitiativeAdjustHand"/>,
+    /// <see cref="IsActionPhaseNonCurrentPlayerSelect"/> and
+    /// <see cref="IsForeignControlledSelect"/>, plus the red wrong-character cue in
+    /// <c>Board.CharacterFocus</c>. Every one of them is a GATE that answers null/false when the
+    /// answer is "no", so a stale FALSE on the OWNING client is silent: no burn fan for his own
+    /// damage decision, no hand for <c>PumpLongRestTurn</c>, no boots prompt, and the one red cue
+    /// that would point him back at the hidden decision dark on his board and on every peer's
+    /// mirror. That is the maintainer's report of 2026-09-07 item 10, in full and from one term.</para>
+    ///
+    /// <para><b>OFFLINE IS TRUE</b>, matching every call site this replaces
+    /// (<c>!FFSNetwork.IsOnline || actor.IsUnderMyControl</c>), and a null actor is FALSE — "may I
+    /// drive this?" has no affirmative answer without a subject. Callers that additionally require
+    /// an online session keep their own <c>FFSNetwork.IsOnline</c> term; this method does not invent
+    /// one for them.</para>
+    /// </summary>
+    internal static bool ControlsActor(CPlayerActor? actor)
+    {
+        if (actor == null)
+            return false;
+        if (!FFSNetwork.IsOnline)
+            return true;
+        bool byList = LocalControlsActor(actor, out bool answerable);
+        return answerable ? byList : actor.IsUnderMyControl;
     }
 
     /// <summary>
@@ -1126,7 +1163,7 @@ internal static class CardsGameApi
         ItemCardPicker? picker = OpenItemPicker(out CPlayerActor? actor, out _);
         if (picker == null || actor == null)
             return null;
-        if (FFSNetwork.IsOnline && !actor.IsUnderMyControl)
+        if (!ControlsActor(actor)) // F5: partitioned list, not the stale-able flag
             return null;
         CardsHandManager manager = CardsHandManager.Instance;
         CardsHandUI hand = manager != null ? manager.GetHand(actor) : null!;
@@ -1808,19 +1845,89 @@ internal static class CardsGameApi
     // ============================================================================================
 
     /// <summary>
+    /// "The rule engine is actually EXECUTING and nothing may be pressed" — the game's own
+    /// expression, all three fields, not the bare <c>IsProcessingOrMessagesQueued</c> flag.
+    ///
+    /// <para>WHY THIS IS A NAMED PROPERTY AND NOT AN INLINE READ. Five deadlocks have now been fixed
+    /// in this project (ModBuilds 361, 364, 370, 371, 479) and every one of them was the same
+    /// mistake: a mod gate reading a SUBSET of the multi-term expression the game itself uses for
+    /// the same question. <c>IsProcessingOrMessagesQueued</c> is the sharpest instance, because the
+    /// flag is true for the WHOLE length of any player's take-damage prompt while the SRL work
+    /// thread sits in <c>Thread.Sleep(100)</c> executing nothing
+    /// (<c>ScenarioRuleLibrary/GameState.cs:1190-1204</c>, <c>:1257-1269</c>). A bare read therefore
+    /// says "busy" through a co-player's entire think. The game never asks it bare: <b>five</b>
+    /// sites, <c>SkipButton.cs:162</c>, <c>ReadyButton.cs:501</c>, <c>UndoButton.cs:294</c>,
+    /// <c>FFSNet/ActionProcessor.cs:365</c> and — in the <c>ThreadIsSleeping</c> form —
+    /// <c>SceneController.cs:1479</c>, all carry the two damage-wait terms beside it.
+    ///
+    /// <para>ModBuild 479 wrote this expression out by hand inside
+    /// <c>Board/FigureGrab/FigureBusy.cs:334-337</c> for the grab gate. Giving it a NAME here is the
+    /// difference between fixing an instance and closing the class: the next consumer of "is the
+    /// engine busy" reaches for a property that already carries all three terms instead of
+    /// re-deriving two of them. <c>scripts/check-game-expression-subset.py</c> is the gate that
+    /// refuses a bare read from being written again.</para></para>
+    ///
+    /// <para>Reads throw only on a torn-down or never-initialised rule library (main menu), and the
+    /// safe answer there is "not busy" — a caller that treats an uninitialised engine as busy would
+    /// hold its widget for ever, which is the failure this whole family is about.</para>
+    /// </summary>
+    internal static bool RulesEngineBusy
+    {
+        get
+        {
+            try
+            {
+                if (!ScenarioRuleClient.IsProcessingOrMessagesQueued)
+                    return false;
+                // An open damage decision is a WAIT FOR A PERSON, not a resolve. The flag above
+                // cannot tell the two apart; these two fields are how the game does.
+                return !GameState.WaitingForPlayerToSelectDamageResponse
+                       && !GameState.WaitingForPlayerActorToAvoidDamageResponse;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
     /// Is the action started by USING <paramref name="item"/> still resolving — i.e. does the game
     /// still owe the player (or itself) a step before the item's use is finished? Four terms, all
     /// live reads of the game's own flow objects, all falling to false on every ending:
     ///
     /// <list type="number">
-    /// <item><b>The rules engine has not answered yet</b> —
-    /// <c>ScenarioRuleClient.IsProcessingOrMessagesQueued</c> (:383-392). Our confirm ENQUEUED the
-    /// toggle on the SRL worker; until that message has been taken and processed, none of the three
-    /// terms below can have been written yet, and reading them would be reading the state from
-    /// BEFORE the use. This is the hand-off term, and it is the game's own "the rules are still
-    /// chewing, you may not press anything" signal: <c>ReadyButton.cs:501</c>,
-    /// <c>UndoButton.cs:294</c> and <c>SkipButton.cs:162</c> all gate their interactability on
-    /// exactly this. It cannot stick — a dedicated worker thread drains the queue.</item>
+    /// <item><b>The rules engine has not answered yet</b> — the game's own three-term expression,
+    /// <c>IsProcessingOrMessagesQueued &amp;&amp; !WaitingForPlayerToSelectDamageResponse &amp;&amp;
+    /// !WaitingForPlayerActorToAvoidDamageResponse</c> (see <see cref="RulesEngineBusy"/>). Our
+    /// confirm ENQUEUED the toggle on the SRL worker; until that message has been taken and
+    /// processed, none of the three terms below can have been written yet, and reading them would be
+    /// reading the state from BEFORE the use. This is the hand-off term, and it is the game's own
+    /// "the rules are still chewing, you may not press anything" signal.
+    ///
+    /// <para>CORRECTED, ModBuild 479 round. This doc used to name <c>ReadyButton.cs:501</c>,
+    /// <c>UndoButton.cs:294</c> and <c>SkipButton.cs:162</c> and say those three "gate their
+    /// interactability on exactly this", and that "it cannot stick — a dedicated worker thread
+    /// drains the queue". BOTH sentences were false, and reading those three lines is what falsifies
+    /// them: not one of them reads the bare flag. All three read
+    /// <c>(!IsProcessingOrMessagesQueued || WaitingForPlayerToSelectDamageResponse ||
+    /// WaitingForPlayerActorToAvoidDamageResponse)</c>. And the flag DOES stick, with no race and no
+    /// pathology: <c>GameState.ActorDamaged</c> and
+    /// <c>ContinueActorDamagedAfterSelectingPlayerActorToBurnCards</c> park that very worker thread
+    /// in <c>while (!s_Recieved…Response) { ThreadIsSleeping = true; Thread.Sleep(100); }</c>
+    /// (<c>ScenarioRuleLibrary/GameState.cs:1190-1204</c> and <c>:1257-1269</c>) for the WHOLE length
+    /// of a take-damage prompt — so the flag reads true while the engine executes nothing, on every
+    /// machine at the table, for as long as ANY player thinks. The consequence here was a used item
+    /// card that would not leave the recess and sprang back on every attempt to laser it home
+    /// (<c>ItemsPile.TickUseResolving</c> / <c>RefuseResolvingRemoval</c>), for the length of a
+    /// co-player's think. The game already tells us how to ask the question; asking a SUBSET of it
+    /// is the shape of every deadlock this project has fixed.</para>
+    ///
+    /// <para>NOT ADDED, deliberately: <c>GameState.ThreadIsSleeping</c>. The game pairs it with the
+    /// same two damage flags at <c>SceneController.cs:1479</c>, but none of the three BUTTON sites
+    /// reads it, and this term exists to mean exactly what those buttons mean. Copying the game's
+    /// expression means copying the one it uses for THIS question, not the union of every expression
+    /// that mentions the same fields.</para></item>
     ///
     /// <item><b>The item is SELECTED</b> — <c>SlotState == Selected</c>. The game has taken the item
     /// into a live selection and has not yet charged it. <c>CInventory.SelectItem</c> writes it at
@@ -1870,8 +1977,10 @@ internal static class CardsGameApi
             return false;
         try
         {
-            // 1 — the toggle we just enqueued has not been processed yet.
-            if (ScenarioRuleClient.IsProcessingOrMessagesQueued)
+            // 1 — the toggle we just enqueued has not been processed yet. The game's own three-term
+            // expression, not the bare flag: the flag is TRUE for the whole length of any player's
+            // take-damage prompt because the SRL work thread is Thread.Sleep-parked, not busy.
+            if (RulesEngineBusy)
                 return true;
 
             // 2 — the game holds the item selected and has not charged it.
@@ -2401,7 +2510,7 @@ internal static class CardsGameApi
             return null;
         if (PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest)
             return null;
-        if (FFSNetwork.IsOnline && !player.IsUnderMyControl)
+        if (!ControlsActor(player)) // F5: partitioned list, not the stale-able flag
             return null;
         CardsHandManager manager = CardsHandManager.Instance;
         if (manager == null)
@@ -3496,7 +3605,7 @@ internal static class CardsGameApi
             return false;
         UIReadyToggle? t = ReadyToggle();
         return t != null && t.gameObject.activeInHierarchy
-               && hand.PlayerActor.IsUnderMyControl && t.ToggledOn;
+               && ControlsActor(hand.PlayerActor) && t.ToggledOn; // F5: partitioned list
     }
 
     /// <summary>
@@ -3655,7 +3764,7 @@ internal static class CardsGameApi
         CPlayerActor? subject = TakeDamageSubject();
         if (subject == null)
             return null;
-        if (FFSNetwork.IsOnline && !subject.IsUnderMyControl)
+        if (!ControlsActor(subject)) // F5: partitioned list, not the stale-able flag
             return null;
         return TakeDamageIsLocalDecision() ? subject : null;
     }
@@ -3686,7 +3795,7 @@ internal static class CardsGameApi
             actor = TakeDamageSubject();
         if (actor == null)
             return null;
-        if (FFSNetwork.IsOnline && !actor.IsUnderMyControl)
+        if (!ControlsActor(actor)) // F5: partitioned list, not the stale-able flag
             return null;
         CardsHandManager manager = CardsHandManager.Instance;
         CardsHandUI hand = manager != null ? manager.GetHand(actor) : null!;
@@ -3725,7 +3834,7 @@ internal static class CardsGameApi
         Choreographer c = Choreographer.s_Choreographer;
         if (c == null || !(c.CurrentActor is CPlayerActor actor))
             return null;
-        if (FFSNetwork.IsOnline && !actor.IsUnderMyControl)
+        if (!ControlsActor(actor)) // F5: partitioned list, not the stale-able flag
             return null;
         CardsHandManager manager = CardsHandManager.Instance;
         CardsHandUI hand = manager != null ? manager.GetHand(actor) : null!;
@@ -3846,7 +3955,9 @@ internal static class CardsGameApi
             return false; // no player is acting — nothing to protect
         if (ReferenceEquals(clickedPlayer, current))
             return false; // re-selecting the acting actor itself is fine
-        if (FFSNetwork.IsOnline && (!current.IsUnderMyControl || !clickedPlayer.IsUnderMyControl))
+        // F5: the partitioned list on BOTH terms. Offline ControlsActor is true, so the
+        // whole clause folds out exactly as the FFSNetwork.IsOnline guard used to make it.
+        if (!ControlsActor(current) || !ControlsActor(clickedPlayer))
             return false; // never interfere with a remote turn / remote portrait
         return true;
     }
@@ -3907,8 +4018,10 @@ internal static class CardsGameApi
     /// </summary>
     internal static bool IsForeignControlledSelect(CActor? clicked)
     {
+        // F5: partitioned list. OwnershipGuardActive() already requires an online session with
+        // more than one participant, so ControlsActor's offline-true branch is unreachable here.
         return clicked is CPlayerActor player
-               && !player.IsUnderMyControl
+               && !ControlsActor(player)
                && OwnershipGuardActive();
     }
 

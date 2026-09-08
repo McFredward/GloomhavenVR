@@ -109,8 +109,8 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// the ModBuild 84 "leerer Hintergrund" report), and nothing else: no game method is
 /// called, no GameObject the game owns is deactivated — so not one game widget's
 /// <c>OnDisable</c> runs (<c>ExtendedButton.OnDisable</c> raises <c>ActiveChanged</c>/
-/// <c>onDeselected</c>, which is exactly why SetActive is NOT the mechanism), no
-/// <c>onClick</c> is invoked, no <c>UIWindow</c> is closed. The prompt stays OPEN, the
+/// <c>onDeselected</c>, which is exactly why SetActive is NOT the mechanism for THE FOCUS
+/// HIDE), no <c>onClick</c> is invoked, no <c>UIWindow</c> is closed. The prompt stays OPEN, the
 /// Choreographer stays parked in its wait state, and the row's widgets keep every bit of
 /// their state (toggles, selection, pooled labels). Input cannot reach a hidden row either,
 /// which is the point: both the laser (<c>RayUguiDriver</c>) and the fingertip
@@ -123,8 +123,24 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// grace (<see cref="ClaimGraceSeconds"/>) via
 /// <see cref="ModalFallback.DecisionDock.MarkGaveUp"/> and ModalFallback floats the
 /// whole window generically next tick (window + ModalUI): a worse experience, never a
-/// deadlock. The manual A/X screen chord stays the universal rescue (it releases the
-/// conversion so the full window shows on the 2D composite).
+/// deadlock.
+///
+/// THE OTHER PLACE THIS CLASS DEACTIVATES, stated here because the paragraph above reads
+/// as though it did not exist. <see cref="Place"/> DOES call
+/// <c>Panel.HostGo.SetActive(false)</c> while the converted host still measures 0x0, and
+/// <c>Panel.HostGo</c> is the ancestor the game's own option row was reparented under — so
+/// every <c>ExtendedButton.OnDisable</c> in that row DOES run there. The claim above is
+/// true of <see cref="ApplyFocusHide"/> and only of it; it was written as a property of the
+/// whole class and it never was one. What makes that second deactivation safe is not that
+/// it does not happen, it is that it is now BOUNDED — see <see cref="_unmeasuredSince"/>,
+/// which is the timeout the grace above could not provide because the grace only runs
+/// while <c>Panel == null</c>.
+///
+/// THE A/X CHORD IS NOT A UNIVERSAL RESCUE, and this file used to say it was. It releases
+/// the conversion so the full window shows on the 2D composite, and that is true wherever
+/// it exists — a scenario. It does NOT exist on the campaign map, where two gates kill it,
+/// so nothing in this file may be justified by it. The bounded hand-backs above are the
+/// escape; the chord is a convenience that happens to be available in one place.
 /// </summary>
 internal sealed class DecisionDockSurface : WorldSurface
 {
@@ -426,6 +442,36 @@ internal sealed class DecisionDockSurface : WorldSurface
     private float _wantSince;
     private bool _targetWarned;
     private bool _hmdFloatPlaced;
+
+    /// <summary>
+    /// Unscaled time at which <see cref="Place"/> first found the converted host measuring 0x0 and
+    /// deactivated it — 0 while the host measures. This is the SECOND half of the claim grace, and
+    /// it exists because the first half could never cover this case: the grace at
+    /// <see cref="ClaimGraceSeconds"/> lives in the <c>Panel == null</c> branch of
+    /// <see cref="Tick"/>, so it answers only "the row never converted". A row that DID convert and
+    /// then measured zero was outside every timeout in this file.
+    ///
+    /// <para>WHY THAT IS A DEADLOCK AND NOT A GLITCH — the state is SELF-SUSTAINING. Deactivating
+    /// the host is what makes the rect unmeasurable: Unity's <c>LayoutRebuilder</c> skips a
+    /// <c>!IsActive()</c> target and a <c>ContentSizeFitter</c> on an inactive object never runs, so
+    /// <c>CanvasConversion.TickFit</c> cannot grow a rect it has just been prevented from measuring.
+    /// Meanwhile the claim stands (the generic modal fallback keeps standing down),
+    /// <see cref="SuppressWindowGroup"/> keeps the flat window at alpha 0, and neither the laser nor
+    /// the fingertip can reach a canvas that is not <c>isActiveAndEnabled</c>. All three terms of
+    /// the failure shape in one place: the game waits on one widget, the widget is neither drawn nor
+    /// reachable because we took it, and nothing hands it back.
+    ///
+    /// <para>The premise IS measured, which is the requirement this project has broken before (an
+    /// escape whose premise was never measured tore down a panel the player was CARRYING). The
+    /// premise here is the host's own rect reading below one pixel in BOTH axes, continuously, for
+    /// the whole grace: a 0x0 host draws nothing and receives nothing, so there is no interaction
+    /// to interrupt and no way for a slow player to trip it — thinking for a minute does not change
+    /// a rect. One measuring frame resets the clock.</para></para>
+    /// </summary>
+    private float _unmeasuredSince;
+
+    /// <summary>One <c>Alert</c> per prompt for the hand-back above; re-armed on every prompt change.</summary>
+    private bool _unmeasuredGaveUp;
 
     /// <summary>Unscaled time the row started waiting for the prompt TEXT's measured bottom edge
     /// (0 = not waiting) — see <see cref="TextSeatGraceSeconds"/> and <see cref="HeldTooLongForText"/>.</summary>
@@ -806,6 +852,8 @@ internal sealed class DecisionDockSurface : WorldSurface
             _active = open ? active : null;
             _wantSince = 0f;
             _targetWarned = false;
+            _unmeasuredSince = 0f;      // a new prompt measures from scratch…
+            _unmeasuredGaveUp = false;  // …and re-arms its own hand-back
             _pickKeycapStandDownLogged = false; // a new prompt re-arms the stand-down line
             _textWaitSince = 0f;   // a new prompt waits for ITS OWN line, from scratch
             _textWaitWarned = false;
@@ -1008,6 +1056,9 @@ internal sealed class DecisionDockSurface : WorldSurface
                 Panel.HostGo.SetActive(true);
             if (!_hmdFloatPlaced)
                 _hmdFloatPlaced = TryPlaceAtHmd();
+            _unmeasuredSince = 0f; // the host is ACTIVE on this path — the escape below is for the
+                                   // deactivated-because-unmeasured state only, never for a float
+
             RowBottomUpMeters = null; // HMD-floated, not on the mount — the bar stack must not hang off it
             RowTopUpMeters = null;    // …and neither may the prompt text (there is no mount to seat it on)
             return;
@@ -1034,8 +1085,39 @@ internal sealed class DecisionDockSurface : WorldSurface
         {
             if (Panel.HostGo.activeSelf)
                 Panel.HostGo.SetActive(false); // not measured yet — stay INVISIBLE, never half-placed
+            // …BUT NOT FOR EVER. See _unmeasuredSince for why this branch was outside every timeout
+            // in the file and why the state it creates sustains itself. The hand-back is the SAME
+            // one the never-converted row gets — MarkGaveUp clears the claim, so WantConverted goes
+            // false, base.Tick releases the row and restores the window's suppression next tick, and
+            // ModalFallback floats the whole 2D window. That is a worse picture and a live control,
+            // which is the trade this file already made once at ClaimGraceSeconds.
+            if (_unmeasuredSince <= 0f)
+            {
+                _unmeasuredSince = Time.unscaledTime;
+            }
+            else if (!_unmeasuredGaveUp && _activeWindow != null
+                     && Time.unscaledTime - _unmeasuredSince > ClaimGraceSeconds)
+            {
+                _unmeasuredGaveUp = true;
+                ModalFallback.DecisionDock.MarkGaveUp(_activeWindow);
+                // HW-VERIFY: grep token "DECISION DOCK: CONVERTED ROW NEVER MEASURED".
+                VRLog.Alert("WorldUI", "DECISION DOCK: CONVERTED ROW NEVER MEASURED — " +
+                                       $"'{_active?.Name}' isolated and converted, but its host rect read " +
+                                       $"{rect.width:F1}x{rect.height:F1} px for more than " +
+                                       $"{ClaimGraceSeconds:F1}s, so the host has been inactive that whole " +
+                                       "time and nothing was drawn or reachable. Claim RELEASED to the " +
+                                       "generic modal fallback. READ IT SO: this line is the first evidence " +
+                                       "that a row can convert and still measure zero — the failure the " +
+                                       "ClaimGraceSeconds grace could not see, because that grace only runs " +
+                                       "while Panel == null. If it never appears, a converted row always " +
+                                       "measures and this escape is inert; if it does, the NEXT question is " +
+                                       "why IsolateRow returned an ancestor whose layout group had not run.");
+            }
             return;
         }
+        // One measuring frame is the whole falsifier: the escape above may only ever fire on a host
+        // that has read below a pixel CONTINUOUSLY, so a slow first fit costs nothing.
+        _unmeasuredSince = 0f;
 
         float trayScale = mount.lossyScale.x;
         float density = PlayTray.TrayPixelsPerMeter * DensityScale;
@@ -2955,6 +3037,8 @@ internal sealed class DecisionDockSurface : WorldSurface
         _activeWindow = null;
         _wantSince = 0f;
         _targetWarned = false;
+        _unmeasuredSince = 0f;
+        _unmeasuredGaveUp = false;
         _hmdFloatPlaced = false;
         _textWaitSince = 0f;
         _textWaitWarned = false;
