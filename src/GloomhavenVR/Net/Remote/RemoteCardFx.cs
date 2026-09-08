@@ -418,14 +418,59 @@ internal sealed class RemoteCardFx
     /// playing, not one leaving a recess, and there is no departed face for it — it falls through to
     /// the back this class has always drawn, which is also what the owner's own fan card looks like
     /// to a peer while the selection window is open.</para>
+    ///
+    /// <para><b>NO SENDER EMITS <c>from == HandFan</c> TODAY, AND THE ONE THAT WOULD MUST NOT ROUTE
+    /// THROUGH THIS CLASS</b> (2026-09-07 review R3, F3 — re-derived here rather than taken).
+    /// Every announcement site in the tree was enumerated: seven <c>CardsDriver.ReportCardFx</c>
+    /// (<c>6.Flows:3590</c>, <c>5.Interactions:1490</c>, <c>4.Rebuild:2692/:2999/:3337/:3915/:3965</c>)
+    /// and two bare <c>Net.NetCardFx.Report</c> (<c>5.Interactions:1731/:1853</c>). Their origins are
+    /// literals (<c>Discard</c>, <c>Slot0</c>, <c>Board</c>) or <c>CardsDriver.SlotAnchor(int)</c>,
+    /// which maps only to <c>Slot0</c>/<c>Slot1</c>/<c>Board</c>. <c>HandFan</c> appears on the wire
+    /// only as a DESTINATION, at <c>4.Rebuild:3337</c> (a pick restart returning a card to the hand).
+    /// So this arm is not currently reached from any sender in this build.</para>
+    ///
+    /// <para><b>IT IS KEPT, AND IT IS NOT KEPT FOR ITS OWN COMMENT'S SAKE.</b> Two reasons, both
+    /// from outside this method. (1) The <c>from</c> nibble is DECODED FROM THE WIRE
+    /// (<c>NetCardFx.From</c>) and <see cref="TryResolve"/> answers <c>HandFan</c> with a real point
+    /// — the peer's tracked palm — so a <c>HandFan -&gt;</c> event from any source WILL fly. Without
+    /// this arm such a flight would fall into the departed-recess-face path with <c>slot == -1</c>,
+    /// asking a memory of "what LEFT recess i" about a card that was never in one. The arm is a
+    /// guard on the vocabulary, and its worth does not depend on which sites happen to exist today.
+    /// (2) The transition it looks like it was built for — the hand-fan card DOCKING into a round
+    /// recess (<c>PlayTray.4.Slots:1204/:1231</c>) — must never be announced here, because this
+    /// class replays the WRONG MOTION for it. <see cref="RemoteFlightCurve"/> is
+    /// <c>VRCard.SmootherStep</c> along the chord plus a <c>VRCard.FlyArcOffset</c> bow over a fixed
+    /// <c>NetProtocol.CardFxSeconds</c> (0.4 s) — i.e. <c>VRCard.FlyToPile</c>. <c>PlaceCard</c> does
+    /// not fly at all: it calls <c>VRCard.SetHome(instant: false)</c> and the card runs the
+    /// exponential HOME GLIDE, <c>1 - exp(-CardLerpSpeed·dt)</c> (<c>VRCard.cs:2291</c>) — no bow, no
+    /// fixed duration, asymptotic. Wiring a sender would replace a pop with a 0.4 s arching parabola
+    /// where its owner sees a direct exponential ease: the wrong animation played correctly, which
+    /// is a NEW 1:1 breach and not a fix for the old one.</para>
+    ///
+    /// <para><b>THE POP IS REAL AND IS NOT THIS CLASS'S TO FIX.</b> The mirrored recess is a
+    /// stationary slab whose CONTENT changes (<c>RemoteBoardCard</c> writes <c>localPosition</c> in
+    /// its constructor), so every card a team-mate docks blinks into existence there. The 1:1 remedy
+    /// is the owner's own glide on the owner's own dial, seeded from the peer's fan at the frame the
+    /// wire's occupancy nibble goes empty-&gt;occupied — <c>RemoteBoardCard.Move(pos, instant,
+    /// lerpSpeed)</c> is that machinery and is already built (see its doc; the active column drives
+    /// it). What is missing is the EDGE and the SEED POINT, both of which live in
+    /// <c>RemoteControlBoard.SeatSlots</c> and <c>RemoteHandFan</c>. It is deliberately NOT faked
+    /// here: a glide this class invented would not be driven by the owner's actual motion, and 1:1
+    /// means the same motion at the same moment, not a plausible-looking one.</para>
     /// </summary>
     private string ResolveFace(Flight f, CardFxAnchor from, CardFxAnchor to)
     {
         f.HasFace = false;
         f.Art?.HideFront();
+        // A GUARD ON THE WIRE VOCABULARY, not a live sender's arm — see this method's doc for the
+        // enumeration of all nine announcement sites (none has from == HandFan) and for why the one
+        // transition that looks like it wants this arm, the hand -> recess dock, must not be
+        // announced through this class at all.
         if (from == CardFxAnchor.HandFan)
             return "a flight out of the peer's HAND FAN — no recess face to inherit, so a back, "
-                 + "which is what its owner's peers see of that card anyway";
+                 + "which is what its owner's peers see of that card anyway. NOTE: no sender in "
+                 + "this build emits this origin, so seeing this rule quoted at all means a peer "
+                 + "announced an anchor pair this build does not produce";
         int slot = from == CardFxAnchor.Slot0 ? 0 : from == CardFxAnchor.Slot1 ? 1 : -1;
         // ─── A FLIGHT INTO A RECESS IS THE OTHER DIRECTION AND HAS ITS OWN NAME ─────────────────
         // 2026-09-06 report item 4. The departed-face memory answers "what LEFT recess i", and for a
