@@ -198,6 +198,24 @@ internal sealed class RemoteBurnFx
         /// somewhere or the peer cannot "sehen dass die Karte kurz liegen bleibt".</summary>
         public float StationaryShown;
 
+        /// <summary>The char this slab was last painted at during a STATIONARY hold frame, 0..1 -
+        /// the owner's own <c>_GreyOut</c> when his ramp was observable here, and the settled 1 when
+        /// it was not. -1 means no stationary frame ever ran (his recess drew the card throughout,
+        /// or the burn flew at once).
+        ///
+        /// <para>THE DECIDING FIELD for R2's F5. This surface used to paint a hard 1 every frame of
+        /// the hold, so "the viewer saw the char ramp" and "the viewer saw a black card standing
+        /// still" produced identical logs. A value that ENDS near 1 beside a non-zero
+        /// <see cref="StationaryShown"/> is a ramp that ran; a value pinned at exactly 1.00 from the
+        /// first frame is the arm that could not read the owner's paint.</para></summary>
+        public float StationaryCharred = -1f;
+
+        /// <summary>Which <c>Claim</c> this presentation minted, or 0 for none. It is an
+        /// identity and not a count, which is the whole of R3's F5: a bare counter cannot say WHICH
+        /// burn a swallow belongs to, so a token stranded by a dropped packet could eat a later
+        /// burn's event. See <see cref="ConsumesWireEvent"/>.</summary>
+        public int ClaimId;
+
         /// <summary>Has the arc been reported? One line per burn, at the hand-over instant.</summary>
         public bool HandoverLogged;
 
@@ -239,38 +257,141 @@ internal sealed class RemoteBurnFx
     /// looked for yet.</summary>
     private float _sinceLastWalk = -1f;
 
-    /// <summary>Unscaled time of the most recent presentation start — the claim window for
-    /// <see cref="ConsumesWireEvent"/>.</summary>
+    /// <summary>Unscaled time of the most recent presentation start — the mint stamp each
+    /// <see cref="Claim"/> takes a copy of. It is deliberately no longer a class-wide claim ANCHOR:
+    /// one clock shared by every token is the defect the token list replaced.</summary>
     private float _lastPresentedAt = float.NegativeInfinity;
 
-    /// <summary>Unscaled time of the most recent HAND-OVER (a hold ending, an arc beginning). The
-    /// claim window in <see cref="ConsumesWireEvent"/> runs from this rather than from the
-    /// discovery, because the owner reports his flight when his card is really cleared and that can
-    /// be a whole turn after this mirror learned of the burn.</summary>
-    private float _lastHandoverAt = float.NegativeInfinity;
-
-    /// <summary>Is any presentation still HOLDING (discovered, not yet handed over)? While one is,
-    /// the owner has not cleared his card and his wire event cannot have been sent, so the claim
-    /// sweep must not expire.</summary>
-    private bool AnyHoldPending()
+    /// <summary>
+    /// ONE OUTSTANDING SWALLOW, BOUND TO THE PRESENTATION THAT MINTED IT.
+    ///
+    /// <para>WHAT THIS REPLACED, AND WHY (2026-09-07 review R3, F5). The claim used to be a bare
+    /// <c>int</c>. Nothing bound a token to a card, and the whole set shared ONE expiry anchored on
+    /// the most recent presentation or hand-over — so a token stranded by a dropped packet (the
+    /// extras stream is unreliable by contract and this mod's own <c>CARD FX LOST</c> line has
+    /// measured losses) stayed spendable for as long as any OTHER burn kept refreshing that shared
+    /// anchor, and could then eat the event for a burn this mirror never presented. That burn's
+    /// fallback flight — the anonymous back slab <see cref="RemoteCardFx"/> would have drawn — was
+    /// the thing lost, i.e. an animation the owner played and the viewer never saw.</para>
+    ///
+    /// <para>THE PART OF THAT FINDING THAT DID NOT SURVIVE RE-DERIVATION is worth recording beside
+    /// the fix: the review also held that the old sweep could be blocked "for a whole turn" because
+    /// a hold has no upper bound. It has one. <c>BurnArtwork.Released</c> returns true
+    /// unconditionally at <c>MaxHoldSeconds</c> (3 s) and <see cref="Drive"/> evaluates it every
+    /// frame, so <c>Active &amp;&amp; !HandoverLogged</c> cannot outlive 3 s of ticks. The leak is
+    /// real; that particular route to it is not.</para>
+    ///
+    /// <para>EACH TOKEN NOW CARRIES ITS OWN CLOCK. It cannot expire while its presentation is still
+    /// holding (the owner has by definition not cleared his card yet, so his event cannot have been
+    /// sent), and once that presentation hands over it expires on ITS OWN hand-over instant rather
+    /// than on the newest one — which is exactly the difference between "each presented burn eats
+    /// its own event" and "the set eats whatever arrives".</para>
+    /// </summary>
+    private sealed class Claim
     {
-        for (int i = 0; i < _burns.Count; i++)
-            if (_burns[i].Active && !_burns[i].HandoverLogged)
-                return true;
-        return false;
+        /// <summary>Matches <c>Burn.ClaimId</c>. Never 0 for a live token.</summary>
+        public int Id;
+
+        /// <summary>The card this token was minted for — carried so the expiry line can NAME the
+        /// burn whose event never arrived, which is the only thing that turns "the leak is
+        /// plausible" into a reading.</summary>
+        public string Name = "?";
+
+        /// <summary>Unscaled time of the <see cref="Present"/> that minted it.</summary>
+        public float MintedAt;
+
+        /// <summary>Unscaled time of that presentation's hand-over, or <c>NegativeInfinity</c> while
+        /// it is still holding.</summary>
+        public float ReleasedAt = float.NegativeInfinity;
     }
 
-    /// <summary>How many of the owner's <c>Board -&gt; Burnt</c> events this mirror still owes a
-    /// swallow, i.e. how many burns it has presented whose wire event has not arrived yet.
-    ///
-    /// <para>A COUNT AND NOT JUST A TIME WINDOW, because the two failure modes are different burns.
-    /// The window has to outlast the owner's own hold (he reports the flight when HIS hold
-    /// releases, up to his 3 s ceiling after the pile change this mirror triggered on), and a bare
-    /// window that wide would also swallow the event for a SECOND burn that this mirror could not
-    /// present at all — costing the player the anonymous back slab he would otherwise still get.
-    /// One token per presentation means each presented burn eats exactly its own event, and an
-    /// unpresented one always falls through.</para></summary>
-    private int _claims;
+    /// <summary>Outstanding swallows, oldest first (append order = mint order). Bounded by the
+    /// expiry in <see cref="PruneClaims"/>, which runs on both of the two event-driven paths that
+    /// can grow or read it.</summary>
+    private readonly List<Claim> _claimTokens = new(MaxBurns);
+
+    /// <summary>Source of <see cref="Claim.Id"/>. Monotonic per avatar; it is an identity, never an
+    /// index.</summary>
+    private int _nextClaimId;
+
+    /// <summary>How long a token stays spendable after ITS OWN presentation handed over. The owner
+    /// reports his <c>Board -&gt; Burnt</c> flight when his card is really cleared, which is the same
+    /// signal this mirror's hand-over reads, so the slack only has to cover the difference between
+    /// the two — not the whole turn the old shared anchor had to survive.</summary>
+    private static float ClaimWindowSeconds =>
+        HoldSeconds + NetProtocol.CardFxSeconds + ClaimSlackSeconds;
+
+    /// <summary>Drop every token whose own window has run out, naming the burn it belonged to.
+    /// Cheap by construction: at most <see cref="MaxBurns"/> presentations can be live at once and a
+    /// token outlives its presentation by <see cref="ClaimWindowSeconds"/>, so this list is a
+    /// handful of entries and is walked only when one is minted or spent.</summary>
+    private void PruneClaims()
+    {
+        float now = Time.unscaledTime;
+        for (int i = _claimTokens.Count - 1; i >= 0; i--)
+        {
+            Claim c = _claimTokens[i];
+            bool holding = float.IsNegativeInfinity(c.ReleasedAt);
+            // A HOLDING token never expires on the window — the owner has not sent its event yet.
+            // The belt is his own deadline: BurnArtwork.Released lands every hold at
+            // MaxHoldSeconds, so a token still holding past that plus the window belongs to a
+            // presentation that stopped ticking (a slab torn down under it), not to a live burn.
+            float age = holding ? now - c.MintedAt : now - c.ReleasedAt;
+            float allowed = holding ? BurnArtwork.MaxHoldSeconds + ClaimWindowSeconds
+                                    : ClaimWindowSeconds;
+            if (age <= allowed)
+                continue;
+            _claimTokens.RemoveAt(i);
+            // HW-VERIFY: grep token "BURN CLAIM EXPIRED". It says ONE thing and only that thing:
+            // this mirror presented that burn and the owner's matching Board -> Burnt event never
+            // arrived within the window. It does NOT name a cause — a dropped extras packet and a
+            // sender suppressed by a read-only character focus produce the identical reading, and
+            // the way to tell them apart is the peer's own 'CARD FX LOST' count in the same window.
+            // Its absence across a session is the falsifier for R3's F5 picture; its presence
+            // BESIDE a later burn that flew as an anonymous back slab is the confirmation.
+            VRLog.Note("Net", $"BURN CLAIM EXPIRED [peer {_owner.PlayerId}]: this mirror presented " +
+                              $"'{c.Name}' and swallowed nothing for it — the owner's matching " +
+                              $"'-> Burnt' card-FX event never arrived in the " +
+                              $"{allowed:F1}s after its {(holding ? "discovery" : "hand-over")}. " +
+                              "The token is dropped rather than left spendable, so it cannot eat a " +
+                              "LATER burn's event and cost that burn the fallback slab flight " +
+                              "RemoteCardFx would otherwise have drawn. Grep the same window for " +
+                              "'CARD FX LOST' on this peer: a non-zero count there is the cause; " +
+                              "no loss at all points at the SENDER instead (his ReportCardFx is " +
+                              "suppressed under a read-only character focus).");
+        }
+    }
+
+    /// <summary>Stamp <paramref name="claimId"/>'s token as released, so its own window starts from
+    /// this instant instead of from whichever presentation happened to be newest.</summary>
+    private void ReleaseClaim(int claimId)
+    {
+        if (claimId == 0)
+            return;
+        for (int i = 0; i < _claimTokens.Count; i++)
+        {
+            if (_claimTokens[i].Id != claimId)
+                continue;
+            _claimTokens[i].ReleasedAt = Time.unscaledTime;
+            return;
+        }
+    }
+
+    /// <summary>Drop <paramref name="claimId"/>'s token outright — the presentation it was minted
+    /// for is being abandoned, so the owner's event must be allowed THROUGH to
+    /// <see cref="RemoteCardFx"/> rather than swallowed for a flight this viewer never saw.</summary>
+    private void DropClaim(int claimId)
+    {
+        if (claimId == 0)
+            return;
+        for (int i = 0; i < _claimTokens.Count; i++)
+        {
+            if (_claimTokens[i].Id != claimId)
+                continue;
+            _claimTokens.RemoveAt(i);
+            return;
+        }
+    }
 
     private int _played;
 
@@ -285,9 +406,10 @@ internal sealed class RemoteBurnFx
     /// Should the owner's <c>Board -&gt; Burnt</c> card-FX event be SWALLOWED because this mirror is
     /// already showing that burn on the real card? Any other endpoint pair is never claimed.
     ///
-    /// <para>Time-boxed on purpose: a claim that outlived its presentation would silently delete a
-    /// later burn's animation, and a burn this mirror never saw must still reach the player as the
-    /// old back slab.</para>
+    /// <para>Time-boxed PER TOKEN on purpose: a claim that outlived its own presentation would
+    /// silently delete a later burn's animation, and a burn this mirror never saw must still reach
+    /// the player as the old back slab. <see cref="Claim"/> carries the shape and what was measured
+    /// against the bare counter it replaced.</para>
     ///
     /// <para>A LOST <c>CARD FX</c> EVENT CANNOT DELAY OR MISPLACE A BURN, and that is worth stating
     /// here because the ModBuild 462 host log carries <c>CARD FX LOST … 3 of that peer's
@@ -302,8 +424,6 @@ internal sealed class RemoteBurnFx
     internal bool ConsumesWireEvent(byte endpoints)
     {
         if (NetCardFx.To(endpoints) != CardFxAnchor.Burnt)
-            return false;
-        if (_claims <= 0)
             return false;
         // The window is the STALE-TOKEN sweep, not the claim itself: an event that never arrived
         // (a dropped packet on an unreliable stream, an owner whose report was suppressed by a
@@ -324,19 +444,29 @@ internal sealed class RemoteBurnFx
         // and 'Slot0 -> Burnt' at 230510 — two burns, four flights, and BURN MIRROR SKIPPED absent
         // from the whole session, so nothing had declined to present them.
         //
-        // SO THE CLAIM LIVES AS LONG AS THE PRESENTATION DOES. While any presentation is still
-        // HOLDING, the owner has by definition not cleared his card yet and his event cannot have
-        // been sent — nothing may expire. Once the last one has handed over, the old window runs
-        // from THAT instant, which is the one the owner's own flight starts from, so the slack
-        // still covers the difference between his hold releasing and ours.
-        float anchor = Mathf.Max(_lastPresentedAt, _lastHandoverAt);
-        if (!AnyHoldPending()
-            && Time.unscaledTime - anchor > HoldSeconds + NetProtocol.CardFxSeconds + ClaimSlackSeconds)
-        {
-            _claims = 0;
+        // SO A CLAIM LIVES AS LONG AS ITS OWN PRESENTATION DOES. While that presentation is still
+        // HOLDING, the owner has by definition not cleared THAT card yet and its event cannot have
+        // been sent — its token may not expire. Once it hands over, its window runs from THAT
+        // instant, which is the one the owner's own flight for that same card starts from, so the
+        // slack only has to cover the difference between his hold releasing and ours.
+        //
+        // ─── AND THE ANCHOR IS PER TOKEN, NOT PER CLASS (2026-09-07 review R3, F5) ──────────────
+        // This used to be ONE window over a bare counter, anchored on max(_lastPresentedAt,
+        // _lastHandoverAt) and held open for the whole set by an AnyHoldPending() gate. Two
+        // presentations therefore shared one clock: a token stranded by a dropped packet stayed
+        // spendable for as long as any OTHER burn kept refreshing that anchor, and then swallowed
+        // the event for a burn this mirror had not presented at all — costing that burn the
+        // fallback back-slab flight RemoteCardFx would have drawn. See the Claim class for the
+        // shape and for the half of the review's mechanism that did NOT survive re-derivation.
+        PruneClaims();
+        if (_claimTokens.Count == 0)
             return false;
-        }
-        _claims--;
+        // OLDEST FIRST. The list is in mint order and the owner reports his burns in the order he
+        // burns them, so the oldest live token is the one whose event is due. It is a FIFO and not
+        // a search because the wire event carries only the two anchors — there is no card id on it
+        // to match against, which is precisely why the OTHER end of the binding (the expiry) has to
+        // be per token.
+        _claimTokens.RemoveAt(0);
         return true;
     }
 
@@ -528,10 +658,12 @@ internal sealed class RemoteBurnFx
         b.Recess = recess;
         b.Name = name;
         b.SeatedFrames = 0;
+        b.ClaimId = 0;              // a recycled slab must not carry the last burn's token
         b.HandoverLogged = false;
         b.Widget = widget;
         b.ArtworkObserved = false;
         b.StationaryShown = 0f;
+        b.StationaryCharred = -1f;
 
         // The board AS DRAWN, not the wire target — see DrawnBoardScale. Read once here for
         // the arc FLOOR and the slab's opening size; Drive re-reads it every frame.
@@ -649,7 +781,12 @@ internal sealed class RemoteBurnFx
 
         _played++;
         _lastPresentedAt = Time.unscaledTime;
-        _claims++;
+        // ONE TOKEN, BOUND TO THIS PRESENTATION. Pruned first so a session's worth of unanswered
+        // tokens cannot accumulate on a peer whose events are all being dropped: this and
+        // ConsumesWireEvent are the only two paths that touch the list, and both sweep it.
+        PruneClaims();
+        b.ClaimId = ++_nextClaimId;
+        _claimTokens.Add(new Claim { Id = b.ClaimId, Name = name, MintedAt = _lastPresentedAt });
         // THE SAME CENSUS POPULATION RemoteCardFx REPORTS (2026-09-06 report item 5). A burn IS a
         // card flying into a stack, and it reaches the viewer through this class instead of that one
         // only because ConsumesWireEvent swallowed the event — an implementation split, not a
@@ -703,6 +840,28 @@ internal sealed class RemoteBurnFx
                 b.From = liveFrom;
             if (TryAnchor(CardFxAnchor.Burnt, out Vector3 liveTo))
                 b.To = liveTo;
+            // ...AND THE ARCH IS THE THIRD TERM OF THE SAME SHAPE (2026-09-07 review R3, F7).
+            // The bow height is a function of exactly the two things re-read on the two lines above
+            // (the chord) and of the board scale re-read every frame below, and it was the ONE term
+            // still frozen at Present. Discovery can precede the hand-over by up to
+            // BurnArtwork.MaxHoldSeconds, and the owner's own FlyToPile computes his arch from the
+            // pose his board has AT LAUNCH (CardsDriver.4.Rebuild.cs:2986) -- so a peer who dragged
+            // or zoomed his board during the hold arced at the height his board is NOW while this
+            // mirror arced at the height it had when the burn was discovered. A chord and a scale
+            // that move under a frozen height is a shape nobody authored, and no instrument could
+            // see it: the BURN FLIGHT CURVE line prints b.Arc, so the log agreed with itself.
+            //
+            // LIVE RATHER THAN RE-SAMPLED AT HAND-OVER, because that is what its two co-terms are.
+            // Sampling all three at launch is the other coherent answer and is what RemoteCardFx
+            // does for its 0.4 s flights, but this class deliberately re-resolves position and size
+            // per frame for the whole presentation (the owner may be dragging his diorama under a
+            // live flight, ModBuild 477 item 8), and freezing one of three is what produced this.
+            // Same expression, same two literals, as Present -- see the block there for why the
+            // 1.5 and the 0.55 are code constants that simply have to match on both sides.
+            float liveScale = DrawnBoardScale;
+            float liveCardHeight = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth) * (88f / 63.5f);
+            b.Arc = Mathf.Max(liveCardHeight * 1.5f * liveScale,
+                              Vector3.Distance(b.From, b.To) * VRCard.FlyArcHeightFraction);
 
             if (!b.HandoverLogged)
             {
@@ -853,7 +1012,42 @@ internal sealed class RemoteBurnFx
                         // once at Present and then held for the whole hold.
                         b.Go.transform.localScale = Vector3.one
                             * (DrawnBoardScale * (b.FromWidth / RemoteHandFan.DefaultCardWidth));
-                        if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(1f))
+                        // ─── THE RAMP, NOT ITS END STATE (2026-09-07 review R2, F5) ────────────
+                        // This wrote SetAbilityBurnProgress(1f) — the SETTLED char — on the slab's
+                        // first drawn frame and every frame after, while the owner's card chars over
+                        // CardEffects.BurnCardTimeline's hard-coded `burnTime = 2f`
+                        // (decompiled/GH.Runtime/CardEffects.cs:515, ramping
+                        // `_GreyOut = Clamp01(dTime)` at :564-571). Owner: a card lying still and
+                        // darkening across two seconds, then flying. Viewer: a slab already fully
+                        // black on frame one, standing there, then flying. Same end state, different
+                        // animation — and the ruling twenty lines above ("das soll so synchron mit
+                        // den anderen Spielern sein ... die sehen auch dass die Karte kurz liegen
+                        // bleibt") is about exactly this window. 1:1 covers ANIMATION and TIMING.
+                        //
+                        // THE NUMBER WAS ALREADY IN HAND AND WAS BEING THROWN AWAY: the hand-over
+                        // line below reads BurnArtwork.PaintProgress(ownerFx) purely to PRINT it.
+                        // That is the timeline's own progress variable read off the widget's own
+                        // material, so painting it here is not an approximation of his ramp — it is
+                        // his ramp's value, on this frame.
+                        //
+                        // ONLY WHILE THE RAMP IS OBSERVABLE, AND THAT GUARD IS LOAD-BEARING. When
+                        // `playing` is false the timeline is not running on this client (it bailed
+                        // on an inactive hierarchy, or was never started), and _GreyOut then reads a
+                        // hard ZERO for a card whose owner is looking at the full char that
+                        // Cards.BurnLookPolicy settles onto a latched-but-unpainted card. Reading it
+                        // there would UN-CHAR a card that is black on its owner's board — a worse
+                        // divergence than the one this fixes — so that arm keeps the settled 1f that
+                        // shipped, and it is bounded: BurnArtwork.Released lets a non-playing hold go
+                        // after StartGraceSeconds (0.50 s).
+                        float charred = 1f;
+                        if (playing)
+                        {
+                            float painted = BurnArtwork.PaintProgress(ownerFx);
+                            if (painted >= 0f)   // -1 is UNKNOWN and never means "unpainted"
+                                charred = painted;
+                        }
+                        b.StationaryCharred = charred;
+                        if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(charred))
                             b.HasFace = false;
                     }
                     continue;
@@ -1032,6 +1226,17 @@ internal sealed class RemoteBurnFx
                 if (_burns[i].Elapsed > oldest.Elapsed)
                     oldest = _burns[i];
             }
+            // AN ABANDONED PRESENTATION MUST GIVE ITS TOKEN BACK, and only if it never flew
+            // (2026-09-07 review R3, F5). This slab is being taken away from a burn that is still
+            // mid-hold, so this viewer never sees that burn's arc — and swallowing the owner's
+            // event for it would delete the fallback back-slab flight RemoteCardFx would otherwise
+            // draw, leaving the burn with NO animation on this client at all. A presentation that
+            // had already handed over KEEPS its token: the arc was drawn, and letting the event
+            // through would fly the same burn a second time, which is the defect the swallow
+            // exists to prevent.
+            if (!oldest.HandoverLogged)
+                DropClaim(oldest.ClaimId);
+            oldest.ClaimId = 0;
             oldest.Art?.HideFront();
             oldest.HasFace = false;
             SetFrontFace(oldest, showsBack: true);   // …the same teardown, one recycle earlier
@@ -1104,7 +1309,7 @@ internal sealed class RemoteBurnFx
         _burntBuf.Clear();
         _pruneScratch.Clear();
         _seeded = false;
-        _claims = 0;
+        _claimTokens.Clear();
         if (_root != null)
         {
             // The body meshes are CardMesh's SHARED cache — never ours to destroy.
@@ -1179,10 +1384,10 @@ internal sealed class RemoteBurnFx
     /// THE HAND-OVER, AS MECHANISM: this presentation stops holding and its arc begins now.
     ///
     /// <para>Every load-bearing write of the transition lives here and none of it in
-    /// <see cref="LogHandover"/>. <see cref="_lastHandoverAt"/> in particular is READ by
-    /// <see cref="ConsumesWireEvent"/> to decide whether the owner's <c>Board -&gt; Burnt</c> wire
-    /// event is swallowed or flies a second time, so it is the mechanism's state and not a
-    /// diagnostic's.</para>
+    /// <see cref="LogHandover"/>. <see cref="ReleaseClaim"/> in particular starts this
+    /// presentation's swallow window, which is what <see cref="ConsumesWireEvent"/> reads to decide
+    /// whether the owner's <c>Board -&gt; Burnt</c> wire event is swallowed or flies a second time,
+    /// so it is the mechanism's state and not a diagnostic's.</para>
     ///
     /// <para>THE CLOCK IS RE-BASED, NOT CARRIED. Phase 2 reads
     /// <c>(Elapsed - HoldSeconds) / CardFxSeconds</c>, and since the hold now lasts as long as the
@@ -1196,7 +1401,11 @@ internal sealed class RemoteBurnFx
             return;
         float after = b.Elapsed;
         b.HandoverLogged = true;
-        _lastHandoverAt = Time.unscaledTime;
+        // THIS TOKEN'S OWN WINDOW STARTS HERE. The owner reports his '-> Burnt' event when his card
+        // is really cleared, which is the signal this hand-over just read off his widget, so the
+        // slack after this instant is all the swallow needs — and it is this token's slack, not the
+        // whole set's.
+        ReleaseClaim(b.ClaimId);
         b.Elapsed = HoldSeconds;
         Cards.CardFlightLedger.Note($"peer {_owner.PlayerId}", "Burnt", "remote-burn-mirror", b.Name);
         LogHandover(b, after, why);
@@ -1250,8 +1459,8 @@ internal sealed class RemoteBurnFx
     private void LogHandover(Burn b, float after, string why)
     {
         // NOTHING LOAD-BEARING IS WRITTEN HERE, DELIBERATELY. The hand-over's bookkeeping —
-        // `HandoverLogged`, `_lastHandoverAt`, the arc's re-based clock — all lives in
-        // <see cref="Handover"/>, because `_lastHandoverAt` is READ by ConsumesWireEvent to decide
+        // `HandoverLogged`, the token's release stamp, the arc's re-based clock — all lives in
+        // <see cref="Handover"/>, because that stamp is READ by ConsumesWireEvent to decide
         // whether a peer's burn flies once or twice. A state write inside a logger is the shape
         // that once nearly latched the wall fade off forever when a spent log line was deleted;
         // check-instrument-writes.py caught this one on its first draft. This method may be gated
@@ -1266,7 +1475,12 @@ internal sealed class RemoteBurnFx
                           $"released by: {why}. DURING THE HOLD the card was drawn by their recess " +
                           $"{(b.Recess >= 0 ? (b.Recess + 1).ToString() : "(none — board centre)")} " +
                           $"for seated={b.SeatedFrames} frame(s) and by this class's own slab for " +
-                          $"stationary={b.StationaryShown:F2}s; those two must cover the whole of " +
+                          $"stationary={b.StationaryShown:F2}s at char=" +
+                          (b.StationaryCharred >= 0f ? b.StationaryCharred.ToString("F2") : "n/a") +
+                          " of 1.00 (the OWNER's own CardEffects._GreyOut, read off his widget on " +
+                          "this machine: a stationary hold that ENDS near 1.00 is his 2 s ramp " +
+                          "mirrored frame for frame, one pinned at 1.00 from the first frame is the " +
+                          "not-observable arm keeping the settled char); those two must cover the whole of " +
                           "held= or the peer saw nothing lying there. THE 1:1 CLAIM IS THE PAIR, " +
                           "NOT THIS LINE: grep the OWNER's 'BURN HOLD' for this same card name in " +
                           "the other client's log — 'waited X.XXs' must equal held= to within the " +
