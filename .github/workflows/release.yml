@@ -189,7 +189,7 @@ jobs:
         # is involved: these two DLLs ship prebuilt inside com.unity.xr.openxr.
         run: bash scripts/fetch-natives.sh
 
-      - name: Build (0 errors, exactly 6 known warnings)
+      - name: Build (0 errors, 0 warnings — TreatWarningsAsErrors)
         run: bash scripts/ci-build.sh Release
 
       - name: Mirrored-constant lint
@@ -249,7 +249,12 @@ jobs:
           echo "artifact: $ZIP ($(stat -c%s "$ZIP") bytes)"
           # The bundle is the bulk of it. If it is missing the zip is ~4 MB and the
           # mod silently falls back to procedural visuals for every 3D asset.
-          unzip -l "$ZIP" | grep -q 'BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle' \
+          # A FILE, NOT A PIPE, for the reason written at the same test in
+          # scripts/package-release.sh: `unzip -l | grep -q` under `set -o pipefail` reports
+          # failure when grep exits early and SIGPIPEs unzip, so a correct zip can fail to
+          # publish. Harmless at ~15 entries, wrong by construction.
+          unzip -l "$ZIP" > /tmp/zip-listing.txt
+          grep -qF 'BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle' /tmp/zip-listing.txt \
             || { echo "::error::the asset bundle is not in the archive"; exit 1; }
           # The build must not have dirtied a tracked file behind our back — the stamp
           # inside that DLL is only trustworthy if this is still true.

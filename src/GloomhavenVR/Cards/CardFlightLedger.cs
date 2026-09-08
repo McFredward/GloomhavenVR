@@ -69,9 +69,13 @@ namespace GloomhavenVR.Cards;
 /// construction. Item 1's flight was in none of the 18 <c>PILE FLIGHT</c> lines of the ModBuild 472
 /// host log, which is precisely why six rounds of reading those lines never found it.</para>
 ///
+/// <para>LINE NUMBERS: the method heads were re-grepped at ModBuild 480 (2026-09-08); the
+/// <c>note :N</c> offsets are from the 2026-09-07 reading. Every one rots with the next edit —
+/// grep the SYMBOL before quoting either (review R3 N5 found all of them wrong within a day).</para>
+///
 /// <para><b>A — the movement engines.</b> Not producers; every row below drives one of these.
-/// <c>VRCard.FlyToPile</c> (VRCard.cs:1547) and <c>VRCard.FlyFromPile</c> (:1601) are explicit
-/// arcs with a captured start pose. <c>VRCard.SetHome(..., instant:false)</c> (:877, ticked :2254)
+/// <c>VRCard.FlyToPile</c> (VRCard.cs:1583) and <c>VRCard.FlyFromPile</c> (:1637) are explicit
+/// arcs with a captured start pose. <c>VRCard.SetHome(..., instant:false)</c> (:879, ticked :2243)
 /// is an exponential home GLIDE — every layout that re-seats a card animates it, which is how a
 /// "layout" becomes a "flight" without anybody calling it one.</para>
 ///
@@ -79,74 +83,74 @@ namespace GloomhavenVR.Cards;
 /// <listheader><description>#  PRODUCER — TRIGGER — DESTINATION — STATE THAT MUST HOLD — VERDICT</description></listheader>
 ///
 /// <item><description><b>B. OWN BOARD, LEDGERED (8).</b></description></item>
-/// <item><description>1. <c>CardsDriver.TryStartFlyToPile</c> (4.Rebuild:2423, note :2517) — a card
+/// <item><description>1. <c>CardsDriver.TryStartFlyToPile</c> (4.Rebuild:2566, note :2517) — a card
 /// left the round dock / pick field AND <c>RoundCardExitOf</c> says it really left
 /// <c>RoundAbilityCards</c> — Discard or Burnt stack — end of turn or a pick commit — <b>CORRECT</b>
 /// (directed transition, not a count).</description></item>
-/// <item><description>2. <c>CardsDriver.TryStartBurnFly</c> (4.Rebuild:2786, note :2825) — rebuild
+/// <item><description>2. <c>CardsDriver.TryStartBurnFly</c> (4.Rebuild:2975, note :2825) — rebuild
 /// park sweep / short-rest commit, gated by <c>IsFreshBurn</c> — Burnt stack — <b>CORRECT</b>.</description></item>
-/// <item><description>3. <c>CardsDriver.LaunchBurnFlight</c> (4.Rebuild:3561, note :3585) — the
+/// <item><description>3. <c>CardsDriver.LaunchBurnFlight</c> (4.Rebuild:3906, note :3585) — the
 /// burnt-pile watcher saw a new widget, or a hand/character switch flushed a hold — Burnt stack —
 /// <b>CORRECT</b>.</description></item>
-/// <item><description>4. <c>CardsDriver.BurnSlab.Launch</c> (4.Rebuild:3624, note :3626) — same as
+/// <item><description>4. <c>CardsDriver.BurnSlab.Launch</c> (4.Rebuild:4036, note :3626) — same as
 /// 3 with no live <c>VRCard</c> to fly — Burnt stack — <b>CORRECT</b> (the honest fallback).</description></item>
-/// <item><description>5. <c>CardsDriver.FlyLockedPicksToPile</c> (5.Interactions:1384, note :1430)
+/// <item><description>5. <c>CardsDriver.FlyLockedPicksToPile</c> (5.Interactions:1445, note :1430)
 /// — tray CONFIRM page-turn during an event discard — Discard stack — <b>CORRECT</b>.</description></item>
-/// <item><description>6. <c>CardsDriver.FlyShortRestCardToDiscard</c> (5.Interactions:1781, note
+/// <item><description>6. <c>CardsDriver.FlyShortRestCardToDiscard</c> (5.Interactions:1841, note
 /// :1793) — short-rest redraw replaces the offered sacrifice — Discard stack — <b>CORRECT</b>.</description></item>
-/// <item><description>7. <c>RemoteBurnFx.Handover</c> (RemoteBurnFx.cs:944, note :952) — the 4 Hz
-/// walk of the peer's host-replicated Lost pile found a new widget, and their recess stopped
+/// <item><description>7. <c>RemoteBurnFx.Handover</c> (RemoteBurnFx.cs:1398, note :952) — the 12.5 Hz
+/// walk (<c>RemoteBurnFx.WatchSeconds</c> = 0.08 s) of the peer's host-replicated Lost pile found a new widget, and their recess stopped
 /// drawing it — that peer's Burnt stack — <b>CORRECT</b>; verified 7/7 against the peer's own log
 /// this session, by gap AND by card name.</description></item>
-/// <item><description>8. <c>RemoteCardFx.Play</c> (RemoteCardFx.cs:167, note :260) — the peer's
+/// <item><description>8. <c>RemoteCardFx.Play</c> (RemoteCardFx.cs:184, note :260) — the peer's
 /// wire FX event, unless <c>RemoteBurnFx</c> swallowed it — whatever the decoded
 /// <c>CardFxAnchor</c> resolves to — <b>CORRECT WHEN IT RUNS</b>; the extras stream is unreliable
 /// by contract and a dropped event is a MISSING flight (see the cross-log method below).</description></item>
 ///
 /// <item><description><b>C. OWN BOARD, NOT LEDGERED (9).</b></description></item>
-/// <item><description>9. <c>CardsDriver.DrainPickReturnFlight</c> (4.Rebuild:3075) — the game's
+/// <item><description>9. <c>CardsDriver.DrainPickReturnFlight</c> (4.Rebuild:3301) — the game's
 /// "Wähle eine andere Karte" cancel — OUT of the Discard stack into the hand fan — <b>CORRECT</b>;
 /// ledgered as of this build (<c>own-pick-restart-return</c>).</description></item>
-/// <item><description>10. <c>ActivePileViewer.Relayout</c> (Piles/ActivePileViewer.cs:195) — ANY
+/// <item><description>10. <c>ActivePileViewer.Relayout</c> (Piles/ActivePileViewer.cs:243) — ANY
 /// change to the active column's contents or grid — each card's active-grid cell — <b>WAS WRONG,
 /// FIXED THIS BUILD.</b> It glided EVERY column card unconditionally, so a card the game had just
 /// listed in <c>ActivatedCards</c> flew out of the recess it was still lying in. That is user item
 /// 1, and the restore after a damage burn (item 8) is the same producer on the way back. Arrivals
 /// are now seated instantly; residents still glide when the grid re-centres. Grep
 /// <c>ACTIVE SEAT</c>.</description></item>
-/// <item><description>11. <c>CardsDriver.LaunchActiveFlights</c> (6.Flows:2745) — a card left a
+/// <item><description>11. <c>CardsDriver.LaunchActiveFlights</c> (6.Flows:3594) — a card left a
 /// round recess AND appeared in <c>ActivatedCards</c>, deduped by <c>_activeFlown</c> — OUT of the
 /// recess into the active column — <b>CORRECT</b>, and it is the ONLY flight the activation story
 /// should ever produce. Not ledgered because it is Lane D's file this round; it prints
 /// <c>[Cards] ACTIVE FLIGHT</c>.</description></item>
-/// <item><description>12. <c>CardsDriver.StartBrowseCollapse</c> (6.Flows:2162) — the pile browse
+/// <item><description>12. <c>CardsDriver.StartBrowseCollapse</c> (6.Flows:2997) — the pile browse
 /// arc closes — that pile's stack — <b>CORRECT</b> (a browse arc must return whence it came), but
 /// it draws a "card goes into a stack" picture and is INVISIBLE to this ledger. A doubled-flight
 /// report whose second picture is a browse close would read as <c>#1</c> on every key.</description></item>
-/// <item><description>13. <c>CardsDriver.ReturnCardToPile</c> (6.Flows:~2245) — a card on loan
+/// <item><description>13. <c>CardsDriver.ReturnCardToPile</c> (6.Flows:3091) — a card on loan
 /// from a pile is released while its browse arc is shut — that pile's stack — <b>CORRECT</b>, same
 /// blind spot as 12.</description></item>
-/// <item><description>14. short-rest sacrifice present (5.Interactions:1667) — a fresh/redrawn
+/// <item><description>14. short-rest sacrifice present (5.Interactions:1660) — a fresh/redrawn
 /// sacrifice — OUT of the Discard stack into tray Slot0 — <b>CORRECT</b>.</description></item>
 /// <item><description>15. <c>CardFan.Relayout</c> / <c>BeginSwapOut</c> / <c>TickCollapse</c>
-/// (CardFan.cs:1878 / :2436 / :2189) — the hand fan opens, closes or swaps character — arc slots /
+/// (CardFan.cs:1917 / :2475 / :2228) — the hand fan opens, closes or swaps character — arc slots /
 /// gather point — <b>CORRECT</b> (fan motion is not a pile flight), but it is the nearest
 /// look-alike to item 1 and is the first place to look if <c>ACTIVE SEAT</c> reads "in place" and
 /// the user still sees a flight.</description></item>
-/// <item><description>16. <c>PileBrowser</c> emerge (Piles/PileBrowser.cs:283) — a stack is poked
+/// <item><description>16. <c>PileBrowser</c> emerge (Piles/PileBrowser.cs:284) — a stack is poked
 /// — OUT of the stack into the browse arc — <b>CORRECT</b>.</description></item>
 /// <item><description>17. <c>PlayTray.PlaceCard</c> / <c>PlacePickCard</c> (Tray/PlayTray.4.Slots
-/// .cs:1204 / :1231) — a card docks into a round or pick recess — the recess seat —
+/// .cs:1192 / :1221) — a card docks into a round or pick recess — the recess seat —
 /// <b>CORRECT</b>.</description></item>
 /// <item><description>18-19. <c>ItemChip.BeginEmerge</c> / <c>BeginCollapse</c>
-/// (Piles/ItemsPile.cs:5642 / :5675) — the item fan opens/closes — the items stack —
+/// (Piles/ItemsPile.cs:5663 / :5696) — the item fan opens/closes — the items stack —
 /// <b>CORRECT</b>; item chips are not ability cards and are deliberately out of scope here.</description></item>
 ///
 /// <item><description><b>D. MIRRORED BOARDS, NOT LEDGERED (6).</b></description></item>
 /// <item><description>20-21. <c>RemoteBrowserFan.BeginEmerge</c> / <c>BeginCollapse</c>
-/// (RemoteBrowserFan.cs:556 / :1028) — the peer's browse-open wire bit rises/falls — their pile
+/// (RemoteBrowserFan.cs:577 / :1037) — the peer's browse-open wire bit rises/falls — their pile
 /// stack — <b>CORRECT</b>, and the mirror of rows 12/16, so the two ends stay 1:1.</description></item>
-/// <item><description>22. <c>RemoteHandFan.BeginSwap</c> (RemoteHandFan.cs:618) — the peer's
+/// <item><description>22. <c>RemoteHandFan.BeginSwap</c> (RemoteHandFan.cs:630) — the peer's
 /// presented character changes — gather point / arc slot — <b>CORRECT</b>, mirror of row 15.</description></item>
 /// <item><description>23-25. <c>RemoteItemFan</c> emerge / collapse / solo
 /// (RemoteItemFan.cs:994 / :1565 / :1382) — the peer's item fan — their items stack —

@@ -4931,9 +4931,9 @@ internal sealed class ItemsPile
 
         // FIX 1 (held pose) — the in-hand pinch target captured at grab time, in GrabAnchor-local
         // space; TickHeldPose lerps toward it each frame while also billboarding the face to the head
-        // (mirror of VRCard._heldPos/_heldRot/_heldScale + VRCard.TickHeldPose).
+        // (mirror of VRCard._heldPos/_heldScale + VRCard.TickHeldPose; neither side captures the
+        // grab rotation — TickHeldPose billboards the face to the head instead).
         private Vector3 _heldPos;
-        private Quaternion _heldRot = Quaternion.identity;
         private float _heldScale = 1f;
 
         /// <summary>FIX 1 — fraction of the card height between the bottom edge and the pinch anchor
@@ -6222,7 +6222,6 @@ internal sealed class ItemsPile
             Vector3 worldScale = transform.localScale;
             base.OnGrab(hand); // snaps to the reading pose at GetHeldPose
             _heldPos = transform.localPosition;
-            _heldRot = transform.localRotation;
             _heldScale = transform.localScale.x;
             transform.position = worldPos;
             transform.rotation = worldRot;

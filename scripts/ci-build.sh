@@ -6,17 +6,14 @@
 #
 # WHY A GATE ON THE WARNING COUNT
 # -------------------------------
-# The tree builds with EXACTLY six warnings and they are all pre-existing
-# nullable-analysis complaints:
-#
-#   CS8602  Net/RemotePickBanner.cs
-#   CS8602  Net/RemoteHandFan.cs
-#   CS8604  WorldUI/Surfaces/StatPanelSurface.cs     (two sites)
-#
-# It was SIX until 2026-08-25, when WorldUI/ButtonCluster.cs was deleted outright (the user
-# retired the turn-flow cap group it drew) and took its two CS8602 sites with it. That is the
-# ratchet turning in the intended direction — a warning that goes away because its file does is
-# still one fewer place a seventh can hide.
+# The tree builds with ZERO warnings, and EXPECT_WARNINGS below is 0. It was six until
+# 2026-08-25 (four CS8602/CS8604 nullable-analysis complaints in Net/RemotePickBanner.cs,
+# Net/RemoteHandFan.cs and WorldUI/Surfaces/StatPanelSurface.cs, plus two in
+# WorldUI/ButtonCluster.cs, which was deleted outright when the user retired the turn-flow cap
+# group it drew); the last four were suppressed with `!` and a reason at each site on
+# 2026-08-27, which is when TreatWarningsAsErrors went on. This header described the six-warning
+# era until 2026-09-08 and the step names in both workflows still read "exactly 6 known
+# warnings" — a stale count in the one place a reader looks first at a red run.
 #
 # `TreatWarningsAsErrors` IS NOW ON (2026-08-27, once the count reached zero — this comment
 # used to say it "cannot be turned on while those six exist", and that condition is met).
@@ -28,10 +25,11 @@
 # Two levers, the same rule as everywhere else in this repository.
 #
 # Line numbers are deliberately NOT checked: they move whenever the surrounding code
-# is edited and a gate that cries wolf gets switched off. What IS checked is the
-# count (4), the diagnostic codes (only CS8602/CS8604) and the FILES (only those
-# three). A new warning of any other kind, in any other file, or a fifth of the same
-# kind, fails the build.
+# is edited and a gate that cries wolf gets switched off. What IS checked is the COUNT
+# (EXPECT_WARNINGS, today 0), and — if a warning is ever accepted again — the diagnostic
+# CODES and FILES named in EXPECT_CODES/EXPECT_FILES, both empty while the count is zero.
+# At zero this is the strongest form the gate has ever had: ANY warning of ANY kind in ANY
+# file fails the build.
 #
 # Fix the six and this script tells you to lower the number — that is the intended
 # ratchet direction. It reached zero on 2026-08-27 and the direction is now one-way.
@@ -98,7 +96,13 @@ mapfile -t seen < <(grep -o 'warning CS[0-9]\{4\}' "$LOG" | awk '{print $2}' | s
 for code in "${seen[@]}"; do
     if ! grep -qw -- "$code" <<<"$EXPECT_CODES"; then
         echo >&2
-        echo "error: unexpected diagnostic $code — the six known warnings are $EXPECT_CODES only." >&2
+        # The message names EXPECT_CODES, which is EMPTY while EXPECT_WARNINGS is 0 — it used
+        # to read "the six known warnings are  only", with the gap where the list should be.
+        if [[ -n "$EXPECT_CODES" ]]; then
+            echo "error: unexpected diagnostic $code — the known warnings are $EXPECT_CODES only." >&2
+        else
+            echo "error: diagnostic $code — this tree builds with ZERO warnings and accepts none." >&2
+        fi
         grep -m3 "warning $code" "$LOG" >&2
         fail=1
     fi
@@ -120,4 +124,10 @@ if [[ $fail -ne 0 ]]; then
     echo "BUILD GATE FAILED (see above). Full log: $LOG" >&2
     exit 1
 fi
-echo "build gate ok: 0 errors, exactly $EXPECT_WARNINGS warnings, all known ($EXPECT_CODES in $EXPECT_FILES)."
+# The success line, with the same empty-list problem as the failure message above: while
+# EXPECT_WARNINGS is 0 both lists are empty and this printed "all known ( in )".
+if [[ "$EXPECT_WARNINGS" -eq 0 ]]; then
+    echo "build gate ok: 0 errors, 0 warnings — this tree accepts none (TreatWarningsAsErrors)."
+else
+    echo "build gate ok: 0 errors, exactly $EXPECT_WARNINGS warnings, all known ($EXPECT_CODES in $EXPECT_FILES)."
+fi

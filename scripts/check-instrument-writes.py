@@ -507,6 +507,20 @@ def main() -> int:
         print(f"instrument writes: baseline rewritten with {len(keys)} load-bearing pairs")
         return 0
 
+    # A FLOOR, BECAUSE AN EMPTY CENSUS AGREES WITH EVERY BASELINE. Run this from a tree whose
+    # src/ cannot be read — a bad path, a half-made worktree, a checkout that failed — and it
+    # walked zero methods, found zero writes, and printed "N baseline entries no longer
+    # load-bearing (good — rebaseline when convenient)". Good news, from an instrument that had
+    # not looked at anything. That is the 2026-08 `SRC = "src"` defect wearing different clothes
+    # (LOG-2026-08 Phase 1), and check-tune-fields already guards against it this way.
+    if STATS["methods"] < 1000:
+        print(f"error: only {STATS['methods']} methods were parsed under {os.path.relpath(SRC, ROOT)} "
+              f"— this tree has thousands.", file=sys.stderr)
+        print("       Nothing was measured, so the comparison below would be meaningless: an empty",
+              file=sys.stderr)
+        print("       census matches every baseline. Check the path, not the code.", file=sys.stderr)
+        return 1
+
     base = load_baseline()
     new = sorted(keys - base)
     gone = sorted(base - keys)

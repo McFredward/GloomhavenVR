@@ -288,7 +288,7 @@ you press enter.** There is no undo beyond deleting the release and the tag afte
 Before you type it, four things are worth having done:
 
 ```bash
-scripts/wire-tests.sh        # the golden vectors (200,000+ assertions) — CI CANNOT run these (see §5)
+scripts/wire-tests.sh        # the golden vectors (210,000+ assertions) — CI CANNOT run these (see §5)
 scripts/ci-build.sh Release  # sanity: 0 errors and 0 warnings
 scripts/bump-version.sh      # THE number about to be released — it is not bumped for you first
 git log --oneline main..dev  # what is about to go out
@@ -407,7 +407,16 @@ to push events.
 | `check-card-identity-mask.py` | the card FACE question and the card NAMING question are still two predicates (ModBuild 477 item 7 — §5) |
 | `check-mirror-dials.py` | every live config dial a mirror reads carries a recorded verdict saying whose copy it is |
 | `check-enum-arrays.py` | no latch array is sized by a literal that disagrees with the enum indexing it |
-| `rebase-defaults.py check` | config defaults have not drifted |
+| `check-partial-order.py` | no static field initialiser depends on another part of its own partial type (i.e. on a file NAME) |
+| `check-instrument-writes.py` | no NEW load-bearing write sits inside a `Log*`/`Census*`/`Report*` method |
+| `check-remote-defaults.py` | every frozen remote constant resolves to the same `Defaults` entry as the local bind it mirrors |
+| `check-tune-fields.py` | every board-tuning field id is inside a declared width range, and the sampler ascends |
+| `check-desync-surface.py` | every patch on a network-action receiver carries a recorded verdict |
+| `check-hw-verify.py` | every `// HW-VERIFY` line prints at the DEFAULT log level |
+| `check-options-coverage.py` | every option is reachable and correctly filed in the menu |
+| `check-docs-i18n.py` | the user-facing docs ship in English and German |
+| `check-surface.py` diff vs the PR base | no config key, patch registration or log marker was REMOVED (pull requests only — a push has no base to diff against) |
+| `rebase-defaults.py check` | config defaults have not drifted — **skipped on a runner with a notice**: its input is a tester's cfg drop in gitignored `.planning/debug/default/` |
 | `check-bundle-format.sh` | the committed bundle is still UnityFS format 7 / 2021.3.5f1 |
 | wire tests **compile** | no wire file was moved or renamed (the vectors do not run — §5) |
 

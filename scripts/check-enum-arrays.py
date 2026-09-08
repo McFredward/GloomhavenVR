@@ -257,6 +257,16 @@ def main() -> int:
     if problems or unexcused or stale:
         return 1
 
+    # A FLOOR, for the reason the other two now carry one: an empty scan reports "0 literal-sized
+    # arrays" and exits 0, which reads exactly like "nothing disagrees". This tree has had at
+    # least fifteen such arrays since the gate was written for the ModBuild 479 defect.
+    if len(found) < 5:
+        print(f"error: only {len(found)} literal-sized enum-indexed array(s) were found under "
+              f"{SRC.relative_to(ROOT)} — this tree has ~15.", file=sys.stderr)
+        print("       Nothing was measured; a scan that finds no sites cannot find a disagreement.",
+              file=sys.stderr)
+        return 1
+
     print(f"enum arrays: {len(found)} literal-sized array(s) index an enum declared in this "
           f"repository; {len(found) - len(bad)} agree with their enum's member count, "
           f"{len(bad)} excused in {ALLOW.name}.")

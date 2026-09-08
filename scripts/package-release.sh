@@ -163,6 +163,16 @@ echo "Contents:"
 unzip -l "$ZIP"
 
 # Sanity: the load-bearing paths must exist in the archive.
+#
+# THE LISTING IS TAKEN ONCE, INTO A FILE, AND NOT PIPED INTO grep -q. This script runs under
+# `set -euo pipefail`, and `unzip -l "$ZIP" | grep -q PATH` makes grep exit at the FIRST match,
+# which SIGPIPEs unzip (141) and — with pipefail — makes the whole pipeline report failure. The
+# test then reads FALSE for a path that IS in the archive, i.e. it refuses to publish a correct
+# release. It has not fired because this archive lists ~15 entries and they fit in the pipe
+# buffer before grep exits; a zip with a few thousand entries would fail on the first path it
+# checked. Exactly the defect check-mirrors.sh PART 3 documents under "HERESTRINGS, NOT PIPES",
+# where it DID fire and made a companion test read false on every file that had the companion.
+LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \
@@ -170,7 +180,7 @@ for path in \
     "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll" \
     "INSTALL.txt" \
     "INSTALL-DEUTSCH.txt"; do
-    if ! unzip -l "$ZIP" | grep -q "$path"; then
+    if ! grep -qF -- "$path" <<<"$LISTING"; then
         echo "error: packaged zip is missing '$path'" >&2
         exit 1
     fi

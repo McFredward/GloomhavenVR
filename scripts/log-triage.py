@@ -354,7 +354,66 @@ def anchored_lines(path: str, token: str, window: int) -> list[str]:
     return out
 
 
-BUILD_RE = re.compile(r"GloomhavenVR ModBuild (\d+)")
+# ANCHORED LIKE EVERY OTHER GREP IN THIS FILE, and it was not. The docstring's own rule is that
+# a line only counts once `GloomhavenVR] ` has been seen, because BepInEx interleaves every
+# plugin's output into one file and a foreign line naming our banner would be read as ours. This
+# one matched anywhere in the line, so a peer's message quoted inside another plugin's log line —
+# `[Message: BepInEx] … GloomhavenVR ModBuild 478` — would count as a SECOND build and turn a
+# clean single-build drop into "2 DIFFERENT builds in one log — the log spans a reinstall".
+# Latent today (no shipped line prints that shape; VersionGuard prints `(Build N)`, DesyncWatch
+# `build   : ModBuild N`, RemoteBoardFurniture `peer ModBuild N`), and left latent is exactly how
+# the next such line gets written.
+BUILD_RE = re.compile(re.escape(ANCHOR) + r".*?GloomhavenVR ModBuild (\d+)")
+
+# ---- WHAT TIER IS THIS TOKEN WRITTEN AT, AND CAN THE DEFAULT LOG LEVEL PRINT IT? -------------
+#
+# VRLog.Note is visible from VRLogLevel.Info, which is the SHIPPED default (Defaults.Plugin.cs).
+# VRLog.Info, .Warn and .Debug are visible only from VRLogLevel.Debug. So a token written with
+# VRLog.Info does not appear in a default-level drop at all — and this script would then report
+# it as SILENT, whose printed explanation offers three causes ("nothing exercised it, or it is
+# unreachable, or its gate never opened") and not the fourth, real one: the tester's log level
+# could not carry it. Four registry tokens are in that position today (`Pile fan content`,
+# `USE BARS: docked`, `Pick banner SENT`, `DOCK MIRROR` at one of its two sites), including the
+# one instrument that declares `decisive` — so `SILENT ON THE QUESTION` could never fire for it
+# on a default drop, and the SILENT list would read as a behavioural finding.
+#
+# The tier is read from the SOURCE rather than declared beside each Instrument, because a
+# declaration is a second copy that goes stale the day someone changes the call. Absent sources
+# (this script is often run against a log alone) degrade to "unknown" and print nothing.
+SRC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src")
+DEFAULT_LEVEL_TIERS = {"Note", "Alert", "Error"}
+
+
+def token_tiers() -> dict[str, set[str]]:
+    """token -> the set of VRLog methods that write a string containing it, from src/."""
+    tiers: dict[str, set[str]] = {}
+    if not os.path.isdir(SRC):
+        return tiers
+    call = re.compile(r"VRLog\.(Note|Info|Warn|Debug|Alert|Error)\s*\(", re.S)
+    tokens = [i.token for i in REGISTRY]
+    for root, dirs, files in os.walk(SRC):
+        dirs[:] = [d for d in dirs if d not in ("obj", "bin")]
+        for f in files:
+            if not f.endswith(".cs"):
+                continue
+            try:
+                with open(os.path.join(root, f), encoding="utf-8", errors="replace") as fh:
+                    body = fh.read()
+            except OSError:
+                continue
+            for tok in tokens:
+                start = 0
+                while True:
+                    at = body.find(tok, start)
+                    if at < 0:
+                        break
+                    start = at + 1
+                    # the nearest VRLog.<tier>( that opens before this literal, within one
+                    # statement's reach — long interpolated messages run to a few hundred chars
+                    hits = list(call.finditer(body, max(0, at - 2000), at))
+                    if hits:
+                        tiers.setdefault(tok, set()).add(hits[-1].group(1))
+    return tiers
 
 
 def builds_in(path: str) -> list[int]:
@@ -452,7 +511,13 @@ def report(path: str, only: str | None, window: int, want_outliers: bool,
         print("   The log spans a reinstall. Every reading below is a mixture until you split it,")
         print("   and a fix's 'before' and 'after' are both in here with nothing separating them.")
     if expect_build is not None and builds != [expect_build]:
-        print(f"   *** STALE OR WRONG DROP: asked for ModBuild {expect_build}, this log says "
+        # "STALE" is only right when the drop is OLDER. A newer one is not stale, it is a drop
+        # of code this question was not asked about — same refusal, accurate word, because the
+        # remedy differs: an older drop wants a re-test, a newer one wants a re-read of what
+        # changed in between.
+        newer = bool(builds) and min(builds) > expect_build
+        print(f"   *** {'NEWER THAN ASKED FOR' if newer else 'STALE OR WRONG DROP'}: asked for "
+              f"ModBuild {expect_build}, this log says "
               + (", ".join(str(b) for b in builds) if builds else "nothing") + ".")
         print("   *** A reading from an earlier build is not a weaker reading, it is a reading")
         print("   *** about DIFFERENT CODE. R1 found 100 census rows in the ModBuild 478 drops")
@@ -493,11 +558,26 @@ def report(path: str, only: str | None, window: int, want_outliers: bool,
             if means:
                 print(f"       a decisive line would be: {means}")
     if silent:
+        tiers = token_tiers()
         print("\n── SILENT — zero anchored lines. A token that never fired IS a reading:")
-        print("   nothing exercised it, or it is unreachable, or its gate never opened. Any verdict")
-        print("   that depends on one of these is a verdict about nothing.")
+        print("   nothing exercised it, or it is unreachable, or its gate never opened — or the")
+        print("   drop's log level could not carry it (see the tier note below). Any verdict that")
+        print("   depends on one of these is a verdict about nothing.")
+        below = []
         for token in silent:
-            print(f"     {token}")
+            wrote = tiers.get(token, set())
+            if wrote and not (wrote & DEFAULT_LEVEL_TIERS):
+                below.append((token, sorted(wrote)))
+                print(f"     {token}   [written with VRLog.{'/'.join(sorted(wrote))} — "
+                      f"DEBUG TIER ONLY]")
+            else:
+                print(f"     {token}")
+        if below:
+            print("\n   *** THE BRACKETED ONES ARE NOT A FINDING. VRLog.Note prints from the SHIPPED")
+            print("   *** default level; VRLog.Info/Warn/Debug print only at Debug. Their silence")
+            print("   *** here says the log level was default, not that the code did not run. Ask")
+            print("   *** for a Debug-level drop, or mark the site // HW-VERIFY and move it to")
+            print("   *** VRLog.Note (scripts/check-hw-verify.py then holds it to that).")
     return builds
 
 
@@ -525,6 +605,21 @@ def main() -> int:
     if args.token:
         inst = Instrument(token=args.token, why="ad-hoc", fields=tuple(args.field), joint=True)
         for path in args.logs:
+            # --expect-build IS HONOURED HERE TOO. This branch used to return before report(),
+            # which is where the build banner is read — so `--token X --expect-build 480` printed
+            # a distribution and no build line at all, silently answering a question about the
+            # wrong build. The ad-hoc path is the one a person reaches for mid-investigation,
+            # i.e. exactly when the drop's provenance matters most.
+            if args.expect_build is not None:
+                found = builds_in(path)
+                if found != [args.expect_build]:
+                    print(f"\n*** STALE OR WRONG DROP: asked for ModBuild {args.expect_build}, "
+                          f"{path} says "
+                          + (", ".join(str(b) for b in found) if found else "nothing") + ".")
+                    print("*** A reading from another build is not a weaker reading, it is a")
+                    print("*** reading about DIFFERENT CODE.")
+                else:
+                    print(f"\n{path}: ModBuild {args.expect_build}, as asked.")
             lines = anchored_lines(path, inst.token, args.token_window)
             print(f"\n{path}: {inst.token} — {len(lines)} anchored line(s)")
             if not lines:

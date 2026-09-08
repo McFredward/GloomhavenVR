@@ -84,7 +84,7 @@ jobs:
       - name: Build Unity XR RuntimeDeps
         run: bash scripts/build-runtimedeps.sh
 
-      - name: Build (0 errors, exactly 6 known warnings)
+      - name: Build (0 errors, 0 warnings — TreatWarningsAsErrors)
         run: bash scripts/ci-build.sh Release
 
       # ---------------------------------------------------------------------------
@@ -144,6 +144,63 @@ jobs:
         run: python3 scripts/check-enum-arrays.py
 
       # ---------------------------------------------------------------------------
+      # THE NINE GATES THE DESK RAN AND THIS FILE DID NOT. scripts/refactor-guard.sh check
+      # runs seventeen checkers; until the 2026-09 refactor's tooling review this workflow
+      # ran eight of them and nobody had listed which. Every one below reads only src/,
+      # docs/ and tracked files under .planning/refactor (PARTIAL-ORDER.allow,
+      # INSTRUMENT-WRITES.baseline, MIRROR-DIALS.allow, …) — no game, no bundle, no
+      # cfg drop — and each was run from a foreign cwd against a planted positive and an
+      # unmodified control before it was wired here. check-docs-i18n.py had no automatic
+      # caller anywhere (DEVELOPING.md said so); it has one now.
+      # ---------------------------------------------------------------------------
+      - name: Static initialiser order across partial types
+        run: python3 scripts/check-partial-order.py
+
+      - name: Load-bearing writes inside diagnostics
+        run: python3 scripts/check-instrument-writes.py
+
+      - name: Remote constants resolve to the local defaults
+        run: python3 scripts/check-remote-defaults.py
+
+      - name: Board-tuning field ids in range and in order
+        run: python3 scripts/check-tune-fields.py
+
+      - name: Patches on network-action receivers are classified
+        run: python3 scripts/check-desync-surface.py
+
+      - name: HW-VERIFY lines print at the default log level
+        run: python3 scripts/check-hw-verify.py
+
+      - name: Every option is reachable in the menu
+        run: python3 scripts/check-options-coverage.py
+
+      - name: User-facing docs ship in English and German
+        run: python3 scripts/check-docs-i18n.py
+
+      # ---------------------------------------------------------------------------
+      # THE USER-FACING SURFACE THE ASSEMBLY DOES NOT CARRY, diffed against the PR's base.
+      # A removed config key does not error — the player's tuned value is simply never
+      # read again; a reworded log marker costs a hardware round. On the desk the guard
+      # diffs against a stored baseline; a runner has no baseline, so this builds one:
+      # the base commit's src/ is unpacked with `git archive` (one fetched object, no
+      # history, no second checkout) and censused with THIS commit's check-surface.py,
+      # so both sides are counted by the same rules. Push events have no base to name
+      # and skip this; the desk guard covers them.
+      # ---------------------------------------------------------------------------
+      - name: Config keys, patch registrations and log markers vs the PR base
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          rm -rf /tmp/surface-base && mkdir -p /tmp/surface-base/scripts
+          git archive "$BASE_SHA" src | tar -x -C /tmp/surface-base
+          cp scripts/check-surface.py scripts/check-options-coverage.py /tmp/surface-base/scripts/
+          python3 /tmp/surface-base/scripts/check-surface.py snapshot /tmp/surface-base.json
+          python3 scripts/check-surface.py snapshot /tmp/surface-head.json
+          python3 scripts/check-surface.py diff /tmp/surface-base.json /tmp/surface-head.json
+
+      # ---------------------------------------------------------------------------
       # This gate compares the shipped defaults against a TESTER'S cfg drop, and that
       # drop lives in .planning/debug/, which is gitignored. On a runner the directory
       # does not exist, and the script exits 1 with "no cfg directory" — which is what
@@ -182,7 +239,7 @@ jobs:
       #
       # Compiling still buys something real: that project's <Compile Include> list is
       # the tripwire for a moved or renamed wire file, and it fails here exactly as
-      # designed. The 146,839 byte-level assertions do not run — a developer runs
+      # designed. The 210,000+ byte-level assertions do not run — a developer runs
       # scripts/wire-tests.sh. docs/CI-CD.md says so out loud.
       # ---------------------------------------------------------------------------
       - name: Wire tests (compile only — see docs/CI-CD.md)

@@ -727,14 +727,13 @@ internal sealed partial class PlayTray
     /// </summary>
     private const float FixedProudZ = 0.005f;
 
-    /// <summary>
-    /// Item A/4: local-Z thickness (meters) of the SQUARE Confirm/Undo keycaps — the total
-    /// protrusion toward the player. Raised over successive passes (0.014 → 0.03 → 0.036) so the
-    /// side walls + bevel have real area at the board's oblique angle; taller = physically more
-    /// side visible (item 4 lever c). Press travel (4 mm) is unchanged. Exact real-world
-    /// protrusion is logged per cap by <see cref="BoardButton.LogCapDiagnostics"/>.
-    /// </summary>
-    private const float SquareCapThickness = 0.036f;
+    // SquareCapThickness (0.036 m) is GONE as a constant — nothing read it. It was the item A/4
+    // local-Z thickness of the SQUARE Confirm/Undo keycaps, raised over successive passes
+    // (0.014 → 0.03 → 0.036) so the side walls + bevel have real area at the board's oblique
+    // angle (item 4 lever c). The caps now take their protrusion from the [BoardButtons] depth
+    // dial (WorldUI.ButtonTuning.DashboardDepth, passed as `thickness:` in BoardButton.Create);
+    // press travel (4 mm) is unchanged, and the exact real-world protrusion is still logged per
+    // cap by BoardButton.LogCapDiagnostics.
 
     // THE FIXED 7 mm CHAMFER IS GONE (round 2, 2026-08-25). It was a length in METERS applied to
     // caps whose fitted sizes run from 53.2 x 43.9 mm (Bronze) to 63.0 x 62.1 mm (Steel), so the

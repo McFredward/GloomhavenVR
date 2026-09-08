@@ -148,6 +148,19 @@ STRING = re.compile(r"@\"(?:[^\"]|\"\")*\"|\"(?:\\.|[^\"\\])*\"", re.S)
 # ordinary prose in caps ("YES", "NO", "OK") and would bury the signal.
 TOKEN = re.compile(r"\b[A-Z][A-Z0-9_]{1,}(?:[ \-][A-Z0-9_]{2,})+\b")
 
+# MARKERS THAT DO NOT FIT THE SHAPE, PINNED BY NAME. The 2026-09 refactor brief listed eleven
+# ModBuild 480 lines as "owed on hardware and untouchable" and said this gate fails on them.
+# Nine did; two were protected by nothing: `GATE 3` (one SHOUTED word plus a one-character
+# number — the tail alternative wants two characters) and `Remote BURN look` (one shouted word
+# between two lowercase ones). Renaming either passed the gate, verified. A marker a hardware
+# round is waiting on is pinned here by its literal text, censused as a plain substring of the
+# string payloads, and REMOVAL fails exactly like a shaped token. Add a line when a backlog
+# item greps for a marker the shape cannot see; delete it when the backlog item is closed.
+PINNED_TOKENS = (
+    "GATE 3",             # Net/Remote/RemoteUseBarSymbols.cs — the use-bar slot-count gate
+    "Remote BURN look",   # Net/Remote/RemoteCardArt.cs — the mirrored burn look armed/refused
+)
+
 
 def sources():
     """Absolute path to walk with, repo-relative path to RECORD with.
@@ -164,8 +177,34 @@ def sources():
                 yield full, os.path.relpath(full, ROOT)
 
 
+# THE TWO BIND SHAPES THE LITERAL REGEX CANNOT SEE — and both are a player's persisted setting
+# just the same. (1) A module whose helper supplies the section: Rig/ComfortSettings declares
+# `private const string SectionName = "Comfort"` and binds 22 keys as `X = Bind("Key", …)`. The
+# 2026-09 tooling review renamed one of them and this gate said `412 -> 412 (0 removed)`. (2) An
+# interpolated key — `$"BoardPitchMin_{board}"` over an enum, `$"{style}Scale"` over a string
+# array. check-options-coverage.py already resolves both from the source text (its
+# `interp_subs` / `expand_template` / `enum_members`); they are borrowed from there rather than
+# written a second time, so the two censuses cannot disagree about what a key is. An
+# interpolation that cannot be expanded is recorded as its template — still a removable entry.
+def _options_coverage():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "check_options_coverage", os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                               "check-options-coverage.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+HELPER_SECTION = re.compile(r'const\s+string\s+SectionName\s*=\s*"(\w+)"')
+HELPER_BIND = re.compile(r'=\s*Bind\s*(?:<[^>()]*>)?\s*\(\s*"(\w+)"\s*,')
+BIND_INTERP = re.compile(r"\.Bind\s*(?:<[^>()]*>)?\s*\(\s*\"([^\"]*)\"\s*,\s*\$\"([^\"]*)\"")
+
+
 def snapshot() -> dict:
     keys, patches, tokens = {}, {}, {}
+    oc = _options_coverage()
+    enums = oc.enum_members()
     for full, path in sorted(sources(), key=lambda t: t[1]):
         with open(full, encoding="utf-8", errors="replace") as fh:
             raw = fh.read()
@@ -173,6 +212,15 @@ def snapshot() -> dict:
 
         for m in BIND.finditer(code):
             keys.setdefault(f"[{m.group(1)}] {m.group(2)}", path)
+        hs = HELPER_SECTION.search(code)
+        if hs:
+            for key in HELPER_BIND.findall(code):
+                keys.setdefault(f"[{hs.group(1)}] {key}", path)
+        subs = oc.interp_subs(code, enums)
+        for section, template in BIND_INTERP.findall(code):
+            expanded = oc.expand_template(template, subs)
+            for key in (expanded if expanded is not None else [template]):
+                keys.setdefault(f"[{section}] {key}", path)
 
         for m in HARMONY.finditer(code):
             arg = " ".join(m.group(1).split())
@@ -183,6 +231,9 @@ def snapshot() -> dict:
         for s in STRING.finditer(code):
             for m in TOKEN.finditer(s.group(0)):
                 tokens.setdefault(m.group(0), path)
+            for pinned in PINNED_TOKENS:
+                if pinned in s.group(0):
+                    tokens.setdefault(pinned, path)
 
     return {"configKeys": keys, "harmonyPatches": patches, "logTokens": tokens}
 

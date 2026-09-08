@@ -584,7 +584,6 @@ internal sealed partial class PlayTray
                 new Vector3(0f, 0f, ItemBerthFieldZ),
                 w * ItemBerthFieldFactor, h * ItemBerthFieldFactor,
                 new Color(0.92f, 0.85f, 0.5f, glow)); // BuildUseGhost's own wash, at the berth's rest level
-            _itemUseSlotGlow = field.GetComponent<MeshRenderer>().sharedMaterial;
             reveal.Track(field);
         }
 

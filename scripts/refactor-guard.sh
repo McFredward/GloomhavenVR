@@ -21,8 +21,9 @@
 #
 # The snapshot lives in .planning/refactor/.guard/ (gitignored).
 #
-# `check` first runs four checkers for the things the compiled form CANNOT show
-# (CHARTER §3b). Each is pure text or a separate project, so none of them affects the
+# `check` first runs SEVENTEEN checkers for the things the compiled form CANNOT show
+# (CHARTER §3b; the count grew from four over three refactor rounds and this header lagged
+# behind it). Each is pure text or a separate project, so none of them affects the
 # snapshot; each can be run on its own:
 #
 #   scripts/patch-inventory.sh check   a patch class nobody registers ships INERT, and
@@ -54,6 +55,12 @@
 #                                      the index throws into a swallowing catch and a surface dies
 #   scripts/check-tune-fields.py       a record-28 field id outside every width range silently
 #                                      kills the WHOLE record; the sampler must also ascend
+#   scripts/check-remote-defaults.py   a frozen remote constant must resolve to the same Defaults
+#                                      entry as the local bind it mirrors
+#   scripts/check-wire-coverage.py     a board-affecting dial ADDED with no wire record and no
+#                                      annotated opt-out is a 1:1 breach nobody's own headset sees
+#   scripts/check-options-coverage.py  a curated key nothing binds, a caption Loc lacks, or a key
+#                                      joining a curated family without joining its heading
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -97,8 +104,23 @@ command -v ilspycmd  >/dev/null 2>&1 || { echo "error: ilspycmd not found (dotne
 # Decompile the freshly built DLL into $1, with volatile content masked.
 snapshot() {
     local out="$1"
-    dotnet build "$ROOT/GloomhavenVR.sln" -c Release -v quiet --nologo \
-        | grep -E "error|Build FAILED" && { echo "error: build failed" >&2; exit 1; }
+    # TEST THE EXIT STATUS, NOT A GREP. This used to be
+    #     dotnet build … | grep -E "error|Build FAILED" && { echo "error: build failed"; exit 1; }
+    # and under `set -euo pipefail` that can NEVER fire on a failed build: pipefail makes the
+    # pipeline's status dotnet's non-zero exit whenever dotnet fails, so `&&` skips the block, and
+    # `set -e` does not act on the left-hand side of `&&`. The block fired only when dotnet exited
+    # ZERO and happened to print the word "error". So a change that did not compile ran straight
+    # on to ilspycmd, decompiled the PREVIOUS successful build still sitting at $DLL, and printed
+    # "no compiled behaviour differs from the baseline" — a green verdict on a red build. Found by
+    # the 2026-09 refactor's tooling review with three stubbed dotnets: {echo "error CS1"; exit 1}
+    # continued, {exit 1} continued, {echo "error-prone"; exit 0} aborted. Now: exit status, and
+    # the compiler's own error lines are echoed so the reason is in the same terminal.
+    local build_out
+    if ! build_out="$(dotnet build "$ROOT/GloomhavenVR.sln" -c Release -v quiet --nologo 2>&1)"; then
+        printf '%s\n' "$build_out" | grep -E "error|Build FAILED" >&2 || printf '%s\n' "$build_out" | tail -n 20 >&2
+        echo "error: build failed — nothing was snapshotted; the DLL at $DLL is the PREVIOUS build" >&2
+        exit 1
+    fi
     rm -rf "$out"; mkdir -p "$out"
     # HIDE THE XML DOC FILE FROM ilspycmd, and this line is load-bearing.
     #
@@ -120,8 +142,10 @@ snapshot() {
     if [[ -n "$docstash" ]]; then mv "$docstash" "$doc"; fi
     # The build stamp is the only thing that differs between two builds of the
     # same source — mask it so it never shows up as a false positive.
+    # `|| true`: a zero-match grep exits 1, and under pipefail + `set -e` that would abort the
+    # whole guard with no message the day the stamp stops matching. Same shape as the mask below.
     grep -rlZ 'built 20\|BuildTimeUtc' "$out" 2>/dev/null \
-        | xargs -0 -r sed -i -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC/<BUILD-TIME>/g'
+        | xargs -0 -r sed -i -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC/<BUILD-TIME>/g' || true
     # The commit hash is baked in too, and changes with every commit — in the startup log
     # line, in BuildInfo, AND in AssemblyInformationalVersion. Mask every form: any run of
     # 9+ hex characters that looks like a git object id.
@@ -336,7 +360,16 @@ case "${1:-check}" in
             echo "=== $moved moved (order only), $changed changed, $added added/removed ==="
             [[ $changed -eq 0 && $added -eq 0 ]] && echo "=== no compiled behaviour differs from the baseline ==="
         else
-            diff -ru "$BASE" "$CURR" || true
+            # The exit code carries the verdict here too. `diff … || true` made plain `check`
+            # exit 0 on a differing snapshot, so `refactor-guard.sh check && commit` passed on
+            # anything; only --summary had a real status. Plain check has no MOVED/CHANGED
+            # classification, so ANY difference is non-zero — use --summary for the distinction.
+            if diff -ru "$BASE" "$CURR"; then
+                echo "=== no compiled behaviour differs from the baseline ==="
+            else
+                echo "=== the compiled form differs from the baseline (see above; --summary classifies) ===" >&2
+                exit 1
+            fi
         fi
         ;;
     *)

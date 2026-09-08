@@ -1249,7 +1249,6 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
     // Held-pose target in GrabAnchor local space (captured once per grab).
     private Vector3 _heldPos;
-    private Quaternion _heldRot = Quaternion.identity;
     private float _heldScale = 1f;
 
     /// <summary>
@@ -1382,7 +1381,6 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         base.OnGrab(hand); // snap to GrabAnchor at GetHeldPose (P2/P5 GrabbableBehaviour)
         // Capture the local target the base snap applied, then fly in from the old pose.
         _heldPos = transform.localPosition;
-        _heldRot = transform.localRotation;
         _heldScale = transform.localScale.x;
         transform.position = worldPos;
         transform.rotation = worldRot;

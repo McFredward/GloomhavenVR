@@ -46,7 +46,12 @@ below now match either form:
     private const float PalmOffset = Defaults.FanPalmOffset;   // frozen (board furniture)
     private float _palmOffset       = Defaults.FanPalmOffset;  // wire-overridable fallback
 
-What is genuinely no longer covered: nothing. A default change still has to be made in one place.
+What is genuinely no longer covered, corrected 2026-09-08: this checker compares two DECLARATIONS
+and can say nothing about which copy a mirror reads AT RUNTIME. Review R2 of 2026-09-07 ran a 1:1
+audit with this gate green and found four confirmed reads of the VIEWER's live config dial on the
+mirror side — a class this file's own "nothing" sentence had claimed was closed.
+`scripts/check-mirror-dials.py` was written for exactly that question and is the other half of the
+guarantee. What IS still true here: a default change has to be made in one place.
 """
 import re
 import sys

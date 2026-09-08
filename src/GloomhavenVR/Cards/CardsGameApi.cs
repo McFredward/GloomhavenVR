@@ -1864,8 +1864,9 @@ internal static class CardsGameApi
     /// <c>Board/FigureGrab/FigureBusy.cs:334-337</c> for the grab gate. Giving it a NAME here is the
     /// difference between fixing an instance and closing the class: the next consumer of "is the
     /// engine busy" reaches for a property that already carries all three terms instead of
-    /// re-deriving two of them. <c>scripts/check-game-expression-subset.py</c> is the gate that
-    /// refuses a bare read from being written again.</para></para>
+    /// re-deriving two of them. <c>scripts/check-mirrors.sh</c> PART 3 (the "rules-engine busy
+    /// triple" subset guard, scoped to THIS FILE — a partial split must move the scope with it) is
+    /// the gate that refuses a bare read from being written again.</para></para>
     ///
     /// <para>Reads throw only on a torn-down or never-initialised rule library (main menu), and the
     /// safe answer there is "not busy" — a caller that treats an uninitialised engine as busy would
@@ -4252,37 +4253,19 @@ internal static class CardsGameApi
     /// that is active but whose bonuses do not resolve to a half falls back to the whole
     /// card — so an active card is never left un-highlighted. Read-only. Allocates the
     /// bonus list (game-side) — call on the change-gated active rebuild, not per frame.
+    ///
+    /// <para>ONE EXPRESSION, TWO CALLERS (2026-09 refactor). The body used to be a second,
+    /// term-for-term copy of <see cref="ActiveCardSet.ActiveHalves"/>, which is what every
+    /// PEER's mirror of this board reads (<c>Net.Remote.RemoteActiveCardPulse</c>). The owner's
+    /// pulse and the mirror's must resolve the SAME half from the SAME expression, so this now
+    /// delegates. The one difference the fold carries: <c>ActiveHalves</c> reads the class through
+    /// <c>SafeClass</c> and wraps the game's list read in a catch that answers "whole card" —
+    /// the copy here let a throw out of <c>FindCasterActiveBonuses</c> reach the driver's
+    /// per-tick guard instead. For a presentation read that is the safer answer, and it is the
+    /// one the mirror already gave.</para>
     /// </summary>
     internal static void GetActiveHalves(CardsHandUI hand, CAbilityCard card, out bool top, out bool bottom)
-    {
-        top = false;
-        bottom = false;
-        CPlayerActor? actor = hand.PlayerActor;
-        if (actor == null || card == null)
-            return;
-        List<CActiveBonus> bonuses = actor.CharacterClass.FindCasterActiveBonuses(actor);
-        for (int i = 0; i < bonuses.Count; i++)
-        {
-            CActiveBonus bonus = bonuses[i];
-            if (bonus == null || !ReferenceEquals(bonus.BaseCard, card))
-                continue;
-            CBaseCard.ActionType type = card.GetAbilityActionType(bonus.Ability);
-            if (type == CBaseCard.ActionType.TopAction)
-                top = true;
-            else if (type == CBaseCard.ActionType.BottomAction)
-                bottom = true;
-            else
-            {
-                top = true; // whole-card / NA bonus → highlight the whole card
-                bottom = true;
-            }
-        }
-        if (!top && !bottom) // active card with no resolvable half → highlight the whole card
-        {
-            top = true;
-            bottom = true;
-        }
-    }
+        => ActiveCardSet.ActiveHalves(hand.PlayerActor, card, out top, out bottom);
 
     // ---------------------------------------------------------------------- misc --
 

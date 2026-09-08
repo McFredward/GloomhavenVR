@@ -18,7 +18,6 @@
 | file | line | symbol | the sentence that may no longer be true |
 |---|---|---|---|
 | `Board/CharacterFocus.cs` | 935 | `PinRefusal` | /// (<c>PinRefusal</c>, the actor-dependent one, bounded by a live hex pick belonging to |
-| `Cards/Patches/HandSuppressionPatches.cs` | 46 | `HandShown` | /// and (b) raise <c>Core.VREvents.HandShown</c> so the VR layer rebuilds. |
 | `Core/Haunt/Haunt.cs` | 373 | `Schedule` | /// preference: <c>Schedule</c> partitions slots into <c>Groups</c> = 3 and picks within a |
 | `Core/Perf/PerfTextureCensus.cs` | 114 | `Append` | /// only between <see cref="Begin"/> and <c>Append</c> inside a single window, and both ends |
 | `Core/WallFade/WallSegmentFade.PropUnit.cs` | 255 | `BeginStandingPropScope` | /// <para>LIFETIME. Cleared once per commit in <c>BeginStandingPropScope</c> — the |
@@ -54,4 +53,4 @@
 | `WorldUI/Surfaces/TablePanelSurfaces.cs` | 569 | `Place` | /// rest of the time. Between those windows the host rect is LATCHED, so <c>Place</c> |
 | `WorldUI/WorldUIConfig.cs` | 330 | `Panels` | /// (Panels ▸ Shared — <c>[WorldUI]</c> maps to <c>ConfigTopic.Panels</c> and the group is |
 
-36 references.
+35 references (the `HandSuppressionPatches.cs` row was cleared 2026-09-08: the symbol is `VREvents.HandShown`, the sentence was true, only the qualification was wrong).

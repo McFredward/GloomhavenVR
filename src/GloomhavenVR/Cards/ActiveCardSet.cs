@@ -166,13 +166,12 @@ internal static class ActiveCardSet
     /// active card with no nameable half is drawn fully lit rather than dark, because "this card is
     /// doing something" is the fact the pulse carries.</para>
     ///
-    /// <para>ONE EXPRESSION, TWO CALLERS — AND TODAY IT IS TWO EXPRESSIONS. <c>CardsGameApi</c>'s
-    /// <c>GetActiveHalves(CardsHandUI, CAbilityCard, out, out)</c> is the OWNER's copy of this and
-    /// is term-for-term identical; it takes a hand only to reach <c>hand.PlayerActor</c>, which is
-    /// the single argument this one takes directly. It is not folded into this method here because
-    /// that file belongs to another lane this round. THE OWED CHANGE, and it is two lines: make
-    /// that method's body <c>ActiveHalves(hand?.PlayerActor, card, out top, out bottom)</c>, so the
-    /// owner's pulse and the mirror's are the same expression rather than two that have to agree.
+    /// <para>ONE EXPRESSION, TWO CALLERS. <c>CardsGameApi</c>'s
+    /// <c>GetActiveHalves(CardsHandUI, CAbilityCard, out, out)</c> is the OWNER's entry and, since
+    /// the 2026-09 refactor, delegates here (it takes a hand only to reach <c>hand.PlayerActor</c>,
+    /// the single argument this one takes directly). Until then it was a second, term-for-term
+    /// copy that the two boards had to keep agreeing on by hand; now the owner's pulse and the
+    /// mirror's are literally the same expression.
     /// </para>
     /// </summary>
     internal static void ActiveHalves(CPlayerActor? actor, CAbilityCard? card,

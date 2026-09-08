@@ -130,6 +130,36 @@ EXPR_BODIED = re.compile(
 IDENT = re.compile(r"(?<![\w.])([A-Za-z_]\w*)")
 
 
+STRING_LIT = re.compile(r'@"(?:[^"]|"")*"|"(?:\\.|[^"\\])*"', re.S)
+
+
+def self_qualified(text: str, type_name: str) -> list[str]:
+    """Identifiers reached through the type's OWN name — `WallSegmentFade.Foo`, and the
+    namespace-qualified `GloomhavenVR.Core.WallSegmentFade.Foo`.
+
+    IDENT deliberately refuses anything preceded by a dot, because `other.Thing` is a member of
+    something else and following it would make this checker chase the whole tree. But a static
+    member of the type being examined may be written either way inside its own body, and the
+    multi-part types here do write the qualified form — it is how you disambiguate a static from
+    a local. `static readonly int A = WallSegmentFade.B + 1;` is exactly the dependency this
+    gate exists to find, and it was invisible: the 2026-09 tooling review planted it in a
+    two-part type and the gate passed. Only the type's own name is followed; every other
+    qualification stays out of scope, which is what keeps the traversal finite.
+
+    STRING LITERALS ARE BLANKED HERE AND NOWHERE ELSE, and the first version of this function
+    did not do it. strip_comments keeps strings on purpose — for IDENT that costs only false
+    positives nobody sees, because a bare word in a string is rarely also a static member name.
+    A DOTTED name in a string is a different population: this tree writes phase names and log
+    tokens as `"ModalFallback.PreConvertHide"`, which is character-for-character what a
+    self-qualified member reference looks like. Adding the qualified scan without this line
+    turned `private static readonly string[] TickPhaseNames = { "ModalFallback.PreConvertHide",
+    … }` into FOURTEEN cross-part dependencies on a tree that has none. Caught by running the
+    real tree as the negative control immediately after the synthetic positive passed.
+    """
+    return re.findall(r"(?<![\w.])(?:[A-Za-z_]\w*\.)*" + re.escape(type_name) + r"\.([A-Za-z_]\w*)",
+                      STRING_LIT.sub('""', text))
+
+
 def strip_comments(text: str) -> str:
     """Remove comments, keep string literals (an identifier inside a string is not a reference,
     but keeping them costs only false positives and removing them needs a full lexer)."""
@@ -356,7 +386,7 @@ def main() -> int:
                 refs: set[str] = set()
                 while frontier:
                     text = frontier.pop()
-                    for ident in IDENT.findall(text):
+                    for ident in IDENT.findall(text) + self_qualified(text, t):
                         if ident not in home:
                             continue
                         refs.add(ident)
@@ -381,6 +411,18 @@ def main() -> int:
                     if key in allowed:
                         continue
                     violations.append((t, fname, rel, ln, r, where, key))
+
+    # A FLOOR: zero multi-part types is not a clean tree, it is a tree nobody read. With no
+    # types there are no initialisers, no violations and a green exit — the same shape as the
+    # relative-path defect this project has already paid for once (LOG-2026-08 Phase 1). This
+    # tree has had at least twenty multi-part types since the 2026-08 folder restructure.
+    if len(multi) < 10:
+        print(f"error: only {len(multi)} multi-part types were found under "
+              f"{os.path.relpath(SRC, ROOT)} — this tree has ~20.", file=sys.stderr)
+        print("       A census that found nothing cannot fail, so this is a path problem, not a",
+              file=sys.stderr)
+        print("       clean bill of health.", file=sys.stderr)
+        return 1
 
     print(f"partial order: {len(multi)} multi-part types, "
           f"{sum(len(p) for p in multi.values())} parts, "

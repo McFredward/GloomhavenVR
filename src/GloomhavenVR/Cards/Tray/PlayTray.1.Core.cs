@@ -312,7 +312,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     // ItemsPile only while the local player holds a usable item card on their own turn; dropping
     // that card into the recess USES it. Its glow pulses like the wanted-slot hint.
     private Transform? _itemUseSlot;
-    private Material? _itemUseSlotGlow;
     // Requirement 6 (clip-in decision): the CONFIRM (USE) button shown beside the item-use slot while a
     // held usable item card is CLIPPED into the slot awaiting a decision. Poking/laser-clicking it uses
     // the item (ItemsPile supplies the callback); the CANCEL is grabbing the card back out, so there is
@@ -1542,7 +1541,6 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _restMinHalf = null;
         _undoAnchor = null;
         _itemUseSlot = null; // child of _root, destroyed with it
-        _itemUseSlotGlow = null;
         _itemUseConfirm = null; // #9a: generic-cluster child (under _root via the Confirm anchor), destroyed with it
         _itemUseConfirmAction = null;
         _itemUseActive = false; // #9a: a fresh tray starts with the tuned 2-member cluster (no pending item)
