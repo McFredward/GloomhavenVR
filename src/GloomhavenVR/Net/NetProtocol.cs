@@ -448,7 +448,122 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 480;
+    public const ushort ModBuild = 481;
+    // Build 481: THE REFACTOR ROUND HE ASKED FOR — "den Code auf einen wartbaren Stand halten,
+    //   Redundanzen beseitigen, toten Code entfernen und Fehler, Lücken und Risiken entdecken",
+    //   review first, then fixes, and "versuche Regression zu vermeiden". Five lanes on disjoint
+    //   file sets over the whole 626-file / 550k-line tree, each committing its review BEFORE
+    //   touching src/, then fixing in tier order with the compiled-form guard's verdict pasted
+    //   into every commit message. ~3,800 lines of review under .planning/refactor-2026-09/.
+    //   DLL-only; bundle unchanged; WIRE FORMAT UNTOUCHED (no byte, no record id — 46 is still
+    //   free and still reserved for the short-rest bit).
+    //
+    //   WHAT THE ROUND FOUND ABOUT ITS OWN TOOLS, which is the part that outlives it:
+    //   * refactor-guard.sh could print a GREEN verdict on a RED build. The build failure was
+    //     tested with `dotnet build … | grep -E "error"` and under `set -euo pipefail` that
+    //     branch can never fire when dotnet fails: pipefail makes the pipeline's status dotnet's
+    //     non-zero exit, so `&&` skips the abort and `set -e` does not act on the left of `&&`.
+    //     Non-compiling code went on to decompile the PREVIOUS DLL still sitting on disk and
+    //     reported "no compiled behaviour differs". Every lane in this programme was told to
+    //     paste that verdict into its commits. Proven with three stubbed dotnets, fixed.
+    //   * check-surface.py, the gate that fails on a REMOVED config key, was blind to 213 of
+    //     them — every key bound through a helper that supplies the section from a const (all 22
+    //     [Comfort] keys) and every interpolated per-board/per-style key. Renaming one printed
+    //     "412 -> 412 (0 removed)".
+    //   * ...and to two of the eleven markers ModBuild 480 declared owed on hardware: `GATE 3`
+    //     and `Remote BURN look` do not fit the SHOUTED-token shape. Both pinned by name now.
+    //   * check-partial-order.py could not see a cross-part initialiser dependency written
+    //     through the type's own name — the exact form used to disambiguate a static from a
+    //     local. Its first fix passed all three synthetic positives and turned the real tree red
+    //     with 14 false violations (phase-name STRINGS are character-identical to a qualified
+    //     member reference); the NEGATIVE CONTROL caught that, not the positive.
+    //   * three gates called an EMPTY census good news. Each now refuses a tree it did not read.
+    //   * a lane's own dedup SILENTLY DISARMED THE GATE WATCHING IT: the wire suite stayed green
+    //     while the assertion count fell 210,164 -> 210,162. Caught by reading the NUMBER.
+    //   * CI ran 9 of 19 gates; it now runs the nine runner-capable ones plus a PR-base surface
+    //     diff. The wire vectors still cannot run on a hosted runner (they need the game's real
+    //     UnityEngine.CoreModule.dll for Mathf's banker's rounding).
+    //
+    //   THE SYSTEMIC DEFECT, and it is the largest single finding: ~57 LOG LINES WHOSE OWN PROSE
+    //   CALLS THEM HARDWARE EVIDENCE SIT BELOW THE SHIPPED LOG LEVEL. ModBuild 331 made the log
+    //   quiet, correctly, and moved VRLog.Info under the default; the lines written before that
+    //   were never re-tiered and the lines written after inherited the habit. Eight are ONE-SHOT
+    //   SELF-DISARMS — a feature switching itself off exactly once and saying so where nobody can
+    //   read it. One of the eight reads "every button hover/click sound will stay INAUDIBLE",
+    //   which is the answer to a standing user report, present in the code, unprintable.
+    //   check-hw-verify.py asks whether a line MARKED as evidence is readable; these carry the
+    //   claim in their prose instead of in the marker, so it had nothing to check.
+    //
+    //   DEFECTS FIXED (each demonstrated from source, none speculative):
+    //   * THE BURN RIG STAYED "READY" OVER NULL ARRAYS. BuildBurnRig sets Ready and then, inside
+    //     the same try, builds the flame quad; a throw there lands in a catch that nulls the
+    //     image/text arrays and leaves the state at Ready. Every later look fails
+    //     `state != Ready || images == null` and returns false — for the rest of that clone's
+    //     life, because the builder only re-runs from Unbuilt — and the line saying so was at
+    //     DEBUG. ModBuild 480 closed this mechanism's CAUSE one throw at a time (F1, the enum
+    //     that grew past its literal arrays) and left the SILENCER in. The catch writes Refused
+    //     now, the state the consumers already understand, at a readable tier.
+    //   * A TRIGGER PULL INSIDE A DRAG BAR'S 0.20 s HOVER TAIL CLICKED NOTHING AND GRABBED
+    //     NOTHING. In the tail the grabber still publishes the trigger offer, so both ray drivers
+    //     yield on that same frame; the edge then hits the tail branch, finds no grip down, drops
+    //     the glow and returns. The non-tail branch four lines below has had the fall-through
+    //     since ModBuild 359 under his 2026-08-11 ruling ("greiftaste für den Balken und trigger
+    //     für die Karte") — only one direction of that independence was ever built.
+    //   * THE FLAT 2D CAMPAIGN MAP SWEPT THE WHOLE SCENE ONCE PER FRAME. DetectActiveMap opened
+    //     with a bare FindObjectOfType and no cache, reached from EndStackSync every frame; the
+    //     cache, its 10-frame throttle and its scene-exit invalidation already existed twenty
+    //     lines above and this reader never consulted it.
+    //   * THE STRETCH-CAPTURE WATCH CRIED WOLF ON EVERY RUN: it pinned BodyRadiusMm = -1 and
+    //     printed "NO renderer survived the sanity ceiling" every episode, because the method
+    //     that computes the widest renderer threw the answer away and its caller passed infinity
+    //     and "n/a" in its place. That sentence is the one that names the 2026-08-15 ceiling
+    //     defect RETURNING — an instrument watching for a known regression, permanently alarmed.
+    //   * two card-FX drivers shared latch index 0, so one surface's decision suppressed the
+    //     other's; rejected packets were invisible at every tier (`PACKET REJECTED` exists now,
+    //     and zero occurrences is the good reading); three teardown paths cleared three different
+    //     unions of the same state; a board falsifier skipped every second scenario; one latch
+    //     carried two verdicts; ComfortSettings.Unbind detached 21 of its 22 wrappers.
+    //
+    //   USER-FACING TEXT THAT WAS LYING, in his own language: the German [Haunt] EasterEggs
+    //   description promised FOUR apparitions that do not exist (two deleted at ModBuild 149, two
+    //   he had rejected outright); the German map-room bar-height text still told him a shared
+    //   window follows his own dial, which ModBuild 480 retired; the German ghost-hand text said
+    //   "Standardmäßig AUS" while the shipped default is true; four per-style seat descriptions
+    //   promised a first-run seeding from keys that were retired and deleted.
+    //
+    //   DEAD CODE, and the previous refactor's verdict on it was measured with a blunt
+    //   instrument. PLAN-2026-08 §0.2 concluded "dead code is not this codebase's problem" from a
+    //   sweep over RAW text, so a member mentioned three times in its own doc comment read as
+    //   live. Stripping comments first found ~600 dead lines in one lane alone, the largest being
+    //   the map room's FIRST arc allocator (561 lines, uncalled since ModBuild 234). Six log
+    //   markers went with it; each was verified to exist ONLY inside those bodies, unreachable
+    //   since 234, greppable from no doc — the judgement is recorded in the merge commit.
+    //
+    //   REDUNDANCY: seven concepts that were built more than once are now built once — the
+    //   owner's active-half pulse and every mirror's (one expression, and the two boards must
+    //   resolve the same half), the floated-window lookup, the moved-subtree layer record, the
+    //   hover-window anti-churn watch, three describers, two frame readers, six constants. Three
+    //   more are written up and NOT merged because they cross a lane boundary; the gaze-bias lean
+    //   is the one that matters, 39 identical lines whose six CONSTANTS are pinned by
+    //   check-mirrors.sh while the LATCH RULE is pinned by nothing.
+    //
+    //   THE TWO LARGEST METHODS IN THE MOD gave up their tails as pure motion, proven by the
+    //   golden vectors: PresenceSerializer.Write (805 code lines) and TryRead (987). The
+    //   1,055-line CardsConfig.Bind is thirteen ordered slices, with all 156 keys extracted
+    //   before and after and compared AS A SEQUENCE, because key order is the .cfg's write order.
+    //
+    //   LEFT FOR HIM TO RULE ON, each with its cost attached: a throw inside the wall fade's
+    //   rescan core retries the whole ~73 ms commit every frame behind one latched line (the
+    //   subsystem's own ModBuild 441 record describes the symptom — "NO WALL FADED AT ALL while
+    //   the retry burned the frame" — and that round guarded the instruments, not the shape); the
+    //   panel ladder's bound check raises an Alert accusing the mod of a defect on a by-design -1
+    //   that its own doc lists as valid two paragraphs above; whether one failed injection should
+    //   disable the VR settings menu for the whole process or only for that window; whether four
+    //   records riding the send cadence rather than the edge is a 1:1 breach; the furniture
+    //   materials that are never destroyed.
+    //
+    //   STILL OWED, unchanged from 480: the short-rest wire bit (record 46) and the real
+    //   bonus-bar conversion, both of which he has already ruled on.
     // Build 480: A REVIEW ROUND HE ASKED FOR BEFORE SPENDING A HARDWARE TEST, and it is the first
     //   round in this project's history where the reviews were worth more than the fixes. Five
     //   read-only review lanes against five questions of his, then seven fix lanes on disjoint file

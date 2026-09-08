@@ -156,3 +156,16 @@ more gates on GitHub (`dca03c86`); and `log-triage.py` marks debug-tier tokens i
 list instead of listing them bare (`7587e1e5`), which matters the next time a default-level drop
 is read.
 
+
+## integrator (ModBuild 481)
+
+Cross-lane changes made at integration, none of them a pixel move:
+
+| what | what he should see | how to tell it ran |
+|---|---|---|
+| four German descriptions corrected (map-room bar height, ghost hand, two of the four per-style seat texts) | the tooltips now match the English text and the shipped default beside them | read them in the menu; nothing else changes |
+| four one-shot migration markers withheld from the settings browser | four fewer toggles in the raw Erweitert list: `[PeerBoardFade] DwellsMigrated312`, `[Perf] ProfileDefaultsMigrated227`, `[WallFade] WallFadeBarsMigrated252` and `256` | they are gone from the browser and STILL IN THE .cfg — the keys are untouched, only their menu row is withheld |
+
+The keys are deliberately NOT removed. A removed key reverts a player's tuned value with no
+message; a withheld one keeps its value and simply stops offering a row whose only effect is to
+re-run a migration against numbers he has since tuned.

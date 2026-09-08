@@ -2556,10 +2556,12 @@ internal static partial class Loc
                 + "Der Standard 0,60 m ist der Mittelwert der beiden Greifbalken-Höhen aus deinem eigenen "
                 + "\"ideale Position\"-Screenshot, gemessen aus dem Platzierungs-Log. NUR DIE ANFANGS-"
                 + "HÖHE: jedes Fenster bleibt frei verschiebbar, und ein bereits stehendes Fenster bewegt "
-                + "sich nicht, wenn du das hier änderst. MEHRSPIELER: Dieser Wert gehört zur gemeinsamen "
-                + "Platzierung — alle Spieler einer Sitzung sollten dieselbe Zahl stehen lassen. Ein "
-                + "abweichender Wert hängt die eigene Kopie eines gemeinsamen Fensters auf eine andere "
-                + "Höhe, bis es jemand verschiebt. Bereich 0.05-1.2.",
+                + "sich nicht, wenn du das hier änderst. MEHRSPIELER: Seit ModBuild 480 bewegt dieser "
+                + "Regler NUR DEINE EIGENEN Kartenraum-Fenster. Ein gemeinsames (blau beleistetes) "
+                + "Fenster hängt auf jedem Client auf den ausgelieferten 0,60 m, egal was hier steht — "
+                + "die Pose eines gemeinsamen Fensters darf von nichts Lokalem abhängen — und die "
+                + "MAP ROOM WINDOW BAR HEIGHT-Zeile im Log nennt diesen Regler und den ignorierten "
+                + "Wert, sobald beide abweichen. Bereich 0.05-1.2.",
             ["WorldUI/ScenarioWindowBoardClearanceMeters"] =
                 "Wie hoch über dem SPIELFELD ein gemeinsames (blau beleistetes) Szenario-Fenster — das "
                 + "Story-Fenster — beim Öffnen hängt, in echten Metern, GEMESSEN AM GREIFBALKEN. Der "
@@ -2840,8 +2842,8 @@ internal static partial class Loc
             ["Hands/GhostHandOnFan"] =
                 "Macht die Hand, die gerade den GEÖFFNETEN Kartenfächer hält, halbtransparent "
                 + "(\"Geisterhand\"), damit das Hand-Mesh keine Kartendetails mehr verdeckt. Die Hand bleibt "
-                + "sichtbar — nur ihre Deckkraft sinkt (Stärke: GhostHandStrength). Standardmäßig AUS; an den "
-                + "Händen ändert sich nichts, bis du es einschaltest. Live änderbar, vollständig umkehrbar (die "
+                + "sichtbar — nur ihre Deckkraft sinkt (Stärke: GhostHandStrength). Standardmäßig AN. "
+                + "Live änderbar, vollständig umkehrbar (die "
                 + "Überblendung läuft auf privaten Materialkopien pro Renderer, nie auf den gemeinsamen "
                 + "Handmaterialien) und wird auf den Avatar-Spiegel und auf die Sicht der Mitspieler auf dich "
                 + "übertragen.",
@@ -2880,23 +2882,20 @@ internal static partial class Loc
                 "Neigung (Grad) zwischen der getrackten OpenXR-Griffpose und der sichtbaren Hand, während "
                 + "dieser Handstil getragen wird — NEGATIV kippt die Fingerspitzen nach UNTEN. PRO STIL "
                 + "absoluter Wert (ersetzt das alte gemeinsame GripPitchOffsetDegrees + Trimmung in der "
-                + "Haupt-cfg; beim ersten Start daraus übernommen). Live änderbar — die Hände sitzen im "
+                + "Haupt-cfg). Live änderbar — die Hände sitzen im "
                 + "nächsten Frame neu.",
             ["Hands/*LateralOffset"] =
                 "Seitlicher Versatz (Meter, Geräteachse X; POSITIV = zur Daumenseite) der sichtbaren Hand "
                 + "gegenüber der Griffpose, während dieser Handstil getragen wird. PRO STIL absoluter Wert "
-                + "(ersetzt das alte gemeinsame HandLateralOffset + Trimmung; beim ersten Start daraus "
-                + "übernommen). Live änderbar.",
+                + "(ersetzt das alte gemeinsame HandLateralOffset + Trimmung). Live änderbar.",
             ["Hands/*VerticalOffset"] =
                 "Vertikaler Versatz (Meter, Geräteachse Y; POSITIV = nach oben) der sichtbaren Hand gegenüber "
                 + "der Griffpose, während dieser Handstil getragen wird. PRO STIL absoluter Wert (ersetzt das "
-                + "alte gemeinsame HandVerticalOffset + Trimmung; beim ersten Start daraus übernommen). Live "
-                + "änderbar.",
+                + "alte gemeinsame HandVerticalOffset + Trimmung). Live änderbar.",
             ["Hands/*ForwardOffset"] =
                 "Vorwärts-/Tiefenversatz (Meter, Geräteachse Z; POSITIV = zu den Fingerspitzen) der "
                 + "sichtbaren Hand gegenüber der Griffpose, während dieser Handstil getragen wird. PRO STIL "
-                + "absoluter Wert (ersetzt das alte gemeinsame HandForwardOffset + Trimmung; beim ersten Start "
-                + "daraus übernommen). Live änderbar.",
+                + "absoluter Wert (ersetzt das alte gemeinsame HandForwardOffset + Trimmung). Live änderbar.",
             // ---- [WristHud] ----
             ["WristHud/*PalmPitch"] =
                 "Neigung (Pitch, Grad) der Arm-Anzeige zusätzlich zur Grundausrichtung — 0 ist die "

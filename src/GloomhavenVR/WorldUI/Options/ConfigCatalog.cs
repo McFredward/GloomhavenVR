@@ -485,6 +485,28 @@ internal static class ConfigCatalog
         ["Rig/MapPresentationMigrated230"] = "internal one-shot marker — false re-arms the "
             + "ModBuild 230 transfer of [Rig] Experimental3DMap to [Rig] Vanilla2DMap "
             + "(Plugin.cs), which overwrites whichever campaign map the player has since chosen",
+
+        // THE FOUR THE 2026-08-22 AUDIT MISSED, found by the 2026-09 refactor (lane core, LC-3).
+        // Every one is bound, is captioned "One-shot migration marker, not a setting" in its own
+        // bind text, and re-runs its migration when set back to false — the exact harm the four
+        // rows above are withheld for. They were not withheld because the audit worked from the
+        // menu it could see rather than from the bound surface, and these four sit in sections
+        // (PeerBoardFade, Perf, WallFade) that the audit read for their SETTINGS. Verified before
+        // adding: ConfigCatalog is the only file under WorldUI/Options that mentions "Migrated",
+        // so nothing else was hiding them.
+        ["PeerBoardFade/DwellsMigrated312"] = "internal one-shot marker — false re-arms the "
+            + "ModBuild 312 move of ExitDwellMovedSeconds/ExitDwellStationarySeconds from the old "
+            + "shipped pair to the wall see-through's values (PeerBoardFade.cs), which overwrites "
+            + "a dwell the player has since tuned back to the old numbers",
+        ["Perf/ProfileDefaultsMigrated227"] = "internal one-shot marker — false re-arms the "
+            + "ModBuild 227 switch-on of [Perf] SceneProfile and CullSubmitSplit (PerfConfig.cs), "
+            + "which turns both back on for a player who has since turned them off",
+        ["WallFade/WallFadeBarsMigrated252"] = "internal one-shot marker — false re-arms the "
+            + "ModBuild 252 repair of a transposed OnFraction/OffFraction pair "
+            + "(WallSegmentFade.cs), which rewrites a deliberately narrow band as degenerate",
+        ["WallFade/WallFadeBarsMigrated256"] = "internal one-shot marker — false re-arms the "
+            + "ModBuild 256 move of the 0.25/0.10 bars to 0.35/0.20 (WallSegmentFade.cs), which "
+            + "overwrites a player who has deliberately gone back to the older band",
         ["Comfort/SavedScaleMultiplier"] = "an OUTPUT, not a setting: written automatically after "
             + "every two-grip scale gesture, so a menu edit is overwritten by the next pinch and "
             + "only shows at all on a rig rebuild — a control that visibly does nothing",
