@@ -210,9 +210,13 @@ internal static partial class VROptionsTab
     /// <summary>
     /// HOW LONG A HOVER TINT TAKES TO CROSS-FADE, in seconds — the one number every hand-built
     /// <c>Button.colors</c> in this mod's own chrome sets, and the one every one of them had as a
-    /// bare 0.08f literal (2026-09 redundancy audit, R20). Three sites: the action-row plate
-    /// (VROptionsTab.2.Rows.cs), the variant picture tile (VariantTiles.cs) and the modal close X
-    /// (WorldUI/Grab/ModalCloseButton.cs, not converted this round — it is another lane's file).
+    /// bare 0.08f literal (2026-09 redundancy audit, R20). R20 IS CLOSED: the three sites are the
+    /// action-row plate (<c>VROptionsTab.2.Rows.cs:826</c>), the variant picture tile
+    /// (<c>VariantTiles.cs:637</c>) and the modal close X (<c>WorldUI/Grab/ModalCloseButton.cs:433</c>),
+    /// and none of them is a bare literal any more. (This paragraph said the close X was "not
+    /// converted this round — it is another lane's file"; <c>WorldUI/Grab/</c> is THIS lane and it
+    /// WAS converted. Corrected in the 2026-09 refactor, F-83 — the same mistaken lane boundary
+    /// that explained four copies in <c>WorldUI/Conversion/</c>, F-52/F-53/F-54.)
     /// Named rather than merged: the three PALETTES are legitimately different (the X multiplies a
     /// flat grey over a plate, the other two brighten toward the menu's gold), but the timing is
     /// one perceptual decision — "a subtle affordance, no loud colour flash", quoted from the X's

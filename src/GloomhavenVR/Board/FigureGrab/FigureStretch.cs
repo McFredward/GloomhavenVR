@@ -144,11 +144,13 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   frame.</item>
 /// </list>
 ///
-/// <para>MULTIPLAYER: the factor rides <c>NetProtocol.ExtIdHeldStretch</c> (record 30) — a manual
-/// stretch is the one component of the held size a peer cannot derive (see
-/// <c>NetFigures.EaseSlot</c>, which already reconstructs boardSize × zoom ratio from data it
-/// has). Nothing here talks to Net/ directly: the wire samples <see cref="FigureGrabbable.Stretch"/>
-/// on its own cadence, so offline this whole feature is a strict local no-op.</para>
+/// <para>MULTIPLAYER: what rides <c>NetProtocol.ExtIdHeldStretch</c> (record 30) is the MEASURED
+/// held size — <c>FigureGrabbable.HeldSizeFactorOf</c>, i.e. lossyScale ÷ the figure's board-home
+/// size, which already contains this gesture, the grab-time latch and the zoom. It used to be the
+/// bare factor, with the receiver reconstructing boardSize × zoom ratio; ModBuild 157 removed that
+/// reconstruction because a deep-zoom grab reached peers up to 3.33× too large. Nothing here talks
+/// to Net/ directly: the wire samples the grabbable on its own cadence, so offline this whole
+/// feature is a strict local no-op.</para>
 ///
 /// <para>FEEDBACK: no VISUAL feedback, deliberately — the figure visibly tracking the hand IS
 /// the feedback, the same argument as the held pose itself; a glow would announce a mode where
@@ -307,7 +309,8 @@ internal static class FigureStretch
 
         // Surface-based, so the zone scales with the applied stretch (class doc, capture-zone
         // paragraph). The gesture's own d0 below stays CENTRE-based on purpose.
-        float surfaceReal = CaptureDistanceReal(hand, target, center);
+        float surfaceReal = CaptureDistanceReal(hand, target, center, out float bodyRadiusReal,
+                                               out string bodyRenderer, out bool centreFallback);
         if (surfaceReal > FigureGrabConfig.StretchReachRealMeters)
         {
             if (wasCaptured) StretchCaptureWatch.NoteReleased(hand.Side);
@@ -361,9 +364,9 @@ internal static class FigureStretch
 
         st.Captured = true;
         StretchCaptureWatch.NoteCaptured(hand.Side, target.Label, surfaceReal,
-            FigureGrabConfig.StretchReachRealMeters, float.PositiveInfinity, "n/a",
+            FigureGrabConfig.StretchReachRealMeters, bodyRadiusReal, bodyRenderer,
             FigureStretchMath.CaptureCeilingRealMeters(target.TotalHeldSizeRatio),
-            target.TotalHeldSizeRatio, centreFallback: false);
+            target.TotalHeldSizeRatio, centreFallback);
 
         // The user's requested "close enough to pull" announcement: the figure-hover pulse, on
         // the zone-entry edge only (see the class doc's FEEDBACK paragraph).
@@ -488,9 +491,18 @@ internal static class FigureStretch
     /// grabbable (<c>FigureGrabbable.NoteCaptureVolume</c>), so the one <c>[SizeSync]</c> line can
     /// report the interaction volume the player is really reaching into — including the case that
     /// caused the report, "every renderer was excluded and this is the CENTRE fallback".</para>
+    ///
+    /// <para>The three <c>out</c> parameters are the same two facts plus the fallback flag, for
+    /// <see cref="StretchCaptureWatch"/>. They exist because until the 2026-09 refactor the caller
+    /// passed <c>+Inf</c>, <c>"n/a"</c> and <c>false</c> in their place while this method had the
+    /// real values in hand — so the CAPTURE ON line claimed the centre fallback on every episode
+    /// since ModBuild 400. Log only: nothing branches on them.</para>
     /// </summary>
-    private static float CaptureDistanceReal(VRHand hand, StretchTarget target, Vector3 centerWorld)
+    private static float CaptureDistanceReal(VRHand hand, StretchTarget target, Vector3 centerWorld,
+                                             out float widestReal, out string widestName,
+                                             out bool centreFallback)
     {
+        widestName = "n/a";
         Vector3 pinch = PinchPoint(hand);
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
         float best = float.PositiveInfinity;
@@ -524,13 +536,26 @@ internal static class FigureStretch
                 }
                 any = true;
                 if (impliedRadiusReal > widest)
+                {
                     widest = impliedRadiusReal;
+                    widestName = r.name;
+                }
                 float d = Vector3.Distance(pinch, b.ClosestPoint(pinch)) / scale;
                 if (d < best)
                     best = d;
             }
         }
         target.NoteCaptureVolume(any ? widest : float.PositiveInfinity, ceiling);
+        // THE SAME TWO FACTS THE GRABBABLE IS TOLD, HANDED TO THE INSTRUMENT (2026-09 refactor,
+        // F-18). They were computed here and thrown away, and the caller passed +Inf / "n/a" /
+        // false in their place — so StretchCaptureWatch's BodyRadiusMm was -1 on every episode and
+        // the STRETCH CAPTURE ON line printed "NO renderer survived the sanity ceiling, so the test
+        // fell back to the CENTRE distance" every single time, for the field its own doc calls the
+        // one this line exists for. Nothing about the DECISION changes; only the report.
+        widestReal = any ? widest : float.PositiveInfinity;
+        centreFallback = !any;
+        if (!any)
+            widestName = "none survived the ceiling";
         return float.IsPositiveInfinity(best) ? Vector3.Distance(pinch, centerWorld) / scale : best;
     }
 

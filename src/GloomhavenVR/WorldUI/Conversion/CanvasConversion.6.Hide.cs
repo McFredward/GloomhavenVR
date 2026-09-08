@@ -140,7 +140,12 @@ internal static partial class CanvasConversion
         if (s_renderPhaseViolationLogged || s_framePhaseDepth > 0 || Camera.current == null)
             return;
         s_renderPhaseViolationLogged = true;
-        VRLog.Warn("WorldUI", $"MODAL RENDER PHASE VIOLATION: a panel {what} ran OUTSIDE every mod frame " +
+        // HW-VERIFY (2026-09 refactor, F-50) — the detector for the one-eye write class
+        // ([[aliasing-is-per-eye]]), latched to one line per session and carrying a stack trace, so
+        // it is written to be read off a hardware log. The rule it violated is stated 120 lines
+        // below it in this same file: "AND SAY SO AT A TIER THE SHIPPED DEFAULT PRINTS ... reading
+        // it here would repeat exactly the mistake that made the 392 round unreadable."
+        VRLog.Alert("WorldUI", $"MODAL RENDER PHASE VIOLATION: a panel {what} ran OUTSIDE every mod frame " +
                               $"phase while camera '{Camera.current.name}' is current (stereo eye " +
                               $"{Camera.current.stereoActiveEye}). If that is a live render, it lands between " +
                               "the two MultiPass eye passes and shows in ONE EYE for a frame. Visibility must " +
@@ -564,12 +569,11 @@ internal static partial class CanvasConversion
     /// readable, and it must stay out of the decision.</summary>
     private static int s_revealRecordedPreStart;
 
-    /// <summary>How many recorded canvases the last reveal left OFF because the game had decided
-    /// against them while the hide held them (see the block above).</summary>
-    internal static int RevealWithheldCanvases => s_revealWithheldCanvases;
-
-    /// <summary>The last such canvas's GameObject name, or "none".</summary>
-    internal static string RevealWithheldName => s_revealWithheldName;
+    // (THE TWO ACCESSORS OVER s_revealWithheldCanvases / s_revealWithheldName ARE GONE — 2026-09
+    // refactor, F-56. They had no reader anywhere in src/ or tests/ and never had one; the fields
+    // themselves are live, written by SetPanelRenderVisible / RevealRestoreWithheld and read by
+    // RevealWithholdClause below. The grep token the docs use is the LINE text
+    // REVEAL RESTORE WITHHELD, which is untouched.)
 
     /// <summary>
     /// The clause both MODAL REVEAL lines append. UNCONDITIONAL — it states the zero as plainly as
@@ -654,8 +658,16 @@ internal static partial class CanvasConversion
         // instant Hide (:566-580). With it CLEAR the window hides by its CanvasGroup alpha and
         // NEVER touches Canvas.enabled — so a canvas withheld there would stay dark through every
         // later Show, which is the "leeres Fenster" the standing ruling forbids and a far worse
-        // defect than the flash. There is no public accessor, so the field is read once through a
-        // cached FieldInfo; a read that fails for any reason answers "restore".
+        // defect than the flash. The field is PRIVATE IN THE GAME
+        // (decompiled/GH.Runtime/UnityEngine.UI/UIWindow.cs:119) but NOT unreachable in this build:
+        // the csproj publicizes GH.Runtime, and CanvasConversion.4.Lifecycle.cs reads
+        // releasedWindow._disableCanvas directly, in this same partial type, with a green build.
+        // This site goes through a cached FieldInfo ON PURPOSE anyway (2026-09 refactor, F-55 —
+        // the sentence here used to say "there is no public accessor", which is true about the game
+        // and false about this build): a game patch that renames or removes the field must degrade
+        // to "restore the canvas", the direction that DRAWS, and must not throw out of a reveal.
+        // A read that fails for any reason answers "restore", and the Alert below makes the
+        // stand-down visible.
         return ReadsDisableCanvas(w);
     }
 

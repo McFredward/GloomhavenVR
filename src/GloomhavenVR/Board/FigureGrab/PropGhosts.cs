@@ -42,6 +42,12 @@ internal static class PropGhosts
     /// than by anyone remembering to edit both.</summary>
     private static Color GhostTint => FigureGhosts.GhostTint;
 
+    /// <summary>Budget for the two REFUSAL lines below. Small: a refusal repeats on every grab of
+    /// every prop for the rest of the session (both causes are permanent within a run), so six
+    /// lines name the cause and the first few props without turning a hardware log into a
+    /// wall.</summary>
+    private static int _refusalLogsLeft = 6;
+
     private static readonly Dictionary<CObjectProp, GameObject> Ghosts = new();
     private static readonly List<CObjectProp> Scratch = new(4);
 
@@ -60,7 +66,16 @@ internal static class PropGhosts
 
         Material? mat = FigureOverlay.MakeOverlayMaterial(GhostTint, additive: false); // alpha-blended
         if (mat == null)
-            return; // bundle missing the Overlay shader — no ghost rather than a wall-piercing one
+        {
+            // no ghost rather than a wall-piercing one — but SAY SO (2026-09 refactor, F-22).
+            // Until this line existed the success path printed and both failure paths returned in
+            // silence, so "no ghost appeared at the hex" — a report we have had — read in the log
+            // exactly like "the prop was never grabbed". Note tier, because a log that cannot
+            // distinguish those two is the only evidence a hardware round gets.
+            NoteRefusal(prop, "the Overlay shader is missing from the bundle, so "
+                + "FigureOverlay.MakeOverlayMaterial returned null (BundleShaders could not find it)");
+            return;
+        }
 
         // No preserveOriginal subtree: a prop has no m_Hilight selection ring to keep vanilla.
         GameObject? ghost = FigureOverlay.BuildFrozenGhost(source, homePos, homeRot, homeScale,
@@ -68,6 +83,8 @@ internal static class PropGhosts
         if (ghost == null)
         {
             Object.Destroy(mat);
+            NoteRefusal(prop, "FigureOverlay.BuildFrozenGhost found nothing to clone on "
+                + $"'{source.name}' (no surviving MeshRenderer/SkinnedMeshRenderer): {ghostReport}");
             return;
         }
         Ghosts[prop] = ghost;
@@ -78,6 +95,20 @@ internal static class PropGhosts
         // complaint. It names the clones, their bounds, and any renderer destroyed as VFX.
         VRLog.Note("FigureGrab", $"[Props] ghost spawned at home for '{prop.InstanceName}' "
             + $"({prop.ObjectType}) — {Ghosts.Count} prop ghost(s) active. {ghostReport}");
+    }
+
+    /// <summary>The counterpart of the "ghost spawned" line: why one did NOT appear. Budgeted by
+    /// <see cref="_refusalLogsLeft"/>.</summary>
+    private static void NoteRefusal(CObjectProp prop, string why)
+    {
+        if (_refusalLogsLeft <= 0)
+            return;
+        _refusalLogsLeft--;
+        // HW-VERIFY: the failing half of the ghost report — it must stay at a tier the DEFAULT log
+        // level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab", $"[Props] NO ghost for '{prop.InstanceName}' ({prop.ObjectType}) — "
+            + $"{why}. The hold itself is unaffected; the hex simply stays empty while the prop is "
+            + $"in the hand. ({_refusalLogsLeft} more prop ghost refusal lines this session.)");
     }
 
     /// <summary>

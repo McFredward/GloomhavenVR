@@ -691,7 +691,8 @@ internal static class CharacterFocus
         // drops the override, so the very next call returns at the first line and this line cannot
         // repeat until a NEW override meets a NEW pin. Re-clicking the portrait does not get here
         // either — TryFocus refuses that switch outright (and rate-limits its own refusal line).
-        VRLog.Info("Board", $"[Focus] FOCUS PIN engaged — the board is waiting for " +
+        // HW-VERIFY (2026-09 refactor, F-35) — edge-gated; part of the focus evidence chain.
+        VRLog.Note("Board", $"[Focus] FOCUS PIN engaged — the board is waiting for " +
                             $"'{Describe(pinned)}' to pick a hex, so the view was RETURNED to " +
                             $"that character from '{Describe(_focused)}'. The highlighted hexes " +
                             "and the confirm/undo keycaps belong to the same character again " +
@@ -1048,7 +1049,10 @@ internal static class CharacterFocus
         _focused = player;
         // The game raises no event for a mod-side focus, so the card board must be told.
         Cards.CardsDriver.RequestRebuild();
-        VRLog.Info("Board", $"[Focus] now looking at '{Describe(player)}'" +
+        // HW-VERIFY (2026-09 refactor, F-35) — LocalFloorHand's evidence paragraph quotes this
+        // line as read off LogOutput.log; at Info it has not appeared in a default log since the
+        // 2026-08-30 tier re-decision. Change-gated.
+        VRLog.Note("Board", $"[Focus] now looking at '{Describe(player)}'" +
                             $"{(IsForeign(player) ? " (another player's character — read-only view)" : "")}" +
                             $"; phase {PhaseManager.PhaseType}, at turn '{Describe(TurnActor)}'. " +
                             "Nothing in the game was written: any prompt that was open is still " +
@@ -1073,8 +1077,9 @@ internal static class CharacterFocus
     /// guess: grep the log for <c>switch REFUSED</c> and the reason is right there. Exactly TWO
     /// reasons can ever appear in that position: the card-selection phase
     /// (<see cref="SecretWindowReason"/>, the global gate) and <c>FOCUS PIN</c>
-    /// (<c>PinRefusal</c>, the actor-dependent one, bounded by a live hex pick belonging to
-    /// one of this player's characters). Anything else there is a regression, not a design decision.
+    /// (<c>PinReason</c>, minted when <c>PinRefuses</c> says no — the actor-dependent one,
+    /// bounded by a live hex pick belonging to one of this player's characters). Anything else
+    /// there is a regression, not a design decision.
     /// </summary>
     private static void LogRefusal(CPlayerActor player, string why)
     {
@@ -1086,7 +1091,9 @@ internal static class CharacterFocus
         _lastRefusal = why;
         _lastRefusedActorId = id;
         _lastRefusalTime = now;
-        VRLog.Info("Board", $"[Focus] switch REFUSED — {why} (wanted '{Describe(player)}', " +
+        // HW-VERIFY (2026-09 refactor, F-35) — LogRefusal's doc: "Format is fixed by the
+        // 2026-08-08 ruling ... grep the log for `switch REFUSED`". Rate-limited to 5 s.
+        VRLog.Note("Board", $"[Focus] switch REFUSED — {why} (wanted '{Describe(player)}', " +
                             $"phase {PhaseManager.PhaseType})." +
                             (why == SecretWindowReason ? " " + SecretWindowDetail : ""));
     }
@@ -1712,7 +1719,8 @@ internal static class CharacterFocus
         if (_loggedFloorId == id)
             return;
         _loggedFloorId = id;
-        VRLog.Info("Board", actor != null
+        // HW-VERIFY (2026-09 refactor, F-35) — the SELECTION GUARD line; change-gated.
+        VRLog.Note("Board", actor != null
             ? $"SELECTION GUARD: the game presents no hand this client may drive (its own hand "
               + $"follows whoever is acting, teammates included) — holding '{Describe(actor)}' on the "
               + "board READ-ONLY instead of showing nobody. 'No character selected' is not a state "
@@ -2038,6 +2046,13 @@ internal static class CharacterFocus
         _loggedFocusId = 0;
         _floorActor = null;    // a dead scenario's character must never be the next one's floor
         _loggedFloorId = null;
+        // ...AND THE OWNERSHIP CENSUS SIGNATURE (2026-09 refactor, F-31). It was the only latch in
+        // this body that Reset did not clear, and the line it gates is the HW-VERIFY falsifier for
+        // the 2026-09-07 duplicate-claimant report. Two scenarios in one session with the same
+        // party and the same assignment produce the same first signature as the last of the
+        // previous scenario, so the census did not print for the second scenario at all — and a
+        // missing falsifier reads exactly like "the duplicate did not happen".
+        _lastOwnershipCensus = null;
         _lastRefusal = null;
         _lastRefusedActorId = 0;
         _lastRefusalTime = float.NegativeInfinity;

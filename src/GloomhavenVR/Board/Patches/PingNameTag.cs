@@ -50,7 +50,9 @@ internal static class PingNameTag_Patch
     {
         MethodBase? m = AccessTools.Method(typeof(PingManager), "Ping3DElement");
         if (m == null)
-            VRLog.Warn("Board", "[Ping] PingManager.Ping3DElement not found — ping name tags disabled " +
+            // HW-VERIFY (2026-09 refactor, F-37) — a feature self-disarm: name tags are off for
+            // the session. Once.
+            VRLog.Alert("Board", "[Ping] PingManager.Ping3DElement not found — ping name tags disabled " +
                 "(game's own ping visuals unaffected).");
         return m;
     }
@@ -65,7 +67,9 @@ internal static class PingNameTag_Patch
         }
         catch (Exception e)
         {
-            VRLog.Warn("Board", $"[Ping] name-tag postfix failed (suppressed): {e.Message}");
+            // A SWALLOWED THROW MUST NEVER BE SILENT (2026-09 refactor, F-37) — this catch keeps
+            // the game's own method alive and hides the failure completely at Warn.
+            VRLog.Error("Board", $"[Ping] name-tag postfix failed (suppressed): {e.Message}");
         }
     }
 }
@@ -449,7 +453,9 @@ internal sealed class PingNameTag : MonoBehaviour
         if (_warnedCloneUnavailable)
             return;
         _warnedCloneUnavailable = true;
-        VRLog.Warn("Board", $"[Ping] game tooltip clone unavailable ({reason}) — ping name tags " +
+        // HW-VERIFY (2026-09 refactor, F-37) — the doc beside this line says "the design
+        // regression should be visible in logs", and at Warn it was visible in none. Once.
+        VRLog.Note("Board", $"[Ping] game tooltip clone unavailable ({reason}) — ping name tags " +
             "use the mod-drawn label this session.");
     }
 

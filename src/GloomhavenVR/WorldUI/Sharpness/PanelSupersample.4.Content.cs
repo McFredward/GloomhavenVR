@@ -134,7 +134,9 @@ internal static partial class PanelSupersample
     /// simply not in the picture — permanently, until something re-measures. That is <i>"manche
     /// Elemente nicht sichtbar"</i>, and it is random because it depends on which side of the boundary
     /// the last sample fell. (It is NOT the only mechanism producing that sentence; the other, and the
-    /// larger one, is the TMP sub-mesh cull latch — see <c>RepairSubMeshCull</c>.)</para>
+    /// larger one, WAS the TMP sub-mesh cull latch; its repair was deleted in ModBuild 219 after
+    /// 0 repairs in its whole life, and what remains of that question is the three-way cull census
+    /// in <see cref="ScanTmpText"/> and <see cref="NoteRendererState"/>.)</para>
     ///
     /// <para><b>WHAT ModBuild 201 GOT RIGHT AND WHAT IT LEFT OPEN.</b> The 32 px quantum was added to
     /// stop the sub-pixel PHASE re-rolling on every measurement and it succeeded at that: the frame no
@@ -1459,9 +1461,6 @@ internal static partial class PanelSupersample
         e.SubMeshesCullFlag = 0;
         e.SubMeshesOwnAlpha = 0;
         e.SubMeshesInheritedAlpha = 0;
-        e.SubMeshCullLatched = 0;
-        e.SubMeshCullLatchedNote = string.Empty;
-        e.SubMeshCullLatchedNamed = 0;
         e.TextCulledFlag = 0;
         e.TextCulledOwnAlpha = 0;
         e.TextCulledInheritedAlpha = 0;
@@ -1591,8 +1590,6 @@ internal static partial class PanelSupersample
             e.OverPaintMs += (Time.realtimeSinceStartup - commitStarted) * 1000.0;
         }
 
-        // The pair cache is now this walk's, and it covers every text component the walk reached.
-        e.CullPairCollections++;
         // Park or wrap the regeneration cursor — see WantsRegeneration. Must run whether or not
         // anything was regenerated: a pass that found the whole subtree under the cap is exactly the
         // pass that completes a sweep.
@@ -1829,9 +1826,10 @@ internal static partial class PanelSupersample
     {
         if (cr == null)
             return;
-        // THREE DISJOINT BUCKETS (ModBuild 204) — the identical `||` this site used to carry. See
-        // ScanTmpSubMeshes for the argument; it applies word for word here, and the three counts sum
-        // to the old TextCulled so nothing that was measured before this build becomes unreadable.
+        // THREE DISJOINT BUCKETS (ModBuild 204) — the identical `||` this site used to carry. The
+        // sub-mesh scan the argument was written on went with ModBuild 219; it applies word for word
+        // here, and the three counts sum to the old TextCulled so nothing that was measured before
+        // that build becomes unreadable.
         string reason;
         if (cr.cull)
         {
@@ -1889,9 +1887,9 @@ internal static partial class PanelSupersample
     /// measured clean is regenerated only when <paramref name="repairAll"/> and its walk index is at or
     /// past the cursor. When the cap bites the pass records where to resume and marks itself TRUNCATED;
     /// when a pass reaches the end of the walk under the cap, the cursor wraps to 0 and one full sweep
-    /// is complete. Every one of those numbers is printed (<c>ReportSubMeshCull</c>'s
-    /// REGENERATION field), so a truncated pass can never again be reported in language implying
-    /// completeness.</para>
+    /// is complete. Every one of those numbers is printed (the REGENERATION field of the per-panel
+    /// report assembled in <c>PanelSupersample.3.Report.cs</c>), so a truncated pass can never again
+    /// be reported in language implying completeness.</para>
     /// </summary>
     private static bool WantsRegeneration(Entry e, bool repairAll, int bad, int index)
     {
@@ -2026,8 +2024,15 @@ internal static partial class PanelSupersample
     /// <para>Cost per frame: one <c>childCount</c> loop over a window's direct children (order ten)
     /// plus seven property reads on a singleton. That is why this runs every frame while the SWEEP it
     /// arms — at a measured 1.71 ms — does not.</para>
-    /// <para>It is a LOCAL DERIVATION and does not read <c>CanvasConversion</c>'s <c>fx</c> state:
-    /// that is another lane's file and exposes no accessor for it.</para>
+    /// <para>It is a LOCAL DERIVATION and does not read <c>CanvasConversion</c>'s <c>fx</c> state,
+    /// which exposes no accessor for it. (This said "that is another lane's file" until the 2026-09
+    /// refactor, F-54 — <c>WorldUI/Conversion/</c> and <c>WorldUI/Sharpness/</c> are the same lane,
+    /// and the same mistaken boundary explained three other copies next door.) The tail of this
+    /// method — the party-display fetch, the six <c>MixSubView</c> calls and <c>MixSubView</c>
+    /// itself — is a LIVE CLONE of <c>PanelInkBounds.ComputeActiveSetSignature</c>'s, byte for byte;
+    /// the two walks around it are DIFFERENT QUESTIONS and must not be merged (five terms differ,
+    /// each a named hardware round). The order of the six calls is load-bearing: it is a rolling
+    /// <c>sig * 31</c> hash.</para>
     /// </summary>
     private static int ActiveSetSignature(ConvertedPanel panel)
     {

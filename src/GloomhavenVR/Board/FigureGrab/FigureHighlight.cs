@@ -714,10 +714,12 @@ internal sealed partial class FigureHighlight
     /// it deforms in lock-step with the live figure and needs no per-frame tracking; its bounds are
     /// therefore identical to the original's and it is culled with it.
     ///
-    /// <para>This duplicates <see cref="FigureOverlay.CloneRenderersSharingBones"/>'s per-renderer
-    /// body rather than calling it, because that method takes a subtree ROOT and this class now has
-    /// to filter the subtree renderer by renderer (mod-owned objects, the selection ring, disabled
-    /// components). The ghost path in <see cref="FigureOverlay"/> is untouched.</para>
+    /// <para>THIS IS THE ONLY per-renderer clone in the mod. It began as a copy of
+    /// <c>FigureOverlay.CloneRenderersSharingBones</c>, which took a subtree ROOT while this class
+    /// has to filter the subtree renderer by renderer (mod-owned objects, the selection ring,
+    /// disabled components); that root-taking twin had no callers left and was deleted in the
+    /// 2026-09 refactor, so there is nothing here to keep in step any more. The ghost path in
+    /// <see cref="FigureOverlay"/> Instantiates a snapshot instead and is untouched.</para>
     /// </summary>
     private static bool CloneOne(Renderer r, Transform container, Material overlayMat)
     {

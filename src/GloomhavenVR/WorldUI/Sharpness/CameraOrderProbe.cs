@@ -171,7 +171,10 @@ internal static class CameraOrderProbe
             int id = e.Cam.GetInstanceID();
             if (!Reported.Add(id))
                 continue;
-            VRLog.Warn(Scope, $"CAMERA ORDER: '{e.Cam.name}' renders INTO A RENDERTEXTURE "
+            // HW-VERIFY (2026-09 refactor, F-68) — the observation this probe exists to make,
+            // and the justification printed BEFORE the correction is applied. One-shot per camera
+            // (Reported is an instance-id set).
+            VRLog.Alert(Scope, $"CAMERA ORDER: '{e.Cam.name}' renders INTO A RENDERTEXTURE "
                               + $"('{TargetName(e.Cam)}') BETWEEN the head camera's two MultiPass eye "
                               + $"passes (depth {e.Cam.depth:F1} against the head's {head.depth:F1}, "
                               + $"stereo target {e.Cam.stereoTargetEye}, mask 0x{e.Cam.cullingMask:X8}). "
@@ -213,7 +216,11 @@ internal static class CameraOrderProbe
                     between++;
             }
         }
-        VRLog.Info(Scope, $"CAMERA ORDER (shape {ShapesLogged.Count}/{MaxShapesLogged}): {shape} — "
+        // HW-VERIFY (2026-09 refactor, F-68) — THE BASELINE THE CLASS DOC PROMISES IN CAPITALS:
+        // "a scan that only speaks up on a hit cannot be told apart from one that never ran, and
+        // this project has already paid for that lesson once". At Info it printed in no shipped
+        // log, so the promise was not kept for any hardware session. Capped at MaxShapesLogged.
+        VRLog.Note(Scope, $"CAMERA ORDER (shape {ShapesLogged.Count}/{MaxShapesLogged}): {shape} — "
                           + $"{(first >= 0 && last > first ? $"{between} camera(s) render BETWEEN the head's two eye passes"
                               : "the head camera does not render twice in this frame (mono, or the frame was cut short)")}. "
                           + $"Head '{head.name}' depth {head.depth:F1}. Every distinct shape is logged once; "
@@ -240,7 +247,10 @@ internal static class CameraOrderProbe
                 continue; // already ahead of the head — nothing to correct
             Hoisted[cam] = was;
             cam.depth = now;
-            VRLog.Info(Scope, $"CAMERA ORDER: '{cam.name}' depth {was:F1} → {now:F1} (head "
+            // HW-VERIFY (2026-09 refactor, F-68) — THIS LINE REPORTS A WRITE TO A GAME CAMERA.
+            // The mod re-orders the game's render sequence here; a change to game state with no
+            // record in the player's log is a change nobody can audit. Once per camera.
+            VRLog.Note(Scope, $"CAMERA ORDER: '{cam.name}' depth {was:F1} → {now:F1} (head "
                               + $"{head.depth:F1}) — it now finishes its RenderTexture BEFORE either eye "
                               + "pass starts, so both eyes sample the same generation. Safe by "
                               + "construction: a camera with its own targetTexture composites nothing "
@@ -269,7 +279,9 @@ internal static class CameraOrderProbe
         Hoisted.Clear();
         Reported.Clear();
         ShapesLogged.Clear();
-        VRLog.Info(Scope, $"CAMERA ORDER: {n} camera depth(s) restored ({why}) — the game owns its "
+        // HW-VERIFY (2026-09 refactor, F-68) — the other half of the write above; the two must be
+        // readable in the same log or a restore cannot be confirmed against its hoist.
+        VRLog.Note(Scope, $"CAMERA ORDER: {n} camera depth(s) restored ({why}) — the game owns its "
                           + "render order again.");
     }
 

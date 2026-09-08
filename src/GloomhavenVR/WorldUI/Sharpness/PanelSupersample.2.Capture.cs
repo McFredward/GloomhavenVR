@@ -702,7 +702,8 @@ internal static partial class PanelSupersample
                               + "the retry also fails: this window keeps today's direct rendering.");
             msaa = 1;
         }
-        VRLog.Warn(Scope, $"PANEL SUPERSAMPLE stands down on '{window}': a {w}x{h} render target could "
+        // HW-VERIFY (2026-09 refactor, F-64) — on the Refused path, once per window.
+        VRLog.Note(Scope, $"PANEL SUPERSAMPLE stands down on '{window}': a {w}x{h} render target could "
                           + "not be created at any MSAA level. THE CONSEQUENCE: this window keeps "
                           + "today's direct rendering — the same shimmer as before this build. "
                           + "Nothing was changed on the window itself.");
@@ -760,7 +761,8 @@ internal static partial class PanelSupersample
         int got = rt.mipmapCount;
         rt.Release();
         Object.Destroy(rt);
-        VRLog.Warn(Scope, $"PANEL SUPERSAMPLE: '{window}' could not get a MIPPED display target "
+        // HW-VERIFY (2026-09 refactor, F-64) — once per window; names a degraded picture.
+        VRLog.Note(Scope, $"PANEL SUPERSAMPLE: '{window}' could not get a MIPPED display target "
                           + $"({w}x{h}, single-sample, no depth — the driver reported mipmapCount="
                           + $"{got}). THE CONSEQUENCE: the quad falls back to showing the "
                           + "multisampled capture target directly, i.e. exactly ModBuild 192's "
@@ -2194,7 +2196,7 @@ internal static partial class PanelSupersample
     /// persists are different reports, and this instrument cannot be read as the second one.</item>
     /// <item>WHAT THE SCAN FOUND AT THAT EXACT INSTANT, with its comparison count, its worst value
     /// and its threshold on the same line — including the MESH counters, which are new and which are
-    /// the only ones that can see the photograph's fault (see <c>ScanTmpMesh</c>).</item>
+    /// the only ones that can see the photograph's fault (see <see cref="ScanTmpText"/>).</item>
     /// <item>WHETHER THE DRAG WAS DROPPING FRAMES. The count, the worst frame time and the
     /// <see cref="DroppedFrameMs"/> threshold, so the moving complaint can be read as judder or not
     /// from the same line as the release.</item>

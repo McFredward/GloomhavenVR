@@ -310,8 +310,9 @@ internal static class PropReach
     /// <param name="visual">The prop's GameObject, from <c>PropVisualLookup</c>.</param>
     /// <param name="prop">The scenario-state prop, for its footprint.</param>
     /// <param name="own">The prop's own authored collider as <c>PropGrab.Scan</c> already resolved
-    /// it (<c>GetComponentInChildren&lt;Collider&gt;()</c>), passed in rather than re-queried so
-    /// the single-hex path is the identical expression it always was.</param>
+    /// it (through <c>OwnPickShape</c> since ModBuild 445, which asks
+    /// <c>VRInteractables.IsUsablePickShape</c> as well as finding one), passed in rather than
+    /// re-queried so the single-hex path is the identical expression it always was.</param>
     /// <param name="route">Which collider came back — log only.</param>
     /// <param name="hexes">How many hexes the prop covers, for the caller's log.</param>
     /// <param name="hexSource">Which term produced <paramref name="hexes"/>.</param>

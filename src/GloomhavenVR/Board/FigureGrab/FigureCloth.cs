@@ -1389,8 +1389,10 @@ internal static class FigureCloth
 
     /// <summary>
     /// Move <see cref="Tracked.Weight"/> one frame toward its target and, if anything moved, rebuild
-    /// and upload every managed cloth's coefficients. The ONLY place in this file that writes to a
-    /// <see cref="Cloth"/> — and it never writes <c>enabled</c> and never calls
+    /// and upload every managed cloth's coefficients. The only place the RAMP writes to a
+    /// <see cref="Cloth"/> — the two cook sequences (<c>StepCook</c>, <c>StepLiveCook</c>) write
+    /// their own seeded coefficients on their own frames, which is the whole of the cook. It never
+    /// writes <c>enabled</c> and never calls
     /// <c>SetEnabledFading</c>, which is the entire point of ModBuild 284 (see PERFORMANCE).
     /// Steady state is a float compare and a return.
     /// </summary>

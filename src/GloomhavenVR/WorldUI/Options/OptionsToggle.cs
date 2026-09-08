@@ -387,8 +387,21 @@ internal sealed class OptionsToggle
         string openedNames = sb.ToString();
         sb.Clear();
         int before = _censusBefore.Count;
-        for (int i = 0; i < before && i < 4; i++)
-            sb.Append(i == 0 ? "'" : ", '").Append(_censusBefore[i].name).Append('\'');
+        // THE SAME GUARD THE OTHER TWO LOOPS OVER THIS LIST ALREADY HAVE (2026-09 refactor, F-73).
+        // _censusBefore holds live UIWindow REFERENCES captured before CloseAll / OpenMenu ran the
+        // game's whole Hide()/Show() cascade on THIS call stack — which is the point of the census.
+        // A destroyed UnityEngine.Object is fake-null for ==, but member access on it THROWS, so a
+        // bare `.name` here would abort the instrument that adjudicates the 2026-09-03 options-key
+        // ruling on exactly the press that broke it, and take LogTapCost down with it.
+        int named = 0;
+        for (int i = 0; i < before && named < 4; i++)
+        {
+            UIWindow bw = _censusBefore[i];
+            if (bw == null)
+                continue;
+            sb.Append(named == 0 ? "'" : ", '").Append(bw.name).Append('\'');
+            named++;
+        }
         string beforeNames = sb.ToString();
 
         string verdict = hid == 0 && opened == 0
@@ -570,7 +583,11 @@ internal sealed class OptionsToggle
         List<ESCMenu> ranked = RankedCandidates(out string census);
         if (ranked.Count == 0)
         {
-            VRLog.Info("WorldUI",
+            // HW-VERIFY (2026-09 refactor, F-78) — THIS IS "the X button did nothing", a standing
+            // user ruling, and it is the one branch of the resolution chain with no printing
+            // counterpart: it returns null before LogOptionsKey's Note is ever reached. Gated on the
+            // short-tap edge, so it is bounded by the player's thumb at ~one per tap.
+            VRLog.Alert("WorldUI",
                 "OPTIONS TAP: no ESCMenu object exists (Singleton<ESCMenu>.IsInitialized=false, " +
                 "scene-scan incl-inactive found none) — the game DESTROYED the pause menu on close; " +
                 "a reload currently re-creates it.");
@@ -678,7 +695,12 @@ internal sealed class OptionsToggle
 
             opened = c;
             Adopt(c, "second chance after the first-choice menu refused to open");
-            VRLog.Warn("WorldUI",
+            // 2026-09 refactor, F-78 — a rescue that FIRED is an anomaly with a crash history
+            // (ModBuild 289/290), and LogOptionsKey's Note reports only the eventual success, so at
+            // the shipped level the rescue was invisible. Inside the failed-open branch, not
+            // per-frame. The other four lines of this chain are deliberately left at their tier —
+            // see F-78 in the review for which and why.
+            VRLog.Alert("WorldUI",
                 $"[OptionsToggle] SECOND CHANCE TOOK: {failed.GetType().Name} refused to open, so " +
                 $"{c.GetType().Name} was opened instead and is now the menu this mod drives. " +
                 $"Candidates: {census}. The options menu is never allowed to be unopenable, so a " +

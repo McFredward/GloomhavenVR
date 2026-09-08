@@ -42,7 +42,8 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   hysteresis, so a prop lights up at exactly the reach a mini does;</item>
 ///   <item>the HELD POSE — the FIGURE's whole pose PIPELINE, driven by the MAP ITEM's OWN dials:
 ///   <c>CaptureUprightBase</c> at the grab, then
-///   <c>_uprightBase * (HeldUpright ? HeldUprightRotation(side) : HeldPalmRotation())</c> as a
+///   <c>_uprightBase * PropHeldPose.HeldRotationFor(side, PropHeldPose.HeldUpright)</c> (which is
+///   <c>HeldPoseMirror.Rotation</c>, the one copy the figure uses too) as a
 ///   FIXED CONSTANT anchor-local rotation, the grab-time anchor-local SIZE LATCH, and a per-frame
 ///   idempotent re-assert. The MACHINERY is the figure's, line for line; the NUMBERS come from
 ///   <see cref="PropHeldPose"/> since ModBuild 350 ("ich will genau das selbe nun auch für
@@ -109,10 +110,16 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// layer is also a camera culling mask and moving a mesh off its layer can make it vanish for a
 /// camera that filters on it.</para>
 ///
-/// <para><b>MULTIPLAYER.</b> Local-only in this build and additive by construction: no packet is
-/// sent and none is expected, so an unmodded or older peer sees a chest that never moves. The
-/// seam is named in <see cref="HeldProps"/>; the identity a held-prop record needs is
-/// <c>CObjectProp.PropGuid</c>.</para>
+/// <para><b>MULTIPLAYER — ON THE WIRE SINCE RECORD 37.</b> A held map item's pose AND its
+/// measured size stream to peers (<c>Net/NetProps</c>: <c>SampleHeldStretch</c> sends
+/// lossyScale ÷ home, the receiver multiplies it into its own copy's home scale), and a
+/// peer-held prop is grab-locked here through <c>NetHeldProps.Owns</c> — see
+/// <see cref="CanGrab"/> and <see cref="AllowsHand"/>. The identity the record keys on is
+/// <c>CObjectProp.PropGuid</c>, hashed, so it survives a scenario-state re-key. An unmodded or
+/// older peer still sees a chest that never moves, which is the additive half and is unchanged.
+/// <c>PropLift</c> re-derived the same paragraph when the mirror landed; the copies in this file,
+/// in <c>PropGrab</c>, <c>StretchTarget</c>, <c>HeldPoseMirror</c> and <c>PropHeldPose</c> were
+/// missed then and are corrected in the 2026-09 refactor.</para>
 /// </summary>
 internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable,
                                       IWalkInHighlightTarget, IGrabRefusalNarrator, IGrabReachVolume,
@@ -656,6 +663,14 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         BeginWatch();                      // arm the PER-FRAME hold watch (see BeginWatch)
         PropAnimBelt.Engage(_visual, Label);       // …and the hush that holds it still
 
+        // BEFORE the grab-line budget, not after (2026-09 refactor, F-21). HeldPoseReport owns a
+        // budget of its own and its doc says why — "not shared with the figure path's" — but the
+        // call used to sit past this early return, so the prop half of it was capped by THIS
+        // counter (4) at half its own (8) and went silent on the fifth prop grab of a session with
+        // seven of its own lines unspent. Two questions of the 2026-09-05 handedness round read
+        // that line; both were answered off logs that could not have carried it.
+        HeldPoseReport.EmitForProp(hand.Side, Label, anchor);
+
         if (_grabLogsLeft <= 0)
             return;
         _grabLogsLeft--;
@@ -679,8 +694,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             + $"stands on its hex by) points out of the palm. heldLocalScale={_heldLocalScale.x:0.######} "
             + $"latched against anchorScale={anchor.lossyScale.x:0.###}. "
             + $"({_grabLogsLeft} more prop grab lines this session.)");
-
-        HeldPoseReport.EmitForProp(hand.Side, Label, anchor);
     }
 
     // THE HANDEDNESS LINE moved to HeldPoseReport on 2026-09-05 (round 2). It was a prop-only
@@ -1917,7 +1930,8 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// on a procedural-content component: it decides when THIS client re-synthesizes a mesh. It is
     /// not on the wire, not in <c>ScenarioState</c>, and no rule reads it. Peers run their own
     /// engines against their own viewpoints — the same ground <c>Core/Environment
-    /// /ApparanceDetailFocus</c> already stands on. The prop hold stays LOCAL-ONLY in this build.</para>
+    /// /ApparanceDetailFocus</c> already stands on. What DOES go on the wire for a hold is the
+    /// prop's pose and size (record 37), never this switch.</para>
     ///
     /// <para><b>COST.</b> One <c>GetComponentsInChildren</c> at the grab and one array walk at the
     /// thaw, on at most two props. Nothing per frame, and no scene query ever.</para>
@@ -2145,15 +2159,15 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// govern figures AND map items. Splitting them later is purely additive and the exact patch is
     /// written out in <c>.planning/LANE-PROPS-357-NEEDED-OUTSIDE.md</c>.</para>
     ///
-    /// <para><b>MULTIPLAYER — NO WIRE RECORD IS NEEDED, and this is a conclusion rather than a
-    /// deferral.</b> A figure's stretch needs record 30 because a peer RENDERS the held figure and
-    /// cannot derive the manual factor from anything it has. A prop hold is local-only by
-    /// construction: <see cref="HeldProps"/> sends nothing, <see cref="CanGrab"/> consults no
-    /// remote lock, <see cref="PropHeldPose"/> states the same, and a peer therefore never draws a
-    /// held prop AT ALL — there is no mirrored visual for a factor to be wrong on. Sending one
-    /// would be a number nothing reads. When prop holds DO go on the wire, the stretch is part of
-    /// that record from the start (the standing ruling: it syncs fully or not at all, and the
-    /// OWNER's value drives every viewer).</para>
+    /// <para><b>MULTIPLAYER — THE SIZE IS ON THE WIRE, and the paragraph that used to stand here
+    /// said the opposite.</b> It argued that no record was needed because a peer never draws a
+    /// held prop at all. Record 37 made that false: <c>Net/NetProps.SampleHeldStretch</c> sends
+    /// the MEASURED size (lossyScale ÷ the prop's board-home scale — the same rule
+    /// <c>FigureGrabbable.HeldSizeFactorOf</c> follows for a figure, so the grab-time clamp is
+    /// already inside the number), the receiver applies it to its own copy's home scale, and
+    /// <c>NetHeldProps.Owns</c> grab-locks the prop on every other client. The standing ruling is
+    /// therefore MET rather than deferred: the OWNER's value drives every viewer, and a viewer's
+    /// own <c>[FigureGrab] StretchScaleMin/Max</c> never re-clamps what arrived.</para>
     ///
     /// <para><b>THE APPARANCE FREEZE IS UNAFFECTED</b> (see <see cref="FreezeApparance"/> and
     /// <see cref="ThawDelayFrames"/>). Writing the scale every frame adds nothing new while
@@ -2231,8 +2245,9 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             $"[Size] {Label} grab-time size CLAMP: the zoom at grab implies {ratio:0.###}× of the "
             + $"map item's default-zoom size, outside the total bound [{min:0.##} .. {max:0.##}] — "
             + $"latch trimmed so it enters the hand at exactly {clamped:0.###}× ([FigureGrab] "
-            + "StretchScaleMin/Max; StretchLimits=false disables this). Map-item holds are "
-            + "local-only, so no peer sees this size and the trim cannot be a desync.");
+            + "StretchScaleMin/Max; StretchLimits=false disables this). The trimmed size is what "
+            + "goes on the wire (record 37 sends the MEASURED size), so every peer sees exactly "
+            + "this number and the trim cannot become a desync.");
     }
 
     /// <summary>This hold's TOTAL size in default-zoom units — the very product

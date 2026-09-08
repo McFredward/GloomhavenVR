@@ -30,7 +30,7 @@ namespace GloomhavenVR.WorldUI;
 /// (<c>UIManager.ToggleLockUI</c>, verified: <c>public void ToggleLockUI(bool active)
 /// { graphicRaycaster.enabled = !active; for (...) graphicRaycasters[i].enabled =
 /// !active; }</c>). Our host raycasters are NOT in those lists, so the lock is
-/// mirrored here: <c>Core.VREvents.UiLockChanged</c> plus module-side soft locks
+/// mirrored here: <see cref="Core.Events.VREvents.UiLockChanged"/> plus module-side soft locks
 /// (phase banner) disable every host raycaster.
 ///
 /// REVERSIBILITY: <see cref="Release"/>/<see cref="ReleaseAll"/> restore parent,
@@ -575,7 +575,13 @@ internal static partial class CanvasConversion
         }
         catch (System.Exception e)
         {
-            VRLog.Warn("WorldUI", $"HOST SCENE PIN FAILED for '{name}': {e.GetType().Name}: "
+            // HW-VERIFY (2026-09 refactor, F-48) — the comment above the try says "Failure is
+            // never fatal: the worst case is the pre-fix behaviour, and it is logged", and at Warn
+            // it was logged only for a player already running LogLevel = Debug. Its two siblings
+            // (HOST SCENE PINNED, HOST SCENE PIN SKIPPED) are Note + HW-VERIFY; this is the branch
+            // where the pin genuinely did not happen, guarding the "Quest verwerfen" hard deadlock
+            // this file documents as the worst class of bug the subsystem has shipped.
+            VRLog.Alert("WorldUI", $"HOST SCENE PIN FAILED for '{name}': {e.GetType().Name}: "
                 + $"{e.Message}. The host stays in the active scene; a persistent target floated "
                 + "under it is at risk from the next scene load.");
         }

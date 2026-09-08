@@ -197,9 +197,10 @@ internal static class HeldPoseMirror
     /// near-vertical leaves that forward undefined, so the hand's UP is used instead — some
     /// horizontal direction is always available and any of them is better than a NaN.</para>
     ///
-    /// <para>MULTIPLAYER: nothing extra is needed. A held figure's WORLD rotation is what goes on
-    /// the wire (<c>Net.NetFigures</c>), so a peer sees whatever this produces, exactly; held map
-    /// items are local-only in this build and put nothing on the wire at all.</para>
+    /// <para>MULTIPLAYER: nothing extra is needed, for BOTH subjects. What goes on the wire is the
+    /// held object's WORLD pose — a figure's through <c>Net.NetFigures</c> (record 30), a map
+    /// item's through <c>Net.NetProps</c> (record 37) — so a peer sees whatever this produces,
+    /// exactly, and the mirror is never re-derived on the receiving side.</para>
     /// </summary>
     internal static Quaternion UprightBase(
         bool uprightAtGrab, Vector3 anchorForward, Vector3 anchorUp, Quaternion anchorRotation)

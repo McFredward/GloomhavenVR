@@ -57,8 +57,12 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// the same messages and repairs only its own UI state; nothing is sent, nothing is consumed from
 /// the wire, and a peer that never stalled never fires. Guarded identically offline.</para>
 ///
-/// <para>It logs at WARN with the full picture whenever it fires, so a hardware log tells us the
-/// prevention leaked instead of quietly papering over it.</para>
+/// <para>It logs at ALERT with the full picture whenever it fires, so a hardware log tells us the
+/// prevention leaked instead of quietly papering over it. ALERT, not Warn: under the ModBuild 331
+/// tier rules <c>VRLog.Warn</c> gates on <c>Level &gt;= Debug</c> and is therefore invisible in a
+/// default (Info) hardware log — which is every log we have. Both emitters carried that tier from
+/// ModBuild 107 until the 2026-09 refactor, so "the watchdog never fired" was never a reading any
+/// shipped log could support.</para>
 /// </summary>
 internal static class FigureStallWatchdog
 {
@@ -142,13 +146,21 @@ internal static class FigureStallWatchdog
             }
             catch (System.Exception ex)
             {
-                VRLog.Warn("FigureGrab",
+                // HW-VERIFY — the repair itself failing. Alert, not Warn: Warn gates on
+                // Level >= Debug, so at the shipped Info level this branch was silent and a
+                // watchdog that ran and did NOT fix the stall was indistinguishable in the log
+                // from a watchdog that never fired (2026-09 refactor, F-19).
+                VRLog.Alert("FigureGrab",
                     $"TURN STALL WATCHDOG: FinalizeAttackFlow threw on '{Scratch[i].name}' "
                     + $"({ex.GetType().Name}: {ex.Message}) — continuing with the other bars.");
             }
         }
 
-        VRLog.Warn("FigureGrab",
+        // HW-VERIFY — the line the whole class exists to print, and its own last sentence calls
+        // it a DEFECT REPORT. At Warn it printed only with LogLevel=Debug, so every hardware round
+        // at the shipped level read "the watchdog never fired" when it may have fired repeatedly
+        // (2026-09 refactor, F-19).
+        VRLog.Alert("FigureGrab",
             $"TURN STALL WATCHDOG FIRED (repair #{_repairs}): the choreographer has been in {_state} "
             + $"for {StallSeconds:0}s with a figure held during it, and {Scratch.Count} actor bar(s) "
             + "still reported FlowControlActive() — the signature of an AttackModBar coroutine that "

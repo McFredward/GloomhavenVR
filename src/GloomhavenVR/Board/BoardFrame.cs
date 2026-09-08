@@ -404,9 +404,16 @@ internal sealed class BoardFrame
         _mesh = mesh;
     }
 
-    /// <summary>The stroke's own renderer, for the caller that must seat it on a draw-order ladder
-    /// (the LOCAL board registers it as furniture — see THE PERSPECTIVE DEFECT in the class doc).
-    /// Null-safe for a torn-down frame.</summary>
+    /// <summary>The stroke's own renderer, for a caller that ranks a SINGLE renderer.
+    /// Null-safe for a torn-down frame.
+    ///
+    /// <para>Nothing reads it today, and the sentence that used to stand here was wrong about why:
+    /// it said the local board "registers it as furniture" through this member. Both consumers
+    /// register the SUBTREE instead — <c>FocusDriver</c> hands <see cref="RootObject"/> to
+    /// <c>PlayTray.AdoptFurniture</c> and the peer board hands it to
+    /// <c>Net.BoardVisual.AdoptBoardOrder</c> — which is what fixes THE PERSPECTIVE DEFECT in the
+    /// class doc. Kept as the one-line statement that a single-renderer seam exists, in the same
+    /// spirit as <c>HandRig.PalmNormal</c>.</para></summary>
     internal MeshRenderer? Renderer => _renderer != null ? _renderer : null;
 
     /// <summary>The stroke's GameObject, for the same caller. Null once destroyed.</summary>

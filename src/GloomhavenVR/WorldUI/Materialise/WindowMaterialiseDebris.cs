@@ -158,7 +158,10 @@ internal static partial class WindowMaterialise
 
     private static readonly Stack<Mesh> MeshPool = new(8);
 
-    /// <summary>Front half, then behind half. See <c>Half</c>.</summary>
+    /// <summary>Two halves, in this index order: <see cref="HalfFront"/> (0) then
+    /// <see cref="HalfBehind"/> (1) — the order <c>BuildHalf</c> is called in, and the order the
+    /// two ladder offsets +1 / -1 correspond to. (This said "See Half" until the 2026-09 refactor,
+    /// F-59; the enum it named became the two constants immediately below.)</summary>
     private const int Halves = 2;
     private const int HalfFront = 0;
     private const int HalfBehind = 1;

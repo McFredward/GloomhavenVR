@@ -279,7 +279,10 @@ internal sealed class PokeInteractor
             null => "?",
             _ => target.GetType().Name,
         };
-        Core.VRLog.Info("Interact",
+        // HW-VERIFY (2026-09 refactor, F-03) — the doc above says this must be answerable "from
+        // the log alone — the same reason and the same throttle the two keycap sites carry". Those
+        // two print at the shipped level; this one did not, because Info gates on Level >= Debug.
+        Core.VRLog.Note("Interact",
             $"Poke WITHHELD ({_hand.Side}) on {what} '{label}' — a " +
             "PHYSICAL fingertip press commits only while the SAME hand holds the GRIP and carries " +
             $"nothing (grip {(_hand.GripPressed ? "held" : "open")}, hand " +
@@ -615,7 +618,10 @@ internal sealed class PokeInteractor
                 _pointer.Cancel();
                 // Not throttled: this is an edge, at most one per press, and it is the line that
                 // answers "the button flashed pressed and then did nothing".
-                Core.VRLog.Info("Interact",
+                // HW-VERIFY (2026-09 refactor, F-03) — the comment above calls this "the line
+                // that answers 'the button flashed pressed and then did nothing'", and at Info it
+                // answered nobody. One per press.
+                Core.VRLog.Note("Interact",
                     $"Poke press CANCELLED ({_hand.Side}) on '{_activeCanvas.name}' — the grip was " +
                     "released (or the hand grabbed something) while the press was pending, so the " +
                     "pointer was released WITHOUT a click, the pressed visual is cleared and no " +

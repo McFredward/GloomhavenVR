@@ -162,7 +162,10 @@ internal static class InputFieldFocusWatch
         if (_degraded)
             return;
         _degraded = true;
-        VRLog.Warn(Name,
+        // HW-VERIFY (2026-09 refactor, F-74) — the fallback is the sweep this file records the
+        // hardware log measuring at 90-99 ms/s, worst 23 ms in one frame, the mod's most expensive
+        // step by a wide margin. Latched by _degraded: one line per session.
+        VRLog.Alert(Name,
             $"disabled — {reason}. The VR keyboard falls back to its FindObjectsOfType sweep, so a " +
             "game-focused text field is still found; it costs frame time again inside a scenario.");
     }

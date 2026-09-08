@@ -128,6 +128,10 @@ internal static class EnemyInfoPhaseSkip
         _logged = false;
         _armedAt = 0f;
         _lastBlock = "";
+        // ...AND THE THROW LATCH (2026-09 refactor, F-39). Without this the SECOND scenario in a
+        // session that throws here never reports it, and a self-disarm that says nothing reads
+        // exactly like a feature that was never reached.
+        _reportedThrow = false;
     }
 
     // ------------------------------------------------------------------------------- the count --
@@ -255,7 +259,7 @@ internal static class EnemyInfoPhaseSkip
         }
 
         _armed = false;
-        LogOnce("ENEMY-INFO PHASE SKIPPED: 0 visible enemy row(s) — the reveal screen is BLANK, so " +
+        LogOnce(shipped: true, line: "ENEMY-INFO PHASE SKIPPED: 0 visible enemy row(s) — the reveal screen is BLANK, so " +
                 "the host's 'Fortfahren' was pressed for them. WHY THE GAME DID NOT SKIP IT " +
                 "ITSELF: its own guard is Choreographer.ClientMonsterObjects.Count == 0 " +
                 "(Choreographer.cs:3705), and that list CONCATENATES m_ClientObjects — chests, " +
@@ -360,12 +364,22 @@ internal static class EnemyInfoPhaseSkip
         }
     }
 
-    private static void LogOnce(string line)
+    /// <param name="shipped">TRUE for the one verdict that ACTS (2026-09 refactor, F-32). The
+    /// SKIPPED branch calls button.OnClickInternal(), which runs
+    /// Synchronizer.SendGameAction(GameActionType.ConfirmAction, ...) for the whole table — a
+    /// mod-initiated phase advance. A change that reaches every player and cannot be shown in a
+    /// default-level log is unattributable when the user asks why the enemy-info screen vanished.
+    /// The three NO-ACTION verdicts stay at the debug tier: they describe a decision not taken.</param>
+    private static void LogOnce(string line, bool shipped = false)
     {
         if (_logged)
             return;
         _logged = true;
-        VRLog.Info("Board", "[EnemyInfo] " + line);
+        if (shipped)
+            // HW-VERIFY: the mod pressed the host's "Fortfahren" for the whole table.
+            VRLog.Note("Board", "[EnemyInfo] " + line);
+        else
+            VRLog.Info("Board", "[EnemyInfo] " + line);
     }
 
     /// <summary>Arm, isolated. A Harmony postfix that throws takes the game's own method down with
@@ -403,7 +417,9 @@ internal static class EnemyInfoPhaseSkip
         if (_reportedThrow)
             return;
         _reportedThrow = true;
-        VRLog.Warn("Board", "[EnemyInfo] the empty-phase skip threw and was DISARMED for this " +
+        // A SELF-DISARM IS VRLog's OWN DEFINITION OF Error (2026-09 refactor, F-32): the feature
+        // is off for the rest of the session. At Warn it was reported in no shipped log. Once.
+        VRLog.Error("Board", "[EnemyInfo] the empty-phase skip threw and was DISARMED for this " +
                             "reveal — the host's 'Fortfahren' still works exactly as vanilla, " +
                             $"nothing was consumed. {e}");
     }

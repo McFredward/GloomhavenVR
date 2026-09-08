@@ -1840,8 +1840,13 @@ internal static partial class CanvasConversion
     /// it on its own either way — the character selector's 1477 px is a <c>Character3D/RawImage</c>,
     /// which is content, so plate exclusion could never have fixed that one.</para>
     /// </summary>
-    private const float FixedFitPlateWidthFraction = 0.80f;
-    private const float FixedFitPlateHeightFraction = 0.95f;
+    // INTERNAL, not private, since the 2026-09 refactor (F-52): PanelInkBounds runs the SAME
+    // full-frame plate test and had restated both numbers by value, because "those are private to
+    // another lane's file". Both files are WorldUI/Conversion/ — one folder, one namespace, one
+    // assembly, one lane. The values are untouched; only the accessibility moved, so the compiled
+    // form is byte-identical (a const reference folds to the same literal).
+    internal const float FixedFitPlateWidthFraction = 0.80f;
+    internal const float FixedFitPlateHeightFraction = 0.95f;
 
     /// <summary>
     /// Consecutive fit checks a NEW layout candidate (content scale + alignment shift) must repeat
@@ -2931,7 +2936,10 @@ internal static partial class CanvasConversion
                 if (!fx.ConcededLogged)
                 {
                     fx.ConcededLogged = true;
-                    VRLog.Warn("WorldUI",
+                    // HW-VERIFY (2026-09 refactor, F-51) — latched per window; the outcome it names
+                    // ("drawn at the size the game gives it and may reach outside the frame") is the
+                    // symptom of the 2026-08-22 report the fixed fit was built for.
+                    VRLog.Alert("WorldUI",
                         $"FIXED FIT CONCEDED '{(panel.HostGo != null ? panel.HostGo.name : "?")}': the " +
                         $"sub-view pose this fit writes has been overwritten by the game {fx.ReAsserts} " +
                         "time(s) while the solution itself did not change, so something else owns " +
@@ -5288,7 +5296,10 @@ internal static partial class CanvasConversion
             if (ForceCommitDue(panel) && !panel.FitNeverMeasurableLogged)
             {
                 panel.FitNeverMeasurableLogged = true;
-                VRLog.Warn("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' pre-reveal first fit found "
+                // HW-VERIFY (2026-09 refactor, F-51) — latched per panel, and its own last sentence
+                // names a SHARED window's home, which is a 1:1 standing-ruling surface: "this line
+                // is the reason its home looks wrong".
+                VRLog.Alert("WorldUI", $"MODAL WINDOW: '{panel.HostGo.name}' pre-reveal first fit found "
                                       + $"NOTHING MEASURABLE by its reveal deadline — {report}. The "
                                       + "window reveals at the RAW captured rect, fit=pending, and "
                                       + "every consumer that waits on the first fit is skipped from "
@@ -5940,10 +5951,15 @@ internal static partial class CanvasConversion
     private const float HitRectContentPadPx = 64f;
 
     /// <summary>How far inside the frame the padded content must sit before shrinking is even
-    /// considered. BY VALUE from <c>GrabbableModal.InkReleaseDeadBandPx</c> (32) — one 32 px
+    /// considered. <see cref="GrabbableModal.InkReleaseDeadBandPx"/> ITSELF (32) — one 32 px
     /// quantum, the same dead band the capture frame's shrink hysteresis uses, so all three
-    /// instruments agree about what "smaller" means.</summary>
-    private const float HitRectShrinkDeadBandPx = 32f;
+    /// instruments agree about what "smaller" means.
+    ///
+    /// <para>It was a copy BY VALUE until the 2026-09 refactor (F-82), which made the sentence
+    /// above an aspiration rather than a fact: nothing stopped a round tuning the settled 32 in
+    /// <c>GrabbableModal</c> and leaving this one behind. A <c>const</c> reference folds to the
+    /// identical literal, so the compiled form did not move.</para></summary>
+    private const float HitRectShrinkDeadBandPx = GrabbableModal.InkReleaseDeadBandPx;
 
     /// <summary>Agreeing measurements a narrowing must survive before it commits. Three at
     /// <see cref="FitCheckIntervalFrames"/> is ~1 s.</summary>
@@ -5978,6 +5994,14 @@ internal static partial class CanvasConversion
     private static readonly Vector3[] ChromeCornerScratch = new Vector3[4];
 
     /// <summary>Once-per-session guard for the never-throw warning below.</summary>
+    /// <summary>ONE LATCH PER VERDICT CLASS (2026-09 refactor, F-47). These two were a single
+    /// <c>s_hitRectFaultLogged</c> shared by two unrelated catch blocks with two different
+    /// consequences — an arc-booking fallback and an UNCLICKABLE WINDOW — each of whose text says
+    /// "logged once per session". Whichever threw first therefore silenced the other permanently,
+    /// and the one that could be silenced is the player-reportable half. [[a-cap-that-goes-silent]]
+    /// prescribes exactly this split.</summary>
+    private static bool s_drawnContentFaultLogged;
+
     private static bool s_hitRectFaultLogged;
 
     /// <summary>
@@ -6077,9 +6101,9 @@ internal static partial class CanvasConversion
         }
         catch (System.Exception e)
         {
-            if (!s_hitRectFaultLogged)
+            if (!s_drawnContentFaultLogged)
             {
-                s_hitRectFaultLogged = true;
+                s_drawnContentFaultLogged = true;
                 VRLog.Warn("WorldUI", "DRAWN CONTENT: the visible-extent measurement threw "
                                       + $"{e.GetType().Name} ('{e.Message}') and was swallowed so "
                                       + "the placement path keeps running. WHAT THIS MEANS: the map "
@@ -6462,7 +6486,10 @@ internal static partial class CanvasConversion
             if (!s_hitRectFaultLogged)
             {
                 s_hitRectFaultLogged = true;
-                VRLog.Warn("WorldUI", "HIT RECT: the interactive-area measurement threw " +
+                // HW-VERIFY (2026-09 refactor, F-47/F-51) — this one names an UNCLICKABLE WINDOW,
+                // which is player-actionable, and it is latched to one line per session. Alert, not
+                // Warn: Warn gates on Level >= Debug and printed in no shipped log.
+                VRLog.Alert("WorldUI", "HIT RECT: the interactive-area measurement threw " +
                                       $"{e.GetType().Name} ('{e.Message}') and was swallowed so the " +
                                       "WorldUI LateUpdate chain keeps running. WHAT THIS MEANS FOR " +
                                       "INPUT: nothing regressed — every canvas without a committed " +

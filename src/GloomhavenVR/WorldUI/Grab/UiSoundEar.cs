@@ -322,7 +322,13 @@ internal static class UiSoundEar
             _listenerField = null;
 
         if (_listenerField == null)
-            VRLog.Warn(Scope, "UI SOUND EAR cannot be repaired: AudioController has no instance field " +
+            // HW-VERIFY (2026-09 refactor, F-74) — the consequence in this line's own words is
+            // "Every button hover/click sound will stay INAUDIBLE", and this file quotes the
+            // matching standing user report verbatim (ModBuild 195): "Immer noch keine Geräusche
+            // wenn ich die physischen buttons drücke wie zB 'Händler'". If this fires, the answer
+            // to the next round's "still no sounds" is already in the code — and at Warn it was
+            // invisible, so the round would repeat ModBuild 195 from scratch. Resolve-once.
+            VRLog.Alert(Scope, "UI SOUND EAR cannot be repaired: AudioController has no instance field " +
                               "'_currentAudioListener' of type AudioListener (expected at AudioController.cs:70). The " +
                               "game version changed. Every button hover/click sound will stay INAUDIBLE while the mod " +
                               "owns the AudioListener, because the game keeps placing them at the disabled one.");
@@ -673,7 +679,9 @@ internal static class UiSoundEar
         if (_failureLogged)
             return;
         _failureLogged = true;
-        VRLog.Warn(Scope, "UI SOUND EAR " + what + " — button hover/click sounds may stay inaudible. This is logged " +
+        // 2026-09 refactor, F-74 — the string itself says "logged once per session", which is the
+        // strongest possible statement that no flood argument applies.
+        VRLog.Alert(Scope, "UI SOUND EAR " + what + " — button hover/click sounds may stay inaudible. This is logged " +
                           "once per session; the pointer path itself is unaffected because every call here is guarded.");
     }
 }

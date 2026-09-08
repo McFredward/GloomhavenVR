@@ -142,7 +142,9 @@ internal static class EscMenuInputBlock
         if (_degraded)
             return;
         _degraded = true;
-        VRLog.Warn("EscMenuInputBlock",
+        // 2026-09 refactor, F-74 — a one-shot self-disarm under the "it must ALWAYS be possible to
+        // open the options menu" ruling; at Warn it appeared in no shipped log.
+        VRLog.Alert("EscMenuInputBlock",
             $"disabled — {reason}. Game's controller ESC-menu paths left vanilla (X may double-act).");
     }
 }

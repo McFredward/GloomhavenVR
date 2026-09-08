@@ -267,7 +267,10 @@ internal static class MainMenuLogoSwap
             if (!rec.RepairLogged)
             {
                 rec.RepairLogged = true;
-                VRLog.Warn(Scope,
+                // 2026-09 refactor, F-79 — this string calls itself "the proof" of hypothesis (B),
+                // and it is the only line that NAMES the graphic and the path that reverted; the
+                // closing Note carries a bare count. One-shot per swapped graphic (rec.RepairLogged).
+                VRLog.Alert(Scope,
                     $"RE-ASSERT FIRED on '{rec.Origin}' ({rec.Path}): {why}. Something outside this " +
                     "patch is rewriting the logo after our Awake postfix ran — that is hypothesis (B), " +
                     "and this line is the proof. The authored rect is restored and the identical " +
@@ -1899,7 +1902,12 @@ internal static class MainMenuLogoPlacement
     {
         if (manager == null || !manager.isActiveAndEnabled)
         {
-            VRLog.Warn(Scope,
+            // 2026-09 refactor, F-79 — the ARMED line promises "A CLOSING LINE IS PRINTED EITHER
+            // WAY ... because a guard that only speaks when it fires is indistinguishable from a
+            // guard that never ran." On THIS exit there is no coroutine and therefore no closing
+            // line, so at Warn a default log carried no watch line at all — the exact reading that
+            // sentence says it prevents. ArmWatch is called once, from the Awake postfix chain.
+            VRLog.Alert(Scope,
                 "RE-ASSERT WATCH NOT ARMED AND THE READBACK DID NOT RUN — there is no live "
                 + "MainMenuUIManager to host the coroutine. The census below is taken immediately "
                 + "instead, at Awake, before anything has been drawn; treat its 'active' and "
@@ -1922,7 +1930,9 @@ internal static class MainMenuLogoPlacement
         }
         catch (Exception ex)
         {
-            VRLog.Warn(Scope, $"RE-ASSERT WATCH FAILED TO START ({ex.GetType().Name}: {ex.Message}).");
+            // 2026-09 refactor, F-79 — the second exit with no closing line. Same argument, same
+            // one-shot bound.
+            VRLog.Alert(Scope, $"RE-ASSERT WATCH FAILED TO START ({ex.GetType().Name}: {ex.Message}).");
         }
     }
 

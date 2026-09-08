@@ -229,6 +229,12 @@ internal static partial class CanvasConversion
     /// a CHECK is forced (so a sweep runs once per check and not once per frame), this one names
     /// the whole transition. Two questions, two names; conflating them is [[two-fans-one-name]].
     /// </para>
+    ///
+    /// <para>NO CONSUMER YET (ModBuild 480). Kept deliberately in the 2026-09 refactor (F-56): it is
+    /// two lines, its whole value is the distinction it names beside <see cref="SubViewBurstRunning"/>,
+    /// and deleting it invites the next author to re-derive the coarser predicate from the finer one
+    /// — which is exactly the failure [[two-fans-one-name]] records. The consumer it was written for
+    /// (<c>LoadoutConfirmPark</c> holding its last good seat) was never written.</para>
     /// </summary>
     internal static bool SubViewSetInFlight(ConvertedPanel? panel) =>
         TryGetLiveFixedFit(panel, out FixedFitState fx) && fx.BurstActive;

@@ -108,7 +108,10 @@ internal sealed class BoardPing : MonoBehaviour
         // failure mode "peer cannot ping at all" was exactly a silent gate in this chain.
         if (!BoardPick.HasHit)
         {
-            VRLog.Info("Board", "[Ping] press rejected — the laser/near pick hits nothing " +
+            // HW-VERIFY (2026-09 refactor, F-33) — one line per rejected press. The class doc
+            // says every rejection "logs its reason exactly once" so that "the joining peer cannot
+            // ping at all" is diagnosable; at Info the whole chain was as silent as before the fix.
+            VRLog.Note("Board", "[Ping] press rejected — the laser/near pick hits nothing " +
                 $"(source={BoardPick.Source}, inScenario={BoardPick.InScenario}).");
             return;
         }
@@ -116,7 +119,8 @@ internal sealed class BoardPing : MonoBehaviour
         CClientTile? clientTile = ResolveClientTile();
         if (clientTile == null || clientTile.m_GameObject == null)
         {
-            VRLog.Info("Board", "[Ping] press rejected — hit collider " +
+            // HW-VERIFY (2026-09 refactor, F-33) — one line per rejected press.
+            VRLog.Note("Board", "[Ping] press rejected — hit collider " +
                 $"'{BoardPick.HitCollider?.name}' resolves to no hex tile (no TileBehaviour/m_ClientTile).");
             return;
         }
@@ -168,7 +172,8 @@ internal sealed class BoardPing : MonoBehaviour
             PingManager? manager = PingManager.Instance;
             if (manager == null || _pingSinglePlayer == null)
             {
-                VRLog.Warn("Board", $"[Ping] {source} rejected — neither UIScenarioMultiplayerController " +
+                // HW-VERIFY (2026-09 refactor, F-33) — no entry point resolved for this press.
+                VRLog.Alert("Board", $"[Ping] {source} rejected — neither UIScenarioMultiplayerController " +
                     $"nor PingManager is available (mpc={(mpc == null ? "null" : "ok")}, " +
                     $"manager={(manager == null ? "null" : "ok")}).");
                 return false;
@@ -182,7 +187,9 @@ internal sealed class BoardPing : MonoBehaviour
         }
         catch (Exception ex)
         {
-            VRLog.Warn("Board", $"[Ping] game ping call threw ({source}): {ex}");
+            // A SWALLOWED THROW MUST NEVER BE SILENT (2026-09 refactor, F-33) — the
+            // redundancy-audit §6.3 shape, fixed the same way in EscMenuShowSafety in ModBuild 439.
+            VRLog.Error("Board", $"[Ping] game ping call threw ({source}): {ex}");
             return false;
         }
     }
@@ -250,13 +257,16 @@ internal sealed class BoardPing : MonoBehaviour
         }
 
         if (_pingTile == null)
-            VRLog.Warn("Board", "[Ping] UIScenarioMultiplayerController.PingTile(CClientTile) not found — " +
+            // HW-VERIFY (2026-09 refactor, F-33) — a feature self-disarm: VR pings go local-only
+            // for the rest of the session. Once.
+            VRLog.Alert("Board", "[Ping] UIScenarioMultiplayerController.PingTile(CClientTile) not found — " +
                 "VR pings stay LOCAL-ONLY (no MP replication).");
 
         if (_pingTile == null && _pingSinglePlayer == null && !_warnedUnresolved)
         {
             _warnedUnresolved = true;
-            VRLog.Warn("Board", "[Ping] no ping entry point found (PingTile AND " +
+            // HW-VERIFY (2026-09 refactor, F-33) — the feature turns itself off entirely. Once.
+            VRLog.Alert("Board", "[Ping] no ping entry point found (PingTile AND " +
                 "Ping3DElementSinglePlayer missing) — hex ping disabled.");
         }
 

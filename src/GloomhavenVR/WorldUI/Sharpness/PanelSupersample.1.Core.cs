@@ -402,7 +402,13 @@ internal static partial class PanelSupersample
     private const int SweepIntervalFrames = 15;
 
     /// <summary>How often the per-panel state line is printed, whether or not anything changed. A
-    /// silent path and a path that never ran must never look the same (the RenderTargetProbe rule).</summary>
+    /// silent path and a path that never ran must never look the same (the RenderTargetProbe rule).
+    /// <para>THAT LINE IS STILL AT A DROPPED TIER ON PURPOSE (2026-09 refactor, F-64): it is
+    /// periodic, so promoting it would put a multi-line block into every player's log every ten
+    /// seconds. The rule above is kept instead by the EDGES — engage, refusal, stand-down, cap and
+    /// the layer-pool census, all latched or once-per-window, all promoted to a printing tier in
+    /// that round. Between them a shipped log can always say whether this window was supersampled;
+    /// the running commentary stays for a Debug capture.</para></summary>
     private const float ReportIntervalSeconds = 10f;
 
     /// <summary>Re-allocate the RT when the host rect changes by more than this fraction on either
@@ -418,7 +424,7 @@ internal static partial class PanelSupersample
     /// the panel is changing. The measurement is an O(subtree) walk — 2700 transforms on the party
     /// window in the ModBuild 192 log — so it is not run per frame for a settled window; every
     /// event that could invalidate it (host rect, scale, pose, a stand-up) forces it immediately
-    /// instead, which is what <c>MarkGeometryDirty</c> is for.
+    /// instead, which is what <see cref="NoticeGeometry"/> is for.
     /// </summary>
     private const int ContentMeasureIntervalFrames = 15;
 
@@ -737,30 +743,16 @@ internal static partial class PanelSupersample
     private const int SweepBurstCooldownFrames = 64;
 
     // ---- THE TMP SUB-MESH CULL LATCH (ModBuild 204) ---------------------------------------------
-    // The whole argument is on Entry.SubMeshCullLatched and on RepairSubMeshCull. These are its
-    // dials, and there are deliberately only two of them: the repair itself is UNCONDITIONAL and has
-    // no threshold to tune.
-
-    /// <summary>
-    /// Frames after the hand lets go at which the SETTLED sub-mesh cull reading is taken (and the
-    /// pair cache re-collected for it). THIRTY, which is <see cref="SweepAfterMotionFrames"/> — the
-    /// same window this class already calls "moving, or settling from a move" — so the reading is by
-    /// construction the first one taken outside the drag. It is the fourth of the four readings the
-    /// MOVING-vs-SETTLED line prints, and it is the one that decides the user's report: a count that
-    /// is non-zero HERE, after the release repair has already run, is a FROZEN state and not a
-    /// transient one.
-    /// </summary>
-    private const int SubMeshCullSettleFrames = 30;
-
-    /// <summary>Hard cap on the (parent, sub-mesh) pair cache the per-frame invariant repair walks.
-    /// The character window carries 19 sub-meshes; 512 is two orders above anything measured and
-    /// exists only so a pathological window cannot turn a per-frame compare loop into a spike. When
-    /// it bites, <c>Entry.CullPairsTruncated</c> says so and every count below it is a LOWER
-    /// BOUND — the standing rule that a truncated instrument must never read clean.</summary>
-
-    /// <summary>How many latched sub-meshes the report names in full. The COUNT is always printed
-    /// with its denominator; only the sentences are capped.</summary>
-    private const int MaxCullNamed = 3;
+    // THE DIALS THAT WERE HERE ARE GONE, and so is the apparatus they tuned. ModBuild 219
+    // (44084c18, "remove sixteen builds of diagnostic apparatus for a solved defect") deleted the
+    // (parent, sub-mesh) PAIR CACHE, its per-frame invariant repair, its settle reading and its
+    // latch census; what survived until the 2026-09 refactor was the skeleton — a struct nothing
+    // constructed, three Entry fields written only to zero, two consts nobody read, and a <summary>
+    // with no member under it that documented a 512-pair cap and an Entry.CullPairsTruncated flag
+    // that had already ceased to exist. A paragraph invoking "a truncated instrument must never
+    // read clean" for a truncation flag that is not there is worse than no paragraph, so all of it
+    // is deleted rather than corrected. The mechanism that DOES run today is the three-way cull
+    // census in ScanTmpText and NoteRendererState, reached from MeasureContent(e, repairAll: true).
 
     // ---- THE CAPTURE-FRAME HYSTERESIS (ModBuild 204) --------------------------------------------
     // The whole argument is on MeasureFrame's THE 28/28 FLAP paragraph. These are its dials and each
@@ -1020,23 +1012,6 @@ internal static partial class PanelSupersample
     private const int EdgeUp = 3;
 
     private static readonly string[] EdgeNames = { "LEFT (xMin)", "RIGHT (xMax)", "BOTTOM (yMin)", "TOP (yMax)" };
-
-    /// <summary>
-    /// One (TextMeshPro parent, TMP sub-mesh child) pair the per-frame cull invariant checks. Held in
-    /// a cache rather than re-walked, because the walk that finds them costs a measured ~1.7 ms and
-    /// the check itself is one boolean compare — see <c>RepairSubMeshCull</c>.
-    /// </summary>
-    private readonly struct CullPair
-    {
-        internal readonly TMPro.TMP_Text Parent;
-        internal readonly TMPro.TMP_SubMeshUI Sub;
-
-        internal CullPair(TMPro.TMP_Text parent, TMPro.TMP_SubMeshUI sub)
-        {
-            Parent = parent;
-            Sub = sub;
-        }
-    }
 
     /// <summary>One supersampled panel: everything allocated for it and everything to hand back.</summary>
     private sealed class Entry
@@ -1460,7 +1435,7 @@ internal static partial class PanelSupersample
         // materials and hands those quads to TMP_SubMeshUI components on CHILD GameObjects — each
         // with its own CanvasRenderer, its own material, its own texture, its own GameObject layer
         // and its own active state. textInfo.meshInfo[1..] holds their VERTEX DATA, which is what
-        // ScanTmpMesh reads and finds clean; NoteRendererState then asks the PARENT's CanvasRenderer
+        // ScanTmpText reads and finds clean; NoteRendererState then asks the PARENT's CanvasRenderer
         // whether it was drawn and never asks theirs. And MeasureContentCore's walk classifies a
         // TMP_SubMeshUI as "a Graphic that is neither TMP_Text nor Text" and skips it outright.
         //
@@ -1929,31 +1904,6 @@ internal static partial class PanelSupersample
         internal int SweepBurstMovedLast;
         internal double SweepBurstMs;
 
-        // ---- THE TMP SUB-MESH CULL LATCH (ModBuild 204) ----------------------------------------
-
-        /// <summary>
-        /// <b>SUB-MESHES WHOSE CanvasRenderer IS CULLED WHILE THEIR PARENT TextMeshProUGUI'S IS NOT —
-        /// THE LATCH, AND THE WHOLE OF "MANCHE ELEMENTE SIND NICHT SICHTBAR".</b>
-        ///
-        /// <para>The mechanism, the two decompiled quotations that prove it and the repair are on
-        /// <c>RepairSubMeshCull</c>. In one sentence: TMP writes a sub-mesh's cull flag ONLY
-        /// from inside <c>TextMeshProUGUI.Cull</c>'s <c>if (m_canvasRenderer.cull != flag)</c> guard,
-        /// and uGUI's own <c>MaskableGraphic.UpdateClipParent</c> can clear the PARENT's flag through
-        /// a private non-virtual <c>UpdateCull</c> that does not run that loop — after which the
-        /// guard is permanently false and the children can never be repaired by TMP or by uGUI.</para>
-        ///
-        /// <para><b>A NON-ZERO VALUE HERE, WITH THE PARENT READING cull=FALSE, IS THE FINDING and
-        /// needs no further measurement.</b> A zero across a session in which the user still reports
-        /// missing elements retires the hypothesis outright — which is why the count is always printed
-        /// with <see cref="SubMeshesInUse"/> as its denominator.</para>
-        /// </summary>
-        internal int SubMeshCullLatched;
-
-        /// <summary>The first latched sub-mesh of the last scan, named with its parent — the sentence
-        /// that makes the count auditable instead of asserted.</summary>
-        internal string SubMeshCullLatchedNote = string.Empty;
-        internal int SubMeshCullLatchedNamed;
-
         /// <summary>THE THREE DISJOINT REASONS a TMP sub-mesh puts no pixels into the capture, which
         /// ModBuild 203 and earlier collapsed into one <c>||</c>. Tested in this order and
         /// <c>continue</c>d, so every sub-mesh lands in exactly one bucket: the CULL FLAG (the latch),
@@ -1970,7 +1920,6 @@ internal static partial class PanelSupersample
         internal int TextCulledInheritedAlpha;
         internal string TextCulledNote = string.Empty;
 
-        internal int CullPairCollections;
 
         /// <summary>The last correction, named: which sub-mesh, under which parent, in which
         /// direction, on which frame.</summary>
@@ -2284,11 +2233,22 @@ internal static partial class PanelSupersample
             Failures.Clear();
             WindowFailures.Clear();
             MissingParts.Clear();
+            // ...AND THE TWO STAND-DOWN LATCHES, for the same reason (2026-09 refactor, F-65). They
+            // were missing from this list while their sibling _capLogged was cleared twice over in
+            // StandDownAll, which is what makes this an omission rather than a decision. The head
+            // one matters most: its own line ends "Retried on the next tick", and the head camera
+            // goes away and comes back on every VR off/on and every scene change — so after the
+            // first null the subsystem never again said why it was standing down.
+            _noLayerLogged = false;
+            _noHeadLogged = false;
             _pathDisabled = false;
         }
         catch (System.Exception ex)
         {
-            VRLog.Warn(Scope, "PANEL SUPERSAMPLE shutdown failed — a floated window may keep a mod "
+            // HW-VERIFY (2026-09 refactor, F-66) — this line names MOD STATE LEFT ON GAME OBJECTS:
+            // a narrowed cullingMask on a game camera is the "half the world is invisible" class.
+            // Alert, not Warn: Warn gates on Level >= Debug and printed nothing in any shipped log.
+            VRLog.Alert(Scope, "PANEL SUPERSAMPLE shutdown failed — a floated window may keep a mod "
                               + "capture layer or a camera may keep a narrowed culling mask until the "
                               + "next scene load.\n" + Describe(ex));
         }
@@ -2323,7 +2283,10 @@ internal static partial class PanelSupersample
                 if (!_noLayerLogged)
                 {
                     _noLayerLogged = true;
-                    VRLog.Warn(Scope, "PANEL SUPERSAMPLE stands down: the capture-layer POOL is empty "
+                    // HW-VERIFY (2026-09 refactor, F-64) — the whole feature is OFF and the line
+                    // says so in its own words ("including the reported text and edge shimmer").
+                    // Latched by _noLayerLogged: one line per session.
+                    VRLog.Alert(Scope, "PANEL SUPERSAMPLE stands down: the capture-layer POOL is empty "
                                       + "(every layer 8-31 is named, and layer "
                                       + $"{VRLayers.ModLayer} is already the mod layer), and a panel "
                                       + "without a PRIVATE layer would have to share one with its "
@@ -2452,13 +2415,14 @@ internal static partial class PanelSupersample
         bool moving = IsMoving(e);
         SampleFrameBudget(e, moving);
 
-        // THE SUB-MESH CULL INVARIANT — ModBuild 204's headline, and it runs HERE, every
-        // frame, on every entry, gated on NOTHING. This project has now shipped four remedies
-        // that never executed because they were gated on the very diagnostic that was supposed
-        // to decide whether they were needed (ModBuild 196's text regeneration, ModBuild 198's
-        // band-limit floor, and twice besides). This one is a compare over a cached pair list
-        // — see RepairSubMeshCull for the two decompiled quotations that make it a repair of a
-        // TMP invariant rather than a policy of ours.
+        // (THE SUB-MESH CULL INVARIANT REPAIR STOOD HERE and no longer does. ModBuild 219
+        // deleted it — "the sub-mesh cull repair (0 repairs in its whole life)", 44084c18 — after
+        // the Character/Perks defect was found, fixed and confirmed on hardware. The comment that
+        // survived it said the repair "runs HERE, every frame, on every entry, gated on NOTHING"
+        // and cited the four remedies this project has shipped that never executed; there was no
+        // code under it for the whole of ModBuilds 219-480, which is the same reading failure one
+        // level up. What answers this question today is the three-way cull census in ScanTmpText
+        // and NoteRendererState, run from MeasureContent(e, repairAll: true) at release.)
 
         // THE SUB-VIEW BURST, ahead of the ordinary cadence so a burst frame is never
         // followed by a redundant periodic sweep on the same frame (it re-arms NextSweepFrame
@@ -2636,7 +2600,9 @@ internal static partial class PanelSupersample
                       + "capture contained its neighbour's content. The only honest lever here is to "
                       + "free a named layer, not to raise MaxPanels."
                     : $"MaxPanels ({MaxPanels}); the layer pool holds {PoolSize} and is not the bound.";
-                VRLog.Warn(Scope, $"PANEL SUPERSAMPLE cap reached: {cap} panel(s) are "
+                // HW-VERIFY (2026-09 refactor, F-64) — latched by _capLogged, cleared per
+                // population change in StandDownAll.
+                VRLog.Note(Scope, $"PANEL SUPERSAMPLE cap reached: {cap} panel(s) are "
                                   + $"supersampled and {candidates} further eligible window(s) are "
                                   + "NOT. THE CAP THAT BOUND IS " + capSource
                                   + " THE CONSEQUENCE for those windows: they keep today's direct "
@@ -2698,7 +2664,9 @@ internal static partial class PanelSupersample
             if (!_noHeadLogged)
             {
                 _noHeadLogged = true;
-                VRLog.Warn(Scope, "PANEL SUPERSAMPLE stands down: there is no head camera "
+                // HW-VERIFY (2026-09 refactor, F-64) — the whole feature is OFF. Latched by
+                // _noHeadLogged, which F-65 now clears on shutdown so a second VR session says it.
+                VRLog.Alert(Scope, "PANEL SUPERSAMPLE stands down: there is no head camera "
                                   + "(VRRigDriver.HeadCamera is null), so the capture-layer bit "
                                   + "cannot be kept out of the eye and the panel would be drawn "
                                   + "TWICE. THE CONSEQUENCE: floated windows keep today's direct "
@@ -2764,7 +2732,9 @@ internal static partial class PanelSupersample
         if (vram > budget)
         {
             Refused.Add(panel.HostGo.GetInstanceID());
-            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE refused '{window}': its {rtW}x{rtH} capture + mip "
+            // HW-VERIFY (2026-09 refactor, F-64) — bounded by Refused (an instance-id set
+            // consulted before every re-engage), i.e. once per window per session.
+            VRLog.Note(Scope, $"PANEL SUPERSAMPLE refused '{window}': its {rtW}x{rtH} capture + mip "
                               + $"targets would cost {Mb(vram)} MB even at MSAA {msaa}x and factor "
                               + $"{factor:F2} (stepped down from {askedFactor:F2}, floor "
                               + $"{MinStepDownFactor:F2}), against a remaining budget of "
@@ -2788,7 +2758,8 @@ internal static partial class PanelSupersample
         if (layer < 0)
         {
             Refused.Add(panel.HostGo.GetInstanceID());
-            VRLog.Warn(Scope, $"PANEL SUPERSAMPLE refused '{window}': the capture-layer pool is "
+            // HW-VERIFY (2026-09 refactor, F-64) — bounded by Refused, once per window.
+            VRLog.Note(Scope, $"PANEL SUPERSAMPLE refused '{window}': the capture-layer pool is "
                               + $"exhausted ({PoolSize} private layer(s) exist and all are held by "
                               + $"the {Entries.Count} panel(s) already engaged). It is NOT given a "
                               + "shared layer, because a shared layer is exactly what made one "
@@ -2887,7 +2858,10 @@ internal static partial class PanelSupersample
             + "reads as the flicker; a released window LOCKS it, which is why letting go freezes "
             + "whatever the drag left behind. Two texels per authored pixel puts the eye on a mip "
             + "level that was box-filtered down from a 2x rasterization instead.";
-        VRLog.Info(Scope, $"PANEL SUPERSAMPLE engaged on '{window}': the window's canvas now renders "
+        // HW-VERIFY (2026-09 refactor, F-64) — THE LINE THAT MAKES THE REST READABLE. Without it
+        // a log with no stand-down line still cannot say whether this window was supersampled, and
+        // "the text shimmers" is the report this whole subsystem answers. Once per engage.
+        VRLog.Note(Scope, $"PANEL SUPERSAMPLE engaged on '{window}': the window's canvas now renders "
                           + $"into a {rtW}x{rtH} capture target (MSAA {msaa}x, D24S8) which is "
                           + $"resolved after every frame into a {rtW}x{rtH} MIPPED display target "
                           + $"(mips {(e.MipRt != null ? e.MipRt.mipmapCount : rt.mipmapCount)}, "

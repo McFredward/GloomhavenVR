@@ -365,7 +365,10 @@ internal static class BoardClickDriver
         }
         catch (System.Exception ex)
         {
-            VRLog.Warn("Board", "[Tap] valid-target test threw — falling back to SELECT (the game's " +
+            // A SWALLOWED THROW MUST NEVER BE SILENT (2026-09 refactor, F-34) — a fingertip tap
+            // whose decision table threw is silently turned into a click. Same shape as
+            // redundancy-audit 6.3, fixed in EscMenuShowSafety in ModBuild 439. Bounded by taps.
+            VRLog.Error("Board", "[Tap] valid-target test threw — falling back to SELECT (the game's " +
                                 $"own click gates still run, so a bad tap is merely ignored): {ex}");
             return TapVerdict.Selecting("unknown (target test threw)");
         }
@@ -562,7 +565,10 @@ internal static class BoardClickDriver
         string hex = tile.m_Tile != null
             ? $"({tile.m_Tile.m_ArrayIndex.X},{tile.m_Tile.m_ArrayIndex.Y})"
             : "(?)";
-        VRLog.Info("Board", verdict.Select
+        // HW-VERIFY (2026-09 refactor, F-38) — this method's doc calls it the hardware proof of
+        // the fingertip rule, and the 2026-09-03 report it answers was diagnosed by reasoning
+        // because the proof line printed in no default log. Bounded by the commit edge.
+        VRLog.Note("Board", verdict.Select
             ? $"[Tap] hex {hex} → SELECT (valid target for {verdict.Detail})"
             : $"[Tap] hex {hex} → PING ({verdict.Detail})");
     }
@@ -634,7 +640,9 @@ internal static class BoardClickDriver
         }
         _lastTouchLogKey = key;
         _lastTouchLogTime = now;
-        VRLog.Info("Board", message);
+        // HW-VERIFY (2026-09 refactor, F-38) — the un-throttled commit line, the other half of
+        // the fingertip proof. The throttled repeat above stays at Debug.
+        VRLog.Note("Board", message);
     }
 
     /// <summary>"(x,y)" of the touched hex, or the hit object's name when the hit is not a tile

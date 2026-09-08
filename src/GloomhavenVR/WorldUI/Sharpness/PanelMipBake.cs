@@ -473,9 +473,13 @@ internal static class PanelMipBake
     {
         if (s_pumpInstalled || s_pumpFailed)
             return;
-        // OFF means OFF, including the pump object and its arm line: with the gate false this
-        // build must be indistinguishable from the one before the seam existed. The check is
-        // re-evaluated on every call, so turning the dial on mid-session still installs it.
+        // OFF means OFF: with the gate false this build must be indistinguishable from the one
+        // before the seam existed. Nothing is installed and no arm line is printed. The check is
+        // re-evaluated on every call, so turning the dial on mid-session still installs it — and
+        // note the asymmetry, which is deliberate: turning it OFF again does NOT destroy the pump
+        // object. TickArrivals' own gate stands every watch down and hands back every swapped
+        // sprite on that edge, so the surviving GameObject is inert, and destroying it would give
+        // up the free re-install that ArrivalPump.OnDestroy exists to keep.
         if (WorldUIConfig.PanelMipBake == null || !WorldUIConfig.PanelMipBake.Value)
             return;
         try
@@ -499,7 +503,9 @@ internal static class PanelMipBake
         {
             s_pumpFailed = true;
             s_pumpGo = null;
-            VRLog.Warn("WorldUI", $"MIP BAKE ARRIVAL watch could not be installed ({ex.GetType().Name}: " +
+            // HW-VERIFY (2026-09 refactor, F-64) — the seam is off for the whole session
+            // (s_pumpFailed), and the line's own text names the consequence the user sees.
+            VRLog.Alert("WorldUI", $"MIP BAKE ARRIVAL watch could not be installed ({ex.GetType().Name}: " +
                                   $"{ex.Message}). THE CONSEQUENCE: floated panels keep the " +
                                   "PanelSamplingProbe's 30-frame scan as their only mip swap, so freshly " +
                                   "loaded art (the shop item card) is shown mipless for up to ~1 s before " +
@@ -562,7 +568,8 @@ internal static class PanelMipBake
             if (!s_arrivalErrorLogged)
             {
                 s_arrivalErrorLogged = true;
-                VRLog.Warn("WorldUI", $"MIP BAKE ARRIVAL tick failed ({ex.GetType().Name}: {ex.Message}). " +
+                // HW-VERIFY (2026-09 refactor, F-64) — latched by s_arrivalErrorLogged, once.
+                VRLog.Alert("WorldUI", $"MIP BAKE ARRIVAL tick failed ({ex.GetType().Name}: {ex.Message}). " +
                                       "THE CONSEQUENCE: floated panels fall back to the " +
                                       "PanelSamplingProbe's 30-frame scan for their mip swaps, so freshly " +
                                       "loaded art is aliased for up to ~1 s again. Nothing was left " +
@@ -595,7 +602,8 @@ internal static class PanelMipBake
                 if (!s_panelCapLogged)
                 {
                     s_panelCapLogged = true;
-                    VRLog.Warn("WorldUI", $"MIP BAKE ARRIVAL: more than {MaxWatchedPanels} floated panel(s) " +
+                    // HW-VERIFY (2026-09 refactor, F-64) — latched by s_panelCapLogged, once.
+                    VRLog.Note("WorldUI", $"MIP BAKE ARRIVAL: more than {MaxWatchedPanels} floated panel(s) " +
                                           $"at once -- '{panel.Target.name}' and any further one are NOT " +
                                           "arrival-watched. THE CONSEQUENCE for them is the pre-192 " +
                                           "behaviour: the PanelSamplingProbe's 30-frame scan swaps their " +
@@ -789,7 +797,8 @@ internal static class PanelMipBake
             if (!watch.CapLogged)
             {
                 watch.CapLogged = true;
-                VRLog.Warn("WorldUI", $"MIP BAKE ARRIVAL on '{watch.Name}': {ImageScratch.Count} Image(s) " +
+                // HW-VERIFY (2026-09 refactor, F-64) — latched per panel by watch.CapLogged.
+                VRLog.Note("WorldUI", $"MIP BAKE ARRIVAL on '{watch.Name}': {ImageScratch.Count} Image(s) " +
                                       $"exceeds the {MaxWatchedImagesPerPanel} arrival-watch cap. THE " +
                                       "CONSEQUENCE: the graphics past the cap are not arrival-swapped and " +
                                       "fall back to the PanelSamplingProbe's 30-frame scan (aliased for up " +

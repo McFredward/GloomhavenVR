@@ -201,8 +201,10 @@ internal static class FigureGrabConfig
     /// <see cref="StretchHardFloor"/> keeps the scale positive and finite. LIVE, but latch-scoped:
     /// flipping it mid-hold changes what the NEXT gesture frame / NEXT grab may do; the standing
     /// held size is never re-clamped in place, because re-clamping a size the player is looking at
-    /// would be a pop. MULTIPLAYER: the bounds are a LOCAL presentation choice — only the gesture
-    /// factor rides the wire (record 30) and <c>NetProtocol.EncodeHeldStretch</c> clamps the
+    /// would be a pop. MULTIPLAYER: the bounds are a LOCAL presentation choice — what rides the
+    /// wire (record 30) is the MEASURED held size (<c>FigureGrabbable.HeldSizeFactorOf</c> =
+    /// lossyScale ÷ the figure's board-home size, so every clamp this dial applied is already
+    /// inside the number) and <c>NetProtocol.EncodeHeldStretch</c> clamps the
     /// outgoing value into the wire's own sane envelope (0.10×..8.0×, NaN→neutral), so a
     /// limits-off factor beyond 8× reaches peers as 8× and can never be rejected by their
     /// fail-closed decode.</para>
@@ -366,6 +368,18 @@ internal static class FigureGrabConfig
         }
     }
 
+    // THE THIRD ARGUMENT ON EVERY LINE BELOW IS A PRE-BIND FALLBACK, NOT THE SHIPPED DEFAULT, and
+    // the two deliberately differ. The shipped values live in Defaults.Board.cs (HeldOffsetSide
+    // 0.03, HeldOffsetUp 0.01, HeldOffsetForward 0.05, FigureGrab_HeldTiltDegrees 17,
+    // HeldFaceYawDegrees -133, HeldRollDegrees_ByStyle all 0) and reach the player through Bind;
+    // these literals are only ever read if something asks for a held pose BEFORE
+    // BoardModule.Init has run Bind, which nothing does today (a hold needs a scenario). Written
+    // down because confusing the two has cost this project two rounds, twice — the same warning
+    // WallSegmentFade carries at its own Clamped() fallbacks and PropHeldPose states as a rule.
+    //
+    // They are deliberately NOT re-pointed at Defaults.* in the 2026-09 refactor: that would edit
+    // six literals to fix a disagreement nothing can observe, and this lane may not move a number.
+    // Recorded as F-23 in REVIEW-worldui-frame.md for the integrator to decide.
     internal static float ActiveHeldSide => StyleOr(StyleHeldOffsetSide, HeldOffsetSide, 0f);
     internal static float ActiveHeldUp => StyleOr(StyleHeldOffsetUp, HeldOffsetUp, 0.03f);
     internal static float ActiveHeldForward => StyleOr(StyleHeldOffsetForward, HeldOffsetForward, 0.03f);

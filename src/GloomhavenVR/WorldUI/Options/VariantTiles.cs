@@ -672,8 +672,16 @@ internal static partial class VROptionsTab
         return sprite;
     }
 
-    /// <summary>Drop the built sprites (module shutdown / hot reload), matching
-    /// <c>WorldUIAssets.Reset</c>'s contract. The textures themselves belong to
-    /// <see cref="EmbeddedTexture"/> and are not touched here.</summary>
-    internal static void ResetVariantTiles() => TileSprites.Clear();
+    /// <summary>Drop the built sprites (module shutdown / hot reload).
+    ///
+    /// <para>NO CALLER AT HEAD, AND THIS IS NOT DEAD CODE — IT IS INERT (2026-09 refactor, F-85).
+    /// The doc here used to say the drop "matches <c>WorldUIAssets.Reset</c>'s contract";
+    /// <c>WorldUIAssets.Reset</c> does not call this and nothing else does, so the sentence asserted
+    /// a participation that does not exist. There is no defect behind it: the sprites are built over
+    /// <c>Core/EmbeddedTexture.cs</c> textures whose own cache is never cleared on a module reset, so
+    /// they stay valid across a hot reload and a stale entry is a small leak rather than a blank
+    /// tile. Kept rather than deleted, because deleting it removes the only mechanism; if it is ever
+    /// wired, the call belongs in <c>WorldUIAssets.Reset</c> or <c>WorldUIModule.Shutdown</c>, both
+    /// of which are lane worldui-front — a NEEDED-OUTSIDE entry, not an in-lane edit.</para></summary>
+internal static void ResetVariantTiles() => TileSprites.Clear();
 }

@@ -249,7 +249,9 @@ internal static class Character3DDisplayRefcount
         if (_showRequests != null)
             return;
         _standDown = true;
-        VRLog.Warn(Scope, "CHARACTER 3D REFCOUNT: the private 'showRequests' set was not found on "
+        // HW-VERIFY (2026-09 refactor, F-74) — a one-shot stand-down whose own text names the
+        // player-visible outcome (a blanked model in a window that is still open).
+        VRLog.Alert(Scope, "CHARACTER 3D REFCOUNT: the private 'showRequests' set was not found on "
                           + "Character3DDisplayManager — the whole class stands down (no gate, no "
                           + "counting, vanilla behaviour). THE CONSEQUENCE: with two windows floated on "
                           + "the same character, the first one to close runs the game's ungated "

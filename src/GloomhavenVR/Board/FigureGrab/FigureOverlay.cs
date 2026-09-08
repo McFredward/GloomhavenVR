@@ -13,7 +13,8 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// figure's OWN geometry:
 ///   • TASK #2 — an ADDITIVE, animated pre-grab highlight that RIDES the live (still-animating)
 ///     figure by cloning its renderers and sharing the SAME bones, so the shimmer stays registered
-///     to the mesh as the idle clip plays (<see cref="CloneRenderersSharingBones"/>);
+///     to the mesh as the idle clip plays (<c>FigureHighlight.CloneOne</c>, which owns that
+///     per-renderer clone: this class contributes the material and the helpers it uses);
 ///   • TASK #3 — an ALPHA-blended translucent GHOST frozen at the figure's home board pose, built
 ///     as a self-contained snapshot clone of the visual subtree with all scripts/colliders stripped
 ///     (<see cref="BuildFrozenGhost"/>).
@@ -95,74 +96,6 @@ internal static class FigureOverlay
         if (m.HasProperty("_OffsetUnits")) m.SetFloat("_OffsetUnits", -1f);
         m.renderQueue = (int)RenderQueue.Transparent;
         return m;
-    }
-
-    /// <summary>
-    /// TASK #2 helper: for every renderer under <paramref name="animatedRoot"/>, create a clone that
-    /// re-draws the SAME mesh with <paramref name="overlayMat"/> on every sub-mesh. Skinned meshes
-    /// reference the ORIGINAL bones/rootBone, so the clone deforms in lock-step with the live figure
-    /// (no per-frame tracking needed). All clones are parented under <paramref name="container"/> so
-    /// the caller destroys the whole overlay by destroying that one object. Returns the clone count.
-    /// The container should NOT be a child of the figure's Animator object, so the game's own
-    /// <c>GetComponentsInChildren&lt;Renderer&gt;</c> passes (e.g. jump-exit opacity, invisibility)
-    /// never touch these extra renderers.
-    /// </summary>
-    internal static int CloneRenderersSharingBones(GameObject animatedRoot, Transform container, Material overlayMat)
-    {
-        int made = 0;
-        Renderer[] renderers = animatedRoot.GetComponentsInChildren<Renderer>(includeInactive: true);
-        foreach (Renderer r in renderers)
-        {
-            if (r == null)
-                continue;
-
-            if (r is SkinnedMeshRenderer smr)
-            {
-                if (smr.sharedMesh == null)
-                    continue;
-                var go = new GameObject("VROverlay");
-                go.transform.SetParent(container, worldPositionStays: false);
-                var clone = go.AddComponent<SkinnedMeshRenderer>();
-                clone.sharedMesh = smr.sharedMesh;
-                clone.bones = smr.bones;            // share the LIVE bones → tracks animation
-                clone.rootBone = smr.rootBone;
-                clone.localBounds = smr.localBounds;
-                clone.quality = smr.quality;
-                clone.updateWhenOffscreen = smr.updateWhenOffscreen;
-                CopyBlendShapeWeights(smr, clone);
-                clone.sharedMaterials = FillMaterials(smr.sharedMesh.subMeshCount, overlayMat);
-                clone.shadowCastingMode = ShadowCastingMode.Off;
-                clone.receiveShadows = false;
-                made++;
-            }
-            else if (r is MeshRenderer && r.TryGetComponent(out MeshFilter mf) && mf.sharedMesh != null)
-            {
-                // Static mesh part (e.g. weapon/prop). Parent under the container (so the whole
-                // overlay is torn down by destroying that one object — no leak) and match the part's
-                // current world transform — POSITION, ROTATION **AND SCALE**. Until ModBuild 336
-                // the scale was simply never set, so the clone inherited the container's and any
-                // part whose own lossyScale differed drew its glow at the wrong SIZE: too small to
-                // notice on a mini, and not at all subtle on a 198x diorama. The boss carries
-                // exactly such parts (geo_bendyband (1), WP_Scoundrel_Dart, WP_Dummy) while the
-                // small drakes' renderers all sit under one uniformly scaled m_AnimatedGameObject,
-                // which is the shape of a defect that only ever shows on one figure.
-                // <see cref="FigureHighlight.CloneOne"/> already did this; this copy did not.
-                // A rare bone-driven static part that MOVES during the hover is still an accepted
-                // edge case — the hover is short and the part is small.
-                var go = new GameObject("VROverlay");
-                go.transform.SetParent(container, worldPositionStays: false);
-                go.transform.SetPositionAndRotation(r.transform.position, r.transform.rotation);
-                MatchCloneWorldScale(go.transform, container, r.transform);
-                var cf = go.AddComponent<MeshFilter>();
-                cf.sharedMesh = mf.sharedMesh;
-                var cr = go.AddComponent<MeshRenderer>();
-                cr.sharedMaterials = FillMaterials(mf.sharedMesh.subMeshCount, overlayMat);
-                cr.shadowCastingMode = ShadowCastingMode.Off;
-                cr.receiveShadows = false;
-                made++;
-            }
-        }
-        return made;
     }
 
     /// <summary>

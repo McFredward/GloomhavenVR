@@ -453,7 +453,14 @@ internal static class ConfirmationBoxRescueTargets
         }
         if (best != null)
             return best;
-        VRLog.Warn("WorldUI", "CONFIRMATION RESCUE: no ConfirmationBox.ShowGenericConfirmation "
+        // 2026-09 refactor, F-77 — the ONE silent line in a file whose every other VRLog call is
+        // at a printing tier, and it reports the guard being switched OFF. The file's own markers
+        // say what is at stake: "THE LINE THAT DECIDES THE NEXT HARDWARE ROUND", and "proof the
+        // rescue is LIVE. Its absence means the patch never ran at all" — with one arm inert the log
+        // carries neither that arm's ARMED line nor any explanation. Bounded by construction: this
+        // is a Harmony TargetMethod resolver with two call sites at registration, so at most two
+        // lines per session. Alert, not Error: the mod still works, the arm is simply absent.
+        VRLog.Alert("WorldUI", "CONFIRMATION RESCUE: no ConfirmationBox.ShowGenericConfirmation "
             + $"overload with{(withCancelAction ? "" : "out")} a cancel action was found — that "
             + "arm of the deadlock guard is INERT for this build of the game.");
         return null;

@@ -163,7 +163,7 @@ internal static class ConfigCatalog
 
         /// <summary>
         /// Step at multiplier 1. Filled in a SECOND PASS over the whole catalog, not in
-        /// <see cref="Classify"/> — see <c>ResolveStep</c>: the step depends on the largest
+        /// <see cref="Classify"/> — see <see cref="ResolveSteps"/>: the step depends on the largest
         /// magnitude in the entry's FAMILY, which is not knowable until every entry has been read.
         /// </summary>
         internal double BaseStep = 1d;
@@ -687,7 +687,7 @@ internal static class ConfigCatalog
             // METERS everywhere in this mod" was true and the conclusion drawn from it — one flat
             // 0.005 for all of them — was the largest hole in this file. It meant the 52 Vector2 /
             // Vector3 dials, which are ALL of the per-board furniture geometry, never reached
-            // ResolveStep at all: not the unit table, not the range, not the magnitude. The user's
+            // ResolveSteps at all: not the unit table, not the range, not the magnitude. The user's
             // report is one of them ([Cards] SlotOverlayOffset_{board}, a 5 mm press on a value of
             // 2 mm), and 25 of the 63 components he has hand-tuned are not multiples of 0.005 —
             // values his own arrows could not produce. They go through the same resolver as every
@@ -1373,11 +1373,6 @@ internal static class ConfigCatalog
     }
 
     /// <summary>
-    /// The key's leading word — the automatic cluster name inside an oversized section
-    /// ("FanArcSweepDegrees" → "Fan", "BarSizeScale" → "Bar", "VRSettingsOffset" → "VR").
-    /// Bounded by the key length; never returns empty for a non-empty key.
-    /// </summary>
-    /// <summary>
     /// Names that identify a VARIANT rather than a subject: the control boards and the hand styles.
     /// Read from the enums, so a new board or hand style joins the list by existing.
     /// </summary>
@@ -1458,6 +1453,11 @@ internal static class ConfigCatalog
         _ => word,
     };
 
+    /// <summary>
+    /// The key's leading word — the automatic cluster name inside an oversized section
+    /// ("FanArcSweepDegrees" → "Fan", "BarSizeScale" → "Bar", "VRSettingsOffset" → "VR").
+    /// Bounded by the key length; never returns empty for a non-empty key.
+    /// </summary>
     internal static string LeadingWord(string key)
     {
         if (string.IsNullOrEmpty(key))
@@ -1693,19 +1693,6 @@ internal static class ConfigCatalog
     private const int MaxDescriptionChars = 620;
 
     /// <summary>
-    /// The row's hover explanation: where the entry lives, what the config file says about it, its
-    /// default and range, and — honestly — whether the change is live.
-    ///
-    /// <para>ONE LANGUAGE, ALWAYS (user, 2026-07: "Die Tooltipps bitte nicht immer in beiden
-    /// Sprachen, sondern der jeweiligen Sprache des Spiels"). The chrome around the paragraph is
-    /// <see cref="Loc.Mod"/>, so it follows the game's language; the paragraph itself used to be the
-    /// raw BepInEx description, which is English because that is the language a config FILE is
-    /// written in — every tooltip was therefore half English, half German. It now asks
-    /// <see cref="Loc.ConfigDescription"/> first and falls back to the bound English text only when
-    /// the current language has no translation for that entry. The fallback is what keeps a
-    /// description added tomorrow readable instead of blank.</para>
-    /// </summary>
-    /// <summary>
     /// The one-paragraph, localized explanation of what a setting DOES — nothing else.
     ///
     /// <para>Deliberately not <see cref="Tooltip"/>, which is the power-user readout: it leads with
@@ -1723,6 +1710,19 @@ internal static class ConfigCatalog
         return string.IsNullOrEmpty(desc) ? string.Empty : Clip(Collapse(desc!), MaxDescriptionChars);
     }
 
+    /// <summary>
+    /// The row's hover explanation: where the entry lives, what the config file says about it, its
+    /// default and range, and — honestly — whether the change is live.
+    ///
+    /// <para>ONE LANGUAGE, ALWAYS (user, 2026-07: "Die Tooltipps bitte nicht immer in beiden
+    /// Sprachen, sondern der jeweiligen Sprache des Spiels"). The chrome around the paragraph is
+    /// <see cref="Loc.Mod"/>, so it follows the game's language; the paragraph itself used to be the
+    /// raw BepInEx description, which is English because that is the language a config FILE is
+    /// written in — every tooltip was therefore half English, half German. It now asks
+    /// <see cref="Loc.ConfigDescription"/> first and falls back to the bound English text only when
+    /// the current language has no translation for that entry. The fallback is what keeps a
+    /// description added tomorrow readable instead of blank.</para>
+    /// </summary>
     internal static string Tooltip(ConfigItem item)
     {
         var sb = new StringBuilder(512);

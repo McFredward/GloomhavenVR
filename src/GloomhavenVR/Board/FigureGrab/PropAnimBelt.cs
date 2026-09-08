@@ -62,15 +62,20 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// the rules state, or anything a peer could observe — which is why no wire field is needed and
 /// why there is no per-sub-feature sync setting.</para>
 ///
-/// <para><b>THE INSTRUMENT HALF IS TWO LINES.</b> <c>] [Props] HELD-PROP ANIMATION HUSH</c> at the
+/// <para><b>THE INSTRUMENT HALF IS SIX LINES</b> — <c>HELD-PROP ANIMATION HUSH</c>,
+/// <c>HELD-PROP HUSH RESTORE</c>, <c>HELD-PROP HOME TWIN</c>, <c>BOARD PROP STANDING WATCH</c>,
+/// <c>HELD-PROP RENDER-PASS PROBE</c> (PropAnimBelt.RenderPass.cs) and
+/// <c>HELD-PROP FLASH PHOTOMETER</c> (PropAnimBelt.Photometer.cs); it was two when this paragraph
+/// was written. <c>] [Props] HELD-PROP ANIMATION HUSH</c> at the
 /// grab edge carries the pre-counts; <c>] [Props] HELD-PROP HOME TWIN</c> compares the held prop's
 /// whole property table against another instance of the same kind still on its hex, on the same
 /// tick. That comparison is the only reading in this file that asks whether the held prop's value
-/// is the RIGHT one rather than whether it MOVED — nine rounds of "did anything move" all returned
-/// zero, and a value latched wrong at the instant of the grab is exactly what that prints.</para>
+/// is the RIGHT one rather than whether it MOVED — round after round of "did anything move" all
+/// returned zero, and a value latched wrong at the instant of the grab is exactly what that
+/// prints.</para>
 ///
-/// <para><b>THE DEFECT IS NOT SOLVED AND THE HISTORY IS NOT IN THIS FILE.</b> Nine rounds are
-/// recorded in <c>.planning/held-prop-flash-experiments.md</c>, including every strand and probe
+/// <para><b>THE DEFECT IS NOT SOLVED AND THE HISTORY IS NOT IN THIS FILE.</b> Twenty-one rounds
+/// are recorded in <c>.planning/held-prop-flash-experiments.md</c>, including every strand and probe
 /// deleted from this class and the reading that retired it. Read it before adding a strand here:
 /// re-proposing a falsified one is the failure mode that document exists to prevent.</para>
 /// </summary>
@@ -562,7 +567,12 @@ internal static partial class PropAnimBelt
         // generator REBUILD its command buffer without this prop; restoring `enabled` runs OnEnable
         // and puts it back. So the ledger below is the whole of the change and the whole of the
         // undo, no game state is written, and a prop whose volume was ALREADY off is left alone.
-        // ---- STRAND 5 IS **OFF** IN THIS BUILD, AND THAT IS THE EXPERIMENT ----
+        // ---- STRAND 5 IS **OFF**, AND THE OCCLUSION CHANNEL IS OUT BY EXPERIMENT ----
+        //
+        // Read this as history, not as a running experiment. It was switched off in ModBuild 459 as
+        // the null perturbation; the round that followed (a9c6fc8a) EXCLUDED the occlusion channel
+        // outright — "do not re-chase it" — and the white flash was still there. What survives here
+        // is the COUNT and the account below of why the strand existed.
         //
         // It unregistered the held prop from TilesOcclusionGenerator for the length of the hold, so
         // the prop was no longer DRAWN INTO the global _ObjectOcclusion map while it went on
@@ -574,8 +584,9 @@ internal static partial class PropAnimBelt
         // NOTHING IT WAS INTRODUCED FOR WAS EVER CONFIRMED. Round six's "the painter is a camera"
         // was a hypothesis; round eight read strand 5's own WORKING shape (1 volume, 1 enabled
         // beforehand, 0 still registered, the map live on 168 of 169 frames) and the defect stood.
-        // So switching it off risks nothing that has ever been demonstrated, and this project's own
-        // discipline is to TEST THE NULL PERTURBATION rather than argue about it.
+        // Switching it off risked nothing that had ever been demonstrated — this project's own
+        // discipline is to TEST THE NULL PERTURBATION rather than argue about it — and the test
+        // came back negative twice over: the flash outlived both the strand and the channel.
         //
         // The volumes are still COUNTED, because the pre-count is what proves the experiment ran on
         // a prop that actually had one. They are not written and not ledgered, so the restore has
@@ -2079,6 +2090,15 @@ internal static partial class PropAnimBelt
     /// anything and cannot be why anything changed in either direction. Pure print — the state
     /// machine above has finished by the time this runs.</para>
     /// </summary>
+    // READ THE STRAND-5 CLAUSE BELOW AS HISTORY, NOT AS A LIVE EXPERIMENT (2026-09 refactor).
+    // Its wording is frozen — "*** STRAND 5 OFF - NULL PERTURBATION ***" and the sentences after
+    // it are grep tokens the surface gate pins, and .planning/held-prop-flash-experiments.md:93
+    // greps the first of them verbatim — so the correction is here instead of inside the string:
+    // the perturbation RAN in ModBuild 459 and came back NEGATIVE (the white was unchanged with the
+    // strand off), and the round after it (a9c6fc8a) excluded the whole occlusion channel rather
+    // than re-chasing it. So the line's "IF THE WHITE IS GONE … ELEVEN ROUNDS END" is a question
+    // that has since been answered, and its second branch is the one that happened. The clause and
+    // its counts stay: they are the population fact that says which build a log came from.
     private static void Announce(Belt b, string label)
     {
         if (_logsLeft <= 0 || Spent(KindsDone, label))
@@ -3068,6 +3088,12 @@ internal static partial class PropAnimBelt
           .Append(md.ToString("0.#####")).Append(". ");
 
         // The suppressions themselves, stated as the asymmetry they are.
+        //
+        // The clause below says "THAT ZERO IS HOW A READER CONFIRMS THE EXPERIMENT RAN". Frozen
+        // wording (a pinned log marker), so the correction sits here: the experiment ran in
+        // ModBuild 459 and came back NEGATIVE, and the occlusion channel was excluded outright the
+        // round after — see the note above Announce. The zero is now the settled state rather than
+        // a reading anyone is waiting on; a NON-zero here would mean strand 5 came back.
         sb.Append("AND THE SUPPRESSIONS, WHICH ARE ASYMMETRIES BY DESIGN: this class has switched "
                   + "off ").Append(b.Animators.Count).Append(" animator(s), ")
           .Append(b.Outlines.Count).Append(" outline(s) and ").Append(b.Emitters.Count)

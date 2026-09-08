@@ -146,6 +146,12 @@ internal static partial class VROptionsTab
     private static bool _loggedEscapableLeave;
     private static bool _loggedAreaLeave;
 
+    /// <summary>The failure twin of <see cref="_loggedAreaLeave"/> (2026-09 refactor, F-75).
+    /// <c>LeaveInputAreaStack</c> runs on EVERY open, so its catch could repeat once per open; the
+    /// success line is one-shot and the failure line must be bounded the same way before it can be
+    /// promoted to a printing tier.</summary>
+    private static bool _loggedAreaLeaveFailed;
+
     /// <summary>
     /// One-shot log flag for <see cref="ShowStandalone"/>'s open-edge remedy. Cleared in
     /// <see cref="Forget"/> with the other per-pane state: the remedy is a property of THIS clone's
@@ -618,7 +624,13 @@ internal static partial class VROptionsTab
         }
         catch (Exception e)
         {
-            VRLog.Warn("WorldUI", "VR options: could not leave the escapable stack "
+            // HW-VERIFY (2026-09 refactor, F-75) — THE NEGATIVE HALF OF THE VERDICT ABOVE. That
+            // Note is the LAST statement of the try, after the mutating calls, and its latch is set
+            // immediately before it; so if UnregisterEscapable throws, neither line appears and the
+            // latch stays false — an empty log, which is byte-identical to "the patch never ran" and
+            // to "IsStandalone was false". Three states, one reading. LeaveSharedStacks runs once
+            // per session, so this fires at most once.
+            VRLog.Alert("WorldUI", "VR options: could not leave the escapable stack "
                 + $"({e.GetType().Name}: {e.Message}). The menu still opens and closes; the two "
                 + "settings windows may still fight over a single ESC press.");
         }
@@ -680,7 +692,14 @@ internal static partial class VROptionsTab
         }
         catch (Exception e)
         {
-            VRLog.Warn("WorldUI", "VR options: could not leave the controller input-area stack "
+            // The same hole as its twin above (2026-09 refactor, F-75), with one difference: this
+            // method runs on EVERY open, so the line needed its own one-shot latch before it could
+            // print. Do not remove that latch and leave the tier.
+            if (_loggedAreaLeaveFailed)
+                return;
+            _loggedAreaLeaveFailed = true;
+            // HW-VERIFY: the negative half of the ModBuild 336 input-area verdict.
+            VRLog.Alert("WorldUI", "VR options: could not leave the controller input-area stack "
                 + $"({e.GetType().Name}: {e.Message}). The menu is open and usable; with a gamepad "
                 + "in use it may still steal navigation focus from the game's options window.");
         }
@@ -1431,9 +1450,28 @@ internal static partial class VROptionsTab
     {
         if (_degraded)
             return;
+        // THIS LATCH IS PROCESS-LIFETIME, AND Forget() BELOW DOES NOT CLEAR IT (recorded 2026-09
+        // refactor, F-76 — an open question, not a change). Tick's FIRST statement is
+        // `if (_degraded) return;`, so once this is set the re-injection machinery this class's own
+        // doc describes ("Re-injects when the options window is replaced — it is a Singleton that
+        // does not survive every scene") never runs again, and CanOpen stays false for the rest of
+        // the process. Four of the five Degrade reasons measure ONE options-window instance and the
+        // fifth is a catch-all around the whole injection. The sibling class chose the opposite:
+        // VRMenuEntry.cs:950 clears its own _degraded in its reset. THE QUESTION FOR THE USER is
+        // whether a single failed injection should disable the VR settings menu for the process or
+        // only for that window instance; changing it risks an injection retry loop on a genuinely
+        // broken game build, which is why the latch exists and why this is a comment, not a commit.
         _degraded = true;
         Forget();
-        VRLog.Warn("WorldUI", $"VR options: no VR settings menu this session — {reason}. The game's "
+        // HW-VERIFY (2026-09 refactor, F-74) — this line IS "the VR settings menu is gone", which
+        // falls under the standing ruling that it must always be possible to open the options menu.
+        // Latched by _degraded, set two lines above: one line per session, no flood argument.
+        // The reference implementation is Patches/EscMenuShowSafety.cs:114-124 — the identical
+        // "log the first failure and thereafter stay silent" shape, at Alert and marked,
+        // whose sibling Report carries the rule: "AT THE ALERT TIER, NOT Warn (ModBuild 439,
+        // survey item B3) ... Warn and Info both gate on Level >= Debug, so at the shipped default
+        // these lines printed NOTHING and the doc's own requirement was false for eight builds."
+        VRLog.Alert("WorldUI", $"VR options: no VR settings menu this session — {reason}. The game's "
                               + "own options window is untouched and still opens normally, and every "
                               + "VR setting remains editable in BepInEx/config/dev.gloomhavenvr*.cfg. "
                               + "The pause-menu VR row is not injected either, because a row that "

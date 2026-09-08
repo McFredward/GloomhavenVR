@@ -58,13 +58,12 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <see cref="HeldUprightAtGrab"/> is a grab-time capture (it is a one-shot by definition), and
 /// that is true of the figure key it mirrors too.</para>
 ///
-/// <para><b>MULTIPLAYER.</b> Prop holds are local-only in this build BY DESIGN (see
-/// <see cref="HeldProps"/>): nothing about a held prop goes on the wire, so a peer never renders
-/// one and there is no mirrored visual for these keys to be read on the wrong side of. When the
-/// prop hold does get a wire record, these keys follow the standing ruling the figures already
-/// follow — the OWNER's values drive what every viewer sees, and a viewer's own copy of the same
-/// key is never ANDed or blended into it. There is deliberately NO per-sub-feature sync switch
-/// here: prop sync will be part of whatever whole-board dial already exists, or nothing.</para>
+/// <para><b>MULTIPLAYER.</b> A held map item's WORLD pose goes on the wire (record 37, see
+/// <see cref="HeldProps"/>), so these keys already follow the standing ruling the figures follow:
+/// the OWNER's values decide what every viewer sees — a viewer's own copy of the same key is
+/// never ANDed or blended into a remote hold, because a remote hold is drawn from the pose that
+/// ARRIVED rather than re-posed from local dials. There is deliberately NO per-sub-feature sync
+/// switch here: prop sync is part of the whole-board dial or nothing.</para>
 /// </summary>
 internal static class PropHeldPose
 {
@@ -166,9 +165,9 @@ internal static class PropHeldPose
     /// above.</para>
     ///
     /// <para>LIVE like the other eight (the per-frame re-assert in <c>GrabbableProp.TickHeld</c>
-    /// re-poses whatever is already in the hand), and MULTIPLAYER-inert for the same reason they
-    /// are: prop holds are local-only in this build, and when they do reach the wire this key
-    /// follows the standing ruling — the OWNER's value decides what every viewer sees, never
+    /// re-poses whatever is already in the hand). MULTIPLAYER-inert on the receiving side for the
+    /// same reason they all are: a remote hold is drawn from the WORLD pose that arrived on
+    /// record 37, so this key shapes only the hand it is set on — the OWNER's — and is never
     /// ANDed with a viewer's own copy.</para>
     /// </summary>
     public static ConfigEntry<bool>? SameInBothHands;
@@ -277,10 +276,11 @@ internal static class PropHeldPose
     /// <summary>Capture "the right way up in the world" once, at the grab.</summary>
     internal static bool HeldUprightAtGrab => Val(UprightAtGrab, Defaults.PropHeldUprightAtGrab);
 
-    /// <summary>Hold the item identically in both hands (both take the MIRRORED form), or mirror
-    /// it between them, which is what ships. See <see cref="SameInBothHands"/> for the report this
-    /// answers and <see cref="HeldPoseMirror.RotationSign"/> for why "identical" is the mirrored form and
-    /// not the authored one.</summary>
+    /// <summary>Hold the item identically in both hands (both take the MIRRORED form) — ON, which
+    /// is what ships — or mirror it between them (OFF, how ModBuild 349-434 held it). See
+    /// <see cref="SameInBothHands"/> for the report this answers and
+    /// <see cref="HeldPoseMirror.RotationSign"/> for why "identical" is the mirrored form and not
+    /// the authored one.</summary>
     internal static bool Alike => Val(SameInBothHands, Defaults.PropHeldSameInBothHands);
 
     /// <summary>

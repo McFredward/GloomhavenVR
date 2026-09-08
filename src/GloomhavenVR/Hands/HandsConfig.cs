@@ -397,8 +397,8 @@ internal static class HandsConfig
             "Hands", "GhostHandOnFan", Defaults.GhostHandOnFan,
             "Make the hand that currently holds the OPEN card fan semi-transparent (\"ghost " +
             "hand\") so the hand mesh stops covering card details. The hand stays visible — " +
-            "only its opacity drops (strength: GhostHandStrength). OFF by default; nothing " +
-            "about the hands changes until you enable it. Live-tunable, fully reversible (the " +
+            "only its opacity drops (strength: GhostHandStrength). ON by default. " +
+            "Live-tunable, fully reversible (the " +
             "fade runs on private per-renderer material copies, never on the shared hand " +
             "materials), and carried to the avatar mirror and to other players' view of you.");
         GhostHandOnHeldCard = config.Bind(
@@ -514,15 +514,15 @@ internal static class HandsConfig
                 "Hands", $"{s}VerticalOffset",
                 Seat(DefaultSeatVertical, i),
                 $"Vertical offset (meters, device-space Y; POSITIVE = up) of the visual hand from " +
-                $"the grip pose while the {s} style is worn. PER-STYLE absolute value (supersedes " +
-                "the old shared HandVerticalOffset + trim; seeded on first run). Live-tunable.");
+                $"the grip pose while the {s} style is worn. PER-STYLE absolute value (it replaced " +
+                "the old shared HandVerticalOffset + trim, which no longer exist). Live-tunable.");
             StyleSeatForward[i] = config.Bind(
                 "Hands", $"{s}ForwardOffset",
                 Seat(DefaultSeatForward, i),
                 $"Forward/depth offset (meters, device-space Z; POSITIVE = toward the fingertips) " +
                 $"of the visual hand from the grip pose while the {s} style is worn. PER-STYLE " +
-                "absolute value (supersedes the old shared HandForwardOffset + trim; seeded on " +
-                "first run). Live-tunable.");
+                "absolute value (it replaced the old shared HandForwardOffset + trim, which no " +
+                "longer exist). Live-tunable.");
             StyleSeatRoll[i] = config.Bind(
                 "Hands", $"{s}GripRollDegrees",
                 Seat(DefaultSeatRoll, i),
@@ -609,7 +609,7 @@ internal static class HandsConfig
                 return $"{n} pitch {StyleSeatPitch[i].Value:0.#}° X/Y/Z " +
                        $"{StyleSeatLateral[i].Value * 1000f:0}/{StyleSeatVertical[i].Value * 1000f:0}/" +
                        $"{StyleSeatForward[i].Value * 1000f:0} mm";
-            })) + " (first run seeds from the old global seat + trims).");
+            })) + " (hardware-measured per style; the old global seat + trims they replaced are gone).");
 
         // Ghost hand: the flip itself is worth one log line (the per-hand engage/release lines
         // with the renderer counts come from HandGhost, but only once a fan actually opens).

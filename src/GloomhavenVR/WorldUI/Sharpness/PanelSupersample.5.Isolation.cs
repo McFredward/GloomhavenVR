@@ -181,7 +181,10 @@ internal static partial class PanelSupersample
 
         if (LayerPool.Count == 0)
         {
-            VRLog.Warn(Scope, "PANEL SUPERSAMPLE capture-layer POOL is EMPTY: every layer 8-31 is "
+            // HW-VERIFY (2026-09 refactor, F-64) — the once-per-session census the stand-down
+            // line in .1.Core.cs refers the reader to. A referring line at a printing tier pointing
+            // at a referent at a dropped one is not a reference.
+            VRLog.Note(Scope, "PANEL SUPERSAMPLE capture-layer POOL is EMPTY: every layer 8-31 is "
                               + $"either named ({namedCount} named: {named}) or is the mod layer "
                               + $"{mod}. THE CONSEQUENCE: no window can be supersampled at all, "
                               + "because a capture camera with no private layer would have to share "
@@ -193,7 +196,9 @@ internal static partial class PanelSupersample
             return;
         }
 
-        VRLog.Info(Scope, $"PANEL SUPERSAMPLE capture-layer POOL resolved: {LayerPool.Count} private "
+        // HW-VERIFY (2026-09 refactor, F-64) — the other branch of the same once-per-session
+        // census; the two must be readable in the same log or neither is.
+        VRLog.Note(Scope, $"PANEL SUPERSAMPLE capture-layer POOL resolved: {LayerPool.Count} private "
                           + $"layer(s) [{pool}], scanning 31->8 for unnamed layers and excluding the "
                           + $"mod layer {mod}. LAYER CENSUS 8-31 — {namedCount} named: {named}; "
                           + $"1 mod layer: {mod}; {LayerPool.Count} free and now reserved by this "

@@ -78,8 +78,9 @@ namespace GloomhavenVR.WorldUI;
 /// The bar was therefore placed at y=-930, 390 px under a window that ends at y=-540, and centred at
 /// x=+4 instead of the column's x=-542. The whole difference is the ONE term the fit's verdict has
 /// and this class did not: <c>color.a x canvasRenderer.GetInheritedAlpha() &gt;= 0.05</c>. It is
-/// restated here BY VALUE from <c>CanvasConversion.FitMinAlpha</c>, the same borrowing (and the same
-/// standing risk of drift) as the plate fractions above, and the graphics it drops are COUNTED into
+/// <c>CanvasConversion.FitMinAlpha</c> ITSELF — see <see cref="FaintAlphaFloor"/> below, which
+/// references it rather than restating it, so the two cannot drift; the plate fractions beside it
+/// borrow the same way since the 2026-09 refactor. The graphics it drops are COUNTED into
 /// <see cref="Ink.Faint"/> so the falsifier can say whether this term was the whole story.</para>
 ///
 /// <para>Three further exclusions, each of which was a way to measure the frame again:
@@ -172,12 +173,20 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static class PanelInkBounds
 {
-    /// <summary>Full-frame plate test, BY VALUE from <c>CanvasConversion.FixedFitPlateWidthFraction</c>
-    /// and <c>…FixedFitPlateHeightFraction</c> (0.80 / 0.95). Restated rather than referenced because
-    /// those are private to another lane's file; if that pair ever moves, this pair must follow and the
-    /// falsifier's "plates excluded" count is what would show the drift.</summary>
-    private const float PlateWidthFraction = 0.80f;
-    private const float PlateHeightFraction = 0.95f;
+    /// <summary>Full-frame plate test — <c>CanvasConversion.FixedFitPlateWidthFraction</c> and
+    /// <c>FixedFitPlateHeightFraction</c> THEMSELVES (0.80 / 0.95), not copies of their values.
+    ///
+    /// <para>They were copies until the 2026-09 refactor (F-52), justified by "those are private to
+    /// another lane's file" — a boundary that does not exist: <c>CanvasConversion.3.Fit.cs</c> and
+    /// this file are the same folder, the same namespace, the same assembly and the same lane, and
+    /// <see cref="FaintAlphaFloor"/> three declarations down had already proved the mechanism works.
+    /// The drift was load-bearing rather than cosmetic: since ModBuild 447 <c>Ink.Plates</c> is a
+    /// HANDLE — read by <c>GrabbableModal</c> and deciding, through <c>GrabBarLayout.SolveSpan</c>,
+    /// whether the grab bar's width and centre come from the frame or from this union — so a tune of
+    /// the fit's pair would silently stop agreeing with the bar's width source, with nothing but a
+    /// count in a log line to notice.</para></summary>
+    private const float PlateWidthFraction = CanvasConversion.FixedFitPlateWidthFraction;
+    private const float PlateHeightFraction = CanvasConversion.FixedFitPlateHeightFraction;
 
     /// <summary>EFFECTIVE-ALPHA FLOOR — <c>CanvasConversion.FitMinAlpha</c> itself (0.05), NOT a copy
     /// of its value. This is the term whose absence put the grab bar 390 px under an empty frame; see
@@ -191,7 +200,8 @@ internal static class PanelInkBounds
     /// reason <c>FitMinAlpha</c>'s own doc gives about a different pair of readers: the rule that
     /// hides a window and the rule that brings it back must not be able to disagree about the same
     /// graphic. Unlike <see cref="PlateWidthFraction"/> this one needed no borrowing at all — the
-    /// source has been <c>internal</c> since ModBuild 291.</para></summary>
+    /// source has been <c>internal</c> since ModBuild 291 — which the plate pair above now is too
+    /// (2026-09 refactor, F-52), so this paragraph's "unlike" no longer distinguishes them.</para></summary>
     private const float FaintAlphaFloor = CanvasConversion.FitMinAlpha;
 
     /// <summary>Node budget for one walk. A converted window is order hundreds of transforms; this is
@@ -739,8 +749,15 @@ internal static class PanelInkBounds
     /// <b>A CHEAP, STABLE SIGNATURE OVER WHAT IS OPEN — the seam that says "re-capture".</b>
     ///
     /// <para>A LOCAL DERIVATION of the same two-part answer <c>PanelSupersample.ActiveSetSignature</c>
-    /// derives for the capture frame, restated here because that method is private to another lane's
-    /// file. Part one is the ACTIVE SET beneath the conversion target by instance id, to
+    /// derives for the capture frame. PART TWO OF THE TWO IS A LIVE CLONE and is recorded as such
+    /// (2026-09 refactor, F-54): the fourteen statements from the <c>NewPartyDisplayUI.PartyDisplay</c>
+    /// fetch to the sixth <c>MixSubView</c> call, and <c>MixSubView</c> itself, are byte-identical in
+    /// the two files. The reason given here was that the other method "is private to another lane's
+    /// file"; <c>WorldUI/Sharpness/</c> and <c>WorldUI/Conversion/</c> are the same lane. PART ONE is
+    /// genuinely different and must stay per-caller — see the table in the review — and the ORDER of
+    /// the six calls is load-bearing, because the mix is a rolling <c>sig * 31</c> hash: change it and
+    /// every window in both subsystems sees one phantom generation event. Part one is the ACTIVE SET
+    /// beneath the conversion target by instance id, to
     /// <see cref="SignatureDepth"/> levels (see the ModBuild 243 block below for why it is two and not
     /// one), which works on any converted window. Part two is the game's own <c>NewPartyDisplayUI</c>
     /// answer — the <c>ActiveDisplay</c> enum plus which of the six sub-view roots are actually open —

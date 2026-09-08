@@ -239,7 +239,8 @@ internal static class SettingsClickExemption
         if (_degraded)
             return;
         _degraded = true;
-        VRLog.Warn("WorldUI",
+        // 2026-09 refactor, F-74 — a one-shot self-disarm, same ruling as EscMenuInputBlock's.
+        VRLog.Alert("WorldUI",
             $"SettingsClickExemption disabled — {reason}. Pause/options-window clicks stay " +
             "vanilla-gated (may be vetoed during scripted tutorials, or killed by a gate " +
             "NullReferenceException during confirm waits).");

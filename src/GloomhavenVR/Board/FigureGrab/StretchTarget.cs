@@ -43,12 +43,13 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// order below is a tie-break that cannot be reached. It is written figure-first anyway so the
 /// established path is the one taken when a future change makes both answerable.</para>
 ///
-/// <para><b>MULTIPLAYER.</b> This is a dispatch seam and carries no state. Its two subjects differ
-/// on the wire and stay that way: a figure's stretch rides
-/// <c>NetProtocol.ExtIdHeldStretch</c> (record 30), sampled by <c>Net/NetFigures</c> off
-/// <c>FigureGrabbable.Stretch</c> on its own cadence; a PROP hold sends nothing at all and no peer
-/// renders one, so a prop's factor has nothing to be mirrored against. See
-/// <see cref="GrabbableProp.SetStretch"/> for that verdict in full.</para>
+/// <para><b>MULTIPLAYER.</b> This is a dispatch seam and carries no state. BOTH subjects are on
+/// the wire, by different records and under the same rule: what travels is the MEASURED held size
+/// (lossyScale ÷ the object's board-home scale), never the raw gesture factor. A figure's rides
+/// <c>NetProtocol.ExtIdHeldStretch</c> (record 30, sampled by <c>Net/NetFigures</c>); a map
+/// item's rides record 37 (<c>Net/NetProps.SampleHeldStretch</c>). The sentence that used to
+/// stand here — "a PROP hold sends nothing at all and no peer renders one" — predates that
+/// record. See <see cref="GrabbableProp.SetStretch"/> for the full account.</para>
 /// </summary>
 internal abstract class StretchTarget
 {

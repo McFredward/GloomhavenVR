@@ -416,8 +416,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
     /// <summary>How far inside the held envelope the raw measurement must sit before it counts as a
     /// recession at all, in the window's authored px. One 32 px quantum — the same dead band the
-    /// capture frame's own shrink hysteresis uses, so the two agree about what "smaller" means.</summary>
-    private const float InkReleaseDeadBandPx = 32f;
+    /// capture frame's own shrink hysteresis uses, so the two agree about what "smaller" means.
+    ///
+    /// <para>INTERNAL, not private, since the 2026-09 refactor (F-82): this is the DEFINITION the
+    /// other two instruments borrow. <c>CanvasConversion.3.Fit.cs</c>'s hit-rect shrink dead band
+    /// had it restated by value, and this number is hardware-settled with a named round behind it —
+    /// see the "NOTHING WAS TRADED AWAY: <c>InkReleaseConsecutive</c> is still 3 and
+    /// <c>InkReleaseDeadBandPx</c> is still 32" paragraph above. A future round tuning it HERE now
+    /// moves all three instruments together, which is what "so all three agree about what 'smaller'
+    /// means" was always claiming.</para></summary>
+    internal const float InkReleaseDeadBandPx = 32f;
 
     /// <summary>Per-edge tolerance for "the same recession again" across the run. Looser than
     /// <see cref="SameRect"/>'s half pixel on purpose: the run must survive a breathing layout, and
@@ -935,7 +943,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         {
             // NEVER SILENTLY. A fallback here reproduces the exact defect this change fixes, and it
             // would look identical to the fix not working at all.
-            VRLog.Warn("WorldUI",
+            //
+            // HW-VERIFY (2026-09 refactor, F-81) — AND IT WAS SILENT: VRLog.Warn gates on
+            // Level >= Debug, so at the shipped default this branch printed nothing and the comment
+            // above was false for every hardware log we have. This site sits BELOW the epsilon
+            // early-out, so it fires only on releases that actually turn the window: one per release
+            // gesture, never per frame. The epilogue line further down stays at Info on purpose —
+            // its verdict half already prints (WindowReFacePolicy's HW-VERIFY WINDOW RE-FACE Note),
+            // and a second per-release line from the same instrument buys nothing.
+            VRLog.Alert("WorldUI",
                 $"MODAL WINDOW: '{_logName}' released after a move — RE-FACING ABOUT THE FRAME ORIGIN, "
                 + "which is the pre-ModBuild-240 behaviour and the thing the user reported: "
                 + (host == null
@@ -3231,31 +3247,6 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     }
 
     /// <summary>
-    /// THE FALSIFIER, read back off the transform that was just written — not off the intent that
-    /// produced it. One greppable line per window per (re-)capture, rate-limited.
-    ///
-    /// <para><b>ModBuild 239 ADDED THE GAP ITSELF, and made a gap far above intent a NAMED FAILURE.</b>
-    /// Through ModBuild 238 this line could read CONFIRMED on the very window the user was
-    /// photographing (<c>grosser_abstand.jpg</c>): it asserted only that the bar CLEARS the ink and is
-    /// CENTRED on it, and both were true of an ink union that was itself wrong by 373 px. Two terms
-    /// now carry the distance, in the window's authored px and in millimetres at the live rig scale,
-    /// against the intended <see cref="BarGapMeters"/>:</para>
-    /// <list type="bullet">
-    /// <item><b>TO THE INK</b> — lowest drawn graphic to the bar's top edge. Legitimately larger than
-    /// intent whenever the ink stops ABOVE the frame's bottom, because the bar is never raised into
-    /// the frame; that is why it is reported and not judged.</item>
-    /// <item><b>BELOW THE FRAME</b> — the host rect's own bottom edge to the bar's top edge. This is
-    /// the user's complaint expressed as one number, and it is the term that is judged. It is
-    /// independent of whether the ink measurement is right, which is precisely the property the
-    /// ModBuild 238 verdict lacked ([[a-claim-must-not-measure-itself]]).</item>
-    /// </list>
-    /// <para>It fires whenever the handle hangs more than one dead band below its own window — which
-    /// includes the case where it is CORRECT to (the battle-goal picker really does draw 373 px below
-    /// the frame while it is open, and cutting across it is quest_überlap.jpg). That is deliberate: the
-    /// line names the graphic holding the bar down and the count of drawn-but-invisible graphics that
-    /// were excluded, so one reading adjudicates it. Silence on this cost another build.</para>
-    /// </summary>
-    /// <summary>
     /// THE MOUSEOVER LEDGER (ModBuild 241) — deliberately worded like the one
     /// <c>CanvasConversion.3.Fit.cs</c> prints, because the two now answer the same question from the
     /// same table (<see cref="TransientFamilies"/>) and a future round must be able to lay the two
@@ -3520,6 +3511,31 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             + "ignored, which is the one reading that means it is inert.");
     }
 
+    /// <summary>
+    /// THE FALSIFIER, read back off the transform that was just written — not off the intent that
+    /// produced it. One greppable line per window per (re-)capture, rate-limited.
+    ///
+    /// <para><b>ModBuild 239 ADDED THE GAP ITSELF, and made a gap far above intent a NAMED FAILURE.</b>
+    /// Through ModBuild 238 this line could read CONFIRMED on the very window the user was
+    /// photographing (<c>grosser_abstand.jpg</c>): it asserted only that the bar CLEARS the ink and is
+    /// CENTRED on it, and both were true of an ink union that was itself wrong by 373 px. Two terms
+    /// now carry the distance, in the window's authored px and in millimetres at the live rig scale,
+    /// against the intended <see cref="BarGapMeters"/>:</para>
+    /// <list type="bullet">
+    /// <item><b>TO THE INK</b> — lowest drawn graphic to the bar's top edge. Legitimately larger than
+    /// intent whenever the ink stops ABOVE the frame's bottom, because the bar is never raised into
+    /// the frame; that is why it is reported and not judged.</item>
+    /// <item><b>BELOW THE FRAME</b> — the host rect's own bottom edge to the bar's top edge. This is
+    /// the user's complaint expressed as one number, and it is the term that is judged. It is
+    /// independent of whether the ink measurement is right, which is precisely the property the
+    /// ModBuild 238 verdict lacked ([[a-claim-must-not-measure-itself]]).</item>
+    /// </list>
+    /// <para>It fires whenever the handle hangs more than one dead band below its own window — which
+    /// includes the case where it is CORRECT to (the battle-goal picker really does draw 373 px below
+    /// the frame while it is open, and cutting across it is quest_überlap.jpg). That is deliberate: the
+    /// line names the graphic holding the bar down and the count of drawn-but-invisible graphics that
+    /// were excluded, so one reading adjudicates it. Silence on this cost another build.</para>
+    /// </summary>
     private void ReportBarPlacement(Rect hostRect, float unit, float barWidth, float thickness,
                                     float intendedTopGapPx, float mmPerPx, GrabBarLayout.Span span)
     {

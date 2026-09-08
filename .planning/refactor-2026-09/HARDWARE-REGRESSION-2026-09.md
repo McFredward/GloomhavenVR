@@ -26,6 +26,66 @@ regression: it would mean the cached choreographer went stale instead of re-armi
 
 ## worldui-frame
 
+### One behaviour change, and it is the only one in this lane
+
+**F-01 — a trigger pull inside a drag bar's hover tail now grabs the figure behind it.**
+*Observe:* hover a floated window's (or the tray's) drag bar with the palm, move the hand onto a
+miniature or a map item within 0.20 s, and pull the trigger. The mini is grabbed. Before this build
+the pull did nothing at all: the two ray drivers had already yielded the uGUI press and the laser
+carry to an offer the grabber then refused.
+*Log tokens:* a `uGUI press YIELDED` or `laser-carry YIELDED` line, followed by a grab — and NO
+`is no longer the elected candidate` refusal for a `GrabWithGrip` target.
+*If it is wrong:* the pull takes the figure behind the bar when he wanted the bar. The bar still
+takes the GRIP button, which is the 2026-08-11 two-button ruling, so the bar itself is unaffected.
+
+### Everything else in this lane is a LOG-ONLY change. Nothing about the picture, the poses, the
+### dials or the wire moves. What follows is what he should now SEE IN THE LOG that a default-level
+### log has never carried — each line's token, and what its appearance means.
+
+| token (grep) | what its appearance means | finding |
+|---|---|---|
+| `TURN STALL WATCHDOG FIRED` | the ModBuild 107 turn deadlock happened and the mod repaired it. **A defect report, not a healthy recovery** — its own text says so. Silent since ModBuild 107. | F-19 |
+| `STRETCH CAPTURE ON` … body radius | the line now reports the renderer it measured instead of always claiming the CENTRE fallback. If it still says "NO renderer survived the sanity ceiling", that is now a real reading. | F-18 |
+| `[Props] NO ghost for '<name>'` | a held map item left no ghost at its hex, and why. Previously both failure paths returned in silence and read like "the prop was never grabbed". | F-22 |
+| `[Ownership] HAND FAN` census | now prints once per SCENARIO. Before, a second scenario with the same party and assignment printed nothing at all, and the missing falsifier read like "the duplicate did not happen". | F-31 |
+| `[EnemyInfo] ENEMY-INFO PHASE SKIPPED` | the mod pressed the host's "Fortfahren" for the whole table. | F-32 |
+| `[Ping] press rejected` / `no ping entry point found` | why an A-press did not ping. The whole chain was silent at the shipped level, which is what made "the joining peer cannot ping at all" undiagnosable. | F-33 |
+| `[Tap] → SELECT/PING` and the touch-commit line | the fingertip proof. The 2026-09-03 "Fingerspitze" report was diagnosed by reasoning because this line was invisible. | F-38 |
+| `[Focus] switch REFUSED` / `FOCUS PIN engaged` / `now looking at` / `SELECTION GUARD` | the character-focus evidence chain, quoted in its own docs as read off `LogOutput.log` — it has not appeared in a default log since 2026-08-30. | F-35 |
+| `stable hex decal ZTest=` / `HEX PROJECTOR guard [install]` | two lines INVARIANTS lists as grep tokens. Once per session each. | F-36 |
+| `GRAB STATE heal:` | the mod force-released a stuck hold. This is the line that explains "the laser vanished and came back". | F-02 |
+| `Poke WITHHELD` / `Poke press CANCELLED` | why a physical fingertip press did nothing. Both are the falsifier for the grip-chord ruling that produced them. | F-03 |
+| `PANEL SUPERSAMPLE engaged on '<window>'` | **the one that makes the rest readable.** A hardware log can now say whether a given floated window was supersampled at all. | F-64 |
+| `PANEL SUPERSAMPLE stands down` / `refused` / `capture-layer POOL` | why sharpening did NOT happen on a window — each of these lines ends by naming the shimmer he would still see. | F-64 |
+| `MIP BAKE ARRIVAL watch could not be installed` / `tick failed` | freshly loaded art stays aliased for ~1 s again. | F-64 |
+| `CAMERA ORDER` (shape / depth → / restored) | the probe's baseline, and the mod's WRITE to a game camera's depth. Its class doc promised the baseline "even when it finds nothing" and could not deliver it. | F-68 |
+| `HOST SCENE PIN FAILED` | the "Quest verwerfen" deadlock guard did not manage to pin a host. | F-48 |
+| `MODAL REVEAL: … FORCED` | a window revealed before it settled and may show one visible correction; any pending re-place was skipped. This is the "the window is in the wrong place / it snaps" line. | F-49 |
+| `MODAL RENDER PHASE VIOLATION` | a visibility write landed inside the render phase — the one-eye class. Carries a stack trace. | F-50 |
+| `HIT RECT: … swallowed` | a window may be unclickable outside its own frame. It could previously be silenced for the whole session by an unrelated throw. | F-47 |
+| `MODAL WINDOW: … NOTHING MEASURABLE` / `FIXED FIT CONCEDED` | a window revealed at its raw rect, or its sub-view is drawn at the size the game gives it. For a SHARED window the first of these is the reason its home looks wrong on both machines. | F-51 |
+| `VR options: no VR settings menu this session` | the VR settings menu is gone for this run, and why. | F-74 |
+| `UI SOUND EAR cannot be repaired` | **the answer to "still no button sounds"**, which the code has always known and never printed. | F-74 |
+| `disabled — …` (input-field watch, ESC-menu block, settings click exemption) | one of three input seams is off; the first of them costs frame time inside a scenario. | F-74 |
+| `CHARACTER 3D REFCOUNT: … stands down` | two windows on one character will blank each other's model. | F-74 |
+| `PartyPreviewStorm STOOD DOWN` / `PARTY PREVIEW STORM` | the attribution pair that decides whether the next flicker round is worth spending. | F-74 / F-80 |
+| `VR options: could not leave the escapable/controller input-area stack` | the ModBuild 336 separation did NOT happen. Previously its absence was identical to three other states. | F-75 |
+| `CONFIRMATION RESCUE: no ConfirmationBox…` | one arm of the deadlock guard is inert on this build of the game. | F-77 |
+| `OPTIONS TAP: no ESCMenu object exists` / `SECOND CHANCE TOOK` | "the X button did nothing", and the rescue that fired instead. | F-78 |
+| `RE-ASSERT WATCH NOT ARMED` / `FAILED TO START` / `RE-ASSERT FIRED` | the logo watch did not run, or something outside the patch is rewriting the logo — with the graphic named. | F-79 |
+| `MODAL WINDOW: … RE-FACING ABOUT THE FRAME ORIGIN` | the pre-ModBuild-240 behaviour returned on a release. Its own comment says "NEVER SILENTLY". | F-81 |
+
+**What to expect on a healthy session:** none of the tokens above except
+`PANEL SUPERSAMPLE engaged on …` (once per floated window) and, if a map item is held,
+`[Props] ghost spawned` / `NO ghost for`. Every other line in the table reports a degradation, a
+refusal or a repair — if the log is quiet, that IS the result, and for the first time it is a result
+we can distinguish from an instrument that was never printing.
+
+**The one number to watch:** the log should not get materially longer. Every promotion in this lane
+is behind a one-shot latch, a per-window/per-release/per-tap edge, or a Harmony resolver; no
+per-frame-capable line was promoted anywhere, and the ones deliberately left silent are named
+individually in the review (§6 F-51, §7 F-78/F-80/F-81/F-87, §8 F-64).
+
 ## net
 
 Tier 0–2 add nothing here (comments, crefs, one dead const, pure motion, three identical-output

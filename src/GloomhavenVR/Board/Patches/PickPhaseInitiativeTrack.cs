@@ -346,6 +346,9 @@ internal static class PickPhaseInitiativeTrack
         _judgedClaim = null;
         Opens.Clear();
         UpStated.Clear();
+        // ...AND THE THROW LATCH (2026-09 refactor, F-39). Same omission as EnemyInfoPhaseSkip's:
+        // the SECOND scenario in a session that throws here reported nothing.
+        _reportedThrow = false;
     }
 
     /// <summary>
@@ -531,7 +534,9 @@ internal static class PickPhaseInitiativeTrack
             if (_reportedThrow)
                 return;
             _reportedThrow = true;
-            VRLog.Warn("Board", "[PickTrack] the decision-flow track refill threw and is backing off " +
+            // A SELF-DISARM IS VRLog's OWN DEFINITION OF Error (2026-09 refactor, F-32): the
+            // feature backs off for 60 s. At Warn it appeared in no shipped log. Once.
+            VRLog.Error("Board", "[PickTrack] the decision-flow track refill threw and is backing off " +
                                 "for 60 s — the initiative band stays exactly as the game left it " +
                                 $"and nothing was written. {e}");
         }

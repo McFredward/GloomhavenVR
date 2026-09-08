@@ -568,9 +568,19 @@ internal sealed class RayUguiDriver
     /// <summary>
     /// Hardware-log proof line for the settings exemption (user ruling 2026-08-02): names the
     /// bypassed canvas, whether a BLOCKING modal lock is active right now (the incident
-    /// condition), and where the hover/press landed instead. Info on purpose — BepInEx's
-    /// default disk config drops Debug, and this line is what the next hardware log needs to
-    /// show the exemption engaging. Throttled (steady state while the beam crosses the float).
+    /// condition), and where the hover/press landed instead. Throttled (steady state while the
+    /// beam crosses the float).
+    ///
+    /// <para>DEBUG TIER, and the sentence that used to stand here said the opposite. It read
+    /// "Info on purpose — BepInEx's default disk config drops Debug, and this line is what the
+    /// next hardware log needs", which was true when it was written and stopped being true at
+    /// the ModBuild 331 tier re-decision: <c>VRLog.Info</c> maps to <c>VRLogLevel.Debug</c> and
+    /// the shipped level is Info, so this line has been absent from every default-tier log
+    /// since. It is NOT promoted, deliberately: the ruling it proves (the settings menu is never
+    /// input-blocked, 2026-08-02) is accepted and closed, and this is a steady-state line while
+    /// the beam crosses a float. To capture it, set <c>[General] LogLevel = Debug</c>. The same
+    /// correction, with the same reasoning, is recorded at the SUPPRESSED line in Tick — which
+    /// WAS promoted, because a suppressed press is a live question.</para>
     /// </summary>
     private void LogSettingsExemption(Canvas bypassed, float bypassedDist, Canvas settings,
         float settingsDist)
@@ -615,6 +625,12 @@ internal sealed class RayUguiDriver
     /// WHY so heavy: two hardware rounds died blind because the game's own veto only logs to the
     /// Unity log, which BepInEx does not capture here — this line is the mod-side replacement.
     /// Edge-only (trigger press) + throttled; allocations are fine at that rate.
+    ///
+    /// <para>DEBUG TIER since the ModBuild 331 re-decision (<c>VRLog.Info</c> gates on
+    /// <c>VRLogLevel.Debug</c>, the shipped level is Info), and left there on purpose: the
+    /// payload is several hundred characters per press, and the round it was written for is
+    /// closed. It is a bisection tool, not a standing instrument — set
+    /// <c>[General] LogLevel = Debug</c> before reproducing a dead settings click.</para>
     /// </summary>
     private void LogSettingsClickTrace(bool hit, in RaycastResult top)
     {

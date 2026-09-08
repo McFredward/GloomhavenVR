@@ -277,6 +277,19 @@ internal sealed class ProximityGrabber
                     return;
                 }
             }
+            // AND THE TRIGGER FALLS THROUGH IT TOO (2026-09 refactor, F-01) — the mirror of the
+            // grip fall-through above, and of the non-tail grip-only branch below, which has had
+            // this since ModBuild 359. The tail branch predates that fall-through and was never
+            // given the matching case, so a trigger pull here did NEITHER thing: TriggerGrabOffered
+            // is published for a GrabWithGrip highlight in the tail (its second disjunct is true
+            // there), the two ray drivers read it on the same frame and YIELD the uGUI press and
+            // the laser carry — and then this branch refused the grab because GripDown is false.
+            // The press was yielded to a grab that never happened. Only when the beam genuinely
+            // owns the pull (TryTriggerGrab returns false) does the refusal below still run.
+            if (_hand.TriggerDown && Highlighted.GrabWithGrip && _triggerCandidate != null
+                && !ReferenceEquals(_triggerCandidate, Highlighted)
+                && TryTriggerGrab(_triggerCandidate, "proximity fall-through", clearHighlight: false))
+                return;
             if (_hand.TriggerDown || _hand.GripDown)
             {
                 LogRefusal($"'{DescribeGrabbable(Highlighted)}' is no longer the elected candidate "
@@ -719,7 +732,8 @@ internal sealed class ProximityGrabber
     /// this hand (arbitration/dominance change). A stale <see cref="Held"/> would then
     /// refuse EVERY subsequent grab (and keep <c>RayInteractor.Active</c> false — laser
     /// gone) while hover haptics elsewhere still fire. Re-derive validity every Tick and
-    /// force-release with a Warn instead of latching.
+    /// force-release with a Note instead of latching (a Note prints at the shipped log level; the
+    /// Warn this said until the 2026-09 refactor did not — see F-02).
     /// </summary>
     private bool HealDeadHeld()
     {
@@ -745,10 +759,16 @@ internal sealed class ProximityGrabber
             }
             catch (Exception ex)
             {
-                Core.VRLog.Warn("Interact", $"GRAB STATE heal: OnRelease threw during heal ({ex.GetType().Name}: {ex.Message}) — state cleared anyway.");
+                // HW-VERIFY (2026-09 refactor, F-02) — INVARIANTS §15 lists `GRAB STATE heal:`
+                // as a hardware grep token, and since ModBuild 331 Warn gates on Level >= Debug,
+                // so the token has not appeared in a default log since. Edge-triggered.
+                Core.VRLog.Note("Interact", $"GRAB STATE heal: OnRelease threw during heal ({ex.GetType().Name}: {ex.Message}) — state cleared anyway.");
             }
         }
-        Core.VRLog.Warn("Interact", $"GRAB STATE heal: {_hand.Side} force-released ({_grabLabel}) — {why}. Grabs re-enabled.");
+        // HW-VERIFY (2026-09 refactor, F-02) — the force-release itself. A stale Held refuses
+        // EVERY subsequent grab and keeps RayInteractor.Active false, so this is the ONE line that
+        // explains "the laser vanished and came back". At most once per stuck hold.
+        Core.VRLog.Note("Interact", $"GRAB STATE heal: {_hand.Side} force-released ({_grabLabel}) — {why}. Grabs re-enabled.");
         return true;
     }
 

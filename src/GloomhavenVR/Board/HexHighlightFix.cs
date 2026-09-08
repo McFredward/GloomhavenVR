@@ -25,7 +25,8 @@ namespace GloomhavenVR.Board;
 /// during the right-eye pass are stale left-eye/mono state → the pattern lands
 /// differently per eye and per head pose (the "reflection").
 ///
-/// PROPER FIX (this class, config <c>SwapStableShader</c>): swap the material's
+/// PROPER FIX (this class; <c>SwapStableShader</c> is a constant, always on — it and the two
+/// knobs below stopped being config entries in the 2026-08-22 settings audit): swap the material's
 /// shader to the bundled <b><c>GloomhavenVR/HexDecalStable</c></b>
 /// (unity/GloomhavenVR.Assets/Assets/Bundle/Table/HexDecalStable.shader) — an
 /// instruction-for-instruction port of the recovered OmniDecal algebra that replaces
@@ -44,12 +45,13 @@ namespace GloomhavenVR.Board;
 /// pixel (SV_Depth of the ray∩plane point — the box mesh's own fragments sit
 /// below the floor and would z-fail under a naive LEqual) and defaults ZTest to
 /// LEqual, so figures standing on the hex and walls in front now occlude the
-/// highlight like any other geometry, while ZWrite stays off. Config
-/// <c>StableZTest</c> (4=LEqual default, 8=vanilla Always) and
-/// <c>StableDepthBias</c> (anti-z-fight bias vs the tile floor) are re-applied on
-/// every swap/postfix for on-device experiments; the applied ZTest is logged.
+/// highlight like any other geometry, while ZWrite stays off. <c>StableZTest</c>
+/// (4=LEqual, 8=vanilla Always) and <c>StableDepthBias</c> (anti-z-fight bias vs the
+/// tile floor) are CONSTANTS since the 2026-08-22 settings audit, re-applied on every
+/// swap/postfix so a material re-creation can never lose them; the applied ZTest is
+/// logged once per session.
 ///
-/// FALLBACK (old bundle without the shader, or <c>SwapStableShader=false</c>): the
+/// FALLBACK (old bundle without the shader, or a swap that threw): the
 /// previous mitigation stays — zero the swimming DECORATION layers
 /// (<c>_BorderFlameIntensity</c>, <c>_CrossHair</c>). The two bisect knobs that could also
 /// zero <c>_BorderLineIntensity</c>/<c>_HexIntensity</c> are GONE (user ruling 2026-08-13):
@@ -360,7 +362,9 @@ internal static class HexHighlightFix
             return;
         _projectorLogLines++;
         int layer = VRLayers.ModLayer;
-        VRLog.Info(Scope, $"HEX PROJECTOR guard [{why}]: {adjusted} game projector(s) now ignore the mod " +
+        // HW-VERIFY (2026-09 refactor, F-36) — the doc twenty lines up says the next hardware log
+        // needs this line; MaxProjectorLogLines caps it at 4 per session.
+        VRLog.Note(Scope, $"HEX PROJECTOR guard [{why}]: {adjusted} game projector(s) now ignore the mod " +
                           $"layer {layer} — mask bit 0x{VRLayers.ModLayerMask:X8} ORed into ignoreLayers, so " +
                           "no game projector paints the mod's environment room. Names: " +
                           (adjusted > 0 ? names.ToString() : "none in this scope"));
@@ -499,6 +503,11 @@ internal static class HexHighlightFix
         _materialDumps = 0;
         _errorLogs = 0;
         _lastLoggedZTest = -1;
+        // ...AND THE BYPASS LATCH (2026-09 refactor, F-39). Every other one-shot in this body is
+        // cleared; this one was not, so after a hot reload the "layer-kill fallback knobs bypassed"
+        // line never printed again and a reader could not tell the bypass from a path that never
+        // ran a second time.
+        _knobsBypassLogged = false;
     }
 
     private static void DumpMaterial(Material mat)
@@ -615,7 +624,8 @@ internal static class HexHighlightFix
             if (current != null && current.name == StableShaderName)
             {
                 // Already swapped (postfix re-runs on every state change) — still
-                // re-assert the occlusion knobs so live config edits take effect.
+                // re-assert the occlusion knobs: they ride every postfix so a material
+                // re-creation on the game's side can never lose them.
                 ApplyOcclusionKnobs(mat);
                 return true;
             }
@@ -648,7 +658,8 @@ internal static class HexHighlightFix
         /// <summary>
         /// (Re-)apply the occlusion knobs to a stable-shader material — ZTest (default 4 = LEqual,
         /// 8 = vanilla draw-through) and the anti-z-fight depth bias; the class doc's OCCLUSION
-        /// section says what each one buys. Logged when the applied ZTest changes.
+        /// section says what each one buys. Both are constants, so the line below is one per
+        /// session rather than one per change.
         /// </summary>
         private static void ApplyOcclusionKnobs(Material mat)
         {
@@ -660,7 +671,10 @@ internal static class HexHighlightFix
             if (_lastLoggedZTest != StableZTest)
             {
                 _lastLoggedZTest = StableZTest;
-                VRLog.Info(Scope, $"stable hex decal ZTest={StableZTest} (LEqual — highlight " +
+                // HW-VERIFY (2026-09 refactor, F-36) — INVARIANTS-Hands-Board-Core.md lists this
+                // under "log lines that are grep tokens, not debug residue". Latched by
+                // _lastLoggedZTest: once per session.
+                VRLog.Note(Scope, $"stable hex decal ZTest={StableZTest} (LEqual — highlight " +
                                   "occluded by figures/walls via per-pixel depth export), " +
                                   $"depthBias={StableDepthBias:0.######}; both fixed in code.");
             }

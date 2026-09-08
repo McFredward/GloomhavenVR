@@ -1183,7 +1183,7 @@ internal static partial class CanvasConversion
 
     /// <summary>
     /// Attach the per-window flatten driver to <paramref name="panel"/>'s host. Same pattern as
-    /// <c>GrabbableModal.HostLateSync</c> and <c>AvatarMirror.LatePin</c>: a tiny MonoBehaviour on
+    /// <c>SurfaceGrabBar.HostLateSync</c> and <c>AvatarMirror.LatePin</c>: a tiny MonoBehaviour on
     /// the object it serves, so its lifetime is the host's lifetime and no registry can leak it.
     /// </summary>
     private static void AttachFlattenDriver(ConvertedPanel panel)

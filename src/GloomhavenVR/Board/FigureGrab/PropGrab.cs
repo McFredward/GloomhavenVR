@@ -48,8 +48,11 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// loop it already runs. There is no per-hand pass here, and props and figures therefore compete
 /// in ONE election rather than two that would have to be arbitrated against each other.</para>
 ///
-/// <para><b>MULTIPLAYER.</b> Local-only and additive: nothing is sent, nothing is expected, an
-/// unmodded peer sees a chest that never moves. The seam is documented in
+/// <para><b>MULTIPLAYER.</b> Additive, and no longer local-only: since record 37 a held map
+/// item's pose and measured size stream to peers (<c>Net/NetProps</c>) and a peer-held prop is
+/// grab-locked through <c>NetHeldProps</c>. DISCOVERY — what this class does — stays local by
+/// construction: every client resolves its own visuals from its own <c>ObjectCacheService</c>,
+/// and an unmodded peer still sees a chest that never moves. The seam is documented in
 /// <see cref="HeldProps"/>.</para>
 /// </summary>
 internal static class PropGrab
@@ -59,30 +62,31 @@ internal static class PropGrab
     /// late arrival this scan exists to survive.</summary>
     private const float ScanIntervalSeconds = 2f;
 
-    /// <summary>
-    /// <b>THIS BUDGET IS GONE (ModBuild 367), AND ITS REMOVAL IS HALF THE 2026-09-03 FIX.</b>
-    ///
-    /// <para>It used to read: <i>"Scans allowed after the prop list last CHANGED SIZE, while
-    /// liftable props are still unresolved. Twelve at the interval above covers ~24 s — the whole
-    /// of the load and reveal — and then costs nothing. A hard budget rather than a cadence that
-    /// runs forever, because ObjectCacheService.GetPropObject logs a warning of the game's own on
-    /// every miss and a discovery pass must not be the loudest thing in the log."</i></para>
-    ///
-    /// <para>Every sentence of that was true and the conclusion was still wrong, because the
-    /// premise it rests on — that a miss is loud — was a property of HOW we asked, not of the
-    /// question. <see cref="PropVisualLookup"/> reads the cache dictionary directly and says
-    /// nothing on a miss, so the reason to stop looking is gone. What the budget cost is the
-    /// 2026-09-03 report in full: once it expired, <c>resolve</c> was false for the rest of the
-    /// scenario, every unresolved prop was counted as pending WITHOUT a lookup, and no prop could
-    /// ever become grabbable again — no glow, no collider, no ghost, no card, silently, with the
-    /// census budget also spent so the log said nothing either. A prop whose room is revealed in
-    /// minute ten is the ordinary case, not the edge case.</para>
-    ///
-    /// <para>The floor that replaces it: the walk runs while ANY liftable prop is unresolved, at
-    /// the same 2 s cadence, and the walk is a <c>PropLift</c> test per prop plus one dictionary
-    /// probe per missing one. No scene query, ever. Once everything has resolved, a scan is one
-    /// <c>List.Count</c> comparison and a return, exactly as before.</para>
-    /// </summary>
+    // ---- THE SETTLE BUDGET (`SettleScanBudget`) IS GONE (ModBuild 367), AND ITS REMOVAL IS
+    // HALF THE 2026-09-03 FIX. Written as a plain comment, not as XML doc: the constant it
+    // documented no longer exists, so as a <summary> it silently became the doc of whatever
+    // member followed it (IdleSweepScans, which has its own).
+    //
+    // It used to read: "Scans allowed after the prop list last CHANGED SIZE, while
+    // liftable props are still unresolved. Twelve at the interval above covers ~24 s — the whole
+    // of the load and reveal — and then costs nothing. A hard budget rather than a cadence that
+    // runs forever, because ObjectCacheService.GetPropObject logs a warning of the game's own on
+    // every miss and a discovery pass must not be the loudest thing in the log."
+    //
+    // Every sentence of that was true and the conclusion was still wrong, because the
+    // premise it rests on — that a miss is loud — was a property of HOW we asked, not of the
+    // question. PropVisualLookup reads the cache dictionary directly and says
+    // nothing on a miss, so the reason to stop looking is gone. What the budget cost is the
+    // 2026-09-03 report in full: once it expired, resolve was false for the rest of the
+    // scenario, every unresolved prop was counted as pending WITHOUT a lookup, and no prop could
+    // ever become grabbable again — no glow, no collider, no ghost, no card, silently, with the
+    // census budget also spent so the log said nothing either. A prop whose room is revealed in
+    // minute ten is the ordinary case, not the edge case.
+    //
+    // The floor that replaces it: the walk runs while ANY liftable prop is unresolved, at
+    // the same 2 s cadence, and the walk is a PropLift test per prop plus one dictionary
+    // probe per missing one. No scene query, ever. Once everything has resolved, a scan is one
+    // List.Count comparison and a return, exactly as before.
 
     /// <summary>Cadence ticks between the slow floor sweeps — one full (but resolution-free) walk
     /// every <c>IdleSweepScans * ScanIntervalSeconds</c> seconds, ~10 s. See the change gate in
@@ -163,17 +167,6 @@ internal static class PropGrab
         return false;
     }
 
-    /// <summary>
-    /// The collider this prop actually REGISTERED against, or null if it is not registered — read
-    /// by the <c>[Props]</c> census's REACHHEXES column so the line measures the shape the registry
-    /// really holds, not the shape this file believes it built. Since ModBuild 473 that collider
-    /// is not necessarily the shape a HAND is measured against: see
-    /// <see cref="FootprintCellsOf"/> and <see cref="PropFootprint"/>.
-    ///
-    /// <para>Read-only: it hands back a reference and nothing else, so the census cannot become
-    /// load-bearing through it. A destroyed collider comes back as a Unity-null the caller's own
-    /// <c>== null</c> catches, which is the same contract <see cref="Prune"/> relies on.</para>
-    /// </summary>
     /// <summary>The nearest registered prop whose pick volume contains <paramref name="hand"/>'s
     /// pinch point, or null. Pure; the registry is small (single digits to a few dozen), so this is
     /// one ClosestPoint per prop per call and it is called only from the capture test's edge.</summary>
@@ -195,6 +188,17 @@ internal static class PropGrab
         return best;
     }
 
+    /// <summary>
+    /// The collider this prop actually REGISTERED against, or null if it is not registered — read
+    /// by the <c>[Props]</c> census's REACHHEXES column so the line measures the shape the registry
+    /// really holds, not the shape this file believes it built. Since ModBuild 473 that collider
+    /// is not necessarily the shape a HAND is measured against: see
+    /// <see cref="FootprintCellsOf"/> and <see cref="PropFootprint"/>.
+    ///
+    /// <para>Read-only: it hands back a reference and nothing else, so the census cannot become
+    /// load-bearing through it. A destroyed collider comes back as a Unity-null the caller's own
+    /// <c>== null</c> catches, which is the same contract <see cref="Prune"/> relies on.</para>
+    /// </summary>
     internal static Collider? PickColliderOf(CObjectProp? prop)
     {
         if (prop == null)

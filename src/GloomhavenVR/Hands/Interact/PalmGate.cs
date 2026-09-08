@@ -46,7 +46,10 @@ namespace GloomhavenVR.Hands.Interact;
 /// Opens when the roll exceeds <see cref="EnterDegrees"/> (default 60° — a comfortable
 /// supination), closes below <see cref="ExitDegrees"/> (default 45°); the dead band
 /// prevents flicker at the boundary. Open/close logs include the current PITCH of the
-/// finger axis to prove pitch-invariance in hardware logs. Ticked every frame by
+/// finger axis to prove pitch-invariance — at the DEBUG tier (<c>VRLog.Info</c> gates on
+/// <c>VRLogLevel.Debug</c> since ModBuild 331 and the shipped level is Info), so a capture
+/// needs <c>[General] LogLevel = Debug</c>; v4 is accepted and the line is kept as the
+/// bisection tool for a future roll-gate report, not as standing evidence. Ticked every frame by
 /// <see cref="VRHand"/>; state is queryable (<see cref="IsOpen"/>) and edge-observable
 /// (<see cref="Changed"/>, main thread).
 /// </summary>

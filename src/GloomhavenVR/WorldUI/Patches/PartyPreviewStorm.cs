@@ -224,7 +224,10 @@ internal static class PartyPreviewStorm
             return true;
 
         _standDown = true;
-        VRLog.Warn(Scope,
+        // 2026-09 refactor, F-74 — a one-shot stand-down; the line itself tells the reader what
+        // the CHARACTER 3D CADENCE numbers will look like as a result, which is unusable if the
+        // stand-down is invisible.
+        VRLog.Alert(Scope,
             "PartyPreviewStorm STOOD DOWN: could not resolve "
             + $"characterDisplay={_windowDisplay != null}, character={_displayCharacter != null}, "
             + $"window={_displayWindow != null}. The redundant-rebuild suppression is OFF for this "
@@ -253,7 +256,17 @@ internal static class PartyPreviewStorm
         if (hoverTotal == 0 && _previewSeen == 0)
             return; // nothing happened; do not print a line of zeroes every 5 s
 
-        VRLog.Info(Scope,
+        // HW-VERIFY (2026-09 refactor, F-80) — this line's own text says it "is the ATTRIBUTION
+        // for the CHARACTER 3D CADENCE line" and that "(3) Both counters at 0 while the user reports
+        // flicker means neither cause is live and the next round must not be spent here". A line
+        // that directs where a hardware round is spent has to be in a hardware log. THE THROTTLE
+        // WAS CHECKED, not assumed: MaybeReport advances its window start BEFORE the
+        // nothing-happened early-out above, so it cannot be defeated the way ActorPropBody.cs:933
+        // was, and the line is suppressed entirely when both counters are zero — ceiling one line
+        // per 5 s, only while the roster is hovered. ITS PARTNER, CHARACTER 3D CADENCE, IS
+        // DELIBERATELY LEFT AT Info: a 1 s window makes it four times noisier and this line already
+        // names its verdict in prose, so one printing half decides the round.
+        VRLog.Note(Scope,
             $"PARTY PREVIEW STORM ({span:F2}s): hover changes {hoverTotal} — "
             + $"{_hoverDispatched} dispatched, {_hoverHeld} SWALLOWED by the "
             + $"{Hands.Interact.UguiPointer.ExitHysteresisFrames}-frame exit hysteresis "

@@ -1098,7 +1098,13 @@ internal static partial class CanvasConversion
                   "because this window's spawn pose came from the shared table anchor and depends " +
                   "on a rect it had not measured — grep SHARED WINDOW REVEAL GRACE"
                 : $"deadline {budgetMs:F0} ms";
-            VRLog.Warn("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' FORCED after {waitedMs:F0} ms " +
+            // HW-VERIFY (2026-09 refactor, F-49) — the FORCED branch only; the settled sibling
+            // above stays at Info because it fires once per float. This line says the window "may
+            // show one visible correction" and that any pending pose re-place "is now permanently
+            // SKIPPED", which is the snap the reveal gate exists to prevent — and TickRevealGate's
+            // doc already claims "a Warn names what was still pending", i.e. it believed this line
+            // was heard.
+            VRLog.Alert("WorldUI", $"MODAL REVEAL: '{panel.HostGo.name}' FORCED after {waitedMs:F0} ms " +
                                   $"({budget}; still waiting on " +
                                   $"{(!treated ? "treatment" : !fitDone ? "first content fit" : "pose stillness")}; " +
                                   $"fit={fitState}) — revealing anyway, a window must never stay invisible; " +
@@ -2116,6 +2122,15 @@ internal static partial class CanvasConversion
     /// <summary>
     /// Module-side soft lock (e.g. while the phase banner blocks input full-screen
     /// in 2D — our converted surfaces must not accept pokes either, UI-ARCH §9.7).
+    ///
+    /// <para>NO CALLER AT HEAD, AND THIS IS NOT DEAD CODE — IT IS INERT (2026-09 refactor, F-56).
+    /// The phase banner the example above names was removed in <c>00c51010</c>, taking the only
+    /// caller with it, so <see cref="EffectiveLock"/>'s second term (<c>SoftLocks.Count &gt; 0</c>)
+    /// has been constantly FALSE ever since. The mechanism is intact and reaches six live consumers
+    /// through <c>IsLockedNow</c>, and <c>REVIEW-WorldUI.md</c> still lists it as part of the core
+    /// surface, so deleting it would cascade into <c>SoftLocks</c>, that OR term and
+    /// <c>ReleaseAll</c>'s <c>SoftLocks.Clear()</c> — four members for a capability the module layer
+    /// may legitimately want back. Kept, and labelled, rather than removed or silently believed.</para>
     /// </summary>
     internal static void SetSoftLock(object requester, bool locked)
     {

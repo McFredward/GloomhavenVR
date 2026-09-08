@@ -405,12 +405,13 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private float _anchorRootHeading;
     private float _anchorRootPitch;
 
-    /// <summary><paramref name="logName"/>/<paramref name="logChannel"/> keep the owner's log identity ("Tray grab: …" etc.).</summary>
     /// <summary>
     /// Wire the handle to its owner and to the ONE renderer whose material is the handle's colour.
     /// For a <c>GrabBarVisual</c> rod that is <c>bar.Renderer</c> (the shaft); its two caps share the
     /// same Material, so the highlight lights all three from this one reference.
     /// </summary>
+    /// <param name="logChannel">Keeps the owner's log identity ("Tray grab: …" etc.).</param>
+    /// <param name="logName">Keeps the owner's log identity ("Tray grab: …" etc.).</param>
     internal void Init(IPanelGrabOwner owner, MeshRenderer bar, string logChannel, string logName)
     {
         _owner = owner;
