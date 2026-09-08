@@ -704,7 +704,7 @@ internal static partial class Loc
             ["Optimize/WallFadeEvalInterval"] = Pair("Wall check interval (s)", "Wand-Prüfintervall (s)"),
             ["Optimize/InitiativeDepthEvalInterval"] = Pair("Row depth interval (s)", "Reihen-Tiefenintervall (s)"),
             ["Optimize/QuietDiagnostics"] = Pair("Quiet diagnostics", "Diagnose-Zeilen dämpfen"),
-            ["Optimize/RemoteContentInterval"] = Pair("Remote board scan (s)", "Mitspieler-Scan (s)"),
+            ["Optimize/RemoteContentInterval"] = Pair("Remote board scan (inert)", "Mitspieler-Scan (inaktiv)"),
             ["Optimize/HeadDepthPrepass"] = Pair("Keep depth prepass", "Tiefen-Prepass behalten"),
             ["Optimize/HeadCullingMaskDrop"] = Pair("Camera: skip layers", "Kamera: Ebenen aus"),
             ["Optimize/HeadMaskFromScenarioCamera"] = Pair("Camera mask from game", "Kameramaske vom Spiel"),

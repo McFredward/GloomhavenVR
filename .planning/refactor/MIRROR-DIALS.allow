@@ -25,12 +25,12 @@
 #
 # THE FILE IS EXPECTED TO SHRINK, and it is shrinking. Four OPEN entries when it was
 # written (2026-09-07); two closed the same day by fix lanes F and the shared-window law;
-# the map placard's closed on 2026-09-08 by the 2026-09 refactor's net lane. ONE left.
+# the map placard's closed on 2026-09-08 by the 2026-09 refactor's net lane.
+# The last viewer-content delay closed in ModBuild 486; zero OPEN entries remain.
 
 # ── OPEN — R2's four confirmed instances, all shipped and all invisible to every other gate ──
 
 
-Net/Remote/RemoteBoardContent.cs | PerfConfig.RemoteContentSeconds | OPEN | R2 F12 (ModBuild 479, shipped). A live viewer dial reached through a PROPERTY — Mathf.Clamp(RemoteContentInterval.Value, 0f, 2f) — with no .Value at the call site, so a .Value-only lint would miss it. It gates every peer board's whole structural pass: furniture rebuilds, use-bar symbols, the decision row and the draw-order sweep. R2 classes it a bare, un-ruled TIMING exception in the one direction 1:1 forbids. It ships at 0 (= no change), so today it is latent rather than live; that is a reason to rule on it, not to leave it unrecorded.
 
 # ── viewer-ruled — the user has ruled these local, in his own words ──
 

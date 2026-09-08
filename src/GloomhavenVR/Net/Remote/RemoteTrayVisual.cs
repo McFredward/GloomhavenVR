@@ -40,8 +40,8 @@ namespace GloomhavenVR.Net;
 /// <see cref="RemoteBoardFurniture.StripColliders"/> guard ever runs. Nothing is registered
 /// anywhere; a peer's board remains a pure display.
 ///
-/// Null (procedural fallback: the old flat frame quad) when the bundle is not resident yet or
-/// the prefab lacks its anchors — the same degradation ladder the local board has.
+/// Returns null while the original bundle is unavailable or its required anchors are missing.
+/// The caller retries through the shared original-asset loader before presenting a native board.
 /// </summary>
 /// <remarks>CLASSIFICATION: VR-ONLY input, zero NEW wire — rendered entirely from fields that
 /// already ride the wire (board pose/scale + style code). See INVARIANTS-Net-Rig.md
@@ -135,16 +135,14 @@ internal sealed class RemoteTrayVisual
     }
 
     /// <summary>True when the REAL tray prefab could be built right now (bundle resident) —
-    /// polled by <see cref="RemoteControlBoard"/> so a board that came up on the procedural
-    /// fallback (bundle not loaded yet) upgrades itself once the asset arrives.</summary>
+    /// polled by <see cref="RemoteControlBoard"/> while original-asset construction is pending.</summary>
     public static bool PrefabAvailable(ControlBoard style) =>
         VRCardFactory.PeekTrayPrefab(style) != null;
 
     /// <summary>
     /// Clone the real board asset for <c>style</c> under <paramref name="boardRoot"/>
-    /// and align its anchors. Null → caller keeps the flat-quad fallback (bundle absent, or an
-    /// old bundle whose prefab lacks the anchor set — then a mis-aligned mesh would be worse
-    /// than the honest fallback).
+    /// and align its anchors. Null keeps native construction pending while the shared loader
+    /// recovers a missing bundle or an installation supplies the required original anchor set.
     /// </summary>
     public static RemoteTrayVisual? Build(Transform boardRoot, in RemoteBoardTuning tuning)
     {
@@ -203,8 +201,8 @@ internal sealed class RemoteTrayVisual
         if (visual._slots[0] == null || visual._slots[1] == null
             || visual.ShortRestAnchor == null || visual.LongRestAnchor == null)
         {
-            VRLog.Warn("Net", $"Remote tray prefab '{style}' lacks its anchor set — keeping the " +
-                              "flat fallback board for this peer.");
+            VRLog.Warn("Net", $"Remote tray prefab '{style}' lacks its anchor set — native " +
+                              "board construction remains pending for this peer.");
             Object.Destroy(go);
             return null;
         }

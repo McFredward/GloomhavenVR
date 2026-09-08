@@ -538,4 +538,6 @@
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/PresentationPending.cs" />
     <Compile Include="PresentationBoundaryVectors.cs" />
   </ItemGroup>
+  <ItemGroup><Compile Include="PresentationSaturationVectors.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="NativeBoardVectors.cs" /></ItemGroup>
 </Project>

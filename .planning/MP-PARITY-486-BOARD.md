@@ -46,14 +46,16 @@ Host `LogOutput.log:33703–33713` records three offered take-damage roles, a 21
 
 Neither supplied log contains an actual `DEMOTED the mirrored element` event. The remote log's `ELEMENT PARITY ... via=MOD-DRAWN` sample at line 3683 describes all six elements inert and no picture on either side; it is not proof that a visible chip fallback occurred. Generic census text mentioning a fallback is not counted as an execution trace.
 
-## Shared seams and remaining integration obligations
+## Integrated shared seams
 
-1. `RemoteWidgetMirror` owns source-present initial fit recovery. The native lane is auditing safe original geometry; suppressing identity-scale output must remain mandatory. Removing custom fallback entry points alone is not proof that every native panel fits successfully.
-2. Native `ExtendedButton.scaleNonInteractable` can permit a disabled button to grow. The receiver now respects that flag and preserves disabled tint/action gating; its color transition follows native linear unscaled `ColorBlock.fadeDuration`. Parent owns `DecisionDockSurface.SamplePointerBits` so those pointer bits reach the receiver; no new wire field is needed.
-3. `InitiativeTrackSurface` normalizes original portrait depth through the viewer's live `WorldUIConfig.InitiativeDepthMaxSpreadPx`. The receiver now reads cached authored Z through a read-only accessor and reapplies the owner's cap after native sync, including when the viewer cap is zero. Parent provides `NativeInitiativeDepthPixels` through additive record52 and calls `SetNativeDepthPixels` before board refresh. This integration seam must be present before claiming the leak closed.
-4. Faster content edges expose `RemoteActiveCards`' old one-content-tick first-sighting grace. Parent/cards lane must make any flight reconciliation interval explicit rather than relying on the former content timer.
-5. Parent owns the German INERT configuration description in `Core/Loc/Loc.ConfigDescriptions.German.cs`; retaining a German explanation promising a live delay would misdescribe the now-inert key.
-6. Parent wires native-board Sample/Reset, independent transport, owner state/history, `CopyWithTime` idle predecessors and `SetNativeState` before content updates. Native-board arrival must bypass content maintenance latency. The native lane supplies `SetOwnerFrame` and the shared original animation binding/writer. The physical-board availability fix above has source and build coverage; no supplied log proves this fallback occurred on hardware.
+1. `RemoteWidgetMirror` now recovers its first fit from validated original authored geometry and accepts explicit owner frames. Invalid geometry still cannot display an identity-scale world canvas.
+2. The common `DecisionDockSurface.SamplePointerBits` publishes actual native disabled hover. Both decision and use-bar receivers preserve native pointer geometry and color transitions.
+3. Record52 carries the exact owner initiative-depth value. Root assigns it before construction/refresh; the receiver reconstructs original authored Z even when the viewer cap is zero.
+4. Active-card arrival reconciliation uses actual flight duration and stable card identity, independently of the removed content-delay dial.
+5. `Optimize.RemoteContentInterval` remains present and is marked INERT in both languages. Its obsolete OPEN mirror-dial allowance is removed.
+6. Root wires native-board late sampling/reset, independent bounded transport, owner history, `CopyWithTime` idle predecessors and `SetNativeState` before construction/content updates. Received board and auxiliary frames advance the shared content revision immediately. Owner frame fitting and target interpolation use the same playback sample.
+
+These are source-verified integration results. They do not replace the hardware observations below.
 
 ## Validation and next hardware observations
 

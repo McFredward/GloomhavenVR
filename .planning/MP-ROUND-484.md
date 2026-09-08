@@ -89,6 +89,9 @@ not repair a missing connection and is not a justified fix.
    `UIUsePreview` decoration also runs on the inactive, clone-owned presentation. Slot
    alpha is transmitted; steady-state descriptor sampling/painting is change-gated.
 
+   **Follow-up:** build 486 implements the intermediate native animation stream requested after
+   this report; see [MP-ANIMATION-486.md](MP-ANIMATION-486.md). The following limit describes 484.
+
    **Animation verification limit:** the serialized native show-animation recipes are not
    available in this checkout. The mirror applies their native final move/scale/fade pose
    and the owner's current slot alpha. Intermediate show move/scale values are not sent.

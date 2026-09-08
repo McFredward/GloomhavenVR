@@ -26,3 +26,12 @@ to Codex and record the user's instructions of 2026-09-08.
   coauthor and session-link template in `CLAUDE.md` does not apply to Codex.
 - Distinguish source-proven fixes, log evidence, and unverified hardware outcomes.
   A green automated check does not establish that a headset picture is correct.
+
+## Multiplayer visual parity
+
+The user's 2026-09-09 review instruction covers everything the owner sees: original widgets,
+content, appearance, order, geometry, state, effects and intermediate animation. Only an
+explicitly user-confirmed exception permits a divergence. Historical deferrals, performance
+arguments and implementation comments are not approvals. Record the source of each actual
+exception; fix newly discovered divergences within the authorized review. Native prefab clones
+must retain original presentation without running gameplay controllers or callbacks.

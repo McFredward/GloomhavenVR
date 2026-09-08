@@ -51,17 +51,18 @@ internal sealed class FfsNetTransport : INetTransport
     private bool _degraded;
     private readonly ExtrasFragments _fragments = new();
     private readonly ExtrasFragments _animationFragments = new(NetProtocol.MsgUseBarAnimation,
-        NetProtocol.MsgUseBarAnimationFragments);
+        NetProtocol.MsgUseBarAnimationFragments, assemblyLifetime: ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _plumeFragments = new(NetProtocol.MsgCardPlume,
-        NetProtocol.MsgCardPlumeFragments, CardPlumeCodec.MaxSize);
+        NetProtocol.MsgCardPlumeFragments, CardPlumeCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _boardFragments = new(NetProtocol.MsgNativeBoard,
-        NetProtocol.MsgNativeBoardFragments, NativeBoardCodec.MaxSize);
+        NetProtocol.MsgNativeBoardFragments, NativeBoardCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments[] _nativeFragments = CreateNativeFragments();
     private static ExtrasFragments[] CreateNativeFragments()
     {
         var result = new ExtrasFragments[32];
         for (int i = 8; i < result.Length; i++) result[i] = new ExtrasFragments(
-            NetProtocol.MsgNativeUseBar, NetProtocol.MsgNativeUseBarFragments, NativeUseBarPacket.MaxSize);
+            NetProtocol.MsgNativeUseBar, NetProtocol.MsgNativeUseBarFragments, NativeUseBarPacket.MaxSize,
+            ExtrasFragments.PresentationAssemblyLifetime);
         return result;
     }
     private readonly ExtrasSendScheduler _extrasQueue = new((ulong)DateTime.UtcNow.Ticks,

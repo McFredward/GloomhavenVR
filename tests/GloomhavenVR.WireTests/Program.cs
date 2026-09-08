@@ -83,7 +83,9 @@ internal static class Program
             CardPlumeVectors.Run(t);
             CardResidentVectors.Run(t);
             PresentationBoundaryVectors.Run(t);
+            PresentationSaturationVectors.Run(t);
             NativeUseBarVectors.Run(t);
+            NativeBoardVectors.Run(t);
             BoardNativeParityVectors.Run(t, repoRoot);
             CardPresentationVectors.Run(t);
             FanExchangeVectors.Run(t);

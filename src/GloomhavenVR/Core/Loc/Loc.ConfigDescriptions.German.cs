@@ -231,11 +231,9 @@ internal static partial class Loc
                 + "Zeile pro Sekunde gemessen wurden — schalte sie AN für eine saubere Leistungsaufzeichnung, "
                 + "in der nur die [Perf]-Zeilen zählen.",
             ["Optimize/RemoteContentInterval"] =
-                "Überschreibt das Auffrischungsintervall (Sekunden) des Inhalts-Scans der Boards der "
-                + "MITSPIELER — der 4-Hz-Durchlauf, der im Mehrspieler die Board-Inhalte der anderen Spieler "
-                + "neu aufbaut. 0 = den eigenen Takt des Subsystems von 0.25 s belassen. Ein höherer Wert (z. "
-                + "B. 0.5) halbiert die Kosten dieses Durchlaufs; er verzögert nur, wie schnell die "
-                + "Board-Inhalte eines Mitspielers nachziehen, und tut im Einzelspieler überhaupt nichts.",
+                "INAKTIV — bleibt für bestehende Konfigurationsdateien erhalten. Sichtbare Änderungen "
+                + "auf Mitspieler-Boards werden ohne zusätzliche Verzögerung durch eine Einstellung "
+                + "des Betrachters übernommen.",
             ["Optimize/HeadDepthPrepass"] =
                 "Behält DepthTextureMode.Depth der Kopfkamera. AN ist das heutige Verhalten und es ist NICHT "
                 + "umsonst: auf dem Built-in-FORWARD-Pfad (den die Kopfkamera des Mods nutzt) baut Unity "

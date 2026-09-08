@@ -58,6 +58,19 @@ internal static class PresentationBoundaryVectors
         t.True(bonusPending.Count == 4 && bonusPending[1].States.Length == 1 && bonusPending[2].SampleTime == 6,
             "receiver preserves a partial row absence, not just an entirely empty row");
 
+        t.Case("presentation pending: a delivered plume episode cannot disappear in a receive burst");
+        var plumes = new List<CardPlumeSnapshot>();
+        for (int i = 0; i < 10; i++)
+        {
+            var emitter = new CardPlumeState { ActorId = 1, FaceCode = 32, ListCount = 1,
+                Episode = i < 5 ? 1u : 2u, LocalRotation = UnityEngine.Quaternion.identity };
+            var plume = new CardPlumeSnapshot(i, i == 5 ? Array.Empty<CardPlumeState>() : new[] { emitter });
+            PresentationPending.Append(plumes, plume, PresentationPending.SamePlumeIdentity);
+        }
+        t.True(plumes.Count == 4 && plumes[0].SampleTime == 0 && plumes[1].States.Length == 0
+            && plumes[2].SampleTime == 6 && plumes[3].SampleTime == 9,
+            "received burst retains first episode, clear, new episode and final frame");
+
         t.Case("presentation pending: latest replacement boundary remains ordered under repeated changes");
         var identities = new List<int>();
         foreach (int value in new[] { 1, 1, 2, 2, 3, 3, 1, 1, 1 })
