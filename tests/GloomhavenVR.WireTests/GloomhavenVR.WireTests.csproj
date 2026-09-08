@@ -267,6 +267,11 @@
     <Compile Include="UseBarAnimationPlaybackVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationPlaybackClock.cs" Link="wire\UseBarAnimationPlaybackClock.cs" />
     <Compile Include="SharedWindowPoseVectors.cs" />
+    <Compile Include="FanReflowVectors.cs" />
+    <Compile Include="CardPlumeVectors.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\CardPlumeState.cs" Link="wire\CardPlumeState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\CardPlumeCodec.cs" Link="wire\CardPlumeCodec.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\FanReflowMap.cs" Link="wire\FanReflowMap.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\SharedWindowPoseTrack.cs" Link="wire\SharedWindowPoseTrack.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationCodec.cs" Link="wire\UseBarAnimationCodec.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationState.cs" Link="wire\UseBarAnimationState.cs" />
@@ -510,4 +515,13 @@
            Text="Set GameManaged (Directory.Build.props.user) — the wire tests use the game's real UnityEngine.CoreModule so Mathf's rounding matches the shipped build exactly." />
   </Target>
 
+
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeUseBarState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeUseBarCodec.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeUseBarPacket.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/Remote/RemoteSlotGlowDepth.cs" />
+    <Compile Include="NativeUseBarVectors.cs" />
+    <Compile Include="BoardNativeParityVectors.cs" />
+  </ItemGroup>
 </Project>

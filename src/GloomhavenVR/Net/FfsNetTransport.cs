@@ -52,6 +52,16 @@ internal sealed class FfsNetTransport : INetTransport
     private readonly ExtrasFragments _fragments = new();
     private readonly ExtrasFragments _animationFragments = new(NetProtocol.MsgUseBarAnimation,
         NetProtocol.MsgUseBarAnimationFragments);
+    private readonly ExtrasFragments _plumeFragments = new(NetProtocol.MsgCardPlume,
+        NetProtocol.MsgCardPlumeFragments, CardPlumeCodec.MaxSize);
+    private readonly ExtrasFragments[] _nativeFragments = CreateNativeFragments();
+    private static ExtrasFragments[] CreateNativeFragments()
+    {
+        var result = new ExtrasFragments[32];
+        for (int i = 8; i < result.Length; i++) result[i] = new ExtrasFragments(
+            NetProtocol.MsgNativeUseBar, NetProtocol.MsgNativeUseBarFragments, NativeUseBarPacket.MaxSize);
+        return result;
+    }
     private readonly ExtrasSendScheduler _extrasQueue = new((ulong)DateTime.UtcNow.Ticks,
         NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
     private byte[]? _versionAnnouncement;
@@ -63,11 +73,15 @@ internal sealed class FfsNetTransport : INetTransport
     {
         _fragments.Forget(senderId);
         _animationFragments.Forget(senderId);
+        _plumeFragments.Forget(senderId);
+        for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Forget(senderId);
     }
     internal void ResetFragments()
     {
         _fragments.Clear();
         _animationFragments.Clear();
+        _plumeFragments.Clear();
+        for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Clear();
         _extrasQueue.Clear();
         _nextVersionAnnouncement = 0;
         _nextFragmentReport = 0;
@@ -226,9 +240,15 @@ internal sealed class FfsNetTransport : INetTransport
         {
             if (length < 6 || length > payload.Length) return;
             int type = NetPacket.PeekType(payload, length);
-            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation)
+            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume)
             {
                 _extrasQueue.Enqueue(payload, length);
+                return;
+            }
+            if (type == NetProtocol.MsgNativeUseBar)
+            {
+                if (NativeUseBarPacket.TryRead(payload, length, out NativeUseBarSnapshot? native))
+                    _extrasQueue.Enqueue(payload, length, native!.Address);
                 return;
             }
             // CustomDataToken(byte[] customData, bool compressData=false). The token keeps a
@@ -359,15 +379,21 @@ internal sealed class FfsNetTransport : INetTransport
                 return;
             }
             int type = length >= 6 && length <= buffer.Length ? NetPacket.PeekType(buffer, length) : -1;
-            if (type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments)
+            if (type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments
+                || type == NetProtocol.MsgCardPlumeFragments || type == NetProtocol.MsgNativeUseBarFragments)
             {
                 _receivedFragments++;
-                ExtrasFragments assembler = type == NetProtocol.MsgExtrasFragments
-                    ? _fragments : _animationFragments;
+                int slot = type == NetProtocol.MsgNativeUseBarFragments ? ExtrasFragments.NativeSlotStream(buffer, length) : -1;
+                if (type == NetProtocol.MsgNativeUseBarFragments && (slot < 8 || slot >= 32)) return;
+                ExtrasFragments assembler = type == NetProtocol.MsgExtrasFragments ? _fragments
+                    : type == NetProtocol.MsgUseBarAnimationFragments ? _animationFragments
+                    : type == NetProtocol.MsgCardPlumeFragments ? _plumeFragments : _nativeFragments[slot];
                 byte[]? complete = assembler.Accept(senderId, buffer, length,
                     System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
                 if (complete != null)
                 {
+                    if (slot >= 8 && (!NativeUseBarPacket.TryRead(complete, complete.Length, out NativeUseBarSnapshot? native)
+                        || native!.Address != slot)) return;
                     _completedSnapshots++;
                     PacketReceived?.Invoke(senderId, complete, complete.Length);
                 }

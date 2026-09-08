@@ -11,9 +11,9 @@ internal static class NativeUseBarCodec
     internal const byte Record = 50;
     private const int ChunkSize = 253;
 
-    internal static int Write(NativeUseBarSnapshot snapshot, byte[] buffer)
+    internal static int Write(NativeUseBarSnapshot snapshot, byte[] buffer, int start = 0)
     {
-        if (snapshot == null || buffer == null) return 0;
+        if (snapshot == null || buffer == null || start < 0) return 0;
         using var stream = new MemoryStream();
         using (var w = new BinaryWriter(stream, System.Text.Encoding.UTF8, true))
         {
@@ -37,8 +37,8 @@ internal static class NativeUseBarCodec
         byte[] raw = stream.ToArray();
         int pages = (raw.Length + ChunkSize - 1) / ChunkSize;
         int size = raw.Length + 4 * pages;
-        if (size > MaxSize || size > buffer.Length) return 0;
-        int at = 0;
+        if (size > MaxSize || size > buffer.Length - start) return 0;
+        int at = start;
         for (int page = 0, offset = 0; page < pages; page++)
         {
             int count = Math.Min(ChunkSize, raw.Length - offset);
@@ -46,17 +46,17 @@ internal static class NativeUseBarCodec
             buffer[at++] = (byte)page; buffer[at++] = (byte)pages;
             Buffer.BlockCopy(raw, offset, buffer, at, count); at += count; offset += count;
         }
-        return at;
+        return at - start;
     }
 
-    internal static bool TryRead(byte[] buffer, int length, out NativeUseBarSnapshot? snapshot)
+    internal static bool TryRead(byte[] buffer, int length, out NativeUseBarSnapshot? snapshot, int start = 0)
     {
         snapshot = null;
-        if (buffer == null || length < 11 || length > buffer.Length || length > MaxSize) return false;
+        if (buffer == null || start < 0 || length - start < 11 || length > buffer.Length || length - start > MaxSize) return false;
         try
         {
             using var stream = new MemoryStream();
-            int at = 0, expected = 0, total = -1;
+            int at = start, expected = 0, total = -1;
             while (at < length)
             {
                 if (length - at < 4 || buffer[at++] != Record) return false;

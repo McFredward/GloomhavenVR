@@ -18,14 +18,19 @@ internal sealed class ExtrasSendQueue
     private readonly byte _payloadType;
     private readonly byte _envelopeType;
     private readonly bool _preserveFirst;
+    private readonly int _snapshotLimit;
+    private readonly ulong _sequenceStride;
 
     internal ExtrasSendQueue(ulong sequence, byte payloadType = NetProtocol.MsgExtras,
-        byte envelopeType = NetProtocol.MsgExtrasFragments, bool preserveFirst = false)
+        byte envelopeType = NetProtocol.MsgExtrasFragments, bool preserveFirst = false,
+        int snapshotLimit = ExtrasFragments.MaxSnapshotBytes, ulong sequenceStride = 1)
     {
         _sequence = sequence;
         _payloadType = payloadType;
         _envelopeType = envelopeType;
         _preserveFirst = preserveFirst;
+        _snapshotLimit = snapshotLimit;
+        _sequenceStride = sequenceStride;
     }
 
     internal void Clear() { _pages = null; _first = _latest = null; _page = 0; _next = 0; }
@@ -33,7 +38,7 @@ internal sealed class ExtrasSendQueue
     internal void Enqueue(byte[] snapshot, int length)
     {
         if (snapshot == null || length < 6 || length > snapshot.Length
-            || length > ExtrasFragments.MaxSnapshotBytes
+            || length > _snapshotLimit
             || NetPacket.PeekType(snapshot, length) != _payloadType)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         var copy = new byte[length];
@@ -55,7 +60,8 @@ internal sealed class ExtrasSendQueue
                 _latest = null;
             }
             else _latest = null;
-            _pages = ExtrasFragments.Encode(next, next.Length, ++_sequence, _payloadType, _envelopeType);
+            _sequence += _sequenceStride;
+            _pages = ExtrasFragments.Encode(next, next.Length, _sequence, _payloadType, _envelopeType, _snapshotLimit);
             _page = 0;
         }
         byte[] result = _pages[_page++];
@@ -74,22 +80,34 @@ internal sealed class ExtrasSendScheduler
 {
     private readonly ExtrasSendQueue _presence;
     private readonly ExtrasSendQueue _animation;
+    private readonly ExtrasSendQueue _plumes;
+    private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
     private readonly byte _animationType;
     private double _next;
-    private int _animationTurns;
+    private int _turn, _nativeCursor = 8;
 
     internal ExtrasSendScheduler(ulong sequence, byte animationType, byte animationEnvelope)
     {
         _presence = new ExtrasSendQueue(sequence);
         _animation = new ExtrasSendQueue(sequence, animationType, animationEnvelope, preserveFirst: true);
+        _plumes = new ExtrasSendQueue(sequence, NetProtocol.MsgCardPlume, NetProtocol.MsgCardPlumeFragments,
+            preserveFirst: true, snapshotLimit: CardPlumeCodec.MaxSize);
+        for (int slot = 8; slot < _native.Length; slot++)
+            _native[slot] = new ExtrasSendQueue((sequence & ~31UL) | (uint)slot,
+                NetProtocol.MsgNativeUseBar, NetProtocol.MsgNativeUseBarFragments,
+                preserveFirst: true, snapshotLimit: NativeUseBarPacket.MaxSize, sequenceStride: 32);
         _animationType = animationType;
     }
 
-    internal void Enqueue(byte[] snapshot, int length)
+    internal void Enqueue(byte[] snapshot, int length, int nativeSlot = -1)
     {
         if (snapshot == null || length < 6 || length > snapshot.Length)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
-        if (NetPacket.PeekType(snapshot, length) == _animationType) _animation.Enqueue(snapshot, length);
+        int type = NetPacket.PeekType(snapshot, length);
+        if (type == _animationType) _animation.Enqueue(snapshot, length);
+        else if (type == NetProtocol.MsgCardPlume) _plumes.Enqueue(snapshot, length);
+        else if (type == NetProtocol.MsgNativeUseBar && nativeSlot >= 8 && nativeSlot < 32)
+            _native[nativeSlot].Enqueue(snapshot, length);
         else _presence.Enqueue(snapshot, length);
     }
 
@@ -97,30 +115,36 @@ internal sealed class ExtrasSendScheduler
     {
         if (now < _next) return null;
         byte[]? result = announcement;
-        if (result == null)
+        // Empty streams cost no turn. With only the original two streams populated this is
+        // still exactly two animation pages followed by one waiting presence page.
+        for (int attempt = 0; result == null && attempt < 6; attempt++)
         {
-            if (_animationTurns < 2) result = _animation.Next(now);
-            if (result != null) _animationTurns++;
-            else
-            {
-                result = _presence.Next(now);
-                if (result != null) _animationTurns = 0;
-                else
-                {
-                    result = _animation.Next(now);
-                    if (result != null) _animationTurns = Math.Min(2, _animationTurns + 1);
-                }
-            }
+            int turn = _turn;
+            _turn = (_turn + 1) % 6;
+            result = turn < 2 ? _animation.Next(now)
+                : turn == 2 ? _presence.Next(now)
+                : turn == 3 ? _plumes.Next(now) : NextNative(now);
         }
         if (result != null) _next = now + 0.05;
         return result;
     }
 
+    private byte[]? NextNative(double now)
+    {
+        for (int i = 0; i < 24; i++)
+        {
+            int slot = _nativeCursor;
+            _nativeCursor = _nativeCursor == 31 ? 8 : _nativeCursor + 1;
+            byte[]? page = _native[slot].Next(now);
+            if (page != null) return page;
+        }
+        return null;
+    }
+
     internal void Clear()
     {
-        _presence.Clear();
-        _animation.Clear();
-        _next = 0;
-        _animationTurns = 0;
+        _presence.Clear(); _animation.Clear(); _plumes.Clear();
+        for (int i = 8; i < _native.Length; i++) _native[i].Clear();
+        _next = 0; _turn = 0; _nativeCursor = 8;
     }
 }

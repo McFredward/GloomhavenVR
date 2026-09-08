@@ -19,12 +19,14 @@ internal sealed class ExtrasFragments
     private readonly Dictionary<int, Pending> _peers = new();
     private readonly byte _payloadType;
     private readonly byte _envelopeType;
+    private readonly int _snapshotLimit;
 
     internal ExtrasFragments(byte payloadType = NetProtocol.MsgExtras,
-        byte envelopeType = NetProtocol.MsgExtrasFragments)
+        byte envelopeType = NetProtocol.MsgExtrasFragments, int snapshotLimit = MaxSnapshotBytes)
     {
         _payloadType = payloadType;
         _envelopeType = envelopeType;
+        _snapshotLimit = snapshotLimit;
     }
 
     private sealed class Pending
@@ -40,10 +42,11 @@ internal sealed class ExtrasFragments
     internal void Forget(int sender) => _peers.Remove(sender);
 
     internal static byte[][] Encode(byte[] snapshot, int length, ulong sequence,
-        byte payloadType = NetProtocol.MsgExtras, byte envelopeType = NetProtocol.MsgExtrasFragments)
+        byte payloadType = NetProtocol.MsgExtras, byte envelopeType = NetProtocol.MsgExtrasFragments,
+        int snapshotLimit = MaxSnapshotBytes)
     {
         if (snapshot == null || length < 6 || length > snapshot.Length
-            || length > MaxSnapshotBytes || NetPacket.PeekType(snapshot, length) != payloadType)
+            || length > snapshotLimit || NetPacket.PeekType(snapshot, length) != payloadType)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         int chunkCount = (length + ChunkBytes - 1) / ChunkBytes;
         var packets = new byte[(chunkCount + 3) / 4][];
@@ -94,7 +97,7 @@ internal sealed class ExtrasFragments
                 ulong s = ReadSequence(packet, p);
                 int t = packet[p + 8] | packet[p + 9] << 8;
                 int offset = packet[p + 10] | packet[p + 11] << 8;
-                if (t < 6 || t > MaxSnapshotBytes || offset >= t || offset % ChunkBytes != 0
+                if (t < 6 || t > _snapshotLimit || offset >= t || offset % ChunkBytes != 0
                     || n - MetadataBytes != Math.Min(ChunkBytes, t - offset)) return null;
                 if (found && (s != sequence || t != total)) return null;
                 sequence = s; total = t; found = true;
@@ -154,6 +157,30 @@ internal sealed class ExtrasFragments
         byte[] complete = state.Bytes;
         state.Bytes = null; state.Received = null;
         return NetPacket.PeekType(complete, complete.Length) == _payloadType ? complete : null;
+    }
+
+    /// <summary>Message8 assigns the low five opaque sequence bits to its native slot stream.
+    /// Validate routing metadata before choosing an assembler; Accept validates the whole page.</summary>
+    internal static int NativeSlotStream(byte[] packet, int length)
+    {
+        if (packet == null || length < 20 || length > packet.Length || length > MaxDatagramBytes
+            || NetPacket.PeekType(packet, length) != NetProtocol.MsgNativeUseBarFragments) return -1;
+        int stream = -1;
+        for (int p = 6; p < length;)
+        {
+            if (p + 2 > length) return -1;
+            int type = packet[p++], n = packet[p++];
+            if (p + n > length) return -1;
+            if (type == NetProtocol.ExtIdExtrasFragment)
+            {
+                if (n <= MetadataBytes) return -1;
+                int next = (int)(ReadSequence(packet, p) & 31);
+                if (next < 8 || (stream >= 0 && next != stream)) return -1;
+                stream = next;
+            }
+            p += n;
+        }
+        return stream;
     }
 
     private static ulong ReadSequence(byte[] packet, int p)

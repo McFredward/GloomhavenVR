@@ -79,6 +79,10 @@ internal static class Program
             UseBarAnimationVectors.Run(t);
             UseBarAnimationPlaybackVectors.Run(t);
             SharedWindowPoseVectors.Run(t);
+            FanReflowVectors.Run(t);
+            CardPlumeVectors.Run(t);
+            NativeUseBarVectors.Run(t);
+            BoardNativeParityVectors.Run(t, repoRoot);
             CardPresentationVectors.Run(t);
             FanExchangeVectors.Run(t);
             CardRestSeamVectors.Run(t, repoRoot);

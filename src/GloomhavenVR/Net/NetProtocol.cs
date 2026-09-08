@@ -55,6 +55,9 @@ internal static class NetProtocol
     public const byte MsgUseBarAnimationFragments = 4;
     public const byte MsgCardPlume = 5;
     public const byte MsgCardPlumeFragments = 6;
+    public const byte MsgNativeUseBar = 7;
+    public const byte MsgNativeUseBarFragments = 8;
+    public const byte ExtIdNativeUseBar = 50;
     // Record50 is reserved for the other native use-bar descriptors in this integration.
     public const byte ExtIdCardPlume = 51;
 
