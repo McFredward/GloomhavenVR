@@ -35,7 +35,10 @@ and a module was a folder you could scan; by 2026-08 `WorldUI/` alone held 101 f
 folder, and the copy here had drifted from the copy there — which is the failure mode a second
 copy always has. The 2026-08 refactor moved 251 files into named subfolders and rewrote
 `DEVELOPING.md` around them, including the two rules a newcomer needs (folder does not equal
-namespace, on purpose; and the five path pins that fail loudly when a file moves).
+namespace, on purpose; and the five path pins that fail loudly when a file moves). The 2026-09
+refactor (ModBuild 481-482) moved more of the same way, so **any `src/` path written in a
+`.planning/` record before 2026-09-08 is pre-refactor** — `.planning/INDEX.md` §5 tabulates the
+translation.
 
 What belongs HERE is the part `DEVELOPING.md` does not say: **why the modules are cut where they
 are.** The cut follows the GAME's seams rather than ours —
@@ -193,8 +196,16 @@ diorama; BoardTargeting still owns the stick, Menu2D has no table).
 ## 9. Multiplayer, legal, licensing
 
 - Photon Bolt state replication; **mod issues exactly the commands the mouse UI issues** —
-  UI/input/camera-only → no desync surface. v1 targets single-player; MP untested but not
-  structurally broken.
+  UI/input/camera-only → no desync surface.
+- > **Corrected 2026-09-08 (ModBuild 483).** This section used to end *"v1 targets single-player;
+  > MP untested but not structurally broken."* That has been false for a long time and it now
+  > contradicts a standing ruling: **every feature must be multiplayer-compatible, and the sync is
+  > designed in from the start, not added afterwards.** Multiplayer is a first-class subsystem —
+  > `src/GloomhavenVR/Net/` carries a versioned side-channel (`NetProtocol`, wire v3, magic
+  > `GVR1`) with rig, extras and extension records, remote avatars, shared windows with a
+  > one-size-everywhere law, a version-mismatch handshake keyed on `ModBuild`, and spatial voice.
+  > Read the `NetProtocol.cs` header for the protocol and its three graceful-degradation nets
+  > before touching any of it.
 - No anticheat. Distribute **only own code + own bundles**; never game assets, decompiled
   code, or Addressables catalogs. Use game's own assets at runtime via Addressables keys.
 - **Mod license: GPL-3.0** — we adapt patterns/code from LCVR/RepoXR/UUVR (all GPL-3.0);

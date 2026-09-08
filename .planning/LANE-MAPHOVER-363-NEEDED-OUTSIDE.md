@@ -1,5 +1,12 @@
 # LANE-MAPHOVER-363 — what this lane needs from files it does not own
 
+> ### ✅ CONSUMED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> All three items landed. `[MapRoom] HoverAnimation` is bound at `src/GloomhavenVR/Plugin.cs:704`
+> with the default this lane asked for, and both Loc rows exist —
+> `Core/Loc/Loc.ConfigNames.cs:296` and `Core/Loc/Loc.ConfigDescriptions.German.cs:1289`. Nothing
+> here is outstanding; the file is kept as the record of the request and its reasoning.
+
 Branch: `lane/maphover-363`, based on `c72bcc53` (ModBuild 363).
 
 Request (user, 2026-09-03, verbatim):

@@ -1,5 +1,17 @@
 # 3D-Weltkarte — Plan
 
+> ### ⚠ SUPERSEDED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **The "PLAN ONLY" line below is no longer true. This plan SHIPPED.** The 3D map room is built
+> and lives in `src/GloomhavenVR/WorldUI/MapRoom/` (22 files, including `MapRoomDriver.cs`,
+> `MapRoomSeat.cs`, `MapRoomHand.{1.Core,2.Fan,3.Wrist}.cs`, `MapTableLegs.cs`,
+> `MapParchment.cs`), with the multiplayer half in `src/GloomhavenVR/Net/Remote/RemoteMapRoom.cs`.
+>
+> Read this file as **the design rationale for a feature that exists**, never as a proposal, and
+> never for its file paths — see `.planning/INDEX.md` §5 for the refactor path translation. The
+> standing rulings it quotes (no UI that re-anchors or re-positions itself as the head turns;
+> game-asset environments are abandoned) are still correct and still govern.
+
 > Status: **PLAN ONLY.** Nothing in `src/` was changed to write this. Every claim below is
 > either marked *read in the code* (file + line) or *inferred* (with the reason). Where I could
 > not decide something from the sources I say so instead of guessing.

@@ -1,5 +1,17 @@
 # Lane BOARDTEXT (ModBuild 363 base `ee04024e`) — work that belongs OUTSIDE this lane's owned paths
 
+> ### ⚠ ONE ITEM IS STILL OPEN — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **§2 was never applied.** `Cards/Piles/PileViewer.PileStack.Create` still calls only
+> `NativeButtonSkin.ApplyFont` on the three pile captions (`PileViewer.cs:1029` and `:1040`) — it
+> does not call `StyleWorldReadableLabel`. Meanwhile the item-use slot caption, whose own doc
+> comment says it is built to match those three exactly, **did** get the keyline
+> (`Cards/Tray/PlayTray.4.Slots.cs:662`). The deliberate pairing is half-applied and has been since
+> ModBuild 363.
+>
+> §3 (the full bundle rebake for the regenerated `Keycap*` atlases) and §4 (the ModBuild bump) were
+> both consumed long ago; §1 asked for nothing. Only §2 remains.
+
 Branch: `lane/boardtext-357`. Everything below is a change the lane could NOT make because the
 file belongs to another lane or is out of this lane's scope. Nothing here is a blocker for the
 lane's own commit — each item is listed with the exact patch text and the reason.

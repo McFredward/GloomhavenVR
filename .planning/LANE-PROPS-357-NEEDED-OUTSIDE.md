@@ -1,5 +1,11 @@
 # LANE PROPS-357 — changes needed in files this lane does not own
 
+> ### ✅ CLOSED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> Every item in this file was explicitly OPTIONAL or a note, and the file says so itself: no gate
+> and no shipped behaviour ever depended on one. Treat the four rows as a wish list that was not
+> taken up, not as outstanding work. Its file paths are pre-refactor — see `.planning/INDEX.md` §5.
+
 Base: `ee04024e` (ModBuild 357). Branch: `lane-props-357`.
 Owner of this lane: `Board/FigureGrab/{GrabbableProp,PropGrab,PropLift,PropHeldPose,HeldProps,FigureStretch,FigureStretchMath,FigureGrabConfig}.cs`,
 new files under `Board/FigureGrab/`, `Defaults/Defaults.Board.cs`, `Core/Loc/Loc.ConfigNames.cs`,

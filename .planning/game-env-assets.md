@@ -1,5 +1,19 @@
 # Game-native environment assets — mechanisms, reachability, feasibility
 
+> ### ⚠ SUPERSEDED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **The programme this investigation enabled was ABANDONED by user ruling on 2026-08-13, one day
+> after this file was written.** Read [`game-env-postmortem.md`](game-env-postmortem.md) FIRST: it
+> records what was built across ModBuilds 127–131, why five hardware rounds failed, and the
+> verbatim ruling that ended it — *"lösche bitte das alles wieder was mit der nutzung der
+> Spileeigenen Räume und assets zu tun hat … Gehe wieder dazu über mit custom assets etwas zu
+> bauen."*
+>
+> This file remains useful for exactly one thing: the **mechanics** of the game's Apparance /
+> Addressables / map-asset pipeline, read out of `decompiled/` and still accurate as a description
+> of the GAME. Nothing in it is a proposal any more. Its `src/GloomhavenVR/` paths are pre-refactor
+> and several name files that were deleted with the programme — see `.planning/INDEX.md` §5.
+
 **Investigation, 2026-08-12.** Question (user, verbatim): *"Ist es vielleicht nicht sogar möglich
 Levels bzw Assets und Effekte aus dem Spiel direkt zu nutzen?"* — rebuild the mod's two ambient
 3D environments (`Env_Cellar`, `Env_Swamp`, currently third-party low-poly, rejected for style)

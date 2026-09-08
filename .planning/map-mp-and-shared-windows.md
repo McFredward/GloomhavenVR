@@ -1,5 +1,20 @@
 # 3D-Map multiplayer, and windows that everybody sees — design
 
+> ### ⚠ SUPERSEDED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **The "DESIGN ONLY / nothing is committed" line below is no longer true. This design SHIPPED.**
+> Shared windows live in `src/GloomhavenVR/WorldUI/Modal/SharedWindows.cs` (with
+> `SharedWindowIdentity.cs`, `SharedWindowSize.cs`, `SharedWindowSizeLaw.cs`), and the map-room
+> multiplayer half in `src/GloomhavenVR/Net/Remote/{RemoteMapRoom,RemoteStorySync}.cs`.
+>
+> Two further things in it have gone stale. Its baseline is **ModBuild 219**; HEAD is 483. And its
+> §F.1 complaint that `STATE.md` says "ModBuild 148" and "Records 1–17 and 22–29 are used" is
+> itself 264 builds out of date — **do not pick a wire record id from this file or from that
+> paragraph.** `src/GloomhavenVR/Net/NetProtocol.cs` is the only registry of record ids.
+>
+> Its file paths are pre-refactor; see `.planning/INDEX.md` §5. What stays valuable is the
+> READ-vs-INFERRED discipline and the standing ruling it quotes about what may never be patched.
+
 > Status: **DESIGN ONLY.** Nothing under `src/` was changed to write this, nothing is committed.
 > Every claim below is marked either **READ** (file + line, quoted) or **INFERRED** (with what
 > would confirm it). This project has been burned repeatedly by confident inference, so the two

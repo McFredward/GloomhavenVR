@@ -1,5 +1,24 @@
 # VR settings audit — user-friendliness pass (ModBuild 222)
 
+> ### ⚠ PARTLY STALE — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **The RULINGS in this file still stand; the MENU TREE it proposes does not.** It was written
+> against ModBuild 222 (2026-08-22), 261 builds behind HEAD, and the curated categories have since
+> been restructured twice.
+>
+> * **Superseded by `.planning/refactor/MENU-STRUCTURE.md`** — that file is the current rationale
+>   for which element belongs in which category, and `.planning/menu-audit/` is the five-part
+>   census behind it.
+> * Two later rounds also moved things this file describes:
+>   [`menu-findability-2026-09-02.md`](menu-findability-2026-09-02.md) and
+>   [`MENU-NEVER-DISTURBS-PLAY.md`](MENU-NEVER-DISTURBS-PLAY.md), both at ModBuild 340.
+>
+> What is still live is the user's four questions of 2026-08-22 and the policy they produced:
+> delete any dial that can break the game, put anything you would not trust a user with into
+> **Erweitert**, and do not give a setting a slider when it is really adjusted to two decimals.
+> Its §7 open questions and its "standing ruling" callouts should be re-checked before acting,
+> not assumed.
+
 **Review document only. No source file was changed by this pass. Nothing was committed.**
 
 Written 2026-08-22 against `HEAD = a858a8b` (ModBuild 222) in answer to the user's four questions of

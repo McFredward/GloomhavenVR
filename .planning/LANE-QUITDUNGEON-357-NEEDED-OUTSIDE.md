@@ -1,5 +1,12 @@
 # Lane `lane/quitdungeon-357` — what this lane needs from files it does NOT own
 
+> ### ✅ CONSUMED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> The lane landed and the ModBuild bump it asked for happened 126 builds ago. The 2026-09-03
+> "Quest verwerfen" deadlock and the scene-membership change that fixed it are documented in the
+> shipped source at `WorldUI/Conversion/CanvasConversion.1.Core.cs:268` and `:519`. Nothing here is
+> outstanding.
+
 Base: `ee04024e` (ModBuild 357). Defect: the 2026-09-03 "Quest verwerfen" deadlock.
 
 ## 1. `NetProtocol.ModBuild` — INTEGRATOR ONLY

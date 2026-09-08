@@ -60,7 +60,15 @@ Primary target: **Meta Quest 3 over PC (Link / SteamVR / OpenXR)**.
   in `decompiled/` (gitignored).
 - Rules engine must stay untouched — we patch **UI/input/camera seams only**,
   never game logic (multiplayer desync + correctness).
-- Single-player focus first; multiplayer compatibility is a non-goal for v1.
+- **Multiplayer compatibility is a STANDING REQUIREMENT, not a v1 non-goal.**
+  > *Corrected 2026-09-08 (ModBuild 483).* This line used to read "Single-player focus
+  > first; multiplayer compatibility is a non-goal for v1." The user has since ruled the
+  > opposite and the ruling governs: **every feature must be multiplayer-compatible, and
+  > the sync is designed in from the start rather than added afterwards.** It syncs fully
+  > or not at all — there is no per-sub-feature sync setting. A shared window's size may
+  > never be a function of anything client-local, and a mirrored surface follows the
+  > OWNER's dial, never the viewer's. See `src/GloomhavenVR/Net/NetProtocol.cs` for the
+  > wire protocol and `.planning/INDEX.md` for where the multiplayer records live.
 
 ## Key References
 

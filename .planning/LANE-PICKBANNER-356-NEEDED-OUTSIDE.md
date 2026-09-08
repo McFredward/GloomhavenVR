@@ -1,5 +1,13 @@
 # Pick-placard lane (base ModBuild 356) — item 12, and the one change that belongs to another lane
 
+> ### ✅ CONSUMED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> The one change this lane needed from outside was applied:
+> `NetProtocol.PickBannerTextMaxBytes` is **160** today (`src/GloomhavenVR/Net/NetProtocol.cs:20746`),
+> not the 96 that cut *"…zum Tauschen zur"* off every peer's placard. Nothing here is outstanding.
+> The wire-assertion count quoted in its verification section is stale; `docs/DEVELOPING.md` §Gates
+> is the authority.
+
 This lane owns `Core/TmpFit.cs`, `Cards/Tray/PlayTray.{1.Core,5.Status}.cs` and
 `Net/Remote/RemotePickBanner.cs`. Everything below the fold is a patch to a file this lane does
 NOT own and has NOT applied.

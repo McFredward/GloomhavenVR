@@ -1,5 +1,18 @@
 # CONTROL-BOARD REBUILD — state of the world
 
+> ### ⚠ PARTLY STALE — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **This is a CLOSED round record (rounds 1–5, 2026-08-25). Its final "GATES — every one, every
+> time" section is materially wrong and must not be used as a checklist.** Measured against HEAD:
+> it lists **8** gate commands where `scripts/` now holds about **20**; its `146857` wire
+> assertions, its `78 classes / 130 methods` patch inventory and its "EXACTLY 6 warnings" (with
+> named files and line numbers) are all superseded.
+>
+> **`docs/DEVELOPING.md` §Gates is the authority, and it is the only one.** Every other section of
+> this file is a legitimate record of how the control board was measured and rebuilt; only the
+> gate block, the build numbers and the file paths (pre-refactor — `.planning/INDEX.md` §5) have
+> gone stale.
+
 ## ROUND 5 (2026-08-25): THE SIDES — REAL CONSTRUCTION IN, FAKE RELIEF OUT
 
 Round 4 shipped the backs and he ruled the task unfinished:

@@ -73,6 +73,13 @@ From the 2026-09 refactor's reviews (`.planning/refactor-2026-09/REVIEW-*.md`):
 - Two holes found while removing the cellar dome, filed with arithmetic in
   `NEEDED-OUTSIDE-cellar-one-sky.md`: the stair alcove is placed from the UNSNAPPED hole while the
   wall is cut to the SNAPPED one, and `BuildShaft` has no floor.
+- **A half-applied caption pairing, open since ModBuild 363.** `Cards/Piles/PileViewer.cs` applies
+  `NativeButtonSkin.ApplyFont` to the three pile captions but never `StyleWorldReadableLabel`,
+  while `Cards/Tray/PlayTray.4.Slots.cs` — the caption whose own doc says it is built to match
+  those three exactly, *"the same muted parchment colour, the same native HUD font, and the SAME
+  fit box and font ceiling"* — does call it. One line, and it reads as intentional, which is why
+  it has survived: it changes how three captions LOOK, so it wants his eye, not a silent fix.
+  Filed in `LANE-BOARDTEXT-357-NEEDED-OUTSIDE.md` §2.
 
 ### 2d. Owed on hardware — lines that have never printed
 

@@ -1,5 +1,17 @@
 # Window materialise — a window breaks into real debris in the room
 
+> ### ⚠ SUPERSEDED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **The lane landed long ago.** The "committed on the lane branch" status below, and the whole
+> negotiation about whether this is ModBuild 294 or 295, describe a moment in 2026-08-26 that is
+> 190 builds behind HEAD. The feature is shipped and has since grown a file this document does not
+> know about: `src/GloomhavenVR/WorldUI/Materialise/` holds `WindowMaterialise.cs`,
+> `WindowMaterialiseDebris.cs`, `WindowMaterialiseField.cs`, `WindowMaterialiseRunner.cs` **and
+> `WindowMaterialiseVisibility.cs`**.
+>
+> Read it for the design reasoning and for §9's derivation of the two durations. Do not read it for
+> paths (pre-refactor, see `.planning/INDEX.md` §5), for gate numbers, or for build numbers.
+
 **Lane:** `agent-a4dbc57e3f126b7b1`, branched from `origin/dev` at `e82ee8f2` (ModBuild 293). **`origin/dev` has since advanced to `7bd4506f` (ModBuild 294 — the figure-grab box/glow round). None of its seven commits touches a file this lane owns or any of the five call sites, so the merge is clean; but 294 is TAKEN, this change is 295 or later, and the gate numbers below are against the 293 baseline the brief named, not against the new tip.**
 **Status:** redesigned, committed on the lane branch. The call sites were already wired in 293 and are
 **untouched** — note there are **five** lines across three files, not four: `PlayIn`, `PlayOut`,

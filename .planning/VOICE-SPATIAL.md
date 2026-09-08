@@ -1,5 +1,17 @@
 # Spatial voice chat — the seam, the mapping, the curve, and what could not be verified
 
+> ### ⚠ VERIFICATION DEBT STILL OPEN — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **The caveat in the status line below still stands as of ModBuild 483: no hardware run and no
+> second-client run has been recorded for this subsystem.** Nothing in the build notes at the top
+> of `src/GloomhavenVR/Net/NetProtocol.cs` closes it. Treat every acoustic claim here as measured
+> offline by `scripts/voice-spatial-probe.sh` and unconfirmed by an ear.
+>
+> The code shipped and has moved: it is `src/GloomhavenVR/Voice/` — `VoiceSpatial.cs`,
+> `VoiceChatBridge.cs`, `VoiceCurve.cs`, `VoiceModule.cs`, `VoiceBadge.cs`, `VoiceIcon.cs` — and
+> the two `Net/` files this document names now live under `Net/Avatar/` and `Net/Remote/`. See
+> `.planning/INDEX.md` §5.
+
 **Status:** built, gated, measured offline. **Never run on hardware and never run with a second
 client.** Read the last section before believing any of the rest.
 

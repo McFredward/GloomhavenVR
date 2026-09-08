@@ -1,5 +1,20 @@
 # Redundancy audit — one concept, built twice
 
+> ### ⚠ PARTLY CONSUMED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> **This is a live backlog with a stale head count.** The survey was taken 2026-09-05 at ModBuild
+> 437; the 2026-09 refactor programme (ModBuild 481–482) then acted on it. Per that build's own
+> note at the top of `src/GloomhavenVR/Net/NetProtocol.cs`: *"seven concepts that were built more
+> than once are now built once — the owner's active-half pulse and every mirror's, the
+> floated-window lookup, the moved-subtree layer record, the hover-window anti-churn watch, three
+> describers, two frame readers, six constants. Three more are written up and NOT merged because
+> they cross a lane boundary; the gaze-bias lean is the one that matters."*
+>
+> So **check each row against the tree before working it** — a good fraction are already closed,
+> and the rows that survive are the ones that cross a lane boundary. The user's ruling behind the
+> whole document has NOT expired: *"genau so etwas will ich im gesamten Mod so gut es geht
+> vermeiden."*
+
 **Survey only. No `.cs` file was changed by this pass, no behaviour was altered, `NetProtocol.ModBuild`
 was not bumped. The only artefact of this work is this document.**
 

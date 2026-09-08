@@ -1,5 +1,13 @@
 # LANE PROPINFO (base ee04024e / ModBuild 357) — what this lane needs from files it does not own
 
+> ### ✅ CLOSED — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> Items 1 and 2 were explicitly OPTIONAL and nothing depended on them. Item 3 — the
+> `GrabbableProp` concession note that still prescribed a fix which had already shipped — **was
+> addressed**: that `VRLog.Note` was re-worded at ModBuild 366 and now names the two remaining
+> candidate writers instead (`Board/FigureGrab/GrabbableProp.cs:1304`). Nothing here is
+> outstanding.
+
 Owner of this lane: the held-prop info card (HALF A) and the held-figure/prop ghost depth
 (HALF B). Files owned: `WorldUI/Surfaces/PropInfoSurface.cs`,
 `WorldUI/Surfaces/StatPanelSurface.cs`, `WorldUI/Tooltips/HexHintFacing.cs`,

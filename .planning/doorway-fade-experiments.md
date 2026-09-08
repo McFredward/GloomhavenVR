@@ -1,7 +1,7 @@
 # Doorway/archway ("Torbogen") fade experiments — PARKED
 
 **Status (user ruling, 2026-08-02 — supersedes all previous doorway rulings):** doorway
-handling in `src/GloomhavenVR/Core/WallSegmentFade.cs` is reduced to RECOGNITION only.
+handling in `src/GloomhavenVR/Core/WallFade/WallSegmentFade.cs` is reduced to RECOGNITION only.
 Archway/doorway segments NEVER fade — no open/closed differentiation, no hard hide.
 They are always solid. What remains in the code is the per-door spatial linkage
 (`FindDoorwayRoot` + `Segment.DoorRoot` keying) so archway renderers can never merge

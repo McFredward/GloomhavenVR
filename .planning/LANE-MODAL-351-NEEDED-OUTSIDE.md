@@ -1,5 +1,13 @@
 # ModBuild 351, Modal/Surfaces/Interact lane — work that belongs to other lanes
 
+> ### ✅ CONSUMED, AND ITS CAUSE WAS WRONG — audited 2026-09-08 against `dev` = `49ceab21` (ModBuild 483)
+>
+> Item 12's **fix** was applied almost verbatim by the pick-placard lane; item 12's **cause**, as
+> diagnosed here, was not the real one. Read
+> [`LANE-PICKBANNER-356-NEEDED-OUTSIDE.md`](LANE-PICKBANNER-356-NEEDED-OUTSIDE.md) for the
+> correction — the placard was cut by a 96-byte wire cap against a 107-byte composed German line,
+> not by the layout reason argued below. Nothing here is outstanding.
+
 This lane owns `WorldUI/Modal/**`, `WorldUI/Surfaces/**` and `Hands/Interact/**`. Everything below
 was diagnosed here and must be applied by the lane that owns the file. Nothing in this document has
 been applied.
