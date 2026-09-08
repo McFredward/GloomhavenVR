@@ -46,17 +46,53 @@ namespace GloomhavenVR.Net;
 ///     (<see cref="GameSkin"/>). NOTHING on the game widget is written; only read. This is the
 ///     ModBuild-73 decision-dock discipline (<c>WorldUI.NativeButtonSkin</c>): sample the live
 ///     game UI, re-host the art, never adopt the widget.
-///   • SAME TYPE: the game's <c>m_TitleFont</c> at <c>m_PCTitleFontSize</c> (16 px) in
-///     <c>m_TitleFontColor</c> -- not a mod font at a mod size.
-///   • SAME UNITS, SO SAME SIZE: the mirror is a world-space uGUI canvas scaled at exactly the
-///     owner's metre-per-pixel (<see cref="_metersPerUiPixel"/>), so a layout done in the game's
-///     own PIXELS lands at the owner's own METRES. The frame is fitted to the text wrapped at the
-///     game's authored frame width (<c>UITooltip.m_DefaultWidth</c> = 257 px) plus the tooltip's
-///     own <c>VerticalLayoutGroup</c> padding -- the same content fit its <c>ContentSizeFitter</c>
-///     performs. Same text ⇒ same box, by construction and with ZERO wire bytes: this is a GLOBAL
-///     layout parameter set, identical on every client, so spending a record on the owner's
-///     measured rect would have been a second source of truth for something already derivable
-///     (INVARIANTS-Net-Rig, "Net -- content classification": the default answer is GLOBAL).
+///   • GAME TYPE, BUT ONE STYLE OF FOUR: the game's <c>m_TitleFont</c> at <c>m_PCTitleFontSize</c>
+///     (16 px) in <c>m_TitleFontColor</c> -- not a mod font at a mod size. This bullet used to stop
+///     there and claim that WAS the owner's type. It is the owner's type only for
+///     <c>UITooltipLines.LineStyle.Title</c>. See the RESIDUE block below for what falsified it.
+///   • SAME UNITS: the mirror is a world-space uGUI canvas scaled at exactly the owner's
+///     metre-per-pixel (<see cref="_metersPerUiPixel"/>), so a layout done in the game's own PIXELS
+///     lands at the owner's own METRES. That half is sound and is what makes the box comparable at
+///     all. The bullet used to continue "...SO SAME SIZE ... Same text ⇒ same box, by construction",
+///     and THAT half is false: right units, wrong number and wrong rule. See the RESIDUE block.
+///
+/// ─── RESIDUE: THE BOX AND THE TYPE ARE NOT THE OWNER'S, AND CLOSING IT NEEDS WIRE BYTES ────────
+/// (R2 finding F7, 2026-09-07. Both halves re-derived against <c>decompiled/GH.Runtime/</c>.)
+///
+///   • THE WIDTH. This mirror wraps at <c>GameSkin.WidthPx</c> = <c>UITooltip.m_DefaultWidth</c>
+///     (257 px) and then HUGS the result (<see cref="Layout"/>'s
+///     <c>Mathf.Clamp(pref.x, 1f, innerWrap)</c>). The game does neither.
+///     <c>UITooltipTarget.PrepareTooltip</c> ALWAYS sets the box width from the hovered target's
+///     own serialized <c>width</c> field -- <c>UITooltip.SetWidth(width)</c> when
+///     <c>autoAdjustHeight</c>, <c>SetSize(width, height)</c> otherwise
+///     (<c>UITooltipTarget.cs:145-152</c>, field declared <c>: 20</c> with default <c>100f</c>) --
+///     and <c>Internal_SetWidth</c> writes <c>m_Rect.sizeDelta.x</c> outright
+///     (<c>UITooltip.cs:804-807</c>). <c>m_DefaultWidth</c> is only what <c>InternalOnHide</c>
+///     RESETS to (<c>UITooltip.cs:613</c>), i.e. a value the shown box never has unless a target
+///     happens to serialize it. The horizontal <c>ContentSizeFitter</c> stays
+///     <c>Unconstrained</c>: <c>SetHorizontalFitMode</c> has NO caller anywhere in the decompiled
+///     game (verified -- the only hits are its own declaration and forwarder). So the owner's box
+///     is a FIXED width that auto-fits vertically only, and this one is a hugging box at a
+///     different wrap.
+///   • THE TYPE. <see cref="GameSkin"/> samples exactly one trio, and
+///     <c>UITooltip.CreateLineColumn</c> switches per LINE across four styles -- Title, Attribute,
+///     Description, Keyword -- each with its own font, size, colour, <c>lineSpacing</c>,
+///     <c>fontStyle</c> and text effect (<c>UITooltip.cs:679-732</c>). Every
+///     <c>UITooltipLines.AddLine</c> overload that does not take a style defaults to
+///     <b>Attribute</b>, not Title (<c>UITooltipLines.cs:59-84</c>), and the ordinary board path is
+///     title + description.
+///   • WHY IT IS NOT FIXED HERE. Extension record 9 carries the composed TEXT and nothing else --
+///     no width, no per-line style (<c>PresenceState.cs:440-445, 2136-2145</c>). The width is the
+///     hovered TARGET's serialized field and the styles are per line, so neither is derivable on a
+///     receiver that is told only what the string says. This is the one place in this class where
+///     "GLOBAL, zero wire" does not reach, and closing it means BYTES on record 9 -- which this
+///     lane may not allocate. The layout line below prints the deciding fields so the next round
+///     starts from a measurement.
+///   • WHAT IT LOOKS LIKE. Owner hovers an initiative-track portrait: bold title in the title font
+///     over a body paragraph in the description font, at the description size and colour, in a box
+///     fixed at that target's width. Viewer: both lines in the title font at 16 px in
+///     <c>m_TitleFontColor</c> at TMP default line spacing, in a box wrapped at 257 px and then
+///     shrunk to hug the single line. Two untuned clients, no dial touched.
 ///   • SAME AREA CONTRACT: the frame's bottom-left corner seats <see cref="MarginY"/> above the
 ///     area origin and the box grows UP/RIGHT into open air -- the local
 ///     <c>WorldTooltips.TryGetBoardAreaPose</c> contract verbatim.
@@ -398,10 +434,20 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
 
     /// <summary>
     /// CONTENT-FITTED layout, done entirely in the GAME's own uGUI pixels: measure the text at the
-    /// game's type metric under its authored frame width, size the frame to text + the tooltip's
-    /// own padding, and seat the box so its BOTTOM-LEFT corner sits <see cref="MarginY"/> above the
+    /// game's type metric under <c>m_DefaultWidth</c>, size the frame to text + the tooltip's own
+    /// padding, and seat the box so its BOTTOM-LEFT corner sits <see cref="MarginY"/> above the
     /// area origin. The host canvas's metre-per-pixel scale turns all of it into the owner's own
-    /// metres, so "same text ⇒ same box" holds without a single wire byte.
+    /// metres.
+    ///
+    /// <para>THE FIT RULE IS THIS MIRROR'S OWN AND IT IS NOT THE GAME'S — the class doc's RESIDUE
+    /// block holds the decompiled citations. The game fixes the box at the hovered target's
+    /// serialized <c>width</c> and auto-fits only the HEIGHT; this hugs the text at a 257 px wrap.
+    /// It is left standing deliberately rather than "corrected" to a fixed 257 px box: 257 is
+    /// <c>m_DefaultWidth</c>, which is the width the game's box has only while HIDDEN, so pinning
+    /// to it would trade a hugging box of roughly the right area for a fixed box of the wrong
+    /// width in every case. The receiver is not told which target was hovered, so the right number
+    /// cannot be derived — it has to travel. Until it does, the log line below prints what was
+    /// used so the gap is a measurement rather than a guess.</para>
     /// </summary>
     private void Layout(string text, bool skinChanged)
     {
@@ -437,7 +483,30 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
                           $"{MarginY:F3} m above the area origin at board-local {_root.localPosition:F3} " +
                           $"= the authored plate corner {_authoredSeat:F3} corrected by " +
                           $"({_seatCorrection.x * 1000f:F0}, {_seatCorrection.y * 1000f:F0}) mm from " +
-                          "the board's MEASURED extents (PlayTray.MeasureBoardLocalExtents, the " +
+                          "THE BOX SIZE AND THE TYPE ARE THIS MIRROR'S OWN RULE, NOT THE OWNER'S "
+                        + "(R2 F7): the game fixes its box at the hovered UITooltipTarget's "
+                        + "serialized 'width' (default 100 px) and auto-fits the HEIGHT only, and "
+                        + "it switches font/size/colour/lineSpacing PER LINE across Title, "
+                        + "Attribute, Description and Keyword, defaulting to Attribute. Record 9 "
+                        + "carries the text and nothing else, so the two DECIDING FIELDS this "
+                        + "receiver would need are (a) the shown box width in authored px and (b) "
+                        + "one style code per line — both sender-side, neither on the wire, and "
+                        + "adding them is a protocol change. Read the 'wrap' and 'font' fields "
+                        + "above as what was actually used, and compare the frame's metres against "
+                        + "the owner's own tooltip in their log before spending bytes on it. "
+                        + "THE CORNER IS MEASURED OVER THIS CLIENT'S OWN MIRRORED BOARD (R2 F16): "
+                        + "the mm correction printed here comes from "
+                        + "PlayTray.MeasureBoardLocalExtents walking THE MIRROR's subtree, while "
+                        + "the owner runs the same call over THEIRS — and the two subtrees are not "
+                        + "guaranteed equal, because the objectives and initiative docks are "
+                        + "MirroredWidget clones only when they resolve and fall back to narrower "
+                        + "mod-drawn panels otherwise, and the active-card matrix's width is a "
+                        + "function of how many cards this mirror actually seated. Diff this mm "
+                        + "pair against the owner's own tooltip seat line: equal means the two "
+                        + "boards measured the same and the hint is at the same corner; unequal "
+                        + "means the difference IS the offset, and the 'Remote board content' line "
+                        + "says which dock fell back. "
+                        + "the board's MEASURED extents (PlayTray.MeasureBoardLocalExtents, the " +
                           "owner's own rule — zero here means the docks reach no further than the " +
                           "authored plate). " +
                           $"LATCH (ModBuild 405): seat latched in the board's frame on frame {_latchFrame}, " +
