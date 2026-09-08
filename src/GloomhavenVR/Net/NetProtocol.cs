@@ -49,6 +49,10 @@ internal static class NetProtocol
     /// <summary>Bounded transport envelope; carries record-48 chunks of an atomic extras snapshot.
     /// Magic/version and all existing messages remain unchanged. Unknown readers skip this type.</summary>
     public const byte MsgExtrasFragments = 2;
+    /// <summary>Current native active-bonus animation properties, independent of presence cadence.</summary>
+    public const byte MsgUseBarAnimation = 3;
+    /// <summary>Record-48 transport fragments of one complete native animation frame.</summary>
+    public const byte MsgUseBarAnimationFragments = 4;
 
     /// <summary>Extras (board + hand-count) send rate (Hz). Slower than the rig stream — the board
     /// moves rarely and the hand count changes on card play only.</summary>
@@ -23687,6 +23691,12 @@ internal static class NetProtocol
     /// <summary>Transport-only extras fragment, never parsed as an ordinary presence record.
     /// Multiple bounded chunks travel under MsgExtrasFragments and apply only after reassembly.</summary>
     public const byte ExtIdExtrasFragment = 48;
+    /// <summary>Native active-bonus animation frame under message type 3. Each record contains
+    /// slot, actor id, existing bonus identity, source sample time and a canonical chunk of up to
+    /// eight original show-setting ordinals with their current float properties. Sixteen entries
+    /// per slot and eight slots require at most 2566 bytes including the frozen six-byte header.
+    /// Presence and record 47 remain unchanged; type 4 fragments oversized animation frames.</summary>
+    public const byte ExtIdUseBarAnimation = 49;
     public const int UseBarWidgetsMaxPayloadBytes = 204;
 
 
