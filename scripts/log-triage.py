@@ -61,9 +61,42 @@ still prose, which is why the token match is additionally required to sit inside
 `--token-window` characters of the message body (default 200). Set it wider for an instrument whose
 token genuinely appears late.
 
+A READING'S BUILD IS PART OF THE READING (added 2026-09-08, after the review round)
+-----------------------------------------------------------------------------------
+Four of the five reviews of 2026-09-07 turned on a log being read as current when it was not.
+
+  * R1: the two ModBuild **478** drops contain 100 pile-browse census rows naming
+    `ShowRoundCardFronts(actor)=false`. That is the **pre-fix** behaviour ModBuild 479 replaced.
+    "Do not read those rows as evidence about the current build: they measure the code the 479
+    pile-fan change replaced."
+  * R4: the use-bar icons DREW on 478 through a fallback that 479 deleted. The 478 reading cannot
+    be re-taken, and read as current it says the opposite of the truth.
+  * R5: an audit dated ModBuild 371 had every claim re-derived at 479, and §5 lists where it had
+    gone wrong in the meantime.
+
+So this script now reads the build banner (`GloomhavenVR ModBuild <N>`) out of each log, prints it
+in the file header, refuses quietly-wrong comparisons with `--expect-build`, and says so loudly when
+two logs from "the same session" are not the same build. A log with NO banner is reported as such
+rather than assumed current — the banner is Note-level and survives every verbosity that prints at
+all, so its absence is itself a finding.
+
+SILENT ON A QUESTION IS NOT THE SAME AS ANSWERING IT (added 2026-09-08)
+-----------------------------------------------------------------------
+The existing SILENT section covers a token that never fired. R1 found the sharper case: an
+instrument that fired **seventeen times** and asked the question **zero** times.
+
+    17 of 17 `[Cards] Pile fan content` lines read `0 left on the control board`. The divergence
+    F1 needs has not occurred once. So F1 is not falsified by these logs — it is UNASKED by them.
+
+A distribution alone reads that as a clean sweep. An instrument may therefore declare `decisive` —
+the pattern that means this line was in the state that DECIDES the question — and a token with
+lines but no decisive line is reported as SILENT ON THE QUESTION, with the count, so "we looked and
+it was fine" cannot be written down when nothing looked.
+
 USAGE
 -----
     python3 scripts/log-triage.py <log> [<log> ...]
+    python3 scripts/log-triage.py --expect-build 480 <log>   # refuse a stale drop
     python3 scripts/log-triage.py .planning/debug/Player.log .planning/debug/remote/Player.log
     python3 scripts/log-triage.py --only 'RECESS CARD FX' <log>
     python3 scripts/log-triage.py --field 'source' --token 'RECESS CARD FX' <log>   # ad-hoc
@@ -110,6 +143,18 @@ class Instrument:
     """
     numeric_re: str | None = None
     """A capture group over a numeric field to scan for order-of-magnitude outliers."""
+    decisive: str | None = None
+    """The pattern that means this line was in the state that DECIDES the question.
+
+    A token can fire hundreds of times and never once be in the state the question is about.
+    R1 measured exactly that: 17 of 17 `Pile fan content` lines read `0 left on the control
+    board`, so the divergence its finding needed had not occurred once — the log was SILENT ON
+    the question, not exonerating for it. Without this field a distribution of seventeen
+    identical healthy values reads as a clean sweep, which is how that reading nearly became
+    "we checked and it was fine".
+    """
+    decisive_means: str = ""
+    """One line: what a decisive line would show, printed when there are none."""
 
 
 REGISTRY: list[Instrument] = [
@@ -160,8 +205,13 @@ REGISTRY: list[Instrument] = [
     Instrument(
         token="DOCK MIRROR",
         why="whether the mirrored use-bar symbols resolved. A refusal means the tiles are anonymous, "
-            "which is 'ich sehe die Symbole nicht'.",
-        verdict_re=r"DOCK MIRROR: ([a-z ].{0,60}?)(?: —|\.|,)",
+            "which is 'ich sehe die Symbole nicht'. R4 F1: THIS LINE READS LIKE SUCCESS WHEN HALF "
+            "THE BAR IS ANONYMOUS — it reports the slots it DID light and has no field for the "
+            "ones the sender withheld, so `1 … 1 of them resolved from the OWNER'S OWN record-45 "
+            "id` is what a two-slot prompt showing one icon and one blank tile prints. Read the "
+            "count against how many slots the prompt actually had; the line cannot tell you.",
+        verdict_re=r"DOCK MIRROR: (\d+ mirrored use-bar slot\(s\)|no mirrored use-bar symbol"
+                   r"|use-bar SYMBOLS resolved locally)",
     ),
     Instrument(
         token="PICK FLOW SUSPENDED",
@@ -194,6 +244,79 @@ REGISTRY: list[Instrument] = [
             "receiver holding no wire order at all for a fan it is drawing.",
         fields=("arc", "model", "recordListLen", "held", "suppressed"),
         joint=True,
+    ),
+
+    # ── ADDED 2026-09-08 from the five reviews of 2026-09-07. Each of these is a falsifier a
+    # review NAMED and could not read, and each is here so the next round does not have to
+    # re-derive the grep. The `why` says which finding it settles.
+    Instrument(
+        token="Pile fan content",
+        why="R1 F1's convicting reading, and it states the defect in ONE line: a non-zero "
+            "'left on the control board' while a discard fan is open IS the owner/mirror "
+            "divergence. Nothing else has to be correlated to see it.",
+        numeric_re=r"; (\d+) left on the control board",
+        decisive=r"; [1-9][0-9]* left on the control board",
+        decisive_means="a pile fan opened while one of its cards' visuals was still on the "
+                       "control board. R1 measured 17 of 17 reading ZERO across the two "
+                       "ModBuild 478 drops — so those logs are SILENT on F1, not exonerating, "
+                       "and the hardware action (open a discard fan during a short rest) is "
+                       "still required.",
+    ),
+    Instrument(
+        token="PEER CARD FACE CENSUS",
+        why="the observer half of R1 F1. A `pile browse[pN] 0 FRONT / M BACK` row whose rule is "
+            "the CountMismatch sentence is the belt tripping. BEWARE THE BUILD: the 100 "
+            "all-backs rows in the ModBuild 478 drops name a DIFFERENT rule "
+            "(ShowRoundCardFronts(actor)=false) and are the pre-fix behaviour 479 replaced.",
+        verdict_re=r"(pile browse\[p\d+\] \d+ FRONT / \d+ BACK)",
+    ),
+    Instrument(
+        token="Pick banner SENT",
+        why="R1 F3: extension record 7 publishes PlayTray.PickBannerText verbatim and is the one "
+            "string channel of five that is neither masked nor identity-gated. A banner quoting "
+            "a card NAME while the secret window is shut is the leak. There is no log line today "
+            "that pairs record 7 with the phase, so this must be read against a census row's "
+            "timestamp.",
+        verdict_re=r"Pick banner SENT:? ?(.{0,70})",
+    ),
+    Instrument(
+        token="BURN MIRROR SKIPPED",
+        why="R3 F5's first half. Count it in the same window as CARD FX LOST — R3 could not rank "
+            "that finding above PLAUSIBLE precisely because it could not establish the arrival "
+            "ordering from source alone.",
+        verdict_re=r"(BURN MIRROR SKIPPED)",
+    ),
+    Instrument(
+        token="CARD FX LOST",
+        why="R3 F5's second half, and the reason its own '1 loss in 4 this session' reading is "
+            "not usable: one session, no denominator, no build stamp. Read the count here "
+            "against the BURN MIRROR SKIPPED count from the SAME log.",
+        verdict_re=r"(CARD FX LOST)",
+    ),
+    Instrument(
+        token="GATE 3 (slot count)",
+        why="R4 F3. THE VERDICT STRING IS WRONG and reading it as written costs a round: it "
+            "blames 'a stale or mid-rebuild local bar; the next cadence tick normally clears "
+            "it', and nothing in Resolve samples a timestamp, a rebuild epoch or a tick. The "
+            "real cause is a permanent walk asymmetry (the receiver's walk lacks the sender's "
+            "IsPlainRenderHidden term), which no cadence tick will ever clear. A REPEATING "
+            "count here falsifies the string's own prediction.",
+        verdict_re=r"(shows \d+ visible slot\(s\) against record 25's \d+)",
+    ),
+    Instrument(
+        token="BURN ANIM STUCK",
+        why="R5 F6's only reading — and R5's standing ruling is that a deadlock whose only "
+            "handling is a log line is itself a defect. Whether the remedy covers every case is "
+            "the next question and this count answers it.",
+        verdict_re=r"(BURN ANIM STUCK)",
+    ),
+    Instrument(
+        token="row not converted",
+        why="R5 F4's DISCRIMINATING READING, and it is an ABSENCE — the hardest shape to grep. "
+            "A session in which the dock docks and the row is invisible with ZERO of these warn "
+            "lines is unreachable by construction unless F4 is what happened. So a SILENT "
+            "reading here is the evidence, not the all-clear.",
+        verdict_re=r"(row not converted)",
     ),
 ]
 
@@ -229,6 +352,28 @@ def anchored_lines(path: str, token: str, window: int) -> list[str]:
             if 0 <= at <= window:
                 out.append(body.rstrip("\n"))
     return out
+
+
+BUILD_RE = re.compile(r"GloomhavenVR ModBuild (\d+)")
+
+
+def builds_in(path: str) -> list[int]:
+    """Every distinct ModBuild the banner claims in this log, in first-seen order.
+
+    Plugin.cs prints `GloomhavenVR ModBuild <N> (assembly …)` at Note level, which survives every
+    verbosity that can print at all — it was added after a hardware round was accidentally run on
+    the previous build and its log misread as a fix failure. More than one value means the log
+    spans a reinstall, and every reading in it needs a side.
+    """
+    seen: list[int] = []
+    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            m = BUILD_RE.search(line)
+            if m:
+                value = int(m.group(1))
+                if value not in seen:
+                    seen.append(value)
+    return seen
 
 
 def distribution(lines: list[str], inst: Instrument) -> collections.Counter:
@@ -290,11 +435,31 @@ def outliers(lines: list[str], inst: Instrument,
 
 
 def report(path: str, only: str | None, window: int, want_outliers: bool,
-           factor: float) -> None:
+           factor: float, expect_build: int | None) -> list[int]:
+    builds = builds_in(path)
     print("=" * 100)
     print(f"{path}   ({os.path.getsize(path):,} bytes)")
+    if not builds:
+        print("   BUILD: NOT STATED. This log carries no `GloomhavenVR ModBuild <N>` banner, and")
+        print("   the banner is Note-level — it survives every verbosity that prints anything at")
+        print("   all. So this log cannot say which build produced it, and no reading in it may be")
+        print("   quoted as being about the current one.")
+    elif len(builds) == 1:
+        print(f"   BUILD: ModBuild {builds[0]}")
+    else:
+        print(f"   BUILD: {len(builds)} DIFFERENT builds in one log — "
+              + ", ".join(str(b) for b in builds))
+        print("   The log spans a reinstall. Every reading below is a mixture until you split it,")
+        print("   and a fix's 'before' and 'after' are both in here with nothing separating them.")
+    if expect_build is not None and builds != [expect_build]:
+        print(f"   *** STALE OR WRONG DROP: asked for ModBuild {expect_build}, this log says "
+              + (", ".join(str(b) for b in builds) if builds else "nothing") + ".")
+        print("   *** A reading from an earlier build is not a weaker reading, it is a reading")
+        print("   *** about DIFFERENT CODE. R1 found 100 census rows in the ModBuild 478 drops")
+        print("   *** measuring exactly the code the 479 change replaced.")
     print("=" * 100)
     silent: list[str] = []
+    unasked: list[tuple[str, int, str]] = []
     for inst in REGISTRY:
         if only and only.lower() not in inst.token.lower():
             continue
@@ -302,7 +467,15 @@ def report(path: str, only: str | None, window: int, want_outliers: bool,
         if not lines:
             silent.append(inst.token)
             continue
-        print(f"\n── {inst.token}  ({len(lines)} anchored line(s))")
+        decisive_count = None
+        if inst.decisive:
+            rx = re.compile(inst.decisive)
+            decisive_count = sum(1 for body in lines if rx.search(body))
+            if decisive_count == 0:
+                unasked.append((inst.token, len(lines), inst.decisive_means))
+        suffix = "" if decisive_count is None else \
+            f", {decisive_count} of them in the state that decides the question"
+        print(f"\n── {inst.token}  ({len(lines)} anchored line(s){suffix})")
         print(f"   {inst.why}")
         for value, count in sorted(distribution(lines, inst).items(),
                                    key=lambda kv: (-kv[1], kv[0])):
@@ -310,12 +483,22 @@ def report(path: str, only: str | None, window: int, want_outliers: bool,
         if want_outliers:
             for value, body in outliers(lines, inst, factor):
                 print(f"     OUTLIER {value}  {body}")
+    if unasked:
+        print("\n── SILENT ON THE QUESTION — the instrument fired and never once asked it.")
+        print("   This is NOT the same as a clean reading and must never be written down as one.")
+        print("   A distribution of identical healthy values here means the state that would have")
+        print("   shown the defect did not occur, so the log neither confirms nor falsifies it.")
+        for token, count, means in unasked:
+            print(f"     {token}: {count} line(s), 0 decisive.")
+            if means:
+                print(f"       a decisive line would be: {means}")
     if silent:
         print("\n── SILENT — zero anchored lines. A token that never fired IS a reading:")
         print("   nothing exercised it, or it is unreachable, or its gate never opened. Any verdict")
         print("   that depends on one of these is a verdict about nothing.")
         for token in silent:
             print(f"     {token}")
+    return builds
 
 
 def main() -> int:
@@ -330,6 +513,10 @@ def main() -> int:
                     help="how far into the message body the token may sit (default 200)")
     ap.add_argument("--outliers", action="store_true",
                     help="also flag numeric values far off their own median")
+    ap.add_argument("--expect-build", type=int,
+                    help="the ModBuild these logs are supposed to be from. A drop that says "
+                         "anything else is reported loudly — a reading from an earlier build is "
+                         "not a weaker reading, it is a reading about different code.")
     ap.add_argument("--outlier-factor", type=float, default=5.0,
                     help="how many times its own median a value must be to be flagged (default 5; "
                          "10 was measured to miss the 8.7x case this exists for)")
@@ -348,11 +535,28 @@ def main() -> int:
                 print(f"     {count:6d}  {value}")
         return 0
 
+    per_log: list[tuple[str, list[int]]] = []
     for path in args.logs:
         if not os.path.exists(path):
             print(f"missing: {path}", file=sys.stderr)
             return 2
-        report(path, args.only, args.token_window, args.outliers, args.outlier_factor)
+        per_log.append((path, report(path, args.only, args.token_window, args.outliers,
+                                     args.outlier_factor, args.expect_build)))
+
+    # TWO MACHINES ARE ONLY ONE SESSION IF THEY RAN THE SAME BUILD. The mod's own MP handshake
+    # compares this exact number and blocks a mismatched table, so two drops that disagree are
+    # either not from one session or one of them predates the install — and a host/peer
+    # comparison across them is a comparison of two different programs.
+    if len(per_log) > 1:
+        stamps = {tuple(b) for _, b in per_log}
+        if len(stamps) > 1:
+            print("\n" + "=" * 100)
+            print("*** THESE LOGS ARE NOT THE SAME BUILD. Do not compare them field by field.")
+            for path, b in per_log:
+                print(f"      {path}: " + (", ".join(str(x) for x in b) if b else "no banner"))
+            print("*** The MP handshake compares this number and blocks a mismatched table, so")
+            print("*** either these are not one session, or one drop predates its own install.")
+            print("=" * 100)
     return 0
 
 
