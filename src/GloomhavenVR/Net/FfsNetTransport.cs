@@ -100,7 +100,7 @@ internal sealed class FfsNetTransport : INetTransport
             }
             // The handshake shares the same event budget; it must not accompany a fragment
             // in a catch-up burst. Presence and native motion retain independent snapshots.
-            byte[]? page = _extrasQueue.Next(now,
+            byte[]? page = _extrasQueue.NextBatch(now,
                 now >= _nextVersionAnnouncement ? _versionAnnouncement : null);
             if (page != null)
             {
@@ -372,6 +372,12 @@ internal sealed class FfsNetTransport : INetTransport
         try
         {
             if (NetSession.FlatNetMode || senderId == LocalPlayerId) return;
+            if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgPresentationBatch)
+            {
+                if (PresentationBatch.TryRead(buffer, length, out byte[][]? pages))
+                    foreach (byte[] page in pages!) RaiseReceived(senderId, page, page.Length);
+                return;
+            }
             if (ExtrasVersionAnnouncement.TryRead(buffer, length, out PresenceState version))
             {
                 VersionGuard.NotePacket(senderId);

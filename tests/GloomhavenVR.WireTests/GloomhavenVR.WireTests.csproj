@@ -524,4 +524,5 @@
     <Compile Include="NativeUseBarVectors.cs" />
     <Compile Include="BoardNativeParityVectors.cs" />
   </ItemGroup>
+  <ItemGroup><Compile Include="$(RepoRoot)src/GloomhavenVR/Net/PresentationBatch.cs" /></ItemGroup>
 </Project>

@@ -81,6 +81,8 @@ internal sealed class ExtrasSendScheduler
     private readonly ExtrasSendQueue _presence;
     private readonly ExtrasSendQueue _animation;
     private readonly ExtrasSendQueue _plumes;
+    private readonly ExtrasSendQueue _board;
+    private byte[]? _heldPage;
     private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
     private readonly byte _animationType;
     private double _next;
@@ -92,6 +94,8 @@ internal sealed class ExtrasSendScheduler
         _animation = new ExtrasSendQueue(sequence, animationType, animationEnvelope, preserveFirst: true);
         _plumes = new ExtrasSendQueue(sequence, NetProtocol.MsgCardPlume, NetProtocol.MsgCardPlumeFragments,
             preserveFirst: true, snapshotLimit: CardPlumeCodec.MaxSize);
+        _board = new ExtrasSendQueue(sequence, NetProtocol.MsgNativeBoard, NetProtocol.MsgNativeBoardFragments,
+            preserveFirst: true, snapshotLimit: 12288);
         for (int slot = 8; slot < _native.Length; slot++)
             _native[slot] = new ExtrasSendQueue((sequence & ~31UL) | (uint)slot,
                 NetProtocol.MsgNativeUseBar, NetProtocol.MsgNativeUseBarFragments,
@@ -105,6 +109,7 @@ internal sealed class ExtrasSendScheduler
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         int type = NetPacket.PeekType(snapshot, length);
         if (type == _animationType) _animation.Enqueue(snapshot, length);
+        else if (type == NetProtocol.MsgNativeBoard) _board.Enqueue(snapshot, length);
         else if (type == NetProtocol.MsgCardPlume) _plumes.Enqueue(snapshot, length);
         else if (type == NetProtocol.MsgNativeUseBar && nativeSlot >= 8 && nativeSlot < 32)
             _native[nativeSlot].Enqueue(snapshot, length);
@@ -114,18 +119,44 @@ internal sealed class ExtrasSendScheduler
     internal byte[]? Next(double now, byte[]? announcement = null)
     {
         if (now < _next) return null;
+        byte[]? result = TakeNext(now, announcement);
+        if (result != null) _next = now + 0.05;
+        return result;
+    }
+
+    internal byte[]? NextBatch(double now, byte[]? announcement = null)
+    {
+        if (now < _next) return null;
+        if (announcement != null) { _next = now + .05; return announcement; }
+        byte[]? first = _heldPage ?? TakeNext(now);
+        _heldPage = null;
+        if (first == null) return null;
+        var pages = new System.Collections.Generic.List<byte[]>(8) { first };
+        int length = 9 + first.Length;
+        while (length + 8 <= PresentationBatch.MaxSize && pages.Count < 32)
+        {
+            byte[]? next = TakeNext(now);
+            if (next == null) break;
+            if (length + 2 + next.Length > PresentationBatch.MaxSize) { _heldPage = next; break; }
+            pages.Add(next); length += 2 + next.Length;
+        }
+        _next = now + .05;
+        return pages.Count == 1 ? first : PresentationBatch.Write(pages);
+    }
+
+    private byte[]? TakeNext(double now, byte[]? announcement = null)
+    {
         byte[]? result = announcement;
         // Empty streams cost no turn. With only the original two streams populated this is
         // still exactly two animation pages followed by one waiting presence page.
-        for (int attempt = 0; result == null && attempt < 6; attempt++)
+        for (int attempt = 0; result == null && attempt < 7; attempt++)
         {
             int turn = _turn;
-            _turn = (_turn + 1) % 6;
+            _turn = (_turn + 1) % 7;
             result = turn < 2 ? _animation.Next(now)
                 : turn == 2 ? _presence.Next(now)
-                : turn == 3 ? _plumes.Next(now) : NextNative(now);
+                : turn == 3 ? _plumes.Next(now) : turn == 6 ? _board.Next(now) : NextNative(now);
         }
-        if (result != null) _next = now + 0.05;
         return result;
     }
 
@@ -143,7 +174,7 @@ internal sealed class ExtrasSendScheduler
 
     internal void Clear()
     {
-        _presence.Clear(); _animation.Clear(); _plumes.Clear();
+        _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _heldPage = null;
         for (int i = 8; i < _native.Length; i++) _native[i].Clear();
         _next = 0; _turn = 0; _nativeCursor = 8;
     }

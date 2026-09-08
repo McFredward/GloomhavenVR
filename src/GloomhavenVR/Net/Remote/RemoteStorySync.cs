@@ -860,6 +860,7 @@ internal static class RemoteStorySync
             _poseTrackPeer = bestPeer;
         }
         RigPose displayed = PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
+        size = WorldUI.SharedWindowSizeLaw.SharedGrabFactor(size); // baseline records the actual displayed grid value
         if (!TryToWorld(displayed.Position, displayed.Rotation,
                         out Vector3 worldPos, out Quaternion worldRot))
         {

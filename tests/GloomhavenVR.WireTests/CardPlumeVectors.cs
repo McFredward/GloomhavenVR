@@ -62,6 +62,23 @@ internal static class CardPlumeVectors
         t.Equal(14, length, "complete clear frame remains small");
         t.True(CardPlumeCodec.TryRead(buffer, length, out read) && read!.States.Length == 0, "clear withdraws all finished emitters");
 
+        t.Case("presentation batches retain independent pages within the event cap");
+        var batcher = new ExtrasSendScheduler(1000, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
+        byte[] SlotPage(byte n) => new byte[] { 0x31, 0x52, 0x56, 0x47, 3, 7, n };
+        batcher.Enqueue(SlotPage(1), 7, 8); batcher.Enqueue(SlotPage(2), 7, 9);
+        byte[] batch = batcher.NextBatch(0)!;
+        t.True(PresentationBatch.TryRead(batch, batch.Length, out byte[][]? children) && children!.Length == 2,
+            "two small independent slot envelopes share one event");
+        t.True(ExtrasFragments.NativeSlotStream(children![0], children[0].Length) == 8
+            && ExtrasFragments.NativeSlotStream(children[1], children[1].Length) == 9, "batching retains stream identities");
+        for (int i = 0; i < batch.Length; i++)
+            t.True(!PresentationBatch.TryRead(batch, i, out _), "a torn batch cannot dispatch its valid prefix");
+        t.True(batcher.NextBatch(.01) == null, "coalescing never adds a catch-up event");
+        var nested = (byte[])batch.Clone(); nested[14] = NetProtocol.MsgPresentationBatch;
+        t.True(!PresentationBatch.TryRead(nested, nested.Length, out _), "nested batch is rejected atomically");
+        var announcement = new byte[] { 0x31, 0x52, 0x56, 0x47, 3, 1 };
+        t.True(ReferenceEquals(announcement, batcher.NextBatch(.06, announcement)), "version announcement stays directly recognizable");
+
         t.Case("native slot envelopes keep each slot's generation independent");
         byte[] Native(byte tail) => new byte[] { 0x31, 0x52, 0x56, 0x47, 3, 7, tail };
         var scheduler = new ExtrasSendScheduler(1000, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);

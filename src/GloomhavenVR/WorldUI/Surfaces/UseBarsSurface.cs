@@ -380,7 +380,13 @@ internal sealed class UseBarsSurface
             same = ReferenceEquals(AnimationStateScratch[i], WireAnimationStates![i]);
         if (!same)
             WireAnimationStates = AnimationStateScratch.Count == 0 ? null : AnimationStateScratch.ToArray();
-        Net.NetAvatarDriver.PublishUseBarAnimations(WireAnimationStates);
+        for (int i = 8; i < NativeSources.Length; i++)
+        {
+            Component? source = NativeSources[i];
+            WireNativeStates[i] = source != null && source.gameObject.activeInHierarchy
+                ? Net.NativeUseBarSampler.Sample(source, (byte)(i / 8), (byte)(i % 8)) : null;
+        }
+        Net.NetAvatarDriver.PublishUseBarAnimations(WireAnimationStates, WireNativeStates);
     }
 
     internal void Shutdown()
@@ -400,8 +406,11 @@ internal sealed class UseBarsSurface
         WireWidgetStates = null;
         Net.UseBarWidgetSampler.Reset();
         Net.UseBarAnimationSampler.Reset();
+        Net.NativeUseBarSampler.Reset();
+        System.Array.Clear(WireNativeStates, 0, WireNativeStates.Length);
         WireAnimationStates = null;
         System.Array.Clear(AnimationSources, 0, AnimationSources.Length);
+        System.Array.Clear(NativeSources, 0, NativeSources.Length);
         SampleWire();
     }
 
@@ -698,6 +707,8 @@ internal sealed class UseBarsSurface
     /// <summary>Immutable owner appearance snapshot; reuse its arrays while the picture is unchanged.</summary>
     internal static Net.UseBarWidgetState[]? WireWidgetStates { get; private set; }
     private static readonly List<Net.UseBarWidgetState> WidgetStateScratch = new(8);
+    private static readonly Component?[] NativeSources = new Component?[32];
+    private static readonly Net.NativeUseBarState?[] WireNativeStates = new Net.NativeUseBarState?[32];
     private static readonly UIUseActiveBonus?[] AnimationSources = new UIUseActiveBonus?[8];
     private static readonly List<Net.UseBarAnimationState> AnimationStateScratch = new(8);
     private static Net.UseBarAnimationState[]? WireAnimationStates;
@@ -747,6 +758,7 @@ internal sealed class UseBarsSurface
     private void SampleWire()
     {
         System.Array.Clear(AnimationSources, 0, AnimationSources.Length);
+        System.Array.Clear(NativeSources, 0, NativeSources.Length);
         byte mask = 0;
         for (int i = 0; i < _docks.Length; i++)
         {
@@ -2176,6 +2188,9 @@ internal sealed class UseBarsSurface
                 // record-25 doc above makes about the SENDER'S and the RECEIVER'S walks.
                 if (ids != null && at + count < ids.Length)
                     ids[at + count] = Net.UseBarSlotSymbol.SlotId(barIndex, child);
+                if (barIndex > 0 && barIndex < 4 && count < 8)
+                    NativeSources[barIndex * 8 + count] = barIndex == 1 ? child.GetComponent<UIUseAbility>()
+                        : barIndex == 2 ? child.GetComponent<UIUseAugmentation>() : child.GetComponent<UIUseItemScenario>();
                 if (barIndex == 0 && child.GetComponent<UIUseActiveBonus>() is UIUseActiveBonus bonus)
                 {
                     AnimationSources[count] = bonus;
@@ -2244,21 +2259,9 @@ internal sealed class UseBarsSurface
             // writing the wrong axes, and the remedy then is a translation HERE, not a
             // re-numbering there.
             //
-            // SECOND, the pointer bits hang off this method's own `offered` and not merely off a
-            // non-null Selectable. SamplePointerBits does already refuse a non-interactable widget
-            // — but for use slots that refusal can never fire, because the game greys a slot by
-            // writing UIUseSlot.disabledAlpha and never touches the button's own `interactable`
-            // flag, so sel.IsInteractable() stays TRUE on a slot the owner is looking at greyed.
-            // That is the same asymmetry the summary above records as the reason OFFERED demands
-            // "not dimmed" here, and its consequence is that SamplePointerBits cannot see the
-            // greying at all and would report a hover for a dimmed slot. Publishing that would make
-            // every peer paint a highlight the owner never sees, since uGUI gives the disabled tint
-            // priority over highlighted and pressed alike. `offered` is the only predicate in this
-            // file that knows about the alpha, so it is the one to gate on. (The null test beside
-            // it looks redundant — `offered` already implies it — and it is kept because it is what
-            // proves non-null to the nullable analysis, rather than suppressing the question with
-            // a `!`; the lookup above returns null for a slot with no Selectable in it.)
-            if (offered && sel != null)
+            // ExtendedButton can show a native highlight while a slot is dimmed. Capture
+            // that actual state; interaction eligibility remains a separate offered bit.
+            if (sel != null)
                 state |= DecisionDockSurface.SamplePointerBits(sel);
 
             return state;

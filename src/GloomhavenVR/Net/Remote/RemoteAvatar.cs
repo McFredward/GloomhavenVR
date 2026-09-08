@@ -59,6 +59,7 @@ internal sealed class RemoteAvatar
     /// one control-board-adjacent display that had no mirror at all before it.</summary>
     private readonly RemoteEmptyFanHint _emptyFanHint;
     private readonly RemoteCardFx _cardFx;     // report 6: replayed card animations
+    private readonly RemoteCardPlume _plumes;
     private readonly RemoteBurnFx _burnFx;     // item 11a/11b: the peer's burn, on the right card
     private readonly RemoteBrowserFan _browserFan; // the peer's discard/burnt pile-browse reading fan
     private readonly RemoteNameTag _nameTag;   // username + Steam avatar floating above the mask
@@ -73,6 +74,36 @@ internal sealed class RemoteAvatar
     internal bool ShortRestInProgress { get; private set; }
     internal UseBarWidgetState[]? UseBarWidgetStates { get; private set; }
     internal uint PresenceRevision { get; private set; }
+    internal CardPlumeState[]? PlumeStates { get; private set; }
+    internal float PlumeSampleTime { get; private set; } = -1f;
+    internal void SetCardPlume(CardPlumeSnapshot snapshot)
+    {
+        if (snapshot.SampleTime <= PlumeSampleTime) return;
+        PlumeSampleTime = snapshot.SampleTime;
+        PlumeStates = snapshot.States;
+    }
+    internal NativeUseBarState?[] NativeUseBarStates { get; } = new NativeUseBarState?[32];
+    internal float[] NativeUseBarSampleTimes { get; } = NewNativeTimes();
+    internal System.Collections.Generic.List<NativeUseBarSnapshot>[] NativeUseBarHistories { get; } = NewNativeHistories();
+    private static float[] NewNativeTimes()
+    { var result = new float[32]; for (int i = 0; i < result.Length; i++) result[i] = -1; return result; }
+    private static System.Collections.Generic.List<NativeUseBarSnapshot>[] NewNativeHistories()
+    {
+        var result = new System.Collections.Generic.List<NativeUseBarSnapshot>[32];
+        for (int i = 0; i < result.Length; i++) result[i] = new(32);
+        return result;
+    }
+    internal void SetNativeUseBar(NativeUseBarSnapshot snapshot)
+    {
+        int address = snapshot.Address;
+        if (snapshot.SampleTime <= NativeUseBarSampleTimes[address]) return;
+        NativeUseBarSampleTimes[address] = snapshot.SampleTime;
+        NativeUseBarStates[address] = snapshot.State;
+        var history = NativeUseBarHistories[address];
+        if (history.Count == 32) history.RemoveAt(0);
+        history.Add(snapshot);
+    }
+
     internal UseBarAnimationState[]? AnimationStates { get; private set; }
     internal float AnimationSampleTime { get; private set; } = -1f;
     // Board structure can arrive after a short reveal's first pose. Keep a bounded owner
@@ -1456,6 +1487,7 @@ internal sealed class RemoteAvatar
         _emptyFanHint = new RemoteEmptyFanHint(this);
         _cardFx = new RemoteCardFx(this);
         _burnFx = new RemoteBurnFx(this);
+        _plumes = new RemoteCardPlume(this);
         _browserFan = new RemoteBrowserFan(this);
         _nameTag = new RemoteNameTag(this); // appended last — never reorder the ctor above (ghosts-before-BuildHands)
 
@@ -2374,6 +2406,7 @@ internal sealed class RemoteAvatar
         {
             _cardFx.Tick(dt);
             _burnFx.Tick(dt);
+            _plumes.Tick(PlumeStates, PlumeSampleTime);
         }
         using (Core.PerfMonitor.Scope("Net.Fans"))
             _browserFan.Tick(dt);
@@ -2704,6 +2737,7 @@ internal sealed class RemoteAvatar
         _emptyFanHint.Destroy();
         _cardFx.Destroy();
         _burnFx.Destroy();
+        _plumes.Destroy();
         _browserFan.Destroy();
         _nameTag.Destroy();
         // Record 36's front overlays own their own clones and materials, so they are destroyed in

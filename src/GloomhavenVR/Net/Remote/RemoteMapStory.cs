@@ -1955,6 +1955,7 @@ internal static class RemoteMapStory
             local.PoseTrackFrame = owner.Frame;
         }
         RigPose displayed = local.PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
+        size = WorldUI.SharedWindowSizeLaw.SharedGrabFactor(size); // baseline records the actual displayed grid value
         if (!ToWorld(owner.Frame, displayed.Position, displayed.Rotation,
                      out Vector3 worldPos, out Quaternion worldRot))
         {

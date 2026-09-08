@@ -1,0 +1,139 @@
+using System;
+using System.Collections.Generic;
+using GloomhavenVR.Core;
+using UnityEngine;
+
+namespace GloomhavenVR.Net;
+
+internal sealed partial class NetAvatarDriver
+{
+    private readonly byte[] _plumeBuffer = new byte[CardPlumeCodec.MaxSize];
+    private readonly byte[] _nativeBuffer = new byte[NativeUseBarPacket.MaxSize];
+    private CardPlumeState[]? _sentPlumes;
+    private CardPlumeSnapshot? _plumeSnapshot;
+    private float _nextPlumeRefresh;
+    private readonly NativeUseBarState?[] _sentNative = new NativeUseBarState?[32];
+    private readonly NativeUseBarSnapshot?[] _nativeSnapshots = new NativeUseBarSnapshot?[32];
+    private readonly float[] _nextNativeRefresh = new float[32];
+    private float _nativeSourceTime;
+    private readonly Dictionary<int, CardPlumeSnapshot> _pendingPlumes = new();
+    private readonly Dictionary<int, List<NativeUseBarSnapshot>[]> _pendingNative = new();
+
+    private void TickNativePresentationSend(NativeUseBarState?[] states)
+    {
+        if (NetSession.FlatNetMode || !VRSession.IsRunning || !_transport.IsOnline
+            || _transport.LocalPlayerId <= 0) return;
+        float now = Time.unscaledTime;
+        try
+        {
+            CardPlumeState[] plumes = CardPlumeSampler.Sample();
+            bool changed = !ReferenceEquals(plumes, _sentPlumes);
+            if (changed || _plumeSnapshot == null)
+            {
+                _plumeSnapshot = new CardPlumeSnapshot(now, plumes);
+                _sentPlumes = plumes;
+            }
+            if (changed || now >= _nextPlumeRefresh)
+            {
+                int length = CardPlumeCodec.Write(_plumeSnapshot, _plumeBuffer);
+                _transport.Send(_plumeBuffer, length);
+                _nextPlumeRefresh = now + .5f;
+            }
+        }
+        catch (Exception e) { LogPhaseError("Sample native card plume", e); }
+        for (int i = 8; i < 32; i++)
+        {
+            try
+            {
+                bool changed = !ReferenceEquals(states[i], _sentNative[i]);
+                NativeUseBarSnapshot? previous = _nativeSnapshots[i];
+                if (!changed && previous == null) continue;
+                if (changed)
+                {
+                    if (previous != null && now - previous.SampleTime > .25f && _nativeSourceTime > previous.SampleTime)
+                        SendNative(new NativeUseBarSnapshot(_nativeSourceTime, previous.Bar, previous.Slot, previous.State));
+                    _nativeSnapshots[i] = new NativeUseBarSnapshot(now, (byte)(i / 8), (byte)(i % 8), states[i]);
+                    _sentNative[i] = states[i];
+                }
+                if (changed || now >= _nextNativeRefresh[i])
+                {
+                    SendNative(_nativeSnapshots[i]!);
+                    _nextNativeRefresh[i] = now + .5f;
+                }
+            }
+            catch (Exception e) { LogPhaseError($"Sample native use-bar slot {i}", e); }
+        }
+        _nativeSourceTime = now;
+    }
+
+    private void SendNative(NativeUseBarSnapshot snapshot)
+    {
+        int length = NativeUseBarPacket.Write(snapshot, _nativeBuffer);
+        if (length > 0) _transport.Send(_nativeBuffer, length);
+    }
+
+    private bool QueueNativePresentation(int sender, byte[] buffer, int length)
+    {
+        if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgCardPlume)
+        {
+            if (!CardPlumeCodec.TryRead(buffer, length, out CardPlumeSnapshot? frame)) return false;
+            if (_pendingPlumes.Count < 8 || _pendingPlumes.ContainsKey(sender))
+                if (!_pendingPlumes.TryGetValue(sender, out CardPlumeSnapshot? old) || frame!.SampleTime > old.SampleTime)
+                    _pendingPlumes[sender] = frame!;
+            return true;
+        }
+        if (!NativeUseBarPacket.TryRead(buffer, length, out NativeUseBarSnapshot? snapshot)) return false;
+        if (!_pendingNative.TryGetValue(sender, out List<NativeUseBarSnapshot>[]? slots))
+        {
+            if (_pendingNative.Count >= 8) return true;
+            slots = new List<NativeUseBarSnapshot>[32];
+            for (int i = 8; i < slots.Length; i++) slots[i] = new List<NativeUseBarSnapshot>(4);
+            _pendingNative.Add(sender, slots);
+        }
+        var queue = slots[snapshot!.Address];
+        if (queue.Count > 0 && snapshot.SampleTime <= queue[queue.Count - 1].SampleTime) return true;
+        if (queue.Count == 4) queue.RemoveAt(1);
+        queue.Add(snapshot);
+        return true;
+    }
+
+    private void ApplyNativePresentation()
+    {
+        foreach (var pair in _pendingPlumes)
+        {
+            try { GetOrCreate(pair.Key)?.SetCardPlume(pair.Value); }
+            catch (Exception e) { LogPhaseError($"Apply card plume from player {pair.Key}", e); }
+        }
+        _pendingPlumes.Clear();
+        foreach (var pair in _pendingNative)
+        {
+            try
+            {
+                RemoteAvatar? avatar = GetOrCreate(pair.Key);
+                if (avatar == null) continue;
+                for (int i = 8; i < pair.Value.Length; i++)
+                {
+                    var queue = pair.Value[i];
+                    if (queue.Count == 0) continue;
+                    avatar.SetNativeUseBar(queue[0]);
+                    queue.RemoveAt(0);
+                }
+            }
+            catch (Exception e) { LogPhaseError($"Apply native slots from player {pair.Key}", e); }
+        }
+    }
+
+    private void ForgetNativePresentation(int sender)
+    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); }
+
+    private void ResetNativePresentation()
+    {
+        _pendingPlumes.Clear(); _pendingNative.Clear();
+        _sentPlumes = null; _plumeSnapshot = null; _nextPlumeRefresh = _nativeSourceTime = 0;
+        Array.Clear(_sentNative, 0, _sentNative.Length);
+        Array.Clear(_nativeSnapshots, 0, _nativeSnapshots.Length);
+        Array.Clear(_nextNativeRefresh, 0, _nextNativeRefresh.Length);
+        CardPlumeSampler.Reset();
+        NativeUseBarSampler.Reset();
+    }
+}

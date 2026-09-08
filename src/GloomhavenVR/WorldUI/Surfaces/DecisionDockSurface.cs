@@ -1671,19 +1671,26 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// the gap is closed by construction here — but it is a gap in the SOURCE, not an oversight,
     /// and if a flat-screen path ever docks this row it is the thing to revisit.</para>
     ///
-    /// <para>A NON-INTERACTABLE OPTION REPORTS NEITHER. Unity own state machine gives the disabled
-    /// tint priority over highlighted and pressed alike, so a greyed widget that happens to sit
-    /// under the beam still draws greyed on the owner screen. Publishing a hover for it would make
-    /// a peer paint a picture the owner never sees.</para>
+    /// <para>A plain disabled Selectable reports neither pointer state. Native ExtendedButton
+    /// additionally supports scaleNonInteractable, so its actual highlighted latch is sampled
+    /// even when disabled. This changes the visual state, never whether a click is offered.</para>
     /// </summary>
     internal static byte SamplePointerBits(Selectable sel)
     {
         try
         {
-            if (!sel.IsInteractable())
-                return 0;
             GameObject go = sel.gameObject;
             byte flags = 0;
+            if (sel is ExtendedButton native)
+            {
+                // Native scaleNonInteractable can highlight a disabled button. Read the
+                // actual native visual latch; usability still travels separately as OFFERED.
+                if (native.isHighlighted) flags |= NetProtocol.DecisionOptionHoveredBit;
+                if (native.isHighlighted && native.interactable && Hands.Interact.UguiPressTracker.IsPressed(go))
+                    flags |= NetProtocol.DecisionOptionPressedBit;
+                return flags;
+            }
+            if (!sel.IsInteractable()) return 0;
             if (Hands.Interact.UguiHoverTracker.IsHovered(go))
                 flags |= NetProtocol.DecisionOptionHoveredBit;
             if (Hands.Interact.UguiPressTracker.IsPressed(go))

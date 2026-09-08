@@ -57,8 +57,11 @@ internal static class NetProtocol
     public const byte MsgCardPlumeFragments = 6;
     public const byte MsgNativeUseBar = 7;
     public const byte MsgNativeUseBarFragments = 8;
+    public const byte MsgPresentationBatch = 9;
+    public const byte MsgNativeBoard = 10;
+    public const byte MsgNativeBoardFragments = 11;
+    public const byte ExtIdNativeBoard = 52;
     public const byte ExtIdNativeUseBar = 50;
-    // Record50 is reserved for the other native use-bar descriptors in this integration.
     public const byte ExtIdCardPlume = 51;
 
     /// <summary>Extras (board + hand-count) send rate (Hz). Slower than the rig stream — the board

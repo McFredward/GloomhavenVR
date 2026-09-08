@@ -20,7 +20,7 @@ namespace GloomhavenVR.Net;
 /// Bolt is mid-event-iteration, received states are parked in <see cref="_pending"/> and
 /// applied in <see cref="Update"/>.
 /// </summary>
-internal sealed class NetAvatarDriver : MonoBehaviour
+internal sealed partial class NetAvatarDriver : MonoBehaviour
 {
     // Fingers are cheap (10 B) and improve presence; on by default. No shared-config edit.
     private const bool IncludeFingers = true;
@@ -59,12 +59,17 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private readonly Dictionary<int, List<UseBarAnimationSnapshot>> _pendingAnimations = new();
 
     /// <summary>Called after the owner's native animation and dock placement in LateUpdate.</summary>
-    internal static void PublishUseBarAnimations(UseBarAnimationState[]? states)
+    internal static void PublishUseBarAnimations(UseBarAnimationState[]? states, NativeUseBarState?[] native)
     {
         NetAvatarDriver? driver = _instance;
         if (driver == null || !driver.isActiveAndEnabled) return;
         try { driver.TickAnimationSend(states); }
         catch (Exception e) { driver.LogPhaseError("TickAnimationSend", e); }
+        try { driver.TickNativePresentationSend(native); }
+        catch (Exception e) { driver.LogPhaseError("TickNativePresentationSend", e); }
+        if (!NetSession.FlatNetMode && VRSession.IsRunning && driver._transport.IsOnline
+            && driver._transport.LocalPlayerId > 0 && driver._transport is FfsNetTransport ffs)
+            ffs.TickFragments(Time.unscaledTime);
     }
 
     private void TickAnimationSend(UseBarAnimationState[]? states)
@@ -98,7 +103,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             _nextAnimationRefresh = now + 0.5f;
         }
         _lastAnimationSourceFrameTime = now;
-        if (_transport is FfsNetTransport ffs) ffs.TickFragments(now);
     }
 
 
@@ -883,6 +887,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _pending.Clear();
         _pendingExtras.Clear();
         _pendingAnimations.Clear();
+        ResetNativePresentation();
         _lastAnimationSnapshot = null;
         _lastSentAnimations = null;
         _nextAnimationRefresh = 0;
@@ -1029,6 +1034,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 _pending.Clear();
                 _pendingExtras.Clear();
                 _pendingAnimations.Clear();
+        ResetNativePresentation();
                 DestroyAllAvatars();
                 PlayerBadges.RestoreAll();
                 // The two world-wide peer tables go with the avatars: nothing of a peer's may
@@ -3912,6 +3918,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 }
                 break;
 
+            case NetProtocol.MsgCardPlume:
+            case NetProtocol.MsgNativeUseBar:
+                parsed = QueueNativePresentation(senderId, buffer, length);
+                if (parsed) VersionGuard.NotePacket(senderId);
+                break;
+
             case NetProtocol.MsgExtras:
                 if (PresenceSerializer.TryRead(buffer, length, out PresenceState extras))
                 {
@@ -4133,6 +4145,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             catch (Exception e) { LogPhaseError($"Apply animation packet from player {kv.Key}", e); }
         }
 
+        ApplyNativePresentation();
         ResolveEnvClock();
         RemoteTestTriggers.Resolve(_transport != null ? _transport.LocalPlayerId : 0);
         // The story advance is resolved once per frame, not once per packet: two peers publishing
@@ -4407,6 +4420,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _pending.Remove(playerId);             // nothing queued for a peer we no longer hold
         _pendingExtras.Remove(playerId);
         _pendingAnimations.Remove(playerId);
+        ForgetNativePresentation(playerId);
         _createRetryAt.Remove(playerId);       // a rejoin gets a fresh construction budget
         NetFigures.ReleaseRemote(playerId);    // drop any figure this peer was holding
         NetProps.ReleaseRemote(playerId);      // …and put any map item they carried back on its hex
@@ -4424,6 +4438,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private void DestroyAllAvatars()
     {
         _pendingAnimations.Clear();
+        ResetNativePresentation();
         _lastAnimationSnapshot = null;
         _lastSentAnimations = null;
         _nextAnimationRefresh = 0;
