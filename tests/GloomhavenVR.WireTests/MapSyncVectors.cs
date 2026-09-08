@@ -990,7 +990,7 @@ internal static class MapSyncVectors
         t.Equal(NetProtocol.SharedWindowKindEncounter, NetProtocol.SharedWindowKindMax,
                 "and the encounter is the largest kind this build can name, so a kind 4 from a newer "
                 + "sender is stepped over by its own computed length");
-        t.Equal(2100, PresenceSerializer.MaxSize,
+        t.Equal(3700, PresenceSerializer.MaxSize,
                 "MaxSize was raised 1600 -> 1800 when records 20 and 21 landed: the worst case went "
                 + "1357 -> 1430 (+8 for record 20 with its TLV header, +65 for record 21 with "
                 + "its), and the margin at 1600 would have been 170 — thinner than the largest "
@@ -1005,7 +1005,7 @@ internal static class MapSyncVectors
                 + "two lanes computed against the same base without seeing each other. This "
                 + "constant sizes ONE local send buffer and appears in no packet, header or "
                 + "contract, so every raise is invisible to every peer including older builds. "
-                + "RAISED AGAIN 1900 -> 2100 on 2026-09-05, and this one by an EXISTING term "
+                + "RAISED AGAIN to 3700 for complete record47 subwidgets (3441 total), after 1900 -> 2100 on 2026-09-05, and this one by an EXISTING term "
                 + "rather than a new record: the WALL FADES key cap went 24 -> 63 (99 -> 255 "
                 + "bytes, the most that record's TLV length byte can carry), so the worst case "
                 + "went 1570 -> 1726 and the margin at 1900 would have been 174 - under the "

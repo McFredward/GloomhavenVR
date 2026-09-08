@@ -2474,10 +2474,11 @@ internal sealed class RemoteCardArt
     /// <para>WHY IT WAS ZERO, and why refusing was the wrong answer. <c>CardEffects.Initialize</c>
     /// runs from <c>Awake</c> and writes the vector; a peer's <c>AbilityCardUI</c> has never been
     /// active on THIS client, so it never ran and the widget's Images still point at the SHARED
-    /// authored material whose <c>_PosAndBounds</c> is the asset default. The same log proves the
-    /// LOCAL cards are fine — <c>CardHalfTone</c>'s census reads "_PosAndBounds unset on 0/54 (a set
-    /// one reads -611,-316,294x450)" on both machines — so this is a property of the CLONE SOURCE,
-    /// not of the build or of the player's quality settings.</para>
+    /// authored material whose <c>_PosAndBounds</c> is the asset default. The local census proves
+    /// initialization supplied a nonzero footprint, not that it remains correct after CardFace
+    /// reparents the widget onto a world canvas. AdoptedCardFxSpace now remeasures that local
+    /// footprint too. Zero bounds identify an uninitialized clone source; nonzero bounds must
+    /// still be evaluated in the canvas where the face is drawn.</para>
     ///
     /// <para>AND THE INHERITED VALUE IS WRONG EVEN WHEN IT IS NON-ZERO. Those census numbers are the
     /// card's position on the owner's SCREEN-SPACE hand canvas (-611, -316). This clone is centred on

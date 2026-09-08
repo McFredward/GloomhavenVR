@@ -49,6 +49,54 @@ internal sealed class FfsNetTransport : INetTransport
     private bool _installed;
     private bool _resolved;
     private bool _degraded;
+    private readonly ExtrasFragments _fragments = new();
+    private readonly ExtrasSendQueue _extrasQueue = new((ulong)DateTime.UtcNow.Ticks);
+    private byte[]? _versionAnnouncement;
+    private double _nextVersionAnnouncement;
+    private double _nextFragmentReport;
+    private int _sentFragments, _receivedFragments, _completedSnapshots, _fragmentBytes;
+
+    internal void ForgetPeer(int senderId) => _fragments.Forget(senderId);
+    internal void ResetFragments()
+    {
+        _fragments.Clear();
+        _extrasQueue.Clear();
+        _nextVersionAnnouncement = 0;
+        _nextFragmentReport = 0;
+        _sentFragments = _receivedFragments = _completedSnapshots = _fragmentBytes = 0;
+    }
+
+    internal void TickFragments(float now)
+    {
+        if (_degraded || !_installed || NetSession.FlatNetMode || !IsOnline) return;
+        try
+        {
+            if (now >= _nextVersionAnnouncement)
+            {
+                _versionAnnouncement ??= ExtrasVersionAnnouncement.Write(NetProtocol.ModBuild,
+                    MyPluginInfo.PLUGIN_VERSION);
+                SendToken(_versionAnnouncement);
+                _nextVersionAnnouncement = now + 1;
+            }
+            byte[]? page = _extrasQueue.Next(now);
+            if (page != null)
+            {
+                SendToken(page);
+                _sentFragments++;
+                _fragmentBytes += page.Length;
+            }
+            if (now >= _nextFragmentReport)
+            {
+                _nextFragmentReport = now + 10;
+                VRLog.Info("Net", $"EXTRAS TRANSPORT: sent {_sentFragments} bounded event(s), " +
+                    $"{_fragmentBytes} payload bytes; received {_receivedFragments} fragment event(s), " +
+                    $"committed {_completedSnapshots} complete snapshot(s); cap " +
+                    $"{ExtrasFragments.MaxDatagramBytes} B/event, one event per 50 ms, no catch-up burst.");
+                _sentFragments = _receivedFragments = _completedSnapshots = _fragmentBytes = 0;
+            }
+        }
+        catch (Exception e) { VRLog.Error("Net", $"Extras transport tick failed (suppressed): {e.Message}"); }
+    }
 
     // Reusable send-arg array (avoids a per-send allocation for the reflection invoke).
     private readonly object?[] _sendArgs = new object?[8];
@@ -154,6 +202,7 @@ internal sealed class FfsNetTransport : INetTransport
         if (_active == this)
             _active = null;
         _installed = false;
+        ResetFragments();
     }
 
     // ---- send ---------------------------------------------------------------------------
@@ -164,23 +213,30 @@ internal sealed class FfsNetTransport : INetTransport
             return;
         try
         {
+            if (length < 6 || length > payload.Length) return;
+            if (NetPacket.PeekType(payload, length) == NetProtocol.MsgExtras)
+            {
+                _extrasQueue.Enqueue(payload, length);
+                return;
+            }
             // CustomDataToken(byte[] customData, bool compressData=false). The token keeps a
             // reference to the array, so hand it an exact-size copy (the caller's buffer is reused).
             var bytes = new byte[length];
             Buffer.BlockCopy(payload, 0, bytes, 0, length);
-            object token = _customDataCtor.Invoke(new object[] { bytes, false });
-
-            // Only the token slot changes per send; the rest were pre-boxed in Install().
-            // SendSideAction(GameActionType, IProtocolToken, bool canBeUnreliable,
-            //                bool sendToHostOnly, int targetPlayerID, int, int, bool)
-            _sendArgs[1] = token;
-            _sendSideAction.Invoke(null, _sendArgs);
+            SendToken(bytes);
         }
         catch (Exception e)
         {
             // Never let a transport hiccup bubble into game code.
             VRLog.Error("Net", $"SendSideAction failed (suppressed): {e.Message}");
         }
+    }
+
+    private void SendToken(byte[] bytes)
+    {
+        object token = _customDataCtor!.Invoke(new object[] { bytes, false });
+        _sendArgs[1] = token;
+        _sendSideAction!.Invoke(null, _sendArgs);
     }
 
     // ---- receive hook -------------------------------------------------------------------
@@ -281,7 +337,30 @@ internal sealed class FfsNetTransport : INetTransport
 
     private void RaiseReceived(int senderId, byte[] buffer, int length)
     {
-        try { PacketReceived?.Invoke(senderId, buffer, length); }
+        try
+        {
+            if (NetSession.FlatNetMode || senderId == LocalPlayerId) return;
+            if (ExtrasVersionAnnouncement.TryRead(buffer, length, out PresenceState version))
+            {
+                VersionGuard.NotePacket(senderId);
+                VersionGuard.NoteExtras(senderId, in version);
+                return;
+            }
+            if (length >= 6 && length <= buffer.Length
+                && NetPacket.PeekType(buffer, length) == NetProtocol.MsgExtrasFragments)
+            {
+                _receivedFragments++;
+                byte[]? complete = _fragments.Accept(senderId, buffer, length,
+                    System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
+                if (complete != null)
+                {
+                    _completedSnapshots++;
+                    PacketReceived?.Invoke(senderId, complete, complete.Length);
+                }
+                return;
+            }
+            PacketReceived?.Invoke(senderId, buffer, length);
+        }
         catch (Exception e) { VRLog.Error("Net", $"PacketReceived subscriber threw: {e}"); }
     }
 
