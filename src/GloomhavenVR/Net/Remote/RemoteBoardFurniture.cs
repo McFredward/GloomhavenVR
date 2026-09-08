@@ -3874,11 +3874,80 @@ internal sealed class RemoteBoardFurniture
     /// <summary>A collider-free glow rim behind a round-card slot (the teal "wanted" pulse and the
     /// gold snap flash share this shape, exactly as on the local board — different hue, different
     /// rim size, the teal a hair less proud so the gold always draws in front of it). Sized to the
-    /// remote card metric so the rim frames the rendered card.</summary>
+    /// remote card metric so the rim frames the rendered card.
+    ///
+    /// <para>THE MATERIAL IS THE OWNER'S OWN CHOKE POINT, not an unlit quad (ModBuild 480). Until
+    /// this build the rim was minted by <c>BoardVisual.Unlit</c> — <c>Sprites/Default</c>, i.e.
+    /// <c>SrcAlpha/OneMinusSrcAlpha</c> alpha blending — while BOTH of the owner's own rims go
+    /// through <see cref="Cards.CardGlow.MakeGlowMaterial"/> (<c>PlayTray.4.Slots.cs:346</c> for the
+    /// gold snap, <c>:404</c> for the teal wanted), which resolves the bundled
+    /// <c>GloomhavenVR/Overlay</c> shader and sets <c>_SrcBlend=One, _DstBlend=One, _ZWrite=0</c>,
+    /// queue Transparent — a TRUE ADDITIVE emissive glow. MEASURED CONSEQUENCE, on two untuned
+    /// clients with no dial touched: <see cref="RemoteGlowPulse"/> writes <c>a = k</c> with k in
+    /// 0.30…0.85, so at the bottom of the breath the peer's rim was a 30 %-opacity teal wash that
+    /// DARKENED the wood it lay on, where the owner's only ever ADDED light to it. That is a 1:1
+    /// breach in APPEARANCE, not a dial. The pulse arithmetic was already identical on both sides
+    /// (rgb × k and a = k, the fallback-safe form <c>PlayTray.SlotPulse</c> writes), so the blend
+    /// was the whole of the difference.</para>
+    ///
+    /// <para>The mirrored half-card hover glows on this same remote board already take that choke
+    /// point (<c>RemoteBoardCard.cs:1928/1930</c> via <c>CardGlow.CreateGlowQuad</c>); this was the
+    /// one glow surface on it that never did. The quad itself still comes from
+    /// <c>BoardVisual.Quad</c> rather than <c>CardGlow.CreateGlowQuad</c>, because the seat, the
+    /// size and the collider strip here are the REMOTE card metric and moving them would change
+    /// geometry this finding is not about.</para></summary>
+    /// <summary>One-shot "which blend did this machine actually get" line for the mirrored slot
+    /// rims.</summary>
+    private static bool s_loggedGlowBlend;
+
+    /// <summary>
+    /// SAY WHICH MATERIAL THE RIM GOT, once. The ModBuild-480 fix is invisible in a log otherwise,
+    /// and it has a silent failure mode that reproduces the exact defect it repairs:
+    /// <c>CardGlow.MakeGlowMaterial</c> falls back to alpha-blended <c>Sprites/Default</c> when the
+    /// bundled <c>GloomhavenVR/Overlay</c> shader does not resolve, and <c>Shader.Find</c> only
+    /// sees shaders that are already loaded — a trap this tree has paid for twice. So the line
+    /// reports the OBSERVED material, not the intent.
+    ///
+    /// <para>It asserts nothing about how the OWNER's board looks: this client cannot see that.
+    /// What it can say is that the same choke point produced the same answer here, and the fallback
+    /// arm names the one machine state on which the owner's own glow is broken too.</para>
+    /// </summary>
+    private static void ReportSlotGlowBlend(Material? glow)
+    {
+        if (s_loggedGlowBlend)
+            return;
+        s_loggedGlowBlend = true;
+        // HW-VERIFY
+        VRLog.Note("Net", glow != null
+            ? "REMOTE GLOW BLEND: the mirrored recess rims (wanted pulse + snap flash) now mint "
+              + "their material through Cards.CardGlow.MakeGlowMaterial - the SAME choke point the "
+              + "owner's own two rims use (PlayTray.4.Slots.cs:346 gold, :404 teal) - so they are "
+              + "ADDITIVE (_SrcBlend=One,_DstBlend=One, ZWrite off, queue Transparent) instead of "
+              + "the alpha-blended BoardVisual.Unlit quad every build up to 479 drew. THE MEASURED "
+              + "DEFECT: RemoteGlowPulse writes a = k with k in 0.30-0.85, so at the bottom of the "
+              + "breath the peer's rim was a 30%-opacity wash that DARKENED the wood the owner's "
+              + "rim only ever added light to - a 1:1 breach in appearance between two untuned "
+              + "clients, with no dial touched on either."
+            : "REMOTE GLOW BLEND: MakeGlowMaterial returned NULL on this machine, so the mirrored "
+              + "recess rims fell back to BoardVisual.Unlit (alpha blend) and look exactly as they "
+              + "did before ModBuild 480. Shader.Find sees only LOADED shaders, so this says the "
+              + "bundle's GloomhavenVR/Overlay and both stock fallbacks were unavailable at the "
+              + "moment this board was built. NOT A REGRESSION OF THE MIRROR: on this same machine "
+              + "the OWNER's own recess glows take the identical fallback, so the two boards still "
+              + "agree - they agree on the broken look. Grep for the bundle-shader load beside "
+              + "this line.");
+    }
+
     private GameObject BuildSlotGlow(string name, Vector3 cardLocal, float scale, float proud,
         Color color, bool pulse)
     {
-        var mat = BoardVisual.Unlit(color);
+        // MakeGlowMaterial is null only when even Sprites/Default and UI/Default are missing; the
+        // Unlit fallback carries the third (Hidden/InternalErrorShader) so a quad is never built
+        // material-less. A null here would be the same machine on which the OWNER's glow is broken
+        // too — MakeGlowMaterial's own fallback note says so.
+        Material? glow = Cards.CardGlow.MakeGlowMaterial(color);
+        Material mat = glow ?? BoardVisual.Unlit(color);
+        ReportSlotGlowBlend(glow);
         MeshRenderer mr = BoardVisual.Quad(_root, name,
             new Vector2(_slotFrameW * scale, _slotFrameH * scale), mat);
         mr.transform.localPosition = new Vector3(cardLocal.x, cardLocal.y, cardLocal.z + proud);
