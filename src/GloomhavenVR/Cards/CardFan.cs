@@ -453,9 +453,48 @@ internal sealed class CardFan
 
         /// <summary>
         /// A PICTURE: not even grabbable. Reserved for a hand this client is not entitled to
-        /// handle at all — a FOREIGN character's hand in a focus view (see
+        /// handle at all — after the 2026-09-07 ruling that is a hand inside the game's own secret
+        /// <c>SelectAbilityCardsOrLongRest</c> window belonging to a character this client does not
+        /// control (a FOCUSED foreign hand is <see cref="Inspect"/>, not this: see
         /// <c>Board.CharacterFocus.HandInspectable</c>). This is the old read-only behaviour,
         /// unchanged, and it is now the exception rather than the rule.
+        ///
+        /// <para>THIS MODE HIDES NOTHING, AND THAT MATTERS BECAUSE THE SOURCE HAS SAID OTHERWISE.
+        /// <see cref="StampMode"/> sets <c>Grabbable=false; InspectOnly=false</c> and nothing else;
+        /// <c>CardsDriver.FillHandFan</c> adopts every hand widget's live <c>FullAbilityCard</c>
+        /// with no reveal-gate term at all, and the local pipeline has no back mesh to fall back on
+        /// (<c>Cards.Art.CardFace.Adopt</c> re-hosts the game's own rect, so a local card is FRONT
+        /// or NOT DRAWN, never BACK). A comment elsewhere in the driver calls this mode "inert end
+        /// to end" on the premise that vanilla would not draw a remote actor's fronts anyway. That
+        /// premise is false, read at source (2026-09-07 review R1, correction C1): vanilla's four
+        /// selection-phase guards — <c>AbilityCardUI.cs:980, 1024, 1100, 1188</c> — only force
+        /// <c>fullAbilityCard.DisplaySelected(false)</c> and swap a <c>CardPileType.Round</c> mini
+        /// card to <c>unselectedCardType</c>. Vanilla's secret is WHICH TWO CARDS ARE SELECTED, not
+        /// the hand; <c>CardsHandManager.ShowTabs</c> (<c>CardsHandManager.cs:718-726</c>) activates
+        /// the character tabs precisely WHEN <c>PhaseType == SelectAbilityCardsOrLongRest</c>, and
+        /// <c>CardsHandTabs.UpdateTabsInteraction</c> (<c>CardsHandTabs.cs:132-139</c>) makes every
+        /// non-dead tab clickable with NO ownership test, so in the flat game you can tab to a
+        /// teammate's hand during the selection phase and read it.</para>
+        ///
+        /// <para>WHAT ACTUALLY KEEPS A FOREIGN HAND OFF THIS BOARD IS THREE INPUT GUARDS, AND THEY
+        /// ARE LOAD-BEARING — deleting any one of them puts a peer's unrevealed hand on this
+        /// client's own board, in the one window the game exists to keep secret. Named here so a
+        /// reader who trusts "inert end to end" cannot remove one by accident:
+        /// <list type="number">
+        ///   <item><c>Board.CharacterFocus.Refusal</c> (<c>Board/CharacterFocus.cs:263-279</c>) —
+        ///         refuses a focus while <c>RevealGate.IsSecretSelectionPhase</c>, so
+        ///         <c>PresentedHandCore</c> falls back to the game's own hand.</item>
+        ///   <item><c>InitiativeTrackPlayerAvatar_OnClick_Guard</c>'s foreign-portrait branch
+        ///         (<c>Board/Patches/SelectionGuardPatches.cs:145-150</c>) — refuses the whole
+        ///         portrait click via <c>CardsGameApi.IsForeignControlledSelect</c>.</item>
+        ///   <item><c>Choreographer_TileHandler_OwnershipGuard</c>
+        ///         (<c>Board/Patches/SelectionGuardPatches.cs:365-395</c>) — blocks the tile-click
+        ///         <c>SwitchHand</c> in <c>WaitingForCardSelection</c>.</item>
+        /// </list>
+        /// Plus <c>Cards.Patches.HandSuppression</c>, which holds the vanilla 2D hand window at
+        /// <c>blocksRaycasts = false</c>, so the character tabs above are unreachable in VR at all.
+        /// The picture is therefore SAFE TODAY and no reachable scenario was found — but it is safe
+        /// because those four inputs are closed, not because this mode hides a face.</para>
         /// </summary>
         Picture,
     }

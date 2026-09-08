@@ -813,8 +813,30 @@ internal sealed partial class CardsDriver
         }
         else
         {
-            // The popup's own game-localized title IS the ask ("Choose a hero to prevent the
-            // damage…" / the redistribute card's name); the mod adds only the wayfinding.
+            // The popup's own game-localized title IS the ask; the mod adds only the wayfinding.
+            //
+            // AND IT IS NEVER A CARD NAME — the clause that used to stand here said it could be
+            // "the redistribute card's name", and that sentence was wrong in a way that mattered.
+            // This line feeds PlayTray.PickBannerText, which is extension record 7, the one string
+            // channel of five with no identity mask and no phase gate; a card name arriving here
+            // would be a live anti-cheat leak of exactly the ModBuild 477 shape. So it was read at
+            // source rather than argued (2026-09-07 review R1 finding 3, closed against the
+            // decompiled game):
+            //   * titleText has ONE writer, UIDistributePointsPopup.cs:214,
+            //     `titleText.text = service.GetTitleText()`;
+            //   * all EIGHT IDistributePointsService.GetTitleText implementations return a point
+            //     count, a gold/item/condition/modifier reward wording, or a constant Loc key —
+            //     not one of them reaches an ability card;
+            //   * and only TWO of them can be the popup CardsGameApi.DistributePanelState reads,
+            //     because Choreographer has exactly two scenario call sites:
+            //     ShowAssign(DistributeDamageService) at Choreographer.cs:11761, whose title is
+            //     GUI_DISTRIBUTE_HEALTH / _POINTS / _UNAVAILABLE formatted with AvailablePoints,
+            //     and ShowSelect(DistributeSelectPlayerActorService) at :12078, constructed with
+            //     the literal key "GUI_CHOOSE_ACTOR_PREVENT_DAMAGE".
+            // The card name in that flow is real but lives on a DIFFERENT widget: Choreographer
+            // hands m_RedistributeDamageAbility.AbilityBaseCard.Name to
+            // HelpBox.ShowControllerOrKeyboardTip one line before ShowAssign (:11751). This mod
+            // does not read the HelpBox, and nothing here may start to without a mask.
             string hint = Core.Loc.Mod("panel_float_hint");
             line = !string.IsNullOrEmpty(title) ? title + " — " + hint : hint;
         }

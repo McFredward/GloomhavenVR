@@ -143,8 +143,23 @@ internal sealed class RemotePileFronts
 
     /// <summary>What each seat's front fan is currently WEARING (true = the card back), so the
     /// per-seat drive below is an EDGE and not a per-frame walk of <c>CardMesh</c>'s body registry.
-    /// Index-aligned with <see cref="_slabs"/>; seeded true because that is what
-    /// <see cref="RemoteBrowserFan"/> and <see cref="RemoteItemFan"/> build their slabs with.</summary>
+    /// Index-aligned with <see cref="_slabs"/>.
+    ///
+    /// <para>IT IS MEASURED AT <see cref="Rebuild"/>, NOT ASSUMED, and the assumption it replaces was
+    /// already false (2026-09-07 review R3 finding 6). This field used to be "seeded true because
+    /// that is what <see cref="RemoteBrowserFan"/> and <see cref="RemoteItemFan"/> build their slabs
+    /// with." <c>RemoteBrowserFan</c> does destroy all of its slabs, so the premise held there.
+    /// <c>RemoteItemFan</c> does not: it deliberately lifts the detached clip SURVIVOR out of its
+    /// destroy sweep and re-seats the same <c>GameObject</c> at the arc position record 26 now names,
+    /// so the fan can be handed a slab that is still WEARING the card EDGE from an earlier
+    /// <c>SetFrontFace(i, showsBack: false)</c> — <c>RemoteCardArt.Destroy</c> undoes the mesh
+    /// hosting, never that material write. The edge test in <see cref="SetFrontFace"/> would then
+    /// make every later "show a back" a no-op for that seat, and the chip would keep a card-edge
+    /// frame around a plain back on every <see cref="ShowBacksEverywhere"/> path — the inverse of
+    /// the user-item-10 defect this field exists to serve. <see cref="Rebuild"/> now WRITES the back
+    /// through <c>CardMesh.SetBodyFrontFace</c> instead of believing in it; that write is idempotent
+    /// by construction (it compares against the authored material and writes nothing when it already
+    /// matches), so a fresh slab costs one reference compare per body.</para></summary>
     private readonly List<bool> _wearsBack = new(16);
 
     /// <summary>Reused resolve buffers — the per-cadence resolve allocates nothing.</summary>
@@ -258,6 +273,29 @@ internal sealed class RemotePileFronts
         /// argument.
         /// </summary>
         CountMismatch,
+
+        /// <summary>
+        /// THE MAINTAINER'S 2026-09-07 (late) RULING: a peer's DISCARD arc is covered while that
+        /// peer has a SHORT REST mid-choice. He was shown his own two same-day rulings colliding on
+        /// one picture — the pile ruling drawing the SACRIFICED card face-up in a mirrored discard
+        /// fan beside a decision row that already read "&lt;versiegelte Karte&gt;" — and chose to
+        /// COVER THE PILE FAN DURING A SHORT REST, which restores his older and repeated "Kurze Rast
+        /// = Auswahlphase = verdeckt".
+        ///
+        /// <para>IT IS ONE CASE AND MAY NOT BE WIDENED. The BURNT arc is never this member: "Beim
+        /// Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar sein"
+        /// is older, unconditional and more specific, so it wins wherever the two touch and a short
+        /// rest does not close it. The ITEM arc cannot reach the secret-phase branch at all. Outside
+        /// a short rest — the rest of the selection window included — the discard arc is
+        /// <see cref="BurnException"/> and OPEN, exactly as ModBuild 479 left it.</para>
+        ///
+        /// <para>SEPARATE FROM <see cref="SecretPhase"/> ON PURPOSE, even though both draw backs. A
+        /// census row has to be able to say WHICH rule covered the fan: this member is a RULING
+        /// being honoured, <see cref="SecretPhase"/> is the phase gate. One shared reason string
+        /// would make the two indistinguishable in the only instrument that measures the picture.
+        /// </para>
+        /// </summary>
+        ShortRestCovered,
     }
 
     private static string Reason(Gate gate) => gate switch
@@ -280,6 +318,15 @@ internal sealed class RemotePileFronts
                               "werden also ab jetzt immer mit Vorderseiten gezeigt ohne Ausnahme'. " +
                               "A BACK on this line is a card the ruling refused, which for either " +
                               "arc is a finding",
+        Gate.ShortRestCovered => "the owner has a SHORT REST mid-choice — extension record 39 names " +
+                                 "a card out of their DISCARD arc lying in one of their round " +
+                                 "recesses while RevealGate.IsSecretSelectionPhase is true, which " +
+                                 "is that flow and no other — so the DISCARD fan is covered, user " +
+                                 "ruling 2026-09-07 (late): 'Kurze Rast = Auswahlphase = verdeckt', " +
+                                 "given to settle his own pile ruling against the sealed decision " +
+                                 "row. The BURNT fan is NOT covered by this and never is ('Beim " +
+                                 "Verbrennen EGAL AUS WELCHEM GRUND'), the ITEM fan cannot reach " +
+                                 "it, and outside a short rest the discard fan stays open",
         Gate.CountMismatch => "RevealGate.ShowRoundCardFronts(actor)=true, but this client's copy of " +
                               "the peer's pile is a different LENGTH from the arc they are looking " +
                               "at — a positional zip across a length disagreement draws the WRONG " +
@@ -362,6 +409,12 @@ internal sealed class RemotePileFronts
                 continue;
             _arts.Add(new RemoteCardArt(slab.transform, cardWidth, cardHeight));
             _slabs.Add(slab.transform);
+            // MEASURE, DO NOT ASSUME — see _wearsBack's doc. A slab arriving here can be a SURVIVOR
+            // RemoteItemFan carried across its own destroy sweep, still wearing the card EDGE from a
+            // front this driver put up before the rebuild. Writing the back makes the belief below
+            // true rather than hoping it is; the write is idempotent, so a freshly built slab pays
+            // one reference compare per body and nothing else.
+            CardMesh.SetBodyFrontFace(slab.transform, showsBack: true);
             _wearsBack.Add(true);
         }
     }
@@ -499,22 +552,71 @@ internal sealed class RemotePileFronts
                                $"({ex.Message}) — backs.");
         }
 
-        // ─── THE PILE RULING IS A CARD PROPERTY, SO EVERY PILE ARC ASKS PER CARD ──────────────
-        // See Gate.BurnException (the name is historical; the member now carries both pile
-        // rulings). The whole-fan refusal below used to stand for the DISCARD arc as well, and the
-        // user has ruled it out twice: "Auch offen - dann gilt das aber auch für den
-        // Verbrannt-Fächer" (2026-09-07 afternoon) and "Die Fächer der piles werden also ab jetzt
-        // immer mit Vorderseiten gezeigt ohne Ausnahme" (2026-09-07 evening, item 3).
+        // ─── THE SHORT REST COVERS THE DISCARD ARC, AND ONLY THAT ─────────────────────────────
         //
-        // THE CONTENT TERM IS GONE AND ITS ABSENCE IS THE FIX. A `content ==` test here is a PLACE
-        // rule, and the same report carries the falsifier for place rules on this ruling: "sobald
-        // ich eine Karte aus dem Fächer … nehme, sehen die anderen Spieler bei der genommenen Karte
-        // nur die Rückseite" — the card leaves the fan and the ruling has to go with it. It does,
-        // because what this line hands to is RevealGate's per-CARD ask, which the held-card surface
-        // asks too. The ITEM arc cannot arrive here (its population is already exempt above), so
-        // dropping the term costs no third branch.
+        // THE MAINTAINER RESOLVED THE COLLISION HIMSELF, 2026-09-07 (late), and this branch is his
+        // answer. He was shown his own two same-day rulings disagreeing on one picture: during a
+        // short rest a peer's mirrored DISCARD fan drew the SACRIFICED card face-up while the
+        // decision row beside it read "<versiegelte Karte>", because Net.DecisionLabelMask masks the
+        // NAME (ModBuild 477 item 7) while the pile ruling opened the FACE. HE CHOSE: COVER THE PILE
+        // FAN DURING A SHORT REST. That narrows "Die Fächer der piles werden also ab jetzt immer mit
+        // Vorderseiten gezeigt ohne Ausnahme" (2026-09-07 evening, item 3) by exactly one case, and
+        // lines it up with his older, repeated ruling: "Kurze Rast = Auswahlphase = verdeckt".
+        //
+        // THE SCOPE IS ONE CASE AND IS NOT TO BE WIDENED. Discard fan DURING A SHORT REST: covered.
+        // BURNT fan: open, always, no exception, in every phase — "Beim Verbrennen EGAL AUS WELCHEM
+        // GRUND muss die Karte immer mit der Vorderseite sichtbar sein" is older, unconditional and
+        // more specific, so it wins wherever the two touch and a short rest does NOT close it. ITEMS
+        // fan: untouched (its population is already exempt above and cannot arrive here). Every fan
+        // OUTSIDE a short rest, the rest of the selection window included: unchanged, open.
+        //
+        // THE TERM IS A CARD, NOT A PLACE, AND THAT IS DELIBERATE. "The discard fan is covered" as a
+        // place test is the shape that produced last round's items 3 and 6. What is asked here is
+        // whether the OWNER has told us a specific card out of THEIR DISCARD ARC is lying in one of
+        // their round recesses — extension record 39, whose two writers are
+        // CardsDriver.SacrificeSeat (the short-rest sacrifice) and CardsDriver.PickFieldSeat (a
+        // modal pick's card). ANDing that with Gate.SecretPhase leaves exactly one flow: a short
+        // rest always runs inside SelectAbilityCardsOrLongRest — that phase is what the game OFFERS
+        // the rest in, and RevealGate.PeerCardPopulation.SacrificedCard's doc records that as a
+        // MEASUREMENT that stands — while every modal discard pick (RecoverDiscardedCard, the
+        // long rest's own burn step) runs in the ACTION phase, where this line is never reached
+        // because the gate is already Gate.Open.
+        //
+        // WHY IT IS WRITTEN AS A RULE AND NOT LEFT TO THE COUNT BELT. Until this line existed the
+        // short-rest fan WAS covered — by accident. The owner's arc drops the sacrifice
+        // (CardsDriver.BoardOwnsCardVisual names _shortRestCard) while the rules model still lists
+        // it (CardsHandUI.PerformShortRest removes nothing), the two lengths disagreed, and the belt
+        // below turned the whole fan to backs. A safety mechanism reacting to a disagreement is a
+        // rule that holds only until the counts happen to agree — and Resolve.DropBoardHeldSeats,
+        // added in this same change for the LONG rest, is precisely a reason for them to agree.
+        //
+        // ITS ONE RESIDUE, NAMED RATHER THAN HIDDEN. Record 39 is the ONLY representation of a
+        // peer's in-progress short rest on this client: the game's own CardsHandUI.PerformShortRest
+        // runs on the owner's machine alone, and FFSNet's CardsHandUI.ProxyShortRest replays only
+        // the COMMITTED rest (it calls FinalizeShortRest), so this client's copy of that hand has
+        // _shortRestedCard == null for the whole deliberation. If record 39 states nothing — its
+        // three refusals are logged verbatim by LocalRigSampler.SampleSacrificeSeats — this term
+        // cannot see the rest and the fan stays open, which is the pre-ruling picture. That is a
+        // fail-OPEN on a secrecy rule and it is the one thing here worth a hardware reading: see
+        // LogShortRestCover.
+        //
+        // NOT A CAPABILITY FAILURE. Only Gate.SecretPhase is touched; NoActor, OffScenario and
+        // Errored are capability failures, not secrecy verdicts, and no ruling about what may be
+        // shown can argue a capability failure into a face.
         if (gate == Gate.SecretPhase && actor != null)
-            gate = Gate.BurnException;
+        {
+            if (content == Content.Discard && OwnerSeatedADiscardCardOnTheirBoard())
+            {
+                gate = Gate.ShortRestCovered;
+                LogShortRestCover(actor);
+            }
+            else
+            {
+                gate = Gate.BurnException;
+            }
+        }
+        if (gate != Gate.ShortRestCovered)
+            _loggedShortRestCover = int.MinValue; // re-arm, so the NEXT short rest announces itself
 
         int contentKey = (int)content;
         if (gate != Gate.Open && gate != Gate.BurnException)
@@ -572,6 +674,8 @@ internal sealed class RemotePileFronts
             VRLog.Warn("Net", $"Remote {_surface} [player {_owner.PlayerId}] front resolve failed " +
                               $"({ex.Message}) — showing backs.");
         }
+        if (resolved && _droppedSeats > 0)
+            LogDroppedSeats(content, _droppedSeats, actor);
 
         // ---- THE LENGTH-AGREEMENT BELT --------------------------------------------------------
         // A LENGTH DISAGREEMENT MEANS THE TWO SIDES ARE NOT LOOKING AT THE SAME PILE — SHOW BACKS.
@@ -602,11 +706,31 @@ internal sealed class RemotePileFronts
         // believes it and acts on it. The disagreement of the two lengths is the observable proof of
         // exactly the condition that makes the zip unsafe, so it is the right term to gate on.
         //
-        // This is a BELT, deliberately kept even after Resolve was taught the owner's own filter:
-        // the residual divergence (a card whose visual is still on the owner's board or in flight) is
-        // sender-local VR state that has no representation on this client at all, so no amount of
-        // model reading can reproduce it. The belt is what turns that residue from a wrong front into
-        // a back.
+        // This is a BELT, deliberately kept even after Resolve was taught the owner's own filter.
+        //
+        // WHAT THE RESIDUE IS NOW, AND IT IS SMALLER THAN THE SENTENCE THAT USED TO STAND HERE. That
+        // sentence read: "the residual divergence (a card whose visual is still on the owner's board
+        // or in flight) is sender-local VR state that has no representation on this client at all,
+        // so no amount of model reading can reproduce it." The second half is still true of a card
+        // IN FLIGHT. The first half was FALSE of a card LYING ON THE BOARD, and being false made
+        // this belt stand in for a rule for two builds: the owner's BoardOwnsCardVisual drops
+        // _shortRestCard and _fieldCards from their arc while the rules model still lists both in
+        // DiscardedAbilityCards, the lengths disagreed for the whole decision, and every mirrored
+        // discard fan went to backs. For the SHORT REST that picture is what the maintainer wants,
+        // but it is not this belt's business to deliver it — Gate.ShortRestCovered above is the rule
+        // now. For the LONG REST's burn pick it was simply wrong: a long rest is the ACTION phase
+        // and is FULLY OPEN, so that fan owes FRONTS. Both cards ARE represented on this client —
+        // extension record 39 carries the seat — and Resolve.DropBoardHeldSeats takes them out, so
+        // the two counts agree and the long-rest fan draws its fronts.
+        //
+        // WHAT IS LEFT FOR THE BELT is the ARRIVAL term alone — a card mid-flight into the stack,
+        // one still held by its burn artwork, one the live pick FAN has borrowed. None of those is
+        // lying in a recess, so record 39 says nothing about them by construction, and they are
+        // precisely the 2026-09-02 item 5c case above: the co-player burns a card, it is appended to
+        // the MIDDLE of the burnt concatenation, and the owner's arc has not seated it yet. That
+        // window is NetProtocol.CardFxSeconds of flight plus the burn hold, and any viewer with that
+        // peer's burnt fan open while they burn reaches it in one action — this belt is live code
+        // and not a relic. It is what turns that residue from a wrong front into a back.
         int modelCount = content == Content.Items ? _itemBuf.Count : _abilityBuf.Count;
         if (resolved && modelCount != _arts.Count)
         {
@@ -921,6 +1045,7 @@ internal sealed class RemotePileFronts
     {
         _abilityBuf.Clear();
         _itemBuf.Clear();
+        _droppedSeats = 0; // the item arm never sets it, and a stale count would be logged as new
 
         if (content == Content.Items)
         {
@@ -951,23 +1076,263 @@ internal sealed class RemotePileFronts
         CardsHandUI hand = manager.GetHand(actor);
         if (hand == null)
             return false;
-        // The owner's own browse arc is filled from exactly this call, in exactly this order
-        // (CardsDriver → CardsGameApi.GetPileWidgets), so the mirrored arc is card-for-card theirs.
-        CardsGameApi.GetPileWidgets(hand, content == Content.Burnt, _abilityBuf);
-        // …AND THEN THE OWNER'S OWN MEMBERSHIP FILTER, THE SAME EXPRESSION THEY APPLY. Without this
+        // THE OWNER'S OWN ARC, AS ONE CALL. This is CardsGameApi.GetPileWidgets narrowed by
+        // CardsGameApi.PileWidgetIsArcMember — the owner's own membership filter, the same
+        // expression they apply (CardsDriver.UpdateBrowser), and it used to be spelled out inline
+        // here. It is the NAMED combination now for one reason that matters below: it is the index
+        // space extension record 39 seats a card in, and an index is only a name for a card while
+        // both machines build the list with the SAME expression. Without the membership term at all
         // the mirrored arc counted widgets the owner's arc never seated (a long-rest placeholder, a
         // widget whose model card has gone), which put every slab behind such an entry one seat out
         // for as long as the card sat in the pile — a PERMANENT misalignment, not the transient one
-        // the belt is for. Removing entries here in place keeps the surviving order intact, which is
-        // the only property the positional zip needs.
-        int kept = 0;
-        for (int i = 0; i < _abilityBuf.Count; i++)
-        {
-            if (CardsGameApi.PileWidgetIsArcMember(_abilityBuf[i]))
-                _abilityBuf[kept++] = _abilityBuf[i];
-        }
-        _abilityBuf.RemoveRange(kept, _abilityBuf.Count - kept);
+        // the belt is for.
+        CardsGameApi.GetPileArcWidgets(hand, content == Content.Burnt, _abilityBuf);
+        DropBoardHeldSeats(content);
         return _abilityBuf.Count > 0;
+    }
+
+    /// <summary>
+    /// HAS THE OWNER TOLD US A CARD OUT OF THEIR DISCARD ARC IS LYING ON THEIR BOARD? — extension
+    /// record 39, asked as a PRESENCE and not as a seat.
+    ///
+    /// <para>This is the short-rest term of <see cref="Tick"/>'s ruling branch, and it is a question
+    /// about a CARD rather than about a place. Record 39's two writers are
+    /// <c>CardsDriver.SacrificeSeat</c> (the short-rest sacrifice, written for exactly the window
+    /// <c>PresentShortRestCard</c> holds <c>_shortRestCard</c> — opened synchronously before the
+    /// burn/redraw dialog and closed synchronously inside <c>FinalizeShortRest</c>) and
+    /// <c>CardsDriver.PickFieldSeat</c> (a modal pick's card). Its caller ANDs this with
+    /// <c>Gate.SecretPhase</c>, and that conjunction is the short rest alone: every modal discard
+    /// pick runs in the ACTION phase, where the gate is already <see cref="Gate.Open"/> and the
+    /// branch is never reached.</para>
+    ///
+    /// <para>PRESENCE, NOT THE SEAT, AND NOT THE LENGTH BELT. <see cref="DropBoardHeldSeats"/> needs
+    /// the exact index and therefore re-applies record 39's own length check; this needs only to
+    /// know that a short rest is up, and adding the length test would make a secrecy rule fail OPEN
+    /// on a model that lags by one frame. The DISCARD list id is required explicitly — a burnt-list
+    /// seat must never close the burnt fan, because that ruling is unconditional.</para>
+    /// </summary>
+    private bool OwnerSeatedADiscardCardOnTheirBoard()
+    {
+        for (int slot = 0; slot < NetProtocol.BoardUiSlotCount; slot++)
+        {
+            byte code = _owner.SacrificeSeatCode(slot);
+            if (NetProtocol.HeldFaceNamesCard(code)
+                && NetProtocol.HeldFaceList(code) == NetProtocol.HeldFaceListDiscard)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>The actor the short-rest cover line last named (<c>int.MinValue</c> = not covered
+    /// right now), so the line fires on the EDGE into a peer's short rest and not on the per-frame
+    /// gate path — and fires again for their next rest, because <see cref="Tick"/> clears it the
+    /// moment the cover lifts.</summary>
+    private int _loggedShortRestCover = int.MinValue;
+
+    /// <summary>
+    /// HARDWARE VERIFICATION for the ruling above — grep token <c>SHORT REST PILE COVER</c>.
+    ///
+    /// <para>WORKING = this line firing while a co-player has a short rest mid-choice and raises his
+    /// DISCARD fan, with the observer's <c>pile browse[pN]</c> census row reading
+    /// <c>0 FRONT / N BACK</c> and the <c>Gate.ShortRestCovered</c> rule string. The fan is covered
+    /// BY THE RULE and not by a count disagreement — a <c>Gate.CountMismatch</c> row in that moment
+    /// would mean the rule did not fire and the belt did.</para>
+    ///
+    /// <para>INERT, AND THIS IS THE READING THAT MATTERS = a co-player takes a short rest, opens his
+    /// discard fan, and the census row reads FRONTS with the <c>Gate.BurnException</c> rule string
+    /// and NO line here. Then extension record 39 named no discard seat, and the rule cannot see the
+    /// rest at all — a fail-OPEN on a secrecy rule. The deciding field is on the OWNER's machine and
+    /// already shipped: <c>LocalRigSampler.SampleSacrificeSeats</c>'s <c>SHORT REST SEAT</c> line
+    /// states which of its three refusals fired (the sacrificing hand is not the presented character
+    /// / no widget resolved / the seat does not fit in 5 bits). There is no second source to fall
+    /// back on: <c>CardsHandUI.PerformShortRest</c> runs on the owner's machine alone and FFSNet's
+    /// <c>CardsHandUI.ProxyShortRest</c> replays only the COMMITTED rest (it calls
+    /// <c>FinalizeShortRest</c>), so this client's copy of that hand has <c>_shortRestedCard</c>
+    /// null for the whole deliberation.</para>
+    ///
+    /// <para>BEYOND = this line firing for a BURNT arc. It cannot: the caller asks only on
+    /// <see cref="Content.Discard"/> and this method requires the DISCARD list id. If it ever does,
+    /// the burn ruling has been widened by accident and that is a finding on its own.</para>
+    /// </summary>
+    private void LogShortRestCover(CPlayerActor? actor)
+    {
+        int actorId = NetFigures.StableActorId(actor);
+        if (actorId == _loggedShortRestCover)
+            return;
+        _loggedShortRestCover = actorId;
+        // HW-VERIFY: grep token "SHORT REST PILE COVER" — see this method's doc for the readings.
+        VRLog.Note("Net", $"SHORT REST PILE COVER [player {_owner.PlayerId}]: the DISCARD fan of "
+                          + $"'{Board.CharacterFocus.Describe(actor)}' is COVERED — extension record "
+                          + "39 names a card out of their discard arc lying in one of their round "
+                          + "recesses while the game's secret SelectAbilityCardsOrLongRest phase is "
+                          + "open, and that conjunction is a SHORT REST and nothing else (every "
+                          + "modal discard pick runs in the action phase). User ruling 2026-09-07 "
+                          + "(late), given to settle his own pile ruling against the sealed decision "
+                          + "row: 'Kurze Rast = Auswahlphase = verdeckt'. It used to be covered by "
+                          + "the LENGTH BELT instead — the owner's arc drops the sacrifice while the "
+                          + "rules model still lists it — which is the right picture from the wrong "
+                          + "mechanism, and it stopped holding the moment Resolve.DropBoardHeldSeats "
+                          + "gave the two counts a reason to agree. This line is the rule. The BURNT "
+                          + "fan is untouched and stays open ('Beim Verbrennen EGAL AUS WELCHEM "
+                          + "GRUND'), and so does every discard fan outside a short rest.");
+    }
+
+    /// <summary>How many arc seats the last <see cref="Resolve"/> dropped because the OWNER told us
+    /// their card is lying on their board (extension record 39). Read by <see cref="Log"/> so a belt
+    /// trip can be told apart from a belt trip THIS term did not manage to prevent.</summary>
+    private int _droppedSeats;
+
+    /// <summary>The (content, dropped, arc length) triple the drop line last stated, so it fires on
+    /// a real edge and not on the 4 Hz resolve cadence.</summary>
+    private (int Key, int ActorId) _loggedDroppedSeats = (int.MinValue, 0);
+
+    /// <summary>
+    /// TAKE OUT OF THE MIRRORED ARC THE CARDS THE OWNER'S ARC LEFT ON THEIR BOARD — the residue the
+    /// length belt was catching, closed by being TOLD rather than by being guessed at.
+    ///
+    /// <para>WHAT WAS MEASURED (2026-09-07 review R1 finding 1, re-derived in code). The wire's slab
+    /// count is <c>PileBrowser.Cards.Count</c>, i.e. the owner's <c>_browseBuffer</c>, and
+    /// <c>CardsDriver.UpdateBrowser</c> drops from it every card for which
+    /// <c>BoardOwnsCardVisual</c> is true — a predicate that names <c>_shortRestCard</c> and
+    /// <c>_fieldCards</c> by name. Meanwhile <c>CardsHandUI.PerformShortRest</c> picks the sacrifice
+    /// out of <c>DiscardedAbilityCards</c> and REMOVES NOTHING, so the walk above still counts it.
+    /// Owner sends N−1, this client resolves N, the belt trips and the peer's whole pile fan goes
+    /// to BACKS.</para>
+    ///
+    /// <para>THE FLOW THIS IS FOR IS THE LONG REST, AND ONLY IT. The maintainer ruled on
+    /// 2026-09-07 (late) that a peer's discard fan IS covered during a SHORT REST, so for that flow
+    /// the backs are the wanted picture — but delivered by <see cref="Gate.ShortRestCovered"/>, a
+    /// rule, and not by two counts disagreeing. A LONG REST is the ACTION phase and is FULLY OPEN:
+    /// its burn step lays the chosen card into a recess (<c>_fieldCards</c>), the same arithmetic
+    /// fired, and every mirrored discard fan went to backs in a phase whose ruling grants no
+    /// exception. That is the defect this method closes. The belt is right and stays; what was wrong
+    /// is that the DERIVABLE half of the owner's filter stopped one term short.</para>
+    ///
+    /// <para>THE OWNER ALREADY NAMES THESE CARDS, AND IN THIS EXACT INDEX SPACE. Extension record 39
+    /// carries, per round recess, a <c>[list id + seat][list length]</c> for the card the owner has
+    /// physically lying in that recess — the short-rest sacrifice
+    /// (<c>CardsDriver.SacrificeSeat</c>) and a modal pick's card
+    /// (<c>CardsDriver.PickFieldSeat</c>, which reads <c>_fieldCards</c>), both seated by
+    /// <c>LocalRigSampler.SampleSacrificeSeats</c> through
+    /// <c>CardsGameApi.GetPileArcWidgets</c> — the same call <see cref="Resolve"/> makes one line
+    /// up. So this is not a re-derivation of a sender-local fact: it is the sender's own statement,
+    /// decoded in the receiver's own list. NO WIRE CHANGE, no new byte, no new record.</para>
+    ///
+    /// <para>WHY IT CANNOT SILENTLY MISALIGN, which is the only way a change here could be worse
+    /// than the defect. Three properties, and they are what make this "by construction":
+    /// <list type="bullet">
+    ///   <item>The seat is a SUBSET of the owner's own drop set. Record 39 is written only while
+    ///         <c>SacrificeSeat</c>/<c>PickFieldSeat</c> report a card PHYSICALLY in a recess, and
+    ///         both of those cards are in <c>BoardOwnsCardVisual</c>. So a seat named here was
+    ///         certainly dropped there; the reverse does not hold and does not need to.</item>
+    ///   <item>The LENGTH BELT of the record itself is re-applied here, exactly as
+    ///         <c>RemoteControlBoard.TryResolveSacrifice</c> applies it: unless this client's arc is
+    ///         the same length the sender seated against, the seat has shifted under us and NOTHING
+    ///         is dropped. The fan then falls through to <see cref="Tick"/>'s belt and shows backs,
+    ///         which is where it was before this method existed.</item>
+    ///   <item>The LIST ID has to match the arc being resolved, so a burn pick's card cannot be
+    ///         taken out of the discard arc. <c>NetProtocol.RecessSeatListAllowed</c> refuses
+    ///         <c>HeldFaceListHand</c> at the decode, so a card of the two-card commit is not
+    ///         expressible here even in principle — the anti-cheat boundary is untouched, and
+    ///         nothing about a FACE is decided in this method at all.</item>
+    /// </list>
+    /// Dropping FEWER than the owner leaves a length disagreement, which is backs. Dropping a
+    /// DIFFERENT card is what the length belt above forbids. Both failure directions are the safe
+    /// one.</para>
+    ///
+    /// <para>WHAT THE BELT IS STILL FOR, AND IT IS STILL REACHABLE. The residue this does NOT close
+    /// is the ARRIVAL term — <c>CardEnRouteToPile</c> and <c>_fanBuffer</c> in the owner's filter: a
+    /// card mid-flight into the stack, one still held by its burn artwork, one the live pick FAN has
+    /// borrowed. None of those is lying in a recess, so record 39 says nothing about them by
+    /// construction, and they are exactly the 2026-09-02 item 5c case the belt was built for (the
+    /// co-player burnt a card and the peer saw a DIFFERENT card marked burnt). That flight is ~0.4 s
+    /// on <c>NetProtocol.CardFxSeconds</c> and the burn hold is longer still, so a viewer with a
+    /// peer's burnt fan open while that peer burns a card reaches it in one action.</para>
+    /// </summary>
+    private void DropBoardHeldSeats(Content content)
+    {
+        _droppedSeats = 0;
+        byte wantList = content == Content.Burnt
+            ? NetProtocol.HeldFaceListBurnt
+            : NetProtocol.HeldFaceListDiscard;
+        // Collected against the PRE-drop length, because that is the length the sender seated
+        // against and the length its own belt compares — removing one entry would move the other.
+        int seatA = -1;
+        int seatB = -1;
+        for (int slot = 0; slot < NetProtocol.BoardUiSlotCount; slot++)
+        {
+            byte code = _owner.SacrificeSeatCode(slot);
+            if (!NetProtocol.HeldFaceNamesCard(code))
+                continue;
+            byte list = NetProtocol.HeldFaceList(code);
+            if (!NetProtocol.RecessSeatListAllowed(list) || list != wantList)
+                continue;
+            if (_abilityBuf.Count != _owner.SacrificeSeatCount(slot))
+                continue; // lengths already disagree — the seat has shifted; let the belt speak
+            int at = NetProtocol.HeldFaceIndex(code);
+            if (at >= _abilityBuf.Count || at == seatA || at == seatB)
+                continue;
+            if (seatA < 0)
+                seatA = at;
+            else
+                seatB = at;
+        }
+        if (seatA < 0)
+            return;
+        // Descending, so the first removal cannot move the second's index.
+        if (seatB > seatA)
+            (seatA, seatB) = (seatB, seatA);
+        _abilityBuf.RemoveAt(seatA);
+        _droppedSeats++;
+        if (seatB >= 0)
+        {
+            _abilityBuf.RemoveAt(seatB);
+            _droppedSeats++;
+        }
+    }
+
+    /// <summary>
+    /// HARDWARE VERIFICATION for the drop above — grep token <c>PILE ARC BOARD-HELD SEAT</c>.
+    ///
+    /// <para>WORKING = this line firing with <c>dropped</c> ≥ 1 while a co-player has a LONG REST's
+    /// burn card laid in a recess, and NO <c>Gate.CountMismatch</c> census row for this surface
+    /// beside it — the peer's discard fan stays FRONTS through the whole pick, which is what the
+    /// action phase owes.</para>
+    ///
+    /// <para>INERT = a <c>Gate.CountMismatch</c> row for a pile browse during a co-player's
+    /// long-rest burn pick with NO line here. Then record 39 named nothing for that recess, and the
+    /// reason is in the sender's own <c>SHORT REST SEAT</c> line (the record's log name predates its
+    /// second case), which states which of its refusals fired. That is a record-39 defect, not this
+    /// term's.</para>
+    ///
+    /// <para>BEYOND = this line firing with <c>dropped</c> ≥ 1 AND a <c>Gate.CountMismatch</c> row
+    /// for the same surface at the same moment. The drop was applied and the lengths still disagree,
+    /// which means a SECOND card is off the owner's arc — the arrival residue this deliberately does
+    /// not close (see <see cref="DropBoardHeldSeats"/>), or a board zone
+    /// <c>CardsDriver.BoardOwnsCardVisual</c> names that record 39 cannot.</para>
+    /// </summary>
+    private void LogDroppedSeats(Content content, int dropped, CPlayerActor? actor)
+    {
+        int key = ((int)content << 16) | ((dropped & 0xFF) << 8) | (_arts.Count & 0xFF);
+        int actorId = NetFigures.StableActorId(actor);
+        if (key == _loggedDroppedSeats.Key && actorId == _loggedDroppedSeats.ActorId)
+            return;
+        _loggedDroppedSeats = (key, actorId);
+        // HW-VERIFY: grep token "PILE ARC BOARD-HELD SEAT" — see this method's doc for the three
+        // readings.
+        VRLog.Note("Net", $"PILE ARC BOARD-HELD SEAT [player {_owner.PlayerId}]: {dropped} seat(s) "
+                          + $"taken out of this client's {content.ToString().ToUpperInvariant()} arc "
+                          + $"for '{Board.CharacterFocus.Describe(actor)}' before the length belt, "
+                          + $"leaving {_abilityBuf.Count} against {_arts.Count} slab(s) off the wire. "
+                          + "The owner's own arc (CardsDriver.UpdateBrowser) drops any card whose VR "
+                          + "visual their board is holding — BoardOwnsCardVisual names the short-rest "
+                          + "sacrifice and the modal pick field by name — while the RULES MODEL still "
+                          + "lists it (CardsHandUI.PerformShortRest removes nothing from "
+                          + "DiscardedAbilityCards). Extension record 39 is the owner saying WHICH "
+                          + "arc seat that is, in this same GetPileArcWidgets index space, so the two "
+                          + "counts agree by construction instead of by luck. Nothing about a FACE is "
+                          + "decided here and no card identity crossed the wire: what arrived is a "
+                          + "seat number.");
     }
 
     /// <summary>
@@ -1117,7 +1482,13 @@ internal sealed class RemotePileFronts
                               "burnt pile is a CONCATENATION of the lost and permanently-lost lists " +
                               "— so the missing entry is in the MIDDLE and every slab behind it " +
                               "would draw its neighbour's card. Backs are the safe direction: a back " +
-                              "reads as 'not loaded yet', a wrong front is believed and acted on.");
+                              "reads as 'not loaded yet', a wrong front is believed and acted on. " +
+                              $"Extension record 39 took {_droppedSeats} board-held seat(s) out of " +
+                              "this arc before the belt was asked (grep PILE ARC BOARD-HELD SEAT), " +
+                              "so a trip WITH a non-zero count there is a SECOND card off the " +
+                              "owner's arc and a trip with zero during a co-player's short rest or " +
+                              "long-rest burn pick means record 39 named no seat — read the " +
+                              "sender's own SHORT REST SEAT line, which states which refusal fired.");
             return;
         }
 

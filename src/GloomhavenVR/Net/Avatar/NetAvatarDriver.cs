@@ -2276,6 +2276,27 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // PICK BANNER (extension record 7): the placard line above the owner's board, so a peer's
         // remote board carries the same sentence at the same seat. Written only while a placard is
         // really shown — an idle packet stays byte-identical to the previous build's.
+        //
+        // ─── THIS CHANNEL IS UNMASKED, AND THE SENTENCE BELOW USED TO ASSERT IT WAS SAFE ─────────
+        // Record 7 is the only one of this driver's five string channels that goes out neither
+        // masked (DecisionLinesText and the two cap labels take Net.DecisionLabelMask) nor
+        // identity-gated at its source (BoardTooltipText at WorldTooltips.ContentPublicToPeers,
+        // DecisionNamesText in DamageTooltipSurface). Its send log said "an actor and a count, NO
+        // card identity" — which is the IDENTICAL sentence record 12's send log made, in the
+        // identical place, about a string it does not inspect, immediately before the ModBuild 477
+        // identity leak. The claim is now a statement about the four composers rather than about
+        // this string, because that is the only thing this site can honestly say:
+        //   * PlayTray.SetPickStatus has FOUR composers, all in Cards/Driver/CardsDriver.6.Flows.cs
+        //     (:740 item demand, :821 floating panel, :1048 card pick, :1247 board exhausted) plus
+        //     WorldUI/Surfaces/UseBarsSurface.cs:1946, and each was read for what it CONCATENATES:
+        //     an actor label, a verb, counts, and Core.Loc keys.
+        //   * The one that quotes a game string is the panel composer at :821, whose title comes
+        //     from CardsGameApi.DistributePanelState. Its comment used to concede the title could be
+        //     "the redistribute card's name"; that was checked against the decompiled game and is
+        //     false — see the derivation at that site, which names the eight GetTitleText bodies and
+        //     the two Choreographer call sites that can reach them.
+        // SO: A CARD NAME MAY NOT BE PUT ON THIS CHANNEL. If a composer ever needs to quote one, it
+        // gets Net.DecisionLabelMask like the other four, and this paragraph is what says so.
         string? bannerNow = trayNow != null ? trayNow.PickBannerText : null;
         if (!string.IsNullOrEmpty(bannerNow))
         {
@@ -2288,8 +2309,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             VRLog.Info("Net", string.IsNullOrEmpty(bannerNow)
                 ? "Pick banner SENT: placard hidden — record omitted (peers hide theirs too)."
                 : $"Pick banner SENT: \"{bannerNow}\" — extension record 7 (UTF8, capped " +
-                  $"{NetProtocol.PickBannerTextMaxBytes} B: an actor and a count, NO card identity); " +
-                  "peers show it on the remote board at the same board-local seat.");
+                  $"{NetProtocol.PickBannerTextMaxBytes} B). UNMASKED CHANNEL: this line quotes the " +
+                  "banner VERBATIM precisely because nothing inspects it on the way out — the five " +
+                  "composers are the guarantee (see the block comment at the send site), not this " +
+                  "sentence. A card NAME appearing in the quoted text above is therefore a finding " +
+                  "and not a footnote; it is the ModBuild 477 shape, and the remedy is " +
+                  "Net.DecisionLabelMask at the composer. Peers show it on the remote board at the " +
+                  "same board-local seat.");
         }
         // BOARD TOOLTIP (extension record 9): written on every packet WHILE a board-owned,
         // identity-gate-passed tooltip is shown; omitted otherwise, so an idle packet stays
