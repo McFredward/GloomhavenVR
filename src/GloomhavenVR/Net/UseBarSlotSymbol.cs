@@ -139,7 +139,7 @@ internal static class UseBarSlotSymbol
                     {
                         if (kv.Value == null || !ReferenceEquals(kv.Value.transform, child))
                             continue;
-                        return kv.Key != null && TakesPlainIcon(kv.Key)
+                        return kv.Key != null
                             ? ActiveBonusId(kv.Key)
                             : UseBarSlotIdentity.NoIdentity;
                     }
@@ -278,6 +278,20 @@ internal static class UseBarSlotSymbol
 
     private static Sprite? ResolveBonusIcon(CPlayerActor owner, ushort id, out ResolveOutcome why)
     {
+        CActiveBonus? match = ResolveBonusModel(owner, id, out why);
+        if (match == null)
+            return null;
+        // ForgoActiveBonus's constructor writes model toggle flags, so never instantiate it here.
+        // Its GetIcon is only this public actor-art lookup; native widget conversion needs its id
+        // as well as its icon in order to select the original option templates.
+        return TakesPlainIcon(match) ? new ActiveBonus(match, owner).GetIcon()
+            : UIInfoTools.Instance.GetCharacterActiveAbilityIcon(owner.GetPrefabName(),
+                owner.CharacterClass?.CharacterYML.CustomCharacterConfig);
+    }
+
+    /// <summary>The same unique identity match used by the icon, exposed for native subwidgets.</summary>
+    internal static CActiveBonus? ResolveBonusModel(CPlayerActor owner, ushort id, out ResolveOutcome why)
+    {
         // THE CANDIDATE SET IS MODEL-ONLY, which is the entire point: the local BAR is empty on a
         // watcher (TakeDamagePanel.ShowOtherPlayer never raises it), while the actor's active
         // bonuses are ordinary replicated simulation state every client already holds.
@@ -303,16 +317,11 @@ internal static class UseBarSlotSymbol
             return null;
         }
         CActiveBonus match = BonusScratch[0];
-        if (!TakesPlainIcon(match))
-        {
-            why = ResolveOutcome.NotReproducible;
-            return null;
-        }
         // THE GAME'S OWN CALL, on the game's own wrapper — not a re-implementation of its art
         // lookup. `ActiveBonus` is a pure read: its constructor assigns two fields and GetIcon only
         // queries UIInfoTools and the model, so nothing here writes game state.
         why = ResolveOutcome.Resolved;
-        return new ActiveBonus(match, owner).GetIcon();
+        return match;
     }
 
     private static Sprite? ResolveItemIcon(CPlayerActor owner, ushort id, out ResolveOutcome why)

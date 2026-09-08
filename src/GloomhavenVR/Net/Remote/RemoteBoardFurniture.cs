@@ -825,6 +825,7 @@ internal sealed class RemoteBoardFurniture
     /// <summary>The per-bar sub-picker flags last painted (same contract as
     /// <see cref="_shownUseBarStates"/>).</summary>
     private byte[]? _shownUseBarFlags;
+    private UseBarWidgetState[]? _shownUseBarWidgetStates;
 
     /// <summary>Last synced CONFIRM wording applied to the cap (wire record 13; null = the
     /// neutral GUI_CONFIRM fallback is applied). Reset by <see cref="ApplyLabels"/> so a language
@@ -3251,9 +3252,7 @@ internal sealed class RemoteBoardFurniture
     private const float UseBarRowGap = WorldUI.Surfaces.UseBarsSurface.StackGap;
     private const float UseBarDecisionClearance = WorldUI.Surfaces.UseBarsSurface.DecisionClearance;
 
-    /// <summary>Localized caption of a record-25 BAR INDEX. The bar NAME is composed on THIS
-    /// machine from the bar BIT — the wire never carries a word, and the slots it describes have no
-    /// word to carry (see <see cref="NetProtocol.ExtIdUseBars"/>).</summary>
+    /// <summary>Localized bar name for diagnostics only; no caption is added to native widgets.</summary>
     private static string UseBarCaption(int bar) => bar switch
     {
         0 => Loc.Mod("use_bar_bonuses"),
@@ -3395,10 +3394,9 @@ internal sealed class RemoteBoardFurniture
                           $"{_useBars.localPosition.y + top:F3} downward, {budget:F3} m wide at the " +
                           $"authored ×{scale:F2} dock scale, " +
                           $"{(_shownDecisionLines != null ? "hung below the mirrored decision row" : "at the drawer zone top (no decision row up)")}. " +
-                          "Bar captions are composed HERE from the bar bit; the SLOT SYMBOLS are " +
-                          "resolved locally by RemoteUseBarSymbols against this client's own copy " +
-                          "of the same bar — nothing about the art rides this wire. Display-only: " +
-                          "colliderless.");
+                          "Original game slot widgets replace the replica caption, plate and tiles. " +
+                          "Icons resolve from record 45 or the owner-matched local bar; native " +
+                          "subwidgets follow record 47. Display-only and colliderless.");
     }
 
     /// <summary>
@@ -3736,10 +3734,8 @@ internal sealed class RemoteBoardFurniture
     }
 
     /// <summary>
-    /// Paint the owner's per-slot STATES and open sub-pickers (wire record 25) onto the mirrored
-    /// tiles: greyed where the owner cannot click, dimmed where the game dims (its
-    /// <c>UIUseSlot.disabledAlpha</c> look), an accent frame on a slot they have chosen, and the
-    /// row's pip lit while an element/option picker stands open in that bar.
+    /// Apply owner state to the original game widget parts. Record 47 carries native subpicker
+    /// contents and states; no plate, accent frame or synthetic picker badge is composed here.
     ///
     /// <para>A SEPARATE PASS from <see cref="SetUseBars"/> for the same reason the decision row
     /// splits its labels from its option states: the structure is constant for a whole bar while the
@@ -3755,6 +3751,15 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     private void ApplyUseBarStates(RemoteAvatar owner)
     {
+        // The receive edge owns appearance and structure together. A picker opening between
+        // content ticks must not wait 250 ms before its native template exists on this board.
+        if (UseBarStructure(owner) != _shownUseBarStructure
+            || !UseBarWidgetState.Equivalent(owner.UseBarWidgetStates, _shownUseBarWidgetStates))
+        {
+            _shownUseBarWidgetStates = owner.UseBarWidgetStates;
+            SetUseBars(owner);
+            ApplyUseBarSymbols(RemoteBoardFocus.DisplayedActor(owner, out _), owner);
+        }
         if (_useBarRows.Count == 0)
         {
             _shownUseBarStates = owner.UseBarSlotStates;
@@ -3778,9 +3783,9 @@ internal sealed class RemoteBoardFurniture
 
         VRLog.Info("Net", $"Remote use-bar states applied: {_useBarRows.Count} row(s) — " +
                           $"{DescribeUseBarStates(states, flags)} (wire record 25). " +
-                          "Greyed/dim/chosen/HOVER/PRESS and the open-sub-picker pip read exactly as " +
-                          "on the owner's own drawer; still inert — no collider, no raycast target, " +
-                          "nothing to press.");
+                          "Native CanvasGroup alpha, selected/mandatory masks and button visuals " +
+                          "follow the owner. Original subpickers use record 47; no synthetic pip. " +
+                          "The cloned game controls have no input handlers.");
     }
 
     /// <summary>Human-readable use-bar states for the diagnostic line.</summary>

@@ -377,7 +377,7 @@ internal sealed class UseBarsSurface
         // The wire seam is static and outlives this instance: a module teardown must withdraw
         // record 25 explicitly, or peers would keep the last drawer standing on a board that no
         // longer has one (the same contract DecisionDockSurface's undock publish honours).
-        _nextWireAt = 0f;
+        WireWidgetStates = null;
         SampleWire();
     }
 
@@ -673,7 +673,8 @@ internal sealed class UseBarsSurface
 
     /// <summary>Next unscaled time the wire sample runs while bars are up (the shared content
     /// cadence the decision dock uses — the states move on human-paced clicks, not per frame).</summary>
-    private float _nextWireAt;
+    internal static Net.UseBarWidgetState[]? WireWidgetStates { get; private set; }
+    private static readonly List<Net.UseBarWidgetState> WidgetStateScratch = new(8);
 
     /// <summary>The mask/flags/counts/states last PUBLISHED — the change gate's memory, so a
     /// steady drawer costs one comparison and no log line.</summary>
@@ -728,7 +729,7 @@ internal sealed class UseBarsSurface
 
         if (mask == 0)
         {
-            _nextWireAt = 0f; // withdraw NOW, not on the next cadence tick
+            WireWidgetStates = null; // withdraw NOW, not on the next cadence tick
             for (int i = 0; i < WireBarFlagsBuffer.Length; i++)
             {
                 WireBarFlagsBuffer[i] = 0;
@@ -738,13 +739,14 @@ internal sealed class UseBarsSurface
                 WireSlotStateBuffer[i] = 0;
             for (int i = 0; i < WireSlotIdBuffer.Length; i++)
                 WireSlotIdBuffer[i] = Net.UseBarSlotIdentity.NoIdentity;
+            WireWidgetStates = null;
             Publish(0);
             return;
         }
 
-        if (Time.unscaledTime < _nextWireAt)
-            return;
-        _nextWireAt = Time.unscaledTime + 0.25f;
+        // Pointer/subpicker edges must reach the sender on this frame. A 250 ms producer gate
+        // discarded short clicks even though the network and receiver already drive every frame.
+        WidgetStateScratch.Clear();
 
         for (int i = 0; i < _docks.Length; i++)
         {
@@ -811,6 +813,9 @@ internal sealed class UseBarsSurface
                 WireSlotIdBuffer[at + s] = Net.UseBarSlotIdentity.NoIdentity;
             }
         }
+        Net.UseBarWidgetState[]? widgets = WidgetStateScratch.Count > 0 ? WidgetStateScratch.ToArray() : null;
+        if (!Net.UseBarWidgetState.Equivalent(WireWidgetStates, widgets))
+            WireWidgetStates = widgets;
         Publish(mask);
     }
 
@@ -2140,6 +2145,12 @@ internal sealed class UseBarsSurface
                 // record-25 doc above makes about the SENDER'S and the RECEIVER'S walks.
                 if (ids != null && at + count < ids.Length)
                     ids[at + count] = Net.UseBarSlotSymbol.SlotId(barIndex, child);
+                if (barIndex == 0 && child.GetComponent<UIUseActiveBonus>() is UIUseActiveBonus bonus)
+                {
+                    Net.UseBarWidgetState? widget = Net.UseBarWidgetSampler.Sample(bonus, (byte)count);
+                    if (widget != null)
+                        WidgetStateScratch.Add(widget);
+                }
                 count++;
             }
             return count;

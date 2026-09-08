@@ -198,6 +198,9 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// the caller instead.</summary>
     private readonly bool _driveFromSource;
 
+    // Native use bars fit their full visible union, including pickers outside the strip rect.
+    private readonly bool _contentOutsideFrame;
+
     /// <summary>Whose resolved layout this mirror shows — see <see cref="LayoutOwner"/>. Every
     /// behaviour change this flag buys is written as <c>if (_layoutOwner == ...)</c> and nothing
     /// else reads it, so <see cref="LayoutOwner.Source"/> (member 0, the default) is the code path
@@ -339,8 +342,9 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     public RemoteWidgetMirror(string name, Transform mount, float mountWidth, float mountMaxHeight,
         Vector2 grow, bool fitWidth = true, float densityScale = 1f, bool driveFromSource = true,
         LayoutOwner layoutOwner = LayoutOwner.Source,
-        System.Func<Transform, bool>? externallyShownBranch = null)
+        System.Func<Transform, bool>? externallyShownBranch = null, bool contentOutsideFrame = false)
     {
+        _contentOutsideFrame = contentOutsideFrame;
         _layoutOwner = layoutOwner;
         _externalBranch = externallyShownBranch;
         _driveFromSource = driveFromSource;
@@ -1844,7 +1848,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         // is actually on the board. (It is the same fallback the decision row has shipped on since
         // ModBuild 137, calibrated there against the owner's own numbers to the pixel — see the
         // DOCK MEASURE derivation below.)
-        if (_layoutOwner == LayoutOwner.Source && TryDockRect(out Vector2 dock))
+        if (!_contentOutsideFrame && _layoutOwner == LayoutOwner.Source && TryDockRect(out Vector2 dock))
         {
             _measurePath = "converted host rect";
             sizePx = dock;
@@ -1945,7 +1949,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         frameMax = default;
         if (_pivot == null || _cloneRect == null)
             return false;
-        if (_frameDegenerate)
+        if (_contentOutsideFrame || _frameDegenerate)
             return false; // authored 0x0 container — the union IS the frame (see LatchFrameDegenerate)
         Rect r = _cloneRect.rect;
         if (r.width < 1f || r.height < 1f)
