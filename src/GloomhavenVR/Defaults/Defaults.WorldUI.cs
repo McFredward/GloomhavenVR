@@ -207,6 +207,15 @@ internal static partial class Defaults
     internal const float InitiativeDepthMaxSpreadPx = 15f;   // => [WorldUI] InitiativeDepthMaxSpreadPx
     internal const float HoverInfoScale = 0.6f;              // => [WorldUI] HoverInfoScale
     internal const float EnemyRevealBoardClearance = 0.10f;  // => [WorldUI] EnemyRevealBoardClearance
+    // ModBuild 480 — THIS CONSTANT IS NOW THE SHARED WINDOW'S ACTUAL RADIUS, not merely the dial's
+    // default. R2 finding F8: a shared window's spawn pose may not be a function of anything
+    // client-local (the standing ruling, and the argument SharedWindowSizeLaw already wrote out for
+    // the SIZE half), and record 21 publishes a pose only once a human has dragged the window — so
+    // two differently-set clients diverged and stayed diverged. ArcSeats.TrySharedAnchorOnTable
+    // reads THIS constant; [WorldUI] SharedWindowArcRadiusMeters is still bound and still shown,
+    // but it now has no consumer at all, and the spawn line says so by name whenever a client's
+    // value differs from this one. If the ring has to grow, this number moves — on every client at
+    // once, in one build — which is what "a law costs no bytes and cannot desync" buys.
     internal const float SharedWindowArcRadiusMeters = 0.80f; // => [WorldUI] SharedWindowArcRadiusMeters
     // ModBuild 251 — THE ARITHMETIC FOR 0.60, written where the number lives.
     //
@@ -231,10 +240,13 @@ internal static partial class Defaults
     // point: they were already where he wanted them, and now they are there ON PURPOSE and stop
     // varying with head pitch.
     //
-    // MULTIPLAYER: this is part of a SHARED window's spawn pose, exactly like
-    // SharedWindowArcRadiusMeters above. Two clients holding different values seat a shared window
-    // at different heights until someone drags it; the MAP ROOM WINDOW BAR HEIGHT log line prints
-    // the resolved number on every placement so that is one grep, not a mystery.
+    // MULTIPLAYER (ModBuild 480, R2 finding F8): a SHARED window no longer reads the dial at all —
+    // ArcSeats.ResolveMapRoomBarHeightMeters takes THIS constant when its sharedWindow argument is
+    // set, which the one shared call site passes and the two LOCAL ones do not. So the paragraph
+    // that used to stand here ("two clients holding different values seat a shared window at
+    // different heights until someone drags it") describes the build before this one. THE DIAL IS
+    // NOT DEAD: it keeps its whole job on local map-room windows. The MAP ROOM WINDOW BAR HEIGHT
+    // line still prints the resolved number, and now also prints which of the two decided.
     internal const float MapRoomWindowBarHeightMeters = 0.60f; // => [WorldUI] MapRoomWindowBarHeightMeters
     // ModBuild 290 — THE SAME HEIGHT, IN THE OTHER ROOM, AND DELIBERATELY THE SAME NUMBER.
     // "Das 'blaue' Multiplayer Fenster ist IN dem Spielfeld gespawned … es muss viel höher spawnen
@@ -247,7 +259,13 @@ internal static partial class Defaults
     // (BoardTopClearanceMeters, 0.30 m) it leaves 0.30 m of clear air under the bar. In his own
     // ModBuild 289 log the bar sat 0.151 m above that plane, i.e. INSIDE the board's furniture; this
     // is 4x that and the falsifier prints both signed numbers.
-    // MULTIPLAYER: part of a SHARED window's spawn pose, exactly like the two entries around it.
+    // MULTIPLAYER (ModBuild 480, R2 finding F8): part of a SHARED window's spawn pose, and
+    // therefore taken from THIS constant rather than from the dial —
+    // ArcSeats.ResolveScenarioBarHeightMeters, whose only caller seats a shared window. That leaves
+    // [WorldUI] ScenarioWindowBoardClearanceMeters with no consumer: it is still bound and still
+    // shown in the options panel, but it is inert, and the SCENARIO spawn line names it and the
+    // value it ignored so a player who typed a number can grep the reason instead of guessing. If
+    // this height has to change it changes HERE, for every client in the same build.
     internal const float ScenarioWindowBoardClearanceMeters = 0.60f; // => [WorldUI] ScenarioWindowBoardClearanceMeters
     internal const bool DesktopMirrorLeftEye = true;         // => [WorldUI] DesktopMirrorLeftEye
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro

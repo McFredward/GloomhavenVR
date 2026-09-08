@@ -4784,6 +4784,48 @@ internal static partial class ModalFallback
     /// it is the ROD that was checked and not the frame.</para></summary>
     private const float MapRoomWindowTopCeilingMeters = 1.45f;
 
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+    // THE POSE HALF OF THE SHARED-WINDOW LAW (R2 finding F8, ModBuild 480)
+    //
+    // STANDING RULING: a shared window's SIZE OR POSE may never be a function of anything
+    // client-local. WorldUI/Modal/SharedWindowSizeLaw.cs already discharges that for the SIZE, and
+    // its argument transfers to the POSE word for word:
+    //
+    //     "The recorded ruling [[one-to-one-beats-local-legibility]] is that a MIRROR wears the
+    //      OWNER's dial ... A shared window is not a mirror and has no owner — every player has
+    //      their own copy of the same game window and all of them are equally entitled to it.
+    //      'The owner's value' has no referent here, so the only value every client can agree on
+    //      without an exchange is the SHIPPED one."
+    //
+    // WHAT WAS ACTUALLY WRONG. Three dials sized a shared window's SPAWN POSE from this client's
+    // own config file — [WorldUI] SharedWindowArcRadiusMeters (the arc depth),
+    // MapRoomWindowBarHeightMeters (the map-room bar line) and ScenarioWindowBoardClearanceMeters
+    // (the scenario bar line). None of the three has a Tune* id, so none of them is on the wire;
+    // record 21 carries a pose only once a HUMAN has really moved or resized the window
+    // (SharedPoseBit), so an untouched shared window diverged and STAYED diverged. Two clients set
+    // 0.80 and 1.10 seat the same blue window 0.30 m apart, at different reading angles, and one
+    // player pointing at a line on it lands somewhere else in the other's view. The mod's own spawn
+    // log used to invite exactly that ("raise SharedWindowArcRadiusMeters to put it back on the
+    // ring") — advice that broke the ruling on the machine that took it.
+    //
+    // WHY A WIRE FIELD WAS NOT THE ANSWER, in the law's own words: a law costs no bytes and cannot
+    // desync, and a shared window has no owner whose bytes those would be. Sending a pose would
+    // also have to pick a sender, and every client is equally entitled.
+    //
+    // WHAT THIS COSTS A PLAYER WHO HAD TUNED ONE, stated rather than hidden. All three shipped
+    // values are the ones the user has ALREADY ACCEPTED on hardware — 0.60 m is the mean of the two
+    // bar heights he called ideal (ideale_position.jpg, ModBuild 251), the scenario clearance is
+    // the same accepted number in the other room (ModBuild 290), and the arc radius is the one the
+    // tested spawn logs were taken at. So at the shipped defaults NOTHING he approved moves. What
+    // does change: these three dials no longer move a SHARED (blue-barred) window.
+    // MapRoomWindowBarHeightMeters keeps its whole job on LOCAL map-room windows, which is where
+    // both of its other two call sites are. The other two have no non-shared consumer and are
+    // therefore inert from this build — which is a decision about a bound, option-panel dial, so
+    // each frozen branch SAYS SO BY NAME in the line the spawn already prints, together with the
+    // value it ignored. A player who typed a number and sees no change must be able to grep the
+    // reason, not guess it.
+    // ───────────────────────────────────────────────────────────────────────────────────────────
+
     /// <summary>
     /// THE ONE HEIGHT, resolved for one window: how far above the map table's top surface this
     /// window's GRAB BAR is seated, in real metres.
@@ -4800,16 +4842,37 @@ internal static partial class ModalFallback
     /// <param name="halfHeightMeters">The window's own half-height in REAL METRES (its world
     /// half-size divided by the shared frame scale) — the units everything else here is in.</param>
     /// <param name="rule">Which branch decided, in the words the falsifier prints.</param>
-    internal static float ResolveMapRoomBarHeightMeters(float halfHeightMeters, out string rule)
+    /// <param name="sharedWindow">True for a SHARED (blue-barred) window, whose bar line is taken
+    /// from the SHIPPED constant and never from this client's dial — see the law block above. False
+    /// (the default, and what both LOCAL call sites pass) keeps the dial, which is the whole of its
+    /// remaining job.</param>
+    internal static float ResolveMapRoomBarHeightMeters(float halfHeightMeters, out string rule,
+                                                       bool sharedWindow = false)
     {
-        float dial = Mathf.Max(WorldUIConfig.MapRoomWindowBarHeightMeters.Value,
-            MapRoomWindowMinBarHeightMeters);
+        // THE LAW, APPLIED AT THE ONE TERM THAT CARRIED THE DIVERGENCE. Everything else in this
+        // method — the ceiling, the floor, the frame-to-bar drop — is already a constant of the
+        // TABLE and of no head, which is why only this line needed the argument.
+        float dialRaw = sharedWindow
+            ? Defaults.MapRoomWindowBarHeightMeters
+            : WorldUIConfig.MapRoomWindowBarHeightMeters.Value;
+        float dial = Mathf.Max(dialRaw, MapRoomWindowMinBarHeightMeters);
+        string source = sharedWindow
+            ? "THE SHARED-WINDOW LAW DECIDED IT, NOT THE DIAL: a shared window's pose may not be a "
+              + "function of anything client-local, so the bar line is the SHIPPED "
+              + $"Defaults.MapRoomWindowBarHeightMeters = {Defaults.MapRoomWindowBarHeightMeters:F3} m"
+              + (Mathf.Abs(WorldUIConfig.MapRoomWindowBarHeightMeters.Value
+                           - Defaults.MapRoomWindowBarHeightMeters) > 1e-4f
+                     ? $" and THIS CLIENT'S OWN [WorldUI] MapRoomWindowBarHeightMeters "
+                       + $"({WorldUIConfig.MapRoomWindowBarHeightMeters.Value:F3} m) IS IGNORED HERE "
+                       + "— it still moves every LOCAL map-room window"
+                     : " (identical to this client's dial, so nothing moved)")
+            : "THE DIAL DECIDED IT: [WorldUI] MapRoomWindowBarHeightMeters";
         float height = 2f * Mathf.Max(halfHeightMeters, 0f);
         float top = dial + GrabBarDropMeters + height;
         if (top <= MapRoomWindowTopCeilingMeters)
         {
-            rule = "THE DIAL DECIDED IT: [WorldUI] MapRoomWindowBarHeightMeters = "
-                   + $"{dial:F3} m above the table top, and this window's top edge lands at "
+            rule = source
+                   + $" = {dial:F3} m above the table top, and this window's top edge lands at "
                    + $"{top:F3} m, under the {MapRoomWindowTopCeilingMeters:F2} m ceiling — so it "
                    + "takes the common height and its bar is level with every other window here";
             return dial;
@@ -6004,7 +6067,9 @@ internal static partial class ModalFallback
         //      Greifbalken!" The bar is seated at barYm above the table top and the body hangs from
         //      it; see the ModBuild 251 block above for why the 0.110 m this replaces was a misread
         //      photograph and what the same photograph's windows were actually seated at.
-        float barYm = ResolveMapRoomBarHeightMeters(halfWinYm, out string barRule);
+        // sharedWindow: true — the bar line of a blue-barred window is the shipped constant, never
+        // this client's dial. See the shared-window pose law above ResolveMapRoomBarHeightMeters.
+        float barYm = ResolveMapRoomBarHeightMeters(halfWinYm, out string barRule, sharedWindow: true);
         float bottomYm = barYm + GrabBarDropMeters;
         float centreYm = topYm + bottomYm + halfWinYm;
 
@@ -6035,7 +6100,15 @@ internal static partial class ModalFallback
         //      would have quietly broken the one invariant ModBuild 245 established. The rule is
         //      the rule; the arc only decides how far back each slot stands.
         float mapFarHalf = ExtentAlong(ahead, b.size.x * 0.5f / scale, b.size.z * 0.5f / scale);
-        float radius = Mathf.Max(WorldUIConfig.SharedWindowArcRadiusMeters.Value, 0.05f);
+        // THE RADIUS IS THE SHIPPED CONSTANT AND NOT THIS CLIENT'S DIAL — the shared-window pose
+        // law above ResolveMapRoomBarHeightMeters. It was WorldUIConfig.SharedWindowArcRadiusMeters
+        // .Value, which is the term that let two differently-tuned clients seat the same blue
+        // window at two depths for the whole session (record 21 publishes a pose only after a human
+        // has dragged it). The clamp stays: it now only guards a corrupted constant.
+        float radius = Mathf.Max(Defaults.SharedWindowArcRadiusMeters, 0.05f);
+        float radiusDial = WorldUIConfig.SharedWindowArcRadiusMeters != null
+            ? WorldUIConfig.SharedWindowArcRadiusMeters.Value
+            : Defaults.SharedWindowArcRadiusMeters;
         float arcDepth = Mathf.Sqrt(Mathf.Max(radius * radius - lateral * lateral, 0f));
         // THE MAP-OCCLUSION GUARD. A slot whose lateral step swings it round the side of the circle
         // comes to stand at a depth INSIDE the parchment's own footprint, and a window plane there
@@ -6153,13 +6226,20 @@ internal static partial class ModalFallback
                + "which is what pushed them to the ends of the table in "
                + "kartenraum_remotespawn.jpg). "
                + "ARC (ModBuild 250, \"zentral ÜBER dem Tisch mittig ... in einem halbkreis\"): "
-               + $"radius {radius:F3} m ([WorldUI] SharedWindowArcRadiusMeters) about the TABLE "
+               + $"radius {radius:F3} m (the SHIPPED Defaults.SharedWindowArcRadiusMeters — a "
+               + "shared window's pose may not be a function of anything client-local, so "
+               + "[WorldUI] SharedWindowArcRadiusMeters"
+               + (Mathf.Abs(radiusDial - Defaults.SharedWindowArcRadiusMeters) > 1e-4f
+                      ? $", which THIS CLIENT has at {radiusDial:F3} m, IS IGNORED HERE and has no "
+                        + "other consumer — it is inert from ModBuild 480"
+                      : " is at its shipped value on this client anyway")
+               + ") about the TABLE "
                + $"CENTRE, so this slot's depth = sqrt({radius:F3}² − {lateral:F3}²) = "
                + $"{arcDepth:F3} m and it stands {Mathf.Atan2(lateral, Mathf.Max(depthHalf, 1e-4f)) * Mathf.Rad2Deg:F1}° "
                + "round the ring from dead ahead; the ring's OPENING faces the room (the depth is "
                + "the POSITIVE root, so no shared window is ever seated between the reader and the "
                + "map). SEATED AT DEPTH "
-               + $"{depthHalf:F3} m, {(offArcMm > 0.5f ? $"which is {offArcMm:F0} mm OFF THE ARC — the map-occlusion floor (parchment far edge {mapFarHalf:F3} + {SharedAnchorArcParchmentClearanceMeters:F2} m) pulled it back out, which happens when a window is wide enough for its lateral step to swing it round the side of the circle while its own span still crosses the map; raise SharedWindowArcRadiusMeters to put it back on the ring" : $"on the arc (map-occlusion floor {depthFloor:F3} m, {(overMapLaterally ? "armed and not reached" : "not armed — this slot's whole span clears the map sideways")})")}. "
+               + $"{depthHalf:F3} m, {(offArcMm > 0.5f ? $"which is {offArcMm:F0} mm OFF THE ARC — the map-occlusion floor (parchment far edge {mapFarHalf:F3} + {SharedAnchorArcParchmentClearanceMeters:F2} m) pulled it back out, which happens when a window is wide enough for its lateral step to swing it round the side of the circle while its own span still crosses the map. THIS IS NOT A DIAL PROBLEM AND MUST NOT BE ANSWERED WITH ONE: raising SharedWindowArcRadiusMeters no longer moves a shared window (ModBuild 480, the shared-window pose law) and, before that build, doing it on one machine alone was the 1:1 breach this ring is seated to avoid. If the ring itself has to grow, Defaults.SharedWindowArcRadiusMeters is the one number to move, on every client at once" : $"on the arc (map-occlusion floor {depthFloor:F3} m, {(overMapLaterally ? "armed and not reached" : "not armed — this slot's whole span clears the map sideways")})")}. "
                + $"CLEAR OF THE MAP: the parchment is {mapFarHalf:F3} m deep and {mapLateralHalf:F3} m "
                + $"wide from the centre; this plane stands at depth {depthHalf:F3} m and its lateral "
                + $"span comes no closer than {innerLateral:F3} m to the centre line, so it is "
@@ -6472,13 +6552,29 @@ internal static partial class ModalFallback
     /// </summary>
     private static float ResolveScenarioBarHeightMeters(out string rule)
     {
-        float wanted = WorldUIConfig.ScenarioWindowBoardClearanceMeters != null
+        // THE SHIPPED CONSTANT, NOT THE DIAL — the shared-window pose law above
+        // ResolveMapRoomBarHeightMeters. TrySharedAnchorOverBoard is this method's only caller and
+        // it seats a SHARED window, so the dial had no non-shared job and is inert from ModBuild
+        // 480; the branch below names it and the value it ignored, because a bound, option-panel
+        // dial that silently stops doing anything is worse than the divergence it was causing.
+        // (The pre-Bind guard is kept and now reads as what it always was: this expression can no
+        // longer throw, but the dial is still read so the line can report it.)
+        float wanted = Defaults.ScenarioWindowBoardClearanceMeters;
+        float dialled = WorldUIConfig.ScenarioWindowBoardClearanceMeters != null
             ? WorldUIConfig.ScenarioWindowBoardClearanceMeters.Value
-            : Defaults.ScenarioWindowBoardClearanceMeters;   // a spawn before Bind: ship the default
+            : Defaults.ScenarioWindowBoardClearanceMeters;
         if (wanted >= ScenarioWindowMinBarHeightMeters)
         {
-            rule = "THE DIAL DECIDED IT: [WorldUI] ScenarioWindowBoardClearanceMeters = "
-                   + $"{wanted:F3} m of grab-bar height above the play surface";
+            rule = "THE SHARED-WINDOW LAW DECIDED IT, NOT THE DIAL: the SHIPPED "
+                   + $"Defaults.ScenarioWindowBoardClearanceMeters = {wanted:F3} m of grab-bar "
+                   + "height above the play surface. A shared window has no owner whose dial could "
+                   + "be followed, so the only value every client agrees on without an exchange is "
+                   + "the shipped one"
+                   + (Mathf.Abs(dialled - wanted) > 1e-4f
+                          ? $" — and THIS CLIENT'S [WorldUI] ScenarioWindowBoardClearanceMeters "
+                            + $"({dialled:F3} m) IS IGNORED. That dial has no other consumer and is "
+                            + "inert from ModBuild 480"
+                          : " (identical to this client's dial, so nothing moved)");
             return wanted;
         }
 
