@@ -15,18 +15,26 @@ internal sealed class ExtrasFragments
     internal const int ChunkBytes = 200;
     private const int MetadataBytes = 12; // sequence:u64, snapshot length:u16, offset:u16
     private const int MaxPeers = 8;
-    private const double AssemblyLifetime = 5;
+    // Independent cosmetic streams can wait behind 24 auxiliary slots, other presentation
+    // pages and the shared handshake. At low frame cadence this legitimately exceeds five
+    // seconds. Memory stays bounded by MaxPeers and snapshotLimit; gameplay timeouts do not change.
+    internal const double PresentationAssemblyLifetime = 32;
+    private readonly double _assemblyLifetime;
     private readonly Dictionary<int, Pending> _peers = new();
     private readonly byte _payloadType;
     private readonly byte _envelopeType;
     private readonly int _snapshotLimit;
 
     internal ExtrasFragments(byte payloadType = NetProtocol.MsgExtras,
-        byte envelopeType = NetProtocol.MsgExtrasFragments, int snapshotLimit = MaxSnapshotBytes)
+        byte envelopeType = NetProtocol.MsgExtrasFragments, int snapshotLimit = MaxSnapshotBytes,
+        double assemblyLifetime = 5)
     {
         _payloadType = payloadType;
         _envelopeType = envelopeType;
+        if (double.IsNaN(assemblyLifetime) || double.IsInfinity(assemblyLifetime) || assemblyLifetime <= 0)
+            throw new ArgumentOutOfRangeException(nameof(assemblyLifetime));
         _snapshotLimit = snapshotLimit;
+        _assemblyLifetime = assemblyLifetime;
     }
 
     private sealed class Pending
@@ -116,7 +124,7 @@ internal sealed class ExtrasFragments
             if (sequence < state.Sequence) return null;
             if (sequence == state.Sequence && state.Bytes == null) return null;
             if (sequence == state.Sequence && (state.Bytes!.Length != total
-                || now - state.Started > AssemblyLifetime))
+                || now - state.Started > _assemblyLifetime))
             {
                 state.Bytes = null; state.Received = null;
                 return null;
