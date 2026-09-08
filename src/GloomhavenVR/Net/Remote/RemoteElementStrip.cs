@@ -391,6 +391,10 @@ internal sealed class RemoteElementStrip
     /// composition below still has. See THE MIRROR, NOT THE REBUILD in the class doc.
     /// </summary>
     private readonly RemoteWidgetMirror _mirror;
+    private readonly RemoteNativeElements _native = new();
+
+    internal void SetNativeState(NativeBoardState? state, List<NativeBoardState> history) =>
+        _native.SetState(state, history);
 
     /// <summary>Which peer's board this strip is on. Diagnostic only — it is what lets the parity
     /// line's one-shot key be PER BOARD, so a second board's empty strip cannot be swallowed by a
@@ -1479,13 +1483,20 @@ internal sealed class RemoteElementStrip
         }
         catch { target = null; }
 
-        if (!_mirror.Refresh(target))
+        _native.Configure(_mirror);
+        if (!_mirror.Refresh(target) && _mirror.CloneOf(target) == null)
         {
             _mirror.SetShown(false);
             return false;
         }
 
         _mirror.SetShown(true);
+        if (InfusionBoardUI.Instance == null || !_native.Apply(_mirror, InfusionBoardUI.Instance)
+            || !_mirror.Refresh(target))
+        { _mirror.SetShown(false); return false; }
+        // Refresh may synchronize viewer animation fields; owner output has the final write.
+        if (!_native.Apply(_mirror, InfusionBoardUI.Instance))
+        { _mirror.SetShown(false); return false; }
         // The mod-drawn strip and its MR plate go down as ONE object: the clone brings its own
         // MrBacking surface, so leaving the fallback plate up would put two plates on one dock.
         if (_root.gameObject.activeSelf)
@@ -1507,11 +1518,17 @@ internal sealed class RemoteElementStrip
     /// <para>No-op while the mod-drawn fallback is up (there is no clone to drive) and while the
     /// board is not being ticked at all.</para>
     /// </summary>
-    public void TickLive() => _mirror.TickLive();
+    public void TickLive()
+    {
+        _native.Configure(_mirror);
+        _mirror.TickLive();
+        InfusionBoardUI? source = InfusionBoardUI.Instance;
+        if (source == null || !_native.Apply(_mirror, source)) _mirror.SetShown(false);
+    }
 
     /// <summary>Drop the clone and its MrBacking registration. The mod-drawn half dies with the
     /// board root that owns it, as it always has.</summary>
-    public void Destroy() => _mirror.Destroy();
+    public void Destroy() { _native.Destroy(); _mirror.Destroy(); }
 
     /// <summary>Scratch for <see cref="ReadRowOrder"/>: the six element indices in the order the
     /// game's own holder draws them. Reused every tick so the read allocates nothing.</summary>
