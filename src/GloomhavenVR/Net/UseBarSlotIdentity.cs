@@ -25,14 +25,27 @@ namespace GloomhavenVR.Net;
 /// Spieler genau das selbe sieht wie der lokale Spieler bei sich bei diesen
 /// Entscheidungssymbolen."</i></para>
 ///
-/// <para>VERIFIED IN THE DECOMPILED GAME, not inferred: <c>UIScenarioMultiplayerController</c>
-/// lines 238-246 branch on the attacked actor's <c>IsUnderMyControl</c>. A client that does NOT
-/// control that actor is sent to <c>TakeDamagePanel.ShowOtherPlayer</c>
-/// (<c>TakeDamagePanel.cs:1102-1133</c>), whose whole body raises NEITHER
-/// <c>UIUseItemsBar.ShowItems</c> NOR <c>UIActiveBonusBar.ShowReduceDamageActiveBonuses</c> and
-/// ends on <c>myWindow.Hide(instant: true)</c>. Only the controlling client's
-/// <c>TakeDamagePanel.Show</c> (<c>TakeDamagePanel.cs:215-270</c>) reaches those two calls. So on
-/// the WATCHER'S machine bars 0 and 3 are never populated for that actor,
+/// <para>VERIFIED IN THE DECOMPILED GAME, not inferred.
+/// <c>UIScenarioMultiplayerController.RefreshDamagePhase</c> (<c>:212-249</c>) branches on the
+/// CARD OWNER — <c>m_ActorToShowCardsFor ?? m_ActorBeingAttacked</c> (<c>:216-218</c>) — not on the
+/// attacked actor, and the test it applies depends on that actor's type: a <c>CPlayerActor</c> uses
+/// its own <c>IsUnderMyControl</c> (<c>:238</c>), a <c>CHeroSummonActor</c> uses
+/// <c>Summoner.IsUnderMyControl</c> (<c>:233</c>), and a <c>CEnemyActor</c> uses
+/// <c>FFSNetwork.IsHost</c> (<c>:229</c>). The wording "the attacked actor's IsUnderMyControl" stood
+/// in four places in this tree until ModBuild 480 and was wrong in all four; the CONCLUSION below
+/// is unaffected, because whichever arm decides it, exactly one client takes <c>Show</c> and every
+/// other client takes <c>ShowOtherPlayer</c> (<c>:242</c>, its only call site in the tree).</para>
+///
+/// <para>And the premise is STRONGER than "raises nothing".
+/// <c>TakeDamagePanel.ShowOtherPlayer</c> (<c>TakeDamagePanel.cs:1102-1134</c>, whole body read)
+/// calls <c>ResetToggles()</c> at <c>:1122</c>, and <c>ResetToggles</c>
+/// (<c>TakeDamagePanel.cs:428-440</c>) contains <c>Singleton&lt;UIUseItemsBar&gt;.Instance.Hide()</c>
+/// at <c>:434</c> and <c>Singleton&lt;UIActiveBonusBar&gt;.Instance.Hide()</c> at <c>:435</c>; it
+/// then ends on <c>myWindow.Hide(instant: true)</c> at <c>:1133</c>. So the watcher's two bars are
+/// not merely un-raised, they are actively CLEARED. Only the controlling client's
+/// <c>TakeDamagePanel.Show</c> reaches <c>UIUseItemsBar.ShowItems</c> (<c>:249</c>) and
+/// <c>UIActiveBonusBar.ShowReduceDamageActiveBonuses</c> (<c>:265</c>, <c>:269</c>). On the
+/// WATCHER'S machine bars 0 and 3 are therefore never populated for that actor,
 /// <c>RemoteUseBarSymbols.BarBelongsTo</c> is false by construction, and no local resolve can ever
 /// succeed. The identity has to come from the owner.</para>
 ///

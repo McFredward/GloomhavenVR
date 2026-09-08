@@ -51,9 +51,12 @@ namespace GloomhavenVR.Net;
 /// unless ALL of the following hold:
 ///   1. the local bar exists and its container is alive;
 ///   2. its owner set CONTAINS the actor whose remote board is being drawn (reference identity);
-///   3. its visible slot count equals the count record 25 carried for that bar, walked by the very
-///      same rule the sender walked (container children, hierarchy order, inactive skipped,
-///      non-slot children skipped — <c>UseBarsSurface.BarDock.SampleWireSlots</c>).
+///   3. its visible slot count equals the count record 25 carried for that bar, walked by the same
+///      rule the sender walked (container children, hierarchy order, inactive skipped, non-slot
+///      children skipped, and — since ModBuild 480 — a render-hidden plain ITEM slot skipped, which
+///      is the sender's <c>IsPlainRenderHidden</c> term read off the hierarchy instead of off its
+///      ledger; <see cref="RenderHiddenPlainItem"/> says exactly where the two can still differ, and
+///      <c>UseBarsSurface.BarDock.SampleWireSlots</c> is the walk it is matched against).
 /// Any failure returns 0 and the caller keeps the anonymous tile it drew before. The peer therefore
 /// shows the real symbol or an honest blank — never a symbol from a different decision.
 /// <see cref="RefusalReason"/> says WHICH of the three refused, and the caller prints it: a gate that
@@ -66,12 +69,21 @@ namespace GloomhavenVR.Net;
 /// counts agreed on both machines — record 25 published <c>mask 0x01 [activeBonus: 1 slot(s)]</c>
 /// and the mirror drew one tile — so gate 3 is not what refused. Gate 2 is, and it CANNOT PASS:
 ///
-///   <c>UIScenarioMultiplayerController</c> (decompiled, the take-damage entry point) branches on
-///   the attacked actor's <c>IsUnderMyControl</c>. On a client that does NOT control that actor it
-///   calls <c>TakeDamagePanel.ShowOtherPlayer</c>, and <c>ShowOtherPlayer</c> raises NOTHING: no
-///   <c>UIActiveBonusBar.ShowReduceDamageActiveBonuses</c>, no <c>UIUseItemsBar.ShowItems</c>, and
-///   it ends on <c>myWindow.Hide(instant: true)</c>. Only the controlling client's
-///   <c>TakeDamagePanel.Show</c> reaches those two calls (decompiled TakeDamagePanel.cs:245-270).
+///   <c>UIScenarioMultiplayerController.RefreshDamagePhase</c> (decompiled, the take-damage entry
+///   point, <c>:212-249</c>) branches on the CARD OWNER — <c>m_ActorToShowCardsFor ??
+///   m_ActorBeingAttacked</c> at <c>:216-218</c> — NOT on the attacked actor, and the test depends
+///   on that actor's type: <c>CPlayerActor.IsUnderMyControl</c> (<c>:238</c>),
+///   <c>CHeroSummonActor.Summoner.IsUnderMyControl</c> (<c>:233</c>), <c>FFSNetwork.IsHost</c> for a
+///   <c>CEnemyActor</c> (<c>:229</c>). ModBuild 480 corrected that wording here and in three other
+///   places; the conclusion is untouched, since exactly one client takes <c>Show</c> and every
+///   other takes <c>ShowOtherPlayer</c> (<c>:242</c>, its only call site in the tree).
+///
+///   And <c>ShowOtherPlayer</c> does more than fail to raise the bars: it HIDES them. Its body
+///   (<c>TakeDamagePanel.cs:1102-1134</c>) calls <c>ResetToggles()</c> at <c>:1122</c>, which
+///   contains <c>UIUseItemsBar.Hide()</c> (<c>:434</c>) and <c>UIActiveBonusBar.Hide()</c>
+///   (<c>:435</c>), and it then ends on <c>myWindow.Hide(instant: true)</c> at <c>:1133</c>. Only
+///   the controlling client's <c>TakeDamagePanel.Show</c> reaches <c>ShowItems</c> (<c>:249</c>)
+///   and <c>ShowReduceDamageActiveBonuses</c> (<c>:265</c>, <c>:269</c>).
 ///
 /// So for a PEER'S prevent-damage decision this client's <c>UIActiveBonusBar</c> is never
 /// populated for that actor and <see cref="BarBelongsTo"/> is false by construction. The class
@@ -98,11 +110,27 @@ namespace GloomhavenVR.Net;
 /// inference.
 ///
 /// <para>THIS CLASS IS NOT SUPERSEDED. It remains the ONLY source for every bar the record does not
-/// carry (the abilities bar, which the game genuinely does raise on every client — the
-/// <c>Choreographer.CheckForInitiativeAdjustments</c> path above is real, it was merely generalised
-/// too far), for every peer below
-/// <c>NetProtocol.UseBarSlotIdentityMinPeerBuild</c>, and for every FLAT or unmodded player.
-/// The two never mix inside one bar: either the owner named that bar's slots or nobody did.</para>
+/// carry, for every peer below <c>NetProtocol.UseBarSlotIdentityMinPeerBuild</c>, and for every FLAT
+/// or unmodded player.</para>
+///
+/// <para>THE ABILITIES BAR IS GENUINELY RAISED ON EVERY CLIENT, and ModBuild 480 fixed the citation
+/// that said so. The line here used to offer <c>Choreographer.CheckForInitiativeAdjustments</c> as
+/// its evidence; that path raises <c>UIActiveBonusBar</c> (bar 0), not <c>UIUseAbilitiesBar</c>
+/// (<c>decompiled/GH.Runtime/Choreographer.cs:11678</c>). The claim is true on different lines —
+/// <c>Choreographer.cs:8331</c> (<c>ShowInfuseAbilities</c>), <c>:8386</c>
+/// (<c>ShowChooseAbility</c>), <c>:8503</c> (<c>ShowGenericInfusion</c>), none of them gated on
+/// <c>IsUnderMyControl</c>; the gates at <c>:8342-8349</c> and <c>:8395</c> only pick the
+/// <c>ActionProcessor</c> state. A confident comment protecting a claim never checked against the
+/// file it names is the same shape as the ModBuild-479 generalisation two paragraphs up.</para>
+///
+/// <para>THE TWO SOURCES MEET PER SLOT, NOT PER BAR (ModBuild 480). ModBuild 479 wrote "either the
+/// owner named that bar's slots or nobody did" and enforced it with a whole-bar switch in
+/// <c>RemoteBoardFurniture.ApplyUseBarSymbols</c>. That is false of the record and false of the
+/// game: the sender withholds an id by design for <c>CForgoActionsForCompanionActiveBonus</c>
+/// while <c>UseBarsSurface.EnforceActiveBonusSplit</c> keeps that row, so a MIXED bar is the normal
+/// output of the mod's own split, and the switch deleted this class's answer for every other slot
+/// on it. A slot the owner NAMED is still the owner's answer or blank; a slot the owner said
+/// NOTHING about is this class's, exactly as it was before record 45 existed.</para>
 /// </summary>
 /// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire. The icons come from this client's own
 /// game UI, raised by the host-replicated message every client already receives. Slot art stays
@@ -146,6 +174,13 @@ internal static class RemoteUseBarSymbols
 
         /// <summary>The walk threw; the warning beside it carries the message.</summary>
         Threw,
+
+        /// <summary>NOT A REFUSAL AND NOT A DEFECT: the local arm was never asked, because the
+        /// OWNER named every visible slot of that bar through record 45 and an owner-named slot is
+        /// the owner's answer or nothing. Added in ModBuild 480 with the per-slot gate: before it,
+        /// this state was reported as <see cref="NoWireSlots"/>, whose text says "record 25 named
+        /// no slot for bar N" — the opposite of what had happened.</summary>
+        NotAsked,
     }
 
     /// <summary>Human-readable form of <see cref="RefusalReason"/> for the caller's log line, with
@@ -172,10 +207,24 @@ internal static class RemoteUseBarSymbols
             + "named nothing — check its ModBuild in the same line",
         RefusalReason.SlotCountMismatch =>
             $"GATE 3 (slot count): this client's own bar {barIndex} is the right character's but "
-            + $"shows {localSlots} visible slot(s) against record 25's {wireCount} — a stale or "
-            + "mid-rebuild local bar; the next cadence tick normally clears it",
+            + $"shows {localSlots} visible slot(s) against record 25's {wireCount}. THIS LINE NAMES "
+            + "NO CAUSE, and that is deliberate (ModBuild 480): until this build it asserted 'a "
+            + "stale or mid-rebuild local bar', which the count alone cannot establish, and a "
+            + "refusal reason naming the wrong cause has cost this tree whole rounds. Two "
+            + "populations produce this number and only one of them clears itself. (a) A STALE OR "
+            + "MID-REBUILD local bar — transient, gone by the next cadence tick. (b) THE TWO SPLITS "
+            + "DIVERGED — the sender skips a plain item slot its own UseBarsSurface RENDER-hid, and "
+            + "this walk skips a slot that draws nothing HERE, so a bar docked on one machine and "
+            + "not on the other counts differently and the mismatch PERSISTS while that lasts. "
+            + "WHICH ONE: grep the other machine for 'items-bar SPLIT' on the same tick and compare "
+            + "its render-hidden count against this difference; and grep THIS machine for the same "
+            + "line, because a bar this client has not docked hides nothing at all",
         RefusalReason.Threw =>
             $"the walk over bar {barIndex} threw (see the warning beside this line)",
+        RefusalReason.NotAsked =>
+            $"the local resolve was NOT ASKED about bar {barIndex}: the owner named every visible "
+            + "slot of it through record 45, and an owner-named slot is the owner's answer or "
+            + "blank. Read the wire-identity arm beside this one for why it is blank",
         _ => "unknown",
     };
 
@@ -218,10 +267,19 @@ internal static class RemoteUseBarSymbols
             for (int i = 0; i < container.childCount && count < into.Length; i++)
             {
                 Transform child = container.GetChild(i);
-                // THE SENDER'S OWN WALK, verbatim: active children only, non-slot children skipped.
-                // Index alignment with record 25's state bytes is structural because the two walks
-                // are the same walk — there is no second rule that could disagree about "slot 2".
+                // THE SENDER'S WALK HAS THREE TERMS, AND THIS HAD TWO (ModBuild 480). The comment
+                // that stood here said "THE SENDER'S OWN WALK, verbatim: active children only,
+                // non-slot children skipped" — and the sender
+                // (UseBarsSurface.BarDock.SampleWireSlots) also skips
+                // `_owner.IsPlainRenderHidden(child)`. A slot the plain-item split RENDER-hid is
+                // still activeSelf — IsPlainRenderHidden's own doc says exactly that — so this walk
+                // counted a slot record 25 had dropped, gate 3 refused on the count, and the tiles
+                // went anonymous under a refusal string that blamed "a stale local bar". Read
+                // RenderHiddenPlainItem before touching it: it is the ledger's observable effect,
+                // not the ledger, and it says where the two can still differ.
                 if (!child.gameObject.activeSelf || !IsSlot(child))
+                    continue;
+                if (RenderHiddenPlainItem(child))
                     continue;
                 into[count++] = IconOf(child);
             }
@@ -315,6 +373,55 @@ internal static class RemoteUseBarSymbols
                 return true;
         }
         return false;
+    }
+
+    /// <summary>Graphic scratch for <see cref="RenderHiddenPlainItem"/>, so the 4 Hz walk allocates
+    /// nothing. Single-threaded, one child at a time.</summary>
+    private static readonly List<Graphic> GraphicScratch = new(16);
+
+    /// <summary>
+    /// THE THIRD TERM OF THE SENDER'S WALK: is this a plain ITEM slot that the items-bar split
+    /// render-hid, i.e. one that is still <c>activeSelf</c> and draws nothing?
+    ///
+    /// <para>MEASURED RATHER THAN LOOKED UP, and this doc says which, because the comment that
+    /// stood in the walk claimed the sender's rule "verbatim" while missing this term entirely. The
+    /// sender consults a LEDGER — <c>UseBarsSurface.IsPlainRenderHidden(child)</c>, the list of
+    /// plain item slots its own split disabled (<c>UseBarsSurface.cs:2125-2127</c>) — and that
+    /// ledger is an instance field of a surface object with no static reach from this class. What
+    /// this observes instead is the ledger's WHOLE OBSERVABLE EFFECT:
+    /// <c>UseBarsSurface.HidePlainSlotGraphics</c> disables every enabled <see cref="Graphic"/>
+    /// under the slot and touches nothing else, so a render-hidden slot always answers true here.
+    /// It is also the sender's stated INTENT read directly — "a tile the owner is not drawing must
+    /// never appear on a peer's board".</para>
+    ///
+    /// <para>SCOPED TO <c>UIUseItemScenario</c> ON PURPOSE, and that is not a shortcut: the
+    /// sender's ledger is typed <c>List&lt;KeyValuePair&lt;CItem, UIUseItemScenario&gt;&gt;</c>, so
+    /// <c>IsPlainRenderHidden</c> can never return true for a bonus, ability or augment slot. A
+    /// wider test here would be a rule the sender does not have, and would refuse bars 0/1/2 on
+    /// this side for a reason no sender could produce. The bonus-bar split is not this term either
+    /// — <c>EnforceActiveBonusSplit</c> uses <c>SetActive(false)</c>, which the activeSelf test
+    /// above already covers on both sides.</para>
+    ///
+    /// <para>WHERE THE TWO CAN STILL DIVERGE, stated rather than papered over: this also answers
+    /// true for an item slot the GAME left with every graphic off, which the sender's ledger would
+    /// have counted. Both walks then disagree by one, gate 3 refuses, and the tiles go blank —
+    /// fail-closed. <see cref="RefusalReason.SlotCountMismatch"/>'s text names this as one of the
+    /// two populations it cannot tell apart rather than asserting the other one.</para>
+    /// </summary>
+    private static bool RenderHiddenPlainItem(Transform child)
+    {
+        if (child.GetComponent<UIUseItemScenario>() == null)
+            return false;
+        GraphicScratch.Clear();
+        child.GetComponentsInChildren(includeInactive: false, GraphicScratch);
+        bool draws = false;
+        for (int i = 0; i < GraphicScratch.Count && !draws; i++)
+        {
+            Graphic g = GraphicScratch[i];
+            draws = g != null && g.enabled;
+        }
+        GraphicScratch.Clear();
+        return !draws;
     }
 
     /// <summary>True for a real slot widget (the four concrete <c>UIUseSlot&lt;T&gt;</c> types) —
