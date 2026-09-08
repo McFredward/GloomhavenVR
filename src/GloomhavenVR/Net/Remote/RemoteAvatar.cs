@@ -71,6 +71,7 @@ internal sealed class RemoteAvatar
 
     /// <summary>Owner's explicit short-rest window (record 46), reset on every extras packet.</summary>
     internal bool ShortRestInProgress { get; private set; }
+    internal UseBarWidgetState[]? UseBarWidgetStates { get; private set; }
     private bool _fxSeqInit;
 
     // Ghost hand (extras FlagExtrasGhostHand): when the sender fades the hand carrying their open
@@ -2101,6 +2102,7 @@ internal sealed class RemoteAvatar
         if (ShortRestInProgress != p.ShortRestInProgress)
             VRLog.Note("Net", $"SHORT REST STATE RECEIVED [player {PlayerId}]: "
                              + $"choosing={p.ShortRestInProgress}; record 46.");
+        UseBarWidgetStates = p.UseBarWidgetStates;
         ShortRestInProgress = p.ShortRestInProgress;
         HasFanAnchor = p.HasFanAnchor;
         FanAnchorLocal = p.HasFanAnchor ? p.FanAnchorLocal : Vector3.zero;

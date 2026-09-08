@@ -46,6 +46,9 @@ internal static class NetProtocol
     /// <summary>Extras packet (~5 Hz + on-change): remote control-board world pose + hand-card
     /// count + dominant-hand flag. Purely cosmetic; carries NO card identities.</summary>
     public const byte MsgExtras = 1;
+    /// <summary>Bounded transport envelope; carries record-48 chunks of an atomic extras snapshot.
+    /// Magic/version and all existing messages remain unchanged. Unknown readers skip this type.</summary>
+    public const byte MsgExtrasFragments = 2;
 
     /// <summary>Extras (board + hand-count) send rate (Hz). Slower than the rig stream — the board
     /// moves rarely and the hand count changes on card play only.</summary>
@@ -23618,6 +23621,17 @@ internal static class NetProtocol
     public const byte ExtIdShortRest = 46;
     public const byte ShortRestRecordBytes = 1;
     public const byte ShortRestInProgressBit = 1;
+
+    /// <summary>Original active-bonus subwidgets, one complete descriptor per slot. Max payload
+    /// 203 bytes (32 consume icons, 32 indexed numeric options, six element states, 32 option
+    /// states). At eight slots this adds 1640 bytes; full extras worst case is 3441. Oversized
+    /// snapshots must use transport fragmentation, never a single oversized Bolt event.</summary>
+    public const byte ExtIdUseBarWidgets = 47;
+    /// <summary>Transport-only extras fragment, never parsed as an ordinary presence record.
+    /// Multiple bounded chunks travel under MsgExtrasFragments and apply only after reassembly.</summary>
+    public const byte ExtIdExtrasFragment = 48;
+    public const int UseBarWidgetsMaxPayloadBytes = 203;
+
 
     /// <summary>A dense wrapping event counter advances only through the forward half-range.
     /// Unreliable delivery may reorder redundant packets; an older event must never replay a

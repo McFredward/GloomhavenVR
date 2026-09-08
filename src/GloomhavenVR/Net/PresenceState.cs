@@ -520,6 +520,9 @@ internal struct PresenceState
     /// record 39 can resolve a seat; false (and omitted) once the choice ends.</summary>
     public bool ShortRestInProgress;
 
+    /// <summary>Complete record-47 snapshot of original active-bonus subwidgets; absent clears.</summary>
+    public UseBarWidgetState[]? UseBarWidgetStates;
+
     /// <summary>
     /// True when a short-rest SACRIFICE is lying in one of this player's round recesses and this
     /// packet carries the sacrifice-seat record (<see cref="NetProtocol.ExtIdSacrificeSeat"/>).
@@ -1580,6 +1583,12 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>1801 -> 3441 on 2026-09-08: original active-bonus subwidgets (47) add at most
+    /// eight complete 203-byte slot descriptors plus their two-byte TLV headers (1640 bytes).
+    /// MaxSize grows to 3700, leaving 259 bytes, greater than the largest single record (257).
+    /// This is the reassembled snapshot buffer, NOT a permitted Bolt event size. The transport
+    /// fragments extras into bounded record-48 envelopes below the game's unfragmented event MTU.</para>
+    ///
     /// <para>1798 -> 1801 on 2026-09-08: SHORT REST (46) adds three bytes, id/length/flags.
     /// MaxSize remains 2100; margin 299 is larger than the largest single record (257).
     /// The flag is independent of sacrifice-seat resolution, so privacy cannot fail open when
@@ -1791,7 +1800,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 2100;
+    public const int MaxSize = 3700;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1819,7 +1828,7 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
+        bool extensions = UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
                           // Record 34 is written only while a card is really held rigidly, so it
@@ -3139,6 +3148,19 @@ internal static class PresenceSerializer
             buffer[i++] = NetProtocol.ShortRestRecordBytes;
             buffer[i++] = NetProtocol.ShortRestInProgressBit;
             records++;
+        }
+        if (UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates))
+        {
+            foreach (UseBarWidgetState widget in state.UseBarWidgetStates!)
+            {
+                int payload = UseBarWidgetCodec.PayloadBytes(widget);
+                if (payload == 0 || i + 2 + payload > buffer.Length)
+                    continue;
+                buffer[i++] = NetProtocol.ExtIdUseBarWidgets;
+                buffer[i++] = (byte)payload;
+                UseBarWidgetCodec.Write(widget, buffer, ref i);
+                records++;
+            }
         }
         return records;
     }
@@ -4512,6 +4534,11 @@ internal static class PresenceSerializer
                 state.HasFanSource = true;
                 state.FanSourceList = list;
             }
+        }
+        else if (id == NetProtocol.ExtIdUseBarWidgets
+                 && UseBarWidgetCodec.TryRead(buffer, i, len, out UseBarWidgetState widget))
+        {
+            UseBarWidgetCodec.Store(ref state.UseBarWidgetStates, widget);
         }
         else if (id == NetProtocol.ExtIdShortRest && len >= NetProtocol.ShortRestRecordBytes)
         {

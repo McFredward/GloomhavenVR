@@ -517,6 +517,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// really "the instrument goes silent exactly when the thing it measures fails". A first line
     /// is now unconditional and it carries the sampler's own REASON, so "wrote nothing" is a
     /// reading instead of a silence.</para></summary>
+    private UseBarWidgetState[]? _lastSentUseBarWidgets;
     private bool _lastSentShortRest;
     private int _lastSentSeatCode0 = -1;
     private int _lastSentSeatCode1 = -1;
@@ -1780,7 +1781,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         if (useBarMask != 0)
             WorldUI.Surfaces.UseBarsSurface.CopyWireBars(
                 _useBarFlagsSample, _useBarCountSample, _useBarSlotSample, _useBarIdSample);
-        bool useBarsChanged = useBarMask != _lastSentUseBarMask;
+        UseBarWidgetState[]? useBarWidgets = WorldUI.Surfaces.UseBarsSurface.WireWidgetStates;
+        bool useBarsChanged = useBarMask != _lastSentUseBarMask
+                              || !UseBarWidgetState.Equivalent(useBarWidgets, _lastSentUseBarWidgets);
         for (int b = 0; !useBarsChanged && useBarMask != 0 && b < NetProtocol.UseBarsCount; b++)
         {
             if (_useBarFlagsSample[b] != _lastSentUseBarFlags[b]
@@ -3358,6 +3361,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         // The short-rest privacy term must survive a missing widget or an unresolvable seat.
         // Send the absolute state on every packet; either edge pre-empts the 5 Hz cadence.
+        extras.UseBarWidgetStates = useBarWidgets;
+        _lastSentUseBarWidgets = useBarWidgets;
         extras.ShortRestInProgress = shortRestInProgress;
         if (shortRestChanged)
             VRLog.Note("Net", $"SHORT REST STATE SENT: choosing={shortRestInProgress}; record 46 "
@@ -4305,6 +4310,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// </summary>
     private void ForgetPeer(int playerId)
     {
+        if (_transport is FfsNetTransport ffs)
+            ffs.ForgetPeer(playerId);
         if (_avatars.TryGetValue(playerId, out RemoteAvatar avatar))
         {
             avatar.Destroy();
@@ -4328,6 +4335,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     private void DestroyAllAvatars()
     {
+        if (_transport is FfsNetTransport ffs)
+            ffs.ResetFragments();
         // THE IDS FIRST, because ForgetPeer removes from _avatars and a dictionary cannot be
         // written while it is being enumerated. _scratchIds is free here: the only other user is
         // TickAvatars, which has finished with it before any teardown path can run.
