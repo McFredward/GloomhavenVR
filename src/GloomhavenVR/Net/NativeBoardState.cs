@@ -19,11 +19,14 @@ internal sealed class NativeElementState
     // bit0 root activeSelf; bit1 element image enabled; bit2 creation image enabled;
     // bit3 available ring enabled; bits4–5 lastState:0null/1inert/2strong/3waning.
     internal byte Flags, Sibling;
+    internal float[] Rect = new float[8]; // anchoredPosition3D, localScale, sizeDelta
     internal NativeElementGraphic[] Graphics = Array.Empty<NativeElementGraphic>();
     internal NativeElementGraphic[] Effects = Array.Empty<NativeElementGraphic>();
     internal UseBarAnimationValue[][] Animations = Array.Empty<UseBarAnimationValue[]>();
     internal bool Validate()
     {
+        if (Rect == null || Rect.Length != 8) return false;
+        foreach (float value in Rect) if (!UseBarAnimationValue.Finite(value)) return false;
         if ((Flags & ~63) != 0 || Sibling >= 6 || Graphics == null || Graphics.Length != GraphicCount
             || Effects == null || Effects.Length > FxMax || Animations == null || Animations.Length != AnimationCount) return false;
         foreach (NativeElementGraphic value in Graphics) if (value == null || !value.Validate()) return false;
@@ -42,7 +45,7 @@ internal sealed class NativeElementState
     }
     internal NativeElementState Copy()
     {
-        var copy = new NativeElementState { Flags = Flags, Sibling = Sibling,
+        var copy = new NativeElementState { Flags = Flags, Sibling = Sibling, Rect = (float[])Rect.Clone(),
             Graphics = new NativeElementGraphic[Graphics.Length], Effects = new NativeElementGraphic[Effects.Length],
             Animations = new UseBarAnimationValue[Animations.Length][] };
         for (int i = 0; i < Graphics.Length; i++) copy.Graphics[i] = Graphics[i].Copy();
@@ -58,6 +61,7 @@ internal sealed class NativeElementState
     {
         if (Flags != other.Flags || Sibling != other.Sibling || Graphics.Length != other.Graphics.Length
             || Effects.Length != other.Effects.Length || Animations.Length != other.Animations.Length) return false;
+        for (int i = 0; i < Rect.Length; i++) if (Rect[i] != other.Rect[i]) return false;
         for (int i = 0; i < Graphics.Length; i++) if (!Graphics[i].Same(other.Graphics[i])) return false;
         for (int i = 0; i < Effects.Length; i++) if (!Effects[i].Same(other.Effects[i])) return false;
         for (int a = 0; a < Animations.Length; a++)
@@ -81,12 +85,19 @@ internal sealed class NativeBoardState
     internal readonly float SampleTime, InitiativeDepthPixels;
     internal readonly uint Generation;
     internal readonly NativeElementState[] Elements;
-    internal NativeBoardState(float sampleTime, float initiativeDepthPixels, uint generation, NativeElementState[] elements)
+    internal readonly float[] Frame; // fitted host W/H, source parent W/H, source root rect8
+    internal NativeBoardState(float sampleTime, float initiativeDepthPixels, uint generation, NativeElementState[] elements,
+        float[]? frame = null)
     {
         if (!UseBarAnimationValue.Finite(sampleTime) || sampleTime < 0
             || !UseBarAnimationValue.Finite(initiativeDepthPixels) || initiativeDepthPixels < 0
             || elements == null || (elements.Length != 0 && elements.Length != 6)
             || (elements.Length == 0) != (generation == 0)) throw new ArgumentException("Invalid native board frame.");
+        frame ??= new float[12];
+        if (frame.Length != 12) throw new ArgumentException("Invalid native board frame geometry.");
+        for (int i = 0; i < frame.Length; i++)
+            if (!UseBarAnimationValue.Finite(frame[i]) || (i < 4 && frame[i] < 0))
+                throw new ArgumentException("Invalid native board frame geometry.");
         int siblings = 0;
         foreach (NativeElementState state in elements)
         {
@@ -95,13 +106,17 @@ internal sealed class NativeBoardState
             siblings |= 1 << state.Sibling;
         }
         SampleTime = sampleTime; InitiativeDepthPixels = initiativeDepthPixels; Generation = generation;
+        Frame = (float[])frame.Clone();
         Elements = new NativeElementState[elements.Length];
         for (int i = 0; i < elements.Length; i++) Elements[i] = elements[i].Copy();
     }
+    internal NativeBoardState CopyWithTime(float time) =>
+        new(time, InitiativeDepthPixels, Generation, Elements, Frame);
     internal bool SamePicture(NativeBoardState other)
     {
         if (Generation != other.Generation || InitiativeDepthPixels != other.InitiativeDepthPixels
             || Elements.Length != other.Elements.Length) return false;
+        for (int i = 0; i < Frame.Length; i++) if (Frame[i] != other.Frame[i]) return false;
         for (int i = 0; i < Elements.Length; i++) if (!Elements[i].Same(other.Elements[i])) return false;
         return true;
     }
