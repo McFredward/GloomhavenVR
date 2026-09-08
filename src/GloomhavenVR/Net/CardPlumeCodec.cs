@@ -8,7 +8,7 @@ namespace GloomhavenVR.Net;
 internal static class CardPlumeCodec
 {
     internal const int MaxSize = 12288;
-    internal const int MaxEncodedBytes = 8774;
+    internal const int MaxEncodedBytes = 9542;
     private const int PayloadBytes = 94;
 
     internal static int Write(CardPlumeSnapshot snapshot, byte[] buffer)
@@ -30,7 +30,7 @@ internal static class CardPlumeCodec
         for (int i = 0; i < snapshot.States.Length; i++)
         {
             CardPlumeState state = snapshot.States[i];
-            buffer[at++] = NetProtocol.ExtIdCardPlume; buffer[at++] = (byte)(PayloadBytes + (((state.Flags >> 4) & 3) == 2 ? (state.CustomSpacePresent ? 41 : 1) : 0));
+            buffer[at++] = NetProtocol.ExtIdCardPlume; buffer[at++] = (byte)(PayloadBytes + ((state.Flags >> 6) == 1 ? 12 : 0) + (((state.Flags >> 4) & 3) == 2 ? (state.CustomSpacePresent ? 41 : 1) : 0));
             buffer[at++] = (byte)i; buffer[at++] = (byte)snapshot.States.Length;
             AvatarSerializer.WriteF32(buffer, ref at, snapshot.SampleTime);
             AvatarSerializer.WriteI32(buffer, ref at, state.ActorId);
@@ -52,6 +52,7 @@ internal static class CardPlumeCodec
             AvatarSerializer.WriteF32(buffer, ref at, state.LocalRotation.z);
             AvatarSerializer.WriteF32(buffer, ref at, state.LocalRotation.w);
             WriteVector(buffer, ref at, state.LocalScale);
+            if ((state.Flags >> 6) == 1) WriteVector(buffer, ref at, state.EmitterLocalScale);
             if (((state.Flags >> 4) & 3) == 2)
             {
                 buffer[at++] = state.CustomSpacePresent ? (byte)1 : (byte)0;
@@ -84,7 +85,8 @@ internal static class CardPlumeCodec
             int type = buffer[at++], bytes = buffer[at++], start = at, end = at + bytes;
             if (end > length) return false;
             if (type != NetProtocol.ExtIdCardPlume) { at = end; continue; }
-            if (bytes != 6 && bytes != PayloadBytes && bytes != PayloadBytes + 1 && bytes != PayloadBytes + 41) return false;
+            if (bytes != 6 && bytes != PayloadBytes && bytes != PayloadBytes + 1 && bytes != PayloadBytes + 41
+                && bytes != PayloadBytes + 12 && bytes != PayloadBytes + 13 && bytes != PayloadBytes + 53) return false;
             int index = buffer[at++], count = buffer[at++];
             float stamp = AvatarSerializer.ReadF32(buffer, ref at);
             if (float.IsNaN(stamp) || float.IsInfinity(stamp) || stamp < 0
@@ -119,6 +121,11 @@ internal static class CardPlumeCodec
                     AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at)),
                 LocalScale = ReadVector(buffer, ref at),
             };
+            if ((state.Flags >> 6) == 1)
+            {
+                if (end - at < 12) return false;
+                state.EmitterLocalScale = ReadVector(buffer, ref at);
+            }
             if (((state.Flags >> 4) & 3) == 2)
             {
                 if (at >= end || buffer[at] > 1) return false;

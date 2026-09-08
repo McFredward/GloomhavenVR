@@ -59,8 +59,12 @@ internal static class NativeUseBarCodec
             int at = start, expected = 0, total = -1;
             while (at < length)
             {
-                if (length - at < 4 || buffer[at++] != Record) return false;
-                int payload = buffer[at++], page = buffer[at++], pages = buffer[at++];
+                if (length - at < 2) return false;
+                int record = buffer[at++], payload = buffer[at++];
+                if (payload > length - at) return false;
+                if (record != Record) { at += payload; continue; }
+                if (payload < 3) return false;
+                int page = buffer[at++], pages = buffer[at++];
                 if (payload < 3 || payload > length - at + 2 || page != expected++ || pages == 0
                     || total >= 0 && pages != total || page >= pages || page < pages - 1 && payload != 255) return false;
                 total = pages;

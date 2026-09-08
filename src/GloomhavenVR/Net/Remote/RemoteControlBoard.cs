@@ -719,6 +719,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
 
     public void Tick(float dt)
     {
+        _track?.SetNativeDepthPixels(_owner.NativeInitiativeDepthPixels);
+        _elements?.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory);
         // The visibility mode is read through the SHARED gate (RemoteBoardGate) rather than off the
         // ConfigEntry directly, because the board is no longer the only thing the setting governs:
         // the transient item / pile-browse fans and the card-flight FX are separate classes with
@@ -3073,11 +3075,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // model — see the class note.
         _objectives = new RemoteObjectivesPanel(contentParent, _layout);
         _elements = new RemoteElementStrip(_owner.PlayerId, contentParent, _layout);
+        _elements.SetNativeState(_owner.NativeBoardState, _owner.NativeBoardHistory);
         _status = new RemoteStatusReadouts(contentParent, _layout);
         _pickBanner = new RemotePickBanner(contentParent, _layout);
         _boardTooltip = new RemoteBoardTooltip(contentParent, _layout, _owner.BoardTuning);
         _active = new RemoteActiveCards(_owner, _owner.PlayerId, contentParent, _layout);
         _track = new RemoteInitiativeTrack(contentParent, _layout, _owner.BoardTuning);
+        _track.SetNativeDepthPixels(_owner.NativeInitiativeDepthPixels);
         // THE GLOW BASE, NOT AnchorLocalLive (2026-08-27). Those two were the same vector until this
         // round and are not any more: AnchorLocalLive is the CARD's seat now (it carries the owner's
         // [Cards] SlotCardInset and the in-plane overlay term), while the furniture adds the in-plane

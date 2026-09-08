@@ -81,6 +81,8 @@ internal static class Program
             SharedWindowPoseVectors.Run(t);
             FanReflowVectors.Run(t);
             CardPlumeVectors.Run(t);
+            CardResidentVectors.Run(t);
+            PresentationBoundaryVectors.Run(t);
             NativeUseBarVectors.Run(t);
             BoardNativeParityVectors.Run(t, repoRoot);
             CardPresentationVectors.Run(t);

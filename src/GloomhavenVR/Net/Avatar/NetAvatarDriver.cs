@@ -1034,7 +1034,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 _pending.Clear();
                 _pendingExtras.Clear();
                 _pendingAnimations.Clear();
-        ResetNativePresentation();
+                ResetNativePresentation();
                 DestroyAllAvatars();
                 PlayerBadges.RestoreAll();
                 // The two world-wide peer tables go with the avatars: nothing of a peer's may
@@ -3913,13 +3913,14 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     }
                     // Preserve the first rendered transition when Bolt delivers a batch after a
                     // slow frame. Memory remains bounded; redundant middle samples may coalesce.
-                    if (samples.Count == 4) samples.RemoveAt(1);
-                    samples.Add(animation);
+                    if (samples.Count == 0 || animation.SampleTime > samples[samples.Count - 1].SampleTime)
+                        PresentationPending.Append(samples, animation, PresentationPending.SameBonusIdentity);
                 }
                 break;
 
             case NetProtocol.MsgCardPlume:
             case NetProtocol.MsgNativeUseBar:
+            case NetProtocol.MsgNativeBoard:
                 parsed = QueueNativePresentation(senderId, buffer, length);
                 if (parsed) VersionGuard.NotePacket(senderId);
                 break;

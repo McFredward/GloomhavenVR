@@ -17,7 +17,7 @@ internal sealed class CardPlumeState
     internal Vector3 CustomPosition, CustomScale;
     internal Quaternion CustomRotation;
     internal Color Color;
-    internal Vector3 LocalPosition, LocalScale;
+    internal Vector3 LocalPosition, LocalScale, EmitterLocalScale;
     internal Quaternion LocalRotation;
 
     internal bool Validate()
@@ -27,6 +27,8 @@ internal sealed class CardPlumeState
                     && NetProtocol.HeldFaceIndex(FaceCode) != NetProtocol.HeldFaceIndexUnknown))
             || ListCount <= NetProtocol.HeldFaceIndex(FaceCode) || ((Flags >> 4) & 3) == 3 || (Flags >> 6) == 3
             || !Finite(PlaybackRate) || PlaybackRate < 0 || !Finite(Age) || Age < 0 || !Finite(StartSizeMultiplier) || !Finite(StartSpeedMultiplier)) return false;
+        if ((Flags >> 6) == 1 && (!Finite(EmitterLocalScale.x) || !Finite(EmitterLocalScale.y)
+            || !Finite(EmitterLocalScale.z))) return false;
         if (CustomSpacePresent && (((Flags >> 4) & 3) != 2
             || !Finite(CustomPosition.x) || !Finite(CustomPosition.y) || !Finite(CustomPosition.z)
             || !Finite(CustomScale.x) || !Finite(CustomScale.y) || !Finite(CustomScale.z)
@@ -47,6 +49,7 @@ internal sealed class CardPlumeState
     internal static bool Same(CardPlumeState a, CardPlumeState b) => a.ActorId == b.ActorId
         && a.FaceCode == b.FaceCode && a.ListCount == b.ListCount && a.Flags == b.Flags
         && a.EmitterIndex == b.EmitterIndex && a.StartSizeMultiplier == b.StartSizeMultiplier
+        && ((a.Flags >> 6) != 1 || a.EmitterLocalScale.Equals(b.EmitterLocalScale))
         && a.PlaybackRate == b.PlaybackRate && a.CustomSpacePresent == b.CustomSpacePresent
         && (!a.CustomSpacePresent || (a.CustomPosition.Equals(b.CustomPosition)
             && a.CustomRotation.Equals(b.CustomRotation) && a.CustomScale.Equals(b.CustomScale)))

@@ -363,30 +363,37 @@ internal sealed class UseBarsSurface
     /// </summary>
     internal void LateTick()
     {
-        StackDocked();
-        // Native LeanTween runs in Update. Sample its rendered targets here, after docking,
-        // then enqueue/drain the independent animation stream in this same late frame.
-        AnimationStateScratch.Clear();
-        if ((WireBarMask & Net.NetProtocol.UseBarActiveBonusBit) != 0)
-            for (int i = 0; i < AnimationSources.Length; i++)
-            {
-                UIUseActiveBonus? source = AnimationSources[i];
-                if (source == null || !source.gameObject.activeInHierarchy) continue;
-                Net.UseBarAnimationState? state = Net.UseBarAnimationSampler.Sample(source, (byte)i);
-                if (state != null) AnimationStateScratch.Add(state);
-            }
-        bool same = AnimationStateScratch.Count == (WireAnimationStates?.Length ?? 0);
-        for (int i = 0; same && i < AnimationStateScratch.Count; i++)
-            same = ReferenceEquals(AnimationStateScratch[i], WireAnimationStates![i]);
-        if (!same)
-            WireAnimationStates = AnimationStateScratch.Count == 0 ? null : AnimationStateScratch.ToArray();
-        for (int i = 8; i < NativeSources.Length; i++)
+        try
         {
-            Component? source = NativeSources[i];
-            WireNativeStates[i] = source != null && source.gameObject.activeInHierarchy
-                ? Net.NativeUseBarSampler.Sample(source, (byte)(i / 8), (byte)(i % 8)) : null;
+            StackDocked();
+            // Native LeanTween runs in Update. Sample its rendered targets here, after docking,
+            // then enqueue/drain the independent animation stream in this same late frame.
+            AnimationStateScratch.Clear();
+            if ((WireBarMask & Net.NetProtocol.UseBarActiveBonusBit) != 0)
+                for (int i = 0; i < AnimationSources.Length; i++)
+                {
+                    UIUseActiveBonus? source = AnimationSources[i];
+                    if (source == null || !source.gameObject.activeInHierarchy) continue;
+                    Net.UseBarAnimationState? state = Net.UseBarAnimationSampler.Sample(source, (byte)i);
+                    if (state != null) AnimationStateScratch.Add(state);
+                }
+            bool same = AnimationStateScratch.Count == (WireAnimationStates?.Length ?? 0);
+            for (int i = 0; same && i < AnimationStateScratch.Count; i++)
+                same = ReferenceEquals(AnimationStateScratch[i], WireAnimationStates![i]);
+            if (!same)
+                WireAnimationStates = AnimationStateScratch.Count == 0 ? null : AnimationStateScratch.ToArray();
+            for (int i = 8; i < NativeSources.Length; i++)
+            {
+                Component? source = NativeSources[i];
+                WireNativeStates[i] = source != null && source.gameObject.activeInHierarchy
+                    ? Net.NativeUseBarSampler.Sample(source, (byte)(i / 8), (byte)(i % 8)) : null;
+            }
         }
-        Net.NetAvatarDriver.PublishUseBarAnimations(WireAnimationStates, WireNativeStates);
+        finally
+        {
+            // A failed cosmetic source must not starve the independent presentation transport.
+            Net.NetAvatarDriver.PublishUseBarAnimations(WireAnimationStates, WireNativeStates);
+        }
     }
 
     internal void Shutdown()
@@ -2205,10 +2212,9 @@ internal sealed class UseBarsSurface
 
         /// <summary>One slot's record-25 state byte. Identical axes (and identical bit positions) to
         /// <c>DecisionDockSurface.SampleOptionState</c>, so a receiver paints a bar tile and a
-        /// decision plate through one code path; OFFERED additionally requires "not dimmed", because
-        /// for these widgets the alpha IS the game's own interactable readout
-        /// (<c>UIUseSlot.SetInteractable</c>) while the button's own <c>interactable</c> flag is
-        /// never written.
+        /// decision plate through one code path. OFFERED reads the original UIUseSlot interaction
+        /// field; show-animation alpha is an independent visual fact. The serialized button's
+        /// interactable flag alone cannot describe the native slot.
         ///
         /// <para>Since ModBuild 308 that includes the two POINTER axes, sampled through the shared
         /// <see cref="DecisionDockSurface.SamplePointerBits"/> rather than a second copy of the
@@ -2233,7 +2239,8 @@ internal sealed class UseBarsSurface
             bool dimmed = alpha < 0.999f;
 
             var sel = slot.GetComponentInChildren<Selectable>(includeInactive: false);
-            bool offered = !dimmed && sel != null && sel.IsInteractable();
+            bool offered = Net.RemoteUseBarWidgets.Interactable(slot)
+                ?? (sel != null && sel.IsInteractable());
 
             byte state = 0;
             if (offered)

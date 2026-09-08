@@ -13,6 +13,18 @@ internal static class NativeUseBarVectors
         t.Equal(11, length, "clear is one bounded TLV");
         t.True(NativeUseBarCodec.TryRead(buffer, length, out NativeUseBarSnapshot? clear)
             && clear!.Address == 31 && clear.State == null && clear.SampleTime == 12.5f, "clear preserves independent address/time");
+        var packet = new byte[NativeUseBarPacket.MaxSize];
+        int packetLength = NativeUseBarPacket.Write(new NativeUseBarSnapshot(2, 1, 0, null), packet);
+        t.Wire(Hex.Bytes("31 52 56 47 03 07 32 09 00 01 00 00 00 40 01 00 00"),
+            packet, packetLength, "independent slot envelope has frozen clear bytes");
+        t.True(NativeUseBarPacket.TryRead(packet, packetLength, out clear) && clear!.Address == 8,
+            "full envelope resolves the same address as its fragment stream");
+        for (int n = 0; n < packetLength; n++)
+            t.True(!NativeUseBarPacket.TryRead(packet, n, out _), "torn slot envelope stays inert");
+        packet[packetLength++] = 254; packet[packetLength++] = 1; packet[packetLength++] = 77;
+        t.True(NativeUseBarPacket.TryRead(packet, packetLength, out _), "unknown additive TLV is skipped by length");
+        packet[packetLength - 2] = 2;
+        t.True(!NativeUseBarPacket.TryRead(packet, packetLength, out _), "malformed unknown tail rejects the complete slot");
         var state = Maximum();
         var snapshot = new NativeUseBarSnapshot(25f, 2, 7, state);
         state.InfuseIcons[0] = 0;

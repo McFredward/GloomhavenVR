@@ -467,7 +467,7 @@ internal static class NetProtocol
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 486;
     //
-    // ModBuild 486 — native active-bonus animation samples (2026-09-08).
+    // ModBuild 486 — native animation parity and systematic multiplayer review (2026-09-09).
     //   The owner's original show-animation targets now publish their rendered intermediate
     //   positions, scales and visual values after LeanTween Update and local dock placement.
     //   The original remote prefab receives those values LAST, after mirror/layout/paint writes;
@@ -481,6 +481,15 @@ internal static class NetProtocol
     //   A bounded receiver history retains opening poses while the original widget awaits its
     //   structure packet; interpolation uses owner sample times and never extrapolates a finish.
     //   Repeated final samples recover loss without restarting the native motion.
+    //   The follow-up review extends original prefab state/animations to auxiliary bars (50),
+    //   actual ability/item particle emitters (51) and the original element board (52). Messages
+    //   5/6, 7/8 and 10/11 keep those streams independent. Message9 coalesces small pages inside
+    //   the existing 864-byte event cap. Public model selectors never identify private cards.
+    //   Owner initiative depth, native pointer/color transitions, original mirror fit recovery,
+    //   immediate content edges, fan titles/resident reflow, active-card identity, fixed flight
+    //   endpoints and shared-window ownership/interpolation close additional source-proven gaps.
+    //   Optimize.RemoteContentInterval remains present but INERT; configuration keys are unchanged.
+    //   See .planning/MP-PARITY-486.md and the source/evidence ledgers linked from it.
     //   DLL-only after the full 483 install. Headset timing/appearance still require hardware.
 
     // Build 485: REMOTE CHARACTER-CHANGE FAN ANIMATIONS, follow-up to the 482 hardware round.

@@ -525,4 +525,17 @@
     <Compile Include="BoardNativeParityVectors.cs" />
   </ItemGroup>
   <ItemGroup><Compile Include="$(RepoRoot)src/GloomhavenVR/Net/PresentationBatch.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/Remote/RemoteDecisionMotion.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeBoardState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeBoardCodec.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardResidentMap.cs" />
+    <Compile Include="CardResidentVectors.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/PresentationPending.cs" />
+    <Compile Include="PresentationBoundaryVectors.cs" />
+  </ItemGroup>
 </Project>

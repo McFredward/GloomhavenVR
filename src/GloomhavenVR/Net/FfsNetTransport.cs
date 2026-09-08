@@ -54,6 +54,8 @@ internal sealed class FfsNetTransport : INetTransport
         NetProtocol.MsgUseBarAnimationFragments);
     private readonly ExtrasFragments _plumeFragments = new(NetProtocol.MsgCardPlume,
         NetProtocol.MsgCardPlumeFragments, CardPlumeCodec.MaxSize);
+    private readonly ExtrasFragments _boardFragments = new(NetProtocol.MsgNativeBoard,
+        NetProtocol.MsgNativeBoardFragments, NativeBoardCodec.MaxSize);
     private readonly ExtrasFragments[] _nativeFragments = CreateNativeFragments();
     private static ExtrasFragments[] CreateNativeFragments()
     {
@@ -74,6 +76,7 @@ internal sealed class FfsNetTransport : INetTransport
         _fragments.Forget(senderId);
         _animationFragments.Forget(senderId);
         _plumeFragments.Forget(senderId);
+        _boardFragments.Forget(senderId);
         for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Forget(senderId);
     }
     internal void ResetFragments()
@@ -81,6 +84,7 @@ internal sealed class FfsNetTransport : INetTransport
         _fragments.Clear();
         _animationFragments.Clear();
         _plumeFragments.Clear();
+        _boardFragments.Clear();
         for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Clear();
         _extrasQueue.Clear();
         _nextVersionAnnouncement = 0;
@@ -240,7 +244,7 @@ internal sealed class FfsNetTransport : INetTransport
         {
             if (length < 6 || length > payload.Length) return;
             int type = NetPacket.PeekType(payload, length);
-            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume)
+            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard)
             {
                 _extrasQueue.Enqueue(payload, length);
                 return;
@@ -248,7 +252,7 @@ internal sealed class FfsNetTransport : INetTransport
             if (type == NetProtocol.MsgNativeUseBar)
             {
                 if (NativeUseBarPacket.TryRead(payload, length, out NativeUseBarSnapshot? native))
-                    _extrasQueue.Enqueue(payload, length, native!.Address);
+                    _extrasQueue.Enqueue(payload, length, native!.Address, native);
                 return;
             }
             // CustomDataToken(byte[] customData, bool compressData=false). The token keeps a
@@ -386,14 +390,16 @@ internal sealed class FfsNetTransport : INetTransport
             }
             int type = length >= 6 && length <= buffer.Length ? NetPacket.PeekType(buffer, length) : -1;
             if (type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments
-                || type == NetProtocol.MsgCardPlumeFragments || type == NetProtocol.MsgNativeUseBarFragments)
+                || type == NetProtocol.MsgCardPlumeFragments || type == NetProtocol.MsgNativeUseBarFragments
+                || type == NetProtocol.MsgNativeBoardFragments)
             {
                 _receivedFragments++;
                 int slot = type == NetProtocol.MsgNativeUseBarFragments ? ExtrasFragments.NativeSlotStream(buffer, length) : -1;
                 if (type == NetProtocol.MsgNativeUseBarFragments && (slot < 8 || slot >= 32)) return;
                 ExtrasFragments assembler = type == NetProtocol.MsgExtrasFragments ? _fragments
                     : type == NetProtocol.MsgUseBarAnimationFragments ? _animationFragments
-                    : type == NetProtocol.MsgCardPlumeFragments ? _plumeFragments : _nativeFragments[slot];
+                    : type == NetProtocol.MsgCardPlumeFragments ? _plumeFragments
+                    : type == NetProtocol.MsgNativeBoardFragments ? _boardFragments : _nativeFragments[slot];
                 byte[]? complete = assembler.Accept(senderId, buffer, length,
                     System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
                 if (complete != null)

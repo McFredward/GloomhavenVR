@@ -74,6 +74,17 @@ internal sealed class RemoteAvatar
     internal bool ShortRestInProgress { get; private set; }
     internal UseBarWidgetState[]? UseBarWidgetStates { get; private set; }
     internal uint PresenceRevision { get; private set; }
+    internal NativeBoardState? NativeBoardState { get; private set; }
+    internal float NativeInitiativeDepthPixels => NativeBoardState?.InitiativeDepthPixels ?? Defaults.InitiativeDepthMaxSpreadPx;
+    internal System.Collections.Generic.List<NativeBoardState> NativeBoardHistory { get; } = new(32);
+    internal void SetNativeBoard(NativeBoardState state)
+    {
+        if (NativeBoardState != null && state.SampleTime <= NativeBoardState.SampleTime) return;
+        NativeBoardState = state;
+        unchecked { PresenceRevision++; }
+        if (NativeBoardHistory.Count == 32) NativeBoardHistory.RemoveAt(0);
+        NativeBoardHistory.Add(state);
+    }
     internal CardPlumeState[]? PlumeStates { get; private set; }
     internal float PlumeSampleTime { get; private set; } = -1f;
     internal void SetCardPlume(CardPlumeSnapshot snapshot)
@@ -99,6 +110,7 @@ internal sealed class RemoteAvatar
         if (snapshot.SampleTime <= NativeUseBarSampleTimes[address]) return;
         NativeUseBarSampleTimes[address] = snapshot.SampleTime;
         NativeUseBarStates[address] = snapshot.State;
+        unchecked { PresenceRevision++; }
         var history = NativeUseBarHistories[address];
         if (history.Count == 32) history.RemoveAt(0);
         history.Add(snapshot);

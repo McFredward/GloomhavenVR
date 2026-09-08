@@ -7,6 +7,10 @@ namespace GloomhavenVR.Net;
 
 internal sealed partial class NetAvatarDriver
 {
+    private readonly byte[] _boardBuffer = new byte[NativeBoardCodec.MaxSize];
+    private NativeBoardState? _sentBoard;
+    private float _nextBoardRefresh, _boardSourceTime;
+    private readonly Dictionary<int, List<NativeBoardState>> _pendingBoards = new();
     private readonly byte[] _plumeBuffer = new byte[CardPlumeCodec.MaxSize];
     private readonly byte[] _nativeBuffer = new byte[NativeUseBarPacket.MaxSize];
     private CardPlumeState[]? _sentPlumes;
@@ -16,7 +20,7 @@ internal sealed partial class NetAvatarDriver
     private readonly NativeUseBarSnapshot?[] _nativeSnapshots = new NativeUseBarSnapshot?[32];
     private readonly float[] _nextNativeRefresh = new float[32];
     private float _nativeSourceTime;
-    private readonly Dictionary<int, CardPlumeSnapshot> _pendingPlumes = new();
+    private readonly Dictionary<int, List<CardPlumeSnapshot>> _pendingPlumes = new();
     private readonly Dictionary<int, List<NativeUseBarSnapshot>[]> _pendingNative = new();
 
     private void TickNativePresentationSend(NativeUseBarState?[] states)
@@ -24,6 +28,8 @@ internal sealed partial class NetAvatarDriver
         if (NetSession.FlatNetMode || !VRSession.IsRunning || !_transport.IsOnline
             || _transport.LocalPlayerId <= 0) return;
         float now = Time.unscaledTime;
+        try { TickNativeBoardSend(now); }
+        catch (Exception e) { LogPhaseError("Sample native board", e); }
         try
         {
             CardPlumeState[] plumes = CardPlumeSampler.Sample();
@@ -66,6 +72,30 @@ internal sealed partial class NetAvatarDriver
         _nativeSourceTime = now;
     }
 
+    private void TickNativeBoardSend(float now)
+    {
+        NativeBoardState? state = NativeBoardSampler.Sample();
+        if (state == null) return;
+        bool changed = !ReferenceEquals(state, _sentBoard);
+        if (changed)
+        {
+            if (_sentBoard != null && now - _sentBoard.SampleTime > .25f && _boardSourceTime > _sentBoard.SampleTime)
+                SendNativeBoard(_sentBoard.CopyWithTime(_boardSourceTime));
+            _sentBoard = state;
+        }
+        if (changed || now >= _nextBoardRefresh)
+        {
+            SendNativeBoard(state);
+            _nextBoardRefresh = now + .5f;
+        }
+        _boardSourceTime = now;
+    }
+    private void SendNativeBoard(NativeBoardState state)
+    {
+        int length = NativeBoardCodec.Write(state, _boardBuffer);
+        _transport.Send(_boardBuffer, length);
+    }
+
     private void SendNative(NativeUseBarSnapshot snapshot)
     {
         int length = NativeUseBarPacket.Write(snapshot, _nativeBuffer);
@@ -74,12 +104,28 @@ internal sealed partial class NetAvatarDriver
 
     private bool QueueNativePresentation(int sender, byte[] buffer, int length)
     {
+        if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgNativeBoard)
+        {
+            if (!NativeBoardCodec.TryRead(buffer, length, out NativeBoardState? frame)) return false;
+            if (!_pendingBoards.TryGetValue(sender, out List<NativeBoardState>? samples))
+            {
+                if (_pendingBoards.Count >= 8) return true;
+                samples = new List<NativeBoardState>(4); _pendingBoards.Add(sender, samples);
+            }
+            if (samples.Count > 0 && frame!.SampleTime <= samples[samples.Count - 1].SampleTime) return true;
+            PresentationPending.Append(samples, frame!, (a, b) => a.Generation == b.Generation);
+            return true;
+        }
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgCardPlume)
         {
             if (!CardPlumeCodec.TryRead(buffer, length, out CardPlumeSnapshot? frame)) return false;
-            if (_pendingPlumes.Count < 8 || _pendingPlumes.ContainsKey(sender))
-                if (!_pendingPlumes.TryGetValue(sender, out CardPlumeSnapshot? old) || frame!.SampleTime > old.SampleTime)
-                    _pendingPlumes[sender] = frame!;
+            if (!_pendingPlumes.TryGetValue(sender, out List<CardPlumeSnapshot>? samples))
+            {
+                if (_pendingPlumes.Count >= 8) return true;
+                samples = new List<CardPlumeSnapshot>(4); _pendingPlumes.Add(sender, samples);
+            }
+            if (samples.Count == 0 || frame!.SampleTime > samples[samples.Count - 1].SampleTime)
+                PresentationPending.Append(samples, frame!, PresentationPending.SamePlumeIdentity);
             return true;
         }
         if (!NativeUseBarPacket.TryRead(buffer, length, out NativeUseBarSnapshot? snapshot)) return false;
@@ -92,19 +138,32 @@ internal sealed partial class NetAvatarDriver
         }
         var queue = slots[snapshot!.Address];
         if (queue.Count > 0 && snapshot.SampleTime <= queue[queue.Count - 1].SampleTime) return true;
-        if (queue.Count == 4) queue.RemoveAt(1);
-        queue.Add(snapshot);
+        PresentationPending.Append(queue, snapshot, PresentationPending.SameNativeIdentity);
         return true;
     }
 
     private void ApplyNativePresentation()
     {
+        foreach (var pair in _pendingBoards)
+        {
+            if (pair.Value.Count == 0) continue;
+            try
+            {
+                GetOrCreate(pair.Key)?.SetNativeBoard(pair.Value[0]);
+                pair.Value.RemoveAt(0);
+            }
+            catch (Exception e) { LogPhaseError($"Apply native board from player {pair.Key}", e); }
+        }
         foreach (var pair in _pendingPlumes)
         {
-            try { GetOrCreate(pair.Key)?.SetCardPlume(pair.Value); }
+            if (pair.Value.Count == 0) continue;
+            try
+            {
+                GetOrCreate(pair.Key)?.SetCardPlume(pair.Value[0]);
+                pair.Value.RemoveAt(0);
+            }
             catch (Exception e) { LogPhaseError($"Apply card plume from player {pair.Key}", e); }
         }
-        _pendingPlumes.Clear();
         foreach (var pair in _pendingNative)
         {
             try
@@ -124,11 +183,13 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); }
+    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); }
 
     private void ResetNativePresentation()
     {
-        _pendingPlumes.Clear(); _pendingNative.Clear();
+        _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
+        _sentBoard = null; _nextBoardRefresh = _boardSourceTime = 0;
+        NativeBoardSampler.Reset();
         _sentPlumes = null; _plumeSnapshot = null; _nextPlumeRefresh = _nativeSourceTime = 0;
         Array.Clear(_sentNative, 0, _sentNative.Length);
         Array.Clear(_nativeSnapshots, 0, _nativeSnapshots.Length);

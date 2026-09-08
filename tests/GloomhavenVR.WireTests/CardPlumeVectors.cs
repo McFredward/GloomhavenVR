@@ -27,7 +27,7 @@ internal static class CardPlumeVectors
         state.Age = .5f;
         var maximum = new CardPlumeState[CardPlumeState.CountMax];
         for (int i = 0; i < maximum.Length; i++)
-        { maximum[i] = state.Snapshot(); maximum[i].ActorId = i + 1; maximum[i].Flags |= 32;
+        { maximum[i] = state.Snapshot(); maximum[i].ActorId = i + 1; maximum[i].Flags |= 96; maximum[i].EmitterLocalScale = Vector3.one;
             maximum[i].CustomSpacePresent = true; maximum[i].CustomRotation = Quaternion.identity;
             maximum[i].CustomScale = Vector3.one; }
         length = CardPlumeCodec.Write(new CardPlumeSnapshot(3, maximum), buffer);
