@@ -97,6 +97,7 @@ internal sealed class RemoteUseBarWidgets
             }
             bool changed = !ReferenceEquals(_source, source);
             _source = source;
+            RestoreAnimationGeometry();
             if (!_mirror.Refresh(source))
             {
                 ReleaseSlots();
@@ -131,8 +132,11 @@ internal sealed class RemoteUseBarWidgets
                     "original borders, icons, masks and layout; all game behaviours stripped before activation.");
             }
             _mirror.SetShown(true);
-            Tick(owner);
-            // Refit after native masks/pickers changed; this never rebuilds a stable source.
+            _mirror.TickLive();
+            Paint(owner);
+            // Refit only resting native geometry; an animated scale/position must not change the
+            // host fit and thereby cancel its own movement. Apply the owner pose after this pass.
+            RestoreAnimationGeometry();
             _mirror.Refresh(source);
             Paint(owner);
             // UseBarsSurface pins the VISIBLE top, not the padded host top.
@@ -187,10 +191,17 @@ internal sealed class RemoteUseBarWidgets
                 LeanTweenGuiAnimationSettingScale scale => scale.Target,
                 LeanTweenGuiAnimationSettingMove move => move.Target,
                 LeanTweenGuiAnimationSettingFade fade => fade.Target,
+                CustomLeanTweenGuiAnimationSetting custom when custom.animation is UICampaignRewardRevealAnimator reveal
+                    => reveal.revealRect,
                 _ => null,
             };
             if (target != null && (ReferenceEquals(target, root) || target.IsChildOf(root)))
-                setting.SetFinalValue();
+            {
+                if (setting is CustomLeanTweenGuiAnimationSetting && target.parent is RectTransform parent)
+                    target.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, parent.rect.width);
+                else if (setting is not CustomLeanTweenGuiAnimationSetting)
+                    setting.SetFinalValue();
+            }
         }
     }
 
@@ -325,6 +336,11 @@ internal sealed class RemoteUseBarWidgets
         _mirror.TickLive();
         Paint(owner);
         ApplyAnimations(owner); // mirror sync and hover must not erase an intermediate pose
+    }
+
+    private void RestoreAnimationGeometry()
+    {
+        foreach (Slot slot in _slots) slot.Animation?.RestoreGeometry();
     }
 
     private void ApplyAnimations(RemoteAvatar owner)

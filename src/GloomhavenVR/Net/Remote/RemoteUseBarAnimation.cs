@@ -24,7 +24,8 @@ internal sealed class RemoteUseBarAnimation
         internal int ActorId;
         internal ushort SlotIdentity;
         internal bool Initialized;
-        internal float SourceAt, LocalAt, Boundary = float.NegativeInfinity;
+        internal readonly UseBarAnimationPlaybackClock Clock = new();
+        internal float Boundary = float.NegativeInfinity;
     }
 
     private RemoteUseBarAnimation(NativeUseBarAnimationBinding[] source) => _source = source;
@@ -71,13 +72,13 @@ internal sealed class RemoteUseBarAnimation
             || boundary > clock.Boundary)
         {
             clock.Initialized = true; clock.ActorId = actorId; clock.SlotIdentity = slotIdentity;
-            clock.SourceAt = first < history.Count ? history[first].SampleTime : owner.AnimationSampleTime;
-            clock.LocalAt = now; clock.Boundary = boundary;
+            clock.Clock.Reset(first < history.Count ? history[first].SampleTime : owner.AnimationSampleTime, now);
+            clock.Boundary = boundary;
         }
         // Start at the first retained picture if the original widget only became available after
         // its opening had already been received. Play source-time intervals at 1x, and hold the
         // final received picture. No extrapolation, guessed easing, or duplicate-packet restart.
-        float renderTime = clock.SourceAt + now - clock.LocalAt;
+        float renderTime = clock.Clock.Advance(now, owner.AnimationSampleTime);
         UseBarAnimationState from = latest, to = latest;
         float fromTime = owner.AnimationSampleTime, toTime = fromTime;
         for (int i = first; i < history.Count; i++)
@@ -100,7 +101,7 @@ internal sealed class RemoteUseBarAnimation
             return;
         }
         _refused = false;
-        float progress = toTime > fromTime ? Mathf.Clamp01((renderTime - fromTime) / (toTime - fromTime)) : 1f;
+        float progress = clock.Clock.Progress(fromTime, toTime);
         foreach (Target target in _targets)
             target.Apply(progress, Find(from, target.Source.SettingIndex)!.Values,
                 Find(to, target.Source.SettingIndex)!.Values, _materials);
@@ -131,6 +132,13 @@ internal sealed class RemoteUseBarAnimation
         foreach (UseBarAnimationValue value in state.Entries)
             if (value.SettingIndex == index) return value;
         return null;
+    }
+
+    internal void RestoreGeometry()
+    {
+        // Fitting uses the inactive native stage's resting geometry. Intermediate positions and
+        // scales belong only to the final visible pose, never to the host's metres-per-pixel fit.
+        foreach (Target target in _targets) target.RestoreGeometry();
     }
 
     internal void Destroy()
@@ -229,6 +237,19 @@ internal sealed class RemoteUseBarAnimation
                         && material.GetFloat(Source.MaterialProperty) != x)
                         material.SetFloat(Source.MaterialProperty, x);
                     break;
+            }
+        }
+
+        internal void RestoreGeometry()
+        {
+            if (_rect == null || Source.Rect == null) return;
+            switch (Source.Kind)
+            {
+                case UseBarAnimationKind.Scale3: _rect.localScale = Source.Rect.localScale; break;
+                case UseBarAnimationKind.AnchoredPosition3: _rect.anchoredPosition3D = Source.Rect.anchoredPosition3D; break;
+                case UseBarAnimationKind.LocalPosition3: _rect.localPosition = Source.Rect.localPosition; break;
+                case UseBarAnimationKind.SizeDelta2:
+                case UseBarAnimationKind.CustomSizeDelta2: _rect.sizeDelta = Source.Rect.sizeDelta; break;
             }
         }
 
