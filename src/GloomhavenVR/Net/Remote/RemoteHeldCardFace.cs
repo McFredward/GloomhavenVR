@@ -361,7 +361,7 @@ internal sealed class RemoteHeldCardFace
         // every part of the slab the print does not paint now reads as the owner's own card edge
         // instead of the back's burgundy/gold lattice. CardMesh.SetBodyFrontFace owns the rule.
         SetFrontFace(showsBack: false);
-        DriveHeldCardLook(art, code);
+        DriveHeldCardLook(art, actor, code);
         Report(1, 0, $"{source} — resolved {Describe(code, count)} against this client's own copy of "
                    + "that host-replicated list");
         if (!_loggedShown || code != _loggedCode)
@@ -710,7 +710,7 @@ internal sealed class RemoteHeldCardFace
     /// starting the moment they pick the card up is a picture they never had, which is the same
     /// argument the pile fans and the active cells settle on.</para>
     /// </summary>
-    private void DriveHeldCardLook(RemoteCardArt art, byte code)
+    private void DriveHeldCardLook(RemoteCardArt art, CPlayerActor? owner, byte code)
     {
         try
         {
@@ -721,8 +721,12 @@ internal sealed class RemoteHeldCardFace
             CAbilityCard? model = _activeCard;
             if (model == null && _face != null)
                 model = _face.AbilityCard;
+            // THE OWNER IS NAMED so the durable look can ask the burnt LISTS before the card's
+            // CurrentCardPile stamp. A card burnt to negate damage never gets that stamp written
+            // (GameState.Lose1HandCardToAvoidAttack -> CCharacterClass.MoveAbilityCard), so without
+            // it a peer's fist holds that card clean while the owner's holds it charred.
             RemoteCardArt.CardFxLook want = landed
-                ? UsedCardLook.FromState(model)
+                ? UsedCardLook.FromState(owner, model)
                 : RemoteCardArt.CardFxLook.None;
             if (want == RemoteCardArt.CardFxLook.None)
             {

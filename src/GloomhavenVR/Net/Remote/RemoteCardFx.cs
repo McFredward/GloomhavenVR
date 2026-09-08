@@ -560,7 +560,7 @@ internal sealed class RemoteCardFx
                 return "BACK — the card was named but its face CLONE failed to build "
                      + "(RemoteAbilityCardSource found neither a live widget nor a poolable one)";
             f.HasFace = true;
-            DriveFlightLook(f, card);
+            DriveFlightLook(f, actor, card);
             return $"FRONT via RemoteAbilityCardSource.{path}, inherited from the round recess this "
                  + "client's own mirror was drawing that card in one tick ago";
         }
@@ -647,7 +647,7 @@ internal sealed class RemoteCardFx
             return null;
         }
         f.HasFace = true;
-        DriveFlightLook(f, card);
+        DriveFlightLook(f, actor, card);
         return $"FRONT via RemoteAbilityCardSource.{path}, from {origin}";
     }
 
@@ -675,11 +675,16 @@ internal sealed class RemoteCardFx
     /// flight's char, which is the failure direction that would have been introduced by only
     /// writing the non-clean cases.</para>
     /// </summary>
-    private static void DriveFlightLook(Flight f, ScenarioRuleLibrary.CAbilityCard? card)
+    private static void DriveFlightLook(Flight f, ScenarioRuleLibrary.CPlayerActor? owner,
+                                        ScenarioRuleLibrary.CAbilityCard? card)
     {
         if (f.Art == null)
             return;
-        f.Art.SetAbilityCardFxProgress(UsedCardLook.FromState(card), 1f);
+        // THE OWNER IS PASSED because the durable look is LIST membership for one whole class of
+        // burn: GameState.Lose1HandCardToAvoidAttack moves the card into LostAbilityCards through
+        // CCharacterClass.MoveAbilityCard, which never writes CurrentCardPile — so without an actor
+        // to ask, a card burnt to negate damage flies PRISTINE into the burnt stack.
+        f.Art.SetAbilityCardFxProgress(UsedCardLook.FromState(owner, card), 1f);
     }
 
     /// <summary>

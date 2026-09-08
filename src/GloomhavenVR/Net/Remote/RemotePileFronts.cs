@@ -846,8 +846,13 @@ internal sealed class RemotePileFronts
                         // surface (RemoteCardArt.FxSurface) and this is the surface user item 9b
                         // (burnt) and user item 2a (discard) were both reported against.
                         art.Surface = RemoteCardArt.FxSurface.Pile;
+                        // The DISPLAYED actor, resolved once at the top of this Rebuild, is passed
+                        // so the durable look can ask the burnt LISTS and not only the card's
+                        // CurrentCardPile stamp: a card burnt to negate damage never gets that stamp
+                        // written (CCharacterClass.MoveAbilityCard), so without it the burnt fan
+                        // draws that card pristine while its owner sees it charred.
                         RemoteCardArt.CardFxLook want =
-                            UsedCardLook.FromState(full != null ? full.AbilityCard : null);
+                            UsedCardLook.FromState(actor, full != null ? full.AbilityCard : null);
                         if (want == RemoteCardArt.CardFxLook.None)
                             art.ClearAbilityCardFx();
                         else if (art.SetAbilityCardFxProgress(want, 1f))

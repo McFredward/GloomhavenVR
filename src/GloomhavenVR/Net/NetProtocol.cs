@@ -455,9 +455,12 @@ internal static class NetProtocol
     //   478 had just closed for the card's FACE, left open for the card's LOOK.
     //   * ONLY THE CHAR WAS PUT BACK AFTER THE GAME'S ROUND-BOUNDARY WIPE. His item 4: "Nach einer
     //     Runde wurde die aktive Karte von grau (verbraucht) blau." FullAbilityCard.SetPile
-    //     (Activated) calls cardEffects.RestoreCard() UNCONDITIONALLY (FullAbilityCard.cs:325-328),
-    //     reached from AbilityCardUI.UpdateCard at the next hand refresh, and it does not ask which
-    //     look it is erasing. BurnLookPolicy rule 1a put the CHAR back on a Lost-bound activated
+    //     (Activated) calls cardEffects.RestoreCard() (FullAbilityCard.cs:325-328), reached from
+    //     AbilityCardUI.UpdateCard at the next hand refresh, and it does not ask which look it is
+    //     erasing. (That call is NOT unconditional, as this note first said: all three FX arms sit
+    //     inside `if (cardPile != newCardPile && cardEffects != null)` at :313-315, so the wipe
+    //     needs the WIDGET's own last cardPile to change — a widget-local edge, not a round
+    //     boundary. The erasure is real; only the timing story was wrong.) BurnLookPolicy rule 1a put the CHAR back on a Lost-bound activated
     //     card; rule 1b said the ghost on a Discard-bound one "is the game's business and is left
     //     alone", so the GREY was put back by nobody. Same card, both machines: ACTIVE WASH
     //     'TheMindsWeakness' ... wearing = True at user 23355, wearing = False at user 26305, and

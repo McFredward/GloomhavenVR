@@ -366,8 +366,11 @@ internal static class BurnArtwork
     /// <para>WHY IT IS OWED (ModBuild 479, user item 4): <i>"Einmal grau bleibt die Karte (remote
     /// UND lokal) grau solange sie im aktiven Stapel liegt."</i> A Discard-bound ACTIVATED card is
     /// grey because the game ghosted it when the action resolved, and
-    /// <c>FullAbilityCard.SetPile(Activated)</c> then calls <c>RestoreCard()</c> unconditionally at
-    /// the next hand refresh and wipes it. The BURN half of that wipe already has a remedy
+    /// <c>FullAbilityCard.SetPile(Activated)</c> then calls <c>RestoreCard()</c> at the next hand
+    /// refresh and wipes it — NOT unconditionally, as this line used to say: the three FX arms sit
+    /// inside <c>if (cardPile != newCardPile &amp;&amp; cardEffects != null)</c>
+    /// (FullAbilityCard.cs:313-315), so the wipe needs the WIDGET's own last value to change.
+    /// The BURN half of that wipe already has a remedy
     /// (<see cref="TrySettleBurnLook"/>, <c>BurnLookPolicy</c> rule 1a); the GHOST half had none,
     /// which is the defect measured on both machines this round — <c>ACTIVE WASH</c> for
     /// <c>ABILITY_CARD_TheMindsWeakness</c> reads <c>_GreyOut 1.00</c> and then <c>_GreyOut

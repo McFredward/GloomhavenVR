@@ -1539,12 +1539,15 @@ internal sealed class RemoteBoardCard
             if (fx != null)
             {
                 source = "widget";
-                if (fx.HasEffect(CardEffects.FXTask.BurnCard))
-                    return RemoteCardArt.CardFxLook.Burn;
-                if (fx.HasEffect(CardEffects.FXTask.DiscardMode)
-                    || fx.HasEffect(CardEffects.FXTask.LostMode))
-                    return RemoteCardArt.CardFxLook.Ghost;
-                return RemoteCardArt.CardFxLook.None;
+                // THE ONE EXPRESSION, not a fourth hand-written copy — which is what
+                // Net.UsedCardLook was created to stop and what this block was still doing. It also
+                // carried the ModBuild 479 defect verbatim: LostMode was OR-ed into the GHOST arm,
+                // and CardEffects.cs:422-423 runs BurnCard(burnAnim: true) for it, the same call as
+                // the FXTask.BurnCard arm at :425-426. FullAbilityCard.SetPile raises LostMode and
+                // never BurnCard for every card the model routes into a burnt pile (:321-323), so
+                // the peer's RECESS — the surface the owner watches the burn timeline run on —
+                // washed the ordinary burn cold blue-grey while the owner's charred warm.
+                return UsedCardLook.FromWidget(full);
             }
         }
         catch (System.Exception)
