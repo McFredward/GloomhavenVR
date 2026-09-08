@@ -13,6 +13,9 @@ namespace GloomhavenVR.Net;
 internal sealed class RemoteUseBarSubwidgets
 {
     private readonly List<Inline> _consumes = new();
+    private readonly List<Inline> _infuses = new();
+    private string[]? _selectedWords;
+    private NativeUseBarState? _auxPainted;
     private readonly List<Inline> _inline = new();
     private readonly List<Picker> _elements = new();
     private readonly List<Picker> _options = new();
@@ -91,9 +94,85 @@ internal sealed class RemoteUseBarSubwidgets
         return result;
     }
 
+    internal static RemoteUseBarSubwidgets CaptureAux(Component source, object? model,
+        CPlayerActor? actor, NativeUseBarState state, bool initialize)
+    {
+        var result = new RemoteUseBarSubwidgets { _layoutSource = initialize };
+        List<UIUseOption>? consumes = NativeUseBarModels.Field<List<UIUseOption>>(source, "consumeElements");
+        List<UIUseOption>? infuses = NativeUseBarModels.Field<List<UIUseOption>>(source, "infuseElements");
+        List<UIUseOption>? inline = NativeUseBarModels.Field<List<UIUseOption>>(source, "optionsUI");
+        UIElementPicker? element = NativeUseBarModels.Field<UIElementPicker>(source, "elementPicker");
+        UIOptionPicker? option = NativeUseBarModels.Field<UIOptionPicker>(source, "optionPicker");
+        if (initialize)
+        {
+            if (consumes != null) Normalize(consumes, state.WidgetState.ConsumeIcons.Length, consumes.Count > 0 ? consumes[0] : null);
+            if (infuses != null) Normalize(infuses, state.InfuseIcons.Length, infuses.Count > 0 ? infuses[0] : null);
+            if (option != null) Normalize(option.optionButtons, state.WidgetState.OptionStates.Length, option.optionPrefab);
+        }
+        result._candidates = NativeUseBarModels.Options(model, state, actor);
+        result._selectedWords = new string[result._candidates.Count];
+        for (int i = 0; i < result._selectedWords.Length; i++)
+            result._selectedWords[i] = NativeUseBarModels.SelectedText(result._candidates[i], model, i);
+        if (consumes != null) foreach (UIUseOption ui in consumes) result._consumes.Add(new Inline(ui));
+        if (infuses != null) foreach (UIUseOption ui in infuses) result._infuses.Add(new Inline(ui));
+        if (inline != null) foreach (UIUseOption ui in inline) result._inline.Add(new Inline(ui));
+        if (element != null)
+        {
+            result._elementContent = element.content;
+            foreach (UIElementPickerSlot button in element.elementButtons)
+            {
+                if (button == null) continue;
+                if (initialize)
+                {
+                    button.icon.sprite = UIInfoTools.Instance.GetElementPickerSprite(button.element);
+                    button.highlightElement.color = UIInfoTools.Instance.GetElementHighlightColor(button.element, button.highlightElement.color.a);
+                }
+                result._elements.Add(new Picker(button));
+            }
+        }
+        if (option != null)
+        {
+            result._optionContent = option.content;
+            for (int i = 0; i < option.optionButtons.Count; i++)
+            {
+                UIPickerSlot button = option.optionButtons[i]; if (button == null) continue;
+                if (initialize && i < result._candidates.Count)
+                {
+                    string text = result._candidates[i].GetPickerText();
+                    button.text.text = text; button.text.enabled = !string.IsNullOrEmpty(text);
+                    if (button.image != null)
+                    { button.image.sprite = result._candidates[i].GetPickerIcon(); button.image.enabled = button.image.sprite != null; }
+                }
+                result._options.Add(new Picker(button));
+            }
+        }
+        result._unfocus = NativeUseBarModels.Field<Image>(source, "unfocusImage");
+        if (source is UIUseAbility ability) result._unfocused = ability.unfocusedColor;
+        else if (source is UIUseItemScenario item) result._unfocused = item.unfocusedColor;
+        if (initialize) result.Paint(state);
+        return result;
+    }
+
+    internal void Paint(NativeUseBarState state)
+    {
+        Paint(state.WidgetState);
+        if (ReferenceEquals(_auxPainted, state)) return;
+        _auxPainted = state;
+        for (int i = 0; i < _infuses.Count; i++)
+        {
+            Inline ui = _infuses[i]; Active(ui.Root, i < state.InfuseIcons.Length);
+            if (i >= state.InfuseIcons.Length) continue;
+            byte value = state.InfuseIcons[i];
+            Active(ui.Text != null ? ui.Text.gameObject : null, false);
+            Active(ui.Icon != null ? ui.Icon.gameObject : null, value != 0);
+            if (ui.Icon != null && value != 0)
+                ui.Icon.sprite = UIInfoTools.Instance.GetElementPickerSprite((ElementInfusionBoardManager.EElement)(value - 1));
+        }
+    }
+
     // These lists belong to an inactive MOD CLONE. Never call HelperTools.NormalizePool on the
     // game's live lists: that method activates scripts as it instantiates and owns gameplay UI.
-    private static void Normalize<T>(List<T> list, int count, T? template) where T : Component
+    internal static void Normalize<T>(List<T> list, int count, T? template) where T : Component
     {
         if (count > list.Count && template == null)
             throw new InvalidOperationException("native subwidget template is missing");
@@ -116,8 +195,10 @@ internal sealed class RemoteUseBarSubwidgets
             _unfocus = Component(mirror, _unfocus),
             _unfocused = _unfocused,
             _candidates = _candidates,
+            _selectedWords = _selectedWords,
         };
         foreach (Inline ui in _consumes) result._consumes.Add(ui.Map(mirror));
+        foreach (Inline ui in _infuses) result._infuses.Add(ui.Map(mirror));
         foreach (Inline ui in _inline) result._inline.Add(ui.Map(mirror));
         foreach (Picker ui in _elements) result._elements.Add(ui.Map(mirror));
         foreach (Picker ui in _options) result._options.Add(ui.Map(mirror));
@@ -158,7 +239,7 @@ internal sealed class RemoteUseBarSubwidgets
             byte value = state.InlineOptions[i];
             string text = value == UseBarWidgetState.NumericOption
                 ? state.InlineNumbers[i].ToString(CultureInfo.InvariantCulture)
-                : value > 0 && value <= _candidates.Count ? _candidates[value - 1].GetSelectedText() : string.Empty;
+                : value > 0 && value <= _candidates.Count ? (_selectedWords != null ? _selectedWords[value - 1] : _candidates[value - 1].GetSelectedText()) : string.Empty;
             Active(ui.Text != null ? ui.Text.gameObject : null, text.Length > 0);
             if (ui.Text != null)
             {

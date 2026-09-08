@@ -325,6 +325,15 @@ internal static class UseBarSlotSymbol
 
     private static Sprite? ResolveItemIcon(CPlayerActor owner, ushort id, out ResolveOutcome why)
     {
+        CItem? item = ResolveItemModel(owner, id, out why);
+        if (item == null) return null;
+        ItemConfigUI? config = UIInfoTools.Instance != null
+            ? UIInfoTools.Instance.GetItemConfig(item.YMLData.Art) : null;
+        return config != null ? config.miniIcon : null;
+    }
+
+    internal static CItem? ResolveItemModel(CPlayerActor owner, ushort id, out ResolveOutcome why)
+    {
         CInventory? inventory = owner.Inventory;
         List<CItem>? items = inventory != null ? inventory.AllItems : null;
         CItem? found = null;
@@ -352,11 +361,7 @@ internal static class UseBarSlotSymbol
             why = ResolveOutcome.Ambiguous;
             return null;
         }
-        // The same lookup UIUseItemScenario.Decorate performs — GetItemConfig(art).miniIcon — so the
-        // peer wears the sprite the owner's own slot was decorated with, not a lookalike.
-        ItemConfigUI? config = UIInfoTools.Instance != null
-            ? UIInfoTools.Instance.GetItemConfig(found!.YMLData.Art) : null;
         why = ResolveOutcome.Resolved;
-        return config != null ? config.miniIcon : null;
+        return found;
     }
 }

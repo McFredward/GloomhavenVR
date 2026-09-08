@@ -38,7 +38,8 @@ internal sealed class RemoteUseBarWidgets
     private bool _failedLogged;
     private readonly ushort[] _stageIds;
     private readonly int[] _stageConsumeCounts, _stageOptionCounts;
-    private readonly CActiveBonus?[] _stageModels;
+    private readonly object?[] _stageModels;
+    private readonly NativeUseBarState?[] _stageNative;
 
     internal RemoteUseBarWidgets(Transform mount, int bar, int count)
     {
@@ -49,7 +50,8 @@ internal sealed class RemoteUseBarWidgets
         _stageIds = new ushort[count];
         _stageConsumeCounts = new int[count];
         _stageOptionCounts = new int[count];
-        _stageModels = new CActiveBonus?[count];
+        _stageModels = new object?[count];
+        _stageNative = new NativeUseBarState?[count];
         // Width-only fit, like UseBarsSurface.StackDocked; open pickers grow downward.
         _mirror = new RemoteWidgetMirror("UseBar" + bar, mount, Cards.PlayTray.DecisionMountWidth,
             float.MaxValue, new Vector2(0f, -1f), densityScale: WorldUI.Surfaces.UseBarsSurface.DensityScale, contentOutsideFrame: true);
@@ -69,8 +71,12 @@ internal sealed class RemoteUseBarWidgets
             bool live = TryLiveSlots(container, actor, owner);
             // Active-bonus subchoices are owner-local. Once their descriptor exists, the original
             // prefab is the stable source; a viewer's live picker must not overwrite their choices.
-            if (_bar == 0 && owner.UseBarWidgetStates != null)
+            if (_bar == 0 && owner.UseBarWidgetStates != null || _bar > 0 && NativeDescriptor(owner, 0) != null)
                 live = false;
+            if (!live && _bar > 0)
+                for (int i = 0; i < _count; i++)
+                    if (NativeDescriptor(owner, i) == null || StageModel(actor, owner, i) == null)
+                    { _mirror.SetShown(false); return; } // await the real owner's complete native content
             Transform? source;
             if (live)
                 source = container;
@@ -86,12 +92,7 @@ internal sealed class RemoteUseBarWidgets
                     _stage = null;
                     BuildPrefabStage(container, actor, owner);
                 }
-                for (int i = 0; i < _stageSlots.Length; i++)
-                {
-                    UseBarWidgetState? state = Descriptor(owner, i);
-                    if (state != null) _stageSlots[i].Subwidgets?.Paint(state);
-                    PaintMasks(_stageSlots[i], State(owner, i), state);
-                }
+                PaintStage(owner);
                 if (_stage != null) LayoutRebuilder.ForceRebuildLayoutImmediate(_stage);
                 source = _stage;
             }
@@ -180,8 +181,12 @@ internal sealed class RemoteUseBarWidgets
     private static void FinishNativeShowPose(Transform root)
     {
         Component? component = SlotComponent(root);
-        if (component == null || Field<GUIAnimator>(component, "showAnimation") is not LeanTweenGUIAnimator animation)
-            return;
+        if (component != null) FinishNativeShowPose(root, Field<GUIAnimator>(component, "showAnimation"));
+    }
+
+    internal static void FinishNativeShowPose(Transform root, GUIAnimator? animator)
+    {
+        if (animator is not LeanTweenGUIAnimator animation) return;
         // Read the original presentation recipe. Never run GUIAnimator events or custom effects,
         // and never allow a serialized target outside this clone to receive a write.
         foreach (LeanTweenGUIAnimationSetting setting in animation.GetSettings())
@@ -239,7 +244,8 @@ internal sealed class RemoteUseBarWidgets
             GameObject go = Object.Instantiate(prefab.gameObject, _stage, false);
             _stageSlots[i] = Capture(go.transform);
             _stageIds[i] = SlotId(owner, i);
-            _stageModels[i] = Model(actor, owner, i);
+            _stageModels[i] = StageModel(actor, owner, i);
+            _stageNative[i] = NativeDescriptor(owner, i);
             _stageConsumeCounts[i] = Descriptor(owner, i)?.ConsumeIcons.Length ?? 0;
             _stageOptionCounts[i] = Descriptor(owner, i)?.OptionStates.Length ?? 0;
             if (_stageSlots[i].Icon != null)
@@ -256,6 +262,9 @@ internal sealed class RemoteUseBarWidgets
             if (_bar == 0 && go.GetComponent<UIUseActiveBonus>() is UIUseActiveBonus bonus)
                 _stageSlots[i].Subwidgets = RemoteUseBarSubwidgets.Capture(bonus, Model(actor, owner, i),
                     actor, Descriptor(owner, i), true);
+            if (_bar > 0 && _stageNative[i] is NativeUseBarState native)
+                _stageSlots[i].Native = RemoteNativeUseBar.Capture(SlotComponent(go.transform)!, actor,
+                    _stageModels[i], native, true);
             RemoteWidgetMirror.Neutralize(go, RemoteWidgetMirror.LayoutOwner.CloneAtBoardOwnersWidth, null);
             go.SetActive(true);
         }
@@ -266,7 +275,8 @@ internal sealed class RemoteUseBarWidgets
 
     private UseBarWidgetState? Descriptor(RemoteAvatar owner, int slot)
     {
-        if (_bar != 0 || owner.UseBarWidgetStates == null) return null;
+        if (_bar != 0) return NativeDescriptor(owner, slot)?.WidgetState;
+        if (owner.UseBarWidgetStates == null) return null;
         foreach (UseBarWidgetState state in owner.UseBarWidgetStates)
             if (state.Slot == slot) return state;
         return null;
@@ -278,6 +288,17 @@ internal sealed class RemoteUseBarWidgets
         if (_bar != 0 || actor == null || owner.UseBarSlotIds == null || at >= owner.UseBarSlotIds.Length)
             return null;
         return UseBarSlotSymbol.ResolveBonusModel(actor, owner.UseBarSlotIds[at], out _);
+    }
+
+    private NativeUseBarState? NativeDescriptor(RemoteAvatar owner, int slot) =>
+        _bar > 0 ? owner.NativeUseBarStates[_bar * 8 + slot] : null;
+
+    private object? StageModel(CPlayerActor? actor, RemoteAvatar owner, int slot)
+    {
+        if (_bar == 0) return Model(actor, owner, slot);
+        NativeUseBarState? state = NativeDescriptor(owner, slot);
+        if (state != null) return NativeUseBarModels.Resolve(actor, state);
+        return _bar == 3 && actor != null ? UseBarSlotSymbol.ResolveItemModel(actor, SlotId(owner, slot), out _) : null;
     }
 
     private ushort SlotId(RemoteAvatar owner, int slot)
@@ -292,7 +313,13 @@ internal sealed class RemoteUseBarWidgets
         for (int i = 0; i < _count; i++)
         {
             UseBarWidgetState? state = Descriptor(owner, i);
-            if (_stageIds[i] != SlotId(owner, i) || !ReferenceEquals(_stageModels[i], Model(actor, owner, i))
+            NativeUseBarState? native = NativeDescriptor(owner, i);
+            NativeUseBarState? oldNative = _stageNative[i];
+            if (native != null && (oldNative == null || !RemoteNativeUseBar.SameIdentity(oldNative, native)
+                || native.InfuseIcons.Length != oldNative.InfuseIcons.Length || native.Augments.Length != oldNative.Augments.Length
+                || native.PreviewOption != oldNative.PreviewOption)) return false;
+            if (native == null && oldNative != null) return false;
+            if (_stageIds[i] != SlotId(owner, i) || !ReferenceEquals(_stageModels[i], StageModel(actor, owner, i))
                 || _stageConsumeCounts[i] != (state?.ConsumeIcons.Length ?? 0)
                 || _stageOptionCounts[i] != (state?.OptionStates.Length ?? 0))
                 return false;
@@ -327,12 +354,26 @@ internal sealed class RemoteUseBarWidgets
         if (index < 0 || index >= _wantedIcons.Length)
             return;
         _wantedIcons[index] = sprite;
-        if (index < _slots.Length)
+        if (index < _slots.Length && (_bar == 0 || _bar == 3 && _slots[index].Native == null))
             ApplyIcon(_slots[index], sprite);
+    }
+
+    private void PaintStage(RemoteAvatar owner)
+    {
+        if (!ReferenceEquals(_source, _stage) && _source != null) return;
+        for (int i = 0; i < _stageSlots.Length; i++)
+        {
+            UseBarWidgetState? state = Descriptor(owner, i);
+            if (_bar == 0 && state != null) _stageSlots[i].Subwidgets?.Paint(state);
+            NativeUseBarState? native = NativeDescriptor(owner, i);
+            if (native != null) _stageSlots[i].Native?.Paint(native);
+            PaintMasks(_stageSlots[i], State(owner, i), state);
+        }
     }
 
     internal void Tick(RemoteAvatar owner)
     {
+        PaintStage(owner);
         _mirror.TickLive();
         Paint(owner);
         ApplyAnimations(owner); // mirror sync and hover must not erase an intermediate pose
@@ -340,14 +381,16 @@ internal sealed class RemoteUseBarWidgets
 
     private void RestoreAnimationGeometry()
     {
-        foreach (Slot slot in _slots) slot.Animation?.RestoreGeometry();
+        foreach (Slot slot in _slots) { slot.Animation?.RestoreGeometry(); slot.Native?.RestoreGeometry(); }
     }
 
     private void ApplyAnimations(RemoteAvatar owner)
     {
-        if (_bar != 0) return;
         for (int i = 0; i < _slots.Length; i++)
-            _slots[i].Animation?.Apply(owner, _slots[i].ActorId, _slots[i].Identity, i);
+        {
+            if (_bar == 0) _slots[i].Animation?.Apply(owner, _slots[i].ActorId, _slots[i].Identity, i);
+            else _slots[i].Native?.ApplyAnimation(owner);
+        }
     }
 
     private void Paint(RemoteAvatar owner)
@@ -372,7 +415,9 @@ internal sealed class RemoteUseBarWidgets
             }
             PaintHover(ref slot, offered, hovered, pressed);
             _slots[i] = slot;
-            ApplyIcon(slot, _wantedIcons[i]);
+            if (_bar == 0 || _bar == 3 && slot.Native == null) ApplyIcon(slot, _wantedIcons[i]);
+            NativeUseBarState? native = NativeDescriptor(owner, i);
+            if (native != null && slot.Native != null) { slot.Native.Paint(native); continue; }
             UseBarWidgetState? descriptor = Descriptor(owner, i);
             if (descriptor != null)
             {
@@ -478,6 +523,7 @@ internal sealed class RemoteUseBarWidgets
     private struct Slot
     {
         internal RemoteUseBarSubwidgets? Subwidgets;
+        internal RemoteNativeUseBar? Native;
         internal RemoteUseBarAnimation? Animation;
         internal int ActorId;
         internal ushort Identity;
@@ -491,7 +537,7 @@ internal sealed class RemoteUseBarWidgets
         internal float HoverFactor, HoverSeconds, ScaleFrom, ScaleCurrent, ScaleTarget, ScaleAt;
         internal Slot Map(RemoteWidgetMirror mirror) => new()
         {
-            Subwidgets = Subwidgets?.Map(mirror),
+            Subwidgets = Subwidgets?.Map(mirror), Native = Native?.Map(mirror),
             Animation = Animation?.Map(mirror), ActorId = ActorId, Identity = Identity,
             ScaleNode = mirror.CloneOf(ScaleNode), HoverFactor = HoverFactor, HoverSeconds = HoverSeconds,
             ScaleFrom = 1f, ScaleCurrent = 1f, ScaleTarget = 1f,
@@ -510,7 +556,7 @@ internal sealed class RemoteUseBarWidgets
 
     private void ReleaseSlots()
     {
-        foreach (Slot slot in _slots) slot.Animation?.Destroy();
+        foreach (Slot slot in _slots) { slot.Animation?.Destroy(); slot.Native?.Destroy(); }
         _slots = Array.Empty<Slot>();
     }
 

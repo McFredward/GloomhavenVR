@@ -109,9 +109,14 @@ internal sealed class NativeUseBarAnimationBinding
 
 
     internal static NativeUseBarAnimationBinding[] Capture(UIUseActiveBonus source)
+        => Capture(source, source.showAnimation);
+
+    internal static NativeUseBarAnimationBinding[] Capture(GUIAnimator? animator, Transform root) => Capture(root, animator);
+
+    internal static NativeUseBarAnimationBinding[] Capture(Component source, GUIAnimator? showAnimation)
     {
-        if (source.showAnimation == null) return Array.Empty<NativeUseBarAnimationBinding>();
-        if (source.showAnimation is not LeanTweenGUIAnimator animator)
+        if (showAnimation == null) return Array.Empty<NativeUseBarAnimationBinding>();
+        if (showAnimation is not LeanTweenGUIAnimator animator)
             throw new InvalidOperationException("native show animator does not expose original LeanTween settings");
         List<LeanTweenGUIAnimationSetting> settings = animator.GetSettings();
         var result = new List<NativeUseBarAnimationBinding>(settings.Count);

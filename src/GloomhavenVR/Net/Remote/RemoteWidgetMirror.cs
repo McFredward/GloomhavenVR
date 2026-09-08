@@ -418,7 +418,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// <summary>
     /// Content-cadence entry point: (re)build the clone when <paramref name="source"/> changed
     /// identity or shape, then re-fit it. Returns true iff the real widget is being mirrored — a
-    /// false return means the caller must draw (and show) its own fallback.
+    /// false return means the original source is absent or still awaiting safe native geometry.
     ///
     /// Wrapped whole: a half-built panel, a destroyed singleton or a hostile prefab must degrade to
     /// "no mirror", never take down the remote-avatar tick this runs inside.
@@ -444,37 +444,9 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             Fit();
             AuditCloneGrowth();
 
-            // (1) KEEP THE CALLER'S FALLBACK REACHABLE. Under LayoutOwner.CloneAtBoardOwnersWidth
-            // the committed geometry is re-derived from this class's own union rather than read off
-            // the owner's dock (see TryMeasureDock), so "the clone exists" no longer implies "the
-            // clone is presentable". A false return here hands the panel back to its mod-drawn rows
-            // — a peer reading plain rows beats a peer reading a cropped or unfitted clone — and the
-            // clone is KEPT, not destroyed, so recovery costs a re-measure rather than an
-            // Instantiate and a rebuild loop is impossible.
-            // (1a) …AND THE UNFITTED HOST IS WITHHELD ON EVERY PATH, not only that one.
-            //
-            // USER RULING 2026-09-07 item 6b, verbatim: "Dieser riesige Text darf trotz dessen
-            // niemals vorkommen" (screenshot .planning/debug/riesiger_text.jpg — orange game glyphs
-            // metres tall, floating across the boards).
-            //
-            // ROOT CAUSE, and it is this class's own doc read literally: EnsureHost leaves the host
-            // at `localScale = Vector3.one` on a WORLD-SPACE canvas, which is ONE WORLD UNIT PER
-            // uGUI PIXEL — a 20 px game label becomes 20 world units of line height, against the
-            // 0.000418 m/px this very mirror settles at once fitted (the mirrored initiative
-            // track's own logged fit, 740x204 px into 0.309x0.085 m). BuildClone then activates the
-            // host (see the `_host.SetActive(true)` there) BEFORE anything has been fitted, and
-            // Fit() legitimately commits nothing on some frames — the owner's converted panel is
-            // not docked yet, or the visible-graphics union is below MinMeasuredPixels. The
-            // `_fitApplied` gate for exactly that case existed and was reachable only under
-            // LayoutOwner.CloneAtBoardOwnersWidth, so every LayoutOwner.Source mirror — the
-            // initiative track, the element board, the DECISION ROW, the scenario rules — had no
-            // unfitted-host gate at all and drew the game's own panel at 2400x on those frames.
-            //
-            // THE COST OF THE WIDENING IS ONE TICK OF THE CALLER'S FALLBACK, which is the shape
-            // every caller here already handles: a false return means "draw your mod-drawn rows".
-            // `_fitApplied` latches per clone, so a settled mirror never takes this branch, and a
-            // clone that never fits is withheld rather than shown wrong — the direction this whole
-            // class is written in.
+            // Retain the original clone while its layout is unavailable. A valid authored native
+            // frame may establish the first safe fit; otherwise the caller waits for real geometry.
+            // No handmade replacement and no one-world-unit-per-pixel canvas may be shown.
             string? withhold = _layoutOwner == LayoutOwner.CloneAtBoardOwnersWidth ? _withhold : null;
             withhold ??= _fitApplied
                 ? null
@@ -1607,8 +1579,9 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         // layout the panel will actually present. Change-gated to two float compares in the steady
         // state, and a no-op entirely on the LayoutOwner.Source path.
         ApplyOwnersColumn();
-        if (!TryMeasureDock(out Vector2 sizePx, out Vector2 centerPx))
-            return; // mid-layout / nothing visible: keep the previous fit rather than a degenerate one
+        if (!TryMeasureDock(out Vector2 sizePx, out Vector2 centerPx)
+            && !TryInitialNativeFrame(out sizePx, out centerPx))
+            return; // keep the settled fit; an authored degenerate frame cannot invent content
         if (!AcceptMeasure(sizePx))
             return; // absurd measure — nothing is committed and Refresh withholds (see AcceptMeasure)
         float w = sizePx.x, h = sizePx.y;
@@ -1646,6 +1619,24 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         // …and the other half of the measure's verdict: what it threw away and the clone still
         // draws. Placed AFTER the commit because the line quotes the density it is drawn at.
         LogDrawnBackdrops(metersPerPx);
+    }
+
+    private bool TryInitialNativeFrame(out Vector2 sizePx, out Vector2 centerPx)
+    {
+        sizePx = centerPx = Vector2.zero;
+        // Some native rows start with every original control inactive. Their authored frame still
+        // supplies a real safe first fit, allowing owner visibility to be applied before the next
+        // content union. Never expose an identity-scale host or invent a surrogate row.
+        if (_fitApplied || !TryFrameExtent(out Vector2 min, out Vector2 max)) return false;
+        Vector2 size = max - min;
+        float density = ContentDensity;
+        if (!UseBarAnimationValue.Finite(size.x) || !UseBarAnimationValue.Finite(size.y)
+            || size.x < MinMeasuredPixels || size.y < MinMeasuredPixels
+            || size.x > _mountWidth * density * OversizeFactor
+            || size.y > _mountMaxHeight * density * OversizeFactor) return false;
+        sizePx = size; centerPx = (min + max) * 0.5f;
+        _measurePath = "original authored frame before visible content";
+        return true;
     }
 
     /// <summary>True once a fit has actually been APPLIED to the current clone (reset with the
@@ -2433,6 +2424,9 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             {
                 if (_dstTmp.text != _srcTmp.text) _dstTmp.text = _srcTmp.text;
                 if (_dstTmp.fontSize != _srcTmp.fontSize) _dstTmp.fontSize = _srcTmp.fontSize;
+                // Native tooltip/select-field controls change font style while reusing their text
+                // object. Copying only wording and size left the clone's initial style behind.
+                if (_dstTmp.fontStyle != _srcTmp.fontStyle) _dstTmp.fontStyle = _srcTmp.fontStyle;
             }
             else if (_srcText != null && _dstText != null)
             {
@@ -2442,6 +2436,12 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             if (_srcImage != null && _dstImage != null)
             {
                 if (!ReferenceEquals(_dstImage.sprite, _srcImage.sprite)) _dstImage.sprite = _srcImage.sprite;
+                // UIHighlightTransition/UIButtonExtended_Target write overrideSprite during
+                // SpriteSwap. The underlying sprite alone never reflects that original state.
+                Sprite? sourceOverride = _srcImage.overrideSprite != _srcImage.sprite ? _srcImage.overrideSprite : null;
+                Sprite? destinationOverride = _dstImage.overrideSprite != _dstImage.sprite ? _dstImage.overrideSprite : null;
+                if (!ReferenceEquals(destinationOverride, sourceOverride))
+                    _dstImage.overrideSprite = sourceOverride;
                 if (_dstImage.type != _srcImage.type) _dstImage.type = _srcImage.type;
                 // The fill amount IS the progress bar and the cooldown sweep — the one number whose
                 // omission would leave a mirrored panel looking right and reading wrong.

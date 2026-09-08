@@ -33,6 +33,57 @@ internal sealed class RemoteUseBarAnimation
     internal static RemoteUseBarAnimation Capture(UIUseActiveBonus source) =>
         new(NativeUseBarAnimationBinding.Capture(source));
 
+    internal static RemoteUseBarAnimation Capture(Component source, GUIAnimator? animator) =>
+        new(NativeUseBarAnimationBinding.Capture(source, animator));
+
+    internal static RemoteUseBarAnimation Capture(GUIAnimator? animator, Transform root) => Capture(root, animator);
+
+    internal void ApplyValues(UseBarAnimationValue[] from, UseBarAnimationValue[] to, float progress)
+    {
+        if (from.Length != _targets.Length || to.Length != _targets.Length)
+            throw new InvalidOperationException("native animation value count differs from original recipe");
+        foreach (Target target in _targets)
+        {
+            UseBarAnimationValue? a = Value(from, target.Source.SettingIndex), b = Value(to, target.Source.SettingIndex);
+            if (a == null || b == null || !a.Validate() || !b.Validate()
+                || a.Kind != target.Source.Kind || b.Kind != target.Source.Kind)
+                throw new InvalidOperationException("native animation value does not match original target recipe");
+        }
+        foreach (Target target in _targets)
+            target.Apply(progress, Value(from, target.Source.SettingIndex)!.Values,
+                Value(to, target.Source.SettingIndex)!.Values, _materials);
+    }
+
+    private static UseBarAnimationValue? Value(UseBarAnimationValue[] entries, byte setting)
+    {
+        UseBarAnimationValue? found = null;
+        foreach (UseBarAnimationValue entry in entries)
+            if (entry.SettingIndex == setting) { if (found != null) return null; found = entry; }
+        return found;
+    }
+
+    internal void ApplyNative(byte animatorIndex, NativeUseBarAnimationEntry[] from,
+        NativeUseBarAnimationEntry[] to, float progress)
+    {
+        foreach (Target target in _targets)
+        {
+            UseBarAnimationValue? a = NativeValue(from, animatorIndex, target.Source.SettingIndex);
+            UseBarAnimationValue? b = NativeValue(to, animatorIndex, target.Source.SettingIndex);
+            if (a == null || b == null || a.Kind != target.Source.Kind || b.Kind != target.Source.Kind)
+                throw new InvalidOperationException("native auxiliary animation does not match original target recipe");
+        }
+        foreach (Target target in _targets)
+            target.Apply(progress, NativeValue(from, animatorIndex, target.Source.SettingIndex)!.Values,
+                NativeValue(to, animatorIndex, target.Source.SettingIndex)!.Values, _materials);
+    }
+
+    private static UseBarAnimationValue? NativeValue(NativeUseBarAnimationEntry[] entries, byte animator, byte setting)
+    {
+        foreach (NativeUseBarAnimationEntry entry in entries)
+            if (entry.AnimatorIndex == animator && entry.Value.SettingIndex == setting) return entry.Value;
+        return null;
+    }
+
     internal RemoteUseBarAnimation Map(RemoteWidgetMirror mirror)
     {
         var result = new RemoteUseBarAnimation(_source) { _targets = new Target[_source.Length] };
