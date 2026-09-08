@@ -448,7 +448,154 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 479;
+    public const ushort ModBuild = 480;
+    // Build 480: A REVIEW ROUND HE ASKED FOR BEFORE SPENDING A HARDWARE TEST, and it is the first
+    //   round in this project's history where the reviews were worth more than the fixes. Five
+    //   read-only review lanes against five questions of his, then seven fix lanes on disjoint file
+    //   sets. 3,045 lines of review committed under .planning/review-2026-09-07/ before a line of
+    //   src/ was touched, so the findings survive the build that acted on them.
+    //   THE SHAPE OF IT: every one of the sixteen gates was GREEN through every defect below, and
+    //   two of the worst were shipped by ModBuild 479 ITSELF — the build that closed his last
+    //   report. A review is not a luxury on top of a green suite; on this evidence it is the only
+    //   thing that reads what the suite cannot.
+    //   * TWO OF SIX CARD-FX SURFACES WERE DEAD, KILLED BY THEIR OWN INSTRUMENT, SHIPPED IN 479.
+    //     FxSurface grew from four members to six in c14e5220 and three latch arrays stayed
+    //     `new bool[4]`, indexed unguarded. The throw lands inside BuildBurnRig's try AFTER
+    //     _burnRigState = Ready, the catch nulls _burnImages at the DEBUG tier, and every later
+    //     write is refused forever. So the Active and Held surfaces — both of them surfaces he
+    //     ruled on this month — drew a clean bright card for the rest of the session, with nothing
+    //     in the log at the shipped tier. A fourth array WAS bounds-guarded, which is worse and not
+    //     better: it silently never logged for those two members. All four now size from
+    //     Enum.GetValues and all four latch sites go through one bounds-checked helper, because an
+    //     instrument must not be able to kill the thing it measures.
+    //   * THE MOD MAPPED THE GAME'S CHAR TO THE GAME'S GREY, under a comment citing the exact lines
+    //     that refute it. CardEffects dispatches DiscardMode to GhostOutOn and LostMode to
+    //     BurnCard(burnAnim: true); UsedCardLook collapsed both into Ghost while its doc said
+    //     "DiscardMode and LostMode both run GhostOutOnTimeline (CardEffects.cs:422-423), which is
+    //     why they collapse to one answer here". SetPile raises LostMode for EVERY burn; only the
+    //     short rest raises BurnCard. So the mirrored hand fan greyed the ordinary burn its owner
+    //     saw charred. Seventh defect in this tree protected by a confident comment.
+    //   * THE DAMAGE-NEGATION BURN NEVER WRITES THE FIELD THE LOOK IS SWITCHED ON.
+    //     GameState.Lose1HandCardToAvoidAttack calls CCharacterClass.MoveAbilityCard directly, and
+    //     MoveAbilityCard moves the card between two lists and NEVER writes CurrentCardPile — every
+    //     write of that field is on another path, and CBaseCard's state copy-constructor then
+    //     PROPAGATES the stale value into snapshots. BurnLookPolicy switches on exactly that field,
+    //     so the flight slab, the burnt fan and the held card all drew that card PRISTINE while its
+    //     owner watched it char. His standing ruling — "Beim Verbrennen EGAL AUS WELCHEM GRUND muss
+    //     die Karte immer mit der Vorderseite sichtbar sein" — honoured in the FACE and broken in
+    //     the LOOK. The authority is the owner's LostAbilityCards list, which is what
+    //     RevealGate.IsPubliclyRevealedCard already uses for the face; that is precisely why the
+    //     face was right while the look was wrong. The lane checked and REJECTED the obvious
+    //     candidate, s_CardsBurnedToAvoidDamage: it is Clear()ed at the HEAD of every episode before
+    //     the burn is added, and is mutated on the rule library's worker thread. A payload, not a
+    //     record.
+    //   * RECORD 45 DELETED THE LOCAL FALLBACK FOR A WHOLE BAR — ALSO SHIPPED IN 479, ALSO BY US.
+    //     `if (barNamed > 0)` is a whole-BAR switch in front of a per-SLOT record, so one named slot
+    //     stopped the local resolve for every slot of that bar. Mixed bars are not an edge case,
+    //     they are the normal output of the mod's own split: the sender deliberately withholds the
+    //     id for CForgoActionsForCompanionActiveBonus and EnforceActiveBonusSplit keeps exactly that
+    //     row, while Choreographer raises the bar on every client with no IsUnderMyControl term.
+    //     478 drew both icons; 479 drew one icon and one anonymous tile — and the DOCK MIRROR line
+    //     reported SUCCESS. The gate is per-slot now, the anonymous count is split by CAUSE, and the
+    //     refusal capture no longer lets one lit tile swallow its neighbour's refusal.
+    //   * A PEER'S PILE FAN WAS COVERED BY A COUNT DISAGREEMENT, NOT BY A RULE. The owner drops the
+    //     short-rest card from the wire because its visual is on his board; PerformShortRest removes
+    //     nothing from DiscardedAbilityCards, so the mirror resolved one more card than it was sent
+    //     and a length belt turned the whole fan to backs. THE BELT IS RIGHT AND STAYS — a wrong
+    //     front is unrecoverable because he believes it and acts on it. What was wrong is that a
+    //     rule held by accident. Put to him as a ruling collision, since the fan showed the card
+    //     face-up while the text row beside it said "<versiegelte Karte>", and HE RULED: cover the
+    //     discard fan during a short rest. It is now an explicit gate whose term is a CARD, not a
+    //     place — record 39 naming a card out of the discard arc lying in a round recess, ANDed with
+    //     the secret phase, a conjunction that is a short rest and nothing else. The burnt fan stays
+    //     OPEN always: his burn ruling is older, unconditional and more specific, and wins where the
+    //     two touch. The long rest is the action phase and now shows fronts, which it did not.
+    //   * OUR GUARD TOOK ONE OF THE GAME'S TWO TERMS, and 479 opened the way to the other.
+    //     ActorBars read FlowControlActive() alone where the game writes it with m_HealthBar
+    //     .IsAnimated at five sites. HealthBar sets its flag BEFORE StartCoroutine and clears it only
+    //     in the coroutine's completion, so hiding the host mid-animation latches it with no race.
+    //     THE SEVERITY WAS DISPUTED AND THE ANSWER IS THE WORSE ONE: the integrator was right that
+    //     onDestroy is ShowDie and not checkActorsDeadAction, but ShowPreDie never calls Show() — it
+    //     only stores the callback, and the sole invoker of that callback is the window's onHidden,
+    //     reachable only after ShowDie has opened the banner, and ShowDie's one caller in the whole
+    //     decompiled tree is the onDestroy behind DestroyDelayed's WaitWhile. Worse than delayed:
+    //     the next banner of any kind overwrites the callback WITHOUT invoking it. Certain: no death
+    //     banner, no panel destruction, every bar's HP frozen, one of three win/lose paths gone.
+    //     And had it ever occurred, nothing in this tree could have repaired it — m_IsAnimActive is
+    //     private with no setter. Prevention is the whole defence.
+    //   * A MIRROR READING THE VIEWER'S DIAL, four confirmed instances, and the audit's own headline
+    //     is why they survived: five shipped guards answer "is this value declared once, and is it
+    //     on the wire", and NONE answers "at runtime, whose copy does the mirror read". A peer's
+    //     item cue beat, his map placard's millimetres, three shared-window SPAWN POSE dials, and a
+    //     map-story rate that shipped the extras packet at frame rate for a whole map-room session.
+    //   * ANIMATION AND TIMING ARE PART OF 1:1 AND WERE THE HALF NOBODY CHECKED. The arcs themselves
+    //     survived audit — curve, duration, height, rotation, anchors all genuinely 1:1, and no
+    //     flight lands in the wrong pile. What did not: the mirrored burn painted the settled char
+    //     on frame one where the owner ramps over two seconds (and the ramp value was already being
+    //     computed, then thrown away into a log string); the active column's residents glide on his
+    //     board and snapped on every mirror; a claim counter that bound no token to a card.
+    // WHAT THE ROUND ANSWERED, in his own five questions:
+    //   1. Cards covered ONLY in the decision phase: YES on all sixteen face call sites, with the
+    //      one exception above, which was a defect and is now his ruling.
+    //   2. The whole remote board against 1:1: 19 findings, 12 confirmed, and the allowed exceptions
+    //      re-checked one by one — the mixed-language ruling has NOT drifted, and the voice badge's
+    //      scale exception has not leaked.
+    //   3. Flights: identical, sensible, and landing in the right pile. The defects were around the
+    //      arc, not in it.
+    //   4. Item decision buttons: everything that could move to the item flow ALREADY HAS, under his
+    //      own two rulings, by three splits. Five widgets remain and each names the state only it can
+    //      leave — one of them is the mandatory item-backed bonus that CanTakeDamage() demands, whose
+    //      automatic exit explicitly gives up when the bonus also needs a manual pick. That row is
+    //      load-bearing and must not be removed. Also: the game's naive item flow is the WRONG action
+    //      during a damage prompt — it USES the item instead of toggling it into the calculation.
+    //   5. Deadlocks: the sixth instance of the class found and fixed, plus the census re-run over
+    //      the whole tree rather than one folder — the old audit had measured the wrong population,
+    //      which is exactly what the sixth instance cost.
+    // THREE NEW GATES, and the point of them is that this round's defects were invisible to sixteen
+    //   green ones. scripts/check-mirror-dials.py answers the runtime-ownership question no gate
+    //   asked (it found all four confirmed instances and nothing spurious).
+    //   scripts/check-enum-arrays.py convicts a latch array whose literal disagrees with its enum
+    //   (19 sites resolved, the 4 real ones convicted, zero false positives).
+    //   scripts/check-card-identity-mask.py runs the ONE anti-cheat guard in this tree — it was a
+    //   pure text lint stranded inside an assembly CI cannot execute, so it had never run there.
+    //   check-mirrors.sh gains PART 3, a subset guard for "our copy takes fewer terms than the
+    //   game's own expression", which is two of this round's findings. Every group proved the
+    //   project's way: plant the pattern, watch it fail, confirm the same text in a COMMENT is
+    //   inert — and PART 3's negative control paid for itself immediately by catching a pipefail
+    //   bug in its own harness that made a companion test read FALSE on any file over the pipe
+    //   buffer. An instrument shipped and lying, caught before it shipped.
+    // TWO CANDIDATE GATES REJECTED WITH EVIDENCE rather than quietly dropped: a check that a cited
+    //   decompiled line still exists cannot run in CI at all (decompiled/ is gitignored and absent
+    //   from every worktree and runner) and scores 0 of 6 on this round's own findings, because
+    //   every wrong citation in this round points at a line that EXISTS and says something else.
+    //   And "a verdict string naming a cause it cannot observe" is semantic, not lexical; the three
+    //   instances were encoded into log-triage.py instead, so the wrong verdict cannot be read as
+    //   written.
+    // FIVE CORRECTIONS TO THE INTEGRATOR, each worth more than the fix it accompanied: my
+    //   s_CardsBurnedToAvoidDamage lead was wrong (a payload, not a record); one of the five
+    //   CurrentCardPile writes I listed is a READ, and there are four more in another class;
+    //   the deadlock census has 17 parks and not 12, and NEITHER of the two flows he asked about is
+    //   held by one — a WaitUntil census cannot see either; the ownership partition reaches 18 sites
+    //   and not 10; and CI runs NINE gates, not sixteen, so the stranded anti-cheat lint was the
+    //   smaller half of a broader split (check-docs-i18n.py had no automatic caller at all).
+    // OWED ON HARDWARE, and the round was designed to make one test decide a lot: the two card-FX
+    //   surfaces that will print their lines for the FIRST TIME (their absence in any log up to 479
+    //   means nothing); record 45's whole path, which has still never executed; the per-slot bar
+    //   fallback, via the DOCK MIRROR line's new anonymous-by-cause split; the short-rest cover,
+    //   whose one INERT reading is instrumented and named; and the giant orange text, still
+    //   unsolved and still carrying only an instrument.
+    // DEFERRED, DELIBERATELY, AND NAMED SO IT IS NOT LOST: the mirrored bonus bar is a lookalike,
+    //   not a converted widget, and he has RULED that it gets rebuilt properly. It is not in this
+    //   build because the conversion needs two files two lanes were editing. The plan is written,
+    //   and it carries the finding that decides it: UIActiveBonusBar builds its slots from a POOL
+    //   and Hide() runs Clear(), so on a watcher during a prevent-damage prompt there is no
+    //   populated subtree to clone at all. A live clone works for every prompt the game raises on
+    //   all clients and CANNOT work for the one prompt he reported. The route that does work is
+    //   cloning the bar's serialized slot PREFAB and writing record 45's icon into it.
+    // Wire: NO format change. No record added, widened or re-encoded; record 39 is only READ on a
+    //   client that already decodes it. Worst case stays 1798 against MaxSize 2100, margin 302
+    //   against the 257-byte largest single record. 46 is next free.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 479: A HARDWARE ROUND ON 478 — the first, taken hours after 478 shipped, so this build
     //   is both the answer to eight fresh reports and the first reading of the last one. Eight
     //   lanes. The shape of it: FOUR OF HIS EIGHT ITEMS WERE ONE DEFECT, and it was the same defect
