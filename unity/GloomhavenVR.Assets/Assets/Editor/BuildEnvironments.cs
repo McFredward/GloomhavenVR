@@ -3366,10 +3366,18 @@ namespace GloomhavenVR
             return g;
         }
 
-        // Night-sky dome shared by every night shell (swamp + cellar). One
-        // inward-facing sphere carrying the sky's continuous layer (gradient,
-        // Milky Way, star dust, moon — all procedural, see NIGHT SKY), plus the
-        // catalogue star geometry as its child.
+        // Night-sky dome for a night shell that is OUTDOORS. One inward-facing
+        // sphere carrying the sky's continuous layer (gradient, Milky Way, star
+        // dust, moon — all procedural, see NIGHT SKY), plus the catalogue star
+        // geometry as its child.
+        //
+        // ONE CALLER SINCE 2026-09-08: BuildForest. The cellar had one too until
+        // the user reported two star skies in one room (see the block in
+        // BuildCellar where the call was); a roofed room's sky is the patch at its
+        // window, not a dome it can only see from outside itself. The `clouds`
+        // parameter is kept rather than folded away because it still states which
+        // half of this dome is forest-only, and a third night shell would want the
+        // choice back.
         // The node NAME 'StarDome' is a CONTRACT with src/ (runtime splits shell
         // children onto sky/room branches BY NODE NAME) — never rename it.
         private static void AddNightSky(Transform parent, bool clouds)
@@ -3411,12 +3419,19 @@ namespace GloomhavenVR
             // FOREST ONLY — and this is a decision that was made the other way
             // first, then reversed by a render, which is why it is written down.
             //
-            // The argument FOR giving the cellar one too is real: it is the SAME
-            // sky (that is why the cellar has the dome at all — with the game's
-            // sphere hidden the void above the room was pure black), the moon and
+            // The argument FOR giving the cellar one too WAS real: it was the SAME
+            // sky (the cellar carried this dome because at ModBuild 129, before
+            // the room had a roof, the void above it was pure black), the moon and
             // its eclipse are shared, and a night that is hazy in the wood and
             // clear through the bars is the kind of lie this file has removed
             // everywhere else. It shipped that way for one bake.
+            //
+            // IT IS MOOT SINCE 2026-09-08: the cellar has no StarDome at all, so
+            // there is no longer a node for a cellar cloud band to hang under. The
+            // sentence below about "turning the clouds on there" therefore records
+            // how it WAS done, not a switch that still exists — the cellar's sky is
+            // now the window patch, and a haze in it would be authored on
+            // C_NightSky.mat by AddNightOutsideWindow.
             //
             // What reversed it: the user asked for clouds "im Wald", and I could
             // not show that the cellar's band does anything. The preview station's
@@ -3480,10 +3495,18 @@ namespace GloomhavenVR
         }
 
         // ================================================================== CELLAR
-        // FX shell: night-sky dome + drifting dust motes + an inactive torch-halo
-        // template. The room geometry itself comes from the game (Apparance
-        // scenario tiles). NO shooting stars / fireflies / ground fog here —
-        // those are swamp-flavor.
+        // FX shell: drifting dust motes, settling grit, and an inactive torch-halo
+        // template — AND NO NIGHT-SKY DOME since 2026-09-08 (see the block in the
+        // body: this room is roofed, and its sky is the curved NightSky patch at
+        // its window, which EnvRoomBuilder builds inside RoomGeo). NO shooting
+        // stars / fireflies / ground fog here — those are swamp-flavor.
+        //
+        // NOTE, pre-existing drift left alone because correcting it is guesswork
+        // rather than reading: the next sentence used to say "the room geometry
+        // itself comes from the game (Apparance scenario tiles)". That stopped
+        // being true in the 2026-08-13 custom-asset round — the interior is
+        // authored stone from EnvRoomBuilder.BuildCellarRoom, called at the bottom
+        // of this method.
         private static void BuildCellar()
         {
             var root = new GameObject("Env_Cellar");
@@ -3492,10 +3515,85 @@ namespace GloomhavenVR
                 var t = root.transform;
                 AddPlaySpace(t, EnvRoomBuilder.CellarPlaySpaceDia);
 
-                // ---- sky: same star dome as the swamp (user finding, ModBuild 129
-                // round — with the game's sky sphere hidden, the void above the
-                // generated room was pure black) ----
-                AddNightSky(t, clouds: false);
+                // ---- NO SKY DOME. THE CELLAR HAS EXACTLY ONE SKY AND IT IS THE
+                // ONE AT THE WINDOW. ----
+                //
+                // USER, 2026-09-08, verbatim: "Im Keller gibt es zwei
+                // Sternenhimmel — einmal der gekrümmte am Fenster und trotzdem
+                // gibt es noch eine echte Kuppel wie in der Waldumgebung. Das
+                // braucht es dort dann nicht mehr — der gekrümmte reicht."
+                //
+                // This line used to read `AddNightSky(t, clouds: false)` and its
+                // comment cited the ModBuild 129 finding: "with the game's sky
+                // sphere hidden, the void above the generated room was pure
+                // black". THAT PREMISE EXPIRED WHEN THE ROOM GREW A ROOF. At 129
+                // the "generated room" had no authored shell at all; the stone
+                // cellar arrived in the 2026-08-13 custom-asset round, and it is
+                // CLOSED on every side the eye can reach:
+                //
+                //   * the ceiling is `Env_C_Ceil.asset` — GridMeshXZ over the FULL
+                //     footprint (-hw..hw, -hd..hd) at CellarCeilY, faceDown, i.e.
+                //     opaque, depth-writing and single-sided toward the room
+                //     (BuildEnvironmentRooms.cs:5967);
+                //   * the stair alcove ends in `ShaftCap`, a black box mesh, and
+                //     the doorway is the only way out of the room (:6777) — see
+                //     TWO SLIVERS below, which is the one place this is not
+                //     exactly true;
+                //   * the window's own view is `NightSky` — the 26 m curved patch
+                //     built about the opening (:4486), which is what he calls "der
+                //     gekrümmte" and which lives under RoomGeo, so it is board-
+                //     anchored and stays welded to the window at every zoom.
+                //
+                // So the dome was never seen THROUGH the room; it was seen from
+                // OUTSIDE it, once the WorldGrab zoom's hand pivot carries the head
+                // out of the shell and the place "reads as a model standing in
+                // front of you" (SkyAlternative's THE ACCEPTED CONSEQUENCE). The
+                // walls and roof are single-sided inward, so from out there the
+                // model is a hollow lit box standing in a 45 m star dome — two
+                // skies at once, which is his report exactly.
+                //
+                // WHAT IT COSTS, STATED: from that outside-the-model pose the
+                // surround is now the head camera's [Rig] VoidColor clear, i.e.
+                // pure black, with the lit cellar model in front of you. Inside
+                // the room — every pose the player actually plays from — nothing
+                // changes at all, because nothing there ever saw the dome. If he
+                // ever asks for the far-out view to have a sky again, the answer
+                // is NOT this dome (it re-creates the two-sky report the moment he
+                // looks at the window); it is a sky the ROOM branch owns, so it
+                // scales and yaws with the shell that hides it.
+                //
+                // WHAT THIS SAVES: `StarField` is 16,808 triangles — the heaviest
+                // single node in this room (.planning/CELLAR-WINDOW-VIEW.md §1) —
+                // plus the dome shell itself and a full-screen EnvStars fragment
+                // program that was being drawn behind an opaque roof. The meshes
+                // and materials stay in the bundle because Env_Swamp still uses
+                // every one of them; PruneUnreferenced therefore removes nothing
+                // and the bundle does not shrink by their bytes, only the cellar's
+                // per-frame cost falls.
+                //
+                // TWO SLIVERS, FOUND WHILE PROVING THE SHELL CLOSED, AND NOT FIXED
+                // HERE. The stair alcove is authored from the UNSNAPPED
+                // `StairHole` while the wall around it is cut to the SNAPPED one
+                // (BuildEnvironmentRooms.cs:5866 snaps, :6761/:6770/:6777 do not),
+                // and `BuildShaft` gives the shaft two side walls and a ceiling but
+                // NO FLOOR (:11411). That leaves 42.1 mm of cut wall with nothing
+                // behind it down the south jamb, and a 50 mm strip beside the
+                // bottom step with no floor under it. Both are slivers of roughly
+                // 0.2° at a dark unlit jamb, and both were showing the DOME before
+                // this change, because EnvStars draws at Queue Background+5 — ahead
+                // of the opaque room — and therefore survives on exactly the pixels
+                // the room fails to write depth to.
+                //
+                // They now show the [Rig] VoidColor clear instead, which at that
+                // size and that jamb is a non-event either way. They are recorded
+                // rather than fixed because the fix is in another file and another
+                // lane's remit (snap the shaft/cap/steps like :5866 already does,
+                // and give BuildShaft a floor) and because a geometry change to the
+                // doorway is not the one change this round was asked for. Filed
+                // with the arithmetic in NEEDED-OUTSIDE-cellar-one-sky.md.
+                //
+                // The forest keeps its dome and its cloud band: it is outdoors and
+                // the dome IS its sky. Nothing about BuildForest changed.
 
                 // Drifting dust motes in the candlelight (world-space room volume).
                 // ModBuild 135: they now DRIFT, along the same bearing the candle

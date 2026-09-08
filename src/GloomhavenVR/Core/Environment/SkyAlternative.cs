@@ -178,11 +178,16 @@ internal enum SkyStyle
 ///  2. SPAWNS the environment prefab from the mod's asset bundle and SPLITS its children over
 ///     two roots by NODE NAME (the content lane authors against that fixed contract — see
 ///     <c>unity/GloomhavenVR.Assets/Assets/Editor/BuildEnvironmentRooms.cs</c>, which states
-///     the same contract from its side): <c>Env_Cellar</c> = StarDome + DustMotes + a disabled
-///     'GlowTemplate' child + a 'RoomGeo' stone room; <c>Env_Swamp</c> = StarDome +
+///     the same contract from its side): <c>Env_Cellar</c> = DustMotes + DustFall + a disabled
+///     'GlowTemplate' child + a 'RoomGeo' stone room — AND NO StarDome SINCE 2026-09-08, because
+///     a roofed room's sky is the curved 'NightSky' patch at its window (which lives INSIDE
+///     RoomGeo and therefore rides the room branch); <c>Env_Swamp</c> = StarDome +
 ///     ShootingStars + GroundFog + GroundFogFar + two Fireflies swarms + a 'RoomGeo' marsh
 ///     clearing. Self-lit, self-animating (Shuriken and shader time only, no scripts),
-///     authored in real meters with the room floor at local y = 0.
+///     authored in real meters with the room floor at local y = 0. A shell with NOTHING on its
+///     sky branch is legal and needs no guard: the split is an allow-list of ROOM names, the two
+///     branch roots are this class's own objects, and the sky far-plane budget is a constant
+///     (see <see cref="MinFarWorldUnits"/>) rather than a measurement of the dome.
 ///
 /// The game's own scenario diorama/table stays untouched and visible — the environment
 /// surrounds it. Everything lives on the MOD LAYER (only the rig head camera renders it; game
@@ -559,6 +564,14 @@ internal static class SkyAlternative
     {
         "RoomGeo", "GroundFog", "GroundFogFar", "Fireflies",
     };
+
+    /// <summary>The sky-branch dome node, for the <c>ENV SKY BRANCH</c> report line ONLY — nothing
+    /// in this class routes, anchors or measures by it, and the split above is an allow-list of ROOM
+    /// names, so an environment without this node needs no code change. It is named here because the
+    /// bake stopped putting one in <c>Env_Cellar</c> on 2026-09-08 (the user's "zwei Sternenhimmel"
+    /// report) and a bundle-only change is otherwise INVISIBLE in a log: this is the one field that
+    /// distinguishes an installed old bundle from an installed new one.</summary>
+    private const string SkyDomeNodeName = "StarDome";
 
     /// <summary>Bundle paths of the environment prefabs, indexed by <see cref="SkyStyle"/>. A
     /// null slot means the style OWNS NO ASSET and must never touch the bundle — Default (the
@@ -1301,6 +1314,40 @@ internal static class SkyAlternative
         bool placed = TryPlaceRoom(anchor, "spawn");
         if (!placed)
             _roomGo.SetActive(false);
+
+        // WHICH SKY THIS BUNDLE'S SHELL ACTUALLY CARRIES — one Note per spawn, at the SHIPPED log
+        // level, because the line below is Info and Info has been under the default level since
+        // ModBuild 331.
+        //
+        // USER, 2026-09-08: "Im Keller gibt es zwei Sternenhimmel — einmal der gekrümmte am Fenster
+        // und trotzdem gibt es noch eine echte Kuppel wie in der Waldumgebung. Das braucht es dort
+        // dann nicht mehr — der gekrümmte reicht." The fix is a BAKE change (BuildEnvironments's
+        // BuildCellar no longer calls AddNightSky), so the plugin binary is identical either way and
+        // NOTHING in a log could tell an installed old bundle from an installed new one. This line
+        // can: it reports the fact the fix is about, read off the live shell.
+        //
+        // NO RUNTIME GUARD IS ADDED WITH IT, and that was checked rather than assumed. A shell whose
+        // sky branch holds no dome needs none:
+        //   * the SPLIT is an allow-list of ROOM node names, so a missing sky node cannot mis-route
+        //     anything — the sky branch simply gets one fewer child (Cellar keeps DustMotes,
+        //     DustFall and the disabled GlowTemplate);
+        //   * _skyGo is OUR root, created above and never the prefab's, so it exists whatever the
+        //     shell contains and MinFarWorldUnits's `_skyGo == null && _roomGo == null` idle gate
+        //     cannot be tripped by the dome's absence;
+        //   * the SKY far-plane budget is the CONSTANT EnvMinFarMeters (100 m) × rig scale, not a
+        //     measurement of the farthest authored sky geometry — nothing reads the dome's radius —
+        //     and the ROOM budget is MeasureAuthoredRoomExtent over the ROOM branch, which the dome
+        //     was never part of. The budget is therefore bit-identical with and without it;
+        //   * no site in src/ resolves 'StarDome' by name (PlaceSky, HealScaleDrift and
+        //     NotifyRigScaled all write the branch ROOT's transform).
+        // The one thing that does break is editor-side and out of this lane's file set: the cellar
+        // frames in Assets/Editor/PreviewClouds.cs dereference Find("StarDome") unguarded.
+        VRLog.Note("Core", $"ENV SKY BRANCH: '{prefab.name}' kept {shell.transform.childCount} node(s) on " +
+                           $"the sky frame after the split; a 'StarDome' is " +
+                           $"{(shell.transform.Find(SkyDomeNodeName) != null ? "PRESENT" : "ABSENT")}. " +
+                           "The cellar is expected to read ABSENT since 2026-09-08 (one sky, the curved " +
+                           "patch at the window); the forest is expected to read PRESENT. A cellar that " +
+                           "reads PRESENT is an OLD BUNDLE against a new plugin, not a code fault.");
 
         VRLog.Info("Core", $"Sky alternative: environment '{prefab.name}' spawned and SPLIT over the two " +
                            $"branches — {rehomed} board-anchored node(s) onto the world-fixed room frame, " +

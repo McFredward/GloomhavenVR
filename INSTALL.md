@@ -19,7 +19,6 @@ It comes down to two archives into the game folder, and takes about five minutes
 | **Game** | Gloomhaven (digital) for PC, v1.1.x — Steam or GOG |
 | **PC** | Windows, a PC-VR headset, two tracked controllers with thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — step 1 installs it, once |
-| **Space** | Room-scale. A small room is fine. |
 
 > **This is a PC-VR mod.** The game runs on your PC and you stream or tether the headset to it, like
 > any other PC-VR title. Developed and played on a **Quest 3 over Virtual Desktop**.

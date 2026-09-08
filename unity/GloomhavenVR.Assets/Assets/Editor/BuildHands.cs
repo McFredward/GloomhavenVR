@@ -109,12 +109,26 @@ namespace GloomhavenVR
         // upscaled. It also arrives with its UV islands DILATED into the background instead of
         // sitting on black, which is what stops an island's edge from bleeding void into itself at
         // the lower mips — the reason to take this delivery even where the pixels look the same.
+        //
+        // normalStrength: BoardLit's _NormalStrength, which scales the sampled normal's XY
+        // (BoardLit.shader:118). 1.0 is "as authored" and is the shader's default, so a set that
+        // wants it pays nothing for saying so. THE LEATHER GLOVE SHIPS 0.5, on his hardware note
+        // of 2026-09-08: "bitte verringe die Stärke der normal-map auf die Hälfte, die Finger
+        // sehen so zerknittert aus sonst." The map is fine; the viewing distance is the point. A
+        // hand is read at arm's length in a headset, and at that distance the baked leather
+        // creases stop being leather and start being wrinkled skin. It is a property of THIS
+        // delivery at THAT distance, which is why it is a per-set number here and not a dial:
+        // the same texture is wrong by the same factor for every player, and a hand's look is
+        // mirrored onto every peer (Net.Remote.RemoteAvatar builds a peer's hands through the
+        // same HandVisuals.Build), so a viewer-local dial here would be a 1:1 breach.
+        // The plate and arcane sets are untouched: their maps were authored against their own
+        // surfaces and neither was reported.
         private static readonly (string baseName, string albedo, string normal, string mrs,
-                                 bool doubleSided)[] HandSets =
+                                 bool doubleSided, float normalStrength)[] HandSets =
         {
-            ("VRHand",       Hands + "/VRHand_albedo.png",       Hands + "/VRHand_normal.png",       null,                           false),
-            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  Hands + "/VRHandPlate_normal.png",  Hands + "/VRHandPlate_mrs.png", false),
-            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", Hands + "/VRHandArcane_normal.png", null,                           false),
+            ("VRHand",       Hands + "/VRHand_albedo.png",       Hands + "/VRHand_normal.png",       null,                           false, 0.5f),
+            ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  Hands + "/VRHandPlate_normal.png",  Hands + "/VRHandPlate_mrs.png", false, 1.0f),
+            ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", Hands + "/VRHandArcane_normal.png", null,                           false, 1.0f),
         };
 
         // Every transform name the mod's HandVisuals.MapPrefabRig resolves by name.
@@ -134,10 +148,10 @@ namespace GloomhavenVR
             {
                 AssetDatabase.Refresh();
                 foreach ((string baseName, string albedo, string normal, string mrs,
-                          bool doubleSided) in HandSets)
+                          bool doubleSided, float normalStrength) in HandSets)
                 {
-                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo, normal, mrs, doubleSided);
-                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo, normal, mrs, doubleSided);
+                    BuildHand($"{baseName}_L_rig.fbx", $"{baseName}_L", albedo, normal, mrs, doubleSided, normalStrength);
+                    BuildHand($"{baseName}_R_rig.fbx", $"{baseName}_R", albedo, normal, mrs, doubleSided, normalStrength);
                 }
                 AssetsBuilder.BuildAll(); // exits the editor (0/1)
             }
@@ -150,13 +164,15 @@ namespace GloomhavenVR
         }
 
         private static void BuildHand(string fbxName, string rootName, string albedoPath,
-                                      string normalPath, string mrsPath, bool doubleSided)
+                                      string normalPath, string mrsPath, bool doubleSided,
+                                      float normalStrength)
         {
             string fbx = $"{Hands}/{fbxName}";
             Debug.Log($"[GloomhavenVR] === building {rootName} from {fbx} ===");
 
             ImportModel(fbx);
-            Material mat = BuildMaterial(rootName, albedoPath, normalPath, mrsPath, doubleSided);
+            Material mat = BuildMaterial(rootName, albedoPath, normalPath, mrsPath, doubleSided,
+                                         normalStrength);
             AssemblePrefab(fbx, rootName, mat);
         }
 
@@ -234,7 +250,7 @@ namespace GloomhavenVR
         }
 
         private static Material BuildMaterial(string rootName, string albedoPath, string normalPath,
-                                              string mrsPath, bool doubleSided)
+                                              string mrsPath, bool doubleSided, float normalStrength)
         {
             Shader shader = Shader.Find(ShaderName)
                             ?? throw new System.Exception($"Bundled shader '{ShaderName}' not found (compile error?).");
@@ -266,6 +282,12 @@ namespace GloomhavenVR
             var mat = new Material(shader) { name = rootName };
             if (albedo != null) mat.SetTexture("_MainTex", albedo);
             if (normal != null) mat.SetTexture("_BumpMap", normal);
+            // Written ONLY when the set asks for something other than the shader's 1.0, so a set
+            // at "as authored" produces a material byte-identical to every build before this
+            // parameter existed — the same opt-in shape _SpecStrength uses above. See HandSets
+            // for why the glove is 0.5 and why it is not a dial.
+            if (!Mathf.Approximately(normalStrength, 1f))
+                mat.SetFloat("_NormalStrength", normalStrength);
             // SPECULAR IS OPT-IN, AND THE OPT-IN IS THE MAP (ModBuild 248). A set that delivers
             // no metallic/roughness pack leaves _SpecStrength at BoardLit's 0 default, where the
             // shader's specular branch does not execute at all — so the leather glove, the arcane
@@ -288,6 +310,7 @@ namespace GloomhavenVR
             Debug.Log($"[GloomhavenVR] material written: {matPath} "
                       + $"(albedo={(albedo ? "yes" : "none")}, normal={(normal ? "yes" : "flat")}, "
                       + $"specular={(mrs ? "metallic/roughness pack" : "off")}, "
+                      + $"normalStrength={normalStrength:0.00}, "
                       + $"cull={(doubleSided ? "Off" : "Back")})");
             return mat;
         }

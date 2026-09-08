@@ -448,7 +448,74 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 482;
+    public const ushort ModBuild = 483;
+    // Build 483: FULL INSTALL — THE BUNDLE CHANGED, 74,943,671 -> 74,943,763 bytes, the first
+    //   bundle change since ModBuild 368. Every drop from 369 to 482 was DLL-only; this one is
+    //   not, and a DLL-only install shows NEITHER of the two changes below.
+    //
+    //   TWO HARDWARE NOTES OF HIS, both taken the clean way because he ruled that way:
+    //   "Es macht mir nichts aus, dass ob das bundle dafuer neu gebaut werden muss - lieber sauber."
+    //
+    //   1. THE CELLAR HAD TWO STAR SKIES. "Im Keller gibt es zwei Sternenhimmel - einmal der
+    //      gekruemmte am Fenster und trotzdem gibt es noch eine echte Kuppel wie in der
+    //      Waldumgebung. Das braucht es dort dann nicht mehr - der gekruemmte reicht."
+    //      BuildCellar no longer calls AddNightSky, so Env_Cellar carries no StarDome/StarField at
+    //      all - 16,808 triangles, the heaviest single node in that room, gone rather than hidden.
+    //      The forest keeps its dome untouched.
+    //
+    //      THE PREMISE ON THE DELETED LINE HAD EXPIRED, and the lane proved that rather than
+    //      repeating it. That line cited ModBuild 129 - "with the game's sky sphere hidden, the
+    //      void above the generated room was pure black" - but at 129 the cellar was an authored
+    //      game map with no shell of its own. The stone room arrived 2026-08-13 with a ceiling
+    //      closed over the full footprint, a capped stair shaft and capped rat holes. From inside
+    //      the room the dome was not visible at all.
+    //
+    //      WHERE HE SAW IT, AND WHAT IS BLACK NOW: from OUTSIDE the shell, i.e. once the WorldGrab
+    //      zoom carries the head out and the place reads as a model standing in front of you. The
+    //      walls and roof are single-sided inward, so from there the cellar is a hollow lit box
+    //      that used to stand inside a 45 m dome - two skies at once, which is exactly what he
+    //      reported. With the dome gone that surround is the [Rig] VoidColor clear, i.e. BLACK.
+    //      Inside the room nothing changes. This is NAMED rather than compensated for: a black
+    //      surround at zoom-out is a consequence of his instruction, not a defect, and he should
+    //      judge it with the fact in front of him.
+    //
+    //      TWO GENUINE HOLES WERE FOUND WHILE PROVING THAT, and neither is this lane's to fix: the
+    //      stair alcove is placed from the UNSNAPPED hole while the wall is cut to the SNAPPED one
+    //      (a >= 24 mm slot down the south jamb, guaranteed by the forced "missing" stone), and
+    //      BuildShaft has no floor (a 50 mm strip beside the bottom step). Each is ~0.2 x 2 degrees
+    //      at a dark unlit jamb; they showed the dome before and show black now. Filed with the
+    //      arithmetic in NEEDED-OUTSIDE-cellar-one-sky.md.
+    //
+    //      NO RUNTIME GUARD WAS NEEDED, and that was checked rather than assumed: the far-plane
+    //      budget's sky term is a compiled CONSTANT (EnvMinFarMeters), not a measurement of the
+    //      farthest authored sky geometry as my brief claimed; the shell split is an allow-list of
+    //      ROOM names, so a missing sky child mis-routes nothing; and no src/ site resolves
+    //      "StarDome" by name. New line ENV SKY BRANCH (Note) reports which sky the LIVE shell
+    //      carries - a cellar reading PRESENT means an OLD BUNDLE against this plugin, and the line
+    //      says so in those words. Without it a bake-only change is invisible in any log.
+    //
+    //   2. THE LEATHER GLOVE'S NORMAL MAP IS HALVED, baked. "Bei den 'glove' Haenden - bitte
+    //      verringe die Staerke der normal-map auf die Haelfte, die Finger sehen so zerknittert aus
+    //      sonst." HandSets grew a normalStrength column: the glove ships 0.5, plate and arcane
+    //      stay at the shader's 1.0. The value is written into the material ONLY when it differs
+    //      from 1.0 - the same opt-in shape _SpecStrength already used - so the two untouched sets
+    //      keep the material they had. A runtime write was built first and then DELETED when he
+    //      ruled for the bundle: the number now lives where the material is authored, and there is
+    //      deliberately NO log line for it, because nothing at runtime decides it any more.
+    //
+    //      WHY A CONSTANT AND NOT A DIAL: the same texture at the same viewing distance is wrong by
+    //      the same factor for everybody, and a peer's hands are built by the very same
+    //      HandVisuals.Build, so a viewer-local dial here would be the 1:1 breach this project has
+    //      a standing ruling against. As a constant it is the owner's value and the mirror's at
+    //      once. To move it: the glove row of HandSets, and another bundle build.
+    //
+    //   REGENERATION CHURN, DISCLOSED: running the two asset generators also re-serialised
+    //   Env_Swamp.prefab (node names identical; the diff is particle-curve serialisation) and added
+    //   four shader-default properties to the other four hand materials (_SrcBlend 1, _DstBlend 0,
+    //   _ZWrite 1, _FadeAlpha 1 - the opaque state they already had). Neither changes a value.
+    //
+    //   README/INSTALL, his note the same day: the "Space"/"Platz" row is out of both requirement
+    //   tables, English and German.
     // Build 482: THE FOUR RULINGS HE GAVE ON 481's DEFERRED LIST, built one lane each. Each was
     //   deferred because it needed a decision rather than a refactor; he made all four.
     //

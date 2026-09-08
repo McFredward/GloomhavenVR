@@ -19,7 +19,6 @@ Es läuft auf zwei Archive in den Spielordner hinaus und dauert etwa fünf Minut
 | **Spiel** | Gloomhaven (digital) für den PC, v1.1.x — Steam oder GOG |
 | **PC** | Windows, ein PC-VR-Headset, zwei getrackte Controller mit Thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — Schritt 1 installiert ihn, einmalig |
-| **Platz** | Room-Scale. Wenig Platz reicht. |
 
 > **Das ist eine PC-VR-Mod.** Das Spiel läuft auf deinem PC, und du streamst das Headset dorthin oder
 > hängst es per Kabel an — wie bei jedem anderen PC-VR-Titel. Entwickelt und gespielt auf einer

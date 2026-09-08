@@ -340,3 +340,72 @@ written down at `CanvasConversion.BehindPanelOrderOffset` and at the registratio
 future report about a peer's name tag flickering against a dissolving window has somewhere to
 land. If he ever does see the name tag and the debris trade places, that is the tie and the note
 names it.
+
+## integrator — the glove's normal map (BAKED, needs the new bundle)
+
+| what | what he should see | how to tell it ran |
+|---|---|---|
+| the leather glove's `_NormalStrength` baked at 0.50 instead of the shader's 1.00 | the fingers stop reading as WRINKLED at arm's length; the leather's shape is still there, its micro-creases are half as deep. Plate and arcane hands unchanged. A peer's mirrored hands change with his own, because both are built by the same method | there is NO log line, and that is deliberate: the value is in the material, so nothing at runtime decides it. The proof is the picture and the bundle's new byte size |
+
+**THIS NEEDS THE NEW BUNDLE.** He ruled on it in those words — *"Es macht mir nichts aus, dass ob
+das bundle dafür neu gebaut werden muss - lieber sauber"* — so the number lives where the material
+is authored (`BuildHands.HandSets`) rather than being corrected at load. A DLL-only drop will NOT
+show this change. If it is still too strong, or now too flat, the number to move is the
+`normalStrength` column of the glove row in `HandSets`, and it needs another bundle build.
+
+## cellar-one-sky
+
+**T3 — the cellar has ONE star sky now: the curved patch at the window. The 45 m dome is gone.**
+
+*His finding, verbatim (2026-09-08):* "Im Keller gibt es zwei Sternenhimmel — einmal der gekrümmte
+am Fenster und trotzdem gibt es noch eine echte Kuppel wie in der Waldumgebung. Das braucht es dort
+dann nicht mehr — der gekrümmte reicht."
+
+`BuildEnvironments.BuildCellar` no longer calls `AddNightSky`, so `Env_Cellar` carries no `StarDome`
+and no `StarField` (16,808 triangles, the heaviest single node in that room). The forest is
+untouched — it is outdoors and the dome IS its sky.
+
+**THIS IS A FULL INSTALL, NOT A DLL DROP.** The fix is in the asset bundle. Every build since
+ModBuild 368 has been DLL-only; this one is not. He must install the rebuilt `~75 MB` bundle as well
+as the plugin, and the bundle rebuild is OWED — this lane changed the bake source only; the
+integrator runs `scripts/build-bundles.sh` once (Unity **`/home/claw/unity-2021.3.5`**, never
+`unity-2021.3`) and `scripts/check-bundle-format.sh` once over the result.
+
+*What to do:* `[Rig] Sky Style = Cellar`, in a scenario. Play normally first — stand in the room,
+look at the barred window, look up at the plank ceiling and the beams. Then **zoom far out with the
+world grab** until the cellar reads as a model in front of you, and look around.
+
+*What he should observe:*
+- **Inside the room: nothing different, anywhere.** The window's curved sky, its wood, the moon
+  beam, the candles, the dust and the ceiling are identical. This is the whole point — the shell is
+  closed (`Env_C_Ceil` spans the full footprint face-down; the stair alcove ends in a black
+  `ShaftCap`; the rat holes are capped pockets; the window is fully covered by the derived 26 m
+  patch), so nothing inside the cellar saw the dome.
+  **With two millimetre-scale exceptions, stated because they were measured and not guessed:** the
+  stair alcove is built from the UNSNAPPED hole while the wall is cut to the snapped one, which
+  leaves a ≥24 mm slot down the doorway's south jamb and a 50 mm strip beside the bottom step. Those
+  slivers — about 0.2° × 2° each, at the dark south jamb of an unlit doorway — showed the dome
+  before this build and show the black `[Rig] VoidColor` clear after it. Black on black at that size
+  is a non-event; **if he notices anything at all at that doorway, it is this and it is a pre-existing
+  hole in the shell, not the sky change.** Filed with the arithmetic and a proposed fix in
+  `NEEDED-OUTSIDE-cellar-one-sky.md` §3.
+- **Zoomed far out, standing outside the model: the surround is now PURE BLACK** — the lit cellar
+  box floating in the `[Rig] VoidColor` clear, with no stars around it. That is the second sky
+  going away and it is stated rather than compensated: it is the only pose from which the dome was
+  ever visible. If he wants stars back in that view, the answer is NOT this dome (it re-creates the
+  two-sky report the instant he looks at the window) — it is a sky the ROOM branch owns, so it
+  scales and yaws with the shell that hides it.
+- **The forest is unchanged:** dome, cloud band, moon, shooting stars, all as before.
+
+*The log token that proves it ran:* **`ENV SKY BRANCH`**, one `Note` per environment spawn.
+- Cellar must read **`a 'StarDome' is ABSENT`**.
+- SwampNight must read **`a 'StarDome' is PRESENT`**.
+
+A cellar line reading `PRESENT` is the diagnosis, not a mystery: it means the **old bundle** is still
+installed against the new plugin — the line says so in those words. That is the only way a bake-only
+change can be read off a log at all, which is why the line exists.
+
+*If it is wrong:* the failure to watch for is the window's own sky changing — it must not. The
+curved patch is `NightSky`, built under `RoomGeo` (`BuildEnvironmentRooms.cs:4486`), so it rides the
+board-anchored room branch and was never part of what was removed. If the view through the bars
+changed, something took the wrong node and this commit is the suspect.
