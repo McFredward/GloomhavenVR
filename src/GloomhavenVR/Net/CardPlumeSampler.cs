@@ -13,15 +13,16 @@ internal static class CardPlumeSampler
     private static readonly List<BurnCardFx> s_live = new();
     private static readonly List<CardPlumeState> s_states = new();
     private static readonly List<ItemsPile.ItemChip> s_items = new();
-    private static readonly Dictionary<ParticleSystem, (float Age, uint Episode)> s_itemEpisodes = new();
-    private static readonly HashSet<ParticleSystem> s_liveItems = new();
-    private static readonly List<ParticleSystem> s_pruneItems = new();
+    private static readonly Dictionary<ParticleSystem, NativeSmokeActivation> s_activations = new();
+    private static readonly HashSet<ParticleSystem> s_seenEmitters = new();
+    private static readonly List<ParticleSystem> s_pruneEmitters = new();
     private static CardPlumeState[] s_previous = Array.Empty<CardPlumeState>();
     private static bool s_missingAddressLogged;
 
     internal static CardPlumeState[] Sample()
     {
         s_states.Clear();
+        s_seenEmitters.Clear();
         Transform? board = PlayTray.Current?.Root;
         if (board != null)
         {
@@ -62,10 +63,9 @@ internal static class CardPlumeSampler
                     if (emitter == null || !emitter.gameObject.activeInHierarchy
                         || (!emitter.isPlaying && !emitter.isPaused && !emitter.IsAlive(false))) continue;
                     if (j > byte.MaxValue) throw new InvalidOperationException("Native ability emitter index exceeds wire domain.");
-                    Add(board, actor, code, count, (byte)j, binding.Episode, emitter);
+                    Add(board, actor, code, count, (byte)j, emitter);
                 }
             }
-            s_liveItems.Clear();
             ItemsPile.ItemChip.CopySmokeChips(s_items);
             for (int i = 0; i < s_items.Count; i++)
             {
@@ -82,17 +82,18 @@ internal static class CardPlumeSampler
                     if (smoke == null || !smoke.gameObject.activeInHierarchy
                         || (!smoke.isPlaying && !smoke.isPaused && !smoke.IsAlive(false))) continue;
                     if (j > byte.MaxValue) throw new InvalidOperationException("Native item emitter index exceeds wire domain.");
-                    s_liveItems.Add(smoke);
-                    if (!s_itemEpisodes.TryGetValue(smoke, out var episode) || smoke.time < episode.Age)
-                        episode = (smoke.time, BurnCardFx.NextEpisode());
-                    s_itemEpisodes[smoke] = (smoke.time, episode.Episode);
-                    Add(board, actor!, code, (byte)items.Count, (byte)j, episode.Episode, smoke);
+                    Add(board, actor!, code, (byte)items.Count, (byte)j, smoke);
                 }
             }
-            s_pruneItems.Clear();
-            foreach (ParticleSystem smoke in s_itemEpisodes.Keys)
-                if (!s_liveItems.Contains(smoke)) s_pruneItems.Add(smoke);
-            for (int i = 0; i < s_pruneItems.Count; i++) s_itemEpisodes.Remove(s_pruneItems[i]);
+        }
+        s_pruneEmitters.Clear();
+        foreach (ParticleSystem smoke in s_activations.Keys)
+            if (!s_seenEmitters.Contains(smoke)) s_pruneEmitters.Add(smoke);
+        for (int i = 0; i < s_pruneEmitters.Count; i++)
+        {
+            NativeSmokeActivation activation = s_activations[s_pruneEmitters[i]];
+            if (activation != null) UnityEngine.Object.Destroy(activation);
+            s_activations.Remove(s_pruneEmitters[i]);
         }
         // Registry iteration order is not a wire identity. Stable ordering permits a true
         // unchanged snapshot to reuse its immutable array after all native reads have completed.
@@ -107,17 +108,23 @@ internal static class CardPlumeSampler
     }
 
     private static void Add(Transform board, CPlayerActor actor, byte code, byte count,
-        byte emitter, uint episode, ParticleSystem smoke)
+        byte emitter, ParticleSystem smoke)
     {
         ParticleSystem.MainModule main = smoke.main;
         Vector3 boardScale = board.lossyScale;
         Vector3 smokeScale = smoke.transform.lossyScale;
         if (Mathf.Abs(boardScale.x) < 1e-6f || Mathf.Abs(boardScale.y) < 1e-6f
             || Mathf.Abs(boardScale.z) < 1e-6f) return;
+        s_seenEmitters.Add(smoke);
+        if (!s_activations.TryGetValue(smoke, out NativeSmokeActivation? activation) || activation == null)
+        {
+            activation = smoke.gameObject.AddComponent<NativeSmokeActivation>();
+            s_activations[smoke] = activation;
+        }
         var state = new CardPlumeState
         {
             ActorId = NetFigures.StableActorId(actor), FaceCode = code, ListCount = count,
-            EmitterIndex = emitter, Episode = episode, RandomSeed = smoke.randomSeed, Age = smoke.time,
+            EmitterIndex = emitter, Episode = activation.Episode, RandomSeed = smoke.randomSeed, Age = smoke.time,
             StartSizeMultiplier = main.startSizeMultiplier, StartSpeedMultiplier = main.startSpeedMultiplier,
             PlaybackRate = !smoke.isPaused && (smoke.isPlaying || smoke.IsAlive(false))
                 ? main.simulationSpeed * (main.useUnscaledTime ? 1f : Time.timeScale) : 0f,
@@ -129,6 +136,7 @@ internal static class CardPlumeSampler
             Color = main.startColor.color,
             LocalPosition = board.InverseTransformPoint(smoke.transform.position),
             LocalRotation = Quaternion.Inverse(board.rotation) * smoke.transform.rotation,
+            EmitterLocalScale = smoke.transform.localScale,
             LocalScale = new Vector3(smokeScale.x / boardScale.x,
                 smokeScale.y / boardScale.y, smokeScale.z / boardScale.z),
         };
@@ -151,11 +159,21 @@ internal static class CardPlumeSampler
     {
         s_live.Clear();
         s_items.Clear();
-        s_itemEpisodes.Clear();
-        s_liveItems.Clear();
-        s_pruneItems.Clear();
+        foreach (NativeSmokeActivation activation in s_activations.Values)
+            if (activation != null) UnityEngine.Object.Destroy(activation);
+        s_activations.Clear();
+        s_seenEmitters.Clear();
+        s_pruneEmitters.Clear();
         s_states.Clear();
         s_previous = Array.Empty<CardPlumeState>();
         s_missingAddressLogged = false;
     }
+}
+
+/// <summary>Tracks actual native activation, including pooled disable/re-enable between samples.
+/// ParticleSystem.time wraps at duration; a loop is never a new activation or a reason to clear.</summary>
+internal sealed class NativeSmokeActivation : MonoBehaviour
+{
+    internal uint Episode { get; private set; }
+    private void OnEnable() => Episode = BurnCardFx.NextEpisode();
 }

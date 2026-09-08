@@ -105,7 +105,23 @@ internal sealed class RemoteCardPlume
         t.SetPositionAndRotation(boardPosition + boardRotation
             * (Vector3.Lerp(previous.LocalPosition, state.LocalPosition, progress) * boardScale),
             boardRotation * Quaternion.Slerp(previous.LocalRotation, state.LocalRotation, progress));
-        t.localScale = Vector3.Lerp(previous.LocalScale, state.LocalScale, progress) * boardScale;
+        Vector3 worldScale = Vector3.Lerp(previous.LocalScale, state.LocalScale, progress) * boardScale;
+        bool localScaling = (state.Flags >> 6) == (int)ParticleSystemScalingMode.Local;
+        if (localScaling)
+        {
+            float scaleProgress = (previous.Flags >> 6) == (int)ParticleSystemScalingMode.Local ? progress : 1f;
+            Vector3 emitterScale = Vector3.Lerp(previous.EmitterLocalScale, state.EmitterLocalScale, scaleProgress);
+            host.Smoke.transform.localScale = emitterScale;
+            // Local mode deliberately ignores parent scaling for particle size. The bridge
+            // retains the sampled world transform while this child retains its actual local scale.
+            t.localScale = new Vector3(ParentScale(worldScale.x, emitterScale.x),
+                ParentScale(worldScale.y, emitterScale.y), ParentScale(worldScale.z, emitterScale.z));
+        }
+        else
+        {
+            host.Smoke.transform.localScale = Vector3.one;
+            t.localScale = worldScale;
+        }
         if (state.CustomSpacePresent)
         {
             if (host.CustomSpace == null)
@@ -126,6 +142,8 @@ internal sealed class RemoteCardPlume
         main.customSimulationSpace = host.CustomSpace;
     }
 
+    private static float ParentScale(float world, float local) => Mathf.Abs(local) > 1e-20f ? world / local : 1f;
+
     private void Apply(Host host, CardPlumeState state, float sampleTime)
     {
         ParticleSystem smoke = host.Smoke;
@@ -142,8 +160,8 @@ internal sealed class RemoteCardPlume
         }
         else if (newSample)
         {
-            // Correct emission playback without clearing already living particles or reseeding
-            // the native random stream on every network frame.
+            // Correct the native duration-relative clock without clearing living particles.
+            // A lower age is an ordinary loop wrap, not a new episode or random stream.
             smoke.time = state.Age;
             host.NativeAge = state.Age;
         }
@@ -206,8 +224,13 @@ internal sealed class RemoteCardPlume
                 return null;
             }
 
-            VRLayers.Apply(root);
-            return new Host { Root = root, Smoke = smoke, AuthoredEmission = smoke.emission.enabled };
+            var bridge = new GameObject("GloomhavenVR.RemoteCardPlumeFrame");
+            root.transform.SetParent(bridge.transform, worldPositionStays: false);
+            root.transform.localPosition = Vector3.zero;
+            root.transform.localRotation = Quaternion.identity;
+            root.transform.localScale = Vector3.one;
+            VRLayers.Apply(bridge);
+            return new Host { Root = bridge, Smoke = smoke, AuthoredEmission = smoke.emission.enabled };
         }
         catch (Exception e)
         {
@@ -258,6 +281,8 @@ internal sealed class RemoteCardPlume
         // Each sampled ordinal owns exactly one emitter. Keeping its descendant systems would
         // duplicate their particles when their own entries render, even if this copy is a child
         // of the originally serialized particle subtree.
+        NativeSmokeActivation[] observers = clone.GetComponentsInChildren<NativeSmokeActivation>(true);
+        for (int i = 0; i < observers.Length; i++) Object.DestroyImmediate(observers[i]);
         ParticleSystem[] all = clone.GetComponentsInChildren<ParticleSystem>(true);
         for (int i = all.Length - 1; i > 0; i--)
         {

@@ -136,3 +136,22 @@ recorded as a green full-suite run. The renderer reuses `UseBarAnimationPlayback
 clock, underflow and discontinuity vectors run in that suite. Native particle simulation and rendering
 remain hardware checks, including first observation during a live plume, StopEmitting, moving boards,
 custom simulation frames and card flight handover. No game data or game-owned network state changed.
+
+Final plume correction: Unity documents `ParticleSystem.time` as playback time within the current
+loop, not elapsed time since the effect was enabled
+([Unity 2022.1 API](https://docs.unity3d.com/ja/2022.1/ScriptReference/ParticleSystem-time.html)).
+The item sampler previously treated a lower sampled time as a new episode, incorrectly clearing
+living particles on every loop. A mod-owned activation observer now names actual enable/pool-reuse
+boundaries for both ability and item emitters, including disable/re-enable between sampler frames.
+Ordinary wrapped ages only correct the native clock and preserve existing particles/random state.
+Observers are removed with their sampled hosts or on reset, and stripped from remote prefab copies.
+The earlier concern that a looping plume's age necessarily accumulated minutes was unfounded;
+no total-elapsed-age warm-up defect is claimed and no arbitrary age clamp was added.
+
+ScalingMode.Local child emitters additionally retain their actual emitter-local scale on the wire.
+An owned parent bridge supplies the remaining world transform, so detaching a native child no longer
+mistakes inherited parent scale for the local scale that this particle scaling mode explicitly uses.
+Hierarchy and Shape modes retain the sampled world transform. Root owns the conditional codec field
+and pending-frame history regressions. The final sampler/renderer build succeeds with zero warnings
+and zero errors against that DTO; particle pixels and native activation callbacks still require runtime
+verification.
