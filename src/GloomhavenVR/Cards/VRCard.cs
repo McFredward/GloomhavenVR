@@ -2141,7 +2141,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         _face.Maintain();
         // Parent enable/disable can cancel the native pulse between rebuilds. Reassert
         // only the active-column look here; the shared driver leaves a live tween alone.
-        if (_activeHighlightTop || _activeHighlightBottom)
+        if (_face.IsAdopted && (_activeHighlightTop || _activeHighlightBottom))
             SetActionHighlight(_activeHighlightTop, _activeHighlightBottom);
         // Bug #2: if Maintain YIELDED the face to a game dialog (it now belongs to the game
         // again), drop our per-instance material overrides so the game's face renders normally.

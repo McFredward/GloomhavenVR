@@ -3100,7 +3100,11 @@ internal static class CardsGameApi
         if (!RestSelectionEditable(hand))
             return false;
         AbilityCardUI longRest = hand.GetCard(-1);
-        return longRest != null && longRest.isValid && longRest.IsInteractable
+        // SetSelectable drives the pseudo-card's native Button. IsInteractable is
+        // a different latch, set by PreviewActionCards only, and stays false for
+        // the long-rest pseudo-card even while its actual selection button works.
+        return longRest != null && longRest.isValid && longRest.IsSelectable
+               && longRest.button != null && longRest.button.interactable
                && hand.PlayerActor.CharacterClass.DiscardedAbilityCards.Count > 1
                && InteractabilityManager.ShouldAllowClickForExtendedButton(longRest.button);
     }
@@ -3108,8 +3112,10 @@ internal static class CardsGameApi
     /// <summary>
     /// A rest cap promises an effective selection edit. The phase alone stays at selection
     /// after this player presses Ready while peers are still choosing; the native short-rest
-    /// interactable latch and discard count both remain true there. Use the actor's committed
-    /// selection bit too, so undo immediately restores the same controls. Both presentation
+    /// interactable latch and discard count both remain true there. Read the player's
+    /// Ready toggle too, so undo immediately restores the same controls.
+    /// IsSelectionReady only means two cards are laid (or long rest chosen), so it must
+    /// not be used here: those choices are still editable until the player confirms. Both presentation
     /// and queued press execution read this predicate (the state can change between them).
     /// </summary>
     internal static bool RestSelectionEditable(CardsHandUI hand)
@@ -3119,7 +3125,7 @@ internal static class CardsGameApi
         return CardPresentationPolicy.RestSelectionEditable(
             PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest,
             hand.PlayerActor != null && !hand.PlayerActor.IsDead,
-            IsSelectionReady(hand), hand.IsImprovedLongResting || IsShortRestChoosing(hand));
+            IsConfirmed(hand), hand.IsImprovedLongResting || IsShortRestChoosing(hand));
     }
 
     // -------------------------------------------------------------- half selection --

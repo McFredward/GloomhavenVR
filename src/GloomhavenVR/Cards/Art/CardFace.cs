@@ -164,6 +164,7 @@ internal sealed class CardFace
 
     // Test #22: change-dedup for the burn/lose-confirm re-claim log (Maintain).
     private bool _reclaimedFromDialog;
+    private readonly AdoptedCardFxSpace _fxSpace = new();
 
     internal bool IsAdopted => _face != null;
 
@@ -1636,6 +1637,7 @@ internal sealed class CardFace
         _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);
         if (!_face.gameObject.activeSelf)
             _face.gameObject.SetActive(true);
+        _fxSpace.Maintain(_owner != null ? _owner.fullAbilityCard : null, _host);
     }
 
     /// <summary>
@@ -1649,6 +1651,7 @@ internal sealed class CardFace
         if (_owner == null || _owner.fullAbilityCard == null)
         {
             // Widget died under us (scene teardown) — drop references.
+            _fxSpace.Restore();
             _face = null;
             _owner = null;
             _artWatch.Clear();
@@ -1749,6 +1752,7 @@ internal sealed class CardFace
         float scale = _face.localScale.x;
         if (!Mathf.Approximately(scale, _fitScale))
             _face.localScale = new Vector3(_fitScale, _fitScale, _fitScale);
+        _fxSpace.Maintain(_owner.fullAbilityCard, _host);
     }
 
     /// <summary>
@@ -1768,6 +1772,7 @@ internal sealed class CardFace
     /// </summary>
     internal void Yield()
     {
+        _fxSpace.Restore();
         _reclaimedFromDialog = false;
         _artWatch.Clear();
         // The face stops being ours — hand back every quad the blackout muted (full-restore
@@ -1786,6 +1791,7 @@ internal sealed class CardFace
     /// <summary>Give the face back to the game exactly as captured.</summary>
     internal void Restore()
     {
+        _fxSpace.Restore();
         RectTransform? face = _face;
         AbilityCardUI? owner = _owner;
         _face = null;
