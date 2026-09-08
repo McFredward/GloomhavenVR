@@ -85,6 +85,10 @@ internal sealed class RemoteActiveCardPulse
     /// rebuilt face is a new entry and the old one's materials are destroyed with it.</summary>
     private sealed class Entry
     {
+        /// <summary>The real clone lifetime. Hidden cells are still alive and retain their
+        /// Graphic.material references; only destruction permits their materials to be freed.</summary>
+        public FullAbilityCard? Face;
+
         /// <summary>Last state pushed, per half (0 = bottom, 1 = top) — the driver's gate.</summary>
         public readonly int[] Applied = { int.MinValue, int.MinValue };
 
@@ -234,7 +238,7 @@ internal sealed class RemoteActiveCardPulse
         catch { return; }
         if (!_entries.TryGetValue(key, out Entry entry))
         {
-            entry = new Entry();
+            entry = new Entry { Face = face };
             _entries[key] = entry;
             Isolate(face, entry);
         }
@@ -284,14 +288,18 @@ internal sealed class RemoteActiveCardPulse
         }
     }
 
-    /// <summary>Drop every entry whose clone was not walked this pass and destroy its materials. A
-    /// mirrored face is re-instantiated whenever its card changes, so without this the minted
-    /// materials would accumulate for the life of the scenario.</summary>
+    /// <summary>Destroy materials only after their clone has actually been destroyed.
+    /// Report 1: an active pulse stopped and later recovered. Collect deliberately excludes hidden
+    /// cells, but unseen is not dead: holding a card or a board visibility transition disables a
+    /// surviving clone whose Graphic still references our materials. The former unseen prune
+    /// destroyed those materials under the live face; re-showing it could then neither isolate nor
+    /// drive its shader. Retain that ownership through hiding, and let ActionHighlightDriver restart
+    /// the native tween if OnDisable cancelled it. Destroyed/replaced clones are still pruned.</summary>
     private void Prune()
     {
         _dead.Clear();
         foreach (KeyValuePair<int, Entry> pair in _entries)
-            if (!pair.Value.Seen)
+            if (!pair.Value.Seen && pair.Value.Face == null)
                 _dead.Add(pair.Key);
         for (int i = 0; i < _dead.Count; i++)
         {
