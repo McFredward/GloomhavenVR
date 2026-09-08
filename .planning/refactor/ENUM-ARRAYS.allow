@@ -1,0 +1,21 @@
+# Latch arrays whose literal length disagrees with the enum that indexes them — the sites a
+# review has already convicted and a lane is repairing.
+#
+# One line per (file, field):    Net/Remote/File.cs | fieldName | the finding, and the build
+#
+# THIS FILE IS TEMPORARY BY CONSTRUCTION. check-enum-arrays.py FAILS on a line whose site is
+# no longer a disagreement, so deleting the line is the last step of the fix and cannot be
+# forgotten. Nothing else belongs here: a NEW disagreement is a build failure, which is the
+# whole point — this class shipped silently once and cost two of six card-FX surfaces.
+#
+# Every entry below is R2 F1 of the 2026-09-07 review round, in repair in a parallel lane at
+# the moment this gate was written (base f37049b5, ModBuild 479). The integrator removes them
+# as that lane lands.
+
+Net/Remote/RemoteCardArt.cs | s_burnRigLogged | R2 F1, shipped ModBuild 479. FxSurface grew to Active(4)/Held(5) in c14e5220; these arrays are from 8e72856f. Indexed unguarded at :3178 — the throw is swallowed by BuildBurnRig's catch, which nulls _burnImages and logs at the DEBUG tier, so the surface is dead with nothing in the log at the shipped level.
+
+Net/Remote/RemoteCardArt.cs | s_burnRigRefused | R2 F1, shipped ModBuild 479. Same enum, same literal, indexed unguarded at :3216. Same swallow.
+
+Net/Remote/RemoteCardArt.cs | s_burnRigNoFxImages | R2 F1, shipped ModBuild 479. Same enum, same literal, indexed unguarded at :3236. Same swallow.
+
+Net/Remote/RemoteCardArt.cs | s_flameDrawnLogged | R2 F1 NOTE 1, shipped ModBuild 479. This one IS bounds-guarded (:2843), so instead of throwing it silently never logs for Active or Held. A guard is not the fix — it converts the throw into a no-op for the same two members, which is why this gate does not treat a guard as an exemption.

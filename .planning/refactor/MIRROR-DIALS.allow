@@ -1,0 +1,50 @@
+# WHOSE COPY DOES THE MIRROR READ? — the recorded verdict for every live config dial read
+# under src/GloomhavenVR/Net/Remote.
+#
+# One line per (file, symbol):
+#
+#     Net/Remote/File.cs | Symbol | verdict | the argument
+#
+# VERDICTS
+#   owner        the value reaches the mirror from the OWNER (a wire field or the board-tuning
+#                record) and this read is only a fallback, a clamp bound, or a seam argument
+#   viewer-ruled the user has RULED this one viewer-local — the line must cite the ruling
+#   not-1to1     the read decides nothing the owner also draws (whether to render at all, a
+#                local diagnostic, a cadence for this machine) — the line must say why the
+#                owner's picture cannot differ because of it
+#   OPEN         a CONFIRMED defect with the review finding named. It is here so the gate can
+#                exist at all while the fix lands; DELETING THE LINE IS PART OF THE FIX, and
+#                check-mirror-dials.py fails on a line whose read no longer exists, so it will
+#                not be forgotten.
+#
+# WHY THE FILE EXISTS. Review R2 of 2026-09-07 audited 1:1 with all three existing guards green
+# and found that most of its confirmed findings are invisible to all three by construction: they
+# ask "is this value declared once" and "is it on the wire", and none asks "at runtime, whose
+# copy does the mirror read". Four of the ten lines below are that defect. See
+# scripts/check-mirror-dials.py for the full argument.
+#
+# THE FILE IS EXPECTED TO SHRINK. Four OPEN entries today; each one is a lane's work.
+
+# ── OPEN — R2's four confirmed instances, all shipped and all invisible to every other gate ──
+
+Net/Remote/RemoteUsableFrame.cs | ItemCueBeatSeconds | OPEN | R2 F2 (ModBuild 479, shipped). The mirrored item cue beats on the VIEWER's [Cards] ItemCueBeatSeconds while its sibling on the same board (RemoteControlBoard.cs:3443) beats on the OWNER's tuning.ItemCueBeatSeconds off wire id 161. NetProtocol.cs:647 rules that this dial follows the OWNER on both surfaces. One board, two clocks. Fix: carry the tuning into RemoteUsableFrame.Build, whose (Transform, float, float) signature is the only blocker — RemoteItemFan already latches _owner.BoardTuning.
+
+Net/Remote/RemoteMapRoom.cs | CanvasScaleMm | OPEN | R2 F3 (ModBuild 479, shipped). A peer's map placard is sized by the VIEWER's [WorldUI] CanvasScaleMm, under a comment at :1261-1264 asserting "THE FACTOR IS THE OWNER'S DIAL (ScaleFactorFor), not this viewer's" — true of one of the expression's three factors. The sibling mirror RemoteBoardTooltip.cs:179 reads the owner's tuning.CanvasScaleMm off wire id 143. Fix: one accessor beside NetAvatarDriver.cs:694-702.
+
+Net/Remote/RemoteSharedGaze.cs | SharedWindowArcRadiusMeters | OPEN | R2 F8 (ModBuild 479, shipped). This seats a SHARED window, which by WorldUI/Modal/SharedWindowSizeLaw.cs:55-62 has no owner at all: "the only value every client can agree on without an exchange is the SHIPPED one". Two viewers with different dials predict two different rings for the same window. The dial has no Tune* id (verified: zero hits for TuneSharedWindowArcRadiusMeters in NetProtocol.cs), so the remedy is a FREEZE to the shipped const, which the declaration itself already names as a one-line change once the value settles on hardware.
+
+Net/Remote/RemoteBoardContent.cs | PerfConfig.RemoteContentSeconds | OPEN | R2 F12 (ModBuild 479, shipped). A live viewer dial reached through a PROPERTY — Mathf.Clamp(RemoteContentInterval.Value, 0f, 2f) — with no .Value at the call site, so a .Value-only lint would miss it. It gates every peer board's whole structural pass: furniture rebuilds, use-bar symbols, the decision row and the draw-order sweep. R2 classes it a bare, un-ruled TIMING exception in the one direction 1:1 forbids. It ships at 0 (= no change), so today it is latent rather than live; that is a reason to rule on it, not to leave it unrecorded.
+
+# ── viewer-ruled — the user has ruled these local, in his own words ──
+
+Net/Remote/RemoteTestTriggers.cs | Style | viewer-ruled | USER RULING 2026-08-15, quoted verbatim at RemoteTestTriggers.cs:60-66: "Die Events können verständlicherweise nur syncen, wenn die Spieler die selbe Umgebung eingestellt haben. Das soll lokal eingestellt sein." The read is an environment-EQUALITY test (:559 stamps the sender's own, :589 compares the peer's against ours) — the local setting is a FILTER on the synced state, never a term in a drawn size or pose. R2 lists this as a ruled negative control.
+
+Net/Remote/RemoteTestTriggers.cs | EnvironmentResponse | viewer-ruled | Same 2026-08-15 ruling, the permissions half: "wenn lokal der Spieler Events oder Elemente ausgeschaltet hat sieht er sie auch nicht. D.h. die lokalen Einstellungen haben Vorrang." The wire carries the SCHEDULE OVERRIDE; this dial carries the PERMISSION to act on it. A viewer who switched element effects off sees none, by ruling.
+
+Net/Remote/RemoteTestTriggers.cs | EasterEggs | viewer-ruled | Same 2026-08-15 ruling and the same AND: a peer's haunt override is admitted only when this viewer has haunts switched on. Drive() is the only place a peer's override can enter this client, and the dial gates the entry, not a size or a pose.
+
+# ── not-1to1 — the read decides nothing the owner also draws ──
+
+Net/Remote/RemoteBoardVisibility.cs | RemoteBoards | not-1to1 | [Net] RemoteBoards is HOW MUCH of other players' cosmetic boards THIS client renders — a purely local rendering decision, stated as such in the class doc at :6-12 and listed by R2 as a ruled negative control. It never affects game state, never affects what we transmit, and cannot make the owner's own board look different: an owner's board is drawn from the owner's tuning wherever it is drawn at all. The reveal gate applies on top of it in every mode, so turning it up can never reveal more than RevealGate permits.
+
+Net/Remote/RemoteNameTag.cs | NetModule.NameTagsWanted | not-1to1 | [Net] NameTags decides whether THIS viewer sees floating name rows over other players at all — a label the mod adds, not a surface the owner draws, so there is no owner's picture for it to disagree with. Re-read every tick by design so a flip applies live. The 1:1 rule governs the objects a peer AUTHORS; a viewer's own HUD annotation is not one of them.

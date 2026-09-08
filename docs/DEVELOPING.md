@@ -201,9 +201,17 @@ python3 scripts/check-docs-i18n.py # the four player-facing docs and their Germa
 `refactor-guard.sh check` is an umbrella: it already runs `patch-inventory.sh check`,
 `check-frame-order.sh`, `check-mirrors.sh`, `check-partial-order.py`, `check-instrument-writes.py`,
 `check-remote-defaults.py`, `check-wire-coverage.py`, `check-tune-fields.py`,
-`check-desync-surface.py`, `check-hw-verify.py`, `check-options-coverage.py`, `wire-tests.sh`,
-`check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is
-duplicated work, not extra coverage. The three lines beside it are the ones it does **not** cover.
+`check-desync-surface.py`, `check-hw-verify.py`, `check-options-coverage.py`,
+`check-card-identity-mask.py`, `check-mirror-dials.py`, `check-enum-arrays.py`, `wire-tests.sh`,
+`check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is duplicated work, not extra coverage. The three lines
+beside it are the ones it does **not** cover.
+
+`check-card-identity-mask.py` is a standalone **twin** of
+`tests/GloomhavenVR.WireTests/CardIdentityMaskVectors.cs`. The C# original is a pure text lint that
+needs no game DLL, but it shares an executable with the golden wire vectors, which do — so it is
+compile-only in CI and had never run there (review R1 F2, 2026-09-07). The twin runs everywhere.
+**Change one and change the other**, and if you add a new source lint, add it to `scripts/` rather
+than to the wire-test project, where CI cannot execute it. See docs/CI-CD.md §5.
 
 `rebase-defaults.py check` compares the shipped defaults against a tester's `.cfg` drop in
 `.planning/debug/default`. That directory is gitignored, so it is absent on a fresh clone and on a

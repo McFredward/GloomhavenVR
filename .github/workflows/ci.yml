@@ -103,6 +103,47 @@ jobs:
         run: python3 scripts/check-wire-coverage.py
 
       # ---------------------------------------------------------------------------
+      # THE ANTI-LEAK GUARD, AND IT IS HERE BECAUSE IT WAS NOWHERE.
+      #
+      # tests/GloomhavenVR.WireTests/CardIdentityMaskVectors.cs is the only thing in
+      # the repository that can notice the ModBuild 477 card-identity leak coming back
+      # (a mirrored decision row published confirm='Verbrennen "Zusatzdolch"' to every
+      # peer inside the game's own secret window). It is a PURE TEXT LINT — two
+      # File.ReadAllText calls and three regexes, no Unity type anywhere — but it lives
+      # in the wire-test executable, which is compile-only here for the reason §5 of
+      # docs/CI-CD.md gives. So it has never once run in CI. Review R1 of 2026-09-07,
+      # finding F2: "It is GREEN today. The rule holds — nothing enforces it."
+      #
+      # scripts/check-card-identity-mask.py is the same four rules as a standalone
+      # checker that needs no game DLL. The C# file stays where it is as the
+      # belt-and-braces local run; this is the braces.
+      # ---------------------------------------------------------------------------
+      - name: Card identity mask (ModBuild 477 item 7)
+        run: python3 scripts/check-card-identity-mask.py
+
+      # ---------------------------------------------------------------------------
+      # THE QUESTION NO OTHER GATE ASKS. check-remote-defaults.py compares frozen
+      # constants, check-wire-coverage.py asks whether a dial is ON THE WIRE, and
+      # check-mirrors.sh compares declared groups. Review R2 of 2026-09-07 ran a 1:1
+      # audit with all three green and found most of its confirmed findings invisible
+      # to all three by construction, because none of them asks: at runtime, does the
+      # mirror read the OWNER's copy of this value or the VIEWER's? Four confirmed
+      # instances shipped in ModBuild 479. This gate asks it.
+      # ---------------------------------------------------------------------------
+      - name: Mirror dials (whose copy does the mirror read)
+        run: python3 scripts/check-mirror-dials.py
+
+      # ---------------------------------------------------------------------------
+      # An enum grew by two members last build and the latch arrays keyed by it kept
+      # their `new bool[4]`. The index throws, BuildBurnRig's catch swallows it and
+      # logs at the DEBUG tier, and two of six card-FX surfaces were simply dead with
+      # nothing in the log at the shipped level (review R2 F1, ModBuild 479). The
+      # file's own doc comments still said "four surfaces". Mechanical, so gated.
+      # ---------------------------------------------------------------------------
+      - name: Enum-keyed array sizes
+        run: python3 scripts/check-enum-arrays.py
+
+      # ---------------------------------------------------------------------------
       # This gate compares the shipped defaults against a TESTER'S cfg drop, and that
       # drop lives in .planning/debug/, which is gitignored. On a runner the directory
       # does not exist, and the script exits 1 with "no cfg directory" — which is what

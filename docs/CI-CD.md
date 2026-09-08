@@ -404,6 +404,9 @@ to push events.
 | `check-frame-order.sh` | no locked per-frame order moved |
 | `patch-inventory.sh check` | no Harmony patch class went unregistered |
 | `check-wire-coverage.py` | wire fields are covered |
+| `check-card-identity-mask.py` | the card FACE question and the card NAMING question are still two predicates (ModBuild 477 item 7 — §5) |
+| `check-mirror-dials.py` | every live config dial a mirror reads carries a recorded verdict saying whose copy it is |
+| `check-enum-arrays.py` | no latch array is sized by a literal that disagrees with the enum indexing it |
 | `rebase-defaults.py check` | config defaults have not drifted |
 | `check-bundle-format.sh` | the committed bundle is still UnityFS format 7 / 2021.3.5f1 |
 | wire tests **compile** | no wire file was moved or renamed (the vectors do not run — §5) |
@@ -565,6 +568,31 @@ emit an explicit notice/warning annotation saying so, and `release.yml`'s is a
 
 **So: run `scripts/wire-tests.sh` locally before pushing to `main`.** It is the one
 gate a release genuinely cannot self-serve.
+
+#### One of those tests was not a wire test at all, and it cost the repository a guard
+
+`tests/GloomhavenVR.WireTests` also carries **source lints** — files that read `.cs`
+text and assert a rule about it. They touch no Unity type and would run on any runner.
+They were nevertheless compile-only, for years, because they share an executable with
+the golden vectors: **blocked purely by co-location.**
+
+Review R1 of 2026-09-07 (finding F2) found that this had silently disarmed the only
+guard against the ModBuild 477 card-identity leak returning.
+`CardIdentityMaskVectors.cs` pins four rules keeping "may a peer **see** this card's
+face" and "may a prompt **name** this card in words" as two separate predicates —
+folding them is a one-line change that every other gate in the repository passes, and
+its symptom is a peer being told which card a short rest singled out, inside the game's
+own secret window. R1 ran its three regexes by hand: green, and enforced by nothing.
+
+`scripts/check-card-identity-mask.py` is that lint as a standalone checker. It runs in
+`ci.yml`, in `release.yml` and in `refactor-guard.sh check`. **The C# file was
+deliberately not moved or edited** — it stays as the belt-and-braces local run, and the
+two are meant to agree; where the Python one is stricter (it blanks string literals as
+well as comments) its own header says so and why.
+
+**The rule this leaves behind:** a source lint added to the wire-test project is a lint
+that will never run in CI. Put it in `scripts/` instead, or add a standalone twin like
+this one and say in both files that they are twins.
 
 ### Everything else that CI cannot see
 

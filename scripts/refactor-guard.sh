@@ -46,6 +46,12 @@
 #   scripts/check-desync-surface.py    a patch on a type the game dispatches NETWORK ACTIONS
 #                                      into can turn its own exception into the GAME's
 #                                      "Desynchronization occurred" dialog; each must be judged.
+#   scripts/check-card-identity-mask.py  the FACE question and the NAMING question must stay two
+#                                      predicates; folding them re-opens the ModBuild 477 leak
+#   scripts/check-mirror-dials.py      a mirror that reads a LIVE config dial is reading the
+#                                      VIEWER's copy; every such read carries a recorded verdict
+#   scripts/check-enum-arrays.py       an array sized by a LITERAL against an enum that grew —
+#                                      the index throws into a swallowing catch and a surface dies
 #   scripts/check-tune-fields.py       a record-28 field id outside every width range silently
 #                                      kills the WHOLE record; the sampler must also ascend
 set -euo pipefail
@@ -280,6 +286,24 @@ case "${1:-check}" in
         # the DELTA, the same idiom check-instrument-writes.py uses.
         python3 "$ROOT/scripts/check-options-coverage.py" \
             || { echo "error: an option is unreachable or mis-filed in the menu (see above)" >&2; exit 1; }
+        # "May a peer SEE this card's face" and "may a prompt NAME it in words" must never
+        # become one predicate again. The lint existed — in tests/GloomhavenVR.WireTests, which
+        # is compile-only in both workflows because its NEIGHBOURS need the game's real
+        # UnityEngine.CoreModule.dll. This one is a pure text lint over two files and runs
+        # anywhere; it now runs in ci.yml and release.yml too. See review R1 F2, 2026-09-07.
+        python3 "$ROOT/scripts/check-card-identity-mask.py" \
+            || { echo "error: the card-identity mask rule is broken — ModBuild 477 item 7 (see above)" >&2; exit 1; }
+        # The 1:1 question none of the three existing guards can express. They ask "is this
+        # value declared once" and "is it on the wire"; this asks WHOSE COPY the mirror reads at
+        # runtime. Review R2, 2026-09-07, ran a 1:1 audit with all three green and found four
+        # confirmed viewer-dial reads on the mirror side that no gate had any shape for.
+        python3 "$ROOT/scripts/check-mirror-dials.py" \
+            || { echo "error: a mirror reads a dial nobody has assigned an owner to (see above)" >&2; exit 1; }
+        # An enum grew by two members and the latch arrays keyed by it kept their literal size.
+        # The index throws, a catch swallows it and logs at the DEBUG tier, and two of six
+        # card-FX surfaces were dead with nothing in the log at the shipped level (R2 F1, 479).
+        python3 "$ROOT/scripts/check-enum-arrays.py" \
+            || { echo "error: a latch array disagrees with the enum that indexes it (see above)" >&2; exit 1; }
         "$ROOT/scripts/wire-tests.sh" \
             || { echo "error: the wire format changed (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-bundle-format.sh" \

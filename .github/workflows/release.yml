@@ -204,6 +204,21 @@ jobs:
       - name: Wire coverage
         run: python3 scripts/check-wire-coverage.py
 
+      # The four rules that keep a peer from being TOLD which card the game singled out
+      # inside its own secret window. The C# original is compile-only in the wire-test
+      # step below, so this standalone port is the only executed form. See ci.yml.
+      - name: Card identity mask (ModBuild 477 item 7)
+        run: python3 scripts/check-card-identity-mask.py
+
+      # Every live config dial a mirror reads carries a recorded verdict saying whose
+      # copy it is. The 1:1 question the other three gates cannot express. See ci.yml.
+      - name: Mirror dials (whose copy does the mirror read)
+        run: python3 scripts/check-mirror-dials.py
+
+      # A latch array sized by a literal against an enum that grew. See ci.yml.
+      - name: Enum-keyed array sizes
+        run: python3 scripts/check-enum-arrays.py
+
       # Skipped with a notice on a runner: the tester's cfg drop it compares against
       # lives in gitignored .planning/debug/. See the same step in ci.yml.
       - name: Config defaults rebase
