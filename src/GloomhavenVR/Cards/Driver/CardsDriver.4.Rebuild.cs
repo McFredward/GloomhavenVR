@@ -1486,8 +1486,21 @@ internal sealed partial class CardsDriver
         //    client is entitled to handle. The cards are fully grabbable and laser-pluckable and
         //    the release returns them HOME; no game seam is reachable (VRCard.InspectOnly).
         //    THIS IS WHAT USED TO BE A PICTURE, and that was the reported bug.
-        //  • PICTURE — a hand whose FRONTS may not be drawn at all: the secret selection window,
-        //    for a character this client does not control. Inert end to end.
+        //  • PICTURE — a hand this client is not entitled to HANDLE: the secret selection window,
+        //    for a character it does not control. It refuses the grab and the laser; it does NOT
+        //    hide a face, and the sentence that used to stand here ("a hand whose FRONTS may not be
+        //    drawn at all … Inert end to end") was false on both halves. CardFan.StampMode writes
+        //    only Grabbable/InspectOnly, FillHandFan adopts every widget's live FullAbilityCard with
+        //    no reveal-gate term, and the local pipeline has no back mesh at all (CardFace.Adopt
+        //    re-hosts the game's own rect, so a local card is FRONT or NOT DRAWN, never BACK).
+        //    Vanilla does not cover it either — AbilityCardUI:980/1024/1100/1188 only force
+        //    DisplaySelected(false) and swap a Round MINI card to unselectedCardType, while
+        //    CardsHandManager.ShowTabs activates the character tabs precisely WHEN PhaseType ==
+        //    SelectAbilityCardsOrLongRest and CardsHandTabs.UpdateTabsInteraction makes every
+        //    non-dead tab clickable with NO ownership test. What actually keeps a foreign hand off
+        //    this board is three INPUT guards, named in CardFan.FanMode.Picture's own doc: delete
+        //    one and a peer's unrevealed hand lands on this board inside the one window the game
+        //    exists to keep secret.
         //    IT IS NO LONGER "every foreign hand". User ruling 2026-09-07, given when he was asked
         //    to choose: a foreign character one has focused is shown AND handleable, because a card
         //    that may be read may be held up to the face. The gate moved from OWNER to FRONT and
