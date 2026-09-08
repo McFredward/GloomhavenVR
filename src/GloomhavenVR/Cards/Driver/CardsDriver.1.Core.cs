@@ -55,6 +55,8 @@ namespace GloomhavenVR.Cards;
 internal sealed partial class CardsDriver : MonoBehaviour
 {
     private readonly VRCardFactory _factory = new();
+
+    internal static bool EnsureBoardAssets() => Instance != null && Instance._factory.EnsureBoardAssets();
     private readonly CardFan _fan = new();
     private readonly PlayTray _tray = new();
     private readonly RestControls _rest = new();

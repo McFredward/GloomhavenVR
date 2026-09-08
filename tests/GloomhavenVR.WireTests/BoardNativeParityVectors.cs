@@ -77,6 +77,14 @@ internal static class BoardNativeParityVectors
             "source resolution neither creates a game controller nor runs its callbacks");
 
         t.Case("board-parity/no-procedural-presentation-fallback");
+        string construction = Method(board, "private void EnsureBuilt(");
+        t.True(!Regex.IsMatch(construction, @"BoardVisual\.Quad\s*\("),
+            "native asset failure cannot construct a procedural remote frame");
+        t.True(construction.IndexOf("Cards.CardsDriver.EnsureBoardAssets()", StringComparison.Ordinal)
+               < construction.IndexOf("new GameObject", StringComparison.Ordinal),
+            "original single-owner asset recovery precedes remote hierarchy construction");
+        t.True(Regex.IsMatch(board, @"EnsureBuilt\(\);\s*if\s*\(_root\s*==\s*null\)\s*return;"),
+            "pending asset recovery returns before pose/content dereference");
         string track = Method(Read(repoRoot, "Net/Remote/RemoteInitiativeTrack.cs"), "public void Refresh(");
         string objectives = Method(Read(repoRoot, "Net/Remote/RemoteObjectivesPanel.cs"), "private void RefreshObjectives(");
         string elements = Method(Read(repoRoot, "Net/Remote/RemoteElementStrip.cs"), "public void Refresh(");

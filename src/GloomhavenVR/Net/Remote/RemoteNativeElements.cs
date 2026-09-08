@@ -20,12 +20,16 @@ internal sealed class RemoteNativeElements
     private Element[] _elements = Array.Empty<Element>();
     private RectTransform? _root;
     private string? _refusal;
+    private Vector2 _renderSize, _renderParent;
+    private bool _hasRenderFrame;
 
     internal void SetState(NativeBoardState? state, List<NativeBoardState> history)
     { _latest = state; _history = history; }
 
     internal void Configure(RemoteWidgetMirror mirror)
     {
+        if (_hasRenderFrame && _latest?.Generation == _generation)
+        { mirror.SetOwnerFrame(_renderSize, _renderParent); return; }
         float[]? frame = _latest?.Frame;
         mirror.SetOwnerFrame(frame != null ? new Vector2(frame[0], frame[1]) : Vector2.zero,
             frame != null ? new Vector2(frame[2], frame[3]) : Vector2.zero);
@@ -74,6 +78,13 @@ internal sealed class RemoteNativeElements
             // Validate the COMPLETE frame before any clone field is touched.
             for (int i = 0; i < _elements.Length; i++)
             { _elements[i].Validate(from.Elements[i]); _elements[i].Validate(to.Elements[i]); }
+            // Fit the same source-time frame being rendered, not a future newest envelope.
+            _renderSize = new Vector2(Mathf.LerpUnclamped(from.Frame[0], to.Frame[0], progress),
+                Mathf.LerpUnclamped(from.Frame[1], to.Frame[1], progress));
+            _renderParent = new Vector2(Mathf.LerpUnclamped(from.Frame[2], to.Frame[2], progress),
+                Mathf.LerpUnclamped(from.Frame[3], to.Frame[3], progress));
+            _hasRenderFrame = true;
+            mirror.SetOwnerFrame(_renderSize, _renderParent);
             NativeBoardState discrete = progress < 1f ? from : to;
             Rect(_root!, from.Frame, to.Frame, 4, progress);
             for (int order = 0; order < 6; order++)
@@ -101,7 +112,7 @@ internal sealed class RemoteNativeElements
     }
     private void DestroyBindings()
     { foreach (Element element in _elements) element.Destroy(); _elements = Array.Empty<Element>(); _root = null; _stamp = -1; }
-    internal void Destroy() { DestroyBindings(); _latest = null; _history = null; _generation = 0; }
+    internal void Destroy() { DestroyBindings(); _latest = null; _history = null; _generation = 0; _hasRenderFrame = false; }
 
     private sealed class Element
     {

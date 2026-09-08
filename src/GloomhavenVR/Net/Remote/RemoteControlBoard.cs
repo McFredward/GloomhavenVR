@@ -598,7 +598,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// fallback — so a board built before the asset bundle finished loading upgrades itself to
     /// the real 3D asset instead of staying flat for the session.</summary>
     private float _nextTrayProbeAt;
-    private const float TrayProbeSeconds = 5f;
+    private const float TrayProbeSeconds = 1f;
 
     // ---- full-parity content (all mod-drawn, all zero-wire — see the class note) ----------------
     // Data class per widget — the same closed set as the CLASSIFICATION tags on the types
@@ -836,20 +836,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                               "owner's real card size.");
             Destroy();
         }
-        // A board that came up FLAT because the bundle was not resident yet upgrades itself to the
-        // real asset once it is (slow probe — a few bundle-list walks per minute, only while flat).
-        else if (_root != null && _tray == null && Time.unscaledTime >= _nextTrayProbeAt)
-        {
-            _nextTrayProbeAt = Time.unscaledTime + TrayProbeSeconds;
-            if (RemoteTrayVisual.PrefabAvailable(_owner.BoardStyle))
-            {
-                VRLog.Info("Net", $"Remote board [{_owner.PlayerId}]: asset bundle now resident — " +
-                                  "upgrading the flat fallback board to the real 3D asset.");
-                Destroy();
-            }
-        }
-
         EnsureBuilt();
+        if (_root == null) return; // required native asset is being recovered
         SetActive(true);
 
         // Place at the REAL synced world transform. The wire carries the OWNER's exact pose
@@ -2948,8 +2936,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
 
     private void EnsureBuilt()
     {
-        if (_root != null)
+        if (_root != null || Time.unscaledTime < _nextTrayProbeAt)
             return;
+        if (!RemoteTrayVisual.PrefabAvailable(_owner.BoardStyle) && !Cards.CardsDriver.EnsureBoardAssets()) return;
 
         _root = new GameObject($"GloomhavenVR.RemoteControlBoard[{_owner.PlayerId}]");
         Object.DontDestroyOnLoad(_root);
@@ -2972,18 +2961,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // is deliberately never consulted (Cards.CardDustFx.Permission).
         _gameCardParticlesOn = _owner.BoardTuning.GameCardParticlesOn;
 
-        // THE BOARD SURFACE — the REAL bundled 3D asset for the style this peer synced
-        // (RemoteTrayVisual: same prefab, same materials, same recesses as their own board),
-        // replacing the old flat frame quad. The quad survives ONLY as the fallback for when the
-        // bundle is not resident (then the probe in Tick upgrades it as soon as it is).
+        // Native bundled geometry is required for a 1:1 board. The owner's existing loader
+        // recovers the asset above; no procedural remote frame substitutes for it while pending.
         _tray = RemoteTrayVisual.Build(_root.transform, _owner.BoardTuning);
         if (_tray == null)
         {
-            // Fallback frame: a dark unlit slab, re-tintable to the peer's style (ApplyBoardStyle)
-            // — bit-for-bit the pre-3D board, so a bundle-less client loses nothing it had.
-            _frameMat = BoardVisual.Unlit(FrameColor(Cards.ControlBoard.Oak));
-            BoardVisual.Quad(_root.transform, "Frame", new Vector2(BoardW, BoardH), _frameMat);
+            Destroy();
             _nextTrayProbeAt = Time.unscaledTime + TrayProbeSeconds;
+            return;
         }
         _appliedStyle = -1; // force the first Tick to state what it applied (fallback tint path)
 

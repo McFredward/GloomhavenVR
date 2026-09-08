@@ -327,6 +327,20 @@ internal sealed class VRCardFactory
         return null;
     }
 
+    private float _nextBundleRecoveryAt;
+    private bool _bundleFailureLogged;
+
+    /// <summary>Recover required bundled art through the existing single-owner loader. Remote
+    /// views may request availability, but never create a second bundle ownership lifecycle.</summary>
+    internal bool EnsureBoardAssets()
+    {
+        if (_bundle != null) return true;
+        if (Time.unscaledTime < _nextBundleRecoveryAt) return false;
+        _nextBundleRecoveryAt = Time.unscaledTime + 1f;
+        _bundleProbed = false; // a previous missing-file/load refusal is retryable
+        return GetBundle() != null;
+    }
+
     /// <summary>
     /// The bundle may already be loaded by the Hands module (same file; Unity forbids
     /// loading a bundle twice) — reuse a loaded instance first, own it otherwise.
@@ -343,6 +357,7 @@ internal sealed class VRCardFactory
             {
                 _bundle = loaded;
                 _bundleOwned = false;
+                _bundleFailureLogged = false;
                 return _bundle;
             }
         }
@@ -353,16 +368,18 @@ internal sealed class VRCardFactory
         {
             // ALERT, not Info: the bundle is a REQUIRED part of the install, and HandVisuals
             // says the same at the same tier — a player's log must name a missing 75 MB file.
-            VRLog.Alert("Cards", $"gloomhavenvr.bundle NOT FOUND at {bundlePath} — procedural card/tray visuals " +
+            if (!_bundleFailureLogged) VRLog.Alert("Cards", $"gloomhavenvr.bundle NOT FOUND at {bundlePath} — procedural card/tray visuals " +
                                 "active. The bundle is a required part of the release zip: unpack the zip again.");
+            _bundleFailureLogged = true;
             return null;
         }
 
         _bundle = AssetBundle.LoadFromFile(bundlePath);
         _bundleOwned = _bundle != null;
-        if (_bundle == null)
+        if (_bundle == null && !_bundleFailureLogged)
             VRLog.Alert("Cards", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural visuals active. " +
                                 $"Cause: {BundleDiagnostics.Explain(bundlePath)}");
+        _bundleFailureLogged = _bundle == null;
         return _bundle;
     }
 
