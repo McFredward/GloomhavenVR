@@ -183,6 +183,38 @@ internal static class RemoteUsableFrame
     }
 
     /// <summary>
+    /// Re-seed an ALREADY BUILT frame's period from the owner's dial. Closes the residue this file
+    /// recorded when the beat moved onto the wire: <see cref="Build"/> runs once per frame object
+    /// and <c>SoftFramePulse.Init</c> is the only writer of the period, so an owner who moved
+    /// <c>[Cards] ItemCueBeatSeconds</c> WHILE a peer had their fan open kept the old rhythm until
+    /// something forced a rebuild — and <c>RemoteItemFan</c> deliberately does not rebuild for an
+    /// animation dial.
+    ///
+    /// <para>Called only from that class's tuning-revision edge, and only when the value actually
+    /// changed, so the steady state costs nothing. Silently does nothing for a frame that has no
+    /// pulse component — a frame mid-teardown is not an error worth a line.</para>
+    /// </summary>
+    /// <param name="frame">A frame object returned by <see cref="Build"/>.</param>
+    /// <param name="ownerBeatSeconds">The BOARD OWNER's dial off record 28, guarded by the caller
+    /// and guarded again here for the same reason <see cref="Build"/> guards it: a wire value is
+    /// never trusted and a zero beat divides.</param>
+    internal static void Retune(GameObject? frame, float ownerBeatSeconds)
+    {
+        if (frame == null)
+            return;
+        var pulse = frame.GetComponentInChildren<WorldUI.SoftFramePulse>(includeInactive: true);
+        if (pulse == null)
+            return;
+        var img = pulse.GetComponent<Image>();
+        if (img == null)
+            return;
+        pulse.Init(
+            img, FrameColor,
+            beatSeconds: Mathf.Max(0.2f, ownerBeatSeconds),
+            minAlpha: FrameMinAlpha, maxAlpha: FrameMaxAlpha, scalePulse: FrameScalePulse);
+    }
+
+    /// <summary>
     /// Map a record-35 mask over <c>Inventory.AllItems</c> RAW index onto ARC SLOTS of a mirrored
     /// item fan, filling <paramref name="into"/> with one flag per slot. Returns false — leaving the
     /// list empty, i.e. "no frames" — when the peer's inventory cannot be read at all, which is the

@@ -466,6 +466,19 @@ internal sealed class RemoteItemFan
     // SyncTuning() on the owner's tuning revision, read as plain floats in between (the layout loop
     // touches them per slab per frame and RemoteBoardTuning is a wide struct).
     // scripts/check-remote-defaults.py holds all eight to the Defaults entries the local binds read.
+    /// <summary>The owner's own <c>[Cards] ItemCueBeatSeconds</c>, off record 28.
+    ///
+    /// <para>WHY IT IS HERE AND NOT READ AT THE FRAME. <see cref="RemoteUsableFrame"/> used to read
+    /// the VIEWER's live dial while <c>RemoteControlBoard</c> read the owner's off the wire for the
+    /// same beat — so one board showed a peer's closed item stack pulsing at the owner's period and
+    /// the chip frames beside it at this client's, two rhythms on one board (R2 finding F2,
+    /// 2026-09-07). The maintainer's ruling is that the item cue beat follows the OWNER on both
+    /// item surfaces, and it is recorded at NetProtocol.cs:647.</para>
+    ///
+    /// <para>Kept as a field rather than fetched per frame for the reason the other eight are: the
+    /// layout loop touches these per slab per frame and <c>RemoteBoardTuning</c> is a wide
+    /// struct.</para></summary>
+    private float _itemCueBeatSeconds = Defaults.ItemCueBeatSeconds;
     private float _openSeconds = Defaults.ItemFanOpenDuration;
     private float _openStagger = Defaults.ItemFanOpenStagger;
     private float _openArc = Defaults.ItemFanOpenArc;
@@ -1529,6 +1542,22 @@ internal sealed class RemoteItemFan
         _settleOvershoot = Mathf.Clamp(t.ItemFanSettleOvershoot, 0f, 3f);
         _closeSeconds = Mathf.Max(0.01f, t.ItemFanCloseDuration);
         _closeStagger = Mathf.Max(0f, t.ItemFanCloseStagger);
+        // THE ITEM CUE BEAT FOLLOWS THE OWNER on both item surfaces (ruling recorded at
+        // NetProtocol.cs:647). Re-seeded into every LIVE frame below rather than only latched,
+        // because this class deliberately does not rebuild for an animation dial — and without the
+        // re-seed an owner who moved the dial while a peer had their fan open would keep the old
+        // period until something else forced a rebuild, which is the residue R2's finding F2 left.
+        float beat = Mathf.Max(0.2f, t.ItemCueBeatSeconds);
+        if (!Mathf.Approximately(beat, _itemCueBeatSeconds))
+        {
+            _itemCueBeatSeconds = beat;
+            for (int i = 0; i < _usableFrames.Count; i++)
+            {
+                GameObject? live = _usableFrames[i];
+                if (live != null)
+                    RemoteUsableFrame.Retune(live, beat);
+            }
+        }
         // The fan's SHAPE, wire-borne only since record 28 was paged (see the field declarations —
         // the radius was also plain wrong here, by 12 %, for every player). Guarded above zero
         // because a wire value is never trusted: a zero radius collapses the arc onto a point.
@@ -1968,7 +1997,8 @@ internal sealed class RemoteItemFan
             while (_usableFrames.Count <= i)
                 _usableFrames.Add(null);
             if (on && _usableFrames[i] == null)
-                _usableFrames[i] = RemoteUsableFrame.Build(slab.transform, ChipBoxW, _cardH);
+                _usableFrames[i] = RemoteUsableFrame.Build(slab.transform, ChipBoxW, _cardH,
+                                                           ownerBeatSeconds: _itemCueBeatSeconds);
             GameObject? frame = _usableFrames[i];
             if (frame == null)
                 continue;

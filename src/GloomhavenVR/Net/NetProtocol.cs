@@ -23115,12 +23115,19 @@ internal static class NetProtocol
     // ══ EXTENSION RECORD 45 — WHICH BONUS OR ITEM A PEER'S USE-BAR SLOT IS SHOWING ══════════════
     //
     // Allocated 2026-09-07 for the maintainer's item 8, after the mirror's LOCAL resolve was shown
-    // to be impossible rather than merely unimplemented: the game branches on the attacked actor's
-    // IsUnderMyControl (UIScenarioMultiplayerController.cs:238-246) and sends a NON-CONTROLLING
-    // client to TakeDamagePanel.ShowOtherPlayer, whose body raises neither UIUseItemsBar.ShowItems
-    // nor UIActiveBonusBar.ShowReduceDamageActiveBonuses and ends on myWindow.Hide(instant: true).
-    // A watcher's own copy of that bar is therefore EMPTY BY CONSTRUCTION and no local rule could
-    // ever have named the slot. His words for what was owed: "Es ist von aeusserster Wichtigkeit
+    // to be impossible rather than merely unimplemented: UIScenarioMultiplayerController.
+    // RefreshDamagePhase (:212-249) branches on the CARD OWNER — m_ActorToShowCardsFor ??
+    // m_ActorBeingAttacked (:216-218) — not on the attacked actor, and the test depends on that
+    // actor's type: CPlayerActor.IsUnderMyControl (:238), CHeroSummonActor.Summoner.
+    // IsUnderMyControl (:233), FFSNetwork.IsHost for a CEnemyActor (:229). Whichever arm decides
+    // it, exactly one client takes Show and every other is sent to TakeDamagePanel.ShowOtherPlayer
+    // (:242, its only call site in the tree). ShowOtherPlayer does not merely fail to raise the two
+    // bars — it HIDES them: ResetToggles() at TakeDamagePanel.cs:1122 calls UIUseItemsBar.Hide()
+    // (:434) and UIActiveBonusBar.Hide() (:435), and both Hide()s run Clear(), which returns every
+    // slot to the pool and empties the bar's own model map; it then ends on
+    // myWindow.Hide(instant: true) at :1133. A watcher's own copy of that bar is therefore EMPTY BY
+    // CONSTRUCTION — actively cleared, not merely un-raised — and no local rule could ever have
+    // named the slot. His words for what was owed: "Es ist von aeusserster Wichtigkeit
     // dass hier die 1:1 Regel eingehalten wird und jeder Spieler genau das selbe sieht wie der
     // lokale Spieler bei sich bei diesen Entscheidungssymbolen."
     //

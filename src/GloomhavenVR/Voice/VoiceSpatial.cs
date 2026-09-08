@@ -455,10 +455,22 @@ internal static class VoiceSpatial
         }
 
         // ---- the level ------------------------------------------------------------------------
-        b.Speaking = VoiceChatBridge.IsSpeaking(b.Voice) && !VoiceChatBridge.IsMuted(b.Voice);
+        // SPEAKING IS THE GAME'S OWN PREDICATE, AND THE MUTE IS NOT PART OF IT. This class promises
+        // twice (see the header, and VoiceCurve.cs) that the badge uses "the identical expression
+        // the flat game's roster uses"; it shipped IsSpeaking && !IsMuted, which is a different
+        // expression, and the promise was the thing that stopped anyone checking. The flat roster
+        // lights a muted peer's indicator: the fact it reports is that they are talking, not that
+        // you can hear them. Muting is this listener's own choice and must not delete a fact about
+        // somebody else's board.
+        //
+        // The mute moves down one line, onto the LEVEL, where it belongs: a muted peer's badge
+        // appears and holds at step 1 — "they are speaking, you cannot hear them" — because
+        // GetOutputData on a muted source reads silence and would otherwise drive the badge to a
+        // level that contradicts the state it is showing.
+        b.Speaking = VoiceChatBridge.IsSpeaking(b.Voice);
 
         float raw = 0f;
-        if (b.Speaking && b.Source != null)
+        if (b.Speaking && !VoiceChatBridge.IsMuted(b.Voice) && b.Source != null)
         {
             b.Source.GetOutputData(LevelBuffer, 0);
             double sum = 0d;

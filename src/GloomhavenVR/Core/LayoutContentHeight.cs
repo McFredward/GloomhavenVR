@@ -64,8 +64,18 @@ namespace GloomhavenVR.Core;
 /// <para><b>MULTIPLAYER.</b> This is a pure function of the content at the forced column, and the
 /// mirror forces the BOARD OWNER's column onto its clone, so both sides evaluate the same
 /// expression over the same rows and land on the same height. No wire field, no client-local term:
-/// the height cannot be a second opinion because it is not an opinion. Both call sites are here so
-/// that the owner's panel and the mirrored one cannot drift the day one of them is retuned.</para>
+/// the height cannot be a second opinion because it is not an opinion.</para>
+///
+/// <para><b>DO NOT READ THE CALL SITES AS A PAIR.</b> The sentence that used to close this block —
+/// "both call sites are here so that the owner's panel and the mirrored one cannot drift" — counted
+/// call sites where it needed to count CONSUMERS. There are two calls and three panels: the
+/// objectives surface writes its own height and the mirror writes its clone's, but
+/// <c>ScenarioRulesSurface</c> has no owner-side height write at all. So for the rules panel the
+/// mirror was the ONLY caller, and the clone laid out correctly while the owner's own rows
+/// overlapped — a 1:1 breach in the direction nobody thinks to call one, the mirror being BETTER
+/// than the thing it mirrors (R2 finding F6, 2026-09-07). ModBuild 480 made the two agree by
+/// standing the mirror down for that one surface; giving the rules surface its own height write
+/// would make them agree at the BETTER picture instead, and that is the open item.</para>
 /// </summary>
 internal static class LayoutContentHeight
 {

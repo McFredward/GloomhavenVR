@@ -7,10 +7,14 @@
 //
 // WHY THE FIELD EXISTS AT ALL, since the standing preference is hard against adding one: because for
 // this prompt the zero-wire local resolve CANNOT work, and that is a fact about the game rather than
-// about the mod. UIScenarioMultiplayerController branches on the attacked actor's IsUnderMyControl
-// and sends a non-controlling client to TakeDamagePanel.ShowOtherPlayer, whose whole body raises
-// NEITHER UIUseItemsBar.ShowItems NOR UIActiveBonusBar.ShowReduceDamageActiveBonuses and ends on
-// myWindow.Hide(instant: true). Only TakeDamagePanel.Show reaches those two calls. So on the
+// about the mod. UIScenarioMultiplayerController.RefreshDamagePhase (:212-249) branches on the CARD
+// OWNER — m_ActorToShowCardsFor ?? m_ActorBeingAttacked (:216-218) — not on the attacked actor,
+// testing CPlayerActor.IsUnderMyControl (:238), CHeroSummonActor.Summoner.IsUnderMyControl (:233) or
+// FFSNetwork.IsHost (:229) by that actor's type, and sends every non-controlling client to
+// TakeDamagePanel.ShowOtherPlayer (:242). ShowOtherPlayer HIDES both bars rather than merely not
+// raising them: ResetToggles() at TakeDamagePanel.cs:1122 calls UIUseItemsBar.Hide() (:434) and
+// UIActiveBonusBar.Hide() (:435), each of which Clear()s its slots back to the pool, and it ends on
+// myWindow.Hide(instant: true) at :1133. Only TakeDamagePanel.Show reaches those two calls. So on the
 // watcher's machine those two bars are never populated for that actor, RemoteUseBarSymbols' gate 2
 // is false BY CONSTRUCTION, and no better local rule can exist. Both logs agree: the owner printed
 // "USE BARS: 'UseBarActiveBonus' docked/VISIBLE" and the watcher's 55,616-line log has not one

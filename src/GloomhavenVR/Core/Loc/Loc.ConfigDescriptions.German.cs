@@ -2570,10 +2570,17 @@ internal static partial class Loc
                 + "Code begrenzt diesen Regler dort. Der Standard 0,60 m ist dieselbe Balkenhöhe, die "
                 + "der Kartenraum verwendet — ein Fenster schwebt also in beiden Räumen gleich. NUR DIE "
                 + "ANFANGSHÖHE: das Fenster bleibt frei verschiebbar und voll synchronisiert, und ein "
-                + "bereits stehendes bewegt sich nicht, wenn du das hier änderst. MEHRSPIELER: Dieser "
-                + "Wert gehört zur gemeinsamen Platzierung — alle Spieler einer Sitzung sollten "
-                + "dieselbe Zahl stehen lassen. Ein abweichender Wert hängt die eigene Kopie auf eine "
-                + "andere Höhe, bis es jemand verschiebt. Bereich 0.3-1.5.",
+                + "bereits stehendes bewegt sich nicht, wenn du das hier änderst. "
+                + "MEHRSPIELER — VOR DEM EINTIPPEN LESEN: seit ModBuild 480 ist dieser Regler zwar "
+                + "gebunden, aber WIRKUNGSLOS. Ein gemeinsames Fenster öffnet auf jedem Client bei "
+                + "den ausgelieferten 0,60 m, der Wert hier wird ignoriert. Früher zählte er, mit "
+                + "dem Hinweis, alle in einer Sitzung sollten dieselbe Zahl stehen lassen — aber die "
+                + "Lage eines gemeinsamen Fensters darf von nichts abhängen, was nur auf einem "
+                + "Rechner steht, und „bitte tippt alle dasselbe“ ist keine Regel, die ein Build "
+                + "einhalten kann. Die SPAWN-Zeile des Szenario-Fensters im Log nennt diesen Regler "
+                + "und den ignorierten Wert, damit eine eingetippte Zahl nachlesbar statt rätselhaft "
+                + "ist. Zum Verschieben das Fenster greifen: diese Bewegung ist synchronisiert und "
+                + "ist der Weg, auf dem eine Gruppe die Höhe ändert. Bereich 0.3-1.5.",
             ["WorldUI/DesktopMirrorLeftEye"] =
                 "Der flache Monitor spiegelt NUR das LINKE Auge des HMD: setzt XRSettings.gameViewRenderMode "
                 + "fest auf LeftEye und überspringt den Composite-Blit des 2D-Menüs auf dem Desktop, sodass der "

@@ -702,6 +702,33 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     }
 
     /// <summary>
+    /// The owner's own <c>[WorldUI] CanvasScaleMm</c>, off record 28, for a surface that has to
+    /// size a peer's content the way that peer sizes it.
+    ///
+    /// <para>WHY THIS EXISTS. A mirror must never read the viewer's dial, and
+    /// <c>RemoteMapRoom</c> was doing exactly that: it multiplied THIS client's
+    /// <c>CanvasScaleMm</c> by the OWNER's scale factor, under a comment saying the factor was the
+    /// owner's — which was true of the factor and false of the product. The owner's millimetres
+    /// have ridden record 28 since ModBuild 306; there was simply no accessor, so the nearest
+    /// available number got used. Same shape as <see cref="TryGetPeerWindowLegibility"/> directly
+    /// above, deliberately, so the two cannot drift.</para>
+    ///
+    /// <para>Returns false and leaves <paramref name="mm"/> at the shipped default when the peer is
+    /// unknown or has not published a tuning block yet. A caller that gets false is sizing against
+    /// the default, NOT against the viewer's dial — that is the fail direction 1:1 wants, because a
+    /// wrong shared number is recoverable and a viewer-local one is a permanent disagreement.</para>
+    /// </summary>
+    internal static bool TryGetPeerCanvasScaleMm(int playerId, out float mm)
+    {
+        mm = Defaults.CanvasScaleMm;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(playerId, out RemoteAvatar avatar) || avatar == null)
+            return false;
+        mm = avatar.BoardTuning.CanvasScaleMm;
+        return mm > 0f;
+    }
+
+    /// <summary>
     /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
     /// how many were added.
     ///

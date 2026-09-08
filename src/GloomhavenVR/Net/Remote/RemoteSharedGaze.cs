@@ -917,9 +917,14 @@ internal static class RemoteSharedGaze
         // is one direction for the whole room; the anchor's own SHARED WINDOW SEAT ANGLES line
         // measures the delivered angle per window, lateral step included, which is where a
         // disagreement between this prediction and the picture would show up.
-        float radiusMeters = WorldUIConfig.SharedWindowArcRadiusMeters != null
-            ? WorldUIConfig.SharedWindowArcRadiusMeters.Value
-            : Defaults.SharedWindowArcRadiusMeters;
+        // THE SHIPPED CONSTANT, NOT THE LIVE DIAL, and that is the whole point of reading it here.
+        // ModBuild 480 extended the shared-window law from SIZE to POSE: a shared window's spawn
+        // radius may not be a function of anything client-local, so the SEAT now takes
+        // Defaults.SharedWindowArcRadiusMeters and the viewer's [WorldUI] dial is inert for it.
+        // This scorer predicts that seat. Reading the live dial here would make the prediction and
+        // the delivered seat disagree by exactly the amount this viewer had tuned — an instrument
+        // measuring a geometry nobody draws, which is the failure this project has paid for before.
+        float radiusMeters = Defaults.SharedWindowArcRadiusMeters;
         radiusWorld = Mathf.Max(radiusMeters, 0.05f) * frameScale;
         minReadWorld = MinReadingMeters * frameScale;
         centreFlat = new Vector3(centre.x, 0f, centre.z);

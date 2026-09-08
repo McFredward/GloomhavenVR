@@ -1641,12 +1641,16 @@ internal sealed partial class CardsDriver
     //
     // The catch: that formula runs ONCE, inside Show(). Everything afterwards only WRITES the
     // states, and two game paths latch them off for the rest of the decision:
-    //   * SelectItemState.Enter → TakeDamagePanel.SetDisableVisualState() saves the current states
-    //     and forces all three to interactable=false plus canvasGroupVisbility.alpha=0; Exit
-    //     restores the SAVED snapshot and then calls DisplayButtons(false). Re-entering that state
-    //     before the matching Exit therefore snapshots the ALREADY-DISABLED state, and the restore
-    //     writes "all dead" permanently — with no Show() left to recompute it. The mod drives item
-    //     slots during exactly this decision (the shield place), so it can and does walk that state.
+    //   * SelectItemState.Enter → TakeDamagePanel.SetDisableVisualState(). THIS PATH IS NOT
+    //     REACHABLE IN VR, and the sentence that used to stand here ("the mod drives item slots
+    //     during exactly this decision, so it can and does walk that state") was false. Closed on
+    //     2026-09-08 from the decompiled source rather than left as a suspicion: StateMachine.Enter
+    //     and BOTH SwitchToState overloads early-return unless InputManager.GamePadInUse
+    //     (Code.State/StateMachine.cs:100, :129, :170); ScenarioStateTag.SelectItem has exactly one
+    //     transition site, ControllerInputItemsArea.cs:171, which calls that gated Enter; and
+    //     SetDisableVisualState has exactly one caller in the game, SelectItemState.cs:43. The mod's
+    //     InputModeGuard holds GamePadInUse false. It is also a SYMMETRIC save/restore, not a latch.
+    //     Kept in this list because it is the shape a gamepad-in-VR build would reach.
     //   * ResetAndHide races (the TAKE-DAMAGE SAFETY swallow at LogOutput.log:21510 is that same
     //     teardown arriving out of order) leave the row docked but dead.
     //
@@ -1713,7 +1717,10 @@ internal sealed partial class CardsDriver
                             $"receive-damage = {(control ? "OFFERED" : "greyed")}, takeDamageControl={control}" +
                             (repaired
                                 ? " — RE-ASSERTED: the game had latched one or more of these off mid-decision " +
-                                  "(SelectItemState save/restore or a ResetAndHide race); restored from the " +
+                                  "(the panel's own DisplayButtons/ThisPlayerHasTakeDamageControl writes — NOT " +
+                                  "SelectItemState: StateMachine.Enter and both SwitchToState overloads " +
+                                  "early-return unless InputManager.GamePadInUse, ControllerInputItemsArea.cs:171 " +
+                                  "is its only entry, and InputModeGuard holds that flag false in VR); restored from the " +
                                   "panel's own formula, no policy invented."
                                 : " — matches the game's own gate, nothing to repair."));
     }
@@ -1731,7 +1738,7 @@ internal sealed partial class CardsDriver
         bool repaired = false;
         if (!toggle.gameObject.activeSelf)
         {
-            // DisplayButtons(false) from a stale DamageScenarioState/SelectItemState exit while the
+            // DisplayButtons(false) from a stale DamageScenarioState exit while the
             // decision is still open — the option would be missing from the docked row entirely
             // (this is the literal "die Option wurde nicht angeboten" — "the option was not
             // offered").

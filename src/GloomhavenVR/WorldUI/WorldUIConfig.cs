@@ -863,9 +863,15 @@ internal static class WorldUIConfig
                 "same bar height the map room uses, so a window hovers the same way in both rooms. " +
                 "THIS IS THE INITIAL SPAWN HEIGHT ONLY: the window stays freely movable and fully " +
                 "synchronised, and one that is already standing does not move when this changes. " +
-                "MULTIPLAYER: this value is part of the shared placement, so all players in a " +
-                "session should leave it at the same number — a different value on one client hangs " +
-                "that client's copy at a different height until somebody drags it. Range 0.3-1.5.",
+                "MULTIPLAYER — READ THIS BEFORE YOU TYPE A NUMBER: as of ModBuild 480 this dial is " +
+                "BOUND BUT INERT. A shared window's spawn height is the shipped 0.60 m on every " +
+                "client, and the value here is ignored. It used to be honoured, with the advice " +
+                "that everyone in a session should agree on one number — but a shared window's pose " +
+                "may not be a function of anything client-local, and 'everyone please type the " +
+                "same thing' is not a rule a build can keep. The scenario window SPAWN line in the " +
+                "log names this dial and the value it ignored, so a number typed here can be " +
+                "grepped rather than guessed at. Drag the window: that MOVE is synchronised and is " +
+                "how a group changes where it hangs. Range 0.3-1.5.",
                 new AcceptableValueRange<float>(0.3f, 1.5f)));
         DesktopMirrorLeftEye = _file.Bind("WorldUI", "DesktopMirrorLeftEye", Defaults.DesktopMirrorLeftEye,
             "Flat monitor mirrors ONLY the HMD's LEFT eye: pins XRSettings.gameViewRenderMode to " +
