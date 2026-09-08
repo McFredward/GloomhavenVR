@@ -1150,6 +1150,54 @@ internal static class RemoteMapRoom
         /// that term on BOTH machines equally. Reproducing it here would mean measuring a converted
         /// rect before the pose runs, for a case that does not occur today.</para>
         /// </summary>
+        /// <summary>Change gate for <see cref="LogPlacardScale"/>, keyed by player id — one line per
+        /// peer per real change, never per frame. INSTRUMENT-ONLY: nothing else reads it.</summary>
+        private static readonly Dictionary<int, float> LoggedScale = new();
+
+        /// <summary>
+        /// THE ONE LINE THAT DECIDES WHOSE DIALS SIZED A PEER'S PLACARD — grep
+        /// <c>MAP PLACARD SCALE</c>, on BOTH machines.
+        ///
+        /// <para>It exists because R2 finding F3 is a breach that is INVISIBLE at the shipped
+        /// defaults and invisible to every checker: <c>check-remote-defaults.py</c> compares frozen
+        /// constants, <c>check-wire-coverage.py</c> asks whether a dial is on the wire (this one is,
+        /// id 143), and neither can see which SIDE's copy a live <c>ConfigEntry.Value</c> read comes
+        /// from. So the deciding field is printed instead: this client's own
+        /// <c>[WorldUI] CanvasScaleMm</c> beside the owner's legibility factor and the metres the
+        /// product lands at.</para>
+        ///
+        /// <para>HOW TO READ IT. Compare the <c>viewerCanvasScaleMm</c> field in the line for peer N
+        /// on this machine against the same field in peer N's OWN log (their line for whoever they
+        /// are watching, or their <c>DeriveWindowScale</c> line). Equal ⇒ the breach is dormant and
+        /// the placards agree. Unequal ⇒ this viewer is reading that peer's placard at
+        /// <c>viewer/owner</c> times the size the peer is reading it at, and only that ratio, since
+        /// every other factor in the product is already theirs or a constant.</para>
+        /// </summary>
+        private static void LogPlacardScale(int playerId, float scale)
+        {
+            if (LoggedScale.TryGetValue(playerId, out float was) && Mathf.Abs(was - scale) <= 1e-6f)
+                return;
+            LoggedScale[playerId] = scale;
+            float viewerMm = WorldUI.WorldUIConfig.CanvasScaleMm.Value;
+            bool haveOwner = NetAvatarDriver.TryGetPeerWindowLegibility(playerId, out float legibility);
+            // HW-VERIFY: grep MAP PLACARD SCALE.
+            VRLog.Note("Net", $"MAP PLACARD SCALE [player {playerId}]: host scale {scale:F5} = "
+                + $"viewerCanvasScaleMm {viewerMm:F3} x 0.001 x worldScale "
+                + $"{WorldUI.PanelLayout.WorldScale:F3} x cap {ModalFallback.WindowScaleFactor:F3} x "
+                + $"ownerWindowLegibility {legibility:F3}"
+                + (haveOwner ? "" : " (SHIPPED default — that peer has no avatar yet)")
+                + ". THE LEGIBILITY FACTOR IS THE OWNER'S (record 28 id 180, user ruling "
+                + "2026-08-28); viewerCanvasScaleMm IS NOT — it is THIS client's [WorldUI] "
+                + "CanvasScaleMm, while the owner sizes their own card from THEIRS "
+                + "(ModalFallback.DeriveWindowScale). The owner's copy rides record 28 as id 143 "
+                + "and is decoded as RemoteBoardTuning.CanvasScaleMm; this class is keyed by player "
+                + "id and has no route to it without an accessor beside "
+                + "NetAvatarDriver.TryGetPeerWindowLegibility. Diff this field against the same "
+                + "field in that peer's own log: equal means the breach is dormant, unequal means "
+                + "this viewer sees that peer's placard at exactly viewer/owner times the size the "
+                + "peer is reading it at.");
+        }
+
         private static float ScaleFactorFor(int playerId) =>
             ModalFallback.WindowScaleFactor
             * (NetAvatarDriver.TryGetPeerWindowLegibility(playerId, out float legibility)
@@ -1258,12 +1306,40 @@ internal static class RemoteMapRoom
             // in host-local units and converting that through the host transform, so a scale
             // written afterwards would move the card it just seated.
             //
-            // THE FACTOR IS THE OWNER'S DIAL (ScaleFactorFor), not this viewer's, and no longer a
-            // number measured off the local player's own card. Re-read every frame on purpose: it
-            // is how a placard built before that peer's record 28 arrived corrects itself instead
-            // of staying at the shipped default for the whole session.
+            // ONE OF THE THREE FACTORS IS STILL THIS VIEWER'S, AND THAT IS A KNOWN 1:1 BREACH
+            // (R2 finding F3, 2026-09-07). ScaleFactorFor(playerId) IS the owner's — the small-
+            // dialog cap times THEIR [WorldUI] WindowLegibility off record 28 id 180, under the
+            // 2026-08-28 ruling quoted on that method. PanelLayout.WorldScale is a shipped constant.
+            // CanvasScaleMm.Value is THIS VIEWER'S live dial, and the sentence that used to open
+            // this comment — "THE FACTOR IS THE OWNER'S DIAL, not this viewer's" — was therefore
+            // true of two of the three terms it annotated. What falsified it: the owner's own card
+            // is sized through ModalFallback.DeriveWindowScale, which reads the same
+            // CanvasScaleMm.Value on THEIR machine (ModalFallback.9.Spawn.cs:1767-1770), so the two
+            // expressions differ in exactly this one term; and the project's own
+            // WorldUI/Modal/SharedWindowSizeLaw.cs:55-62 names [WorldUI] WindowLegibility and
+            // [WorldUI] CanvasScaleMm in one breath as the two dials of this kind, with "a MIRROR
+            // wears the OWNER's dial" as the recorded ruling for both.
+            //
+            // THE OWNER'S COPY IS ALREADY ON THE WIRE — NetProtocol.TuneCanvasScaleMm, id 143,
+            // sampled at BoardTuning.cs:328-329 and decoded as RemoteBoardTuning.CanvasScaleMm
+            // (BoardTuning.cs:1023, 1319). The sibling mirror consumes it correctly
+            // (RemoteBoardTooltip.cs:179, Mathf.Max(0.01f, tuning.CanvasScaleMm)) because it is
+            // handed a RemoteAvatar. This class is static and keyed by PLAYER ID: the only route
+            // from an id to a peer's tuning is an accessor beside
+            // NetAvatarDriver.TryGetPeerWindowLegibility, and NetAvatarDriver was not handed to
+            // this lane. The one-line-plus-accessor patch is in the round report.
+            //
+            // IT IS DELIBERATELY NOT "FIXED" BY FREEZING THE TERM TO Defaults.CanvasScaleMm. That
+            // would be correct only where the owner is untuned and would newly BREAK the case where
+            // both players have tuned the dial to the same value — trading one wrong picture for a
+            // different one, in a project whose memory already records what freezing a hand-tuned
+            // value costs. The arithmetic stands until the owner's number can actually be read.
+            //
+            // Re-read every frame on purpose: it is how a placard built before that peer's record 28
+            // arrived corrects itself instead of staying at the shipped default for the session.
             float scale = WorldUI.WorldUIConfig.CanvasScaleMm.Value * 0.001f
                           * WorldUI.PanelLayout.WorldScale * ScaleFactorFor(playerId);
+            LogPlacardScale(playerId, scale);
             Transform host = card.Panel.HostGo.transform;
             if (Mathf.Abs(host.localScale.x - scale) > 1e-6f)
                 host.localScale = Vector3.one * scale;
