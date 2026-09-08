@@ -516,6 +516,10 @@ internal struct PresenceState
     /// must not have.</summary>
     public byte HeldFaceCount;
 
+    /// <summary>Record 46: the owner is choosing a short-rest sacrifice. Independent of whether
+    /// record 39 can resolve a seat; false (and omitted) once the choice ends.</summary>
+    public bool ShortRestInProgress;
+
     /// <summary>
     /// True when a short-rest SACRIFICE is lying in one of this player's round recesses and this
     /// packet carries the sacrifice-seat record (<see cref="NetProtocol.ExtIdSacrificeSeat"/>).
@@ -529,10 +533,6 @@ internal struct PresenceState
     /// <see cref="NetProtocol.HeldFaceListDiscard"/>. 0 means "no sacrifice in this recess", which
     /// is the state nearly always in force for at least one of the two.</summary>
     public byte SacrificeSeatCode0;
-
-    /// <summary>Record 46: the owner is choosing a short-rest sacrifice. Independent of whether
-    /// record 39 can resolve a seat; false (and omitted) once the choice ends.</summary>
-    public bool ShortRestInProgress;
 
     /// <summary>The LENGTH of the list recess 1's index points into, clamped to 255. The receiver
     /// refuses the front unless its own copy of that list is exactly this long — the same belt
@@ -1579,6 +1579,11 @@ internal static class PresenceSerializer
     /// + 6 (HELD-CARD FACE: 2 + its two-slot form, 2 x <c>NetProtocol.HeldCardFaceSlotBytes</c>)
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
+    ///
+    /// <para>1798 -> 1801 on 2026-09-08: SHORT REST (46) adds three bytes, id/length/flags.
+    /// MaxSize remains 2100; margin 299 is larger than the largest single record (257).
+    /// The flag is independent of sacrifice-seat resolution, so privacy cannot fail open when
+    /// a widget or seat is unavailable. Idle packets omit it and remain byte-identical.</para>
     ///
     /// <para>1747 -> 1798 on 2026-09-07: the USE-BAR SLOT IDENTITY record (45) adds 51 bytes at its
     /// maximum — <c>[id][len]</c> plus <c>NetProtocol.UseBarSlotIdentityMaxRecordBytes</c>

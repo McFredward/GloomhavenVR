@@ -817,6 +817,10 @@ internal sealed class RemoteAvatar
     internal bool TryActiveCellLocal(int cardInstanceId, out UnityEngine.Vector3 boardLocal) =>
         _controlBoard.TryActiveCellLocal(cardInstanceId, out boardLocal);
 
+    /// <summary>The visible burn slab owns one recess until its animation finishes.</summary>
+    internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
+    internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
+
     /// <summary>
     /// Which of this peer's two round recesses is drawing the REAL FACE of the card with
     /// <paramref name="cardInstanceId"/> right now — 0, 1, or -1 for neither. Same shape and same
@@ -831,9 +835,6 @@ internal sealed class RemoteAvatar
     /// field is owed: the anchor vocabulary already names both recesses and the identity is this
     /// client's own read of the card it already seated there.</para>
     /// </summary>
-    internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
-    internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
-
     internal int RecessShowingCard(int cardInstanceId) =>
         _controlBoard.RecessShowingCard(cardInstanceId);
 
@@ -2095,6 +2096,9 @@ internal sealed class RemoteAvatar
         // Fan anchor (extension record 5): where the sender's open board-anchored fan really
         // sits, board-local. Reset when absent — "absent" must mean the authored default spot,
         // never a stale anchor from a fan that has since closed or moved.
+        if (ShortRestInProgress != p.ShortRestInProgress)
+            VRLog.Note("Net", $"SHORT REST STATE RECEIVED [player {PlayerId}]: "
+                             + $"choosing={p.ShortRestInProgress}; record 46.");
         ShortRestInProgress = p.ShortRestInProgress;
         HasFanAnchor = p.HasFanAnchor;
         FanAnchorLocal = p.HasFanAnchor ? p.FanAnchorLocal : Vector3.zero;

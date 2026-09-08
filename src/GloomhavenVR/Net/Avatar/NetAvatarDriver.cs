@@ -517,6 +517,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// really "the instrument goes silent exactly when the thing it measures fails". A first line
     /// is now unconditional and it carries the sampler's own REASON, so "wrote nothing" is a
     /// reading instead of a silence.</para></summary>
+    private bool _lastSentShortRest;
     private int _lastSentSeatCode0 = -1;
     private int _lastSentSeatCode1 = -1;
 
@@ -3358,6 +3359,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // The short-rest privacy term must survive a missing widget or an unresolvable seat.
         // Send the absolute state on every packet; either edge pre-empts the 5 Hz cadence.
         extras.ShortRestInProgress = shortRestInProgress;
+        if (shortRestChanged)
+            VRLog.Note("Net", $"SHORT REST STATE SENT: choosing={shortRestInProgress}; record 46 "
+                             + "is independent of sacrifice-seat resolution.");
         _lastSentShortRest = shortRestInProgress;
 
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
@@ -3665,8 +3669,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// there is no live tray. Lifted VERBATIM out of <see cref="TickExtrasSend"/> in the 2026-09
     /// refactor (pure motion): the block read only <paramref name="trayNow"/> and statics.
     /// </summary>
-    private bool _lastSentShortRest;
-
     private static int SampleBoardUi(PlayTray? trayNow)
     {
         int boardUiNow = -1;

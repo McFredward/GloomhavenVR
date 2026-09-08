@@ -301,6 +301,18 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// Which round recess is drawing the REAL FACE of <paramref name="cardInstanceId"/>, or -1.
     /// See <c>RemoteAvatar.RecessShowingCard</c> for why a burn needs to know.
     /// </summary>
+    internal int RecessShowingCard(int cardInstanceId)
+    {
+        if (cardInstanceId == int.MinValue)
+            return -1;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (_cards[i] != null && _cards[i].ShownFaceCardInstanceId == cardInstanceId)
+                return i;
+        }
+        return -1;
+    }
+
     /// <summary>Transfer the single visible card to the burn presentation immediately. A covered
     /// sacrifice is not a ShownFaceCardInstanceId, so the former face-only exclusion left its
     /// back underneath the new burn front until the next occupancy refresh (report 5b).</summary>
@@ -313,18 +325,6 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _slotPickBackMask &= ~(1 << recess);
         _slotPickSeatMask &= ~(1 << recess);
         _slotAnonMask &= ~(1 << recess);
-    }
-
-    internal int RecessShowingCard(int cardInstanceId)
-    {
-        if (cardInstanceId == int.MinValue)
-            return -1;
-        for (int i = 0; i < SlotCount; i++)
-        {
-            if (_cards[i] != null && _cards[i].ShownFaceCardInstanceId == cardInstanceId)
-                return i;
-        }
-        return -1;
     }
 
     /// <summary>
@@ -2461,6 +2461,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             SeatedHandCardExcess = 0;
             for (int i = 0; i < SlotCount; i++)
             {
+                if (_owner.BurnOwnsRecess(i))
+                {
+                    SuppressBurnRecess(i);
+                    continue;
+                }
                 CAbilityCard? legacy = _ordered[i];
                 // THE SAME ONE EXPRESSION THE MODERN BRANCH BELOW USES. This branch spelled a bare
                 // `showFronts` and therefore had NO burn carve-out at all — the third copy of the
