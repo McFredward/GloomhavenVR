@@ -492,6 +492,18 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <summary>Authored (raw) local z per portrait transform, for idempotent remap + restore.</summary>
     private readonly Dictionary<Transform, float> _rawDepth = new(16);
 
+    private static InitiativeTrackSurface? _depthSource;
+
+    /// <summary>Read the authored depth saved before local compression. Remote mirrors must not
+    /// attempt to invert a viewer cap of zero, which deliberately erases depth from the live UI.</summary>
+    internal static float AuthoredDepth(Transform source)
+    {
+        if (_depthSource != null && _depthSource._rawDepth.TryGetValue(source, out float raw))
+            return raw;
+        return source != null ? source.localPosition.z : 0f;
+    }
+
+
     /// <summary>A depth-bearing transform found this tick, WITH the authored z the walk already
     /// read out of <see cref="_rawDepth"/>. Carrying the value avoids a third dictionary lookup per
     /// node in the apply loop — and a <c>Dictionary&lt;Transform,…&gt;</c> lookup is not free: the
@@ -1447,6 +1459,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// </summary>
     private void NormalizeDepth()
     {
+        _depthSource = this;
         Transform? holder = InitiativeTrack.Instance != null
             ? InitiativeTrack.Instance.initiativeTrackHolder
             : null;

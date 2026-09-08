@@ -41,6 +41,24 @@ internal static class BoardNativeParityVectors
         t.True(Regex.IsMatch(board, @"new RemoteBoardFurniture\([\s\S]*?SlotAnchorBoardLocal\(0\),\s*SlotAnchorBoardLocal\(1\)"),
             "the glow constructor receives bare board-space anchors");
 
+        t.Case("board-parity/native-disabled-hover-and-color-fade");
+        t.True(RemoteDecisionMotion.HoverTarget(false, true, true, false, 1.2f) == 1.2f,
+            "native disabled hover grows when the prefab permits it");
+        t.True(RemoteDecisionMotion.HoverTarget(false, false, true, false, 1.2f) == 1f,
+            "native disabled hover stays still when the prefab forbids it");
+        t.True(RemoteDecisionMotion.HoverTarget(false, true, true, true, 1.2f) == 1.2f,
+            "a disabled button never performs the press pop");
+        t.True(Math.Abs(RemoteDecisionMotion.HoverTarget(true, false, true, true, 1.2f) - 1.1f) < 0.00001f,
+            "offered press uses native half-pop value");
+        t.True(RemoteDecisionMotion.FadeProgress(0.05f, 0.1f) == 0.5f,
+            "native color fade has an intermediate frame, not a snapped state");
+        t.True(RemoteDecisionMotion.FadeProgress(0.2f, 0.1f) == 1f,
+            "a late frame settles without extrapolating color");
+        t.True(RemoteDecisionMotion.FadeProgress(0f, 0f) == 1f,
+            "zero-duration native transitions settle immediately");
+        t.True(RemoteDecisionMotion.FadeProgress(-0.1f, 0.1f) == 0f,
+            "a future start time cannot extrapolate before the initial color");
+
         t.Case("board-parity/paint-native-before-final-fit");
         string decision = Read(repoRoot, "Net/Remote/RemoteDecisionWidgets.cs");
         string body = Method(decision, "private bool RefreshCore(");

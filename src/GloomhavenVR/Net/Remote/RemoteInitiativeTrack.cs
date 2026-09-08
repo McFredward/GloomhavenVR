@@ -250,6 +250,68 @@ internal sealed class RemoteInitiativeTrack
         ApplySelectionGlow();
         ApplyFocusRings();
         ApplyFallbackFocusTint();
+        ApplyNativeDepth();
+    }
+
+    private float _nativeDepthPixels = Defaults.InitiativeDepthMaxSpreadPx;
+    private int _nativeDepthStamp = -1;
+    private readonly List<NativeDepthNode> _nativeDepth = new(64);
+
+    private struct NativeDepthNode
+    {
+        internal Transform Clone;
+        internal float Raw;
+    }
+
+    internal void SetNativeDepthPixels(float pixels) =>
+        _nativeDepthPixels = float.IsNaN(pixels) || float.IsInfinity(pixels)
+            ? Defaults.InitiativeDepthMaxSpreadPx : Mathf.Max(0f, pixels);
+
+    private void ApplyNativeDepth()
+    {
+        if (_nativeDepthStamp != _mirror.RebuildStamp)
+        {
+            _nativeDepthStamp = _mirror.RebuildStamp;
+            _nativeDepth.Clear();
+            Transform? holder = InitiativeTrack.Instance != null
+                ? InitiativeTrack.Instance.initiativeTrackHolder : null;
+            if (holder == null) return;
+            // Like the local pass, exclude entry roots: their Z belongs to the reorder guard.
+            for (int i = 0; i < holder.childCount; i++)
+            {
+                Transform entry = holder.GetChild(i);
+                for (int n = 0; n < entry.childCount; n++) BindNativeDepth(entry.GetChild(n));
+            }
+        }
+        float rawMin = 0f, rawMax = 0f;
+        for (int i = 0; i < _nativeDepth.Count; i++)
+        {
+            NativeDepthNode node = _nativeDepth[i];
+            if (node.Clone == null || !node.Clone.gameObject.activeInHierarchy) continue;
+            rawMin = Mathf.Min(rawMin, node.Raw);
+            rawMax = Mathf.Max(rawMax, node.Raw);
+        }
+        float spread = rawMax - rawMin;
+        if (spread < 0.5f) return; // same native flat-row epsilon
+        float factor = Mathf.Min(1f, _nativeDepthPixels / spread);
+        for (int i = 0; i < _nativeDepth.Count; i++)
+        {
+            NativeDepthNode node = _nativeDepth[i];
+            if (node.Clone == null || !node.Clone.gameObject.activeInHierarchy) continue;
+            Vector3 p = node.Clone.localPosition;
+            float z = node.Raw * factor;
+            if (Mathf.Abs(p.z - z) > 0.001f)
+                node.Clone.localPosition = new Vector3(p.x, p.y, z);
+        }
+    }
+
+    private void BindNativeDepth(Transform source)
+    {
+        Transform? clone = _mirror.CloneOf(source);
+        float raw = WorldUI.Surfaces.InitiativeTrackSurface.AuthoredDepth(source);
+        if (clone != null && Mathf.Abs(raw) >= 0.5f)
+            _nativeDepth.Add(new NativeDepthNode { Clone = clone, Raw = raw });
+        for (int i = 0; i < source.childCount; i++) BindNativeDepth(source.GetChild(i));
     }
 
     // ------------------------------------------------------------------ peer hover --
@@ -2317,6 +2379,7 @@ internal sealed class RemoteInitiativeTrack
             InvalidateHoverCache();
             ApplyHoverOverrides();
             ApplySelectionOverride();
+            ApplyNativeDepth();
             return;
         }
 

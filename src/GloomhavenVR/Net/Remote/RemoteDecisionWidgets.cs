@@ -144,6 +144,11 @@ internal sealed class RemoteDecisionWidgets
         /// them itself.</para></summary>
         public Color HighlightedTint;
         public Color PressedTint;
+        public float ColorSeconds;
+        public Color ColorFrom, ColorTo;
+        public float ColorAt;
+        public bool ColorSeeded;
+        public bool ScaleNonInteractable;
 
         // ---- the HOVER/PRESS GROW, captured from the same source widget for the same reason ----
 
@@ -1105,6 +1110,8 @@ internal sealed class RemoteDecisionWidgets
             DisabledTint = source.colors.disabledColor,
             HighlightedTint = source.colors.highlightedColor,
             PressedTint = source.colors.pressedColor,
+            ColorSeconds = source.transition == Selectable.Transition.ColorTint
+                ? Mathf.Max(0f, source.colors.fadeDuration) : 0f,
             TintMultiplier = source.colors.colorMultiplier > 0f ? source.colors.colorMultiplier : 1f,
         };
         if (source is Toggle toggle && toggle.graphic != null)
@@ -1140,14 +1147,8 @@ internal sealed class RemoteDecisionWidgets
     /// plain <c>Button</c>/<c>Toggle</c> and carry no scale animation at all — so on that prompt
     /// there is nothing to reproduce and the mirror is already 1:1 in this axis.</para>
     ///
-    /// <para>THE GATE IS <c>IsInteractable</c>, AND THE SENDER OWNS IT. The game grows a
-    /// NON-interactable button too when its prefab has <c>scaleNonInteractable</c> (default true,
-    /// ExtendedButton.cs:22/411), but record 24's hover and press bits are deliberately withheld
-    /// for a non-interactable option (<c>DecisionDockSurface.SamplePointerBits</c>), so this drive
-    /// cannot see that case. It is left withheld ON PURPOSE: the same two bits also drive the
-    /// mod-drawn plate row's hover tint, which the owner's greyed widget does NOT show, so widening
-    /// the sampler would fix one axis and break another. Named here so the residual is a known,
-    /// bounded one rather than a rediscovery.</para>
+    /// <para>The native <c>scaleNonInteractable</c> flag also permits hover growth on a disabled
+    /// option. That visual permission never grants the disabled option a press action.</para>
     /// </summary>
     private void BindHoverScale(ref RoleNode node, Selectable source)
     {
@@ -1170,6 +1171,7 @@ internal sealed class RemoteDecisionWidgets
             return;
         node.ScaleNode = cloneTarget;
         node.HoverScale = factor;
+        node.ScaleNonInteractable = eb.scaleNonInteractable;
         // animateScaling off ⇒ ToggleHighlight assigns the scale with no tween (ExtendedButton.cs:462-468).
         node.ScaleSeconds = eb.animateScaling ? Mathf.Max(0f, eb.animationDuration) : 0f;
         node.ScaleFrom = 1f;
@@ -1370,6 +1372,7 @@ internal sealed class RemoteDecisionWidgets
             // widget that is not on screen has no animation to be seen mid-way through, and leaving
             // a grown scale on a hidden node would show the NEXT prompt's option pre-hovered.
             RestHoverScale(ref node);
+            node.ColorSeeded = false; // native OnEnable applies its first transition instantly
             return false;
         }
         {
@@ -1391,22 +1394,16 @@ internal sealed class RemoteDecisionWidgets
                 // over pressed, pressed over highlighted, highlighted over normal. Following the
                 // game's precedence rather than inventing one is what keeps a greyed option that
                 // happens to sit under the owner's beam looking greyed on every board, which is
-                // what the owner is looking at. (The sender agrees with this from the other end:
-                // SamplePointerBits publishes no pointer bit at all for a non-interactable option,
-                // so the two sides cannot disagree about a widget in that state.)
+                // what the owner is looking at, even when scaleNonInteractable permits its hover grow.
                 //
-                // ONE HONEST DIFFERENCE, stated rather than hidden: uGUI CROSS-FADES between these
-                // colours over ColorBlock.fadeDuration (0.1 s by default) and the mirror snaps. At
-                // this row's size, over a network whose own latency is the same order, the fade is
-                // not a picture a viewer can miss — and faking it would mean running a tween on the
-                // remote board driven by a value that only updates when a packet lands.
+                // The original ColorBlock transition is linear and unscaled. Preserve its
+                // duration, including interrupted fades, on the existing per-frame option pump.
                 Color stateTint = offered
                     ? (pressed ? node.PressedTint : hovered ? node.HighlightedTint : node.NormalTint)
                     : node.DisabledTint;
                 Color tint = stateTint * node.TintMultiplier;
                 Color c = node.BaseColor * tint * antique;
-                if (node.Background.color != c)
-                    node.Background.color = c;
+                AimColor(ref node, c);
             }
             if (node.Group != null)
             {
@@ -1465,8 +1462,8 @@ internal sealed class RemoteDecisionWidgets
             + "row is back to colour-only. The grow is SUSPENDED for every measurement in Refresh, "
             + "so it can move no geometry: if the mirrored row's size or seat changes while the "
             + "owner's beam crosses it, THIS pass is not the cause and SuspendHoverScales is where "
-            + "to look. A non-interactable option never grows here even though the game grows it "
-            + "(scaleNonInteractable) — record 24 withholds pointer bits for it on purpose.");
+            + "to look. Disabled hover follows the original scaleNonInteractable flag; disabled "
+            + "options retain their disabled tint and never perform the press pop.");
     }
 
     private static void CountGrow(in RoleNode node, ref int bound, ref int withGrow,
@@ -1493,9 +1490,8 @@ internal sealed class RemoteDecisionWidgets
     /// edge is animated and a press edge SNAPS, and that difference is reproduced rather than
     /// smoothed over: the press pop is the whole feel of the button.</para>
     ///
-    /// <para>A NON-OFFERED option is pinned at rest. That follows the sender, which publishes no
-    /// pointer bit at all for a non-interactable widget — see <see cref="BindHoverScale"/> for why
-    /// that asymmetry is deliberate and what it costs.</para>
+    /// <para>Disabled options follow their original <c>scaleNonInteractable</c> setting. Press
+    /// pop remains restricted to offered options, as in native OnPointerDown.</para>
     ///
     /// <para>Writes NOTHING to a transform: it only aims. <see cref="TickHoverScales"/> owns every
     /// write, so the fit and the block measurement can neutralise the row for one statement without
@@ -1505,10 +1501,9 @@ internal sealed class RemoteDecisionWidgets
     {
         if (node.ScaleNode == null || !(node.HoverScale > 0f))
             return;
-        float want = !offered ? 1f
-            : pressed ? (node.HoverScale + 1f) * 0.5f
-            : hovered ? node.HoverScale
-            : 1f;
+        pressed &= offered; // native disabled buttons can hover-grow but never perform the press pop
+        float want = RemoteDecisionMotion.HoverTarget(offered, node.ScaleNonInteractable,
+            hovered, pressed, node.HoverScale);
         if (!Mathf.Approximately(want, node.ScaleTo))
         {
             // A PRESS EDGE SNAPS (both directions: down writes the half value, up writes the full
@@ -1552,9 +1547,42 @@ internal sealed class RemoteDecisionWidgets
     {
         float now = Time.unscaledTime;
         for (int i = 0; i < _roles.Length; i++)
+        {
             AdvanceHoverScale(ref _roles[i], now);
+            AdvanceColor(ref _roles[i], now);
+        }
         for (int i = 0; i < _options.Length; i++)
+        {
             AdvanceHoverScale(ref _options[i], now);
+            AdvanceColor(ref _options[i], now);
+        }
+    }
+
+    private static void AimColor(ref RoleNode node, Color target)
+    {
+        if (node.Background == null) return;
+        if (!node.ColorSeeded)
+        {
+            node.ColorSeeded = true;
+            node.ColorFrom = node.ColorTo = target;
+            node.ColorAt = Time.unscaledTime;
+        }
+        else if (node.ColorTo != target)
+        {
+            AdvanceColor(ref node, Time.unscaledTime);
+            node.ColorFrom = node.Background!.color;
+            node.ColorTo = target;
+            node.ColorAt = Time.unscaledTime;
+        }
+        AdvanceColor(ref node, Time.unscaledTime);
+    }
+
+    private static void AdvanceColor(ref RoleNode node, float now)
+    {
+        if (node.Background == null || !node.ColorSeeded) return;
+        float progress = RemoteDecisionMotion.FadeProgress(now - node.ColorAt, node.ColorSeconds);
+        Color color = Color.LerpUnclamped(node.ColorFrom, node.ColorTo, progress);
+        if (node.Background.color != color) node.Background.color = color;
     }
 
     private static void AdvanceHoverScale(ref RoleNode node, float now)
