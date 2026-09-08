@@ -507,9 +507,9 @@ internal sealed class RemoteHandFan
     // frame by UpdateFaces, so a phase that turns secret mid-wipe turns the leavers to BACKS in the
     // same frame it turns the arrivers — the gate is never outrun by an animation.
     //
-    // Deliberately resolved from DisplayedActor rather than from the raw focus id: that is the same
-    // predicate the FRONTS use, so the fan can never be exchanging for one reason while its faces
-    // follow another (the ModBuild 84 mismatch, stated at UpdateFaces).
+    // Motion follows the owner's existing identity records, independently of the face predicate:
+    // raw scenario focus in record 22, map-room loadout character in record 20. The face resolver
+    // still decides what each slab may wear; an identity edge grants no permission to show fronts.
 
     /// <summary>Seconds since the owner's exchange began (-1 = none). Advanced on the caller's
     /// unscaled dt, like the reveal.</summary>
@@ -523,17 +523,10 @@ internal sealed class RemoteHandFan
     /// question, and the only one <see cref="RemoteBoardFocus.DisplayedActor"/> answers.</summary>
     private int _shownActorId;
 
-    /// <summary>
-    /// The id the MOTION edge is tracked on: the peer's RAW record-22 focus id
-    /// (<c>CharacterFocus.FocusIdForPeer</c>), falling back to <see cref="_shownActorId"/> for a
-    /// peer that sends no record at all. A change in it while the fan is up IS the exchange edge.
-    ///
-    /// <para>Deliberately a SECOND id rather than a reuse of <see cref="_shownActorId"/>: the two
-    /// answer different questions and come apart in exactly the window the exchange matters most
-    /// (the secret card-selection phase). See the edge in <c>Tick</c> for the full argument and the
-    /// user report it answers.</para>
-    /// </summary>
-    private int _swapMotionId;
+    /// <summary>The last visible fan's motion identity: raw scenario focus (record 22) or
+    /// map-room loadout character key (record 20). These are separate identity domains; neither
+    /// asks which card faces the viewer is allowed to see.</summary>
+    private FanExchangeIdentity _swapIdentity;
 
     /// <summary>…and the actor object behind it, carried forward one frame so that when the edge
     /// fires the wave can be handed the character it is WEARING rather than the one replacing it.</summary>
@@ -1154,9 +1147,10 @@ internal sealed class RemoteHandFan
 
     /// <summary>Card count the map loadout was last resolved for (-1 = never), and the next unscaled
     /// time the resolve may run again. The resolve walks the party and is NOT a per-frame cost: it
-    /// re-runs on a count change or on this slow cadence, which also picks up a loadout edit made on
+    /// re-runs on a count or character-key change, or on this slow cadence for a loadout edit made on
     /// the peer's side while their fan is up.</summary>
     private int _mapResolvedForCount = -1;
+    private uint _mapResolvedForCharacterKey;
 
     private float _nextMapResolveAt;
 
@@ -1284,6 +1278,74 @@ internal sealed class RemoteHandFan
         // gone in a blink while the owner watched a full gather. Switching to a character with an
         // empty hand (every card burnt, a long rest) is a real switch target and the owner's own fan
         // animates it (CardsDriver's edge fires on `_fan.Count > 0 || incoming > 0`).
+        if (count == 0 && _leaving.Count == 0 && _cards.Count == 0)
+        {
+            Hide();
+            return;
+        }
+
+        EnsureRoot(holder);
+        if (_root == null)
+            return;
+
+        // Resolve the scenario face owner once for the arriving hand and the next outgoing wave.
+        // This is a reveal-gated answer, not the motion identity: the map has no scenario actor,
+        // and secret selection may pin the displayed actor while raw focus still changes.
+        CPlayerActor? shownActor = null;
+        int shownId = 0;
+        try
+        {
+            shownActor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+            if (shownActor != null)
+                shownId = NetFigures.StableActorId(shownActor);
+        }
+        catch (System.Exception ex)
+        {
+            shownActor = null;
+            shownId = 0;
+            // Report a failed face resolve once. The owner's wire identity can still drive motion.
+            if (!_loggedShownActorError)
+            {
+                _loggedShownActorError = true;
+                VRLog.Warn("Net", $"Remote hand fan [player {_owner.PlayerId}]: could not resolve which " +
+                                  $"character the owner is displaying ({ex.Message}). The fan falls back to " +
+                                  "BACKS; character-swap motion still follows the owner's wire identity.");
+            }
+        }
+
+        // CHARACTER EXCHANGE HAS TWO OWNER SOURCES (2026-09-08 follow-up). The scenario path
+        // already worked: MB482 host Fan EXCHANGE at 11005 matches remote 7213. The other four
+        // local exchanges (host 5224/5502/5607, remote 2350) are followed by "map-room hand".
+        // That owner path uses OffScenarioFanSwap, while this receiver only watched record 22,
+        // whose scenario actor is absent on the map. Equal-size map hands therefore silently
+        // reused every slab. Record 20 already names the loadout character for the face resolver;
+        // its key now arms the SAME outgoing/incoming animation, without a new wire field.
+        // Keep the domains separate: a map key is not a scenario actor id, even if bits coincide.
+        int focusId = Board.CharacterFocus.FocusIdForPeer(_owner.PlayerId);
+        bool mapPhase = RevealGate.InMapPhase;
+        RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint mapCharacterKey);
+        FanExchangeIdentity nextIdentity = mapPhase
+            ? FanExchangeIdentity.Map(mapCharacterKey)
+            : FanExchangeIdentity.Scenario(focusId != 0 ? focusId : shownId);
+        if (_swapIdentity.ShouldExchangeTo(nextIdentity, _root.activeSelf, _cards.Count, count))
+        {
+            // The outgoing face clones retain their own actor and existing per-frame reveal gate.
+            // Map fronts use ShowMapPhaseHandFronts; no incoming character's art is put on leavers.
+            BeginSwap(_shownActor);
+            VRLog.Info("Net", $"Remote hand fan EXCHANGE [player {_owner.PlayerId}]: {_swapOutCount} slab(s) " +
+                              $"gather off the arc while {count} deal in — the owner switched which character " +
+                              $"they are looking at ({(mapPhase ? "map-room character key, record 20" : "raw scenario focus, record 22")}). " +
+                              "The MOTION is mirrored; no card identity is transmitted for it. Incoming " +
+                              "and outgoing fronts remain under their respective reveal gates.");
+        }
+        _swapIdentity = nextIdentity;
+        _shownActorId = shownId;
+        _shownActor = shownActor;
+
+        // An incoming count of zero can mean a DIFFERENT character has an empty hand. Detect the
+        // identity edge before the ordinary fold; otherwise its early return spends the outgoing
+        // slabs on a close animation and the exchange is never visible. No identity edge still
+        // means the same normal close, with the owner's existing duration.
         // THE OWNER'S FAN IS COMING DOWN AND THERE ARE STILL SLABS TO FOLD (ModBuild 306). Their
         // CardFan.Close keeps the root visible and blends every card back into the centre stack
         // over FanCloseDuration before hiding; this is that, on the mirror.
@@ -1293,7 +1355,7 @@ internal sealed class RemoteHandFan
         // either. Nor with the duration at 0 — that is the owner's "vanish instantly", and honouring
         // it is the same 1:1 rule as honouring the animation.
         if (count == 0 && _cards.Count > 0 && _leaving.Count == 0 && _swapElapsed < 0f
-            && _closeSeconds > 0f && _root != null && _root.activeSelf)
+            && _closeSeconds > 0f && _root.activeSelf)
         {
             if (_closeElapsed < 0f)
             {
@@ -1322,110 +1384,6 @@ internal sealed class RemoteHandFan
             // CardFan.Open abandons it, and the open animation takes over from here.
             _closeElapsed = -1f;
         }
-
-        if (count == 0 && _leaving.Count == 0 && _cards.Count == 0)
-        {
-            Hide();
-            return;
-        }
-
-        EnsureRoot(holder);
-        if (_root == null)
-            return;
-
-        // WHICH CHARACTER'S HAND IS THIS? Resolved ONCE per tick and handed to both consumers — the
-        // exchange edge below and the front-art gate at the bottom — because those two disagreeing
-        // is precisely the ModBuild 84 defect (n slabs from one character wearing another's faces),
-        // and an exchange is the moment they would drift. Guarded: any failure reads as "unknown",
-        // which suppresses the exchange and shows backs, i.e. the pre-feature behaviour.
-        CPlayerActor? shownActor = null;
-        int shownId = 0;
-        try
-        {
-            shownActor = RemoteBoardFocus.DisplayedActor(_owner, out _);
-            if (shownActor != null)
-                shownId = NetFigures.StableActorId(shownActor);
-        }
-        catch (System.Exception ex)
-        {
-            shownActor = null;
-            shownId = 0;
-            // NEVER SILENT. A permanently-throwing resolve would disable the exchange AND pin this
-            // fan to backs forever, with nothing anywhere to say why — the same class of defect the
-            // EnsureRoot self-heal was written about. Once per instance, like every other latched
-            // diagnostic here.
-            if (!_loggedShownActorError)
-            {
-                _loggedShownActorError = true;
-                VRLog.Warn("Net", $"Remote hand fan [player {_owner.PlayerId}]: could not resolve which " +
-                                  $"character the owner is displaying ({ex.Message}). The fan falls back to " +
-                                  "BACKS and plays no character-swap exchange — both are the pre-feature " +
-                                  "behaviour, so this degrades rather than breaks.");
-            }
-        }
-
-        // THE EXCHANGE EDGE, mirroring CardsDriver.Rebuild's: a DIFFERENT character is being shown,
-        // both ids are known, and there is a fan on screen to exchange. A fan that is not up yet
-        // plays its fan-out reveal instead, which is the right animation for a hand being raised.
-        //
-        // ─── WHY THE EDGE IS THE RAW RECORD-22 ID AND NOT THE DISPLAYED ACTOR ────────────────────
-        // User, verbatim (2026-08-09): "Die Animation des Fächers, wenn der Character von dem
-        // Mitspieler geändert wird, ist nicht sichtbar."
-        //
-        // Everything downstream of this edge was already built and correct — BeginSwap invalidates
-        // _builtCount so two hands of the SAME SIZE still exchange, TickSwap replays the whole wipe
-        // on THIS client's own clock from the FanSwap* dials that already ride the tuning record,
-        // and the leaving slabs stay gated on their own character. The animation never ran because
-        // the TRIGGER could not see the switch:
-        //
-        //   * the OWNER's edge is Board.CharacterFocus.PresentedActorId
-        //     (Cards/CardsDriver.4.Rebuild.cs:260) — the character whose hand their board presents,
-        //     which is exactly what record 22 carries (CharacterFocus.LookingAt ⇒ Sample);
-        //   * this receiver's edge was RemoteBoardFocus.DisplayedActor, which is NOT that id. Its
-        //     RULE 1 deliberately IGNORES the focus record for the whole of
-        //     RevealGate.IsSecretSelectionPhase and answers NetPlayerActors.ActorFor instead — and
-        //     ActorFor returns the FIRST controllable of that player (NetPlayerActors.cs:137-144),
-        //     the same object no matter which of their characters they are editing.
-        //
-        // The card-selection window is precisely when a two-character player swaps hands, so on the
-        // owner's screen the exchange played and on every mirror the id never moved: no edge, no
-        // animation. Hardware log confirms the shape — .planning/debug/remote/LogOutput.log:965 and
-        // :1022 report the board character changing "their OWNED character: the game is in the
-        // secret card-selection phase", and no "Remote hand fan EXCHANGE" line exists in either log.
-        //
-        // So the MOTION edge now reads the record itself (CharacterFocus.FocusIdForPeer — the raw
-        // id as received, no secret-phase filter) while the FACES keep reading DisplayedActor,
-        // untouched. That split is the whole point: RULE 1 exists to stop a mirror ASKING ABOUT a
-        // character's cards during the secret window, and this asks about none. The edge is an
-        // integer INEQUALITY on an id this client already holds and already draws with (the
-        // mirrored initiative ring moves on the very same value), the arriving slabs are BACKS
-        // because RevealGate.ShowRoundCardFronts is false in that window, and the leaving wave is
-        // re-gated every frame on the OUTGOING character. Nothing that was secret becomes visible;
-        // a movement that was invisible becomes visible.
-        //
-        // Falls back to the displayed actor's id when a peer sends no record 22 at all (an older
-        // build, a scenario-less client), which is byte-for-byte the previous behaviour.
-        int focusId = Board.CharacterFocus.FocusIdForPeer(_owner.PlayerId);
-        int motionId = focusId != 0 ? focusId : shownId;
-        if (motionId != 0 && _swapMotionId != 0 && motionId != _swapMotionId
-            && _root.activeSelf && _cards.Count > 0)
-        {
-            // The wave keeps the OUTGOING character's faces, so it is handed that character — the
-            // one the fan was showing until this frame — for its own reveal-gate check.
-            BeginSwap(_shownActor);
-            VRLog.Info("Net", $"Remote hand fan EXCHANGE [player {_owner.PlayerId}]: {_swapOutCount} slab(s) " +
-                              $"gather off the arc while {count} deal in — the owner switched which character " +
-                              "they are looking at (extension record 22's actor id, already on the wire; the " +
-                              "RAW id, so the exchange still plays inside the secret card-selection window " +
-                              "where RemoteBoardFocus deliberately pins the DISPLAYED character to the " +
-                              "owner's owned one). The MOTION is mirrored; no card identity is transmitted " +
-                              "for it, the arriving slabs are BACKS whenever the viewer's own RevealGate " +
-                              "says so, and the leaving slabs are re-gated every frame on their OWN " +
-                              "character's verdict.");
-        }
-        _swapMotionId = motionId;
-        _shownActorId = shownId;
-        _shownActor = shownActor;
 
         // AN EMPTY INCOMING HAND, now genuinely reachable: the edge above has run, so a switch INTO
         // an empty hand has already armed its wave and the gather plays out here on this client's own
@@ -2185,9 +2143,13 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void ResolveMapFronts(int loadoutSize)
     {
-        if (loadoutSize == _mapResolvedForCount && Time.unscaledTime < _nextMapResolveAt)
+        RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint characterKey);
+        if (loadoutSize == _mapResolvedForCount && characterKey == _mapResolvedForCharacterKey
+            && Time.unscaledTime < _nextMapResolveAt)
             return;
+        bool characterChanged = characterKey != _mapResolvedForCharacterKey;
         _mapResolvedForCount = loadoutSize;
+        _mapResolvedForCharacterKey = characterKey;
         _nextMapResolveAt = Time.unscaledTime + MapResolveInterval;
 
         int before = _mapBuffer.Count;
@@ -2195,7 +2157,6 @@ internal sealed class RemoteHandFan
         // The peer's own statement of WHICH character their fan is showing, when their build sends
         // one (extension record 20, ModBuild 226). 0 from an older peer, and then the resolver falls
         // back to deducing the owner from the hand size exactly as it did before the field existed.
-        RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint characterKey);
         WorldUI.MapRoom.MapRoomHand.TryResolvePeerLoadout(
             _owner.PlayerId, loadoutSize, characterKey, _mapBuffer, out _mapVerdict);
         int firstAfter = _mapBuffer.Count > 0 && _mapBuffer[0] != null ? _mapBuffer[0].ID : 0;
@@ -2204,7 +2165,7 @@ internal sealed class RemoteHandFan
         // keeps the pooled borrow off the per-frame path, so it has to be invalidated whenever the
         // resolved set can have moved under it — the cheap, always-safe test is "the size or the
         // leading card changed", and a false positive costs one re-print pass.
-        if (_mapBuffer.Count != before || firstAfter != firstBefore)
+        if (characterChanged || _mapBuffer.Count != before || firstAfter != firstBefore)
         {
             for (int i = 0; i < _mapPrinted.Count; i++)
                 _mapPrinted[i] = -1;
@@ -2223,6 +2184,7 @@ internal sealed class RemoteHandFan
         _mapBuffer.Clear();
         _mapArc.Clear();
         _mapResolvedForCount = -1;
+        _mapResolvedForCharacterKey = 0;
         _mapVerdict = "not in the map phase";
         for (int i = 0; i < _mapPrinted.Count; i++)
             _mapPrinted[i] = -1;
@@ -5585,7 +5547,7 @@ internal sealed class RemoteHandFan
             EndSwap();
             _shownActorId = 0;
             _shownActor = null;
-            _swapMotionId = 0;
+            _swapIdentity = default;
             _builtCount = -1;
             _frontsShown = false;
             ClearPops();
@@ -6117,7 +6079,7 @@ internal sealed class RemoteHandFan
         EndSwap();
         _shownActorId = 0;
         _shownActor = null;
-        _swapMotionId = 0;
+        _swapIdentity = default;
         // Presentation state resets exactly like CardFan.Open does: the apex starts centred (a fan
         // that popped open already leaning would read as a glitch) and the next appearance logs its
         // geometry once so a hardware log has a line per fan, not one per session.
@@ -6147,7 +6109,7 @@ internal sealed class RemoteHandFan
         EndSwap(); // any outgoing wave dies with the fan — no orphaned slabs, no leaked clones
         _shownActorId = 0;
         _shownActor = null;
-        _swapMotionId = 0;
+        _swapIdentity = default;
         for (int i = _faces.Count - 1; i >= 0; i--)
             _faces[i].Destroy();
         _faces.Clear();
