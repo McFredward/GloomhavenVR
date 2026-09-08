@@ -294,7 +294,7 @@ internal static class HeldPropVectors
     private static void Budget(Harness t)
     {
         t.Case("37f. held prop, the send buffer still satisfies its own margin rule");
-        const int documentedWorstCase = 3441; // Records 46 and 47 included.
+        const int documentedWorstCase = 3449; // Records 46 and 47 included.
                                                // 1513 -> 1570 when this record and the shared-gaze
                                                // byte landed in one round; 1570 -> 1726 on
                                                // 2026-09-05 when an EXISTING term grew (the wall-

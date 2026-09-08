@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Rewritten 2026-09-08 against `dev` = ModBuild 483.** The file this replaces had gone 168 builds
+**Updated 2026-09-08 against `dev` = ModBuild 484.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,14 +13,17 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **`origin/dev` = ModBuild 483.** `main` is the release branch and is behind on purpose.
+- **`dev` = ModBuild 484.** `main` is the release branch and is behind on purpose.
 - **483 IS A FULL INSTALL.** The asset bundle changed for the first time since ModBuild 368:
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
   loud if it happens.
-- **UNTESTED on hardware.** 480, 481, 482 and 483 have all shipped without a hardware round.
-- Gate readings at 483: 17 checkers green · wire **210,164** assertions · patch surface
-  **107 classes / 165 methods** · config keys **625** · log tokens **4,698** ·
+- **Hardware evidence now covers 482**, both clients at commit `6efa4acfc`. **483 and 484
+  remain untested on hardware.** See [MP-ROUND-484.md](MP-ROUND-484.md) for the seven findings,
+  fixes, transport contract and the unresolved underlying disconnect cause.
+- **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
+- Gate readings at 484: 17 checkers green · wire **213,704** assertions · patch surface
+  **107 classes / 165 methods** · config keys **625** · log tokens **4,704** ·
   instrument-writes baseline **61** · 0 errors, 0 warnings.
 
 ### What the last four builds were
@@ -31,6 +34,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 481 | the 2026-09 refactor programme: five lanes over 626 files / 550k lines. Also found four gates that could not fail | DLL only |
 | 482 | the four rulings he gave on 481's deferred list, one lane each | DLL only |
 | 483 | his two hardware notes, both baked into the assets on his ruling "lieber sauber" | **full** |
+| 484 | multiplayer pulse, flights, grabbing, rest controls/burns, original bonus widgets and bounded extras transport | DLL only after 483 |
 
 ---
 
@@ -45,17 +49,13 @@ in the zoomed-out pose where the room reads as a model in front of you. That sur
 `[Rig] VoidColor` clear. **This is a consequence of his instruction, not a defect** — but he has
 not seen it yet, and it is one line to put back.
 
-### 2b. Ruled by him, NOT yet built
+### 2b. Implemented in 484; hardware verification remains
 
-- **The short-rest wire bit.** `Gate.ShortRestCovered` currently fails OPEN, which is the wrong
-  direction for a secrecy rule: record 39 is the only representation of a peer's *in-progress*
-  short rest, and if it says nothing the fan stays open. He chose "Wire-Bit nachziehen" over
-  waiting for hardware. **Record 46 is reserved for it.**
-- **The real bonus-bar conversion.** He ruled "Jetzt auf echte Konvertierung umbauen". The finding
-  that decides the route: the bar builds its slots from a pool and `Clear()`s it on hide, so on a
-  watcher's machine there is no subtree to clone. A live `RemoteWidgetMirror` clone works for
-  every prompt EXCEPT the prevent-damage one — the route is cloning the serialized slot prefab and
-  writing record 45's icon into the stripped clone. Seam: `RemoteBoardFurniture.SetUseBars`.
+- Explicit short-rest state now uses record 46 independently of sacrifice-seat record 39.
+- Remote active-bonus rows now use original serialized game slot and picker prefabs, including
+  owner subwidget state in record 47. The giant custom caption and plate widgets are removed.
+- Local and remote card pulse/flight/rest repairs are integrated. The supplied disconnect is a
+  confirmed transport receive timeout; its underlying cause remains unresolved.
 
 ### 2c. Deferred with their cost attached — these need HIS decision, not more work
 
@@ -92,7 +92,9 @@ Grep tokens waiting for their first real reading. Several have been owed since 4
 `HELD-CARD EDGE PRE-EMPT` · `GLOVE NORMAL TAMED` (**gone** — the glove value is baked now, so
 there is deliberately no line; the proof is the picture and the bundle size).
 
-**Still unsolved and instrument-only: the giant orange text.**
+**Giant orange text identified:** MB482's census names the 19.87 m
+`Furniture/UseBarsDrawer/UseBar0/Caption`. That replica was removed in 484. Confirm the original
+widgets, their pickers, and their size in the next headset test.
 
 ---
 

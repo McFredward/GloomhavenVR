@@ -51,11 +51,11 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
 2. **`NetProtocol.ModBuild` +1 on every build handed to another player**, with a full build note.
    It is the multiplayer handshake key; mismatched peers get a blocking dialog.
 3. **Wire:** magic `GVR1`, `Version` byte stays **3**, every change is an **additive TLV** record
-   that old readers skip by length. **42 records exist, the highest id is 45, and 38/40/42 are
-   holes that may never be reused. 46 is next free and is reserved for the short-rest bit.** No id
+   that old readers skip by length. **44 presence record IDs exist through 47; transport-envelope TLV 48 carries unchanged
+   snapshots in message type 2. The 38/40/42 holes may never be reused; 49 is next free.** No id
    has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
-   `scripts/wire-tests.sh` (210,164 golden assertions) is the proof; a `Write`+`TryRead` change
+   `scripts/wire-tests.sh` (213,704 assertions at ModBuild 484) is the proof; a `Write`+`TryRead` change
    made in lockstep is invisible to a round trip, which is why the golden vectors exist.
 4. **1:1 is a standing ruling.** A peer's board mirrors the owner's CONTENT, ANIMATION, ORDER,
    POSITION, SIZE, STATE and TIMING. A mirror must never read the viewer's dial. A shared
@@ -91,8 +91,8 @@ The guard's **exit code is 1 whenever the compiled form differs at all**, which 
 any change — read the printed verdict, not the status. Its baseline is per-worktree and
 gitignored; take your own with `bash scripts/refactor-guard.sh baseline` before you start.
 
-Current readings at 483: patch surface 107 classes / 165 methods · wire 210,164 assertions ·
-config keys 625 · log tokens 4,698 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
+Current readings at 484: patch surface 107 classes / 165 methods · wire 213,704 assertions ·
+config keys 625 · log tokens 4,704 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
 A number that has moved is not automatically wrong — but it must be explained in the commit.
 
 **Read the NUMBER, not the word "green".** A deduplication in the 2026-09 round silently stopped
