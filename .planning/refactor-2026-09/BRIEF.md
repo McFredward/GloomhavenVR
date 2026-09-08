@@ -105,8 +105,10 @@ structure-naming / defect / risk-gap / doc-drift), **tier** (0 dead · 1 motion 
 reduced, not by size. A finding you will NOT act on still goes in, with the reason — the
 negative results are worth as much as the positive ones (`PLAN-2026-08.md` §0.2).
 
-Read-only sub-agents fanning out over sub-folders are fine and encouraged here; give each one
-the §5 checklist and this file's path.
+**Sub-agents: at most ONE alive at a time per lane** (his ruling, 2026-09-08, after a 5×4
+fan-out hit the session limit and killed all 21 agents mid-read). Sequential read-only helpers
+are fine; give each the §5 checklist and this file's path. **Commit `REVIEW-<lane>.md` early
+and incrementally** — a partial review on disk survives a limit kill, an agent's context does not.
 
 ### 3.2 Phase 2 — fix, in tier order, one tier per commit
 
@@ -123,8 +125,8 @@ reordered field initialiser until proven otherwise); Tier 2 — `CHANGED` confin
 types; Tier 3 — `CHANGED` confined to the type you meant, and the diff read line by line.
 Anything in a type you did not intend to touch is collateral — revert.
 
-Editing sub-agents: sequential in your worktree, or on disjoint sub-sets of your files — **never
-two builds at once in one worktree** (`obj/` collides). They do not push, do not stash, do not
+Editing sub-agents: at most one at a time, in your worktree — **never two builds at once in one
+worktree** (`obj/` collides). They do not push, do not stash, do not
 `cd` elsewhere.
 
 ### 3.3 Before your last commit — the full suite
