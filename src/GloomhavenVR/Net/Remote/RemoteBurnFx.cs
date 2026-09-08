@@ -382,10 +382,9 @@ internal sealed class RemoteBurnFx
                               $"{allowed:F1}s after its {(holding ? "discovery" : "hand-over")}. " +
                               "The token is dropped rather than left spendable, so it cannot eat a " +
                               "LATER burn's event and cost that burn the fallback slab flight " +
-                              "RemoteCardFx would otherwise have drawn. Grep the same window for " +
-                              "'CARD FX LOST' on this peer: a non-zero count there is the cause; " +
-                              "no loss at all points at the SENDER instead (his ReportCardFx is " +
-                              "suppressed under a read-only character focus).");
+                              "RemoteCardFx would otherwise have drawn. Compare 'CARD FX LOST', " +
+                              "'EXTRAS TRANSPORT' and the owner's release log in the same interval; " +
+                              "this expired claim alone does not establish where the event was lost.");
         }
     }
 

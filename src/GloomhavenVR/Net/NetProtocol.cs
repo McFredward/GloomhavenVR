@@ -451,7 +451,47 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 483;
+    public const ushort ModBuild = 484;
+    // Build 484: MULTIPLAYER HARDWARE REPAIR ROUND (both supplied logs were 482/6efa4acfc).
+    //   DLL-only relative to the FULL 483 install; a player upgrading from 482 still needs
+    //   the 74,943,763-byte bundle. Hardware appearance of these fixes is not yet verified.
+    //
+    //   ACTIVE CARDS: native OnDisable cancels hoverAnim without clearing activeSelf. Check
+    //   actual tween liveness and reassert only while the original face is adopted. Active
+    //   flight landing now restores inspect/grab immediately, independent of a second card.
+    //   Rest controls use confirmed-selection and native selectable/button state; queued
+    //   presses obey the same gate. Two cards laid is not the game's confirmation predicate.
+    //
+    //   SHORT REST: owner LeapingCleave burns for 1.99 s in the 482 log while the watcher
+    //   launches after 0.51 s from an unobservable local widget. Remote release now follows
+    //   the owner event, with actor/recess matching and bounded loss/reordering handling.
+    //   The burning front exclusively owns its recess; overlapping covered faces are hidden.
+    //   Local adopted ability materials receive world-canvas bounds and foreground ordering,
+    //   restoring only those conversion fields on return; the original timeline remains live.
+    //   Pulse-owned materials survive temporary face hiding. Older/repeated FX sequences do
+    //   not replay flights. Record 46 explicitly protects in-progress short-rest choices.
+    //
+    //   ACTIVE BONUSES: remove custom caption/plates/frames, including the logged 19.87 m
+    //   Furniture/UseBarsDrawer/UseBar0/Caption. Use original game slot/picker prefabs stripped
+    //   of game behaviours before activation. Record 25 adds the mandatory-highlight bit;
+    //   record 47 carries bounded owner subwidget appearance, with public model art/text.
+    //   No placeholder replica, card identity, gameplay callback, or viewer preference.
+    //
+    //   TRANSPORT: installed Bolt has 1200-byte packets and about 27 B per side-action event;
+    //   it does not split oversized unreliable events and drops them after two failed packs.
+    //   MsgExtrasFragments=2 carries additive TLV48 chunks of the UNCHANGED v3 snapshot.
+    //   At most 864 bytes/event, one event per 50 ms without catch-up, finish current snapshot
+    //   then latest waiting snapshot. Receiver commits once, atomically, with bounded memory,
+    //   duplicate/reordering/expiry guards and peer/session resets. Legacy version-only
+    //   announcements preserve old-reader mismatch detection; new peers consume only their
+    //   exact shape without clearing the board. Snapshot budget 3449, buffer 3710 (261 spare).
+    //
+    //   DISCONNECTION: the recorded cause is 30 s transport receive inactivity. The underlying
+    //   relay/network/runtime cause is not established. No timeout suppression or game-network
+    //   patch is justified. EXTRAS TRANSPORT logs expose bounded traffic and completed snapshots
+    //   for the next test; packet sizing is a separate source-proven defect, not proof of the
+    //   recorded timeout's cause. Details: .planning/MP-ROUND-484.md.
+
     // Build 483: FULL INSTALL — THE BUNDLE CHANGED, 74,943,671 -> 74,943,763 bytes, the first
     //   bundle change since ModBuild 368. Every drop from 369 to 482 was DLL-only; this one is
     //   not, and a DLL-only install shows NEITHER of the two changes below.
@@ -23624,7 +23664,7 @@ internal static class NetProtocol
 
     /// <summary>Original active-bonus subwidgets, one complete descriptor per slot. Max payload
     /// 203 bytes (32 consume icons, 32 indexed numeric options, six element states, 32 option
-    /// states). At eight slots this adds 1640 bytes; full extras worst case is 3441. Oversized
+    /// states). At eight slots this adds 1640 bytes; full extras worst case is 3449. Oversized
     /// snapshots must use transport fragmentation, never a single oversized Bolt event.</summary>
     public const byte ExtIdUseBarWidgets = 47;
     /// <summary>Transport-only extras fragment, never parsed as an ordinary presence record.
