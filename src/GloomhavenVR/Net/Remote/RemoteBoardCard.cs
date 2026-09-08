@@ -452,8 +452,8 @@ internal sealed class RemoteBoardCard
         // decides the face, so the effect and the picture are answers about the same card by
         // construction rather than by a second resolve that could disagree. Both references are
         // read-only: `owner` already carries that contract from this method's own doc.
-        _plumeCard = card;
-        _plumeOwner = owner;
+        _fxCard = card;
+        _fxOwner = owner;
 
         if (empty)
         {
@@ -563,9 +563,9 @@ internal sealed class RemoteBoardCard
         ClearFace();
         // A recess whose card this client cannot NAME has nothing to look an effect up on, and a
         // plume there would announce that something is happening to a card nobody may identify.
-        _plumeCard = null;
-        _plumeOwner = null;
-        ResetPlume();
+        _fxCard = null;
+        _fxOwner = null;
+        ResetFxSource();
         if (!_root.activeSelf) _root.SetActive(true);
         // A back materialising is not a leak: it says a card arrived in this recess, which is
         // exactly what the occupancy mask this method is driven by already says out loud. The
@@ -612,9 +612,9 @@ internal sealed class RemoteBoardCard
         _materialiseSeeded = false;
         ClearFace();
         SetHalfStates(-1, -1); // a re-shown slot must never come back with a stale glow lit
-        _plumeCard = null;     // …and never with a stale plume latch either: a board that stopped
-        _plumeOwner = null;    // being drawn saw none of the frames in between.
-        ResetPlume();
+        _fxCard = null;     // …and never with a stale plume latch either: a board that stopped
+        _fxOwner = null;    // being drawn saw none of the frames in between.
+        ResetFxSource();
         _shownEmpty = true;
         _shownId = int.MinValue;
         _shownFront = false;
@@ -626,239 +626,21 @@ internal sealed class RemoteBoardCard
             _root.SetActive(false);
     }
 
-    // ------------------------------------------------------------- the GAME's card plume --
+    // Card/owner identity shared by the native face wash and materialisation paths.
+    private CAbilityCard? _fxCard;
+    private CPlayerActor? _fxOwner;
 
-    /// <summary>
-    /// The peer's OWN live <c>fullAbilityCard</c> for the card seated in this recess — the only
-    /// object on this client that can be asked whether the game is running a card effect on it.
-    /// The CLONE hosted by <see cref="RemoteCardArt"/> cannot answer: it has its
-    /// <c>CardEffects</c> <c>DestroyImmediate</c>d on purpose (the screen-space <c>_PosAndBounds</c>
-    /// material is the known "card renders DEEP BLACK" hazard on a detached world-space clone), so
-    /// the SOURCE is the only thing that can be asked. Cached across frames because the trigger is
-    /// sampled per frame while the resolve is a list scan.
-    /// </summary>
-    private FullAbilityCard? _plumeSource;
-
-    /// <summary>One-shot NEGATIVE latch for <see cref="_plumeSource"/>: this card has no live widget
-    /// (its face came from the pooled borrow, or the peer's hand is not built). Without it a slot in
-    /// that state would rescan the peer's whole deck every frame forever. Cleared with the card key,
-    /// which is the only event that can change the answer — the same widget lookup already succeeded
-    /// or failed once for this exact card when <see cref="Set"/> built the face.</summary>
-    private bool _plumeSourceMissing;
-
-    /// <summary>
-    /// The EDGE latch: whether the source widget was running a card effect on the previous OBSERVED
-    /// frame. It is a field, and it is SEEDED TRUE when a card arrives in this recess, because
-    /// <c>CardEffects.HasEffect</c> is a LEVEL that long outlives its own animation —
-    /// <c>toggledEffects</c> is added to synchronously by <c>ToggleAdditiveEffect</c> and is only
-    /// ever emptied by <c>RestoreCard()</c>, i.e. when the card returns to the Hand pile
-    /// (CardEffects.cs:404-444, FullAbilityCard.SetPile:313-337). A card that is ALREADY flagged the
-    /// first time this slot sees it must therefore NOT plume: its animation belongs to a moment this
-    /// recess did not witness, and the owner is not seeing one either. Seeding true makes arrival a
-    /// non-edge in both directions — an arriving card that is quiet drops the latch on its first
-    /// observed frame and can plume later, which is the case that actually matters.
-    /// </summary>
-    private bool _plumeRunning = true;
-
-    /// <summary><c>CardInstanceID</c> the plume latches belong to (<c>int.MinValue</c> = nothing
-    /// seated). A recess is a POSITION: two different cards passing through it share nothing but the
-    /// index, so every latch above is re-seeded when this changes.</summary>
-    private int _plumeKey = int.MinValue;
-
-    /// <summary>The card the plume state above belongs to, latched by <see cref="Set"/> on the SAME
-    /// change gate as the face so the two can never be about different cards.</summary>
-    private CAbilityCard? _plumeCard;
-
-    /// <summary>The actor whose hand holds <see cref="_plumeCard"/>'s widget — latched beside it,
-    /// read-only, never written to (the same contract <see cref="Set"/>'s own owner has).</summary>
-    private CPlayerActor? _plumeOwner;
-
-    /// <summary>Host transform for a spawned plume — see <see cref="PlumeAnchor"/> for why the slot
-    /// root itself is the wrong parent. Built on the first spawn, never before.</summary>
-    private Transform? _plumeAnchor;
-
-    /// <summary>One-shot latch (per session, not per slot) for the "source widget resolved" evidence
-    /// line — see <see cref="TickPlume"/> for what its presence and its absence each prove.</summary>
-    private static bool s_plumeSourceLogged;
-
-    /// <summary>
-    /// Mirror the GAME's own card plume (wire id <see cref="NetProtocol.TuneGameCardParticlesOn"/>)
-    /// onto this ROUND-SLOT slab while the card lying in it is running a burn / lost / discard
-    /// effect on the owner's screen. Called PER FRAME by <see cref="RemoteControlBoard"/>; the
-    /// active-card column, which shares this class, never calls it — an active card is a standing
-    /// summary, not a card the game plays an effect on.
-    ///
-    /// <para>THE OWNER REALLY DOES SEE THIS ONE, which is what makes it a 1:1 gap rather than a
-    /// feature that only ever existed in a hand. A played card is HELD in its recess while the
-    /// game's burn timeline runs on it and only then flies to the pile (user ruling 2026-08-03,
-    /// <c>CardsDriver.HoldForBurnArtwork</c>), and the local <c>VRCard</c> ticks
-    /// <c>Cards.BurnCardFx</c> on that docked card (<c>VRCard.cs:1996</c>).</para>
-    ///
-    /// <para>THE TRIGGER IS <c>Cards.BurnCardFx</c>'s PREDICATE, term for term
-    /// (<c>HasEffect(BurnCard) || HasEffect(LostMode) || HasEffect(DiscardMode)</c>), read off the
-    /// peer's own live widget. The owner's picture and this one agree because they are the same
-    /// expression over the same kind of object, not because two formulas were made to match.
-    /// EDGE-triggered — see <see cref="_plumeRunning"/>, and note that the level here is far
-    /// longer-lived than the hand's (a discarded card stays flagged until the next round returns it
-    /// to the Hand pile), which is what makes that latch load-bearing rather than an optimisation.</para>
-    ///
-    /// <para>NOT <c>CardEffects._smokeEffect</c>, which is what <c>BurnCardFx</c> binds locally:
-    /// <c>SpawnParticle</c> opens with <c>base.gameObject.activeInHierarchy</c>
-    /// (CardEffects.cs:743) and a peer's widget lives in a hand the game keeps DEACTIVATED, so that
-    /// field is null on this client for every remote card. That is precisely why the receiver has to
-    /// instantiate its own tamed copy (<see cref="RemoteCardPlume"/>) instead of adopting one.</para>
-    ///
-    /// <para>ANTI-CHEAT, twice over. <paramref name="allowed"/> already folds in
-    /// <c>RevealGate.ShowRoundCardFronts</c>, and the check below additionally requires that the
-    /// face currently drawn on this slab was cloned from THIS widget — so a plume can never appear
-    /// on a face-down recess, where it would name WHICH card the owner is doing something to.</para>
-    ///
-    /// <para>The VIEWER's own <c>[Cards] GameCardParticles</c> is not consulted anywhere on this
-    /// path; <paramref name="allowed"/> carries the OWNER's bit and nothing else. See
-    /// <c>Cards.CardDustFx.Permission</c> for the defect that rule exists to prevent.</para>
-    /// </summary>
-    public void TickPlume(bool allowed, int playerId, int slot)
-    {
-        CAbilityCard? card = _plumeCard;
-        CPlayerActor? owner = _plumeOwner;
-        if (!allowed || card == null || owner == null)
-        {
-            ResetPlume();
-            return;
-        }
-
-        int key = PlumeKeyOf(card);
-        if (key != _plumeKey)
-        {
-            _plumeKey = key;
-            _plumeSource = null;
-            _plumeSourceMissing = false;
-            _plumeRunning = true;   // arrival is not an edge — see _plumeRunning
-        }
-
-        bool running = false;
-        bool observed = false;
-        try
-        {
-            if (_plumeSource == null && !_plumeSourceMissing)
-            {
-                // THE SAME RESOLVE THAT DREW THE FACE, not a second one. RemoteAbilityCardSource
-                // was made internal for exactly this call: two independent lookups that merely
-                // AGREE is the failure mode this project names outright, so there is one answer
-                // with two consumers.
-                _plumeSource = RemoteAbilityCardSource.TryLiveWidget(owner, card);
-                _plumeSourceMissing = _plumeSource == null;
-            }
-            FullAbilityCard? full = _plumeSource;
-            // THE IDENTITY CHECK, and it is what makes reading an effect off that widget legitimate:
-            // ShowsKey is true only when the face on THIS slab was cloned from THIS widget's
-            // instance id, so the plume and the picture are provably about one card. It also
-            // disposes of the pooled-borrow face for free — that path's key belongs to a widget the
-            // game's pool has already taken back.
-            CardEffects? fx = full != null && _art != null && _art.ShowsKey(full.GetInstanceID())
-                ? full.cardEffects
-                : null;
-            if (fx != null)
-            {
-                observed = true;
-                running = fx.HasEffect(CardEffects.FXTask.BurnCard)
-                          || fx.HasEffect(CardEffects.FXTask.LostMode)
-                          || fx.HasEffect(CardEffects.FXTask.DiscardMode);
-            }
-        }
-        catch (System.Exception)
-        {
-            observed = false;   // any deref failure means "no plume", never a throw
-        }
-
-        // AN UNOBSERVABLE FRAME IS NOT A FALLING EDGE. Returning without touching the latch is the
-        // difference between "the widget went away for a frame" and "the burn ended": dropping the
-        // latch to false there would arm a spurious spawn on the frame it comes back.
-        if (!observed)
-            return;
-
-        if (!s_plumeSourceLogged)
-        {
-            s_plumeSourceLogged = true;
-            VRLog.Info("Net", $"Remote card plume SOURCE [player {playerId}] slot {slot}: the peer's " +
-                              "own live AbilityCardUI for the card in this ROUND RECESS is resolved " +
-                              "AND verified — RemoteCardArt.ShowsKey confirms the face drawn on this " +
-                              "slab was cloned from that very widget, so the plume and the picture " +
-                              "cannot be about two different cards. Its CardEffects is readable and " +
-                              "the burn/lost/discard predicate is now sampled per frame. A log that " +
-                              "carries this line and never a 'Remote card plume' spawn line proves " +
-                              "the game runs no card effect on a PEER's widget on this client — i.e. " +
-                              "the TRIGGER would need a wire field, not the effect.");
-        }
-
-        if (running == _plumeRunning)
-            return;
-        _plumeRunning = running;
-        if (!running)
-            return;   // the falling edge only re-arms the latch; the plume ends on its own
-        RemoteCardPlume.Spawn(PlumeAnchor(), playerId, slot);
-    }
-
-    /// <summary>Card identity for the plume latch, guarded because the model can be mid-teardown —
-    /// the same shape (and reason) as <see cref="OwnerKey"/>.</summary>
-    private static int PlumeKeyOf(CAbilityCard card)
+    private static int CardKeyOf(CAbilityCard card)
     {
         try { return card.CardInstanceID; }
         catch { return int.MinValue; }
     }
 
-    /// <summary>Drop every plume latch — an empty recess, an anonymous back, a blanked board. Already
-    /// SPAWNED hosts are deliberately not touched: each owns its own timed destroy, and a card
-    /// leaving the recess mid-burn is exactly the moment the owner's own plume is still finishing.
-    /// </summary>
-    private void ResetPlume()
+    private void ResetFxSource()
     {
-        _plumeKey = int.MinValue;
-        _plumeSource = null;
-        _plumeSourceMissing = false;
-        _plumeRunning = true;
-        // …and the used-card look's own copy of that reference, so a board that stopped being drawn
-        // holds no game widget alive across a scene change. Its key guard would have re-resolved
-        // anyway; this is hygiene, not correctness.
         _fxSource = null;
         _fxSourceMissing = false;
         _fxSourceKey = int.MinValue;
-    }
-
-    /// <summary>
-    /// The transform a spawned plume hangs off: a child of the slot root whose LOCAL SCALE restates
-    /// this slot's card in the frame <see cref="RemoteCardPlume"/> is written against.
-    ///
-    /// <para>WHY NOT THE SLOT ROOT ITSELF — this is the whole reason the method exists.
-    /// RemoteCardPlume pins the plume to its parent's world scale (taming item 4), which is correct
-    /// on the HAND fan because there the slab root's scale IS the card's size: that fan sets
-    /// <c>localScale = cardWidth / DefaultCardWidth</c> and hangs a body mesh authored at the
-    /// nominal width off it. A BOARD slot is built the other way round — the quad carries the width
-    /// in METRES (<c>BoardVisual.Quad</c> scales a unit primitive) and the slot root hangs off the
-    /// board prefab's raw recess anchor, whose scale <see cref="RemoteControlBoard"/>'s own seat
-    /// conversion says outright is scene data this mod cannot read. Parenting the plume there would
-    /// size the game's SCREEN-authored prefab by an arbitrary number — at anchor scale 1 that is a
-    /// ~16x plume, i.e. exactly the field-covering fog <c>Cards.BurnCardFx</c>'s removal note is
-    /// about. This child restores the hand's relationship exactly (world scale over card world width
-    /// is <c>1 / DefaultCardWidth</c> on both surfaces) and needs no <c>lossyScale</c> read and no
-    /// assumption about the anchor, because the ratio is taken in the root's OWN local frame.</para>
-    ///
-    /// <para><c>RemoteHandFan.DefaultCardWidth</c> is referenced rather than copied deliberately: a
-    /// duplicated literal is what makes two surfaces diverge the day one of them is retuned, and the
-    /// number's only meaning here is "the card width a plume host scale of 1 means on the hand".</para>
-    /// </summary>
-    private Transform? PlumeAnchor()
-    {
-        if (_plumeAnchor != null)
-            return _plumeAnchor;
-        var go = new GameObject("PlumeAnchor");
-        Transform t = go.transform;
-        t.SetParent(_root.transform, worldPositionStays: false);
-        t.localPosition = Vector3.zero;
-        t.localRotation = Quaternion.identity;
-        t.localScale = Vector3.one * (_width / RemoteHandFan.DefaultCardWidth);
-        _plumeAnchor = t;
-        return t;
     }
 
     // ---------------------------------------------------------- half hover/selection glow --
@@ -1314,7 +1096,7 @@ internal sealed class RemoteBoardCard
     /// One implementation of the look, three surfaces.</para>
     ///
     /// <para>THE TRIGGER IS THE OWNER'S OWN EFFECT STATE WHERE IT CAN BE READ. The peer's live
-    /// widget is already resolved on this slot for the plume (<see cref="TickPlume"/>, which reads
+    /// widget is already resolved on this slot for the plume (<see cref="RemoteCardPlume"/>, which reads
     /// <c>HasEffect</c> off exactly this object under exactly this identity check), so the first
     /// question asked is the game's own answer. Where that widget cannot be observed the fallback
     /// re-derives <c>TryPlayBurnAnimation</c>'s own expression from state both clients hold: which
@@ -1395,7 +1177,7 @@ internal sealed class RemoteBoardCard
                                                          out string source)
     {
         source = "none";
-        CAbilityCard? card = _plumeCard;
+        CAbilityCard? card = _fxCard;
         if (card == null)
         {
             // An EMPTY recess is not a card seated anywhere. Clearing both here matters because the
@@ -1500,8 +1282,8 @@ internal sealed class RemoteBoardCard
         try
         {
             System.Collections.Generic.List<CAbilityCard>? round =
-                _plumeOwner != null && _plumeOwner.CharacterClass != null
-                    ? _plumeOwner.CharacterClass.RoundAbilityCards
+                _fxOwner != null && _fxOwner.CharacterClass != null
+                    ? _fxOwner.CharacterClass.RoundAbilityCards
                     : null;
             _seatedInRound = round != null && round.Contains(card);
             _latchedPile = card.CurrentCardPile;
@@ -1622,7 +1404,7 @@ internal sealed class RemoteBoardCard
     /// answers cannot be two different widgets.</summary>
     private FullAbilityCard? EnsureFxSource(CAbilityCard card)
     {
-        int key = PlumeKeyOf(card);
+        int key = CardKeyOf(card);
         if (key != _fxSourceKey)
         {
             _fxSourceKey = key;
@@ -1631,7 +1413,7 @@ internal sealed class RemoteBoardCard
         }
         if (_fxSource == null && !_fxSourceMissing)
         {
-            _fxSource = RemoteAbilityCardSource.TryLiveWidget(_plumeOwner, card);
+            _fxSource = RemoteAbilityCardSource.TryLiveWidget(_fxOwner, card);
             _fxSourceMissing = _fxSource == null;
         }
         return _fxSource;
@@ -1674,7 +1456,7 @@ internal sealed class RemoteBoardCard
     ///
     /// <para>STILL BEYOND THE INSTRUMENT = <c>source=model</c> on every line. That is not a failure —
     /// the fallback is the game's own expression — but it means the owner's widget could not be
-    /// observed on this client, so the premise <see cref="TickPlume"/> is built on
+    /// observed on this client, so the premise <see cref="RemoteCardPlume"/> is built on
     /// ("a peer's widget carries the effect") has never been confirmed on hardware and the two
     /// resolvers have never been compared against each other. A round with BOTH sources appearing
     /// is what would settle it.</para>
@@ -2123,10 +1905,9 @@ internal sealed class RemoteBoardCard
         Path = RemoteAbilityCardSource.FacePath.None;
         // The anchor is a child of _root and dies with it, but the FIELD must go too — a rebuilt
         // board would otherwise parent its first plume under a destroyed transform.
-        _plumeAnchor = null;
-        _plumeCard = null;
-        _plumeOwner = null;
-        ResetPlume();
+        _fxCard = null;
+        _fxOwner = null;
+        ResetFxSource();
         // The group lives on _root and dies with it; the FIELD must go for the same reason the
         // plume anchor's does, and the ramp flags with it so a rebuilt board starts settled.
         _faceGroup = null;
@@ -2168,7 +1949,7 @@ internal sealed class RemoteBoardCard
     /// <summary>
     /// The peer whose board this recess belongs to, or null for the active-card column — see the
     /// constructor for why ONE field answers both "does this slot ramp?" and "may it puff dust?".
-    /// Read-only, exactly like <see cref="_plumeOwner"/>: this is presentation, it never writes.
+    /// Read-only, exactly like <see cref="_fxOwner"/>: this is presentation, it never writes.
     /// </summary>
     private readonly RemoteAvatar? _materialiseOwner;
 
@@ -2351,7 +2132,7 @@ internal sealed class RemoteBoardCard
     ///   by it either.</item>
     /// </list>
     ///
-    /// <para>The scale settle rides the slot ROOT. Residue, stated: <see cref="PlumeAnchor"/> hangs
+    /// <para>The scale settle rides the slot ROOT. Residue, stated: <see cref="RemoteCardPlume"/> hangs
     /// off that root, so a game plume spawned during the 0.3 s ramp would be up to 18 % small.
     /// Transient, and the alternative — a second transform between the root and everything else —
     /// costs more than it buys.</para>
@@ -2400,7 +2181,7 @@ internal sealed class RemoteBoardCard
     /// <para>THE FRAME IS <c>VRCard.EmitCardDust</c>'s, term for term — right/up off the slab, the
     /// out-normal <c>-forward</c> because a card's +Z points AWAY from the viewer, and half extents
     /// converted to world by <c>lossyScale</c>. AND THIS IS THE ONE PLACE WHERE A BOARD SLOT AND A
-    /// HAND SLAB LEGITIMATELY DIFFER, which <see cref="PlumeAnchor"/> exists because of: the plume
+    /// HAND SLAB LEGITIMATELY DIFFER, which <see cref="RemoteCardPlume"/> exists because of: the plume
     /// needed a scale RATIO, and a board recess hangs off a prefab anchor whose scale is scene data
     /// this mod cannot read, so it needed a corrective host. The dust takes world LENGTHS instead,
     /// and <c>_width</c>/<c>_height</c> are metres in the slot root's own local frame — so

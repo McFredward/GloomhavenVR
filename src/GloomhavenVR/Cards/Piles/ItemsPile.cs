@@ -4829,6 +4829,15 @@ internal sealed class ItemsPile
         private BoxCollider? _box;
         private GameObject? _cardGo;    // hosted ItemCardUI GameObject (recycled to the pool on disable)
         private ItemCardUI? _cardUI;
+        private static readonly HashSet<ItemChip> s_smokeChips = new();
+        internal ParticleSystem[] NativeSmokeSystems { get; private set; } = System.Array.Empty<ParticleSystem>();
+        internal CPlayerActor? SmokeActor { get; private set; }
+        internal static void CopySmokeChips(List<ItemChip> into)
+        {
+            into.Clear();
+            foreach (ItemChip chip in s_smokeChips) into.Add(chip);
+        }
+
         private SmokeClamp[]? _smokeClamps; // ItemCardEffects emitters bounded card-local; restored before recycle
         private bool _fingerPopped;
         private bool _laserPopped;
@@ -5522,6 +5531,9 @@ internal sealed class ItemsPile
                           .Append(" → Local/Hierarchy, size×").Append(shrink.ToString("F3")).Append(']');
             }
             _smokeClamps = clamps.ToArray();
+            NativeSmokeSystems = systems;
+            SmokeActor = _owner?.OwnerActor;
+            s_smokeChips.Add(this);
 
             if (!s_loggedSmokeClamp)
             {
@@ -5561,6 +5573,9 @@ internal sealed class ItemsPile
         /// </summary>
         private void RestoreCardEffectSmoke()
         {
+            s_smokeChips.Remove(this);
+            NativeSmokeSystems = System.Array.Empty<ParticleSystem>();
+            SmokeActor = null;
             SmokeClamp[]? clamps = _smokeClamps;
             _smokeClamps = null;
             if (clamps == null)

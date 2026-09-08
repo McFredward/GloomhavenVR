@@ -445,6 +445,13 @@ internal static class LocalRigSampler
 
         if (held is not Cards.VRCard card || card == null)
             return;
+        NameCard(actor, card, out code, out count);
+    }
+
+    /// <summary>Shared positional address for a real VR card, whether held or emitting native FX.</summary>
+    internal static void NameCard(CPlayerActor actor, Cards.VRCard card, out byte code, out byte count)
+    {
+        code = count = 0;
         AbilityCardUI? widget = card.GameCard;
         if (widget == null)
             return;

@@ -280,6 +280,10 @@ internal sealed class RemoteCardArt
         Consumed = 2,
     }
 
+    private static readonly System.Reflection.FieldInfo? s_itemFlameField =
+        typeof(ItemCardEffects).GetField("fgFx", System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.NonPublic);
+
     /// <summary>
     /// The <c>ItemCardEffects</c> draw rig, lifted off the CLONE in the instant before that component
     /// is destroyed (see <see cref="StripFragileEffects"/>).
@@ -1056,6 +1060,9 @@ internal sealed class RemoteCardArt
                 {
                     images = itemEffects[i].imgComp;
                     texts = itemEffects[i].txtComp;
+                    flameQuad = s_itemFlameField?.GetValue(itemEffects[i]) as UnityEngine.UI.Image;
+                    flameBurn = itemEffects[i].overlayFrameBurn;
+                    flameGhost = itemEffects[i].overlayFrameGhost;
                 }
                 Object.DestroyImmediate(itemEffects[i]);
             }
@@ -1217,14 +1224,10 @@ internal sealed class RemoteCardArt
     /// REFUSED whole and stays fresh, once-logged. Missing grey is a small divergence; a black card on a
     /// peer's board is not.</para>
     ///
-    /// <para>TWO PARTS OF THE GAME'S LOOK ARE DELIBERATELY NOT REPRODUCED. The <c>fx_Smoke</c> emitter
-    /// both timelines switch on is the diorama-fogging particle system <c>ItemsPile</c> only dares keep
-    /// because it CLAMPS it (<c>ClampCardEffectSmoke</c>) — a fan slab has no such clamp, and fog over a
-    /// peer's board is a worse divergence than the one being fixed. The <c>fgFx</c> overlay quad is a
-    /// second, unmeasured material driven by nine more properties and drawn over the WHOLE card; if any
-    /// of that lands wrong the failure is a full-card artefact, which is the one class of failure this
-    /// method is written to avoid. Cost: the ghost's faint blue-white frame sheen. The dominant term,
-    /// the <c>_GreyOut</c> desaturation, and the greyed card text are both here.</para>
+    /// <para>The item card's serialized foreground image and native burn/ghost frame textures
+    /// are retained before stripping ItemCardEffects. Its authored 0.001-second timeline settles
+    /// in one frame, so the same native shader constants and final _FXAnim value are applied here.
+    /// Live particle episodes are sampled separately by CardPlumeSampler.</para>
     /// </summary>
     private void ApplySpentLook(in ItemFxRig rig, SpentLook look)
     {
@@ -1286,6 +1289,19 @@ internal sealed class RemoteCardArt
                     text.color = used;
                     if (look == SpentLook.Spent)
                         text.enableVertexGradient = false;
+                }
+            }
+
+            if (_flameQuadByName != null)
+            {
+                CardFxLook flameLook = look == SpentLook.Spent ? CardFxLook.Ghost : CardFxLook.Burn;
+                BuildFlameQuad(rig.Images, flameLook);
+                Material? flame = MaterialOf(_flameQuad);
+                if (_flameQuad != null && flame != null)
+                {
+                    // Both native item timelines explicitly activate this serialized image.
+                    _flameQuad.gameObject.SetActive(true);
+                    flame.SetFloat(FxAnimId, 0.5f);
                 }
             }
 
@@ -1368,9 +1384,8 @@ internal sealed class RemoteCardArt
                           "settled end-state onto materials this overlay minted and destroys with the " +
                           "clone. The game's ItemCardEffects is still stripped (it cannot run on an " +
                           "inactive detached clone, and running it would write the game's pooled " +
-                          "widget); the smoke emitter and the fgFx overlay quad are deliberately not " +
-                          "reproduced. Zero wire traffic: the state comes from CItem.SlotState on the " +
-                          "host-replicated inventory every client already holds.");
+                          "widget). The native foreground frame follows CItem.SlotState; actual " +
+                          "smoke episodes follow the owner's dedicated appearance stream.");
     }
 
     private static void ReportBoundsRefusal(SpentLook look)

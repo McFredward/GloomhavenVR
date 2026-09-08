@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
 
@@ -38,6 +39,23 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal sealed class BurnCardFx
 {
+    private static readonly HashSet<BurnCardFx> s_live = new();
+    private static uint s_episode;
+    internal ParticleSystem? LiveSmoke => _bound;
+    internal ParticleSystem[] NativeEmitters { get; private set; } = System.Array.Empty<ParticleSystem>();
+    internal VRCard? OwnerCard { get; private set; }
+    internal uint Episode { get; private set; }
+    internal static uint NextEpisode()
+    {
+        uint episode = ++s_episode;
+        return episode != 0 ? episode : ++s_episode;
+    }
+    internal static void CopyLive(List<BurnCardFx> into)
+    {
+        into.Clear();
+        foreach (BurnCardFx effect in s_live) into.Add(effect);
+    }
+
     private ParticleSystem? _bound;
     private ParticleSystemSimulationSpace _origSpace;
     private ParticleSystemScalingMode _origScaling;
@@ -75,6 +93,7 @@ internal sealed class BurnCardFx
     /// as a fullscreen flat presentation.</param>
     internal void Tick(FullAbilityCard? full, Transform cardTransform)
     {
+        OwnerCard = cardTransform.GetComponent<VRCard>();
         CardEffects? effects = full != null ? full.cardEffects : null;
 
         // ITEM 4 (2026-09-07): WHAT THIS CARD'S BURN LOOK MUST BE, decided in one place and stated
@@ -166,6 +185,9 @@ internal sealed class BurnCardFx
     private void Bind(ParticleSystem smoke, Transform cardTransform)
     {
         _bound = smoke;
+        NativeEmitters = smoke.GetComponentsInChildren<ParticleSystem>(includeInactive: true);
+        Episode = NextEpisode();
+        s_live.Add(this);
         ParticleSystem.MainModule main = smoke.main;
         _origSpace = main.simulationSpace;
         _origScaling = main.scalingMode;
@@ -205,6 +227,8 @@ internal sealed class BurnCardFx
 
     private void RestoreBound()
     {
+        s_live.Remove(this);
+        NativeEmitters = System.Array.Empty<ParticleSystem>();
         if (_bound == null)
         {
             _reparented = false;

@@ -35,17 +35,30 @@ The review is in progress. Unreviewed surfaces below are not claimed compliant.
   existing `NetProtocol.CardFxSeconds`; a known active flight still owns its actual lifetime.
   Refresh frequency no longer changes the wait, and an already seated card never retracts.
   A lost event settles after that bounded lifetime; unreliable delivery cannot promise animation.
-- **C7 — Mirrored plume is not the owner's plume state.** `RemoteCardPlume` uses the original
-  CardSmoke prefab but preserves its authored colour, forces one-shot looping, caps lifetime at
-  1.4 seconds, caps the host at four seconds and limits all peers to twelve hosts. Local
-  `BurnCardFx` instead follows the live `CardEffects._smokeEffect`; the game assigns burn/ghost
-  colours and controls spawn/recycle timing. No explicit user approval for these differences was
-  found. A correct owner-state signal is being coordinated with the integrator.
+- **C7 — Mirrored plume (fixed; dedicated wire integration required).** Live `BurnCardFx`
+  and `ItemsPile.ItemChip` emitter registries replace guessed remote FX-task edges. Every native
+  emitter has its original ordinal, seed, age, playback rate, size/speed multipliers, runtime
+  simulation/scaling modes and board-relative transform. Custom simulation frames are explicit.
+  The receiver clones the exact original ability/item emitter, removes other emitter components
+  from that owned copy, and advances native simulation on the owner's clock. Only a new episode
+  clears/reseeds; ordinary samples correct playback time. Authored item/child colour gradients
+  remain intact; ability root RGBA comes from the owner's actual `SpawnParticle` result. There is
+  no separate remote lifetime, one-shot override or twelve-host cap. Root owns codecs, transport
+  limits and avatar scheduling; this lane owns native samplers and rendering.
 - **C8 — Active card return from a hand.** The local active pile calls `SetHome(..., instant:false)`
   after release. The remote matrix currently blanks the held cell and later seats it instantly;
   **Fixed:** its original panel retains the held pose-slot, uses the last held slab's actual world
   position/rotation/width on release, and glides position, rotation and scale at the owner's rate.
   The held slab deliberately retains its last transform after its renderer is hidden.
+
+- **C9 — Consumed/spent item foreground (fixed).** `RemoteCardArt.ApplySpentLook` omitted
+  the item's serialized `ItemCardEffects.fgFx` image. The clone now captures that exact reference
+  and native frame textures before stripping the component, creates an owned material and applies
+  the native foreground constants and final `_FXAnim = 0.5`. Both original item timelines last
+  0.001 seconds, so this adds no invented two-second ramp. Item smoke uses C7's original item
+  emitter subtree, not the different global ability-smoke prefab.
+- **C10 — Floating pile-fan captions (being implemented).** Local `PileBrowser` and `ItemsPile`
+  create a title above the arc; both remote fan classes omitted the title entirely.
 
 ## Explicit rulings retained
 
@@ -91,3 +104,8 @@ was performed.
 Checkpoint C5/C6/C8: Release build succeeds with zero warnings/errors. Resident reservation
 is two-pass so an inserted card cannot overwrite a panel needed later in the same list.
 Headset validation of active pickup/release and middle-card removal is still required.
+
+Checkpoint C7/C9: Release build succeeds with zero warnings/errors against the agreed plume DTO.
+Temporary DTO additions and removal of the old RemoteControlBoard.TickPlume call were used only
+for isolated compilation; the integrator owns those files and the stream/codec tests. No particle
+rendering, shader output, native pool lifecycle or timing has been claimed verified on hardware.
