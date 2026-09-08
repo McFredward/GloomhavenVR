@@ -200,23 +200,26 @@ internal sealed class RemoteCardPlume
 
     private Host? Create(CardPlumeState state)
     {
+        GameObject? bridge = null;
+        bool retained = false;
         try
         {
+            bridge = new GameObject("GloomhavenVR.RemoteCardPlumeFrame");
+            bridge.SetActive(false);
             GameObject? root;
             if (NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListItems)
-                root = CloneItemEmitter(state);
+                root = CloneItemEmitter(state, bridge.transform);
             else
             {
                 if (s_prefab == null) s_prefab = GlobalSettings.Instance.VisualEffects.CardSmoke;
                 ParticleSystem[]? originals = s_prefab != null
                     ? s_prefab.GetComponentsInChildren<ParticleSystem>(true) : null;
                 root = originals != null && state.EmitterIndex < originals.Length
-                    ? Object.Instantiate(originals[state.EmitterIndex].gameObject) : null;
-                if (root != null) StripOtherEmitters(root);
+                    ? Object.Instantiate(originals[state.EmitterIndex].gameObject, bridge.transform, false) : null;
             }
             if (root == null) return null;
             root.name = "GloomhavenVR.RemoteCardPlume";
-            root.SetActive(true);
+            StripOtherEmitters(root);
             ParticleSystem smoke = root.GetComponent<ParticleSystem>();
             if (smoke == null)
             {
@@ -224,12 +227,13 @@ internal sealed class RemoteCardPlume
                 return null;
             }
 
-            var bridge = new GameObject("GloomhavenVR.RemoteCardPlumeFrame");
-            root.transform.SetParent(bridge.transform, worldPositionStays: false);
             root.transform.localPosition = Vector3.zero;
             root.transform.localRotation = Quaternion.identity;
             root.transform.localScale = Vector3.one;
             VRLayers.Apply(bridge);
+            root.SetActive(true);
+            bridge.SetActive(true);
+            retained = true;
             return new Host { Root = bridge, Smoke = smoke, AuthoredEmission = smoke.emission.enabled };
         }
         catch (Exception e)
@@ -241,9 +245,13 @@ internal sealed class RemoteCardPlume
             }
             return null;
         }
+        finally
+        {
+            if (!retained && bridge != null) Object.Destroy(bridge);
+        }
     }
 
-    private static GameObject? CloneItemEmitter(CardPlumeState state)
+    private static GameObject? CloneItemEmitter(CardPlumeState state, Transform inactiveParent)
     {
         CPlayerActor? actor = RemoteBoardFocus.ActorById(state.ActorId);
         List<CItem>? items = actor?.Inventory?.AllItems;
@@ -263,11 +271,7 @@ internal sealed class RemoteCardPlume
             if (card == null) return null;
             ParticleSystem[] systems = card.GetComponentsInChildren<ParticleSystem>(true);
             if (state.EmitterIndex >= systems.Length) return null;
-            GameObject clone = Object.Instantiate(systems[state.EmitterIndex].gameObject, holder.transform, false);
-            StripOtherEmitters(clone);
-            clone.transform.SetParent(null, false);
-            clone.SetActive(true);
-            return clone;
+            return Object.Instantiate(systems[state.EmitterIndex].gameObject, inactiveParent, false);
         }
         finally
         {
@@ -281,8 +285,14 @@ internal sealed class RemoteCardPlume
         // Each sampled ordinal owns exactly one emitter. Keeping its descendant systems would
         // duplicate their particles when their own entries render, even if this copy is a child
         // of the originally serialized particle subtree.
-        NativeSmokeActivation[] observers = clone.GetComponentsInChildren<NativeSmokeActivation>(true);
-        for (int i = 0; i < observers.Length; i++) Object.DestroyImmediate(observers[i]);
+        // Construction stays beneath an inactive owned parent until all game/observer scripts
+        // are gone. Only native particle modules and rendering components execute on this copy.
+        MonoBehaviour[] controllers = clone.GetComponentsInChildren<MonoBehaviour>(true);
+        for (int i = 0; i < controllers.Length; i++) Object.DestroyImmediate(controllers[i]);
+        Animator[] animators = clone.GetComponentsInChildren<Animator>(true);
+        for (int i = 0; i < animators.Length; i++) Object.DestroyImmediate(animators[i]);
+        Animation[] animations = clone.GetComponentsInChildren<Animation>(true);
+        for (int i = 0; i < animations.Length; i++) Object.DestroyImmediate(animations[i]);
         ParticleSystem[] all = clone.GetComponentsInChildren<ParticleSystem>(true);
         for (int i = all.Length - 1; i > 0; i--)
         {

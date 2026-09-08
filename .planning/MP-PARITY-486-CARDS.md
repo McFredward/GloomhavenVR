@@ -155,3 +155,9 @@ Hierarchy and Shape modes retain the sampled world transform. Root owns the cond
 and pending-frame history regressions. The final sampler/renderer build succeeds with zero warnings
 and zero errors against that DTO; particle pixels and native activation callbacks still require runtime
 verification.
+
+Remote smoke construction now instantiates both ability and item emitter copies beneath an inactive
+owned frame. Game/observer MonoBehaviours and native animation controllers are removed before first
+activation, together with duplicate descendant emitters. Original particle modules and renderer assets
+remain intact. Failed construction destroys the owned frame; borrowed item widgets are still recycled
+through their original pool. Release compilation remains clean.
