@@ -76,6 +76,7 @@ internal static class Program
             ShortRestStateVectors.Run(t);
             ExtrasFragmentVectors.Run(t);
             UseBarWidgetVectors.Run(t);
+            UseBarAnimationVectors.Run(t);
             CardPresentationVectors.Run(t);
             FanExchangeVectors.Run(t);
             CardRestSeamVectors.Run(t, repoRoot);

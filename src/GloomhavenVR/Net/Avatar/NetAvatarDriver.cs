@@ -55,6 +55,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private UseBarAnimationState[]? _lastSentAnimations;
     private UseBarAnimationSnapshot? _lastAnimationSnapshot;
     private float _nextAnimationRefresh;
+    private float _lastAnimationSourceFrameTime;
     private readonly Dictionary<int, List<UseBarAnimationSnapshot>> _pendingAnimations = new();
 
     /// <summary>Called after the owner's native animation and dock placement in LateUpdate.</summary>
@@ -74,6 +75,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         bool changed = !ReferenceEquals(states, _lastSentAnimations);
         if (changed || _lastAnimationSnapshot == null)
         {
+            // A changed-only stream needs the actual held frame just before motion resumes.
+            // Otherwise a receiver could interpolate the new value across seconds of idle time.
+            if (_lastAnimationSnapshot != null && now - _lastAnimationSnapshot.SampleTime > 0.25f
+                && _lastAnimationSourceFrameTime > _lastAnimationSnapshot.SampleTime)
+            {
+                var predecessor = new UseBarAnimationSnapshot(_lastAnimationSourceFrameTime,
+                    _lastAnimationSnapshot.States);
+                int previousLength = UseBarAnimationCodec.Write(predecessor, _animationBuffer);
+                _transport.Send(_animationBuffer, previousLength);
+            }
             _lastAnimationSnapshot = new UseBarAnimationSnapshot(now,
                 states ?? Array.Empty<UseBarAnimationState>());
             _lastSentAnimations = states;
@@ -86,6 +97,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             _transport.Send(_animationBuffer, length);
             _nextAnimationRefresh = now + 0.5f;
         }
+        _lastAnimationSourceFrameTime = now;
         if (_transport is FfsNetTransport ffs) ffs.TickFragments(now);
     }
 
@@ -874,6 +886,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastAnimationSnapshot = null;
         _lastSentAnimations = null;
         _nextAnimationRefresh = 0;
+        _lastAnimationSourceFrameTime = 0;
         _createRetryAt.Clear();
         _rxRejectLogged.Clear();   // a new session re-reports a peer it cannot parse
         _rxRejected = 0;
@@ -4414,6 +4427,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastAnimationSnapshot = null;
         _lastSentAnimations = null;
         _nextAnimationRefresh = 0;
+        _lastAnimationSourceFrameTime = 0;
         if (_transport is FfsNetTransport ffs)
             ffs.ResetFragments();
         // THE IDS FIRST, because ForgetPeer removes from _avatars and a dictionary cannot be

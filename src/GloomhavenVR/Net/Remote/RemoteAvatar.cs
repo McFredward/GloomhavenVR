@@ -72,6 +72,7 @@ internal sealed class RemoteAvatar
     /// <summary>Owner's explicit short-rest window (record 46), reset on every extras packet.</summary>
     internal bool ShortRestInProgress { get; private set; }
     internal UseBarWidgetState[]? UseBarWidgetStates { get; private set; }
+    internal uint PresenceRevision { get; private set; }
     internal UseBarAnimationState[]? AnimationStates { get; private set; }
     internal float AnimationSampleTime { get; private set; } = -1f;
     // Board structure can arrive after a short reveal's first pose. Keep a bounded owner
@@ -1516,6 +1517,7 @@ internal sealed class RemoteAvatar
     /// Poses are already in world frame (converted by the driver).</summary>
     public void SetExtras(in PresenceState p)
     {
+        unchecked { PresenceRevision++; }
         HasBoard = p.HasBoard;
         if (p.HasBoard)
         {

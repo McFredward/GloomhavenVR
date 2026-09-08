@@ -263,6 +263,9 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasSendQueue.cs" Link="wire\ExtrasSendQueue.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasVersionAnnouncement.cs" Link="wire\ExtrasVersionAnnouncement.cs" />
     <Compile Include="UseBarWidgetVectors.cs" />
+    <Compile Include="UseBarAnimationVectors.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationCodec.cs" Link="wire\UseBarAnimationCodec.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationState.cs" Link="wire\UseBarAnimationState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarWidgetCodec.cs" Link="wire\UseBarWidgetCodec.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarWidgetState.cs" Link="wire\UseBarWidgetState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasFragments.cs" Link="wire\ExtrasFragments.cs" />
