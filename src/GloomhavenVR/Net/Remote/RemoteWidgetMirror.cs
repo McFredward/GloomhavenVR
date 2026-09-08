@@ -8,98 +8,24 @@ using UnityEngine.UI;
 namespace GloomhavenVR.Net;
 
 /// <summary>
-/// A LIVE, PIXEL-FAITHFUL COPY of one of the game's own uGUI panels, rendered on a peer's remote
-/// control board — the initiative TRACK, the objectives/quest panel, the furniture's decision row
-/// and, since 2026-09-06, the ELEMENT INFUSION BOARD. Each arrived here the same way: the user
-/// rejected a mod-drawn stand-in for not looking identical, and the element board's case
-/// (<see cref="RemoteElementStrip"/>) is the sharpest of the four, because its "wird erstellt" cell
-/// is written entirely by GUIAnimator curves that live in prefab scene data — there is no state a
-/// composition could have read.
+/// Mirrors original game uGUI hierarchies on remote control boards. Clones are created under an
+/// inactive host and stripped of gameplay, input and independent canvas behaviors before display.
+/// Paired original Graphics, TMP/text, images, materials, renderer tint, alpha and rect state are
+/// copied through change-gated setters; the selected layout policy assigns geometry ownership.
+/// This does not imply that every native effect is globally identical: owner-local state and
+/// animation outputs are applied by the owning surface after synchronization.
 ///
-/// ─── THE CLAIM THIS CLASS RETIRES ──────────────────────────────────────────────────────────────
-/// <see cref="RemoteBoardContent"/> used to state: "the game instantiates exactly ONE objectives
-/// container, ONE infusion board and ONE initiative track per client … A canvas cannot be in two
-/// places at once, and re-parenting or duplicating a live game canvas would violate the module's
-/// reversibility rule. So a peer's board draws its OWN picture from the same model data." The first
-/// half is true and the conclusion does not follow — it is the same mistake
-/// <see cref="RemoteAbilityCardSource"/> already retired for card faces:
+/// Global sources such as initiative/objectives are already public local game UI. Owner-specific
+/// decision, use-bar and element presentation is supplied by bounded descriptors at the caller,
+/// which also owns identity/reveal gating. This class never invokes a game selection/controller.
+/// Missing original content waits for a safe native source or authored frame; a handmade fallback
+/// and an unfitted identity-scale world canvas are not valid substitutes.
 ///
-///   • RE-PARENTING a live game canvas is indeed forbidden (a tray teardown must never cascade into
-///     destroying game-owned UI). DUPLICATING it is not: <c>Object.Instantiate</c> reads the source
-///     and writes a brand-new object tree. The source is not touched, not moved, not re-flagged —
-///     exactly the guarantee <see cref="RemoteCardArt"/> has been shipping for round-card faces.
-///   • <c>Instantiate</c> copies the LIVE component state, not the prefab's serialized state, so a
-///     portrait's <c>RawImage.texture</c> (assigned at runtime by <c>CharacterPortraitsProvider</c>
-///     out of the <c>misc_characterportraits</c> bundle), a filled progress bar and the localized
-///     TMP strings all come across. That is why the remote board no longer has to "not reproduce
-///     the portrait" — the portrait comes for free.
-///
-/// The consequence: the mod-drawn green/red name chips and the mod-drawn objective rows — the two
-/// placeholders the user rejected in round 3 of the 1:1-parity request ("Initiativleiste … nur
-/// grüne und rote Rechtecke", "Aufgaben immer noch falsch") — are demoted to FALLBACKS, and what a
-/// peer's board shows is the game's own widget, at the game's own detail, in the game's own layout.
-///
-/// ─── PUPPET, NOT PROGRAM: WHY THE CLONE RUNS NO GAME CODE ──────────────────────────────────────
-/// A deep clone of a live UI subtree carries the game's MonoBehaviours along. Letting them wake up
-/// would be a real hazard: <c>InitiativeTrackActorBehaviour</c>, <c>MissionObjectiveUI</c> and their
-/// neighbours register themselves with singletons, subscribe to game events and mutate the very
-/// state the original widget is driven from. So the clone is built under an INACTIVE host (its
-/// <c>Awake</c> has therefore not run — the identical trick <see cref="RemoteCardArt"/> uses to
-/// strip <c>CardEffects</c>) and every component that is not pure presentation is destroyed before
-/// it can ever execute a line. What survives is the whitelist in <see cref="IsPresentation"/>:
-/// <c>Graphic</c> (Image / RawImage / Text / TMP), <c>CanvasRenderer</c>, <c>Mask</c> /
-/// <c>RectMask2D</c>, mesh effects and <c>CanvasGroup</c>. Layout groups and size fitters go too —
-/// they would fight the puppeteering below, and the ONE property they contest is the rect, which is
-/// why the single dock that needs them back (<see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>)
-/// keeps them and stands the rect drive down instead. <c>Canvas</c>, <c>CanvasScaler</c> and
-/// <c>GraphicRaycaster</c> go unconditionally, because the host supplies the one world-space canvas
-/// and a copied screen-space canvas would otherwise blit itself over the player's whole view.
-///
-/// What is left cannot act, so it has to be DRIVEN. Every tick this class walks a pair of flat,
-/// pre-paired arrays (source node ⇄ clone node, built once) and copies the presentation state:
-/// active flag, rect pose/size, graphic colour + enabled, sprite/texture/fill, TMP and legacy text,
-/// canvas-group alpha. That is what makes "alle Positionen, Animationen, Effekte" literally true —
-/// the clone reproduces the source's CURRENT layout each frame, including the initiative track's
-/// inter-round reorder slide and the selected-portrait pop, without any of the code that produces
-/// them running twice.
-///
-/// STRUCTURE CHANGES (a round ends, an objective is added or removed) are detected on the content
-/// cadence by re-walking the source and comparing it node-for-node against the cached pairing; a
-/// mismatch rebuilds the clone from scratch. Cheap, because it only happens when the panel itself
-/// changes shape.
-///
-/// ─── INERT ─────────────────────────────────────────────────────────────────────────────────────
-/// Nothing here can be interacted with, and it is not a matter of trust: every
-/// <c>GraphicRaycaster</c>, <c>Selectable</c> and game click handler is DESTROYED (not disabled)
-/// before the clone activates, a blocking <see cref="CanvasGroup"/> is added at the root, and any
-/// <c>Collider</c>/<c>Rigidbody</c> that ever came along is destroyed as well. The board's own
-/// <see cref="RemoteBoardFurniture.StripColliders"/> sweep then re-proves it at runtime.
-///
-/// ─── ANTI-CHEAT ────────────────────────────────────────────────────────────────────────────────
-/// Both panels this drives are GLOBAL scenario state that is bit-identical on every client and is
-/// ALREADY on the local player's own screen — the initiative track and the objectives list are
-/// literally the same singletons the local board docks. Rendering the same pixels a second time at
-/// a peer's board pose reveals exactly nothing new, which is why this class carries no gate: it
-/// mirrors what the local client is already allowed to see, including vanilla's own "?" for a
-/// foreign player's hidden initiative. It never reads a card identity and never touches the wire.
-///
-/// ─── MIXED REALITY (user report 2026-08-08) ────────────────────────────────────────────────────
-/// "Die Mixed-Reality-Hintergründe sollen auch für das Remote-Board genauso angezeigt werden, wenn
-/// Mixed Reality eingeschaltet ist — aktuell sind die Hintergründe nur auf meinem eigenen Board
-/// sichtbar." The asymmetry was structural. On the OWNER's board these two panels are CONVERTED
-/// panels, so <c>WorldUI.MrBacking</c>'s panel sweep (which enumerates
-/// <c>CanvasConversion.ActivePanels</c>) puts an opaque plate behind them the moment MR turns on.
-/// A peer's copy is this clone on OUR OWN world canvas — never a <c>ConvertedPanel</c>, never in
-/// that list — so the identical pixels floated bare over the passthrough room while the owner's
-/// copy sat on a solid plate. The mirror therefore registers itself as an
-/// <c>MrBacking.IBackedSurface</c> and reports the geometry its own fit pass already measures
-/// (<see cref="Fit"/> caches <c>_backingSizePx</c>); MrBacking builds, sizes, orders, shows and
-/// tears down the very same plate it gives a converted panel. NON-MR RENDERING IS UNCHANGED: no
-/// plate object is ever created while MR is off.
+/// A source structure change rebuilds the paired original clone. Otherwise updates reuse the
+/// hierarchy. Explicit SetOwnerFrame input gives native owner geometry priority over the viewer's
+/// local converted dock; other mirrors keep their existing source/layout policy. The fitted
+/// original envelope also drives the same MrBacking treatment used by local converted panels.
 /// </summary>
-/// <remarks>CLASSIFICATION: GLOBAL — ZERO wire. It renders a CLONE of a game-owned, scenario-wide
-/// canvas that the local client already displays. No packet, no per-actor read, no gate of its own.
-/// See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
 {
     /// <summary>Which mechanism a mirrored section is currently drawing with — reported per section
@@ -107,7 +33,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// merely proving that something was drawn.</summary>
     internal enum Fidelity
     {
-        /// <summary>Nothing drawn (source absent and the caller drew no fallback either).</summary>
+        /// <summary>Nothing drawn because the original source or safe fit is unavailable.</summary>
         None,
 
         /// <summary>The REAL game widget, cloned and live-driven — full parity.</summary>
@@ -359,6 +285,30 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         // gets for free (see the class doc's MIXED REALITY block). Registration is MR-agnostic and
         // costs one list entry — no plate exists until MR is actually on.
         WorldUI.MrBacking.Surface(this);
+    }
+
+    private Vector2 _ownerFramePixels, _ownerParentPixels;
+    private bool _hasOwnerFrame;
+
+    /// <summary>Use a sampled original owner fit and parent frame. Zero clears the optional
+    /// override; mirrors without this explicit input retain their existing local-source policy.</summary>
+    internal void SetOwnerFrame(Vector2 sizePixels, Vector2 parentPixels)
+    {
+        if (sizePixels == Vector2.zero)
+        {
+            if (!_hasOwnerFrame) return;
+            _hasOwnerFrame = false;
+        }
+        else
+        {
+            if (!UseBarAnimationValue.Finite(sizePixels.x) || !UseBarAnimationValue.Finite(sizePixels.y)
+                || !UseBarAnimationValue.Finite(parentPixels.x) || !UseBarAnimationValue.Finite(parentPixels.y)
+                || sizePixels.x < 1f || sizePixels.y < 1f || parentPixels.x < 0f || parentPixels.y < 0f)
+                throw new System.ArgumentException("Invalid original owner frame.");
+            if (_hasOwnerFrame && _ownerFramePixels == sizePixels && _ownerParentPixels == parentPixels) return;
+            _ownerFramePixels = sizePixels; _ownerParentPixels = parentPixels; _hasOwnerFrame = true;
+        }
+        Fit();
     }
 
     // ------------------------------------------------- MrBacking.IBackedSurface --
@@ -811,7 +761,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         if (_pivot == null)
             return;
         var parent = source.parent as RectTransform;
-        Vector2 size = parent != null ? parent.rect.size : Vector2.zero;
+        Vector2 size = _hasOwnerFrame ? _ownerParentPixels : parent != null ? parent.rect.size : Vector2.zero;
         if (_pivot.sizeDelta != size)
             _pivot.sizeDelta = size;
     }
@@ -1829,6 +1779,12 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     {
         sizePx = default;
         centerPx = Vector2.zero;
+        if (_hasOwnerFrame)
+        {
+            sizePx = _ownerFramePixels;
+            _measurePath = "sampled original owner host rect";
+            return true;
+        }
 
         // (c) THE OWNER'S HOST RECT NO LONGER DESCRIBES THIS CLONE once the clone is wrapping at a
         // DIFFERENT column: TryDockRect returns the VIEWER's Panel.HostRect.rect, which

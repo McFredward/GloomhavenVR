@@ -13,6 +13,19 @@ internal sealed class ExtrasSendQueue
     private int _page;
     private byte[]? _first;
     private byte[]? _latest;
+    private readonly System.Collections.Generic.List<Pending> _pending = new(4);
+    private sealed class Pending
+    {
+        internal readonly byte[] Bytes;
+        internal readonly object Identity;
+        internal Pending(byte[] bytes, object identity) { Bytes = bytes; Identity = identity; }
+        internal static bool Same(Pending a, Pending b) =>
+            a.Identity is NativeUseBarSnapshot x && b.Identity is NativeUseBarSnapshot y
+                ? PresentationPending.SameNativeIdentity(x, y)
+                : a.Identity is UseBarAnimationSnapshot p && b.Identity is UseBarAnimationSnapshot q
+                    ? PresentationPending.SameBonusIdentity(p, q)
+                    : a.Identity is NativeBoardState m && b.Identity is NativeBoardState n && m.Generation == n.Generation;
+    }
     private double _next;
     private ulong _sequence;
     private readonly byte _payloadType;
@@ -33,9 +46,9 @@ internal sealed class ExtrasSendQueue
         _sequenceStride = sequenceStride;
     }
 
-    internal void Clear() { _pages = null; _first = _latest = null; _page = 0; _next = 0; }
+    internal void Clear() { _pending.Clear(); _pages = null; _first = _latest = null; _page = 0; _next = 0; }
 
-    internal void Enqueue(byte[] snapshot, int length)
+    internal void Enqueue(byte[] snapshot, int length, object? identity = null)
     {
         if (snapshot == null || length < 6 || length > snapshot.Length
             || length > _snapshotLimit
@@ -43,6 +56,11 @@ internal sealed class ExtrasSendQueue
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         var copy = new byte[length];
         Buffer.BlockCopy(snapshot, 0, copy, 0, length);
+        if (identity != null)
+        {
+            PresentationPending.Append(_pending, new Pending(copy, identity), Pending.Same);
+            return;
+        }
         if (_preserveFirst && _first == null) _first = copy;
         else _latest = copy;
     }
@@ -52,9 +70,10 @@ internal sealed class ExtrasSendQueue
         if (now < _next) return null;
         if (_pages == null)
         {
-            byte[]? next = _first ?? _latest;
+            byte[]? next = _pending.Count > 0 ? _pending[0].Bytes : _first ?? _latest;
             if (next == null) return null;
-            if (_first != null)
+            if (_pending.Count > 0) _pending.RemoveAt(0);
+            else if (_first != null)
             {
                 _first = _latest;
                 _latest = null;
@@ -72,9 +91,9 @@ internal sealed class ExtrasSendQueue
 }
 
 /// <summary>
-/// One bounded event per 50 ms across both presentation streams and the legacy handshake.
-/// Native motion gets two turns, then waiting presence gets one. A slow frame never causes a
-/// catch-up burst, and a stream with no data never wastes the other stream's turn.
+/// One bounded event per 50 ms across independent presentation streams and the legacy handshake.
+/// Small pages share an event; larger pages retain the same cap. Weighted stream turns and
+/// round-robin auxiliary slots prevent starvation. A slow frame never causes a catch-up burst.
 /// </summary>
 internal sealed class ExtrasSendScheduler
 {
@@ -95,7 +114,7 @@ internal sealed class ExtrasSendScheduler
         _plumes = new ExtrasSendQueue(sequence, NetProtocol.MsgCardPlume, NetProtocol.MsgCardPlumeFragments,
             preserveFirst: true, snapshotLimit: CardPlumeCodec.MaxSize);
         _board = new ExtrasSendQueue(sequence, NetProtocol.MsgNativeBoard, NetProtocol.MsgNativeBoardFragments,
-            preserveFirst: true, snapshotLimit: 12288);
+            preserveFirst: true, snapshotLimit: NativeBoardCodec.MaxSize);
         for (int slot = 8; slot < _native.Length; slot++)
             _native[slot] = new ExtrasSendQueue((sequence & ~31UL) | (uint)slot,
                 NetProtocol.MsgNativeUseBar, NetProtocol.MsgNativeUseBarFragments,
@@ -103,16 +122,28 @@ internal sealed class ExtrasSendScheduler
         _animationType = animationType;
     }
 
-    internal void Enqueue(byte[] snapshot, int length, int nativeSlot = -1)
+    internal void Enqueue(byte[] snapshot, int length, int nativeSlot = -1, object? identity = null)
     {
         if (snapshot == null || length < 6 || length > snapshot.Length)
             throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         int type = NetPacket.PeekType(snapshot, length);
-        if (type == _animationType) _animation.Enqueue(snapshot, length);
-        else if (type == NetProtocol.MsgNativeBoard) _board.Enqueue(snapshot, length);
+        if (type == _animationType)
+        {
+            if (identity is not UseBarAnimationSnapshot && UseBarAnimationCodec.TryRead(snapshot, length, out UseBarAnimationSnapshot? animation))
+                identity = animation;
+            _animation.Enqueue(snapshot, length, identity);
+        }
+        else if (type == NetProtocol.MsgNativeBoard)
+        {
+            if (identity is not NativeBoardState && NativeBoardCodec.TryRead(snapshot, length, out NativeBoardState? board)) identity = board;
+            _board.Enqueue(snapshot, length, identity);
+        }
         else if (type == NetProtocol.MsgCardPlume) _plumes.Enqueue(snapshot, length);
         else if (type == NetProtocol.MsgNativeUseBar && nativeSlot >= 8 && nativeSlot < 32)
-            _native[nativeSlot].Enqueue(snapshot, length);
+        {
+            if (identity is not NativeUseBarSnapshot && NativeUseBarPacket.TryRead(snapshot, length, out NativeUseBarSnapshot? native)) identity = native;
+            _native[nativeSlot].Enqueue(snapshot, length, identity);
+        }
         else _presence.Enqueue(snapshot, length);
     }
 
