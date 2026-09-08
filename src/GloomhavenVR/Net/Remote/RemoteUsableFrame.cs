@@ -30,11 +30,16 @@ namespace GloomhavenVR.Net;
 /// <para>IT IS THE SAME MACHINERY, NOT A LOOK-ALIKE: the sprite is
 /// <see cref="WorldUI.SoftCueArt.FrameSprite"/> and the motion is
 /// <see cref="WorldUI.SoftFramePulse"/>, the two pieces the owner's own chip frame is built from,
-/// driven off <c>Time.unscaledTime</c> — so every framed card on every board in the room breathes
-/// in PHASE and reads as one cue rather than several competing flickers. The pixel constants below
-/// are the owner's, restated with their source named, and they are pinned against
-/// <c>Cards/Piles/ItemsPile.cs</c> by <c>ItemUsableVectors</c> in the wire tests so the two frames
-/// cannot drift apart unnoticed.</para>
+/// driven off <c>Time.unscaledTime</c>. The pixel constants below are the owner's, restated with
+/// their source named, and they are pinned against <c>Cards/Piles/ItemsPile.cs</c> by
+/// <c>ItemUsableVectors</c> in the wire tests so the two frames cannot drift apart unnoticed.</para>
+///
+/// <para>THE PERIOD IS THE BOARD OWNER'S, off extension record 28 (id 161) — see
+/// <see cref="s_ownerBeatSeconds"/> for the ruling it obeys and for the two-rhythms-on-one-board
+/// picture that reading this viewer's own dial produced. What that costs is the sentence this
+/// paragraph used to end with: framed chips on a peer's board no longer beat in phase with the
+/// viewer's own item cues when the two players have tuned the dial differently. That is the ruling,
+/// not an oversight — a mirror wears the owner's dial, and 1:1 outranks local legibility.</para>
 /// </summary>
 internal static class RemoteUsableFrame
 {
@@ -67,6 +72,45 @@ internal static class RemoteUsableFrame
     internal const float FrameScalePulse = 0.07f;
 
     /// <summary>
+    /// THE BOARD OWNER'S OWN <c>[Cards] ItemCueBeatSeconds</c>, latched by
+    /// <see cref="ResolveSlots"/> for the <see cref="Build"/> calls that follow it in the same tick.
+    /// Seeded with the SHIPPED constant, which is what every untuned client resolves to anyway.
+    ///
+    /// <para><b>WHY THE VALUE ARRIVES THROUGH A LATCH RATHER THAN AN ARGUMENT.</b> The only caller
+    /// of both methods is <c>RemoteItemFan.TickUsableFrames</c>, which calls
+    /// <see cref="ResolveSlots"/> and then, in the loop directly beneath it and behind that call's
+    /// own <c>true</c>, <see cref="Build"/> — so the owner whose beat this is, is the owner whose
+    /// slots were just resolved, in the same statement block, for the same fan.
+    /// <see cref="Build"/> itself is handed a chip transform and two floats and has no route to a
+    /// <see cref="RemoteAvatar"/>; widening its signature is a one-line change in a file this lane
+    /// was not given, and it is named in the round report. The optional parameter on
+    /// <see cref="Build"/> is that seam, already open: the day the caller passes the owner's number
+    /// explicitly, this field stops being read and can go.</para>
+    ///
+    /// <para>THE PREVIOUS VALUE HERE WAS THIS VIEWER'S OWN DIAL, and that was a ruling breach
+    /// (R2 finding F2). <c>NetProtocol.cs:647</c>, in the ModBuild 478/479 RULINGS block:
+    /// "ItemCueBeatSeconds follows the OWNER on both surfaces. <c>[Voice] BadgeScale</c> is an
+    /// approved viewer-local exception." The OTHER of those two surfaces already obeys it —
+    /// <c>RemoteControlBoard.cs:3443</c> takes <c>tuning.ItemCueBeatSeconds</c> off record 28 id
+    /// 161 for the closed pile-stack's rings — so a maintainer at 3.0 s watching a peer's open item
+    /// fan saw the closed stack breathing at 3.0 s (the owner's) and the chip frames at 1.25 s
+    /// (his own), TWO RHYTHMS ON ONE BOARD, and neither of them the owner's. The defending comment
+    /// at <c>RemoteItemFan.cs:1910-1918</c> argues that "how fast the room breathes is the room's"
+    /// and cites no ruling; it argues against a decision already taken, and it is corrected there.
+    /// </para>
+    ///
+    /// <para>RESIDUE, STATED: a frame is built once and its <see cref="WorldUI.SoftFramePulse"/> is
+    /// initialised then, so an owner who moves this dial WHILE a peer is watching their open fan
+    /// keeps the old period on the already-built frames until they are rebuilt.
+    /// <c>RemoteItemFan.SyncTuning</c> explicitly does not rebuild for animation dials ("No rebuild
+    /// is ever needed"), so that window can outlive the fan. <c>SoftFramePulse.Init</c> is
+    /// re-callable, so closing it is one more line on the revision edge in the same caller — also in
+    /// the round report. It costs nothing at the shipped defaults and cannot be closed from
+    /// here.</para>
+    /// </summary>
+    private static float s_ownerBeatSeconds = Defaults.ItemCueBeatSeconds;
+
+    /// <summary>
     /// Build the frame as a child of <paramref name="parent"/>, INACTIVE — the caller switches it on
     /// for the positions record 35 names. Structure and numbers are
     /// <c>ItemsPile.ItemChip.BuildUsableFrame</c>'s: a world-space canvas at
@@ -82,7 +126,14 @@ internal static class RemoteUsableFrame
     /// mixed reality hintergründe schieben sich vor den outlines von karten" from coming back on the
     /// mirrored arc.</para>
     /// </summary>
-    internal static GameObject Build(Transform parent, float cardW, float cardH)
+    /// <param name="ownerBeatSeconds">The BOARD OWNER's <c>[Cards] ItemCueBeatSeconds</c> off
+    /// extension record 28 (id 161). Zero or less means "the caller did not name it", and the beat
+    /// then comes from <see cref="s_ownerBeatSeconds"/> — the same owner's value, latched by
+    /// <see cref="ResolveSlots"/> a few lines earlier in the caller. It is NEVER this viewer's live
+    /// dial; see <see cref="s_ownerBeatSeconds"/> for the ruling and for what reading the viewer's
+    /// copy was costing.</param>
+    internal static GameObject Build(Transform parent, float cardW, float cardH,
+                                     float ownerBeatSeconds = 0f)
     {
         var canvasGo = new GameObject("RemoteUsableFrame", typeof(RectTransform), typeof(Canvas));
         var rt = (RectTransform)canvasGo.transform;
@@ -114,12 +165,15 @@ internal static class RemoteUsableFrame
         img.fillCenter = false;    // hollow — a frame, never a wash over the art
         img.raycastTarget = false; // nothing may raycast a peer's mirror
         img.color = FrameColor;
-        // ONE RHYTHM FOR THE WHOLE ITEM CUE: the same [Cards] ItemCueBeatSeconds the owner's frame
-        // and the closed stack's rings beat on. This is a DIAL, and it is deliberately the VIEWER's
-        // own copy of it rather than a wire field — see the note in RemoteItemFan.TickUsableFrames.
+        // ONE RHYTHM FOR THE WHOLE ITEM CUE, AND IT IS THE BOARD OWNER'S. The same
+        // [Cards] ItemCueBeatSeconds that drives the owner's own chip frame and the closed stack's
+        // rings, taken off THEIR record 28 (id 161) — not this viewer's copy of the dial, which is
+        // what stood here and which put two rhythms on one mirrored board. The ruling is quoted on
+        // s_ownerBeatSeconds; the sibling consumer is RemoteControlBoard.cs:3443. Guarded the same
+        // way that one is, because a wire value is never trusted and a zero beat divides.
         ringGo.AddComponent<WorldUI.SoftFramePulse>().Init(
             img, FrameColor,
-            beatSeconds: Mathf.Max(0.2f, CardsConfig.ItemCueBeatSeconds.Value),
+            beatSeconds: Mathf.Max(0.2f, ownerBeatSeconds > 0f ? ownerBeatSeconds : s_ownerBeatSeconds),
             minAlpha: FrameMinAlpha, maxAlpha: FrameMaxAlpha, scalePulse: FrameScalePulse);
 
         VRLayers.Apply(canvasGo);
@@ -147,6 +201,14 @@ internal static class RemoteUsableFrame
         into.Clear();
         if (owner == null)
             return false;
+        // THE OWNER'S BEAT, TAKEN ON THE SAME SEAM AS THEIR SLOTS. Written before any path that can
+        // reach a Build: the caller only builds behind this method's `true`, so a frame minted in
+        // this tick always breathes on the tuning of the board it is being minted onto. Read every
+        // call rather than latched on the revision edge, for RemoteMapRoom.ScaleFactorFor's reason:
+        // a peer whose record 28 has not landed resolves to this client's shipped constant (the
+        // RemoteAvatar constructor seeds BoardTuning from an EMPTY payload) and corrects itself on
+        // the first tick after it does, instead of staying wrong for the session.
+        s_ownerBeatSeconds = Mathf.Max(0.2f, owner.BoardTuning.ItemCueBeatSeconds);
         CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(owner, out _);
         CInventory? inv = actor != null ? actor.Inventory : null;
         List<CItem>? all = inv != null ? inv.AllItems : null;
