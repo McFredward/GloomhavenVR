@@ -53,6 +53,10 @@ internal static class NetProtocol
     public const byte MsgUseBarAnimation = 3;
     /// <summary>Record-48 transport fragments of one complete native animation frame.</summary>
     public const byte MsgUseBarAnimationFragments = 4;
+    public const byte MsgCardPlume = 5;
+    public const byte MsgCardPlumeFragments = 6;
+    // Record50 is reserved for the other native use-bar descriptors in this integration.
+    public const byte ExtIdCardPlume = 51;
 
     /// <summary>Extras (board + hand-count) send rate (Hz). Slower than the rig stream — the board
     /// moves rarely and the hand count changes on card play only.</summary>
