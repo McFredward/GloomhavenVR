@@ -129,7 +129,7 @@ internal sealed class RemoteNativeElements
             _graphics = Map(source.Graphics, mirror); _effects = Map(source.Effects, mirror);
             _animations = new RemoteUseBarAnimation[source.Animations.Length];
             for (int a = 0; a < _animations.Length; a++)
-                _animations[a] = RemoteUseBarAnimation.FromBindings(source.Animations[a]).Map(mirror);
+                _animations[a] = RemoteUseBarAnimation.FromBindings(source.Animations[a]).Map(mirror, _materials);
         }
         private static Graphic[] Map(Graphic[] originals, RemoteWidgetMirror mirror)
         {

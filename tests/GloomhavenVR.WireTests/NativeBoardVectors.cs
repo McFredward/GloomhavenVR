@@ -62,6 +62,12 @@ internal static class NativeBoardVectors
         t.True(!NativeBoardCodec.TryRead(malformed, malformed.Length, out received), "nonfinite sample refuses");
         byte[] bomb = Frame(new byte[11001], true, 61);
         t.True(!NativeBoardCodec.TryRead(bomb, bomb.Length, out received), "inflation beyond claimed length refuses after one extra byte");
+        byte[] hiddenTail = Frame(raw, true, compressedTail: true);
+        t.True(!NativeBoardCodec.TryRead(hiddenTail, hiddenTail.Length, out received) && received == null,
+            "canonical outer pages cannot hide a 0x42 tail after a complete Deflate stream");
+        byte[] truncatedDeflate = Frame(raw, true, compressedTrim: 2);
+        t.True(!NativeBoardCodec.TryRead(truncatedDeflate, truncatedDeflate.Length, out received) && received == null,
+            "a truncated Deflate stream cannot publish incomplete owner state");
         byte[] invalidDeflate = Frame(raw, true); invalidDeflate[15] ^= 0xff;
         t.True(!NativeBoardCodec.TryRead(invalidDeflate, invalidDeflate.Length, out received), "damaged compressed payload refuses");
         byte[] full = Frame(Unpack(output, n), false);
@@ -100,7 +106,7 @@ internal static class NativeBoardVectors
     }
     private static NativeElementGraphic Graphic(int value) => new()
     { Flags = (byte)(value % 8), R = value * 0.0625f, G = -value * 2.125f, B = 3f, A = value * 0.125f, Fx = value * 0.3125f };
-    private static byte[] Frame(byte[] raw, bool compress, int? rawLength = null)
+    private static byte[] Frame(byte[] raw, bool compress, int? rawLength = null, bool compressedTail = false, int compressedTrim = 0)
     {
         byte[] data = raw;
         if (compress)
@@ -108,6 +114,8 @@ internal static class NativeBoardVectors
             using var memory = new MemoryStream();
             using (var stream = new DeflateStream(memory, CompressionLevel.Fastest, true)) stream.Write(raw);
             data = memory.ToArray();
+            if (compressedTail) data = data.Concat(new byte[] { 0x42 }).ToArray();
+            if (compressedTrim > 0) data = data.Take(data.Length - compressedTrim).ToArray();
         }
         using var payload = new MemoryStream(); using var p = new BinaryWriter(payload);
         p.Write((byte)(compress ? 1 : 0)); p.Write((ushort)(rawLength ?? raw.Length)); p.Write(data);

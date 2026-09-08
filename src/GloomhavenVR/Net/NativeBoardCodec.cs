@@ -100,7 +100,7 @@ internal static class NativeBoardCodec
             }
             else
             {
-                using var input = new MemoryStream(body, 3, body.Length - 3, writable: false);
+                using var input = new ExactDeflateInput(body, 3, body.Length - 3);
                 using var inflater = new DeflateStream(input, CompressionMode.Decompress);
                 int read = 0;
                 while (read < rawLength)
@@ -109,7 +109,7 @@ internal static class NativeBoardCodec
                     if (countRead == 0) return false;
                     read += countRead;
                 }
-                if (inflater.ReadByte() != -1) return false; // bounded expansion: stop after one extra byte
+                if (inflater.ReadByte() != -1 || input.Position != input.Length) return false; // no extra output or hidden compressed tail
             }
             body = raw;
             int p = 0;
@@ -154,6 +154,28 @@ internal static class NativeBoardCodec
         catch (InvalidDataException) { return false; }
         catch (IOException) { return false; }
     }
+    /// <summary>DeflateStream normally reads ahead beyond its final block. Restrict input to one
+    /// byte per read so a valid stream followed by hidden garbage cannot consume the whole payload
+    /// and appear exact. Work stays bounded by the protocol's 11 KB input/output limits.</summary>
+    private sealed class ExactDeflateInput : Stream
+    {
+        private readonly MemoryStream _input;
+        internal ExactDeflateInput(byte[] data, int offset, int count) =>
+            _input = new MemoryStream(data, offset, count, writable: false);
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => _input.Length;
+        public override long Position { get => _input.Position; set => throw new NotSupportedException(); }
+        public override int Read(byte[] buffer, int offset, int count) => _input.Read(buffer, offset, Math.Min(1, count));
+        public override int ReadByte() => _input.ReadByte();
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        protected override void Dispose(bool disposing) { if (disposing) _input.Dispose(); base.Dispose(disposing); }
+    }
+
     private static void WriteGraphic(byte[] buffer, ref int at, NativeElementGraphic value)
     {
         buffer[at++] = value.Flags;
