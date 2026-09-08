@@ -676,6 +676,12 @@ internal sealed class RemoteElementStrip
 
     private int _signature = -1;
 
+    /// <summary>Base-6 fold of the six element indices in the game's own row order — the second
+    /// half of the repaint gate. The gate is an AND of the two, so every existing
+    /// <c>_signature = -1</c> invalidation still forces a full repaint on its own (a base-6 fold is
+    /// never negative and can never match -1); this field needs no invalidation of its own.</summary>
+    private int _orderSignature = -1;
+
     // ------------------------------------------------------- created / consumed transitions --
 
     /// <summary>Whether chip <c>i</c> was actually DRAWN on the previous repaint — the edge the
@@ -1007,6 +1013,21 @@ internal sealed class RemoteElementStrip
         // masks: 729 * 64^3 = 191,102,976 < int.MaxValue, so this cannot wrap.
         sig = ((sig * 64 + creating) * 64 + reserved) * 64 + available;
 
+        // THE ROW ORDER IS PART OF THE PICTURE AND THEREFORE PART OF THE GATE. It gets its OWN
+        // signature rather than being folded into the one above, and that is arithmetic and not
+        // taste: `sig` is already up to 729 * 64^3 = 191,102,976 and a permutation of six adds a
+        // factor of 720, which overflows int outright. Base-6 over six digits is 46,656 states and
+        // fits with room to spare.
+        //
+        // It cannot be left out on the grounds that a reorder always comes with a `creating` bit
+        // change. It does today — SetAsLastSibling fires from the Inert branch, and UpdateBoard
+        // only passes isCreating true for elements in elementsInCreation — but that is two game
+        // files happening to agree, not an invariant this file may rest a repaint gate on.
+        int[] order = ReadRowOrder();
+        int orderSig = 0;
+        for (int k = 0; k < 6; k++)
+            orderSig = orderSig * 6 + order[k];
+
         // ═══ RUNG ZERO: MIRROR THE REAL BOARD ═══════════════════════════════════════════════════
         // Attempted on EVERY content tick and deliberately OUTSIDE the signature gate. The clone's
         // own rebuild test is a STRUCTURE test, not a state test, and the state this class gates on
@@ -1101,9 +1122,13 @@ internal sealed class RemoteElementStrip
         if (!_root.gameObject.activeSelf)
             _root.gameObject.SetActive(true);
 
-        if (sig == _signature)
+        if (sig == _signature && orderSig == _orderSignature)
             return;
+        bool orderMoved = _orderSignature >= 0 && orderSig != _orderSignature;
         _signature = sig;
+        _orderSignature = orderSig;
+        if (orderMoved)
+            LogRowOrder(order);
 
         // WHICH CHIPS ARE DRAWN — InfusionBoardUI.UpdateBoard's own rule, term for term:
         //   inList = every non-inert element PLUS everything still in elementsInCreation;
@@ -1150,10 +1175,20 @@ internal sealed class RemoteElementStrip
 
         // Pack the visible chips left-to-right and centre the run, exactly like the game's own
         // horizontal element holder does with its layout group.
+        //
+        // IN THE HOLDER'S OWN CHILD ORDER, NOT IN EElement ORDER (R2 finding F14). Unity's
+        // horizontal and grid layout groups seat ACTIVE children by sibling index and skip inactive
+        // ones — which is the same "pack the visible ones" rule this loop uses, keyed on a
+        // different order. The game permanently moves an element to the end of the holder when it
+        // enters creation and never puts it back, so its row is a history of creations; dealing
+        // slots by ascending `i` reproduced that row only until the first element was infused. See
+        // ReadRowOrder for the decompiled citations. The loop BODY is untouched by this: everything
+        // in it is keyed on the element index `i` and only `slot` runs in row order.
         float left = -(visible - 1) * 0.5f * ChipStep;
         int slot = 0;
-        for (int i = 0; i < 6; i++)
+        for (int k = 0; k < 6; k++)
         {
+            int i = order[k];
             bool on = show[i];
             bool wasOn = _shownOn[i];
             bool wasInList = _wasInList[i];
@@ -1428,6 +1463,120 @@ internal sealed class RemoteElementStrip
     /// <summary>Drop the clone and its MrBacking registration. The mod-drawn half dies with the
     /// board root that owns it, as it always has.</summary>
     public void Destroy() => _mirror.Destroy();
+
+    /// <summary>Scratch for <see cref="ReadRowOrder"/>: the six element indices in the order the
+    /// game's own holder draws them. Reused every tick so the read allocates nothing.</summary>
+    private readonly int[] _rowOrder = { 0, 1, 2, 3, 4, 5 };
+
+    /// <summary>
+    /// THE ORDER THE GAME'S OWN ELEMENT ROW IS IN — element indices sorted by the sibling index of
+    /// their <c>InfusionElementUI</c> under <c>InfusionBoardUI.elementsHolder</c>. Identity
+    /// (0..5, i.e. plain <c>EElement</c> order) whenever the board cannot be read.
+    ///
+    /// <para><b>WHY THIS IS NOT ENUM ORDER, AND THE MEASUREMENT THAT SAYS SO</b> (R2 finding F14,
+    /// 2026-09-07). <c>InfusionElementUI.ShowCreating()</c> ends with
+    /// <c>base.transform.SetAsLastSibling()</c> (<c>decompiled/GH.Runtime/InfusionElementUI.cs:158</c>),
+    /// called from the <c>Inert</c> branch of <c>SetState</c> at <c>:108</c> on the
+    /// <c>lastState != newState</c> edge. Nothing anywhere in the game puts it back:
+    /// <c>ShowCreated()</c> (<c>:161-166</c>) and <c>StopAnimations()</c> (<c>:168-173</c>) touch no
+    /// sibling, and <c>InfusionBoardUI</c> references <c>elementsHolder</c> in exactly ONE place —
+    /// the <c>Instantiate</c> loop at <c>:64-71</c> — so an element that has entered creation is
+    /// permanently at the end and later creations stack after it. The row is therefore a running
+    /// history of creations, with never-created elements left ahead of them in enum order.</para>
+    ///
+    /// <para><b>AND SIBLING ORDER IS DRAWN ORDER, which is deducible from source rather than
+    /// prefab data.</b> All six cells are <c>Instantiate</c>d from ONE prefab into ONE parent with
+    /// no position argument (<c>InfusionBoardUI.cs:64-71</c>), and NOTHING in either game class
+    /// writes an element's <c>anchoredPosition</c>, <c>localPosition</c> or sibling index other
+    /// than the <c>SetAsLastSibling</c> above. Six identical rects cannot produce the row the
+    /// player sees, so a child-order-driven layout component on the holder is the only thing that
+    /// can be seating them — which is what the packing loop's own comment has always asserted. The
+    /// assertion is right; the loop under it was dealing slots by enum index anyway.</para>
+    ///
+    /// <para>ZERO WIRE, AND THE DIVERGENCE IS INTRA-CLIENT. This strip is classified GLOBAL and
+    /// reads the local <c>InfusionBoardUI</c> for every overlay it draws, so "the owner's row" is
+    /// the very widget this same client has docked on its own board through
+    /// <c>ElementBoardSurface</c>. Before this fix the docked board and a fallen-back remote strip
+    /// showed the same six elements in two different left-to-right orders IN THE SAME FRAME.</para>
+    ///
+    /// <para>ABSENCE KEEPS THE OLD BEHAVIOUR, exactly as <see cref="ReadOverlay"/> does: no
+    /// singleton, a null dictionary, a missing cell or a throw all leave the identity order, which
+    /// is byte-for-byte the row this strip drew before this method existed.</para>
+    /// </summary>
+    private int[] ReadRowOrder()
+    {
+        for (int i = 0; i < 6; i++)
+            _rowOrder[i] = i;
+        try
+        {
+            InfusionBoardUI? board = InfusionBoardUI.Instance;
+            Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui =
+                board != null ? board.elementsUI : null;
+            if (ui == null)
+                return _rowOrder;
+
+            // Sibling index per element, or int.MaxValue for one that cannot be resolved — an
+            // unreadable cell sorts to the end rather than displacing the five that ARE readable.
+            var seat = new int[6];
+            for (int i = 0; i < 6; i++)
+            {
+                seat[i] = int.MaxValue;
+                if (ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
+                    && one != null && one.transform != null)
+                    seat[i] = one.transform.GetSiblingIndex();
+            }
+
+            // Insertion sort over six entries: no allocation, no comparer delegate, and STABLE, so
+            // two cells reporting the same seat keep enum order between them instead of swapping
+            // frame to frame.
+            for (int a = 1; a < 6; a++)
+            {
+                int key = _rowOrder[a];
+                int b = a - 1;
+                while (b >= 0 && seat[_rowOrder[b]] > seat[key])
+                {
+                    _rowOrder[b + 1] = _rowOrder[b];
+                    b--;
+                }
+                _rowOrder[b + 1] = key;
+            }
+        }
+        catch
+        {
+            for (int i = 0; i < 6; i++)
+                _rowOrder[i] = i;
+        }
+        return _rowOrder;
+    }
+
+    /// <summary>
+    /// SAY WHEN THE GAME RE-ORDERED ITS OWN ELEMENT ROW, and what the strip is now dealing.
+    /// Change-gated on the order alone, so a session where nothing is ever infused prints nothing
+    /// and a session with two creations prints twice — never per tick.
+    ///
+    /// <para>PURE, and INSTRUMENT-ONLY: it latches nothing (the gate lives beside the write it
+    /// records, in <c>Refresh</c>), so retiring this method can break nothing.</para>
+    /// </summary>
+    private void LogRowOrder(int[] order)
+    {
+        // HW-VERIFY: grep ELEMENT ROW ORDER. The deciding field is the sequence itself — compare it
+        // against the left-to-right order of the DOCKED element board in the same frame, which on
+        // this same client is the real game widget. They must read the same. A line whose sequence
+        // is still 0,1,2,3,4,5 after an element has been infused through a creation pulse means the
+        // sibling read found no board and fell back to enum order (see ReadRowOrder), not that the
+        // game kept enum order.
+        VRLog.Note("Net", $"ELEMENT ROW ORDER [board {_playerId}]: the game's own elementsHolder now "
+            + $"reads {(ElementInfusionBoardManager.EElement)order[0]}, "
+            + $"{(ElementInfusionBoardManager.EElement)order[1]}, "
+            + $"{(ElementInfusionBoardManager.EElement)order[2]}, "
+            + $"{(ElementInfusionBoardManager.EElement)order[3]}, "
+            + $"{(ElementInfusionBoardManager.EElement)order[4]}, "
+            + $"{(ElementInfusionBoardManager.EElement)order[5]} by sibling index, and the "
+            + "mod-drawn strip deals its slots in that order. InfusionElementUI.ShowCreating ends "
+            + "with SetAsLastSibling and nothing in the game restores the seat, so this sequence is "
+            + "a running history of creations rather than EElement order — which is what the strip "
+            + "used to deal by.");
+    }
 
     /// <summary>
     /// The three overlay masks the element COLUMN cannot express, read off the local
