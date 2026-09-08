@@ -264,6 +264,10 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasVersionAnnouncement.cs" Link="wire\ExtrasVersionAnnouncement.cs" />
     <Compile Include="UseBarWidgetVectors.cs" />
     <Compile Include="UseBarAnimationVectors.cs" />
+    <Compile Include="UseBarAnimationPlaybackVectors.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationPlaybackClock.cs" Link="wire\UseBarAnimationPlaybackClock.cs" />
+    <Compile Include="SharedWindowPoseVectors.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\SharedWindowPoseTrack.cs" Link="wire\SharedWindowPoseTrack.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationCodec.cs" Link="wire\UseBarAnimationCodec.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarAnimationState.cs" Link="wire\UseBarAnimationState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarWidgetCodec.cs" Link="wire\UseBarWidgetCodec.cs" />

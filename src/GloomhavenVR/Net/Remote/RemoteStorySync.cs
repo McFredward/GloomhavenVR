@@ -112,8 +112,8 @@ internal static class RemoteStorySync
     private const float MoveEpsilonSize = 0.005f;
 
     /// <summary>How long the local pose must stand still before the move counts as FINISHED and the
-    /// stamp is bumped. A drag is continuous; bumping per frame would make "last mover" mean "last
-    /// frame" and let two people fight at 5 Hz. One quarter second is well under the time it takes
+    /// completion stamp is bumped. The first movement already claims ownership; bumping per
+    /// frame would let two people fight at 5 Hz. One quarter second is well under the time it takes
     /// to let go and well over a frame.</summary>
     private const float MoveSettleSeconds = 0.25f;
 
@@ -159,6 +159,8 @@ internal static class RemoteStorySync
     /// that peer, and the local time it last CHANGED. A peer that keeps re-sending an unchanged
     /// stamp is not moving anything and must not keep winning the election.</summary>
     private static readonly Dictionary<int, byte> PeerPoseStamp = new();
+    private static readonly SharedWindowPoseTrack PoseTrack = new();
+    private static int _poseTrackPeer;
     private static readonly Dictionary<int, float> PeerPoseChangedAt = new();
 
     // ---- local state ------------------------------------------------------------------------
@@ -241,6 +243,8 @@ internal static class RemoteStorySync
     {
         Peers.Clear();
         PeerPoseStamp.Clear();
+        PoseTrack.Reset();
+        _poseTrackPeer = 0;
         PeerPoseChangedAt.Clear();
         _localKey = 0;
         _localPageCount = 0;
@@ -435,10 +439,11 @@ internal static class RemoteStorySync
 
     /// <summary>
     /// Watch the story window's grab frame for a move the LOCAL user made, and bump
-    /// <see cref="_localPoseStamp"/> once when that move settles.
+    /// <see cref="_localPoseStamp"/> at the first movement edge and again when that move settles.
     ///
-    /// <para>There is no "is grabbed" flag to read on <c>GrabbableModal</c>, and this needs none:
-    /// the frame is written by exactly three things — the grab handle, ModalFallback's own spawn /
+    /// <para>The current <c>GrabbableModal.IsGrabbed</c> distinguishes a held window from a
+    /// settled one. While held or completing a movement, every changed pose is sampled; idle
+    /// baseline noise retains the existing epsilon guard. The frame is written by three things — the grab handle, ModalFallback's own spawn /
     /// re-place, and this class's own apply — and the latter two both write their result into the
     /// baseline as they happen. Anything left over is a hand. The baseline is dropped whenever the
     /// window is not <c>GrabVisible</c> (still behind the reveal gate, render-hidden, or gone), so
@@ -451,6 +456,8 @@ internal static class RemoteStorySync
         {
             _haveFrameBaseline = false;
             _localMoving = false;
+            PoseTrack.Reset();
+            _poseTrackPeer = 0;
             return;
         }
 
@@ -464,17 +471,29 @@ internal static class RemoteStorySync
         }
 
         float eps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
-        bool moved = (pos - _lastFramePos).sqrMagnitude > eps * eps
-                     || Quaternion.Angle(rot, _lastFrameRot) > MoveEpsilonDegrees
-                     || Mathf.Abs(size - _lastFrameSize) > MoveEpsilonSize;
+        bool moved = grab.IsGrabbed || _localMoving
+            ? !pos.Equals(_lastFramePos) || !rot.Equals(_lastFrameRot) || size != _lastFrameSize
+            : (pos - _lastFramePos).sqrMagnitude > eps * eps
+              || Quaternion.Angle(rot, _lastFrameRot) > MoveEpsilonDegrees
+              || Mathf.Abs(size - _lastFrameSize) > MoveEpsilonSize;
 
         float now = Time.unscaledTime;
         if (moved)
         {
+            // Claim this movement at its first visible change. Reusing the previous stamp
+            // until release made a peer that moved the window earlier outrank this entire
+            // drag: it saw the unchanged old stamp and applied only the settled endpoint.
+            // One edge here and one at settle retain stable ownership throughout the drag.
+            if (!_localMoving)
+            {
+                unchecked { _localPoseStamp++; }
+                _localPoseOwned = true;
+            }
             _lastFramePos = pos;
             _lastFrameRot = rot;
             _lastFrameSize = size;
             _localMoving = true;
+            _poseTrackPeer = 0;
             _localMoveSettleAt = now + MoveSettleSeconds;
             // AND THE SPAWN ANCHOR IS SPENT FROM THE FIRST MILLIMETRE (ModBuild 243), not from the
             // settle — the anchor must be over the instant a hand takes the window, never one
@@ -489,7 +508,7 @@ internal static class RemoteStorySync
             _followedStampValid = false;
             return;
         }
-        if (_localMoving && now >= _localMoveSettleAt)
+        if (_localMoving && !grab.IsGrabbed && now >= _localMoveSettleAt)
         {
             _localMoving = false;
             _localPoseOwned = true;
@@ -790,8 +809,9 @@ internal static class RemoteStorySync
 
     private static void ResolvePose(uint key)
     {
-        if (_localMoving)
-            return; // a hand owns it right now; never fight a hand.
+        if (_localMoving || (ModalFallback.TryGetStoryGrab(out GrabbableModal? held)
+            && held != null && held.IsGrabbed))
+            return; // a stationary grip still owns the window; never fight a hand.
 
         // LAST MOVER WINS. Among peers holding the same dialog and publishing a pose, follow the
         // one whose stamp changed most recently.
@@ -820,15 +840,9 @@ internal static class RemoteStorySync
 
         PeerStory owner = Peers[bestPeer];
 
-        // ELECT ON THE STAMP, DECIDE ON THE POSE (ModBuild 226). The old early-out here was
-        // `_followedStamp == owner.PoseStamp`, which was exactly right while a pose block only ever
-        // existed for a FINISHED move: same stamp meant same pose meant nothing to do. Now that the
-        // sender also publishes DURING a drag under a deliberately unchanged stamp, that test would
-        // drop every mid-drag pose and leave the receiver with the same end-of-drag jump it had
-        // before. The stamp still elects the last mover above; the pose VALUE decides here, against
-        // the SAME epsilons TrackFrame uses to call something a move — a difference too small for it
-        // to be a move is too small to be worth writing, and writing it anyway would hand
-        // TrackFrame's baseline something it might read back as a local hand.
+        // The start/settle stamps elect the last mover. During a drag the stamp is stable,
+        // while the actual pose samples advance. Interpolate in the shared coordinate frame;
+        // write every changed rendered pose and retain it as TrackFrame's movement baseline.
         if (!ModalFallback.TryGetStoryGrab(out GrabbableModal? grab) || grab == null)
         {
             NoteIgnored($"player {bestPeer} published a window pose but this client has no floated " +
@@ -837,7 +851,16 @@ internal static class RemoteStorySync
                         "never hold anybody up");
             return;
         }
-        if (!TryToWorld(owner.Pose.Position, owner.Pose.Rotation,
+        float size = NetProtocol.DecodeStorySize(owner.SizeCode);
+        if (_poseTrackPeer != bestPeer)
+        {
+            PoseTrack.Reset();
+            if (_haveFrameBaseline && TryToAnchor(_lastFramePos, _lastFrameRot, out Vector3 seedPos, out Quaternion seedRot))
+                PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, _lastFrameSize, Time.unscaledTime);
+            _poseTrackPeer = bestPeer;
+        }
+        RigPose displayed = PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
+        if (!TryToWorld(displayed.Position, displayed.Rotation,
                         out Vector3 worldPos, out Quaternion worldRot))
         {
             NoteIgnored($"player {bestPeer} published a window pose but this client has no seat " +
@@ -846,13 +869,8 @@ internal static class RemoteStorySync
             return;
         }
 
-        float size = NetProtocol.DecodeStorySize(owner.SizeCode);
-
-        float applyEps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
         if (_haveFrameBaseline && _followingPeer == bestPeer
-            && (worldPos - _lastFramePos).sqrMagnitude <= applyEps * applyEps
-            && Quaternion.Angle(worldRot, _lastFrameRot) <= MoveEpsilonDegrees
-            && Mathf.Abs(size - _lastFrameSize) <= MoveEpsilonSize)
+            && worldPos.Equals(_lastFramePos) && worldRot.Equals(_lastFrameRot) && size == _lastFrameSize)
             return; // already standing exactly there — applying it again would be a no-op write.
 
         // A drag now arrives as a STREAM of poses under one stamp, and the paragraph below was

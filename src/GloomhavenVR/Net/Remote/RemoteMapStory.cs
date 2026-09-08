@@ -246,9 +246,14 @@ internal static class RemoteMapStory
         internal int FollowingPeer;
         internal byte FollowedStamp;
         internal bool FollowedStampValid;
+        internal readonly SharedWindowPoseTrack PoseTrack = new();
+        internal int PoseTrackPeer;
+        internal byte PoseTrackFrame;
 
         internal void ForgetPose()
         {
+            PoseTrack.Reset();
+            PoseTrackPeer = 0;
             HaveBaseline = false;
             PoseOwned = false;
             Moving = false;
@@ -1148,17 +1153,28 @@ internal static class RemoteMapStory
         }
 
         float eps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
-        bool moved = (pos - local.FramePos).sqrMagnitude > eps * eps
-                     || Quaternion.Angle(rot, local.FrameRot) > MoveEpsilonDegrees
-                     || Mathf.Abs(size - local.FrameSize) > MoveEpsilonSize;
+        bool moved = grab.IsGrabbed || local.Moving
+            ? !pos.Equals(local.FramePos) || !rot.Equals(local.FrameRot) || size != local.FrameSize
+            : (pos - local.FramePos).sqrMagnitude > eps * eps
+              || Quaternion.Angle(rot, local.FrameRot) > MoveEpsilonDegrees
+              || Mathf.Abs(size - local.FrameSize) > MoveEpsilonSize;
 
         float now = Time.unscaledTime;
         if (moved)
         {
+            // A repeated drag needs a new election stamp at its first visible change.
+            // Otherwise clients that previously moved this window reject the old stamp
+            // throughout the drag and jump to its endpoint only after release/settle.
+            if (!local.Moving)
+            {
+                unchecked { local.PoseStamp++; }
+                local.PoseOwned = true;
+            }
             local.FramePos = pos;
             local.FrameRot = rot;
             local.FrameSize = size;
             local.Moving = true;
+            local.PoseTrackPeer = 0;
             local.MoveSettleAt = now + MoveSettleSeconds;
             // AND THE SPAWN ANCHOR IS SPENT FROM THE FIRST MILLIMETRE (ModBuild 243), not from the
             // settle: the anchor must be over the instant a hand takes the window, never one
@@ -1173,7 +1189,7 @@ internal static class RemoteMapStory
             local.FollowedStampValid = false;
             return;
         }
-        if (!local.Moving || now < local.MoveSettleAt)
+        if (!local.Moving || grab.IsGrabbed || now < local.MoveSettleAt)
             return;
         local.Moving = false;
         local.PoseOwned = true;
@@ -1890,8 +1906,8 @@ internal static class RemoteMapStory
             && Time.frameCount - local.SwapFrame <= IdentitySettleFrames)
             return;
 
-        if (local.Moving)
-            return; // a hand owns it right now; never fight a hand.
+        if (local.Moving || (subject != null && subject.IsGrabbed))
+            return; // a stationary grip still owns the window; never fight a hand.
 
         // LAST MOVER WINS. Among peers holding the same content and publishing a pose, follow the
         // one whose stamp changed most recently.
@@ -1917,21 +1933,9 @@ internal static class RemoteMapStory
 
         PeerEntry owner = peers[bestPeer];
 
-        // ELECT ON THE STAMP, DECIDE ON THE POSE (ModBuild 226). Until this build the early-out here
-        // was `FollowedStamp == owner.PoseStamp`, which was exactly right while a pose block only
-        // ever existed for a FINISHED move: same stamp meant same pose meant nothing to do. Now that
-        // WritePose also publishes DURING a drag, the stamp deliberately does not change while the
-        // window is moving — so that test would have dropped every mid-drag pose and left the
-        // receiver with the same single end-of-drag jump it had before, merely eased. The stamp is
-        // still what elects the last mover above (bumping it per packet would let two draggers trade
-        // the window at the send rate); what is compared HERE is the pose itself.
-        //
-        // The comparison is against FramePos/FrameRot/FrameSize, which is where this method records
-        // every pose it applies, within the SAME epsilons TrackFrame uses to decide that a hand
-        // moved something. That is not a coincidence and it is what keeps this from writing at the
-        // packet rate when nothing has changed: a difference too small for TrackFrame to call a move
-        // is too small to be worth applying, and applying it anyway would hand TrackFrame's baseline
-        // a write it might read back as a local hand.
+        // The start/settle stamps elect the last mover. A held drag keeps its stamp while
+        // poses advance. Interpolation uses the sender's shared frame, so this viewer's zoom
+        // reprojects the displayed pose immediately instead of entering the animation itself.
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
         {
             Note($"player {bestPeer} published a pose for the {kind} window but this client has no "
@@ -1940,7 +1944,18 @@ internal static class RemoteMapStory
                  + "hold anybody up");
             return;
         }
-        if (!ToWorld(owner.Frame, owner.Pose.Position, owner.Pose.Rotation,
+        float size = NetProtocol.DecodeStorySize(owner.SizeCode);
+        if (local.PoseTrackPeer != bestPeer || local.PoseTrackFrame != owner.Frame)
+        {
+            local.PoseTrack.Reset();
+            if (local.HaveBaseline && ToShared(local.FramePos, local.FrameRot,
+                    out Vector3 seedPos, out Quaternion seedRot, out byte seedFrame) && seedFrame == owner.Frame)
+                local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
+            local.PoseTrackPeer = bestPeer;
+            local.PoseTrackFrame = owner.Frame;
+        }
+        RigPose displayed = local.PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
+        if (!ToWorld(owner.Frame, displayed.Position, displayed.Rotation,
                      out Vector3 worldPos, out Quaternion worldRot))
         {
             Note($"player {bestPeer} published a {kind} pose in frame {owner.Frame} but this client "
@@ -1949,13 +1964,8 @@ internal static class RemoteMapStory
             return;
         }
 
-        float size = NetProtocol.DecodeStorySize(owner.SizeCode);
-
-        float applyEps = MoveEpsilonMeters * Mathf.Max(PanelLayout.WorldScale, 0.01f);
         if (local.HaveBaseline && local.FollowingPeer == bestPeer
-            && (worldPos - local.FramePos).sqrMagnitude <= applyEps * applyEps
-            && Quaternion.Angle(worldRot, local.FrameRot) <= MoveEpsilonDegrees
-            && Mathf.Abs(size - local.FrameSize) <= MoveEpsilonSize)
+            && worldPos.Equals(local.FramePos) && worldRot.Equals(local.FrameRot) && size == local.FrameSize)
             return; // already standing exactly there — applying it again would be a no-op write
 
         // Whether this is the START of following someone new decides whether the full line below is
