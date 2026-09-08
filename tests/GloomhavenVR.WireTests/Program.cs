@@ -73,6 +73,7 @@ internal static class Program
             // — which is worse than the anonymous plate it replaces and is exactly what the
             // refusal gate beside it exists to prevent.
             UseBarSlotIdentityVectors.Run(t);
+            ShortRestStateVectors.Run(t);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
             HeldPoseMirrorVectors.Run(t, repoRoot);

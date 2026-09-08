@@ -2965,15 +2965,18 @@ internal static class GoldenVectors
         // WITH the mask — and the second assertion states the half that must never move.
         t.Equal((byte)(NetProtocol.UseSlotOfferedBit
                        | NetProtocol.UseSlotHoveredBit
-                       | NetProtocol.UseSlotPressedBit),
+                       | NetProtocol.UseSlotPressedBit
+                       | NetProtocol.UseSlotMandatoryBit),
                 wub.UseBarSlotStates![0],
                 "every slot bit this build DEFINES survives the mask");
         t.Equal((byte)(NetProtocol.UseSlotDimmedBit
                        | NetProtocol.UseSlotHoveredBit
-                       | NetProtocol.UseSlotPressedBit),
+                       | NetProtocol.UseSlotPressedBit
+                       | NetProtocol.UseSlotMandatoryBit),
                 wub.UseBarSlotStates[1], "on every slot, not just the first");
-        t.Equal(0, (byte)(wub.UseBarSlotStates[0] & 0xE0),
-                "and every UNDEFINED slot bit (5..7) is still masked away");
+        // Build 484 assigns bit 5 to the native mandatory highlight; only 6..7 remain reserved.
+        t.Equal(0, (byte)(wub.UseBarSlotStates[0] & 0xC0),
+                "and every UNDEFINED slot bit (6..7) is still masked away");
 
         // A LYING COUNT can neither overrun the record nor bleed into the next one: n is re-clamped
         // against what is LEFT INSIDE the record, and the record behind it still reads.
