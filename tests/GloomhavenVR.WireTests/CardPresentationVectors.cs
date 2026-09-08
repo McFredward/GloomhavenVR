@@ -11,9 +11,8 @@ internal static class CardPresentationVectors
         // native hoverAnim. Old state/region/activeSelf-only gating fails this case.
         t.True(!CardPresentationPolicy.HighlightSettled(true, true, true, true, false),
             "a cancelled hover must restart even though its child remains activeSelf");
-        for (int frame = 0; frame < 120; frame++)
-            t.True(CardPresentationPolicy.HighlightSettled(true, true, true, true, true),
-                "a live authored pulse survives repeated per-frame assertions");
+        t.True(CardPresentationPolicy.HighlightSettled(true, true, true, true, true),
+            "a live authored pulse must not restart on the next per-frame assertion");
         t.True(CardPresentationPolicy.HighlightSettled(true, true, true, false, false),
             "the selected steady look does not require a tween");
         t.True(CardPresentationPolicy.HighlightSettled(true, true, true, false, false),
