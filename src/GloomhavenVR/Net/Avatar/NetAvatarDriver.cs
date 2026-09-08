@@ -1059,6 +1059,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             return;
         }
 
+        // Drain at most one paced extras envelope per tick after the same online/VR/flat gates
+        // as ordinary sends. A completed snapshot is followed by the latest pending one; never
+        // enqueue every page in one frame, since Bolt drops an unreliable event after two failed
+        // packet-fit attempts. This runs before the rig cadence can return early.
+        if (_transport is FfsNetTransport ffs)
+            ffs.TickFragments(Time.unscaledTime);
+
         if (_sendGateState != 1)
         {
             _sendGateState = 1;
