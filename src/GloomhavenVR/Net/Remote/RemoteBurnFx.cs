@@ -312,6 +312,7 @@ internal sealed class RemoteBurnFx
         public int Id;
         public int ActorId;
         public int Recess;
+        public int FlushedToActorId;
 
         /// <summary>The card this token was minted for — carried so the expiry line can NAME the
         /// burn whose event never arrived, which is the only thing that turns "the leak is
@@ -484,7 +485,10 @@ internal sealed class RemoteBurnFx
         for (int i = 0; i < _claimTokens.Count; i++)
         {
             Claim claim = _claimTokens[i];
-            if (claim.ActorId != actorId || (recess >= 0 && claim.Recess != recess))
+            bool ownsActor = claim.ActorId == actorId
+                             || (claim.FlushedToActorId == actorId
+                                 && Time.unscaledTime - claim.ReleasedAt <= ReleaseMemorySeconds);
+            if (!ownsActor || (recess >= 0 && claim.Recess != recess))
                 continue;
             // An unnamed Board origin cannot distinguish two burns. Keep the event pending
             // instead of releasing whichever unrelated token happened to be oldest.
@@ -637,10 +641,18 @@ internal sealed class RemoteBurnFx
             {
                 Burn b = _burns[i];
                 if (b.Active && !b.HandoverLogged)
+                {
+                    // The owner launches the old hand's pending burn before adopting the new
+                    // hand, but the same extras packet can already name the new focus. Preserve
+                    // this explicit transition on its claim so that release is swallowed once.
+                    for (int c = 0; c < _claimTokens.Count; c++)
+                        if (_claimTokens[c].Id == b.ClaimId)
+                            _claimTokens[c].FlushedToActorId = actorId;
                     Handover(b, "the OWNER's presented character changed, which flushes his own "
                                 + "pending burn holds (CardsDriver.FlushBurnHolds) — this mirror "
                                 + "flushes on the same edge, read locally off his focus record, so "
                                 + "his card and this one leave on the same frame");
+                }
             }
             _watchActor = actorId;
             _seeded = false;
