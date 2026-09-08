@@ -72,6 +72,21 @@ internal sealed class RemoteAvatar
     /// <summary>Owner's explicit short-rest window (record 46), reset on every extras packet.</summary>
     internal bool ShortRestInProgress { get; private set; }
     internal UseBarWidgetState[]? UseBarWidgetStates { get; private set; }
+    internal UseBarAnimationState[]? AnimationStates { get; private set; }
+    internal float AnimationSampleTime { get; private set; } = -1f;
+    // Board structure can arrive after a short reveal's first pose. Keep a bounded owner
+    // timeline so constructing its original prefab does not silently start at the final pose.
+    internal System.Collections.Generic.List<UseBarAnimationSnapshot> AnimationHistory { get; } = new(32);
+
+    internal void SetUseBarAnimation(UseBarAnimationSnapshot snapshot)
+    {
+        if (snapshot.SampleTime <= AnimationSampleTime) return;
+        AnimationSampleTime = snapshot.SampleTime;
+        AnimationStates = snapshot.States;
+        if (AnimationHistory.Count == 32) AnimationHistory.RemoveAt(0);
+        AnimationHistory.Add(snapshot);
+    }
+
     private bool _fxSeqInit;
 
     // Ghost hand (extras FlagExtrasGhostHand): when the sender fades the hand carrying their open

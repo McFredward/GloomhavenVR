@@ -361,7 +361,27 @@ internal sealed class UseBarsSurface
     /// rects and latches nothing that a second call could double-apply, so re-running it is
     /// idempotent; conversion/release and the waiting hint stay on the Update tick.
     /// </summary>
-    internal void LateTick() => StackDocked();
+    internal void LateTick()
+    {
+        StackDocked();
+        // Native LeanTween runs in Update. Sample its rendered targets here, after docking,
+        // then enqueue/drain the independent animation stream in this same late frame.
+        AnimationStateScratch.Clear();
+        if ((WireBarMask & Net.NetProtocol.UseBarActiveBonusBit) != 0)
+            for (int i = 0; i < AnimationSources.Length; i++)
+            {
+                UIUseActiveBonus? source = AnimationSources[i];
+                if (source == null || !source.gameObject.activeInHierarchy) continue;
+                Net.UseBarAnimationState? state = Net.UseBarAnimationSampler.Sample(source, (byte)i);
+                if (state != null) AnimationStateScratch.Add(state);
+            }
+        bool same = AnimationStateScratch.Count == (WireAnimationStates?.Length ?? 0);
+        for (int i = 0; same && i < AnimationStateScratch.Count; i++)
+            same = ReferenceEquals(AnimationStateScratch[i], WireAnimationStates![i]);
+        if (!same)
+            WireAnimationStates = AnimationStateScratch.Count == 0 ? null : AnimationStateScratch.ToArray();
+        Net.NetAvatarDriver.PublishUseBarAnimations(WireAnimationStates);
+    }
 
     internal void Shutdown()
     {
@@ -379,6 +399,9 @@ internal sealed class UseBarsSurface
         // longer has one (the same contract DecisionDockSurface's undock publish honours).
         WireWidgetStates = null;
         Net.UseBarWidgetSampler.Reset();
+        Net.UseBarAnimationSampler.Reset();
+        WireAnimationStates = null;
+        System.Array.Clear(AnimationSources, 0, AnimationSources.Length);
         SampleWire();
     }
 
@@ -675,6 +698,9 @@ internal sealed class UseBarsSurface
     /// <summary>Immutable owner appearance snapshot; reuse its arrays while the picture is unchanged.</summary>
     internal static Net.UseBarWidgetState[]? WireWidgetStates { get; private set; }
     private static readonly List<Net.UseBarWidgetState> WidgetStateScratch = new(8);
+    private static readonly UIUseActiveBonus?[] AnimationSources = new UIUseActiveBonus?[8];
+    private static readonly List<Net.UseBarAnimationState> AnimationStateScratch = new(8);
+    private static Net.UseBarAnimationState[]? WireAnimationStates;
 
     /// <summary>The mask/flags/counts/states last PUBLISHED — the change gate's memory, so a
     /// steady drawer costs one comparison and no log line.</summary>
@@ -720,6 +746,7 @@ internal sealed class UseBarsSurface
     /// </summary>
     private void SampleWire()
     {
+        System.Array.Clear(AnimationSources, 0, AnimationSources.Length);
         byte mask = 0;
         for (int i = 0; i < _docks.Length; i++)
         {
@@ -2151,6 +2178,7 @@ internal sealed class UseBarsSurface
                     ids[at + count] = Net.UseBarSlotSymbol.SlotId(barIndex, child);
                 if (barIndex == 0 && child.GetComponent<UIUseActiveBonus>() is UIUseActiveBonus bonus)
                 {
+                    AnimationSources[count] = bonus;
                     Net.UseBarWidgetState? widget = Net.UseBarWidgetSampler.Sample(bonus, (byte)count);
                     if (widget != null)
                         WidgetStateScratch.Add(widget);

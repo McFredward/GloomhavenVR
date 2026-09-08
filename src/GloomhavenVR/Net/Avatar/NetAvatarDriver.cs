@@ -51,6 +51,44 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private readonly byte[] _sendBuffer = new byte[Mathf.Max(AvatarSerializer.MaxSize, PresenceSerializer.MaxSize)];
     private float _sendAccumulator;
     private float _extrasAccumulator;
+    private readonly byte[] _animationBuffer = new byte[UseBarAnimationCodec.MaxSize];
+    private UseBarAnimationState[]? _lastSentAnimations;
+    private UseBarAnimationSnapshot? _lastAnimationSnapshot;
+    private float _nextAnimationRefresh;
+    private readonly Dictionary<int, List<UseBarAnimationSnapshot>> _pendingAnimations = new();
+
+    /// <summary>Called after the owner's native animation and dock placement in LateUpdate.</summary>
+    internal static void PublishUseBarAnimations(UseBarAnimationState[]? states)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver.isActiveAndEnabled) return;
+        try { driver.TickAnimationSend(states); }
+        catch (Exception e) { driver.LogPhaseError("TickAnimationSend", e); }
+    }
+
+    private void TickAnimationSend(UseBarAnimationState[]? states)
+    {
+        if (NetSession.FlatNetMode || !VRSession.IsRunning || !_transport.IsOnline
+            || _transport.LocalPlayerId <= 0) return;
+        float now = Time.unscaledTime;
+        bool changed = !ReferenceEquals(states, _lastSentAnimations);
+        if (changed || _lastAnimationSnapshot == null)
+        {
+            _lastAnimationSnapshot = new UseBarAnimationSnapshot(now,
+                states ?? Array.Empty<UseBarAnimationState>());
+            _lastSentAnimations = states;
+        }
+        // Repeat the final sample for loss recovery and late joiners, retaining its source time
+        // so a duplicate can never restart interpolation on the receiving original widget.
+        if (changed || now >= _nextAnimationRefresh)
+        {
+            int length = UseBarAnimationCodec.Write(_lastAnimationSnapshot, _animationBuffer);
+            _transport.Send(_animationBuffer, length);
+            _nextAnimationRefresh = now + 0.5f;
+        }
+        if (_transport is FfsNetTransport ffs) ffs.TickFragments(now);
+    }
+
 
     // Sticky last card-FX event (report 6): re-sent on every extras packet for redundancy on the
     // unreliable side-channel. The receiver de-dupes on the sequence byte, so repeats cost 2 bytes
@@ -832,6 +870,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         Unsubscribe();
         _pending.Clear();
         _pendingExtras.Clear();
+        _pendingAnimations.Clear();
+        _lastAnimationSnapshot = null;
+        _lastSentAnimations = null;
+        _nextAnimationRefresh = 0;
         _createRetryAt.Clear();
         _rxRejectLogged.Clear();   // a new session re-reports a peer it cannot parse
         _rxRejected = 0;
@@ -973,6 +1015,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 _flatApplied = true;
                 _pending.Clear();
                 _pendingExtras.Clear();
+                _pendingAnimations.Clear();
                 DestroyAllAvatars();
                 PlayerBadges.RestoreAll();
                 // The two world-wide peer tables go with the avatars: nothing of a peer's may
@@ -1058,13 +1101,6 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             _sendAccumulator = 0f;
             return;
         }
-
-        // Drain at most one paced extras envelope per tick after the same online/VR/flat gates
-        // as ordinary sends. A completed snapshot is followed by the latest pending one; never
-        // enqueue every page in one frame, since Bolt drops an unreliable event after two failed
-        // packet-fit attempts. This runs before the rig cadence can return early.
-        if (_transport is FfsNetTransport ffs)
-            ffs.TickFragments(Time.unscaledTime);
 
         if (_sendGateState != 1)
         {
@@ -3844,6 +3880,25 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 }
                 break;
 
+            case NetProtocol.MsgUseBarAnimation:
+                if (UseBarAnimationCodec.TryRead(buffer, length, out UseBarAnimationSnapshot? animation)
+                    && animation != null)
+                {
+                    parsed = true;
+                    VersionGuard.NotePacket(senderId);
+                    if (!_pendingAnimations.TryGetValue(senderId, out List<UseBarAnimationSnapshot>? samples))
+                    {
+                        if (_pendingAnimations.Count >= 8) break;
+                        samples = new List<UseBarAnimationSnapshot>(4);
+                        _pendingAnimations.Add(senderId, samples);
+                    }
+                    // Preserve the first rendered transition when Bolt delivers a batch after a
+                    // slow frame. Memory remains bounded; redundant middle samples may coalesce.
+                    if (samples.Count == 4) samples.RemoveAt(1);
+                    samples.Add(animation);
+                }
+                break;
+
             case NetProtocol.MsgExtras:
                 if (PresenceSerializer.TryRead(buffer, length, out PresenceState extras))
                 {
@@ -4051,6 +4106,18 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
             _pendingExtras.Clear();
+        }
+
+        foreach (KeyValuePair<int, List<UseBarAnimationSnapshot>> kv in _pendingAnimations)
+        {
+            if (kv.Value.Count == 0) continue;
+            try
+            {
+                RemoteAvatar? avatar = GetOrCreate(kv.Key);
+                if (avatar != null) avatar.SetUseBarAnimation(kv.Value[0]);
+                kv.Value.RemoveAt(0);
+            }
+            catch (Exception e) { LogPhaseError($"Apply animation packet from player {kv.Key}", e); }
         }
 
         ResolveEnvClock();
@@ -4326,6 +4393,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
         _pending.Remove(playerId);             // nothing queued for a peer we no longer hold
         _pendingExtras.Remove(playerId);
+        _pendingAnimations.Remove(playerId);
         _createRetryAt.Remove(playerId);       // a rejoin gets a fresh construction budget
         NetFigures.ReleaseRemote(playerId);    // drop any figure this peer was holding
         NetProps.ReleaseRemote(playerId);      // …and put any map item they carried back on its hex
@@ -4342,6 +4410,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
     private void DestroyAllAvatars()
     {
+        _pendingAnimations.Clear();
+        _lastAnimationSnapshot = null;
+        _lastSentAnimations = null;
+        _nextAnimationRefresh = 0;
         if (_transport is FfsNetTransport ffs)
             ffs.ResetFragments();
         // THE IDS FIRST, because ForgetPeer removes from _avatars and a dictionary cannot be

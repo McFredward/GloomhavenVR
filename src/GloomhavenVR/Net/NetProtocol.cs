@@ -455,7 +455,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 485;
+    public const ushort ModBuild = 486;
+    //
+    // ModBuild 486 — native active-bonus animation samples (2026-09-08).
+    //   The owner's original show-animation targets now publish their rendered intermediate
+    //   positions, scales and visual values after LeanTween Update and local dock placement.
+    //   The original remote prefab receives those values LAST, after mirror/layout/paint writes;
+    //   no gameplay animator, callback or viewer-owned size setting runs to reconstruct a tween.
+    //   Actor + existing record45 slot identity + original setting ordinal bind each sample.
+    //
+    //   Additive TLV49 lives in dedicated message3, with independent bounded message4 fragment
+    //   envelopes. Presence/record47 and GVR1/v3 remain unchanged. The cosmetic scheduler shares
+    //   a 50 ms event budget, preserves the first waiting animation sample and latest successor,
+    //   and gives presence a bounded turn. Atomic validation rejects partial or conflicting frames.
+    //   A bounded receiver history retains opening poses while the original widget awaits its
+    //   structure packet; interpolation uses owner sample times and never extrapolates a finish.
+    //   Repeated final samples recover loss without restarting the native motion.
+    //   DLL-only after the full 483 install. Headset timing/appearance still require hardware.
+
     // Build 485: REMOTE CHARACTER-CHANGE FAN ANIMATIONS, follow-up to the 482 hardware round.
     //   The logs distinguish two paths: host5224/5502/5607 and peer2350 are 10->10 MAP-ROOM
     //   exchanges, while host11005's 8->8 SCENARIO exchange already appears remotely at7213.
