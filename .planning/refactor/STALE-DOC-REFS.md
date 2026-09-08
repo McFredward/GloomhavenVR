@@ -33,14 +33,9 @@
 | `Net/Remote/RemoteBoardFurniture.cs` | 2214 | `renderedHeight` | /// scale — <c>TextMeshPro.renderedHeight</c> off a forced mesh update, i.e. what the |
 | `Net/Remote/RemoteBoardVisibility.cs` | 40 | `Off` | /// classes never learned about the mode (the FX class only ever checked <c>PeerBoardFade.Off</c>), so with |
 | `Net/Remote/RemoteItemFan.cs` | 1211 | `CollapseSeconds` | /// <c>CollapseSeconds</c> instead of blinking the fan out — the replay of |
-| `WorldUI/Buttons/SoftCueArt.cs` | 502 | `MaxAlpha` | /// <c>MinAlpha</c> and <c>MaxAlpha</c> while the frame scales by up to |
-| `WorldUI/Buttons/SoftCueArt.cs` | 502 | `MinAlpha` | /// <c>MinAlpha</c> and <see cref="MaxAlpha"/> while the frame scales by up to |
 | `WorldUI/Conversion/CanvasConversion.1.Core.cs` | 32 | `UiLockChanged` | /// mirrored here: <c>Core.VREvents.UiLockChanged</c> plus module-side soft locks |
-| `WorldUI/MapRoom/MapIconLayer.cs` | 1037 | `_bakeAsked` | /// <c>_bakeAsked</c> exists only so the per-frame cap is spent on FIRST asks.</para> |
-| `WorldUI/MapRoom/MapTravelConfirm.cs` | 2075 | `AppendRecommendation` | ///   <c>AppendRecommendation</c>. THIS IS A NUMBER TO TYPE IN, NEVER A POSE THAT IS |
 | `WorldUI/Materialise/WindowMaterialiseDebris.cs` | 143 | `Half` | /// <summary>Front half, then behind half. See <c>Half</c>.</summary> |
 | `WorldUI/Materialise/WindowMaterialiseField.cs` | 17 | `WindowMaterialiseDebris` | /// <c>WindowMaterialiseDebris</c> builds a shard mesh whose every vertex carries the |
-| `WorldUI/MrBacking.cs` | 251 | `Label(TMP_Text?, bool)` | /// (see <c>Label(TMP_Text?, bool)</c>) — the only labels whose plate follows that |
 | `WorldUI/Options/ConfigCatalog.cs` | 166 | `ResolveStep` | /// <see cref="Classify"/> — see <c>ResolveStep</c>: the step depends on the largest |
 | `WorldUI/Sharpness/PanelSupersample.1.Core.cs` | 421 | `MarkGeometryDirty` | /// instead, which is what <c>MarkGeometryDirty</c> is for. |
 | `WorldUI/Sharpness/PanelSupersample.1.Core.cs` | 745 | `CullPairsTruncated` | /// it bites, <c>Entry.CullPairsTruncated</c> says so and every count below it is a LOWER |
@@ -49,8 +44,6 @@
 | `WorldUI/Sharpness/PanelSupersample.2.Capture.cs` | 2162 | `ScanTmpMesh` | /// the only ones that can see the photograph's fault (see <c>ScanTmpMesh</c>).</item> |
 | `WorldUI/Sharpness/PanelSupersample.4.Content.cs` | 137 | `RepairSubMeshCull` | /// larger one, is the TMP sub-mesh cull latch — see <c>RepairSubMeshCull</c>.)</para> |
 | `WorldUI/Sharpness/PanelSupersample.4.Content.cs` | 1892 | `ReportSubMeshCull` | /// is complete. Every one of those numbers is printed (<c>ReportSubMeshCull</c>'s |
-| `WorldUI/Surfaces/TablePanelSurfaces.cs` | 556 | `Place` | /// rect is re-sized and the content re-centred inside it mid-hover. <c>Place</c> then |
-| `WorldUI/Surfaces/TablePanelSurfaces.cs` | 569 | `Place` | /// rest of the time. Between those windows the host rect is LATCHED, so <c>Place</c> |
-| `WorldUI/WorldUIConfig.cs` | 330 | `Panels` | /// (Panels ▸ Shared — <c>[WorldUI]</c> maps to <c>ConfigTopic.Panels</c> and the group is |
 
-35 references (the `HandSuppressionPatches.cs` row was cleared 2026-09-08: the symbol is `VREvents.HandShown`, the sentence was true, only the qualification was wrong).
+27 references (the count is the table below; the 2026-09 refactor cleared nine — one in
+`HandSuppressionPatches.cs` from lane cards, eight WorldUI rows from lane worldui-front).

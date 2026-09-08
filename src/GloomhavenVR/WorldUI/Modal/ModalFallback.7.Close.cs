@@ -1398,24 +1398,6 @@ internal static partial class ModalFallback
         return false;
     }
 
-    /// <summary>
-    /// Is this window the multiplayer ready-up toggle — the "Quest wählen" confirm? Asked as an IS-A
-    /// question on the window's own GameObject, which <c>UIReadyToggle</c>'s
-    /// <c>[RequireComponent(typeof(Toggle), typeof(UIWindow))]</c> makes exact rather than merely
-    /// likely (decompiled UIReadyToggle.cs:18-19). Read by <c>MapTravelConfirm</c>, which parks it
-    /// into the quest window so the group has ONE panel, ONE grab bar and ONE close affordance.
-    /// </summary>
-    internal static bool IsMultiplayerReadyToggle(UIWindow? window) =>
-        window != null && window.GetComponent<UIReadyToggle>() != null;
-
-    /// <summary>Is this window the map's SELECTED-quest popup — the card the confirm belongs on?
-    /// Same IS-A form; <c>UIQuestPopup</c> is <c>[RequireComponent(typeof(UIWindow))]</c>
-    /// (decompiled UIQuestPopup.cs:16). Note this is NOT the hover preview
-    /// (<c>UIQuestPreviewPopup</c>), which is a different component on a different GameObject and is
-    /// handled as a hover card.</summary>
-    internal static bool IsQuestCardWindow(UIWindow? window) =>
-        window != null && window.GetComponent<UIQuestPopup>() != null;
-
     /// <summary>Is this window a floated world-space host RIGHT NOW — converted, panel alive, and
     /// not already on its way out under the player's close? See
     /// <see cref="RendersInsideFloatedAncestor"/> for why "open" is not good enough.</summary>
@@ -1665,6 +1647,62 @@ internal static partial class ModalFallback
             n++;
         }
         return n;
+    }
+
+    /// <summary>Scratch for <see cref="FindFloatedWindow"/>. Static and reused: the float set is
+    /// never longer than a handful and the lookup is asked on a per-tick reader path, so an
+    /// allocation there would be one per frame per caller. Cleared on entry AND on exit, and the
+    /// walk it feeds is non-re-entrant by construction (every caller runs inside the module's own
+    /// single-threaded tick).</summary>
+    private static readonly List<UIWindow> IdLookupScratch = new(8);
+
+    /// <summary>
+    /// THE FLOATED WINDOW WHOSE OWN SERIALIZED <c>ID</c> IS <paramref name="id"/>, or null when the
+    /// mod is not floating one.
+    ///
+    /// <para><b>WHY IDENTITY IS "the ID, over the float set" AND NOT A COMPONENT WALK.</b> The
+    /// argument is <c>LoadoutConfirmPark.CharacterWindow</c>'s, which is where this lookup was
+    /// written and where it is stated at length: there are TWO <c>UIWindow</c> components one level
+    /// apart in the map room's character-UI hierarchy, and no <c>GetComponentInParent</c> /
+    /// <c>GetComponentInChildren</c> test can tell them apart ([[containment-is-not-identity]], for
+    /// the third time in this project). The ID is what the rest of the mod identifies these windows
+    /// by, and restricting the search to the FLOAT SET is what makes the answer a window that HAS a
+    /// host rect and a grab frame to be used — a window the mod is not floating is not an answer to
+    /// any question a caller of this asks.</para>
+    ///
+    /// <para><b>NULL IS A CORRECT ANSWER, NOT A DEGRADED ONE</b>, and every caller's next test says
+    /// so in its own words. A reader that throws must not take its caller's tick down either, so
+    /// the walk is guarded and a throw also reads as "not floated".</para>
+    ///
+    /// <para>Extracted in the 2026-09 refactor (REVIEW-worldui-front.md F4) from two byte-identical
+    /// copies — <c>LoadoutConfirmPark.CharacterWindow</c> and <c>StoryComposite.CharacterWindow</c>,
+    /// which diffed to zero after normalisation. The composites keep their own named wrappers,
+    /// because "the character UI" is the thing they mean and <c>UIWindowID.PartyPanel</c> is only
+    /// how it is spelled.</para>
+    /// </summary>
+    internal static UIWindow? FindFloatedWindow(UIWindowID id)
+    {
+        IdLookupScratch.Clear();
+        try
+        {
+            CollectFloatedWindows(IdLookupScratch, null);
+            for (int i = 0; i < IdLookupScratch.Count; i++)
+            {
+                UIWindow w = IdLookupScratch[i];
+                if (w != null && w.ID == id)
+                    return w;
+            }
+        }
+        catch (Exception)
+        {
+            // A reader that throws must not stand the caller's whole tick down; null reads as
+            // "not floated", which is the same answer an empty float set gives.
+        }
+        finally
+        {
+            IdLookupScratch.Clear();
+        }
+        return null;
     }
 
     /// <summary>

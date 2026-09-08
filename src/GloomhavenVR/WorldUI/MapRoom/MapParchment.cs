@@ -60,9 +60,6 @@ internal sealed class MapParchment
     /// <summary>The live parchment renderer while one is acquired, else null.</summary>
     internal MeshRenderer? Renderer => _renderer != null ? _renderer : null;
 
-    /// <summary>The active map GameObject the renderer was found under (world or city map).</summary>
-    internal GameObject? MapGo => _mapGo != null ? _mapGo : null;
-
     /// <summary>True when the acquired map is the CITY map rather than the world map.</summary>
     internal bool IsCity => _isCity;
 

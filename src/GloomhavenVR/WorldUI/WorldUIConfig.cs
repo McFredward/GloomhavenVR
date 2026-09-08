@@ -328,19 +328,22 @@ internal static class WorldUIConfig
     /// es nicht bei jedem nah steht. Ich möchte aber, das die Fenster zentral ÜBER dem Tisch mittig
     /// spawnen dort in einem halbkreis."
     ///
-    /// <para>Read ONCE per shared window, at its spawn placement, by
-    /// <c>ModalFallback.TrySharedAnchorOnTable</c> — this is the initial spawn pose and nothing
-    /// else, so turning the dial moves the NEXT window that opens and never one that is standing
-    /// (and never one anybody has grabbed). It is a pure constant of the shared parchment frame, so
-    /// two clients with the same value compute the same frame-local pose to the millimetre; two
-    /// clients with DIFFERENT values do not, which is the one way this entry can break 1:1 and the
-    /// reason the falsifier line prints the number it used.</para>
+    /// <para><b>BOUND BUT INERT since ModBuild 480</b> (<c>b27bbb9e</c>, review R2 F8). The ring's
+    /// radius is <c>Defaults.SharedWindowArcRadiusMeters</c>, read by
+    /// <c>ArcSeats.TrySharedAnchorOnTable</c> as a shipped constant; this entry has no consumer
+    /// beyond the spawn line, which prints the dialled value beside the constant whenever they
+    /// differ. It used to be read once per shared window at its spawn placement — and that read was
+    /// the one term that let two differently-tuned clients seat the same blue window at two depths
+    /// for a whole session, because record 21 publishes a pose only after somebody has dragged the
+    /// window. A shared window's pose may not be a function of anything client-local (the standing
+    /// ruling), so the dial stays bound (it is a player's persisted value) and stops being read.
+    /// If the ring has to grow, the constant moves, on every client at once.</para>
     ///
     /// <para>The default 0.80 m is the parchment's own circumradius (0.768 m on the surveyed
     /// 0.96 x 1.20 m map) rounded up: at or above it no point of the ring can stand over the map,
     /// so no shared window can hide the thing the player is clicking. Below it, wide windows are
     /// pushed off the arc by the map-occlusion floor instead. Live-tunable in the debug menu
-    /// (Panels ▸ Shared — <c>[WorldUI]</c> maps to <c>ConfigTopic.Panels</c> and the group is
+    /// (Panels ▸ Shared — <c>[WorldUI]</c> maps to <see cref="ConfigCatalog.ConfigTopic.Panels"/> and the group is
     /// the key's own leading word).</para>
     /// </summary>
     internal static ConfigEntry<float> SharedWindowArcRadiusMeters = null!;
@@ -825,10 +828,15 @@ internal static class WorldUIConfig
                 "default 0.80 m is the smallest radius at which no part of the ring can stand over " +
                 "the map at all. THIS IS THE INITIAL SPAWN POSITION ONLY: every shared window " +
                 "stays freely movable and fully synchronised, and a window that is already " +
-                "standing does not move when this changes. MULTIPLAYER: this value is part of the " +
-                "shared placement, so all players in a session should leave it at the same number " +
-                "— a different value on one client seats that client's copy somewhere else until " +
-                "somebody drags it. Range 0.3-2.",
+                "standing does not move when this changes. MULTIPLAYER — READ THIS BEFORE YOU " +
+                "TYPE A NUMBER: as of ModBuild 480 this dial is BOUND BUT INERT. The ring's radius " +
+                "is the shipped 0.80 m on every client, and the value here is ignored. It used to " +
+                "be honoured, with the advice that everyone in a session should agree on one " +
+                "number — but a shared window's pose may not be a function of anything " +
+                "client-local, and 'everyone please type the same thing' is not a rule a build can " +
+                "keep. The SHARED WINDOW ANCHOR line in the log names this dial and the value it " +
+                "ignored whenever it differs from the constant. Drag the window: that MOVE is " +
+                "synchronised and is how a group changes where it stands. Range 0.3-2.",
                 new AcceptableValueRange<float>(0.3f, 2f)));
         MapRoomWindowBarHeightMeters = _file.Bind("WorldUI", "MapRoomWindowBarHeightMeters",
             Defaults.MapRoomWindowBarHeightMeters,
@@ -844,10 +852,12 @@ internal static class WorldUIConfig
                 "the table. The default 0.60 m is the average of the two grab-bar heights in your " +
                 "own 'ideal position' screenshot, measured from the placement log. THIS IS THE " +
                 "INITIAL SPAWN HEIGHT ONLY: every window stays freely movable, and a window that " +
-                "is already standing does not move when this changes. MULTIPLAYER: this value is " +
-                "part of the shared placement, so all players in a session should leave it at the " +
-                "same number — a different value on one client hangs that client's copy of a " +
-                "shared window at a different height until somebody drags it. Range 0.05-1.2.",
+                "is already standing does not move when this changes. MULTIPLAYER: as of ModBuild " +
+                "480 this dial moves YOUR OWN map-room windows only. A shared (blue-barred) window " +
+                "hangs at the shipped 0.60 m on every client, whatever is typed here — a shared " +
+                "window's pose may not be a function of anything client-local — and the MAP ROOM " +
+                "WINDOW BAR HEIGHT line names this dial and the value it ignored whenever the two " +
+                "differ. Range 0.05-1.2.",
                 new AcceptableValueRange<float>(0.05f, 1.2f)));
         ScenarioWindowBoardClearanceMeters = _file.Bind("WorldUI",
             "ScenarioWindowBoardClearanceMeters",

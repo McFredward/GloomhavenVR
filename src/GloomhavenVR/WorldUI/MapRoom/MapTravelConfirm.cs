@@ -2603,11 +2603,13 @@ internal static class MapTravelConfirm
     ///   only the absolute pose, so a turn could be confirmed but not measured, and the user had no
     ///   way to tell a dial that moved the button 9 mm from a dial that did nothing at all.</item>
     ///   <item>"Where would I have to set them to get what I asked for?" — see
-    ///   <c>AppendRecommendation</c>. THIS IS A NUMBER TO TYPE IN, NEVER A POSE THAT IS
-    ///   APPLIED: three solved placements were rejected in a row (191/192/193) and the ruling is that
-    ///   he does the moving. Printing the arithmetic is the opposite of taking it over — it hands him
-    ///   the measurement he cannot take from inside the headset and leaves the decision where it
-    ///   belongs.</item>
+    ///   <see cref="ZeroCheck"/>. Through ModBuild 196 that answer was a RECOMMENDATION, a number to
+    ///   type in and NEVER A POSE THAT IS APPLIED: three solved placements were rejected in a row
+    ///   (191/192/193) and the ruling is that he does the moving. Since 197 the two numbers he
+    ///   used to type in ARE the zero, so the same arithmetic prints as a residual that must read
+    ///   (0.000, 0.000) at any dial setting. Printing the arithmetic is the opposite of taking it
+    ///   over — it hands him the measurement he cannot take from inside the headset and leaves the
+    ///   decision where it belongs.</item>
     /// </list>
     /// </summary>
     private static void LogPlacement(UIWindow host, GameObject options, AdventureMapUIManager? mgr,

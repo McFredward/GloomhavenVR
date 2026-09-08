@@ -154,9 +154,6 @@ internal struct KeycapPressGate
     /// <summary>Log material: is this cap ready to fire on the next bottom-out?</summary>
     internal bool Armed => !_awaitingRetract;
 
-    /// <summary>Log material: seconds of cooldown left, 0 when the cap is free to commit.</summary>
-    internal float CooldownLeft => Mathf.Max(0f, _nextPressAt - Time.unscaledTime);
-
     /// <summary>
     /// Step the hysteresis with this frame's normalised travel and answer whether the fingertip is
     /// AT the fire depth. Returning true is not a press — it is "the gesture happened"; the caller

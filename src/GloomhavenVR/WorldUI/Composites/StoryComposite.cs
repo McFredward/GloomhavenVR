@@ -787,21 +787,12 @@ internal static class StoryComposite
     private static readonly List<int> MovedIndex = new(8);
 
     /// <summary>Every transform in the moved subtree whose LAYER this class overwrote, and the layer
-    /// the game had given it. Restored on the hand-back, and only where the transform is still on the
-    /// layer we wrote — the same guard <c>PanelSupersample.RestoreLayers</c> uses, for its reason: a
-    /// transform somebody else has since re-layered is no longer ours to hand back.</summary>
-    private static readonly List<Transform> LayerTx = new(64);
-    private static readonly List<int> LayerWas = new(64);
-
-    /// <summary>The layer this class last wrote over the moved subtree, or -1. Re-asserted only when
-    /// the HOST's own layer changes (the supersample path moves a panel's layers onto a capture layer
-    /// and back), never per tick.</summary>
-    private static int _layerWritten = -1;
-
-    /// <summary>How many whole subtrees the layer write SKIPPED because their root carries a real
-    /// <c>Renderer</c> — <c>CanvasConversion.ApplyModLayer</c>'s rule, for its reason: foreign 3D is
-    /// owned by another camera and must be skipped WHOLE, not descended into.</summary>
-    private static int _layerSkipped;
+    /// the game had given it — the shared record (<see cref="MovedSubtreeLayers"/>), which carries
+    /// the walk, the restore guard (only where the transform is STILL on the layer we wrote) and the
+    /// skip count the report lines below print. <c>Written</c> is the layer last written, or −1;
+    /// this class re-asserts only when the HOST's own layer changes (the supersample path moves a
+    /// panel's layers onto a capture layer and back), never per tick.</summary>
+    private static readonly MovedSubtreeLayers Layers = new(64);
 
     private static bool _composeLogged;
 
@@ -1944,30 +1935,12 @@ internal static class StoryComposite
     /// be moved by. Null while it is not floated is the CORRECT answer, and the handover's own
     /// refusal line says what that means.</para>
     /// </summary>
-    private static UIWindow? CharacterWindow()
-    {
-        FloatScratch.Clear();
-        try
-        {
-            ModalFallback.CollectFloatedWindows(FloatScratch, null);
-            for (int i = 0; i < FloatScratch.Count; i++)
-            {
-                UIWindow w = FloatScratch[i];
-                if (w != null && w.ID == UIWindowID.PartyPanel)
-                    return w;
-            }
-        }
-        catch (System.Exception)
-        {
-            // A reader that throws must not take the withdrawal edge down with it; null reads as
-            // "not floated" and the handover reports that in its own words.
-        }
-        finally
-        {
-            FloatScratch.Clear();
-        }
-        return null;
-    }
+    /// <para>THE LOOKUP IS SHARED with <c>LoadoutConfirmPark.CharacterWindow</c> since the 2026-09
+    /// refactor (<see cref="ModalFallback.FindFloatedWindow"/>): the two were the same twenty-two
+    /// lines, guard and scratch list included. The named wrapper stays because the sentences above
+    /// are about the character UI, not about a <c>UIWindowID</c> value.</para>
+    private static UIWindow? CharacterWindow() =>
+        ModalFallback.FindFloatedWindow(UIWindowID.PartyPanel);
 
     /// <summary>
     /// THE ONE LINE A TESTER CAN GREP THAT IS TRUE ONLY IF THE BACKGROUND WINDOW IS ACTUALLY GONE.
@@ -2423,7 +2396,7 @@ internal static class StoryComposite
             + $"child object(s) of the story window, rect {size.x:F0}x{size.y:F0} px at anchored "
             + $"({at.x:F0},{at.y:F0}) in the host's own authored px, activeInHierarchy={active}, "
             + $"parented to the host={underHost}, layer {dockLayer} against the host root's own layer "
-            + $"{hostLayer} ({_layerWritten} written over {LayerTx.Count} transform(s), {_layerSkipped} "
+            + $"{hostLayer} ({Layers.Written} written over {Layers.Count} transform(s), {Layers.Skipped} "
             + $"foreign render subtree(s) skipped whole); the quest illustration stays where the game "
             + $"put it: '{(_picture != null ? _picture.name : "<none>")}' sprite "
             + $"'{_parkedSprite}'; the mod is floating {total} window(s) in total (the map room's "
@@ -4175,7 +4148,7 @@ internal static class StoryComposite
         // LayersDrifted). Both are a handful of events per window, not per tick, and a per-tick
         // subtree sweep is exactly the cost this project has had to take back out of a frame before.
         int hostLayer = loadout.gameObject.layer;
-        if (_layerWritten != hostLayer || LayersDrifted(hostLayer))
+        if (Layers.Written != hostLayer || LayersDrifted(hostLayer))
             WriteLayers(hostLayer);
         ApplyPose(hostRect);
     }
@@ -4305,15 +4278,13 @@ internal static class StoryComposite
     {
         if (_dock == null)
             return;
-        RestoreLayers();
-        _layerWritten = layer;
-        _layerSkipped = 0;
+        Layers.Begin(layer);
         _dock.gameObject.layer = layer;
         for (int i = 0; i < Moved.Count; i++)
         {
             Transform? m = Moved[i];
             if (m != null)
-                WriteLayerWalk(m, layer);
+                Layers.Walk(m);
         }
     }
 
@@ -4347,41 +4318,6 @@ internal static class StoryComposite
                 return m.gameObject.layer != layer;
         }
         return false;
-    }
-
-    private static void WriteLayerWalk(Transform t, int layer)
-    {
-        if (t.GetComponent<Renderer>() != null)
-        {
-            _layerSkipped++;
-            return;   // and NOT its children either — that is the whole point
-        }
-        if (t.gameObject.layer != layer)
-        {
-            LayerTx.Add(t);
-            LayerWas.Add(t.gameObject.layer);
-            t.gameObject.layer = layer;
-        }
-        for (int i = t.childCount - 1; i >= 0; i--)
-            WriteLayerWalk(t.GetChild(i), layer);
-    }
-
-    /// <summary>Hand every layer this class wrote back to the value the GAME had there — and only
-    /// where the transform is STILL on the layer we wrote. That guard is
-    /// <c>PanelSupersample.RestoreLayers</c>'s, for its reason: a transform somebody else has since
-    /// re-layered is no longer ours to hand back, and writing our stale value would strand it on a
-    /// layer no camera renders.</summary>
-    private static void RestoreLayers()
-    {
-        for (int i = 0; i < LayerTx.Count; i++)
-        {
-            Transform? t = LayerTx[i];
-            if (t != null && t.gameObject.layer == _layerWritten)
-                t.gameObject.layer = LayerWas[i];
-        }
-        LayerTx.Clear();
-        LayerWas.Clear();
-        _layerWritten = -1;
     }
 
     /// <summary>
@@ -4522,6 +4458,15 @@ internal static class StoryComposite
     /// deliberately conservative (active, enabled, not culled, not transparent, non-degenerate) and
     /// the <paramref name="counted"/> figure is reported, so a caller can see how much it was
     /// working from.</para>
+    ///
+    /// <para><b>FOUR SWEEPS OF THIS SHAPE EXIST AND THEY ARE DELIBERATELY NOT ONE</b> (refactor
+    /// 2026-09, REVIEW-worldui-front.md F6): this one, <c>LoadoutConfirmPark.TryPaintedBounds</c>
+    /// (a null-tolerant subtree EXCLUDE), <c>LoadoutConfirmPark.TryFreeLane</c>'s lane sweep
+    /// (per-graphic extents, clipped to the uGUI clippers) and
+    /// <c>EnchantressComposite.TryPaintedBounds</c> (the PLATE test and the leftmost-ink
+    /// attribution). Each difference is a recorded hardware fix, and the parts that were genuinely
+    /// identical — the moved-subtree layer record and the floated-window lookup — are the ones that
+    /// were shared instead.</para>
     /// </summary>
     private static bool TryPaintedBounds(RectTransform root, RectTransform win,
                                          ConvertedPanel? panel, out Rect local, out int counted)
@@ -4605,9 +4550,7 @@ internal static class StoryComposite
             _picture = null;
             Moved.Clear();
             MovedIndex.Clear();
-            LayerTx.Clear();
-            LayerWas.Clear();
-            _layerWritten = -1;
+            Layers.Forget();
             _slotValid = false;
             return;
         }
@@ -4624,7 +4567,7 @@ internal static class StoryComposite
         try
         {
             // THE LAYERS GO BACK FIRST, while the transforms are still reachable and still ours.
-            RestoreLayers();
+            Layers.Restore();
 
             Transform? home = source != null ? source.transform : null;
             if (home != null)
@@ -4730,7 +4673,7 @@ internal static class StoryComposite
                           + $"from {_slotCount} drawn graphic(s) and is re-solved only when the host or "
                           + "the picture changes size; see STORY COMPOSITE GAP for the millimetres. "
                           + $"LAYER: the whole moved subtree was written onto the host root's own layer "
-                          + $"{_layerWritten} over {LayerTx.Count} transform(s), {_layerSkipped} foreign "
+                          + $"{Layers.Written} over {Layers.Count} transform(s), {Layers.Skipped} foreign "
                           + "render subtree(s) skipped whole, because per-window capture cameras cull BY "
                           + $"LAYER. SHARED: {shared} (kind {kind}) — ModBuild 237 MOVES the MapStory "
                           + "kind onto this host for the life of the composite, so this panel wears the "
@@ -4841,10 +4784,7 @@ internal static class StoryComposite
         _contReports = 0;
         Moved.Clear();
         MovedIndex.Clear();
-        LayerTx.Clear();
-        LayerWas.Clear();
-        _layerWritten = -1;
-        _layerSkipped = 0;
+        Layers.Reset();
         // ModBuild 234 — AND THE CURTAIN MUST DIE WITH THE MODULE FOR THE SAME REASON THE LOADOUT
         // CLAIM MUST: a standing refusal that outlived this class would hold a set of windows out of
         // the float set with nobody left to lapse it. CloseCurtain is called through CloseGate above

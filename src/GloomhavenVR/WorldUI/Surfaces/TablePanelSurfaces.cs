@@ -582,7 +582,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <see cref="CanvasConversion.FitHostToContent"/> measures the union of the VISIBLE GRAPHICS
     /// under it. A hover therefore changes the measured union, the union change exceeds the fit's
     /// 2 % dirty threshold, and GROWTH deliberately fast-paths past the churn damping — so the host
-    /// rect is re-sized and the content re-centred inside it mid-hover. <c>Place</c> then
+    /// rect is re-sized and the content re-centred inside it mid-hover. <see cref="TrayMountedPanelSurface.Place"/> then
     /// derives the panel pose from that very rect (<c>offset = grow · rect · metersPerPx / 2</c>,
     /// with <see cref="GrowDirection"/> = up for this panel), so the whole row steps up/down. On
     /// hover-out it steps back — but only after the shrink damping's stability window, which is why
@@ -595,7 +595,7 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
     /// <see cref="ConvertedPanel.FitEnabled"/> is a surface-side policy here: it is armed only for a
     /// short settle window after something that genuinely changes what the row CONTAINS — a
     /// different set of entries, a finished reorder slide, or the first conversion — and is off the
-    /// rest of the time. Between those windows the host rect is LATCHED, so <c>Place</c>
+    /// rest of the time. Between those windows the host rect is LATCHED, so <see cref="TrayMountedPanelSurface.Place"/>
     /// reproduces the identical pose every frame no matter what the pointer does to a portrait.
     ///
     /// ─── ROUND 2 (hardware 2026-08-08): "Beim DRÜCKEN auf ein Bild … rücken die Bilder minimal

@@ -493,9 +493,6 @@ internal sealed class MapButtonRail
     /// <summary>Reused by the order line so a rail build allocates one string, not nine.</summary>
     private static readonly System.Text.StringBuilder OrderSb = new(256);
 
-    /// <summary>Caps currently standing (log material).</summary>
-    internal int CapCount => _caps.Count;
-
     /// <summary>
     /// Per-frame upkeep while the map room stands. Builds the rail once the HUD exists, samples
     /// every cap's live look off the game's own graphics, and runs the laser hover/press.

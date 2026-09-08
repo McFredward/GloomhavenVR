@@ -8,9 +8,13 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 // THE DIGITS IN THESE FILENAMES ARE THE SPLIT — do not rename them (rule and
-// reasoning: FlatScreen.1.Core.cs). The nine parts concatenate back into the
-// original member order — including the two NESTED types (DecisionDock in part 2,
-// WindowPanel in part 3), which are ordered the same way.
+// reasoning: FlatScreen.1.Core.cs). The numbered parts (1-13 at the time of writing)
+// concatenate back into the original member order — including the two NESTED types
+// (DecisionDock in part 2, WindowPanel in part 3), which are ordered the same way. The
+// un-numbered parts that came later (ArcSeats.cs, AssignmentWindows.cs,
+// MandatoryDecision.cs, SharedQuestCornerSeat.cs) hold only static members whose
+// initialisers are literals, so their compile position is inert (check-partial-order
+// verifies that on every build).
 //
 // Tick() is in part 4 and stays WHOLE. It is a numbered step sequence and the
 // registry cites its steps by name ("step 5b"); its statement order is

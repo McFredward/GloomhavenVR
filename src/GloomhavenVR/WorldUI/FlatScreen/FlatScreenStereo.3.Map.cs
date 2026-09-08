@@ -142,7 +142,11 @@ internal sealed partial class FlatScreenStereo
     /// </summary>
     private void TickNonBlackMapDetect(int maxChannel)
     {
-        global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
+        // Through the shared cache (MapChoreographerCached), like every other NON-DIAGNOSTIC reader
+        // here. This path already ran only on the black probe's 30-frame cadence, so the sweep it
+        // used to make was never the per-frame one — routing it costs nothing and makes "how often
+        // is this scene swept" one number instead of three.
+        global::MapChoreographer? choreo = MapChoreographerCached();
         GameObject? world = choreo != null ? choreo.worldMap : null;
         GameObject? city = choreo != null ? choreo.cityMap : null;
         GameObject? shown = world != null && world.activeInHierarchy ? world
@@ -200,18 +204,11 @@ internal sealed partial class FlatScreenStereo
         // unconditional now.
         if (_mapBaseCapture || MapRoomOwnsParchment || mapSource == null || _leftRt == null || _introGuard)
             return;
-        if (_fastMapChoreo == null)
-        {
-            if (_fastMapFindFrame != int.MinValue
-                && Time.frameCount - _fastMapFindFrame < FastMapFindIntervalFrames)
-                return;
-            _fastMapFindFrame = Time.frameCount;
-            _fastMapChoreo = Object.FindObjectOfType<global::MapChoreographer>();
-            if (_fastMapChoreo == null)
-                return;
-        }
-        GameObject? world = _fastMapChoreo.worldMap;
-        GameObject? city = _fastMapChoreo.cityMap;
+        global::MapChoreographer? choreo = MapChoreographerCached();
+        if (choreo == null)
+            return;
+        GameObject? world = choreo.worldMap;
+        GameObject? city = choreo.cityMap;
         GameObject? shown = world != null && world.activeInHierarchy ? world
                           : city != null && city.activeInHierarchy ? city : null;
         if (shown == null)
@@ -974,6 +971,41 @@ internal sealed partial class FlatScreenStereo
     }
 
     /// <summary>
+    /// THE SCENE'S <c>MapChoreographer</c>, THROUGH THE CACHE THE FAST-ENGAGE PATH ALREADY KEEPS.
+    ///
+    /// <para><b>WHY THIS EXISTS (refactor 2026-09, REVIEW-worldui-front.md T1).</b>
+    /// <see cref="DetectActiveMap"/> opened with a bare
+    /// <c>Object.FindObjectOfType&lt;MapChoreographer&gt;()</c>, and its caller chain reaches it EVERY
+    /// FRAME while the flat map path is engaged: <c>EndStackSync</c> → <c>EnsureAlbedoReady</c> →
+    /// here. So opening the campaign map with <c>[Rig] Vanilla2DMap</c> on paid one full-scene
+    /// type sweep per frame for as long as the map was up — the defect class this project has now
+    /// paid for three times ([[findobjectsoftype-is-the-default-suspect]],
+    /// [[one-line-owned-the-frame]]).</para>
+    ///
+    /// <para><b>THE CACHE IS NOT NEW AND NEITHER IS ITS INVALIDATION.</b>
+    /// <see cref="TickFastMapEngage"/> has kept <see cref="_fastMapChoreo"/> since the fast-engage
+    /// round, with the throttled re-find this method now shares and with the scene-exit null in
+    /// <c>ReleaseAlbedo</c>. A destroyed choreographer is Unity fake-null, so the <c>== null</c>
+    /// test below re-arms the sweep by itself — which is exactly what the fast-engage path relies
+    /// on. The COLD path is therefore byte-for-byte what this method did before; only the warm
+    /// path changed, from a sweep to a field read.</para>
+    ///
+    /// <para>The throttle is deliberately the SAME one: two callers re-finding on two different
+    /// cadences would make "how often does this scene get swept" unanswerable from the code.</para>
+    /// </summary>
+    private global::MapChoreographer? MapChoreographerCached()
+    {
+        if (_fastMapChoreo != null)
+            return _fastMapChoreo;
+        if (_fastMapFindFrame != int.MinValue
+            && Time.frameCount - _fastMapFindFrame < FastMapFindIntervalFrames)
+            return null;
+        _fastMapFindFrame = Time.frameCount;
+        _fastMapChoreo = Object.FindObjectOfType<global::MapChoreographer>();
+        return _fastMapChoreo;
+    }
+
+    /// <summary>
     /// Resolve the ACTIVE campaign map GameObject (ISSUE 3): MapChoreographer toggles worldMap/cityMap
     /// via SetActive when the player opens the city vs world map. Prefer whichever is activeInHierarchy;
     /// fall back to UIGuildmasterHUD.CurrentMode, then to worldMap. Returns null if MapChoreographer is
@@ -983,7 +1015,7 @@ internal sealed partial class FlatScreenStereo
     /// </summary>
     private void DetectActiveMap()
     {
-        global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
+        global::MapChoreographer? choreo = MapChoreographerCached();
         if (choreo == null)
             return;
         GameObject? world = choreo.worldMap; // publicized private serialized field
@@ -1073,6 +1105,11 @@ internal sealed partial class FlatScreenStereo
     private void LogMapAcquisitionCandidates()
     {
         var sb = new StringBuilder();
+        // A FRESH SWEEP ON PURPOSE, and the one reader here that must not use the cache: this dump
+        // runs once, after AlbedoFailTicksForDump ticks of failure, and its whole job is to report
+        // what is ACTUALLY in the scene. A cached answer would let it describe a choreographer that
+        // is no longer there — an instrument asserting a state it did not observe
+        // ([[an-instrument-can-assert-a-cause]]).
         global::MapChoreographer choreo = Object.FindObjectOfType<global::MapChoreographer>();
         if (choreo == null)
             sb.Append("MapChoreographer=NONE in the loaded scene(s)");

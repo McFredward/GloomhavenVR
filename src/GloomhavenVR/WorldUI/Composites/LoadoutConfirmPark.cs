@@ -346,12 +346,10 @@ internal static class LoadoutConfirmPark
     // ---- the layer record (ModBuild 238) ---------------------------------------------------------
 
     /// <summary>Every transform of the moved control whose layer this class overwrote, and the value
-    /// the GAME had there. <c>StoryComposite.LayerTx</c>/<c>LayerWas</c>, for its reason and with its
-    /// restore guard.</summary>
-    private static readonly List<Transform> LayerTx = new(16);
-    private static readonly List<int> LayerWas = new(16);
-    private static int _layerWritten = -1;
-    private static int _layerSkipped;
+    /// the GAME had there — the shared record (<see cref="MovedSubtreeLayers"/>), which carries the
+    /// walk, the restore guard and the two counts this class's report line prints. One instance per
+    /// composite: they can be parked at once and each hands back its own transforms.</summary>
+    private static readonly MovedSubtreeLayers Layers = new(16);
 
     // ---- the measured zero ---------------------------------------------------------------------
 
@@ -863,33 +861,13 @@ internal static class LoadoutConfirmPark
     /// the caller's next test is <c>FloatedByMod</c> and its Unpark reason for a null host already
     /// reads "there is nothing to be part of".</para>
     /// </summary>
-    private static UIWindow? CharacterWindow()
-    {
-        FloatScratch.Clear();
-        try
-        {
-            ModalFallback.CollectFloatedWindows(FloatScratch, null);
-            for (int i = 0; i < FloatScratch.Count; i++)
-            {
-                UIWindow w = FloatScratch[i];
-                if (w != null && w.ID == UIWindowID.PartyPanel)
-                    return w;
-            }
-        }
-        catch (System.Exception)
-        {
-            // A reader that throws must not stand the whole tick down; null reads as "not floated".
-        }
-        finally
-        {
-            FloatScratch.Clear();
-        }
-        return null;
-    }
-
-    /// <summary>Scratch for <see cref="CharacterWindow"/>'s float-set walk — the set is never longer
-    /// than a handful, and reusing one list keeps a per-tick reader allocation-free.</summary>
-    private static readonly List<UIWindow> FloatScratch = new(8);
+    /// <para>THE LOOKUP ITSELF IS SHARED (<see cref="ModalFallback.FindFloatedWindow"/>) since the
+    /// 2026-09 refactor: this method and <c>StoryComposite.CharacterWindow</c> were the same
+    /// twenty-two lines twice, down to the guard and the scratch list. What stays here is the NAME —
+    /// this class means "the character UI", and <c>UIWindowID.PartyPanel</c> is only how that is
+    /// spelled — and the reasoning above, which is where the shared method points for it.</para>
+    private static UIWindow? CharacterWindow() =>
+        ModalFallback.FindFloatedWindow(UIWindowID.PartyPanel);
 
     /// <summary>
     /// <b>THE IDENTITY PROOF, ON THE FALSIFIER LINE — that the control lands on the SAME window the
@@ -1050,49 +1028,14 @@ internal static class LoadoutConfirmPark
     /// <para>A FOREIGN RENDER SUBTREE IS SKIPPED WHOLE — <c>CanvasConversion.ApplyModLayer</c>'s own
     /// rule for its own reason: a real <c>Renderer</c> under a uGUI tree is 3D owned by another camera
     /// and descending into it would take its children with it. <c>CanvasRenderer</c> is not a
-    /// <c>Renderer</c>, so ordinary uGUI is unaffected.</para>
+    /// <c>Renderer</c>, so ordinary uGUI is unaffected. The walk, the record and the guarded restore
+    /// are <see cref="MovedSubtreeLayers"/>'s since the 2026-09 refactor; the paragraphs above are
+    /// this class's reason for writing a layer at all, which is why they stay here.</para>
     /// </summary>
     private static void WriteLayers(int layer, Transform root)
     {
-        RestoreLayers();
-        _layerWritten = layer;
-        _layerSkipped = 0;
-        WriteLayerWalk(root, layer);
-    }
-
-    private static void WriteLayerWalk(Transform t, int layer)
-    {
-        if (t.GetComponent<Renderer>() != null)
-        {
-            _layerSkipped++;
-            return;   // and NOT its children either — that is the whole point
-        }
-        if (t.gameObject.layer != layer)
-        {
-            LayerTx.Add(t);
-            LayerWas.Add(t.gameObject.layer);
-            t.gameObject.layer = layer;
-        }
-        for (int i = t.childCount - 1; i >= 0; i--)
-            WriteLayerWalk(t.GetChild(i), layer);
-    }
-
-    /// <summary>Hand every layer this class wrote back to the value the GAME had there — and only
-    /// where the transform is STILL on the layer we wrote. That guard is
-    /// <c>PanelSupersample.RestoreLayers</c>'s, for its reason: a transform somebody else has since
-    /// re-layered is no longer ours to hand back, and writing our stale value would strand it on a
-    /// layer no camera renders.</summary>
-    private static void RestoreLayers()
-    {
-        for (int i = 0; i < LayerTx.Count; i++)
-        {
-            Transform? t = LayerTx[i];
-            if (t != null && t.gameObject.layer == _layerWritten)
-                t.gameObject.layer = LayerWas[i];
-        }
-        LayerTx.Clear();
-        LayerWas.Clear();
-        _layerWritten = -1;
+        Layers.Begin(layer);
+        Layers.Walk(root);
     }
 
     /// <summary>Has somebody else put the moved control back on another layer? One int compare in the
@@ -1101,7 +1044,7 @@ internal static class LoadoutConfirmPark
     /// mine" guard, and those records can name a transform this class is holding —
     /// <c>StoryComposite.LayersDrifted</c>'s argument verbatim.</summary>
     private static bool LayerDrifted(GameObject control, int layer) =>
-        _layerWritten >= 0 && control.layer != layer;
+        Layers.Written >= 0 && control.layer != layer;
 
     /// <summary>
     /// Put the control back. The TRANSFORM is restored only while the object is still parented under
@@ -1128,7 +1071,7 @@ internal static class LoadoutConfirmPark
         try
         {
             // THE LAYER GOES BACK FIRST, while the transforms are still the ones we recorded.
-            RestoreLayers();
+            Layers.Restore();
             if (_addedIgnore != null)
             {
                 Object.Destroy(_addedIgnore);
@@ -2050,6 +1993,12 @@ internal static class LoadoutConfirmPark
     /// <c>StoryComposite.TryPaintedBounds</c> makes and for the same recorded reason: a second, weaker
     /// predicate is how <c>MrBacking.GlyphTrueRect</c> once unioned back in text the fit had already
     /// judged invisible.</para>
+    ///
+    /// <para>NOT MERGED WITH ITS THREE SIBLINGS ON PURPOSE — see the note on
+    /// <c>StoryComposite.TryPaintedBounds</c> (refactor 2026-09, REVIEW-worldui-front.md F6): this
+    /// copy tolerates a null <paramref name="exclude"/>, the lane sweep above keeps per-graphic
+    /// extents, the enchantress' has the plate test. The identical halves of the composites — the
+    /// layer record and the floated-window lookup — are shared; the sweeps are not.</para>
     /// </summary>
     private static bool TryPaintedBounds(RectTransform root, RectTransform win, ConvertedPanel? panel,
                                          RectTransform? exclude, out Rect local, out int counted)
@@ -2622,7 +2571,7 @@ internal static class LoadoutConfirmPark
             + $"{parked}. ITS RECT in the host's own authored px: ink "
             + $"{ink.xMin:F0}..{ink.xMax:F0} x {ink.yMin:F0}..{ink.yMax:F0}. LAYER {controlLayer} "
             + $"against the host root's own layer {hostLayer} "
-            + $"({LayerTx.Count} transform(s) written, {_layerSkipped} foreign render subtree(s) "
+            + $"({Layers.Count} transform(s) written, {Layers.Skipped} foreign render subtree(s) "
             + "skipped whole; per-window capture cameras cull BY LAYER, so a mismatch here is a "
             + "control drawn by the wrong camera or by two). THE HOST: "
             + $"'{(host != null ? host.name : "<none>")}' floated={hostFloated}, live panel="
@@ -2831,9 +2780,6 @@ internal static class LoadoutConfirmPark
         ResetReach();
         SlotScratch.Clear();
         PaintScratch.Clear();
-        LayerTx.Clear();
-        LayerWas.Clear();
-        _layerWritten = -1;
-        _layerSkipped = 0;
+        Layers.Reset();
     }
 }

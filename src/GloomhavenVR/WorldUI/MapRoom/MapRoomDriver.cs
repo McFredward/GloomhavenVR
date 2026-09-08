@@ -171,13 +171,6 @@ internal static class MapRoomDriver
     /// of sweeping the scene.</summary>
     internal static global::MapChoreographer? Choreographer => _choreo;
 
-    /// <summary>True while the room is standing AND the parchment it acquired is the CITY map.
-    /// Forwarded from <see cref="MapParchment.IsCity"/> so nothing outside the room has to know
-    /// how the surface is decided. Note that <c>MapIconLayer.CurrentSurface</c> — not this — is
-    /// what the wire publishes, because it has a real <c>Unknown</c> state for the frames of a
-    /// world↔city switch and a bool cannot say "I do not know".</summary>
-    internal static bool IsCityMap => Active && Parchment.IsCity;
-
     /// <summary>The map room's own location input, or null while no room stands. Handed out so the
     /// net module can READ what this client is pointing at and where an icon is drawn, without
     /// sweeping the scene and without any part of WorldUI having to know about the wire.</summary>

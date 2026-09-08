@@ -180,9 +180,6 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     /// </summary>
     internal bool UserMoved => _userMoved;
 
-    /// <summary>True once the holder exists — i.e. this panel has a handle on the screen.</summary>
-    internal bool IsBuilt => _holder != null && _frame != null;
-
     /// <summary>
     /// THE ROD IS OFF BECAUSE THE PANEL HAS NOTHING ON IT — the ModBuild 378 rule, carried into the
     /// surface family by <see cref="SurfaceMaterialise"/>.

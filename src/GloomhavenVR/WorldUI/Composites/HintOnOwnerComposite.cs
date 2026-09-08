@@ -235,10 +235,10 @@ internal static class HintOnOwnerComposite
     private static Vector3 _homeScale;
     private static LayoutElement? _addedIgnore;
 
-    private static readonly List<Transform> LayerTx = new(64);
-    private static readonly List<int> LayerWas = new(64);
-    private static int _layerWritten = -1;
-    private static int _layerSkipped;
+    /// <summary>Every transform of the parked hint whose layer this class overwrote, and the value
+    /// the GAME had there — the shared record (<see cref="MovedSubtreeLayers"/>), which carries the
+    /// walk, the restore guard and the two counts the report line below prints.</summary>
+    private static readonly MovedSubtreeLayers Layers = new(64);
 
     // ---- the owner resolution, taken once per hint ----------------------------------------------
 
@@ -447,7 +447,7 @@ internal static class HintOnOwnerComposite
         else
         {
             int layer = owner.gameObject.layer;
-            if (_layerWritten >= 0 && _parked!.gameObject.layer != layer)
+            if (Layers.Written >= 0 && _parked!.gameObject.layer != layer)
                 WriteLayers(layer, _parked);
             KeepOnTop();
             ApplyPose(owner, panel);
@@ -745,45 +745,8 @@ internal static class HintOnOwnerComposite
     /// </summary>
     private static void WriteLayers(int layer, Transform root)
     {
-        RestoreLayers();
-        _layerWritten = layer;
-        _layerSkipped = 0;
-        WriteLayerWalk(root, layer);
-    }
-
-    private static void WriteLayerWalk(Transform t, int layer)
-    {
-        if (t.GetComponent<Renderer>() != null)
-        {
-            _layerSkipped++;
-            return;   // and NOT its children either — that is the whole point
-        }
-        if (t.gameObject.layer != layer)
-        {
-            LayerTx.Add(t);
-            LayerWas.Add(t.gameObject.layer);
-            t.gameObject.layer = layer;
-        }
-        for (int i = t.childCount - 1; i >= 0; i--)
-            WriteLayerWalk(t.GetChild(i), layer);
-    }
-
-    /// <summary>Hand every layer this class wrote back to the value the GAME had there — and only
-    /// where the transform is STILL on the layer we wrote. That guard is
-    /// <c>PanelSupersample.RestoreLayers</c>'s: a transform somebody else has since re-layered is no
-    /// longer ours to hand back, and writing our stale value would strand it on a layer no camera
-    /// renders.</summary>
-    private static void RestoreLayers()
-    {
-        for (int i = 0; i < LayerTx.Count; i++)
-        {
-            Transform? t = LayerTx[i];
-            if (t != null && t.gameObject.layer == _layerWritten)
-                t.gameObject.layer = LayerWas[i];
-        }
-        LayerTx.Clear();
-        LayerWas.Clear();
-        _layerWritten = -1;
+        Layers.Begin(layer);
+        Layers.Walk(root);
     }
 
     // ---- the placement ---------------------------------------------------------------------------
@@ -948,7 +911,7 @@ internal static class HintOnOwnerComposite
         try
         {
             // THE LAYER GOES BACK FIRST, while the transforms are still the ones we recorded.
-            RestoreLayers();
+            Layers.Restore();
             if (_addedIgnore != null)
             {
                 Object.Destroy(_addedIgnore);
@@ -1044,7 +1007,7 @@ internal static class HintOnOwnerComposite
                    + "ever made by the conversion of a window that IS floated. Its own FORTFAHREN / "
                    + "dismiss button is the only exit and it is raised to the owner's last sibling, "
                    + $"so it is drawn and hit-tested above the owner's content. Host layer written "
-                   + $"over {LayerTx.Count} transform(s), {_layerSkipped} foreign render subtree(s) "
+                   + $"over {Layers.Count} transform(s), {Layers.Skipped} foreign render subtree(s) "
                    + $"left alone; host rect {(panel?.HostRect != null ? panel.HostRect.name : "<none>")}. "
                    + "ITS HOME, restored verbatim on the hand-back: parent "
                    + $"'{(_home != null ? _home.name : "<none>")}', sibling {_homeIndex}, scene "

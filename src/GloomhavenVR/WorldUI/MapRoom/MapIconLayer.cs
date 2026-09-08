@@ -1054,7 +1054,7 @@ internal sealed class MapIconLayer
     /// <para>THE CACHE DECIDES, NOT THIS METHOD. <c>CardFaceMipBake.BakedTextureFor</c> already
     /// refuses an already-mipped texture, an oversized one and one past the VRAM ceiling, caches the
     /// refusal so it is never retried, and logs its own reason. Repeat asks are a dictionary lookup;
-    /// <c>_bakeAsked</c> exists only so the per-frame cap is spent on FIRST asks.</para>
+    /// <see cref="BakeAsked"/> exists only so the per-frame cap is spent on FIRST asks.</para>
     /// </summary>
     private Texture? MippedOrOriginal(Texture? tex, ref int bakeBudget, ref int deferred)
     {

@@ -53,26 +53,24 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// </summary>
 internal sealed class PropInfoSurface
 {
-    // ---- THE HOVER-PANEL ANTI-CHURN WATCH IS SHARED IN SHAPE WITH StatPanelSurface, AND THAT IS
-    //      A DECISION, NOT AN OVERSIGHT (survey row R37; the 2026-08 review ruled on it).
+    // ---- THE HOVER-PANEL ANTI-CHURN WATCH IS SHARED WITH StatPanelSurface — the MECHANISM, and
+    //      NOT THESE NUMBERS (refactor 2026-09, REVIEW-worldui-front.md F2).
     //
-    // The three constants below, the `Watch` class, `DetachWatch`, `CountConversion` and
-    // `ScheduleRelease` are ~60 lines that still diff to ZERO against
-    // WorldUI/Surfaces/StatPanelSurface.cs. The review considered merging them and ruled AGAINST it:
-    // the constants are PER-SURFACE TUNABLES — a stat panel and a prop info panel are hovered
-    // differently and are allowed to want different hysteresis — and a shared core would have to
-    // take all three as arguments, which is two call sites with the same three numbers rather than
-    // one implementation. What it recommended instead was the zero-risk half: a cross-reference at
-    // each duplicated member, so that whoever retunes one is told the other exists. That
-    // recommendation was never carried out and this block is it.
+    // The `Watch` class, `DetachWatch`, `CountConversion`, `ScheduleRelease`, `RescanMips` and
+    // `Release` were ~60 lines that diffed to ZERO against WorldUI/Surfaces/StatPanelSurface.cs.
+    // They are now HoverWindowWatch, which this class constructs with ITS OWN four numbers — so a
+    // future round can retune this surface's hysteresis without touching the stat panel's, which
+    // is the property the 2026-08 review was protecting when it ruled against a merge ("the
+    // constants are PER-SURFACE TUNABLES"). What stopped being duplicated is the part that could
+    // silently drift.
     //
-    // IF YOU CHANGE ANY OF THE SIX BELOW, READ StatPanelSurface's counterpart FIRST and decide
+    // IF YOU CHANGE ANY OF THE FOUR BELOW, READ StatPanelSurface's counterpart FIRST and decide
     // DELIBERATELY whether it follows. They are equal today by history, not by contract.
     //
-    // THE REST OF THE PAIR HAS ALREADY CONSOLIDATED, and well: this class CALLS
+    // THE REST OF THE PAIR HAD ALREADY CONSOLIDATED, and well: this class CALLS
     // StatPanelSurface.TryComputeHeldPose, .SignFor, .StripLogicComponents and .BuildStaticCopy
     // rather than carrying its own — the direct answer to the "props rewritten from scratch"
-    // complaint. What is left duplicated is exactly the tunable half.
+    // complaint.
 
     /// <summary>Hide→release hysteresis (unscaled seconds) — absorbs show/hide flicker.</summary>
     private const float ReleaseDelaySeconds = 0.3f;
@@ -83,41 +81,6 @@ internal sealed class PropInfoSurface
     /// <summary>Conversions inside one window above which the single churn warning fires.</summary>
     private const int ChurnWarnCount = 5;
 
-    private sealed class Watch
-    {
-        public Component? Attached;
-        public UIWindow? Window;
-        public ConvertedPanel? Panel;
-        public bool PendingShow;
-
-        /// <summary>True for the <c>UITextInfoPanel</c> watch, false for the <c>UIPropInfoPanel</c>
-        /// one.
-        ///
-        /// <para>Until ModBuild 366 this flag also answered "may this watch dock at a hand?",
-        /// because <c>UITextInfoPanel</c> was the ONE window a held prop could raise. ModBuild 366
-        /// moved the held card to the RICH window whenever the prop has one (the user wants "immer
-        /// die detaillierteste Info ... inkl. aller effekte"), so the two questions came apart:
-        /// this stays the WINDOW discriminator and <c>HeldPropCard.Owns</c> answers the held one.
-        /// Leaving the dock keyed on this flag would have fixed the content and lost the
-        /// position.</para></summary>
-        public bool IsTextInfo;
-
-        /// <summary>Unscaled time at which a scheduled release fires; 0 = none pending.</summary>
-        public float ReleaseAt;
-
-        // Churn telemetry (test #16 pattern): conversions inside the rolling window.
-        public float CycleWindowStart;
-        public int CycleCount;
-        public bool ChurnWarned;
-
-        public UnityEngine.Events.UnityAction OnShown = null!;
-        public UnityEngine.Events.UnityAction OnHidden = null!;
-
-        /// <summary>Unscaled time of the next mip-bake rescan for this panel (see
-        /// <see cref="MipRescanInterval"/>).</summary>
-        public float NextMipRescan;
-    }
-
     /// <summary>
     /// Mip-bake rescan cadence while a hover panel is converted (mirrors
     /// <c>CardFace.MipRescanInterval</c> / the initiative track's, halved because the release
@@ -127,18 +90,17 @@ internal sealed class PropInfoSurface
     /// </summary>
     private const float MipRescanInterval = 0.5f;
 
-    private readonly Watch _textInfo = new();
-    private readonly Watch _propInfo = new();
+    private readonly HoverWindowWatch _textInfo =
+        new(ReleaseDelaySeconds, ChurnWindowSeconds, ChurnWarnCount, MipRescanInterval);
+
+    private readonly HoverWindowWatch _propInfo =
+        new(ReleaseDelaySeconds, ChurnWindowSeconds, ChurnWarnCount, MipRescanInterval);
 
     public string Name => "PropInfo";
 
     public PropInfoSurface()
     {
         _textInfo.IsTextInfo = true;
-        _textInfo.OnShown = () => _textInfo.PendingShow = true;
-        _textInfo.OnHidden = () => ScheduleRelease(_textInfo);
-        _propInfo.OnShown = () => _propInfo.PendingShow = true;
-        _propInfo.OnHidden = () => ScheduleRelease(_propInfo);
     }
 
     public void Tick()
@@ -161,24 +123,12 @@ internal sealed class PropInfoSurface
         TickSecondCard();
     }
 
-    private void TickWatch(Watch watch, Component? live, string name)
+    private void TickWatch(HoverWindowWatch watch, Component? live, string name)
     {
         if (watch.Panel != null && !watch.Panel.IsAlive)
             watch.Panel = null;
 
-        if (!ReferenceEquals(live, watch.Attached))
-        {
-            DetachWatch(watch);
-            watch.Attached = live;
-            watch.Window = live != null ? live.GetComponent<UIWindow>() : null;
-            if (watch.Window != null)
-            {
-                watch.Window.onShown.AddListener(watch.OnShown);
-                watch.Window.onHidden.AddListener(watch.OnHidden);
-                if (watch.Window.IsOpen)
-                    watch.PendingShow = true;
-            }
-        }
+        watch.Attach(live);
 
         if (watch.PendingShow)
         {
@@ -233,7 +183,7 @@ internal sealed class PropInfoSurface
                     // Per conversion, like every other flag here: the hover show/hide hysteresis
                     // re-converts these windows constantly and each fresh ConvertedPanel needs it.
                     watch.Panel.MrBackingSuppressed = true;
-                    CountConversion(watch, name);
+                    watch.CountConversion(name);
                     PlaceWatch(watch);
                     // MIP BAKE (user report 2026-08: "Die Linien und Rahmen auf allen Karten und
                     // den Gegnerinfos haben wieder starkes Aliasing"). These info cards are REAL
@@ -242,14 +192,14 @@ internal sealed class PropInfoSurface
                     // initiative track and the tooltip box, this surface never ran the bake at
                     // all. Immediate pass on conversion + the cadence below for the async /
                     // hover-swapped content.
-                    RescanMips(watch, name);
+                    watch.RescanMips(name);
                 }
             }
         }
 
         // Deferred release (hysteresis): the window stayed hidden past the delay.
-        if (watch.Panel != null && watch.ReleaseAt > 0f && Time.unscaledTime >= watch.ReleaseAt)
-            Release(watch);
+        if (watch.ReleaseDue)
+            watch.Release();
 
         if (watch.Panel != null)
         {
@@ -258,56 +208,7 @@ internal sealed class PropInfoSurface
             if (watch.Panel.HostRaycaster != null && watch.Panel.HostRaycaster.enabled)
                 watch.Panel.HostRaycaster.enabled = false;
             PlaceWatch(watch);
-            RescanMips(watch, name); // cadence-gated inside; catches hover-swapped / async graphics
-        }
-    }
-
-    /// <summary>
-    /// One cadence-gated mip-bake pass over the converted hover panel. Config-gated and fully
-    /// guarded inside <see cref="PanelMipBake.Rescan"/> (a bake surprise can never break the
-    /// surface's tick), and idempotent-cheap once warm — a graphic already wearing a baked
-    /// sprite resolves to a dictionary hit and is not rewritten.
-    /// </summary>
-    private static void RescanMips(Watch watch, string name)
-    {
-        if (watch.Panel == null || watch.Attached == null || Time.unscaledTime < watch.NextMipRescan)
-            return;
-        watch.NextMipRescan = Time.unscaledTime + MipRescanInterval;
-        // Scan the GAME widget root, not the host: it is the exact subtree Convert reparented,
-        // and it stays the right root in both states — which is what lets Restore below use the
-        // same handle after the content has gone home.
-        PanelMipBake.Rescan(watch.Attached, name);
-    }
-
-    /// <summary>
-    /// Hide → deferred release (test #16 pattern). The game's hover logic hides/
-    /// re-shows the panel on every hover change; releasing instantly would re-parent
-    /// the whole uGUI subtree at sweep rate. A re-show within the window cancels the
-    /// pending release.
-    /// </summary>
-    private static void ScheduleRelease(Watch watch)
-    {
-        watch.PendingShow = false;
-        if (watch.Panel != null)
-            watch.ReleaseAt = Time.unscaledTime + ReleaseDelaySeconds;
-    }
-
-    /// <summary>One warning if a panel still churns through conversions.</summary>
-    private static void CountConversion(Watch watch, string name)
-    {
-        float now = Time.unscaledTime;
-        if (now - watch.CycleWindowStart > ChurnWindowSeconds)
-        {
-            watch.CycleWindowStart = now;
-            watch.CycleCount = 0;
-        }
-        watch.CycleCount++;
-        if (watch.CycleCount > ChurnWarnCount && !watch.ChurnWarned)
-        {
-            watch.ChurnWarned = true;
-            VRLog.Warn("WorldUI", $"{name} convert/release churn: >{ChurnWarnCount} conversions in " +
-                                  $"{ChurnWindowSeconds:F0}s despite the {ReleaseDelaySeconds:F1}s release " +
-                                  "hysteresis — something still occludes/toggles the window per frame.");
+            watch.RescanMips(name); // cadence-gated inside; catches hover-swapped / async graphics
         }
     }
 
@@ -326,7 +227,7 @@ internal sealed class PropInfoSurface
     /// re-wraps and no rect is rewritten, which keeps the mutation trivially reversible on release
     /// and keeps the card readable at any board scale / distance.
     /// </summary>
-    private static void PlaceWatch(Watch watch)
+    private static void PlaceWatch(HoverWindowWatch watch)
     {
         if (watch.Panel == null)
             return;
@@ -627,41 +528,10 @@ internal sealed class PropInfoSurface
             + $" CARD: {kind}; hand {side}; content key {content ?? "<unknown>"}.");
     }
 
-    private static void Release(Watch watch)
-    {
-        watch.PendingShow = false;
-        watch.ReleaseAt = 0f;
-        if (watch.Panel != null)
-        {
-            // Mutate-and-restore house style: hand every graphic its ORIGINAL mipless sprite
-            // back BEFORE the subtree goes home to the 2D UI, so the game's own screen-space
-            // panel is left exactly as authored (the baked copies are a VR presentation detail).
-            PanelMipBake.Restore(watch.Attached);
-            CanvasConversion.Release(watch.Panel);
-            watch.Panel = null;
-        }
-        watch.NextMipRescan = 0f; // a fresh conversion rescans immediately
-    }
-
-    private void DetachWatch(Watch watch)
-    {
-        if (watch.Window != null)
-        {
-            watch.Window.onShown.RemoveListener(watch.OnShown);
-            watch.Window.onHidden.RemoveListener(watch.OnHidden);
-        }
-        watch.Window = null;
-        // Release BEFORE dropping Attached: the release path restores the original sprites
-        // through that very handle (PanelMipBake.Restore), so nulling it first would silently
-        // leave our baked copies on the game's 2D panel.
-        Release(watch);
-        watch.Attached = null;
-    }
-
     public void Shutdown()
     {
-        DetachWatch(_textInfo);
-        DetachWatch(_propInfo);
+        _textInfo.Detach();
+        _propInfo.Detach();
         DropSecondCard("surface shutdown");
     }
 

@@ -116,9 +116,6 @@ internal sealed class MapLocationInteractor
     private MapLocation? _hover;
     private bool _reported;
 
-    /// <summary>Locations registered on the most recent scan (log material).</summary>
-    internal int RegisteredCount => _locations.Count;
-
     // ---- what the wire reads off this class (ModBuild 222, records 20 + 21) -----------------
     // Deliberately RAW: these hand out MapLocation references and a change counter, and nothing
     // about identity, hashing or the wire appears in this file. The key derivation lives in
