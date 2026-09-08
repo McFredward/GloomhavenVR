@@ -23711,7 +23711,7 @@ internal static class NetProtocol
     /// <summary>Native active-bonus animation frame under message type 3. Each record contains
     /// slot, actor id, existing bonus identity, source sample time and a canonical chunk of up to
     /// eight original show-setting ordinals with their current float properties. Sixteen entries
-    /// per slot and eight slots require at most 2566 bytes including the frozen six-byte header.
+    /// per slot and eight slots require at most 2582 bytes including the frozen six-byte header.
     /// Presence and record 47 remain unchanged; type 4 fragments oversized animation frames.</summary>
     public const byte ExtIdUseBarAnimation = 49;
     public const int UseBarWidgetsMaxPayloadBytes = 204;

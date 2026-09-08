@@ -19,6 +19,7 @@ internal enum UseBarAnimationKind : byte
     MaterialFloat1 = 10,
     CustomFill1 = 11,
     CustomSizeDelta2 = 12,
+    CustomTextMaterial1 = 13,
 }
 
 internal sealed class UseBarAnimationValue
@@ -35,7 +36,7 @@ internal sealed class UseBarAnimationValue
             or UseBarAnimationKind.CustomSizeDelta2 => 2,
         UseBarAnimationKind.CanvasGroupAlpha1 or UseBarAnimationKind.GraphicAlpha1
             or UseBarAnimationKind.TextAlpha1 or UseBarAnimationKind.MaterialFloat1
-            or UseBarAnimationKind.CustomFill1 => 1,
+            or UseBarAnimationKind.CustomFill1 or UseBarAnimationKind.CustomTextMaterial1 => 1,
         UseBarAnimationKind.GraphicColor4 or UseBarAnimationKind.TextColor4 => 4,
         _ => 0,
     };
