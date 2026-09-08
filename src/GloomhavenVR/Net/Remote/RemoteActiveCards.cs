@@ -135,6 +135,11 @@ internal sealed class RemoteActiveCards
     private readonly TextMeshPro _title;
     private readonly List<RemoteBoardCard> _cards = new(InitialSlots);
     private readonly List<CAbilityCard> _buffer = new(InitialSlots);
+    private readonly Dictionary<int, RemoteBoardCard> _panelsByCard = new(InitialSlots);
+    private readonly List<RemoteBoardCard> _orderedPanels = new(InitialSlots);
+    private readonly HashSet<RemoteBoardCard> _assignedPanels = new();
+    private readonly Dictionary<int, int> _heldPoseSlots = new(2);
+    private readonly List<int> _pruneIds = new(InitialSlots);
 
     /// <summary>How many active cards the column currently draws (diagnostics).</summary>
     public int Count { get; private set; }
@@ -154,11 +159,9 @@ internal sealed class RemoteActiveCards
     /// item 2) — indices into <see cref="_buffer"/>. Reused, never re-allocated.</summary>
     private readonly HashSet<int> _flyingSeats = new(2);
 
-    /// <summary>Card instance ids that have already spent their one pass of grace waiting for an
-    /// arc to start (see the block in <see cref="Refresh"/>). Pruned with
-    /// <see cref="_seatedIds"/>, so a card that goes active, expires and goes active again gets a
-    /// fresh grace rather than appearing instantly the second time.</summary>
-    private readonly HashSet<int> _gracedIds = new(InitialSlots);
+    // Reordering model/FX delivery may precede the semantic flight. Bound the initial hold by
+    // that flight's own duration, independent of how frequently board content is refreshed.
+    private readonly Dictionary<int, float> _arrivalDeadlines = new(InitialSlots);
 
     /// <summary>The cell-local position of every cell this pass actually SEATED a card in, and the
     /// card that went into it — parallel lists, handed to <see cref="RemoteActiveCardPulse"/> so a
@@ -452,7 +455,7 @@ internal sealed class RemoteActiveCards
         // active, and a positional guess across that frame would blank the WRONG card, which is
         // strictly worse than a duplicate. So a disagreement hides nothing.
         int heldActive = _owner.HeldActiveSeats(out int activeSeatA, out int activeSeatB,
-                                                out int activeListLen);
+                                                out int activeListLen, out int activePoseA);
         if (heldActive == 2 && activeSeatA == activeSeatB)
         {
             activeSeatB = -1;
@@ -480,21 +483,10 @@ internal sealed class RemoteActiveCards
         // CardInstanceID on the Flight and answers IsFlyingToActive for as long as that arc is
         // running on THIS client's clock. It had no caller until this line; see the class note.
         //
-        // ONE PASS OF GRACE, AND IT IS NOT A DERIVED CLOCK. The two facts reach an observer over
-        // two INDEPENDENT transports — the card enters ActivatedCards through the game's own
-        // network sync, the arc through the mod's unreliable extras stream — so their order is not
-        // fixed, and the ModBuild 476 host log shows the model winning: '[Net] ACTIVE ARRIVAL
-        // [player 2] … at frame 78590' (raw line 96419) is followed by '[Net] Remote card FX
-        // [player 2]: Slot1 -> Active playing' at raw line 96463, INSIDE the same 0.25 s
-        // RemoteBoardContent tick but after this column's pass. Blanking on the flight alone would
-        // therefore have drawn the card, then taken it away again when the arc started — a card
-        // popping out of the matrix and back, which is worse than the overlap it replaces. So a
-        // card this column has NEVER DRAWN is held for at most ONE further pass while it waits to
-        // see an arc; a card it HAS drawn is never retracted, whatever the flight pool says.
-        //
-        // WHAT IT COSTS WHEN THE EVENT IS LOST: the card appears one 4 Hz tick late with no
-        // animation, which is the pre-ModBuild-462 picture. What it must never cost is a retraction,
-        // and the _seatedIds term is what makes that impossible.
+        // Model and cosmetic messages can arrive in either order. A never-seated card waits
+        // at most one existing flight lifetime for the event; a known running flight owns its
+        // complete lifetime. This used to count refresh calls and silently assumed 250 ms/call.
+        // Lost events still settle after a bounded interval, and seated cards never retract.
         _flyingSeats.Clear();
         for (int i = 0; i < _buffer.Count; i++)
         {
@@ -503,9 +495,13 @@ internal sealed class RemoteActiveCards
             catch { continue; }
             if (_seatedIds.Contains(flying))
                 continue;                       // already drawn here: never take it back
-            bool firstSighting = _gracedIds.Add(flying);
+            if (!_arrivalDeadlines.TryGetValue(flying, out float deadline))
+            {
+                deadline = Time.unscaledTime + NetProtocol.CardFxSeconds;
+                _arrivalDeadlines.Add(flying, deadline);
+            }
             bool inTheAir = _owner.IsCardFlyingToActive(flying);
-            if (firstSighting || inTheAir)
+            if (Time.unscaledTime < deadline || inTheAir)
                 _flyingSeats.Add(i);
             if (inTheAir)
                 _seenInAir = true;
@@ -525,6 +521,7 @@ internal sealed class RemoteActiveCards
             _root.gameObject.SetActive(any);
         if (!any)
         {
+            _panelsByCard.Clear();
             for (int i = 0; i < _cards.Count; i++)
             {
                 _cards[i].Set(null, showFronts, actor);
@@ -558,6 +555,33 @@ internal sealed class RemoteActiveCards
         while (_cards.Count < Count)
             _cards.Add(new RemoteBoardCard(_root, Vector3.zero, _cardW, _cardH));
 
+        // Reserve every resident panel before assigning any newcomer: otherwise inserting a
+        // card at index zero can overwrite the panel needed by a later resident. Held cells keep
+        // their identity even while their face is blank, just like the owner's VRCard object.
+        _orderedPanels.Clear();
+        _assignedPanels.Clear();
+        for (int i = 0; i < Count; i++)
+        {
+            RemoteBoardCard? panel = _panelsByCard.TryGetValue(_buffer[i].CardInstanceID,
+                out RemoteBoardCard existing) ? existing : null;
+            _orderedPanels.Add(panel!);
+            if (panel != null) _assignedPanels.Add(panel);
+        }
+        for (int i = 0; i < Count; i++)
+        {
+            if (_orderedPanels[i] != null) continue;
+            for (int j = 0; j < _cards.Count; j++)
+            {
+                if (!_assignedPanels.Add(_cards[j])) continue;
+                _orderedPanels[i] = _cards[j];
+                break;
+            }
+        }
+        for (int i = 0; i < _cards.Count; i++)
+            if (!_assignedPanels.Contains(_cards[i])) _orderedPanels.Add(_cards[i]);
+        _cards.Clear();
+        _cards.AddRange(_orderedPanels);
+
         // ActivePileViewer.Layout, term for term — now in ONE place, <see cref="CellLocal"/>, which
         // this loop moves its cells with AND RemoteCardFx lands its '-> Active' arcs on. It was
         // written out here inline, and the flight had no way to reach it: RemoteControlBoard
@@ -574,35 +598,24 @@ internal sealed class RemoteActiveCards
                 continue;
             }
             Vector3 cellAt = CellLocal(i, Count, _cardW, _grid);
-            // ─── A RESIDENT GLIDES, AN ARRIVAL IS SEATED (2026-09-07 review R3, F4) ────────────
-            // ActivePileViewer.Relayout:293-299 passes `instant || arriving` to VRCard.SetHome, so
-            // on the OWNER's board a card already in this column slides to its new cell when the
-            // column re-centres, and only a card the column has never seated before is placed
-            // outright. This call used to be a bare localPosition write for both, so a peer
-            // activating a SECOND persistent card watched his first card slide sideways while every
-            // mirror of his board jumped it — the same owner-glides/viewer-snaps shape ModBuild 479
-            // fixed for the ARRIVAL half of this very line.
-            //
-            // WHY THE TEST IS "IS THIS CELL KEEPING ITS CARD" AND NOT THE OWNER'S SET MEMBERSHIP.
-            // His model is card-indexed (a VRCard that owns its pose); this one is CELL-indexed (a
-            // panel that is handed a card). Asking the cell whether the card about to go into it is
-            // the card already in it reproduces his `arriving` term EXACTLY for the case that
-            // produced this defect — an append, where every resident keeps its index — and it is
-            // asked BEFORE Set() below overwrites what the cell is showing, which is the only frame
-            // in which the question is answerable at all.
-            //
-            // WHERE THE TWO MODELS DIVERGE, AND THIS DOES NOT PRETEND OTHERWISE: a card removed from
-            // the MIDDLE shifts every later card down one index, so his card 2 glides from cell 2 to
-            // cell 1 while this mirror's cell 1 is handed a different card and seats it. That case
-            // degrades to the snap that shipped rather than inventing a motion, because a cell-based
-            // mirror has no object to carry the glide. Closing it means re-keying this column on the
-            // CARD, which is a rebuild of this class and not a fix to this line.
-            bool residentKeepsItsCard = _cards[i].ShowsCard(_buffer[i].CardInstanceID);
+            int cardId = _buffer[i].CardInstanceID;
+            bool residentKeepsItsCard = _panelsByCard.ContainsKey(cardId);
+            bool held = i == activeSeatA || i == activeSeatB;
+            if (!held && _heldPoseSlots.TryGetValue(cardId, out int oldPoseSlot))
+            {
+                Transform? releasedSlab = _owner.HeldSlab(oldPoseSlot);
+                if (releasedSlab != null)
+                    _cards[i].SeedReturn(releasedSlab.position, releasedSlab.rotation,
+                        Mathf.Abs(releasedSlab.lossyScale.x) * RemoteHandFan.DefaultCardWidth);
+                _heldPoseSlots.Remove(cardId);
+            }
+            if (held)
+                _heldPoseSlots[cardId] = i == activeSeatA ? activePoseA : 3 - activePoseA;
             // THE OWNER'S OWN RATE, off his synced BoardTuning ([Cards] CardLerpSpeed, wire id
             // NetProtocol.TuneCardLerpSpeed) — never this client's config. A mirror may not read the
             // viewer's dial, and this is the very number VRCard.Update runs his glide at.
             _cards[i].Move(cellAt, instant: !residentKeepsItsCard, _owner.BoardTuning.CardLerpSpeed);
-            if (i == activeSeatA || i == activeSeatB || _flyingSeats.Contains(i))
+            if (held || _flyingSeats.Contains(i))
             {
                 // Either in their fist and not in their matrix, or still in the AIR on its way
                 // here (user item 2). Moved to its own cell first so the gap sits where the owner's
@@ -658,6 +671,9 @@ internal sealed class RemoteActiveCards
             _cellPos.Add(cellAt);
             _cellCard.Add(_buffer[i]);
         }
+        _panelsByCard.Clear();
+        for (int i = 0; i < Count; i++)
+            _panelsByCard[_buffer[i].CardInstanceID] = _cards[i];
 
         // The standing picture for the census — this population must NEVER read a BACK, in any
         // phase, and the line PeerCardFaceCensus prints says so in as many words. RealFaceCount is
@@ -847,11 +863,16 @@ internal sealed class RemoteActiveCards
                 + "something. Before that gate the cell filled first and the arc landed on an "
                 + "occupied cell, which the user read as the flight having already happened.");
         }
+        _pruneIds.Clear();
+        foreach (int id in _arrivalDeadlines.Keys)
+            if (!_passIds.Contains(id)) _pruneIds.Add(id);
+        for (int i = 0; i < _pruneIds.Count; i++) _arrivalDeadlines.Remove(_pruneIds[i]);
+        _pruneIds.Clear();
+        foreach (int id in _heldPoseSlots.Keys)
+            if (!_passIds.Contains(id)) _pruneIds.Add(id);
+        for (int i = 0; i < _pruneIds.Count; i++) _heldPoseSlots.Remove(_pruneIds[i]);
         _seatedIds.IntersectWith(_passIds);
-        // The grace marks live and die with the arrival marks: a card that leaves the active pile
-        // and comes back is a NEW arrival and is owed a new arc, so it must not inherit the spent
-        // grace of the previous one.
-        _gracedIds.IntersectWith(_passIds);
+
     }
 
     public void SetActive(bool active)

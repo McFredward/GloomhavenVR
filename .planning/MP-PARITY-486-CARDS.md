@@ -26,12 +26,15 @@ The review is in progress. Unreviewed surfaces below are not claimed compliant.
 
 ## Source-proven gaps still being implemented or coordinated
 
-- **C5 — Active matrix resident removal.** `RemoteActiveCards.Refresh` explicitly acknowledges
-  snapping resident cards after removal from the middle because its panel pool was cell-indexed.
-  Local `ActivePileViewer` carries the same VRCard objects between cells and glides them.
+- **C5 — Active matrix resident removal (fixed).** `RemoteActiveCards.Refresh` now reserves
+  existing panels by local CardInstanceID before allocating panels to incoming cards. Removing
+  a middle card or inserting/reordering cards therefore carries each resident's actual transform
+  into its new cell, matching `ActivePileViewer`'s persistent VRCard objects. No identity is sent.
 - **C6 — Active arrival grace counts refresh calls.** A one-pass grace implicitly assumed a
-  250 ms refresh interval. It must follow elapsed time/flight state as board refresh becomes
-  event-driven; increasing frame frequency must not make an arrival visible prematurely.
+  250 ms refresh interval. **Fixed:** initial model-before-event grace is now bounded by the
+  existing `NetProtocol.CardFxSeconds`; a known active flight still owns its actual lifetime.
+  Refresh frequency no longer changes the wait, and an already seated card never retracts.
+  A lost event settles after that bounded lifetime; unreliable delivery cannot promise animation.
 - **C7 — Mirrored plume is not the owner's plume state.** `RemoteCardPlume` uses the original
   CardSmoke prefab but preserves its authored colour, forces one-shot looping, caps lifetime at
   1.4 seconds, caps the host at four seconds and limits all peers to twelve hosts. Local
@@ -40,7 +43,9 @@ The review is in progress. Unreviewed surfaces below are not claimed compliant.
   found. A correct owner-state signal is being coordinated with the integrator.
 - **C8 — Active card return from a hand.** The local active pile calls `SetHome(..., instant:false)`
   after release. The remote matrix currently blanks the held cell and later seats it instantly;
-  the available held-slab pose needs to seed that same home glide. Under investigation.
+  **Fixed:** its original panel retains the held pose-slot, uses the last held slab's actual world
+  position/rotation/width on release, and glides position, rotation and scale at the owner's rate.
+  The held slab deliberately retains its last transform after its renderer is hidden.
 
 ## Explicit rulings retained
 
@@ -82,3 +87,7 @@ Checkpoint C1–C4: Release build succeeds with zero warnings/errors. The pure w
 passes 221,639 assertions, including 5,192 new fan-reflow assertions. Temporary runner/project
 registration was restored; the integrator owns permanent registration. No headset validation
 was performed.
+
+Checkpoint C5/C6/C8: Release build succeeds with zero warnings/errors. Resident reservation
+is two-pass so an inserted card cannot overwrite a panel needed later in the same list.
+Headset validation of active pickup/release and middle-card removal is still required.

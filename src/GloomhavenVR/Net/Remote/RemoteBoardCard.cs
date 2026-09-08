@@ -101,6 +101,7 @@ internal sealed class RemoteBoardCard
     /// expression and the 1:1 reason it exists at all.</summary>
     private Vector3 _glideTo;
     private bool _gliding;
+    private bool _returningPose;
 
     /// <summary>The OWNER's own <c>[Cards] CardLerpSpeed</c>, handed in by <see cref="Move"/> — a
     /// mirror may never read the viewer's dial. Seeded to the shipped default so a glide asked for
@@ -283,15 +284,30 @@ internal sealed class RemoteBoardCard
         if (instant)
         {
             _gliding = false;
+            _returningPose = false;
             _root.transform.localPosition = localPos;
+            _root.transform.localRotation = Quaternion.identity;
+            _root.transform.localScale = Vector3.one;
             return;
         }
         // Already there (the ordinary case — this runs on every content refresh, and a column that
         // has not re-centred asks for the seat it is already in): no glide to start, and no
         // per-frame lerp toward a point we are standing on.
-        _gliding = (localPos - _root.transform.localPosition).sqrMagnitude > GlideEpsilonSq;
+        _gliding = _returningPose || (localPos - _root.transform.localPosition).sqrMagnitude > GlideEpsilonSq;
         if (!_gliding)
             _root.transform.localPosition = localPos;
+    }
+
+    /// <summary>Carry a released active card from the owner's last held slab into its home cell.</summary>
+    internal void SeedReturn(Vector3 worldPosition, Quaternion worldRotation, float worldWidth)
+    {
+        Transform t = _root.transform;
+        t.position = worldPosition;
+        t.rotation = worldRotation;
+        float parentScale = t.parent != null ? Mathf.Abs(t.parent.lossyScale.x) : 1f;
+        if (parentScale > 1e-5f && _width > 1e-5f)
+            t.localScale = Vector3.one * (worldWidth / (parentScale * _width));
+        _returningPose = true;
     }
 
     /// <summary>Square of the distance at which a glide is finished — 0.1 mm, well under a pixel at
@@ -324,8 +340,21 @@ internal sealed class RemoteBoardCard
             return;
         float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap — VRCard.Update's own
         Transform t = _root.transform;
-        Vector3 next = Vector3.Lerp(t.localPosition, _glideTo, 1f - Mathf.Exp(-_glideSpeed * dt));
-        if ((next - _glideTo).sqrMagnitude <= GlideEpsilonSq)
+        float blend = 1f - Mathf.Exp(-_glideSpeed * dt);
+        Vector3 next = Vector3.Lerp(t.localPosition, _glideTo, blend);
+        if (_returningPose)
+        {
+            t.localRotation = Quaternion.Slerp(t.localRotation, Quaternion.identity, blend);
+            t.localScale = Vector3.Lerp(t.localScale, Vector3.one, blend);
+            if (Quaternion.Angle(t.localRotation, Quaternion.identity) < 0.01f
+                && (t.localScale - Vector3.one).sqrMagnitude <= GlideEpsilonSq)
+            {
+                t.localRotation = Quaternion.identity;
+                t.localScale = Vector3.one;
+                _returningPose = false;
+            }
+        }
+        if (!_returningPose && (next - _glideTo).sqrMagnitude <= GlideEpsilonSq)
         {
             next = _glideTo;
             _gliding = false;
