@@ -568,5 +568,160 @@ for entry in "${EXPRESSIONS[@]}"; do
 done
 
 [[ $xfail -ne 0 ]] && fail=1
-[[ $fail -eq 0 ]] && echo "mirrors: ${#MIRRORS[@]} mirrored-constant groups agree; ${#EXPRESSIONS[@]} shared-expression groups have one implementation each"
+
+
+# ==============================================================================================
+# PART 3 — SUBSET GUARDS (2026-09-08, after the review round that found two of them)
+# ==============================================================================================
+#
+# Part 2 forbids a SECOND implementation of an expression this repository owns. This part
+# forbids something else: a guard that takes a SUBSET of an expression THE GAME owns.
+#
+# The 2026-09-07 review found the shape twice, and both had shipped:
+#
+#   R5 F1. WorldspacePanelUIController.FlowControlActive() is one field read —
+#   `m_AttackModBar.IsFlowActive`. The GAME never uses it alone: all five of its own sites pair
+#   it with the health bar, as `!FlowControlActive() && !m_HealthBar.IsAnimated` (:683, :698,
+#   :711) or `FlowControlActive() || m_HealthBar.IsAnimated` (:724, :732). The mod reads the
+#   flow half at four sites and `IsAnimated` at NONE — `grep -rn IsAnimated src/` returns zero.
+#   So every one of those guards is open for the whole of a health-bar animation, which is the
+#   half of the pair that runs on damage.
+#
+#   R5 F2. ScenarioRuleClient.IsProcessingOrMessagesQueued, likewise. Five game sites
+#   (SkipButton.cs:162, ReadyButton.cs:501, UndoButton.cs:294, ActionProcessor.cs:365 in its De
+#   Morgan form, SceneController.cs:1479 in its ThreadIsSleeping form) all write
+#       (!IsProcessingOrMessagesQueued
+#        || GameState.WaitingForPlayerToSelectDamageResponse
+#        || GameState.WaitingForPlayerActorToAvoidDamageResponse)
+#   The mod's FigureBusy.cs:334-337 takes all three and is the worked example. CardsGameApi.cs
+#   :1874 takes the first alone, and therefore reads BUSY for the entire time the rules engine
+#   is waiting for a human to answer a damage prompt — which is exactly when a hand-off matters.
+#
+# WHY IT IS A DIFFERENT CHECK. There is nothing to compare two copies of: there is ONE mod copy
+# and it is a subset of the game's expression. The only machine-checkable statement is "these
+# terms travel together" — a companion test, per file, over a named scope. That is weaker than
+# Part 2 and it is scoped and documented as such.
+#
+# A group is one line, FIVE | -separated fields:
+#   name | THE GAME'S FULL EXPRESSION (what to write) | trigger ERE | companion ERE | files
+#
+# The fields are peeled from the ENDS — name from the front, then scope, companion and trigger
+# from the back — so only THE GAME'S FULL EXPRESSION may contain a `|` of its own, and it needs
+# to: the game writes these as `||` chains and quoting the real form is the whole message. The
+# trigger and the companion are single identifiers by construction, which is the shape this part
+# checks; a `|` in either would be silently mis-peeled, so do not write one.
+#
+# A file entry ending in `/` means every .cs under that directory — it may NOT be marked, since
+# a review convicts a call site and not a folder. A single-file entry prefixed `~` is KNOWN-OPEN:
+# it violates today, a review has convicted it, and a lane is repairing it. A `~` file that STOPS
+# violating FAILS — deleting the tilde is the last step of the fix, so the marker cannot outlive
+# the defect. A `~` file listed inside a directory that is also in scope stays marked (the mark
+# wins the merge). Everything else in scope must carry both terms or neither.
+SUBSETS=(
+  # KNOWN-OPEN at the moment this part was written (base f37049b5, ModBuild 479): all three
+  # marked files take the flow half alone. `IsAnimated` appears nowhere in src/, so the
+  # companion is currently absent by construction rather than by oversight. The rest of
+  # Board/FigureGrab/ is in scope unmarked, so the next file to reach for the term is caught.
+  "the game's flow-control pair | !FlowControlActive() && !m_HealthBar.IsAnimated (the game's own form at WorldspacePanelUIController.cs:683/698/711; :724/:732 write the OR form). The bar is not free to be moved while EITHER is running | FlowControlActive *\\( | IsAnimated | ~WorldUI/ActorBars.cs ~Board/FigureGrab/FigureBusy.cs ~Board/FigureGrab/FigureStallWatchdog.cs Board/FigureGrab/ "
+  # KNOWN-OPEN: Cards/CardsGameApi.cs:1874. Board/FigureGrab/ is in scope UNMARKED because
+  # FigureBusy.cs:334-337 already takes all three terms and is the worked example — the group
+  # passes there, which is the point of scoping it in.
+  "the rules-engine busy triple | (!ScenarioRuleClient.IsProcessingOrMessagesQueued || GameState.WaitingForPlayerToSelectDamageResponse || GameState.WaitingForPlayerActorToAvoidDamageResponse) — the game's own form at SkipButton.cs:162, ReadyButton.cs:501, UndoButton.cs:294 | IsProcessingOrMessagesQueued | WaitingForPlayerActorToAvoidDamageResponse | ~Cards/CardsGameApi.cs Board/FigureGrab/ "
+)
+
+sfail=0
+for entry in "${SUBSETS[@]}"; do
+    sgroup="${entry%%|*}"; rest="${entry#*|}"
+    sscope="${rest##*|}"; rest="${rest%|*}"
+    scomp="${rest##*|}";  rest="${rest%|*}"
+    strig="${rest##*|}";  sfull="${rest%|*}"
+    for v in sgroup sfull strig scomp sscope; do
+        printf -v "$v" '%s' "$(echo "${!v}" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    done
+
+    # site -> 0/1. A directory contributes its files unmarked; an explicit `~file` overrides,
+    # whichever order they are listed in, so a marked file cannot be silently un-marked by a
+    # directory entry added later.
+    declare -A scope_mark=()
+    for site in $sscope; do
+        marked=0
+        [[ "$site" == "~"* ]] && { marked=1; site="${site#\~}"; }
+        if [[ "$site" == */ ]]; then
+            if [[ $marked -eq 1 ]]; then
+                echo "error: subset-guard '${sgroup}' marks a DIRECTORY (~${site}) KNOWN-OPEN." >&2
+                echo "       A review convicts a call site, not a folder. List the files." >&2
+                sfail=1; continue
+            fi
+            while IFS= read -r f; do
+                rel="${f#$S/}"
+                [[ -n "${scope_mark[$rel]:-}" ]] || scope_mark["$rel"]=0
+            done < <(find "$S/$site" -name '*.cs' 2>/dev/null | sort)
+        else
+            [[ $marked -eq 1 ]] && scope_mark["$site"]=1 || scope_mark["$site"]="${scope_mark[$site]:-0}"
+        fi
+    done
+    if [[ ${#scope_mark[@]} -eq 0 ]]; then
+        echo "error: subset-guard scope for '${sgroup}' matched no files — did a directory move?" >&2
+        sfail=1; continue
+    fi
+
+    for site in $(printf '%s\n' "${!scope_mark[@]}" | sort); do
+        marked="${scope_mark[$site]}"
+        file="$S/$site"
+        [[ -f "$file" ]] || { echo "error: subset-guard scope file ${site} not found" >&2; sfail=1; continue; }
+        # Same strip as Part 2, and for the same reason: FigureBusy.cs quotes BOTH of these
+        # expressions in its own class doc, and a lint that read prose would call the file
+        # compliant on the strength of a comment. Substitutions only, so line numbers survive.
+        code="$(sed -E -e 's://.*$::' -e 's:^[[:space:]]*\*.*$::' -e 's:^[[:space:]]*/\*.*$::' \
+                       -e 's:"([^"\\]|\\.)*"::g' "$file")"
+        # HERESTRINGS, NOT PIPES, AND THIS IS NOT A STYLE CHOICE. This file runs under
+        # `set -o pipefail`, and `printf … | grep -q` makes grep exit at the FIRST match, which
+        # SIGPIPEs printf (141) and makes the whole pipeline report failure — so the companion
+        # test read FALSE on every file that actually had the companion. It was caught by this
+        # group's own negative-control plant (both terms present, must pass) failing; a gate
+        # whose negative control is not run ships lying in exactly this way.
+        hits="$(grep -nE "$strig" <<<"$code" || true)"
+        has_companion=0
+        grep -qE "$scomp" <<<"$code" && has_companion=1
+
+        if [[ -z "$hits" ]]; then
+            if [[ $marked -eq 1 ]]; then
+                echo "error: subset-guard '${sgroup}' — ${site} is marked KNOWN-OPEN with '~' but no" >&2
+                echo "       longer reads the term at all. Delete the '~' entry from the group above:" >&2
+                echo "       a marker that outlives its defect is how this file stops meaning anything." >&2
+                sfail=1
+            fi
+            continue
+        fi
+        if [[ $has_companion -eq 1 ]]; then
+            if [[ $marked -eq 1 ]]; then
+                echo "error: subset-guard '${sgroup}' — ${site} is marked KNOWN-OPEN with '~' and now" >&2
+                echo "       carries the companion term. The fix landed; delete the '~' from the group" >&2
+                echo "       above so the file is held to the rule from here on." >&2
+                sfail=1
+            fi
+            continue
+        fi
+        [[ $marked -eq 1 ]] && continue    # convicted, in repair, expected
+
+        echo "error: a guard took ONE term of an expression THE GAME writes with more — ${sgroup}" >&2
+        while IFS= read -r hit; do
+            echo "    ${site}:${hit}" >&2
+        done <<<"$hits"
+        echo "  THE GAME WRITES: ${sfull}" >&2
+        echo "  This file reads the first term and never mentions '${scomp}'. Every state the" >&2
+        echo "  missing term covers is a state this guard is open in — and it is open exactly" >&2
+        echo "  when the missing term is the one that is running, which is the case nobody tests." >&2
+        echo "  WHY THIS GATE EXISTS: two guards shipped this way and the 2026-09-07 review found" >&2
+        echo "  both. Neither is visible in a build, in a golden vector or in a log: the mod never" >&2
+        echo "  reads the term it is missing, so no instrument can print it." >&2
+        echo "  IF THE SUBSET IS DELIBERATE, say in one line at the call site which states the" >&2
+        echo "  missing term covers and why they do not matter here, and take the file out of the" >&2
+        echo "  group's scope above." >&2
+        sfail=1
+    done
+done
+
+[[ $sfail -ne 0 ]] && fail=1
+[[ $fail -eq 0 ]] && echo "mirrors: ${#MIRRORS[@]} mirrored-constant groups agree; ${#EXPRESSIONS[@]} shared-expression groups have one implementation each; ${#SUBSETS[@]} subset-guard groups keep the game's terms together"
 exit $fail
