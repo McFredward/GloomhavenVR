@@ -530,6 +530,10 @@ internal struct PresenceState
     /// is the state nearly always in force for at least one of the two.</summary>
     public byte SacrificeSeatCode0;
 
+    /// <summary>Record 46: the owner is choosing a short-rest sacrifice. Independent of whether
+    /// record 39 can resolve a seat; false (and omitted) once the choice ends.</summary>
+    public bool ShortRestInProgress;
+
     /// <summary>The LENGTH of the list recess 1's index points into, clamped to 255. The receiver
     /// refuses the front unless its own copy of that list is exactly this long — the same belt
     /// record 36 carries, and for the same reason: a card lying in a peer's recess wearing the
@@ -1810,7 +1814,7 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
+        bool extensions = state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
                           // Record 34 is written only while a card is really held rigidly, so it
@@ -3123,6 +3127,13 @@ internal static class PresenceSerializer
                 }
                 records++;
             }
+        }
+        if (state.ShortRestInProgress && i + 3 <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdShortRest;
+            buffer[i++] = NetProtocol.ShortRestRecordBytes;
+            buffer[i++] = NetProtocol.ShortRestInProgressBit;
+            records++;
         }
         return records;
     }
@@ -4496,6 +4507,10 @@ internal static class PresenceSerializer
                 state.HasFanSource = true;
                 state.FanSourceList = list;
             }
+        }
+        else if (id == NetProtocol.ExtIdShortRest && len >= NetProtocol.ShortRestRecordBytes)
+        {
+            state.ShortRestInProgress = (buffer[i] & NetProtocol.ShortRestInProgressBit) != 0;
         }
         else if (id == NetProtocol.ExtIdUseBarSlotIdentity
                  && len >= NetProtocol.UseBarSlotIdentityMinRecordBytes)

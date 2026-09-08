@@ -301,6 +301,20 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// Which round recess is drawing the REAL FACE of <paramref name="cardInstanceId"/>, or -1.
     /// See <c>RemoteAvatar.RecessShowingCard</c> for why a burn needs to know.
     /// </summary>
+    /// <summary>Transfer the single visible card to the burn presentation immediately. A covered
+    /// sacrifice is not a ShownFaceCardInstanceId, so the former face-only exclusion left its
+    /// back underneath the new burn front until the next occupancy refresh (report 5b).</summary>
+    internal void SuppressBurnRecess(int recess)
+    {
+        if (recess < 0 || recess >= SlotCount)
+            return;
+        _cards[recess]?.Blank();
+        _slotFaceMask &= ~(1 << recess);
+        _slotPickBackMask &= ~(1 << recess);
+        _slotPickSeatMask &= ~(1 << recess);
+        _slotAnonMask &= ~(1 << recess);
+    }
+
     internal int RecessShowingCard(int cardInstanceId)
     {
         if (cardInstanceId == int.MinValue)
@@ -2527,6 +2541,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         int next = 0;
         for (int i = 0; i < SlotCount; i++)
         {
+            // The burn owns the card as soon as its slab is visible, including a sacrifice whose
+            // discard seat no longer resolves after acceptance. Do not rebuild a second back
+            // under that front between the 4 Hz content refresh and the owner's occupancy edge.
+            if (_owner.BurnOwnsRecess(i))
+            {
+                SuppressBurnRecess(i);
+                continue;
+            }
             if ((wire & (1 << i)) == 0)
             {
                 _cards[i].Set(null, showFronts, actor); // empty recess — and it stays empty

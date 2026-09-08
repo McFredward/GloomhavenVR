@@ -23611,6 +23611,21 @@ internal static class NetProtocol
     /// next id is the integrator's ledger (46 at ModBuild 480), never a hole.</para></summary>
     public const byte ExtIdUseBarSlotIdentity = 45;
 
+    /// <summary>Owner's short-rest choice window, independent of the resolvable sacrifice seat.
+    /// Record 39 is also used by modal picks and can be absent while the short rest is open.
+    /// One flags byte; absent means false. Appended TLV only, protocol version stays 3.
+    /// Worst-case extras payload grows 1798 -> 1801 bytes (MaxSize 2100, margin 299).</summary>
+    public const byte ExtIdShortRest = 46;
+    public const byte ShortRestRecordBytes = 1;
+    public const byte ShortRestInProgressBit = 1;
+
+    /// <summary>A dense wrapping event counter advances only through the forward half-range.
+    /// Unreliable delivery may reorder redundant packets; an older event must never replay a
+    /// card flight or roll the accepted counter backward. Exactly half a cycle is ambiguous.</summary>
+    internal static bool IsNewCardFxSequence(byte incoming, byte accepted) =>
+        (byte)(incoming - accepted) is > 0 and < 128;
+
+
     /// <summary>Smallest payload the record can have: the entry-count byte alone. A record shorter
     /// than this is malformed and is stepped over by the tail loop's own length skip.</summary>
     public const int UseBarSlotIdentityMinRecordBytes = 1;
@@ -25292,6 +25307,9 @@ internal static class NetProtocol
     /// press shorter than one publish interval is not expressible.</summary>
     public const byte UseSlotPressedBit = 1 << 4;
 
+    /// <summary>The original UIUseSlot.mandatoryHiglight is visible on the owner's widget.</summary>
+    public const byte UseSlotMandatoryBit = 1 << 5;
+
     /// <summary>Every slot bit defined today; masked on write AND on read — which is what makes this
     /// constant, and not the two above it, the load-bearing half of the widening: the slot byte is
     /// masked with it in <c>PresenceState</c> on the way OUT as well as in, so a sampler that set a
@@ -25301,7 +25319,7 @@ internal static class NetProtocol
     /// record's LENGTH did not move, so an idle packet is byte-identical and an older receiver masks
     /// the two new bits straight back off and renders exactly what it rendered before.</para></summary>
     public const byte UseSlotDefinedMask = UseSlotOfferedBit | UseSlotDimmedBit | UseSlotChosenBit
-                                           | UseSlotHoveredBit | UseSlotPressedBit;
+                                           | UseSlotHoveredBit | UseSlotPressedBit | UseSlotMandatoryBit;
 
     /// <summary>
     /// Extension record id: WHICH FAN POSITION IS CLIPPED INTO THE SENDER'S ITEM-USE RECESS —

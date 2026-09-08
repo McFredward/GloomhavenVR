@@ -1927,6 +1927,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // every packet that goes out, and a true term forces a packet out. So a term that opens the
         // gate is cleared by the very packet it forced, on the same tick.
         bool heldFaceChanged = faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1;
+        bool shortRestInProgress = CardsDriver.ShortRestInProgress;
+        bool shortRestChanged = shortRestInProgress != _lastSentShortRest;
         bool sacrificeSeatChanged = seatCode0 != _lastSentSeatCode0
                                     || seatCode1 != _lastSentSeatCode1;
         bool spentHalfChanged = spentMask != _lastSentSpentMask;
@@ -1956,7 +1958,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             // THE FOUR HELD-CARD EDGES (records 36, 39, 41, 43) — the N7 ruling; see the
             // sampling block above for why each is discrete and what it costs.
             && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
-            && !fanSourceChanged
+            && !fanSourceChanged && !shortRestChanged
             // A DEBUG PRESS PRE-EMPTS THE CADENCE. It is a discrete, human-paced act whose entire
             // purpose is to be looked at, so up to 200 ms of cadence latency between two headsets is
             // exactly the "did that work?" the test page exists to remove. Also true throughout the
@@ -3353,6 +3355,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                             seatCode0, seatCount0, seatCode1, seatCount1, seatReason,
                             spentMask, fanSource);
 
+        // The short-rest privacy term must survive a missing widget or an unresolvable seat.
+        // Send the absolute state on every packet; either edge pre-empts the 5 Hz cadence.
+        extras.ShortRestInProgress = shortRestInProgress;
+        _lastSentShortRest = shortRestInProgress;
+
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
         // breaking the "only when non-default" rule the other records follow — its ABSENCE is
         // the signal (peers without it read as pre-handshake ModBuild 0 = mismatch), so there
@@ -3658,6 +3665,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// there is no live tray. Lifted VERBATIM out of <see cref="TickExtrasSend"/> in the 2026-09
     /// refactor (pure motion): the block read only <paramref name="trayNow"/> and statics.
     /// </summary>
+    private bool _lastSentShortRest;
+
     private static int SampleBoardUi(PlayTray? trayNow)
     {
         int boardUiNow = -1;

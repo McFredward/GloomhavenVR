@@ -149,6 +149,23 @@ internal sealed class RemoteBurnFx
 
     private readonly RemoteAvatar _owner;
 
+    /// <summary>A visible burn slab owns its origin recess through the hold and flight. The
+    /// model's discard seat disappears at acceptance while the old covered recess can remain
+    /// drawn, so ownership must include backs and be tested before that recess is drawn again.</summary>
+    internal bool OwnsRecess(int recess)
+    {
+        if (recess < 0)
+            return false;
+        for (int i = 0; i < _burns.Count; i++)
+        {
+            Burn burn = _burns[i];
+            if (burn.Active && burn.Recess == recess && burn.Go != null && burn.Go.activeSelf)
+                return true;
+        }
+        return false;
+    }
+
+
     private sealed class Burn
     {
         public GameObject? Go;
@@ -998,6 +1015,8 @@ internal sealed class RemoteBurnFx
                     // owner's card had already gone. Here the owner has NOT let go — his own hold is
                     // still running, on the same expression, on this same frame. The slab is shown
                     // only while he is showing his, and never for a moment longer.
+                    if (!recessDraws)
+                        _owner.SuppressBurnRecess(b.Recess);
                     if (b.Go.activeSelf != !recessDraws)
                         b.Go.SetActive(!recessDraws);
                     if (recessDraws)
@@ -1094,6 +1113,7 @@ internal sealed class RemoteBurnFx
             // fresh card lifting out of a recess the viewer just watched blacken is the one way this
             // split could read worse than the single slab it replaced. Writing the settled state
             // every frame of the flight is the same idempotent call the burnt-pile fan makes.
+            _owner.SuppressBurnRecess(b.Recess);
             if (!b.Go.activeSelf)
                 b.Go.SetActive(true);
             if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(1f))

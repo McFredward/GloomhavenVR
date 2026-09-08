@@ -318,10 +318,9 @@ internal sealed class RemotePileFronts
                               "werden also ab jetzt immer mit Vorderseiten gezeigt ohne Ausnahme'. " +
                               "A BACK on this line is a card the ruling refused, which for either " +
                               "arc is a finding",
-        Gate.ShortRestCovered => "the owner has a SHORT REST mid-choice — extension record 39 names " +
-                                 "a card out of their DISCARD arc lying in one of their round " +
-                                 "recesses while RevealGate.IsSecretSelectionPhase is true, which " +
-                                 "is that flow and no other — so the DISCARD fan is covered, user " +
+        Gate.ShortRestCovered => "the owner has a SHORT REST mid-choice — extension record 46 confirms " +
+                                 "the choice is still in progress, independently of the sacrifice seat " +
+                                 "or widget availability — so the DISCARD fan is covered, user " +
                                  "ruling 2026-09-07 (late): 'Kurze Rast = Auswahlphase = verdeckt', " +
                                  "given to settle his own pile ruling against the sealed decision " +
                                  "row. The BURNT fan is NOT covered by this and never is ('Beim " +
@@ -570,42 +569,19 @@ internal sealed class RemotePileFronts
         // fan: untouched (its population is already exempt above and cannot arrive here). Every fan
         // OUTSIDE a short rest, the rest of the selection window included: unchanged, open.
         //
-        // THE TERM IS A CARD, NOT A PLACE, AND THAT IS DELIBERATE. "The discard fan is covered" as a
-        // place test is the shape that produced last round's items 3 and 6. What is asked here is
-        // whether the OWNER has told us a specific card out of THEIR DISCARD ARC is lying in one of
-        // their round recesses — extension record 39, whose two writers are
-        // CardsDriver.SacrificeSeat (the short-rest sacrifice) and CardsDriver.PickFieldSeat (a
-        // modal pick's card). ANDing that with Gate.SecretPhase leaves exactly one flow: a short
-        // rest always runs inside SelectAbilityCardsOrLongRest — that phase is what the game OFFERS
-        // the rest in, and RevealGate.PeerCardPopulation.SacrificedCard's doc records that as a
-        // MEASUREMENT that stands — while every modal discard pick (RecoverDiscardedCard, the
-        // long rest's own burn step) runs in the ACTION phase, where this line is never reached
-        // because the gate is already Gate.Open.
-        //
-        // WHY IT IS WRITTEN AS A RULE AND NOT LEFT TO THE COUNT BELT. Until this line existed the
-        // short-rest fan WAS covered — by accident. The owner's arc drops the sacrifice
-        // (CardsDriver.BoardOwnsCardVisual names _shortRestCard) while the rules model still lists
-        // it (CardsHandUI.PerformShortRest removes nothing), the two lengths disagreed, and the belt
-        // below turned the whole fan to backs. A safety mechanism reacting to a disagreement is a
-        // rule that holds only until the counts happen to agree — and Resolve.DropBoardHeldSeats,
-        // added in this same change for the LONG rest, is precisely a reason for them to agree.
-        //
-        // ITS ONE RESIDUE, NAMED RATHER THAN HIDDEN. Record 39 is the ONLY representation of a
-        // peer's in-progress short rest on this client: the game's own CardsHandUI.PerformShortRest
-        // runs on the owner's machine alone, and FFSNet's CardsHandUI.ProxyShortRest replays only
-        // the COMMITTED rest (it calls FinalizeShortRest), so this client's copy of that hand has
-        // _shortRestedCard == null for the whole deliberation. If record 39 states nothing — its
-        // three refusals are logged verbatim by LocalRigSampler.SampleSacrificeSeats — this term
-        // cannot see the rest and the fan stays open, which is the pre-ruling picture. That is a
-        // fail-OPEN on a secrecy rule and it is the one thing here worth a hardware reading: see
-        // LogShortRestCover.
+        // Record 46 carries the owner's choice state independently of the card-seat record.
+        // Inferring this from record 39 failed open whenever the widget was not resolvable or
+        // the sacrifice was still flying into its recess. The committed rest is all the game's
+        // ProxyShortRest replicates; the receiver cannot reconstruct the deliberation window.
+        // Record 39 still removes the physically seated card from the arc, but no longer decides
+        // whether that arc is secret. An omitted record 46 resets the state on the next packet.
         //
         // NOT A CAPABILITY FAILURE. Only Gate.SecretPhase is touched; NoActor, OffScenario and
         // Errored are capability failures, not secrecy verdicts, and no ruling about what may be
         // shown can argue a capability failure into a face.
         if (gate == Gate.SecretPhase && actor != null)
         {
-            if (content == Content.Discard && OwnerSeatedADiscardCardOnTheirBoard())
+            if (content == Content.Discard && _owner.ShortRestInProgress)
             {
                 gate = Gate.ShortRestCovered;
                 LogShortRestCover(actor);
@@ -1096,37 +1072,8 @@ internal sealed class RemotePileFronts
         return _abilityBuf.Count > 0;
     }
 
-    /// <summary>
-    /// HAS THE OWNER TOLD US A CARD OUT OF THEIR DISCARD ARC IS LYING ON THEIR BOARD? — extension
-    /// record 39, asked as a PRESENCE and not as a seat.
-    ///
-    /// <para>This is the short-rest term of <see cref="Tick"/>'s ruling branch, and it is a question
-    /// about a CARD rather than about a place. Record 39's two writers are
-    /// <c>CardsDriver.SacrificeSeat</c> (the short-rest sacrifice, written for exactly the window
-    /// <c>PresentShortRestCard</c> holds <c>_shortRestCard</c> — opened synchronously before the
-    /// burn/redraw dialog and closed synchronously inside <c>FinalizeShortRest</c>) and
-    /// <c>CardsDriver.PickFieldSeat</c> (a modal pick's card). Its caller ANDs this with
-    /// <c>Gate.SecretPhase</c>, and that conjunction is the short rest alone: every modal discard
-    /// pick runs in the ACTION phase, where the gate is already <see cref="Gate.Open"/> and the
-    /// branch is never reached.</para>
-    ///
-    /// <para>PRESENCE, NOT THE SEAT, AND NOT THE LENGTH BELT. <see cref="DropBoardHeldSeats"/> needs
-    /// the exact index and therefore re-applies record 39's own length check; this needs only to
-    /// know that a short rest is up, and adding the length test would make a secrecy rule fail OPEN
-    /// on a model that lags by one frame. The DISCARD list id is required explicitly — a burnt-list
-    /// seat must never close the burnt fan, because that ruling is unconditional.</para>
-    /// </summary>
-    private bool OwnerSeatedADiscardCardOnTheirBoard()
-    {
-        for (int slot = 0; slot < NetProtocol.BoardUiSlotCount; slot++)
-        {
-            byte code = _owner.SacrificeSeatCode(slot);
-            if (NetProtocol.HeldFaceNamesCard(code)
-                && NetProtocol.HeldFaceList(code) == NetProtocol.HeldFaceListDiscard)
-                return true;
-        }
-        return false;
-    }
+    // Record 46 is the flow's explicit state. Inferring it from record 39 failed open when
+    // the sacrifice could not be seated and conflated short rests with modal discard picks.
 
     /// <summary>The actor the short-rest cover line last named (<c>int.MinValue</c> = not covered
     /// right now), so the line fires on the EDGE into a peer's short rest and not on the per-frame
@@ -1168,10 +1115,8 @@ internal sealed class RemotePileFronts
         // HW-VERIFY: grep token "SHORT REST PILE COVER" — see this method's doc for the readings.
         VRLog.Note("Net", $"SHORT REST PILE COVER [player {_owner.PlayerId}]: the DISCARD fan of "
                           + $"'{Board.CharacterFocus.Describe(actor)}' is COVERED — extension record "
-                          + "39 names a card out of their discard arc lying in one of their round "
-                          + "recesses while the game's secret SelectAbilityCardsOrLongRest phase is "
-                          + "open, and that conjunction is a SHORT REST and nothing else (every "
-                          + "modal discard pick runs in the action phase). User ruling 2026-09-07 "
+                          + "46 explicitly confirms the short-rest choice is in progress, independently "
+                          + "of record 39's seat resolution and widget availability. User ruling 2026-09-07 "
                           + "(late), given to settle his own pile ruling against the sealed decision "
                           + "row: 'Kurze Rast = Auswahlphase = verdeckt'. It used to be covered by "
                           + "the LENGTH BELT instead — the owner's arc drops the sacrifice while the "

@@ -68,6 +68,9 @@ internal sealed class RemoteAvatar
     // very first extras packet from a peer may already carry an old event (they were mid-flight
     // when we joined) — playing that would fire a stray card across the table on join.
     private byte _lastFxSeq;
+
+    /// <summary>Owner's explicit short-rest window (record 46), reset on every extras packet.</summary>
+    internal bool ShortRestInProgress { get; private set; }
     private bool _fxSeqInit;
 
     // Ghost hand (extras FlagExtrasGhostHand): when the sender fades the hand carrying their open
@@ -828,6 +831,9 @@ internal sealed class RemoteAvatar
     /// field is owed: the anchor vocabulary already names both recesses and the identity is this
     /// client's own read of the card it already seated there.</para>
     /// </summary>
+    internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
+    internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
+
     internal int RecessShowingCard(int cardInstanceId) =>
         _controlBoard.RecessShowingCard(cardInstanceId);
 
@@ -2089,6 +2095,7 @@ internal sealed class RemoteAvatar
         // Fan anchor (extension record 5): where the sender's open board-anchored fan really
         // sits, board-local. Reset when absent — "absent" must mean the authored default spot,
         // never a stale anchor from a fan that has since closed or moved.
+        ShortRestInProgress = p.ShortRestInProgress;
         HasFanAnchor = p.HasFanAnchor;
         FanAnchorLocal = p.HasFanAnchor ? p.FanAnchorLocal : Vector3.zero;
 
@@ -2112,7 +2119,9 @@ internal sealed class RemoteAvatar
                 _fxSeqInit = true;
                 _lastFxSeq = p.FxSeq; // adopt without playing — this event predates our joining
             }
-            else if (p.FxSeq != _lastFxSeq)
+            // A delayed redundant packet must not replay its old flight or roll the counter
+            // backward. The old != test treated reordering as a reset and played BOTH events.
+            else if (NetProtocol.IsNewCardFxSequence(p.FxSeq, _lastFxSeq))
             {
                 // ─── THE LOSS, COUNTED EXACTLY, WITH NO NEW WIRE BYTE ───────────────────────────
                 // NetCardFx stamps the sequence +1 PER DISPATCHED EVENT and wraps at 255, so it is
