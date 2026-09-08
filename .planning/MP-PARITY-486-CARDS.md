@@ -2,7 +2,8 @@
 
 Review baseline: `b4dc8980`, after the 484/485 repairs and with the independent native bonus
 animation wire contract present. This is a source review; hardware logs still describe build 482.
-The review is in progress. Unreviewed surfaces below are not claimed compliant.
+The source findings below are implemented. The coverage table states the inspected paths;
+visual output and multiplayer timing still require the next headset test.
 
 ## Verified fixes
 
@@ -24,7 +25,7 @@ The review is in progress. Unreviewed surfaces below are not claimed compliant.
   mappings are refused; no card identity is added to the wire. Exhaustive four-card permutation
   vectors cover reordered plucks and returns, plus identity fallback and malformed membership.
 
-## Source-proven gaps still being implemented or coordinated
+## Further source-proven fixes
 
 - **C5 — Active matrix resident removal (fixed).** `RemoteActiveCards.Refresh` now reserves
   existing panels by local CardInstanceID before allocating panels to incoming cards. Removing
@@ -35,7 +36,7 @@ The review is in progress. Unreviewed surfaces below are not claimed compliant.
   existing `NetProtocol.CardFxSeconds`; a known active flight still owns its actual lifetime.
   Refresh frequency no longer changes the wait, and an already seated card never retracts.
   A lost event settles after that bounded lifetime; unreliable delivery cannot promise animation.
-- **C7 — Mirrored plume (fixed; dedicated wire integration required).** Live `BurnCardFx`
+- **C7 — Mirrored plume (fixed).** Live `BurnCardFx`
   and `ItemsPile.ItemChip` emitter registries replace guessed remote FX-task edges. Every native
   emitter has its original ordinal, seed, age, playback rate, size/speed multipliers, runtime
   simulation/scaling modes and board-relative transform. Custom simulation frames are explicit.
@@ -44,7 +45,11 @@ The review is in progress. Unreviewed surfaces below are not claimed compliant.
   clears/reseeds; ordinary samples correct playback time. Authored item/child colour gradients
   remain intact; ability root RGBA comes from the owner's actual `SpawnParticle` result. There is
   no separate remote lifetime, one-shot override or twelve-host cap. Root owns codecs, transport
-  limits and avatar scheduling; this lane owns native samplers and rendering.
+  limits and avatar scheduling; this lane owns native samplers and rendering. Source-time pose
+  interpolation includes nonuniform scale and custom simulation frames, using the tested native
+  animation playback clock. An episode change resets that history. After reconstructing the initial
+  native age, emission is gated by the owner's actual Emitting flag and the authored module enable,
+  so StopEmitting preserves living particles without creating new ones.
 - **C8 — Active card return from a hand.** The local active pile calls `SetHome(..., instant:false)`
   after release. The remote matrix currently blanks the held cell and later seats it instantly;
   **Fixed:** its original panel retains the held pose-slot, uses the last held slab's actual world
@@ -57,8 +62,21 @@ The review is in progress. Unreviewed surfaces below are not claimed compliant.
   the native foreground constants and final `_FXAnim = 0.5`. Both original item timelines last
   0.001 seconds, so this adds no invented two-second ramp. Item smoke uses C7's original item
   emitter subtree, not the different global ability-smoke prefab.
-- **C10 — Floating pile-fan captions (being implemented).** Local `PileBrowser` and `ItemsPile`
-  create a title above the arc; both remote fan classes omitted the title entirely.
+- **C10 — Floating pile-fan captions (fixed).** Local `PileBrowser` and `ItemsPile`
+  create a title above the arc; both remote fan classes omitted the title entirely. All four now
+  call the same original caption factory with the same placement, fit, colour and depth policy.
+- **C11 — Browser resident reflow (fixed).** Remote browse cards were destroyed and recreated
+  at the arc origin on count changes, whereas local `PileBrowser.SetCards` keeps each VRCard and
+  relayouts it. Equal-count model reorder also painted a different face onto an unmoved seat.
+  Local replicated CardInstanceIDs now map resident position/rotation/scale and hover progress into
+  the rebuilt generation; new entries start at the pile. The pure map rejects ambiguous IDs and
+  handles equal-count reorder, insertion and removal without putting identities on the wire.
+- **C12 — Flight capture semantics (fixed).** `VRCard.FlyToPile` and `FlyFromPile` capture world
+  endpoints, arch and rotation once. Remote semantic flights instead re-read rotation and active
+  destinations each frame; remote burns re-read both endpoints even after handover. Ordinary flights
+  now lock orientation and capture the first resolved active cell after board refresh. Burns follow
+  their recess only while stationary and capture their complete flight pose at release. Size stays
+  relative to the live board, matching the local card's interpolated local scale under its parent.
 
 ## Explicit rulings retained
 
@@ -78,17 +96,17 @@ The review is in progress. Unreviewed surfaces below are not claimed compliant.
 
 | Surface | Source paths inspected | Status |
 |---|---|---|
-| Hand fan | Open/close/swap, map key/cache, original arc order, held-seat removal/return, rebuild reflow | C4 fixed; further geometry/effect review ongoing |
-| Browser fan | 485 character retarget path; pile-front gates and resolution | Remaining motion/size paths pending |
-| Item fan | Spent-state/raw inventory mapping, usable-frame creation/retuning | C2/C3 fixed; remaining motion paths pending |
-| Active matrix | Grid geometry, caption, arrival/held suppression, resident cell glide, pulses | C1 fixed; C5/C6/C8 pending |
-| Held fronts | Kind silhouette, reveal/source routing, per-list seat resolution, settled effect look | C3 fixed; material/timing continuation pending |
-| Board cards | Cell glide, card identity, plume trigger | Full face and materialisation review pending |
-| Semantic flights | Source/destination face routing, active identity and flight state | Full curve/lifecycle review pending |
-| Burns | 484 owner-release correlation and recess ownership | Full timeline review pending |
-| Plumes | Prefab instantiation vs native spawn/recycle and local clamp | C7 requires owner-state coordination |
-| Usable frames | Shared frame geometry/palette, owner beat, raw-slot mapping | No additional geometry gap found; timing clock remains under review |
-| Pile fronts | Public/short-rest gates, live membership, clone repaint | C3 fixed; particle/material completeness pending |
+| Hand fan | Open/close/swap, map key/cache, original arc order, held-seat removal/return, rebuild reflow, native plume routing | C4 fixed; 484/485 focus/privacy fixes retained |
+| Browser fan | Open/close/kind/actor retarget, resident relayout, caption, pile-front gates, size | C3/C10/C11 fixed |
+| Item fan | Open/close, spent-state/raw inventory mapping, native foreground/smoke, usable frames, caption | C2/C3/C7/C9/C10 fixed |
+| Active matrix | Grid geometry, caption, arrival/held suppression, resident cell glide, pulses | C1/C5/C6/C8 fixed; shared native pulse repair retained |
+| Held fronts | Kind silhouette, reveal/source routing, per-list seat resolution, settled effect look | C3 fixed; held pose retained for active return |
+| Board cards | Cell glide, card identity, materialisation and settled FX source, old plume lifecycle | C7/C8 fixed; speculative plume trigger removed |
+| Semantic flights | Source/destination routing, active identity, curve, orientation, size, lifetime | C12 fixed; shared owner curve and semantic release filtering retained |
+| Burns | Owner-release correlation, recess ownership, hold artwork, flight curve/size/capture | C12 fixed; 484 release and front/back ownership fixes retained |
+| Plumes | Native spawn/recycle, authored modules, seed/clock, emitter ordinals, transform/scale/custom space | C7 fixed; dedicated bounded stream integrated by root |
+| Usable frames | Shared frame geometry/palette, owner beat, raw-slot mapping, source refresh | C2 fixed; shared geometry and owner pulse clock retained |
+| Pile fronts | Public/short-rest gates, live membership, clone repaint, settled shader look | C3/C9/C11 fixed; explicit privacy rulings retained |
 
 ## Validation
 
@@ -109,3 +127,12 @@ Checkpoint C7/C9: Release build succeeds with zero warnings/errors against the a
 Temporary DTO additions and removal of the old RemoteControlBoard.TickPlume call were used only
 for isolated compilation; the integrator owns those files and the stream/codec tests. No particle
 rendering, shader output, native pool lifecycle or timing has been claimed verified on hardware.
+
+Checkpoint C10–C12 and plume followups: Release build succeeds with zero warnings/errors. The
+wire run reports 235,022 passed and 10 failed: all failures are the independent board/native source
+checks whose matching production changes are not in this isolated worktree. The new resident vectors
+pass all 2,886 assertions. Root must run the full suite after integrating its board lane; this is not
+recorded as a green full-suite run. The renderer reuses `UseBarAnimationPlaybackClock`, whose source
+clock, underflow and discontinuity vectors run in that suite. Native particle simulation and rendering
+remain hardware checks, including first observation during a live plume, StopEmitting, moving boards,
+custom simulation frames and card flight handover. No game data or game-owned network state changed.

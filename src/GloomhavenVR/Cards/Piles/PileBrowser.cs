@@ -216,6 +216,22 @@ internal sealed class PileBrowser
 
     // ------------------------------------------------------------------ lifecycle --
 
+    /// <summary>The original floating pile caption shared by local and mirrored browse/item fans.</summary>
+    internal static TextMeshPro CreateTitle(Transform root)
+    {
+        var titleGo = new GameObject("Title");
+        titleGo.transform.SetParent(root, worldPositionStays: false);
+        titleGo.transform.localPosition = new Vector3(0f, 0.16f, -0.004f);
+        var title = titleGo.AddComponent<TextMeshPro>();
+        title.text = string.Empty;
+        title.alignment = TextAlignmentOptions.Center;
+        title.color = new Color(1f, 0.9f, 0.6f);
+        Core.TmpFit.Fit(title, 0.30f, 0.032f, maxFontSize: 0.34f, wrap: false);
+        WorldUI.MrBacking.Label(title);
+        WorldUI.FreeLabelOrder.Rank(title);
+        return title;
+    }
+
     /// <summary>
     /// Open (or switch) the browser for one pile. The arc floats at a fixed spot ABOVE the
     /// control board (<see cref="PlaceAboveBoard"/>), inheriting the board's live scale/pose,
@@ -237,22 +253,7 @@ internal sealed class PileBrowser
             _root = new GameObject("GloomhavenVR.PileBrowser").transform;
             Core.VRLayers.Apply(_root.gameObject); // cards apply themselves in VRCard.Build
 
-            var titleGo = new GameObject("Title");
-            titleGo.transform.SetParent(_root, worldPositionStays: false);
-            titleGo.transform.localPosition = new Vector3(0f, 0.16f, -0.004f);
-            _title = titleGo.AddComponent<TextMeshPro>();
-            _title.text = string.Empty;
-            _title.alignment = TextAlignmentOptions.Center;
-            _title.color = new Color(1f, 0.9f, 0.6f);
-            // Single line: localized pile names + count shrink into the box (TmpFit, test #12).
-            Core.TmpFit.Fit(_title, 0.30f, 0.032f, maxFontSize: 0.34f, wrap: false);
-            WorldUI.MrBacking.Label(_title); // browser title floats over the room in MR
-            // PERSPECTIVE: identical geometry to the items fan's title (same local offset, same
-            // PlaceAboveBoard anchor), therefore identically defective before this — the discard and
-            // burnt fans' titles were painted under the board-docked initiative track whatever the
-            // real depth order was. User scope ruling 2026-08-25: "Selbstverständlich soll der fix …
-            // für jeglichen Text — auch der anderen Piles — gelten." See WorldUI.FreeLabelOrder.
-            WorldUI.FreeLabelOrder.Rank(_title);
+            _title = CreateTitle(_root);
         }
         // Anchor under the board root so the fan inherits the board's live scale + pose
         // (tracks a resize + a board switch). No board → head-relative fallback.

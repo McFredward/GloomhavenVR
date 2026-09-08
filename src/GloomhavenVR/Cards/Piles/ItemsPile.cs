@@ -790,24 +790,7 @@ internal sealed class ItemsPile
         _root = new GameObject("GloomhavenVR.ItemsPile").transform;
         Core.VRLayers.Apply(_root.gameObject);
 
-        var titleGo = new GameObject("Title");
-        titleGo.transform.SetParent(_root, worldPositionStays: false);
-        titleGo.transform.localPosition = new Vector3(0f, 0.16f, -0.004f);
-        _title = titleGo.AddComponent<TextMeshPro>();
-        _title.text = string.Empty;
-        _title.alignment = TextAlignmentOptions.Center;
-        _title.color = new Color(1f, 0.9f, 0.6f);
-        Core.TmpFit.Fit(_title, 0.30f, 0.032f, maxFontSize: 0.34f, wrap: false);
-        WorldUI.MrBacking.Label(_title); // fan title floats over the room in MR
-        // PERSPECTIVE (user report 2026-08-25, gegenstände_text.jpg — the report this component was
-        // written for): "der Text über dem Item-Fächer [wird] von der Initiativreihenfolge verdeckt
-        // … ist der Text davor, soll er auch davor sein". This title hangs ~42 cm above the board's
-        // top edge and 4 mm proud of the fan plane — clear off the board's depth-writing slab and
-        // right where the board-docked initiative track's converted plate lives. It wrote no depth
-        // and sat at sortingOrder 0, so the track's Canvas (ladder order >= 100) simply painted
-        // last. Rank it by its OWN measured eye distance instead; both directions then hold. Full
-        // root cause on WorldUI.FreeLabelOrder, including why this is NOT a depth fix.
-        WorldUI.FreeLabelOrder.Rank(_title);
+        _title = PileBrowser.CreateTitle(_root);
     }
 
     // ------------------------------------------------------------------ per-frame --

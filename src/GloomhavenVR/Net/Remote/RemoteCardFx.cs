@@ -93,6 +93,8 @@ internal sealed class RemoteCardFx
         public Vector3 From;
         public Vector3 To;
         public Vector3 ArcUp;
+        public Quaternion Rotation;
+        public bool ActiveTargetCaptured;
         public float Arc;
         public float Elapsed;
         public bool Active;
@@ -103,14 +105,9 @@ internal sealed class RemoteCardFx
 
         /// <summary><c>CAbilityCard.CardInstanceID</c> of the card this slab is carrying INTO THE
         /// ACTIVE MATRIX, or <see cref="int.MinValue"/> for every other flight. See
-        /// <see cref="IsFlyingToActive"/> and the per-frame cell re-resolve in <see cref="Tick"/>.
+        /// <see cref="IsFlyingToActive"/> and the initial cell resolve in <see cref="Tick"/>.
         /// </summary>
         public int ActiveCardId = int.MinValue;
-
-        /// <summary>The anchor this flight is heading FOR, kept because the destination is not
-        /// fixed for every anchor: an ACTIVE arrival's cell moves when the owner's active pile
-        /// grows under a live arc. See the re-resolve in <see cref="Tick"/>.</summary>
-        public CardFxAnchor ToAnchor = CardFxAnchor.Board;
 
         /// <summary>What this slab's card BODY is wearing on its FRONT fan (true = the card back) —
         /// the edge gate for <see cref="SetFrontFace"/>. Seeded true because that is what
@@ -234,7 +231,6 @@ internal sealed class RemoteCardFx
         float scale = DrawnBoardScale;
         f.From = a;
         f.To = b;
-        f.ToAnchor = to;
         // WORLD up, never the owner's BOARD up. This used to be `_owner.BoardRotation * Vector3.up`,
         // which is the argument CardsDriver passes and which VRCard.FlyToPile DELIBERATELY THROWS
         // AWAY — its own sentence, kept here verbatim so the next reader does not "restore" it:
@@ -251,6 +247,8 @@ internal sealed class RemoteCardFx
         f.Arc = Mathf.Max(CardHeight * MinArcCardHeights * scale,
                           Vector3.Distance(a, b) * ArcFraction);
         f.Elapsed = 0f;
+        f.Rotation = SlabRotation;
+        f.ActiveTargetCaptured = to != CardFxAnchor.Active;
         f.Active = true;
         // ─── THE SLAB IS THE SIZE THE OWNER'S CARD IS, AT BOTH ENDS OF THE ARC (2026-09-07,
         //     report item 8: "Die anderen Spieler am remote board sehen beim Flug kurz die offene
@@ -304,7 +302,7 @@ internal sealed class RemoteCardFx
         // the "do not put an edge ring around a card back" half.
         SetFrontFace(f, showsBack: !f.HasFace);
 
-        f.Go.transform.SetPositionAndRotation(a, SlabRotation);
+        f.Go.transform.SetPositionAndRotation(a, f.Rotation);
         if (!f.Go.activeSelf)
             f.Go.SetActive(true);
 
@@ -746,24 +744,17 @@ internal sealed class RemoteCardFx
             float t = NetProtocol.CardFxSeconds > 0f
                 ? Mathf.Clamp01(f.Elapsed / NetProtocol.CardFxSeconds)
                 : 1f;
-            // THE CELL, NOT THE MOUNT. RemoteControlBoard.AnchorLocal resolves CardFxAnchor.Active
-            // to layout.ActiveMount, and its own comment says the mount "IS the block's midpoint
-            // and a one-card column lands dead on its own cell" — both halves true, and the second
-            // is the defect: RemoteActiveCards CENTRES N cells on that midpoint, so with two active
-            // cards each cell sits half a column step off it (0.0337 m board-local at the shipped
-            // CardWidth 0.0635, ActiveGridSpacing.x 1.06 and ActiveCardScale 1.00) and every arc
-            // landed between them. The ModBuild 476 peer log has the case in one line:
-            // 'ACTIVE ARRIVAL … (cell 2 of 2)'.
-            //
-            // RE-RESOLVED PER FRAME, NOT CAPTURED AT Play. The active population can change under a
-            // live arc — a second card goes active — and that column re-seats EVERY cell when it
-            // does, so a destination taken once would be stale by the time the slab arrived. Same
-            // reason the position and the scale writes below are per frame. Silently keeps the
-            // mount when the column is not drawing that card, which is the old behaviour and is
-            // right for a one-card column.
-            if (f.ToAnchor == CardFxAnchor.Active && f.ActiveCardId != int.MinValue
+            // Resolve the actual initial cell after the board's content refresh, then retain it
+            // for this flight. VRCard.FlyFromPile captures its world endpoint once; a later grid
+            // or board movement must not bend only the observer's arc.
+            if (!f.ActiveTargetCaptured && f.ActiveCardId != int.MinValue
                 && _owner.TryActiveCellLocal(f.ActiveCardId, out Vector3 cell))
+            {
                 f.To = BoardLocalToWorld(cell);
+                f.Arc = Mathf.Max(CardHeight * MinArcCardHeights * DrawnBoardScale,
+                    Vector3.Distance(f.From, f.To) * ArcFraction);
+                f.ActiveTargetCaptured = true;
+            }
             // THE OWNER'S OWN CURVE, CALLED — not "the same shape as VRCard's fly", which is what
             // the sentence that stood here claimed while the code flew a DIFFERENT ONE. This wrote
             // out plain smoothstep along the chord and bowed with sin(pi*t) on the RAW t, against
@@ -773,7 +764,7 @@ internal sealed class RemoteCardFx
             // reason no arc reading could ever see it.
             float e = RemoteFlightCurve.Ease(t);
             Vector3 p = RemoteFlightCurve.Pose(e, f.From, f.To, f.ArcUp, f.Arc);
-            f.Go.transform.SetPositionAndRotation(p, SlabRotation);
+            f.Go.transform.SetPositionAndRotation(p, f.Rotation);
             // …AND THE SIZE RAMPS WITH IT (report item 8 — see the FromWidth/ToWidth block in Play).
             // On the EASED parameter, not the raw one, because VRCard.FlyToPile lerps its
             // own scale on the same eased term it lerps the chord on: a slab that travelled on one

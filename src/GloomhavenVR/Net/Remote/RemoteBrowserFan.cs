@@ -244,7 +244,16 @@ internal sealed class RemoteBrowserFan
     private readonly RemoteAvatar _owner;
 
     private GameObject? _root;
+    private TMPro.TextMeshPro? _title;
     private readonly List<GameObject> _cards = new(InitialSlots);
+    private readonly List<int> _slabCardIds = new(InitialSlots);
+    private readonly List<int> _oldCardIds = new(InitialSlots);
+    private readonly List<int> _newCardIds = new(InitialSlots);
+    private readonly List<Vector3> _residentPositions = new(InitialSlots);
+    private readonly List<Quaternion> _residentRotations = new(InitialSlots);
+    private readonly List<Vector3> _residentScales = new(InitialSlots);
+    private readonly List<float> _residentPops = new(InitialSlots);
+    private readonly int[] _residentFrom = new int[SanityMaxCards];
 
     /// <summary>The FRONT layer over those slabs (user ruling 2026-08-08) — one overlay per slab,
     /// gated on <see cref="RevealGate.ShowRoundCardFronts"/> and fed from the peer's own replicated
@@ -471,6 +480,7 @@ internal sealed class RemoteBrowserFan
     public void Tick(float dt)
     {
         dt = Mathf.Max(dt, 0f);
+        if (_title != null) _title.gameObject.SetActive(_owner.PileBrowseCardCount > 0 && _owner.PileBrowseOpen);
 
         bool wantOpen = _owner.PileBrowseOpen && _owner.PileBrowseCardCount > 0;
         int wantKind = wantOpen ? _owner.PileBrowseKind : -1;
@@ -554,7 +564,7 @@ internal sealed class RemoteBrowserFan
         SyncFaceRect();
 
         int count = ResolveCount();
-        if (count != _builtCount)
+        if (NeedsReflow(count))
             Rebuild(count); // cards plucked out of / returned to the arc mid-browse: no re-emerge
 
         if (!TryResolveAnchor(out Vector3 target, out Quaternion rot, out float rootScale))
@@ -575,12 +585,15 @@ internal sealed class RemoteBrowserFan
             t.SetPositionAndRotation(Vector3.Lerp(t.position, target, k), Quaternion.Slerp(t.rotation, rot, k));
         }
 
+        if (_title != null) _title.text = $"{PileViewer.Caption(_shownKind == NetProtocol.PileBrowseKindBurnt ? PileKind.Burnt : _shownKind == NetProtocol.PileBrowseKindItems ? PileKind.Items : PileKind.Discard)} ({count})";
+
         Layout(count, dt);
 
         // THE FRONT LAYER (user ruling 2026-08-08). Runs after the layout so a face is only ever
         // asked for on a slab that already sits where it belongs. The gate inside is evaluated every
         // frame; the model resolve behind it rides the board-content cadence — see RemotePileFronts.
         _fronts.Tick(ContentFor(_shownKind));
+        _fronts.CopyResolvedAbilityIds(_slabCardIds);
     }
 
     // ------------------------------------------------------------------ open / emerge --
@@ -1344,6 +1357,7 @@ internal sealed class RemoteBrowserFan
         _root = new GameObject($"GloomhavenVR.RemoteBrowserFan[{_owner.PlayerId}]");
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
+        _title = PileBrowser.CreateTitle(_root.transform);
         _root.transform.localScale = Vector3.one;
         _root.SetActive(false);
         // USER ITEM 7 (2026-09-02) — see RemoteItemFan.EnsureRoot for the reasoning. This root
@@ -1353,8 +1367,38 @@ internal sealed class RemoteBrowserFan
         VRLayers.Apply(_root);
     }
 
+    private bool NeedsReflow(int count)
+    {
+        if (count != _builtCount) return true;
+        _fronts.ResolveAbilityIds(ContentFor(_shownKind), _newCardIds);
+        if (_newCardIds.Count != count || _slabCardIds.Count != count) return false;
+        for (int i = 0; i < count; i++)
+            if (_newCardIds[i] != _slabCardIds[i]) return true;
+        return false;
+    }
+
     private void Rebuild(int count)
     {
+        _oldCardIds.Clear();
+        _oldCardIds.AddRange(_slabCardIds);
+        _fronts.ResolveAbilityIds(ContentFor(_shownKind), _newCardIds);
+        bool mapped = _oldCardIds.Count == _cards.Count && _newCardIds.Count == count
+            && CardResidentMap.TryBuild(_oldCardIds, _newCardIds, _residentFrom);
+        _residentPositions.Clear();
+        _residentRotations.Clear();
+        _residentScales.Clear();
+        _residentPops.Clear();
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            Transform t = _cards[i].transform;
+            _residentPositions.Add(t.localPosition);
+            _residentRotations.Add(t.localRotation);
+            _residentScales.Add(t.localScale);
+            _residentPops.Add(i < _pop.Count ? _pop[i] : 0f);
+        }
+        Vector3 arrivalSeed = Vector3.zero;
+        if (_root != null && _owner.TryBoardAnchorWorld(AnchorFor(_shownKind), out Vector3 pile))
+            arrivalSeed = _root.transform.InverseTransformPoint(pile);
         for (int i = _cards.Count - 1; i >= 0; i--)
         {
             if (_cards[i] != null)
@@ -1362,7 +1406,7 @@ internal sealed class RemoteBrowserFan
         }
         _cards.Clear();
         _collapseFrom.Clear();
-        ClearPops(); // a rebuilt arc must never open with a stale card already lifted
+        ClearPops(); // only a mapped resident may retain its own in-progress hover below
 
         Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability); // SHARED cache — never ours to destroy
 
@@ -1378,6 +1422,17 @@ internal sealed class RemoteBrowserFan
             // browse enlargement AND the owner's own card width (record 28), so their arc reads the
             // size they see rather than this client's.
             card.transform.localScale = Vector3.one * SlabScale;
+            int resident = mapped ? _residentFrom[i] : i < _residentPositions.Count ? i : -1;
+            if (resident >= 0)
+            {
+                card.transform.localPosition = _residentPositions[resident];
+                card.transform.localRotation = _residentRotations[resident];
+                card.transform.localScale = _residentScales[resident];
+                while (_pop.Count <= i) _pop.Add(0f);
+                _pop[i] = _residentPops[resident];
+            }
+            else
+                card.transform.localPosition = arrivalSeed;
 
             // …and the BODY, one level down, carries the non-uniform squash onto the printed rect.
             // This is VRCard.SetCanvasSize's backing fit, term for term, and it is the step this fan

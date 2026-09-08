@@ -943,6 +943,31 @@ internal sealed class RemotePileFronts
                           + "says why.");
     }
 
+    /// <summary>Local model identities for preserving resident browse-card poses across a reflow.</summary>
+    internal void CopyResolvedAbilityIds(List<int> into)
+    {
+        into.Clear();
+        for (int i = 0; i < _abilityBuf.Count; i++)
+        {
+            CAbilityCard? card = _abilityBuf[i]?.AbilityCard;
+            if (card == null) { into.Clear(); return; }
+            into.Add(card.CardInstanceID);
+        }
+    }
+
+    internal void ResolveAbilityIds(Content content, List<int> into)
+    {
+        into.Clear();
+        if (content == Content.Items) return;
+        CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+        if (actor == null) return;
+        try
+        {
+            if (Resolve(actor, content)) CopyResolvedAbilityIds(into);
+        }
+        catch (System.Exception) { into.Clear(); }
+    }
+
     /// <summary>
     /// Fill the reused buffer for <paramref name="content"/> off the peer's OWN replicated model.
     /// Returns false when there is nothing to draw (which lands the fan on backs, exactly as before).

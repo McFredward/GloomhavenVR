@@ -23,6 +23,10 @@ internal sealed class RemoteCardPlume
         internal Transform? CustomSpace;
         internal float AppliedSample = -1f;
         internal float NativeAge;
+        internal bool AuthoredEmission;
+        internal CardPlumeState? PreviousPose, CurrentPose;
+        internal float PreviousPoseTime, CurrentPoseTime;
+        internal readonly UseBarAnimationPlaybackClock PoseClock = new();
     }
 
     private readonly RemoteAvatar _owner;
@@ -61,26 +65,7 @@ internal sealed class RemoteCardPlume
                     if (host == null) continue;
                     _hosts[key] = host;
                 }
-                Transform t = host.Root.transform;
-                t.SetPositionAndRotation(boardPosition + boardRotation * (state.LocalPosition * boardScale),
-                    boardRotation * state.LocalRotation);
-                t.localScale = state.LocalScale * boardScale;
-                if (state.CustomSpacePresent)
-                {
-                    if (host.CustomSpace == null)
-                        host.CustomSpace = new GameObject("GloomhavenVR.NativeSmokeCustomSpace").transform;
-                    host.CustomSpace.SetPositionAndRotation(boardPosition
-                        + boardRotation * (state.CustomPosition * boardScale),
-                        boardRotation * state.CustomRotation);
-                    host.CustomSpace.localScale = state.CustomScale * boardScale;
-                }
-                else if (host.CustomSpace != null)
-                {
-                    Object.Destroy(host.CustomSpace.gameObject);
-                    host.CustomSpace = null;
-                }
-                ParticleSystem.MainModule liveMain = host.Smoke.main;
-                liveMain.customSimulationSpace = host.CustomSpace;
+                ApplyPose(host, state, sampleTime, boardPosition, boardRotation, boardScale);
                 Apply(host, state, sampleTime);
             }
         }
@@ -92,6 +77,53 @@ internal sealed class RemoteCardPlume
             DestroyHost(_hosts[_prune[i]]);
             _hosts.Remove(_prune[i]);
         }
+    }
+
+    private static void ApplyPose(Host host, CardPlumeState state, float sampleTime,
+        Vector3 boardPosition, Quaternion boardRotation, float boardScale)
+    {
+        bool reset = host.CurrentPose == null || host.CurrentPose.Episode != state.Episode;
+        if (reset)
+        {
+            host.PreviousPose = host.CurrentPose = state;
+            host.PreviousPoseTime = host.CurrentPoseTime = sampleTime;
+            host.PoseClock.Reset(sampleTime, Time.unscaledTime);
+        }
+        else if (host.CurrentPoseTime != sampleTime)
+        {
+            host.PreviousPose = host.CurrentPose;
+            host.PreviousPoseTime = host.CurrentPoseTime;
+            host.CurrentPose = state;
+            host.CurrentPoseTime = sampleTime;
+        }
+        host.PoseClock.Advance(Time.unscaledTime, sampleTime);
+        float progress = host.PoseClock.Progress(host.PreviousPoseTime, host.CurrentPoseTime);
+        CardPlumeState previous = host.PreviousPose!;
+        // Interpolate the owner's board-relative samples, then compose the observer's currently
+        // drawn board frame. Neither packet arrival nor local board motion restarts an episode.
+        Transform t = host.Root.transform;
+        t.SetPositionAndRotation(boardPosition + boardRotation
+            * (Vector3.Lerp(previous.LocalPosition, state.LocalPosition, progress) * boardScale),
+            boardRotation * Quaternion.Slerp(previous.LocalRotation, state.LocalRotation, progress));
+        t.localScale = Vector3.Lerp(previous.LocalScale, state.LocalScale, progress) * boardScale;
+        if (state.CustomSpacePresent)
+        {
+            if (host.CustomSpace == null)
+                host.CustomSpace = new GameObject("GloomhavenVR.NativeSmokeCustomSpace").transform;
+            float customProgress = previous.CustomSpacePresent ? progress : 1f;
+            host.CustomSpace.SetPositionAndRotation(boardPosition + boardRotation
+                * (Vector3.Lerp(previous.CustomPosition, state.CustomPosition, customProgress) * boardScale),
+                boardRotation * Quaternion.Slerp(previous.CustomRotation, state.CustomRotation, customProgress));
+            host.CustomSpace.localScale = Vector3.Lerp(previous.CustomScale, state.CustomScale, customProgress)
+                * boardScale;
+        }
+        else if (host.CustomSpace != null)
+        {
+            Object.Destroy(host.CustomSpace.gameObject);
+            host.CustomSpace = null;
+        }
+        ParticleSystem.MainModule main = host.Smoke.main;
+        main.customSimulationSpace = host.CustomSpace;
     }
 
     private void Apply(Host host, CardPlumeState state, float sampleTime)
@@ -131,8 +163,11 @@ internal sealed class RemoteCardPlume
         // explicitly on that clock and keep automatic playback paused, so the viewer's local
         // pause/timeScale cannot freeze another player's plume between received snapshots.
         main.simulationSpeed = 1f;
+        ParticleSystem.EmissionModule emission = smoke.emission;
+        emission.enabled = host.AuthoredEmission && (newEpisode || (state.Flags & CardPlumeState.Emitting) != 0);
         smoke.Simulate(restart ? age : Mathf.Max(0f, age - host.NativeAge),
             withChildren: false, restart: restart, fixedTimeStep: false);
+        emission.enabled = host.AuthoredEmission && (state.Flags & CardPlumeState.Emitting) != 0;
         smoke.Pause(false);
         host.NativeAge = age;
         host.Episode = state.Episode;
@@ -172,7 +207,7 @@ internal sealed class RemoteCardPlume
             }
 
             VRLayers.Apply(root);
-            return new Host { Root = root, Smoke = smoke };
+            return new Host { Root = root, Smoke = smoke, AuthoredEmission = smoke.emission.enabled };
         }
         catch (Exception e)
         {

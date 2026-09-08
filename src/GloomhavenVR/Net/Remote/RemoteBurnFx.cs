@@ -922,47 +922,10 @@ internal sealed class RemoteBurnFx
                 continue;
             b.Elapsed += step;
 
-            // THE OWNER'S BOARD IS A MOVING FRAME, and this presentation is 2.4 s long — long
-            // enough that a board the owner pulls toward himself mid-burn would leave the card
-            // hanging in the air where the board used to be. Both endpoints are therefore
-            // re-resolved every frame against their LIVE synced pose (RemoteCardFx resolves once
-            // because its flights last 0.4 s; that shortcut does not survive a 2 s hold). A frame
-            // in which the pose cannot be resolved keeps the last one rather than snapping.
-            // …and the ORIGIN is the owner's RECESS whenever this client can still see the card
-            // seated there. Re-asked every frame rather than latched: the recess empties the moment
-            // the owner's occupancy nibble clears, which is the same instant HIS card leaves it, and
-            // that is the hand-over this presentation has to survive. It falls back to the board
-            // centre only for a burn nobody could place — the picture every build before this one
-            // drew.
-            CardFxAnchor origin = b.Recess == 0 ? CardFxAnchor.Slot0
-                : b.Recess == 1 ? CardFxAnchor.Slot1
-                : CardFxAnchor.Board;
-            if (TryAnchor(origin, out Vector3 liveFrom))
-                b.From = liveFrom;
-            if (TryAnchor(CardFxAnchor.Burnt, out Vector3 liveTo))
-                b.To = liveTo;
-            // ...AND THE ARCH IS THE THIRD TERM OF THE SAME SHAPE (2026-09-07 review R3, F7).
-            // The bow height is a function of exactly the two things re-read on the two lines above
-            // (the chord) and of the board scale re-read every frame below, and it was the ONE term
-            // still frozen at Present. Discovery can precede the hand-over by up to
-            // BurnArtwork.MaxHoldSeconds, and the owner's own FlyToPile computes his arch from the
-            // pose his board has AT LAUNCH (CardsDriver.4.Rebuild.cs:2986) -- so a peer who dragged
-            // or zoomed his board during the hold arced at the height his board is NOW while this
-            // mirror arced at the height it had when the burn was discovered. A chord and a scale
-            // that move under a frozen height is a shape nobody authored, and no instrument could
-            // see it: the BURN FLIGHT CURVE line prints b.Arc, so the log agreed with itself.
-            //
-            // LIVE RATHER THAN RE-SAMPLED AT HAND-OVER, because that is what its two co-terms are.
-            // Sampling all three at launch is the other coherent answer and is what RemoteCardFx
-            // does for its 0.4 s flights, but this class deliberately re-resolves position and size
-            // per frame for the whole presentation (the owner may be dragging his diorama under a
-            // live flight, ModBuild 477 item 8), and freezing one of three is what produced this.
-            // Same expression, same two literals, as Present -- see the block there for why the
-            // 1.5 and the 0.55 are code constants that simply have to match on both sides.
-            float liveScale = DrawnBoardScale;
-            float liveCardHeight = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth) * (88f / 63.5f);
-            b.Arc = Mathf.Max(liveCardHeight * 1.5f * liveScale,
-                              Vector3.Distance(b.From, b.To) * VRCard.FlyArcHeightFraction);
+            // A stationary card follows its recess. Once released, VRCard.FlyToPile retains
+            // its world endpoints, rotation and arch for the entire flight.
+            if (!b.HandoverLogged)
+                CaptureFlightPose(b);
 
             if (!b.HandoverLogged)
             {
@@ -1085,10 +1048,8 @@ internal sealed class RemoteBurnFx
             float e = RemoteFlightCurve.Ease(t);
             Vector3 p = RemoteFlightCurve.Pose(e, b.From, b.To, Vector3.up, b.Arc);
             b.Go.transform.position = p;
-            // …AND THE SIZE RAMPS WITH IT, on the SAME eased term (see the FromWidth/ToWidth block
-            // in Present). The board SCALE is re-read per frame for the reason RemoteCardFx states:
-            // the owner may be dragging their diorama under a live flight, which is also why the
-            // position write is per frame.
+            // Scale remains relative to the live board, matching VRCard's interpolated local
+            // scale under its parent. Its captured world-space flight position stays independent.
             b.Go.transform.localScale = Vector3.one
                 * (DrawnBoardScale * (Mathf.Lerp(b.FromWidth, b.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
             if (t >= 1f)
@@ -1352,6 +1313,18 @@ internal sealed class RemoteBurnFx
                           "same burn: they must name the same card.");
     }
 
+    private void CaptureFlightPose(Burn b)
+    {
+        CardFxAnchor origin = b.Recess == 0 ? CardFxAnchor.Slot0
+            : b.Recess == 1 ? CardFxAnchor.Slot1 : CardFxAnchor.Board;
+        if (TryAnchor(origin, out Vector3 from)) b.From = from;
+        if (TryAnchor(CardFxAnchor.Burnt, out Vector3 to)) b.To = to;
+        float height = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth) * (88f / 63.5f);
+        b.Arc = Mathf.Max(height * 1.5f * DrawnBoardScale,
+            Vector3.Distance(b.From, b.To) * VRCard.FlyArcHeightFraction);
+        if (b.Go != null) b.Go.transform.rotation = DrawnBoardRotation;
+    }
+
     /// <summary>
     /// THE HAND-OVER, AS MECHANISM: this presentation stops holding and its arc begins now.
     ///
@@ -1372,6 +1345,7 @@ internal sealed class RemoteBurnFx
         if (b.HandoverLogged)
             return;
         float after = b.Elapsed;
+        CaptureFlightPose(b);
         b.HandoverLogged = true;
         // THIS TOKEN'S OWN WINDOW STARTS HERE. The owner reports his '-> Burnt' event when his card
         // is really cleared, which is the signal this hand-over just read off his widget, so the

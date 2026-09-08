@@ -149,6 +149,7 @@ internal sealed class RemoteItemFan
 
     private readonly RemoteAvatar _owner;
     private GameObject? _root;
+    private TMPro.TextMeshPro? _title;
     private readonly List<GameObject> _cards = new(MaxCards);
 
     /// <summary>The FRONT layer over those slabs (user ruling 2026-08-08) — one overlay per slab,
@@ -644,6 +645,7 @@ internal sealed class RemoteItemFan
     public void Tick(float dt)
     {
         dt = Mathf.Max(dt, 0f);
+        if (_title != null) _title.gameObject.SetActive(_owner.ItemCardCount > 0);
 
         // The owner's own animation dials (record 28) BEFORE anything reads them — including the
         // collapse below, which must run on the owner's close timing even though the fan is already
@@ -716,6 +718,7 @@ internal sealed class RemoteItemFan
         }
 
         EnsureRoot();
+        if (_title != null) _title.text = $"{PileViewer.Caption(PileKind.Items)} ({count})";
         if (_root == null)
             return;
         if (count != _builtCount)
@@ -1713,6 +1716,7 @@ internal sealed class RemoteItemFan
         _root = new GameObject($"GloomhavenVR.RemoteItemFan[{_owner.PlayerId}]");
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
+        _title = PileBrowser.CreateTitle(_root.transform);
         // Sized by the sender's rig scale so the fan reads the same physical size as their hands.
         _root.transform.localScale = Vector3.one * _owner.AppliedScale;
         _root.SetActive(false);
