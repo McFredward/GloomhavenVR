@@ -618,6 +618,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <summary>Give the face back to the game (pool-safe). Idempotent.</summary>
     internal void DetachGameCard()
     {
+        ForgetActionHighlight();
         // Restore the game's own materials/sorting BEFORE handing the face back to the game.
         RestoreFaceHoverFx();
         SetRenderOnTop(false);
@@ -1219,6 +1220,17 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// lit. Always false on this path — the active column lights the BIG action region, never the
     /// standard-action chip — but the gate takes both terms and must not be given a half of one.</summary>
     private readonly bool[] _actionHighlightRegion = { false, false };
+    private bool _activeHighlightTop;
+    private bool _activeHighlightBottom;
+
+    /// <summary>Pool/rebind ownership ends the old active-column request; a temporary
+    /// parent disable alone does not, because that is precisely the pulse-recovery case.</summary>
+    internal void ForgetActionHighlight()
+    {
+        _activeHighlightTop = _activeHighlightBottom = false;
+        _actionHighlight[0] = _actionHighlight[1] = ActionHighlightDriver.Off;
+        _actionHighlightRegion[0] = _actionHighlightRegion[1] = false;
+    }
 
     /// <summary>
     /// Light this card's ACTIVE half/halves with the game's own action-region highlight, WITHOUT
@@ -1232,6 +1244,8 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// </summary>
     internal void SetActionHighlight(bool top, bool bottom)
     {
+        _activeHighlightTop = top;
+        _activeHighlightBottom = bottom;
         FullAbilityCard? full = FullCard;
         if (full == null)
             return;
@@ -1634,7 +1648,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// bowing along <paramref name="arcUp"/> (the board up axis) so it works on a tilted board.
     /// No-op on a held card (the hand owns the pose).
     /// </summary>
-    internal void FlyFromPile(Vector3 fromWorldPos, float fromWorldWidth, float duration, Vector3 arcUp, float minArcHeight = 0f)
+    internal void FlyFromPile(Vector3 fromWorldPos, float fromWorldWidth, float duration, Vector3 arcUp, float minArcHeight = 0f, Action? onComplete = null)
     {
         if (IsHeld)
             return;
@@ -1662,7 +1676,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         float fromLocal = (parentLossy > 1e-5f && w > 1e-5f) ? fromWorldWidth / (parentLossy * w) : _homeScale;
         _flyFromScale = Vector3.one * Mathf.Max(1e-4f, fromLocal);
         _flyToScale = Vector3.one * Mathf.Max(1e-4f, _homeScale);
-        _flyDone = null; // intro settles at home in Update — no park callback
+        _flyDone = onComplete; // home arrivals may restore their interaction ownership
 
         // Drop every hover/grab affordance — a flying card makes no promises.
         Grabbable = false;
@@ -2125,6 +2139,10 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         UpdateCanvasCamera();
         _face.Maintain();
+        // Parent enable/disable can cancel the native pulse between rebuilds. Reassert
+        // only the active-column look here; the shared driver leaves a live tween alone.
+        if (_activeHighlightTop || _activeHighlightBottom)
+            SetActionHighlight(_activeHighlightTop, _activeHighlightBottom);
         // Bug #2: if Maintain YIELDED the face to a game dialog (it now belongs to the game
         // again), drop our per-instance material overrides so the game's face renders normally.
         // Re-applied on the next AttachGameCard when the face is re-adopted.
@@ -2175,6 +2193,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
                     transform.localRotation = _homeRot;
                     transform.localScale = Vector3.one * _homeScale;
                     SetVisualAlpha(1f);
+                    Action? arrived = _flyDone;
+                    _flyDone = null;
+                    arrived?.Invoke();
                     return;
                 }
                 Action? done = _flyDone;

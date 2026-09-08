@@ -1558,6 +1558,23 @@ internal sealed partial class CardsDriver
     // -------------------------------------------------------------- short rest --
 
     /// <summary>
+    /// Independent secrecy signal for record 46. Read the presented hand's native flow,
+    /// including the confirmation before a sacrifice widget exists; never infer this from
+    /// record 39's resolved recess. An unresolved seat must not uncover the discard fan.
+    /// </summary>
+    internal static bool ShortRestInProgress
+    {
+        get
+        {
+            CardsHandUI? hand = Instance != null ? Board.CharacterFocus.PresentedHand(Instance.CurrentHand()) : null;
+            return hand != null && hand.PlayerActor != null
+                   && PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest
+                   && (CardsGameApi.IsShortRestSelected(hand)
+                       || CardsGameApi.IsShortRestChoosing(hand) || hand.IsImprovedLongResting);
+        }
+    }
+
+    /// <summary>
     /// THE SEAM THE SACRIFICE-SEAT RECORD (39) IS SAMPLED FROM: which round recess the short-rest
     /// sacrifice is PHYSICALLY lying in right now, and the hand it belongs to, or a -1 recess when
     /// no short rest is mid-choice. Static for the same reason
@@ -1728,7 +1745,7 @@ internal sealed partial class CardsDriver
             card.FlyFromPile(srcPos, srcWidth, FlyToPileSeconds, BoardUp(), BoardArcMin());
             // MP parity (report 6): the short-rest sacrifice flying OUT of the discard pile into
             // the left slot is a card gliding back out of a pile — peers replay it in reverse.
-            Net.NetCardFx.Report(Net.CardFxAnchor.Discard, Net.CardFxAnchor.Slot0);
+            ReportCardFx(Net.CardFxAnchor.Discard, Net.CardFxAnchor.Slot0);
             VRLog.Info("Cards", $"Short rest: sacrifice '{CardsGameApi.CardName(widget)}' flies OUT of the discard " +
                                 $"pile into the left slot ({FlyToPileSeconds:F2}s, arc over the board, orientation " +
                                 "locked) — it originates there (issue 2; not a fly-from-below).");
@@ -1850,7 +1867,7 @@ internal sealed partial class CardsDriver
         _flyingToPile.Add(card);
         VRCard flying = card;
         // MP parity (report 6): the redrawn sacrifice flying back into the discard pile.
-        Net.NetCardFx.Report(Net.CardFxAnchor.Slot0, Net.CardFxAnchor.Discard);
+        ReportCardFx(Net.CardFxAnchor.Slot0, Net.CardFxAnchor.Discard);
         CardFlightLedger.Note("own", "Discard", "own-short-rest-redraw",
             card.GameCard != null ? CardsGameApi.CardName(card.GameCard) : card.name);
         card.FlyToPile(pos, width, FlyToPileSeconds, BoardUp(), () =>

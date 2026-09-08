@@ -2429,6 +2429,8 @@ internal static class CardsGameApi
     /// </summary>
     internal static void ToggleLongRest(CardsHandUI hand)
     {
+        if (!CanLongRest(hand))
+            return;
         AbilityCardUI longRest = hand.GetCard(-1);
         if (longRest != null)
             longRest.OnClick(ignoreHiglight: true);
@@ -2939,7 +2941,7 @@ internal static class CardsGameApi
             return;
         }
         ShortRest rest = hand.shortRest;
-        if (rest != null)
+        if (rest != null && CanShortRest(hand))
             rest.MouseClick();
     }
 
@@ -2951,10 +2953,11 @@ internal static class CardsGameApi
     /// </summary>
     internal static bool CanShortRest(CardsHandUI hand)
     {
-        if (hand.PlayerActor == null || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+        if (!RestSelectionEditable(hand))
             return false;
         ShortRest rest = hand.shortRest;
-        return rest != null && rest.IsInteractable;
+        return rest != null && (rest.IsSelected || (rest.IsInteractable && rest.isValid))
+               && TutorialAllowsShortRestClick(hand);
     }
 
     /// <summary>Verified: <c>public bool IsShortRestSelected()</c> → shortRest.IsSelected (CardsHandUI.cs:2671).</summary>
@@ -3094,9 +3097,29 @@ internal static class CardsGameApi
     /// </summary>
     internal static bool CanLongRest(CardsHandUI hand)
     {
-        if (hand.PlayerActor == null || PhaseManager.PhaseType != CPhase.PhaseType.SelectAbilityCardsOrLongRest)
+        if (!RestSelectionEditable(hand))
             return false;
-        return hand.PlayerActor.CharacterClass.DiscardedAbilityCards.Count > 1;
+        AbilityCardUI longRest = hand.GetCard(-1);
+        return longRest != null && longRest.isValid && longRest.IsInteractable
+               && hand.PlayerActor.CharacterClass.DiscardedAbilityCards.Count > 1
+               && InteractabilityManager.ShouldAllowClickForExtendedButton(longRest.button);
+    }
+
+    /// <summary>
+    /// A rest cap promises an effective selection edit. The phase alone stays at selection
+    /// after this player presses Ready while peers are still choosing; the native short-rest
+    /// interactable latch and discard count both remain true there. Use the actor's committed
+    /// selection bit too, so undo immediately restores the same controls. Both presentation
+    /// and queued press execution read this predicate (the state can change between them).
+    /// </summary>
+    internal static bool RestSelectionEditable(CardsHandUI hand)
+    {
+        if (hand.PlayerActor == null)
+            return false;
+        return CardPresentationPolicy.RestSelectionEditable(
+            PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest,
+            hand.PlayerActor != null && !hand.PlayerActor.IsDead,
+            IsSelectionReady(hand), hand.IsImprovedLongResting || IsShortRestChoosing(hand));
     }
 
     // -------------------------------------------------------------- half selection --

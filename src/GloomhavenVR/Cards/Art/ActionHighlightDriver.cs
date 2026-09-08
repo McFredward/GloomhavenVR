@@ -124,7 +124,15 @@ internal static class ActionHighlightDriver
         // FullAbilityCardAction.OnEnable -> Show() -> highlight.Hide().
         bool wantOn = target != null;
         bool isOn = target != null && target.gameObject.activeSelf;
-        bool gated = want == appliedState && wantDefault == appliedRegion && wantOn == isOn;
+        // Hardware report 2026-09-08 item 1: an active card stopped pulsing, then
+        // resumed later. OnDisable cancels hoverAnim when ANY ancestor is hidden, but
+        // leaves this child's activeSelf true. The former gate mistook that stopped
+        // pulse for a live one until an unrelated region/state edge restarted it.
+        // Read the actual native tween too; never restart a healthy authored cycle.
+        bool pulseAlive = target != null && target.hoverAnim != null
+                          && LeanTween.isTweening(target.hoverAnim.id);
+        bool gated = CardPresentationPolicy.HighlightSettled(want == appliedState,
+            wantDefault == appliedRegion, wantOn == isOn, want == Hover && target != null, pulseAlive);
 
         s_seen[(int)site] = true;
         if (gated)

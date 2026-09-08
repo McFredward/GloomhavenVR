@@ -3607,7 +3607,24 @@ internal sealed partial class CardsDriver
             // again on the very next rebuild — a repeated flight is the defect this replaces.
             _activeFlown.Add(f.CardId);
             Net.CardFxAnchor origin = SlotAnchor(f.Seat);
-            card.FlyFromPile(f.FromWorld, f.FromWidth, FlyToPileSeconds, arcUp, minArc);
+            // Item 3: FlyFromPile clears Grabbable and the zone loop skips flying
+            // cards. Restore the active column's inspection affordance at the actual
+            // landing, including while the second round card is still being played.
+            CardsHandUI? flightHand = Board.CharacterFocus.PresentedHand(CurrentHand());
+            card.FlyFromPile(f.FromWorld, f.FromWidth, FlyToPileSeconds, arcUp, minArc,
+                onComplete: () =>
+                {
+                    if (_active.Contains(card)
+                        && ReferenceEquals(flightHand, Board.CharacterFocus.PresentedHand(CurrentHand())))
+                    {
+                        card.Grabbable = Board.CharacterFocus.HandInspectable(flightHand);
+                        card.InspectOnly = true;
+                        card.AllowsGateHand = true;
+                        card.SetDockGrabPad(false);
+                        card.ResetColliderRegion();
+                    }
+                    _dirty = true;
+                });
             // The SECOND CALLER of the shipped mirrored-flight machine (Net.NetCardFx ->
             // RemoteCardFx), never a second implementation: the same outbox, the same 2-byte
             // endpoint pair, the same receiver. CardFxAnchor.Active (ModBuild 462) resolves on the

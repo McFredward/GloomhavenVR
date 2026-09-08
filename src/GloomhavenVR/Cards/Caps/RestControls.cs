@@ -15,15 +15,15 @@ namespace GloomhavenVR.Cards;
 /// "Kurze Rast" widget never docks any more (<see cref="WorldUI.Surfaces.TrayControlDockSurface"/>
 /// hardcodes <c>ShortRestDocked =&gt; false</c> and its docked-control list is empty), and
 /// <see cref="TickStatus"/> never consults it — visibility is
-/// <c>RestUiOffered &amp;&amp; (canShort || shortSelected)</c>, the outer term being the game's own
+/// <c>RestUiOffered &amp;&amp; canShort</c>, the outer term being the game's own
 /// offer predicate (see <see cref="RestUiOffered"/>).
 /// This doc used to describe a hide/reappear handshake with the native widget; there is none.
 /// Long rest: press → toggles the long-rest pseudo-card (CardID −1) through the game's
 /// own fan selection (CardsGameApi.ToggleLongRest) — there is NO discrete native
 /// long-rest button, so the long-rest control STAYS mod-drawn; the burn-a-discarded-
 /// card step arrives later as <c>CardHandMode.LoseCard</c> served by the fan.
-/// Buttons dim when the action is unavailable and accent when selected (same gating
-/// the 2D widgets use — see CardsGameApi.CanShortRest/CanLongRest).
+/// Buttons are visible only while their action can change selection and accent when selected.
+/// Ready hides them until undo; the same visibility/state bits are mirrored to every peer.
 /// </summary>
 internal sealed class RestControls
 {
@@ -528,6 +528,9 @@ internal sealed class RestControls
         // still draws a rest control. Vanilla resets the short-rest selection when it hides
         // (CardsHandUI.cs:706), which is the same statement in the game's own code.
         //
+        // HISTORICAL REJECTIONS (ModBuild 134/135). The selected-flag exception in (b) is
+        // superseded by the 2026-09-08 actionable-only ruling below; a flag is no longer
+        // allowed to keep a disabled cap visible.
         // REJECTED. (a) Special-casing the boots phase — e.g. hiding while
         // CardsGameApi.InitiativeAdjustHand is non-null — enumerates prompts instead of stating the
         // rule; every other post-selection prompt would keep its own stale keycap. (b) Dropping the
@@ -566,8 +569,11 @@ internal sealed class RestControls
             longSelected = CardsGameApi.IsLongRestSelected(hand);
         }
 
-        bool shortVisible = offered && (canShort || shortSelected);
-        bool longVisible = offered && (canLong || longSelected);
+        // User 2026-09-08 item 4: show a cap only while pressing it changes
+        // selection. A selected flag is decoration, never permission to keep a dead
+        // control visible after Ready. These exact bits also drive every peer's board.
+        bool shortVisible = offered && canShort;
+        bool longVisible = offered && canLong;
 
         // The ONE gate line: fires only on the edge where the offer gate is actually suppressing a
         // keycap a stale selection flag would otherwise have kept up — i.e. precisely the reported

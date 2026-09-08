@@ -115,6 +115,7 @@ internal sealed class VRCardFactory
     /// <summary>Park a card invisibly without destroying it (mode exits).</summary>
     internal void Park(VRCard card)
     {
+        card.ForgetActionHighlight();
         card.Grabbable = false;
         card.SetHome(PoolRoot, Vector3.zero, Quaternion.identity, 1f, instant: true);
     }
