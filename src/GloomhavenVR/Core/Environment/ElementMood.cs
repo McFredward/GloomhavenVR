@@ -275,8 +275,8 @@ namespace GloomhavenVR.Core;
 ///
 /// <para><b>SCOPE AND COST.</b> Ticked from <see cref="SkyAlternative.Tick"/> — the environment
 /// driver, and the one entry point that already sees every relevant state: it runs once per frame
-/// under <c>MixedReality.Tick</c>'s MR-OFF branch (MixedReality.cs:684), and the MR-ON branch calls
-/// <c>SkyAlternative.StandDown()</c> (MixedReality.cs:692) which stands this down too. Sitting here
+/// under <c>MixedReality.Tick</c>'s MR-OFF branch (MixedReality.cs:664), and the MR-ON branch calls
+/// <c>SkyAlternative.StandDown()</c> (MixedReality.cs:672) which stands this down too. Sitting here
 /// rather than in <c>VRRigDriver._tailSteps</c> is deliberate: that array is a LOCKED frame order
 /// (.planning/refactor/FRAME-ORDER.lock, <c>VRRigDriver._tailSteps</c>) whose last step must stay
 /// last, and this feature has no ordering relationship with any camera-state step in it. Gating is
@@ -431,9 +431,10 @@ internal static class ElementMood
     //
     // NO ANCHOR IS SENT WITH THE MASKS, deliberately. An element force is a STATE: each client's own
     // poll below sees the column change and anchors its own 1 s ramp then, exactly as it does for a
-    // real infusion, leaving the same bounded detection skew a real infusion already has. The part
-    // with a phase to get wrong — the waning BREATH — is an absolute function of the shared clock and
-    // is therefore already identical on every client that shares it.
+    // real infusion, leaving the same bounded detection skew a real infusion already has. There is
+    // no term left with a phase to get wrong: the waning BREATH was deleted on 2026-09-06 (see the
+    // class doc — NO ENVIRONMENT EFFECT MAY BLINK), so every column now publishes a constant and
+    // the only per-client thing is the 1 s ramp each one anchors for itself.
     //
     // LOCAL SETTINGS HAVE PRECEDENCE (user ruling, same day): a peer's force is refused at the door
     // by Net/RemoteTestTriggers.Drive unless the receiver's own environment dial matches the sender's
@@ -1000,8 +1001,8 @@ internal static class ElementMood
 
             // THE OVERRIDE, and it is one line because it is placed where a lie costs the least: the
             // game's board has already been read (and never written), and everything downstream —
-            // the edge detector, the ramp anchoring, the breath, the peak, the log — treats the
-            // forced column exactly like a sensed one. So a latch ramps IN like a real infusion and,
+            // the edge detector, the ramp anchoring, the peak, the log — treats the forced column
+            // exactly like a sensed one. So a latch ramps IN like a real infusion and,
             // when it is released, ramps OUT like a real one, with no second code path to keep in
             // step. THAT IS ALSO WHY MIXTURES NEEDED NO OTHER CHANGE: this loop already ran six
             // times and the peak is a max over all six — so six latched elements smooth and publish
@@ -1269,15 +1270,6 @@ internal static class ElementMood
     // ---- diagnostics --------------------------------------------------------------------------
 
     /// <summary>
-    /// THE line. EDGE ONLY — one per actual change of the six columns, never per frame — because
-    /// until the art lane exists this log is the ONLY way anyone (including the user, on hardware,
-    /// with no headset debugger) can verify that the sensing, the gating and the publishing are
-    /// right. It names every element with its raw game state AND the intensity that state is
-    /// heading for, the master factor, and the fact that none of this needs the wire, with the
-    /// citation — because "everything must be synced" is a standing project rule and this looks
-    /// like an exception until you read why it is not one.
-    /// </summary>
-    /// <summary>
     /// THE GRASS LINE, and the one instrument this round's fix can be judged from without a headset
     /// debugger. It is <c>Note</c> rather than <c>Info</c> on purpose: it exists to be read in a
     /// shipped build's Player.log, which is where the defect was reported from.
@@ -1424,6 +1416,15 @@ internal static class ElementMood
         VRLog.Note("Core", sb.ToString());
     }
 
+    /// <summary>
+    /// THE line. EDGE ONLY — one per actual change of the six columns, never per frame — because
+    /// until the art lane exists this log is the ONLY way anyone (including the user, on hardware,
+    /// with no headset debugger) can verify that the sensing, the gating and the publishing are
+    /// right. It names every element with its raw game state AND the intensity that state is
+    /// heading for, the master factor, and the fact that none of this needs the wire, with the
+    /// citation — because "everything must be synced" is a standing project rule and this looks
+    /// like an exception until you read why it is not one.
+    /// </summary>
     private static void LogEdge(int signature, float master, float clock)
     {
         var sb = new StringBuilder(320);

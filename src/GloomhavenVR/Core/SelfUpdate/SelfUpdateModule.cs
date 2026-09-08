@@ -10,10 +10,11 @@ namespace GloomhavenVR.Core;
 /// The self-update feature: one question to GitHub when the main menu comes up, one window if the
 /// answer is "there is a newer release", and nothing whatsoever otherwise.
 ///
-/// <para>REGISTRATION. This is an <see cref="IVRModule"/> like every other feature, but the list it
-/// belongs in lives in <c>Plugin.RegisterModules</c>, which is not this lane's file. Until the
-/// single line <c>_modules.Add(new Core.SelfUpdateModule());</c> is added there, nothing in this
-/// feature runs — see <c>.planning/debug/laneO-out-of-lane.diff</c>.</para>
+/// <para>REGISTRATION. This is an <see cref="IVRModule"/> like every other feature, and the list it
+/// belongs in lives in <c>Plugin.RegisterModules</c> — <c>Plugin.cs:1095</c>,
+/// <c>_modules.Add(new Core.SelfUpdateModule());</c>. That line was the one thing the lane which
+/// built this file could not add itself, and it landed; the paragraph is kept because the module
+/// runs from nowhere else, so a reader chasing "why did nothing happen" starts there.</para>
 ///
 /// <para>NOT BLOCKING, ANYWHERE. The check is a coroutine over an asynchronous
 /// <c>UnityWebRequest</c> with a ten-second timeout and no retry. Verification and unpacking happen

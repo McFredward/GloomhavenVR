@@ -426,7 +426,7 @@ internal static class ComfortSettings
             new AcceptableValueRange<float>(0f, 5f));
         SavedScaleMultiplier = Bind("SavedScaleMultiplier", Defaults.SavedScaleMultiplier,
             "Last pinch-scale multiplier relative to the base WorldScale (the 'table scale' " +
-            "shown in the in-VR settings panel). Written automatically after each two-grip " +
+            "shown in the in-VR settings panel). Written automatically after each two-stick-click " +
             "scale gesture and re-applied when the rig is rebuilt. Default 2.5 — the auto base " +
             "scale reads as a huge diorama; 2.5x shrinks it to a comfortable table size at " +
             "first spawn (user request: default table scale ~2.5).");
@@ -501,6 +501,7 @@ internal static class ComfortSettings
         RecenterHoldSeconds.Detach();
         SavedScaleMultiplier.Detach();
         DebugGizmos.Detach();
+        KeepPlaceOnReorigin.Detach();
 
         AnyChanged = null;
         _file = null;

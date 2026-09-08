@@ -235,7 +235,7 @@ internal static class HostingChainWatch
         if (_pendingStack != null)
         {
             bool wasHosting = _pendingIsHosting;
-            ReportAmputation();
+            HandleAmputation();
             RefreshRoster(manager.HostingStartedEvent, StartedRoster, ref _startedCount);
             RefreshRoster(manager.HostingEndedEvent, EndedRoster, ref _endedCount);
             if (wasHosting)
@@ -400,7 +400,7 @@ internal static class HostingChainWatch
         _pendingIsHosting = stackTrace.IndexOf("FFSNet.NetworkManager", StringComparison.Ordinal) >= 0;
     }
 
-    private static void ReportAmputation()
+    private static void HandleAmputation()
     {
         string condition = _pendingCondition ?? "(no message)";
         string stack = _pendingStack ?? string.Empty;

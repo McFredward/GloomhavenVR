@@ -12,8 +12,8 @@ internal static partial class Haunt
     // =============================================================================================
     //  WHY THIS EXISTS, AND WHY IT IS HERE AND NOT IN THE THING THAT NEEDS IT
     //
-    //  USER CORRECTION, 2026-08-14, verbatim — it REVERSES the earlier "ohne sound" ruling that
-    //  Haunt.cs:74-75 still quotes as the reason the apparitions are silent:
+    //  USER CORRECTION, 2026-08-14, verbatim — it REVERSES the earlier "ohne sound" ruling, which
+    //  Haunt.cs quotes at :18 as part of the original request and records as WITHDRAWN at :96-102:
     //      "Ich nehme die Entscheidung von zuvor zurück, die Grusel-Erscheinungen sollen NICHT
     //       stumm bleiben. Auch hier sollen Soundeffekte kommen aber auch nicht aufdringlich und
     //       nur wenn die Umgebungssounds aktiviert sind."
@@ -230,7 +230,7 @@ internal static partial class Haunt
         // playing now" — exactly what the shader sees in _GhvrHauntForce.y. It does have one visible
         // consequence worth stating, because it is a behaviour and not an accident: StartClock
         // changes once per run, and EnvSound.TickHaunt fires one cue per (StartClock, Card) pair
-        // (EnvSound.cs, "Fire once per (start, card)"). So a latched apparition makes its sound
+        // (EnvSound.4.NightCalls.cs:920, "Fire once per (start, card)"). So a latched apparition makes its sound
         // again on every repetition, which is what a tester judging the cue against the picture
         // needs — and it stays one cue per appearance, never one per frame.
         if (_forceId >= 0)

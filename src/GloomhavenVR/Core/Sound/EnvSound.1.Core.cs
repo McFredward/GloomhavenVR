@@ -8,7 +8,7 @@ namespace GloomhavenVR.Core;
 
 // =================================================================================================
 //  ENV SOUND — the environment, heard. Spatialised sources attached to the things that make them,
-//  kept quiet enough that the game always wins. THE ART IS IN Core/EnvSound.Bank.cs; this file is
+//  kept quiet enough that the game always wins. THE ART IS IN Core/Sound/EnvSound.Bank.cs; this file is
 //  the placement, the levels, the gating and the teardown.
 // =================================================================================================
 
@@ -29,10 +29,10 @@ namespace GloomhavenVR.Core;
 /// easter eggs are silent: "Ich nehme die Entscheidung von zuvor zurück, die Grusel-Erscheinungen
 /// sollen NICHT stumm bleiben. Auch hier sollen Soundeffekte kommen aber auch nicht aufdringlich und
 /// nur wenn die Umgebungssounds aktiviert sind." So the apparitions DO make sound, on this file's
-/// one toggle and no second switch of their own. <c>Haunt.cs:74-75</c> still carries the old "ohne
-/// sound" quotation as the reason it publishes no audio channel — that remains true of THAT file
-/// (it is still the switch and nothing else); the sound is made here, from the schedule
-/// <see cref="Haunt.Resolve"/> now exposes.</para>
+/// one toggle and no second switch of their own. <c>Haunt.cs</c> quotes the original "ohne sound"
+/// request at <c>:18</c> and records the reversal itself at <c>:96-102</c>; it still publishes no
+/// audio channel, because it is the switch and nothing else. The sound is made here, from the
+/// schedule <see cref="Haunt.Resolve"/> now exposes.</para>
 ///
 /// <para><b>THE ROOM ITSELF: ASKED FOR AT ModBuild 154, ANSWERED WITH TWO CONTINUOUS BEDS, AND THE
 /// BEDS ARE NOW DELETED ON THE USER'S OWN RULING.</b> The request was "In Szenarios gibt es immer die

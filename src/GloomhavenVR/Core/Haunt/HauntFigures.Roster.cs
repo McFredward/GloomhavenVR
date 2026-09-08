@@ -426,15 +426,18 @@ internal static partial class HauntFigures
         /// Play ONE quiet, distance-attenuated sound from the creature's own bank at the figure's
         /// world position.
         ///
-        /// <para><b>THE POSITIONAL OVERLOAD IS USED, and that is only correct because
-        /// <see cref="EnvSound"/> owns the <c>AudioListener</c>.</b> The mod normally must not play
+        /// <para><b>THE POSITIONAL OVERLOAD IS USED, and that is only correct because the ear is on
+        /// the VR head while <see cref="EnvSound"/> is running.</b> The mod normally must not play
         /// 3D audio positionally — <see cref="GameAudio"/>'s class doc records the card-fan bug
         /// where a positional item attenuated to silence because the listener was on the game's 2D
-        /// camera, metres away. But <c>EnvSound.TakeListener</c> (EnvSound.cs:1056-1090) moves the
-        /// listener onto the VR head for exactly the two environments this feature runs in, and it
-        /// does so precisely when its own switch is on. Gating on that switch therefore satisfies
-        /// two independent requirements with one condition: the standing ruling that apparition
-        /// sound rides the environment-sound toggle, and the technical precondition that makes a
+        /// camera, metres away. But <c>EnvSound.TakeListener</c>
+        /// (<c>Core/Sound/EnvSound.5.Shelf.cs:550-553</c>) claims the shared ear through
+        /// <c>Core/HeadEar.Claim("EnvSound")</c> for exactly the two environments this feature runs
+        /// in, and it does so precisely when its own switch is on. (The ear moved out of EnvSound at
+        /// ModBuild 297 because spatial voice chat needs the SAME one; the claim is shared and
+        /// refcounted, which changes nothing here.) Gating on that switch therefore satisfies two
+        /// independent requirements with one condition: the standing ruling that apparition sound
+        /// rides the environment-sound toggle, and the technical precondition that makes a
         /// positional play audible at all.</para>
         ///
         /// <para>The item is chosen by ORDINAL SORT and not by a hash, so it needs no shared state

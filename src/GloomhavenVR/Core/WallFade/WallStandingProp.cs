@@ -271,10 +271,13 @@ internal static class WallStandingProp
     /// by the FADE WRITE census so the next log can move it on evidence.</summary>
     internal const float MaxHeightWU = 2.5f;
 
-    /// <summary>The leading tag of the ModBuild-266 WALL-FRAGMENT refusal sentence. A constant so
-    /// the census can COUNT that refusal without a second copy of the term's arithmetic standing
-    /// next to the first one and drifting from it. Also what to grep the next hardware log
-    /// for.</summary>
+    /// <summary>The leading tag of the ModBuild-266 WALL-FRAGMENT refusal sentence. Since
+    /// ModBuild 279 (PERF E) the census counts this refusal off
+    /// <c>FloorVerdict.WallFeatureFragment</c> and never off the string — see
+    /// <c>WallSegmentFade.Standing.cs</c>'s census — so what the constant is for now is that the
+    /// sentence has exactly ONE spelling, which is what stops it and the wire vector that pins it
+    /// (<c>tests/GloomhavenVR.WireTests/WallStandingPropVectors.cs</c>) drifting apart. Also what
+    /// to grep the next hardware log for.</summary>
     internal const string WallFragmentTag = "wall-feature fragment";
 
     /// <summary>The leading tag of the WALL-BUILT SECTION refusal sentence — the FIGURE arm's
@@ -410,7 +413,8 @@ internal static class WallStandingProp
     ///
     /// <para><b>PERF E (ModBuild 279). WHY THIS SPLIT EXISTS AND WHAT IT MAY NOT DO.</b> The
     /// user's escalation is <i>"Ich will aber eigentlich gar keine spürbaren Ruckler - nicht nur
-    /// seltenere"</i>, and the wall-fade commit measures 94.8 ms with a coefficient of variation
+    /// seltenere"</i>, and the wall-fade commit measured 94.8 ms at ModBuild 277 (72.84 ms after
+    /// ModBuild 281 — WALL-FADE-CLOSEOUT.md §3) with a coefficient of variation
     /// under 1 % — a fixed amount of work over a fixed population. Part of that fixed amount is
     /// diagnostic: <see cref="StandsOnFloor"/> was called once per child renderer of every cache
     /// wall (thousands of times per commit) and built a <c>shape</c> column plus one of five

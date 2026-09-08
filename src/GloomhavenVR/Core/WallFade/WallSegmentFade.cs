@@ -2022,7 +2022,7 @@ internal static partial class WallSegmentFade
         private int _cycleWorstCommitPhase = -1;
         private float _cycleWorstCommitPhaseMillis;
 
-        /// <summary>True between <c>BeginPrepareStage</c>'s <c>BeginStandingPropScope</c> and
+        /// <summary>True between <c>BeginPrepareStage</c>'s <c>BeginStandingMemoScope</c> and
         /// the commit that consumes it. The commit asserts it: a commit that reached the wall
         /// cache with no scope open would be running the standing rule against the PREVIOUS
         /// rescan's verdict memos, which is a statue the wall system may claim as masonry.</summary>
@@ -2211,6 +2211,14 @@ internal static partial class WallSegmentFade
                     // gate would still be closed when the next scenario's very first tick asks
                     // for a table. See ReleaseSamplingSuspension — the flag is read EARLY in the tick
                     // and written LATE, so it cannot be left to unwind itself.
+                    //
+                    // THIS CALL IS A BACKSTOP AND IS A NO-OP TODAY, which is worth stating so the
+                    // next reader does not go looking for its cause string in a log. The line above
+                    // reaches ReleaseSamplingSuspension already (ResetInsideBoardState ->
+                    // ReleaseWalkInside -> ReleaseSamplingSuspension), and this call is guarded by
+                    // !_samplingSuspended, so the cause below can never actually print. It is kept
+                    // so that a future inactive path which does NOT run ResetInsideBoardState
+                    // cannot latch the fade off.
                     ReleaseSamplingSuspension(Time.unscaledTime,
                         "the subsystem went inactive (toggle off, no scenario, or no head)");
                 }

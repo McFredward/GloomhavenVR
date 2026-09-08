@@ -365,20 +365,6 @@ internal static partial class MixedReality
     /// authored top surface (the round-7 deep fill's residual risk).</summary>
     private const float FillSquashY = 0.02f;
 
-    /// <summary>Default for '[MixedReality] UnseenRimInset' (world units). LOCAL FALLBACK: this
-    /// branch does not own Defaults/Loc — the constant + description are reported for merge; swap
-    /// this for <c>Defaults.UnseenRimInset</c> then. 0.03 wu ≈ 3 cm on a piece whose whole height
-    /// is 0.3 wu (log: 'Simple Tile'[y−0.4..−0.1]) — deep enough that no z-fighting or authored
-    /// bevel can expose it, shallow enough that any ray entering a side face hits it at once.</summary>
-
-    /// <summary>Default for '[MixedReality] UnseenRimTopClearance' (world units). LOCAL FALLBACK,
-    /// as above. 0.025 &gt; the 0.02 wafer drop by design (and the invariant re-asserts
-    /// waferDrop + 0.005 whatever the cfg says): the curtain's cap stays under the XZ ×1.2 WIDER
-    /// wafer, so from above it is hidden behind a surface the user has already approved and the
-    /// round-13 tops/relief/animation are untouched by construction. Kept as SMALL as that
-    /// invariant allows, because the residual leak is the band between the authored top plane and
-    /// the cap, where a near-horizontal ray can still pass over the curtain.</summary>
-
     /// <summary>How far (world units) the rim curtain's bottom cap reaches below the piece's mesh
     /// bottom, so the prism closes under the piece instead of ending flush with it. Not a config
     /// key: from below the region has read fully opaque since round 9 (mixed_reality_tiles2.png),
@@ -2061,9 +2047,10 @@ internal static partial class MixedReality
             {
                 if (e.Plate != null) // source renderer died alone (component removal) — clean up
                     UnityEngine.Object.Destroy(e.Plate.gameObject);
-                // The base quad lives under the scene-root holder, NOT under the source — it
-                // never dies structurally with the piece and must go explicitly (Apparance regen
-                // would otherwise strand a dark quad under a piece that no longer exists).
+                // The fill and the rim are CHILDREN of the source, exactly as the plate is, so a
+                // piece that is destroyed structurally takes all three with it. This branch is the
+                // one case that does not: a renderer removed as a COMPONENT leaves its GameObject
+                // and therefore its children standing, so they are destroyed explicitly here.
                 if (e.Fill != null) // like the plate: source died alone — clean up the children
                     UnityEngine.Object.Destroy(e.Fill.gameObject);
                 if (e.Rim != null)

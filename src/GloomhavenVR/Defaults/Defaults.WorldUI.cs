@@ -137,10 +137,11 @@ internal static partial class Defaults
     internal const bool WristHud = true;                     // => [WorldUI] WristHud
     internal const bool PanelMipBake = true;                 // => [WorldUI] PanelMipBake
     // ---- WorldUI/PanelSupersample.cs -----------------------------------------------
-    // DEFAULT OFF for this build, deliberately: it is the largest rendering change in the mod and
-    // it lands on a symptom that has survived nine hardware rounds, so the user has to be able to
-    // A/B it against today's behaviour inside ONE session. OFF is byte-for-byte today's rendering
-    // — no camera, no render target, no layer is touched while the switch is false.
+    // SHIPPED ON. It went out OFF for one build so the user could A/B the largest rendering change
+    // in the mod against the old behaviour inside one session; he judged it and it has been the
+    // default since. The off path is still byte-for-byte the old rendering — no camera, no render
+    // target and no layer is touched while the switch is false — which is what makes turning it
+    // off a real answer for a machine that cannot afford it.
     internal const bool PanelSupersample = true;             // => [WorldUI] PanelSupersample
     // ModBuild 199 RAISED THIS FROM 1.0, AND 1.0 WAS NEVER A SETTING — IT WAS A NO-OP.
     // At factor 1.0 the capture target is allocated at exactly the window's authored resolution, i.e.

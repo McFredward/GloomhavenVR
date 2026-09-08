@@ -7,7 +7,8 @@ namespace GloomhavenVR.Core.Events;
 /// Wires the VR event bus: applies the observation patches
 /// (<see cref="Choreographer_ProcessMessage_Patch"/>,
 /// <see cref="Choreographer_SetChoreographerState_Patch"/>,
-/// <see cref="UIManager_ToggleLockUI_Patch"/>), subscribes the
+/// <see cref="UIManager_ToggleLockUI_Patch"/>,
+/// <see cref="UIWindow_Transition_Patch"/>), subscribes the
 /// <see cref="GameEventBridge"/> and runs the <see cref="VRModeStateMachine"/>.
 ///
 /// Active when VR runs, and also in Dev mode ([Dev] Enabled) so the whole event/mode

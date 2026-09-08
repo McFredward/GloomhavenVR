@@ -731,7 +731,7 @@ internal static class SkyAlternative
         //   OPTIONAL subsystems. On 2026-08-23 EnvSound.ApplyScale dereferenced a stale Voice
         //   whose AudioSource the previous rig teardown had destroyed and threw a
         //   NullReferenceException on EVERY FRAME of the map room — EnvSound.cs:1982 →
-        //   SkyAlternative.cs:876 → MixedReality.cs:678, 19,853 isolated throws in one
+        //   SkyAlternative.cs:876 → MixedReality.cs:664, 19,853 isolated throws in one
         //   Player.log ("[Rig] Tick 'Rig.MixedReality' is still throwing"). TickGuard isolated
         //   it exactly as designed, so the room placed, the sky placed, the sound bank built and
         //   the map light aimed — every visible symptom said the environment was fine. But Tick
@@ -790,7 +790,7 @@ internal static class SkyAlternative
     {
         // ELEMENT MOOD is NOT ticked here, and the near miss is worth recording: this looks like
         // the environment's per-frame entry point, but MixedReality.Tick only reaches it on its
-        // MR-OFF branch (MixedReality.cs:684). The mood has to keep sensing while MR is ON — the
+        // MR-OFF branch (MixedReality.cs:664). The mood has to keep sensing while MR is ON — the
         // user asked for element effects in passthrough as well — so it is ticked one level up, at
         // the top of MixedReality.Tick, which is the only per-frame call that runs on BOTH
         // branches. See Core/ElementMood.cs, "MIXED REALITY KEEPS SENSING".
@@ -910,7 +910,7 @@ internal static class SkyAlternative
         // Up to and including ModBuild 229 this block sat at the BOTTOM of the method, below four
         // OPTIONAL subsystems, and that ordering is the whole of his "großer schwarzer Rahmen"
         // report. EnvSound.ApplyScale threw a NullReferenceException on a stale Voice on every
-        // frame of the 3D map room (EnvSound.cs:1982 → this method → MixedReality.cs:678; 19,853
+        // frame of the 3D map room (EnvSound.cs:1982 → this method → MixedReality.cs:664; 19,853
         // isolated throws in .planning/debug/Player.log). TickGuard did its job one level up and
         // the frame kept running, but this method never got past the sound: `_active` stayed false
         // for the entire session, MinFarWorldUnits answered 0, and the head camera kept the map
@@ -947,7 +947,7 @@ internal static class SkyAlternative
         // ---- the OPTIONAL subsystems, each isolated -------------------------------------------
         // Order is unchanged and still load-bearing (see each note). What changed in ModBuild 230
         // is only that a throw in one of them can no longer take the other three, SkyBackdrop.Tick
-        // on MixedReality.cs:679, or the activation above down with it. TickGuard names the step,
+        // on MixedReality.cs:665, or the activation above down with it. TickGuard names the step,
         // so the Player.log now attributes a fault to 'Sky.EnvSound' instead of to the whole of
         // 'Rig.MixedReality' — which in his log named a subsystem four frames of call stack away
         // from the thing that was actually broken.
@@ -1021,14 +1021,14 @@ internal static class SkyAlternative
     internal static void StandDown()
     {
         // ELEMENT MOOD DELIBERATELY DOES NOT GO DOWN HERE. It used to, and that was the ModBuild
-        // 139 miss: this path is what MR calls (MixedReality.cs:692), and the user's requirement is
+        // 139 miss: this path is what MR calls (MixedReality.cs:672), and the user's requirement is
         // that the elements still reach the player in passthrough. The mood is ticked from
         // MixedReality.Tick on both branches and keeps publishing; the ROOM and the SKY stand down,
         // which is what the MR ruling is actually about. Teardown still zeroes the globals —
         // RestoreAll below.
         //
         // THE HAUNT DOES GO DOWN HERE, and that is the deliberate opposite of the paragraph above.
-        // This path is what MR calls (MixedReality.cs:692), the apparitions are geometry in the
+        // This path is what MR calls (MixedReality.cs:672), the apparitions are geometry in the
         // room that is being torn down, and the standing MR ruling is that the mod puts no
         // occluding surface over passthrough. A mood is a number; a face is not.
         Haunt.StandDown("the environment stood down (mixed reality, or the style changed)");

@@ -228,8 +228,12 @@ internal static class VoiceChatBridge
     /// </summary>
     internal static bool IsSpeaking(ConnectedUserVoice voice) => voice.IsSpeaking;
 
-    /// <summary>Whether the player has muted this peer through the game's own roster. Read only to
-    /// keep the badge honest — a muted peer makes no sound and must show none.</summary>
+    /// <summary>Whether the player has muted this peer through the game's own roster. It is read
+    /// for the LEVEL and never for the badge's on/off: a muted peer who is talking still shows a
+    /// badge, because whether they are speaking is a fact about their board and muting is this
+    /// listener's own choice. What the mute does is hold the deflection at step 1 —
+    /// <c>GetOutputData</c> on a muted source reads silence and would otherwise drive the badge to
+    /// a level that contradicts the state it is showing. See <c>VoiceSpatial.cs:458-473</c>.</summary>
     internal static bool IsMuted(ConnectedUserVoice voice) => voice.IsMuted;
 
     /// <summary>

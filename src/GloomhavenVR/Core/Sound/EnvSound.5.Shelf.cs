@@ -125,12 +125,14 @@ internal static partial class EnvSound
     /// <para>IT IS PASSED RATHER THAN RECONSTRUCTED FROM `now - lead`, and that is the difference
     /// between right and nearly right. The two agree on an event this feature watched from its
     /// beginning, and they do NOT agree when the environment stands up in the middle of one: the
-    /// caller deliberately allows a cue to fire late (up to the whole run plus 1.5 s), so `now`
-    /// can be twenty seconds past the start, and a reconstruction would then schedule an arrival
-    /// twenty seconds after the shelf had already arrived. Reading the start directly makes every
-    /// contact an ABSOLUTE time on the shared clock, so a client that joined late simply finds them
-    /// already past and drops them — which is what should happen, and is what
-    /// <see cref="TickDeferredCues"/>'s staleness guard does with no extra code.</para></param>
+    /// caller lets a cue fire up to <see cref="DeferredStaleSeconds"/> late (ModBuild 150 narrowed
+    /// that from the whole run plus 1.5 s — see THE MID-FLIGHT JOIN in <see cref="TickHaunt"/>, and
+    /// note that the budget is what makes every contact behind the lead cue still joinable), so
+    /// `now` is not the start and a reconstruction would schedule the arrival that much late.
+    /// Reading the start directly makes every contact an ABSOLUTE time on the shared clock, so a
+    /// client that joined late simply finds them already past and drops them — which is what should
+    /// happen, and is what <see cref="TickDeferredCues"/>'s staleness guard does with no extra
+    /// code.</para></param>
     /// <param name="runs">The event's real length: the card's authored envelope times the slot's
     /// <c>DurationMul</c>. Ice stretches it by up to 35%, and everything here scales with it because
     /// the shader's phase does.</param>
@@ -1011,7 +1013,7 @@ internal static partial class EnvSound
         // gains and then nothing ever said which of them was audible AT REST. This clause is the
         // whole at-rest inventory, so the next report can name an emitter.
         sb.Append(" AT REST (ModBuild 223 — THE TWO CONTINUOUS ROOM TONES ARE DELETED, see the ")
-          .Append("THE ROOM TONES, DELETED block in Core/EnvSound.cs for the ruling and the ")
+          .Append("THE ROOM TONES, DELETED block in Core/Sound/EnvSound.1.Core.cs for the ruling and the ")
           .Append("measurements): ");
         if (style == SkyStyle.Cellar)
         {
@@ -1099,34 +1101,34 @@ internal static partial class EnvSound
               .Append(BirdMinMeters.ToString("F0")).Append("..").Append(BirdMaxMeters.ToString("F0"))
               .Append(" m, on a ring ").Append(BirdPerchNearMeters.ToString("F0")).Append("..")
               .Append(BirdPerchFarMeters.ToString("F0")).Append(" m out. AND FIVE MORE ANIMALS ")
-              .Append("SINCE ModBuild 241 (user: \"Füge noch mehr verschiedene Tiersounds hinzu ")
-              .Append("die zu einem Wald in der Nacht passen für mehr Varianz (nicht mehr ")
-              .Append("Häufigkeit)\"): a KeWick, a Raven, a Fox, a RoeDeer and an OwletBeg, at gains ")
+              .Append("WERE ADDED AT ModBuild 241 (user: \"Füge noch mehr verschiedene Tiersounds ")
+              .Append("hinzu die zu einem Wald in der Nacht passen für mehr Varianz (nicht mehr ")
+              .Append("Häufigkeit)\"), OF WHICH THREE STILL DEAL: a KeWick, a Raven and an OwletBeg, ")
+              .Append("at gains ")
               .Append(KeWickGain.ToString("F3")).Append("/").Append(RavenGain.ToString("F3"))
-              .Append("/").Append(FoxGain.ToString("F3")).Append("/")
-              .Append(RoeDeerGain.ToString("F3")).Append("/").Append(OwletGain.ToString("F3"))
+              .Append("/").Append(OwletGain.ToString("F3"))
               .Append(" — every one BELOW the owl's ").Append(OwlGain.ToString("F3"))
               .Append(", so nothing in this room got louder. AND THREE EERIE ONES SINCE ModBuild 242 ")
               .Append("(user: \"ein paar gruseligere Tiersounds ... wie man es aus der Pop-Kultur ")
-              .Append("kennt. Aber auch nicht aufdringlich. Gerne eventuell auch Insekten Sounds\"): ")
-              .Append("a Howl (wolf, far), a BarnOwl (screech) and a Stridulate (one insect), at ")
-              .Append("gains ").Append(HowlGain.ToString("F3")).Append("/")
-              .Append(BarnOwlGain.ToString("F3")).Append("/").Append(StridGain.ToString("F3"))
-              .Append(" — the three QUIETEST cards in the deck, all below the owlet's ")
+              .Append("kennt. Aber auch nicht aufdringlich. Gerne eventuell auch Insekten Sounds\"), ")
+              .Append("OF WHICH ONE STILL DEALS: a Stridulate (one insect) at gain ")
+              .Append(StridGain.ToString("F3"))
+              .Append(", the QUIETEST card in the deck, below the owlet's ")
               .Append(OwletGain.ToString("F3"))
-              .Append(", and with three of the four slowest onsets in the deck (232/99/79 ms ")
-              .Append("against the roe deer's 5.3): eerie by timbre and rarity, never by level or ")
-              .Append("by a transient. THE RATE DID NOT MOVE AND THAT IS THE ")
+              .Append(" — eerie by timbre and rarity, never by level or by a transient. FOUR VOICES ")
+              .Append("WERE WITHDRAWN BY NAME AT ModBuild 246 (user: \"Bei den Waldsounds entferne: ")
+              .Append("BarnOwl, Fox, Howl, RoeDeer\"): those four are gone from the deck and are not ")
+              .Append("synthesised at all, so a Fox, RoeDeer, Howl or BarnOwl named anywhere below ")
+              .Append("this line means a merge went wrong. THE RATE DID NOT MOVE AND THAT IS THE ")
               .Append("POINT: still one call per slot, still ")
               .Append((100f * NightCallSkip).ToString("F0")).Append("% of slots silent. The animal ")
               .Append("is DEALT from a ").Append(NightCallDeck.Length.ToString())
               .Append("-card deck (EnvSoundSchedule.DeckDraw, salt 0x")
               .Append(NightCallDeckSalt.ToString("X8"))
-              .Append("), which repeats itself back-to-back 0.03% of the time against the 12.5% a ")
-              .Append("weighted draw of the same shares would, and whose long-run shares are EXACT ")
-              .Append("(4/3/3/2/2/2/1/1/1/1 of 20 — the fox, the roe deer, the wolf and the barn owl ")
-              .Append("are one card each, about one per 18 minutes, and never more than 39 calls ")
-              .Append("apart). It is integer-only and a ")
+              .Append("), which repeats itself back-to-back far less often than a weighted draw of ")
+              .Append("the same shares would, and whose long-run shares are EXACT (4/3/3/2/2/2 of ")
+              .Append("16 — the tawny owl is 44% across its two calls, and the drought on any card ")
+              .Append("is bounded at 2m-1 calls by construction). It is integer-only and a ")
               .Append("pure function of the slot, so every client in this room deals the same card. ")
               .Append("A ROUND THAT WANTS MORE VARIETY MUST ADD CARDS, NEVER SLOTS. FRAME: ")
               .Append(_perchFrame != null ? "'" + _perchFrame.name + "'" : "NO NODE")
@@ -1137,8 +1139,8 @@ internal static partial class EnvSound
                       "file never has to know the room's placement, art scale or yaw. ")
               .Append("EVERY CALL IS RE-PLACED: azimuth, radius (area-uniform in the annulus, as ")
               .Append("the bake seats the trees themselves) and height (a fraction of the canopy at ")
-              .Append("that radius for the six that PERCH; authored metres off the ground plane ")
-              .Append("for the fox, the roe deer, the wolf and the insect, which cannot climb) are ")
+              .Append("that radius for the five that PERCH; authored metres off the ground plane ")
+              .Append("for the insect, which cannot climb) are ")
               .Append("three hash channels ")
               .Append("off the SLOT INDEX and nothing else, so ")
               .Append("both players hear the same animal from the same tree on the same frame with ")

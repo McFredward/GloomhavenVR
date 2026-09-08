@@ -266,19 +266,6 @@ namespace GloomhavenVR.Core
         private static readonly Dictionary<int, Mesh> _capCache = new();
 
         /// <summary>
-        /// A UNIT-LENGTH shaft: a tube of the given radius running along +X from −0.5 to +0.5, carrying
-        /// the mid-length swell. Scale it along X to the length you want — that is the whole reason it
-        /// is unit length and the reason the caps are a separate mesh.
-        ///
-        /// <para>UV: <c>u</c> runs along the rod across the texture's SHAFT band
-        /// (<see cref="ShaftU0"/> … <see cref="ShaftU1"/>), <c>v</c> runs
-        /// around the circumference. The band is mapped ONCE rather than tiled, so a longer bar stretches
-        /// its shaft texture instead of repeating it. That is a deliberate trade: wood grain and forged
-        /// patina both run ALONG a turned rod, so stretching them is invisible at the 24 mm thickness
-        /// these bars are drawn at, whereas tiling a sub-band of an atlas needs either a second material
-        /// or a second texture — and a second material would break the one-write highlight above.</para>
-        /// </summary>
-        /// <summary>
         /// Snap a raw repeat count to the value a mesh is actually built for. Public so the caller
         /// can ask "would this change the mesh?" without building anything.
         /// </summary>

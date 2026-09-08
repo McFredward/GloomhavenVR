@@ -253,9 +253,9 @@ internal static partial class HauntFigures
     /// 0.85 to 0.12 as they climb (:3552-3554); the shaft ends in a pitch-black cap (:3563-3567);
     /// there is no candle, no moonbeam and no reactor anywhere near it — this file's own light block
     /// calls the stair alcove one of the room's two deliberately black corners. So the measured room
-    /// level at the figure's chest is about as low as the cellar rig goes, and the darkening in
-    /// HauntFigures.Clone.cs puts the creature at roughly a fiftieth of its albedo. You see that
-    /// something is standing there. You do not see what.</para>
+    /// level at the figure's chest is about as low as the cellar rig goes, and the darkening
+    /// (<c>HauntFigures.Math.cs</c>, THE DARKENING) puts the creature near its floor of 0.100 of its
+    /// own albedo. You see that something is standing there. You do not see what.</para>
     ///
     /// <para><b>BOTH VANTAGES, and the second one is not what it looks like on paper.</b> FROM
     /// INSIDE the room it is a shape in the doorway at 5.8 m, 0.77 m behind the wall plane, framed by
@@ -864,7 +864,7 @@ internal static partial class HauntFigures
     /// visible yet — <see cref="ArmLeadSeconds"/> seconds of head start is the whole point.
     ///
     /// <para><b>THE ANCHOR NODE IS THE AUDIO INTEGRATION, AND IT IS THE ONLY ONE.</b>
-    /// <c>EnvSound.HauntPosition</c> (EnvSound.cs:1001-1022) already looks for a descendant of the
+    /// <c>EnvSound.HauntPosition</c> (Core/Sound/EnvSound.5.Shelf.cs:373-395) already looks for a descendant of the
     /// room root named exactly <c>Haunt0</c>…<c>Haunt5</c> and plays that card's cue from its
     /// renderer bounds — its doc comment says in as many words that it was written as a seam for
     /// "another lane rebuilding all twelve apparitions as real 3D geometry in this same round", and

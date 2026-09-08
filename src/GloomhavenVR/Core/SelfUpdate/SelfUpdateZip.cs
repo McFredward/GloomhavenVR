@@ -107,7 +107,7 @@ internal static class SelfUpdateZip
     /// <item>it opens as a zip at all, and its central directory is readable;</item>
     /// <item>every entry name is relative, has no <c>..</c> segment, no drive letter and no leading
     /// separator — a zip-slip entry means the whole archive is rejected, not skipped;</item>
-    /// <item>every entry is under <c>BepInEx/</c> or is <c>INSTALL.txt</c>;</item>
+    /// <item>every entry is under <c>BepInEx/</c> or is one of <see cref="AllowedRootFiles"/>;</item>
     /// <item><see cref="RequiredEntries"/> are all present and non-empty.</item>
     /// </list>
     ///

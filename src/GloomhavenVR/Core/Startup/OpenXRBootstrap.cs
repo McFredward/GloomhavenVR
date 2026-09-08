@@ -102,12 +102,6 @@ internal static class OpenXRBootstrap
     }
 
     /// <summary>
-    /// One-time environment fingerprint. Desktop OpenXR only supports D3D11 on this
-    /// Unity/plugin combo — when the game came up on another graphics API the native
-    /// session creation fails with errors that ONLY land in Player.log, so flag it
-    /// loudly here where testers actually look.
-    /// </summary>
-    /// <summary>
     /// Report whether Unity's THREADED RENDER SUBMISSION is on — the single largest performance
     /// factor this project found, and one nothing in the engine exposes at runtime.
     ///
@@ -178,6 +172,12 @@ internal static class OpenXRBootstrap
     /// </summary>
     private const string SessionGraphicsJobsVariable = "GLOOMHAVENVR_GFXJOBS_SESSION";
 
+    /// <summary>
+    /// One-time environment fingerprint. Desktop OpenXR only supports D3D11 on this
+    /// Unity/plugin combo — when the game came up on another graphics API the native
+    /// session creation fails with errors that ONLY land in Player.log, so flag it
+    /// loudly here where testers actually look.
+    /// </summary>
     private static void LogEnvironment()
     {
         string[] args;

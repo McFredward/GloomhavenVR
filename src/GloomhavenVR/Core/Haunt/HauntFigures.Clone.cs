@@ -1177,10 +1177,11 @@ internal static partial class HauntFigures
                 // anything to hear. Gated on the environment-sound switch, for two independent
                 // reasons that happen to agree: the standing ruling is that apparition sound rides
                 // that one toggle ("nur wenn die Umgebungssounds aktiviert sind",
-                // Haunt.Schedule.cs:19), AND the positional overload is only CORRECT while
-                // EnvSound holds the AudioListener on the VR head — with the switch off the
-                // listener is back on the game's 2D camera, metres from anything, and a 3D item
-                // would attenuate to silence exactly as GameAudio's class doc describes.
+                // Haunt.Schedule.cs:19), AND the positional overload is only CORRECT while the ear
+                // is on the VR head — EnvSound claims it through Core/HeadEar while its switch is
+                // on, and with the switch off the listener is back on the game's 2D camera, metres
+                // from anything, where a 3D item attenuates to silence exactly as GameAudio's class
+                // doc describes.
                 if (!_voiced && presence >= 0.45f && _go != null)
                 {
                     _voiced = true;
@@ -1563,9 +1564,10 @@ internal static partial class HauntFigures
                 // (BuildEnvironmentRooms.cs:3563-3567) with no light in it to cast by; and both
                 // forest events stand past the ground-darkness knee, where the floor is at 0.015 of
                 // its lit value (:9297). A real-time shadow map, doubled by MultiPass, would buy four
-                // invisible shadows. It is now doubly moot: the figures are multiplied down to a
-                // fiftieth of their albedo (see Shade), so even a lit-ground framing would want a
-                // shadow of a creature that is barely brighter than the floor. If a future event ever
+                // invisible shadows. It is now doubly moot: the figures are multiplied down to
+                // roughly an eighth of their albedo or less (HauntFigures.Math.cs, THE DARKENING),
+                // so even a lit-ground framing would want a shadow of a creature that is barely
+                // brighter than the floor. If a future event ever
                 // puts a figure in a candle pool this is the line to revisit, and the room's own moon
                 // direction (see Lighting) is already the direction it would have to be cast from.
                 r.shadowCastingMode = ShadowCastingMode.Off;
@@ -1893,7 +1895,8 @@ internal static partial class HauntFigures
         ///
         /// <para><b>WHAT IT COSTS, stated honestly.</b> The donor is single-sided, so the skirt and
         /// the ribbons lose their back faces. At the albedo multiplier these figures are drawn with
-        /// (0.015 in the cellar, 0.049 in the wood) a missing back face is a slightly darker dark,
+        /// (0.120 in the cellar, 0.200 in the wood — HauntFigures.Math.cs, re-fitted at ModBuild
+        /// 153) a missing back face is a slightly darker dark,
         /// and the alternative is the saturated magenta the user photographed. <c>_Cull</c> is set to
         /// 0 where the donor exposes it, which restores two-sidedness outright on any shader that
         /// declares the pass state as a property; where it does not, the loss stands.</para>
@@ -2473,9 +2476,6 @@ internal static partial class HauntFigures
             _ = why;
         }
 
-        /// <summary>Release the resident prefab ASSET handle. Separate from <see cref="Release"/>
-        /// because the asset outlives an apparition on purpose — a second event using the same
-        /// creature must not pay for the bundle twice — but it must not outlive the session.</summary>
         /// <summary>Full teardown: the resident prefab AND the inactive nursery, which is the one
         /// object this feature keeps alive across scenes (<c>DontDestroyOnLoad</c>, because a
         /// nursery that a scene load destroyed would take the half-built figure inside it with
@@ -2494,6 +2494,9 @@ internal static partial class HauntFigures
             }
         }
 
+        /// <summary>Release the resident prefab ASSET handle. Separate from <see cref="Release"/>
+        /// because the asset outlives an apparition on purpose — a second event using the same
+        /// creature must not pay for the bundle twice — but it must not outlive the session.</summary>
         internal static void ReleasePrefab(string why)
         {
             if (!_assetValid)

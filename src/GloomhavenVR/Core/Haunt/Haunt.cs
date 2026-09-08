@@ -180,15 +180,18 @@ internal static partial class Haunt
         // which are gone: the first with the hand-built figures (ModBuild 147), the second on the
         // user's ruling this round ("Die figuren sollten nicht durch wände glitchen"). A description
         // that names an event the player will never see is the most convincing kind of wrong.
-        // Cellar: window / handprints / the lit door at the stair top / the cobwebs / the watcher in
-        // the shaft / the bookshelf. Wood: the eyes / the watcher at the treeline / the crossing.
+        // Cellar: window / handprints / (2 INERT) / the cobwebs / the watcher in the shaft / the
+        // bookshelf. Wood: (0 INERT) / the watcher at the treeline / the crossing. The two inert
+        // cards are the stair-top door and the forest eyeshines, DELETED at ModBuild 149 with only
+        // their indices kept (Haunt.IsInert) — nothing happens in those slots, so nothing about them
+        // may appear in the text below.
         EasterEggs = file.Bind("Haunt", "EasterEggs", Defaults.HauntEasterEggs,
-            "Occasional creepy easter eggs in the CELLAR and the NIGHT FOREST: eyes that open in the "
-            + "undergrowth and blink once, a tall figure that stands between two distant trunks and "
-            + "then is simply not there, something walking past behind the trees, a face at the "
+            "Occasional creepy easter eggs in the CELLAR and the NIGHT FOREST: a tall figure that "
+            + "stands between two distant trunks and then is simply not there, something walking "
+            + "past behind the trees, a face at the "
             + "cellar window looking in through the bars while the moonlight dims for it, handprints "
-            + "blooming on the wet stone, a dim warm door opening at the top of the stair and closing "
-            + "again, someone standing in the dark of the stair shaft watching the room, the "
+            + "blooming on the wet stone, "
+            + "someone standing in the dark of the stair shaft watching the room, the "
             + "cobwebs shivering as if something large had gone past behind them, and now and then "
             + "the rat stopping in the middle of the floor to look at the room. They are lit by the "
             + "room and by nothing else, so in an unlit corner you will barely make one out — that "

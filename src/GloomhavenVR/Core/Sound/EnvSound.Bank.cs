@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // The generator draws below are written `new Rng(...)`, and they stay that way: the struct moved to
-// Core/EnvSoundSchedule.cs so the one part of this file with a TERMINATION property could be
+// Core/Sound/EnvSoundSchedule.cs so the one part of this file with a TERMINATION property could be
 // compiled into the wire tests without the Unity audio module, and an alias keeps every call site —
 // and therefore every draw sequence, and therefore every clip — exactly as it was.
 using Rng = GloomhavenVR.Core.EnvSoundRng;
@@ -19,12 +19,15 @@ namespace GloomhavenVR.Core;
 internal enum EnvSoundClip
 {
     /// <summary>THE WIND. The shared stationary noise bed the window <c>Draught</c> and the swamp
-    /// <c>Leaves</c> ride, and NOTHING ELSE MAY RIDE IT — every emitter that plays this clip is
-    /// hard-gated on the Air element through <c>EnvSound.WindBed</c>, because the user's standing
-    /// ruling is that there is no wind SOUND without wind ("Wind Geräusch nur wenn auch Wind aktiv
-    /// ist, sonst kein Geräusch"). Until ModBuild 153 the cellar's candle flames played it too, and
-    /// were not gated, and got LOUDER with a Fire infusion; see <see cref="Flutter"/>. IT IS NOT THE
-    /// FIRE either: see <see cref="Roar"/>.</summary>
+    /// <c>Leaves</c> ride, and NOTHING ELSE MAY RIDE IT — every emitter that plays this clip must
+    /// take its level from <c>EnvSound.WindBed</c>, which is the one place the resting floor and the
+    /// Air rise are decided together. The ModBuild 147 ruling was "no wind SOUND without wind"
+    /// ("Wind Geräusch nur wenn auch Wind aktiv ist, sonst kein Geräusch"); ModBuild 223 NARROWED it
+    /// at the same user's request ("im Wald ein ganz leiser dezenter Windzug"), so a wind bed now
+    /// rests at <c>EnvSound.WindRestFloor</c> instead of at zero and the Air infusion is the rise
+    /// above it. Until ModBuild 153 the cellar's candle flames played this clip too, ungated, and
+    /// got LOUDER with a Fire infusion; see <see cref="Flutter"/>. IT IS NOT THE FIRE either: see
+    /// <see cref="Roar"/>.</summary>
     Bed,
 
     /// <summary>A CANDLE FLAME — narrow-band noise fluttering at ~11 Hz with the wick's sputters in
@@ -274,11 +277,13 @@ internal static class EnvSoundBank
     /// <see cref="Flutter"/>.</item>
     /// </list>
     /// <para>What is left on this buffer is a window draught and a canopy full of leaves, which
-    /// really are one phenomenon at two scales — and both of them are hard-zeroed by
-    /// <c>EnvSound._windGate</c>, so this clip is INAUDIBLE whenever the Air element is down. That is
-    /// now a property of the bank as well as of the caller: if a future emitter reaches for
-    /// <c>EnvSoundClip.Bed</c> without going through <c>WindBed()</c>, <c>EnvSound.TickBeds</c> logs
-    /// it as a defect rather than playing it.</para>
+    /// really are one phenomenon at two scales — and both of them are LED BY the Air element through
+    /// <c>EnvSound.WindBed()</c>. That stopped meaning "silent with Air down" at ModBuild 223: the
+    /// user asked for a very quiet draught that is always there, so <c>WindBed</c> returns
+    /// <c>EnvSound.WindRestFloor</c> with the gate shut and neither bed is ever paused. What the
+    /// caller still enforces is the bound: a bed that plays this clip and exceeds that resting floor
+    /// while Air is down is the ModBuild 152 defect, and <c>EnvSound.TickBeds</c> writes a WIND LEAK
+    /// warning for it — the bed keeps playing, so the log names the fault rather than hiding it.</para>
     ///
     /// <para>EIGHT SECONDS, and the length is chosen against the FILTER rather than against the
     /// ear: a 40 Hz-cornered low pass needs a good many cycles of its lowest passed frequency

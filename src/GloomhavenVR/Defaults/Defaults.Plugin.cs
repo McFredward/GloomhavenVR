@@ -136,6 +136,7 @@ internal static partial class Defaults
     internal const bool Overlay = true;                                      // => [Dev] Overlay
     internal const bool SimulateHands = false;                               // => [Dev] SimulateHands
     internal const float InputDeviceDumpInterval = 0f;                       // => [Dev] InputDeviceDumpInterval
+    internal const bool UpdateCheckOnDevBuilds = false;                      // => [Dev] UpdateCheckOnDevBuilds
     internal const float GloveScale = 1.12f;                                 // => [Hands] GloveScale
     internal const float PlateScale = 0.62f;                                 // => [Hands] PlateScale
     internal const float ArcaneScale = 0.62f;                                // => [Hands] ArcaneScale

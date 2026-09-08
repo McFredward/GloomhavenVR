@@ -1318,7 +1318,10 @@ internal static class DoorOpenWatch
                .Append(". READING: ");
             if (!ran)
                 _sb.Append("the sample DID NOT RUN, so it proves neither side of the ModBuild 413-415 question — ")
-                   .Append(how).Append(". The hide falls back to the wall-shader route.");
+                   .Append(how).Append(". Nothing is stood in for either way: since ModBuild 429 this "
+                                     + "file never writes Renderer.enabled or SetActive on door content, so "
+                                     + "the door keeps whatever picture the game gives it and this sample "
+                                     + "simply says nothing this time.");
             else if (movedCount > 0 || flippedCount > 0)
                 _sb.Append("the clip DOES bind this hierarchy — evaluating its curves directly by path, with no "
                          + "playable graph in between, writes ").Append(movedCount)
@@ -1333,8 +1336,10 @@ internal static class DoorOpenWatch
                    .Append(covered).Append(" transform(s) under the handle and flips not one renderer flag. So the "
                          + "ModBuild 413-415 question is answered on the side of the CLIP AND ITS PATHS: the curve "
                          + "paths this clip carries do not exist on this placement, and no playable graph could ever "
-                         + "have applied them. The graph is innocent; the picture must be made by the mod, which is "
-                         + "what the wall-shader fallback then does.");
+                         + "have applied them. The graph is innocent, and the door still gets no picture from this "
+                         + "mod — the ModBuild 416-428 stand-in was removed on the user's ruling, so what this line "
+                         + "names is a fault in the GAME's own content that the two replay remedies above are the "
+                         + "only sanctioned answer to.");
             // HW-VERIFY: the one line that decides 'the graph does not apply the clip' vs 'the clip
             // binds nothing on this placement' — open since ModBuild 413. Once per animator instance.
             VRLog.Note(Name, _sb.ToString());

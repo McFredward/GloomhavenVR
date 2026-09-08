@@ -84,6 +84,13 @@ internal static class RuntimeDepsLoader
     }
 
     /// <summary>
+    /// AppDomain-wide idempotency key: plugin statics reset on ScriptEngine hot reload
+    /// (a fresh copy of this assembly is loaded) but the RuntimeDeps assemblies — and any
+    /// side effects of their hooks — persist, so the guard must live on the AppDomain.
+    /// </summary>
+    private const string InitializersInvokedKey = "GloomhavenVR.RuntimeInitializersInvoked";
+
+    /// <summary>
     /// Replays Unity's <c>[RuntimeInitializeOnLoadMethod]</c> pass over the LoadFile'd
     /// assemblies, in Unity's real execution order (SubsystemRegistration →
     /// AfterAssembliesLoaded → BeforeSplashScreen → BeforeSceneLoad → AfterSceneLoad).
@@ -106,13 +113,6 @@ internal static class RuntimeDepsLoader
     /// RuntimeDep with real hooks is added (e.g. XR Interaction Toolkit's input composites —
     /// LCVR invokes those manually in Plugin.Awake for exactly this reason).
     /// </summary>
-    /// <summary>
-    /// AppDomain-wide idempotency key: plugin statics reset on ScriptEngine hot reload
-    /// (a fresh copy of this assembly is loaded) but the RuntimeDeps assemblies — and any
-    /// side effects of their hooks — persist, so the guard must live on the AppDomain.
-    /// </summary>
-    private const string InitializersInvokedKey = "GloomhavenVR.RuntimeInitializersInvoked";
-
     private static void InvokeRuntimeInitializers(List<Assembly> assemblies)
     {
         if (_initializersInvoked || AppDomain.CurrentDomain.GetData(InitializersInvokedKey) is true)

@@ -15,7 +15,8 @@ namespace GloomhavenVR.Core;
 /// das Hauptspiel nicht in Mitleidenschaft gezogen wird?"</i> He was offered four options and
 /// picked A and B. A shipped in ModBuild 280 and is statistical — it makes the hitch rarer,
 /// which is the thing he said is not enough. B is the one that removes it: the commit costs
-/// 94.8 ms in ONE atomic frame at CV under 1 % (WallCache 30.8, PropUnits 29.1, Mounted 24.5,
+/// 94.8 ms in ONE atomic frame at CV under 1 % (ModBuild 277 figures — 72.84 ms after ModBuild
+/// 281, see WALL-FADE-CLOSEOUT.md §3) (WallCache 30.8, PropUnits 29.1, Mounted 24.5,
 /// the other 21 phases ≈ 10.4), and spreading that over ~63 frames at 1.5 ms each puts it
 /// under the 11.11 ms budget of every one of them. Unity's scene graph is single-threaded, so
 /// the literal answer to his question ("a separate thread") is no; slicing is the same result
@@ -471,7 +472,11 @@ internal static class WallCommitDiff
     /// renderer legitimately appears as one segment's wall renderer and never as another's
     /// foliage, but the seven classes have seven independent undo logs and a piece that moves
     /// BETWEEN classes needs the old class restored and the new one marked. Packing the pair
-    /// into a long keeps that exact without a tuple allocation per renderer.</summary>
+    /// into a long keeps that exact without a tuple allocation per renderer.
+    ///
+    /// <para>INVARIANT: <c>KindCount</c> must stay ≤ 8. The class is packed into the LOW THREE
+    /// BITS, which exactly fits the seven classes there are today; an eighth is still fine and a
+    /// ninth would silently corrupt every key rather than fail.</para></summary>
     private static long OwnKey(int rendererId, int kind) =>
         ((long)(uint)rendererId << 3) | (uint)kind;
 
@@ -490,8 +495,8 @@ internal static class WallCommitDiff
     /// reported a reordering as a difference would fire on every cycle and mean nothing.</para>
     ///
     /// <para>COST: one dictionary insert and one probe per owned renderer, plus one merge pass
-    /// per segment per ownership class. At the observed table sizes (99–127 segments, ~1,900
-    /// owned renderers) that is a few thousand operations. Measured, not assumed — see
+    /// per segment per ownership class. At the observed table sizes (99–127 segments,
+    /// 1,900–2,540 owned renderers) that is a few thousand operations. Measured, not assumed — see
     /// <c>WallCommitDiffVectors</c>, which times it on a synthetic table of the logged size.</para>
     /// </summary>
     /// <param name="topGroups">How many name groups each class lists. The rest are counted,

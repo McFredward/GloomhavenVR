@@ -41,8 +41,11 @@ namespace GloomhavenVR.Core;
 /// <c>ProceduralWall</c>, listed by no other segment, not a figure, not a standing prop (both
 /// arms, height term included), not in a doorway arch or water rect. The ground band cannot be
 /// reached: a ground-band renderer is one whose AABB top sits within 1.0 wu of the floor (the
-/// predicate <see cref="FadeDriver.StripGroundRenderers"/> and the WALL-PATH AUDIT share), every
-/// member kept has its top ≥ 2.5 wu over that floor, and a unit writes only to its own members. Those are clustered by XZ proximity (AABB gap ≤
+/// predicate <see cref="FadeDriver.StripGroundRenderers"/> and the WALL-PATH AUDIT share), and
+/// every member kept here is clear of that band for its own reason — a FLOOR-FOOTED member by the
+/// membership test itself (top ≥ 2.5 wu over the floor), an AIRBORNE member because its FOOT
+/// already sits ≥ 1.0 wu over it, so its top is strictly above the band — and a unit writes only
+/// to its own members. Those are clustered by XZ proximity (AABB gap ≤
 /// <see cref="FadeDriver.FreeStandingLinkXZ"/>) into units; a unit whose top does not reach
 /// <see cref="FadeDriver.FreeStandingMinTopWU"/> over its room floor is not view-blocking and is
 /// refused; a unit whose XZ box contains <see cref="FadeDriver.EngulfSampleFraction"/> of its
@@ -451,10 +454,12 @@ internal static partial class WallSegmentFade
             // SOLID BY CONSTRUCTION: a ground-band renderer is one whose AABB TOP sits within
             // GroundExclusionHeightWU (1.0 wu) of its room's floor — the one predicate
             // StripGroundRenderers and the WALL-PATH AUDIT's "ground-band (solid by design)"
-            // count share — and every member kept here has its top ≥ 2.5 wu over that floor
-            // (airborne members by foot ≥ 1.0 AND the unit-level top bar below; floor-footed
-            // members by this very test), so no member can be in the band, and the unit writes
-            // to nothing but its own members.
+            // count share — and every member kept here is clear of the band FOR ITS OWN REASON.
+            // A FLOOR-FOOTED member: by this very test, top ≥ 2.5 wu over the floor. An AIRBORNE
+            // member: it is admitted on its FOOT alone (b.min.y >= foot, i.e. ≥ 1.0 wu over the
+            // floor), so its top is strictly above the band even though the 2.5 wu bar below is
+            // asked of the UNION and not of it. Either way no member can be in the band, and the
+            // unit writes to nothing but its own members.
             _freeMembers.Clear();
             int floorFooted = 0;
             union = default;

@@ -838,15 +838,6 @@ internal static partial class WallSegmentFade
             && RoomDecisionValid(seg.RoomIndex);
 
         /// <summary>
-        /// Adopt, per rescan, every plain mesh that continues a tracked wall upward (see the
-        /// file header for the rule and the evidence). Runs AFTER ground strip + engulf
-        /// neutralization (needs final base AABBs and room grids) and BEFORE the mounted
-        /// pass (which must see the extended AABBs so shell-hung torches attach). Leavers
-        /// are restored here; orphans by the shared mounted orphan guard.
-        /// </summary>
-        /// <remarks>PERF S2: the input is the rescan cycle's RendererFact census (see
-        /// <c>WallSegmentFade.cs</c>), not a fresh scene sweep.</remarks>
-        /// <summary>
         /// MODBUILD 400 — THE TIE-BREAK THE PRIMARY ELECTIONS NEVER HAD, AND THE TERM THAT
         /// DECIDES THE CAVE ENTRANCE.
         ///
@@ -975,6 +966,15 @@ internal static partial class WallSegmentFade
         /// A truncated list is not absence — the counts above are the population.</summary>
         private readonly List<string> _electionTieNames = new();
 
+        /// <summary>
+        /// Adopt, per rescan, every plain mesh that continues a tracked wall upward (see the
+        /// file header for the rule and the evidence). Runs AFTER ground strip + engulf
+        /// neutralization (needs final base AABBs and room grids) and BEFORE the mounted
+        /// pass (which must see the extended AABBs so shell-hung torches attach). Leavers
+        /// are restored here; orphans by the shared mounted orphan guard.
+        /// </summary>
+        /// <remarks>PERF S2: the input is the rescan cycle's RendererFact census (see
+        /// <c>WallSegmentFade.cs</c>), not a fresh scene sweep.</remarks>
         private void CollectStackedShellPieces()
         {
             // ModBuild 393: the wall-home map must exist BEFORE this pass elects anything — it is
@@ -1101,8 +1101,9 @@ internal static partial class WallSegmentFade
                         {
                             // ITS OWN WALL IS SOLID — so this piece must be VISIBLE, and a handover
                             // could not deliver that. ApplyStacked's want==0 arm calls
-                            // RestoreSegmentStacked, which returns immediately on
-                            // `StackedState == 0`: a piece handed to a segment in that state would
+                            // RestoreSegmentStacked, which (after restoring the unit dressing)
+                            // returns on `StackedState == 0` without touching seg.Stacked: a piece
+                            // handed to a segment in that state would
                             // be hidden by the wall it just left and never restored by the wall it
                             // just joined. So it is RELEASED here instead, which is what the
                             // leavers loop does for any piece that stops qualifying.

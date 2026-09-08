@@ -261,8 +261,12 @@ internal static partial class Defaults
     internal const float InsideExitDepthFraction = 0.35f;    // => [WallFade] InsideExitDepthFraction
     // EnterDwellSeconds (WallSegmentFade.cs) is the constant the latch borrowed; 0.20 is its value.
     internal const float WalkInEnterDwellSeconds = 0.2f;     // => [WallFade] WalkInEnterDwellSeconds
-    // ExitDwellMovedSeconds above is the dial the latch borrowed; 2.5 is its shipped value, and
-    // the two are kept equal on purpose so the promotion is invisible at the defaults.
+    // ExitDwellMovedSeconds above is the dial the latch borrowed, and the two WERE equal at the
+    // ModBuild 272 promotion. THEY HAVE SINCE DIVERGED AND MUST NOT BE RE-EQUALISED: the wall
+    // fade's own dial was re-based from the tester's live cfg to 0.5 (WALL-FADE-CLOSEOUT §2.2 —
+    // "his live cfg holds 0.5 … the walk-in release stops tracking it") while the walk-in latch
+    // keeps the 2.5 it was promoted with. Both numbers are accepted tuning values; making them
+    // equal again would be a retune of one of them, not a tidy-up.
     internal const float WalkInExitDwellSeconds = 2.5f;      // => [WallFade] WalkInExitDwellSeconds
     // 0 IS LOAD-BEARING, not a placeholder: the shipped test is `_lastInsideMarginY < 0`, and
     // `margin < -0 * crest` is that same test. Any other default would be a retune.

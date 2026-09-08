@@ -26,16 +26,15 @@ internal static class SelfUpdateConfig
     /// <summary>
     /// Shipped default of <c>[Dev] UpdateCheckOnDevBuilds</c>: OFF.
     ///
-    /// <para>INTEGRATOR NOTE: house convention keeps shipped defaults in
-    /// <c>src/GloomhavenVR/Defaults/Defaults.*.cs</c> with a <c>// =&gt; [Section] Key</c>
-    /// annotation so <c>scripts/rebase-defaults.py</c> can join them against a tester's cfg. That
-    /// directory is not this lane's to touch, so the constant sits here instead. Moving it to
-    /// <c>Defaults.Plugin.cs</c> as
-    /// <c>internal const bool UpdateCheckOnDevBuilds = false;  // =&gt; [Dev] UpdateCheckOnDevBuilds</c>
-    /// and pointing <see cref="Bind"/> at it is a two-line change and keeps the check green either
-    /// way (a key with no Defaults line is simply invisible to the script).</para>
+    /// <para>The VALUE lives where every other shipped default does —
+    /// <c>Defaults.Plugin.cs</c>'s <c>UpdateCheckOnDevBuilds</c>, carrying the
+    /// <c>// =&gt; [Dev] UpdateCheckOnDevBuilds</c> annotation <c>scripts/rebase-defaults.py</c>
+    /// joins against a tester's cfg. This name is kept as the forwarder because it is what
+    /// <see cref="Bind"/> and this file's own doc read, and because a default that is only
+    /// reachable through the section it belongs to is harder to find than one named after its
+    /// feature.</para>
     /// </summary>
-    internal const bool UpdateCheckOnDevBuildsDefault = false;
+    internal const bool UpdateCheckOnDevBuildsDefault = Defaults.UpdateCheckOnDevBuilds;
 
     /// <summary>Bound into the main plugin config; null until <see cref="Bind"/> has run.</summary>
     internal static ConfigEntry<bool>? UpdateCheckOnDevBuilds { get; private set; }
@@ -86,10 +85,6 @@ internal static class SelfUpdateConfig
     }
 
     /// <summary>
-    /// True when the update check may run, with the reason either way — the reason is what the
-    /// <c>UPDATE CHECK:</c> falsifier line prints, so "it did not run" is never a silent outcome.
-    /// </summary>
-    /// <summary>
     /// <see cref="BuildInfo.IsDevBuild"/> through a property, deliberately.
     ///
     /// <para>It is a <c>const bool</c> on the contract, so <c>if (BuildInfo.IsDevBuild)</c> is
@@ -101,6 +96,10 @@ internal static class SelfUpdateConfig
     /// </summary>
     internal static bool IsDevBuild => BuildInfo.IsDevBuild;
 
+    /// <summary>
+    /// True when the update check may run, with the reason either way — the reason is what the
+    /// <c>UPDATE CHECK:</c> falsifier line prints, so "it did not run" is never a silent outcome.
+    /// </summary>
     internal static bool IsCheckEnabled(out string reason)
     {
         // The notice is a world-space window. Without VR there is nowhere to put it, so asking

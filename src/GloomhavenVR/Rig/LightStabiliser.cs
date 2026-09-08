@@ -1157,6 +1157,13 @@ internal static class LightStabiliser
         {
             _nextWatchReportTime = Time.unscaledTime + WatchReportSeconds;
             ReportWatch();
+            // THE WINDOW RESET IS THE MECHANISM'S, not the report's: the accumulators above are
+            // written here, so they are cleared here, immediately after the line that printed
+            // them. ReportWatch is text only and can be gated or retired without losing the reset.
+            _costTicks = 0;
+            _costFrames = 0;
+            _warmUpSkips = 0;
+            _excludedSkips = 0;
         }
     }
 
@@ -1508,10 +1515,8 @@ internal static class LightStabiliser
 
         for (int i = 0; i < Lights.Count; i++)
             Lights[i].ResetWindow();
-        _costTicks = 0;
-        _costFrames = 0;
-        _warmUpSkips = 0;
-        _excludedSkips = 0;
+        // The four cost/skip accumulators are reset by the caller (DampAll), right after this
+        // returns — the same statement order, in the method that writes them.
     }
 
     /// <summary>

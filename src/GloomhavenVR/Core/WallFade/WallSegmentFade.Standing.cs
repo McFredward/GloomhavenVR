@@ -166,7 +166,7 @@ namespace GloomhavenVR.Core;
 /// the stacked pass requires a piece's base at or above the wall's original course top minus
 /// 1.2 wu, and this unit's foot is 0.0 wu, on the floor.</para>
 ///
-/// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE./// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE. Its own admission test requires a
+/// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE. Its own admission test requires a
 /// piece's base to sit at or above the wall's ORIGINAL course top minus 1.2 wu — floor-band
 /// geometry cannot satisfy that, so adding a second guard there would be a line of code that can
 /// never change an outcome, and the next reader would have to prove that again.</para>
@@ -209,7 +209,7 @@ namespace GloomhavenVR.Core;
 /// <para>MULTIPLAYER: purely local. This only removes renderers from a LOCAL wall's own lists; it
 /// produces no decision, no wire record and no peer-visible state, and every peer runs the
 /// identical geometric rule against the identical scene.</para>
-/// </para></summary>
+/// </summary>
 internal static partial class WallSegmentFade
 {
     private sealed partial class FadeDriver
@@ -576,11 +576,12 @@ internal static partial class WallSegmentFade
         /// HIGHEST still prop-sized ancestor of the renderer's parent, memoised per parent because
         /// siblings share the answer. Null when the walk finds nothing — a renderer hanging
         /// directly off its wall entity, which is most of the masonry in any scene and is the
-        /// cheap path out of this rule.</summary>
-        /// <summary>The unit root alone, for the two censuses that only want to GROUP renderers
+        /// cheap path out of this rule.
+        ///
+        /// <para>The unit root alone, for the two censuses that only want to GROUP renderers
         /// by unit (<c>WallSegmentFade.FadeCensus.cs</c>, <c>WallSegmentFade.Mounted.cs</c>).
         /// They ask no verdict, so they need no <c>wallCut</c>, and giving them one would put a
-        /// second reader on a fact only <see cref="IsStandingProp"/> may act on.</summary>
+        /// second reader on a fact only <see cref="IsStandingProp"/> may act on.</para></summary>
         private Transform? StandingFloorUnitRootOf(Renderer r)
         {
             Transform? parent = r.transform.parent;
@@ -1043,7 +1044,8 @@ internal static partial class WallSegmentFade
             // branch at `_standingSubjectBaseline.Count >= StandingSubjectBaselineCap`, and the
             // two ContainsKey probes above only ever caused an EARLIER return. So on a full pair
             // of rolls this is a pure no-op either way, and in the steady state — which is what
-            // the 94.8 ms commit is made of — the rolls are full. This is the same argument
+            // the commit is made of (94.8 ms at ModBuild 277, 72.84 ms after 281 — see
+            // WALL-FADE-CLOSEOUT.md §3) — the rolls are full. This is the same argument
             // StructuralSkipArmed makes for the mounted reject list, one file over.
             if (_standingSubjectRoll.Count >= StandingSubjectRollCap
                 && _standingSubjectBaseline.Count >= StandingSubjectBaselineCap)

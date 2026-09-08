@@ -203,10 +203,12 @@ internal static partial class WallSegmentFade
         private const int PropUnitMaxDepth = 4;
 
 
-        /// <summary>Scratch for <see cref="PropUnitRootOf"/> alone. Deliberately NOT
-        /// <c>_subtreeScratch</c>: that list is iterated by the asset-sibling collection while it
-        /// calls into this file family, and sharing scratch with something that walks it is how a
-        /// list gets cleared underneath its own iteration.</summary>
+        /// <summary>Scratch for <see cref="PropUnitRootOf"/> alone, kept separate from
+        /// <c>_subtreeScratch</c> so the two walks can never share a buffer — sharing scratch with
+        /// something that walks it is how a list gets cleared underneath its own iteration. The
+        /// collision is not live today (the asset-sibling collection does not call into this walk,
+        /// and <see cref="UnitOf"/>'s stem fallback uses <c>_subtreeScratch</c> itself), so this is
+        /// a standing separation rather than a fix for a reachable bug.</summary>
         private readonly List<MeshRenderer> _propUnitWalkScratch = new(64);
 
         /// <summary>Renderers this pass actually moved to (or recruited for) their unit's owner
@@ -347,8 +349,9 @@ internal static partial class WallSegmentFade
         /// <c>FigureAncestryMemo</c> makes, and the same one the two root memos above already
         /// rely on.</para>
         ///
-        /// <para>LIFETIME. Cleared once per commit in <c>BeginStandingPropScope</c> — the
-        /// FIRST scope of the rescan, opened before any wall is refreshed — and deliberately NOT
+        /// <para>LIFETIME. Cleared by <see cref="ClearNodeFactMemos"/>, called from
+        /// <c>CommitWallCache</c> at the top of every commit and around every prepare slice
+        /// (<c>StepPrepare</c>) — and deliberately NOT
         /// re-cleared in <see cref="BeginPropUnitScope"/>: sharing them across the standing pass
         /// and the prop-unit pass is where most of the saving is, and unlike the root memos these
         /// facts do not depend on <see cref="CommittedTable.PropUnitAnchors"/> (which IS re-read between the
@@ -359,15 +362,19 @@ internal static partial class WallSegmentFade
         private readonly Dictionary<Transform, bool> _nodeIsWallEntity = new(256);
         private readonly Dictionary<Transform, bool> _nodeContainsWallEntity = new(256);
 
-        /// <summary>True only between <c>BeginStandingPropScope</c> (the first scope of a
-        /// commit) and <c>EndCommitPhases</c> (its <c>finally</c>). OUTSIDE that window — the
+        /// <summary>True only between <see cref="ClearNodeFactMemos"/> (opened by
+        /// <c>CommitWallCache</c> in commit phase FIVE — phases 1-4 run before it, so this is
+        /// false for them — and again around each <c>StepPrepare</c> slice) and
+        /// <see cref="EndNodeFactMemos"/> (<c>EndCommitPhases</c>' <c>finally</c>,
+        /// <c>StepPrepare</c>'s <c>finally</c>, or <c>AbandonRescanCycle</c>). OUTSIDE that window — the
         /// WALL-PATH AUDIT reaches the same walk from the heartbeat, which runs after the commit
         /// has closed — every fact is taken live, so the constancy argument above only ever has
         /// to hold for the synchronous stretch it was made about.</summary>
         private bool _nodeFactsActive;
 
         /// <summary>Drop the per-node fact memos and open the window in which they may be read.
-        /// Called from <c>BeginStandingPropScope</c> at the top of every commit.</summary>
+        /// Called from <c>CommitWallCache</c> (commit phase 5) and from <c>StepPrepare</c>, once
+        /// per slice.</summary>
         private void ClearNodeFactMemos()
         {
             _nodeRendererCount.Clear();
@@ -903,8 +910,9 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>Re-read the segment anchors the unit walk must stop at. Called from
-        /// <c>BeginStandingPropScope</c> at the top of the rescan (the standing rule's
-        /// FLOOR arm walks before any wall has been refreshed) and again from
+        /// <c>BeginStandingMemoScope</c> (<c>WallSegmentFade.Standing.cs</c>), which opens in
+        /// <c>BeginPrepareStage</c> or, as a backstop, in <c>CommitWallCache</c> (the standing
+        /// rule's FLOOR arm walks before any wall has been refreshed) and again from
         /// <see cref="BeginPropUnitScope"/> once the table is final. A wall adopted for the first
         /// time THIS rescan is therefore missing from the early set for one pass — and the size
         /// caps are what catch it: a unit that reached across a wall is either wider than

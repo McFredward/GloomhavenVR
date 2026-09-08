@@ -109,18 +109,17 @@ namespace GloomhavenVR.Voice;
 /// which is a Unity behaviour this repo has never settled (<c>.planning/VOICE-SPATIAL.md:536-542</c>
 /// says so).</para>
 ///
-/// <para><b>ONE ITEM IN THAT CENSUS IS A REAL DEFECT, AND IT IS NOT A 1:1 ONE — it is a class doc
-/// falsified by its own code, in a file this lane was not given.</b>
-/// <c>VoiceSpatial.cs:145-148</c> asserts that the badge "is gated on <c>IsSpeaking</c> — the
-/// identical expression the flat game's own roster uses to light its talk icon
-/// (<c>PlayerTalkVoiceComponent.cs:20</c>). The two can therefore never disagree about who is
-/// talking." <c>VoiceSpatial.cs:458</c> is
-/// <c>IsSpeaking(b.Voice) &amp;&amp; !IsMuted(b.Voice)</c>, which is not that expression, and
-/// <c>VoiceCurve.cs:189-193</c> repeats the same claim. They disagree in exactly one reachable
-/// state: this viewer has muted that peer and that peer talks — the game's own roster lights their
-/// talk icon and this badge stays dark. The <c>want</c> test below inherits that through
-/// <c>TryGetVoice</c>'s <c>speaking</c> and cannot correct it from here; the one-line repair and
-/// its stated consequence are in the ModBuild 480 round report.</para>
+/// <para><b>THE ONE REAL DEFECT THAT CENSUS FOUND IS FIXED, AND THE FIX IS WORTH RECORDING
+/// BECAUSE THE PROMISE IS WHAT HID IT.</b> <c>VoiceSpatial.cs:145-148</c> asserted that the badge
+/// "is gated on <c>IsSpeaking</c> — the identical expression the flat game's own roster uses to
+/// light its talk icon (<c>PlayerTalkVoiceComponent.cs:20</c>)", while the code shipped
+/// <c>IsSpeaking(b.Voice) &amp;&amp; !IsMuted(b.Voice)</c>, which is a different expression: a peer
+/// this viewer had muted talked, the flat roster lit their icon and this badge stayed dark. At HEAD
+/// <c>VoiceSpatial.cs:470</c> is <c>b.Speaking = VoiceChatBridge.IsSpeaking(b.Voice);</c> and the
+/// mute has moved onto the LEVEL instead (<c>:458-473</c>), so the promise is now true and
+/// <c>speaking</c> reaching this file through <c>TryGetVoice</c> is the game's own flag. A muted
+/// peer's badge therefore APPEARS and holds at step 1 — "they are speaking, you cannot hear them" —
+/// which is a fact about their board, not about this viewer's mute.</para>
 ///
 /// <para><b>WITH <c>[Net] NameTags</c> OFF THERE IS NO BADGE AND THE VOICE IS STILL SPATIAL.</b>
 /// That is the intended behaviour and not an oversight: the two dials answer different questions
@@ -166,11 +165,11 @@ internal sealed class VoiceBadge
         // EVERY TERM HERE IS VIEWER-LOCAL AND THAT IS AUDITED, NOT ASSUMED — see the class doc's
         // "WHAT THE 1:1 RULE DOES AND DOES NOT ASK OF THIS BADGE" block. In short: the speaker has
         // no badge on their own machine, so there is no owner picture for this one to disagree
-        // with, and the rule has no left-hand side. The one term that is genuinely wrong is inside
-        // `speaking` — VoiceSpatial ANDs the game's IsSpeaking with THIS viewer's mute of that
-        // peer, against its own class doc's promise that the two "can never disagree about who is
-        // talking". It cannot be undone from here (TryGetVoice hands over one already-ANDed bool)
-        // and VoiceSpatial.cs was not handed to this lane.
+        // with, and the rule has no left-hand side. `speaking` is the GAME'S OWN flag, unmodified:
+        // VoiceSpatial used to AND it with this viewer's mute of that peer, which contradicted its
+        // own class doc and darkened the badge of a muted peer who was talking; the mute now sits
+        // on the LEVEL instead (VoiceSpatial.cs:458-473), so a muted peer's badge appears and holds
+        // at step 1.
         bool want = carrierVisible
                     && avatarQuad != null
                     && VoiceModule.SpeakingBadge != null && VoiceModule.SpeakingBadge.Value

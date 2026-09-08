@@ -57,10 +57,6 @@ FadeWrite::Path <- FadeWrite
 FadeWrite::R <- FadeWrite
 Flight::_idleReason <- ReportIdle
 FreeLabelOrder::_logPending <- LogOrder
-HostingChainWatch::_endedCount <- Replay
-HostingChainWatch::_pendingStack <- ReportAmputation
-HostingChainWatch::_startedCount <- Replay
-LightStabiliser::_costTicks <- ReportWatch
 Listener::Action <- Listener
 Listener::Key <- Listener
 MapRoomHand::_failed <- Probe

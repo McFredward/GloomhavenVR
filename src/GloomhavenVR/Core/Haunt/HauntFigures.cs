@@ -43,9 +43,11 @@ namespace GloomhavenVR.Core;
 /// <item><b>DARKNESS THAT IS THE ROOM'S OWN.</b> The user's ruling, verbatim: "Sie MÜSSEN an die
 /// Lichtverhältnisse angeglichen werden, sonst geht der Gruselfaktor verloren." A creature's albedo
 /// is multiplied by the light the room actually delivers where it stands, measured off the room's
-/// own baked rig — a fiftieth in the cellar and a thirteenth in the wood since the two ModBuild 148
-/// photographs were measured (HauntFigures.Clone.cs, THE DARKENING). This is the ingredient
-/// that replaced the one below it, and it is the one the user calls the most important point.</item>
+/// own baked rig — 0.120 in the cellar and 0.200 in the wood, re-fitted at ModBuild 153 against the
+/// first photographs in which the lever actually reached a pixel (<c>HauntFigures.Math.cs</c>, THE
+/// DARKENING; every earlier figure quoted in this feature was measured through an inert lever and
+/// is history). This is the ingredient that replaced the one below it, and it is the one the user
+/// calls the most important point.</item>
 /// <item><b>PARTIAL OCCLUSION BY REAL GEOMETRY — WITH THE CAVEAT THAT COST US TWO EVENTS.</b> Every
 /// event is framed by something the bake really built: the barred window, the stair alcove, the
 /// second band of trunks. But the player looks at the board as a DIORAMA and his head is routinely
@@ -94,13 +96,15 @@ namespace GloomhavenVR.Core;
 /// watcher at the treeline) and 2 (the crossing). THE FOREST PAIR IS 1 AND 2, not 2 and 3: the wood
 /// went from six cards to three when the hand-built figures were deleted (ModBuild 147) and its
 /// catalogue was renumbered rather than left with holes. Everything else keeps working exactly as
-/// it does today and this file does not know it exists: the cellar's handprints (1), the DOOR that
-/// opens at the top of the stair and closes again (2 — light where there was none, no body at all),
+/// it does today and this file does not know it exists: the cellar's handprints (1), the INERT
+/// PLACEHOLDER at 2 (the stair-top door was deleted at ModBuild 149 and only its index survives,
+/// because the group partition needs a card count divisible by three — see <c>Haunt.IsInert</c>),
 /// the TREMBLE card that draws nothing and only shivers the cobwebs (3), and the TOPPLING BOOKSHELF
 /// (5), which is a real prop with a real physics-shaped fall and five materials riding its published
-/// pose and is emphatically not an apparition. In the forest only the two eyeshines (0) are left to
-/// the shader, and they could not be a game monster even in principle — there is no creature in the
-/// roster that is a pair of eyes. THIS LIST IS THE BAKE'S, and the bake prints it: grep
+/// pose and is emphatically not an apparition. In the forest card 0 is the same kind of placeholder:
+/// the eyeshines were deleted in the same round, so nothing at all happens in that slot — and they
+/// could not have been a game monster even in principle, since there is no creature in the roster
+/// that is a pair of eyes. THIS LIST IS THE BAKE'S, and the bake prints it: grep
 /// <c>HAUNT FORCE ID TABLE</c> in BuildEnvironmentRooms.cs. It said "the face at floor level (2)"
 /// and named four forest cards that no longer exist for one build after ModBuild 147 renumbered
 /// both catalogues.</para>
@@ -468,10 +472,11 @@ internal static partial class HauntFigures
         bool sameCardLooped = _card >= 0 && want == _card
                               && !Mathf.Approximately(wantStart, _startClock)
                               && wantStart > _startClock;
+        // The first arm covers BOTH "no event now" and "a different card": `want < 0` with a live
+        // `_card` already fails `want != _card`, and its reason string is the same one. A second
+        // `want < 0` arm stood here and could never be reached.
         if (_card >= 0 && want != _card)
             Retire(want < 0 ? "the event ended" : "a different event took over");
-        else if (_card >= 0 && want < 0)
-            Retire("the event ended");
         else if (_card >= 0 && !Mathf.Approximately(wantStart, _startClock) && !sameCardLooped)
             Retire("the shared clock jumped backwards under a running apparition");
         else if (sameCardLooped)

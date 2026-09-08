@@ -446,13 +446,13 @@ internal static partial class Loc
             // ---- [Haunt] ----
             ["Haunt/EasterEggs"] =
                 "Gelegentliche Grusel-Easter-Eggs im KELLER und im NACHTWALD. Einige davon sind echte "
-                + "GEGNER-FIGUREN aus dem Spiel, die ihre eigenen Animationen abspielen: etwas, das "
-                + "draußen am vergitterten Kellerfenster vorbeigeht und von dem du nur die Beine "
-                + "siehst, etwas zu Großes, das oben durch die Treppentür geht, eine reglose Gestalt "
+                + "GEGNER-FIGUREN aus dem Spiel, die ihre eigenen Animationen abspielen: ein Gesicht, "
+                + "das draußen durch das vergitterte Kellerfenster hereinsieht, während das Mondlicht "
+                + "dafür dunkler wird, jemand, der im Dunkel des Treppenschachts steht und den Raum "
+                + "beobachtet, eine reglose Gestalt "
                 + "weit hinten am Waldrand, die beim nächsten Hinsehen einfach nicht mehr da ist, und "
                 + "etwas, das in der Ferne zwischen den Baumstämmen hindurchläuft. Dazu die übrigen "
-                + "Erscheinungen: eine bleiche Fratze hinter einem Baum, Augen, die sich im Unterholz "
-                + "öffnen und einmal blinzeln, Handabdrücke, die auf dem nassen Stein aufblühen, "
+                + "Erscheinungen: Handabdrücke, die auf dem nassen Stein aufblühen, "
                 + "zitternde Spinnweben, als wäre eben etwas Großes dahinter vorbeigegangen, und ab "
                 + "und zu bleibt die Ratte mitten im Raum stehen und sieht sich um. Nichts erscheint "
                 + "jemals über dem "

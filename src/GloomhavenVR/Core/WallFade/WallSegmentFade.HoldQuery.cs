@@ -149,6 +149,11 @@ internal static partial class WallSegmentFade
                 return "unit-dressing";
             if (_freeListed.Contains(r))
                 return "free-standing";
+            // THESE TWO ARMS ARE LIVE ONLY INSIDE A CENSUS CALL. `_fadeWrittenSet` and
+            // `_solidOwners` are per-call scratch that LogFadeWriteCensus clears at the END of
+            // every call, so an EXTERNAL caller (DoorOpenWatch through DescribeHold) always finds
+            // them empty and falls through to hid-by-enable or null. They are kept because the
+            // census itself asks the same question mid-call, where they are the right answer.
             if (_fadeWrittenSet.Contains(r))
                 return "fade-written";
             if (_solidOwners.ContainsKey(r))

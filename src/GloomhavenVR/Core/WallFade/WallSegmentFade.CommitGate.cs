@@ -20,11 +20,14 @@ namespace GloomhavenVR.Core;
 ///   <c>_mountedUnitHome</c>, <c>_propUnitOwnerLast</c>, the standing and node memos, the census
 ///   accumulators — and a second run in the same cycle would see every one of them already
 ///   rewritten by the first.</item>
-/// <item><c>CollectWallMountedProps</c> DRAINS and CLEARS <c>_mountedTouched</c>,
-///   <c>_mountedAnchorLedger</c> and <c>_mountedMobile</c> at the top of its pass
-///   (WallSegmentFade.Mounted.cs). Running the pass twice per cycle drains the undo log twice:
-///   the second run restores props the first run is still holding, or fails to restore props
-///   nothing else will.</item>
+/// <item><c>CollectWallMountedProps</c> clears <c>_mountedOwned</c>, <c>_attachmentOwned</c> and
+///   <c>_mountedReleased</c> at the top of its pass and RESTORES (via <c>RestoreProp</c>, which
+///   removes the <c>_mountedTouched</c> entry) every prop it no longer owns.
+///   <c>_mountedTouched</c>, <c>_mountedAnchorLedger</c> and <c>_mountedMobile</c> are CROSS-COMMIT
+///   ledgers — cleared only on teardown (<c>RestoreAllMountedProps</c>) or at their caps
+///   (WallSegmentFade.Mounted.cs). Running the pass twice per cycle therefore restores against a
+///   half-updated ownership and re-baselines the mobility differential: the second run restores
+///   props the first run is still holding, or fails to restore props nothing else will.</item>
 /// <item>Six phases perform Unity WRITES — <c>SetPropertyBlock(null)</c>, <c>RestoreProp</c>,
 ///   <c>Object.Destroy</c> via <c>RestorePropSwap</c>. A shadow run repeats every one of them.</item>
 /// <item>And <c>IsMobileProp</c> is a CROSS-COMMIT differential whose baseline the shadow run

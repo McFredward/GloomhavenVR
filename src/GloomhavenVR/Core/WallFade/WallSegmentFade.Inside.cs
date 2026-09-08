@@ -1339,6 +1339,15 @@ internal static partial class WallSegmentFade
         /// the room has no grid at all; <paramref name="blocked"/> is how many of those this
         /// renderer intercepts. Two numbers because 0-of-0 and 0-of-16 are opposite findings and
         /// the ModBuild 261 signature could not tell them apart.</para>
+        ///
+        /// <para><b>THE VISIBILITY FLAGS THIS READS ARE THE LAST EVALUATE TICK'S</b>, indexed
+        /// against the sample table as it stands when the COMMIT calls this. A
+        /// <c>RebuildSamples</c> in that same commit renumbers the grid, so for that one line the
+        /// flags are misaligned and the OBSTRUCTING/ALLOWED class is not measured against this
+        /// frame's geometry. DIAGNOSTIC ONLY, and that is a property rather than a hope: no
+        /// mechanism reader of <c>_sampleVisible</c> exists outside <c>BlockedFraction</c> /
+        /// <c>RoomBlockedFraction</c>, and both run only on an evaluate tick, after that same
+        /// tick's rebuild.</para>
         /// </summary>
         private int PieceBlockedSamples(Renderer r, int room, out int blocked)
         {

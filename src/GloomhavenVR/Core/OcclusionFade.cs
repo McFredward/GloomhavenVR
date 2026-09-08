@@ -32,9 +32,10 @@ namespace GloomhavenVR.Core;
 /// is one struct holding {smooth, init, pendingRaw, pendingSince, latched} with a Step method —
 /// and that is exactly what <see cref="OcclusionGate"/> is, and what the board uses. The wall
 /// cannot: those five fields live on <c>Segment</c> and on <c>WallRun</c>, and TWO further
-/// shadow copies of the same four of them are carried across the sliced commit
-/// (<c>GateMemory</c> in WallSegmentFade.Gate.cs, <c>FadeSnapshot</c> in WallCommitDiff.cs)
-/// and diffed field-by-field BY NAME in the commit-diff census. Wrapping them in a struct would
+/// shadow copies of the same four of them exist elsewhere — <c>GateMemory</c>
+/// (WallSegmentFade.Gate.cs), which carries the debounce across a gate prop's death and rebirth,
+/// and <c>WallCommitDiff.SegmentFacts</c>, which the churn gate snapshots before and after one
+/// atomic commit — the latter diffed field-by-field BY NAME in the commit-diff census. Wrapping them in a struct would
 /// mean unpacking it again at every one of those sites and re-deriving the diff's field ids,
 /// for no behavioural gain and with the carry-forward — the thing that decides whether a wall
 /// survives a commit still faded — as the blast radius. So the RULE lives here once and the

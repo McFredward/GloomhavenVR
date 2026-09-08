@@ -133,12 +133,18 @@ internal static partial class EnvSound
     //  drought is unbounded, so a two-hour session either never hears the wolf (and it is reported
     //  as missing) or hears two in three minutes (and it is aufdringlich).
 
-    /// <summary>THE DECK. <b>TWENTY cards at ModBuild 242, up from sixteen</b>, as indices into
+    /// <summary>THE DECK. <b>SIXTEEN cards as it ships</b> — it grew to twenty at ModBuild 242 and
+    /// came back to sixteen at 246, when the user withdrew four voices by name; the block directly
+    /// above the initialiser carries his sentence and the shares that result. Indices into
     /// <see cref="NightCalls"/>, and the multiplicities ARE the shares: the deal is exact, not
-    /// statistical. The three new cards are APPENDED and nothing is renumbered — a row inserted in
-    /// the middle would deal a fox and play an owl.
+    /// statistical. Cards are APPENDED and nothing is ever renumbered — a row inserted in the
+    /// middle would deal a fox and play an owl, and a row DELETED is the same hazard read
+    /// backwards, which is why the four withdrawn voices keep their rows and their enum values.
     ///
-    /// <para><b>WHY THESE TWENTY, AND WHY THE TWO ORIGINALS COME DOWN.</b> Twenty is chosen so the
+    /// <para><b>THE REST OF THIS SUMMARY IS THE ModBuild 242 TWENTY-CARD DEAL, kept as the BEFORE
+    /// column the 246 shares are read against.</b></para>
+    ///
+    /// <para><b>WHY THOSE TWENTY, AND WHY THE TWO ORIGINALS CAME DOWN.</b> Twenty was chosen so the
     /// shares are exact twentieths, which is also what makes this table readable:</para>
     /// <code>
     ///   Owl         4   20 %      the tawny owl's hoot        one per  4.4 min
