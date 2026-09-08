@@ -71,11 +71,56 @@ namespace GloomhavenVR.Voice;
 ///
 /// <para><b>THE LOCAL PLAYER NEVER SEES ONE ON THEMSELVES.</b> A <see cref="RemoteNameTag"/> exists
 /// only per <see cref="RemoteAvatar"/>, and the local player has no <c>RemoteAvatar</c> — the driver
-/// drops its own echo before an avatar is ever created (<c>NetAvatarDriver.cs:2766</c>). On top of
-/// that, <see cref="VoiceSpatial"/> only ever publishes state for voice users it has bound to a
-/// REMOTE network player, and it explicitly skips any voice whose account matches
-/// <c>SelfUserVoice.PlatformAccountID</c>. Two independent reasons, neither relying on the
-/// other.</para>
+/// drops its own echo before an avatar is ever created (<c>Net/Avatar/NetAvatarDriver.cs:3597-3599</c>;
+/// the line number cited here before the ModBuild 480 audit was 2766, from before that file moved
+/// into <c>Net/Avatar/</c>). On top of that, <see cref="VoiceSpatial"/> only ever publishes state for
+/// voice users it has bound to a REMOTE network player, and it explicitly skips any voice whose
+/// account matches <c>SelfUserVoice.PlatformAccountID</c>. Two independent reasons, neither relying
+/// on the other.</para>
+///
+/// =============================================================================================
+/// <para><b>WHAT THE 1:1 RULE DOES AND DOES NOT ASK OF THIS BADGE — audited in full, ModBuild 480,
+/// against R2 finding F19, so the next reviewer does not have to re-derive it.</b></para>
+///
+/// <para>The approved exception recorded at <c>Net/NetProtocol.cs:647</c> is <c>[Voice] BadgeScale</c>
+/// and it is correctly scoped: the dial is read at exactly two places (<see cref="Tick"/>'s build
+/// and its per-frame seat), both as a fraction of <c>avatarSize</c>, and <c>avatarSize</c> is
+/// already the SENDER's (<c>RemoteNameTag.AvatarSize</c> times <c>_owner.AppliedScale</c>). The
+/// exception has not leaked inside this file.</para>
+///
+/// <para><b>THE REST OF THE BADGE IS ALSO VIEWER-LOCAL, AND THE 1:1 RULE IS NOT ENGAGED BY IT.</b>
+/// The rule is "a peer sees what the OWNER sees". The paragraph above is the reason there is no
+/// left-hand side here: the speaker has no badge over their own head on their own machine, so no
+/// viewer's badge can disagree with theirs. What remains is a divergence between two VIEWERS of a
+/// third party — A standing next to the mask sees full deflection while B across the table sees
+/// step 1 — which is the same class the project already accepts for <c>[Net] NameTags</c>, a dial
+/// that removes the whole tag for one viewer and not another. It is recorded here rather than
+/// "fixed", because making it owner-driven would mean new wire for a decoration that has no
+/// owner-side counterpart at all.</para>
+///
+/// <para>The full input census, so a later round can start from it rather than from a grep:
+/// <c>[Voice] BadgeScale</c> (approved exception); <c>[Voice] SpeakingBadge</c> and, through the
+/// carrier, <c>[Net] NameTags</c> (draw-this-decoration-or-not, no owner counterpart); the RMS of
+/// this viewer's own <c>AudioSource</c> and the viewer-to-speaker distance, through
+/// <c>[Voice] FullLevelMeters</c> / <c>SilenceMeters</c> / <c>RolloffShape</c> and the viewer's rig
+/// scale (<c>VoiceSpatial.cs:459-471, 515-528, 566-567, 586</c>) — deliberate by
+/// <c>VoiceSpatial</c>'s own design note, "a measurement of THE EXACT AUDIO THE PLAYER IS HEARING",
+/// and in any case conditional on whether <c>GetOutputData</c> returns post-attenuation samples,
+/// which is a Unity behaviour this repo has never settled (<c>.planning/VOICE-SPATIAL.md:536-542</c>
+/// says so).</para>
+///
+/// <para><b>ONE ITEM IN THAT CENSUS IS A REAL DEFECT, AND IT IS NOT A 1:1 ONE — it is a class doc
+/// falsified by its own code, in a file this lane was not given.</b>
+/// <c>VoiceSpatial.cs:145-148</c> asserts that the badge "is gated on <c>IsSpeaking</c> — the
+/// identical expression the flat game's own roster uses to light its talk icon
+/// (<c>PlayerTalkVoiceComponent.cs:20</c>). The two can therefore never disagree about who is
+/// talking." <c>VoiceSpatial.cs:458</c> is
+/// <c>IsSpeaking(b.Voice) &amp;&amp; !IsMuted(b.Voice)</c>, which is not that expression, and
+/// <c>VoiceCurve.cs:189-193</c> repeats the same claim. They disagree in exactly one reachable
+/// state: this viewer has muted that peer and that peer talks — the game's own roster lights their
+/// talk icon and this badge stays dark. The <c>want</c> test below inherits that through
+/// <c>TryGetVoice</c>'s <c>speaking</c> and cannot correct it from here; the one-line repair and
+/// its stated consequence are in the ModBuild 480 round report.</para>
 ///
 /// <para><b>WITH <c>[Net] NameTags</c> OFF THERE IS NO BADGE AND THE VOICE IS STILL SPATIAL.</b>
 /// That is the intended behaviour and not an oversight: the two dials answer different questions
@@ -118,6 +163,14 @@ internal sealed class VoiceBadge
     /// </summary>
     internal bool Tick(Transform? avatarQuad, float avatarSize, bool carrierVisible)
     {
+        // EVERY TERM HERE IS VIEWER-LOCAL AND THAT IS AUDITED, NOT ASSUMED — see the class doc's
+        // "WHAT THE 1:1 RULE DOES AND DOES NOT ASK OF THIS BADGE" block. In short: the speaker has
+        // no badge on their own machine, so there is no owner picture for this one to disagree
+        // with, and the rule has no left-hand side. The one term that is genuinely wrong is inside
+        // `speaking` — VoiceSpatial ANDs the game's IsSpeaking with THIS viewer's mute of that
+        // peer, against its own class doc's promise that the two "can never disagree about who is
+        // talking". It cannot be undone from here (TryGetVoice hands over one already-ANDed bool)
+        // and VoiceSpatial.cs was not handed to this lane.
         bool want = carrierVisible
                     && avatarQuad != null
                     && VoiceModule.SpeakingBadge != null && VoiceModule.SpeakingBadge.Value
