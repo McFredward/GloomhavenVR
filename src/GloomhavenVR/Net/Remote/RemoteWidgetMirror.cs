@@ -990,6 +990,35 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     private float _ownersHeightPx = -1f;
 
     /// <summary>
+    /// Whether the OWNER's own copy of this panel gets the same <c>LayoutContentHeight.Apply</c>
+    /// write the clone would get. False means the mirror must NOT correct the clone: the owner is
+    /// looking at the uncorrected panel, and 1:1 covers SIZE and POSITION whichever side is the
+    /// better picture.
+    ///
+    /// <para>KEYED ON <see cref="_name"/>, WHICH IS AN IDENTITY RATHER THAN A LABEL: every mirror
+    /// of a tray-mounted panel is constructed with the string its owner-side
+    /// <c>TrayMountedPanelSurface.Name</c> returns — "Objectives"
+    /// (<c>TablePanelSurfaces.cs:1849</c>), "ScenarioRules" (<c>:3467</c>), "InitiativeTrack"
+    /// (<c>:432</c>), "ElementBoard" (<c>:1801</c>) — so this test names the owner-side surface, not
+    /// a log string. Only the two <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/> mirrors ever
+    /// reach <see cref="ApplyOwnersRowHeight"/>, so this is a two-way choice today.</para>
+    ///
+    /// <para>THE MEASUREMENT BEHIND IT, not an inference: <c>LayoutContentHeight.Apply</c> has
+    /// exactly two call sites in the tree — <c>TablePanelSurfaces.cs:2289</c>, reached only from
+    /// <c>ObjectivesSurface.ApplyContentWidth</c> at <c>:2244</c>, and
+    /// <see cref="ApplyOwnersRowHeight"/> here. <c>ScenarioRulesSurface</c>
+    /// (<c>TablePanelSurfaces.cs:3465-3861</c>) has its own <c>ApplyContentWidth</c>, whose column
+    /// product this mirror reproduces term for term, and NO height write at all.</para>
+    ///
+    /// <para>THIS GATE IS MEANT TO BE DELETED. It exists because the two sides disagree, not
+    /// because a mirror should ever ask which panel it is; the moment
+    /// <c>ScenarioRulesSurface.ApplyContentWidth</c> also calls
+    /// <c>LayoutContentHeight.Apply(lever)</c>, both sides agree at the correct height and this
+    /// property becomes a constant true that should go.</para>
+    /// </summary>
+    private bool OwnerWritesContentHeight => _name != "ScenarioRules";
+
+    /// <summary>
     /// THE MIRRORED HALF OF THE OBJECTIVE-OVERLAP FIX (user report 2026-09-06 item 8).
     ///
     /// <para>The clone arrives by <c>Object.Instantiate</c> of the owner's converted subtree, so it
@@ -1000,7 +1029,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// <see cref="GloomhavenVR.Core.LayoutContentHeight"/>). The rect half of <see cref="Pair.Apply"/>
     /// stands down on this path, so the source's own corrected height is NOT copied across: fixing
     /// the owner alone would leave every peer's copy of the panel overlapping. Both call sites share
-    /// one helper so they cannot drift.</para>
+    /// one helper so the ARITHMETIC cannot drift — but sharing a helper does not make the two sides
+    /// run it on the same panels, which is what the gate below is for.</para>
     ///
     /// <para>1:1: this is a pure function of the same rows at the same column, so the two clients
     /// compute the same number from the same inputs. It is not a viewer dial being ANDed with an
@@ -1008,9 +1038,41 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// The frame clamp in <see cref="TryFrameExtent"/> cannot crop the taller panel either: this
     /// source is latched degenerate at conversion (<see cref="LatchFrameDegenerate"/>), which skips
     /// the clamp outright.</para>
+    ///
+    /// <para><b>…BUT ONLY WHERE THE OWNER'S OWN PANEL GETS THE SAME WRITE — see
+    /// <see cref="OwnerWritesContentHeight"/>.</b> The paragraph above, and
+    /// <c>LayoutContentHeight</c>'s own "both call sites are here so that the owner's panel and the
+    /// mirrored one cannot drift", were both written believing this method served ONE consumer. It
+    /// serves two: every <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/> mirror comes through
+    /// here, and <c>RemoteObjectivesPanel</c> builds two of them. Two call sites, three consumers —
+    /// which is what falsified the claim, and it was falsified by counting the constructors
+    /// (<c>RemoteObjectivesPanel.cs:203</c> "Objectives" and <c>:234</c> "ScenarioRules") against
+    /// the owner-side callers of <c>LayoutContentHeight.Apply</c> (exactly one, inside
+    /// <c>ObjectivesSurface.ApplyContentWidth</c> at <c>TablePanelSurfaces.cs:2244</c>).</para>
     /// </summary>
     private void ApplyOwnersRowHeight()
     {
+        // 1:1 BEFORE LEGIBILITY (R2 finding F6, 2026-09-07). A mirror that lays out BETTER than the
+        // panel it is a picture of is a 1:1 breach in the direction nobody calls one, and this
+        // method was committing it: the owner's SCENARIO RULES panel keeps whatever height the
+        // conversion left it (CanvasConversion's max(size, 100) placeholder for a degenerate
+        // authored rect) because ScenarioRulesSurface has no height write of ANY kind, while the
+        // clone of it was grown to its own preferred height. The owner therefore reads overlapping
+        // rule rows and the viewer reads the same rules laid out correctly, taller — and, because
+        // the fitted union is taller against the same 0.09 m budget, at a SMALLER metres-per-pixel,
+        // i.e. a different glyph size as well as different row positions.
+        //
+        // RemoteObjectivesPanel's own rule is the one that decides it: "Absent on both sides beats
+        // different on each." So the correction stands down for the mirror whose owner-side twin
+        // does not perform it. THE BETTER OUTCOME IS THE OTHER ONE — give ScenarioRulesSurface the
+        // same ApplyContentHeight call the objectives surface has, and then delete this gate; that
+        // file was not handed to this lane, and the one-line patch is named in the round report.
+        if (!OwnerWritesContentHeight)
+        {
+            LogHeightStoodDown();
+            return;
+        }
+
         // Cheap test first — this runs on the content cadence and the row-guard walk allocates. The
         // BEFORE shortfall needs no walk: it is the room the root was short, which is the difference
         // the write just closed.
@@ -1056,6 +1118,39 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// column reached the rows — never merely that something was attempted. PURE: it latches
     /// nothing, so retiring it can break nothing.</para>
     /// </summary>
+    /// <summary>Latch for <see cref="LogHeightStoodDown"/> — one line per mirror, not per tick.
+    /// INSTRUMENT-ONLY: nothing else reads it, so retiring the line can break nothing.</summary>
+    private bool _loggedHeightStoodDown;
+
+    /// <summary>
+    /// SAY THAT THE HEIGHT WRITE WAS DECLINED, ONCE, so its absence is a statement rather than a
+    /// silence. A change-gated diagnostic that simply never prints reads exactly like a diagnostic
+    /// that is dead, and this project has spent rounds on that ambiguity — the
+    /// <c>OBJECTIVES HEIGHT (mirrored)</c> line's own text tells the reader to be suspicious of a
+    /// missing line, so the one panel that will never emit one has to say why.
+    /// </summary>
+    private void LogHeightStoodDown()
+    {
+        if (_loggedHeightStoodDown)
+            return;
+        _loggedHeightStoodDown = true;
+        // HW-VERIFY: grep OBJECTIVES HEIGHT (declined).
+        VRLog.Note("Net", $"OBJECTIVES HEIGHT (declined) '{_name}': this clone is NOT sized from its " +
+                          "own content, and that is the correct picture rather than a failure. The " +
+                          "owner-side surface for this panel (ScenarioRulesSurface) performs no " +
+                          "content-height write of any kind — LayoutContentHeight.Apply has exactly " +
+                          "two call sites and the game-side one lives in ObjectivesSurface — so the " +
+                          "owner is reading rows squeezed into CanvasConversion's max(size, 100) " +
+                          "placeholder. Correcting only the clone would make the mirror TALLER than " +
+                          "the panel it is a picture of, and therefore fitted at a different " +
+                          "metres-per-pixel: different row positions AND a different glyph size " +
+                          "from what the owner is reading. 'Absent on both sides beats different on " +
+                          "each.' The right repair is on the OWNER (give ScenarioRulesSurface the " +
+                          "same ApplyContentHeight call), after which this line must disappear and " +
+                          "an 'OBJECTIVES HEIGHT (mirrored)' line for this panel must appear beside " +
+                          "the owner's own — if you see BOTH, the gate was left in by mistake.");
+    }
+
     private void LogOwnersColumn(float wantPx)
     {
         VRLog.Info("Net", $"OBJECTIVES COLUMN (mirrored) '{_name}': the clone's container root is " +
@@ -1564,8 +1659,11 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// RE-DERIVED rather than read off the owner's own dock.
     ///
     /// <para>WHY THIS EXISTS ONLY ON THE FLAGGED PATH. On <see cref="LayoutOwner.Source"/> the
-    /// primary measure is <see cref="TryDockRect"/>, i.e. the rect the owner's own converted panel
-    /// already committed — exact by construction, nothing to sanity-check. Under
+    /// primary measure is <see cref="TryDockRect"/> — a rect a conversion already committed, so it
+    /// is a real fit and not a reconstruction, and there is nothing here to sanity-check. (It is
+    /// THIS CLIENT's conversion of the same global widget, not the owner's; the paragraph that
+    /// claimed otherwise is corrected on <see cref="TryMeasureDock"/>, and the pixel pair that
+    /// settles whether the two agree is in the fit line.) Under
     /// <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/> that rect no longer describes this clone
     /// (see <see cref="TryMeasureDock"/>) and the number comes from this class's own union of clone
     /// graphics instead. A union is a reconstruction, and a reconstruction can be wrong: a
@@ -1634,12 +1732,30 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                           $"measured via {_measurePath}, " +
                           $"mount-local {_host!.transform.localPosition:F3} under '{_mount.name}' " +
                           $"(mount board-local {_mount.localPosition:F3}, grow {_grow}). " +
-                          "'via converted host rect' means this panel is fitted to the EXACT rect " +
-                          "the OWNER's own dock uses (TrayMountedPanelSurface.Place reads the same " +
-                          "number), so its size and its lift above the mount are theirs by " +
-                          "construction; 'via graphics union' is the fallback measure for a source " +
-                          "that is not a converted panel — a panel sitting too high/low is a " +
-                          "measure question and this line says which measure produced it.");
+                          "'via converted host rect' means this panel is fitted to the rect THIS " +
+                          "CLIENT's own conversion of the same global widget committed " +
+                          "(TrayMountedPanelSurface.Place reads that same number); 'via graphics " +
+                          "union' is the fallback measure for a source that is not a converted " +
+                          "panel — a panel sitting too high/low is a measure question and this line " +
+                          "says which measure produced it. " +
+                          // The two-canvas falsifier for R2 F9 lives in the sentence below rather
+                          // than behind a HW-VERIFY marker: this line's tier is Info, which the
+                          // DEFAULT log level does not print, and re-tiering a shipped line is not
+                          // this lane's call. Raise the level (or promote this line) before the run
+                          // that is meant to answer it.
+                          "THE DECIDING FIELD FOR THE TWO-CANVAS QUESTION IS THE PIXEL PAIR IN " +
+                          "BRACKETS ABOVE, and it is measured on the RECEIVER's canvas, not the " +
+                          "owner's — 'via converted host rect' reads this client's own " +
+                          "CanvasConversion.ActivePanels entry. The two clients author different " +
+                          "canvas widths (1920x1080 host, 2580x1080 co-player; the scaler matches " +
+                          "on HEIGHT, so the width difference survives into authored pixels), and " +
+                          "nothing on this path normalises for it. To settle it: grep this same " +
+                          "line for this same panel name in the OTHER machine's log and compare " +
+                          "ONLY the (WxH px) pair. Equal on both ⇒ no visible graphic in this " +
+                          "panel's union is stretch-anchored to the HUD canvas and the mirror is " +
+                          "exonerated. Unequal ⇒ every peer draws this panel at its own canvas' " +
+                          "width, and because the fit is clamped at MaxDensityScale the difference " +
+                          "lands directly in the metres, not in the glyph scale.");
     }
 
     /// <summary>Corner scratch for <see cref="TryMeasure"/> (<c>GetWorldCorners</c> fills a caller
@@ -1674,9 +1790,42 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// VR: the game's own track/objectives canvas, moved onto a WorldUI world-space host), its
     /// fitted HOST RECT is available directly, and it is the very number
     /// <c>TrayMountedPanelSurface.Place</c> feeds into the same formula. Using it makes the
-    /// mirrored panel geometrically identical to the owner's dock BY CONSTRUCTION rather than by
-    /// two measurements agreeing — and the centre is zero, because that fit already re-centred the
-    /// content on the host origin (the pivot is sized to that same rect, see AdoptParentRect).
+    /// mirrored panel geometrically identical to THIS CLIENT'S OWN dock of the same global widget —
+    /// and the centre is zero, because that fit already re-centred the content on the host origin
+    /// (the pivot is sized to that same rect, see AdoptParentRect).
+    ///
+    /// <b>THAT IS NOT THE SAME CLAIM AS "IDENTICAL TO THE OWNER'S DOCK BY CONSTRUCTION", WHICH IS
+    /// WHAT THIS PARAGRAPH USED TO SAY AND WHICH IS FALSE</b> (R2 finding F9, 2026-09-07).
+    /// <see cref="TryDockRect"/> walks <c>WorldUI.CanvasConversion.ActivePanels</c> — a purely
+    /// LOCAL list — and returns <c>p.HostRect.rect</c> for the panel whose <c>Target</c> is
+    /// <c>_source</c>, i.e. the RECEIVER's own converted copy of the global widget. It is therefore
+    /// exactly "two measurements agreeing", which the old sentence explicitly disclaimed. The two
+    /// measurements agree only while both clients measure the same authored pixels, and
+    /// <b>the two clients do not author the same canvas</b>: host 1920x1080 against co-player
+    /// 2580x1080, stated in this tree at <c>WorldUI/Modal/SharedWindowSize.cs:25-33</c> and
+    /// <c>NetProtocol.cs:3162-3167</c> with two-machine log evidence, and the game's canvas scaler
+    /// matches on HEIGHT so the width difference survives into authored pixels. There is no
+    /// canvas-width normalisation anywhere on this path, and <c>SharedWindowSize</c>'s design-frame
+    /// repin is scoped to a closed four-member <c>SharedWindowKind</c> population that contains
+    /// neither the initiative track nor the element board.
+    ///
+    /// <b>WHY THIS IS STATED AND NOT FIXED HERE.</b> It bites only if a VISIBLE graphic inside the
+    /// measured union is stretch-anchored to the HUD canvas; the union is over drawn graphics, so a
+    /// merely stretch-anchored CONTAINER does not reach it. Nothing in this repo measures the
+    /// track's or the element board's authored pixels on BOTH machines — the shipped two-machine
+    /// pixel comparisons are for the quest popup and the merchant art — and the one member of this
+    /// family that does have two-machine evidence is CLEAN (the decision row, owner-peer-log 720x48
+    /// against mirror-host-log 708x48 → 720x48 after padding and the frame clamp, agreeing to the
+    /// pixel across the two canvases). Closing it blind would mean either a wire field for a rect
+    /// both sides are supposed to derive, or a normalisation applied to a difference that may be
+    /// zero. So this build ships the MEASUREMENT instead: see <see cref="LogFit"/>, whose line now
+    /// names the deciding field and the exact one-grep comparison that settles it.
+    ///
+    /// The regime is what makes it worth measuring rather than assuming small: the shipped track fit
+    /// is 740x204 px into 0.309x0.085 m, i.e. 4.176e-4 m/px against 1/2400 = 4.167e-4 — the fit is
+    /// CLAMPED at <see cref="MaxDensityScale"/>. In that regime metres-per-pixel is a constant and
+    /// physical size is directly proportional to the local pixel measure, so a pixel difference is
+    /// not absorbed into the scale; it lands straight in the size.
     ///
     /// FALLBACK — the graphics union, for a source that is not converted (flat mode, conversion
     /// disabled, mid-conversion frames), now with the LOCAL fit's own visibility rules.
