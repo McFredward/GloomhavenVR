@@ -268,6 +268,8 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\ExtrasFragments.cs" Link="wire\ExtrasFragments.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\BurnReleasePolicy.cs" Link="wire\BurnReleasePolicy.cs" />
     <Compile Include="CardPresentationVectors.cs" />
+    <Compile Include="FanExchangeVectors.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\FanExchangeIdentity.cs" Link="wire\FanExchangeIdentity.cs" />
     <Compile Include="CardRestSeamVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\CardPresentationPolicy.cs" Link="cards\CardPresentationPolicy.cs" />
     <!-- Peer-board see-through (user request 15): a stepper pin for four dials whose defaults do

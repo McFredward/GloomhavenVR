@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-08 against `dev` = ModBuild 484.** The file this replaces had gone 168 builds
+**Updated 2026-09-08 against `dev` = ModBuild 485.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,16 +13,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **`dev` = ModBuild 484.** `main` is the release branch and is behind on purpose.
+- **`dev` = ModBuild 485.** `main` is the release branch and is behind on purpose.
 - **483 IS A FULL INSTALL.** The asset bundle changed for the first time since ModBuild 368:
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
   loud if it happens.
-- **Hardware evidence now covers 482**, both clients at commit `6efa4acfc`. **483 and 484
+- **Hardware evidence now covers 482**, both clients at commit `6efa4acfc`. **483 through 485
   remain untested on hardware.** See [MP-ROUND-484.md](MP-ROUND-484.md) for the seven findings,
   fixes, transport contract and the unresolved underlying disconnect cause.
 - **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
-- Gate readings at 484: 17 checkers green · wire **213,704** assertions · patch surface
+- Gate readings at 485: 17 checkers green · wire **213,722** assertions · patch surface
   **107 classes / 165 methods** · config keys **625** · log tokens **4,704** ·
   instrument-writes baseline **61** · 0 errors, 0 warnings.
 
@@ -35,6 +35,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 482 | the four rulings he gave on 481's deferred list, one lane each | DLL only |
 | 483 | his two hardware notes, both baked into the assets on his ruling "lieber sauber" | **full** |
 | 484 | multiplayer pulse, flights, grabbing, rest controls/burns, original bonus widgets and bounded extras transport | DLL only after 483 |
+| 485 | remote character-change animations for map-room hands and open discard/burnt browsers | DLL only after 483 |
 
 ---
 
@@ -49,11 +50,14 @@ in the zoomed-out pose where the room reads as a model in front of you. That sur
 `[Rig] VoidColor` clear. **This is a consequence of his instruction, not a defect** — but he has
 not seen it yet, and it is one line to put back.
 
-### 2b. Implemented in 484; hardware verification remains
+### 2b. Implemented in 484–485; hardware verification remains
 
 - Explicit short-rest state now uses record 46 independently of sacrifice-seat record 39.
 - Remote active-bonus rows now use original serialized game slot and picker prefabs, including
   owner subwidget state in record 47. The giant custom caption and plate widgets are removed.
+- Map-room fan exchanges now use the owner's map character key. Equal-sized hands refresh
+  immediately; discard/burnt browsers re-emerge on character retargets. See
+  [MP-FAN-485.md](MP-FAN-485.md).
 - Local and remote card pulse/flight/rest repairs are integrated. The supplied disconnect is a
   confirmed transport receive timeout; its underlying cause remains unresolved.
 

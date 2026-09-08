@@ -497,10 +497,9 @@ internal sealed class RemoteHandFan
     // watching the very content edit that report was about, one screen over.
     //
     // WHAT RIDES THE WIRE FOR THIS: NOTHING NEW, AND IN PARTICULAR NO CARD IDENTITY. The trigger is
-    // a change in the character the owner is DISPLAYING, which this receiver already resolves every
-    // frame for the front-art gate (RemoteBoardFocus.DisplayedActor — extension record 22's actor
-    // id plus this client's own host-replicated actor table). The animation itself is a function of
-    // that edge, the card COUNT that was already broadcast, and the owner's synced hand and head —
+    // a change in the owner's raw scenario focus (record 22) or map-room character key (record 20).
+    // Front-art resolution remains separate and grants its own permission. The animation uses
+    // that identity edge, the card COUNT that was already broadcast, and the owner's synced hand and head —
     // exactly like the fan-out reveal and the depth bow above. A MOTION CARRIES NO IDENTITY: what
     // is mirrored here is where slabs move, never which cards they are. The slabs on their way out
     // keep whatever face state the reveal gate had already granted them and are re-gated every
@@ -2128,9 +2127,8 @@ internal sealed class RemoteHandFan
     /// <see cref="_mapBuffer"/>. The identification itself belongs to the map room — see
     /// <c>MapRoomHand.TryResolvePeerLoadout</c>, which carries the tiers, their certainty and the
     /// belt each one applies. Cached because that walk is O(party) and this is called every frame:
-    /// it re-runs when the peer's LOADOUT SIZE moves (a card ticked on or off, a character switch)
-    /// and otherwise on <see cref="MapResolveInterval"/>, which is what picks up an edit that did
-    /// not change the size.
+    /// it re-runs when the peer's LOADOUT SIZE or CHARACTER KEY changes, including equal-sized
+    /// hands, and otherwise on <see cref="MapResolveInterval"/> to pick up same-character edits.
     ///
     /// <para><paramref name="loadoutSize"/> IS THE WHOLE LOADOUT AND NOT THE ARC (2026-09-07).
     /// <see cref="_mapBuffer"/> is the peer's full loadout in initiative order — it has to be,

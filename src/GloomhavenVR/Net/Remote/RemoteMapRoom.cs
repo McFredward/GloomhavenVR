@@ -295,6 +295,9 @@ internal static class RemoteMapRoom
     internal static void Reset()
     {
         Peers.Clear();
+        _sentValid = false;
+        _sentSelectKey = 0u;
+        _sentFanCharacterKey = 0u;
         // ---- shared-gaze hunk: the same teardown edge.
         RemoteSharedGaze.Reset();
         ConsumedStamp.Clear();
@@ -326,9 +329,9 @@ internal static class RemoteMapRoom
     /// <summary>
     /// Whether the extras packet must go out NOW rather than on its own cadence.
     ///
-    /// <para>THREE EDGES PRE-EMPT: entering the room, a COMPLETED local world↔city change, and the
-    /// SELECTION changing. All three are discrete, human-paced acts whose whole purpose is to be
-    /// looked at, so up to 200 ms of cadence latency between two headsets is exactly the "did that
+    /// <para>FOUR EDGES PRE-EMPT: entering the room, a COMPLETED local world↔city change,
+    /// the SELECTION changing, and a different character's hand. These are discrete, human-paced
+    /// acts whose whole purpose is to be looked at, so up to 200 ms of cadence latency between two headsets is exactly the "did that
     /// work?" this feature exists to remove — and since report 13 the selection is not merely
     /// looked at but FOLLOWED, so its latency is the whole feature.</para>
     ///
@@ -337,10 +340,10 @@ internal static class RemoteMapRoom
     /// packet burst. It rides the ordinary 5 Hz cadence instead — the established distinction
     /// between the pre-empting and the capped idioms.</para>
     ///
-    /// <para>NEITHER DOES THE MAP-FAN CHARACTER KEY, and for the opposite reason to the hover's: it
-    /// changes only when the player picks a different character on the party display, which is rare
-    /// and slow, and nothing acts on the edge — a receiver reads it as a LEVEL when it next re-runs
-    /// its resolve. So the 5 Hz cadence carries it and pre-empting for it would buy nothing.</para>
+    /// <para>The map-fan character key now triggers the same exchange the owner sees (ModBuild
+    /// 485). The previous claim that nothing acted on this edge explained the missing animation:
+    /// RemoteHandFan only watched the scenario focus. Publish the existing record-20 key on its
+    /// actual change, including equal-sized hands, without waiting for the ordinary 5 Hz tick.</para>
     ///
     /// <para>PURE: this reads live state and compares it against what was last SENT. It must not
     /// mutate anything, because the rate gate evaluates it on every frame and
@@ -359,7 +362,8 @@ internal static class RemoteMapRoom
                 return true;
             MapLocationInteractor? locations = MapRoomDriver.ActiveLocations;
             MapLocation? staged = locations != null ? locations.Staged : null;
-            return KeyOf(staged) != _sentSelectKey;
+            return KeyOf(staged) != _sentSelectKey
+                   || WorldUI.MapRoom.MapRoomHand.LocalFanCharacterKey != _sentFanCharacterKey;
         }
     }
 
@@ -369,6 +373,7 @@ internal static class RemoteMapRoom
 
     /// <inheritdoc cref="_sentValid"/>
     private static uint _sentSelectKey;
+    private static uint _sentFanCharacterKey;
 
     // ---- send side --------------------------------------------------------------------------
 
@@ -392,6 +397,7 @@ internal static class RemoteMapRoom
             _hasAdoptedSelect = false;
             _sentValid = false;
             _sentSelectKey = 0u;
+            _sentFanCharacterKey = 0u;
             // ---- shared-gaze hunk: THE ROOM-DOWN EDGE. The host's decision about where the party
             // is looking is a constant of ONE room visit, so leaving forgets it — a decision that
             // outlived the room would seat the next visit's windows from where somebody looked in
@@ -522,6 +528,7 @@ internal static class RemoteMapRoom
         // What SendDue compares the next frame's live state against.
         _sentValid = true;
         _sentSelectKey = selectKey;
+        _sentFanCharacterKey = extras.MapRoomFanCharacterKey;
     }
 
     // ---- receive side -----------------------------------------------------------------------

@@ -451,7 +451,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 484;
+    public const ushort ModBuild = 485;
+    // Build 485: REMOTE CHARACTER-CHANGE FAN ANIMATIONS, follow-up to the 482 hardware round.
+    //   The logs distinguish two paths: host5224/5502/5607 and peer2350 are 10->10 MAP-ROOM
+    //   exchanges, while host11005's 8->8 SCENARIO exchange already appears remotely at7213.
+    //   The remote trigger watched only scenario focus22, so it never saw the map-room
+    //   character key carried by existing record20. Use distinct scenario/map identity domains;
+    //   equal card counts still exchange, same-count map art caches invalidate immediately,
+    //   and the outgoing wave retains its own existing phase/front rule. Detect identity before
+    //   zero-count collapse so switching into an empty hand cannot erase the outgoing wipe.
+    //   Record20's character key now pre-empts the ordinary send cadence on actual changes.
+    //
+    //   DISCARD/BURNT BROWSERS use a different local motion: UpdateBrowser seeds new cards on
+    //   their pile stack when a character changes. Mirror that existing emerge even at equal
+    //   kind/count and clear the previous character's front cache. Items close locally on a
+    //   character change and receive no invented exchange. No new wire field, configuration,
+    //   game-state mutation or reveal permission. DLL-only after the full483 bundle; headset
+    //   validation remains outstanding. See .planning/MP-FAN-485.md.
+
     // Build 484: MULTIPLAYER HARDWARE REPAIR ROUND (both supplied logs were 482/6efa4acfc).
     //   DLL-only relative to the FULL 483 install; a player upgrading from 482 still needs
     //   the 74,943,763-byte bundle. Hardware appearance of these fixes is not yet verified.

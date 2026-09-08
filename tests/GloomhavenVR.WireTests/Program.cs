@@ -77,6 +77,7 @@ internal static class Program
             ExtrasFragmentVectors.Run(t);
             UseBarWidgetVectors.Run(t);
             CardPresentationVectors.Run(t);
+            FanExchangeVectors.Run(t);
             CardRestSeamVectors.Run(t, repoRoot);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
