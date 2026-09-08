@@ -34,6 +34,7 @@ internal sealed class RemoteUseBarWidgets
     private Slot[] _slots = Array.Empty<Slot>();
     private readonly Sprite?[] _wantedIcons;
     private int _stamp = -1;
+    private int _stageActorId;
     private bool _failedLogged;
     private readonly ushort[] _stageIds;
     private readonly int[] _stageConsumeCounts, _stageOptionCounts;
@@ -98,7 +99,7 @@ internal sealed class RemoteUseBarWidgets
             _source = source;
             if (!_mirror.Refresh(source))
             {
-                _slots = Array.Empty<Slot>();
+                ReleaseSlots();
                 if (!_failedLogged)
                 {
                     _failedLogged = true;
@@ -110,6 +111,7 @@ internal sealed class RemoteUseBarWidgets
             if (changed || _stamp != _mirror.RebuildStamp || _slots.Length != _count)
             {
                 _stamp = _mirror.RebuildStamp;
+                ReleaseSlots();
                 _slots = new Slot[_count];
                 for (int i = 0; i < _count; i++)
                 {
@@ -120,6 +122,8 @@ internal sealed class RemoteUseBarWidgets
                         original.Subwidgets = RemoteUseBarSubwidgets.Capture(bonus, Model(actor, owner, i),
                             actor, Descriptor(owner, i), false);
                     _slots[i] = original.Map(_mirror);
+                    _slots[i].ActorId = live ? NetFigures.StableActorId(actor) : _stageActorId;
+                    _slots[i].Identity = live ? SlotId(owner, i) : _stageIds[i];
                 }
                 _failedLogged = false;
                 VRLog.Info("Net", $"USE BAR WIDGETS: bar {_bar}, {_count} original game slot(s), " +
@@ -134,11 +138,12 @@ internal sealed class RemoteUseBarWidgets
             // UseBarsSurface pins the VISIBLE top, not the padded host top.
             if (_mirror.HostCanvas != null)
                 _mirror.HostCanvas.transform.localPosition += Vector3.up * PaddingMeters;
+            ApplyAnimations(owner); // final writer, after refit and native masks/hover
         }
         catch (Exception e)
         {
             _mirror.SetShown(false);
-            _slots = Array.Empty<Slot>();
+            ReleaseSlots();
             if (!_failedLogged)
             {
                 _failedLogged = true;
@@ -217,6 +222,7 @@ internal sealed class RemoteUseBarWidgets
             Object.DestroyImmediate(stage.transform.GetChild(i).gameObject);
         _stage = (RectTransform)stage.transform;
         _stageSlots = new Slot[_count];
+        _stageActorId = NetFigures.StableActorId(actor);
         for (int i = 0; i < _count; i++)
         {
             GameObject go = Object.Instantiate(prefab.gameObject, _stage, false);
@@ -271,6 +277,7 @@ internal sealed class RemoteUseBarWidgets
 
     private bool StageMatches(CPlayerActor? actor, RemoteAvatar owner)
     {
+        if (_stageActorId != NetFigures.StableActorId(actor)) return false;
         for (int i = 0; i < _count; i++)
         {
             UseBarWidgetState? state = Descriptor(owner, i);
@@ -317,6 +324,14 @@ internal sealed class RemoteUseBarWidgets
     {
         _mirror.TickLive();
         Paint(owner);
+        ApplyAnimations(owner); // mirror sync and hover must not erase an intermediate pose
+    }
+
+    private void ApplyAnimations(RemoteAvatar owner)
+    {
+        if (_bar != 0) return;
+        for (int i = 0; i < _slots.Length; i++)
+            _slots[i].Animation?.Apply(owner, _slots[i].ActorId, _slots[i].Identity, i);
     }
 
     private void Paint(RemoteAvatar owner)
@@ -425,6 +440,7 @@ internal sealed class RemoteUseBarWidgets
         ExtendedButton? button = Field<ExtendedButton>(component, "button");
         return new Slot
         {
+            Animation = component is UIUseActiveBonus bonus ? RemoteUseBarAnimation.Capture(bonus) : null,
             ScaleNode = button != null ? (button.overridedTargetRectScale != null ? button.overridedTargetRectScale
                 : button.targetRect != null ? button.targetRect : button.transform) : null,
             HoverFactor = button != null ? button.highlightScaleFactor : 1f,
@@ -446,6 +462,9 @@ internal sealed class RemoteUseBarWidgets
     private struct Slot
     {
         internal RemoteUseBarSubwidgets? Subwidgets;
+        internal RemoteUseBarAnimation? Animation;
+        internal int ActorId;
+        internal ushort Identity;
         internal Image? Icon;
         internal GameObject? Selected, Optional, Mandatory, ElementPicker, OptionPicker;
         internal CanvasGroup? Group;
@@ -457,6 +476,7 @@ internal sealed class RemoteUseBarWidgets
         internal Slot Map(RemoteWidgetMirror mirror) => new()
         {
             Subwidgets = Subwidgets?.Map(mirror),
+            Animation = Animation?.Map(mirror), ActorId = ActorId, Identity = Identity,
             ScaleNode = mirror.CloneOf(ScaleNode), HoverFactor = HoverFactor, HoverSeconds = HoverSeconds,
             ScaleFrom = 1f, ScaleCurrent = 1f, ScaleTarget = 1f,
             Icon = mirror.CloneOf(Icon != null ? Icon.transform : null)?.GetComponent<Image>(),
@@ -472,8 +492,15 @@ internal sealed class RemoteUseBarWidgets
         };
     }
 
+    private void ReleaseSlots()
+    {
+        foreach (Slot slot in _slots) slot.Animation?.Destroy();
+        _slots = Array.Empty<Slot>();
+    }
+
     internal void Destroy()
     {
+        ReleaseSlots();
         _mirror.Destroy();
         if (_stageHost != null)
             Object.Destroy(_stageHost);
