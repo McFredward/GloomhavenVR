@@ -257,6 +257,7 @@ internal sealed class RemoteBrowserFan
     // off the transitions (open edge → emerge, close edge → collapse, kind change → re-emerge).
     private bool _open;
     private int _shownKind = -1;
+    private int _shownActorId;
     private bool _poseInit;
 
     /// <summary>One-shot latch for the "hidden by the remote-board setting" line (see Tick).</summary>
@@ -508,9 +509,26 @@ internal sealed class RemoteBrowserFan
         }
         _gateHiddenLogged = false;
 
+        // UpdateBrowser re-seeds the already-open pile fan when its character changes, even
+        // at equal kind/count. Record 22 names the owner's actual presented character, including
+        // game-driven switches between their own hands. DisplayedActor deliberately suppresses
+        // that identity during selection, so it cannot detect this cosmetic motion edge. Fronts
+        // still resolve independently through their existing actor selector and RevealGate.
+        int actorId = wantOpen ? Board.CharacterFocus.FocusIdForPeer(_owner.PlayerId) : 0;
+        // An omitted/unavailable focus sample is not an edge back to the viewer's fallback.
+        if (wantOpen && actorId == 0 && _shownActorId == 0)
+            actorId = NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _));
+        bool retarget = wantOpen && _open && _shownActorId != 0 && actorId != 0
+            && actorId != _shownActorId;
+        if (wantOpen && actorId != 0) _shownActorId = actorId;
+        else if (!wantOpen) _shownActorId = 0;
+
         // ---- state edges -------------------------------------------------------------------
-        if (wantOpen && (!_open || wantKind != _shownKind))
+        if (wantOpen && (!_open || wantKind != _shownKind || retarget))
         {
+            // Equal counts reuse slabs. Discard the previous character's cached fronts now so
+            // the next guarded front tick resolves the new actor without a content-cadence delay.
+            if (retarget) _fronts.HideAll();
             BeginEmerge(wantKind, ResolveCount());
         }
         else if (!wantOpen && _open)
@@ -568,7 +586,7 @@ internal sealed class RemoteBrowserFan
     // ------------------------------------------------------------------ open / emerge --
 
     /// <summary>
-    /// Open edge (or pile switch): (re)build the slabs, snap the fan to its anchor, then SEED every
+    /// Open edge, pile switch or character retarget: (re)build the slabs, snap to the anchor, then SEED every
     /// card on the sender's pile STACK so the per-card ease below flies them out of it — the same
     /// one-shot trick <c>PileBrowser.Relayout</c> plays with <c>_emergePending</c>. When the stack
     /// cannot be resolved (no board pose yet) the seed degrades to the fan centre, so the worst case
@@ -633,7 +651,7 @@ internal sealed class RemoteBrowserFan
         VRLog.Info("Net", $"Remote pile browse [player {_owner.PlayerId}]: {KindName(kind)} fan OPEN with " +
                           $"{count} card(s), {(_owner.PileBrowseHeld ? $"held in their {(_owner.PileBrowseLeftHand ? "LEFT" : "RIGHT")} hand" : "above their board")} " +
                           $"— cards emerge {(seeded ? "out of that pile stack" : "from the fan centre (no board pose yet)")}" +
-                          $"{(switching ? " (pile switch — matches the local re-emerge, no collapse)" : string.Empty)}. " +
+                          $"{(switching ? " (pile or character retarget — matches the local re-emerge, no collapse)" : string.Empty)}. " +
                           "Whether the slabs show FRONTS or BACKS is stated separately by the " +
                           "\"Remote pile browse fan faces\" line (RevealGate decides, per phase).");
     }
@@ -1405,6 +1423,7 @@ internal sealed class RemoteBrowserFan
     private void Hide()
     {
         _emergeElapsed = -1f;
+        _shownActorId = 0;
         ClearReturns();
         _collapseElapsed = -1f;
         _collapseFrom.Clear();
@@ -1421,6 +1440,7 @@ internal sealed class RemoteBrowserFan
         _builtCount = -1;
         _open = false;
         _shownKind = -1;
+        _shownActorId = 0;
         // Round 17: the body mesh is CardMesh's SHARED cache (AttachBody) — never ours to destroy.
         if (_root != null)
         {
