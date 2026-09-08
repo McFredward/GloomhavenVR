@@ -4,9 +4,9 @@ using System.Collections.Generic;
 namespace GloomhavenVR.Net;
 
 /// <summary>
-/// Bounded transport envelopes for complete, unchanged extras snapshots. Bolt does not fragment
-/// oversized events. Every extras snapshot uses this envelope so reordering across size changes
-/// cannot overwrite a newer board with an older, finally completed snapshot.
+/// Bounded transport envelopes for complete, unchanged presentation snapshots. Bolt does not
+/// fragment oversized events. Each stream uses its own envelope and assembler, so reordering
+/// cannot overwrite a newer state with an older, finally completed snapshot.
 /// </summary>
 internal sealed class ExtrasFragments
 {
@@ -17,6 +17,15 @@ internal sealed class ExtrasFragments
     private const int MaxPeers = 8;
     private const double AssemblyLifetime = 5;
     private readonly Dictionary<int, Pending> _peers = new();
+    private readonly byte _payloadType;
+    private readonly byte _envelopeType;
+
+    internal ExtrasFragments(byte payloadType = NetProtocol.MsgExtras,
+        byte envelopeType = NetProtocol.MsgExtrasFragments)
+    {
+        _payloadType = payloadType;
+        _envelopeType = envelopeType;
+    }
 
     private sealed class Pending
     {
@@ -30,11 +39,12 @@ internal sealed class ExtrasFragments
     internal void Clear() => _peers.Clear();
     internal void Forget(int sender) => _peers.Remove(sender);
 
-    internal static byte[][] Encode(byte[] snapshot, int length, ulong sequence)
+    internal static byte[][] Encode(byte[] snapshot, int length, ulong sequence,
+        byte payloadType = NetProtocol.MsgExtras, byte envelopeType = NetProtocol.MsgExtrasFragments)
     {
         if (snapshot == null || length < 6 || length > snapshot.Length
-            || length > MaxSnapshotBytes || NetPacket.PeekType(snapshot, length) != NetProtocol.MsgExtras)
-            throw new ArgumentException("Invalid extras snapshot.", nameof(snapshot));
+            || length > MaxSnapshotBytes || NetPacket.PeekType(snapshot, length) != payloadType)
+            throw new ArgumentException("Invalid presentation snapshot.", nameof(snapshot));
         int chunkCount = (length + ChunkBytes - 1) / ChunkBytes;
         var packets = new byte[(chunkCount + 3) / 4][];
         int offset = 0;
@@ -44,7 +54,7 @@ internal sealed class ExtrasFragments
             int dataLength = Math.Min(chunks * ChunkBytes, length - offset);
             var packet = new byte[6 + chunks * (2 + MetadataBytes) + dataLength];
             Buffer.BlockCopy(snapshot, 0, packet, 0, 6);
-            packet[5] = NetProtocol.MsgExtrasFragments;
+            packet[5] = envelopeType;
             int p = 6;
             for (int c = 0; c < chunks; c++)
             {
@@ -66,7 +76,7 @@ internal sealed class ExtrasFragments
     internal byte[]? Accept(int sender, byte[] packet, int length, double now)
     {
         if (packet == null || length < 6 || length > packet.Length || length > MaxDatagramBytes
-            || NetPacket.PeekType(packet, length) != NetProtocol.MsgExtrasFragments)
+            || NetPacket.PeekType(packet, length) != _envelopeType)
             return null;
         // Validate the entire datagram before mutating any assembly. All chunks in a datagram
         // must identify the same snapshot; offsets and lengths are canonical and nonoverlapping.
@@ -143,7 +153,7 @@ internal sealed class ExtrasFragments
         if (state.Count != state.Received!.Length) return null;
         byte[] complete = state.Bytes;
         state.Bytes = null; state.Received = null;
-        return NetPacket.PeekType(complete, complete.Length) == NetProtocol.MsgExtras ? complete : null;
+        return NetPacket.PeekType(complete, complete.Length) == _payloadType ? complete : null;
     }
 
     private static ulong ReadSequence(byte[] packet, int p)

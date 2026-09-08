@@ -50,16 +50,24 @@ internal sealed class FfsNetTransport : INetTransport
     private bool _resolved;
     private bool _degraded;
     private readonly ExtrasFragments _fragments = new();
-    private readonly ExtrasSendQueue _extrasQueue = new((ulong)DateTime.UtcNow.Ticks);
+    private readonly ExtrasFragments _animationFragments = new(NetProtocol.MsgUseBarAnimation,
+        NetProtocol.MsgUseBarAnimationFragments);
+    private readonly ExtrasSendScheduler _extrasQueue = new((ulong)DateTime.UtcNow.Ticks,
+        NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
     private byte[]? _versionAnnouncement;
     private double _nextVersionAnnouncement;
     private double _nextFragmentReport;
     private int _sentFragments, _receivedFragments, _completedSnapshots, _fragmentBytes;
 
-    internal void ForgetPeer(int senderId) => _fragments.Forget(senderId);
+    internal void ForgetPeer(int senderId)
+    {
+        _fragments.Forget(senderId);
+        _animationFragments.Forget(senderId);
+    }
     internal void ResetFragments()
     {
         _fragments.Clear();
+        _animationFragments.Clear();
         _extrasQueue.Clear();
         _nextVersionAnnouncement = 0;
         _nextFragmentReport = 0;
@@ -75,13 +83,16 @@ internal sealed class FfsNetTransport : INetTransport
             {
                 _versionAnnouncement ??= ExtrasVersionAnnouncement.Write(NetProtocol.ModBuild,
                     MyPluginInfo.PLUGIN_VERSION);
-                SendToken(_versionAnnouncement);
-                _nextVersionAnnouncement = now + 1;
             }
-            byte[]? page = _extrasQueue.Next(now);
+            // The handshake shares the same event budget; it must not accompany a fragment
+            // in a catch-up burst. Presence and native motion retain independent snapshots.
+            byte[]? page = _extrasQueue.Next(now,
+                now >= _nextVersionAnnouncement ? _versionAnnouncement : null);
             if (page != null)
             {
                 SendToken(page);
+                if (ReferenceEquals(page, _versionAnnouncement))
+                    _nextVersionAnnouncement = now + 1;
                 _sentFragments++;
                 _fragmentBytes += page.Length;
             }
@@ -214,7 +225,8 @@ internal sealed class FfsNetTransport : INetTransport
         try
         {
             if (length < 6 || length > payload.Length) return;
-            if (NetPacket.PeekType(payload, length) == NetProtocol.MsgExtras)
+            int type = NetPacket.PeekType(payload, length);
+            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation)
             {
                 _extrasQueue.Enqueue(payload, length);
                 return;
@@ -346,11 +358,13 @@ internal sealed class FfsNetTransport : INetTransport
                 VersionGuard.NoteExtras(senderId, in version);
                 return;
             }
-            if (length >= 6 && length <= buffer.Length
-                && NetPacket.PeekType(buffer, length) == NetProtocol.MsgExtrasFragments)
+            int type = length >= 6 && length <= buffer.Length ? NetPacket.PeekType(buffer, length) : -1;
+            if (type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments)
             {
                 _receivedFragments++;
-                byte[]? complete = _fragments.Accept(senderId, buffer, length,
+                ExtrasFragments assembler = type == NetProtocol.MsgExtrasFragments
+                    ? _fragments : _animationFragments;
+                byte[]? complete = assembler.Accept(senderId, buffer, length,
                     System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
                 if (complete != null)
                 {

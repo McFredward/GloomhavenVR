@@ -7,6 +7,7 @@ internal static class ExtrasFragmentVectors
 {
     internal static void Run(Harness t)
     {
+        AnimationStreams(t);
         t.Case("extras envelopes: independent golden bytes and pacing");
         byte[][] golden = ExtrasFragments.Encode(Hex.Bytes("31 52 56 47 03 01 00 00"), 8, 0x0102030405060708UL);
         t.Wire(Hex.Bytes("31 52 56 47 03 02 30 14 08 07 06 05 04 03 02 01 08 00 00 00 31 52 56 47 03 01 00 00"),
@@ -111,6 +112,107 @@ internal static class ExtrasFragmentVectors
         wrong = (byte[])fresh[0].Clone(); wrong[25] = NetProtocol.MsgRig;
         t.True(state.Accept(1, wrong, wrong.Length, 0) == null, "envelope cannot inject rig packet");
         t.True(state.Accept(1, fresh[0], fresh[0].Length + 1, 0) == null, "length beyond array refused");
+    }
+
+    private static byte[] Motion(int size)
+    {
+        byte[] bytes = Snapshot(size);
+        bytes[5] = NetProtocol.MsgUseBarAnimation;
+        return bytes;
+    }
+
+    private static void AnimationStreams(Harness t)
+    {
+        const byte motionType = NetProtocol.MsgUseBarAnimation;
+        const byte envelopeType = NetProtocol.MsgUseBarAnimationFragments;
+        t.Case("native animation transport: independent framing and watermarks");
+        byte[][] golden = ExtrasFragments.Encode(Hex.Bytes("31 52 56 47 03 03 00 00"), 8,
+            0x0102030405060708UL, motionType, envelopeType);
+        t.Wire(Hex.Bytes("31 52 56 47 03 04 30 14 08 07 06 05 04 03 02 01 08 00 00 00 31 52 56 47 03 03 00 00"),
+            golden[0], golden[0].Length, "native envelope4 preserves independent message3");
+        var presence = new ExtrasFragments();
+        var motion = new ExtrasFragments(motionType, envelopeType);
+        byte[][] basePages = ExtrasFragments.Encode(Snapshot(1801), 1801, 90);
+        byte[][] motionPages = ExtrasFragments.Encode(Motion(3072), 3072, 1, motionType, envelopeType);
+        t.True(presence.Accept(2, basePages[0], basePages[0].Length, 0) == null, "presence assembly starts");
+        t.True(motion.Accept(2, basePages[0], basePages[0].Length, 0) == null, "presence envelope cannot advance motion watermark");
+        byte[]? complete = null;
+        for (int i = motionPages.Length - 1; i >= 0; i--)
+        {
+            t.True(presence.Accept(2, motionPages[i], motionPages[i].Length, 0) == null, "motion envelope cannot mutate presence");
+            byte[]? value = motion.Accept(2, motionPages[i], motionPages[i].Length, 0);
+            if (i > 0) t.True(value == null, "partial motion remains private");
+            complete = value ?? complete;
+        }
+        t.Wire(Motion(3072), complete!, complete!.Length, "motion commits despite larger presence sequence");
+        complete = null;
+        for (int i = 1; i < basePages.Length; i++) complete = presence.Accept(2, basePages[i], basePages[i].Length, 0) ?? complete;
+        t.Wire(Snapshot(1801), complete!, complete!.Length, "interleaved motion never interrupted presence");
+        foreach (byte[] page in motionPages)
+            t.True(motion.Accept(2, page, page.Length, 0) == null, "native replay inert");
+        motion.Forget(2);
+        complete = null;
+        foreach (byte[] page in motionPages) complete = motion.Accept(2, page, page.Length, 0) ?? complete;
+        t.True(complete != null, "native rejoin resets its watermark");
+        motion.Clear();
+        byte[] forged = (byte[])golden[0].Clone(); forged[25] = NetProtocol.MsgExtras;
+        t.True(motion.Accept(2, forged, forged.Length, 0) == null, "native envelope cannot deliver presence body");
+
+        t.Case("native animation transport: first waiting state and latest survive bounded replacement");
+        var queue = new ExtrasSendQueue(0, motionType, envelopeType, preserveFirst: true);
+        var receiver = new ExtrasFragments(motionType, envelopeType);
+        queue.Enqueue(Motion(1801), 1801);
+        byte[] first = queue.Next(0)!;
+        t.True(receiver.Accept(1, first, first.Length, 0) == null, "long native snapshot starts atomically");
+        queue.Enqueue(Motion(8), 8);
+        for (int size = 9; size <= 1010; size++) queue.Enqueue(Motion(size), size);
+        int[] expected = { 1801, 8, 1010 };
+        int completed = 0;
+        for (int tick = 1; tick < 12; tick++)
+        {
+            byte[]? page = queue.Next(tick);
+            if (page == null) continue;
+            byte[]? value = receiver.Accept(1, page, page.Length, tick * 0.01);
+            if (value != null)
+            {
+                t.True(completed < expected.Length, "obsolete intermediate samples were replaced");
+                if (completed < expected.Length) t.Equal(expected[completed], value.Length, "current, first waiting, then latest");
+                completed++;
+            }
+        }
+        t.Equal(3, completed, "1002 queued changes retain only bounded first/latest waiting states");
+        queue.Enqueue(Motion(8), 8); queue.Enqueue(Motion(9), 9); queue.Enqueue(Motion(10), 10);
+        first = queue.Next(20) ?? Array.Empty<byte>();
+        t.Equal(8, receiver.Accept(1, first, first.Length, 1)?.Length ?? -1, "short animation initial state survives before first send");
+        first = queue.Next(21) ?? Array.Empty<byte>();
+        t.Equal(10, receiver.Accept(1, first, first.Length, 1)?.Length ?? -1, "short animation latest state follows");
+        byte[] owned = Motion(8); queue.Enqueue(owned, owned.Length); owned[6] ^= 255;
+        first = queue.Next(22)!;
+        complete = receiver.Accept(1, first, first.Length, 1);
+        t.Wire(Motion(8), complete!, complete!.Length, "queue owns a copy of reusable sender buffer");
+
+        t.Case("presentation scheduler: native priority, presence fairness, one combined event budget");
+        var scheduler = new ExtrasSendScheduler(0, motionType, envelopeType);
+        for (int turn = 0; turn < 12; turn++)
+        {
+            scheduler.Enqueue(Motion(8), 8); scheduler.Enqueue(Snapshot(8), 8);
+            double now = turn * 0.1;
+            byte[] page = scheduler.Next(now)!;
+            t.Equal(turn % 3 == 2 ? (int)NetProtocol.MsgExtrasFragments : envelopeType,
+                NetPacket.PeekType(page, page.Length), "two native turns then waiting presence");
+            t.True(scheduler.Next(now + 0.049) == null, "streams cannot exceed combined event cadence");
+        }
+        byte[] announcement = ExtrasVersionAnnouncement.Write(486, "v486");
+        first = scheduler.Next(50, announcement)!;
+        t.True(ReferenceEquals(first, announcement), "legacy handshake participates in event budget");
+        t.True(scheduler.Next(50) == null, "handshake never shares tick with a fragment");
+        t.True(scheduler.Next(100) != null && scheduler.Next(100) == null, "slow frame produces no catch-up burst");
+        scheduler.Enqueue(Motion(3072), 3072); scheduler.Enqueue(Snapshot(1801), 1801);
+        scheduler.Next(101); scheduler.Clear();
+        t.True(scheduler.Next(102) == null, "session reset discards both streams and partial send pages");
+        scheduler.Enqueue(Snapshot(8), 8);
+        first = scheduler.Next(103)!;
+        t.Equal((int)NetProtocol.MsgExtrasFragments, NetPacket.PeekType(first, first.Length), "idle animation never delays presence");
     }
 
     private static byte[] Snapshot(int size)
