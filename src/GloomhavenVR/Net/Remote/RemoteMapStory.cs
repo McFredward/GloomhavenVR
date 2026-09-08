@@ -91,8 +91,10 @@ internal static class RemoteMapStory
     private const string Scope = "Net";
 
     /// <summary>How long a peer's record stays believed after its last packet — record 19's number
-    /// and record 19's reasoning (fifteen missed packets at 5 Hz).</summary>
-    private const float PeerStaleSeconds = 3f;
+    /// and record 19's reasoning (fifteen missed packets at 5 Hz), aliased to the window the peer's
+    /// AVATAR is dropped on (<see cref="NetProtocol.StaleTimeoutSeconds"/>) so a peer's tables can
+    /// never outlive the peer.</summary>
+    private const float PeerStaleSeconds = NetProtocol.StaleTimeoutSeconds;
 
     /// <summary>How long this client keeps announcing a map story it has FINISHED after its own box
     /// closed. Record 19's number and its reasoning: the client that most needs the statement is
@@ -1091,7 +1093,7 @@ internal static class RemoteMapStory
             return;
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
             return;
-        if (!TryReadFrame(grab, out Vector3 pos, out Quaternion rot, out float size))
+        if (!SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size))
             return;
         if (!ToShared(pos, rot, out Vector3 local3, out Quaternion localRot, out byte frame))
             return;
@@ -1120,7 +1122,7 @@ internal static class RemoteMapStory
     private static void TrackFrame(SharedWindowKind kind, Local local, bool reset)
     {
         if (reset || !SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null
-            || !TryReadFrame(grab, out Vector3 pos, out Quaternion rot, out float size))
+            || !SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size))
         {
             local.HaveBaseline = false;
             local.Moving = false;
@@ -1276,30 +1278,6 @@ internal static class RemoteMapStory
         return true;
     }
 
-    private static bool TryReadFrame(GrabbableModal grab, out Vector3 pos, out Quaternion rot,
-                                     out float size)
-    {
-        pos = Vector3.zero;
-        rot = Quaternion.identity;
-        size = 1f;
-        var owner = (IPanelGrabOwner)grab;
-        if (!owner.GrabVisible)
-            return false;
-        Transform? frame = owner.GrabRoot;
-        if (frame == null)
-            return false;
-        pos = frame.position;
-        rot = frame.rotation;
-        // ModBuild 450 - THE PUBLISHED FACTOR IS THE WIRE'S OWN VALUE, not a float near it.
-        // SharedWindowSizeLaw.SharedGrabFactor is Decode(Encode(x)) against this very codec, so
-        // this clamp is the wire's window by construction and can never be a DIFFERENT window from
-        // the one EncodeStorySize below enforces. That was the last place a shared window's size
-        // could differ between the puller and every follower (the puller kept the unrounded pinch
-        // value), and it is also the answer to "what if one client's clamp changes": there is only
-        // one clamp left, and it is the wire's.
-        size = WorldUI.SharedWindowSizeLaw.SharedGrabFactor(frame.localScale.x);
-        return true;
-    }
 
     // ---- the shared frame ---------------------------------------------------------------------
 
@@ -1899,7 +1877,7 @@ internal static class RemoteMapStory
         // and it collapses to a single ReferenceEquals here as soon as the subject stops changing.
         if (SharedWindows.TryGetGrab(kind, out GrabbableModal? subject) && subject != null
             && !ReferenceEquals(local.Grab, subject)
-            && TryReadFrame(subject, out Vector3 sPos, out Quaternion sRot, out float sSize))
+            && SharedWindowFrame.TryRead(subject, out Vector3 sPos, out Quaternion sRot, out float sSize))
             SyncIdentity(kind, local, subject, sPos, sRot, sSize);
 
         // NOTHING IS APPLIED ON THE TICK THE SUBJECT CHANGED — the mirror of "nothing is published".

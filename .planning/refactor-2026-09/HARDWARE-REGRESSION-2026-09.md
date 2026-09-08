@@ -28,6 +28,18 @@ regression: it would mean the cached choreographer went stale instead of re-armi
 
 ## net
 
+Tier 0–2 add nothing here (comments, crefs, one dead const, pure motion, three identical-output
+merges). The Tier 3 fixes below are all INSTRUMENT-side or failure-path: at the shipped defaults,
+with nothing throwing, the picture on a peer's board is unchanged.
+
+| what he should observe | the log token that proves it ran |
+|---|---|
+| **A refused burn rig now says so at the shipped tier.** Previously a throw inside `BuildBurnRig` left the rig standing as `Ready` over null arrays, so that card silently ignored every later look for the rest of its life and printed nothing above DEBUG. If it ever fires, the card draws CLEAN (unchanged picture) and the log now says which clone gave up. Zero occurrences is the expected and best reading. | `Remote burn rig skipped` (now `VRLog.Note`, was `VRLog.Debug`) |
+| **The card-FX arming lines can now tell two surfaces apart.** A peer's mirrored HAND-FAN used-card look and a plain card FLIGHT both used to latch as `[Unnamed]`, so whichever armed first silenced the other's line for the whole process. Expect `[HandFan]` and `[CardFlight]` to appear where `[Unnamed]` did — and `[Unnamed]` itself to stop appearing (if it appears, a NEW driver is unnamed, which is what the line is for). | `Remote BURN look` — read the `[surface]` tag on it |
+| **`MAP PLACARD SCALE` prints the millimetres the placard was actually sized with.** It printed THIS viewer's `[WorldUI] CanvasScaleMm` and a paragraph saying the owner's copy was out of reach — both true before ModBuild 480 fixed F3 and false after it. The placard's SIZE does not change (480 already fixed that); the line does. Read `ownerCanvasScaleMm` against that peer's own `DeriveWindowScale` reading: they must agree unless a `(SHIPPED default …)` marker says why. | `MAP PLACARD SCALE` (unchanged token, and `THE LEGIBILITY FACTOR IS THE OWNER'S` still appears in it) |
+| **`Decision widgets RECEIVED` prints role CODES instead of option-flag words.** Record 29 carries role bytes (an enum), and the receiver was rendering them with the bit-field vocabulary — role 4 read as `greyed+CHOSEN`, role 1 as `OFFERED`. Now `#0=4, #1=5`, matching the sender's own line so the two can be diffed. Picture unchanged. | `Decision widgets RECEIVED` vs `Decision widgets SENT` |
+| **A packet this build cannot parse is now visible.** Previously a refused packet was counted as received and otherwise silent, so a peer on a different wire version looked identical to a healthy one (nobody appears, no line). Nothing about the picture changes. In a normal session expect ZERO of these; a foreign side action would also read as one and is harmless. | `PACKET REJECTED` (once per sender), and the `REJECTED` clause on the 10 s `RX` summary |
+
 ## core
 
 Nothing in this lane changes a picture, a sound, a pose, a cadence or a wire byte. The compiled form

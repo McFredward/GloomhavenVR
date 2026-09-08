@@ -366,12 +366,11 @@ internal static class BoardTuningSampler
                  CardsConfig.FanOpenStagger, Defaults.FanOpenStagger);
         n += Fac(payload, ref i, NetProtocol.TuneFanCloseDuration,
                  CardsConfig.FanCloseDuration, Defaults.FanCloseDuration);
-        // [Cards] FanCloseDuration is DELIBERATELY NOT SAMPLED, though id 156 is declared for it.
-        // RemoteHandFan has no collapse animation at all — it hides the fan outright — so sending
-        // the dial would put three bytes on the wire that no receiver reads, AND would let
-        // scripts/check-wire-coverage.py report it as covered while a peer still sees no difference.
-        // A field id costs nothing to reserve; a false "covered" costs the guard its meaning. The
-        // guard carries it as a PENDING debt instead, which is what it is.
+        // (The paragraph that used to follow here — "[Cards] FanCloseDuration is DELIBERATELY NOT
+        // SAMPLED … the guard carries it as a PENDING debt" — described the state BEFORE ModBuild
+        // 306 and sat five lines below the Fac call that falsified it. Field 156 rides, the mirror
+        // plays the collapse, and scripts/check-wire-coverage.py reports 0 PENDING debts. Review
+        // 2026-09-07 R2 and the 2026-09 refactor both tripped over the stale copy; it is gone.)
         n += Fac(payload, ref i, NetProtocol.TuneCardLerpSpeed,
                  CardsConfig.CardLerpSpeed, Defaults.CardLerpSpeed);
         n += Fac(payload, ref i, NetProtocol.TuneFanRadiusFactorItems,
@@ -877,7 +876,8 @@ internal readonly struct RemoteBoardTuning
     public float SlotCardInset { get; }
 
     /// <summary>[Cards] RestButtonShape_{board} — ROUND disc or SQUARE keycap for the peer's rest
-    /// pair. Resolved through the same KNOWN-MEMBER test as <c>RoundCapShape</c>.</summary>
+    /// pair. Resolved through the same KNOWN-MEMBER test (<see cref="Shape"/>) as its sibling
+    /// <see cref="GenericCapShape"/> and the turn-flow cap.</summary>
     public ButtonShape RestCapShape { get; }
 
     /// <summary>[Cards] GenericButtonShape_{board} — ROUND or SQUARE for the peer's Confirm / Undo /

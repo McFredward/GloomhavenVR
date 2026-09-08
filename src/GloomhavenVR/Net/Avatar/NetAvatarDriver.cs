@@ -831,6 +831,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _pending.Clear();
         _pendingExtras.Clear();
         _createRetryAt.Clear();
+        _rxRejectLogged.Clear();   // a new session re-reports a peer it cannot parse
+        _rxRejected = 0;
         _sendGateState = -1; // next session logs its join window from scratch
         NetCardFx.Reset(); // never carry a queued card animation into the next session
         _hasFx = false;
@@ -1283,87 +1285,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // BOARD-UI (defects 4 + 5): which controls the owner's board shows RIGHT NOW plus the
         // wanted-slot glow mask — read off the same objects that drive the local rendering, so
         // the wire state is the rendered state by construction. -1 = no live tray this frame.
-        int boardUiNow = -1;
-        if (trayNow != null)
-        {
-            byte buttons = 0;
-            if (trayNow.ConfirmControlShown) buttons |= NetProtocol.BoardUiConfirmBit;
-            if (trayNow.UndoControlShown) buttons |= NetProtocol.BoardUiUndoBit;
-            if (trayNow.ItemUseSlotShown) buttons |= NetProtocol.BoardUiItemRecessBit;
-            if (trayNow.ItemUseCapShown) buttons |= NetProtocol.BoardUiItemUseCapBit;
-            if (RestControls.ShortRestShown) buttons |= NetProtocol.BoardUiShortRestBit;
-            if (RestControls.LongRestShown) buttons |= NetProtocol.BoardUiLongRestBit;
-            // THE SKIP BIT MEANS EXACTLY WHAT IT ALWAYS MEANT — "a turn-flow skip control is
-            // visible on this board" — and is read off the same cap for the same reason; only its
-            // OWNER moved. It used to be WorldUI.ButtonCluster's static, because that cap belonged
-            // to a separate cluster whose instance was a private of WorldUIModule. The cap is a
-            // generic board keycap on the board's third recess now, so the fact is a tray property
-            // like every other bit in this byte, and it is guarded by the same `trayNow != null`.
-            if (trayNow.SkipCapShown) buttons |= NetProtocol.BoardUiSkipBit;
-            // THE DECISION DRAWER BIT — "a prompt is docked AND the owner can see it".
-            //
-            // The second half is new (user ruling 2026-08-08: "generell gilt die Regel, das man
-            // alle Interaktionen, Animationen und Anzeigen des Controllboards in MP auch
-            // synchronisieren soll … so wie der Spieler sie sieht"). While the owner has focused
-            // ANOTHER character, their own decision row is render-hidden and their board shows
-            // NOTHING at that seat (DecisionDockSurface.ApplyFocusHide) — so a peer drawing the
-            // drawer would be showing furniture the owner does not have. The bit therefore tracks
-            // the RENDERED state, not the model state: prompt open, row not focus-hidden.
-            if (WorldUI.ModalFallback.DecisionDock.ActivePrompt() != null
-                && !WorldUI.Surfaces.DecisionDockSurface.RowFocusHidden)
-                buttons |= NetProtocol.BoardUiDecisionBit;
-            int overlays = trayNow.WantedSlotMask & NetProtocol.BoardUiWantedMask;
-            // FOLLOW/PIN (this round's defect (a)): the label AND the accent of the toggle on the
-            // owner's board follow [Cards] TrayFollow, so peers must see the same two-state cap
-            // rather than one fixed look. Bit set == PINNED, because a sender that predates the
-            // bit writes 0 and 0 has to mean the look those senders were already drawn in.
-            if (!CardsConfig.TrayFollow.Value)
-                overlays |= NetProtocol.BoardUiPinnedBit;
-            // CARD-SLOT OCCUPANCY (user report, hardware MP test: "Ich will auch sehen wenn eine
-            // Karte abgelegt wurde auf dem controllboard (mit der Rueckseite). Also wo aktuell eine
-            // Karte liegt und wo nicht ... soll vollstaendig synchronisiert werden"). The PHYSICAL
-            // truth of the two recesses, read off the slot anchors themselves (PlayTray
-            // .OccupiedSlotMask) — so every path that parks a card there is covered by one read and
-            // none of them can latch a stale bit. The VALIDITY bit rides with it on every packet:
-            // "both slots empty" is real state here and must be distinguishable from a sender that
-            // predates the nibble, which also writes zeroes.
-            overlays |= (trayNow.OccupiedSlotMask << NetProtocol.BoardUiSlotShift)
-                        & NetProtocol.BoardUiSlotMask;
-            overlays |= NetProtocol.BoardUiSlotsValidBit;
-            // SNAP-GLOW HOVER TELEGRAPH (byte 1 bits 6..7 — the "cannot be reproduced" defect).
-            // WHICH recess the owner's own gold rim is lit on, read straight off the field the
-            // local glow is driven from (PlayTray.HighlightedSlot ← CardsDriver
-            // .UpdateSlotHighlight), so the mirrored rim lights on the same recess in the same
-            // frames — BEFORE the drop, where the telegraph belongs, and it goes out again when the
-            // hover ends without one.
-            overlays |= (NetProtocol.EncodeSnapSlot(trayNow.HighlightedSlot)
-                         << NetProtocol.BoardUiSnapShift) & NetProtocol.BoardUiSnapMask;
-            // CAP STATES (byte 2): the ACCENT/CONFIRMED/ENABLED flags the owner's own caps are
-            // painted from — every one of them read off the flag the local renderer obeys, never
-            // re-derived from the game rules, so the mirror cannot disagree with the original.
-            // UNDO and the item-USE cap are absent on purpose: every SetState call on them in the
-            // whole mod is a constant, so their look is a build fact and costs no bit (see
-            // NetProtocol.BoardUiCapConfirmAccentBit).
-            byte capStates = 0;
-            if (trayNow.ConfirmCapAccent) capStates |= NetProtocol.BoardUiCapConfirmAccentBit;
-            if (trayNow.ConfirmCapConfirmed) capStates |= NetProtocol.BoardUiCapConfirmReadyBit;
-            if (RestControls.ShortRestEnabled) capStates |= NetProtocol.BoardUiCapShortRestEnabledBit;
-            if (RestControls.ShortRestAccent) capStates |= NetProtocol.BoardUiCapShortRestAccentBit;
-            if (RestControls.LongRestEnabled) capStates |= NetProtocol.BoardUiCapLongRestEnabledBit;
-            if (RestControls.LongRestAccent) capStates |= NetProtocol.BoardUiCapLongRestAccentBit;
-            if (trayNow.SkipCapEnabled) capStates |= NetProtocol.BoardUiCapSkipEnabledBit;
-            // …AND THE ONE BIT IN THIS BYTE THAT IS NOT A CAP (bit 7, the last free bit in the whole
-            // record): the owner's CLOSED items pile is wearing its "something in here is playable"
-            // cue. It rides here rather than in a record of its own because it has to arrive in the
-            // SAME packet as byte 0's item-recess and item-USE bits — the three of them are one
-            // picture of the item flow, and a peer that gets them in different frames paints half of
-            // it against the other half's state. Read off PileViewer's own published render answer,
-            // never re-derived from the inventory, so the mirrored stack cannot beat while the
-            // owner's is dark (or the reverse). See NetProtocol.BoardUiCapItemPileUsableBit.
-            if (PileViewer.ItemsUsableCueOn) capStates |= NetProtocol.BoardUiCapItemPileUsableBit;
-            boardUiNow = buttons | ((overlays & NetProtocol.BoardUiOverlayMask) << 8)
-                         | ((capStates & NetProtocol.BoardUiCapStateDefinedMask) << 16);
-        }
+        int boardUiNow = SampleBoardUi(trayNow);
         // THE SNAP FIELD IS RATE-CAPPED, THE REST OF THE RECORD IS NOT. Every other bit of this
         // record moves on a game-state edge — a control appears, a rest is selected, a card lands —
         // so a change pre-empts the 5 Hz gate OUTRIGHT and lands in the next frame. The snap field
@@ -1998,63 +1920,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         var extras = default(PresenceState);
 
-        // SHARED ENVIRONMENT CLOCK (extension record 31). USER REQUEST, verbatim: "Mond und
-        // Lichtstrahlen sollen im Multiplayer (falls beide Spieler die selbe Umgebung ausgewählt
-        // haben) auch synchronisiert werden. Das gilt generell für alle Effekt zB auch die Maus.
-        // Ich will das alle Spieler sie gleichzeitig sehen (wenn die spieler es an haben)."
-        //
-        // NO EDGE DETECTOR AND NO EXTRA PACKET: the clock is a monotone reading, so it simply rides
-        // whatever extras packet the cadence above already sends — five bytes at ≤5 Hz, and only
-        // while an environment with animated content really stands. SkyAlternative reports style 0
-        // for the game's own sky, for OffBlack and under MR, and a 0 writes no record at all, so
-        // every player who is not in the cellar or the swamp emits the exact bytes previous builds
-        // emitted. The two reads are a bool/enum compare and one float add (SkyAlternative).
-        byte envStyle = Core.SkyAlternative.WireStyleCode;
-        if (envStyle != 0)
-        {
-            extras.HasEnvClock = true;
-            extras.EnvClockStyle = envStyle;
-            extras.EnvClockMillis = Core.SkyAlternative.EnvClockMillis;
-            // …AND ITS SIXTH BYTE, THE HAUNT FREQUENCY (user ruling 2026-08-15: "Die Haeufigkeit von
-            // Easter Eggs (da alle es ja synchron sehen sollen) soll vom HOST genommen werden im
-            // MP"). It rides the clock record rather than one of its own so that "the host" and "the
-            // clock owner" can never be two different clients: the frequency is a threshold over a
-            // hash of exactly the clock this record negotiates. We publish OUR OWN dial here — the
-            // election below is what decides whose is actually used, and a follower's byte is simply
-            // never read by anyone.
-            extras.HasEnvClockFrequency = true;
-            extras.EnvClockFrequencyCode =
-                NetProtocol.EncodeHauntFrequency(Core.Haunt.Frequency != null
-                                                     ? Core.Haunt.Frequency.Value
-                                                     : Defaults.HauntFrequency);
-        }
-
-        // DEBUG TEST-TRIGGER OVERRIDE (extension record 32). USER RULING, verbatim: "Auch wenn
-        // jemand im Debugmenu ein Event startet sollte dies auch von ALLEN im Multiplayer sichtbar
-        // sein statt nur lokal, also synchronisiert werden." Writes nothing at all unless THIS
-        // client owns a standing override or is stating its explicit release, so every packet of
-        // every session in which nobody opened the debug page is byte-identical to build 149's.
-        RemoteTestTriggers.Sample(ref extras);
-
-        // STORY WINDOW SYNC (extension record 19). USER REQUEST, verbatim: "Das Geschichte Fenster
-        // und damit der ganze Dialog sollen synchron sein … Wenn durch den Dialog geklickt wurde,
-        // wurde folglich fuer ALLE entsprechend durchgeklickt und es gibt keinen Lock mehr."
-        // Writes nothing at all unless a story box really stands here or has just finished, so
-        // every packet of every session without a narrative on screen is byte-identical to build
-        // 156's. Full contract in RemoteStorySync / NetProtocol.ExtIdStorySync.
-        RemoteStorySync.Sample(ref extras);
-
-        // THE 3D MAP ROOM (extension record 20) and ITS SHARED WINDOWS (record 21). USER REQUEST,
-        // verbatim: "Multiplayer für die 3D-Map: a) Welche Map angezeigt wird … b) Welche Quest
-        // gerade angeklickt ist … c) Die mouseover Infotafeln … d) … das erscheinende Fenster soll
-        // voll synchronisiert werden … genauso wie die darauffolgendene Story-Fenster."
-        // Both write NOTHING AT ALL unless this client's own 3D map room is really standing
-        // (MapRoomDriver.Active), so every packet of every scenario session, every flat-map session
-        // and every player who has the 3D map switched off is byte-identical to build 221's. Full
-        // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
-        // NetProtocol.ExtIdSharedWindow.
-        RemoteMapRoom.Sample(ref extras);
-        RemoteMapStory.Sample(ref extras);
+        FillEnvironmentRecords(ref extras);
 
         if (board != null)
         {
@@ -2487,23 +2353,11 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             }
             else
             {
-                var opts = new System.Text.StringBuilder(48);
-                for (int o = 0; o < decisionOptions; o++)
-                {
-                    if (o > 0)
-                        opts.Append(", ");
-                    byte f = _decisionOptionSample[o];
-                    opts.Append('#').Append(o).Append('=')
-                        .Append((f & NetProtocol.DecisionOptionOfferedBit) != 0 ? "OFFERED" : "greyed");
-                    if ((f & NetProtocol.DecisionOptionDimmedBit) != 0)
-                        opts.Append("+dim");
-                    if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
-                        opts.Append("+CHOSEN");
-                    if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
-                        opts.Append("+HOVER");
-                    if ((f & NetProtocol.DecisionOptionPressedBit) != 0)
-                        opts.Append("+PRESS");
-                }
+                // The SENDER's rendering of the run and the RECEIVER's are one expression now
+                // (NetProtocol.DescribeDecisionOptionStates) — the two lines exist to be diffed
+                // against each other, so two spellings would make the diff a guess.
+                string opts = NetProtocol.DescribeDecisionOptionStates(_decisionOptionSample,
+                                                                       decisionOptions);
                 VRLog.Info("Net", $"Decision state SENT: prompt kind {decisionKind}, text variant " +
                                   $"{decisionText}, {decisionOptions} option(s) [{opts}] — extension " +
                                   "record 23 (flags + one byte per option, index-aligned with record " +
@@ -2534,13 +2388,9 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             }
             else
             {
-                var roles = new System.Text.StringBuilder(48);
-                for (int o = 0; o < decisionRoles; o++)
-                {
-                    if (o > 0)
-                        roles.Append(", ");
-                    roles.Append('#').Append(o).Append('=').Append(_decisionRoleSample[o]);
-                }
+                // Same expression as the receiver's line, for the same reason as the option states
+                // above: these two lines exist to be diffed against each other.
+                string roles = NetProtocol.DescribeDecisionRoles(_decisionRoleSample, decisionRoles);
                 VRLog.Info("Net", $"Decision widgets SENT: {decisionRoles} role(s) [{roles}], damage " +
                                   $"{((decisionWidgetFlags & NetProtocol.DecisionWidgetDamageValidBit) != 0 ? decisionDamage.ToString() : "n/a")}" +
                                   $", flags 0x{decisionWidgetFlags:X2} — extension record 29 " +
@@ -3400,6 +3250,35 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
         _lastSentCardGripMask = cardGripMask;
 
+        FillHeldCardRecords(ref extras);
+
+        // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
+        // breaking the "only when non-default" rule the other records follow — its ABSENCE is
+        // the signal (peers without it read as pre-handshake ModBuild 0 = mismatch), so there
+        // is no default whose omission would be equivalent. ~9 bytes at 5 Hz; the display
+        // string is byte-capped and its encoding cached (PresenceSerializer), so this stays
+        // allocation-free. This is also what implicitly advertises "I am a VR/modded player"
+        // to every peer's badge/guard logic.
+        extras.HasModVersion = true;
+        extras.ModBuild = NetProtocol.ModBuild;
+        extras.ModVersionText = MyPluginInfo.PLUGIN_VERSION;
+
+        int len = PresenceSerializer.Write(in extras, _sendBuffer);
+        _transport.Send(_sendBuffer, len);
+    }
+
+    /// <summary>
+    /// Records 36 (held-card face), 39 (sacrifice seat), 41 (spent half) and 43 (fan source),
+    /// sampled and written onto <paramref name="extras"/> with their SENT edge lines. Lifted
+    /// VERBATIM out of <see cref="TickExtrasSend"/> in the 2026-09 refactor (pure motion): the
+    /// block read nothing from the sampling half of that method — only the samplers, the
+    /// <c>_lastSent*</c> fields and the packet being filled — so it moves as a unit. Its position
+    /// in the packet is unchanged (last before the version record). NOTE these four are sampled
+    /// AFTER the pre-emption gate, so their edges ride the 5 Hz cadence rather than pre-empting
+    /// it (REVIEW-net.md N7; a ruling, not a refactor).
+    /// </summary>
+    private void FillHeldCardRecords(ref PresenceState extras)
+    {
         // HELD-CARD FACE (extension record 36 — the 2026-09-02 report's item 6, "Die Vorderseite
         // SOLL man sehen auch von Karten die ein Spieler gerade in der Hand hat"): WHICH card each
         // held-card POSE SLOT is showing, as a source-list id plus a POSITION in a host-replicated
@@ -3593,20 +3472,168 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 + "card really is in that fist is the shape that defect took, and the 2026-09-06 "
                 + "session's logs stand at 11 of 22 on the host and 24 of 48 on the co-player.");
         }
+    }
 
-        // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
-        // breaking the "only when non-default" rule the other records follow — its ABSENCE is
-        // the signal (peers without it read as pre-handshake ModBuild 0 = mismatch), so there
-        // is no default whose omission would be equivalent. ~9 bytes at 5 Hz; the display
-        // string is byte-capped and its encoding cached (PresenceSerializer), so this stays
-        // allocation-free. This is also what implicitly advertises "I am a VR/modded player"
-        // to every peer's badge/guard logic.
-        extras.HasModVersion = true;
-        extras.ModBuild = NetProtocol.ModBuild;
-        extras.ModVersionText = MyPluginInfo.PLUGIN_VERSION;
+    /// <summary>
+    /// The world-wide records that ride whatever extras packet is going out — the shared
+    /// environment clock (31, with the haunt frequency), the debug test-trigger override (32),
+    /// the story window (19) and the 3D map room with its shared windows (20, 21). Lifted
+    /// VERBATIM out of <see cref="TickExtrasSend"/> in the 2026-09 refactor (pure motion): none
+    /// of them reads a local of the sampling half, and each writes nothing unless its state
+    /// really stands, so the packet bytes are what they were. Order within the packet is the
+    /// serializer's, not this method's.
+    /// </summary>
+    private static void FillEnvironmentRecords(ref PresenceState extras)
+    {
+        // SHARED ENVIRONMENT CLOCK (extension record 31). USER REQUEST, verbatim: "Mond und
+        // Lichtstrahlen sollen im Multiplayer (falls beide Spieler die selbe Umgebung ausgewählt
+        // haben) auch synchronisiert werden. Das gilt generell für alle Effekt zB auch die Maus.
+        // Ich will das alle Spieler sie gleichzeitig sehen (wenn die spieler es an haben)."
+        //
+        // NO EDGE DETECTOR AND NO EXTRA PACKET: the clock is a monotone reading, so it simply rides
+        // whatever extras packet the cadence above already sends — five bytes at ≤5 Hz, and only
+        // while an environment with animated content really stands. SkyAlternative reports style 0
+        // for the game's own sky, for OffBlack and under MR, and a 0 writes no record at all, so
+        // every player who is not in the cellar or the swamp emits the exact bytes previous builds
+        // emitted. The two reads are a bool/enum compare and one float add (SkyAlternative).
+        byte envStyle = Core.SkyAlternative.WireStyleCode;
+        if (envStyle != 0)
+        {
+            extras.HasEnvClock = true;
+            extras.EnvClockStyle = envStyle;
+            extras.EnvClockMillis = Core.SkyAlternative.EnvClockMillis;
+            // …AND ITS SIXTH BYTE, THE HAUNT FREQUENCY (user ruling 2026-08-15: "Die Haeufigkeit von
+            // Easter Eggs (da alle es ja synchron sehen sollen) soll vom HOST genommen werden im
+            // MP"). It rides the clock record rather than one of its own so that "the host" and "the
+            // clock owner" can never be two different clients: the frequency is a threshold over a
+            // hash of exactly the clock this record negotiates. We publish OUR OWN dial here — the
+            // election below is what decides whose is actually used, and a follower's byte is simply
+            // never read by anyone.
+            extras.HasEnvClockFrequency = true;
+            extras.EnvClockFrequencyCode =
+                NetProtocol.EncodeHauntFrequency(Core.Haunt.Frequency != null
+                                                     ? Core.Haunt.Frequency.Value
+                                                     : Defaults.HauntFrequency);
+        }
 
-        int len = PresenceSerializer.Write(in extras, _sendBuffer);
-        _transport.Send(_sendBuffer, len);
+        // DEBUG TEST-TRIGGER OVERRIDE (extension record 32). USER RULING, verbatim: "Auch wenn
+        // jemand im Debugmenu ein Event startet sollte dies auch von ALLEN im Multiplayer sichtbar
+        // sein statt nur lokal, also synchronisiert werden." Writes nothing at all unless THIS
+        // client owns a standing override or is stating its explicit release, so every packet of
+        // every session in which nobody opened the debug page is byte-identical to build 149's.
+        RemoteTestTriggers.Sample(ref extras);
+
+        // STORY WINDOW SYNC (extension record 19). USER REQUEST, verbatim: "Das Geschichte Fenster
+        // und damit der ganze Dialog sollen synchron sein … Wenn durch den Dialog geklickt wurde,
+        // wurde folglich fuer ALLE entsprechend durchgeklickt und es gibt keinen Lock mehr."
+        // Writes nothing at all unless a story box really stands here or has just finished, so
+        // every packet of every session without a narrative on screen is byte-identical to build
+        // 156's. Full contract in RemoteStorySync / NetProtocol.ExtIdStorySync.
+        RemoteStorySync.Sample(ref extras);
+
+        // THE 3D MAP ROOM (extension record 20) and ITS SHARED WINDOWS (record 21). USER REQUEST,
+        // verbatim: "Multiplayer für die 3D-Map: a) Welche Map angezeigt wird … b) Welche Quest
+        // gerade angeklickt ist … c) Die mouseover Infotafeln … d) … das erscheinende Fenster soll
+        // voll synchronisiert werden … genauso wie die darauffolgendene Story-Fenster."
+        // Both write NOTHING AT ALL unless this client's own 3D map room is really standing
+        // (MapRoomDriver.Active), so every packet of every scenario session, every flat-map session
+        // and every player who has the 3D map switched off is byte-identical to build 221's. Full
+        // contracts in RemoteMapRoom / RemoteMapStory and NetProtocol.ExtIdMapRoom /
+        // NetProtocol.ExtIdSharedWindow.
+        RemoteMapRoom.Sample(ref extras);
+        RemoteMapStory.Sample(ref extras);
+    }
+
+    /// <summary>
+    /// Record 4's three bytes packed into one change key — buttons | overlays &lt;&lt; 8 |
+    /// cap states &lt;&lt; 16 — read off the objects that drive the local rendering, or -1 when
+    /// there is no live tray. Lifted VERBATIM out of <see cref="TickExtrasSend"/> in the 2026-09
+    /// refactor (pure motion): the block read only <paramref name="trayNow"/> and statics.
+    /// </summary>
+    private static int SampleBoardUi(PlayTray? trayNow)
+    {
+        int boardUiNow = -1;
+        if (trayNow != null)
+        {
+            byte buttons = 0;
+            if (trayNow.ConfirmControlShown) buttons |= NetProtocol.BoardUiConfirmBit;
+            if (trayNow.UndoControlShown) buttons |= NetProtocol.BoardUiUndoBit;
+            if (trayNow.ItemUseSlotShown) buttons |= NetProtocol.BoardUiItemRecessBit;
+            if (trayNow.ItemUseCapShown) buttons |= NetProtocol.BoardUiItemUseCapBit;
+            if (RestControls.ShortRestShown) buttons |= NetProtocol.BoardUiShortRestBit;
+            if (RestControls.LongRestShown) buttons |= NetProtocol.BoardUiLongRestBit;
+            // THE SKIP BIT MEANS EXACTLY WHAT IT ALWAYS MEANT — "a turn-flow skip control is
+            // visible on this board" — and is read off the same cap for the same reason; only its
+            // OWNER moved. It used to be WorldUI.ButtonCluster's static, because that cap belonged
+            // to a separate cluster whose instance was a private of WorldUIModule. The cap is a
+            // generic board keycap on the board's third recess now, so the fact is a tray property
+            // like every other bit in this byte, and it is guarded by the same `trayNow != null`.
+            if (trayNow.SkipCapShown) buttons |= NetProtocol.BoardUiSkipBit;
+            // THE DECISION DRAWER BIT — "a prompt is docked AND the owner can see it".
+            //
+            // The second half is new (user ruling 2026-08-08: "generell gilt die Regel, das man
+            // alle Interaktionen, Animationen und Anzeigen des Controllboards in MP auch
+            // synchronisieren soll … so wie der Spieler sie sieht"). While the owner has focused
+            // ANOTHER character, their own decision row is render-hidden and their board shows
+            // NOTHING at that seat (DecisionDockSurface.ApplyFocusHide) — so a peer drawing the
+            // drawer would be showing furniture the owner does not have. The bit therefore tracks
+            // the RENDERED state, not the model state: prompt open, row not focus-hidden.
+            if (WorldUI.ModalFallback.DecisionDock.ActivePrompt() != null
+                && !WorldUI.Surfaces.DecisionDockSurface.RowFocusHidden)
+                buttons |= NetProtocol.BoardUiDecisionBit;
+            int overlays = trayNow.WantedSlotMask & NetProtocol.BoardUiWantedMask;
+            // FOLLOW/PIN (this round's defect (a)): the label AND the accent of the toggle on the
+            // owner's board follow [Cards] TrayFollow, so peers must see the same two-state cap
+            // rather than one fixed look. Bit set == PINNED, because a sender that predates the
+            // bit writes 0 and 0 has to mean the look those senders were already drawn in.
+            if (!CardsConfig.TrayFollow.Value)
+                overlays |= NetProtocol.BoardUiPinnedBit;
+            // CARD-SLOT OCCUPANCY (user report, hardware MP test: "Ich will auch sehen wenn eine
+            // Karte abgelegt wurde auf dem controllboard (mit der Rueckseite). Also wo aktuell eine
+            // Karte liegt und wo nicht ... soll vollstaendig synchronisiert werden"). The PHYSICAL
+            // truth of the two recesses, read off the slot anchors themselves (PlayTray
+            // .OccupiedSlotMask) — so every path that parks a card there is covered by one read and
+            // none of them can latch a stale bit. The VALIDITY bit rides with it on every packet:
+            // "both slots empty" is real state here and must be distinguishable from a sender that
+            // predates the nibble, which also writes zeroes.
+            overlays |= (trayNow.OccupiedSlotMask << NetProtocol.BoardUiSlotShift)
+                        & NetProtocol.BoardUiSlotMask;
+            overlays |= NetProtocol.BoardUiSlotsValidBit;
+            // SNAP-GLOW HOVER TELEGRAPH (byte 1 bits 6..7 — the "cannot be reproduced" defect).
+            // WHICH recess the owner's own gold rim is lit on, read straight off the field the
+            // local glow is driven from (PlayTray.HighlightedSlot ← CardsDriver
+            // .UpdateSlotHighlight), so the mirrored rim lights on the same recess in the same
+            // frames — BEFORE the drop, where the telegraph belongs, and it goes out again when the
+            // hover ends without one.
+            overlays |= (NetProtocol.EncodeSnapSlot(trayNow.HighlightedSlot)
+                         << NetProtocol.BoardUiSnapShift) & NetProtocol.BoardUiSnapMask;
+            // CAP STATES (byte 2): the ACCENT/CONFIRMED/ENABLED flags the owner's own caps are
+            // painted from — every one of them read off the flag the local renderer obeys, never
+            // re-derived from the game rules, so the mirror cannot disagree with the original.
+            // UNDO and the item-USE cap are absent on purpose: every SetState call on them in the
+            // whole mod is a constant, so their look is a build fact and costs no bit (see
+            // NetProtocol.BoardUiCapConfirmAccentBit).
+            byte capStates = 0;
+            if (trayNow.ConfirmCapAccent) capStates |= NetProtocol.BoardUiCapConfirmAccentBit;
+            if (trayNow.ConfirmCapConfirmed) capStates |= NetProtocol.BoardUiCapConfirmReadyBit;
+            if (RestControls.ShortRestEnabled) capStates |= NetProtocol.BoardUiCapShortRestEnabledBit;
+            if (RestControls.ShortRestAccent) capStates |= NetProtocol.BoardUiCapShortRestAccentBit;
+            if (RestControls.LongRestEnabled) capStates |= NetProtocol.BoardUiCapLongRestEnabledBit;
+            if (RestControls.LongRestAccent) capStates |= NetProtocol.BoardUiCapLongRestAccentBit;
+            if (trayNow.SkipCapEnabled) capStates |= NetProtocol.BoardUiCapSkipEnabledBit;
+            // …AND THE ONE BIT IN THIS BYTE THAT IS NOT A CAP (bit 7, the last free bit in the whole
+            // record): the owner's CLOSED items pile is wearing its "something in here is playable"
+            // cue. It rides here rather than in a record of its own because it has to arrive in the
+            // SAME packet as byte 0's item-recess and item-USE bits — the three of them are one
+            // picture of the item flow, and a peer that gets them in different frames paints half of
+            // it against the other half's state. Read off PileViewer's own published render answer,
+            // never re-derived from the inventory, so the mirrored stack cannot beat while the
+            // owner's is dark (or the reverse). See NetProtocol.BoardUiCapItemPileUsableBit.
+            if (PileViewer.ItemsUsableCueOn) capStates |= NetProtocol.BoardUiCapItemPileUsableBit;
+            boardUiNow = buttons | ((overlays & NetProtocol.BoardUiOverlayMask) << 8)
+                         | ((capStates & NetProtocol.BoardUiCapStateDefinedMask) << 16);
+        }
+        return boardUiNow;
     }
 
     // ---- receive ------------------------------------------------------------------------
@@ -3615,6 +3642,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private int _rxCount;
     private float _rxNextReport;
     private bool _rxFirstLogged;
+
+    /// <summary>Packets REFUSED since the last receive summary — a header that is not ours, or a
+    /// body shorter than its own flags demand. Counted separately because the two populations
+    /// answer different questions and one summary number covering both would hide the interesting
+    /// one.</summary>
+    private int _rxRejected;
 
     /// <summary>Seconds between receive summaries — rare enough to be free, often enough to watch.</summary>
     private const float RxReportInterval = 10f;
@@ -3643,8 +3676,14 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         {
             _rxNextReport = Time.unscaledTime + RxReportInterval;
             VRLog.Info("Net", $"RX {_rxCount} packet(s) in the last {RxReportInterval:0}s; "
-                              + $"{_pending.Count} rig + {_pendingExtras.Count} extras pending.");
+                              + $"{_pending.Count} rig + {_pendingExtras.Count} extras pending"
+                              + (_rxRejected > 0
+                                     ? $"; {_rxRejected} REJECTED (magic/version/type or a length "
+                                       + "its own flags demanded and the packet did not carry)"
+                                     : string.Empty)
+                              + ".");
             _rxCount = 0;
+            _rxRejected = 0;
         }
 
         // Ignore our own echo and unparseable/foreign packets.
@@ -3653,11 +3692,20 @@ internal sealed class NetAvatarDriver : MonoBehaviour
 
         // Route by message type without fully parsing (also rejects magic/version mismatches).
         int type = NetPacket.PeekType(buffer, length);
+        // A PACKET WE REFUSE NOW SAYS SO. Every rejection path here — an unroutable type from
+        // PeekType, or a TryRead that fails its own length contract — used to fall out of this
+        // method with the RX counter already incremented and nothing else written down, so a peer
+        // whose packets this build cannot parse looked EXACTLY like a healthy one: they count sends,
+        // we count receives, and nobody appears. (VersionGuard catches a mismatched build only via
+        // an extras packet that PARSED, so it cannot cover this.) One line for the first refusal
+        // from each sender, then the count on the 10 s summary above.
+        bool parsed = false;
         switch (type)
         {
             case NetProtocol.MsgRig:
                 if (AvatarSerializer.TryRead(buffer, length, out AvatarState state))
                 {
+                    parsed = true;
                     VersionGuard.NotePacket(senderId); // any valid mod packet ⇒ a modded peer
                     // Convert the shared-frame poses to world here so RemoteAvatar stays world-only.
                     ToWorld(ref state);
@@ -3668,6 +3716,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgExtras:
                 if (PresenceSerializer.TryRead(buffer, length, out PresenceState extras))
                 {
+                    parsed = true;
                     VersionGuard.NotePacket(senderId);
                     // The extras packet is the only one the version record rides — feed the
                     // handshake registry (record present: their build; absent: pre-handshake
@@ -3678,6 +3727,39 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 }
                 break;
         }
+
+        if (!parsed)
+            NoteRejectedPacket(senderId, type, length);
+    }
+
+    /// <summary>Senders this driver has already reported a refusal for — one line each, because a
+    /// build that cannot parse a peer at all cannot parse them 15 times a second either.</summary>
+    private readonly HashSet<int> _rxRejectLogged = new();
+
+    /// <summary>
+    /// A packet this build refused, counted and (once per sender) named.
+    ///
+    /// <para>The type tells the two causes apart without any further parsing: −1 is
+    /// <see cref="NetPacket.PeekType"/> refusing the HEADER (wrong magic, wrong wire version, or
+    /// fewer than six bytes — a foreign side action, or a peer on a different wire version), and a
+    /// valid 0/1 means the header was ours and the BODY did not carry the length its own flag byte
+    /// demanded (a truncated or corrupt packet).</para>
+    /// </summary>
+    private void NoteRejectedPacket(int senderId, int type, int length)
+    {
+        _rxRejected++;
+        if (!_rxRejectLogged.Add(senderId))
+            return;
+        VRLog.Note("Net", $"PACKET REJECTED from player {senderId}: {length} B, type "
+                          + (type < 0
+                                 ? "unreadable — the header is not ours (magic/version mismatch, or "
+                                   + "under 6 bytes). A foreign side action reads exactly like this "
+                                   + "and is harmless; a MODDED peer reading like this is on a "
+                                   + "different wire version, which no ModBuild handshake can "
+                                   + "report because that handshake rides a packet we just refused"
+                                 : $"{type} — our header, but the body was shorter than its own flag "
+                                   + "byte demands, so it was dropped whole rather than half-applied")
+                          + ". One line per sender; the 10 s RX summary carries the running count.");
     }
 
     private void ApplyPending()
@@ -3897,8 +3979,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     /// <summary>Seconds after which a peer's environment-clock reading is treated as gone. Extras
     /// go out at ≤5 Hz, so this is a dozen missed packets — long enough that a hitch or a dropped
     /// unreliable packet cannot cost a clock owner, short enough that a peer who quits the
-    /// environment (or the game) hands the clock back within a breath.</summary>
-    private const float EnvClockStaleSeconds = 3f;
+    /// environment (or the game) hands the clock back within a breath. Aliased to
+    /// <see cref="NetProtocol.StaleTimeoutSeconds"/>, the window this same driver drops the peer's
+    /// AVATAR on, so a peer cannot own the clock a frame longer than it exists.</summary>
+    private const float EnvClockStaleSeconds = NetProtocol.StaleTimeoutSeconds;
 
     private int _loggedEnvOwner = int.MinValue;
     private byte _loggedEnvStyle = 255;
@@ -4079,55 +4163,61 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         }
 
         for (int i = 0; i < _scratchIds.Count; i++)
-        {
-            int id = _scratchIds[i];
-            if (_avatars.TryGetValue(id, out RemoteAvatar avatar))
-            {
-                avatar.Destroy();
-                _avatars.Remove(id);
-                NetFigures.ReleaseRemote(id); // drop any figure this peer was holding
-                NetProps.ReleaseRemote(id);   // …and put any map item they carried back on its hex
-                NetPlayerActors.ForgetAvatarFetch(id); // a rejoin gets a fresh attempt budget
-                Board.CharacterFocus.ForgetPeer(id);   // …and their focus outline goes with them
-                _peerEnv.Remove(id);                   // …and they stop being a clock/host candidate
-                RemoteTestTriggers.ForgetPeer(id);     // …and any debug override they owned is released
-                PeerCardFaceCensus.ReportPeerGone(id);     // …and their card-face rows stop being reported
-            }
-        }
+            ForgetPeer(_scratchIds[i]);
     }
 
-    /// <summary>Immediate teardown entry point for a future <c>PlayerRegistry.OnPlayerLeft</c>
-    /// hook (staleness already handles it after <see cref="NetProtocol.StaleTimeoutSeconds"/>).</summary>
-    public void RemovePlayer(int playerId)
+    /// <summary>
+    /// EVERYTHING THIS CLIENT HOLDS FOR ONE PEER, dropped in one place — the peer's avatar and
+    /// every SIDE TABLE keyed by their player id.
+    ///
+    /// <para>WHY IT EXISTS. There were three teardown paths (the staleness sweep,
+    /// <see cref="RemovePlayer"/> and <see cref="DestroyAllAvatars"/>) and they listed DIFFERENT
+    /// subsets of the same union: only the staleness sweep told
+    /// <c>PeerCardFaceCensus</c> the peer was gone, only two of the three cleared
+    /// <see cref="_peerEnv"/>, and none of them dropped the construction back-off. Nothing visible
+    /// was broken by that — every consumer of those tables tests staleness itself, which is why
+    /// this is a structural fix and not a defect — but the fourth table added to this driver would
+    /// have been the one that was only remembered twice. A cascade clears only what it lists.</para>
+    ///
+    /// <para>The construction back-off goes with the peer on purpose: a rejoining player must get a
+    /// fresh attempt budget rather than inherit the 5 s window of the avatar that failed before
+    /// they left, which is the same reasoning <c>NetPlayerActors.ForgetAvatarFetch</c> already
+    /// carried.</para>
+    /// </summary>
+    private void ForgetPeer(int playerId)
     {
-        _pending.Remove(playerId);
-        _pendingExtras.Remove(playerId);
-        _peerEnv.Remove(playerId); // a departed peer must not keep owning the environment clock
         if (_avatars.TryGetValue(playerId, out RemoteAvatar avatar))
         {
             avatar.Destroy();
             _avatars.Remove(playerId);
-            NetFigures.ReleaseRemote(playerId);
-            NetProps.ReleaseRemote(playerId);
-            NetPlayerActors.ForgetAvatarFetch(playerId);
-            Board.CharacterFocus.ForgetPeer(playerId);
         }
-        // OUTSIDE the avatar branch on purpose: a peer can own a debug override without this client
-        // ever having built an avatar for them (construction can fail and back off), and an override
-        // that outlives the person holding it is the one failure this record may not have.
-        RemoteTestTriggers.ForgetPeer(playerId);
+        _pending.Remove(playerId);             // nothing queued for a peer we no longer hold
+        _pendingExtras.Remove(playerId);
+        _createRetryAt.Remove(playerId);       // a rejoin gets a fresh construction budget
+        NetFigures.ReleaseRemote(playerId);    // drop any figure this peer was holding
+        NetProps.ReleaseRemote(playerId);      // …and put any map item they carried back on its hex
+        NetPlayerActors.ForgetAvatarFetch(playerId); // …and a rejoin gets a fresh fetch budget
+        Board.CharacterFocus.ForgetPeer(playerId);   // …and their focus outline goes with them
+        _peerEnv.Remove(playerId);                   // …and they stop being a clock/host candidate
+        RemoteTestTriggers.ForgetPeer(playerId);     // …and any debug override they owned is released
+        PeerCardFaceCensus.ReportPeerGone(playerId); // …and their card-face rows stop being reported
     }
+
+    /// <summary>Immediate teardown entry point for a future <c>PlayerRegistry.OnPlayerLeft</c>
+    /// hook (staleness already handles it after <see cref="NetProtocol.StaleTimeoutSeconds"/>).</summary>
+    public void RemovePlayer(int playerId) => ForgetPeer(playerId);
 
     private void DestroyAllAvatars()
     {
+        // THE IDS FIRST, because ForgetPeer removes from _avatars and a dictionary cannot be
+        // written while it is being enumerated. _scratchIds is free here: the only other user is
+        // TickAvatars, which has finished with it before any teardown path can run.
+        _scratchIds.Clear();
         foreach (KeyValuePair<int, RemoteAvatar> kv in _avatars)
-        {
-            kv.Value.Destroy();
-            NetFigures.ReleaseRemote(kv.Key);
-            NetProps.ReleaseRemote(kv.Key);
-            NetPlayerActors.ForgetAvatarFetch(kv.Key);
-        }
-        _avatars.Clear();
+            _scratchIds.Add(kv.Key);
+        for (int i = 0; i < _scratchIds.Count; i++)
+            ForgetPeer(_scratchIds[i]);
+        _avatars.Clear();   // belt: ForgetPeer emptied it entry by entry
     }
 
     private void OnDestroy()

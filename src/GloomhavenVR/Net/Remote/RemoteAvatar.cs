@@ -1802,8 +1802,13 @@ internal sealed class RemoteAvatar
                 ? $"Decision widgets RECEIVED from player {PlayerId}: none — their mirrored decision " +
                   "falls back to the mod-drawn plates (record 29 absent: no visible decision, or a " +
                   "sender predating the record)."
+                // ROLES ARE CODES, NOT OPTION FLAGS. This used to call DescribeOptionStates, which
+                // renders a BIT FIELD: role 4 (ShortRestYes) printed as "greyed+CHOSEN" and role 1
+                // (BurnAvailable) as "OFFERED" — a fluent sentence about a different field, and one
+                // that disagreed with the sender's own line (which prints these bytes as numbers)
+                // exactly where the two are meant to be diffed.
                 : $"Decision widgets RECEIVED from player {PlayerId}: {(roles?.Length ?? 0)} role(s) " +
-                  $"[{DescribeOptionStates(roles)}], damage " +
+                  $"[{NetProtocol.DescribeDecisionRoles(roles, roles?.Length ?? 0)}], damage " +
                   $"{((widgetFlags & NetProtocol.DecisionWidgetDamageValidBit) != 0 ? damage.ToString() : "n/a")}" +
                   $", flags 0x{widgetFlags:X2} — this client resolves each role against ITS OWN copy " +
                   "of the game's prompt and clones the REAL widget (its art, its icons, its wording " +
@@ -2853,29 +2858,10 @@ internal sealed class RemoteAvatar
     }
 
     /// <summary>Human-readable per-option states for the received-log line (diagnostic only).</summary>
-    private static string DescribeOptionStates(byte[]? states)
-    {
-        if (states == null || states.Length == 0)
-            return "-";
-        var sb = new System.Text.StringBuilder(48);
-        for (int i = 0; i < states.Length; i++)
-        {
-            if (i > 0)
-                sb.Append(", ");
-            byte f = states[i];
-            sb.Append('#').Append(i).Append('=')
-              .Append((f & NetProtocol.DecisionOptionOfferedBit) != 0 ? "OFFERED" : "greyed");
-            if ((f & NetProtocol.DecisionOptionDimmedBit) != 0)
-                sb.Append("+dim");
-            if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
-                sb.Append("+CHOSEN");
-            if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
-                sb.Append("+HOVER");
-            if ((f & NetProtocol.DecisionOptionPressedBit) != 0)
-                sb.Append("+PRESS");
-        }
-        return sb.ToString();
-    }
+    private static string DescribeOptionStates(byte[]? states) =>
+        states == null || states.Length == 0
+            ? "-"
+            : NetProtocol.DescribeDecisionOptionStates(states, states.Length);
 
     /// <summary>Stable per-player tint so avatars are distinguishable at a glance.</summary>
     private static Color TintFor(int playerId)

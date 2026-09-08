@@ -5147,12 +5147,13 @@ internal sealed class RemoteHandFan
     /// rig rather than latching, the same one-way-ramp defect <c>RemoteBoardCard</c> paid for in
     /// its item-8a round.</para>
     ///
-    /// <para><c>Surface</c> IS DELIBERATELY LEFT <c>Unnamed</c>. <c>RemoteCardArt.FxSurface</c> has
-    /// no member for the hand fan and that enum's own doc says to ADD one rather than borrow
-    /// <c>Pile</c> or <c>Recess</c>; that file was not handed to this lane, so this driver reports
-    /// through its own line below instead of mislabelling itself as another surface. The enum is
-    /// instrument-only — nothing behavioural reads it — so the cost is a per-surface latch in a log,
-    /// not a wrong picture.</para>
+    /// <para><c>Surface</c> IS <c>FxSurface.HandFan</c>, which is the member this paragraph used to
+    /// ask for. It read "DELIBERATELY LEFT Unnamed … that file was not handed to this lane", and
+    /// the cost of that was not nothing: sharing index 0 with <c>RemoteCardFx</c>'s flight rig meant
+    /// whichever surface armed first silenced the other's per-surface arming line for the process —
+    /// the exact failure the latch exists to prevent (R2 NOTE 2, 2026-09-07). The enum is
+    /// instrument-only — nothing behavioural reads it — so this was a blind LOG, never a wrong
+    /// picture.</para>
     /// </summary>
     private void TickUsedCardFx(int count, bool showFronts, bool mapFronts)
     {
@@ -5182,6 +5183,10 @@ internal sealed class RemoteHandFan
             }
             if (want == RemoteCardArt.CardFxLook.None || face == null)
                 continue;
+            // NAME THE SURFACE (R2 NOTE 2, 2026-09-07). This driver used to leave Unnamed, so it
+            // shared latch index 0 with RemoteCardFx's flight rig and whichever armed first
+            // silenced the other's per-surface line for the whole process.
+            face.Surface = RemoteCardArt.FxSurface.HandFan;
             if (_fxElapsed[i] < UsedCardLook.RampSeconds)
             {
                 _fxElapsed[i] = Mathf.Min(UsedCardLook.RampSeconds,

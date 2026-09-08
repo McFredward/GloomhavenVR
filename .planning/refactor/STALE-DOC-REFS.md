@@ -15,6 +15,11 @@
 >
 > **How to clear a line:** find what replaced the symbol, fix the sentence, and delete the line.
 
+19 references. The 2026-09 refactor cleared seventeen: one in `HandSuppressionPatches.cs`
+(lane cards), eight WorldUI rows (lane worldui-front) and eight Net rows (lane net). The
+LINE NUMBERS in the rows below are not maintained and several are weeks stale — locate a row
+by its symbol, never by its number.
+
 | file | line | symbol | the sentence that may no longer be true |
 |---|---|---|---|
 | `Board/CharacterFocus.cs` | 935 | `PinRefusal` | /// (<c>PinRefusal</c>, the actor-dependent one, bounded by a live hex pick belonging to |
@@ -25,14 +30,6 @@
 | `Core/WallFade/WallSegmentFade.PropUnit.cs` | 275 | `BeginStandingPropScope` | /// Called from <c>BeginStandingPropScope</c> at the top of every commit.</summary> |
 | `Core/WallFade/WallSegmentFade.PropUnit.cs` | 800 | `BeginStandingPropScope` | /// <c>BeginStandingPropScope</c> at the top of the rescan (the standing rule's |
 | `Core/Water/WaterReflectionCaps.cs` | 38 | `Classify` | /// than guessed at — <c>Classify</c> returns <see cref="WaterCapFamily.None"/> and the |
-| `Net/Board/BoardTuning.cs` | 730 | `RoundCapShape` | /// pair. Resolved through the same KNOWN-MEMBER test as <c>RoundCapShape</c>.</summary> |
-| `Net/NetFigures.cs` | 166 | `Clear` | /// <c>Clear</c>), so it cannot grow.</para> |
-| `Net/NetModule.cs` | 111 | `SettingsPanel` | /// entries always exist for <see cref="LocalRigSampler"/>, <c>SettingsPanel</c> and |
-| `Net/NetProtocol.cs` | 15036 | `BoardUiRecordBytesWithCap` | /// <c>BoardUiRecordBytesWithCap</c> uses. No new record id, no wire-version bump.</para> |
-| `Net/PresenceState.cs` | 654 | `DecisionRoleNo` | /// <c>NetProtocol.DecisionRoleNo</c>). May be longer than |
-| `Net/Remote/RemoteBoardFurniture.cs` | 2214 | `renderedHeight` | /// scale — <c>TextMeshPro.renderedHeight</c> off a forced mesh update, i.e. what the |
-| `Net/Remote/RemoteBoardVisibility.cs` | 40 | `Off` | /// classes never learned about the mode (the FX class only ever checked <c>PeerBoardFade.Off</c>), so with |
-| `Net/Remote/RemoteItemFan.cs` | 1211 | `CollapseSeconds` | /// <c>CollapseSeconds</c> instead of blinking the fan out — the replay of |
 | `WorldUI/Conversion/CanvasConversion.1.Core.cs` | 32 | `UiLockChanged` | /// mirrored here: <c>Core.VREvents.UiLockChanged</c> plus module-side soft locks |
 | `WorldUI/Materialise/WindowMaterialiseDebris.cs` | 143 | `Half` | /// <summary>Front half, then behind half. See <c>Half</c>.</summary> |
 | `WorldUI/Materialise/WindowMaterialiseField.cs` | 17 | `WindowMaterialiseDebris` | /// <c>WindowMaterialiseDebris</c> builds a shard mesh whose every vertex carries the |
@@ -45,5 +42,4 @@
 | `WorldUI/Sharpness/PanelSupersample.4.Content.cs` | 137 | `RepairSubMeshCull` | /// larger one, is the TMP sub-mesh cull latch — see <c>RepairSubMeshCull</c>.)</para> |
 | `WorldUI/Sharpness/PanelSupersample.4.Content.cs` | 1892 | `ReportSubMeshCull` | /// is complete. Every one of those numbers is printed (<c>ReportSubMeshCull</c>'s |
 
-27 references (the count is the table below; the 2026-09 refactor cleared nine — one in
-`HandSuppressionPatches.cs` from lane cards, eight WorldUI rows from lane worldui-front).
+

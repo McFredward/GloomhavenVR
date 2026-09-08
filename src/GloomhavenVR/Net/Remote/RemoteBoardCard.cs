@@ -1344,12 +1344,12 @@ internal sealed class RemoteBoardCard
         // activated card is not burnt". Item 8a (2026-09-06) forbids the burn ANIMATION and SOUND on
         // an activation and says nothing about the permanent wash; the 2026-09-07 correction asks
         // for the wash and the user drew that line himself ("Ich meine nicht die Animation von 2
-        // Sekunden, sondern den dauerhaften effekt"). RemoteCardArt.FxSurface.Unnamed's own doc
-        // repeats the retired claim and OWES a correction plus an `Active` member; that file was not
-        // handed to this lane, so the active wash deliberately leaves Surface at Unnamed and reports
-        // through its own REMOTE ACTIVE WASH line instead of mislabelling itself as another
-        // surface. FxSurface is instrument-only — nothing behavioural reads it — so the cost is a
-        // per-surface latch, not a wrong picture.
+        // Sekunden, sondern den dauerhaften effekt"). RemoteCardArt.FxSurface has had its `Active`
+        // member since ModBuild 478 and SetActiveCardLook above names it, so the active wash no
+        // longer reports as Unnamed (an earlier version of this paragraph said the member was
+        // owed and "that file was not handed to this lane" — two builds stale by 2026-09-07).
+        // FxSurface is instrument-only — nothing behavioural reads it — so a wrong name would cost
+        // a per-surface latch, not a wrong picture.
         _art.Surface = RemoteCardArt.FxSurface.Recess;
         if (_fxElapsed < UsedCardFxSeconds)
             _fxElapsed = Mathf.Min(UsedCardFxSeconds, _fxElapsed + Mathf.Max(0f, Time.unscaledDeltaTime));

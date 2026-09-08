@@ -200,8 +200,11 @@ namespace GloomhavenVR.Net;
 /// ANIMATOR STATE cannot be made to work by measuring it better.
 ///
 /// <b>AND SetState PROVES THERE IS NOTHING ELSE TO MEASURE.</b> Read the vanilla creating branch
-/// (decompiled/GH.Runtime/InfusionElementUI.cs, case <c>Inert</c>): it writes exactly ONE field,
-/// <c>creationImage.enabled = isCreating</c>, and calls <c>ShowCreating()</c>. It never touches
+/// (decompiled/GH.Runtime/InfusionElementUI.cs:102-117, case <c>Inert</c>): it writes
+/// <c>effectsControl.ToggleEnable(true)</c>, <c>elementImage.enabled = false</c>,
+/// <c>creationImage.enabled = isCreating</c>, the tooltip text and <c>SetAvailable(false)</c>, and
+/// calls <c>ShowCreating()</c> only when <c>lastState != newState</c>. (An earlier version of this
+/// sentence counted "exactly ONE field"; the count was wrong, the point stands.) It never touches
 /// <c>creatingElementText</c>, <c>creationTextBackgroundImage</c> or <c>creationBumpImage</c>.
 /// Their visibility, their alphas, their positions — the whole picture — are authored GUIAnimator
 /// curves in prefab scene data. A composition can only ever be a guess at them.

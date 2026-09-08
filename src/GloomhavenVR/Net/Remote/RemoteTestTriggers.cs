@@ -140,8 +140,11 @@ internal static class RemoteTestTriggers
     ///
     /// <para>IT IS THE BACKSTOP AND NOT THE MECHANISM. Every ordinary end of an override — the
     /// button, the stop row, a stand-down, a player leaving — is explicit and arrives long before
-    /// this.</para></summary>
-    private const float StaleSeconds = 3f;
+    /// this.</para>
+    ///
+    /// <para>Aliased to <see cref="NetProtocol.StaleTimeoutSeconds"/> — the window the peer's own
+    /// avatar is dropped on — so an override can never outlive the peer holding it.</para></summary>
+    private const float StaleSeconds = NetProtocol.StaleTimeoutSeconds;
 
     /// <summary>Below this, two apparition anchors are the same anchor. Two clients quantize the
     /// same press time through milliseconds, so the difference is either zero or a real re-press;

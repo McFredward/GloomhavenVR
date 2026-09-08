@@ -1626,9 +1626,12 @@ internal sealed class RemoteCardArt
     /// <c>facePixels × fit × (1 − BorderFraction)</c> product computed a few lines above, and the item
     /// fan grows the box it hands us by 1/(1 − BorderFraction) so the print lands flush on the
     /// punched-out outline. The fourth, <c>RemoteHeldCardFace</c>, cuts its body and sizes its art to
-    /// the SAME box, so its print sits a 6 % border inside its own slab; that surface is not a
-    /// <c>PeerBoardFade</c> follower and never fades today, so it has no bleed to correct yet, and it
-    /// is left with its front fan rather than with a hole. Measuring rather than listing is what makes
+    /// the SAME box, so its print sits a 6 % border inside its own slab; that surface IS a
+    /// <c>PeerBoardFade</c> follower (<c>RemoteHeldCardFace</c> registers its slab with
+    /// <c>FollowRule.WhileOverBoard</c> — this sentence used to say "never fades today", which
+    /// review R2 of 2026-09-07 falsified), and it fades correctly because print and body are the
+    /// same rectangle there either way; it is left with its front fan rather than with a hole.
+    /// Measuring rather than listing is what makes
     /// that a property of the geometry instead of a list somebody has to remember to update.</para>
     ///
     /// <para>AND THE SECOND TERM, WHICH THE FIRST VERSION OF THIS CORRECTION DID NOT HAVE. The
@@ -2031,6 +2034,19 @@ internal sealed class RemoteCardArt
         /// sie lokal und remote genau gleich angezeigt werden mit allen gleichen FX
         /// effekten"</i>.</summary>
         Held,
+
+        /// <summary>A card in a peer's mirrored HAND FAN wearing a used-card look —
+        /// <c>RemoteHandFan.TickUsedCardFx</c>. Added 2026-09-08: that driver had been leaving
+        /// <see cref="Unnamed"/> with a comment asking for this member and naming the file boundary
+        /// as the only reason it could not add one, and both files are one lane's now (R2 NOTE 2).
+        /// </summary>
+        HandFan,
+
+        /// <summary>A card-back slab in FLIGHT between two anchors that is NOT a burn —
+        /// <c>RemoteCardFx</c>'s own rig. <c>RemoteBurnFx</c> names itself <see cref="Flight"/>;
+        /// this one named nothing at all, so the two shared latch index 0 with every other
+        /// unnamed face (R2 NOTE 2).</summary>
+        CardFlight,
     }
 
     /// <summary>
@@ -2055,8 +2071,15 @@ internal sealed class RemoteCardArt
     /// </summary>
     private static readonly int FxSurfaceCount = System.Enum.GetValues(typeof(FxSurface)).Length;
 
-    /// <summary>Which surface is driving this face. Assigned by the driver, idempotently; a face
-    /// nobody drives keeps <see cref="FxSurface.Unnamed"/> and never reaches the instrument.</summary>
+    /// <summary>Which surface is driving this face. Assigned by the driver, idempotently.
+    ///
+    /// <para><see cref="FxSurface.Unnamed"/> now means what this doc always claimed it meant — a
+    /// face nobody drives — and until 2026-09-08 it did not. TWO drivers reached the instrument
+    /// under it (<c>RemoteHandFan.TickUsedCardFx</c> and <c>RemoteCardFx</c>'s flight rig), so
+    /// whichever built a rig first took latch index 0 and silenced the other's arming line for the
+    /// process — defeating the per-surface latch that exists to stop exactly that. Both name
+    /// themselves now (<see cref="FxSurface.HandFan"/>, <see cref="FxSurface.CardFlight"/>). R2
+    /// NOTE 2, 2026-09-07.</para></summary>
     internal FxSurface Surface { get; set; } = FxSurface.Unnamed;
 
     /// <summary>How far the card-FX rig has got. Built ONCE per clone: the walk over the clone's
@@ -2556,10 +2579,34 @@ internal sealed class RemoteCardArt
         }
         catch (System.Exception ex)
         {
+            // THE STATE GOES BACK TO Refused, AND THAT IS THE FIX — not the null-out beside it.
+            //
+            // This catch is reachable AFTER `_burnRigState = BurnRig.Ready` above (BuildFlameQuad
+            // and ReportBurnRigOnce both run inside this try), so it used to leave the rig standing
+            // as READY over null arrays. Every later write then hit
+            // `_burnRigState != Ready || _burnImages == null` and returned false forever, and
+            // BuildBurnRig only ever runs again from Unbuilt — so that surface was dead for the
+            // rest of the clone's life. That is exactly the mechanism of R2 finding F1 (2026-09-07):
+            // ModBuild 480 fixed the one throw it had found (three latch arrays left at a literal 4
+            // while FxSurface grew to six) and left in place the catch that made it SILENT. The two
+            // sibling catches in this class — the ramp in SetAbilityCardFxProgress and the restore
+            // in ClearAbilityCardFx — already write Refused; this one did not, and it is the only
+            // one that can strand a HALF-BUILT rig.
+            //
+            // Refused is the honest state and the one the consumers already understand: no ramp, no
+            // char, the card draws clean — the same picture the bare null-out produced, but now the
+            // class agrees with itself about why.
+            _burnRigState = BurnRig.Refused;
             _burnImages = null;
             _burnTexts = null;
-            VRLog.Debug("Net", $"Remote burn rig skipped ({ex.Message}) - the peer's card burns " +
-                               "without the char.");
+            // …AND AT THE SHIPPED TIER, for the same reason. F1's cost was not the throw, it was
+            // that two dead surfaces printed nothing a hardware log could show: VRLog.Debug is the
+            // DEBUG tier and the shipped level is INFO (ModBuild 331), so this line did not exist
+            // on the machines that mattered. It can fire at most once per card clone.
+            VRLog.Note("Net", $"Remote burn rig skipped ({ex.Message}) - the peer's card burns " +
+                              "without the char, and the rig is REFUSED rather than left " +
+                              "half-built: this surface draws clean for the rest of the clone's " +
+                              "life instead of silently swallowing every later look.");
         }
     }
 
@@ -3217,12 +3264,14 @@ internal sealed class RemoteCardArt
     /// them. A 480-or-later log in which they are still absent is the reading; a 479 log in which
     /// they are absent is not.</para>
     ///
-    /// <para><c>[Unnamed]</c> DOES APPEAR, and the previous version of this paragraph asserted the
-    /// opposite. TWO drivers paint a look without naming a surface: <c>RemoteHandFan.TickUsedCardFx</c>
-    /// (which says so in its own doc and argues for it) and <c>RemoteCardFx.DriveFlightLook</c>
-    /// (<c>RemoteCardFx.cs:637</c>, which never assigns <see cref="Surface"/> at all). An
-    /// <c>[Unnamed]</c> line is therefore one of those two and NOT evidence of a new surface; it
-    /// cannot tell them apart, which is the argument for giving each its own member.</para>
+    /// <para><c>[Unnamed]</c> SHOULD NOT APPEAR AGAIN, and if it does that IS evidence of a new
+    /// surface — which is what this line is for. The history is worth keeping because it inverted
+    /// twice: the paragraph first asserted <c>[Unnamed]</c> never appears, R2 (2026-09-07) falsified
+    /// that by naming the two drivers that reached it — <c>RemoteHandFan.TickUsedCardFx</c> and
+    /// <c>RemoteCardFx</c>'s flight rig — and the 2026-09 refactor gave each its own member
+    /// (<see cref="FxSurface.HandFan"/>, <see cref="FxSurface.CardFlight"/>). The two shared latch
+    /// index 0 while they were both unnamed, so the first to arm silenced the other for the process
+    /// and no log could tell them apart.</para>
     ///
     /// <para>THE TIMING IS DIFFERENT ON EACH AND THAT IS DELIBERATE. The fire runs at four times the
     /// face rate, capped and halved (CardEffects.cs:581), so it settles at <c>_FXAnim = 0.5</c> a

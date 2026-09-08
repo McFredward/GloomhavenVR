@@ -20822,8 +20822,9 @@ internal static class NetProtocol
     ///
     /// <para><b>ADDITIVE WITHIN THE RECORD.</b> A reader that only knows the 5-byte form still
     /// requires <c>len &gt;= 5</c>, reads the style and the clock exactly as before, and steps over
-    /// the sixth byte with the record's own length — the same mechanism
-    /// <c>BoardUiRecordBytesWithCap</c> uses. No new record id, no wire-version bump.</para>
+    /// the sixth byte with the record's own length — the same mechanism record 4 uses when it
+    /// grows from <see cref="BoardUiRecordBytesLegacy"/> to <see cref="BoardUiRecordBytes"/>. No
+    /// new record id, no wire-version bump.</para>
     ///
     /// <para><b>THE MASTER SWITCH DELIBERATELY DOES NOT TRAVEL.</b> <c>[Haunt] EasterEggs</c> stays
     /// LOCAL and there is no bit here for it. The standing settings ruling is that a setting may
@@ -22247,6 +22248,78 @@ internal static class NetProtocol
         DecisionOptionOfferedBit | DecisionOptionDimmedBit | DecisionOptionChosenBit
         | DecisionOptionHoveredBit | DecisionOptionPressedBit;
 
+    /// <summary>
+    /// THE ONE RENDERING of a record-23 option-state run for a log line:
+    /// <c>#0=OFFERED+dim, #1=greyed+CHOSEN, …</c>, in bit order, with <c>#i=unstated</c> for an
+    /// index the array does not reach.
+    ///
+    /// <para>WHY IT LIVES HERE. Three copies of this loop shipped — the sender's inline builder,
+    /// <c>RemoteAvatar.DescribeOptionStates</c> and <c>RemoteBoardFurniture.DescribeStates</c> —
+    /// and the whole point of the sender line and the receiver line is that a reader DIFFS them
+    /// to decide whether the sampler or the mirror is the half that failed. Two spellings of one
+    /// vocabulary make that diff a guess, so the 2026-09 refactor merged them onto this. It sits
+    /// on <see cref="NetProtocol"/> rather than in a Remote/ helper because all three callers live
+    /// in different folders and this file is the one they already share (and it is compiled into
+    /// the wire tests, which is where the bit names are pinned).</para>
+    ///
+    /// <para>The two NULL wordings stayed at their call sites on purpose: "-" and "no state record
+    /// (pre-record sender …)" answer different questions, and neither is about a state RUN.</para>
+    /// </summary>
+    public static string DescribeDecisionOptionStates(byte[]? states, int count)
+    {
+        var sb = new System.Text.StringBuilder(48);
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0)
+                sb.Append(", ");
+            if (states == null || i >= states.Length)
+            {
+                sb.Append('#').Append(i).Append("=unstated");
+                continue;
+            }
+            byte f = states[i];
+            sb.Append('#').Append(i).Append('=')
+              .Append((f & DecisionOptionOfferedBit) != 0 ? "OFFERED" : "greyed");
+            if ((f & DecisionOptionDimmedBit) != 0)
+                sb.Append("+dim");
+            if ((f & DecisionOptionChosenBit) != 0)
+                sb.Append("+CHOSEN");
+            if ((f & DecisionOptionHoveredBit) != 0)
+                sb.Append("+HOVER");
+            if ((f & DecisionOptionPressedBit) != 0)
+                sb.Append("+PRESS");
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// THE ONE RENDERING of a record-29 ROLE run for a log line: <c>#0=4, #1=5</c> — the role
+    /// CODES, which is all a role is.
+    ///
+    /// <para>WHY IT IS NOT THE METHOD ABOVE, and this is the point: a role byte is an enum member
+    /// (<see cref="DecisionRoleUnknown"/> … <see cref="DecisionRoleMax"/>), not a bit field. The
+    /// receiver's "Decision widgets RECEIVED" line used to hand record 29's roles to the OPTION
+    /// describer, so role 4 (ShortRestYes) printed as <c>#0=greyed+CHOSEN</c> and role 1
+    /// (BurnAvailable) as <c>#0=OFFERED</c> — fluent, plausible, and about a different field. The
+    /// sender's own line printed the same bytes as numbers, so the two lines a reader is meant to
+    /// DIFF disagreed by construction while both were correct about their own half.</para>
+    /// </summary>
+    public static string DescribeDecisionRoles(byte[]? roles, int count)
+    {
+        var sb = new System.Text.StringBuilder(32);
+        for (int i = 0; i < count; i++)
+        {
+            if (i > 0)
+                sb.Append(", ");
+            sb.Append('#').Append(i).Append('=');
+            if (roles == null || i >= roles.Length)
+                sb.Append("unstated");
+            else
+                sb.Append(roles[i]);
+        }
+        return sb.ToString();
+    }
+
     /// <summary>Pack a prompt kind + text variant into the decision-state flags byte. Both fields
     /// are clamped into their own field width, so a caller can never spill one into the other or
     /// into the reserved bits.</summary>
@@ -23293,7 +23366,13 @@ internal static class NetProtocol
     // the compiler moving both. Only the ALLOCATION and the addressing codec are here.
 
     /// <summary>Extension record id: WHICH bonus or item each visible use-bar slot is showing.
-    /// Allocated by the integrator for ModBuild 479.</summary>
+    /// Allocated by the integrator for ModBuild 479.
+    ///
+    /// <para>THE ID SPACE HAS THREE HOLES — 38, 40 and 42 were never allocated (the allocator
+    /// skipped them; no record ever carried them, so nothing in the wild decodes them). They are
+    /// NOT free: an additive TLV id space is safe only while every id ever emitted means one thing
+    /// forever, and a backfilled id is one grep away from being mistaken for a re-used one. The
+    /// next id is the integrator's ledger (46 at ModBuild 480), never a hole.</para></summary>
     public const byte ExtIdUseBarSlotIdentity = 45;
 
     /// <summary>Smallest payload the record can have: the entry-count byte alone. A record shorter

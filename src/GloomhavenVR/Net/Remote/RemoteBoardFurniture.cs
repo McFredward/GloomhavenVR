@@ -3210,34 +3210,10 @@ internal sealed class RemoteBoardFurniture
     }
 
     /// <summary>Human-readable option states for the diagnostic line.</summary>
-    private static string DescribeStates(byte[]? states, int plates)
-    {
-        if (states == null)
-            return "no state record (pre-record sender ⇒ every plate keeps the plain look)";
-        var sb = new System.Text.StringBuilder(48);
-        for (int i = 0; i < plates; i++)
-        {
-            if (i > 0)
-                sb.Append(", ");
-            if (i >= states.Length)
-            {
-                sb.Append('#').Append(i).Append("=unstated");
-                continue;
-            }
-            byte f = states[i];
-            sb.Append('#').Append(i).Append('=')
-              .Append((f & NetProtocol.DecisionOptionOfferedBit) != 0 ? "OFFERED" : "greyed");
-            if ((f & NetProtocol.DecisionOptionDimmedBit) != 0)
-                sb.Append("+dim");
-            if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
-                sb.Append("+CHOSEN");
-            if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
-                sb.Append("+HOVER");
-            if ((f & NetProtocol.DecisionOptionPressedBit) != 0)
-                sb.Append("+PRESS");
-        }
-        return sb.ToString();
-    }
+    private static string DescribeStates(byte[]? states, int plates) =>
+        states == null
+            ? "no state record (pre-record sender ⇒ every plate keeps the plain look)"
+            : NetProtocol.DescribeDecisionOptionStates(states, plates);
 
     /// <summary>
     /// Content-true plate widths for one mirrored decision row. The game fits each option button to
@@ -3454,87 +3430,10 @@ internal sealed class RemoteBoardFurniture
             if (n > NetProtocol.UseBarsMaxSlots)
                 n = NetProtocol.UseBarsMaxSlots;
 
-            var row = new GameObject($"UseBar{b}").transform;
-            row.SetParent(_useBars, worldPositionStays: false);
-            row.localPosition = new Vector3(0f, cursor - rowH * 0.5f, 0f);
-            cursor -= rowH + rowGap;
+            UseBarRow built = BuildUseBarRow(b, n, scale, rowH, rowGap, budget, ref cursor);
 
-            MeshRenderer plate = BoardVisual.Quad(row, "Plate", new Vector2(budget, rowH),
-                BoardVisual.Unlit(UseBarPlateColor));
-            plate.transform.localPosition = new Vector3(0f, 0f, 0.001f);
-            WorldUI.MrBacking.Opacify(plate.sharedMaterial); // 0.80 → 1 while MR is on
-
-            RemoteBoardContent.Label(row, "Caption",
-                new Vector3(-budget * 0.5f + UseBarCaptionW * scale * 0.5f, 0f, -0.001f),
-                new Vector2(UseBarCaptionW * scale, rowH * 0.7f), 0.14f * scale,
-                new Color(0.72f, 0.68f, 0.58f), TextAlignmentOptions.Left)
-                .text = UseBarCaption(b).ToUpperInvariant();
-
-            // Sub-picker badge: a small accent pip at the row's right edge, lit while the owner has
-            // an element/option picker standing open in THIS bar (record 25's bar flags). Built once
-            // per row so the state repaint never allocates.
-            GameObject picker = BoardVisual.Quad(row, "PickerBadge",
-                new Vector2(UseBarTile * scale * 0.45f, UseBarTile * scale * 0.45f),
-                BoardVisual.Unlit(new Color(1f, 0.85f, 0.35f, 0.95f))).gameObject;
-            picker.transform.localPosition =
-                new Vector3(budget * 0.5f - UseBarTile * scale * 0.4f, 0f, -0.001f);
-            picker.SetActive(false);
-
-            var tiles = new Material[n];
-            var rims = new GameObject[n];
-            var symbols = new SpriteRenderer[n];
-            float tile = UseBarTile * scale;
-            float tileGap = UseBarTileGap * scale;
-            float tilesW = n > 0 ? n * tile + (n - 1) * tileGap : 0f;
-            float x = -budget * 0.5f + UseBarCaptionW * scale;
-            // Centre the tiles in what is left of the row after the caption column, and shrink the
-            // pitch rather than overflow the owner's own width budget.
-            float free = budget - UseBarCaptionW * scale - tile;
-            if (tilesW > free && tilesW > 0f)
-            {
-                float k = free / tilesW;
-                tile *= k;
-                tileGap *= k;
-                tilesW = free;
-            }
-            x += Mathf.Max(0f, (budget - UseBarCaptionW * scale - tilesW) * 0.5f);
-            for (int s = 0; s < n; s++)
-            {
-                var cell = new GameObject($"Slot{s}").transform;
-                cell.SetParent(row, worldPositionStays: false);
-                cell.localPosition = new Vector3(x + tile * 0.5f, 0f, 0f);
-                x += tile + tileGap;
-
-                // The CHOSEN telegraph: an accent frame behind the tile, shown only while the owner
-                // has that slot toggled on — the same language the mirrored decision plates use.
-                GameObject rim = BoardVisual.Quad(cell, "ChosenRim",
-                    new Vector2(tile + 0.005f * scale, tile + 0.005f * scale),
-                    BoardVisual.Unlit(new Color(1f, 0.85f, 0.35f, 0.95f))).gameObject;
-                rim.transform.localPosition = new Vector3(0f, 0f, -0.0005f);
-                rim.SetActive(false);
-
-                Material face = BoardVisual.Unlit(UseBarTileColor);
-                BoardVisual.Quad(cell, "Face", new Vector2(tile, tile), face)
-                    .transform.localPosition = new Vector3(0f, 0f, -0.001f);
-
-                // THE SYMBOL (user 2026-08-13: "das gleiche Symbol vom Spiel"). Built EMPTY and
-                // disabled; ApplyUseBarSymbols lights it the moment this client can prove which
-                // icon the owner's slot is wearing — see RemoteUseBarSymbols for the three-way gate.
-                // A SpriteRenderer rather than a quad + material: the game's icons are Sprites, and
-                // a SpriteRenderer honours their pivot, border and packing without a second atlas
-                // lookup. Inert like everything in this drawer; StripColliders sweeps it anyway.
-                var symbolGo = new GameObject($"Symbol{s}");
-                symbolGo.transform.SetParent(cell, worldPositionStays: false);
-                symbolGo.transform.localPosition = new Vector3(0f, 0f, -0.0015f);
-                var symbol = symbolGo.AddComponent<SpriteRenderer>();
-                symbol.enabled = false;
-                symbols[s] = symbol;
-
-                tiles[s] = face;
-                rims[s] = rim;
-            }
             totalSlots += n;
-            _useBarRows.Add(new UseBarRow(row, tiles, rims, picker, symbols));
+            _useBarRows.Add(built);
             _useBarRowIndices.Add(b);
             rows++;
         }
@@ -3552,6 +3451,99 @@ internal sealed class RemoteBoardFurniture
                           "resolved locally by RemoteUseBarSymbols against this client's own copy " +
                           "of the same bar — nothing about the art rides this wire. Display-only: " +
                           "colliderless.");
+    }
+
+    /// <summary>
+    /// One mirrored use-bar ROW: its plate, its caption, its picker badge and its slot tiles
+    /// (each with a chosen-rim and an empty, disabled symbol renderer). Lifted VERBATIM out of
+    /// <see cref="SetUseBars"/> in the 2026-09 refactor (pure motion) — that method was 120 code
+    /// lines of which this was 84, and the split is what makes the DRAWER's layout (how many rows,
+    /// where the stack starts) readable apart from a ROW's (how the tiles fit the budget).
+    /// <paramref name="cursor"/> is stepped down by one row exactly as the inline block stepped it.
+    /// </summary>
+    private UseBarRow BuildUseBarRow(int b, int n, float scale, float rowH, float rowGap,
+                                     float budget, ref float cursor)
+    {
+        var row = new GameObject($"UseBar{b}").transform;
+        row.SetParent(_useBars, worldPositionStays: false);
+        row.localPosition = new Vector3(0f, cursor - rowH * 0.5f, 0f);
+        cursor -= rowH + rowGap;
+
+        MeshRenderer plate = BoardVisual.Quad(row, "Plate", new Vector2(budget, rowH),
+            BoardVisual.Unlit(UseBarPlateColor));
+        plate.transform.localPosition = new Vector3(0f, 0f, 0.001f);
+        WorldUI.MrBacking.Opacify(plate.sharedMaterial); // 0.80 → 1 while MR is on
+
+        RemoteBoardContent.Label(row, "Caption",
+            new Vector3(-budget * 0.5f + UseBarCaptionW * scale * 0.5f, 0f, -0.001f),
+            new Vector2(UseBarCaptionW * scale, rowH * 0.7f), 0.14f * scale,
+            new Color(0.72f, 0.68f, 0.58f), TextAlignmentOptions.Left)
+            .text = UseBarCaption(b).ToUpperInvariant();
+
+        // Sub-picker badge: a small accent pip at the row's right edge, lit while the owner has
+        // an element/option picker standing open in THIS bar (record 25's bar flags). Built once
+        // per row so the state repaint never allocates.
+        GameObject picker = BoardVisual.Quad(row, "PickerBadge",
+            new Vector2(UseBarTile * scale * 0.45f, UseBarTile * scale * 0.45f),
+            BoardVisual.Unlit(new Color(1f, 0.85f, 0.35f, 0.95f))).gameObject;
+        picker.transform.localPosition =
+            new Vector3(budget * 0.5f - UseBarTile * scale * 0.4f, 0f, -0.001f);
+        picker.SetActive(false);
+
+        var tiles = new Material[n];
+        var rims = new GameObject[n];
+        var symbols = new SpriteRenderer[n];
+        float tile = UseBarTile * scale;
+        float tileGap = UseBarTileGap * scale;
+        float tilesW = n > 0 ? n * tile + (n - 1) * tileGap : 0f;
+        float x = -budget * 0.5f + UseBarCaptionW * scale;
+        // Centre the tiles in what is left of the row after the caption column, and shrink the
+        // pitch rather than overflow the owner's own width budget.
+        float free = budget - UseBarCaptionW * scale - tile;
+        if (tilesW > free && tilesW > 0f)
+        {
+            float k = free / tilesW;
+            tile *= k;
+            tileGap *= k;
+            tilesW = free;
+        }
+        x += Mathf.Max(0f, (budget - UseBarCaptionW * scale - tilesW) * 0.5f);
+        for (int s = 0; s < n; s++)
+        {
+            var cell = new GameObject($"Slot{s}").transform;
+            cell.SetParent(row, worldPositionStays: false);
+            cell.localPosition = new Vector3(x + tile * 0.5f, 0f, 0f);
+            x += tile + tileGap;
+
+            // The CHOSEN telegraph: an accent frame behind the tile, shown only while the owner
+            // has that slot toggled on — the same language the mirrored decision plates use.
+            GameObject rim = BoardVisual.Quad(cell, "ChosenRim",
+                new Vector2(tile + 0.005f * scale, tile + 0.005f * scale),
+                BoardVisual.Unlit(new Color(1f, 0.85f, 0.35f, 0.95f))).gameObject;
+            rim.transform.localPosition = new Vector3(0f, 0f, -0.0005f);
+            rim.SetActive(false);
+
+            Material face = BoardVisual.Unlit(UseBarTileColor);
+            BoardVisual.Quad(cell, "Face", new Vector2(tile, tile), face)
+                .transform.localPosition = new Vector3(0f, 0f, -0.001f);
+
+            // THE SYMBOL (user 2026-08-13: "das gleiche Symbol vom Spiel"). Built EMPTY and
+            // disabled; ApplyUseBarSymbols lights it the moment this client can prove which
+            // icon the owner's slot is wearing — see RemoteUseBarSymbols for the three-way gate.
+            // A SpriteRenderer rather than a quad + material: the game's icons are Sprites, and
+            // a SpriteRenderer honours their pivot, border and packing without a second atlas
+            // lookup. Inert like everything in this drawer; StripColliders sweeps it anyway.
+            var symbolGo = new GameObject($"Symbol{s}");
+            symbolGo.transform.SetParent(cell, worldPositionStays: false);
+            symbolGo.transform.localPosition = new Vector3(0f, 0f, -0.0015f);
+            var symbol = symbolGo.AddComponent<SpriteRenderer>();
+            symbol.enabled = false;
+            symbols[s] = symbol;
+
+            tiles[s] = face;
+            rims[s] = rim;
+        }
+        return new UseBarRow(row, tiles, rims, picker, symbols);
     }
 
     /// <summary>Slot-symbol scratch (max slots per bar), so the 4 Hz pass allocates nothing.</summary>
@@ -5056,10 +5048,14 @@ internal sealed class RemoteBoardFurniture
 /// no rigidbody and no registration of any kind, so <c>RemoteBoardFurniture.StripColliders</c> has
 /// nothing to find — an ANIMATION is not interactivity.</para>
 ///
-/// <para>The viewer's <c>[ButtonAnim] Enable</c> switch gates it, exactly as it gates their own
-/// board's caps: a player who has turned keycap animation off has turned it off, and a remote board
-/// is not the place to re-impose it. The DURATIONS, by contrast, are the AUTHORED ones and not the
-/// viewer's tuning — the same rule every geometry constant on this board follows.</para>
+/// <para>THE OWNER'S <c>[ButtonAnim] Enable</c> SWITCH GATES IT, AND THE OWNER'S DURATIONS TIME IT
+/// (<c>RemoteBoardFurniture</c>'s <c>_capAnim = new CapAnim(tuning.ButtonAnimOn, …)</c> off record
+/// 28 ids 174/175). This paragraph used to say the opposite — "the viewer's switch gates it … the
+/// DURATIONS are the AUTHORED ones and not the viewer's tuning" — which described the class-1
+/// breach the code no longer has (a mirror reading the viewer's dial), and review R2 of
+/// 2026-09-07 named it the most dangerous sentence in the set because it invites a "correction"
+/// back to the breach. The rule is the one every other term on this board follows: whatever the
+/// owner's board does, their mirror does, from the owner's copy of the dial.</para>
 /// </summary>
 internal sealed class RemoteCapFx : MonoBehaviour
 {

@@ -172,10 +172,12 @@ internal static class RemoteSharedGaze
     /// the user's "bevor alle Spieler am Tisch fertig gesetzt wurden" is about.</summary>
     private const float SeatStillMeters = 0.12f;
 
-    /// <summary>How long a peer's map-room record stays believed here. The same three seconds
+    /// <summary>How long a peer's map-room record stays believed here. The same window
     /// <c>RemoteMapRoom</c> uses, for the same reason and from the same packets — a peer whose
-    /// packets stopped is not standing at the table any more.</summary>
-    private const float PeerStaleSeconds = 3f;
+    /// packets stopped is not standing at the table any more. Aliased to
+    /// <see cref="NetProtocol.StaleTimeoutSeconds"/>, the window the peer's own avatar is dropped
+    /// on, so "still at the table" cannot outlive "still here".</summary>
+    private const float PeerStaleSeconds = NetProtocol.StaleTimeoutSeconds;
 
     /// <summary>The nearest a shared window may be seated to somebody's head before the candidate is
     /// charged as unreadable, in real metres of the shared frame. A window closer than this is

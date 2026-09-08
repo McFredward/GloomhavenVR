@@ -576,6 +576,15 @@ internal static class SharedWindowSizeVectors
         {
             "src/GloomhavenVR/Net/Remote/RemoteMapStory.cs",
             "src/GloomhavenVR/Net/Remote/RemoteStorySync.cs",
+            // THE READ HALF MOVED, AND THIS GATE FOLLOWED IT. Both files above carried a
+            // byte-identical private TryReadFrame whose `frame.localScale.x` is the SENDER's
+            // reading of a shared window's size; the 2026-09 refactor merged the two into
+            // SharedWindowFrame.TryRead. Without this line the merge silently took two assertions
+            // off this gate (210,164 -> 210,162) and left the one remaining read of a shared
+            // window's scale ungated — which is exactly the shape of defect the gate exists for.
+            // A file listed here must contain at least one scale line, so this entry also fails if
+            // the helper is ever emptied out.
+            "src/GloomhavenVR/Net/Remote/SharedWindowFrame.cs",
         };
         foreach (string file in appliers)
         {

@@ -98,8 +98,12 @@ namespace GloomhavenVR.Net;
 /// board shows must be shown on a peer's board too — but as a PURE DISPLAY, with nothing on it
 /// interactable. <see cref="RemoteBoardFurniture"/> implements exactly that: meshes and text only,
 /// no collider is ever created, nothing is added to <c>PlayTray.LaserTargets</c>, to
-/// <c>VRInteractables</c> or to any other interaction registry, and a runtime guard
-/// (<see cref="RemoteBoardFurniture.StripColliders"/>) destroys anything that ever slips through.
+/// <c>VRInteractables</c> or to any other interaction registry, and a BUILD-TIME sweep
+/// (<see cref="RemoteBoardFurniture.StripColliders"/>, six fixed call sites) destroys any collider
+/// the game's own prefabs brought along. It is not a runtime guard: content built after those
+/// sweeps — the lazy pile-cue rings and embers, the tooltip canvas, the focus outline, the grab-bar
+/// rod, every <see cref="RemoteWidgetMirror"/> clone — is never swept, and its inertness rests on
+/// each builder creating no collider in the first place (review R2, 2026-09-07).
 ///
 /// The transient reading fans (hand fan, item fan, pile browse, card flights) are handled by the
 /// dedicated VR-only wire fields (<see cref="RemoteHandFan"/> / <see cref="RemoteItemFan"/> /
@@ -1033,8 +1037,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
 
         // Character-focus turn cue: green while this peer owns the character at turn AND is
         // looking at it, red while they own it but are looking elsewhere, nothing otherwise.
-        // The mark is re-derived locally every frame from THIS client's read of who is at turn,
-        // so only their focus (record 22) is taken from the wire.
+        // ALL THREE TERMS COME FROM THE WIRE: CharacterFocus.MarkForPeer reads only Peers[playerId]
+        // — ActorId, OwnsAttention and AttentionId, all off record 22 — and touches no local read
+        // of who is at turn. (This comment used to claim the mark was "re-derived locally every
+        // frame from THIS client's read of who is at turn"; the block comment on the focus outline
+        // twenty lines below always said the opposite, and it is the one the code matches.)
         _focusOutline?.Tick(visible: true, _tag.AvatarQuad, OwnerTag.AvatarQuadSize);
 
         // Content (objectives / elements / round / initiative / rest / pile counts / active cards)

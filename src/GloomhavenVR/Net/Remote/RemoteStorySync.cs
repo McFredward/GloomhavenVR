@@ -70,8 +70,10 @@ internal static class RemoteStorySync
     /// <summary>How long a peer's story record stays believed after its last packet. Matches the
     /// env-clock staleness window: the extras packet runs at
     /// <see cref="NetProtocol.ExtrasSendRateHz"/> = 5 Hz, so three seconds is fifteen missed
-    /// packets — a peer that quiet is gone, not merely lagging.</summary>
-    private const float PeerStaleSeconds = 3f;
+    /// packets — a peer that quiet is gone, not merely lagging. Aliased to
+    /// <see cref="NetProtocol.StaleTimeoutSeconds"/>, the window the peer's own avatar is dropped
+    /// on, so the two can never drift apart.</summary>
+    private const float PeerStaleSeconds = NetProtocol.StaleTimeoutSeconds;
 
     /// <summary>
     /// How long this client keeps announcing a dialog it has FINISHED, after its own box closed.
@@ -421,7 +423,7 @@ internal static class RemoteStorySync
         // now elects on the stamp and decides whether to apply on the pose VALUE.
         if ((_localPoseOwned || _localMoving)
             && ModalFallback.TryGetStoryGrab(out GrabbableModal? grab) && grab != null
-            && TryReadFrame(grab, out Vector3 pos, out Quaternion rot, out float size)
+            && SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size)
             && TryToAnchor(pos, rot, out Vector3 localPos, out Quaternion localRot))
         {
             extras.StoryFlags |= NetProtocol.StoryPoseBit;
@@ -445,7 +447,7 @@ internal static class RemoteStorySync
     private static void TrackFrame(bool reset)
     {
         if (reset || !ModalFallback.TryGetStoryGrab(out GrabbableModal? grab) || grab == null
-            || !TryReadFrame(grab, out Vector3 pos, out Quaternion rot, out float size))
+            || !SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size))
         {
             _haveFrameBaseline = false;
             _localMoving = false;
@@ -503,32 +505,6 @@ internal static class RemoteStorySync
         }
     }
 
-    /// <summary>Read the grab frame's world pose and the user's size factor, or false when the
-    /// window is not currently a grabbable, revealed float.</summary>
-    private static bool TryReadFrame(GrabbableModal grab, out Vector3 pos, out Quaternion rot,
-                                     out float size)
-    {
-        pos = Vector3.zero;
-        rot = Quaternion.identity;
-        size = 1f;
-        var owner = (IPanelGrabOwner)grab;
-        if (!owner.GrabVisible)
-            return false;
-        Transform? frame = owner.GrabRoot;
-        if (frame == null)
-            return false;
-        pos = frame.position;
-        rot = frame.rotation;
-        // ModBuild 450 - THE PUBLISHED FACTOR IS THE WIRE'S OWN VALUE, not a float near it.
-        // SharedWindowSizeLaw.SharedGrabFactor is Decode(Encode(x)) against this very codec, so
-        // this clamp is the wire's window by construction and can never be a DIFFERENT window from
-        // the one EncodeStorySize below enforces. That was the last place a shared window's size
-        // could differ between the puller and every follower (the puller kept the unrounded pinch
-        // value), and it is also the answer to "what if one client's clamp changes": there is only
-        // one clamp left, and it is the wire's.
-        size = SharedWindowSizeLaw.SharedGrabFactor(frame.localScale.x);
-        return true;
-    }
 
     // ---- the shared frame -------------------------------------------------------------------
 

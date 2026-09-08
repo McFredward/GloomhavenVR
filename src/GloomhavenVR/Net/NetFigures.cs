@@ -162,8 +162,9 @@ internal static class NetFigures
     /// seeded from this table, and a late joiner is right on its first rendered frame rather than
     /// after a ramp from the wrong size.</para>
     ///
-    /// <para>Bounded by the player count and cleared with the player (<see cref="ReleaseRemote"/>,
-    /// <c>Clear</c>), so it cannot grow.</para>
+    /// <para>Bounded by the player count and cleared with the player — <see cref="ReleaseRemote"/>
+    /// removes the entry, and the driver's teardown calls that per player (there is no whole-table
+    /// clear; none is needed) — so it cannot grow.</para>
     /// </summary>
     private static readonly Dictionary<int, (float Primary, float Secondary)> _lastStretch = new();
 

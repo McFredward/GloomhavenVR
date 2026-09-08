@@ -849,7 +849,7 @@ internal struct PresenceState
     public int DecisionRoleCount;
 
     /// <summary>Per-option role codes (<see cref="NetProtocol.DecisionRoleUnknown"/> …
-    /// <c>NetProtocol.DecisionRoleNo</c>). May be longer than
+    /// <see cref="NetProtocol.DecisionRoleMax"/>). May be longer than
     /// <see cref="DecisionRoleCount"/> — the sender passes its persistent sample buffer; only the
     /// first count entries go on the wire.</summary>
     public byte[]? DecisionRoles;
@@ -2019,1099 +2019,1112 @@ internal static class PresenceSerializer
             if (extensions)
             {
                 int countAt = i++;
-                byte records = 0;
-                if (state.HasHandScale)
-                {
-                    buffer[i++] = NetProtocol.ExtIdHandScale;
-                    buffer[i++] = 1;
-                    buffer[i++] = state.HandScaleCode;
-                    records++;
-                }
-                if (state.HasGhostSides)
-                {
-                    buffer[i++] = NetProtocol.ExtIdGhostSides;
-                    buffer[i++] = 1;
-                    buffer[i++] = state.GhostSidesMask;
-                    records++;
-                }
-                if (state.HasModVersion)
-                {
-                    // MOD VERSION: [u16 build LE][UTF8 display bytes]. Sent on EVERY packet (unlike
-                    // the "only when non-default" records above) because its absence IS the signal:
-                    // a modded peer whose extras never carry this record predates the handshake and
-                    // reads as ModBuild 0 = mismatch. The display bytes come pre-encoded + capped
-                    // (EncodeModVersionText) so this hot path stays allocation-free.
-                    byte[] text = state.ModVersionText == null
-                        ? System.Array.Empty<byte>()
-                        : EncodeModVersionText(state.ModVersionText);
-                    buffer[i++] = NetProtocol.ExtIdModVersion;
-                    buffer[i++] = (byte)(2 + text.Length);
-                    buffer[i++] = (byte)(state.ModBuild & 0xFF);
-                    buffer[i++] = (byte)(state.ModBuild >> 8);
-                    for (int b = 0; b < text.Length; b++)
-                        buffer[i++] = text[b];
-                    records++;
-                }
-                if (state.HasBoardUi)
-                {
-                    // BOARD UI: [buttons][overlays][cap states]. Like the mod version it is written
-                    // whenever its source exists (a live PlayTray) rather than only when
-                    // non-default: the receiver must tell "the owner's board shows no dynamic
-                    // controls" apart from "the sender predates the field" — the latter keeps the
-                    // legacy furniture.
-                    //
-                    // The THIRD byte is the cap-state byte, and the record's LENGTH is its validity
-                    // flag: a reader that requires BoardUiRecordBytes before trusting byte 2 keeps
-                    // the built-colour look for any sender that writes the legacy 2 (see
-                    // NetProtocol.BoardUiCapConfirmAccentBit for why no wire BIT was spent on it).
-                    buffer[i++] = NetProtocol.ExtIdBoardUi;
-                    buffer[i++] = (byte)NetProtocol.BoardUiRecordBytes;
-                    buffer[i++] = state.BoardButtonsMask;
-                    // Masked to the DEFINED overlay bits (wanted glow + FOLLOW/PIN + card-slot
-                    // occupancy + its validity bit + the snap-glow hover field): an undefined bit
-                    // must never be pre-claimed by garbage, or widening the mask later would decode
-                    // old packets as if they had opted into the new state.
-                    buffer[i++] = (byte)(state.BoardOverlayMask & NetProtocol.BoardUiOverlayMask);
-                    buffer[i++] = (byte)(state.BoardCapStateMask
-                                         & NetProtocol.BoardUiCapStateDefinedMask);
-                    records++;
-                }
-                if (state.HasFanAnchor)
-                {
-                    // FAN ANCHOR: 3 × f32 LE, the open board-anchored fan's board-local position.
-                    buffer[i++] = NetProtocol.ExtIdFanAnchor;
-                    buffer[i++] = 12;
-                    AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.x);
-                    AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.y);
-                    AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.z);
-                    records++;
-                }
-                if (state.HasCardHighlight)
-                {
-                    // CARD HIGHLIGHT: [hand-fan index][board-fan index], 255 = none. Unlike the
-                    // board-UI record this one is written ONLY while something is highlighted —
-                    // "absent" and "none" render identically, so an idle packet stays as small
-                    // (and as byte-identical to the previous build) as it always was.
-                    buffer[i++] = NetProtocol.ExtIdCardHighlight;
-                    buffer[i++] = 2;
-                    buffer[i++] = state.HandHighlightIndex;
-                    buffer[i++] = state.FanHighlightIndex;
-                    records++;
-                }
-                if (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
-                {
-                    // PICK BANNER: UTF8 bytes of the placard line, capped and truncated on a
-                    // character boundary. Written only while a placard is shown (see the record
-                    // doc); the encode cache keeps this hot path allocation-free for the common
-                    // case of the same line riding several packets in a row.
-                    byte[] text = EncodePickBannerText(state.PickBannerText!);
-                    if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdPickBanner;
-                        buffer[i++] = (byte)text.Length;
-                        for (int b = 0; b < text.Length; b++)
-                            buffer[i++] = text[b];
-                        records++;
-                    }
-                }
-                if (state.HasSecondFigure && i + 2 + NetProtocol.SecondFigureRecordBytes <= buffer.Length)
-                {
-                    // SECOND HELD FIGURE: [hand flags][int32 actorId LE][pose 20]. The mini in the
-                    // sender's OTHER hand — the first one rides the rig packet's held-figure block.
-                    // Written ONLY while a second figure is really held, so a one-handed hold (and
-                    // an idle player) emits the exact bytes previous builds emitted. Appended LAST,
-                    // behind every record that already existed, per the tail's id-order contract.
-                    byte hands = 0;
-                    if (state.SecondFigureLeftHand) hands |= NetProtocol.SecondFigureLeftBit;
-                    if (state.PrimaryFigureLeftHand) hands |= NetProtocol.SecondFigurePrimaryLeftBit;
-                    buffer[i++] = NetProtocol.ExtIdSecondFigure;
-                    buffer[i++] = (byte)NetProtocol.SecondFigureRecordBytes;
-                    // Masked to the DEFINED hand bits so a future bit cannot be pre-claimed by
-                    // garbage — same discipline as the board-UI overlay byte.
-                    buffer[i++] = (byte)(hands & NetProtocol.SecondFigureHandMask);
-                    AvatarSerializer.WriteI32(buffer, ref i, state.SecondFigureActorId);
-                    AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondFigurePose);
-                    records++;
-                }
-                if (state.HasBoardTooltip && !string.IsNullOrEmpty(state.BoardTooltipText))
-                {
-                    // BOARD TOOLTIP: UTF8 bytes of the tooltip parked in the sender's board
-                    // tooltip area, capped and truncated on a character boundary. Written only
-                    // while such a tooltip is shown AND already passed the sender-side identity
-                    // gate (WorldUI.WorldTooltips — see the record doc: content that could name a
-                    // hidden card never reaches this writer). Appended LAST, behind every record
-                    // that already existed, per the tail's id-order contract; the encode cache
-                    // keeps the hot path allocation-free while the same text rides many packets.
-                    byte[] text = EncodeBoardTooltipText(state.BoardTooltipText!);
-                    if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdBoardTooltip;
-                        buffer[i++] = (byte)text.Length;
-                        for (int b = 0; b < text.Length; b++)
-                            buffer[i++] = text[b];
-                        records++;
-                    }
-                }
-                if (state.HasSecondHeldCard
-                    && i + 2 + NetProtocol.SecondHeldCardRecordBytes <= buffer.Length)
-                {
-                    // SECOND HELD CARD: the shared 20-byte pose, nothing else — no hand byte (the
-                    // receiver renders the slab at this absolute pose, never parented to a hand;
-                    // see the record doc) and no identity, ever (peers draw an anonymous BACK).
-                    // Written ONLY while both hands physically hold a card, so a one-card hold —
-                    // and an idle player — emits the exact bytes build 49 emitted. Appended LAST,
-                    // behind every record that already existed, per the tail's id-order contract.
-                    buffer[i++] = NetProtocol.ExtIdSecondHeldCard;
-                    buffer[i++] = (byte)NetProtocol.SecondHeldCardRecordBytes;
-                    AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondHeldCardPose);
-                    records++;
-                }
-                if (state.HasSlotCardSize
-                    && i + 2 + NetProtocol.SlotCardSizeRecordBytes <= buffer.Length)
-                {
-                    // SLOT-CARD SIZE: [u16 slotFrameWidth LE][u16 slotCardWidth LE], board-local
-                    // tenth-mm. Written ONLY while a board exists and either width differs from
-                    // the legacy assumption (NetProtocol.SlotCardWidthLegacy), so a sender whose
-                    // config lands exactly on the old constant stays byte-identical to the
-                    // previous build. Appended in id order (record 11, before 12..16).
-                    buffer[i++] = NetProtocol.ExtIdSlotCardSize;
-                    buffer[i++] = (byte)NetProtocol.SlotCardSizeRecordBytes;
-                    buffer[i++] = (byte)(state.SlotFrameWidthCode & 0xFF);
-                    buffer[i++] = (byte)(state.SlotFrameWidthCode >> 8);
-                    buffer[i++] = (byte)(state.SlotCardWidthCode & 0xFF);
-                    buffer[i++] = (byte)(state.SlotCardWidthCode >> 8);
-                    records++;
-                }
-                if (state.HasDecisionLines && !string.IsNullOrEmpty(state.DecisionLinesText))
-                {
-                    // DECISION LINES: UTF8 blob of the docked decision row's button labels, one
-                    // per '\n'-separated line, capped and truncated on a character boundary.
-                    // Written only while a row is really docked (see the record doc — pressable
-                    // labels only, never a dialog's card-naming description). Same one-entry
-                    // encode cache as the pick banner: the labels are constant for the whole
-                    // prompt while the record rides every 5 Hz packet.
-                    byte[] text = EncodeDecisionLines(state.DecisionLinesText!);
-                    if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdDecisionLines;
-                        buffer[i++] = (byte)text.Length;
-                        for (int b = 0; b < text.Length; b++)
-                            buffer[i++] = text[b];
-                        records++;
-                    }
-                }
-                {
-                    // CAP LABELS: [mask][per set bit, in mask-bit order: len + UTF8] — what the
-                    // sender's CONFIRM cap, docked SKIP button, UNDO cap and item-USE cap actually
-                    // read. Written only while at least one label exists, so an idle packet stays
-                    // byte-identical. Each label runs through its own one-entry encode cache (they
-                    // change on game-state edges, not per packet). The two NEW slots (undo, item
-                    // use) are the HIGH mask bits and ride LAST, so a reader that knows only the
-                    // first two stops exactly where it always did.
-                    byte[] confirm = state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel)
-                        ? EncodeConfirmCapLabel(state.ConfirmCapLabel!)
-                        : System.Array.Empty<byte>();
-                    byte[] skip = state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel)
-                        ? EncodeSkipCapLabel(state.SkipCapLabel!)
-                        : System.Array.Empty<byte>();
-                    byte[] undo = state.HasUndoCapLabel && !string.IsNullOrEmpty(state.UndoCapLabel)
-                        ? EncodeUndoCapLabel(state.UndoCapLabel!)
-                        : System.Array.Empty<byte>();
-                    byte[] use = state.HasItemUseCapLabel && !string.IsNullOrEmpty(state.ItemUseCapLabel)
-                        ? EncodeItemUseCapLabel(state.ItemUseCapLabel!)
-                        : System.Array.Empty<byte>();
-                    int payload = 1 + (confirm.Length > 0 ? 1 + confirm.Length : 0)
-                                  + (skip.Length > 0 ? 1 + skip.Length : 0)
-                                  + (undo.Length > 0 ? 1 + undo.Length : 0)
-                                  + (use.Length > 0 ? 1 + use.Length : 0);
-                    if ((confirm.Length > 0 || skip.Length > 0 || undo.Length > 0 || use.Length > 0)
-                        && payload <= 255 && i + 2 + payload <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdCapLabels;
-                        buffer[i++] = (byte)payload;
-                        byte capMask = 0;
-                        if (confirm.Length > 0) capMask |= NetProtocol.CapLabelConfirmBit;
-                        if (skip.Length > 0) capMask |= NetProtocol.CapLabelSkipBit;
-                        if (undo.Length > 0) capMask |= NetProtocol.CapLabelUndoBit;
-                        if (use.Length > 0) capMask |= NetProtocol.CapLabelItemUseBit;
-                        buffer[i++] = (byte)(capMask & NetProtocol.CapLabelDefinedMask);
-                        if (confirm.Length > 0)
-                        {
-                            buffer[i++] = (byte)confirm.Length;
-                            for (int b = 0; b < confirm.Length; b++)
-                                buffer[i++] = confirm[b];
-                        }
-                        if (skip.Length > 0)
-                        {
-                            buffer[i++] = (byte)skip.Length;
-                            for (int b = 0; b < skip.Length; b++)
-                                buffer[i++] = skip[b];
-                        }
-                        if (undo.Length > 0)
-                        {
-                            buffer[i++] = (byte)undo.Length;
-                            for (int b = 0; b < undo.Length; b++)
-                                buffer[i++] = undo[b];
-                        }
-                        if (use.Length > 0)
-                        {
-                            buffer[i++] = (byte)use.Length;
-                            for (int b = 0; b < use.Length; b++)
-                                buffer[i++] = use[b];
-                        }
-                        records++;
-                    }
-                }
-                if ((state.HasHalfHover || state.HasCapPress || state.EmptyFanHint)
-                    && i + 2 + NetProtocol.HalfHoverRecordBytesWithDefault <= buffer.Length)
-                {
-                    // HALF HOVER + SELECTION + CAP PRESS + EMPTY-FAN HINT (14):
-                    // [byte0 hover|press][byte1 selection|placard]. Byte 0 is the transient pointer
-                    // hover — board slot (bits 0..1, the HalfHoverNoneSlot sentinel when the record
-                    // rides without one) + top-half bit — PLUS the keycap-press edge in bits 3..7
-                    // (which cap, and a 2-bit sequence so a repeat press of the same cap is a
-                    // distinguishable event; see NetProtocol.CapPressNone). Byte 1 is the persistent
-                    // CLICK state, one 2-bit none/top/bottom field per slot, PLUS bit 4 — the
-                    // "Keine Handkarten" placard, a hand-anchored display with no board record of
-                    // its own that the hand-card count cannot imply (0 cards is also every idle
-                    // player). Slot POSITIONS, halves, a cap id and one boolean — never a card
-                    // identity. Written while a half is hovered OR selected OR a press is in its
-                    // hold window OR the placard is up, so an idle packet stays byte-identical to
-                    // build's. Appended in id order behind every existing record.
-                    byte half = state.HasHalfHover && state.HalfHoverActive
-                        ? (byte)(state.HalfHoverSlot & NetProtocol.HalfHoverSlotMask)
-                        : NetProtocol.HalfHoverNoneSlot;
-                    if (state.HasHalfHover && state.HalfHoverActive && state.HalfHoverTop)
-                        half |= NetProtocol.HalfHoverTopBit;
-                    if (state.HasCapPress && state.CapPressCap != NetProtocol.CapPressNone)
-                    {
-                        half |= (byte)((state.CapPressCap << NetProtocol.CapPressShift)
-                                       & NetProtocol.CapPressCapMask);
-                        half |= (byte)((state.CapPressSeq << NetProtocol.CapPressSeqShift)
-                                       & NetProtocol.CapPressSeqMask);
-                    }
-                    byte select = state.HasHalfHover
-                        ? (byte)(NetProtocol.EncodeHalfSelect(state.HalfSelect0)
-                                 | NetProtocol.EncodeHalfSelect(state.HalfSelect1)
-                                   << NetProtocol.HalfSelectBitsPerSlot)
-                        : (byte)0;
-                    select &= NetProtocol.HalfSelectDefinedMask;
-                    if (state.EmptyFanHint)
-                        select |= NetProtocol.HalfEmptyFanHintBit;
-                    // BYTE 2, THE STANDARD-ACTION QUALIFIER (2026-08-15, item 6 — see
-                    // NetProtocol.HalfDefaultHoverBit). Appended ONLY when one of its bits is
-                    // really set, so a player who never touches a default "Attack 2"/"Move 2" chip
-                    // emits the same two-byte record every previous build emitted and an idle
-                    // packet stays byte-identical. The LENGTH is what tells a reader the two
-                    // shapes apart, exactly as record 4's cap-state byte and record 31's frequency
-                    // byte do.
-                    byte defaults = state.HasHalfHover
-                        ? NetProtocol.EncodeHalfDefaults(
-                            state.HalfHoverActive && state.HalfHoverDefault,
-                            state.HalfSelect0Default, state.HalfSelect1Default)
-                        : (byte)0;
-                    buffer[i++] = NetProtocol.ExtIdHalfHover;
-                    buffer[i++] = (byte)(defaults != 0
-                        ? NetProtocol.HalfHoverRecordBytesWithDefault
-                        : NetProtocol.HalfHoverRecordBytes);
-                    buffer[i++] = (byte)(half & NetProtocol.HalfHoverDefinedMask);
-                    buffer[i++] = (byte)(select & NetProtocol.HalfSelectByteDefinedMask);
-                    if (defaults != 0)
-                        buffer[i++] = defaults;
-                    records++;
-                }
-                if (state.HasPileCounts
-                    && i + 2 + NetProtocol.PileCountsRecordBytes <= buffer.Length)
-                {
-                    // PILE COUNTS (15): the numbers the sender's own stack labels display. Written
-                    // on every packet while those stacks are shown (the board-UI presence
-                    // contract: "present, all zeros" must be distinguishable from "pre-record
-                    // sender", whose receiver keeps the legacy model-read counts).
-                    buffer[i++] = NetProtocol.ExtIdPileCounts;
-                    buffer[i++] = (byte)NetProtocol.PileCountsRecordBytes;
-                    buffer[i++] = state.PileDiscardCount;
-                    buffer[i++] = state.PileBurntCount;
-                    buffer[i++] = state.PileItemsCount;
-                    records++;
-                }
-                if (state.HasTrackHover && state.TrackHoverActorId != 0
-                    && i + 2 + NetProtocol.TrackHoverRecordBytes <= buffer.Length)
-                {
-                    // TRACK HOVER (16): [flags][int32 actorId LE]. The hovered initiative-track
-                    // entry by STABLE ACTOR ID (the ActorGuid hash, NetFigures.StableActorId — NOT
-                    // the per-class CActor.ID, which collides across enemy classes; display order
-                    // is per-client — see the record doc); the flags byte is masked to the defined
-                    // bits. Written only while an
-                    // entry is hovered; actor id 0 is "none" everywhere and is never emitted.
-                    byte thFlags = 0;
-                    if (state.TrackHoverPopup)
-                        thFlags |= NetProtocol.TrackHoverPopupBit;
-                    buffer[i++] = NetProtocol.ExtIdTrackHover;
-                    buffer[i++] = (byte)NetProtocol.TrackHoverRecordBytes;
-                    buffer[i++] = (byte)(thFlags & NetProtocol.TrackHoverDefinedMask);
-                    AvatarSerializer.WriteI32(buffer, ref i, state.TrackHoverActorId);
-                    records++;
-                }
-                if (state.HasWallFades && state.WallFadesKeys != null
-                    && state.WallFadesCount > 0)
-                {
-                    // WALL FADES (17): [count][count × u32 key LE], keys pre-sorted by the
-                    // sender. Count is clamped to the cap AND the caller's buffer before a
-                    // single byte goes out; an empty set was already excluded above.
-                    int n = state.WallFadesCount;
-                    if (n > NetProtocol.WallFadesMaxKeys)
-                        n = NetProtocol.WallFadesMaxKeys;
-                    if (n > state.WallFadesKeys.Length)
-                        n = state.WallFadesKeys.Length;
-                    if (n > 0 && i + 2 + 1 + 4 * n <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdWallFades;
-                        buffer[i++] = (byte)(1 + 4 * n);
-                        buffer[i++] = (byte)n;
-                        for (int k = 0; k < n; k++)
-                            AvatarSerializer.WriteU32(buffer, ref i, state.WallFadesKeys[k]);
-                        records++;
-                    }
-                }
-                if (state.HasSlotOrder
-                    && i + 2 + NetProtocol.SlotOrderRecordBytes <= buffer.Length)
-                {
-                    // ROUND-CARD SLOT ORDER (18): one flags byte — [bit0 valid][bit1 swapped].
-                    // WHICH of the owner's two round cards lies in the LEFT recess, stated instead
-                    // of re-derived (see NetProtocol.ExtIdSlotOrder). Written only while the
-                    // sender could really answer, so a receiver that sees nothing keeps the
-                    // derivation it has always used — this record may replace a guess with a fact,
-                    // never with a second guess. An ORDER, never an identity.
-                    byte order = NetProtocol.SlotOrderValidBit;
-                    if (state.SlotOrderSwapped)
-                        order |= NetProtocol.SlotOrderSwappedBit;
-                    buffer[i++] = NetProtocol.ExtIdSlotOrder;
-                    buffer[i++] = (byte)NetProtocol.SlotOrderRecordBytes;
-                    buffer[i++] = (byte)(order & NetProtocol.SlotOrderDefinedMask);
-                    records++;
-                }
-                // CHARACTER FOCUS (22): [flags][int32 focusActorId LE]( [int32 attentionActorId] ).
-                // The trailing attention id rides ONLY when the character the game is waiting on is
-                // not the one the sender is looking at (the RED state) — otherwise the focus id
-                // already names it, so the record keeps the 5 bytes it has always had. The length
-                // is therefore computed BEFORE the buffer check, not assumed.
-                bool cfAttentionTail = state.CharFocusOwnsAttention
-                                       && state.CharFocusAttentionActorId != 0
-                                       && state.CharFocusAttentionActorId != state.CharFocusActorId;
-                int cfBytes = cfAttentionTail
-                    ? NetProtocol.CharFocusMaxRecordBytes
-                    : NetProtocol.CharFocusRecordBytes;
-                if (state.HasCharFocus && state.CharFocusActorId != 0
-                    && i + 2 + cfBytes <= buffer.Length)
-                {
-                    // Flags bit0 says the sender owns the character THE GAME IS WAITING ON (its
-                    // turn, or an open decision it owes) and bit1 announces the tail — the two
-                    // facts no receiver can evaluate for itself, because IsUnderMyControl is a
-                    // local flag and a remote player's decision panel is hidden on every other
-                    // machine (TakeDamagePanel.cs:1133). The ids are stable ActorGuid hashes (the
-                    // per-class CActor.ID collides — see NetFigures). The flags byte is masked to
-                    // the defined bits; actor id 0 is "none" everywhere and is never emitted, so a
-                    // spectating / scenario-less client stays byte-identical to a pre-record sender.
-                    byte cfFlags = 0;
-                    if (state.CharFocusOwnsAttention)
-                        cfFlags |= NetProtocol.CharFocusOwnsAttentionBit;
-                    if (cfAttentionTail)
-                        cfFlags |= NetProtocol.CharFocusAttentionIdBit;
-                    buffer[i++] = NetProtocol.ExtIdCharFocus;
-                    buffer[i++] = (byte)cfBytes;
-                    buffer[i++] = (byte)(cfFlags & NetProtocol.CharFocusDefinedMask);
-                    AvatarSerializer.WriteI32(buffer, ref i, state.CharFocusActorId);
-                    if (cfAttentionTail)
-                        AvatarSerializer.WriteI32(buffer, ref i, state.CharFocusAttentionActorId);
-                    records++;
-                }
-                if (state.HasTrackSelection && state.TrackSelectionIds != null
-                    && state.TrackSelectionCount > 0)
-                {
-                    // TRACK SELECTION (23): [count][count × int32 actorId LE] — the entries the
-                    // sender's OWN initiative track is framing right now (vanilla's
-                    // selectionObject, read as an active flag off the live widget). A LIST because
-                    // an extra-turn actor can leave a second frame standing (InitiativeTrack.cs:340).
-                    // Count is clamped to the cap AND the caller's buffer before a byte goes out;
-                    // an empty selection was already excluded above, so an idle packet is
-                    // byte-identical to a pre-record sender's.
-                    int n = state.TrackSelectionCount;
-                    if (n > NetProtocol.TrackSelectionMaxIds)
-                        n = NetProtocol.TrackSelectionMaxIds;
-                    if (n > state.TrackSelectionIds.Length)
-                        n = state.TrackSelectionIds.Length;
-                    if (n > 0 && i + 2 + 1 + 4 * n <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdTrackSelection;
-                        buffer[i++] = (byte)(1 + 4 * n);
-                        buffer[i++] = (byte)n;
-                        for (int k = 0; k < n; k++)
-                            AvatarSerializer.WriteI32(buffer, ref i, state.TrackSelectionIds[k]);
-                        records++;
-                    }
-                }
-                if (state.HasDecisionState)
-                {
-                    // DECISION STATE (24): [flags][n][n × option byte]. flags bits 0..2 name the
-                    // docked prompt, bits 3..5 the prompt-TEXT variant (a NUMBER — the receiver
-                    // localizes the line itself; the composed string may never ride this wire, it
-                    // can embed active-bonus card names), and each option byte says whether that
-                    // option is offered / dimmed / chosen. Options are index-aligned with record
-                    // 12's lines and clamped to the record's own cap before a byte goes out. Both
-                    // byte kinds are masked to their DEFINED bits so an undefined bit can never be
-                    // pre-claimed by garbage. Written on record 12's gate only, so an idle packet
-                    // stays byte-identical to the previous build's; appended in id order, last.
-                    int payload = DecisionStatePayload(in state);
-                    if (payload > 0 && i + 2 + payload <= buffer.Length)
-                    {
-                        int n = payload - 2;
-                        buffer[i++] = NetProtocol.ExtIdDecisionState;
-                        buffer[i++] = (byte)payload;
-                        buffer[i++] = (byte)(NetProtocol.EncodeDecisionFlags(
-                            state.DecisionPromptKind, state.DecisionTextVariant)
-                            & NetProtocol.DecisionStateDefinedMask);
-                        buffer[i++] = (byte)n;
-                        for (int o = 0; o < n; o++)
-                            buffer[i++] = (byte)(state.DecisionOptionFlags![o]
-                                                 & NetProtocol.DecisionOptionDefinedMask);
-                        records++;
-                    }
-                }
-                if (state.HasUseBars)
-                {
-                    // USE BARS (25): [barMask] then, for every SET bar bit in BIT ORDER,
-                    // [barFlags][n][n × slot byte]. The mask is the sender's own stack order, so a
-                    // receiver mirrors the drawer top-to-bottom without anything describing the
-                    // order; every byte is masked to its DEFINED bits so an undefined bit can never
-                    // be pre-claimed by garbage, and each count is clamped to the record's cap AND
-                    // to the sender's own buffer before a byte goes out. Written only while a bar is
-                    // docked AND VISIBLE on the owner's board (a focus-hidden bar is already out of
-                    // the mask), so an idle packet stays byte-identical to the previous build's;
-                    // appended in id order, LAST, behind record 24.
-                    //
-                    // NOT ON THIS WIRE: what any slot IS. The game's use slots carry no label at
-                    // all — only a sprite off the item/bonus/ability art — so a peer captions each
-                    // bar from the BAR BIT and draws anonymous, state-painted tiles.
-                    int payload = UseBarsPayload(in state);
-                    if (payload > 0 && i + 2 + payload <= buffer.Length)
-                    {
-                        byte barMask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
-                        buffer[i++] = NetProtocol.ExtIdUseBars;
-                        buffer[i++] = (byte)payload;
-                        buffer[i++] = barMask;
-                        for (int b = 0; b < NetProtocol.UseBarsCount; b++)
-                        {
-                            if ((barMask & (1 << b)) == 0)
-                                continue;
-                            buffer[i++] = (byte)(BarFlagsOf(in state, b)
-                                                 & NetProtocol.UseBarFlagsDefinedMask);
-                            int n = BarSlotCountOf(in state, b);
-                            buffer[i++] = (byte)n;
-                            int at = b * NetProtocol.UseBarsMaxSlots;
-                            for (int s = 0; s < n; s++)
-                                buffer[i++] = (byte)(state.UseBarSlotStates![at + s]
-                                                     & NetProtocol.UseSlotDefinedMask);
-                        }
-                        records++;
-                    }
-                }
-                if (state.HasItemUseClip
-                    && i + 2 + NetProtocol.ItemUseClipRecordBytes <= buffer.Length)
-                {
-                    // ITEM-USE CLIP (26): one byte — WHICH position of the sender's open item fan
-                    // lies clipped in their item-USE recess. A fan POSITION, never an item identity
-                    // (the receiver already draws that fan's faces from the replicated inventory);
-                    // the same disclosure argument as the card-highlight record's indices.
-                    //
-                    // Written ONLY while a card is really in the recess, so an owner with an empty
-                    // recess emits exactly the bytes the previous build emitted, and the record's
-                    // ABSENCE is the "nothing is clipped" signal — no sentinel value exists.
-                    // NOT range-checked here: the renderer clamps against its own live slab count,
-                    // which is the only place the bound is actually known (record 6's rule).
-                    // Appended in id order, between records 25 and 27.
-                    buffer[i++] = NetProtocol.ExtIdItemUseClip;
-                    buffer[i++] = (byte)NetProtocol.ItemUseClipRecordBytes;
-                    buffer[i++] = state.ItemUseClipIndex;
-                    records++;
-                }
-                if (state.HasTrackOrder && state.TrackOrderIds != null && state.TrackOrderCount > 0)
-                {
-                    // TRACK ORDER (27): [count][ownedMask][count × int32 actorId LE] — the
-                    // on-screen order of the PLAYER entries on the sender's OWN track, read off
-                    // the live widget's sibling order, plus which of them they control. The order
-                    // is per-viewer for exactly one reason and in exactly one window: vanilla's
-                    // CompareTo sorts player entries by IsUnderMyControl while online AND in
-                    // SelectAbilityCardsOrLongRest (InitiativeTrackActorBehaviour.cs:160-171), so
-                    // the sampler writes nothing outside it and an idle packet is byte-identical
-                    // to a pre-record sender's. Count is clamped to the cap AND the caller's
-                    // buffer, and the mask to the bits the cap can define, before a byte goes out.
-                    int n = state.TrackOrderCount;
-                    if (n > NetProtocol.TrackOrderMaxIds)
-                        n = NetProtocol.TrackOrderMaxIds;
-                    if (n > state.TrackOrderIds.Length)
-                        n = state.TrackOrderIds.Length;
-                    if (n > 0 && i + 2 + 2 + 4 * n <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdTrackOrder;
-                        buffer[i++] = (byte)(2 + 4 * n);
-                        buffer[i++] = (byte)n;
-                        buffer[i++] = (byte)(state.TrackOrderOwnedMask
-                                             & NetProtocol.TrackOrderOwnedDefinedMask);
-                        for (int k = 0; k < n; k++)
-                            AvatarSerializer.WriteI32(buffer, ref i, state.TrackOrderIds[k]);
-                        records++;
-                    }
-                }
-                if (state.HasFanArcOrder && state.FanArcOrder != null && state.FanArcOrderCount > 0)
-                {
-                    // FAN ARC ORDER (44): [count][ceil(count/2) packed nibbles] — the left-to-right
-                    // order of the sender's OWN hand arc, as indices into the hand list every
-                    // receiver already builds with CardsGameApi.HandFanMember. Report item 2 of
-                    // 2026-09-06: the owner's order is CardsDriver._fanOrder, their session-local
-                    // drag-reorder, which no other machine can reproduce — so it is the one thing
-                    // about this fan that genuinely has to travel. It is an ORDER and not an
-                    // identity (record 18 makes the same argument for the two recesses), so it
-                    // widens no secret and rides no reveal gate.
-                    //
-                    // WRITTEN ONLY WHEN IT SAYS SOMETHING: the sampler sets the flag only where
-                    // the arc really differs from the derived order, so an un-dragged fan — the
-                    // common case — is byte-identical to ModBuild 461's packet. Count is clamped
-                    // to the cap AND the caller's buffer before a byte goes out, and every index
-                    // is masked to the nibble it has to fit in, so a sampler bug can never write a
-                    // record whose own reader would then refuse it silently.
-                    int n = state.FanArcOrderCount;
-                    if (n > NetProtocol.FanArcOrderMaxSeats)
-                        n = NetProtocol.FanArcOrderMaxSeats;
-                    if (n > state.FanArcOrder.Length)
-                        n = state.FanArcOrder.Length;
-                    int payload = 1 + (n + 1) / 2;
-                    if (n > 0 && i + 2 + payload <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdFanArcOrder;
-                        buffer[i++] = (byte)payload;
-                        buffer[i++] = (byte)n;
-                        int at = i;
-                        for (int k = 0; k < payload - 1; k++)
-                            buffer[at + k] = 0;
-                        for (int k = 0; k < n; k++)
-                            NetProtocol.SetFanArcOrderSeat(buffer, at, k, state.FanArcOrder[k]);
-                        i += payload - 1;
-                        records++;
-                    }
-                }
-                if (state.HasBoardTuning && state.BoardTuningBytes != null)
-                {
-                    // BOARD TUNING (28): [n][n × [id][value]] — the SPARSE set of the sender's own
-                    // dials that differ from the shipped default for their synced board style. The
-                    // payload arrives PRE-ENCODED (built on a config-change edge, not per packet)
-                    // so this hot path is a bounded copy; the length is re-clamped against the TLV
-                    // ceiling AND the caller's buffer before a byte goes out. An all-default player
-                    // never reaches here at all — the tail gate above already excluded them — which
-                    // is exactly what keeps an untuned packet byte-identical to the previous build.
-                    // Appended LAST, in id order behind every existing record.
-                    int payload = state.BoardTuningLength;
-                    if (payload > state.BoardTuningBytes.Length)
-                        payload = state.BoardTuningBytes.Length;
-                    // THE <= 255 CLAMP IS NOW UNREACHABLE BY CONSTRUCTION, and it stays exactly
-                    // because of that. A page is header (7) + at most
-                    // NetProtocol.BoardTunePageMaxFieldBytes (248) = 255 by definition, so a
-                    // well-formed sender cannot reach it; leaving the guard in means a paging bug
-                    // that produced an over-long page would drop that PAGE (⇒ the receiver never
-                    // completes the generation ⇒ it keeps the last complete one) instead of writing
-                    // a length byte that wrapped and tearing every record behind it in the tail.
-                    if (payload >= NetProtocol.BoardTuneMinRecordBytes && payload <= 255
-                        && i + 2 + payload <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdBoardTuning;
-                        buffer[i++] = (byte)payload;
-                        for (int b = 0; b < payload; b++)
-                            buffer[i++] = state.BoardTuningBytes[b];
-                        records++;
-                    }
-                }
-                if (state.HasDecisionWidgets)
-                {
-                    // DECISION WIDGETS (29): [flags][damage][n][n × role byte] — WHICH game widget
-                    // each docked option IS, so a peer can mirror the REAL button instead of a
-                    // mod-drawn lookalike, plus the two numbers the take-damage option paints on
-                    // itself. Roles are index-aligned with records 12 and 24 (one sampler walk
-                    // fills all three) and clamped to the record's own cap before a byte goes out;
-                    // flags are masked to their DEFINED bits and each role through
-                    // ClampDecisionRole, so an undefined code can never be pre-claimed by garbage.
-                    // Written on record 12's gate only, so an idle packet stays byte-identical to
-                    // the previous build's; appended in id order, LAST, behind record 28.
-                    int payload = DecisionWidgetsPayload(in state);
-                    if (payload > 0 && i + 2 + payload <= buffer.Length)
-                    {
-                        int n = payload - 3;
-                        buffer[i++] = NetProtocol.ExtIdDecisionWidgets;
-                        buffer[i++] = (byte)payload;
-                        buffer[i++] = (byte)(state.DecisionWidgetFlags
-                                             & NetProtocol.DecisionWidgetDefinedMask);
-                        buffer[i++] = state.DecisionDamageAmount;
-                        buffer[i++] = (byte)n;
-                        for (int o = 0; o < n; o++)
-                            buffer[i++] = NetProtocol.ClampDecisionRole(state.DecisionRoles![o]);
-                        records++;
-                    }
-                }
-                if (state.HasHeldStretch
-                    && (state.HeldStretchPrimaryCode != NetProtocol.HeldStretchCodeNeutral
-                        || state.HeldStretchSecondaryCode != NetProtocol.HeldStretchCodeNeutral)
-                    && i + 2 + NetProtocol.HeldStretchRecordBytes <= buffer.Length)
-                {
-                    // HELD-FIGURE STRETCH (30): [u16 primary][u16 secondary], milli-factors,
-                    // slot-aligned with the rig packet's held figure and record 8. Written ONLY
-                    // while a factor is non-neutral (the tail gate above uses the same test), so an
-                    // unstretched hold — and every idle player — emits the exact bytes previous
-                    // builds emitted. Appended LAST, in id order behind record 29, per the tail's
-                    // id-order contract.
-                    buffer[i++] = NetProtocol.ExtIdHeldStretch;
-                    buffer[i++] = (byte)NetProtocol.HeldStretchRecordBytes;
-                    buffer[i++] = (byte)(state.HeldStretchPrimaryCode & 0xFF);
-                    buffer[i++] = (byte)(state.HeldStretchPrimaryCode >> 8);
-                    buffer[i++] = (byte)(state.HeldStretchSecondaryCode & 0xFF);
-                    buffer[i++] = (byte)(state.HeldStretchSecondaryCode >> 8);
-                    records++;
-                }
-                if (state.HasEnvClock && state.EnvClockStyle != 0
-                    && i + 2 + NetProtocol.EnvClockRecordBytesWithFrequency <= buffer.Length)
-                {
-                    // SHARED ENVIRONMENT CLOCK (31): [style][u32 clockMillis LE] — the sender's
-                    // environment and the reading every _Time-driven effect of it runs on (the rat,
-                    // the drip and its rings, the candle flicker, the canopy sway, the shafts'
-                    // shimmer). The receiver adopts it only from the LOWEST player id that reports
-                    // the SAME style, which is the same election on every machine — see the record
-                    // doc and Core/SkyAlternative.EnvClockSeconds.
-                    //
-                    // Written ONLY while such an environment really stands, so the game's own sky,
-                    // OffBlack and MR emit exactly the bytes previous builds emitted, and absence is
-                    // the "nothing to synchronise" signal — no sentinel value exists.
-                    // Appended LAST, in id order behind record 30, per the tail's id-order contract.
-                    //
-                    // THE SIXTH BYTE IS THE HAUNT FREQUENCY (user ruling 2026-08-15: "Die
-                    // Häufigkeit von Easter Eggs (da alle es ja synchron sehen sollen) soll vom
-                    // HOST genommen werden im MP"). It rides HERE rather than in a record of its
-                    // own so that "the host" and "the clock owner" are decided by one election on
-                    // one arrival — see EnvClockRecordBytesWithFrequency. Always written; a reader
-                    // that only knows the 5-byte form steps over it by the record's own length.
-                    buffer[i++] = NetProtocol.ExtIdEnvClock;
-                    buffer[i++] = (byte)NetProtocol.EnvClockRecordBytesWithFrequency;
-                    buffer[i++] = state.EnvClockStyle;
-                    buffer[i++] = (byte)(state.EnvClockMillis & 0xFF);
-                    buffer[i++] = (byte)((state.EnvClockMillis >> 8) & 0xFF);
-                    buffer[i++] = (byte)((state.EnvClockMillis >> 16) & 0xFF);
-                    buffer[i++] = (byte)((state.EnvClockMillis >> 24) & 0xFF);
-                    buffer[i++] = state.EnvClockFrequencyCode > NetProtocol.EnvClockFrequencyMaxCode
-                        ? NetProtocol.EnvClockFrequencyMaxCode
-                        : state.EnvClockFrequencyCode;
-                    records++;
-                }
-                if (state.HasTestForce
-                    && i + 2 + NetProtocol.TestForceRecordBytes <= buffer.Length)
-                {
-                    // DEBUG TEST-TRIGGER OVERRIDE (32): [style][haunt+1][strongMask][waningMask]
-                    // [u32 pressTimeMillis LE] — which apparition and which element moods the
-                    // Erweitert test page has latched HERE, so that every player in the room draws
-                    // the same thing at the same moment (user ruling 2026-08-15: "Auch wenn jemand
-                    // im Debugmenu ein Event startet sollte dies auch von ALLEN im Multiplayer
-                    // sichtbar sein statt nur lokal"). Nothing here is game state: the game's
-                    // element board is still read and never written, and a haunt was never state at
-                    // all — this record only says WHICH override is latched, and each receiver
-                    // evaluates it against its own copy of the shared environment clock.
-                    //
-                    // NO EMPTINESS GATE, on purpose: an all-zero payload is the EXPLICIT RELEASE.
-                    // The sampler is what guarantees the record is absent while nothing is owned.
-                    // Appended LAST, in id order behind record 31, per the tail's id-order contract.
-                    buffer[i++] = NetProtocol.ExtIdTestForce;
-                    buffer[i++] = (byte)NetProtocol.TestForceRecordBytes;
-                    buffer[i++] = state.TestForceStyle > NetProtocol.TestForceMaxStyleCode
-                        ? NetProtocol.TestForceStyleUnknown
-                        : state.TestForceStyle;
-                    buffer[i++] = state.TestForceHauntCode > NetProtocol.TestForceMaxHauntCode
-                        ? (byte)0
-                        : state.TestForceHauntCode;
-                    buffer[i++] = (byte)(state.TestForceStrongMask & NetProtocol.TestForceElementMask);
-                    buffer[i++] = (byte)(state.TestForceWaningMask & NetProtocol.TestForceElementMask);
-                    buffer[i++] = (byte)(state.TestForceHauntSinceMillis & 0xFF);
-                    buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 8) & 0xFF);
-                    buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 16) & 0xFF);
-                    buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 24) & 0xFF);
-                    records++;
-                }
-                if (state.HasStorySync
-                    && i + 2 + NetProtocol.StoryRecordBytesWithPose <= buffer.Length)
-                {
-                    // STORY WINDOW SYNC (19): [flags][page][pageCount][u32 storyKey LE] and, only
-                    // when the sender's user has really moved the window, [poseStamp][sizeCode]
-                    // [pose 20]. The full contract — above all WHY the pose is seat-anchor-local
-                    // real metres and not a world point — is written once, at
-                    // NetProtocol.ExtIdStorySync. Nothing here is game state: the record says
-                    // which PAGE of a dialog this player has read to, and each receiver applies
-                    // that to its own UICharacterStoryBox through the game's own seam.
-                    //
-                    // NO EMPTINESS GATE, on purpose (the record-32 rule): a payload with the OPEN
-                    // bit clear and the FINISHED bit set is the whole point — it is the statement
-                    // that unlocks a peer who walked away. The sampler is what guarantees the
-                    // record is absent while no story box stands here.
-                    // Appended LAST, behind record 32, per the tail's append-order contract.
-                    byte storyFlags = (byte)(state.StoryFlags & NetProtocol.StoryDefinedMask);
-                    bool storyPose = (storyFlags & NetProtocol.StoryPoseBit) != 0;
-                    buffer[i++] = NetProtocol.ExtIdStorySync;
-                    buffer[i++] = (byte)(storyPose
-                        ? NetProtocol.StoryRecordBytesWithPose
-                        : NetProtocol.StoryMinRecordBytes);
-                    buffer[i++] = storyFlags;
-                    buffer[i++] = state.StoryPage > NetProtocol.StoryPageMax
-                        ? NetProtocol.StoryPageNone
-                        : state.StoryPage;
-                    buffer[i++] = state.StoryPageCount;
-                    AvatarSerializer.WriteU32(buffer, ref i, state.StoryKey);
-                    if (storyPose)
-                    {
-                        buffer[i++] = state.StoryPoseStamp;
-                        buffer[i++] = state.StorySizeCode < NetProtocol.StorySizeMinCode
-                                      || state.StorySizeCode > NetProtocol.StorySizeMaxCode
-                            ? NetProtocol.StorySizeDefaultCode
-                            : state.StorySizeCode;
-                        AvatarSerializer.WritePoseShared(buffer, ref i, in state.StoryPose);
-                    }
-                    records++;
-                }
-                if (state.HasMapRoom
-                    && i + 2 + NetProtocol.MapRoomRecordBytesWithGaze <= buffer.Length)
-                {
-                    // 3D MAP ROOM (20): [flags][surfaceStamp][u32 pickKey LE][selectStamp]
-                    // [u32 selectKey LE][u32 fanCharacterKey LE][gazeYaw].
-                    // The full contract — above all WHY both stamps are EDGES
-                    // and not levels, why the pick key may light an icon and may never select one,
-                    // and why the SELECTION is a fact the game itself carries nowhere — is written
-                    // once, at NetProtocol.ExtIdMapRoom. Nothing here is game state: the record
-                    // says where this player is standing, which map they are looking at, which icon
-                    // they are pointing at and which one they have selected.
-                    //
-                    // THE LONG FORM IS ALWAYS WRITTEN, AND READERS REQUIRE ONLY THE OLD MINIMUM
-                    // (MapRoomRecordBytes, still 6). That asymmetry IS the additive contract: this
-                    // sender says everything it knows, a reader that only knows the first six bytes
-                    // steps over the rest by the record's own length, and neither has to know what
-                    // the other build is. Same shape as record 19's pose tail.
-                    //
-                    // NO EMPTINESS GATE beyond the flag: the sampler sets HasMapRoom only while
-                    // MapRoomDriver.Active, so an "all clear" payload cannot be produced. The room
-                    // bit is written unconditionally for that reason — a record that exists IS a
-                    // client in the room, and a receiver that ever sees it clear treats the peer as
-                    // absent rather than guessing.
-                    // Appended LAST, behind record 19, per the tail's append-order contract.
-                    buffer[i++] = NetProtocol.ExtIdMapRoom;
-                    buffer[i++] = (byte)NetProtocol.MapRoomRecordBytesWithGaze;
-                    buffer[i++] = (byte)(state.MapRoomFlags & NetProtocol.MapRoomDefinedMask);
-                    buffer[i++] = state.MapRoomSurfaceStamp;
-                    AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomPickKey);
-                    buffer[i++] = state.MapRoomSelectStamp;
-                    AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomSelectKey);
-                    AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomFanCharacterKey);
-                    // THE SHARED GAZE YAW, one byte, written UNCONDITIONALLY like every field before
-                    // it — its meaning is carried by MapRoomGazeValidBit and not by its presence, so
-                    // a non-host (which never sets the bit) writes a 0 that says nothing rather than
-                    // a shorter record that two readers would have to agree about.
-                    buffer[i++] = state.MapRoomGazeYaw;
-                    records++;
-                }
-                if (state.HasSharedWindow && state.SharedWindowCount > 0
-                    && state.SharedWindowEntries != null
-                    && i + 2 + NetProtocol.SharedWindowMaxRecordBytes <= buffer.Length)
-                {
-                    // SHARED MAP WINDOWS (21): [n] then n x [kind][flags][page][pageCount]
-                    // [u32 contentKey LE] ( [poseStamp][sizeCode][frame][pose 20] ). The contract is
-                    // at NetProtocol.ExtIdSharedWindow. Nothing here is game state: an entry says
-                    // which PAGE of a map message this player has read to and where their copy of
-                    // the window stands; each receiver applies that to its OWN UICharacterStoryBox
-                    // through the game's own ShowLine seam.
-                    //
-                    // THE LENGTH IS COMPUTED, NOT ASSUMED: entries carrying a pose are longer, so
-                    // the payload length is summed first and written into the length byte, and a
-                    // reader walks entry by entry using each entry's OWN flags byte. That is what
-                    // lets an unknown KIND be skipped by a reader that has never heard of it.
-                    // Appended LAST, behind record 20, per the tail's append-order contract.
-                    int entries = state.SharedWindowCount;
-                    if (entries > NetProtocol.SharedWindowMaxEntries)
-                        entries = NetProtocol.SharedWindowMaxEntries;
-                    if (entries > state.SharedWindowEntries.Length)
-                        entries = state.SharedWindowEntries.Length;
-
-                    int payload = 1;
-                    for (int e = 0; e < entries; e++)
-                    {
-                        byte f = (byte)(state.SharedWindowEntries[e].Flags
-                                        & NetProtocol.SharedDefinedMask);
-                        payload += (f & NetProtocol.SharedPoseBit) != 0
-                            ? NetProtocol.SharedWindowEntryBytesWithPose
-                            : NetProtocol.SharedWindowEntryMinBytes;
-                    }
-
-                    buffer[i++] = NetProtocol.ExtIdSharedWindow;
-                    buffer[i++] = (byte)payload;
-                    buffer[i++] = (byte)entries;
-                    for (int e = 0; e < entries; e++)
-                    {
-                        SharedWindowEntry entry = state.SharedWindowEntries[e];
-                        byte f = (byte)(entry.Flags & NetProtocol.SharedDefinedMask);
-                        bool pose = (f & NetProtocol.SharedPoseBit) != 0;
-                        buffer[i++] = entry.Kind;
-                        buffer[i++] = f;
-                        buffer[i++] = entry.Page > NetProtocol.StoryPageMax
-                            ? NetProtocol.StoryPageNone
-                            : entry.Page;
-                        buffer[i++] = entry.PageCount;
-                        AvatarSerializer.WriteU32(buffer, ref i, entry.ContentKey);
-                        if (!pose)
-                            continue;
-                        buffer[i++] = entry.PoseStamp;
-                        buffer[i++] = entry.SizeCode < NetProtocol.StorySizeMinCode
-                                      || entry.SizeCode > NetProtocol.StorySizeMaxCode
-                            ? NetProtocol.StorySizeDefaultCode
-                            : entry.SizeCode;
-                        buffer[i++] = entry.Frame > NetProtocol.SharedFrameMax
-                            ? NetProtocol.SharedFrameSeatAnchor
-                            : entry.Frame;
-                        AvatarSerializer.WritePoseShared(buffer, ref i, in entry.Pose);
-                    }
-                    records++;
-                }
-                if (state.HasDecisionNames && !string.IsNullOrEmpty(state.DecisionNamesText))
-                {
-                    // DECISION NAMES (33): UTF8 blob of the mandatory-use card-name KEYS, one per
-                    // '\n'-separated line, capped and truncated on a character boundary — record
-                    // 12's codec and shape, a different meaning. THE ONE RECORD ON THIS WIRE THAT
-                    // CARRIES CARD IDENTITY, and it does so only because the sampler refused to
-                    // fill it unless RevealGate.PeersSeeOurCardFronts was open (see the record doc
-                    // and DamageTooltipSurface.SampleMandatoryNames). Appended LAST, in id order,
-                    // behind record 32.
-                    byte[] names = EncodeDecisionNames(state.DecisionNamesText!);
-                    if (names.Length > 0 && i + 2 + names.Length <= buffer.Length)
-                    {
-                        buffer[i++] = NetProtocol.ExtIdDecisionNames;
-                        buffer[i++] = (byte)names.Length;
-                        for (int b = 0; b < names.Length; b++)
-                            buffer[i++] = names[b];
-                        records++;
-                    }
-                }
-                if (state.HasHeldCardGrip && state.HeldCardGripMask != 0
-                    && i + 2 + NetProtocol.HeldCardGripRecordBytes <= buffer.Length)
-                {
-                    // HELD-CARD GRIP (34): one flag byte, bit per held-card POSE SLOT - bit 0 for
-                    // the rig packet's FlagHeldCard card, bit 1 for record 10's. Set means "this
-                    // one is rigid in the fist, use the rotation I sent instead of billboarding it
-                    // at my head". Written ONLY while a bit is set (the tail gate above uses the
-                    // same test), so a player who never squeezes the grip on a held card - and
-                    // every idle player - emits the exact bytes the previous build emitted.
-                    // Appended LAST, in id order behind record 33, per the tail's id-order contract.
-                    buffer[i++] = NetProtocol.ExtIdHeldCardGrip;
-                    buffer[i++] = (byte)NetProtocol.HeldCardGripRecordBytes;
-                    buffer[i++] = state.HeldCardGripMask;
-                    records++;
-                }
-                if (state.HasItemUsable && state.ItemUsableMask != 0
-                    && i + 2 + NetProtocol.ItemUsableRecordBytes <= buffer.Length)
-                {
-                    // PER-ITEM USABLE MASK (35): one u16 LE over Inventory.AllItems RAW index —
-                    // the value the owner's own board framed its chips from this frame, not a
-                    // second read of the predicate. A ZERO mask is never written (the tail gate
-                    // above uses the same test), so "absent" and "nothing is usable" are one
-                    // state and a player with nothing to play emits the exact bytes the previous
-                    // build emitted. Appended in id order, behind record 34.
-                    ushort mask = state.ItemUsableMask;
-                    buffer[i++] = NetProtocol.ExtIdItemUsable;
-                    buffer[i++] = (byte)NetProtocol.ItemUsableRecordBytes;
-                    buffer[i++] = (byte)(mask & 0xFF);
-                    buffer[i++] = (byte)(mask >> 8);
-                    records++;
-                }
-                int heldFaceBytes = HeldFacePayload(in state);
-                if (state.HasHeldCardFace && heldFaceBytes > 0
-                    && i + 2 + heldFaceBytes <= buffer.Length)
-                {
-                    // HELD-CARD FACE (36): [code][list length] per POSE SLOT, 2 bytes for slot 1
-                    // alone and 4 while both hands hold one — read by LENGTH, exactly like record
-                    // 20's two forms. NO CARD IDENTITY: a code byte carries a list id and a
-                    // POSITION in a list the receiver already draws the whole fan from.
-                    //
-                    // The second slot is written only when it really names a card, so the common
-                    // one-handed case costs 4 bytes and not 6; and when NEITHER slot names one the
-                    // record is omitted entirely (HeldFacePayload returns 0, and the tail gate uses
-                    // the same test), which is what keeps every packet of every player who is not
-                    // holding a card byte-identical to the previous build's.
-                    buffer[i++] = NetProtocol.ExtIdHeldCardFace;
-                    buffer[i++] = (byte)heldFaceBytes;
-                    buffer[i++] = state.HeldFaceCode;
-                    buffer[i++] = state.HeldFaceCount;
-                    if (heldFaceBytes >= 2 * NetProtocol.HeldCardFaceSlotBytes)
-                    {
-                        buffer[i++] = state.SecondHeldFaceCode;
-                        buffer[i++] = state.SecondHeldFaceCount;
-                    }
-                    records++;
-                }
-                int sacrificeBytes = SacrificeSeatPayload(in state);
-                if (state.HasSacrificeSeat && sacrificeBytes > 0
-                    && i + 2 + sacrificeBytes <= buffer.Length)
-                {
-                    // SHORT-REST SACRIFICE SEAT (39): [code][list length] per ROUND RECESS, 2 bytes
-                    // for recess 1 alone and 4 when the sacrifice is in recess 2 — read by LENGTH,
-                    // exactly like records 20, 36 and 37. NO CARD IDENTITY: a code byte carries a
-                    // list id and a POSITION in the owner's DISCARD pile, which the receiver already
-                    // holds and already draws a whole browse arc from.
-                    //
-                    // Recess 2 forces the long form because a bare recess-2 entry would otherwise be
-                    // re-seated onto recess 1 by a length-gated reader — the same trap record 36's
-                    // HeldFacePayload documents for its second pose slot.
-                    buffer[i++] = NetProtocol.ExtIdSacrificeSeat;
-                    buffer[i++] = (byte)sacrificeBytes;
-                    buffer[i++] = state.SacrificeSeatCode0;
-                    buffer[i++] = state.SacrificeSeatCount0;
-                    if (sacrificeBytes >= 2 * NetProtocol.SacrificeSeatSlotBytes)
-                    {
-                        buffer[i++] = state.SacrificeSeatCode1;
-                        buffer[i++] = state.SacrificeSeatCount1;
-                    }
-                    records++;
-                }
-                byte spentMask = (byte)(state.RoundHalfSpentMask & NetProtocol.RoundHalfSpentMaskBits);
-                if (state.HasRoundHalfSpent && spentMask != 0
-                    && i + 2 + NetProtocol.RoundHalfSpentBytes <= buffer.Length)
-                {
-                    // WHICH ROUND-CARD HALF IS ALREADY SPENT (41): one mask byte, four bits, one per
-                    // (recess, half). It is the OWNER'S OWN PICTURE and nothing else — the half's
-                    // CanvasGroup is at alpha 0.5 on their screen — so a peer can finally tell which
-                    // of the two cards has been used. NO CARD IDENTITY of any kind rides here.
-                    //
-                    // The mask is re-ANDed with RoundHalfSpentMaskBits on the way out as well as on
-                    // the way in: a future field sharing this byte must never reach an older peer as
-                    // a dimmed half, and a sender bug must never reach a newer one as one either.
-                    buffer[i++] = NetProtocol.ExtIdRoundHalfSpent;
-                    buffer[i++] = (byte)NetProtocol.RoundHalfSpentBytes;
-                    buffer[i++] = spentMask;
-                    records++;
-                }
-                int heldPropBytes = HeldPropPayload(in state);
-                if (state.HasHeldProp && heldPropBytes > 0
-                    && i + 2 + heldPropBytes <= buffer.Length)
-                {
-                    // HELD PROPS (37): [hand][u32 propId LE][pose 20][u16 size LE] per SLOT, 27
-                    // bytes for one hand and 54 while both carry an item — read by LENGTH, exactly
-                    // like records 20 and 36. The hand byte is MASKED on write as well as on read
-                    // so an undefined bit can never be pre-claimed by a future build's garbage.
-                    //
-                    // The second slot is written only when it really names a prop, so the common
-                    // one-handed case costs 29 bytes and not 56; and when the FIRST slot names none
-                    // the record is omitted entirely (HeldPropPayload returns 0, and the tail gate
-                    // above uses the same test), which is what keeps every packet of every player
-                    // whose hands are empty byte-identical to the previous build's.
-                    buffer[i++] = NetProtocol.ExtIdHeldProp;
-                    buffer[i++] = (byte)heldPropBytes;
-                    buffer[i++] = (byte)((state.HeldPropLeftHand ? NetProtocol.HeldPropLeftBit : 0)
-                                         & NetProtocol.HeldPropHandMask);
-                    AvatarSerializer.WriteI32(buffer, ref i, state.HeldPropId);
-                    AvatarSerializer.WritePoseShared(buffer, ref i, in state.HeldPropPose);
-                    buffer[i++] = (byte)(state.HeldPropStretchCode & 0xFF);
-                    buffer[i++] = (byte)(state.HeldPropStretchCode >> 8);
-                    if (heldPropBytes >= 2 * NetProtocol.HeldPropSlotBytes)
-                    {
-                        buffer[i++] = (byte)((state.SecondHeldPropLeftHand ? NetProtocol.HeldPropLeftBit : 0)
-                                             & NetProtocol.HeldPropHandMask);
-                        AvatarSerializer.WriteI32(buffer, ref i, state.SecondHeldPropId);
-                        AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondHeldPropPose);
-                        buffer[i++] = (byte)(state.SecondHeldPropStretchCode & 0xFF);
-                        buffer[i++] = (byte)(state.SecondHeldPropStretchCode >> 8);
-                    }
-                    records++;
-                }
-                if (state.HasFanSource && NetProtocol.IsFanSourcePile(state.FanSourceList)
-                    && i + 2 + NetProtocol.FanSourceRecordBytes <= buffer.Length)
-                {
-                    // WHICH PILE THE SENDER'S FAN IS DRAWN FROM (43): one list-id byte, in record
-                    // 36's own vocabulary. NO CARD IDENTITY — it names a LIST, not a card and not a
-                    // position in one, and every face a receiver draws from it still comes out of
-                    // that receiver's own copy of the same host-replicated pile, still length-
-                    // checked, and still only after RevealGate has said yes.
-                    //
-                    // APPENDED LAST, and that is placement rather than tidiness: this tail is
-                    // written in its historical APPEND order and not in id order (record 37 already
-                    // sits behind 41), so a new record anywhere but the end would move every byte
-                    // after it and break golden vectors that describe packets this record is not
-                    // even in.
-                    //
-                    // Written only for a PILE. The hand is the default and is unsayable here, so a
-                    // player whose fan is their hand — which is every player who is not mid-pick —
-                    // emits the exact bytes ModBuild 458 emitted.
-                    buffer[i++] = NetProtocol.ExtIdFanSource;
-                    buffer[i++] = (byte)NetProtocol.FanSourceRecordBytes;
-                    buffer[i++] = state.FanSourceList;
-                    records++;
-                }
-                if (state.HasUseBarSlotIds && state.UseBarSlotIds != null)
-                {
-                    // WHICH BONUS OR ITEM EACH USE-BAR SLOT IS SHOWING (45):
-                    // [entries][entries × [bar:3|slot:5][idLo][idHi]].
-                    //
-                    // NO ART AND NO NAME. A 16-bit fold of the GAME'S OWN cross-machine identity for
-                    // the thing — (Ability.Name, BaseCard.ID) for a bonus, CItem.NetworkID for an
-                    // item, the very pairs TakeDamagePanel.ProxyTakeDamage matches its own
-                    // ActiveBonusesToken / ItemsToken on. The receiver resolves it against ITS OWN
-                    // replicated model and asks the GAME for the sprite, so nothing here can name a
-                    // card to a client that could not already enumerate it.
-                    //
-                    // WHY IT EXISTS, when RemoteUseBarSymbols resolves the same symbols for free:
-                    // because for the prevent-damage prompt the free resolve CANNOT work. The game's
-                    // UIScenarioMultiplayerController sends a non-controlling client to
-                    // TakeDamagePanel.ShowOtherPlayer, which raises neither UIActiveBonusBar nor
-                    // UIUseItemsBar and ends on myWindow.Hide(instant: true) — so the watcher's own
-                    // copy of those bars is never populated for that actor and no local walk can
-                    // succeed. The user reported exactly that: "Die entsprechenden Symbole sehe ich
-                    // auch nicht."
-                    //
-                    // SPARSE AND DEFAULT-OFF. Only slots that HAVE an identity are addressed, so the
-                    // abilities and augmentation bars carry nothing, and a drawer with no
-                    // identifiable slot emits no record at all — such a packet is byte-identical to
-                    // ModBuild 478's. APPENDED LAST, behind record 43, for the append-order reason
-                    // stated there.
-                    int payload = UseBarSlotIdsPayload(in state);
-                    if (payload > 0 && i + 2 + payload <= buffer.Length)
-                    {
-                        int entries = UseBarSlotIdEntries(in state);
-                        buffer[i++] = NetProtocol.ExtIdUseBarSlotIdentity;
-                        buffer[i++] = (byte)payload;
-                        buffer[i++] = (byte)entries;
-                        byte mask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
-                        int written = 0;
-                        for (int b = 0; b < NetProtocol.UseBarsCount && written < entries; b++)
-                        {
-                            if ((mask & (1 << b)) == 0)
-                                continue;
-                            int n = BarSlotCountOf(in state, b);
-                            int at = b * NetProtocol.UseBarsMaxSlots;
-                            for (int s = 0; s < n && written < entries; s++)
-                            {
-                                int k = at + s;
-                                if (k >= state.UseBarSlotIds.Length)
-                                    break;
-                                ushort id = state.UseBarSlotIds[k];
-                                if (id == UseBarSlotIdentity.NoIdentity)
-                                    continue;
-                                buffer[i++] = NetProtocol.UseBarSlotAddr(b, s);
-                                buffer[i++] = (byte)id;
-                                buffer[i++] = (byte)(id >> 8);
-                                written++;
-                            }
-                        }
-                        records++;
-                    }
-                }
-                buffer[countAt] = records;
+                buffer[countAt] = WriteExtensionRecords(in state, buffer, ref i);
             }
         }
         return i;
+    }
+
+    /// <summary>
+    /// The extension tail's records, in id-declaration order: every <c>[id][len][payload]</c> block
+    /// that <see cref="Write"/> emits behind the count byte. Lifted VERBATIM out of
+    /// <see cref="Write"/> in the 2026-09 refactor (pure motion; the golden vectors pin every byte):
+    /// <paramref name="i"/> enters at the first record's id slot and leaves past the last payload,
+    /// exactly as the inline block did, and the returned count is what the caller writes into
+    /// the count slot it reserved. The ORDER of the blocks below is the wire; do not sort them.
+    /// </summary>
+    private static byte WriteExtensionRecords(in PresenceState state, byte[] buffer, ref int i)
+    {
+        byte records = 0;
+        if (state.HasHandScale)
+        {
+            buffer[i++] = NetProtocol.ExtIdHandScale;
+            buffer[i++] = 1;
+            buffer[i++] = state.HandScaleCode;
+            records++;
+        }
+        if (state.HasGhostSides)
+        {
+            buffer[i++] = NetProtocol.ExtIdGhostSides;
+            buffer[i++] = 1;
+            buffer[i++] = state.GhostSidesMask;
+            records++;
+        }
+        if (state.HasModVersion)
+        {
+            // MOD VERSION: [u16 build LE][UTF8 display bytes]. Sent on EVERY packet (unlike
+            // the "only when non-default" records above) because its absence IS the signal:
+            // a modded peer whose extras never carry this record predates the handshake and
+            // reads as ModBuild 0 = mismatch. The display bytes come pre-encoded + capped
+            // (EncodeModVersionText) so this hot path stays allocation-free.
+            byte[] text = state.ModVersionText == null
+                ? System.Array.Empty<byte>()
+                : EncodeModVersionText(state.ModVersionText);
+            buffer[i++] = NetProtocol.ExtIdModVersion;
+            buffer[i++] = (byte)(2 + text.Length);
+            buffer[i++] = (byte)(state.ModBuild & 0xFF);
+            buffer[i++] = (byte)(state.ModBuild >> 8);
+            for (int b = 0; b < text.Length; b++)
+                buffer[i++] = text[b];
+            records++;
+        }
+        if (state.HasBoardUi)
+        {
+            // BOARD UI: [buttons][overlays][cap states]. Like the mod version it is written
+            // whenever its source exists (a live PlayTray) rather than only when
+            // non-default: the receiver must tell "the owner's board shows no dynamic
+            // controls" apart from "the sender predates the field" — the latter keeps the
+            // legacy furniture.
+            //
+            // The THIRD byte is the cap-state byte, and the record's LENGTH is its validity
+            // flag: a reader that requires BoardUiRecordBytes before trusting byte 2 keeps
+            // the built-colour look for any sender that writes the legacy 2 (see
+            // NetProtocol.BoardUiCapConfirmAccentBit for why no wire BIT was spent on it).
+            buffer[i++] = NetProtocol.ExtIdBoardUi;
+            buffer[i++] = (byte)NetProtocol.BoardUiRecordBytes;
+            buffer[i++] = state.BoardButtonsMask;
+            // Masked to the DEFINED overlay bits (wanted glow + FOLLOW/PIN + card-slot
+            // occupancy + its validity bit + the snap-glow hover field): an undefined bit
+            // must never be pre-claimed by garbage, or widening the mask later would decode
+            // old packets as if they had opted into the new state.
+            buffer[i++] = (byte)(state.BoardOverlayMask & NetProtocol.BoardUiOverlayMask);
+            buffer[i++] = (byte)(state.BoardCapStateMask
+                                 & NetProtocol.BoardUiCapStateDefinedMask);
+            records++;
+        }
+        if (state.HasFanAnchor)
+        {
+            // FAN ANCHOR: 3 × f32 LE, the open board-anchored fan's board-local position.
+            buffer[i++] = NetProtocol.ExtIdFanAnchor;
+            buffer[i++] = 12;
+            AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.x);
+            AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.y);
+            AvatarSerializer.WriteF32(buffer, ref i, state.FanAnchorLocal.z);
+            records++;
+        }
+        if (state.HasCardHighlight)
+        {
+            // CARD HIGHLIGHT: [hand-fan index][board-fan index], 255 = none. Unlike the
+            // board-UI record this one is written ONLY while something is highlighted —
+            // "absent" and "none" render identically, so an idle packet stays as small
+            // (and as byte-identical to the previous build) as it always was.
+            buffer[i++] = NetProtocol.ExtIdCardHighlight;
+            buffer[i++] = 2;
+            buffer[i++] = state.HandHighlightIndex;
+            buffer[i++] = state.FanHighlightIndex;
+            records++;
+        }
+        if (state.HasPickBanner && !string.IsNullOrEmpty(state.PickBannerText))
+        {
+            // PICK BANNER: UTF8 bytes of the placard line, capped and truncated on a
+            // character boundary. Written only while a placard is shown (see the record
+            // doc); the encode cache keeps this hot path allocation-free for the common
+            // case of the same line riding several packets in a row.
+            byte[] text = EncodePickBannerText(state.PickBannerText!);
+            if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdPickBanner;
+                buffer[i++] = (byte)text.Length;
+                for (int b = 0; b < text.Length; b++)
+                    buffer[i++] = text[b];
+                records++;
+            }
+        }
+        if (state.HasSecondFigure && i + 2 + NetProtocol.SecondFigureRecordBytes <= buffer.Length)
+        {
+            // SECOND HELD FIGURE: [hand flags][int32 actorId LE][pose 20]. The mini in the
+            // sender's OTHER hand — the first one rides the rig packet's held-figure block.
+            // Written ONLY while a second figure is really held, so a one-handed hold (and
+            // an idle player) emits the exact bytes previous builds emitted. Appended LAST,
+            // behind every record that already existed, per the tail's id-order contract.
+            byte hands = 0;
+            if (state.SecondFigureLeftHand) hands |= NetProtocol.SecondFigureLeftBit;
+            if (state.PrimaryFigureLeftHand) hands |= NetProtocol.SecondFigurePrimaryLeftBit;
+            buffer[i++] = NetProtocol.ExtIdSecondFigure;
+            buffer[i++] = (byte)NetProtocol.SecondFigureRecordBytes;
+            // Masked to the DEFINED hand bits so a future bit cannot be pre-claimed by
+            // garbage — same discipline as the board-UI overlay byte.
+            buffer[i++] = (byte)(hands & NetProtocol.SecondFigureHandMask);
+            AvatarSerializer.WriteI32(buffer, ref i, state.SecondFigureActorId);
+            AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondFigurePose);
+            records++;
+        }
+        if (state.HasBoardTooltip && !string.IsNullOrEmpty(state.BoardTooltipText))
+        {
+            // BOARD TOOLTIP: UTF8 bytes of the tooltip parked in the sender's board
+            // tooltip area, capped and truncated on a character boundary. Written only
+            // while such a tooltip is shown AND already passed the sender-side identity
+            // gate (WorldUI.WorldTooltips — see the record doc: content that could name a
+            // hidden card never reaches this writer). Appended LAST, behind every record
+            // that already existed, per the tail's id-order contract; the encode cache
+            // keeps the hot path allocation-free while the same text rides many packets.
+            byte[] text = EncodeBoardTooltipText(state.BoardTooltipText!);
+            if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdBoardTooltip;
+                buffer[i++] = (byte)text.Length;
+                for (int b = 0; b < text.Length; b++)
+                    buffer[i++] = text[b];
+                records++;
+            }
+        }
+        if (state.HasSecondHeldCard
+            && i + 2 + NetProtocol.SecondHeldCardRecordBytes <= buffer.Length)
+        {
+            // SECOND HELD CARD: the shared 20-byte pose, nothing else — no hand byte (the
+            // receiver renders the slab at this absolute pose, never parented to a hand;
+            // see the record doc) and no identity, ever (peers draw an anonymous BACK).
+            // Written ONLY while both hands physically hold a card, so a one-card hold —
+            // and an idle player — emits the exact bytes build 49 emitted. Appended LAST,
+            // behind every record that already existed, per the tail's id-order contract.
+            buffer[i++] = NetProtocol.ExtIdSecondHeldCard;
+            buffer[i++] = (byte)NetProtocol.SecondHeldCardRecordBytes;
+            AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondHeldCardPose);
+            records++;
+        }
+        if (state.HasSlotCardSize
+            && i + 2 + NetProtocol.SlotCardSizeRecordBytes <= buffer.Length)
+        {
+            // SLOT-CARD SIZE: [u16 slotFrameWidth LE][u16 slotCardWidth LE], board-local
+            // tenth-mm. Written ONLY while a board exists and either width differs from
+            // the legacy assumption (NetProtocol.SlotCardWidthLegacy), so a sender whose
+            // config lands exactly on the old constant stays byte-identical to the
+            // previous build. Appended in id order (record 11, before 12..16).
+            buffer[i++] = NetProtocol.ExtIdSlotCardSize;
+            buffer[i++] = (byte)NetProtocol.SlotCardSizeRecordBytes;
+            buffer[i++] = (byte)(state.SlotFrameWidthCode & 0xFF);
+            buffer[i++] = (byte)(state.SlotFrameWidthCode >> 8);
+            buffer[i++] = (byte)(state.SlotCardWidthCode & 0xFF);
+            buffer[i++] = (byte)(state.SlotCardWidthCode >> 8);
+            records++;
+        }
+        if (state.HasDecisionLines && !string.IsNullOrEmpty(state.DecisionLinesText))
+        {
+            // DECISION LINES: UTF8 blob of the docked decision row's button labels, one
+            // per '\n'-separated line, capped and truncated on a character boundary.
+            // Written only while a row is really docked (see the record doc — pressable
+            // labels only, never a dialog's card-naming description). Same one-entry
+            // encode cache as the pick banner: the labels are constant for the whole
+            // prompt while the record rides every 5 Hz packet.
+            byte[] text = EncodeDecisionLines(state.DecisionLinesText!);
+            if (text.Length > 0 && i + 2 + text.Length <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdDecisionLines;
+                buffer[i++] = (byte)text.Length;
+                for (int b = 0; b < text.Length; b++)
+                    buffer[i++] = text[b];
+                records++;
+            }
+        }
+        {
+            // CAP LABELS: [mask][per set bit, in mask-bit order: len + UTF8] — what the
+            // sender's CONFIRM cap, docked SKIP button, UNDO cap and item-USE cap actually
+            // read. Written only while at least one label exists, so an idle packet stays
+            // byte-identical. Each label runs through its own one-entry encode cache (they
+            // change on game-state edges, not per packet). The two NEW slots (undo, item
+            // use) are the HIGH mask bits and ride LAST, so a reader that knows only the
+            // first two stops exactly where it always did.
+            byte[] confirm = state.HasConfirmCapLabel && !string.IsNullOrEmpty(state.ConfirmCapLabel)
+                ? EncodeConfirmCapLabel(state.ConfirmCapLabel!)
+                : System.Array.Empty<byte>();
+            byte[] skip = state.HasSkipCapLabel && !string.IsNullOrEmpty(state.SkipCapLabel)
+                ? EncodeSkipCapLabel(state.SkipCapLabel!)
+                : System.Array.Empty<byte>();
+            byte[] undo = state.HasUndoCapLabel && !string.IsNullOrEmpty(state.UndoCapLabel)
+                ? EncodeUndoCapLabel(state.UndoCapLabel!)
+                : System.Array.Empty<byte>();
+            byte[] use = state.HasItemUseCapLabel && !string.IsNullOrEmpty(state.ItemUseCapLabel)
+                ? EncodeItemUseCapLabel(state.ItemUseCapLabel!)
+                : System.Array.Empty<byte>();
+            int payload = 1 + (confirm.Length > 0 ? 1 + confirm.Length : 0)
+                          + (skip.Length > 0 ? 1 + skip.Length : 0)
+                          + (undo.Length > 0 ? 1 + undo.Length : 0)
+                          + (use.Length > 0 ? 1 + use.Length : 0);
+            if ((confirm.Length > 0 || skip.Length > 0 || undo.Length > 0 || use.Length > 0)
+                && payload <= 255 && i + 2 + payload <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdCapLabels;
+                buffer[i++] = (byte)payload;
+                byte capMask = 0;
+                if (confirm.Length > 0) capMask |= NetProtocol.CapLabelConfirmBit;
+                if (skip.Length > 0) capMask |= NetProtocol.CapLabelSkipBit;
+                if (undo.Length > 0) capMask |= NetProtocol.CapLabelUndoBit;
+                if (use.Length > 0) capMask |= NetProtocol.CapLabelItemUseBit;
+                buffer[i++] = (byte)(capMask & NetProtocol.CapLabelDefinedMask);
+                if (confirm.Length > 0)
+                {
+                    buffer[i++] = (byte)confirm.Length;
+                    for (int b = 0; b < confirm.Length; b++)
+                        buffer[i++] = confirm[b];
+                }
+                if (skip.Length > 0)
+                {
+                    buffer[i++] = (byte)skip.Length;
+                    for (int b = 0; b < skip.Length; b++)
+                        buffer[i++] = skip[b];
+                }
+                if (undo.Length > 0)
+                {
+                    buffer[i++] = (byte)undo.Length;
+                    for (int b = 0; b < undo.Length; b++)
+                        buffer[i++] = undo[b];
+                }
+                if (use.Length > 0)
+                {
+                    buffer[i++] = (byte)use.Length;
+                    for (int b = 0; b < use.Length; b++)
+                        buffer[i++] = use[b];
+                }
+                records++;
+            }
+        }
+        if ((state.HasHalfHover || state.HasCapPress || state.EmptyFanHint)
+            && i + 2 + NetProtocol.HalfHoverRecordBytesWithDefault <= buffer.Length)
+        {
+            // HALF HOVER + SELECTION + CAP PRESS + EMPTY-FAN HINT (14):
+            // [byte0 hover|press][byte1 selection|placard]. Byte 0 is the transient pointer
+            // hover — board slot (bits 0..1, the HalfHoverNoneSlot sentinel when the record
+            // rides without one) + top-half bit — PLUS the keycap-press edge in bits 3..7
+            // (which cap, and a 2-bit sequence so a repeat press of the same cap is a
+            // distinguishable event; see NetProtocol.CapPressNone). Byte 1 is the persistent
+            // CLICK state, one 2-bit none/top/bottom field per slot, PLUS bit 4 — the
+            // "Keine Handkarten" placard, a hand-anchored display with no board record of
+            // its own that the hand-card count cannot imply (0 cards is also every idle
+            // player). Slot POSITIONS, halves, a cap id and one boolean — never a card
+            // identity. Written while a half is hovered OR selected OR a press is in its
+            // hold window OR the placard is up, so an idle packet stays byte-identical to
+            // build's. Appended in id order behind every existing record.
+            byte half = state.HasHalfHover && state.HalfHoverActive
+                ? (byte)(state.HalfHoverSlot & NetProtocol.HalfHoverSlotMask)
+                : NetProtocol.HalfHoverNoneSlot;
+            if (state.HasHalfHover && state.HalfHoverActive && state.HalfHoverTop)
+                half |= NetProtocol.HalfHoverTopBit;
+            if (state.HasCapPress && state.CapPressCap != NetProtocol.CapPressNone)
+            {
+                half |= (byte)((state.CapPressCap << NetProtocol.CapPressShift)
+                               & NetProtocol.CapPressCapMask);
+                half |= (byte)((state.CapPressSeq << NetProtocol.CapPressSeqShift)
+                               & NetProtocol.CapPressSeqMask);
+            }
+            byte select = state.HasHalfHover
+                ? (byte)(NetProtocol.EncodeHalfSelect(state.HalfSelect0)
+                         | NetProtocol.EncodeHalfSelect(state.HalfSelect1)
+                           << NetProtocol.HalfSelectBitsPerSlot)
+                : (byte)0;
+            select &= NetProtocol.HalfSelectDefinedMask;
+            if (state.EmptyFanHint)
+                select |= NetProtocol.HalfEmptyFanHintBit;
+            // BYTE 2, THE STANDARD-ACTION QUALIFIER (2026-08-15, item 6 — see
+            // NetProtocol.HalfDefaultHoverBit). Appended ONLY when one of its bits is
+            // really set, so a player who never touches a default "Attack 2"/"Move 2" chip
+            // emits the same two-byte record every previous build emitted and an idle
+            // packet stays byte-identical. The LENGTH is what tells a reader the two
+            // shapes apart, exactly as record 4's cap-state byte and record 31's frequency
+            // byte do.
+            byte defaults = state.HasHalfHover
+                ? NetProtocol.EncodeHalfDefaults(
+                    state.HalfHoverActive && state.HalfHoverDefault,
+                    state.HalfSelect0Default, state.HalfSelect1Default)
+                : (byte)0;
+            buffer[i++] = NetProtocol.ExtIdHalfHover;
+            buffer[i++] = (byte)(defaults != 0
+                ? NetProtocol.HalfHoverRecordBytesWithDefault
+                : NetProtocol.HalfHoverRecordBytes);
+            buffer[i++] = (byte)(half & NetProtocol.HalfHoverDefinedMask);
+            buffer[i++] = (byte)(select & NetProtocol.HalfSelectByteDefinedMask);
+            if (defaults != 0)
+                buffer[i++] = defaults;
+            records++;
+        }
+        if (state.HasPileCounts
+            && i + 2 + NetProtocol.PileCountsRecordBytes <= buffer.Length)
+        {
+            // PILE COUNTS (15): the numbers the sender's own stack labels display. Written
+            // on every packet while those stacks are shown (the board-UI presence
+            // contract: "present, all zeros" must be distinguishable from "pre-record
+            // sender", whose receiver keeps the legacy model-read counts).
+            buffer[i++] = NetProtocol.ExtIdPileCounts;
+            buffer[i++] = (byte)NetProtocol.PileCountsRecordBytes;
+            buffer[i++] = state.PileDiscardCount;
+            buffer[i++] = state.PileBurntCount;
+            buffer[i++] = state.PileItemsCount;
+            records++;
+        }
+        if (state.HasTrackHover && state.TrackHoverActorId != 0
+            && i + 2 + NetProtocol.TrackHoverRecordBytes <= buffer.Length)
+        {
+            // TRACK HOVER (16): [flags][int32 actorId LE]. The hovered initiative-track
+            // entry by STABLE ACTOR ID (the ActorGuid hash, NetFigures.StableActorId — NOT
+            // the per-class CActor.ID, which collides across enemy classes; display order
+            // is per-client — see the record doc); the flags byte is masked to the defined
+            // bits. Written only while an
+            // entry is hovered; actor id 0 is "none" everywhere and is never emitted.
+            byte thFlags = 0;
+            if (state.TrackHoverPopup)
+                thFlags |= NetProtocol.TrackHoverPopupBit;
+            buffer[i++] = NetProtocol.ExtIdTrackHover;
+            buffer[i++] = (byte)NetProtocol.TrackHoverRecordBytes;
+            buffer[i++] = (byte)(thFlags & NetProtocol.TrackHoverDefinedMask);
+            AvatarSerializer.WriteI32(buffer, ref i, state.TrackHoverActorId);
+            records++;
+        }
+        if (state.HasWallFades && state.WallFadesKeys != null
+            && state.WallFadesCount > 0)
+        {
+            // WALL FADES (17): [count][count × u32 key LE], keys pre-sorted by the
+            // sender. Count is clamped to the cap AND the caller's buffer before a
+            // single byte goes out; an empty set was already excluded above.
+            int n = state.WallFadesCount;
+            if (n > NetProtocol.WallFadesMaxKeys)
+                n = NetProtocol.WallFadesMaxKeys;
+            if (n > state.WallFadesKeys.Length)
+                n = state.WallFadesKeys.Length;
+            if (n > 0 && i + 2 + 1 + 4 * n <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdWallFades;
+                buffer[i++] = (byte)(1 + 4 * n);
+                buffer[i++] = (byte)n;
+                for (int k = 0; k < n; k++)
+                    AvatarSerializer.WriteU32(buffer, ref i, state.WallFadesKeys[k]);
+                records++;
+            }
+        }
+        if (state.HasSlotOrder
+            && i + 2 + NetProtocol.SlotOrderRecordBytes <= buffer.Length)
+        {
+            // ROUND-CARD SLOT ORDER (18): one flags byte — [bit0 valid][bit1 swapped].
+            // WHICH of the owner's two round cards lies in the LEFT recess, stated instead
+            // of re-derived (see NetProtocol.ExtIdSlotOrder). Written only while the
+            // sender could really answer, so a receiver that sees nothing keeps the
+            // derivation it has always used — this record may replace a guess with a fact,
+            // never with a second guess. An ORDER, never an identity.
+            byte order = NetProtocol.SlotOrderValidBit;
+            if (state.SlotOrderSwapped)
+                order |= NetProtocol.SlotOrderSwappedBit;
+            buffer[i++] = NetProtocol.ExtIdSlotOrder;
+            buffer[i++] = (byte)NetProtocol.SlotOrderRecordBytes;
+            buffer[i++] = (byte)(order & NetProtocol.SlotOrderDefinedMask);
+            records++;
+        }
+        // CHARACTER FOCUS (22): [flags][int32 focusActorId LE]( [int32 attentionActorId] ).
+        // The trailing attention id rides ONLY when the character the game is waiting on is
+        // not the one the sender is looking at (the RED state) — otherwise the focus id
+        // already names it, so the record keeps the 5 bytes it has always had. The length
+        // is therefore computed BEFORE the buffer check, not assumed.
+        bool cfAttentionTail = state.CharFocusOwnsAttention
+                               && state.CharFocusAttentionActorId != 0
+                               && state.CharFocusAttentionActorId != state.CharFocusActorId;
+        int cfBytes = cfAttentionTail
+            ? NetProtocol.CharFocusMaxRecordBytes
+            : NetProtocol.CharFocusRecordBytes;
+        if (state.HasCharFocus && state.CharFocusActorId != 0
+            && i + 2 + cfBytes <= buffer.Length)
+        {
+            // Flags bit0 says the sender owns the character THE GAME IS WAITING ON (its
+            // turn, or an open decision it owes) and bit1 announces the tail — the two
+            // facts no receiver can evaluate for itself, because IsUnderMyControl is a
+            // local flag and a remote player's decision panel is hidden on every other
+            // machine (TakeDamagePanel.cs:1133). The ids are stable ActorGuid hashes (the
+            // per-class CActor.ID collides — see NetFigures). The flags byte is masked to
+            // the defined bits; actor id 0 is "none" everywhere and is never emitted, so a
+            // spectating / scenario-less client stays byte-identical to a pre-record sender.
+            byte cfFlags = 0;
+            if (state.CharFocusOwnsAttention)
+                cfFlags |= NetProtocol.CharFocusOwnsAttentionBit;
+            if (cfAttentionTail)
+                cfFlags |= NetProtocol.CharFocusAttentionIdBit;
+            buffer[i++] = NetProtocol.ExtIdCharFocus;
+            buffer[i++] = (byte)cfBytes;
+            buffer[i++] = (byte)(cfFlags & NetProtocol.CharFocusDefinedMask);
+            AvatarSerializer.WriteI32(buffer, ref i, state.CharFocusActorId);
+            if (cfAttentionTail)
+                AvatarSerializer.WriteI32(buffer, ref i, state.CharFocusAttentionActorId);
+            records++;
+        }
+        if (state.HasTrackSelection && state.TrackSelectionIds != null
+            && state.TrackSelectionCount > 0)
+        {
+            // TRACK SELECTION (23): [count][count × int32 actorId LE] — the entries the
+            // sender's OWN initiative track is framing right now (vanilla's
+            // selectionObject, read as an active flag off the live widget). A LIST because
+            // an extra-turn actor can leave a second frame standing (InitiativeTrack.cs:340).
+            // Count is clamped to the cap AND the caller's buffer before a byte goes out;
+            // an empty selection was already excluded above, so an idle packet is
+            // byte-identical to a pre-record sender's.
+            int n = state.TrackSelectionCount;
+            if (n > NetProtocol.TrackSelectionMaxIds)
+                n = NetProtocol.TrackSelectionMaxIds;
+            if (n > state.TrackSelectionIds.Length)
+                n = state.TrackSelectionIds.Length;
+            if (n > 0 && i + 2 + 1 + 4 * n <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdTrackSelection;
+                buffer[i++] = (byte)(1 + 4 * n);
+                buffer[i++] = (byte)n;
+                for (int k = 0; k < n; k++)
+                    AvatarSerializer.WriteI32(buffer, ref i, state.TrackSelectionIds[k]);
+                records++;
+            }
+        }
+        if (state.HasDecisionState)
+        {
+            // DECISION STATE (24): [flags][n][n × option byte]. flags bits 0..2 name the
+            // docked prompt, bits 3..5 the prompt-TEXT variant (a NUMBER — the receiver
+            // localizes the line itself; the composed string may never ride this wire, it
+            // can embed active-bonus card names), and each option byte says whether that
+            // option is offered / dimmed / chosen. Options are index-aligned with record
+            // 12's lines and clamped to the record's own cap before a byte goes out. Both
+            // byte kinds are masked to their DEFINED bits so an undefined bit can never be
+            // pre-claimed by garbage. Written on record 12's gate only, so an idle packet
+            // stays byte-identical to the previous build's; appended in id order, last.
+            int payload = DecisionStatePayload(in state);
+            if (payload > 0 && i + 2 + payload <= buffer.Length)
+            {
+                int n = payload - 2;
+                buffer[i++] = NetProtocol.ExtIdDecisionState;
+                buffer[i++] = (byte)payload;
+                buffer[i++] = (byte)(NetProtocol.EncodeDecisionFlags(
+                    state.DecisionPromptKind, state.DecisionTextVariant)
+                    & NetProtocol.DecisionStateDefinedMask);
+                buffer[i++] = (byte)n;
+                for (int o = 0; o < n; o++)
+                    buffer[i++] = (byte)(state.DecisionOptionFlags![o]
+                                         & NetProtocol.DecisionOptionDefinedMask);
+                records++;
+            }
+        }
+        if (state.HasUseBars)
+        {
+            // USE BARS (25): [barMask] then, for every SET bar bit in BIT ORDER,
+            // [barFlags][n][n × slot byte]. The mask is the sender's own stack order, so a
+            // receiver mirrors the drawer top-to-bottom without anything describing the
+            // order; every byte is masked to its DEFINED bits so an undefined bit can never
+            // be pre-claimed by garbage, and each count is clamped to the record's cap AND
+            // to the sender's own buffer before a byte goes out. Written only while a bar is
+            // docked AND VISIBLE on the owner's board (a focus-hidden bar is already out of
+            // the mask), so an idle packet stays byte-identical to the previous build's;
+            // appended in id order, LAST, behind record 24.
+            //
+            // NOT ON THIS WIRE: what any slot IS. The game's use slots carry no label at
+            // all — only a sprite off the item/bonus/ability art — so a peer captions each
+            // bar from the BAR BIT and draws anonymous, state-painted tiles.
+            int payload = UseBarsPayload(in state);
+            if (payload > 0 && i + 2 + payload <= buffer.Length)
+            {
+                byte barMask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
+                buffer[i++] = NetProtocol.ExtIdUseBars;
+                buffer[i++] = (byte)payload;
+                buffer[i++] = barMask;
+                for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+                {
+                    if ((barMask & (1 << b)) == 0)
+                        continue;
+                    buffer[i++] = (byte)(BarFlagsOf(in state, b)
+                                         & NetProtocol.UseBarFlagsDefinedMask);
+                    int n = BarSlotCountOf(in state, b);
+                    buffer[i++] = (byte)n;
+                    int at = b * NetProtocol.UseBarsMaxSlots;
+                    for (int s = 0; s < n; s++)
+                        buffer[i++] = (byte)(state.UseBarSlotStates![at + s]
+                                             & NetProtocol.UseSlotDefinedMask);
+                }
+                records++;
+            }
+        }
+        if (state.HasItemUseClip
+            && i + 2 + NetProtocol.ItemUseClipRecordBytes <= buffer.Length)
+        {
+            // ITEM-USE CLIP (26): one byte — WHICH position of the sender's open item fan
+            // lies clipped in their item-USE recess. A fan POSITION, never an item identity
+            // (the receiver already draws that fan's faces from the replicated inventory);
+            // the same disclosure argument as the card-highlight record's indices.
+            //
+            // Written ONLY while a card is really in the recess, so an owner with an empty
+            // recess emits exactly the bytes the previous build emitted, and the record's
+            // ABSENCE is the "nothing is clipped" signal — no sentinel value exists.
+            // NOT range-checked here: the renderer clamps against its own live slab count,
+            // which is the only place the bound is actually known (record 6's rule).
+            // Appended in id order, between records 25 and 27.
+            buffer[i++] = NetProtocol.ExtIdItemUseClip;
+            buffer[i++] = (byte)NetProtocol.ItemUseClipRecordBytes;
+            buffer[i++] = state.ItemUseClipIndex;
+            records++;
+        }
+        if (state.HasTrackOrder && state.TrackOrderIds != null && state.TrackOrderCount > 0)
+        {
+            // TRACK ORDER (27): [count][ownedMask][count × int32 actorId LE] — the
+            // on-screen order of the PLAYER entries on the sender's OWN track, read off
+            // the live widget's sibling order, plus which of them they control. The order
+            // is per-viewer for exactly one reason and in exactly one window: vanilla's
+            // CompareTo sorts player entries by IsUnderMyControl while online AND in
+            // SelectAbilityCardsOrLongRest (InitiativeTrackActorBehaviour.cs:160-171), so
+            // the sampler writes nothing outside it and an idle packet is byte-identical
+            // to a pre-record sender's. Count is clamped to the cap AND the caller's
+            // buffer, and the mask to the bits the cap can define, before a byte goes out.
+            int n = state.TrackOrderCount;
+            if (n > NetProtocol.TrackOrderMaxIds)
+                n = NetProtocol.TrackOrderMaxIds;
+            if (n > state.TrackOrderIds.Length)
+                n = state.TrackOrderIds.Length;
+            if (n > 0 && i + 2 + 2 + 4 * n <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdTrackOrder;
+                buffer[i++] = (byte)(2 + 4 * n);
+                buffer[i++] = (byte)n;
+                buffer[i++] = (byte)(state.TrackOrderOwnedMask
+                                     & NetProtocol.TrackOrderOwnedDefinedMask);
+                for (int k = 0; k < n; k++)
+                    AvatarSerializer.WriteI32(buffer, ref i, state.TrackOrderIds[k]);
+                records++;
+            }
+        }
+        if (state.HasFanArcOrder && state.FanArcOrder != null && state.FanArcOrderCount > 0)
+        {
+            // FAN ARC ORDER (44): [count][ceil(count/2) packed nibbles] — the left-to-right
+            // order of the sender's OWN hand arc, as indices into the hand list every
+            // receiver already builds with CardsGameApi.HandFanMember. Report item 2 of
+            // 2026-09-06: the owner's order is CardsDriver._fanOrder, their session-local
+            // drag-reorder, which no other machine can reproduce — so it is the one thing
+            // about this fan that genuinely has to travel. It is an ORDER and not an
+            // identity (record 18 makes the same argument for the two recesses), so it
+            // widens no secret and rides no reveal gate.
+            //
+            // WRITTEN ONLY WHEN IT SAYS SOMETHING: the sampler sets the flag only where
+            // the arc really differs from the derived order, so an un-dragged fan — the
+            // common case — is byte-identical to ModBuild 461's packet. Count is clamped
+            // to the cap AND the caller's buffer before a byte goes out, and every index
+            // is masked to the nibble it has to fit in, so a sampler bug can never write a
+            // record whose own reader would then refuse it silently.
+            int n = state.FanArcOrderCount;
+            if (n > NetProtocol.FanArcOrderMaxSeats)
+                n = NetProtocol.FanArcOrderMaxSeats;
+            if (n > state.FanArcOrder.Length)
+                n = state.FanArcOrder.Length;
+            int payload = 1 + (n + 1) / 2;
+            if (n > 0 && i + 2 + payload <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdFanArcOrder;
+                buffer[i++] = (byte)payload;
+                buffer[i++] = (byte)n;
+                int at = i;
+                for (int k = 0; k < payload - 1; k++)
+                    buffer[at + k] = 0;
+                for (int k = 0; k < n; k++)
+                    NetProtocol.SetFanArcOrderSeat(buffer, at, k, state.FanArcOrder[k]);
+                i += payload - 1;
+                records++;
+            }
+        }
+        if (state.HasBoardTuning && state.BoardTuningBytes != null)
+        {
+            // BOARD TUNING (28): [n][n × [id][value]] — the SPARSE set of the sender's own
+            // dials that differ from the shipped default for their synced board style. The
+            // payload arrives PRE-ENCODED (built on a config-change edge, not per packet)
+            // so this hot path is a bounded copy; the length is re-clamped against the TLV
+            // ceiling AND the caller's buffer before a byte goes out. An all-default player
+            // never reaches here at all — the tail gate above already excluded them — which
+            // is exactly what keeps an untuned packet byte-identical to the previous build.
+            // Appended LAST, in id order behind every existing record.
+            int payload = state.BoardTuningLength;
+            if (payload > state.BoardTuningBytes.Length)
+                payload = state.BoardTuningBytes.Length;
+            // THE <= 255 CLAMP IS NOW UNREACHABLE BY CONSTRUCTION, and it stays exactly
+            // because of that. A page is header (7) + at most
+            // NetProtocol.BoardTunePageMaxFieldBytes (248) = 255 by definition, so a
+            // well-formed sender cannot reach it; leaving the guard in means a paging bug
+            // that produced an over-long page would drop that PAGE (⇒ the receiver never
+            // completes the generation ⇒ it keeps the last complete one) instead of writing
+            // a length byte that wrapped and tearing every record behind it in the tail.
+            if (payload >= NetProtocol.BoardTuneMinRecordBytes && payload <= 255
+                && i + 2 + payload <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdBoardTuning;
+                buffer[i++] = (byte)payload;
+                for (int b = 0; b < payload; b++)
+                    buffer[i++] = state.BoardTuningBytes[b];
+                records++;
+            }
+        }
+        if (state.HasDecisionWidgets)
+        {
+            // DECISION WIDGETS (29): [flags][damage][n][n × role byte] — WHICH game widget
+            // each docked option IS, so a peer can mirror the REAL button instead of a
+            // mod-drawn lookalike, plus the two numbers the take-damage option paints on
+            // itself. Roles are index-aligned with records 12 and 24 (one sampler walk
+            // fills all three) and clamped to the record's own cap before a byte goes out;
+            // flags are masked to their DEFINED bits and each role through
+            // ClampDecisionRole, so an undefined code can never be pre-claimed by garbage.
+            // Written on record 12's gate only, so an idle packet stays byte-identical to
+            // the previous build's; appended in id order, LAST, behind record 28.
+            int payload = DecisionWidgetsPayload(in state);
+            if (payload > 0 && i + 2 + payload <= buffer.Length)
+            {
+                int n = payload - 3;
+                buffer[i++] = NetProtocol.ExtIdDecisionWidgets;
+                buffer[i++] = (byte)payload;
+                buffer[i++] = (byte)(state.DecisionWidgetFlags
+                                     & NetProtocol.DecisionWidgetDefinedMask);
+                buffer[i++] = state.DecisionDamageAmount;
+                buffer[i++] = (byte)n;
+                for (int o = 0; o < n; o++)
+                    buffer[i++] = NetProtocol.ClampDecisionRole(state.DecisionRoles![o]);
+                records++;
+            }
+        }
+        if (state.HasHeldStretch
+            && (state.HeldStretchPrimaryCode != NetProtocol.HeldStretchCodeNeutral
+                || state.HeldStretchSecondaryCode != NetProtocol.HeldStretchCodeNeutral)
+            && i + 2 + NetProtocol.HeldStretchRecordBytes <= buffer.Length)
+        {
+            // HELD-FIGURE STRETCH (30): [u16 primary][u16 secondary], milli-factors,
+            // slot-aligned with the rig packet's held figure and record 8. Written ONLY
+            // while a factor is non-neutral (the tail gate above uses the same test), so an
+            // unstretched hold — and every idle player — emits the exact bytes previous
+            // builds emitted. Appended LAST, in id order behind record 29, per the tail's
+            // id-order contract.
+            buffer[i++] = NetProtocol.ExtIdHeldStretch;
+            buffer[i++] = (byte)NetProtocol.HeldStretchRecordBytes;
+            buffer[i++] = (byte)(state.HeldStretchPrimaryCode & 0xFF);
+            buffer[i++] = (byte)(state.HeldStretchPrimaryCode >> 8);
+            buffer[i++] = (byte)(state.HeldStretchSecondaryCode & 0xFF);
+            buffer[i++] = (byte)(state.HeldStretchSecondaryCode >> 8);
+            records++;
+        }
+        if (state.HasEnvClock && state.EnvClockStyle != 0
+            && i + 2 + NetProtocol.EnvClockRecordBytesWithFrequency <= buffer.Length)
+        {
+            // SHARED ENVIRONMENT CLOCK (31): [style][u32 clockMillis LE] — the sender's
+            // environment and the reading every _Time-driven effect of it runs on (the rat,
+            // the drip and its rings, the candle flicker, the canopy sway, the shafts'
+            // shimmer). The receiver adopts it only from the LOWEST player id that reports
+            // the SAME style, which is the same election on every machine — see the record
+            // doc and Core/SkyAlternative.EnvClockSeconds.
+            //
+            // Written ONLY while such an environment really stands, so the game's own sky,
+            // OffBlack and MR emit exactly the bytes previous builds emitted, and absence is
+            // the "nothing to synchronise" signal — no sentinel value exists.
+            // Appended LAST, in id order behind record 30, per the tail's id-order contract.
+            //
+            // THE SIXTH BYTE IS THE HAUNT FREQUENCY (user ruling 2026-08-15: "Die
+            // Häufigkeit von Easter Eggs (da alle es ja synchron sehen sollen) soll vom
+            // HOST genommen werden im MP"). It rides HERE rather than in a record of its
+            // own so that "the host" and "the clock owner" are decided by one election on
+            // one arrival — see EnvClockRecordBytesWithFrequency. Always written; a reader
+            // that only knows the 5-byte form steps over it by the record's own length.
+            buffer[i++] = NetProtocol.ExtIdEnvClock;
+            buffer[i++] = (byte)NetProtocol.EnvClockRecordBytesWithFrequency;
+            buffer[i++] = state.EnvClockStyle;
+            buffer[i++] = (byte)(state.EnvClockMillis & 0xFF);
+            buffer[i++] = (byte)((state.EnvClockMillis >> 8) & 0xFF);
+            buffer[i++] = (byte)((state.EnvClockMillis >> 16) & 0xFF);
+            buffer[i++] = (byte)((state.EnvClockMillis >> 24) & 0xFF);
+            buffer[i++] = state.EnvClockFrequencyCode > NetProtocol.EnvClockFrequencyMaxCode
+                ? NetProtocol.EnvClockFrequencyMaxCode
+                : state.EnvClockFrequencyCode;
+            records++;
+        }
+        if (state.HasTestForce
+            && i + 2 + NetProtocol.TestForceRecordBytes <= buffer.Length)
+        {
+            // DEBUG TEST-TRIGGER OVERRIDE (32): [style][haunt+1][strongMask][waningMask]
+            // [u32 pressTimeMillis LE] — which apparition and which element moods the
+            // Erweitert test page has latched HERE, so that every player in the room draws
+            // the same thing at the same moment (user ruling 2026-08-15: "Auch wenn jemand
+            // im Debugmenu ein Event startet sollte dies auch von ALLEN im Multiplayer
+            // sichtbar sein statt nur lokal"). Nothing here is game state: the game's
+            // element board is still read and never written, and a haunt was never state at
+            // all — this record only says WHICH override is latched, and each receiver
+            // evaluates it against its own copy of the shared environment clock.
+            //
+            // NO EMPTINESS GATE, on purpose: an all-zero payload is the EXPLICIT RELEASE.
+            // The sampler is what guarantees the record is absent while nothing is owned.
+            // Appended LAST, in id order behind record 31, per the tail's id-order contract.
+            buffer[i++] = NetProtocol.ExtIdTestForce;
+            buffer[i++] = (byte)NetProtocol.TestForceRecordBytes;
+            buffer[i++] = state.TestForceStyle > NetProtocol.TestForceMaxStyleCode
+                ? NetProtocol.TestForceStyleUnknown
+                : state.TestForceStyle;
+            buffer[i++] = state.TestForceHauntCode > NetProtocol.TestForceMaxHauntCode
+                ? (byte)0
+                : state.TestForceHauntCode;
+            buffer[i++] = (byte)(state.TestForceStrongMask & NetProtocol.TestForceElementMask);
+            buffer[i++] = (byte)(state.TestForceWaningMask & NetProtocol.TestForceElementMask);
+            buffer[i++] = (byte)(state.TestForceHauntSinceMillis & 0xFF);
+            buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 8) & 0xFF);
+            buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 16) & 0xFF);
+            buffer[i++] = (byte)((state.TestForceHauntSinceMillis >> 24) & 0xFF);
+            records++;
+        }
+        if (state.HasStorySync
+            && i + 2 + NetProtocol.StoryRecordBytesWithPose <= buffer.Length)
+        {
+            // STORY WINDOW SYNC (19): [flags][page][pageCount][u32 storyKey LE] and, only
+            // when the sender's user has really moved the window, [poseStamp][sizeCode]
+            // [pose 20]. The full contract — above all WHY the pose is seat-anchor-local
+            // real metres and not a world point — is written once, at
+            // NetProtocol.ExtIdStorySync. Nothing here is game state: the record says
+            // which PAGE of a dialog this player has read to, and each receiver applies
+            // that to its own UICharacterStoryBox through the game's own seam.
+            //
+            // NO EMPTINESS GATE, on purpose (the record-32 rule): a payload with the OPEN
+            // bit clear and the FINISHED bit set is the whole point — it is the statement
+            // that unlocks a peer who walked away. The sampler is what guarantees the
+            // record is absent while no story box stands here.
+            // Appended LAST, behind record 32, per the tail's append-order contract.
+            byte storyFlags = (byte)(state.StoryFlags & NetProtocol.StoryDefinedMask);
+            bool storyPose = (storyFlags & NetProtocol.StoryPoseBit) != 0;
+            buffer[i++] = NetProtocol.ExtIdStorySync;
+            buffer[i++] = (byte)(storyPose
+                ? NetProtocol.StoryRecordBytesWithPose
+                : NetProtocol.StoryMinRecordBytes);
+            buffer[i++] = storyFlags;
+            buffer[i++] = state.StoryPage > NetProtocol.StoryPageMax
+                ? NetProtocol.StoryPageNone
+                : state.StoryPage;
+            buffer[i++] = state.StoryPageCount;
+            AvatarSerializer.WriteU32(buffer, ref i, state.StoryKey);
+            if (storyPose)
+            {
+                buffer[i++] = state.StoryPoseStamp;
+                buffer[i++] = state.StorySizeCode < NetProtocol.StorySizeMinCode
+                              || state.StorySizeCode > NetProtocol.StorySizeMaxCode
+                    ? NetProtocol.StorySizeDefaultCode
+                    : state.StorySizeCode;
+                AvatarSerializer.WritePoseShared(buffer, ref i, in state.StoryPose);
+            }
+            records++;
+        }
+        if (state.HasMapRoom
+            && i + 2 + NetProtocol.MapRoomRecordBytesWithGaze <= buffer.Length)
+        {
+            // 3D MAP ROOM (20): [flags][surfaceStamp][u32 pickKey LE][selectStamp]
+            // [u32 selectKey LE][u32 fanCharacterKey LE][gazeYaw].
+            // The full contract — above all WHY both stamps are EDGES
+            // and not levels, why the pick key may light an icon and may never select one,
+            // and why the SELECTION is a fact the game itself carries nowhere — is written
+            // once, at NetProtocol.ExtIdMapRoom. Nothing here is game state: the record
+            // says where this player is standing, which map they are looking at, which icon
+            // they are pointing at and which one they have selected.
+            //
+            // THE LONG FORM IS ALWAYS WRITTEN, AND READERS REQUIRE ONLY THE OLD MINIMUM
+            // (MapRoomRecordBytes, still 6). That asymmetry IS the additive contract: this
+            // sender says everything it knows, a reader that only knows the first six bytes
+            // steps over the rest by the record's own length, and neither has to know what
+            // the other build is. Same shape as record 19's pose tail.
+            //
+            // NO EMPTINESS GATE beyond the flag: the sampler sets HasMapRoom only while
+            // MapRoomDriver.Active, so an "all clear" payload cannot be produced. The room
+            // bit is written unconditionally for that reason — a record that exists IS a
+            // client in the room, and a receiver that ever sees it clear treats the peer as
+            // absent rather than guessing.
+            // Appended LAST, behind record 19, per the tail's append-order contract.
+            buffer[i++] = NetProtocol.ExtIdMapRoom;
+            buffer[i++] = (byte)NetProtocol.MapRoomRecordBytesWithGaze;
+            buffer[i++] = (byte)(state.MapRoomFlags & NetProtocol.MapRoomDefinedMask);
+            buffer[i++] = state.MapRoomSurfaceStamp;
+            AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomPickKey);
+            buffer[i++] = state.MapRoomSelectStamp;
+            AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomSelectKey);
+            AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomFanCharacterKey);
+            // THE SHARED GAZE YAW, one byte, written UNCONDITIONALLY like every field before
+            // it — its meaning is carried by MapRoomGazeValidBit and not by its presence, so
+            // a non-host (which never sets the bit) writes a 0 that says nothing rather than
+            // a shorter record that two readers would have to agree about.
+            buffer[i++] = state.MapRoomGazeYaw;
+            records++;
+        }
+        if (state.HasSharedWindow && state.SharedWindowCount > 0
+            && state.SharedWindowEntries != null
+            && i + 2 + NetProtocol.SharedWindowMaxRecordBytes <= buffer.Length)
+        {
+            // SHARED MAP WINDOWS (21): [n] then n x [kind][flags][page][pageCount]
+            // [u32 contentKey LE] ( [poseStamp][sizeCode][frame][pose 20] ). The contract is
+            // at NetProtocol.ExtIdSharedWindow. Nothing here is game state: an entry says
+            // which PAGE of a map message this player has read to and where their copy of
+            // the window stands; each receiver applies that to its OWN UICharacterStoryBox
+            // through the game's own ShowLine seam.
+            //
+            // THE LENGTH IS COMPUTED, NOT ASSUMED: entries carrying a pose are longer, so
+            // the payload length is summed first and written into the length byte, and a
+            // reader walks entry by entry using each entry's OWN flags byte. That is what
+            // lets an unknown KIND be skipped by a reader that has never heard of it.
+            // Appended LAST, behind record 20, per the tail's append-order contract.
+            int entries = state.SharedWindowCount;
+            if (entries > NetProtocol.SharedWindowMaxEntries)
+                entries = NetProtocol.SharedWindowMaxEntries;
+            if (entries > state.SharedWindowEntries.Length)
+                entries = state.SharedWindowEntries.Length;
+
+            int payload = 1;
+            for (int e = 0; e < entries; e++)
+            {
+                byte f = (byte)(state.SharedWindowEntries[e].Flags
+                                & NetProtocol.SharedDefinedMask);
+                payload += (f & NetProtocol.SharedPoseBit) != 0
+                    ? NetProtocol.SharedWindowEntryBytesWithPose
+                    : NetProtocol.SharedWindowEntryMinBytes;
+            }
+
+            buffer[i++] = NetProtocol.ExtIdSharedWindow;
+            buffer[i++] = (byte)payload;
+            buffer[i++] = (byte)entries;
+            for (int e = 0; e < entries; e++)
+            {
+                SharedWindowEntry entry = state.SharedWindowEntries[e];
+                byte f = (byte)(entry.Flags & NetProtocol.SharedDefinedMask);
+                bool pose = (f & NetProtocol.SharedPoseBit) != 0;
+                buffer[i++] = entry.Kind;
+                buffer[i++] = f;
+                buffer[i++] = entry.Page > NetProtocol.StoryPageMax
+                    ? NetProtocol.StoryPageNone
+                    : entry.Page;
+                buffer[i++] = entry.PageCount;
+                AvatarSerializer.WriteU32(buffer, ref i, entry.ContentKey);
+                if (!pose)
+                    continue;
+                buffer[i++] = entry.PoseStamp;
+                buffer[i++] = entry.SizeCode < NetProtocol.StorySizeMinCode
+                              || entry.SizeCode > NetProtocol.StorySizeMaxCode
+                    ? NetProtocol.StorySizeDefaultCode
+                    : entry.SizeCode;
+                buffer[i++] = entry.Frame > NetProtocol.SharedFrameMax
+                    ? NetProtocol.SharedFrameSeatAnchor
+                    : entry.Frame;
+                AvatarSerializer.WritePoseShared(buffer, ref i, in entry.Pose);
+            }
+            records++;
+        }
+        if (state.HasDecisionNames && !string.IsNullOrEmpty(state.DecisionNamesText))
+        {
+            // DECISION NAMES (33): UTF8 blob of the mandatory-use card-name KEYS, one per
+            // '\n'-separated line, capped and truncated on a character boundary — record
+            // 12's codec and shape, a different meaning. THE ONE RECORD ON THIS WIRE THAT
+            // CARRIES CARD IDENTITY, and it does so only because the sampler refused to
+            // fill it unless RevealGate.PeersSeeOurCardFronts was open (see the record doc
+            // and DamageTooltipSurface.SampleMandatoryNames). Appended LAST, in id order,
+            // behind record 32.
+            byte[] names = EncodeDecisionNames(state.DecisionNamesText!);
+            if (names.Length > 0 && i + 2 + names.Length <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdDecisionNames;
+                buffer[i++] = (byte)names.Length;
+                for (int b = 0; b < names.Length; b++)
+                    buffer[i++] = names[b];
+                records++;
+            }
+        }
+        if (state.HasHeldCardGrip && state.HeldCardGripMask != 0
+            && i + 2 + NetProtocol.HeldCardGripRecordBytes <= buffer.Length)
+        {
+            // HELD-CARD GRIP (34): one flag byte, bit per held-card POSE SLOT - bit 0 for
+            // the rig packet's FlagHeldCard card, bit 1 for record 10's. Set means "this
+            // one is rigid in the fist, use the rotation I sent instead of billboarding it
+            // at my head". Written ONLY while a bit is set (the tail gate above uses the
+            // same test), so a player who never squeezes the grip on a held card - and
+            // every idle player - emits the exact bytes the previous build emitted.
+            // Appended LAST, in id order behind record 33, per the tail's id-order contract.
+            buffer[i++] = NetProtocol.ExtIdHeldCardGrip;
+            buffer[i++] = (byte)NetProtocol.HeldCardGripRecordBytes;
+            buffer[i++] = state.HeldCardGripMask;
+            records++;
+        }
+        if (state.HasItemUsable && state.ItemUsableMask != 0
+            && i + 2 + NetProtocol.ItemUsableRecordBytes <= buffer.Length)
+        {
+            // PER-ITEM USABLE MASK (35): one u16 LE over Inventory.AllItems RAW index —
+            // the value the owner's own board framed its chips from this frame, not a
+            // second read of the predicate. A ZERO mask is never written (the tail gate
+            // above uses the same test), so "absent" and "nothing is usable" are one
+            // state and a player with nothing to play emits the exact bytes the previous
+            // build emitted. Appended in id order, behind record 34.
+            ushort mask = state.ItemUsableMask;
+            buffer[i++] = NetProtocol.ExtIdItemUsable;
+            buffer[i++] = (byte)NetProtocol.ItemUsableRecordBytes;
+            buffer[i++] = (byte)(mask & 0xFF);
+            buffer[i++] = (byte)(mask >> 8);
+            records++;
+        }
+        int heldFaceBytes = HeldFacePayload(in state);
+        if (state.HasHeldCardFace && heldFaceBytes > 0
+            && i + 2 + heldFaceBytes <= buffer.Length)
+        {
+            // HELD-CARD FACE (36): [code][list length] per POSE SLOT, 2 bytes for slot 1
+            // alone and 4 while both hands hold one — read by LENGTH, exactly like record
+            // 20's two forms. NO CARD IDENTITY: a code byte carries a list id and a
+            // POSITION in a list the receiver already draws the whole fan from.
+            //
+            // The second slot is written only when it really names a card, so the common
+            // one-handed case costs 4 bytes and not 6; and when NEITHER slot names one the
+            // record is omitted entirely (HeldFacePayload returns 0, and the tail gate uses
+            // the same test), which is what keeps every packet of every player who is not
+            // holding a card byte-identical to the previous build's.
+            buffer[i++] = NetProtocol.ExtIdHeldCardFace;
+            buffer[i++] = (byte)heldFaceBytes;
+            buffer[i++] = state.HeldFaceCode;
+            buffer[i++] = state.HeldFaceCount;
+            if (heldFaceBytes >= 2 * NetProtocol.HeldCardFaceSlotBytes)
+            {
+                buffer[i++] = state.SecondHeldFaceCode;
+                buffer[i++] = state.SecondHeldFaceCount;
+            }
+            records++;
+        }
+        int sacrificeBytes = SacrificeSeatPayload(in state);
+        if (state.HasSacrificeSeat && sacrificeBytes > 0
+            && i + 2 + sacrificeBytes <= buffer.Length)
+        {
+            // SHORT-REST SACRIFICE SEAT (39): [code][list length] per ROUND RECESS, 2 bytes
+            // for recess 1 alone and 4 when the sacrifice is in recess 2 — read by LENGTH,
+            // exactly like records 20, 36 and 37. NO CARD IDENTITY: a code byte carries a
+            // list id and a POSITION in the owner's DISCARD pile, which the receiver already
+            // holds and already draws a whole browse arc from.
+            //
+            // Recess 2 forces the long form because a bare recess-2 entry would otherwise be
+            // re-seated onto recess 1 by a length-gated reader — the same trap record 36's
+            // HeldFacePayload documents for its second pose slot.
+            buffer[i++] = NetProtocol.ExtIdSacrificeSeat;
+            buffer[i++] = (byte)sacrificeBytes;
+            buffer[i++] = state.SacrificeSeatCode0;
+            buffer[i++] = state.SacrificeSeatCount0;
+            if (sacrificeBytes >= 2 * NetProtocol.SacrificeSeatSlotBytes)
+            {
+                buffer[i++] = state.SacrificeSeatCode1;
+                buffer[i++] = state.SacrificeSeatCount1;
+            }
+            records++;
+        }
+        byte spentMask = (byte)(state.RoundHalfSpentMask & NetProtocol.RoundHalfSpentMaskBits);
+        if (state.HasRoundHalfSpent && spentMask != 0
+            && i + 2 + NetProtocol.RoundHalfSpentBytes <= buffer.Length)
+        {
+            // WHICH ROUND-CARD HALF IS ALREADY SPENT (41): one mask byte, four bits, one per
+            // (recess, half). It is the OWNER'S OWN PICTURE and nothing else — the half's
+            // CanvasGroup is at alpha 0.5 on their screen — so a peer can finally tell which
+            // of the two cards has been used. NO CARD IDENTITY of any kind rides here.
+            //
+            // The mask is re-ANDed with RoundHalfSpentMaskBits on the way out as well as on
+            // the way in: a future field sharing this byte must never reach an older peer as
+            // a dimmed half, and a sender bug must never reach a newer one as one either.
+            buffer[i++] = NetProtocol.ExtIdRoundHalfSpent;
+            buffer[i++] = (byte)NetProtocol.RoundHalfSpentBytes;
+            buffer[i++] = spentMask;
+            records++;
+        }
+        int heldPropBytes = HeldPropPayload(in state);
+        if (state.HasHeldProp && heldPropBytes > 0
+            && i + 2 + heldPropBytes <= buffer.Length)
+        {
+            // HELD PROPS (37): [hand][u32 propId LE][pose 20][u16 size LE] per SLOT, 27
+            // bytes for one hand and 54 while both carry an item — read by LENGTH, exactly
+            // like records 20 and 36. The hand byte is MASKED on write as well as on read
+            // so an undefined bit can never be pre-claimed by a future build's garbage.
+            //
+            // The second slot is written only when it really names a prop, so the common
+            // one-handed case costs 29 bytes and not 56; and when the FIRST slot names none
+            // the record is omitted entirely (HeldPropPayload returns 0, and the tail gate
+            // above uses the same test), which is what keeps every packet of every player
+            // whose hands are empty byte-identical to the previous build's.
+            buffer[i++] = NetProtocol.ExtIdHeldProp;
+            buffer[i++] = (byte)heldPropBytes;
+            buffer[i++] = (byte)((state.HeldPropLeftHand ? NetProtocol.HeldPropLeftBit : 0)
+                                 & NetProtocol.HeldPropHandMask);
+            AvatarSerializer.WriteI32(buffer, ref i, state.HeldPropId);
+            AvatarSerializer.WritePoseShared(buffer, ref i, in state.HeldPropPose);
+            buffer[i++] = (byte)(state.HeldPropStretchCode & 0xFF);
+            buffer[i++] = (byte)(state.HeldPropStretchCode >> 8);
+            if (heldPropBytes >= 2 * NetProtocol.HeldPropSlotBytes)
+            {
+                buffer[i++] = (byte)((state.SecondHeldPropLeftHand ? NetProtocol.HeldPropLeftBit : 0)
+                                     & NetProtocol.HeldPropHandMask);
+                AvatarSerializer.WriteI32(buffer, ref i, state.SecondHeldPropId);
+                AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondHeldPropPose);
+                buffer[i++] = (byte)(state.SecondHeldPropStretchCode & 0xFF);
+                buffer[i++] = (byte)(state.SecondHeldPropStretchCode >> 8);
+            }
+            records++;
+        }
+        if (state.HasFanSource && NetProtocol.IsFanSourcePile(state.FanSourceList)
+            && i + 2 + NetProtocol.FanSourceRecordBytes <= buffer.Length)
+        {
+            // WHICH PILE THE SENDER'S FAN IS DRAWN FROM (43): one list-id byte, in record
+            // 36's own vocabulary. NO CARD IDENTITY — it names a LIST, not a card and not a
+            // position in one, and every face a receiver draws from it still comes out of
+            // that receiver's own copy of the same host-replicated pile, still length-
+            // checked, and still only after RevealGate has said yes.
+            //
+            // APPENDED LAST, and that is placement rather than tidiness: this tail is
+            // written in its historical APPEND order and not in id order (record 37 already
+            // sits behind 41), so a new record anywhere but the end would move every byte
+            // after it and break golden vectors that describe packets this record is not
+            // even in.
+            //
+            // Written only for a PILE. The hand is the default and is unsayable here, so a
+            // player whose fan is their hand — which is every player who is not mid-pick —
+            // emits the exact bytes ModBuild 458 emitted.
+            buffer[i++] = NetProtocol.ExtIdFanSource;
+            buffer[i++] = (byte)NetProtocol.FanSourceRecordBytes;
+            buffer[i++] = state.FanSourceList;
+            records++;
+        }
+        if (state.HasUseBarSlotIds && state.UseBarSlotIds != null)
+        {
+            // WHICH BONUS OR ITEM EACH USE-BAR SLOT IS SHOWING (45):
+            // [entries][entries × [bar:3|slot:5][idLo][idHi]].
+            //
+            // NO ART AND NO NAME. A 16-bit fold of the GAME'S OWN cross-machine identity for
+            // the thing — (Ability.Name, BaseCard.ID) for a bonus, CItem.NetworkID for an
+            // item, the very pairs TakeDamagePanel.ProxyTakeDamage matches its own
+            // ActiveBonusesToken / ItemsToken on. The receiver resolves it against ITS OWN
+            // replicated model and asks the GAME for the sprite, so nothing here can name a
+            // card to a client that could not already enumerate it.
+            //
+            // WHY IT EXISTS, when RemoteUseBarSymbols resolves the same symbols for free:
+            // because for the prevent-damage prompt the free resolve CANNOT work. The game's
+            // UIScenarioMultiplayerController sends a non-controlling client to
+            // TakeDamagePanel.ShowOtherPlayer, which raises neither UIActiveBonusBar nor
+            // UIUseItemsBar and ends on myWindow.Hide(instant: true) — so the watcher's own
+            // copy of those bars is never populated for that actor and no local walk can
+            // succeed. The user reported exactly that: "Die entsprechenden Symbole sehe ich
+            // auch nicht."
+            //
+            // SPARSE AND DEFAULT-OFF. Only slots that HAVE an identity are addressed, so the
+            // abilities and augmentation bars carry nothing, and a drawer with no
+            // identifiable slot emits no record at all — such a packet is byte-identical to
+            // ModBuild 478's. APPENDED LAST, behind record 43, for the append-order reason
+            // stated there.
+            int payload = UseBarSlotIdsPayload(in state);
+            if (payload > 0 && i + 2 + payload <= buffer.Length)
+            {
+                int entries = UseBarSlotIdEntries(in state);
+                buffer[i++] = NetProtocol.ExtIdUseBarSlotIdentity;
+                buffer[i++] = (byte)payload;
+                buffer[i++] = (byte)entries;
+                byte mask = (byte)(state.UseBarsMask & NetProtocol.UseBarsDefinedMask);
+                int written = 0;
+                for (int b = 0; b < NetProtocol.UseBarsCount && written < entries; b++)
+                {
+                    if ((mask & (1 << b)) == 0)
+                        continue;
+                    int n = BarSlotCountOf(in state, b);
+                    int at = b * NetProtocol.UseBarsMaxSlots;
+                    for (int s = 0; s < n && written < entries; s++)
+                    {
+                        int k = at + s;
+                        if (k >= state.UseBarSlotIds.Length)
+                            break;
+                        ushort id = state.UseBarSlotIds[k];
+                        if (id == UseBarSlotIdentity.NoIdentity)
+                            continue;
+                        buffer[i++] = NetProtocol.UseBarSlotAddr(b, s);
+                        buffer[i++] = (byte)id;
+                        buffer[i++] = (byte)(id >> 8);
+                        written++;
+                    }
+                }
+                records++;
+            }
+        }
+        return records;
     }
 
     /// <summary>Is this pose's POSITION a real point? A NaN or infinite coordinate would move a
@@ -3742,1382 +3755,1396 @@ internal static class PresenceSerializer
                     if (length < i + len)
                         break;
 
-                    if (id == NetProtocol.ExtIdHandScale && len >= 1)
-                    {
-                        state.HasHandScale = true;
-                        state.HandScaleCode = buffer[i];
-                    }
-                    else if (id == NetProtocol.ExtIdGhostSides && len >= 1)
-                    {
-                        state.HasGhostSides = true;
-                        state.GhostSidesMask = buffer[i];
-                    }
-                    else if (id == NetProtocol.ExtIdModVersion && len >= 2)
-                    {
-                        // MOD VERSION: [u16 build LE][UTF8 display bytes]. The display length is
-                        // re-clamped on OUR side (never trust the wire) — a hostile/corrupt length
-                        // is already bounds-checked above, this only caps what we turn into text.
-                        state.HasModVersion = true;
-                        state.ModBuild = (ushort)(buffer[i] | (buffer[i + 1] << 8));
-                        int textLen = System.Math.Min(len - 2, NetProtocol.ModVersionTextMaxBytes);
-                        state.ModVersionText = DecodeModVersionText(buffer, i + 2, textLen);
-                    }
-                    else if (id == NetProtocol.ExtIdBoardUi
-                             && len >= NetProtocol.BoardUiRecordBytesLegacy)
-                    {
-                        state.HasBoardUi = true;
-                        state.BoardButtonsMask = buffer[i];
-                        // CAP STATES: the record's own LENGTH is the validity flag. A sender that
-                        // predates the byte writes BoardUiRecordBytesLegacy and this stays false,
-                        // so the mirrored caps keep the colour they were BUILT with — exactly what
-                        // every build before this one drew. Masked to the bits THIS build defines,
-                        // same discipline as the overlay byte below.
-                        if (len >= NetProtocol.BoardUiRecordBytes)
-                        {
-                            state.HasBoardCapStates = true;
-                            state.BoardCapStateMask =
-                                (byte)(buffer[i + 2] & NetProtocol.BoardUiCapStateDefinedMask);
-                        }
-                        // Mask to the bits THIS build defines (wanted glow + FOLLOW/PIN + card-slot
-                        // occupancy and its validity bit). A future sender's extra overlay bits are
-                        // dropped here rather than mis-rendered, which is the same contract that let
-                        // this build add the occupancy nibble without the peers that predate it
-                        // noticing — they mask it away with their own narrower 0x07.
-                        state.BoardOverlayMask = (byte)(buffer[i + 1] & NetProtocol.BoardUiOverlayMask);
-                    }
-                    else if (id == NetProtocol.ExtIdFanAnchor && len >= 12)
-                    {
-                        int j = i;
-                        float fx = AvatarSerializer.ReadF32(buffer, ref j);
-                        float fy = AvatarSerializer.ReadF32(buffer, ref j);
-                        float fz = AvatarSerializer.ReadF32(buffer, ref j);
-                        // Never let wire garbage place a fan at NaN/∞ — degrade to "record absent"
-                        // (the authored default spot) instead.
-                        if (!float.IsNaN(fx) && !float.IsInfinity(fx)
-                            && !float.IsNaN(fy) && !float.IsInfinity(fy)
-                            && !float.IsNaN(fz) && !float.IsInfinity(fz))
-                        {
-                            state.HasFanAnchor = true;
-                            state.FanAnchorLocal = new Vector3(fx, fy, fz);
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdCardHighlight && len >= 2)
-                    {
-                        // CARD HIGHLIGHT: two fan-local indices, never a card identity. No
-                        // validation beyond the length — the RENDERERS clamp against their own
-                        // live card count, which is the only place the bound is actually known
-                        // (a packet can legitimately arrive one frame before/after a fan resize).
-                        state.HasCardHighlight = true;
-                        state.HandHighlightIndex = buffer[i];
-                        state.FanHighlightIndex = buffer[i + 1];
-                    }
-                    else if (id == NetProtocol.ExtIdPickBanner && len >= 1)
-                    {
-                        // PICK BANNER: UTF8 text. The length is re-clamped on OUR side (never
-                        // trust the wire; the record was already bounds-checked above), and a
-                        // decode that yields nothing degrades to "record absent" = no placard.
-                        int textLen = System.Math.Min(len, NetProtocol.PickBannerTextMaxBytes);
-                        string? line = DecodePickBannerText(buffer, i, textLen);
-                        if (!string.IsNullOrEmpty(line))
-                        {
-                            state.HasPickBanner = true;
-                            state.PickBannerText = line;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdSecondFigure
-                             && len >= NetProtocol.SecondFigureRecordBytes)
-                    {
-                        // SECOND HELD FIGURE: [hand flags][int32 actorId LE][pose 20].
-                        //
-                        // THREE THINGS ARE VALIDATED HERE, and each of them is a way two minis could
-                        // otherwise end up wrong on a peer's screen:
-                        //   * the two hand bits must DISAGREE. They name the hand of the second and
-                        //     of the first (rig-packet) figure; equal bits mean the packet claims
-                        //     both minis are in one palm, which no local grab can produce (a hand
-                        //     holds one object) and which a stale/corrupt record can. Dropped.
-                        //   * actor id 0 is "none" everywhere in this system, so it can never
-                        //     identify a figure.
-                        //   * a NaN/infinite position would fling a real board figure out of the
-                        //     world — the same guard the fan anchor carries, for the same reason.
-                        // A rejected record reads as "no second figure", i.e. exactly what a peer
-                        // predating this build renders. Never a half-applied hold.
-                        byte hands = (byte)(buffer[i] & NetProtocol.SecondFigureHandMask);
-                        bool secondLeft = (hands & NetProtocol.SecondFigureLeftBit) != 0;
-                        bool primaryLeft = (hands & NetProtocol.SecondFigurePrimaryLeftBit) != 0;
-                        int j = i + 1;
-                        int secondId = AvatarSerializer.ReadI32(buffer, ref j);
-                        AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose secondPose);
-                        Vector3 sp = secondPose.Position;
-                        if (secondLeft != primaryLeft && secondId != 0
-                            && !float.IsNaN(sp.x) && !float.IsInfinity(sp.x)
-                            && !float.IsNaN(sp.y) && !float.IsInfinity(sp.y)
-                            && !float.IsNaN(sp.z) && !float.IsInfinity(sp.z))
-                        {
-                            state.HasSecondFigure = true;
-                            state.SecondFigureActorId = secondId;
-                            state.SecondFigurePose = secondPose;
-                            state.SecondFigureLeftHand = secondLeft;
-                            state.PrimaryFigureLeftHand = primaryLeft;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdHeldProp
-                             && len >= NetProtocol.HeldPropSlotBytes)
-                    {
-                        // HELD PROPS: [hand][u32 propId LE][pose 20][u16 size LE] per SLOT, read by
-                        // LENGTH. Slot 2 is read ONLY from a record long enough to carry it, so a
-                        // two-handed sender degrades to its first item on a receiver that stops at
-                        // 27 rather than reading the next record's bytes as a pose.
-                        //
-                        // WHAT IS VALIDATED, and each of them is a way a peer's board could
-                        // otherwise end up with a prop somewhere it never was:
-                        //   * prop id 0 is "none" everywhere in this system, so it can never
-                        //     identify a prop. A zero FIRST slot drops the whole record.
-                        //   * a NaN/infinite position would fling a real board prop out of the
-                        //     world — and unlike a figure, NOTHING would ever put it back, because
-                        //     the game re-authors a figure's transform every frame and never a
-                        //     prop's. So this guard is strictly more load-bearing here than it is
-                        //     on record 8, where it already earns its place.
-                        //   * the two slots must name DIFFERENT props and DIFFERENT hands. A hand
-                        //     holds one object and an object rides one hand, so an agreeing pair is
-                        //     something no local grab can produce and a stale or corrupt record can;
-                        //     the second slot is dropped and the first stands, which is exactly the
-                        //     one-handed picture.
-                        //   * each size code is sanitized independently and FAIL-CLOSED TO NEUTRAL,
-                        //     the rule record 30 established: an out-of-envelope code renders the
-                        //     item at BOARD size, never at 65x or at nothing.
-                        // A rejected record reads as "no prop held", i.e. exactly what a peer
-                        // predating this build renders. Never a half-applied hold.
-                        byte hand0 = (byte)(buffer[i] & NetProtocol.HeldPropHandMask);
-                        bool left0 = (hand0 & NetProtocol.HeldPropLeftBit) != 0;
-                        int j = i + 1;
-                        int propId0 = AvatarSerializer.ReadI32(buffer, ref j);
-                        AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose pose0);
-                        ushort size0 = (ushort)(buffer[j] | (buffer[j + 1] << 8));
-                        if (size0 < NetProtocol.HeldStretchCodeMin
-                            || size0 > NetProtocol.HeldStretchCodeMax)
-                            size0 = (ushort)NetProtocol.HeldStretchCodeNeutral;
-
-                        if (propId0 != 0 && FinitePos(in pose0))
-                        {
-                            state.HasHeldProp = true;
-                            state.HeldPropId = propId0;
-                            state.HeldPropPose = pose0;
-                            state.HeldPropLeftHand = left0;
-                            state.HeldPropStretchCode = size0;
-
-                            if (len >= 2 * NetProtocol.HeldPropSlotBytes)
-                            {
-                                int k = i + NetProtocol.HeldPropSlotBytes;
-                                byte hand1 = (byte)(buffer[k] & NetProtocol.HeldPropHandMask);
-                                bool left1 = (hand1 & NetProtocol.HeldPropLeftBit) != 0;
-                                k++;
-                                int propId1 = AvatarSerializer.ReadI32(buffer, ref k);
-                                AvatarSerializer.ReadPoseShared(buffer, ref k, out RigPose pose1);
-                                ushort size1 = (ushort)(buffer[k] | (buffer[k + 1] << 8));
-                                if (size1 < NetProtocol.HeldStretchCodeMin
-                                    || size1 > NetProtocol.HeldStretchCodeMax)
-                                    size1 = (ushort)NetProtocol.HeldStretchCodeNeutral;
-                                if (propId1 != 0 && propId1 != propId0 && left1 != left0
-                                    && FinitePos(in pose1))
-                                {
-                                    state.HasSecondHeldProp = true;
-                                    state.SecondHeldPropId = propId1;
-                                    state.SecondHeldPropPose = pose1;
-                                    state.SecondHeldPropLeftHand = left1;
-                                    state.SecondHeldPropStretchCode = size1;
-                                }
-                            }
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdHeldStretch
-                             && len >= NetProtocol.HeldStretchRecordBytes)
-                    {
-                        // HELD-FIGURE STRETCH: two u16 milli-factors, slot-aligned with the two
-                        // held-figure slots. Validation is FAIL-CLOSED TO NEUTRAL (never trust the
-                        // wire): a code outside the sane envelope — including 0 — is re-encoded as
-                        // 1000 = 1.0×, i.e. the exact picture a peer predating the record renders,
-                        // never a clamped extreme (a garbage byte must not make a figure invisible
-                        // or 65× tall). Each slot sanitizes independently: a poisoned secondary
-                        // must not cost the primary its real factor.
-                        ushort primCode = (ushort)(buffer[i] | (buffer[i + 1] << 8));
-                        ushort secCode = (ushort)(buffer[i + 2] | (buffer[i + 3] << 8));
-                        if (primCode < NetProtocol.HeldStretchCodeMin
-                            || primCode > NetProtocol.HeldStretchCodeMax)
-                            primCode = (ushort)NetProtocol.HeldStretchCodeNeutral;
-                        if (secCode < NetProtocol.HeldStretchCodeMin
-                            || secCode > NetProtocol.HeldStretchCodeMax)
-                            secCode = (ushort)NetProtocol.HeldStretchCodeNeutral;
-                        state.HasHeldStretch = true;
-                        state.HeldStretchPrimaryCode = primCode;
-                        state.HeldStretchSecondaryCode = secCode;
-                    }
-                    else if (id == NetProtocol.ExtIdBoardTooltip && len >= 1)
-                    {
-                        // BOARD TOOLTIP: UTF8 text. The length is re-clamped on OUR side (never
-                        // trust the wire; the record was already bounds-checked above), and a
-                        // decode that yields nothing degrades to "record absent" = no tooltip.
-                        // The IDENTITY GATE is a sender-side duty (see the record doc) — a
-                        // receiver can only render what arrived, so the guarantee that nothing
-                        // secret arrives lives entirely in the writer's gate.
-                        int textLen = System.Math.Min(len, NetProtocol.TooltipTextMaxBytes);
-                        string? tip = DecodeBoardTooltipText(buffer, i, textLen);
-                        if (!string.IsNullOrEmpty(tip))
-                        {
-                            state.HasBoardTooltip = true;
-                            state.BoardTooltipText = tip;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdHalfHover
-                             && len >= NetProtocol.HalfHoverRecordBytes)
-                    {
-                        // HALF HOVER + SELECTION + EMPTY-FAN HINT: [byte0 hover][byte1 state],
-                        // both masked. Byte 0's slot is validated against the board's structural
-                        // slot count — a slot the board does not have (a corrupt byte, or a future
-                        // board shape this build predates) and the HalfHoverNoneSlot sentinel both
-                        // read as "no hover", never as a glow on the wrong recess. Byte 1's
-                        // per-slot fields decode through EncodeHalfSelect, so the invalid value
-                        // 3 degrades to "none" (never trust the wire). A record whose hover AND
-                        // both selections all decode to nothing is dropped whole — identical to
-                        // "record absent", which is what the writer emits for that state anyway.
-                        //
-                        // The CAP-PRESS field (byte 0 bits 3..7) is decoded INDEPENDENTLY of the
-                        // hover/selection triple: the record can legitimately ride for a press
-                        // alone, and a hover-only record legitimately carries CapPressNone. An id
-                        // above CapPressMaxId cannot occur in three bits, but the bound is asserted
-                        // anyway — never trust the wire, and the next cap id widening will need it.
-
-                        byte half = (byte)(buffer[i] & NetProtocol.HalfHoverDefinedMask);
-                        int slot = half & NetProtocol.HalfHoverSlotMask;
-                        bool hover = slot < NetProtocol.BoardUiSlotCount;
-                        byte stateByte = (byte)(buffer[i + 1] & NetProtocol.HalfSelectByteDefinedMask);
-                        byte select = (byte)(stateByte & NetProtocol.HalfSelectDefinedMask);
-                        byte sel0 = NetProtocol.EncodeHalfSelect(
-                            select & NetProtocol.HalfSelectFieldMask);
-                        byte sel1 = NetProtocol.EncodeHalfSelect(
-                            (select >> NetProtocol.HalfSelectBitsPerSlot)
-                            & NetProtocol.HalfSelectFieldMask);
-                        if (hover || sel0 != NetProtocol.HalfSelectNone
-                                  || sel1 != NetProtocol.HalfSelectNone)
-                        {
-                            state.HasHalfHover = true;
-                            state.HalfHoverActive = hover;
-                            state.HalfHoverSlot = hover ? (byte)slot : (byte)0;
-                            state.HalfHoverTop = hover && (half & NetProtocol.HalfHoverTopBit) != 0;
-                            state.HalfSelect0 = sel0;
-                            state.HalfSelect1 = sel1;
-                        }
-                        byte pressed = (byte)((half & NetProtocol.CapPressCapMask)
-                                              >> NetProtocol.CapPressShift);
-                        if (pressed != NetProtocol.CapPressNone && pressed <= NetProtocol.CapPressMaxId)
-                        {
-                            state.HasCapPress = true;
-                            state.CapPressCap = pressed;
-                            state.CapPressSeq = (byte)((half & NetProtocol.CapPressSeqMask)
-                                                       >> NetProtocol.CapPressSeqShift);
-                        }
-                        // BIT 4 of byte 1 is read INDEPENDENTLY of both drops above, for the same
-                        // reason the press is: the record legitimately rides for the "Keine
-                        // Handkarten" placard ALONE, and that state decodes to no hover, no
-                        // selection and no press by construction. Folding it into HasHalfHover
-                        // would have meant a placard-only record set a half-hover state nobody
-                        // is in.
-                        state.EmptyFanHint = (stateByte & NetProtocol.HalfEmptyFanHintBit) != 0;
-                        // BYTE 2, THE STANDARD-ACTION QUALIFIER — taken only when the record is
-                        // really that long. A 2-byte record is a sender that predates the byte (or
-                        // one with nothing to qualify), and its absence means "every region named
-                        // above is the BIG action half", which is precisely the picture those
-                        // senders' peers already drew. Masked like every other byte here, and
-                        // gated on the state it qualifies: a hover bit without a hover, or a slot
-                        // bit without that slot's selection, states nothing and is dropped.
-                        if (len >= NetProtocol.HalfHoverRecordBytesWithDefault)
-                        {
-                            byte defaults = (byte)(buffer[i + 2]
-                                                   & NetProtocol.HalfDefaultByteDefinedMask);
-                            state.HalfHoverDefault = hover
-                                && (defaults & NetProtocol.HalfDefaultHoverBit) != 0;
-                            state.HalfSelect0Default = sel0 != NetProtocol.HalfSelectNone
-                                && (defaults & NetProtocol.HalfDefaultSelect0Bit) != 0;
-                            state.HalfSelect1Default = sel1 != NetProtocol.HalfSelectNone
-                                && (defaults & NetProtocol.HalfDefaultSelect1Bit) != 0;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdSlotOrder
-                             && len >= NetProtocol.SlotOrderRecordBytes)
-                    {
-                        // ROUND-CARD SLOT ORDER: one masked flags byte. The VALID bit is what makes
-                        // the record speak — a byte without it (a corrupt tail, a future sender
-                        // writing the record for a reason this build does not know) leaves the
-                        // receiver on its own derivation rather than asserting an order nobody
-                        // stated. Never trust the wire.
-                        byte order = (byte)(buffer[i] & NetProtocol.SlotOrderDefinedMask);
-                        if ((order & NetProtocol.SlotOrderValidBit) != 0)
-                        {
-                            state.HasSlotOrder = true;
-                            state.SlotOrderSwapped =
-                                (order & NetProtocol.SlotOrderSwappedBit) != 0;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdBoardTuning
-                             && len >= NetProtocol.BoardTuneMinRecordBytes)
-                    {
-                        // BOARD TUNING: ONE PAGE — [pageIndex][pageCount][sig][idLo][idHi][n][n ×
-                        // [id][value]] (see NetProtocol.ExtIdBoardTuning and BoardTunePages). The
-                        // page is kept RAW and handed to the per-peer BoardTunePageAssembler, which
-                        // is where every structural rule lives; each consumer then reads the field
-                        // it needs out of the ASSEMBLED payload against its own shipped default
-                        // (NetProtocol.BoardTuneVector and friends), which is what makes "field
-                        // absent" mean "the value you already have" rather than needing ~105 decoded
-                        // members here.
-                        //
-                        // A ZERO FIELD COUNT IS NO LONGER A DROP, and that reversal is load-bearing:
-                        // before paging it meant "an empty record", indistinguishable from an
-                        // untuned sender. A PAGE with no fields means "nothing is tuned in MY id
-                        // range" — a complete, necessary statement, without which a generation could
-                        // never converge for a player who tuned only offsets. The empty-tuning case
-                        // is still expressed the way it always was: by omitting the record entirely.
-                        byte[]? tune = DecodeBoardTuning(buffer, i, len);
-                        if (tune != null)
-                        {
-                            state.HasBoardTuning = true;
-                            state.BoardTuningBytes = tune;
-                            state.BoardTuningLength = len;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdPileCounts
-                             && len >= NetProtocol.PileCountsRecordBytes)
-                    {
-                        // PILE COUNTS: three plain bytes — nothing further to validate (any value
-                        // 0..255 is a drawable count; the renderers clamp their own display).
-                        state.HasPileCounts = true;
-                        state.PileDiscardCount = buffer[i];
-                        state.PileBurntCount = buffer[i + 1];
-                        state.PileItemsCount = buffer[i + 2];
-                    }
-                    else if (id == NetProtocol.ExtIdWallFades
-                             && len >= NetProtocol.WallFadesMinRecordBytes)
-                    {
-                        // WALL FADES: [count][count × u32 key LE]. The count is re-clamped
-                        // against the record LENGTH and the cap (never trust the wire); zero
-                        // surviving keys degrade to "record absent" — no peer wall fades,
-                        // exactly what a pre-record sender produces.
-                        int n = buffer[i];
-                        int fit = (len - 1) / 4;
-                        if (n > fit)
-                            n = fit;
-                        if (n > NetProtocol.WallFadesMaxKeys)
-                            n = NetProtocol.WallFadesMaxKeys;
-                        if (n > 0)
-                        {
-                            var keys = new uint[n];
-                            int j = i + 1;
-                            for (int k = 0; k < n; k++)
-                                keys[k] = AvatarSerializer.ReadU32(buffer, ref j);
-                            state.HasWallFades = true;
-                            state.WallFadesCount = n;
-                            state.WallFadesKeys = keys;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdCharFocus
-                             && len >= NetProtocol.CharFocusRecordBytes)
-                    {
-                        // CHARACTER FOCUS: [flags][int32 focusActorId LE]( [int32 attentionActorId] ).
-                        // Actor id 0 is "none" everywhere in this system and can never name a
-                        // character, so a zero id degrades to "record absent" = no outline, exactly
-                        // what pre-record peers render. The flags byte is re-masked to the bits this
-                        // build defines, so a newer sender's extra bits can never light a meaning
-                        // here.
-                        //
-                        // THE TRAILING ATTENTION ID is read only when bit 1 demands it AND the
-                        // record is really long enough — "validate only what MY flags demand" cuts
-                        // both ways, so a truncated tail degrades to the 5-byte meaning (the
-                        // character being waited on IS the focus) rather than to a torn read.
-                        byte cfFlags = (byte)(buffer[i] & NetProtocol.CharFocusDefinedMask);
-                        int j = i + 1;
-                        int focusActor = AvatarSerializer.ReadI32(buffer, ref j);
-                        if (focusActor != 0)
-                        {
-                            bool ownsAttention =
-                                (cfFlags & NetProtocol.CharFocusOwnsAttentionBit) != 0;
-                            int attentionActor = ownsAttention ? focusActor : 0;
-                            if (ownsAttention && (cfFlags & NetProtocol.CharFocusAttentionIdBit) != 0
-                                && len >= NetProtocol.CharFocusMaxRecordBytes)
-                            {
-                                int tail = AvatarSerializer.ReadI32(buffer, ref j);
-                                if (tail != 0)
-                                    attentionActor = tail;
-                            }
-                            state.HasCharFocus = true;
-                            state.CharFocusActorId = focusActor;
-                            state.CharFocusOwnsAttention = ownsAttention;
-                            state.CharFocusAttentionActorId = attentionActor;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdTrackSelection
-                             && len >= NetProtocol.TrackSelectionMinRecordBytes)
-                    {
-                        // TRACK SELECTION: [count][count × int32 actorId LE]. The count is
-                        // re-clamped against the record LENGTH and the cap (never trust the wire),
-                        // and ids of 0 are dropped — 0 is "none" everywhere in this system and can
-                        // never name a track entry. Zero surviving ids degrade to "record absent"
-                        // = no selection frame, which is exactly what a pre-record sender produces.
-                        int n = buffer[i];
-                        int fit = (len - 1) / 4;
-                        if (n > fit)
-                            n = fit;
-                        if (n > NetProtocol.TrackSelectionMaxIds)
-                            n = NetProtocol.TrackSelectionMaxIds;
-                        if (n > 0)
-                        {
-                            var ids = new int[n];
-                            int j = i + 1;
-                            int kept = 0;
-                            for (int k = 0; k < n; k++)
-                            {
-                                int actorId = AvatarSerializer.ReadI32(buffer, ref j);
-                                if (actorId != 0)
-                                    ids[kept++] = actorId;
-                            }
-                            if (kept > 0)
-                            {
-                                state.HasTrackSelection = true;
-                                state.TrackSelectionCount = kept;
-                                state.TrackSelectionIds = ids;
-                            }
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdTrackOrder
-                             && len >= NetProtocol.TrackOrderMinRecordBytes)
-                    {
-                        // TRACK ORDER: [count][ownedMask][count × int32 actorId LE]. The count is
-                        // re-clamped against the record LENGTH and the cap (never trust the wire),
-                        // and the mask against the bits the cap can define.
-                        //
-                        // THE MASK IS INDEX-ALIGNED WITH THE IDS, which is why a dropped sentinel
-                        // id has to take its bit with it: id 0 is "none" everywhere in this system
-                        // and can never name an entry, so it is compacted out — and the mask is
-                        // REBUILT over the surviving indices rather than passed through, because a
-                        // pass-through would silently shift ownership onto the wrong character.
-                        // Zero surviving ids degrade to "record absent" = no order override and no
-                        // mirrored selection ring, which is exactly what a pre-record sender
-                        // produces.
-                        int n = buffer[i];
-                        byte ownedWire = (byte)(buffer[i + 1] & NetProtocol.TrackOrderOwnedDefinedMask);
-                        int fit = (len - 2) / 4;
-                        if (n > fit)
-                            n = fit;
-                        if (n > NetProtocol.TrackOrderMaxIds)
-                            n = NetProtocol.TrackOrderMaxIds;
-                        if (n > 0)
-                        {
-                            var ids = new int[n];
-                            int j = i + 2;
-                            int kept = 0;
-                            byte owned = 0;
-                            for (int k = 0; k < n; k++)
-                            {
-                                int actorId = AvatarSerializer.ReadI32(buffer, ref j);
-                                if (actorId == 0)
-                                    continue;
-                                if ((ownedWire & (1 << k)) != 0)
-                                    owned |= (byte)(1 << kept);
-                                ids[kept++] = actorId;
-                            }
-                            if (kept > 0)
-                            {
-                                state.HasTrackOrder = true;
-                                state.TrackOrderCount = kept;
-                                state.TrackOrderOwnedMask = owned;
-                                state.TrackOrderIds = ids;
-                            }
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdFanArcOrder
-                             && len >= NetProtocol.FanArcOrderMinRecordBytes)
-                    {
-                        // FAN ARC ORDER: [count][packed nibbles]. The count is re-clamped against
-                        // the record LENGTH and the cap (never trust the wire) and the nibbles are
-                        // decoded through NetProtocol.FanArcOrderSeat, the same expression the
-                        // writer packs with.
-                        //
-                        // NOTHING IS VALIDATED AS A PERMUTATION HERE, and that is deliberate: this
-                        // layer does not know how long the RECEIVER's own derived hand list is, and
-                        // "is this an exact permutation of the seats I actually hold" is precisely
-                        // the question that has to be asked against that list. It is asked at the
-                        // point of use (RemoteHandFan, through NetProtocol.ValidateFanArcOrder),
-                        // where a refusal can fall back to the game's own order and say so. All
-                        // this does is decode a well-formed record into integers.
-                        int n = buffer[i];
-                        int fit = (len - 1) * 2;
-                        if (n > fit)
-                            n = fit;
-                        if (n > NetProtocol.FanArcOrderMaxSeats)
-                            n = NetProtocol.FanArcOrderMaxSeats;
-                        if (n > 0)
-                        {
-                            var order = new int[n];
-                            for (int k = 0; k < n; k++)
-                                order[k] = NetProtocol.FanArcOrderSeat(buffer, i + 1, k);
-                            state.HasFanArcOrder = true;
-                            state.FanArcOrderCount = n;
-                            state.FanArcOrder = order;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdTrackHover
-                             && len >= NetProtocol.TrackHoverRecordBytes)
-                    {
-                        // TRACK HOVER: [flags][int32 actorId LE]. Actor id 0 is "none" everywhere
-                        // in this system, so it can never name an entry — a zero id degrades to
-                        // "record absent" = no hover, exactly what pre-record peers render.
-                        byte thFlags = (byte)(buffer[i] & NetProtocol.TrackHoverDefinedMask);
-                        int j = i + 1;
-                        int hoverActor = AvatarSerializer.ReadI32(buffer, ref j);
-                        if (hoverActor != 0)
-                        {
-                            state.HasTrackHover = true;
-                            state.TrackHoverActorId = hoverActor;
-                            state.TrackHoverPopup = (thFlags & NetProtocol.TrackHoverPopupBit) != 0;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdSecondHeldCard
-                             && len >= NetProtocol.SecondHeldCardRecordBytes)
-                    {
-                        // SECOND HELD CARD: the shared 20-byte pose. The one validation is the
-                        // NaN/infinity guard every wire position carries (fan anchor, second
-                        // figure): garbage must degrade to "record absent" — the slab the peer
-                        // predating this build renders — never to a slab flung out of the world.
-                        // No hand byte to validate: the slab is rendered at this absolute pose
-                        // and never attached to a hand, so no hand contradiction is expressible
-                        // (see the record doc for the receiver evidence).
-                        int j = i;
-                        AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose cardPose);
-                        Vector3 cp = cardPose.Position;
-                        if (!float.IsNaN(cp.x) && !float.IsInfinity(cp.x)
-                            && !float.IsNaN(cp.y) && !float.IsInfinity(cp.y)
-                            && !float.IsNaN(cp.z) && !float.IsInfinity(cp.z))
-                        {
-                            state.HasSecondHeldCard = true;
-                            state.SecondHeldCardPose = cardPose;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdHeldCardGrip
-                             && len >= NetProtocol.HeldCardGripRecordBytes)
-                    {
-                        // HELD-CARD GRIP: one flag byte. UNDEFINED BITS ARE MASKED OFF rather than
-                        // stored, so a future sender that spends bit 2 on a third card slot cannot
-                        // make this build read a slot it has no pose for; and an ALL-ZERO byte
-                        // decodes to "record absent" (both cards billboard), which is exactly what
-                        // a peer predating the record renders. No pose and no identity here at all
-                        // - this record only says WHICH RULE the poses that are already on the
-                        // wire should be drawn under.
-                        byte grip = (byte)(buffer[i] & (NetProtocol.HeldCardGripFirstBit
-                                                        | NetProtocol.HeldCardGripSecondBit));
-                        if (grip != 0)
-                        {
-                            state.HasHeldCardGrip = true;
-                            state.HeldCardGripMask = grip;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdItemUsable
-                             && len >= NetProtocol.ItemUsableRecordBytes)
-                    {
-                        // PER-ITEM USABLE MASK: one u16 LE over Inventory.AllItems RAW index. A
-                        // ZERO mask decodes to "record absent" — the bare slabs a peer predating
-                        // this build draws — so the two states stay one state on the read side as
-                        // well as on the write side, and a latched mask can never outlive a sender
-                        // whose board stopped framing anything. There is nothing else to validate:
-                        // every bit is defined (the record IS the mask), a bit past the receiver's
-                        // own inventory simply frames nothing, and no identity is expressible here.
-                        ushort usable = (ushort)(buffer[i] | (buffer[i + 1] << 8));
-                        if (usable != 0)
-                        {
-                            state.HasItemUsable = true;
-                            state.ItemUsableMask = usable;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdHeldCardFace
-                             && len >= NetProtocol.HeldCardFaceSlotBytes)
-                    {
-                        // HELD-CARD FACE: [code][list length] per POSE SLOT. Slot 2 is read ONLY
-                        // from a record long enough to carry it, so a sender holding one card
-                        // degrades to "slot 2 names nothing" rather than to whatever the next
-                        // record's bytes happen to say — the same length-gated shape record 20 uses
-                        // for its selection edge.
-                        //
-                        // A code naming no list (or a list id past HeldFaceListMax, which since
-                        // ModBuild 461 is only 7) decodes to "record absent" for that slot, which is
-                        // the BACK a peer predating the record draws. UNDEFINED IS ALWAYS A BACK
-                        // here and never a guess: the one failure this record must not have is a
-                        // front drawn on the wrong card, and every unknown value is routed to the
-                        // same safe picture.
-                        //
-                        // NOTE THE CONTRAST WITH RECORD 39 BELOW, which shares this encoding and
-                        // deliberately accepts a NARROWER vocabulary. This record names a card in a
-                        // peer's FIST, and every list is a legitimate place to have plucked one
-                        // from; record 39 names a card lying in a ROUND RECESS, where the HAND list
-                        // would be the two-card commit. Same codec, two vocabularies, and the
-                        // difference is stated at both sites rather than at neither.
-                        byte code0 = buffer[i];
-                        byte count0 = buffer[i + 1];
-                        byte code1 = 0;
-                        byte count1 = 0;
-                        if (len >= 2 * NetProtocol.HeldCardFaceSlotBytes)
-                        {
-                            code1 = buffer[i + 2];
-                            count1 = buffer[i + 3];
-                        }
-                        if (NetProtocol.HeldFaceList(code0) > NetProtocol.HeldFaceListMax)
-                            code0 = 0;
-                        if (NetProtocol.HeldFaceList(code1) > NetProtocol.HeldFaceListMax)
-                            code1 = 0;
-                        if (code0 != 0 || code1 != 0)
-                        {
-                            state.HasHeldCardFace = true;
-                            state.HeldFaceCode = code0;
-                            state.HeldFaceCount = count0;
-                            state.SecondHeldFaceCode = code1;
-                            state.SecondHeldFaceCount = count1;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdSacrificeSeat
-                             && len >= NetProtocol.SacrificeSeatSlotBytes)
-                    {
-                        // SHORT-REST SACRIFICE SEAT: [code][list length] per ROUND RECESS. Recess 2
-                        // is read ONLY from a record long enough to carry it, so a sender with the
-                        // sacrifice in recess 1 degrades to "recess 2 names nothing" rather than to
-                        // whatever the next record's bytes happen to say — the same length-gated
-                        // shape records 20, 36 and 37 use.
-                        //
-                        // A code naming a list this record MAY NOT CARRY decodes to "record
-                        // absent" for that recess, which is the ANONYMOUS BACK a peer predating the
-                        // record draws. UNDEFINED IS ALWAYS A BACK and never a guess: a face drawn
-                        // on the wrong card in a recess is worse than the back this record exists to
-                        // replace, so every value outside the vocabulary is routed to it.
-                        //
-                        // AND THE VOCABULARY IS NARROWER THAN record 36's, WHICH IS THE ANTI-CHEAT
-                        // BOUNDARY ITSELF RATHER THAN A TIDINESS RULE. Only the DISCARD and BURNT
-                        // arcs may name a card lying in a round recess (see
-                        // NetProtocol.ExtIdSacrificeSeat's "WHAT MAY BE WRITTEN HERE" paragraph):
-                        // the other thing that lies in a recess during SelectAbilityCardsOrLongRest
-                        // is a card of the TWO-CARD COMMIT, which is a HAND card, and refusing
-                        // HeldFaceListHand HERE — at the decode, before any consumer sees it — is
-                        // what makes that secret unexpressible in the format instead of merely
-                        // unwritten by this build's sampler. HeldFaceListActive, Items and
-                        // MapLoadout are refused for the same reason in reverse: no card of those
-                        // lists is ever laid in a recess, so a sender naming one is a sender this
-                        // receiver should not follow.
-                        byte seatCode0 = buffer[i];
-                        byte seatCount0 = buffer[i + 1];
-                        byte seatCode1 = 0;
-                        byte seatCount1 = 0;
-                        if (len >= 2 * NetProtocol.SacrificeSeatSlotBytes)
-                        {
-                            seatCode1 = buffer[i + 2];
-                            seatCount1 = buffer[i + 3];
-                        }
-                        if (!NetProtocol.RecessSeatListAllowed(NetProtocol.HeldFaceList(seatCode0)))
-                            seatCode0 = 0;
-                        if (!NetProtocol.RecessSeatListAllowed(NetProtocol.HeldFaceList(seatCode1)))
-                            seatCode1 = 0;
-                        if (seatCode0 != 0 || seatCode1 != 0)
-                        {
-                            state.HasSacrificeSeat = true;
-                            state.SacrificeSeatCode0 = seatCode0;
-                            state.SacrificeSeatCount0 = seatCount0;
-                            state.SacrificeSeatCode1 = seatCode1;
-                            state.SacrificeSeatCount1 = seatCount1;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdRoundHalfSpent
-                             && len >= NetProtocol.RoundHalfSpentBytes)
-                    {
-                        // WHICH ROUND-CARD HALF IS ALREADY SPENT: one mask byte. Masked to the four
-                        // bits THIS build defines, so a newer sender that puts a fifth field in the
-                        // spare bits can never dim a half this receiver has no name for — an
-                        // unknown bit draws the UNDIMMED half, which is what a peer predating the
-                        // record draws and therefore the only safe degradation.
-                        //
-                        // An empty mask decodes to "record absent" rather than to "explicitly
-                        // nothing", because the sender omits the record for exactly that state:
-                        // the two must mean the same thing or a peer would keep a stale dim across
-                        // the round boundary that clears it.
-                        byte spent = (byte)(buffer[i] & NetProtocol.RoundHalfSpentMaskBits);
-                        if (spent != 0)
-                        {
-                            state.HasRoundHalfSpent = true;
-                            state.RoundHalfSpentMask = spent;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdFanSource
-                             && len >= NetProtocol.FanSourceRecordBytes)
-                    {
-                        // WHICH PILE THE SENDER'S FAN IS DRAWN FROM: one list id. VALIDATED AGAINST
-                        // THE TWO PILES A FAN CAN ACTUALLY BE, and everything else — the hand, an
-                        // item list, a map loadout, an id from a build that does not exist yet —
-                        // decodes to "record absent", i.e. THE HAND. That is the picture this
-                        // receiver drew before the record existed, so an unknown value costs a peer
-                        // nothing it was not already living with; and it is the only degradation
-                        // that cannot put a face from one pile onto a card from another, which is
-                        // the single failure every card-face path here is written to avoid.
-                        byte list = buffer[i];
-                        if (NetProtocol.IsFanSourcePile(list))
-                        {
-                            state.HasFanSource = true;
-                            state.FanSourceList = list;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdUseBarSlotIdentity
-                             && len >= NetProtocol.UseBarSlotIdentityMinRecordBytes)
-                    {
-                        // USE-BAR SLOT IDENTITY: [entries][entries × [bar:3|slot:5][idLo][idHi]].
-                        //
-                        // NEVER TRUST THE WIRE. The stated entry count is clamped to the record's
-                        // cap AND to the number of whole 3-byte entries that actually fit inside
-                        // THIS record's own end, so a lying count can neither allocate a large array
-                        // nor read a byte belonging to the next record. Each address is decoded
-                        // through the record's own accessors and RANGE-CHECKED against
-                        // UseBarsCount / UseBarsMaxSlots before it indexes anything — a bar or slot
-                        // this build has no seat for is dropped, not clamped onto a neighbour,
-                        // because clamping would move a symbol onto a slot the owner never named.
-                        //
-                        // An id of 0 is NoIdentity and is dropped for the same reason: it is the
-                        // sender's own "this slot has none", and storing it would be
-                        // indistinguishable from a slot that was never addressed.
-                        int j = i;
-                        int end = i + len;
-                        int stated = buffer[j++];
-                        int fits = (end - j) / NetProtocol.UseBarSlotIdentityEntryBytes;
-                        int n = stated;
-                        if (n > NetProtocol.UseBarSlotIdentityMaxEntries)
-                            n = NetProtocol.UseBarSlotIdentityMaxEntries;
-                        if (n > fits)
-                            n = fits;
-                        if (n > 0)
-                        {
-                            var ids = new ushort[NetProtocol.UseBarsCount
-                                                 * NetProtocol.UseBarsMaxSlots];
-                            bool any = false;
-                            for (int e = 0; e < n; e++)
-                            {
-                                byte addr = buffer[j];
-                                var value = (ushort)(buffer[j + 1] | (buffer[j + 2] << 8));
-                                j += NetProtocol.UseBarSlotIdentityEntryBytes;
-                                int bar = NetProtocol.UseBarSlotAddrBar(addr);
-                                int slot = NetProtocol.UseBarSlotAddrSlot(addr);
-                                if (bar >= NetProtocol.UseBarsCount
-                                    || slot >= NetProtocol.UseBarsMaxSlots
-                                    || value == UseBarSlotIdentity.NoIdentity)
-                                    continue;
-                                ids[(bar * NetProtocol.UseBarsMaxSlots) + slot] = value;
-                                any = true;
-                            }
-                            if (any)
-                            {
-                                state.HasUseBarSlotIds = true;
-                                state.UseBarSlotIds = ids;
-                            }
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdSlotCardSize
-                             && len >= NetProtocol.SlotCardSizeRecordBytes)
-                    {
-                        // SLOT-CARD SIZE: two u16 widths, tenth-mm. Validation = the decoder's own
-                        // 5 mm floor (never trust the wire): a garbage code degrades to "record
-                        // absent" — the legacy width — rather than collapsing a peer's cards to a
-                        // sliver. Both must be sane; a half-valid pair is dropped whole, so the
-                        // card and its frame can never disagree about which build sized them.
-                        ushort frame = (ushort)(buffer[i] | (buffer[i + 1] << 8));
-                        ushort card = (ushort)(buffer[i + 2] | (buffer[i + 3] << 8));
-                        if (frame >= NetProtocol.SlotWidthMinCode
-                            && card >= NetProtocol.SlotWidthMinCode)
-                        {
-                            state.HasSlotCardSize = true;
-                            state.SlotFrameWidthCode = frame;
-                            state.SlotCardWidthCode = card;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdDecisionLines && len >= 1)
-                    {
-                        // DECISION LINES: UTF8 blob, one button label per '\n'-separated line.
-                        // The length is re-clamped on OUR side (never trust the wire; the record
-                        // was bounds-checked above), and a decode that yields nothing degrades to
-                        // "record absent" = no docked decision content.
-                        int textLen = System.Math.Min(len, NetProtocol.DecisionLinesMaxBytes);
-                        string lines = DecisionLinesCodec.Decode(buffer, i, textLen);
-                        if (!string.IsNullOrEmpty(lines))
-                        {
-                            state.HasDecisionLines = true;
-                            state.DecisionLinesText = lines;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdDecisionNames && len >= 1)
-                    {
-                        // DECISION NAMES: UTF8 blob, one localization KEY per '\n'-separated line.
-                        // Length re-clamped on OUR side (never trust the wire), and a decode that
-                        // yields nothing degrades to "record absent" — the hint alone, which is
-                        // what every build before ModBuild 307 drew.
-                        int nameLen = System.Math.Min(len, NetProtocol.DecisionNamesMaxBytes);
-                        string names = DecisionNamesCodec.Decode(buffer, i, nameLen);
-                        if (!string.IsNullOrEmpty(names))
-                        {
-                            state.HasDecisionNames = true;
-                            state.DecisionNamesText = names;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdDecisionState
-                             && len >= NetProtocol.DecisionStateMinRecordBytes)
-                    {
-                        // DECISION STATE: [flags][n][n × option byte]. The claimed option count is
-                        // re-clamped against the record's OWN length AND the cap (never trust the
-                        // wire), so a hostile n can neither overrun the record nor bleed into the
-                        // next one; the flags byte and every option byte are masked to their
-                        // DEFINED bits, so a newer sender's extra bits can never light a meaning
-                        // here. A record that survives all of that still delivers only enumerations
-                        // and a bitfield — there is no text and no identity in it to leak.
-                        byte dsFlags = (byte)(buffer[i] & NetProtocol.DecisionStateDefinedMask);
-                        int n = buffer[i + 1];
-                        if (n > NetProtocol.DecisionStateMaxOptions)
-                            n = NetProtocol.DecisionStateMaxOptions;
-                        if (n > len - 2)
-                            n = len - 2;
-                        if (n < 0)
-                            n = 0;
-                        state.HasDecisionState = true;
-                        state.DecisionPromptKind = NetProtocol.DecodeDecisionKind(dsFlags);
-                        state.DecisionTextVariant = NetProtocol.DecodeDecisionTextVariant(dsFlags);
-                        state.DecisionOptionCount = n;
-                        if (n > 0)
-                        {
-                            byte[] opts = new byte[n];
-                            for (int o = 0; o < n; o++)
-                                opts[o] = (byte)(buffer[i + 2 + o]
-                                                 & NetProtocol.DecisionOptionDefinedMask);
-                            state.DecisionOptionFlags = opts;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdDecisionWidgets
-                             && len >= NetProtocol.DecisionWidgetMinRecordBytes)
-                    {
-                        // DECISION WIDGETS: [flags][damage][n][n × role byte]. Same bounds
-                        // discipline as record 24 — the claimed role count is re-clamped against the
-                        // record's OWN length AND the cap, so a hostile n can neither overrun the
-                        // record nor bleed into the next one; the flags byte is masked to its
-                        // DEFINED bits and every role clamped to what THIS build can resolve, so an
-                        // unknown code degrades to "mod-drawn plate" rather than resolving to the
-                        // wrong widget. What survives is three small enumerations and a damage
-                        // number — no text, no id, nothing that could name a card.
-                        byte dwFlags = (byte)(buffer[i] & NetProtocol.DecisionWidgetDefinedMask);
-                        byte damage = buffer[i + 1];
-                        int n = buffer[i + 2];
-                        if (n > NetProtocol.DecisionStateMaxOptions)
-                            n = NetProtocol.DecisionStateMaxOptions;
-                        if (n > len - 3)
-                            n = len - 3;
-                        if (n < 0)
-                            n = 0;
-                        state.HasDecisionWidgets = true;
-                        state.DecisionWidgetFlags = dwFlags;
-                        state.DecisionDamageAmount = damage;
-                        state.DecisionRoleCount = n;
-                        if (n > 0)
-                        {
-                            byte[] roles = new byte[n];
-                            for (int o = 0; o < n; o++)
-                                roles[o] = NetProtocol.ClampDecisionRole(buffer[i + 3 + o]);
-                            state.DecisionRoles = roles;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdUseBars
-                             && len >= NetProtocol.UseBarsMinRecordBytes)
-                    {
-                        // USE BARS: [barMask] then, per SET bar bit in bit order,
-                        // [barFlags][n][n × slot byte]. The blocks are variable-length, so EVERY
-                        // step is bounds-checked against the record's OWN end (never trust the
-                        // wire): a lying count is clamped to what is left inside the record, and a
-                        // block that does not fit at all ends the walk with whatever was already
-                        // read — it can neither overrun the record nor bleed into the next one.
-                        // The mask, the per-bar flags and every slot byte are masked to their
-                        // DEFINED bits, so a newer sender's extra bits can never light a meaning
-                        // here. What survives is a mask, two small counts and a bitfield: no text,
-                        // no id, nothing that could name a card.
-                        int j = i;
-                        int end = i + len;
-                        byte barMask = (byte)(buffer[j++] & NetProtocol.UseBarsDefinedMask);
-                        if (barMask != 0)
-                        {
-                            var barFlags = new byte[NetProtocol.UseBarsCount];
-                            var barCounts = new byte[NetProtocol.UseBarsCount];
-                            var slotStates =
-                                new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
-                            byte kept = 0;
-                            for (int b = 0; b < NetProtocol.UseBarsCount; b++)
-                            {
-                                if ((barMask & (1 << b)) == 0)
-                                    continue;
-                                if (j + 2 > end)
-                                    break; // truncated block: this bar and every later one are not delivered
-                                byte f = (byte)(buffer[j++] & NetProtocol.UseBarFlagsDefinedMask);
-                                int n = buffer[j++];
-                                if (n > NetProtocol.UseBarsMaxSlots)
-                                    n = NetProtocol.UseBarsMaxSlots;
-                                if (n > end - j)
-                                    n = end - j;
-                                if (n < 0)
-                                    n = 0;
-                                int at = b * NetProtocol.UseBarsMaxSlots;
-                                for (int s = 0; s < n; s++)
-                                    slotStates[at + s] =
-                                        (byte)(buffer[j + s] & NetProtocol.UseSlotDefinedMask);
-                                j += n;
-                                barFlags[b] = f;
-                                barCounts[b] = (byte)n;
-                                kept |= (byte)(1 << b);
-                            }
-                            if (kept != 0)
-                            {
-                                state.HasUseBars = true;
-                                state.UseBarsMask = kept;
-                                state.UseBarFlags = barFlags;
-                                state.UseBarSlotCounts = barCounts;
-                                state.UseBarSlotStates = slotStates;
-                            }
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdItemUseClip
-                             && len >= NetProtocol.ItemUseClipRecordBytes)
-                    {
-                        // ITEM-USE CLIP: one fan-local index, never an item identity. No validation
-                        // beyond the length, for exactly the reason record 6 states: the RENDERER
-                        // clamps against its own live slab count, which is the only place the bound
-                        // is actually known (a packet can legitimately arrive one frame before or
-                        // after a fan resize). Absence — the common case — leaves this false, which
-                        // is "the recess is empty", i.e. the pre-record rendering.
-                        state.HasItemUseClip = true;
-                        state.ItemUseClipIndex = buffer[i];
-                    }
-                    else if (id == NetProtocol.ExtIdEnvClock
-                             && len >= NetProtocol.EnvClockRecordBytes)
-                    {
-                        // SHARED ENVIRONMENT CLOCK: [style][u32 ms LE]. Validation is FAIL-CLOSED TO
-                        // ABSENCE (never trust the wire): a style code of 0 or above
-                        // EnvClockMaxStyleCode is a sender this build cannot name, and "the same
-                        // environment" must never be decided by a code we do not understand — the
-                        // record is dropped whole, which leaves the receiver exactly where a peer
-                        // predating record 31 leaves it (its own clock, its own offset 0). The
-                        // millisecond value needs no range check: the consumer treats it as a
-                        // DIFFERENCE and its own jump/walk band already bounds the correction, and
-                        // a NaN cannot arrive from four integer bytes.
-                        byte envStyle = buffer[i];
-                        if (envStyle != 0 && envStyle <= NetProtocol.EnvClockMaxStyleCode)
-                        {
-                            state.HasEnvClock = true;
-                            state.EnvClockStyle = envStyle;
-                            state.EnvClockMillis = (uint)(buffer[i + 1]
-                                                          | (buffer[i + 2] << 8)
-                                                          | (buffer[i + 3] << 16)
-                                                          | (buffer[i + 4] << 24));
-
-                            // THE SIXTH BYTE — the sender's haunt frequency in hundredths, present
-                            // only from 2026-08-15 on. A 5-byte record is a peer that predates the
-                            // host-frequency ruling; leaving the flag false there is exactly right,
-                            // because the receiver then keeps its OWN dial, which is what those
-                            // builds did. CLAMPED rather than dropped (see EnvClockFrequencyMaxCode):
-                            // the value is a threshold with no meaning outside [0,1].
-                            if (len >= NetProtocol.EnvClockRecordBytesWithFrequency)
-                            {
-                                byte code = buffer[i + 5];
-                                state.HasEnvClockFrequency = true;
-                                state.EnvClockFrequencyCode =
-                                    code > NetProtocol.EnvClockFrequencyMaxCode
-                                        ? NetProtocol.EnvClockFrequencyMaxCode
-                                        : code;
-                            }
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdTestForce
-                             && len >= NetProtocol.TestForceRecordBytes)
-                    {
-                        // DEBUG TEST-TRIGGER OVERRIDE: [style][haunt+1][strong][waning][u32 ms LE].
-                        // Sanitized FIELD BY FIELD (never trust the wire), and never by dropping the
-                        // record — an unusable field must degrade to "this does not apply here",
-                        // which the consumer already knows how to RELEASE, rather than to silence,
-                        // which it would have to wait out:
-                        //   * a style code this build cannot name is rewritten to
-                        //     TestForceStyleUnknown, a value no dial can produce. The receiver's
-                        //     equality test then fails and the whole override becomes a no-op — and
-                        //     by the same path a release of whatever that sender had applied here.
-                        //   * a haunt code above the largest room's card count is dropped to 0
-                        //     rather than clamped; a card that does not exist must not resolve to a
-                        //     card that does.
-                        //   * both masks are reduced to their DEFINED bits, and an element claimed
-                        //     in BOTH columns is dropped from both — an element cannot be Strong and
-                        //     Waning at once, and guessing which was meant would be inventing state.
-                        // An ALL-ZERO record survives all of this and IS DELIVERED: it is the
-                        // sender's explicit "nothing is latched any more", and dropping it would
-                        // leave the receiver waiting out a staleness timeout instead.
-                        byte tfStyle = buffer[i];
-                        byte tfHaunt = buffer[i + 1];
-                        if (tfStyle > NetProtocol.TestForceMaxStyleCode)
-                            tfStyle = NetProtocol.TestForceStyleUnknown;
-                        if (tfHaunt > NetProtocol.TestForceMaxHauntCode)
-                            tfHaunt = 0;
-                        byte strong = (byte)(buffer[i + 2] & NetProtocol.TestForceElementMask);
-                        byte waning = (byte)(buffer[i + 3] & NetProtocol.TestForceElementMask);
-                        byte both = (byte)(strong & waning);
-                        strong &= (byte)~both;
-                        waning &= (byte)~both;
-
-                        state.HasTestForce = true;
-                        state.TestForceStyle = tfStyle;
-                        state.TestForceHauntCode = tfHaunt;
-                        state.TestForceStrongMask = strong;
-                        state.TestForceWaningMask = waning;
-                        state.TestForceHauntSinceMillis = (uint)(buffer[i + 4]
-                                                                 | (buffer[i + 5] << 8)
-                                                                 | (buffer[i + 6] << 16)
-                                                                 | (buffer[i + 7] << 24));
-                    }
-                    else if (id == NetProtocol.ExtIdStorySync
-                             && len >= NetProtocol.StoryMinRecordBytes)
-                    {
-                        // STORY WINDOW SYNC: [flags][page][pageCount][u32 key LE]
-                        // ( [poseStamp][sizeCode][pose 20] ).
-                        //
-                        // Sanitized FIELD BY FIELD (never trust the wire), never by dropping the
-                        // record whole — the record's most important statement is the FINISHED
-                        // bit, and silently dropping that is exactly the deadlock the feature
-                        // exists to remove:
-                        //   * undefined flag bits are masked off, so a future sender's extra bit
-                        //     can never light a meaning here.
-                        //   * a page at or past StoryPageNone becomes StoryPageNone ("no page"),
-                        //     which the consumer already treats as "nothing to apply". The
-                        //     receiver re-clamps against its OWN page list anyway — the only
-                        //     place the real bound is known.
-                        //   * the POSE block is optional and validated by the record's own
-                        //     length. A truncated one leaves the pose bit CLEAR, which reads as
-                        //     "this sender has not moved the window" — the receiver then keeps
-                        //     its own local placement, which is what a pre-record peer gives it.
-                        //   * a NaN/Inf position would ride 4 integer bytes per component and is
-                        //     rejected here rather than by the placer, because a window flung to
-                        //     infinity is unreachable and the local placement is always usable.
-                        // The story KEY is deliberately NOT validated: it is an opaque content
-                        // hash, and its whole job is to FAIL to match when the two clients hold
-                        // different dialogs. A garbage key can therefore only make the record a
-                        // no-op, never make it apply to the wrong text.
-                        byte sFlags = (byte)(buffer[i] & NetProtocol.StoryDefinedMask);
-                        byte sPage = buffer[i + 1];
-                        if (sPage > NetProtocol.StoryPageMax)
-                            sPage = NetProtocol.StoryPageNone;
-
-                        state.HasStorySync = true;
-                        state.StoryPage = sPage;
-                        state.StoryPageCount = buffer[i + 2];
-                        state.StoryKey = (uint)(buffer[i + 3]
-                                                | (buffer[i + 4] << 8)
-                                                | (buffer[i + 5] << 16)
-                                                | (buffer[i + 6] << 24));
-                        state.StorySizeCode = NetProtocol.StorySizeDefaultCode;
-
-                        if ((sFlags & NetProtocol.StoryPoseBit) != 0
-                            && len >= NetProtocol.StoryRecordBytesWithPose)
-                        {
-                            int j = i + NetProtocol.StoryMinRecordBytes;
-                            byte stamp = buffer[j++];
-                            byte size = buffer[j++];
-                            AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose sPose);
-                            Vector3 p = sPose.Position;
-                            if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsNaN(p.z)
-                                || float.IsInfinity(p.x) || float.IsInfinity(p.y)
-                                || float.IsInfinity(p.z))
-                            {
-                                sFlags &= unchecked((byte)~NetProtocol.StoryPoseBit);
-                            }
-                            else
-                            {
-                                state.StoryPoseStamp = stamp;
-                                state.StorySizeCode =
-                                    size < NetProtocol.StorySizeMinCode
-                                    || size > NetProtocol.StorySizeMaxCode
-                                        ? NetProtocol.StorySizeDefaultCode
-                                        : size;
-                                state.StoryPose = sPose;
-                            }
-                        }
-                        else
-                        {
-                            // Claimed a pose but the record is too short to hold one: keep every
-                            // other field and drop the CLAIM, so a truncating sender still gets
-                            // its page (and its FINISHED bit) delivered.
-                            sFlags &= unchecked((byte)~NetProtocol.StoryPoseBit);
-                        }
-                        state.StoryFlags = sFlags;
-                    }
-                    else if (id == NetProtocol.ExtIdMapRoom
-                             && len >= NetProtocol.MapRoomRecordBytes)
-                    {
-                        // 3D MAP ROOM: [flags][surfaceStamp][u32 pickKey LE].
-                        //
-                        // Sanitized FIELD BY FIELD, never by dropping the record whole — the
-                        // record's first statement is "I am in the room", and dropping that would
-                        // read as a peer LEAVING the room, i.e. it would make a garbage byte
-                        // somewhere else erase a placard that is genuinely up:
-                        //   * undefined flag bits are masked off (the board-UI overlay
-                        //     discipline), so a future sender's extra bit can never light a
-                        //     meaning here.
-                        //   * the surface stamp needs no range check at all: it is a WRAPPING
-                        //     counter compared only for INEQUALITY against the last one seen from
-                        //     the same sender. Every one of its 256 values is legal and none of
-                        //     them means anything on its own.
-                        //   * the pick key is deliberately NOT validated. It is an opaque content
-                        //     hash whose whole job is to FAIL to resolve when the two clients are
-                        //     not looking at the same map, and the only thing a receiver does with
-                        //     an unresolvable key is nothing.
-                        // A record whose IN-ROOM bit is clear survives all of this and IS
-                        // DELIVERED: the consumer reads it as "this peer is not in the room", the
-                        // same picture absence gives, so the two agree by construction.
-                        state.HasMapRoom = true;
-                        state.MapRoomFlags = (byte)(buffer[i] & NetProtocol.MapRoomDefinedMask);
-                        state.MapRoomSurfaceStamp = buffer[i + 1];
-                        state.MapRoomPickKey = (uint)(buffer[i + 2]
-                                                      | (buffer[i + 3] << 8)
-                                                      | (buffer[i + 4] << 16)
-                                                      | (buffer[i + 5] << 24));
-                        // THE SELECTION EDGE IS READ ONLY IF THE RECORD IS LONG ENOUGH TO HOLD IT,
-                        // and its absence is a defined state rather than a default: a sender that
-                        // writes only the six-byte form leaves stamp 0 / key 0 here, and a stamp
-                        // that never changes never instructs anybody (RemoteMapRoom treats first
-                        // sight as "not an edge"). So an older peer degrades to "does not
-                        // participate in the shared selection" and can never be read as "that peer
-                        // just deselected everything".
-                        if (len >= NetProtocol.MapRoomRecordBytesWithSelect)
-                        {
-                            state.MapRoomSelectStamp = buffer[i + 6];
-                            // The select key is deliberately NOT validated, exactly like the pick
-                            // key: it is an opaque content hash whose job is to FAIL to resolve
-                            // when two clients are not looking at the same map. What is different
-                            // is what a MATCH does — it drives the game's own click seam — so the
-                            // sanity of the value is enforced where that happens (a key that
-                            // resolves to no live location here is dropped with a stated reason),
-                            // never by guessing at a byte range that has no meaning.
-                            state.MapRoomSelectKey = (uint)(buffer[i + 7]
-                                                            | (buffer[i + 8] << 8)
-                                                            | (buffer[i + 9] << 16)
-                                                            | (buffer[i + 10] << 24));
-                        }
-                        // THE MAP-FAN CHARACTER KEY, same discipline one field further out: read
-                        // only behind its own length test, unvalidated because it is an opaque
-                        // content hash, and 0-or-absent means "that peer has no map fan open". An
-                        // older peer therefore leaves this 0 and the receiver falls back to
-                        // deducing the fan's owner from its hand size, which is what every build
-                        // before this one did — never to a wrong character.
-                        if (len >= NetProtocol.MapRoomRecordBytesWithFan)
-                        {
-                            state.MapRoomFanCharacterKey = (uint)(buffer[i + 11]
-                                                                  | (buffer[i + 12] << 8)
-                                                                  | (buffer[i + 13] << 16)
-                                                                  | (buffer[i + 14] << 24));
-                        }
-                        // THE SHARED GAZE YAW, same discipline one field further out. NOT VALIDATED,
-                        // and there is nothing to validate: all 256 steps are legal directions, and
-                        // whether the number means anything at all is said by MapRoomGazeValidBit —
-                        // which an older sender cannot set, because its flags byte is masked by a
-                        // MapRoomDefinedMask that does not contain the bit. So a peer on an older
-                        // build leaves this 0 AND the bit clear, and every client falls back to the
-                        // fixed table axis, which is exactly what every build before this one did.
-                        if (len >= NetProtocol.MapRoomRecordBytesWithGaze)
-                        {
-                            state.MapRoomGazeYaw = buffer[i + 15];
-                        }
-                        else
-                        {
-                            // A RECORD TOO SHORT TO HOLD THE FIELD MUST NOT BE READ AS SETTING IT,
-                            // and the flags byte is where that could have gone wrong: it lives in
-                            // the FROZEN six-byte minimum, so a sender of ANY length can light bit 6
-                            // in it while carrying no gaze byte at all — and the anchor would then
-                            // take the 0 left here as a decided yaw of 0° and seat every shared
-                            // window along world +Z for the whole room visit. Our own older writers
-                            // mask the bit out, but "never trust the wire" is not satisfied by
-                            // trusting our own past builds. The bit is stripped where the absence is
-                            // KNOWN, which is here.
-                            state.MapRoomFlags &= unchecked((byte)~NetProtocol.MapRoomGazeValidBit);
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdSharedWindow && len >= 1)
-                    {
-                        // SHARED MAP WINDOWS: [n] then n x [kind][flags][page][pageCount]
-                        // [u32 contentKey LE] ( [poseStamp][sizeCode][frame][pose 20] ).
-                        //
-                        // EVERY step is bounds-checked against the record's OWN end (never trust
-                        // the wire): a lying count is clamped to the record cap, an entry that does
-                        // not fit ENDS THE WALK WITH THE ENTRIES BEFORE IT KEPT, and nothing can
-                        // overrun the record or bleed into the next one. Sanitised field by field:
-                        //   * n is clamped to SharedWindowMaxEntries.
-                        //   * flags are masked with SharedDefinedMask.
-                        //   * a page at or past StoryPageNone becomes StoryPageNone; the receiver
-                        //     re-clamps against its OWN dialog list anyway (NetProtocol
-                        //     .ResolveStoryPage), the only place the real bound is known.
-                        //   * an UNKNOWN KIND is not dropped from the record — its length is still
-                        //     computable from its own flags byte, so it is stepped over and the
-                        //     entries behind it still apply. That is what makes a third kind
-                        //     addable later without breaking this build.
-                        //   * a size code outside the grab handle's window degrades to the authored
-                        //     1.00x, and an UNKNOWN FRAME or a NaN/Inf position DROPS THE POSE
-                        //     BLOCK AND KEEPS THE PAGE: a window flung to infinity — or placed in a
-                        //     frame this build cannot decode — is unreachable, while the local
-                        //     placement is always usable.
-                        //   * the content key is NOT validated. Opaque match gate, same as record
-                        //     19's story key.
-                        int j = i;
-                        int end = i + len;
-                        int n = buffer[j++];
-                        if (n > NetProtocol.SharedWindowMaxEntries)
-                            n = NetProtocol.SharedWindowMaxEntries;
-                        var entries = new SharedWindowEntry[NetProtocol.SharedWindowMaxEntries];
-                        int kept = 0;
-                        for (int e = 0; e < n; e++)
-                        {
-                            if (j + NetProtocol.SharedWindowEntryMinBytes > end)
-                                break; // truncated entry: this one and every later one are gone
-                            var entry = default(SharedWindowEntry);
-                            entry.Kind = buffer[j];
-                            byte ef = (byte)(buffer[j + 1] & NetProtocol.SharedDefinedMask);
-                            byte ep = buffer[j + 2];
-                            if (ep > NetProtocol.StoryPageMax)
-                                ep = NetProtocol.StoryPageNone;
-                            entry.Page = ep;
-                            entry.PageCount = buffer[j + 3];
-                            entry.ContentKey = (uint)(buffer[j + 4]
-                                                      | (buffer[j + 5] << 8)
-                                                      | (buffer[j + 6] << 16)
-                                                      | (buffer[j + 7] << 24));
-                            entry.SizeCode = NetProtocol.StorySizeDefaultCode;
-                            j += NetProtocol.SharedWindowEntryMinBytes;
-
-                            if ((ef & NetProtocol.SharedPoseBit) != 0)
-                            {
-                                int poseBytes = NetProtocol.SharedWindowEntryBytesWithPose
-                                                - NetProtocol.SharedWindowEntryMinBytes;
-                                if (j + poseBytes > end)
-                                {
-                                    // Claimed a pose the record is too short to hold: keep the page
-                                    // and drop the CLAIM, then stop — the walk cannot know where
-                                    // the next entry would have begun.
-                                    ef &= unchecked((byte)~NetProtocol.SharedPoseBit);
-                                    entry.Flags = ef;
-                                    entries[kept++] = entry;
-                                    break;
-                                }
-                                byte stamp = buffer[j];
-                                byte size = buffer[j + 1];
-                                byte frame = buffer[j + 2];
-                                int p = j + 3;
-                                AvatarSerializer.ReadPoseShared(buffer, ref p, out RigPose pose);
-                                j += poseBytes;
-                                Vector3 pos = pose.Position;
-                                bool bad = frame > NetProtocol.SharedFrameMax
-                                           || float.IsNaN(pos.x) || float.IsNaN(pos.y)
-                                           || float.IsNaN(pos.z) || float.IsInfinity(pos.x)
-                                           || float.IsInfinity(pos.y) || float.IsInfinity(pos.z);
-                                if (bad)
-                                {
-                                    ef &= unchecked((byte)~NetProtocol.SharedPoseBit);
-                                }
-                                else
-                                {
-                                    entry.PoseStamp = stamp;
-                                    entry.SizeCode =
-                                        size < NetProtocol.StorySizeMinCode
-                                        || size > NetProtocol.StorySizeMaxCode
-                                            ? NetProtocol.StorySizeDefaultCode
-                                            : size;
-                                    entry.Frame = frame;
-                                    entry.Pose = pose;
-                                }
-                            }
-                            entry.Flags = ef;
-                            entries[kept++] = entry;
-                        }
-                        if (kept > 0)
-                        {
-                            state.HasSharedWindow = true;
-                            state.SharedWindowCount = kept;
-                            state.SharedWindowEntries = entries;
-                        }
-                    }
-                    else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
-                    {
-                        // CAP LABELS: [mask][per set bit, mask-bit order: len + UTF8]. Every
-                        // sub-read is bounds-checked against the record's OWN length, so a
-                        // hostile length can neither overrun the record nor bleed into the next
-                        // one; a malformed block simply delivers nothing (the neutral-label
-                        // fallback, the designed failure direction).
-                        int j = i;
-                        int end = i + len;
-                        byte capMask = (byte)(buffer[j++] & NetProtocol.CapLabelDefinedMask);
-                        if ((capMask & NetProtocol.CapLabelConfirmBit) != 0 && j < end)
-                        {
-                            int l = buffer[j++];
-                            if (l > 0 && j + l <= end)
-                            {
-                                string label = ConfirmLabelCodec.Decode(buffer, j,
-                                    System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
-                                if (!string.IsNullOrEmpty(label))
-                                {
-                                    state.HasConfirmCapLabel = true;
-                                    state.ConfirmCapLabel = label;
-                                }
-                            }
-                            j += l;
-                        }
-                        if ((capMask & NetProtocol.CapLabelSkipBit) != 0 && j < end)
-                        {
-                            int l = buffer[j++];
-                            if (l > 0 && j + l <= end)
-                            {
-                                string label = SkipLabelCodec.Decode(buffer, j,
-                                    System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
-                                if (!string.IsNullOrEmpty(label))
-                                {
-                                    state.HasSkipCapLabel = true;
-                                    state.SkipCapLabel = label;
-                                }
-                            }
-                            j += l;
-                        }
-                        if ((capMask & NetProtocol.CapLabelUndoBit) != 0 && j < end)
-                        {
-                            int l = buffer[j++];
-                            if (l > 0 && j + l <= end)
-                            {
-                                string label = UndoLabelCodec.Decode(buffer, j,
-                                    System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
-                                if (!string.IsNullOrEmpty(label))
-                                {
-                                    state.HasUndoCapLabel = true;
-                                    state.UndoCapLabel = label;
-                                }
-                            }
-                            j += l;
-                        }
-                        if ((capMask & NetProtocol.CapLabelItemUseBit) != 0 && j < end)
-                        {
-                            int l = buffer[j++];
-                            if (l > 0 && j + l <= end)
-                            {
-                                string label = ItemUseLabelCodec.Decode(buffer, j,
-                                    System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
-                                if (!string.IsNullOrEmpty(label))
-                                {
-                                    state.HasItemUseCapLabel = true;
-                                    state.ItemUseCapLabel = label;
-                                }
-                            }
-                            j += l;
-                        }
-                    }
+                    ReadExtensionRecord(buffer, i, id, len, ref state);
                     i += len; // known or not, the record's own length is how we move past it
                 }
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// One extension-tail record, decoded into <paramref name="state"/> when its id is known and
+    /// its <paramref name="len"/> is at least what this build expects for that id; an unknown id
+    /// or a short payload writes nothing. Lifted VERBATIM out of <see cref="TryRead"/>'s record
+    /// loop in the 2026-09 refactor (pure motion; the golden vectors pin every byte). The caller
+    /// has already checked <c>length &gt;= i + len</c> and steps <c>i</c> past the record by its
+    /// own length afterwards — this method reads at <paramref name="i"/> and never moves it.
+    /// </summary>
+    private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
+                                            ref PresenceState state)
+    {
+        if (id == NetProtocol.ExtIdHandScale && len >= 1)
+        {
+            state.HasHandScale = true;
+            state.HandScaleCode = buffer[i];
+        }
+        else if (id == NetProtocol.ExtIdGhostSides && len >= 1)
+        {
+            state.HasGhostSides = true;
+            state.GhostSidesMask = buffer[i];
+        }
+        else if (id == NetProtocol.ExtIdModVersion && len >= 2)
+        {
+            // MOD VERSION: [u16 build LE][UTF8 display bytes]. The display length is
+            // re-clamped on OUR side (never trust the wire) — a hostile/corrupt length
+            // is already bounds-checked above, this only caps what we turn into text.
+            state.HasModVersion = true;
+            state.ModBuild = (ushort)(buffer[i] | (buffer[i + 1] << 8));
+            int textLen = System.Math.Min(len - 2, NetProtocol.ModVersionTextMaxBytes);
+            state.ModVersionText = DecodeModVersionText(buffer, i + 2, textLen);
+        }
+        else if (id == NetProtocol.ExtIdBoardUi
+                 && len >= NetProtocol.BoardUiRecordBytesLegacy)
+        {
+            state.HasBoardUi = true;
+            state.BoardButtonsMask = buffer[i];
+            // CAP STATES: the record's own LENGTH is the validity flag. A sender that
+            // predates the byte writes BoardUiRecordBytesLegacy and this stays false,
+            // so the mirrored caps keep the colour they were BUILT with — exactly what
+            // every build before this one drew. Masked to the bits THIS build defines,
+            // same discipline as the overlay byte below.
+            if (len >= NetProtocol.BoardUiRecordBytes)
+            {
+                state.HasBoardCapStates = true;
+                state.BoardCapStateMask =
+                    (byte)(buffer[i + 2] & NetProtocol.BoardUiCapStateDefinedMask);
+            }
+            // Mask to the bits THIS build defines (wanted glow + FOLLOW/PIN + card-slot
+            // occupancy and its validity bit). A future sender's extra overlay bits are
+            // dropped here rather than mis-rendered, which is the same contract that let
+            // this build add the occupancy nibble without the peers that predate it
+            // noticing — they mask it away with their own narrower 0x07.
+            state.BoardOverlayMask = (byte)(buffer[i + 1] & NetProtocol.BoardUiOverlayMask);
+        }
+        else if (id == NetProtocol.ExtIdFanAnchor && len >= 12)
+        {
+            int j = i;
+            float fx = AvatarSerializer.ReadF32(buffer, ref j);
+            float fy = AvatarSerializer.ReadF32(buffer, ref j);
+            float fz = AvatarSerializer.ReadF32(buffer, ref j);
+            // Never let wire garbage place a fan at NaN/∞ — degrade to "record absent"
+            // (the authored default spot) instead.
+            if (!float.IsNaN(fx) && !float.IsInfinity(fx)
+                && !float.IsNaN(fy) && !float.IsInfinity(fy)
+                && !float.IsNaN(fz) && !float.IsInfinity(fz))
+            {
+                state.HasFanAnchor = true;
+                state.FanAnchorLocal = new Vector3(fx, fy, fz);
+            }
+        }
+        else if (id == NetProtocol.ExtIdCardHighlight && len >= 2)
+        {
+            // CARD HIGHLIGHT: two fan-local indices, never a card identity. No
+            // validation beyond the length — the RENDERERS clamp against their own
+            // live card count, which is the only place the bound is actually known
+            // (a packet can legitimately arrive one frame before/after a fan resize).
+            state.HasCardHighlight = true;
+            state.HandHighlightIndex = buffer[i];
+            state.FanHighlightIndex = buffer[i + 1];
+        }
+        else if (id == NetProtocol.ExtIdPickBanner && len >= 1)
+        {
+            // PICK BANNER: UTF8 text. The length is re-clamped on OUR side (never
+            // trust the wire; the record was already bounds-checked above), and a
+            // decode that yields nothing degrades to "record absent" = no placard.
+            int textLen = System.Math.Min(len, NetProtocol.PickBannerTextMaxBytes);
+            string? line = DecodePickBannerText(buffer, i, textLen);
+            if (!string.IsNullOrEmpty(line))
+            {
+                state.HasPickBanner = true;
+                state.PickBannerText = line;
+            }
+        }
+        else if (id == NetProtocol.ExtIdSecondFigure
+                 && len >= NetProtocol.SecondFigureRecordBytes)
+        {
+            // SECOND HELD FIGURE: [hand flags][int32 actorId LE][pose 20].
+            //
+            // THREE THINGS ARE VALIDATED HERE, and each of them is a way two minis could
+            // otherwise end up wrong on a peer's screen:
+            //   * the two hand bits must DISAGREE. They name the hand of the second and
+            //     of the first (rig-packet) figure; equal bits mean the packet claims
+            //     both minis are in one palm, which no local grab can produce (a hand
+            //     holds one object) and which a stale/corrupt record can. Dropped.
+            //   * actor id 0 is "none" everywhere in this system, so it can never
+            //     identify a figure.
+            //   * a NaN/infinite position would fling a real board figure out of the
+            //     world — the same guard the fan anchor carries, for the same reason.
+            // A rejected record reads as "no second figure", i.e. exactly what a peer
+            // predating this build renders. Never a half-applied hold.
+            byte hands = (byte)(buffer[i] & NetProtocol.SecondFigureHandMask);
+            bool secondLeft = (hands & NetProtocol.SecondFigureLeftBit) != 0;
+            bool primaryLeft = (hands & NetProtocol.SecondFigurePrimaryLeftBit) != 0;
+            int j = i + 1;
+            int secondId = AvatarSerializer.ReadI32(buffer, ref j);
+            AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose secondPose);
+            Vector3 sp = secondPose.Position;
+            if (secondLeft != primaryLeft && secondId != 0
+                && !float.IsNaN(sp.x) && !float.IsInfinity(sp.x)
+                && !float.IsNaN(sp.y) && !float.IsInfinity(sp.y)
+                && !float.IsNaN(sp.z) && !float.IsInfinity(sp.z))
+            {
+                state.HasSecondFigure = true;
+                state.SecondFigureActorId = secondId;
+                state.SecondFigurePose = secondPose;
+                state.SecondFigureLeftHand = secondLeft;
+                state.PrimaryFigureLeftHand = primaryLeft;
+            }
+        }
+        else if (id == NetProtocol.ExtIdHeldProp
+                 && len >= NetProtocol.HeldPropSlotBytes)
+        {
+            // HELD PROPS: [hand][u32 propId LE][pose 20][u16 size LE] per SLOT, read by
+            // LENGTH. Slot 2 is read ONLY from a record long enough to carry it, so a
+            // two-handed sender degrades to its first item on a receiver that stops at
+            // 27 rather than reading the next record's bytes as a pose.
+            //
+            // WHAT IS VALIDATED, and each of them is a way a peer's board could
+            // otherwise end up with a prop somewhere it never was:
+            //   * prop id 0 is "none" everywhere in this system, so it can never
+            //     identify a prop. A zero FIRST slot drops the whole record.
+            //   * a NaN/infinite position would fling a real board prop out of the
+            //     world — and unlike a figure, NOTHING would ever put it back, because
+            //     the game re-authors a figure's transform every frame and never a
+            //     prop's. So this guard is strictly more load-bearing here than it is
+            //     on record 8, where it already earns its place.
+            //   * the two slots must name DIFFERENT props and DIFFERENT hands. A hand
+            //     holds one object and an object rides one hand, so an agreeing pair is
+            //     something no local grab can produce and a stale or corrupt record can;
+            //     the second slot is dropped and the first stands, which is exactly the
+            //     one-handed picture.
+            //   * each size code is sanitized independently and FAIL-CLOSED TO NEUTRAL,
+            //     the rule record 30 established: an out-of-envelope code renders the
+            //     item at BOARD size, never at 65x or at nothing.
+            // A rejected record reads as "no prop held", i.e. exactly what a peer
+            // predating this build renders. Never a half-applied hold.
+            byte hand0 = (byte)(buffer[i] & NetProtocol.HeldPropHandMask);
+            bool left0 = (hand0 & NetProtocol.HeldPropLeftBit) != 0;
+            int j = i + 1;
+            int propId0 = AvatarSerializer.ReadI32(buffer, ref j);
+            AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose pose0);
+            ushort size0 = (ushort)(buffer[j] | (buffer[j + 1] << 8));
+            if (size0 < NetProtocol.HeldStretchCodeMin
+                || size0 > NetProtocol.HeldStretchCodeMax)
+                size0 = (ushort)NetProtocol.HeldStretchCodeNeutral;
+
+            if (propId0 != 0 && FinitePos(in pose0))
+            {
+                state.HasHeldProp = true;
+                state.HeldPropId = propId0;
+                state.HeldPropPose = pose0;
+                state.HeldPropLeftHand = left0;
+                state.HeldPropStretchCode = size0;
+
+                if (len >= 2 * NetProtocol.HeldPropSlotBytes)
+                {
+                    int k = i + NetProtocol.HeldPropSlotBytes;
+                    byte hand1 = (byte)(buffer[k] & NetProtocol.HeldPropHandMask);
+                    bool left1 = (hand1 & NetProtocol.HeldPropLeftBit) != 0;
+                    k++;
+                    int propId1 = AvatarSerializer.ReadI32(buffer, ref k);
+                    AvatarSerializer.ReadPoseShared(buffer, ref k, out RigPose pose1);
+                    ushort size1 = (ushort)(buffer[k] | (buffer[k + 1] << 8));
+                    if (size1 < NetProtocol.HeldStretchCodeMin
+                        || size1 > NetProtocol.HeldStretchCodeMax)
+                        size1 = (ushort)NetProtocol.HeldStretchCodeNeutral;
+                    if (propId1 != 0 && propId1 != propId0 && left1 != left0
+                        && FinitePos(in pose1))
+                    {
+                        state.HasSecondHeldProp = true;
+                        state.SecondHeldPropId = propId1;
+                        state.SecondHeldPropPose = pose1;
+                        state.SecondHeldPropLeftHand = left1;
+                        state.SecondHeldPropStretchCode = size1;
+                    }
+                }
+            }
+        }
+        else if (id == NetProtocol.ExtIdHeldStretch
+                 && len >= NetProtocol.HeldStretchRecordBytes)
+        {
+            // HELD-FIGURE STRETCH: two u16 milli-factors, slot-aligned with the two
+            // held-figure slots. Validation is FAIL-CLOSED TO NEUTRAL (never trust the
+            // wire): a code outside the sane envelope — including 0 — is re-encoded as
+            // 1000 = 1.0×, i.e. the exact picture a peer predating the record renders,
+            // never a clamped extreme (a garbage byte must not make a figure invisible
+            // or 65× tall). Each slot sanitizes independently: a poisoned secondary
+            // must not cost the primary its real factor.
+            ushort primCode = (ushort)(buffer[i] | (buffer[i + 1] << 8));
+            ushort secCode = (ushort)(buffer[i + 2] | (buffer[i + 3] << 8));
+            if (primCode < NetProtocol.HeldStretchCodeMin
+                || primCode > NetProtocol.HeldStretchCodeMax)
+                primCode = (ushort)NetProtocol.HeldStretchCodeNeutral;
+            if (secCode < NetProtocol.HeldStretchCodeMin
+                || secCode > NetProtocol.HeldStretchCodeMax)
+                secCode = (ushort)NetProtocol.HeldStretchCodeNeutral;
+            state.HasHeldStretch = true;
+            state.HeldStretchPrimaryCode = primCode;
+            state.HeldStretchSecondaryCode = secCode;
+        }
+        else if (id == NetProtocol.ExtIdBoardTooltip && len >= 1)
+        {
+            // BOARD TOOLTIP: UTF8 text. The length is re-clamped on OUR side (never
+            // trust the wire; the record was already bounds-checked above), and a
+            // decode that yields nothing degrades to "record absent" = no tooltip.
+            // The IDENTITY GATE is a sender-side duty (see the record doc) — a
+            // receiver can only render what arrived, so the guarantee that nothing
+            // secret arrives lives entirely in the writer's gate.
+            int textLen = System.Math.Min(len, NetProtocol.TooltipTextMaxBytes);
+            string? tip = DecodeBoardTooltipText(buffer, i, textLen);
+            if (!string.IsNullOrEmpty(tip))
+            {
+                state.HasBoardTooltip = true;
+                state.BoardTooltipText = tip;
+            }
+        }
+        else if (id == NetProtocol.ExtIdHalfHover
+                 && len >= NetProtocol.HalfHoverRecordBytes)
+        {
+            // HALF HOVER + SELECTION + EMPTY-FAN HINT: [byte0 hover][byte1 state],
+            // both masked. Byte 0's slot is validated against the board's structural
+            // slot count — a slot the board does not have (a corrupt byte, or a future
+            // board shape this build predates) and the HalfHoverNoneSlot sentinel both
+            // read as "no hover", never as a glow on the wrong recess. Byte 1's
+            // per-slot fields decode through EncodeHalfSelect, so the invalid value
+            // 3 degrades to "none" (never trust the wire). A record whose hover AND
+            // both selections all decode to nothing is dropped whole — identical to
+            // "record absent", which is what the writer emits for that state anyway.
+            //
+            // The CAP-PRESS field (byte 0 bits 3..7) is decoded INDEPENDENTLY of the
+            // hover/selection triple: the record can legitimately ride for a press
+            // alone, and a hover-only record legitimately carries CapPressNone. An id
+            // above CapPressMaxId cannot occur in three bits, but the bound is asserted
+            // anyway — never trust the wire, and the next cap id widening will need it.
+
+            byte half = (byte)(buffer[i] & NetProtocol.HalfHoverDefinedMask);
+            int slot = half & NetProtocol.HalfHoverSlotMask;
+            bool hover = slot < NetProtocol.BoardUiSlotCount;
+            byte stateByte = (byte)(buffer[i + 1] & NetProtocol.HalfSelectByteDefinedMask);
+            byte select = (byte)(stateByte & NetProtocol.HalfSelectDefinedMask);
+            byte sel0 = NetProtocol.EncodeHalfSelect(
+                select & NetProtocol.HalfSelectFieldMask);
+            byte sel1 = NetProtocol.EncodeHalfSelect(
+                (select >> NetProtocol.HalfSelectBitsPerSlot)
+                & NetProtocol.HalfSelectFieldMask);
+            if (hover || sel0 != NetProtocol.HalfSelectNone
+                      || sel1 != NetProtocol.HalfSelectNone)
+            {
+                state.HasHalfHover = true;
+                state.HalfHoverActive = hover;
+                state.HalfHoverSlot = hover ? (byte)slot : (byte)0;
+                state.HalfHoverTop = hover && (half & NetProtocol.HalfHoverTopBit) != 0;
+                state.HalfSelect0 = sel0;
+                state.HalfSelect1 = sel1;
+            }
+            byte pressed = (byte)((half & NetProtocol.CapPressCapMask)
+                                  >> NetProtocol.CapPressShift);
+            if (pressed != NetProtocol.CapPressNone && pressed <= NetProtocol.CapPressMaxId)
+            {
+                state.HasCapPress = true;
+                state.CapPressCap = pressed;
+                state.CapPressSeq = (byte)((half & NetProtocol.CapPressSeqMask)
+                                           >> NetProtocol.CapPressSeqShift);
+            }
+            // BIT 4 of byte 1 is read INDEPENDENTLY of both drops above, for the same
+            // reason the press is: the record legitimately rides for the "Keine
+            // Handkarten" placard ALONE, and that state decodes to no hover, no
+            // selection and no press by construction. Folding it into HasHalfHover
+            // would have meant a placard-only record set a half-hover state nobody
+            // is in.
+            state.EmptyFanHint = (stateByte & NetProtocol.HalfEmptyFanHintBit) != 0;
+            // BYTE 2, THE STANDARD-ACTION QUALIFIER — taken only when the record is
+            // really that long. A 2-byte record is a sender that predates the byte (or
+            // one with nothing to qualify), and its absence means "every region named
+            // above is the BIG action half", which is precisely the picture those
+            // senders' peers already drew. Masked like every other byte here, and
+            // gated on the state it qualifies: a hover bit without a hover, or a slot
+            // bit without that slot's selection, states nothing and is dropped.
+            if (len >= NetProtocol.HalfHoverRecordBytesWithDefault)
+            {
+                byte defaults = (byte)(buffer[i + 2]
+                                       & NetProtocol.HalfDefaultByteDefinedMask);
+                state.HalfHoverDefault = hover
+                    && (defaults & NetProtocol.HalfDefaultHoverBit) != 0;
+                state.HalfSelect0Default = sel0 != NetProtocol.HalfSelectNone
+                    && (defaults & NetProtocol.HalfDefaultSelect0Bit) != 0;
+                state.HalfSelect1Default = sel1 != NetProtocol.HalfSelectNone
+                    && (defaults & NetProtocol.HalfDefaultSelect1Bit) != 0;
+            }
+        }
+        else if (id == NetProtocol.ExtIdSlotOrder
+                 && len >= NetProtocol.SlotOrderRecordBytes)
+        {
+            // ROUND-CARD SLOT ORDER: one masked flags byte. The VALID bit is what makes
+            // the record speak — a byte without it (a corrupt tail, a future sender
+            // writing the record for a reason this build does not know) leaves the
+            // receiver on its own derivation rather than asserting an order nobody
+            // stated. Never trust the wire.
+            byte order = (byte)(buffer[i] & NetProtocol.SlotOrderDefinedMask);
+            if ((order & NetProtocol.SlotOrderValidBit) != 0)
+            {
+                state.HasSlotOrder = true;
+                state.SlotOrderSwapped =
+                    (order & NetProtocol.SlotOrderSwappedBit) != 0;
+            }
+        }
+        else if (id == NetProtocol.ExtIdBoardTuning
+                 && len >= NetProtocol.BoardTuneMinRecordBytes)
+        {
+            // BOARD TUNING: ONE PAGE — [pageIndex][pageCount][sig][idLo][idHi][n][n ×
+            // [id][value]] (see NetProtocol.ExtIdBoardTuning and BoardTunePages). The
+            // page is kept RAW and handed to the per-peer BoardTunePageAssembler, which
+            // is where every structural rule lives; each consumer then reads the field
+            // it needs out of the ASSEMBLED payload against its own shipped default
+            // (NetProtocol.BoardTuneVector and friends), which is what makes "field
+            // absent" mean "the value you already have" rather than needing ~105 decoded
+            // members here.
+            //
+            // A ZERO FIELD COUNT IS NO LONGER A DROP, and that reversal is load-bearing:
+            // before paging it meant "an empty record", indistinguishable from an
+            // untuned sender. A PAGE with no fields means "nothing is tuned in MY id
+            // range" — a complete, necessary statement, without which a generation could
+            // never converge for a player who tuned only offsets. The empty-tuning case
+            // is still expressed the way it always was: by omitting the record entirely.
+            byte[]? tune = DecodeBoardTuning(buffer, i, len);
+            if (tune != null)
+            {
+                state.HasBoardTuning = true;
+                state.BoardTuningBytes = tune;
+                state.BoardTuningLength = len;
+            }
+        }
+        else if (id == NetProtocol.ExtIdPileCounts
+                 && len >= NetProtocol.PileCountsRecordBytes)
+        {
+            // PILE COUNTS: three plain bytes — nothing further to validate (any value
+            // 0..255 is a drawable count; the renderers clamp their own display).
+            state.HasPileCounts = true;
+            state.PileDiscardCount = buffer[i];
+            state.PileBurntCount = buffer[i + 1];
+            state.PileItemsCount = buffer[i + 2];
+        }
+        else if (id == NetProtocol.ExtIdWallFades
+                 && len >= NetProtocol.WallFadesMinRecordBytes)
+        {
+            // WALL FADES: [count][count × u32 key LE]. The count is re-clamped
+            // against the record LENGTH and the cap (never trust the wire); zero
+            // surviving keys degrade to "record absent" — no peer wall fades,
+            // exactly what a pre-record sender produces.
+            int n = buffer[i];
+            int fit = (len - 1) / 4;
+            if (n > fit)
+                n = fit;
+            if (n > NetProtocol.WallFadesMaxKeys)
+                n = NetProtocol.WallFadesMaxKeys;
+            if (n > 0)
+            {
+                var keys = new uint[n];
+                int j = i + 1;
+                for (int k = 0; k < n; k++)
+                    keys[k] = AvatarSerializer.ReadU32(buffer, ref j);
+                state.HasWallFades = true;
+                state.WallFadesCount = n;
+                state.WallFadesKeys = keys;
+            }
+        }
+        else if (id == NetProtocol.ExtIdCharFocus
+                 && len >= NetProtocol.CharFocusRecordBytes)
+        {
+            // CHARACTER FOCUS: [flags][int32 focusActorId LE]( [int32 attentionActorId] ).
+            // Actor id 0 is "none" everywhere in this system and can never name a
+            // character, so a zero id degrades to "record absent" = no outline, exactly
+            // what pre-record peers render. The flags byte is re-masked to the bits this
+            // build defines, so a newer sender's extra bits can never light a meaning
+            // here.
+            //
+            // THE TRAILING ATTENTION ID is read only when bit 1 demands it AND the
+            // record is really long enough — "validate only what MY flags demand" cuts
+            // both ways, so a truncated tail degrades to the 5-byte meaning (the
+            // character being waited on IS the focus) rather than to a torn read.
+            byte cfFlags = (byte)(buffer[i] & NetProtocol.CharFocusDefinedMask);
+            int j = i + 1;
+            int focusActor = AvatarSerializer.ReadI32(buffer, ref j);
+            if (focusActor != 0)
+            {
+                bool ownsAttention =
+                    (cfFlags & NetProtocol.CharFocusOwnsAttentionBit) != 0;
+                int attentionActor = ownsAttention ? focusActor : 0;
+                if (ownsAttention && (cfFlags & NetProtocol.CharFocusAttentionIdBit) != 0
+                    && len >= NetProtocol.CharFocusMaxRecordBytes)
+                {
+                    int tail = AvatarSerializer.ReadI32(buffer, ref j);
+                    if (tail != 0)
+                        attentionActor = tail;
+                }
+                state.HasCharFocus = true;
+                state.CharFocusActorId = focusActor;
+                state.CharFocusOwnsAttention = ownsAttention;
+                state.CharFocusAttentionActorId = attentionActor;
+            }
+        }
+        else if (id == NetProtocol.ExtIdTrackSelection
+                 && len >= NetProtocol.TrackSelectionMinRecordBytes)
+        {
+            // TRACK SELECTION: [count][count × int32 actorId LE]. The count is
+            // re-clamped against the record LENGTH and the cap (never trust the wire),
+            // and ids of 0 are dropped — 0 is "none" everywhere in this system and can
+            // never name a track entry. Zero surviving ids degrade to "record absent"
+            // = no selection frame, which is exactly what a pre-record sender produces.
+            int n = buffer[i];
+            int fit = (len - 1) / 4;
+            if (n > fit)
+                n = fit;
+            if (n > NetProtocol.TrackSelectionMaxIds)
+                n = NetProtocol.TrackSelectionMaxIds;
+            if (n > 0)
+            {
+                var ids = new int[n];
+                int j = i + 1;
+                int kept = 0;
+                for (int k = 0; k < n; k++)
+                {
+                    int actorId = AvatarSerializer.ReadI32(buffer, ref j);
+                    if (actorId != 0)
+                        ids[kept++] = actorId;
+                }
+                if (kept > 0)
+                {
+                    state.HasTrackSelection = true;
+                    state.TrackSelectionCount = kept;
+                    state.TrackSelectionIds = ids;
+                }
+            }
+        }
+        else if (id == NetProtocol.ExtIdTrackOrder
+                 && len >= NetProtocol.TrackOrderMinRecordBytes)
+        {
+            // TRACK ORDER: [count][ownedMask][count × int32 actorId LE]. The count is
+            // re-clamped against the record LENGTH and the cap (never trust the wire),
+            // and the mask against the bits the cap can define.
+            //
+            // THE MASK IS INDEX-ALIGNED WITH THE IDS, which is why a dropped sentinel
+            // id has to take its bit with it: id 0 is "none" everywhere in this system
+            // and can never name an entry, so it is compacted out — and the mask is
+            // REBUILT over the surviving indices rather than passed through, because a
+            // pass-through would silently shift ownership onto the wrong character.
+            // Zero surviving ids degrade to "record absent" = no order override and no
+            // mirrored selection ring, which is exactly what a pre-record sender
+            // produces.
+            int n = buffer[i];
+            byte ownedWire = (byte)(buffer[i + 1] & NetProtocol.TrackOrderOwnedDefinedMask);
+            int fit = (len - 2) / 4;
+            if (n > fit)
+                n = fit;
+            if (n > NetProtocol.TrackOrderMaxIds)
+                n = NetProtocol.TrackOrderMaxIds;
+            if (n > 0)
+            {
+                var ids = new int[n];
+                int j = i + 2;
+                int kept = 0;
+                byte owned = 0;
+                for (int k = 0; k < n; k++)
+                {
+                    int actorId = AvatarSerializer.ReadI32(buffer, ref j);
+                    if (actorId == 0)
+                        continue;
+                    if ((ownedWire & (1 << k)) != 0)
+                        owned |= (byte)(1 << kept);
+                    ids[kept++] = actorId;
+                }
+                if (kept > 0)
+                {
+                    state.HasTrackOrder = true;
+                    state.TrackOrderCount = kept;
+                    state.TrackOrderOwnedMask = owned;
+                    state.TrackOrderIds = ids;
+                }
+            }
+        }
+        else if (id == NetProtocol.ExtIdFanArcOrder
+                 && len >= NetProtocol.FanArcOrderMinRecordBytes)
+        {
+            // FAN ARC ORDER: [count][packed nibbles]. The count is re-clamped against
+            // the record LENGTH and the cap (never trust the wire) and the nibbles are
+            // decoded through NetProtocol.FanArcOrderSeat, the same expression the
+            // writer packs with.
+            //
+            // NOTHING IS VALIDATED AS A PERMUTATION HERE, and that is deliberate: this
+            // layer does not know how long the RECEIVER's own derived hand list is, and
+            // "is this an exact permutation of the seats I actually hold" is precisely
+            // the question that has to be asked against that list. It is asked at the
+            // point of use (RemoteHandFan, through NetProtocol.ValidateFanArcOrder),
+            // where a refusal can fall back to the game's own order and say so. All
+            // this does is decode a well-formed record into integers.
+            int n = buffer[i];
+            int fit = (len - 1) * 2;
+            if (n > fit)
+                n = fit;
+            if (n > NetProtocol.FanArcOrderMaxSeats)
+                n = NetProtocol.FanArcOrderMaxSeats;
+            if (n > 0)
+            {
+                var order = new int[n];
+                for (int k = 0; k < n; k++)
+                    order[k] = NetProtocol.FanArcOrderSeat(buffer, i + 1, k);
+                state.HasFanArcOrder = true;
+                state.FanArcOrderCount = n;
+                state.FanArcOrder = order;
+            }
+        }
+        else if (id == NetProtocol.ExtIdTrackHover
+                 && len >= NetProtocol.TrackHoverRecordBytes)
+        {
+            // TRACK HOVER: [flags][int32 actorId LE]. Actor id 0 is "none" everywhere
+            // in this system, so it can never name an entry — a zero id degrades to
+            // "record absent" = no hover, exactly what pre-record peers render.
+            byte thFlags = (byte)(buffer[i] & NetProtocol.TrackHoverDefinedMask);
+            int j = i + 1;
+            int hoverActor = AvatarSerializer.ReadI32(buffer, ref j);
+            if (hoverActor != 0)
+            {
+                state.HasTrackHover = true;
+                state.TrackHoverActorId = hoverActor;
+                state.TrackHoverPopup = (thFlags & NetProtocol.TrackHoverPopupBit) != 0;
+            }
+        }
+        else if (id == NetProtocol.ExtIdSecondHeldCard
+                 && len >= NetProtocol.SecondHeldCardRecordBytes)
+        {
+            // SECOND HELD CARD: the shared 20-byte pose. The one validation is the
+            // NaN/infinity guard every wire position carries (fan anchor, second
+            // figure): garbage must degrade to "record absent" — the slab the peer
+            // predating this build renders — never to a slab flung out of the world.
+            // No hand byte to validate: the slab is rendered at this absolute pose
+            // and never attached to a hand, so no hand contradiction is expressible
+            // (see the record doc for the receiver evidence).
+            int j = i;
+            AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose cardPose);
+            Vector3 cp = cardPose.Position;
+            if (!float.IsNaN(cp.x) && !float.IsInfinity(cp.x)
+                && !float.IsNaN(cp.y) && !float.IsInfinity(cp.y)
+                && !float.IsNaN(cp.z) && !float.IsInfinity(cp.z))
+            {
+                state.HasSecondHeldCard = true;
+                state.SecondHeldCardPose = cardPose;
+            }
+        }
+        else if (id == NetProtocol.ExtIdHeldCardGrip
+                 && len >= NetProtocol.HeldCardGripRecordBytes)
+        {
+            // HELD-CARD GRIP: one flag byte. UNDEFINED BITS ARE MASKED OFF rather than
+            // stored, so a future sender that spends bit 2 on a third card slot cannot
+            // make this build read a slot it has no pose for; and an ALL-ZERO byte
+            // decodes to "record absent" (both cards billboard), which is exactly what
+            // a peer predating the record renders. No pose and no identity here at all
+            // - this record only says WHICH RULE the poses that are already on the
+            // wire should be drawn under.
+            byte grip = (byte)(buffer[i] & (NetProtocol.HeldCardGripFirstBit
+                                            | NetProtocol.HeldCardGripSecondBit));
+            if (grip != 0)
+            {
+                state.HasHeldCardGrip = true;
+                state.HeldCardGripMask = grip;
+            }
+        }
+        else if (id == NetProtocol.ExtIdItemUsable
+                 && len >= NetProtocol.ItemUsableRecordBytes)
+        {
+            // PER-ITEM USABLE MASK: one u16 LE over Inventory.AllItems RAW index. A
+            // ZERO mask decodes to "record absent" — the bare slabs a peer predating
+            // this build draws — so the two states stay one state on the read side as
+            // well as on the write side, and a latched mask can never outlive a sender
+            // whose board stopped framing anything. There is nothing else to validate:
+            // every bit is defined (the record IS the mask), a bit past the receiver's
+            // own inventory simply frames nothing, and no identity is expressible here.
+            ushort usable = (ushort)(buffer[i] | (buffer[i + 1] << 8));
+            if (usable != 0)
+            {
+                state.HasItemUsable = true;
+                state.ItemUsableMask = usable;
+            }
+        }
+        else if (id == NetProtocol.ExtIdHeldCardFace
+                 && len >= NetProtocol.HeldCardFaceSlotBytes)
+        {
+            // HELD-CARD FACE: [code][list length] per POSE SLOT. Slot 2 is read ONLY
+            // from a record long enough to carry it, so a sender holding one card
+            // degrades to "slot 2 names nothing" rather than to whatever the next
+            // record's bytes happen to say — the same length-gated shape record 20 uses
+            // for its selection edge.
+            //
+            // A code naming no list (or a list id past HeldFaceListMax, which since
+            // ModBuild 461 is only 7) decodes to "record absent" for that slot, which is
+            // the BACK a peer predating the record draws. UNDEFINED IS ALWAYS A BACK
+            // here and never a guess: the one failure this record must not have is a
+            // front drawn on the wrong card, and every unknown value is routed to the
+            // same safe picture.
+            //
+            // NOTE THE CONTRAST WITH RECORD 39 BELOW, which shares this encoding and
+            // deliberately accepts a NARROWER vocabulary. This record names a card in a
+            // peer's FIST, and every list is a legitimate place to have plucked one
+            // from; record 39 names a card lying in a ROUND RECESS, where the HAND list
+            // would be the two-card commit. Same codec, two vocabularies, and the
+            // difference is stated at both sites rather than at neither.
+            byte code0 = buffer[i];
+            byte count0 = buffer[i + 1];
+            byte code1 = 0;
+            byte count1 = 0;
+            if (len >= 2 * NetProtocol.HeldCardFaceSlotBytes)
+            {
+                code1 = buffer[i + 2];
+                count1 = buffer[i + 3];
+            }
+            if (NetProtocol.HeldFaceList(code0) > NetProtocol.HeldFaceListMax)
+                code0 = 0;
+            if (NetProtocol.HeldFaceList(code1) > NetProtocol.HeldFaceListMax)
+                code1 = 0;
+            if (code0 != 0 || code1 != 0)
+            {
+                state.HasHeldCardFace = true;
+                state.HeldFaceCode = code0;
+                state.HeldFaceCount = count0;
+                state.SecondHeldFaceCode = code1;
+                state.SecondHeldFaceCount = count1;
+            }
+        }
+        else if (id == NetProtocol.ExtIdSacrificeSeat
+                 && len >= NetProtocol.SacrificeSeatSlotBytes)
+        {
+            // SHORT-REST SACRIFICE SEAT: [code][list length] per ROUND RECESS. Recess 2
+            // is read ONLY from a record long enough to carry it, so a sender with the
+            // sacrifice in recess 1 degrades to "recess 2 names nothing" rather than to
+            // whatever the next record's bytes happen to say — the same length-gated
+            // shape records 20, 36 and 37 use.
+            //
+            // A code naming a list this record MAY NOT CARRY decodes to "record
+            // absent" for that recess, which is the ANONYMOUS BACK a peer predating the
+            // record draws. UNDEFINED IS ALWAYS A BACK and never a guess: a face drawn
+            // on the wrong card in a recess is worse than the back this record exists to
+            // replace, so every value outside the vocabulary is routed to it.
+            //
+            // AND THE VOCABULARY IS NARROWER THAN record 36's, WHICH IS THE ANTI-CHEAT
+            // BOUNDARY ITSELF RATHER THAN A TIDINESS RULE. Only the DISCARD and BURNT
+            // arcs may name a card lying in a round recess (see
+            // NetProtocol.ExtIdSacrificeSeat's "WHAT MAY BE WRITTEN HERE" paragraph):
+            // the other thing that lies in a recess during SelectAbilityCardsOrLongRest
+            // is a card of the TWO-CARD COMMIT, which is a HAND card, and refusing
+            // HeldFaceListHand HERE — at the decode, before any consumer sees it — is
+            // what makes that secret unexpressible in the format instead of merely
+            // unwritten by this build's sampler. HeldFaceListActive, Items and
+            // MapLoadout are refused for the same reason in reverse: no card of those
+            // lists is ever laid in a recess, so a sender naming one is a sender this
+            // receiver should not follow.
+            byte seatCode0 = buffer[i];
+            byte seatCount0 = buffer[i + 1];
+            byte seatCode1 = 0;
+            byte seatCount1 = 0;
+            if (len >= 2 * NetProtocol.SacrificeSeatSlotBytes)
+            {
+                seatCode1 = buffer[i + 2];
+                seatCount1 = buffer[i + 3];
+            }
+            if (!NetProtocol.RecessSeatListAllowed(NetProtocol.HeldFaceList(seatCode0)))
+                seatCode0 = 0;
+            if (!NetProtocol.RecessSeatListAllowed(NetProtocol.HeldFaceList(seatCode1)))
+                seatCode1 = 0;
+            if (seatCode0 != 0 || seatCode1 != 0)
+            {
+                state.HasSacrificeSeat = true;
+                state.SacrificeSeatCode0 = seatCode0;
+                state.SacrificeSeatCount0 = seatCount0;
+                state.SacrificeSeatCode1 = seatCode1;
+                state.SacrificeSeatCount1 = seatCount1;
+            }
+        }
+        else if (id == NetProtocol.ExtIdRoundHalfSpent
+                 && len >= NetProtocol.RoundHalfSpentBytes)
+        {
+            // WHICH ROUND-CARD HALF IS ALREADY SPENT: one mask byte. Masked to the four
+            // bits THIS build defines, so a newer sender that puts a fifth field in the
+            // spare bits can never dim a half this receiver has no name for — an
+            // unknown bit draws the UNDIMMED half, which is what a peer predating the
+            // record draws and therefore the only safe degradation.
+            //
+            // An empty mask decodes to "record absent" rather than to "explicitly
+            // nothing", because the sender omits the record for exactly that state:
+            // the two must mean the same thing or a peer would keep a stale dim across
+            // the round boundary that clears it.
+            byte spent = (byte)(buffer[i] & NetProtocol.RoundHalfSpentMaskBits);
+            if (spent != 0)
+            {
+                state.HasRoundHalfSpent = true;
+                state.RoundHalfSpentMask = spent;
+            }
+        }
+        else if (id == NetProtocol.ExtIdFanSource
+                 && len >= NetProtocol.FanSourceRecordBytes)
+        {
+            // WHICH PILE THE SENDER'S FAN IS DRAWN FROM: one list id. VALIDATED AGAINST
+            // THE TWO PILES A FAN CAN ACTUALLY BE, and everything else — the hand, an
+            // item list, a map loadout, an id from a build that does not exist yet —
+            // decodes to "record absent", i.e. THE HAND. That is the picture this
+            // receiver drew before the record existed, so an unknown value costs a peer
+            // nothing it was not already living with; and it is the only degradation
+            // that cannot put a face from one pile onto a card from another, which is
+            // the single failure every card-face path here is written to avoid.
+            byte list = buffer[i];
+            if (NetProtocol.IsFanSourcePile(list))
+            {
+                state.HasFanSource = true;
+                state.FanSourceList = list;
+            }
+        }
+        else if (id == NetProtocol.ExtIdUseBarSlotIdentity
+                 && len >= NetProtocol.UseBarSlotIdentityMinRecordBytes)
+        {
+            // USE-BAR SLOT IDENTITY: [entries][entries × [bar:3|slot:5][idLo][idHi]].
+            //
+            // NEVER TRUST THE WIRE. The stated entry count is clamped to the record's
+            // cap AND to the number of whole 3-byte entries that actually fit inside
+            // THIS record's own end, so a lying count can neither allocate a large array
+            // nor read a byte belonging to the next record. Each address is decoded
+            // through the record's own accessors and RANGE-CHECKED against
+            // UseBarsCount / UseBarsMaxSlots before it indexes anything — a bar or slot
+            // this build has no seat for is dropped, not clamped onto a neighbour,
+            // because clamping would move a symbol onto a slot the owner never named.
+            //
+            // An id of 0 is NoIdentity and is dropped for the same reason: it is the
+            // sender's own "this slot has none", and storing it would be
+            // indistinguishable from a slot that was never addressed.
+            int j = i;
+            int end = i + len;
+            int stated = buffer[j++];
+            int fits = (end - j) / NetProtocol.UseBarSlotIdentityEntryBytes;
+            int n = stated;
+            if (n > NetProtocol.UseBarSlotIdentityMaxEntries)
+                n = NetProtocol.UseBarSlotIdentityMaxEntries;
+            if (n > fits)
+                n = fits;
+            if (n > 0)
+            {
+                var ids = new ushort[NetProtocol.UseBarsCount
+                                     * NetProtocol.UseBarsMaxSlots];
+                bool any = false;
+                for (int e = 0; e < n; e++)
+                {
+                    byte addr = buffer[j];
+                    var value = (ushort)(buffer[j + 1] | (buffer[j + 2] << 8));
+                    j += NetProtocol.UseBarSlotIdentityEntryBytes;
+                    int bar = NetProtocol.UseBarSlotAddrBar(addr);
+                    int slot = NetProtocol.UseBarSlotAddrSlot(addr);
+                    if (bar >= NetProtocol.UseBarsCount
+                        || slot >= NetProtocol.UseBarsMaxSlots
+                        || value == UseBarSlotIdentity.NoIdentity)
+                        continue;
+                    ids[(bar * NetProtocol.UseBarsMaxSlots) + slot] = value;
+                    any = true;
+                }
+                if (any)
+                {
+                    state.HasUseBarSlotIds = true;
+                    state.UseBarSlotIds = ids;
+                }
+            }
+        }
+        else if (id == NetProtocol.ExtIdSlotCardSize
+                 && len >= NetProtocol.SlotCardSizeRecordBytes)
+        {
+            // SLOT-CARD SIZE: two u16 widths, tenth-mm. Validation = the decoder's own
+            // 5 mm floor (never trust the wire): a garbage code degrades to "record
+            // absent" — the legacy width — rather than collapsing a peer's cards to a
+            // sliver. Both must be sane; a half-valid pair is dropped whole, so the
+            // card and its frame can never disagree about which build sized them.
+            ushort frame = (ushort)(buffer[i] | (buffer[i + 1] << 8));
+            ushort card = (ushort)(buffer[i + 2] | (buffer[i + 3] << 8));
+            if (frame >= NetProtocol.SlotWidthMinCode
+                && card >= NetProtocol.SlotWidthMinCode)
+            {
+                state.HasSlotCardSize = true;
+                state.SlotFrameWidthCode = frame;
+                state.SlotCardWidthCode = card;
+            }
+        }
+        else if (id == NetProtocol.ExtIdDecisionLines && len >= 1)
+        {
+            // DECISION LINES: UTF8 blob, one button label per '\n'-separated line.
+            // The length is re-clamped on OUR side (never trust the wire; the record
+            // was bounds-checked above), and a decode that yields nothing degrades to
+            // "record absent" = no docked decision content.
+            int textLen = System.Math.Min(len, NetProtocol.DecisionLinesMaxBytes);
+            string lines = DecisionLinesCodec.Decode(buffer, i, textLen);
+            if (!string.IsNullOrEmpty(lines))
+            {
+                state.HasDecisionLines = true;
+                state.DecisionLinesText = lines;
+            }
+        }
+        else if (id == NetProtocol.ExtIdDecisionNames && len >= 1)
+        {
+            // DECISION NAMES: UTF8 blob, one localization KEY per '\n'-separated line.
+            // Length re-clamped on OUR side (never trust the wire), and a decode that
+            // yields nothing degrades to "record absent" — the hint alone, which is
+            // what every build before ModBuild 307 drew.
+            int nameLen = System.Math.Min(len, NetProtocol.DecisionNamesMaxBytes);
+            string names = DecisionNamesCodec.Decode(buffer, i, nameLen);
+            if (!string.IsNullOrEmpty(names))
+            {
+                state.HasDecisionNames = true;
+                state.DecisionNamesText = names;
+            }
+        }
+        else if (id == NetProtocol.ExtIdDecisionState
+                 && len >= NetProtocol.DecisionStateMinRecordBytes)
+        {
+            // DECISION STATE: [flags][n][n × option byte]. The claimed option count is
+            // re-clamped against the record's OWN length AND the cap (never trust the
+            // wire), so a hostile n can neither overrun the record nor bleed into the
+            // next one; the flags byte and every option byte are masked to their
+            // DEFINED bits, so a newer sender's extra bits can never light a meaning
+            // here. A record that survives all of that still delivers only enumerations
+            // and a bitfield — there is no text and no identity in it to leak.
+            byte dsFlags = (byte)(buffer[i] & NetProtocol.DecisionStateDefinedMask);
+            int n = buffer[i + 1];
+            if (n > NetProtocol.DecisionStateMaxOptions)
+                n = NetProtocol.DecisionStateMaxOptions;
+            if (n > len - 2)
+                n = len - 2;
+            if (n < 0)
+                n = 0;
+            state.HasDecisionState = true;
+            state.DecisionPromptKind = NetProtocol.DecodeDecisionKind(dsFlags);
+            state.DecisionTextVariant = NetProtocol.DecodeDecisionTextVariant(dsFlags);
+            state.DecisionOptionCount = n;
+            if (n > 0)
+            {
+                byte[] opts = new byte[n];
+                for (int o = 0; o < n; o++)
+                    opts[o] = (byte)(buffer[i + 2 + o]
+                                     & NetProtocol.DecisionOptionDefinedMask);
+                state.DecisionOptionFlags = opts;
+            }
+        }
+        else if (id == NetProtocol.ExtIdDecisionWidgets
+                 && len >= NetProtocol.DecisionWidgetMinRecordBytes)
+        {
+            // DECISION WIDGETS: [flags][damage][n][n × role byte]. Same bounds
+            // discipline as record 24 — the claimed role count is re-clamped against the
+            // record's OWN length AND the cap, so a hostile n can neither overrun the
+            // record nor bleed into the next one; the flags byte is masked to its
+            // DEFINED bits and every role clamped to what THIS build can resolve, so an
+            // unknown code degrades to "mod-drawn plate" rather than resolving to the
+            // wrong widget. What survives is three small enumerations and a damage
+            // number — no text, no id, nothing that could name a card.
+            byte dwFlags = (byte)(buffer[i] & NetProtocol.DecisionWidgetDefinedMask);
+            byte damage = buffer[i + 1];
+            int n = buffer[i + 2];
+            if (n > NetProtocol.DecisionStateMaxOptions)
+                n = NetProtocol.DecisionStateMaxOptions;
+            if (n > len - 3)
+                n = len - 3;
+            if (n < 0)
+                n = 0;
+            state.HasDecisionWidgets = true;
+            state.DecisionWidgetFlags = dwFlags;
+            state.DecisionDamageAmount = damage;
+            state.DecisionRoleCount = n;
+            if (n > 0)
+            {
+                byte[] roles = new byte[n];
+                for (int o = 0; o < n; o++)
+                    roles[o] = NetProtocol.ClampDecisionRole(buffer[i + 3 + o]);
+                state.DecisionRoles = roles;
+            }
+        }
+        else if (id == NetProtocol.ExtIdUseBars
+                 && len >= NetProtocol.UseBarsMinRecordBytes)
+        {
+            // USE BARS: [barMask] then, per SET bar bit in bit order,
+            // [barFlags][n][n × slot byte]. The blocks are variable-length, so EVERY
+            // step is bounds-checked against the record's OWN end (never trust the
+            // wire): a lying count is clamped to what is left inside the record, and a
+            // block that does not fit at all ends the walk with whatever was already
+            // read — it can neither overrun the record nor bleed into the next one.
+            // The mask, the per-bar flags and every slot byte are masked to their
+            // DEFINED bits, so a newer sender's extra bits can never light a meaning
+            // here. What survives is a mask, two small counts and a bitfield: no text,
+            // no id, nothing that could name a card.
+            int j = i;
+            int end = i + len;
+            byte barMask = (byte)(buffer[j++] & NetProtocol.UseBarsDefinedMask);
+            if (barMask != 0)
+            {
+                var barFlags = new byte[NetProtocol.UseBarsCount];
+                var barCounts = new byte[NetProtocol.UseBarsCount];
+                var slotStates =
+                    new byte[NetProtocol.UseBarsCount * NetProtocol.UseBarsMaxSlots];
+                byte kept = 0;
+                for (int b = 0; b < NetProtocol.UseBarsCount; b++)
+                {
+                    if ((barMask & (1 << b)) == 0)
+                        continue;
+                    if (j + 2 > end)
+                        break; // truncated block: this bar and every later one are not delivered
+                    byte f = (byte)(buffer[j++] & NetProtocol.UseBarFlagsDefinedMask);
+                    int n = buffer[j++];
+                    if (n > NetProtocol.UseBarsMaxSlots)
+                        n = NetProtocol.UseBarsMaxSlots;
+                    if (n > end - j)
+                        n = end - j;
+                    if (n < 0)
+                        n = 0;
+                    int at = b * NetProtocol.UseBarsMaxSlots;
+                    for (int s = 0; s < n; s++)
+                        slotStates[at + s] =
+                            (byte)(buffer[j + s] & NetProtocol.UseSlotDefinedMask);
+                    j += n;
+                    barFlags[b] = f;
+                    barCounts[b] = (byte)n;
+                    kept |= (byte)(1 << b);
+                }
+                if (kept != 0)
+                {
+                    state.HasUseBars = true;
+                    state.UseBarsMask = kept;
+                    state.UseBarFlags = barFlags;
+                    state.UseBarSlotCounts = barCounts;
+                    state.UseBarSlotStates = slotStates;
+                }
+            }
+        }
+        else if (id == NetProtocol.ExtIdItemUseClip
+                 && len >= NetProtocol.ItemUseClipRecordBytes)
+        {
+            // ITEM-USE CLIP: one fan-local index, never an item identity. No validation
+            // beyond the length, for exactly the reason record 6 states: the RENDERER
+            // clamps against its own live slab count, which is the only place the bound
+            // is actually known (a packet can legitimately arrive one frame before or
+            // after a fan resize). Absence — the common case — leaves this false, which
+            // is "the recess is empty", i.e. the pre-record rendering.
+            state.HasItemUseClip = true;
+            state.ItemUseClipIndex = buffer[i];
+        }
+        else if (id == NetProtocol.ExtIdEnvClock
+                 && len >= NetProtocol.EnvClockRecordBytes)
+        {
+            // SHARED ENVIRONMENT CLOCK: [style][u32 ms LE]. Validation is FAIL-CLOSED TO
+            // ABSENCE (never trust the wire): a style code of 0 or above
+            // EnvClockMaxStyleCode is a sender this build cannot name, and "the same
+            // environment" must never be decided by a code we do not understand — the
+            // record is dropped whole, which leaves the receiver exactly where a peer
+            // predating record 31 leaves it (its own clock, its own offset 0). The
+            // millisecond value needs no range check: the consumer treats it as a
+            // DIFFERENCE and its own jump/walk band already bounds the correction, and
+            // a NaN cannot arrive from four integer bytes.
+            byte envStyle = buffer[i];
+            if (envStyle != 0 && envStyle <= NetProtocol.EnvClockMaxStyleCode)
+            {
+                state.HasEnvClock = true;
+                state.EnvClockStyle = envStyle;
+                state.EnvClockMillis = (uint)(buffer[i + 1]
+                                              | (buffer[i + 2] << 8)
+                                              | (buffer[i + 3] << 16)
+                                              | (buffer[i + 4] << 24));
+
+                // THE SIXTH BYTE — the sender's haunt frequency in hundredths, present
+                // only from 2026-08-15 on. A 5-byte record is a peer that predates the
+                // host-frequency ruling; leaving the flag false there is exactly right,
+                // because the receiver then keeps its OWN dial, which is what those
+                // builds did. CLAMPED rather than dropped (see EnvClockFrequencyMaxCode):
+                // the value is a threshold with no meaning outside [0,1].
+                if (len >= NetProtocol.EnvClockRecordBytesWithFrequency)
+                {
+                    byte code = buffer[i + 5];
+                    state.HasEnvClockFrequency = true;
+                    state.EnvClockFrequencyCode =
+                        code > NetProtocol.EnvClockFrequencyMaxCode
+                            ? NetProtocol.EnvClockFrequencyMaxCode
+                            : code;
+                }
+            }
+        }
+        else if (id == NetProtocol.ExtIdTestForce
+                 && len >= NetProtocol.TestForceRecordBytes)
+        {
+            // DEBUG TEST-TRIGGER OVERRIDE: [style][haunt+1][strong][waning][u32 ms LE].
+            // Sanitized FIELD BY FIELD (never trust the wire), and never by dropping the
+            // record — an unusable field must degrade to "this does not apply here",
+            // which the consumer already knows how to RELEASE, rather than to silence,
+            // which it would have to wait out:
+            //   * a style code this build cannot name is rewritten to
+            //     TestForceStyleUnknown, a value no dial can produce. The receiver's
+            //     equality test then fails and the whole override becomes a no-op — and
+            //     by the same path a release of whatever that sender had applied here.
+            //   * a haunt code above the largest room's card count is dropped to 0
+            //     rather than clamped; a card that does not exist must not resolve to a
+            //     card that does.
+            //   * both masks are reduced to their DEFINED bits, and an element claimed
+            //     in BOTH columns is dropped from both — an element cannot be Strong and
+            //     Waning at once, and guessing which was meant would be inventing state.
+            // An ALL-ZERO record survives all of this and IS DELIVERED: it is the
+            // sender's explicit "nothing is latched any more", and dropping it would
+            // leave the receiver waiting out a staleness timeout instead.
+            byte tfStyle = buffer[i];
+            byte tfHaunt = buffer[i + 1];
+            if (tfStyle > NetProtocol.TestForceMaxStyleCode)
+                tfStyle = NetProtocol.TestForceStyleUnknown;
+            if (tfHaunt > NetProtocol.TestForceMaxHauntCode)
+                tfHaunt = 0;
+            byte strong = (byte)(buffer[i + 2] & NetProtocol.TestForceElementMask);
+            byte waning = (byte)(buffer[i + 3] & NetProtocol.TestForceElementMask);
+            byte both = (byte)(strong & waning);
+            strong &= (byte)~both;
+            waning &= (byte)~both;
+
+            state.HasTestForce = true;
+            state.TestForceStyle = tfStyle;
+            state.TestForceHauntCode = tfHaunt;
+            state.TestForceStrongMask = strong;
+            state.TestForceWaningMask = waning;
+            state.TestForceHauntSinceMillis = (uint)(buffer[i + 4]
+                                                     | (buffer[i + 5] << 8)
+                                                     | (buffer[i + 6] << 16)
+                                                     | (buffer[i + 7] << 24));
+        }
+        else if (id == NetProtocol.ExtIdStorySync
+                 && len >= NetProtocol.StoryMinRecordBytes)
+        {
+            // STORY WINDOW SYNC: [flags][page][pageCount][u32 key LE]
+            // ( [poseStamp][sizeCode][pose 20] ).
+            //
+            // Sanitized FIELD BY FIELD (never trust the wire), never by dropping the
+            // record whole — the record's most important statement is the FINISHED
+            // bit, and silently dropping that is exactly the deadlock the feature
+            // exists to remove:
+            //   * undefined flag bits are masked off, so a future sender's extra bit
+            //     can never light a meaning here.
+            //   * a page at or past StoryPageNone becomes StoryPageNone ("no page"),
+            //     which the consumer already treats as "nothing to apply". The
+            //     receiver re-clamps against its OWN page list anyway — the only
+            //     place the real bound is known.
+            //   * the POSE block is optional and validated by the record's own
+            //     length. A truncated one leaves the pose bit CLEAR, which reads as
+            //     "this sender has not moved the window" — the receiver then keeps
+            //     its own local placement, which is what a pre-record peer gives it.
+            //   * a NaN/Inf position would ride 4 integer bytes per component and is
+            //     rejected here rather than by the placer, because a window flung to
+            //     infinity is unreachable and the local placement is always usable.
+            // The story KEY is deliberately NOT validated: it is an opaque content
+            // hash, and its whole job is to FAIL to match when the two clients hold
+            // different dialogs. A garbage key can therefore only make the record a
+            // no-op, never make it apply to the wrong text.
+            byte sFlags = (byte)(buffer[i] & NetProtocol.StoryDefinedMask);
+            byte sPage = buffer[i + 1];
+            if (sPage > NetProtocol.StoryPageMax)
+                sPage = NetProtocol.StoryPageNone;
+
+            state.HasStorySync = true;
+            state.StoryPage = sPage;
+            state.StoryPageCount = buffer[i + 2];
+            state.StoryKey = (uint)(buffer[i + 3]
+                                    | (buffer[i + 4] << 8)
+                                    | (buffer[i + 5] << 16)
+                                    | (buffer[i + 6] << 24));
+            state.StorySizeCode = NetProtocol.StorySizeDefaultCode;
+
+            if ((sFlags & NetProtocol.StoryPoseBit) != 0
+                && len >= NetProtocol.StoryRecordBytesWithPose)
+            {
+                int j = i + NetProtocol.StoryMinRecordBytes;
+                byte stamp = buffer[j++];
+                byte size = buffer[j++];
+                AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose sPose);
+                Vector3 p = sPose.Position;
+                if (float.IsNaN(p.x) || float.IsNaN(p.y) || float.IsNaN(p.z)
+                    || float.IsInfinity(p.x) || float.IsInfinity(p.y)
+                    || float.IsInfinity(p.z))
+                {
+                    sFlags &= unchecked((byte)~NetProtocol.StoryPoseBit);
+                }
+                else
+                {
+                    state.StoryPoseStamp = stamp;
+                    state.StorySizeCode =
+                        size < NetProtocol.StorySizeMinCode
+                        || size > NetProtocol.StorySizeMaxCode
+                            ? NetProtocol.StorySizeDefaultCode
+                            : size;
+                    state.StoryPose = sPose;
+                }
+            }
+            else
+            {
+                // Claimed a pose but the record is too short to hold one: keep every
+                // other field and drop the CLAIM, so a truncating sender still gets
+                // its page (and its FINISHED bit) delivered.
+                sFlags &= unchecked((byte)~NetProtocol.StoryPoseBit);
+            }
+            state.StoryFlags = sFlags;
+        }
+        else if (id == NetProtocol.ExtIdMapRoom
+                 && len >= NetProtocol.MapRoomRecordBytes)
+        {
+            // 3D MAP ROOM: [flags][surfaceStamp][u32 pickKey LE].
+            //
+            // Sanitized FIELD BY FIELD, never by dropping the record whole — the
+            // record's first statement is "I am in the room", and dropping that would
+            // read as a peer LEAVING the room, i.e. it would make a garbage byte
+            // somewhere else erase a placard that is genuinely up:
+            //   * undefined flag bits are masked off (the board-UI overlay
+            //     discipline), so a future sender's extra bit can never light a
+            //     meaning here.
+            //   * the surface stamp needs no range check at all: it is a WRAPPING
+            //     counter compared only for INEQUALITY against the last one seen from
+            //     the same sender. Every one of its 256 values is legal and none of
+            //     them means anything on its own.
+            //   * the pick key is deliberately NOT validated. It is an opaque content
+            //     hash whose whole job is to FAIL to resolve when the two clients are
+            //     not looking at the same map, and the only thing a receiver does with
+            //     an unresolvable key is nothing.
+            // A record whose IN-ROOM bit is clear survives all of this and IS
+            // DELIVERED: the consumer reads it as "this peer is not in the room", the
+            // same picture absence gives, so the two agree by construction.
+            state.HasMapRoom = true;
+            state.MapRoomFlags = (byte)(buffer[i] & NetProtocol.MapRoomDefinedMask);
+            state.MapRoomSurfaceStamp = buffer[i + 1];
+            state.MapRoomPickKey = (uint)(buffer[i + 2]
+                                          | (buffer[i + 3] << 8)
+                                          | (buffer[i + 4] << 16)
+                                          | (buffer[i + 5] << 24));
+            // THE SELECTION EDGE IS READ ONLY IF THE RECORD IS LONG ENOUGH TO HOLD IT,
+            // and its absence is a defined state rather than a default: a sender that
+            // writes only the six-byte form leaves stamp 0 / key 0 here, and a stamp
+            // that never changes never instructs anybody (RemoteMapRoom treats first
+            // sight as "not an edge"). So an older peer degrades to "does not
+            // participate in the shared selection" and can never be read as "that peer
+            // just deselected everything".
+            if (len >= NetProtocol.MapRoomRecordBytesWithSelect)
+            {
+                state.MapRoomSelectStamp = buffer[i + 6];
+                // The select key is deliberately NOT validated, exactly like the pick
+                // key: it is an opaque content hash whose job is to FAIL to resolve
+                // when two clients are not looking at the same map. What is different
+                // is what a MATCH does — it drives the game's own click seam — so the
+                // sanity of the value is enforced where that happens (a key that
+                // resolves to no live location here is dropped with a stated reason),
+                // never by guessing at a byte range that has no meaning.
+                state.MapRoomSelectKey = (uint)(buffer[i + 7]
+                                                | (buffer[i + 8] << 8)
+                                                | (buffer[i + 9] << 16)
+                                                | (buffer[i + 10] << 24));
+            }
+            // THE MAP-FAN CHARACTER KEY, same discipline one field further out: read
+            // only behind its own length test, unvalidated because it is an opaque
+            // content hash, and 0-or-absent means "that peer has no map fan open". An
+            // older peer therefore leaves this 0 and the receiver falls back to
+            // deducing the fan's owner from its hand size, which is what every build
+            // before this one did — never to a wrong character.
+            if (len >= NetProtocol.MapRoomRecordBytesWithFan)
+            {
+                state.MapRoomFanCharacterKey = (uint)(buffer[i + 11]
+                                                      | (buffer[i + 12] << 8)
+                                                      | (buffer[i + 13] << 16)
+                                                      | (buffer[i + 14] << 24));
+            }
+            // THE SHARED GAZE YAW, same discipline one field further out. NOT VALIDATED,
+            // and there is nothing to validate: all 256 steps are legal directions, and
+            // whether the number means anything at all is said by MapRoomGazeValidBit —
+            // which an older sender cannot set, because its flags byte is masked by a
+            // MapRoomDefinedMask that does not contain the bit. So a peer on an older
+            // build leaves this 0 AND the bit clear, and every client falls back to the
+            // fixed table axis, which is exactly what every build before this one did.
+            if (len >= NetProtocol.MapRoomRecordBytesWithGaze)
+            {
+                state.MapRoomGazeYaw = buffer[i + 15];
+            }
+            else
+            {
+                // A RECORD TOO SHORT TO HOLD THE FIELD MUST NOT BE READ AS SETTING IT,
+                // and the flags byte is where that could have gone wrong: it lives in
+                // the FROZEN six-byte minimum, so a sender of ANY length can light bit 6
+                // in it while carrying no gaze byte at all — and the anchor would then
+                // take the 0 left here as a decided yaw of 0° and seat every shared
+                // window along world +Z for the whole room visit. Our own older writers
+                // mask the bit out, but "never trust the wire" is not satisfied by
+                // trusting our own past builds. The bit is stripped where the absence is
+                // KNOWN, which is here.
+                state.MapRoomFlags &= unchecked((byte)~NetProtocol.MapRoomGazeValidBit);
+            }
+        }
+        else if (id == NetProtocol.ExtIdSharedWindow && len >= 1)
+        {
+            // SHARED MAP WINDOWS: [n] then n x [kind][flags][page][pageCount]
+            // [u32 contentKey LE] ( [poseStamp][sizeCode][frame][pose 20] ).
+            //
+            // EVERY step is bounds-checked against the record's OWN end (never trust
+            // the wire): a lying count is clamped to the record cap, an entry that does
+            // not fit ENDS THE WALK WITH THE ENTRIES BEFORE IT KEPT, and nothing can
+            // overrun the record or bleed into the next one. Sanitised field by field:
+            //   * n is clamped to SharedWindowMaxEntries.
+            //   * flags are masked with SharedDefinedMask.
+            //   * a page at or past StoryPageNone becomes StoryPageNone; the receiver
+            //     re-clamps against its OWN dialog list anyway (NetProtocol
+            //     .ResolveStoryPage), the only place the real bound is known.
+            //   * an UNKNOWN KIND is not dropped from the record — its length is still
+            //     computable from its own flags byte, so it is stepped over and the
+            //     entries behind it still apply. That is what makes a third kind
+            //     addable later without breaking this build.
+            //   * a size code outside the grab handle's window degrades to the authored
+            //     1.00x, and an UNKNOWN FRAME or a NaN/Inf position DROPS THE POSE
+            //     BLOCK AND KEEPS THE PAGE: a window flung to infinity — or placed in a
+            //     frame this build cannot decode — is unreachable, while the local
+            //     placement is always usable.
+            //   * the content key is NOT validated. Opaque match gate, same as record
+            //     19's story key.
+            int j = i;
+            int end = i + len;
+            int n = buffer[j++];
+            if (n > NetProtocol.SharedWindowMaxEntries)
+                n = NetProtocol.SharedWindowMaxEntries;
+            var entries = new SharedWindowEntry[NetProtocol.SharedWindowMaxEntries];
+            int kept = 0;
+            for (int e = 0; e < n; e++)
+            {
+                if (j + NetProtocol.SharedWindowEntryMinBytes > end)
+                    break; // truncated entry: this one and every later one are gone
+                var entry = default(SharedWindowEntry);
+                entry.Kind = buffer[j];
+                byte ef = (byte)(buffer[j + 1] & NetProtocol.SharedDefinedMask);
+                byte ep = buffer[j + 2];
+                if (ep > NetProtocol.StoryPageMax)
+                    ep = NetProtocol.StoryPageNone;
+                entry.Page = ep;
+                entry.PageCount = buffer[j + 3];
+                entry.ContentKey = (uint)(buffer[j + 4]
+                                          | (buffer[j + 5] << 8)
+                                          | (buffer[j + 6] << 16)
+                                          | (buffer[j + 7] << 24));
+                entry.SizeCode = NetProtocol.StorySizeDefaultCode;
+                j += NetProtocol.SharedWindowEntryMinBytes;
+
+                if ((ef & NetProtocol.SharedPoseBit) != 0)
+                {
+                    int poseBytes = NetProtocol.SharedWindowEntryBytesWithPose
+                                    - NetProtocol.SharedWindowEntryMinBytes;
+                    if (j + poseBytes > end)
+                    {
+                        // Claimed a pose the record is too short to hold: keep the page
+                        // and drop the CLAIM, then stop — the walk cannot know where
+                        // the next entry would have begun.
+                        ef &= unchecked((byte)~NetProtocol.SharedPoseBit);
+                        entry.Flags = ef;
+                        entries[kept++] = entry;
+                        break;
+                    }
+                    byte stamp = buffer[j];
+                    byte size = buffer[j + 1];
+                    byte frame = buffer[j + 2];
+                    int p = j + 3;
+                    AvatarSerializer.ReadPoseShared(buffer, ref p, out RigPose pose);
+                    j += poseBytes;
+                    Vector3 pos = pose.Position;
+                    bool bad = frame > NetProtocol.SharedFrameMax
+                               || float.IsNaN(pos.x) || float.IsNaN(pos.y)
+                               || float.IsNaN(pos.z) || float.IsInfinity(pos.x)
+                               || float.IsInfinity(pos.y) || float.IsInfinity(pos.z);
+                    if (bad)
+                    {
+                        ef &= unchecked((byte)~NetProtocol.SharedPoseBit);
+                    }
+                    else
+                    {
+                        entry.PoseStamp = stamp;
+                        entry.SizeCode =
+                            size < NetProtocol.StorySizeMinCode
+                            || size > NetProtocol.StorySizeMaxCode
+                                ? NetProtocol.StorySizeDefaultCode
+                                : size;
+                        entry.Frame = frame;
+                        entry.Pose = pose;
+                    }
+                }
+                entry.Flags = ef;
+                entries[kept++] = entry;
+            }
+            if (kept > 0)
+            {
+                state.HasSharedWindow = true;
+                state.SharedWindowCount = kept;
+                state.SharedWindowEntries = entries;
+            }
+        }
+        else if (id == NetProtocol.ExtIdCapLabels && len >= 2)
+        {
+            // CAP LABELS: [mask][per set bit, mask-bit order: len + UTF8]. Every
+            // sub-read is bounds-checked against the record's OWN length, so a
+            // hostile length can neither overrun the record nor bleed into the next
+            // one; a malformed block simply delivers nothing (the neutral-label
+            // fallback, the designed failure direction).
+            int j = i;
+            int end = i + len;
+            byte capMask = (byte)(buffer[j++] & NetProtocol.CapLabelDefinedMask);
+            if ((capMask & NetProtocol.CapLabelConfirmBit) != 0 && j < end)
+            {
+                int l = buffer[j++];
+                if (l > 0 && j + l <= end)
+                {
+                    string label = ConfirmLabelCodec.Decode(buffer, j,
+                        System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
+                    if (!string.IsNullOrEmpty(label))
+                    {
+                        state.HasConfirmCapLabel = true;
+                        state.ConfirmCapLabel = label;
+                    }
+                }
+                j += l;
+            }
+            if ((capMask & NetProtocol.CapLabelSkipBit) != 0 && j < end)
+            {
+                int l = buffer[j++];
+                if (l > 0 && j + l <= end)
+                {
+                    string label = SkipLabelCodec.Decode(buffer, j,
+                        System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
+                    if (!string.IsNullOrEmpty(label))
+                    {
+                        state.HasSkipCapLabel = true;
+                        state.SkipCapLabel = label;
+                    }
+                }
+                j += l;
+            }
+            if ((capMask & NetProtocol.CapLabelUndoBit) != 0 && j < end)
+            {
+                int l = buffer[j++];
+                if (l > 0 && j + l <= end)
+                {
+                    string label = UndoLabelCodec.Decode(buffer, j,
+                        System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
+                    if (!string.IsNullOrEmpty(label))
+                    {
+                        state.HasUndoCapLabel = true;
+                        state.UndoCapLabel = label;
+                    }
+                }
+                j += l;
+            }
+            if ((capMask & NetProtocol.CapLabelItemUseBit) != 0 && j < end)
+            {
+                int l = buffer[j++];
+                if (l > 0 && j + l <= end)
+                {
+                    string label = ItemUseLabelCodec.Decode(buffer, j,
+                        System.Math.Min(l, NetProtocol.CapLabelMaxBytes));
+                    if (!string.IsNullOrEmpty(label))
+                    {
+                        state.HasItemUseCapLabel = true;
+                        state.ItemUseCapLabel = label;
+                    }
+                }
+                j += l;
+            }
+        }
     }
 }

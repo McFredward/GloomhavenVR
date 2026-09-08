@@ -1146,6 +1146,11 @@ internal sealed class RemoteCardFx
             // documents in full, and pointing this at the Body child would apply the squash twice.
             f.Art = new RemoteCardArt(go.transform, RemoteHandFan.DefaultCardWidth,
                                       RemoteHandFan.DefaultCardHeight);
+            // NAME THE SURFACE (R2 NOTE 2, 2026-09-07). RemoteBurnFx.Acquire names its own rig
+            // Flight; this one named nothing, so both it and RemoteHandFan's used-card driver
+            // latched on index 0 as Unnamed and the first of them to arm silenced the other's line
+            // for the process. CardFlight is this class's own member — a flight that is NOT a burn.
+            f.Art.Surface = RemoteCardArt.FxSurface.CardFlight;
         }
         _flights.Add(f);
         return f;

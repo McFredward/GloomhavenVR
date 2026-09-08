@@ -41,9 +41,13 @@ namespace GloomhavenVR.Net;
 /// channel of any kind, and the line reads in each player's own language, exactly as the game's own
 /// help boxes do.
 ///
-/// ONE DELIBERATE DIFFERENCE FROM THE OWNER'S LINE: the mandatory-use variant renders the hint
-/// ALONE, without the active-bonus card names the owner sees prefixed to it. That is the
-/// suppression direction the wire rule demands — less information than the owner has, never more.
+/// NO DELIBERATE DIFFERENCE FROM THE OWNER'S LINE ANY MORE: the mandatory-use variant prefixes the
+/// active-bonus card NAMES exactly as the owner's does — record 33 carries their KEYS since
+/// ModBuild 307, gated on <c>RevealGate.PeersSeeOurCardFronts</c>, and <c>Compose</c> localizes
+/// them here (see the <c>DecisionTextMandatoryUse</c> arm below). This header used to say the
+/// hint "renders ALONE, without the names … less information than the owner has, never more";
+/// that was true before 307 and a 1:1 breach, and review R2 of 2026-09-07 found the stale sentence
+/// still contradicting the code beneath it.
 ///
 /// FORMATTING is the game's own (<c>HelpBoxLine.ShowTranslated</c>): a parchment-gold title, a
 /// colon, then the body in light grey, as one rich-text string. Reproducing the colours here rather

@@ -816,9 +816,12 @@ internal sealed class RemoteDecisionWidgets
     ///
     /// <para>The panel is HIDDEN here — that is expected and harmless. <c>Object.Instantiate</c>
     /// reads an inactive subtree perfectly well, and the layout it carries is the one Unity computed
-    /// while the panel was active at scene init (which it must have been, or the
-    /// <c>Singleton&lt;TakeDamagePanel&gt;</c> would not be initialized and its
-    /// <c>TextLocalizedListener</c>s would not have written their strings).</para>
+    /// while the panel was last active. That it was active at least once is a CHECK, not an
+    /// inference from the singleton: <c>UIWindow.Hide</c> deactivates only conditionally
+    /// (UIWindow.cs:744-747), and <c>RemoteWidgetMirror.Pair.External</c> and
+    /// <c>RemoteDialogOptions.LayoutCaption</c> both record panels that were never laid out; here
+    /// the <c>Singleton&lt;TakeDamagePanel&gt;</c> being initialized and its
+    /// <c>TextLocalizedListener</c>s having written their strings is what the resolve tests.</para>
     /// </summary>
     private static string PromptName(byte kind) => kind switch
     {
