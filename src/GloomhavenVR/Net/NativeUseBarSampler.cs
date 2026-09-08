@@ -31,7 +31,9 @@ internal static class NativeUseBarSampler
         try
         {
             object? model = NativeUseBarModels.Field<object>(source, "element");
-            if (!ReferenceEquals(cache.Source, source) || !ReferenceEquals(cache.Model, model))
+            if (!ReferenceEquals(cache.Source, source) || !ReferenceEquals(cache.Model, model)
+                || cache.Scratch.ActorId != NetFigures.StableActorId(NativeUseBarModels.Field<CActor>(source, "actor"))
+                || source is UIUseAugmentation currentAugment && cache.Scratch.Augments.Length != currentAugment.augmentations.Count)
             {
                 var state = new NativeUseBarState { Bar = bar, Slot = slot };
                 object nativeModel = NativeUseBarModels.Describe(source, state);
@@ -167,8 +169,8 @@ internal static class NativeUseBarSampler
         if (!visible) return 0;
         byte value = UseBarWidgetState.VisibleBit;
         if (selected) value |= NetProtocol.UseSlotChosenBit;
-        if (button != null && button.IsInteractable()) value |= (byte)(NetProtocol.UseSlotOfferedBit
-            | WorldUI.Surfaces.DecisionDockSurface.SamplePointerBits(button));
+        if (button != null && button.IsInteractable()) value |= NetProtocol.UseSlotOfferedBit;
+        if (button != null) value |= WorldUI.Surfaces.DecisionDockSurface.SamplePointerBits(button);
         return value;
     }
 }

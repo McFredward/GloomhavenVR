@@ -153,7 +153,7 @@ internal static class UseBarWidgetSampler
             state |= NetProtocol.UseSlotOfferedBit;
         if (chosen)
             state |= NetProtocol.UseSlotChosenBit;
-        if (button != null && offered)
+        if (button != null)
             state |= WorldUI.Surfaces.DecisionDockSurface.SamplePointerBits(button);
         return state;
     }

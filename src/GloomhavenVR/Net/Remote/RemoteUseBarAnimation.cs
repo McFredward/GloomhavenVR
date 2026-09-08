@@ -36,6 +36,8 @@ internal sealed class RemoteUseBarAnimation
     internal static RemoteUseBarAnimation Capture(Component source, GUIAnimator? animator) =>
         new(NativeUseBarAnimationBinding.Capture(source, animator));
 
+    internal static RemoteUseBarAnimation FromBindings(NativeUseBarAnimationBinding[] bindings) => new(bindings);
+
     internal static RemoteUseBarAnimation Capture(GUIAnimator? animator, Transform root) => Capture(root, animator);
 
     internal void ApplyValues(UseBarAnimationValue[] from, UseBarAnimationValue[] to, float progress)

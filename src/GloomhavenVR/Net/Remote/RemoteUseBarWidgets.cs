@@ -403,17 +403,8 @@ internal sealed class RemoteUseBarWidgets
             bool hovered = (state & NetProtocol.UseSlotHoveredBit) != 0;
             bool pressed = (state & NetProtocol.UseSlotPressedBit) != 0;
             PaintMasks(slot, state, Descriptor(owner, i));
-            if (slot.Background != null)
-            {
-                // UIUseSlot never disables its ExtendedButton: the CanvasGroup carries disabled
-                // alpha. Re-applying ColorBlock.disabledColor would dim this original widget twice.
-                Color tint = (offered && pressed ? slot.Colors.pressedColor
-                    : offered && hovered ? slot.Colors.highlightedColor : slot.Colors.normalColor)
-                    * slot.Colors.colorMultiplier;
-                if (slot.Background.canvasRenderer.GetColor() != tint)
-                    slot.Background.canvasRenderer.SetColor(tint);
-            }
-            PaintHover(ref slot, offered, hovered, pressed);
+            // UIUseSlot keeps its ExtendedButton enabled; its CanvasGroup carries disabled alpha.
+            slot.Button?.Paint(true, hovered, pressed);
             _slots[i] = slot;
             if (_bar == 0 || _bar == 3 && slot.Native == null) ApplyIcon(slot, _wantedIcons[i]);
             NativeUseBarState? native = NativeDescriptor(owner, i);
@@ -434,25 +425,6 @@ internal sealed class RemoteUseBarWidgets
             if ((flags & NetProtocol.UseBarOptionPickerBit) == 0)
                 SetActive(slot.OptionPicker, false);
         }
-    }
-
-    private static void PaintHover(ref Slot slot, bool offered, bool hovered, bool pressed)
-    {
-        if (slot.ScaleNode == null || !(slot.HoverFactor > 0f)) return;
-        float target = !offered ? 1f : pressed ? (slot.HoverFactor + 1f) * 0.5f : hovered ? slot.HoverFactor : 1f;
-        if (slot.ScaleTarget != target)
-        {
-            slot.ScaleFrom = slot.ScaleCurrent;
-            slot.ScaleTarget = target;
-            slot.ScaleAt = Time.unscaledTime;
-        }
-        float t = slot.HoverSeconds > 0f ? Mathf.Clamp01((Time.unscaledTime - slot.ScaleAt) / slot.HoverSeconds) : 1f;
-        // The original ExtendedButton uses easeOutExpo for its pointer scale animation.
-        float ease = t >= 1f ? 1f : 1f - Mathf.Pow(2f, -10f * t);
-        slot.ScaleCurrent = Mathf.LerpUnclamped(slot.ScaleFrom, target, ease);
-        Vector3 scale = slot.ScaleNode.localScale;
-        Vector3 want = new(slot.ScaleCurrent, slot.ScaleCurrent, scale.z);
-        if (scale != want) slot.ScaleNode.localScale = want;
     }
 
     private static void ApplyIcon(Slot slot, Sprite? sprite)
@@ -476,6 +448,12 @@ internal sealed class RemoteUseBarWidgets
     // reflection and no guessed child names or "first Image" binding.
     private static T? Field<T>(Component component, string name) where T : class =>
         AccessTools.Field(component.GetType(), name)?.GetValue(component) as T;
+
+    internal static bool? Interactable(Transform root)
+    {
+        Component? component = SlotComponent(root);
+        return component != null ? AccessTools.Field(component.GetType(), "interactable")?.GetValue(component) as bool? : null;
+    }
 
     internal static bool MandatoryShown(Transform root)
     {
@@ -502,19 +480,13 @@ internal sealed class RemoteUseBarWidgets
         return new Slot
         {
             Animation = component is UIUseActiveBonus bonus ? RemoteUseBarAnimation.Capture(bonus) : null,
-            ScaleNode = button != null ? (button.overridedTargetRectScale != null ? button.overridedTargetRectScale
-                : button.targetRect != null ? button.targetRect : button.transform) : null,
-            HoverFactor = button != null ? button.highlightScaleFactor : 1f,
-            HoverSeconds = button != null && button.animateScaling ? button.animationDuration : 0f,
-            ScaleFrom = 1f, ScaleCurrent = 1f, ScaleTarget = 1f,
+            Button = RemoteNativeButton.Capture(button),
             Icon = Field<Image>(component, component is UIUseItemScenario ? "imageItem" : "icon"),
             Selected = Field<GameObject>(component, "selectedMask"),
             Optional = Field<GameObject>(component, "optionalHiglight"),
             Mandatory = Field<GameObject>(component, "mandatoryHiglight"),
             Group = Field<CanvasGroup>(component, "canvasGroup"),
             DisabledAlpha = (float)(AccessTools.Field(component.GetType(), "disabledAlpha")?.GetValue(component) ?? 0.25f),
-            Background = button != null ? button.targetGraphic : null,
-            Colors = button != null ? button.colors : ColorBlock.defaultColorBlock,
             ElementPicker = Field<UIElementPicker>(component, "elementPicker")?.content,
             OptionPicker = Field<UIOptionPicker>(component, "optionPicker")?.content,
         };
@@ -530,17 +502,13 @@ internal sealed class RemoteUseBarWidgets
         internal Image? Icon;
         internal GameObject? Selected, Optional, Mandatory, ElementPicker, OptionPicker;
         internal CanvasGroup? Group;
-        internal Graphic? Background;
-        internal ColorBlock Colors;
+        internal RemoteNativeButton? Button;
         internal float DisabledAlpha;
-        internal Transform? ScaleNode;
-        internal float HoverFactor, HoverSeconds, ScaleFrom, ScaleCurrent, ScaleTarget, ScaleAt;
         internal Slot Map(RemoteWidgetMirror mirror) => new()
         {
             Subwidgets = Subwidgets?.Map(mirror), Native = Native?.Map(mirror),
             Animation = Animation?.Map(mirror), ActorId = ActorId, Identity = Identity,
-            ScaleNode = mirror.CloneOf(ScaleNode), HoverFactor = HoverFactor, HoverSeconds = HoverSeconds,
-            ScaleFrom = 1f, ScaleCurrent = 1f, ScaleTarget = 1f,
+            Button = Button?.Map(mirror),
             Icon = mirror.CloneOf(Icon != null ? Icon.transform : null)?.GetComponent<Image>(),
             Selected = mirror.CloneOf(Selected != null ? Selected.transform : null)?.gameObject,
             Optional = mirror.CloneOf(Optional != null ? Optional.transform : null)?.gameObject,
@@ -548,8 +516,6 @@ internal sealed class RemoteUseBarWidgets
             ElementPicker = mirror.CloneOf(ElementPicker != null ? ElementPicker.transform : null)?.gameObject,
             OptionPicker = mirror.CloneOf(OptionPicker != null ? OptionPicker.transform : null)?.gameObject,
             Group = mirror.CloneOf(Group != null ? Group.transform : null)?.GetComponent<CanvasGroup>(),
-            Background = mirror.CloneOf(Background != null ? Background.transform : null)?.GetComponent<Graphic>(),
-            Colors = Colors,
             DisabledAlpha = DisabledAlpha,
         };
     }

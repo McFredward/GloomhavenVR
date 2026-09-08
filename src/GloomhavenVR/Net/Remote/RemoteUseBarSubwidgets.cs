@@ -252,9 +252,9 @@ internal sealed class RemoteUseBarSubwidgets
             }
         }
         foreach (Picker ui in _elements)
-            ui.Paint(ui.Element >= 0 && ui.Element < 6 ? state.ElementStates[ui.Element] : (byte)0);
+            ui.Paint(ui.Element >= 0 && ui.Element < 6 ? state.ElementStates[ui.Element] : (byte)0, !_layoutSource);
         for (int i = 0; i < _options.Count; i++)
-            _options[i].Paint(i < state.OptionStates.Length ? state.OptionStates[i] : (byte)0);
+            _options[i].Paint(i < state.OptionStates.Length ? state.OptionStates[i] : (byte)0, !_layoutSource);
     }
 
     internal void TickHover()
@@ -293,8 +293,8 @@ internal sealed class RemoteUseBarSubwidgets
         internal ColorBlock Colors;
         internal float LitAlpha, UnlitAlpha;
         internal int Element = -1;
-        private Transform? _scaleNode;
-        private float _factor = 1f, _seconds, _from = 1f, _now = 1f, _target = 1f, _at;
+        private RemoteNativeButton? _visual;
+        private byte _state;
         private Picker() { }
         internal Picker(UIElementPickerSlot source)
         {
@@ -303,7 +303,7 @@ internal sealed class RemoteUseBarSubwidgets
             LitSprite = source.highlightedBackground; UnlitSprite = source.unhighlightedBackground;
             LitAlpha = source.highlightedBackgroundAlpha; UnlitAlpha = source.unhighlightedBackgroundAlpha;
             ButtonGraphic = source.button.targetGraphic; Colors = source.button.colors;
-            BindHover(source.button);
+            _visual = RemoteNativeButton.Capture(source.button);
         }
         internal Picker(UIPickerSlot source)
         {
@@ -311,7 +311,7 @@ internal sealed class RemoteUseBarSubwidgets
             LitSprite = source.highlightedBackground; UnlitSprite = source.unhighlightedBackground;
             LitAlpha = source.highlightedBackgroundAlpha; UnlitAlpha = source.unhighlightedBackgroundAlpha;
             ButtonGraphic = source.button.targetGraphic; Colors = source.button.colors;
-            BindHover(source.button);
+            _visual = RemoteNativeButton.Capture(source.button);
         }
         internal Picker Map(RemoteWidgetMirror mirror) => new()
         {
@@ -319,31 +319,16 @@ internal sealed class RemoteUseBarSubwidgets
             ElementHighlight = Component(mirror, ElementHighlight), ButtonGraphic = Component(mirror, ButtonGraphic),
             LitSprite = LitSprite, UnlitSprite = UnlitSprite, LitAlpha = LitAlpha, UnlitAlpha = UnlitAlpha,
             Colors = Colors, Element = Element,
-            _scaleNode = mirror.CloneOf(_scaleNode), _factor = _factor, _seconds = _seconds,
+            _visual = _visual?.Map(mirror),
         };
-        private void BindHover(ExtendedButton button)
+        internal void TickHover() => _visual?.Paint((_state & NetProtocol.UseSlotOfferedBit) != 0,
+            (_state & NetProtocol.UseSlotHoveredBit) != 0, (_state & NetProtocol.UseSlotPressedBit) != 0);
+        internal void Paint(byte state, bool geometry)
         {
-            _scaleNode = button.overridedTargetRectScale != null ? button.overridedTargetRectScale
-                : button.targetRect != null ? button.targetRect : button.transform;
-            _factor = button.highlightScaleFactor > 0f ? button.highlightScaleFactor : 1f;
-            _seconds = button.animateScaling ? button.animationDuration : 0f;
-        }
-        internal void TickHover()
-        {
-            if (_scaleNode == null) return;
-            float t = _seconds > 0f ? Mathf.Clamp01((Time.unscaledTime - _at) / _seconds) : 1f;
-            _now = Mathf.LerpUnclamped(_from, _target, t >= 1f ? 1f : 1f - Mathf.Pow(2f, -10f * t));
-            Vector3 scale = _scaleNode.localScale;
-            Vector3 desired = new(_now, _now, scale.z);
-            if (scale != desired) _scaleNode.localScale = desired;
-        }
-        internal void Paint(byte state)
-        {
+            _state = state;
             Active(Root, (state & UseBarWidgetState.VisibleBit) != 0);
-            float target = (state & NetProtocol.UseSlotOfferedBit) == 0 ? 1f
-                : (state & NetProtocol.UseSlotPressedBit) != 0 ? (_factor + 1f) * 0.5f
-                : (state & NetProtocol.UseSlotHoveredBit) != 0 ? _factor : 1f;
-            if (_target != target) { _from = _now; _target = target; _at = Time.unscaledTime; }
+            _visual?.Paint((state & NetProtocol.UseSlotOfferedBit) != 0,
+                (state & NetProtocol.UseSlotHoveredBit) != 0, (state & NetProtocol.UseSlotPressedBit) != 0, geometry);
             bool lit = (state & (NetProtocol.UseSlotChosenBit | NetProtocol.UseSlotHoveredBit)) != 0;
             if (ElementHighlight != null) ElementHighlight.enabled = lit;
             if (Background != null)
@@ -352,14 +337,7 @@ internal sealed class RemoteUseBarSubwidgets
                 Color color = Background.color; color.a = lit ? LitAlpha : UnlitAlpha;
                 if (Background.color != color) Background.color = color;
             }
-            if (ButtonGraphic != null)
-            {
-                Color tint = (state & NetProtocol.UseSlotOfferedBit) == 0 ? Colors.disabledColor
-                    : (state & NetProtocol.UseSlotPressedBit) != 0 ? Colors.pressedColor
-                    : (state & NetProtocol.UseSlotHoveredBit) != 0 ? Colors.highlightedColor : Colors.normalColor;
-                tint *= Colors.colorMultiplier;
-                if (ButtonGraphic.canvasRenderer.GetColor() != tint) ButtonGraphic.canvasRenderer.SetColor(tint);
-            }
+
         }
     }
 }

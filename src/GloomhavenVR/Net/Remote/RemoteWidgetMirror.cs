@@ -2417,6 +2417,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             {
                 if (_dstGraphic.enabled != _srcGraphic.enabled) _dstGraphic.enabled = _srcGraphic.enabled;
                 if (_dstGraphic.color != _srcGraphic.color) _dstGraphic.color = _srcGraphic.color;
+                Color rendered = _srcGraphic.canvasRenderer.GetColor();
+                if (_dstGraphic.canvasRenderer.GetColor() != rendered) _dstGraphic.canvasRenderer.SetColor(rendered);
             }
 
             // TMP first: TMP_Text IS a Graphic, so it must not also be treated as a plain Text.
@@ -2427,6 +2429,11 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                 // Native tooltip/select-field controls change font style while reusing their text
                 // object. Copying only wording and size left the clone's initial style behind.
                 if (_dstTmp.fontStyle != _srcTmp.fontStyle) _dstTmp.fontStyle = _srcTmp.fontStyle;
+                // UITab.TextTransition.Material writes this original TMP property. Mirror the
+                // font and its shared material together; do not use Graphic.material's accessor.
+                if (!ReferenceEquals(_dstTmp.font, _srcTmp.font)) _dstTmp.font = _srcTmp.font;
+                if (!ReferenceEquals(_dstTmp.fontSharedMaterial, _srcTmp.fontSharedMaterial))
+                    _dstTmp.fontSharedMaterial = _srcTmp.fontSharedMaterial;
             }
             else if (_srcText != null && _dstText != null)
             {
@@ -2495,10 +2502,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         /// points at. This is the identical contract the sprite and the portrait TEXTURE have been
         /// shipping under since the mirror existed.</para>
         ///
-        /// <para>DELIBERATELY IMAGE/RAWIMAGE ONLY. TMP overrides the <c>material</c> accessor and
-        /// re-derives sub-mesh materials from its font atlas; assigning across a clone boundary
-        /// there would fight TMP rather than mirror it, and no track or objectives highlight is
-        /// carried by a TMP material.</para>
+        /// <para>Image/RawImage use Graphic.material. TMP uses its own fontSharedMaterial accessor
+        /// in Apply, together with the original font, preserving native material transitions.</para>
         ///
         /// <para>Change-gated on reference equality: <c>Instantiate</c> already copied the field, so
         /// a panel whose materials never change costs one reference compare per node per frame and

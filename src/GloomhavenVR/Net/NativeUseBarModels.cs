@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using HarmonyLib;
 using ScenarioRuleLibrary;
 using UnityEngine;
@@ -11,8 +12,16 @@ namespace GloomhavenVR.Net;
 internal static class NativeUseBarModels
 {
     internal static readonly object Dummy = new();
-    internal static T? Field<T>(object source, string name) where T : class =>
-        AccessTools.Field(source.GetType(), name)?.GetValue(source) as T;
+    private static readonly Dictionary<Type, Dictionary<string, FieldInfo?>> Fields = new();
+    internal static T? Field<T>(object source, string name) where T : class
+    {
+        Type type = source.GetType();
+        if (!Fields.TryGetValue(type, out Dictionary<string, FieldInfo?> fields))
+        { fields = new Dictionary<string, FieldInfo?>(); Fields.Add(type, fields); }
+        if (!fields.TryGetValue(name, out FieldInfo? field))
+        { field = AccessTools.Field(type, name); fields.Add(name, field); }
+        return field?.GetValue(source) as T;
+    }
 
     internal static object Describe(Component source, NativeUseBarState state)
     {
