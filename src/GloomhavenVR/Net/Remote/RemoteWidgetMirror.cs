@@ -1232,7 +1232,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// behaviour's <c>Awake</c>/<c>OnEnable</c> run on the frame the host activates, which is the
     /// entire thing this method exists to prevent.
     /// </summary>
-    private static void Neutralize(GameObject clone, LayoutOwner layoutOwner,
+    internal static void Neutralize(GameObject clone, LayoutOwner layoutOwner,
                                   System.Func<Transform, bool>? externallyShownBranch)
     {
         // THE BRANCHES THE CLONE WILL LAY OUT ITSELF, resolved BEFORE a single component is

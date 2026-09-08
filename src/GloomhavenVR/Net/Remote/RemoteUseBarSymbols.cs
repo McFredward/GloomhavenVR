@@ -304,7 +304,7 @@ internal static class RemoteUseBarSymbols
 
     /// <summary>The bar's slot container on THIS client, by the record-25 bit order (0 = active
     /// bonus, 1 = abilities, 2 = augments, 3 = items — <c>NetProtocol.UseBarActiveBonusBit</c> …).</summary>
-    private static RectTransform? ContainerOf(int barIndex) => barIndex switch
+    internal static RectTransform? ContainerOf(int barIndex) => barIndex switch
     {
         0 => Singleton<UIActiveBonusBar>.IsInitialized
             ? Singleton<UIActiveBonusBar>.Instance.container : null,
@@ -322,7 +322,7 @@ internal static class RemoteUseBarSymbols
     /// to its <c>Summoner</c>, which is the same mapping <c>UseBarsSurface.AddOwner</c> uses, so the
     /// two sides answer the ownership question identically.
     /// </summary>
-    private static bool BarBelongsTo(int barIndex, CPlayerActor boardActor)
+    internal static bool BarBelongsTo(int barIndex, CPlayerActor boardActor)
     {
         OwnerScratch.Clear();
         switch (barIndex)
@@ -408,7 +408,7 @@ internal static class RemoteUseBarSymbols
     /// fail-closed. <see cref="RefusalReason.SlotCountMismatch"/>'s text names this as one of the
     /// two populations it cannot tell apart rather than asserting the other one.</para>
     /// </summary>
-    private static bool RenderHiddenPlainItem(Transform child)
+    internal static bool RenderHiddenPlainItem(Transform child)
     {
         if (child.GetComponent<UIUseItemScenario>() == null)
             return false;
@@ -427,7 +427,7 @@ internal static class RemoteUseBarSymbols
     /// <summary>True for a real slot widget (the four concrete <c>UIUseSlot&lt;T&gt;</c> types) —
     /// pooled decoration under the same container is never a mirrored tile, which is precisely what
     /// the sender's <c>_chosen(child) == null</c> test excludes.</summary>
-    private static bool IsSlot(Transform child) =>
+    internal static bool IsSlot(Transform child) =>
         child.GetComponent<UIUseActiveBonus>() != null
         || child.GetComponent<UIUseAbility>() != null
         || child.GetComponent<UIUseAugmentation>() != null

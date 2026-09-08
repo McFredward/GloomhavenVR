@@ -249,7 +249,7 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 internal sealed class UseBarsSurface
 {
     /// <summary>Bar glyphs are read under pressure — 0.8× tray density = 1.25× bigger (the decision-dock rationale).</summary>
-    private const float DensityScale = 0.8f;
+    internal const float DensityScale = 0.8f;
 
     /// <summary>Dock-fit guards (test #16 semantics, width axis only).</summary>
     private const float MaxFitScale = 1f;
@@ -279,7 +279,7 @@ internal sealed class UseBarsSurface
     internal const float StackGap = 0.012f;
 
     /// <summary>Per-bar proud step toward the viewer — stops equal-order world canvases depth-tying (flicker lesson).</summary>
-    private const float ProudStep = 0.004f;
+    internal const float ProudStep = 0.004f;
 
     /// <summary>No-tray fallback float distance / shrink (the DecisionDockSurface values).</summary>
     private const float FloatDistanceMeters = 1.1f;
@@ -2184,6 +2184,9 @@ internal sealed class UseBarsSurface
                 state |= Net.NetProtocol.UseSlotDimmedBit;
             if (chosen)
                 state |= Net.NetProtocol.UseSlotChosenBit;
+            // The native mandatory frame is owner-local UI state, independent of selection.
+            if (Net.RemoteUseBarWidgets.MandatoryShown(slot))
+                state |= Net.NetProtocol.UseSlotMandatoryBit;
 
             // The owner's pointer, asked through the ONE shared sampler instead of a second copy of
             // the tracker lookups. Two things about this line are load-bearing and neither of them
