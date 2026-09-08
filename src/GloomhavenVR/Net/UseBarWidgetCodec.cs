@@ -24,7 +24,7 @@ internal static class UseBarWidgetCodec
     {
         if (state == null || !state.Validate())
             return 0;
-        int size = 11 + state.ConsumeIcons.Length + 2 * state.InlineOptions.Length
+        int size = 12 + state.ConsumeIcons.Length + 2 * state.InlineOptions.Length
                    + state.OptionStates.Length;
         for (int i = 0; i < state.InlineOptions.Length; i++)
             if (state.InlineOptions[i] == UseBarWidgetState.NumericOption)
@@ -36,6 +36,7 @@ internal static class UseBarWidgetCodec
     {
         buffer[at++] = state.Slot;
         buffer[at++] = state.Flags;
+        buffer[at++] = state.SlotAlpha;
         buffer[at++] = (byte)state.ConsumeIcons.Length;
         foreach (byte value in state.ConsumeIcons)
             buffer[at++] = value;
@@ -62,10 +63,11 @@ internal static class UseBarWidgetCodec
     {
         state = new UseBarWidgetState();
         int end = at + length;
-        if (length < 11 || at < 0 || end > buffer.Length)
+        if (length < 12 || at < 0 || end > buffer.Length)
             return false;
         state.Slot = buffer[at++];
         state.Flags = buffer[at++];
+        state.SlotAlpha = buffer[at++];
         int count = buffer[at++];
         if (count > UseBarWidgetState.CountMax || at + count + 1 > end)
             return false;

@@ -1583,9 +1583,9 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>1801 -> 3441 on 2026-09-08: original active-bonus subwidgets (47) add at most
-    /// eight complete 203-byte slot descriptors plus their two-byte TLV headers (1640 bytes).
-    /// MaxSize grows to 3700, leaving 259 bytes, greater than the largest single record (257).
+    /// <para>1801 -> 3449 on 2026-09-08: original active-bonus subwidgets (47) add at most
+    /// eight complete 204-byte slot descriptors plus their two-byte TLV headers (1648 bytes).
+    /// MaxSize grows to 3710, leaving 261 bytes, greater than the largest single record (257).
     /// This is the reassembled snapshot buffer, NOT a permitted Bolt event size. The transport
     /// fragments extras into bounded record-48 envelopes below the game's unfragmented event MTU.</para>
     ///
@@ -1800,7 +1800,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 3700;
+    public const int MaxSize = 3710;
 
     // ---- write --------------------------------------------------------------------------
 

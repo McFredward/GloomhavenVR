@@ -23663,14 +23663,14 @@ internal static class NetProtocol
     public const byte ShortRestInProgressBit = 1;
 
     /// <summary>Original active-bonus subwidgets, one complete descriptor per slot. Max payload
-    /// 203 bytes (32 consume icons, 32 indexed numeric options, six element states, 32 option
-    /// states). At eight slots this adds 1640 bytes; full extras worst case is 3449. Oversized
+    /// 204 bytes (slot alpha, 32 consume icons, 32 indexed numeric options, six element states, 32 option
+    /// states). At eight slots this adds 1648 bytes; full extras worst case is 3449. Oversized
     /// snapshots must use transport fragmentation, never a single oversized Bolt event.</summary>
     public const byte ExtIdUseBarWidgets = 47;
     /// <summary>Transport-only extras fragment, never parsed as an ordinary presence record.
     /// Multiple bounded chunks travel under MsgExtrasFragments and apply only after reassembly.</summary>
     public const byte ExtIdExtrasFragment = 48;
-    public const int UseBarWidgetsMaxPayloadBytes = 203;
+    public const int UseBarWidgetsMaxPayloadBytes = 204;
 
 
     /// <summary>A dense wrapping event counter advances only through the forward half-range.
