@@ -55,7 +55,7 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    snapshots in message type 2. The 38/40/42 holes may never be reused; 49 is next free.** No id
    has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
-   `scripts/wire-tests.sh` (238,554 assertions at ModBuild 486) is the proof; a `Write`+`TryRead` change
+   `scripts/wire-tests.sh` (238,556 assertions at ModBuild 486) is the proof; a `Write`+`TryRead` change
    made in lockstep is invisible to a round trip, which is why the golden vectors exist.
 4. **1:1 is a standing ruling.** A peer's board mirrors the owner's CONTENT, ANIMATION, ORDER,
    POSITION, SIZE, STATE and TIMING. A mirror must never read the viewer's dial. A shared
@@ -91,7 +91,7 @@ The guard's **exit code is 1 whenever the compiled form differs at all**, which 
 any change — read the printed verdict, not the status. Its baseline is per-worktree and
 gitignored; take your own with `bash scripts/refactor-guard.sh baseline` before you start.
 
-Current readings at 486: patch surface 107 classes / 165 methods · wire 238,554 assertions ·
+Current readings at 486: patch surface 107 classes / 165 methods · wire 238,556 assertions ·
 config keys 625 · log tokens 4,709 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
 A number that has moved is not automatically wrong — but it must be explained in the commit.
 

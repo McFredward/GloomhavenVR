@@ -22,7 +22,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   remain untested on hardware.** See [MP-ROUND-484.md](MP-ROUND-484.md) for the seven findings,
   fixes, transport contract and the unresolved underlying disconnect cause.
 - **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
-- Gate readings at 486: 17 checkers green · wire **238,554** assertions · patch surface
+- Gate readings at 486: 17 checkers green · wire **238,556** assertions · patch surface
   **107 classes / 165 methods** · config keys **625** · log tokens **4,709** ·
   instrument-writes baseline **61** · 0 errors, 0 warnings.
 

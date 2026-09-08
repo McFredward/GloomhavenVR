@@ -55,7 +55,7 @@ assets are unchanged. Installation is DLL-only after the full ModBuild-483 asset
 
 ## Validation and remaining evidence
 
-The integrated suite passes **238,554 assertions**; all 17 static/surface checkers pass. The strict
+The integrated suite passes **238,556 assertions**; all 17 static/surface checkers pass. The strict
 Release build has zero warnings/errors. Patch inventory remains 107 classes/165 methods, with
 625 configuration keys. Five diagnostic tokens were added; none was removed (4,709 total).
 The compiled-form guard reports intentional feature changes against `66c3bfbf`; its nonzero
