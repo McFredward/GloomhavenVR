@@ -8,14 +8,10 @@
 # forgotten. Nothing else belongs here: a NEW disagreement is a build failure, which is the
 # whole point — this class shipped silently once and cost two of six card-FX surfaces.
 #
-# Every entry below is R2 F1 of the 2026-09-07 review round, in repair in a parallel lane at
-# the moment this gate was written (base f37049b5, ModBuild 479). The integrator removes them
-# as that lane lands.
-
-Net/Remote/RemoteCardArt.cs | s_burnRigLogged | R2 F1, shipped ModBuild 479. FxSurface grew to Active(4)/Held(5) in c14e5220; these arrays are from 8e72856f. Indexed unguarded at :3178 — the throw is swallowed by BuildBurnRig's catch, which nulls _burnImages and logs at the DEBUG tier, so the surface is dead with nothing in the log at the shipped level.
-
-Net/Remote/RemoteCardArt.cs | s_burnRigRefused | R2 F1, shipped ModBuild 479. Same enum, same literal, indexed unguarded at :3216. Same swallow.
-
-Net/Remote/RemoteCardArt.cs | s_burnRigNoFxImages | R2 F1, shipped ModBuild 479. Same enum, same literal, indexed unguarded at :3236. Same swallow.
-
-Net/Remote/RemoteCardArt.cs | s_flameDrawnLogged | R2 F1 NOTE 1, shipped ModBuild 479. This one IS bounds-guarded (:2843), so instead of throwing it silently never logs for Active or Held. A guard is not the fix — it converts the throw into a no-op for the same two members, which is why this gate does not treat a guard as an exemption.
+# EMPTY IS THE CORRECT STATE, and it is how this file shipped its first build. The four entries
+# it was created with were R2 F1 of the 2026-09-07 review round — the four RemoteCardArt latch
+# arrays left at a literal 4 when FxSurface grew to six, killing the Active and Held card-FX
+# surfaces with nothing in the log at the shipped tier. Fix lane A closed them in ModBuild 480
+# by deriving every length from Enum.GetValues and routing all four latch sites through one
+# bounds-checked helper, so an instrument can no longer kill the thing it measures. The gate
+# then failed on the four now-stale lines, which is exactly what it is for, and they are gone.

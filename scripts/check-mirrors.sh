@@ -618,15 +618,32 @@ done
 # the defect. A `~` file listed inside a directory that is also in scope stays marked (the mark
 # wins the merge). Everything else in scope must carry both terms or neither.
 SUBSETS=(
-  # KNOWN-OPEN at the moment this part was written (base f37049b5, ModBuild 479): all three
-  # marked files take the flow half alone. `IsAnimated` appears nowhere in src/, so the
-  # companion is currently absent by construction rather than by oversight. The rest of
-  # Board/FigureGrab/ is in scope unmarked, so the next file to reach for the term is caught.
-  "the game's flow-control pair | !FlowControlActive() && !m_HealthBar.IsAnimated (the game's own form at WorldspacePanelUIController.cs:683/698/711; :724/:732 write the OR form). The bar is not free to be moved while EITHER is running | FlowControlActive *\\( | IsAnimated | ~WorldUI/ActorBars.cs ~Board/FigureGrab/FigureBusy.cs ~Board/FigureGrab/FigureStallWatchdog.cs Board/FigureGrab/ "
-  # KNOWN-OPEN: Cards/CardsGameApi.cs:1874. Board/FigureGrab/ is in scope UNMARKED because
-  # FigureBusy.cs:334-337 already takes all three terms and is the worked example — the group
-  # passes there, which is the point of scoping it in.
-  "the rules-engine busy triple | (!ScenarioRuleClient.IsProcessingOrMessagesQueued || GameState.WaitingForPlayerToSelectDamageResponse || GameState.WaitingForPlayerActorToAvoidDamageResponse) — the game's own form at SkipButton.cs:162, ReadyButton.cs:501, UndoButton.cs:294 | IsProcessingOrMessagesQueued | WaitingForPlayerActorToAvoidDamageResponse | ~Cards/CardsGameApi.cs Board/FigureGrab/ "
+  # ActorBars.cs was the conviction this group was written for and fix lane E closed it in
+  # ModBuild 480; its mark is gone and it is held to the rule from here on. That fix matters
+  # more than the usual one: HealthBar.m_IsAnimActive is PRIVATE WITH NO SETTER, so if the latch
+  # ever did occur there is nothing in this tree that could repair it. Prevention is the whole
+  # defence.
+  #
+  # THE TWO REMAINING MARKS ARE NOT IN REPAIR. Lane E examined both and neither is a defect:
+  #   FigureBusy.cs      — the grab-START gate asks only about the AttackModBar flow. With
+  #                        ActorBars now refusing the hide on BOTH terms, adding IsAnimated here
+  #                        would refuse a grab for a 0.3 s HP slider with nothing left to protect.
+  #   FigureStallWatchdog.cs — this repair calls FinalizeAttackFlow(), the AttackModBar's own
+  #                        finaliser. IsAnimated has no equivalent (see the private field above),
+  #                        so there is nothing this watchdog could do about it even if it asked.
+  # They keep the mark because the mark is what says "this file is deliberately one term short",
+  # and the rest of Board/FigureGrab/ stays in scope unmarked so the next file to reach for the
+  # term is caught. If either ever gains the companion the gate fails and this note is the reason
+  # to re-read before deleting a tilde.
+  "the game's flow-control pair | !FlowControlActive() && !m_HealthBar.IsAnimated (the game's own form at WorldspacePanelUIController.cs:683/698/711; :724/:732 write the OR form). The bar is not free to be moved while EITHER is running | FlowControlActive *\\( | IsAnimated | WorldUI/ActorBars.cs ~Board/FigureGrab/FigureBusy.cs ~Board/FigureGrab/FigureStallWatchdog.cs Board/FigureGrab/ "
+  # Cards/CardsGameApi.cs:1874 was this group's conviction and fix lane E closed it in ModBuild
+  # 480, so the mark is gone. What made it worth a gate rather than a fix: the doc there asserted
+  # the flag "cannot stick", and ModBuild 479's own damage-prompt work falsified that in the same
+  # week — a damage decision parks the rule thread in a sleep loop, so the flag reads true while
+  # the engine executes nothing. Board/FigureGrab/ is in scope UNMARKED because FigureBusy.cs
+  # :334-337 already takes all three terms and is the worked example — the group passes there,
+  # which is the point of scoping it in.
+  "the rules-engine busy triple | (!ScenarioRuleClient.IsProcessingOrMessagesQueued || GameState.WaitingForPlayerToSelectDamageResponse || GameState.WaitingForPlayerActorToAvoidDamageResponse) — the game's own form at SkipButton.cs:162, ReadyButton.cs:501, UndoButton.cs:294 | IsProcessingOrMessagesQueued | WaitingForPlayerActorToAvoidDamageResponse | Cards/CardsGameApi.cs Board/FigureGrab/ "
 )
 
 sfail=0

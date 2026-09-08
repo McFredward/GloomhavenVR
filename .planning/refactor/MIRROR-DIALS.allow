@@ -27,11 +27,9 @@
 
 # ── OPEN — R2's four confirmed instances, all shipped and all invisible to every other gate ──
 
-Net/Remote/RemoteUsableFrame.cs | ItemCueBeatSeconds | OPEN | R2 F2 (ModBuild 479, shipped). The mirrored item cue beats on the VIEWER's [Cards] ItemCueBeatSeconds while its sibling on the same board (RemoteControlBoard.cs:3443) beats on the OWNER's tuning.ItemCueBeatSeconds off wire id 161. NetProtocol.cs:647 rules that this dial follows the OWNER on both surfaces. One board, two clocks. Fix: carry the tuning into RemoteUsableFrame.Build, whose (Transform, float, float) signature is the only blocker — RemoteItemFan already latches _owner.BoardTuning.
 
 Net/Remote/RemoteMapRoom.cs | CanvasScaleMm | OPEN | R2 F3 (ModBuild 479, shipped). A peer's map placard is sized by the VIEWER's [WorldUI] CanvasScaleMm, under a comment at :1261-1264 asserting "THE FACTOR IS THE OWNER'S DIAL (ScaleFactorFor), not this viewer's" — true of one of the expression's three factors. The sibling mirror RemoteBoardTooltip.cs:179 reads the owner's tuning.CanvasScaleMm off wire id 143. Fix: one accessor beside NetAvatarDriver.cs:694-702.
 
-Net/Remote/RemoteSharedGaze.cs | SharedWindowArcRadiusMeters | OPEN | R2 F8 (ModBuild 479, shipped). This seats a SHARED window, which by WorldUI/Modal/SharedWindowSizeLaw.cs:55-62 has no owner at all: "the only value every client can agree on without an exchange is the SHIPPED one". Two viewers with different dials predict two different rings for the same window. The dial has no Tune* id (verified: zero hits for TuneSharedWindowArcRadiusMeters in NetProtocol.cs), so the remedy is a FREEZE to the shipped const, which the declaration itself already names as a one-line change once the value settles on hardware.
 
 Net/Remote/RemoteBoardContent.cs | PerfConfig.RemoteContentSeconds | OPEN | R2 F12 (ModBuild 479, shipped). A live viewer dial reached through a PROPERTY — Mathf.Clamp(RemoteContentInterval.Value, 0f, 2f) — with no .Value at the call site, so a .Value-only lint would miss it. It gates every peer board's whole structural pass: furniture rebuilds, use-bar symbols, the decision row and the draw-order sweep. R2 classes it a bare, un-ruled TIMING exception in the one direction 1:1 forbids. It ships at 0 (= no change), so today it is latent rather than live; that is a reason to rule on it, not to leave it unrecorded.
 
