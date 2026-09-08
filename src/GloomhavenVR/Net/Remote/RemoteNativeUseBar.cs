@@ -18,6 +18,7 @@ internal sealed class RemoteNativeUseBar
     private readonly List<Augment> _augments = new();
     private readonly List<Image> _highlights = new();
     private readonly List<RemoteUseBarAnimation> _animations = new();
+    private readonly Dictionary<Graphic, Material> _materials = new();
     private List<IOption> _options = new();
     private NativeUseBarState? _painted;
     private NativeUseBarState _identity = null!;
@@ -115,7 +116,8 @@ internal sealed class RemoteNativeUseBar
             _preview = _preview != null ? mirror.CloneOf(_preview.transform)?.gameObject : null };
         foreach (Augment child in _augments) result._augments.Add(child.Map(mirror));
         foreach (Image image in _highlights) result._highlights.Add(mirror.CloneOf(image.transform)!.GetComponent<Image>());
-        foreach (RemoteUseBarAnimation animation in _animations) result._animations.Add(animation.Map(mirror));
+        foreach (RemoteUseBarAnimation animation in _animations)
+            result._animations.Add(animation.Map(mirror, result._materials));
         return result;
     }
     internal void Paint(NativeUseBarState state)
@@ -153,7 +155,13 @@ internal sealed class RemoteNativeUseBar
         : UIInfoTools.Instance.GetElementPickerSprite((ElementInfusionBoardManager.EElement)(symbol - 1));
     private static void Active(GameObject? node, bool show) { if (node != null && node.activeSelf != show) node.SetActive(show); }
     internal void RestoreGeometry() { foreach (RemoteUseBarAnimation animation in _animations) animation.RestoreGeometry(); }
-    internal void Destroy() { foreach (RemoteUseBarAnimation animation in _animations) animation.Destroy(); }
+    internal void Destroy()
+    {
+        foreach (RemoteUseBarAnimation animation in _animations) animation.Destroy();
+        foreach (Material material in _materials.Values)
+            if (material != null) UnityEngine.Object.Destroy(material);
+        _materials.Clear();
+    }
 
     internal void ApplyAnimation(RemoteAvatar owner)
     {

@@ -15,7 +15,8 @@ internal sealed class RemoteUseBarAnimation
 {
     private readonly NativeUseBarAnimationBinding[] _source;
     private Target[] _targets = Array.Empty<Target>();
-    private readonly Dictionary<Graphic, Material> _materials = new();
+    private readonly Dictionary<Graphic, Material> _materials;
+    private readonly bool _ownsMaterials;
     private bool _refused;
     private static readonly ConditionalWeakTable<RemoteAvatar, Playback[]> Playbacks = new();
 
@@ -28,7 +29,13 @@ internal sealed class RemoteUseBarAnimation
         internal float Boundary = float.NegativeInfinity;
     }
 
-    private RemoteUseBarAnimation(NativeUseBarAnimationBinding[] source) => _source = source;
+    private RemoteUseBarAnimation(NativeUseBarAnimationBinding[] source,
+        Dictionary<Graphic, Material>? sharedMaterials = null)
+    {
+        _source = source;
+        _materials = sharedMaterials ?? new Dictionary<Graphic, Material>();
+        _ownsMaterials = sharedMaterials == null;
+    }
 
     internal static RemoteUseBarAnimation Capture(UIUseActiveBonus source) =>
         new(NativeUseBarAnimationBinding.Capture(source));
@@ -86,9 +93,10 @@ internal sealed class RemoteUseBarAnimation
         return null;
     }
 
-    internal RemoteUseBarAnimation Map(RemoteWidgetMirror mirror)
+    internal RemoteUseBarAnimation Map(RemoteWidgetMirror mirror,
+        Dictionary<Graphic, Material>? sharedMaterials = null)
     {
-        var result = new RemoteUseBarAnimation(_source) { _targets = new Target[_source.Length] };
+        var result = new RemoteUseBarAnimation(_source, sharedMaterials) { _targets = new Target[_source.Length] };
         for (int i = 0; i < _source.Length; i++)
             result._targets[i] = new Target(_source[i], mirror);
         return result;
@@ -196,8 +204,13 @@ internal sealed class RemoteUseBarAnimation
 
     internal void Destroy()
     {
-        foreach (Material material in _materials.Values) if (material != null) Object.Destroy(material);
-        _materials.Clear();
+        // Several original animators and UIFX can write distinct properties on the same
+        // graphic. Their containing clone owns the shared material cache and its lifetime.
+        if (_ownsMaterials)
+        {
+            foreach (Material material in _materials.Values) if (material != null) Object.Destroy(material);
+            _materials.Clear();
+        }
         foreach (Target target in _targets) target.Destroy();
     }
 
