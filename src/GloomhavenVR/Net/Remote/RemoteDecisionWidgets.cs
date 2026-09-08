@@ -1527,10 +1527,11 @@ internal sealed class RemoteDecisionWidgets
         node.ScaleNow = s;
         Transform t = node.ScaleNode!;
         Vector3 cur = t.localScale;
-        // Z is left alone: the game writes (f, f, 1) on a uGUI rect whose Z scale is 1 anyway, and
-        // preserving whatever the clone was authored with is the change that cannot surprise.
-        if (!Mathf.Approximately(cur.x, s) || !Mathf.Approximately(cur.y, s))
-            t.localScale = new Vector3(s, s, cur.z);
+        // ExtendedButton writes (f, f, 1), including after a press cancels its tween.
+        // A clone captured mid-animation must receive that same Z, not retain its old pose.
+        if (!Mathf.Approximately(cur.x, s) || !Mathf.Approximately(cur.y, s)
+            || !Mathf.Approximately(cur.z, 1f))
+            t.localScale = new Vector3(s, s, 1f);
     }
 
     /// <summary>
