@@ -13,6 +13,10 @@ namespace GloomhavenVR.Net;
 // =================================================================================================
 
 /// <summary>
+/// ModBuild 486: native widgets are the sole presentation. The historical procedural composition
+/// below is retained only as uncalled diagnostic/source history; it is not an availability fallback.
+/// The remote-only initiative badge is likewise permanently hidden.
+///
 /// The scenario objectives ("Aufgaben") with their quest header and progress, drawn off the LEFT
 /// edge of a peer's board — the mirror of the local board's docked <c>ObjectivesSurface</c>.
 ///
@@ -238,6 +242,7 @@ internal sealed class RemoteObjectivesPanel
             layoutOwner: RemoteWidgetMirror.LayoutOwner.CloneAtBoardOwnersWidth);
 
         _fallbackRoot = new GameObject("Fallback").transform;
+        _fallbackRoot.gameObject.SetActive(false); // retired surrogate: never visible, including construction failure
         _fallbackRoot.SetParent(_root, worldPositionStays: false);
         _fallbackRoot.localPosition = new Vector3(-Width * 0.5f, 0f, 0f);
 
@@ -272,7 +277,7 @@ internal sealed class RemoteObjectivesPanel
         _rulesMirror.Destroy();
     }
 
-    /// <summary>Mirror the REAL container when it exists; else repaint the mod-drawn fallback.</summary>
+    /// <summary>Refresh the original objective and rule widgets; retry native recovery while absent.</summary>
     public void Refresh()
     {
         RefreshObjectives();
@@ -304,9 +309,12 @@ internal sealed class RemoteObjectivesPanel
             return;
         }
 
-        Source = RemoteWidgetMirror.Fidelity.ModDrawn;
+        // ObjectivesSurface converts this same original container and has no procedural rows.
+        // Keep native recovery live without substituting a different widget during an outage.
+        Source = RemoteWidgetMirror.Fidelity.None;
         _mirror.SetShown(false);
-        RefreshFallback();
+        _fallbackRoot.gameObject.SetActive(false);
+        RowCount = 0;
     }
 
     // ---------------------------------------------------------------- SPECIAL RULES ------------

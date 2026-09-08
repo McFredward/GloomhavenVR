@@ -7,7 +7,7 @@ using UnityEngine.UI;
 namespace GloomhavenVR.Net;
 
 /// <summary>
-/// The MOD-DRAWN reproductions of everything a peer's control board shows beyond their two round
+/// Shared content and change-detection helpers for a peer's control board beyond its round
 /// cards — the "alles was am Controllboard angezeigt ist soll auch beim fremden Controllboard
 /// sichtbar sein" requirement. All of it is rendered at the peer's board pose by
 /// <see cref="RemoteControlBoard"/>; NOTHING here rides the wire.
@@ -29,9 +29,9 @@ namespace GloomhavenVR.Net;
 /// two panels whose hand-drawn versions the user rejected: the INITIATIVE TRACK
 /// (<see cref="RemoteInitiativeTrack"/>) and the OBJECTIVES panel
 /// (<see cref="RemoteObjectivesPanel"/>) are live CLONES of the game's own widgets, driven per frame
-/// from the original, with the mod-drawn versions demoted to fallbacks for the frames where the
-/// widget does not exist. Everything else below is still a mod-drawn reproduction fed from the SAME
-/// model data the local panels read.
+/// from the original. The element board also uses its original hierarchy. ModBuild 486 removes
+/// procedural fallback entry points: a source or fit outage recovers through the native mirror,
+/// without substituting custom rows or chips.
 ///
 /// FOUR DATA CLASSES. Two of them are zero-wire and are what THIS file draws; the other two exist
 /// on a remote board too, and are named here because the first question about any new remote-board
@@ -71,10 +71,8 @@ namespace GloomhavenVR.Net;
 ///     Card IDENTITY in general remains what it always was: never on this wire in any form,
 ///     reveals only through <see cref="RevealGate"/>.
 ///
-///     Local PERSONAL TUNING (a peer's private offsets, their own board-size preference) is not in
-///     this class at all and never was — it is not a thing their board displays to them and then
-///     hides from others; every client renders a given board style at its shipped layout, which is
-///     a rendering convention, noted where it applies.
+///     Owner presentation tuning is synchronized. A viewer's local preferences must not alter
+///     another board's dimensions, placement or animation.
 ///
 /// WHY THE HEADER NAMES ALL FOUR AND NOT JUST THIS FILE'S TWO: the decision rule for new remote
 /// content is "GLOBAL or PER-ACTOR MODEL by default; VR-ONLY must be justified", and wire room is

@@ -11,6 +11,10 @@ namespace GloomhavenVR.Net;
 // =================================================================================================
 
 /// <summary>
+/// ModBuild 486: native widgets are the sole presentation. The historical procedural composition
+/// below is retained only as uncalled diagnostic/source history; it is not an availability fallback.
+/// The remote-only initiative badge is likewise permanently hidden.
+///
 /// The two small readouts on a peer's board frame:
 ///
 /// ROUND (GLOBAL) — "Runde N" on the top-right, the mirror of the local board's own round readout
@@ -147,6 +151,7 @@ internal sealed class RemoteStatusReadouts
         //     on the docked initiative track), so it is a stand-in that only earns its place while
         //     the real track cannot be shown — see SetShownWhileTrackFallback.
         _iniRoot = new GameObject("InitiativeReadout").transform;
+        _iniRoot.gameObject.SetActive(false); // retired surrogate: never visible, including construction failure
         Transform iniRoot = _iniRoot;
         iniRoot.SetParent(boardRoot, worldPositionStays: false);
         iniRoot.localPosition = new Vector3(0f, 0.132f, RemoteControlBoard.ProudZLocal);

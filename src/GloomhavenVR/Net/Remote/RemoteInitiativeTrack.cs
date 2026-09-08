@@ -14,6 +14,10 @@ namespace GloomhavenVR.Net;
 // =================================================================================================
 
 /// <summary>
+/// ModBuild 486: native widgets are the sole presentation. The historical procedural composition
+/// below is retained only as uncalled diagnostic/source history; it is not an availability fallback.
+/// The remote-only initiative badge is likewise permanently hidden.
+///
 /// The scenario's INITIATIVE TRACK, drawn above a peer's board — the mirror of the local board's
 /// docked <c>InitiativeTrack</c> canvas (<c>PlayTray.InitiativeMount</c> /
 /// <c>InitiativeTrackSurface</c>).
@@ -210,6 +214,7 @@ internal sealed class RemoteInitiativeTrack
             externallyShownBranch: IsEnemyInfoPopup);
 
         _fallbackRoot = new GameObject("Fallback").transform;
+        _fallbackRoot.gameObject.SetActive(false); // retired surrogate: never visible, including construction failure
         _fallbackRoot.SetParent(_root, worldPositionStays: false);
         _fallbackRoot.localPosition = new Vector3(0f, ChipH * 0.5f, 0f);
         for (int i = 0; i < MaxChips; i++)
@@ -2315,9 +2320,13 @@ internal sealed class RemoteInitiativeTrack
             return;
         }
 
-        Source = RemoteWidgetMirror.Fidelity.ModDrawn;
+        // The local surface only shows InitiativeTrack.Instance. A missing or unready source
+        // cannot justify an invented strip on the remote board; the native mirror retries on
+        // each content edge/recovery tick and retains its clone while fitting is pending.
+        Source = RemoteWidgetMirror.Fidelity.None;
         _mirror.SetShown(false);
-        RefreshFallback();
+        _fallbackRoot.gameObject.SetActive(false);
+        Count = 0;
     }
 
     public void Destroy() => _mirror.Destroy();

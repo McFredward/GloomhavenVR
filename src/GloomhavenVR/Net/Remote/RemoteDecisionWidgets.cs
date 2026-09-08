@@ -635,13 +635,19 @@ internal sealed class RemoteDecisionWidgets
             // cadence — see SuspendHoverScales for the defect and why the tween state survives it.
             SuspendHoverScales();
             _mirror.SetShown(true);
-            if (!_mirror.Refresh(source))
+            // A newly cloned viewer row can have every option hidden. Its first fit then has no
+            // visible ink, but the owner may be showing those options right now. Bind and paint
+            // that retained native clone before requiring a fit; otherwise the early return
+            // prevents the very visibility writes which would make fitting possible.
+            if (!_mirror.Refresh(source) && _mirror.CloneOf(source) == null)
                 return Down(_mirror.Reason);
 
             if (_boundStamp != _mirror.RebuildStamp)
                 Bind(kind);
 
             Apply(owner, roles ?? System.Array.Empty<byte>());
+            _mirror.SetShown(true); // the first unmeasurable pass may have withheld the host
+
             // RE-FIT AFTER THE PAINT, not before it. The fit measures the union of VISIBLE clone
             // graphics, and it is Apply that decides which option widgets are visible (the owner may
             // be showing two of the three, and the source's own actives are the receiver's stale
@@ -833,6 +839,7 @@ internal sealed class RemoteDecisionWidgets
     private RectTransform? ResolveSourceRow(byte kind, RemoteAvatar owner)
     {
         _boundDialog = null;
+        _boundDialogIsPrefab = false;
         if (kind == NetProtocol.DecisionKindShortRestYesNo)
             return ResolveShortRestBox();
         if (kind == NetProtocol.DecisionKindDialogPopup)
@@ -863,6 +870,10 @@ internal sealed class RemoteDecisionWidgets
     /// <see cref="RemoteWidgetMirror.CloneOf"/> lookup against a dialog the clone was not made from
     /// silently returns null for every widget.</summary>
     private YesNoDialog? _boundDialog;
+    private bool _boundDialogIsPrefab;
+    private TMP_Text? _shortRestQuestion;
+    private TextLocalizedListener[] _prefabLocalizers = System.Array.Empty<TextLocalizedListener>();
+    private TMP_Text?[] _prefabLabels = System.Array.Empty<TMP_Text?>();
 
     /// <summary>
     /// THIS CLIENT'S OWN short-rest confirmation, resolved the way the LOCAL dock resolves it —
@@ -887,12 +898,27 @@ internal sealed class RemoteDecisionWidgets
     private RectTransform? ResolveShortRestBox()
     {
         YesNoDialog? d = Cards.CardsGameApi.AnyShortRestDialog();
-        if (d == null || d.window == null)
-            return null;
+        if (d == null)
+        {
+            // Before this viewer has built any hand, the same native art is still serialized on
+            // the manager's hand prefab. Read that asset chain without instantiating a hand,
+            // running ShortRest.Init, or registering a YesNoDialog game callback.
+            CardsHandManager? manager = CardsHandManager.Instance;
+            CardsHandUI? hand = manager != null && manager.cardsHandPrefab != null
+                ? manager.cardsHandPrefab.GetComponent<CardsHandUI>() : null;
+            ShortRest? rest = hand != null && hand.shortRestPrefab != null
+                ? hand.shortRestPrefab.GetComponent<ShortRest>() : null;
+            d = rest != null && rest.dialogPrefab != null
+                ? rest.dialogPrefab.GetComponent<YesNoDialog>() : null;
+            _boundDialogIsPrefab = d != null;
+        }
+        if (d == null) return null;
+        UIWindow? window = d.window != null ? d.window : d.GetComponent<UIWindow>();
+        if (window == null) return null;
         _boundDialog = d;
         RectTransform? box = d.box;
-        if (box != null && !ReferenceEquals(box, d.window.transform)
-            && box.IsChildOf(d.window.transform))
+        if (box != null && !ReferenceEquals(box, window.transform)
+            && box.IsChildOf(window.transform))
             return box;
         _rowScratch.Clear();
         if (d.yesButton != null)
@@ -901,7 +927,7 @@ internal sealed class RemoteDecisionWidgets
             _rowScratch.Add(d.noButton.transform);
         return _rowScratch.Count == 0
             ? null
-            : WorldUI.ModalFallback.DecisionDock.IsolateRow(d.window, _rowScratch);
+            : WorldUI.ModalFallback.DecisionDock.IsolateRow(window, _rowScratch);
     }
 
     /// <summary>
@@ -939,6 +965,9 @@ internal sealed class RemoteDecisionWidgets
         _fatalIcon = null;
         _mandatory = null;
         _labels = System.Array.Empty<TMP_Text>();
+        _shortRestQuestion = null;
+        _prefabLocalizers = System.Array.Empty<TextLocalizedListener>();
+        _prefabLabels = System.Array.Empty<TMP_Text?>();
 
         if (kind == NetProtocol.DecisionKindDialogPopup)
         {
@@ -960,6 +989,14 @@ internal sealed class RemoteDecisionWidgets
             {
                 BindRole(NetProtocol.DecisionRoleShortRestYes, d.yesButton);
                 BindRole(NetProtocol.DecisionRoleShortRestNo, d.noButton);
+                if (_boundDialogIsPrefab)
+                {
+                    _shortRestQuestion = CloneTmp(d.descriptionText);
+                    _prefabLocalizers = d.GetComponentsInChildren<TextLocalizedListener>(true);
+                    _prefabLabels = new TMP_Text?[_prefabLocalizers.Length];
+                    for (int i = 0; i < _prefabLocalizers.Length; i++)
+                        _prefabLabels[i] = CloneTmp(_prefabLocalizers[i].GetComponent<TMP_Text>());
+                }
             }
             BindLabels();
             return;
@@ -1273,6 +1310,25 @@ internal sealed class RemoteDecisionWidgets
             var c = new Color(gold.r, gold.g, gold.b, t.color.a);
             if (t.color != c)
                 t.color = c;
+        }
+
+        // Native prefab labels have not run TextLocalizedListener.Awake. Reproduce only its
+        // text formatting on the clone; its language-change events and game callbacks stay inert.
+        for (int i = 0; i < _prefabLocalizers.Length; i++)
+        {
+            TextLocalizedListener recipe = _prefabLocalizers[i];
+            TMP_Text? label = _prefabLabels[i];
+            if (recipe == null || label == null || string.IsNullOrEmpty(recipe.key)) continue;
+            string text = Loc.Game(recipe.key, recipe.key).Replace("\\n", "\n");
+            if (recipe.arguments != null && recipe.arguments.Length != 0)
+                text = string.Format(text, recipe.arguments);
+            if (!string.IsNullOrEmpty(recipe.format)) text = string.Format(recipe.format, text);
+            if (label.text != text) label.text = text;
+        }
+        if (_shortRestQuestion != null)
+        {
+            string question = Loc.Game("GUI_SHORT_REST_CONFIRMATION", "");
+            if (_shortRestQuestion.text != question) _shortRestQuestion.text = question;
         }
 
         PaintTakeDamageNumbers(owner, out bool lethal, out bool shielded, out bool mandatory,

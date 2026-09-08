@@ -13,6 +13,10 @@ namespace GloomhavenVR.Net;
 // =================================================================================================
 
 /// <summary>
+/// ModBuild 486: native widgets are the sole presentation. The historical procedural composition
+/// below is retained only as uncalled diagnostic/source history; it is not an availability fallback.
+/// The remote-only initiative badge is likewise permanently hidden.
+///
 /// The element infusion board, drawn in the LEFT column below the objectives — the mirror of the
 /// local board's docked <c>ElementBoardSurface</c>, seated at
 /// <see cref="RemoteBoardLayout.ElementMount"/> (<c>PlayTray.ElementMountBase</c> plus the AUTHORED
@@ -763,6 +767,7 @@ internal sealed class RemoteElementStrip
         // RIGHT-centre growing left (the objectives convention), so the shift belongs INSIDE the
         // mount, where the scale applies to it too.
         _root = new GameObject("Elements").transform;
+        _root.gameObject.SetActive(false); // retired surrogate: never visible, including construction failure
         _root.SetParent(mount, worldPositionStays: false);
         _root.localPosition = new Vector3(-Width * 0.5f, 0f, 0f);
 
@@ -982,6 +987,37 @@ internal sealed class RemoteElementStrip
     /// <summary>Re-read the infusion table AND the three overlay masks, and repaint on an actual
     /// change to any of them.</summary>
     public void Refresh()
+    {
+        // The local surface displays only InfusionBoardUI. Keep the original clone in charge
+        // even if a transient blank sample cannot be measured; model-derived chips are a different
+        // picture and must not replace native art or interrupt its running animation.
+        bool mirrored = TryMirror();
+        _drawnBy = mirrored ? RemoteWidgetMirror.Fidelity.MirroredWidget
+                           : RemoteWidgetMirror.Fidelity.None;
+        _root.gameObject.SetActive(false);
+        int infused = 0;
+        var state = new ElementInfusionBoardManager.EColumn[6];
+        int signature = mirrored ? 1 : 0;
+        for (int i = 0; i < 6; i++)
+        {
+            try { state[i] = ElementInfusionBoardManager.ElementColumn((ElementInfusionBoardManager.EElement)i); }
+            catch { state[i] = ElementInfusionBoardManager.EColumn.Inert; }
+            if (state[i] != ElementInfusionBoardManager.EColumn.Inert) infused++;
+            signature = signature * 3 + (int)state[i];
+        }
+        ActiveCount = infused;
+        ReadOverlay(out int creating, out int reserved, out int available);
+        signature = ((signature * 64 + creating) * 64 + reserved) * 64 + available;
+        if (signature != _paritySig)
+        {
+            _paritySig = signature;
+            EmitParity(state, creating, reserved, available);
+        }
+    }
+
+    // Historical fallback and its diagnostic tokens are retained for log/source compatibility;
+    // no presentation entry point invokes it. Native recovery never demotes to this composition.
+    private void RefreshLegacyComposition()
     {
         // Late sprite resolution: the singleton comes up with the scenario UI, typically after the
         // board was built. Cheap while unresolved (one null check per cadence tick); on success the
@@ -2284,7 +2320,7 @@ internal sealed class RemoteElementStrip
             // BOARD" is not the same fact as "a mirror somewhere drew this".
             string via = _drawnBy == RemoteWidgetMirror.Fidelity.MirroredWidget
                 ? "MIRRORED-WIDGET"
-                : "MOD-DRAWN";
+                : _drawnBy == RemoteWidgetMirror.Fidelity.None ? "NATIVE-PENDING" : "MOD-DRAWN";
             sb.Append("[board ").Append(_playerId).Append("] via=").Append(via).Append(": ");
             kb.Append(_playerId).Append(via);
             int spoken = 0;

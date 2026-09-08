@@ -1,0 +1,57 @@
+# Multiplayer board parity review — ModBuild 486
+
+This is a source and existing-log review, not a headset acceptance result. The lane started at `b4dc8980`, with native animation dependency `e6ed5416` and presence revision dependency `a4e5b19b`. Both supplied multiplayer logs identify ModBuild 482; they cannot validate the new 486 rendering.
+
+## Rules and actual exceptions
+
+The standing rule covers content, animation, order, position, size, state and timing. A historical cost argument or a comment saying that a defect was deferred is not an exception.
+
+| Scope | Quoted user approval | Application |
+| --- | --- | --- |
+| Hidden information | “Die einzige Ausnahme ist hier die geheime Quest des characters und während der Auswahlphase die tatsächlichen Oberseiten der Karten.” | `RemoteBoardContent` records the complete 2026-08-08 statement. Preserve the secret battle goal and selection-phase face gate; card identities never enter the VR wire. |
+| Mixed language | “Das die Sprache gemixed ist finde ich OK, respektiert sogar noch mehr die 1:1 Regel, daher finde ich FAS sogar gut. lass es so.” | `Core/Loc/Loc.cs` records the 2026-08-28 ruling and named paths. Owner-rendered bytes stay verbatim; key/model text in decision prompts, map-room descriptions and round captions uses the viewer's game localization. No owner-language wire is needed for these approved paths. |
+| Instant decision collapse | `CLAUDE.md` describes this as approved, but this lane did not locate the original verbatim user statement. | Do not expand this historical exception to any other animation or use it to excuse an unrelated mismatch. |
+
+## Source-proven fixes in this lane
+
+| Finding | Evidence and correction |
+| --- | --- |
+| Viewer-controlled content latency | `RemoteBoardContent.RefreshSeconds` formerly consumed `PerfConfig.RemoteContentSeconds` (0–2 seconds). `RemoteControlBoard` now refreshes on received presence revision, native structure/text/art/rect changes and relevant game-model changes. A fixed 250 ms clock remains for recovery and order maintenance only. `Optimize.RemoteContentInterval` is retained with an INERT English description; it no longer delays a peer's content. |
+| Avoid multiplying scene scans by observer count | Native panel fingerprints share a maximum eight-entry cache. Each actual source hierarchy is walked once per Unity frame, with reused transform/component bindings. Pose, scale and alpha animations remain on the existing per-frame mirror drive. `Net.Board.NativeRevision` measures the real scan cost. The fingerprint does not claim to serialize every possible native shader property. |
+| Decision hover depth scale | Native `ExtendedButton` writes `(factor, factor, 1)` for hover/press. The remote painter preserved a stale Z component. `WriteHoverScale` now writes native Z=1 while retaining the original easing and timing. |
+| Slot overlay depth drops owner tuning | Local `PlayTray.4.Slots` places snap at `(-0.006 + overlay.z)` and wanted at `(-0.004 + overlay.z)` beneath a slot scaled by `PlayTray.SlotScale`. Remote furniture instead added frozen -0.003 base and -0.005/-0.003 offsets. It now starts at the bare recess anchor and applies each native base plus the owner's Z offset, converted once into board metres. XY, pair spacing, size and owner board scale retain their existing owner-derived paths. |
+| Initial decision fit precedes the state that permits fitting | `RemoteDecisionWidgets.RefreshCore` used to return after the first failed fit, before binding and applying owner visibility to a newly cloned inactive viewer row. It now retains a paired native clone, paints the owner state, re-shows the withheld host and requires a second successful fit before presenting. A clone that was not built still fails immediately. No identity-scale canvas is shown. |
+| No live short-rest dialog on this viewer | The original asset exists before a hand is built: `CardsHandManager.cardsHandPrefab → CardsHandUI.shortRestPrefab → ShortRest.dialogPrefab`. The resolver reads its `YesNoDialog.box`, binds the original serialized buttons and paints the native localization recipes on the clone. It never instantiates a hand or invokes game initialization, callbacks or events. A later real dialog replaces the asset source through the usual rebuild binding. |
+| Rejected procedural fallback can reappear | Initiative chips, objective rows, element chips/creation labels and decision plates had reachable fallback entry points despite the local surfaces displaying original game widgets only. Current presentation entry points no longer invoke these compositions. The extra remote-only INI badge and fallback roots are hidden at construction, so a later refresh failure cannot expose them. Native mirrors retry through their existing recovery path; a source-present fit failure is still a native-mirror issue to repair, not a reason to substitute a different picture. Historical composition methods and diagnostic tokens remain uncalled for source/log compatibility. |
+| Independent slot plume path | Removed the round-slot call to the legacy per-card plume method. Parent integration supplies the owner-authored stream-51 central dispatcher; this lane does not claim its transport or particle playback validation. |
+
+## Reviewed working ownership paths
+
+- The board pose, style, dimensions, mount offsets and per-family button geometry use `RemoteBoardLayout`/`RemoteBoardTuning` derived from the owner. The preferred board and keycap art comes from the original bundled assets.
+- `RemoteBoardFurniture.TickWire` applies cap visibility, rest visibility, labels, press state and decision pointer changes per frame. `ButtonTuning.SeatedCapColor`, `CapWellColor`, `AssemblyColor` and `AssemblyPhase` are shared authored functions/constants, not hidden viewer configuration reads.
+- Pile-counter card width and usable-cue tempo, size, alpha and emitter settings are initialized from owner tuning before their effects are constructed. Their local default initializers are absent-field defaults, not runtime viewer preferences.
+- Original objective and rule hierarchies retain their original native content. The objectives mirror uses the owner's width budget and native 0.6 density; element mirroring uses native 0.8 density and the same mounted source root as `ElementBoardSurface`.
+- Native decision binding is resolved by serialized widget role or popup option index, rebound after mirror rebuild. It uses stripped clones rather than clickable game controllers. Short-rest and popup hover scale use native `ExtendedButton` factors, durations and unscaled exponential easing.
+- Round engraving dimensions match `PlayTray.BuildRoundReadout`. Its viewer-localized game key is covered by the explicit mixed-language ruling.
+- Active-bonus and the other use-bar native content/animation changes are owned by the native/wire lanes. This board review does not certify those pending implementations.
+
+## Existing hardware evidence, kept within its limits
+
+Host `LogOutput.log:33703–33713` records three offered take-damage roles, a 21-node native `DecisionRow` clone, one `MIRROR WITHHELD UNFITTED` tick, the fallback verdict and a following content-refresh null reference. This confirms the rejected fallback path was reached; it does not identify the null-reference stack or prove the exact pixels displayed. The decision paint-before-final-fit fix follows the source dependency independently.
+
+Neither supplied log contains an actual `DEMOTED the mirrored element` event. The remote log's `ELEMENT PARITY ... via=MOD-DRAWN` sample at line 3683 describes all six elements inert and no picture on either side; it is not proof that a visible chip fallback occurred. Generic census text mentioning a fallback is not counted as an execution trace.
+
+## Shared seams and remaining integration obligations
+
+1. `RemoteWidgetMirror` owns source-present initial fit recovery. The native lane is auditing safe original geometry; suppressing identity-scale output must remain mandatory. Removing custom fallback entry points alone is not proof that every native panel fits successfully.
+2. Native `ExtendedButton.scaleNonInteractable` can permit a disabled button to grow. `DecisionDockSurface.SamplePointerBits` historically withheld those pointer bits to protect procedural fallback tint. Parent owns this sampler correction; no new wire field is needed.
+3. `InitiativeTrackSurface` normalizes original portrait depth through `WorldUIConfig.InitiativeDepthMaxSpreadPx`. Copying an already viewer-transformed original can leak a viewer dial even when the remote class has no direct config read. Parent/native review must determine whether owner normalization is already represented or needs a seam.
+4. Faster content edges expose `RemoteActiveCards`' old one-content-tick first-sighting grace. Parent/cards lane must make any flight reconciliation interval explicit rather than relying on the former content timer.
+5. Parent owns the German INERT configuration description in `Core/Loc/Loc.ConfigDescriptions.German.cs`; retaining a German explanation promising a live delay would misdescribe the now-inert key.
+6. The physical-board asset failure path is a separate native asset availability problem. A procedural flat frame is not a user-approved visual exception. This lane has not produced hardware evidence for that fallback in this session.
+
+## Validation and next hardware observations
+
+Strict Release builds passed with zero errors and zero warnings after the content, hover, glow and native decision changes. The existing wire suite passed 216,447 assertions. A separate runner of the new `BoardNativeParityVectors` passed 29 assertions using the production `RemoteSlotGlowDepth` helper and stripped-source call-order/binding checks. Actual source mutations were restored after each run: ignoring owner Z produced 7 failures; returning before painting a retained clone produced 2; reintroducing an initiative fallback call produced 2. Comment-only controls pass. These checks do not execute Unity layout or prove headset pixels. Parent owns registration of the new file, complete integration gates and the final assertion count.
+
+The next hardware pass should include a first remote take-damage prompt before this viewer uses that row, a short-rest prompt before any local hand is initialized, all three board styles with nondefault positive and negative overlay Z, objective text/progress changes between recovery ticks, element creation/decay and rejoin during active native panels. Compare the owner and observer's rendered content, not merely packet receipts or a `MirroredWidget` state flag. Inspect `Net.Board.NativeRevision` cost with multiple observers and ongoing native UI changes.

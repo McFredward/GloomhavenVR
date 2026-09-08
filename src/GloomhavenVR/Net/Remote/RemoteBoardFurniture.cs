@@ -1454,9 +1454,9 @@ internal sealed class RemoteBoardFurniture
             // which is the tuning guarantee. _slotFrameW is the owner's CardWidth × SlotScale from
             // record 11, so this is the same product as the local quad's.
             float wantedScale = tuning.SlotOverlayScale;
-            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", glowCentre, wantedScale, (-0.004f + tuning.SlotOverlayOffset.z) * Cards.PlayTray.SlotScale,
+            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", glowCentre, wantedScale, RemoteSlotGlowDepth.Wanted(tuning.SlotOverlayOffset.z, Cards.PlayTray.SlotScale),
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
-            _snap[i] = BuildSlotGlow($"SnapGlow{i}", glowCentre, wantedScale * Cards.PlayTray.SnapGlowRatio, (-0.006f + tuning.SlotOverlayOffset.z) * Cards.PlayTray.SlotScale,
+            _snap[i] = BuildSlotGlow($"SnapGlow{i}", glowCentre, wantedScale * Cards.PlayTray.SnapGlowRatio, RemoteSlotGlowDepth.Snap(tuning.SlotOverlayOffset.z, Cards.PlayTray.SlotScale),
                 new Color(1f, 0.85f, 0.30f, 0.95f), pulse: false);
             // (The mirrored SlotSeatLiner used to be built here. RETIRED with the owner's own —
             //  see Cards/PlayTray.4.Slots.cs 'recess seat liner: RETIRED'.)
@@ -1608,14 +1608,16 @@ internal sealed class RemoteBoardFurniture
         //      cannot be done: a prompt whose widgets a peer cannot resolve (a DialogPopup), a
         //      client that owns no short-rest dialog yet, or a sender predating record 29.
         bool realWidgets = _decisionWidgets != null && _decisionWidgets.Refresh(owner);
-        SetDecisionLines(realWidgets ? null : owner.DecisionLines);
+        // The original decision hierarchy is the only presentation. Its retained clone is
+        // painted before fitting; missing native art must recover through that same path.
+        SetDecisionLines(null);
         // ApplyDecisionOptionStates has moved to TickWire, which RemoteControlBoard drives
         // IMMEDIATELY AFTER this cadence block in the same frame — so a row SetDecisionLines has
         // just rebuilt (it nulls _shownOptionStates on a rebuild) is painted before anything
         // renders, and never stands one frame in its unpainted default look.
         // The idle drawer is SetDecisionLines' own "a prompt is docked but I have no labels" look;
         // with the real widgets up it would sit behind them, so it is forced down here.
-        if (realWidgets && _drawerIdle != null && _drawerIdle.gameObject.activeSelf)
+        if (_drawerIdle != null && _drawerIdle.gameObject.activeSelf)
             _drawerIdle.gameObject.SetActive(false);
         SetDecisionPrompt(actor, owner, realWidgets);
 
@@ -2602,6 +2604,7 @@ internal sealed class RemoteBoardFurniture
         // Idle drawer, hung with its TOP edge at the root origin (the same anchor the real
         // buttons use, so legacy and synced looks sit at the same spot).
         _drawerIdle = new GameObject("Idle").transform;
+        _drawerIdle.gameObject.SetActive(false); // retired surrogate: never visible, including construction failure
         _drawerIdle.SetParent(root, worldPositionStays: false);
         _drawerIdle.localPosition = new Vector3(0f, -0.0275f, 0f);
 

@@ -969,7 +969,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // state, and the 4 Hz content cadence would sample straight past a two-second burn's start.
         // It runs AFTER SeatSlots because it reads what that pass seated — the card, its owner and
         // whether a real face is up — rather than resolving any of it a second time.
-        TickSlotPlumes(actor);
+        // Owner stream 51 drives the central plume dispatcher.
 
         // HALF HOVER + SELECTION (extension record 14): glow the action half the OWNER's pointer
         // is on (pulsing) and the half they have CLICKED (steady — the game's own presentation
@@ -1496,19 +1496,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                           "own card shows.");
     }
 
-    /// <summary>
-    /// PARITY, NOT ADDITION: the mod's own "INI" badge is a remote-only stand-in — the owner's board
-    /// has no such widget, their initiative lives on the docked initiative TRACK. So it is shown
-    /// only while the track has fallen back to the mod-drawn chip strip, and hidden the moment the
-    /// REAL track is being mirrored (which shows the same number, in the same place, under the same
-    /// vanilla gate). Anything else would put a widget on a peer's board that its owner cannot see.
-    /// </summary>
-    private void SyncInitiativeBadge()
-    {
-        bool trackMirrored = _track != null
-                             && _track.Source == RemoteWidgetMirror.Fidelity.MirroredWidget;
-        _status?.SetShownWhileTrackFallback(!trackMirrored);
-    }
+    /// <summary>The original initiative track owns this number. The former remote-only badge
+    /// must never appear, including while its native mirror is recovering.</summary>
+    private void SyncInitiativeBadge() => _status?.SetShownWhileTrackFallback(false);
 
     /// <summary>
     /// SCALE INTERPOLATION diagnostic (grep: "Remote board scale") — the evidence a future
@@ -2837,7 +2827,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// <para>WHY THE FACE BOUNDS IT rather than merely accompanying it: a plume hanging on ONE
     /// specific face-DOWN recess would name WHICH card the owner is doing something to — the exact
     /// leak the backs-only rule exists to prevent — and a recess showing a front has no such secret
-    /// left to give away. <see cref="RemoteBoardCard.TickPlume"/> then adds a second, structural
+    /// left to give away. the central plume dispatcher then adds a second, structural
     /// guard on top (the face on the slab must have been cloned from the very widget it reads the
     /// effect off).</para>
     ///
@@ -2871,11 +2861,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                               "the TRIGGER is what would need a wire field, never the effect.");
         }
 
-        // PER RECESS, against the face THAT recess drew. A board with one covered round card and
-        // one burning card is the state the whole item exists for, and a single board-wide bool
-        // cannot express it: the burning recess plumes and the covered one does not.
-        for (int s = 0; s < SlotCount; s++)
-            _cards[s]?.TickPlume(armed && (_slotFaceMask & (1 << s)) != 0, _owner.PlayerId, s);
+        // Native plume presentation is dispatched centrally from owner stream 51.
+
     }
 
     /// <summary>
