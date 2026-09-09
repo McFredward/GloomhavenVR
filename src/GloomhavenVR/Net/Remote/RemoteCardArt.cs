@@ -500,7 +500,7 @@ internal sealed partial class RemoteCardArt
             // THE OWNER'S "already used" LOOK, rebuilt on materials this overlay owns. AFTER the
             // activation on purpose: the widget's own OnEnable is the last thing that could touch its
             // Images, so writing here means nothing the game runs can land on top of the result.
-            _nativeDefaults = _nativeBindings?.Capture();
+            TryCaptureNativeDefaults();
             ApplySpentLook(itemFx, spentLook);
             if (_nativeCard != null && !ExplicitFlightOwnsLook) ClearPendingNativeAppearance();
 
@@ -3430,6 +3430,7 @@ internal sealed partial class RemoteCardArt
     {
         _nativeBindings = null;
         _nativeDefaults = null;
+        _nativeExtraDefaults = null;
         _localNativeFrame = null;
         _nativeOutputApplied = false;
         _nativeMaterials.Clear();

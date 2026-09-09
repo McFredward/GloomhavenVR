@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <BindingSource Condition="'$(BindingSource)' == ''">../../src/GloomhavenVR/Net/CardAppearanceBindings.cs</BindingSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(BindingSource)" Link="Production/CardAppearanceBindings.cs" />
+  </ItemGroup>
+</Project>

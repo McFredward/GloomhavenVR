@@ -13,6 +13,7 @@ internal sealed partial class RemoteCardArt
     private int _nativePlayer;
     private bool _nativeOutputApplied;
     private CardAppearanceNode[]? _nativeDefaults;
+    private CardAppearanceNode[]? _nativeExtraDefaults;
     private CardAppearanceState? _localNativeFrame;
     private readonly List<Image> _nativeBoundsImages = new();
     private bool ExplicitFlightOwnsLook => Surface == FxSurface.Flight || Surface == FxSurface.CardFlight;
@@ -30,6 +31,23 @@ internal sealed partial class RemoteCardArt
         }
         ApplyNativeAppearance();
     }
+    private bool TryCaptureNativeDefaults()
+    {
+        if (_nativeDefaults != null || _nativeBindings == null) return true;
+        if (_cloneFace == null) return false;
+        // ImageAddressableLoader hides its content groups while art is in flight. A snapshot
+        // taken directly after OnEnable can freeze those temporary zeros as the reset baseline;
+        // the next authority change then hides a fully loaded card forever (MB490 regression).
+        if (_cloneFace.headerImage == null || _cloneFace.headerImage.sprite == null
+            || _cloneFace.topActionButton?.actionButton?.image?.sprite == null
+            || !_cloneFace.isLongRestCard && _cloneFace.bottomActionButton?.actionButton?.image?.sprite == null)
+            return false;
+        foreach (var loader in _cloneFace.GetComponentsInChildren<ImageAddressableLoader>(true))
+            if (loader != null && loader.ReferenceCount > 0) return false;
+        _nativeDefaults = _nativeBindings.Capture();
+        _nativeExtraDefaults = _nativeBindings.CaptureExtraGroups();
+        return true;
+    }
     private void ClearPendingNativeAppearance()
     {
         // The receiver's pooled widget may still be spent after a rest. Before the first owner
@@ -39,12 +57,13 @@ internal sealed partial class RemoteCardArt
         // Building the legacy burn rig here would first paint invented burn constants and could
         // refuse the low-detail card before its inherited ghost/fire had ever been cleared.
         ClearAbilityCardFx();
+        _nativeBindings.RefreshGroups();
         if (_nativeDefaults != null)
-            foreach (var node in _nativeDefaults)
+            foreach (var node in NativeNodes(_nativeDefaults, _nativeExtraDefaults))
             {
                 if (node.Role >= 12)
                 {
-                    CanvasGroup group = _nativeBindings.Groups[node.Binding];
+                    if (!_nativeBindings.Groups.TryGetValue(node.Binding, out CanvasGroup group) || group == null) continue;
                     group.alpha = node.Values[0]; group.enabled = (node.Flags & 2) != 0;
                     group.ignoreParentGroups = (node.Flags & 4) != 0;
                     group.gameObject.SetActive((node.Flags & 1) != 0);
@@ -77,12 +96,15 @@ internal sealed partial class RemoteCardArt
     internal void SetLocalNativeAppearance(FullAbilityCard source)
     {
         if (source == null || source.cardEffects == null) return;
-        _localNativeFrame = new CardAppearanceState { Nodes = new CardAppearanceBindings(source.cardEffects).Capture(detachedRoot: true) };
+        var bindings = new CardAppearanceBindings(source.cardEffects);
+        _localNativeFrame = new CardAppearanceState { Nodes = bindings.Capture(detachedRoot: true),
+            ExtraGroups = bindings.CaptureExtraGroups(detachedRoot: true) };
         ApplyNativeAppearance();
     }
     internal void ApplyNativeAppearance()
     {
         if (_nativeBindings == null || _clone == null || _host == null || !_host.activeInHierarchy) return;
+        if (!TryCaptureNativeDefaults()) return;
         if (_localNativeFrame != null)
         {
             ApplyNativeFrame(_localNativeFrame, _localNativeFrame, 1f);
@@ -98,19 +120,25 @@ internal sealed partial class RemoteCardArt
         }
         ApplyNativeFrame(from!, to!, progress);
     }
+    private static IEnumerable<CardAppearanceNode> NativeNodes(CardAppearanceNode[] nodes, CardAppearanceNode[]? extra)
+    {
+        foreach (var node in nodes) yield return node;
+        if (extra != null) foreach (var node in extra) yield return node;
+    }
     private void ApplyNativeFrame(CardAppearanceState from, CardAppearanceState to, float progress)
     {
         if (_nativeBindings == null) return;
         // Validate the complete native role set before painting anything. A different prefab must
         // not receive a partial card that mixes owner output with this client's pooled defaults.
-        foreach (var node in to!.Nodes)
+        _nativeBindings.RefreshGroups();
+        foreach (var node in NativeNodes(to.Nodes, to.ExtraGroups))
         {
             if (node.Role < 12 ? _nativeBindings.Graphics[node.Role] == null : !_nativeBindings.Groups.ContainsKey(node.Binding)) return;
             if (node.Role < 7 && ((node.Flags & 16) != 0 ? _nativeBindings.LowMaterial : CardAppearanceBindings.AuthoredMaterial(node.Role)) == null) return;
         }
         _nativeBoundsImages.Clear();
         bool needsBounds = false;
-        foreach (var node in to.Nodes)
+        foreach (var node in NativeNodes(to.Nodes, to.ExtraGroups))
         {
             if (node.Role >= 7) continue;
             Material template = (node.Flags & 16) != 0 ? _nativeBindings.LowMaterial! : CardAppearanceBindings.AuthoredMaterial(node.Role)!;
@@ -120,10 +148,10 @@ internal sealed partial class RemoteCardArt
         Vector4 nativeFootprint = default;
         if (needsBounds && !TryMeasureFxFootprint(_nativeBoundsImages, out nativeFootprint)) return;
         TakeFxLookHold();
-        foreach (var node in to.Nodes)
+        foreach (var node in NativeNodes(to.Nodes, to.ExtraGroups))
         {
             var old = node;
-            foreach (var candidate in from!.Nodes) if (candidate.Role == node.Role && candidate.Binding == node.Binding && candidate.Mask == node.Mask) { old = candidate; break; }
+            foreach (var candidate in NativeNodes(from.Nodes, from.ExtraGroups)) if (candidate.Role == node.Role && candidate.Binding == node.Binding && candidate.Mask == node.Mask) { old = candidate; break; }
             float k = old.Flags == node.Flags ? progress : 1f;
             float V(int i) => Mathf.LerpUnclamped(old.Values[i], node.Values[i], k);
             Color C(int i) => new(V(i), V(i + 1), V(i + 2), V(i + 3));

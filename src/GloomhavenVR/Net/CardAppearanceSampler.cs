@@ -2,6 +2,7 @@ using ScenarioRuleLibrary;
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Core;
 using UnityEngine;
 
 namespace GloomhavenVR.Net;
@@ -12,6 +13,7 @@ internal static class CardAppearanceSampler
     private static readonly Dictionary<FullAbilityCard, CardAppearanceBindings> Bindings = new();
     private static readonly HashSet<FullAbilityCard> Seen = new();
     private static readonly List<FullAbilityCard> Removed = new();
+    private static readonly Dictionary<FullAbilityCard, string> Failures = new();
     private static CardAppearanceState[] _previous = Array.Empty<CardAppearanceState>();
     internal static CardAppearanceState[] Sample()
     {
@@ -35,17 +37,37 @@ internal static class CardAppearanceSampler
             }
             if (code == 0) continue;
             Seen.Add(full);
-            if (!Bindings.TryGetValue(full, out var binding)) Bindings[full] = binding = new CardAppearanceBindings(full.cardEffects);
-            var state = new CardAppearanceState { ActorId = NetFigures.StableActorId(actor), FaceCode = code, ListCount = count, Nodes = binding.Capture() };
-            // A late frame must not attach its material output to another card which has since
-            // occupied this same list seat. The original class pool is stable across moves/rests.
-            if (card.GameCard?.AbilityCard == null
-                || !CardAppearanceProvenance.Capture(state, actor, card.GameCard.AbilityCard)) continue;
-            if (!state.Validate()) throw new InvalidOperationException("Native card appearance is outside the bounded wire domain.");
-            states.Add(state);
+            try
+            {
+                if (!Bindings.TryGetValue(full, out var binding)) Bindings[full] = binding = new CardAppearanceBindings(full.cardEffects);
+                var state = new CardAppearanceState { ActorId = NetFigures.StableActorId(actor), FaceCode = code, ListCount = count,
+                    Nodes = binding.Capture(), ExtraGroups = binding.CaptureExtraGroups() };
+                // A late frame must not attach its material output to another card which has since
+                // occupied this same list seat. The original class pool is stable across moves/rests.
+                if (card.GameCard?.AbilityCard == null
+                    || !CardAppearanceProvenance.Capture(state, actor, card.GameCard.AbilityCard)) continue;
+                if (!state.Validate()) throw new InvalidOperationException(
+                    $"Native card appearance has {binding.Groups.Count} groups and exceeds the bounded wire domain.");
+                states.Add(state);
+                Failures.Remove(full);
+            }
+            catch (Exception ex)
+            {
+                // An unpublishable decoration must neither interrupt original card construction
+                // nor amputate every other card's frame. Keep the exact failure visible, once per
+                // changed condition, and retry the current graph next sample without truncating it.
+                if (!Failures.TryGetValue(full, out string previousFailure) || previousFailure != ex.Message)
+                {
+                    Failures[full] = ex.Message;
+                    VRLog.Warn("Net", $"Native card appearance unavailable for actor {NetFigures.StableActorId(actor)}, "
+                        + $"seat {code}: {ex.Message}; original artwork remains independent.");
+                }
+            }
         }
         Removed.Clear(); foreach (var full in Bindings.Keys) if (!Seen.Contains(full)) Removed.Add(full);
-        foreach (var full in Removed) Bindings.Remove(full);
+        foreach (var full in Removed) { Bindings.Remove(full); Failures.Remove(full); }
+        Removed.Clear(); foreach (var full in Failures.Keys) if (!Seen.Contains(full)) Removed.Add(full);
+        foreach (var full in Removed) Failures.Remove(full);
         if (states.Count > CardAppearanceState.CountMax) throw new InvalidOperationException("Native card appearance population exceeds wire bound.");
         states.Sort((a, b) => a.ActorId != b.ActorId ? a.ActorId.CompareTo(b.ActorId) : a.FaceCode.CompareTo(b.FaceCode));
         bool same = states.Count == _previous.Length;
@@ -53,5 +75,5 @@ internal static class CardAppearanceSampler
         if (!same) _previous = states.ToArray();
         return _previous;
     }
-    internal static void Reset() { CardAppearanceBindings.ResetAssets(); Cards.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
+    internal static void Reset() { CardAppearanceBindings.ResetAssets(); Cards.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
 }

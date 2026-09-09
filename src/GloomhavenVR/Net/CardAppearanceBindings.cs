@@ -52,16 +52,21 @@ internal sealed class CardAppearanceBindings
         LowMaterial = LowMaterialField?.GetValue(effects) as Material;
         for (int i = 0; i < Fields.Length; i++) Graphics[i] = Fields[i]?.GetValue(effects) as Graphic;
         BurnTexture = effects.overlayFrameBurn; GhostTexture = effects.overlayFrameGhost;
+        RefreshGroups();
+    }
+    internal void RefreshGroups()
+    {
+        Groups.Clear();
         foreach (CanvasGroup group in Root.GetComponentsInChildren<CanvasGroup>(true))
         {
             uint key = GroupKey(group.transform, Root);
             if (Groups.ContainsKey(key)) throw new InvalidOperationException("Duplicate original card group binding.");
             Groups.Add(key, group);
         }
-        if (Groups.Count > 8) throw new InvalidOperationException("Original card group count exceeds appearance bound.");
     }
     internal CardAppearanceNode[] Capture(bool detachedRoot = false)
     {
+        RefreshGroups();
         var nodes = new System.Collections.Generic.List<CardAppearanceNode>();
         for (byte role = 0; role < Graphics.Length; role++)
         {
@@ -91,12 +96,24 @@ internal sealed class CardAppearanceBindings
                 node.Flags |= 8;
             nodes.Add(node);
         }
+        nodes.AddRange(CaptureGroups(0, 8, detachedRoot));
+        return nodes.ToArray();
+    }
+    // Native action layouts contain more than eight CanvasGroups. The first eight keep their
+    // original record58 roles; additive69 carries every remaining group. Never throw during
+    // clone construction because a wire layout was smaller than the game's real widget tree.
+    internal CardAppearanceNode[] CaptureExtraGroups(bool detachedRoot = false)
+        => CaptureGroups(8, int.MaxValue, detachedRoot);
+
+    private CardAppearanceNode[] CaptureGroups(int first, int count, bool detachedRoot)
+    {
         var keys = new System.Collections.Generic.List<uint>(Groups.Keys); keys.Sort();
-        byte groupRole = 12;
-        foreach (uint key in keys)
+        var nodes = new System.Collections.Generic.List<CardAppearanceNode>();
+        for (int index = first; index < keys.Count && index - first < count; index++)
         {
+            uint key = keys[index];
             CanvasGroup group = Groups[key];
-            var node = new CardAppearanceNode { Role = groupRole++, Binding = key,
+            var node = new CardAppearanceNode { Role = (byte)(first == 0 ? 12 + index : 12), Binding = key,
                 Flags = (byte)((group.gameObject.activeSelf ? 1 : 0) | (group.enabled ? 2 : 0) | (group.ignoreParentGroups ? 4 : 0)) };
             node.Values[0] = group.alpha;
             // A local fallback flight owns a new root pose/visibility after the original widget

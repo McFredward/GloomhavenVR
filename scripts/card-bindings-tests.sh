@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Execute production binding discovery against a minimal tree API, then prove the old defect fails.
+set -euo pipefail
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if ! command -v dotnet >/dev/null 2>&1 && [[ -x "$HOME/.dotnet/dotnet" ]]; then
+    export DOTNET_ROOT="$HOME/.dotnet"
+fi
+export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
+project="$repo_root/tests/GloomhavenVR.CardBindingsTests/GloomhavenVR.CardBindingsTests.csproj"
+dotnet run --project "$project" --configuration Release
+mutation_dir="$(mktemp -d)"
+trap 'rm -rf "$mutation_dir"' EXIT
+cp "$repo_root/tests/GloomhavenVR.CardBindingsTests/"*.cs "$mutation_dir/"
+cp "$project" "$mutation_dir/"
+python3 - "$repo_root/src/GloomhavenVR/Net/CardAppearanceBindings.cs" "$mutation_dir/Bindings.cs" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+needle = '        RefreshGroups();\n    }\n    internal void RefreshGroups()'
+assert source.count(needle) == 1, 'production constructor mutation seam changed'
+source = source.replace(needle, '        RefreshGroups();\n        if (Groups.Count > 8) throw new InvalidOperationException("Legacy eight-group cap");\n    }\n    internal void RefreshGroups()')
+pathlib.Path(sys.argv[2]).write_text(source)
+PY
+# Avoid compiling Bindings.cs twice: the explicit source link points outside the project tree.
+mv "$mutation_dir/Bindings.cs" "$mutation_dir/Bindings.fixture"
+if dotnet run --project "$mutation_dir/GloomhavenVR.CardBindingsTests.csproj" --configuration Release \
+    --property:BindingSource="$mutation_dir/Bindings.fixture" > "$mutation_dir/mutant.log" 2>&1; then
+    cat "$mutation_dir/mutant.log"
+    echo 'FAIL: old eight-group constructor limit escaped the runtime regression test.' >&2
+    exit 1
+fi
+if ! rg -q 'Unhandled exception. System.InvalidOperationException: Legacy eight-group cap' "$mutation_dir/mutant.log"; then
+    cat "$mutation_dir/mutant.log"
+    echo 'FAIL: negative control did not reach the injected runtime defect.' >&2
+    exit 1
+fi
+echo 'Card binding runtime negative control: old eight-group cap failed as expected.'
