@@ -187,19 +187,9 @@ entpackt werden. Danach [die Steuerung](docs/PLAYING.de.md#die-steuerung) und di
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-Die Mod ist kostenlos und bleibt es. Damit klar ist, was dahintersteckt: zwei Monate Arbeit, 3.000
-Commits und 481 Testbuilds, und das Commit-Log weist Aktivität in über 500 einzelnen Stunden aus —
-die Teile, die darüber entscheiden, ob sich das im Headset richtig anfühlt, sind nicht einmal
-geschrieben, sondern Runde für Runde gegen echte Hardware nachgemessen worden. Wenn sie dir einen
-guten Abend am Tisch beschert hat und du Danke sagen möchtest:
-[ein Kaffee](https://buymeacoffee.com/mcfredward) geht immer.
+## Danksagungen und Lizenz
 
-<details>
-<summary><b>Danksagungen und Lizenz</b></summary>
-
-- **ARMA** und **JJ-Pueppi** haben das über viele Sitzungen im Headset getestet. Vieles von dem, was
-  auf dieser Seite zu sehen ist, sieht nur deshalb so aus, weil einer von beiden es ausprobiert und
-  gesagt hat, dass es so noch nicht stimmt.
+- **ARMA** und **JJ-Pueppi** haben das über viele Sitzungen im Headset getestet.
 - **ARMA** hat außerdem die 3D-Assets gemacht: die Hände, die Masken und die Bretter. Sie sind als
   KI-generierte Rohformen gestartet, und so wie sie herauskommen, kann man sie nicht gebrauchen. Er
   hat sie in Blender nachmodelliert, aufgeräumt, neu gerigged und texturiert, bis sie auf Armlänge

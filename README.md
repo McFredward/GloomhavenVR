@@ -180,17 +180,9 @@ controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-The mod is free and will stay free. For a sense of what is behind it: two months of work, 3,000
-commits and 481 test builds, with the commit log showing activity in more than 500 separate hours —
-and the parts that decide whether this feels right in a headset were not written once, they were
-re-measured against hardware round after round. If it gave you a good evening at the table and you
-feel like saying thanks, there is [a coffee](https://buymeacoffee.com/mcfredward).
+## Credits and licence
 
-<details>
-<summary><b>Credits and licence</b></summary>
-
-- **ARMA** and **JJ-Pueppi** tested this over a lot of sessions in the headset. Plenty of what is on
-  this page looks the way it does because one of them tried it and said it was not right yet.
+- **ARMA** and **JJ-Pueppi** tested this over a lot of sessions in the headset. 
 - **ARMA** also made the 3D assets: the hands, the masks and the boards. They started out as
   AI-generated shapes, which are not usable as they come. He remodelled, cleaned up, re-rigged and
   textured them in Blender until they hold up at arm's length in a headset.
@@ -208,5 +200,3 @@ Not affiliated with Flaming Fowl Studios, Twin Sails Interactive, Asmodee or Cep
 Gloomhaven and its artwork belong to their owners.
 
 **Working on the mod?** [docs/DEVELOPING.md](docs/DEVELOPING.md)
-
-</details>
