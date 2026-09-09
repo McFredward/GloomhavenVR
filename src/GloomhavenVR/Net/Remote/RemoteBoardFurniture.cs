@@ -4033,6 +4033,7 @@ internal sealed class RemoteBoardFurniture
 
         private readonly GameObject _go;
         private readonly TextMeshPro _label;
+        private readonly RemoteCapVisibility _visibility;
 
         /// <summary>This cap's caption fit box in METERS, kept so <see cref="SetLabel"/> can re-run
         /// the solved layout on every new wording. Zero on a cap built before the box was known,
@@ -4118,6 +4119,7 @@ internal sealed class RemoteBoardFurniture
         {
             _go = go;
             _label = label;
+            _visibility = new RemoteCapVisibility(go.activeSelf);
         }
 
         /// <summary>
@@ -4512,7 +4514,10 @@ internal sealed class RemoteBoardFurniture
         /// </summary>
         public void SetShown(bool shown, bool animate = false)
         {
-            if (_go.activeSelf == shown && !(shown && animate && _fx != null && _fx.Hiding))
+            // MB487: another button's mask edge reasserts every cap's visibility. During a
+            // dissolve activeSelf is still true, so using it as logical state restarted the hide
+            // and captured an already shrunken scale as the next permanent shown size.
+            if (!_visibility.Change(shown))
                 return;
             // THE OWNER'S SWITCH, not this viewer's. See NetProtocol.TuneButtonAnimOn: a remote
             // board is a picture of its owner's board, and a viewer whose own caps pop must still
@@ -5029,7 +5034,8 @@ internal sealed class RemoteCapFx : MonoBehaviour
     internal void PlayDissolve()
     {
         _showLeft = 0f;
-        _shownScale = transform.localScale;
+        // Init owns the authored scale. A transition pose must never become the next rest pose.
+        if (_hideLeft > 0f) return;
         _hideLeft = _anim.DissolveSeconds;
         _hideDeadline = Time.unscaledTime + _hideLeft + FadeWatchdogSlack; // watchdog (see the field header)
         _showDeadline = float.PositiveInfinity;
