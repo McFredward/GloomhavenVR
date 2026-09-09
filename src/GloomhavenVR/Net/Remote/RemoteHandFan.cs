@@ -1504,7 +1504,7 @@ internal sealed class RemoteHandFan
             // map) leave it false and the line then says the gate was OPEN, which for item 7 was the
             // whole of the answer and the string could not say it.
             _censusGateShut = RevealGate.InScenario && actor != null
-                              && !RevealGate.ShowRoundCardFronts(actor);
+                              && !RevealGate.ShowPeerCardFronts(actor);
             if (fanList != _loggedFanList)
             {
                 _loggedFanList = fanList;
@@ -1905,7 +1905,7 @@ internal sealed class RemoteHandFan
                 // 1:1 ruling exists to prevent.
                 leavingFronts = RevealGate.ShowMapPhaseHandFronts
                                 || (_leavingActor != null && RevealGate.InScenario
-                                    && RevealGate.ShowRoundCardFronts(_leavingActor));
+                                    && RevealGate.ShowPeerCardFronts(_leavingActor));
             }
             catch
             {

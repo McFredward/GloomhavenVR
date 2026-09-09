@@ -159,6 +159,13 @@ internal static class RevealGate
         CardPresentationPolicy.AllowsFace(FFSNetwork.IsOnline, IsSecretSelectionPhase,
             actor != null, LocallyControls(actor));
 
+    /// <summary>Remote card artwork follows the peer-surface selection ruling even when this
+    /// viewer controls the depicted character. Local ownership permits inspecting our own cards;
+    /// it does not repaint a different player's covered fan or placed cards on their board.</summary>
+    public static bool ShowPeerCardFronts(CPlayerActor? actor) =>
+        CardPresentationPolicy.AllowsFace(FFSNetwork.IsOnline, IsSecretSelectionPhase,
+            actor != null, locallyControlled: false);
+
     /// <summary>
     /// THE SAME RULE, FROM THE OTHER END OF THE WIRE: do our PEERS currently see the fronts of OUR
     /// cards? It is <see cref="ShowRoundCardFronts"/> evaluated on our own actor from a peer's seat,
@@ -566,7 +573,7 @@ internal static class RevealGate
                 if (actor == null)
                     return CardFaceSource.None;
                 // Every peer card population shares the same phase decision.
-                bool secret = !ShowRoundCardFronts(actor);
+                bool secret = !ShowPeerCardFronts(actor);
                 return secret ? CardFaceSource.None : CardFaceSource.Scenario;
             }
             return ShowMapPhaseHandFronts ? CardFaceSource.MapLoadout : CardFaceSource.None;

@@ -13,6 +13,12 @@ internal static class CardFaceLifecycleVectors
         MapProjection(t);
         string Read(string path) => Regex.Replace(File.ReadAllText(Path.Combine(root, "src/GloomhavenVR", path)),
             @"/\*[\s\S]*?\*/|//[^\r\n]*", "");
+        string gate = Read("Net/RevealGate.cs");
+        t.True(gate.Contains("bool secret = !ShowPeerCardFronts(actor);")
+            && gate.Contains("actor != null, locallyControlled: false)"),
+            "remote selection artwork cannot reopen because the viewer owns the character");
+        t.True(gate.Contains("actor != null, LocallyControls(actor))"),
+            "local own-card visibility and private naming keep their separate ownership rule");
         string held = Read("Net/Remote/RemoteHeldCardFace.cs");
         string fan = Read("Net/Remote/RemoteHandFan.cs");
         string pile = Read("Net/Remote/RemotePileFronts.cs");
