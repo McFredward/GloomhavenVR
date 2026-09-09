@@ -81,14 +81,75 @@ internal sealed class RayGrabDriver
             return;
         }
 
+        if (!TryPickBar(out PanelGrabHandle? best, out Vector3 bestPoint, out float bestDist)
+            || _hand.RayUgui.IsPressing
+            || (_hand.RayUgui.HasHit && _hand.RayUgui.HitDistance < bestDist))
+        {
+            ClearHover();
+            return;
+        }
+
+        // Hover: tint the bar + clamp the visible beam to the hit point (mirror board laser).
+        if (!ReferenceEquals(best, _hovered))
+        {
+            ClearHover();
+            _hovered = best;
+            best!.OnGrabHighlight(_hand, true);
+            _hand.SendHaptic(HapticPreset.HoverTick); // debounced: only on hover change
+        }
+        // LABELLED as a panel hover (ModBuild 359, RayInteractor.SetPanelUiHit): like the uGUI
+        // canvas raise, this happens on MERE HOVER of a floated window's drag bar — no press. It
+        // is the second of the two menu-dependent producers that were vetoing near-hand figure
+        // grabs, and ProximityGrabber's near-field arbitration may now outrank it. The raise
+        // itself is unchanged, so the beam still clamps to the bar and the board far-click stays
+        // suppressed exactly as before.
+        _hand.Ray.SetPanelUiHit(bestPoint, $"a HOVER of the window drag bar '{best!.name}' "
+                                           + "(RayGrabDriver — the bar collider, no press required)");
+
+        // TriggerDown → start a laser-carry grab at the captured range (release on trigger-up).
+        if (_hand.TriggerDown && _hand.Grabber.Held == null)
+        {
+            // EXCLUSIVITY (ModBuild 359): the near-hand grab now outranks this driver's beam
+            // clamp, so the laser carry must not start on the same pull — otherwise the window
+            // would fly off on its reel in the moment the player closed his hand on a figure.
+            // This is the exact defect the LOST-MENU comment above records, arriving through the
+            // other door. A carry ALREADY in flight is untouched: Grabber.Held is non-null by
+            // then and this branch is not what keeps it alive.
+            //
+            // THE HOVER TINT IS DELIBERATELY LEFT ON. The file's rule is "no grab available ⇒ no
+            // grab affordance", written for a SUSTAINED unavailability (the interactor being
+            // policy-off). This one is momentary and self-explaining — it lasts exactly as long
+            // as the hand sits inside a figure, the figure carries its own pre-grab glow saying
+            // so, and dropping and restoring the bar's tint every time the hand brushes past a
+            // card is the "grab flashes" defect class.
+            if (_hand.Grabber.TriggerGrabOffered)
+            {
+                LogCarryYielded(best!);
+                return;
+            }
+            PanelGrabHandle target = best!;
+            ClearHover();
+            target.BeginLaserCarry(_hand, bestDist, bestPoint);
+            if (!_hand.Grabber.ForceGrab(target, releaseOnTriggerUp: true))
+                target.CancelLaserCarry();
+        }
+    }
+
+    /// <summary>Read-only nearest reachable bar query, shared with uGUI before it dispatches
+    /// pointer events. Trigger colliders are absent from Ray.Current; checking only in Tick
+    /// let a farther widget receive pointer-down before the same pull grabbed the front bar.
+    /// The existing interactor order and nearest-widget priority remain unchanged.</summary>
+    internal bool TryPickBar(out PanelGrabHandle? best, out Vector3 bestPoint, out float bestDist)
+    {
+        best = null; bestPoint = default; bestDist = float.PositiveInfinity;
+        if (!_hand.Ray.Active || VRHands.Primary != _hand || !_hand.Grabber.Enabled)
+            return false;
         _hand.GetAimRay(out Vector3 origin, out Vector3 direction);
         float scale = _hand.WorldScale;
         var ray = new Ray(origin, direction);
         float maxDist = MaxDistanceMeters * scale;
 
-        PanelGrabHandle? best = null;
-        Vector3 bestPoint = default;
-        float bestDist = maxDist;
+        bestDist = maxDist;
 
         var entries = VRInteractables.Grabbables;
         for (int i = 0; i < entries.Count; i++)
@@ -116,24 +177,14 @@ internal sealed class RayGrabDriver
 
         if (best == null)
         {
-            ClearHover();
-            return;
-        }
-
-        // A nearer game-UI hit (RayUgui ticked first this frame) wins — a click on a
-        // window's own widget must never double as a drag of its bar (UI-consumed press).
-        if (_hand.RayUgui.HasHit && _hand.RayUgui.HitDistance < bestDist)
-        {
-            ClearHover();
-            return;
+            return false;
         }
 
         // A nearer solid physics hit (miniature/furniture) occludes the bar.
         PickPose pick = _hand.Ray.Current;
         if (pick.HasHit && pick.HitDistance < bestDist - OcclusionEpsilonMeters * scale)
         {
-            ClearHover();
-            return;
+            return false;
         }
 
         // Solid occlusion (fan cards AND the control board, 2026-08-04): a solid mod-owned
@@ -145,54 +196,10 @@ internal sealed class RayGrabDriver
             // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
             if (RayInteractor.WantFanOcclusionNote)
                 _hand.Ray.NoteFanOcclusion($"panel grab bar '{best.name}'", bestDist);
-            ClearHover();
-            return;
+            return false;
         }
 
-        // Hover: tint the bar + clamp the visible beam to the hit point (mirror board laser).
-        if (!ReferenceEquals(best, _hovered))
-        {
-            ClearHover();
-            _hovered = best;
-            best.OnGrabHighlight(_hand, true);
-            _hand.SendHaptic(HapticPreset.HoverTick); // debounced: only on hover change
-        }
-        // LABELLED as a panel hover (ModBuild 359, RayInteractor.SetPanelUiHit): like the uGUI
-        // canvas raise, this happens on MERE HOVER of a floated window's drag bar — no press. It
-        // is the second of the two menu-dependent producers that were vetoing near-hand figure
-        // grabs, and ProximityGrabber's near-field arbitration may now outrank it. The raise
-        // itself is unchanged, so the beam still clamps to the bar and the board far-click stays
-        // suppressed exactly as before.
-        _hand.Ray.SetPanelUiHit(bestPoint, $"a HOVER of the window drag bar '{best.name}' "
-                                           + "(RayGrabDriver — the bar collider, no press required)");
-
-        // TriggerDown → start a laser-carry grab at the captured range (release on trigger-up).
-        if (_hand.TriggerDown && _hand.Grabber.Held == null)
-        {
-            // EXCLUSIVITY (ModBuild 359): the near-hand grab now outranks this driver's beam
-            // clamp, so the laser carry must not start on the same pull — otherwise the window
-            // would fly off on its reel in the moment the player closed his hand on a figure.
-            // This is the exact defect the LOST-MENU comment above records, arriving through the
-            // other door. A carry ALREADY in flight is untouched: Grabber.Held is non-null by
-            // then and this branch is not what keeps it alive.
-            //
-            // THE HOVER TINT IS DELIBERATELY LEFT ON. The file's rule is "no grab available ⇒ no
-            // grab affordance", written for a SUSTAINED unavailability (the interactor being
-            // policy-off). This one is momentary and self-explaining — it lasts exactly as long
-            // as the hand sits inside a figure, the figure carries its own pre-grab glow saying
-            // so, and dropping and restoring the bar's tint every time the hand brushes past a
-            // card is the "grab flashes" defect class.
-            if (_hand.Grabber.TriggerGrabOffered)
-            {
-                LogCarryYielded(best);
-                return;
-            }
-            PanelGrabHandle target = best;
-            ClearHover();
-            target.BeginLaserCarry(_hand, bestDist, bestPoint);
-            if (!_hand.Grabber.ForceGrab(target, releaseOnTriggerUp: true))
-                target.CancelLaserCarry();
-        }
+        return true;
     }
 
     /// <summary>Next unscaled time <see cref="LogCarryYielded"/> may print, and what it swallowed.</summary>

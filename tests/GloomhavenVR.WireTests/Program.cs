@@ -15,6 +15,7 @@ internal static class Program
             // Pin the two shimmed constants against the real declarations FIRST — every clamp
             // vector below is only meaningful while they agree.
             Shims.VerifyAgainstSource(repoRoot);
+            LaserBarOwnershipVectors.Run(t, repoRoot);
             GoldenVectors.Run(t);
             StoryVectors.Run(t);
             // The 3D map room's two records (20 + 21). Same reason StoryVectors is on this list,

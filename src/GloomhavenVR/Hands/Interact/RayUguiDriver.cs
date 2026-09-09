@@ -248,6 +248,20 @@ internal sealed class RayUguiDriver
             bestPoint = settingsPoint;
         }
 
+        // Resolve trigger-collider bars BEFORE any hover, scroll or press callback. RayGrab
+        // ticks later and cannot undo a native activate-on-down widget. Apply this after the
+        // settings fall-through too: redirecting to a farther settings surface cannot steal
+        // the same pull which grabs a visible bar in front of it. A latched UI drag retains
+        // ownership in TickPressed; RayGrab explicitly yields to that press until release.
+        if (best != null && _hand.RayGrab.TryPickBar(out WorldUI.PanelGrabHandle? bar, out _, out float barDistance)
+            && barDistance <= bestDist)
+        {
+            if (_hand.TriggerDown)
+                Core.VRLog.Note("Interact", $"LASER BAR OWNERSHIP: {_hand.Side} bar '{bar!.name}' at {barDistance:F3} m "
+                    + $"blocks panel '{best.name}' at {bestDist:F3} m before pointer delivery.");
+            best = null;
+        }
+
         if (!ReferenceEquals(best, _canvas))
         {
             _pointer.Cancel();

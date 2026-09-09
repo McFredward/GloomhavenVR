@@ -540,4 +540,5 @@
   </ItemGroup>
   <ItemGroup><Compile Include="PresentationSaturationVectors.cs" /></ItemGroup>
   <ItemGroup><Compile Include="NativeBoardVectors.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="LaserBarOwnershipVectors.cs" /></ItemGroup>
 </Project>
