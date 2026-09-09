@@ -1496,14 +1496,9 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// </summary>
     private void SampleWireDecisionState()
     {
-        // FOCUS-HIDDEN ⇒ WITHDRAW IMMEDIATELY (not on the next 0.25 s tick): the owner's board went
-        // blank at that seat this frame, and the peer copies must go blank with it.
-        if (_rowHiddenForFocus)
-        {
-            _nextWireLinesAt = 0f;
-            PublishWireDecision(null, NetProtocol.DecisionKindNone, 0, 0, 0);
-            return;
-        }
+        // Record60 separates logical character content from board visibility. Keep sampling
+        // the original pending row while its owner looks elsewhere; peers viewing this character
+        // still need the current choices. The owner's board mirror obeys60.Visible separately.
         // THE OWNER POINTER DOES NOT WAIT FOR THE CADENCE — see PointerBitsMoved for why a hover
         // sampled at 4 Hz reaches a peer as a stutter. A moved bit clears the gate and the full
         // walk below runs on this very tick, exactly as the focus-hidden withdrawal above does.

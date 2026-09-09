@@ -302,8 +302,12 @@ internal sealed class UseBarsSurface
     /// suppresses plain-use slots only on THIS dock while it is converted.</summary>
     private readonly BarDock _itemsDock;
 
+    private static UseBarsSurface? Current;
+    private readonly CharacterDecisionMirror _characterMirror = new();
+
     internal UseBarsSurface()
     {
+        Current = this;
         // Fixed stack order, top to bottom: bonuses (turn-defining toggles first), the
         // ability/infusion pickers (the deadlock-critical answers), augments, items.
         // The container accessor feeds the fit-stability hold: the bar's serialized slot
@@ -350,6 +354,7 @@ internal sealed class UseBarsSurface
         // …and deliberately LAST, after the hide has been applied: what rides the wire is what this
         // board SHOWS, so the sampler reads the same FocusHidden flags the stack just honoured.
         SampleWire();
+        _characterMirror.Tick();
     }
 
     /// <summary>
@@ -368,6 +373,7 @@ internal sealed class UseBarsSurface
         {
             RestoreOriginalTooltips();
             StackDocked();
+            _characterMirror.Tick();
             // Native LeanTween runs in Update. Sample its rendered targets here, after docking,
             // then enqueue/drain the independent animation stream in this same late frame.
             AnimationStateScratch.Clear();
@@ -400,6 +406,8 @@ internal sealed class UseBarsSurface
 
     internal void Shutdown()
     {
+        _characterMirror.Destroy();
+        if (ReferenceEquals(Current, this)) Current = null;
         RestorePlainHidden(Singleton<UIUseItemsBar>.IsInitialized
             ? Singleton<UIUseItemsBar>.Instance : null); // req C: leave the 2D bar exactly as authored
         RestoreBonusHidden();     // …and the same for the item-backed bonus rows (pure, reversible)
@@ -774,7 +782,7 @@ internal sealed class UseBarsSurface
         byte mask = 0;
         for (int i = 0; i < _docks.Length; i++)
         {
-            if (_docks[i].Docked != null && !_docks[i].FocusHidden)
+            if (_docks[i].Docked != null)
                 mask |= BarBit(i);
         }
 
@@ -1116,7 +1124,10 @@ internal sealed class UseBarsSurface
             // wire. Keeping the two halves textually identical is what stops them drifting apart.
             bool lookingElsewhere = focused != null && inView != null; // the 2026-08-08 rule
             bool foreignOnly = OwnerScratch.Count > 0 && !answerable;  // MP only; inert offline
-            bool hide = OwnerScratch.Count > 0 && !owned && (lookingElsewhere || foreignOnly);
+            bool mirroredForeign = foreignOnly && owned && inView != null
+                && Net.NetAvatarDriver.TryGetCharacterDecisionOwner(inView, out Net.RemoteAvatar? peer)
+                && peer != null && Net.CharacterDecisionPresentation.TryGet(peer, inView, out _);
+            bool hide = mirroredForeign || OwnerScratch.Count > 0 && !owned && (lookingElsewhere || foreignOnly);
 
             if (hide)
                 dock.ApplyFocusHide(OwnerScratch, inView);
@@ -1516,6 +1527,38 @@ internal sealed class UseBarsSurface
                               (bar == null ? "gone" : bar.IsShown ? "still shown" : "hidden") +
                               "); no GameObject active state was ever written, so the bar is exactly as the game " +
                               "left it.");
+    }
+
+    internal static void ReadNativePresentation(out Net.UseBarAnimationState[]? animation,
+        out Net.NativeUseBarState?[] native)
+    { animation = WireAnimationStates; native = WireNativeStates; }
+
+    internal static void SampleDecisionAttribution(out int actorId, out bool pending, out bool visible)
+    {
+        actorId = 0; pending = false; visible = false;
+        CPlayerActor? actor = null;
+        TakeDamagePanel? panel = Singleton<TakeDamagePanel>.IsInitialized ? Singleton<TakeDamagePanel>.Instance : null;
+        if (panel != null && panel.actorBeingAttacked != null && panel.ThisPlayerHasTakeDamageControl
+            && (GameState.WaitingForPlayerToSelectDamageResponse || GameState.WaitingForPlayerActorToAvoidDamageResponse))
+            actor = panel.actorToShowCardsFor ?? panel.actorBeingAttacked as CPlayerActor
+                ?? (panel.actorBeingAttacked as CHeroSummonActor)?.Summoner;
+        if (actor == null && Current != null)
+        {
+            foreach (BarDock dock in Current._docks)
+            {
+                if (dock.Docked == null) continue;
+                OwnerScratch.Clear(); dock.ResolveOwners(OwnerScratch);
+                foreach (CPlayerActor candidate in OwnerScratch)
+                    if (!Board.CharacterFocus.IsForeign(candidate)) { actor = candidate; break; }
+                if (actor != null) break;
+            }
+            OwnerScratch.Clear();
+        }
+        if (actor == null) return;
+        actorId = Net.NetFigures.StableActorId(actor);
+        pending = actorId != 0;
+        CPlayerActor? viewed = Board.CharacterFocus.PresentedActor ?? Board.CharacterFocus.Focused;
+        visible = pending && ReferenceEquals(viewed, actor);
     }
 
     private static readonly List<KeyValuePair<CActiveBonus, UIUseActiveBonus>> TooltipSlots = new(8);

@@ -71,10 +71,14 @@ internal sealed class RemoteUseBarWidgets
     internal float Height => Mathf.Max(0f, _mirror.FittedSize.y - 2f * PaddingMeters);
     internal bool Available => _slots.Length == _count && _count != 0;
 
-    internal void Refresh(CPlayerActor? actor, RemoteAvatar owner)
+    internal void Refresh(CPlayerActor? actor, RemoteAvatar owner) { Refresh(actor, CharacterDecisionPresentation.From(owner)); }
+    internal void Tick(RemoteAvatar owner) { Tick(CharacterDecisionPresentation.From(owner)); }
+
+    internal void Refresh(CPlayerActor? actor, CharacterDecisionPresentation owner)
     {
         try
         {
+            if (!owner.Visible) { _mirror.SetShown(false); return; }
             RectTransform? container = RemoteUseBarSymbols.ContainerOf(_bar);
             bool live = TryLiveSlots(container, actor, owner);
             // Active-bonus subchoices and tooltips are owner-local. Their original prefab stage
@@ -169,7 +173,7 @@ internal sealed class RemoteUseBarWidgets
         }
     }
 
-    private bool TryLiveSlots(RectTransform? container, CPlayerActor? actor, RemoteAvatar owner)
+    private bool TryLiveSlots(RectTransform? container, CPlayerActor? actor, CharacterDecisionPresentation owner)
     {
         _sourceSlots.Clear();
         if (container == null || actor == null || !RemoteUseBarSymbols.BarBelongsTo(_bar, actor))
@@ -224,7 +228,7 @@ internal sealed class RemoteUseBarWidgets
 
     private Slot[] _stageSlots = Array.Empty<Slot>();
 
-    private void BuildPrefabStage(RectTransform container, CPlayerActor? actor, RemoteAvatar owner)
+    private void BuildPrefabStage(RectTransform container, CPlayerActor? actor, CharacterDecisionPresentation owner)
     {
         Component? prefab = _bar switch
         {
@@ -288,7 +292,7 @@ internal sealed class RemoteUseBarWidgets
         LayoutRebuilder.ForceRebuildLayoutImmediate(_stage);
     }
 
-    private UseBarWidgetState? Descriptor(RemoteAvatar owner, int slot)
+    private UseBarWidgetState? Descriptor(CharacterDecisionPresentation owner, int slot)
     {
         if (_bar != 0) return NativeDescriptor(owner, slot)?.WidgetState;
         if (owner.UseBarWidgetStates == null) return null;
@@ -297,7 +301,7 @@ internal sealed class RemoteUseBarWidgets
         return null;
     }
 
-    private CActiveBonus? Model(CPlayerActor? actor, RemoteAvatar owner, int slot)
+    private CActiveBonus? Model(CPlayerActor? actor, CharacterDecisionPresentation owner, int slot)
     {
         int at = _bar * NetProtocol.UseBarsMaxSlots + slot;
         if (_bar != 0 || actor == null || owner.UseBarSlotIds == null || at >= owner.UseBarSlotIds.Length)
@@ -305,10 +309,10 @@ internal sealed class RemoteUseBarWidgets
         return UseBarSlotSymbol.ResolveBonusModel(actor, owner.UseBarSlotIds[at], out _);
     }
 
-    private NativeUseBarState? NativeDescriptor(RemoteAvatar owner, int slot) =>
+    private NativeUseBarState? NativeDescriptor(CharacterDecisionPresentation owner, int slot) =>
         _bar > 0 ? owner.NativeUseBarStates[_bar * 8 + slot] : null;
 
-    private object? StageModel(CPlayerActor? actor, RemoteAvatar owner, int slot)
+    private object? StageModel(CPlayerActor? actor, CharacterDecisionPresentation owner, int slot)
     {
         if (_bar == 0) return Model(actor, owner, slot);
         NativeUseBarState? state = NativeDescriptor(owner, slot);
@@ -316,13 +320,13 @@ internal sealed class RemoteUseBarWidgets
         return _bar == 3 && actor != null ? UseBarSlotSymbol.ResolveItemModel(actor, SlotId(owner, slot), out _) : null;
     }
 
-    private ushort SlotId(RemoteAvatar owner, int slot)
+    private ushort SlotId(CharacterDecisionPresentation owner, int slot)
     {
         int at = _bar * NetProtocol.UseBarsMaxSlots + slot;
         return owner.UseBarSlotIds != null && at < owner.UseBarSlotIds.Length ? owner.UseBarSlotIds[at] : (ushort)0;
     }
 
-    private bool StageMatches(CPlayerActor? actor, RemoteAvatar owner)
+    private bool StageMatches(CPlayerActor? actor, CharacterDecisionPresentation owner)
     {
         if (_stageActorId != NetFigures.StableActorId(actor)) return false;
         for (int i = 0; i < _count; i++)
@@ -343,7 +347,7 @@ internal sealed class RemoteUseBarWidgets
         return true;
     }
 
-    private byte State(RemoteAvatar owner, int slot)
+    private byte State(CharacterDecisionPresentation owner, int slot)
     {
         int at = _bar * NetProtocol.UseBarsMaxSlots + slot;
         return owner.UseBarSlotStates != null && at < owner.UseBarSlotStates.Length
@@ -374,7 +378,7 @@ internal sealed class RemoteUseBarWidgets
             ApplyIcon(_slots[index], sprite);
     }
 
-    private void PaintStage(RemoteAvatar owner)
+    private void PaintStage(CharacterDecisionPresentation owner)
     {
         if (!ReferenceEquals(_source, _stage) && _source != null) return;
         for (int i = 0; i < _stageSlots.Length; i++)
@@ -388,7 +392,7 @@ internal sealed class RemoteUseBarWidgets
         }
     }
 
-    internal void Tick(RemoteAvatar owner)
+    internal void Tick(CharacterDecisionPresentation owner)
     {
         PaintStage(owner);
         _mirror.TickLive();
@@ -401,7 +405,7 @@ internal sealed class RemoteUseBarWidgets
         foreach (Slot slot in _slots) { slot.Animation?.RestoreGeometry(); slot.Native?.RestoreGeometry(); }
     }
 
-    private void ApplyAnimations(RemoteAvatar owner)
+    private void ApplyAnimations(CharacterDecisionPresentation owner)
     {
         for (int i = 0; i < _slots.Length; i++)
         {
@@ -410,7 +414,7 @@ internal sealed class RemoteUseBarWidgets
         }
     }
 
-    private void Paint(RemoteAvatar owner)
+    private void Paint(CharacterDecisionPresentation owner)
     {
         for (int i = 0; i < _slots.Length; i++)
         {

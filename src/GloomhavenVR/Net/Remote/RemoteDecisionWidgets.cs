@@ -343,7 +343,10 @@ internal sealed class RemoteDecisionWidgets
     /// row is a cosmetic loss; a peer seeing nothing (or an exception eating the rest of the
     /// board's refresh) is not.</para>
     /// </summary>
-    public bool Refresh(RemoteAvatar owner)
+    public bool Refresh(RemoteAvatar owner) { return Refresh(CharacterDecisionPresentation.From(owner)); }
+    public void TickPointer(RemoteAvatar owner) { TickPointer(CharacterDecisionPresentation.From(owner)); }
+
+    public bool Refresh(CharacterDecisionPresentation owner)
     {
         bool mirrored = RefreshCore(owner);
         NoteShortRestOneToOne(owner, mirrored);
@@ -372,7 +375,7 @@ internal sealed class RemoteDecisionWidgets
     /// <para>Change-gated on its own text and cleared whenever the prompt is not a short rest, so a
     /// second short rest states itself again even at byte-identical geometry.</para>
     /// </summary>
-    private void NoteShortRestOneToOne(RemoteAvatar owner, bool mirrored)
+    private void NoteShortRestOneToOne(CharacterDecisionPresentation owner, bool mirrored)
     {
         if (owner.DecisionLines == null
             || owner.DecisionPromptKind != NetProtocol.DecisionKindShortRestYesNo)
@@ -593,10 +596,11 @@ internal sealed class RemoteDecisionWidgets
     /// including the eight <see cref="Down"/> refusals, passes through the 1:1 line above. A
     /// diagnostic that only prints on the success path cannot report the failure it exists to
     /// report.</summary>
-    private bool RefreshCore(RemoteAvatar owner)
+    private bool RefreshCore(CharacterDecisionPresentation owner)
     {
         try
         {
+            if (!owner.Visible) return Down("the owner is viewing another character");
             byte[]? roles = owner.DecisionRoles;
             if (owner.DecisionLines == null)
                 return Down("the owner has no visible decision row");
@@ -721,7 +725,7 @@ internal sealed class RemoteDecisionWidgets
     /// <para>Wrapped whole, for the reason <see cref="Refresh"/> is: this now runs inside the
     /// per-frame board tick, and a throw here would take that tick down with it.</para>
     /// </summary>
-    public void TickPointer(RemoteAvatar owner)
+    public void TickPointer(CharacterDecisionPresentation owner)
     {
         if (!Showing || _boundStamp != _mirror.RebuildStamp)
             return;
@@ -846,7 +850,7 @@ internal sealed class RemoteDecisionWidgets
         _ => "take-damage",
     };
 
-    private RectTransform? ResolveSourceRow(byte kind, RemoteAvatar owner)
+    private RectTransform? ResolveSourceRow(byte kind, CharacterDecisionPresentation owner)
     {
         _boundDialog = null;
         _boundDialogIsPrefab = false;
@@ -1231,7 +1235,7 @@ internal sealed class RemoteDecisionWidgets
     ///     <c>WorldUI.NativeButtonSkin.LabelOwner</c>.</item>
     /// </list></para>
     /// </summary>
-    private void Apply(RemoteAvatar owner, byte[] roles)
+    private void Apply(CharacterDecisionPresentation owner, byte[] roles)
     {
         byte[]? states = owner.DecisionOptionStates;
         // A ROLLING HASH, not a bit-packed word. The packed version gave each option seven bits and
@@ -1674,7 +1678,7 @@ internal sealed class RemoteDecisionWidgets
     /// <para>Every part is null for the other two prompts (their binds never resolve them), so this
     /// is a handful of null tests there rather than a branch.</para>
     /// </summary>
-    private void PaintTakeDamageNumbers(RemoteAvatar owner, out bool lethal, out bool shielded,
+    private void PaintTakeDamageNumbers(CharacterDecisionPresentation owner, out bool lethal, out bool shielded,
                                         out bool mandatory, out bool damageValid)
     {
         byte flags = owner.DecisionWidgetFlags;

@@ -23,7 +23,7 @@ internal sealed class RemoteNativeUseBar
     private NativeUseBarState? _painted;
     private NativeUseBarState _identity = null!;
     private CPlayerActor? _actor;
-    private static readonly ConditionalWeakTable<RemoteAvatar, Playback[]> Playbacks = new();
+    private static readonly ConditionalWeakTable<CharacterDecisionPresentation, Playback[]> Playbacks = new();
     private sealed class Playback
     {
         internal NativeUseBarState? Identity;
@@ -163,7 +163,7 @@ internal sealed class RemoteNativeUseBar
         _materials.Clear();
     }
 
-    internal void ApplyAnimation(RemoteAvatar owner)
+    internal void ApplyAnimation(CharacterDecisionPresentation owner)
     {
         int address = _identity.Address;
         NativeUseBarState? latest = owner.NativeUseBarStates[address];

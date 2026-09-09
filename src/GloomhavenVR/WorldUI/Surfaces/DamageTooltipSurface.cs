@@ -376,7 +376,8 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// </summary>
     private void PublishWireVariant()
     {
-        byte variant = Panel != null ? ClassifyTip() : NetProtocol.DecisionTextNone;
+        byte variant = Panel != null || DecisionDockSurface.DockingTakeDamage
+            ? ClassifyTip() : NetProtocol.DecisionTextNone;
         // The names ride ONLY with the variant that prints them, so every other prompt keeps the
         // packet it had. Resolved here rather than inside ClassifyTip because that method is a pure
         // classification and must stay one.

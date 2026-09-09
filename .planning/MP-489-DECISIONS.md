@@ -31,3 +31,30 @@ no selection/controller method is invoked on a mirror.
 Health/tooltip code: strict Release build0 errors/0 warnings. New golden/negative codec vectors
 are in DamageDecisionPreviewVectors (root integrator registers the new source and test file).
 Headset output and replay timing remain hardware checks after integration.
+
+## Character attribution and spectator presentation
+
+Record60 separates pending actor attribution from whether that actor's decision is visible on
+the sender's board. Existing decision records continue sampling native pending content while
+focus hides its canvases. CharacterDecisionPresentation provides two views over that same content:
+board visibility follows60; a character viewer gets the pending character's content regardless
+of the owner's current focus. Actual claimant lookup supplies the owner, never the peer who
+happens to be viewing that character.
+
+CharacterDecisionMirror reuses the existing original decision row and use-bar clone renderers,
+including native intermediate animation histories and mandatory image state. It is attached to
+local foreign-character views and to remote boards displaying another character. The latter
+resolves canonical owner data directly, so there is no rebroadcast/echo and no transfer of
+interaction authority. When the character belongs to this client, that remote board reads the
+same original local producer data through a read-only adapter.
+
+The shared prompt now clones the game's original HelpBoxLine instead of drawing a new TextMeshPro
+label. All stage objects stay under an inactive parent until native behaviours have been stripped.
+No spectator canvas is registered with laser/poke routers and no mirror runs gameplay callbacks.
+
+Remote health-preview application validates the actual character claimant, finds the original
+world-space controller by stable actor GUID-derived ID, and repaints the same native methods as
+the owner. Closing/removing a peer drops only the dedicated peer focus request.
+
+Current strict integration build:0 errors/0 warnings, with a temporary copy of the integrator's
+owner-lookup seam for compilation (that copy is intentionally excluded from worker commits).

@@ -781,7 +781,7 @@ internal sealed class RemoteBoardFurniture
     /// <summary>The mirrored PROMPT TEXT above the decision row — the owner's HelpBox line,
     /// composed on THIS machine by <see cref="RemoteDecisionPrompt"/>; hidden while there is
     /// none.</summary>
-    private readonly TextMeshPro _decisionPrompt;
+    private readonly RemoteOriginalDecisionPrompt _decisionPrompt;
 
     /// <summary>Change gate for <see cref="SetDecisionLines"/> (the '\n'-joined labels last
     /// built; null = idle drawer).</summary>
@@ -1566,8 +1566,27 @@ internal sealed class RemoteBoardFurniture
     /// reveal gate itself is untouched — it still governs the CARDS, upstream in
     /// <see cref="RemoteControlBoard"/>, exactly as before.</para>
     /// </summary>
+    private readonly WorldUI.Surfaces.CharacterDecisionMirror _characterDecision = new();
+    private Transform? _characterDecisionMount;
+
+    private void TickCharacterDecision(CPlayerActor? actor, RemoteAvatar owner)
+    {
+        if (_characterDecisionMount == null)
+        {
+            _characterDecisionMount = new GameObject("CharacterDecisionMount").transform;
+            _characterDecisionMount.SetParent(_root, false);
+            _characterDecisionMount.localPosition = DecisionMount + _decisionTuning.DecisionOffset;
+            _characterDecisionMount.localScale = Vector3.one * _decisionTuning.DecisionScale;
+        }
+        float scale = _decisionTuning.DecisionScale;
+        float ceiling = (_decisionCeilingY - _characterDecisionMount.localPosition.y) / scale;
+        _characterDecision.TickAt(actor, owner, _characterDecisionMount, ceiling, _decisionTuning.DecisionGap);
+        CharacterDecisionPresentation.SuppressBoard(owner, _characterDecision.Showing);
+    }
+
     public void Refresh(CPlayerActor? actor, RemoteAvatar owner)
     {
+        TickCharacterDecision(actor, owner);
         // Diagnostic label only — the see-through driver decides everything else from geometry.
         _fade?.Note(owner.PlayerId);
         // A language switch invalidates every cached label (the local board self-heals the same way).
@@ -1761,6 +1780,7 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     public void TickWire(RemoteAvatar owner, int slotMask)
     {
+        TickCharacterDecision(RemoteBoardFocus.DisplayedActor(owner, out _), owner);
         bool slot0 = (slotMask & 1) != 0;
         bool slot1 = (slotMask & 2) != 0;
 
@@ -2674,18 +2694,13 @@ internal sealed class RemoteBoardFurniture
     /// the help box's own gold/grey rich-text colouring, MR-backed like every other line that hangs
     /// below the board in open air. Display-only: one TMP, no collider, nothing to press.
     /// </summary>
-    private TextMeshPro BuildDecisionPrompt(Vector3 local, in RemoteBoardTuning tuning)
+    private RemoteOriginalDecisionPrompt BuildDecisionPrompt(Vector3 local, in RemoteBoardTuning tuning)
     {
-        float scale = tuning.DecisionScale;
-        TextMeshPro label = RemoteBoardContent.Label(_root, "DecisionPrompt", local,
-            new Vector2(Cards.PlayTray.DecisionMountWidth * scale, PromptLineHeight * scale),
-            0.17f * scale, new Color(0.82f, 0.80f, 0.76f),
-            TextAlignmentOptions.Center, wrap: true);
-        WorldUI.NativeButtonSkin.ApplyFont(label); // the game's HUD font, depth-honest material
-        label.richText = true;                     // the help box's own gold title / grey body
-        WorldUI.MrBacking.Label(label);
-        label.gameObject.SetActive(false);
-        return label;
+        Transform mount = new GameObject("OriginalDecisionPromptMount").transform;
+        mount.SetParent(_root, false);
+        mount.localPosition = new Vector3(local.x, _decisionCeilingY, local.z);
+        mount.localScale = Vector3.one * tuning.DecisionScale;
+        return new RemoteOriginalDecisionPrompt(mount);
     }
 
     /// <summary>
@@ -2704,28 +2719,16 @@ internal sealed class RemoteBoardFurniture
             ? null
             : RemoteDecisionPrompt.Compose(owner.DecisionPromptKind, owner.DecisionTextVariant,
                                            actor, realWidgets, owner.DecisionNames);
-        if (text == _shownPromptText)
-            return;
+        bool textChanged = text != _shownPromptText;
         _shownPromptText = text;
-        if (_decisionPrompt == null)
-            return;
-        bool show = !string.IsNullOrEmpty(text);
-        if (show)
-            _decisionPrompt.text = text;
-        if (_decisionPrompt.gameObject.activeSelf != show)
-            _decisionPrompt.gameObject.SetActive(show);
-        // MEASURE, DO NOT ASSUME. The owner's side has always measured — DamageTooltipSurface solves
-        // its seat from the fitted rect and DecisionDockSurface hangs the buttons off the text's
-        // measured bottom — and the mirror was the only one of the two using an authored constant
-        // for a sentence whose length it cannot know. That is why the buttons sat 93 mm low. TMP
-        // lays out lazily, so the mesh has to be forced before renderedHeight means anything; the
-        // label must be active for that, which is why this sits after SetActive.
-        if (show)
-        {
-            _decisionPrompt.ForceMeshUpdate();
-            _promptMeasuredHeight = _decisionPrompt.renderedHeight;
-        }
+        _decisionPrompt.Show(text);
+        bool show = _decisionPrompt.Showing;
+        float height = _decisionPrompt.Height * _decisionTuning.DecisionScale;
+        bool sizeChanged = Mathf.Abs(_promptMeasuredHeight - height) > 0.00001f;
+        _promptMeasuredHeight = height;
+        if (sizeChanged) _decisionPromptShown = !show; // re-seat after actual native layout settles
         ApplyDecisionSeat(show);
+        if (!textChanged) return;
         VRLog.Info("Net", show
             ? $"Remote decision prompt: line composed LOCALLY for prompt kind " +
               $"{owner.DecisionPromptKind} / text variant {owner.DecisionTextVariant} — " +
@@ -2774,12 +2777,7 @@ internal sealed class RemoteBoardFurniture
         // the ceiling into a position. It was seated once at build time from the authored constant;
         // with a measured height that seat has to move with it or the text and the row it pushed
         // would disagree about where the line ends.
-        if (_decisionPrompt != null)
-        {
-            Vector3 lp = _decisionPrompt.transform.localPosition;
-            _decisionPrompt.transform.localPosition =
-                new Vector3(lp.x, _decisionCeilingY - 0.5f * lineH, lp.z);
-        }
+
         _shownUseBarStructure = int.MinValue; // force the bars to re-derive from the moved row
         VRLog.Info("Net", $"Remote decision seat: the mirrored area's CEILING is board-local y " +
                           $"{_decisionCeilingY:F3} (the owner's drawer-zone top at their offset/scale, " +
@@ -3269,7 +3267,7 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     private int UseBarStructure(RemoteAvatar owner)
     {
-        if (owner.UseBarsMask == 0)
+        if (owner.UseBarsMask == 0 || !CharacterDecisionPresentation.BoardVisible(owner))
             return 0;
         // A ROW IS UP either way — the mod-drawn plates OR the mirrored GAME widgets — and the
         // widget row's MEASURED height is part of the key, so a re-fit re-seats the bars under
@@ -3330,7 +3328,7 @@ internal sealed class RemoteBoardFurniture
         _shownUseBarStates = null; // a new drawer repaints its states from scratch
         _shownUseBarFlags = null;
 
-        byte mask = owner.UseBarsMask;
+        byte mask = CharacterDecisionPresentation.BoardVisible(owner) ? owner.UseBarsMask : (byte)0;
         if (mask == 0)
         {
             if (_useBars.gameObject.activeSelf)
@@ -4680,6 +4678,9 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     public void Destroy()
     {
+        _characterDecision.Destroy();
+        _decisionPrompt.Destroy();
+        if (_characterDecisionMount != null) Object.Destroy(_characterDecisionMount.gameObject);
         _decisionWidgets?.Destroy();
         for (int r = 0; r < _useBarRows.Count; r++)
             _useBarRows[r].Widgets.Destroy();

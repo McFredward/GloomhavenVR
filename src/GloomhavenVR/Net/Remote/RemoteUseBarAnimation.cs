@@ -18,7 +18,7 @@ internal sealed class RemoteUseBarAnimation
     private readonly Dictionary<Graphic, Material> _materials;
     private readonly bool _ownsMaterials;
     private bool _refused;
-    private static readonly ConditionalWeakTable<RemoteAvatar, Playback[]> Playbacks = new();
+    private static readonly ConditionalWeakTable<CharacterDecisionPresentation, Playback[]> Playbacks = new();
 
     private sealed class Playback
     {
@@ -102,7 +102,7 @@ internal sealed class RemoteUseBarAnimation
         return result;
     }
 
-    internal void Apply(RemoteAvatar owner, int actorId, ushort slotIdentity, int slot)
+    internal void Apply(CharacterDecisionPresentation owner, int actorId, ushort slotIdentity, int slot)
     {
         if (!Playbacks.TryGetValue(owner, out Playback[] clocks))
         {
