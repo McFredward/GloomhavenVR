@@ -320,6 +320,50 @@ internal sealed class RemoteCardArt
         _cardHeight = cardHeight;
     }
 
+    /// <summary>Decorate an already cloned, inactive original item tooltip in its native pixel
+    /// layout. The caller owns the hierarchy and prepares its artwork/bounds; this lease owns
+    /// only the materials created by the shared spent-card recipe. No game controller, fitting,
+    /// card host, or animation callback runs here.</summary>
+    internal static System.IDisposable PrepareNativeItem(GameObject clone, SpentLook look)
+    {
+        if (clone == null || clone.activeInHierarchy)
+            throw new System.ArgumentException("Native item presentation requires an inactive owned clone.", nameof(clone));
+        var art = new RemoteCardArt(clone.transform, 0f, 0f) { _clone = clone };
+        try
+        {
+            ItemFxRig rig = StripFragileEffects(clone, out art._burnHeaderText, out art._burnInitiativeText,
+                out art._flameBurnTexture, out art._flameGhostTexture, out art._flameQuadByName);
+            art.ApplySpentLook(rig, look);
+            return new NativeItemMaterialLease(art);
+        }
+        catch
+        {
+            art.ReleaseOwnedMaterials();
+            art._clone = null;
+            throw;
+        }
+    }
+
+    private sealed class NativeItemMaterialLease : System.IDisposable
+    {
+        private RemoteCardArt? _art;
+        internal NativeItemMaterialLease(RemoteCardArt art) => _art = art;
+        public void Dispose()
+        {
+            if (_art == null) return;
+            _art.ReleaseOwnedMaterials();
+            _art._clone = null; // the tooltip owner destroys its hierarchy
+            _art = null;
+        }
+    }
+
+    private void ReleaseOwnedMaterials()
+    {
+        for (int i = 0; i < _ownedMaterials.Count; i++)
+            if (_ownedMaterials[i] != null) Object.Destroy(_ownedMaterials[i]);
+        _ownedMaterials.Clear();
+    }
+
     /// <summary>
     /// Is a front currently up that was built for <paramref name="key"/>? The dedup question asked
     /// from OUTSIDE, so a caller whose source widget does not exist yet (an ITEM card, which the game
@@ -3388,12 +3432,7 @@ internal sealed class RemoteCardArt
         // …and the materials minted for it (see ApplySpentLook). Destroying a GameObject does NOT
         // destroy the materials its Images point at, and these have no other owner — the clone they
         // were assigned to is on its way out in the same frame.
-        for (int i = 0; i < _ownedMaterials.Count; i++)
-        {
-            if (_ownedMaterials[i] != null)
-                Object.Destroy(_ownedMaterials[i]);
-        }
-        _ownedMaterials.Clear();
+        ReleaseOwnedMaterials();
         _artWatch.Clear(); // the watched Images belong to the clone that just died
         _burnImages = null;  // the burn rig named the clone's own Images
         _burnTexts = null;
