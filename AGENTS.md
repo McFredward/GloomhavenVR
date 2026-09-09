@@ -35,3 +35,9 @@ explicitly user-confirmed exception permits a divergence. Historical deferrals, 
 arguments and implementation comments are not approvals. Record the source of each actual
 exception; fix newly discovered divergences within the authorized review. Native prefab clones
 must retain original presentation without running gameplay controllers or callbacks.
+
+The latest multiplayer test ruling (2026-09-09, ModBuild 486 evidence) supersedes older
+pile/active-card face exceptions: during the action phase cards are face-up; during
+ability selection, remote fans, held cards and placed cards are face-down. Short-rest
+burn flights must remain face-down. Damage-sacrifice choices during the action phase
+remain face-up. Card-face visibility and permission to name private cards remain separate.

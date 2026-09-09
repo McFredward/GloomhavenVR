@@ -52,7 +52,8 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    It is the multiplayer handshake key; mismatched peers get a blocking dialog.
 3. **Wire:** magic `GVR1`, `Version` byte stays **3**, every change is an **additive TLV** record
    that old readers skip by length. **44 presence record IDs exist through 47; transport-envelope TLV 48 carries unchanged
-   snapshots in message type 2. The 38/40/42 holes may never be reused; 49 is next free.** No id
+   snapshots in message type 2. Native presentation streams use TLVs 49–52. The 38/40/42 holes
+   may never be reused; 53 is next free.** No id
    has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
    `scripts/wire-tests.sh` (238,556 assertions at ModBuild 486) is the proof; a `Write`+`TryRead` change

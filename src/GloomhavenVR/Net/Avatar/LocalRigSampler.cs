@@ -496,6 +496,33 @@ internal static class LocalRigSampler
         if (origin != null)
             return;
 
+        // Address active cards by authoritative membership, not the widget's delayed CardType.
+        // MB486 sometimes sent code 0 immediately after activation and only recovered after a
+        // later widget refresh. Both endpoints walk this same model list; this is an address,
+        // while RevealGate separately decides whether the current phase permits its face.
+        CCharacterClass? cc = actor.CharacterClass;
+        System.Collections.Generic.List<CBaseCard>? activeCards = cc != null ? cc.ActivatedCards : null;
+        int seatActive = -1;
+        int nActive = 0;
+        if (activeCards != null)
+        {
+            for (int i = 0; i < activeCards.Count; i++)
+            {
+                if (activeCards[i] is not CAbilityCard ability || ability == null)
+                    continue;
+                if (widget.AbilityCard != null && ability.CardInstanceID == widget.CardInstanceID)
+                    seatActive = nActive;
+                nActive++;
+            }
+        }
+        if (seatActive >= 0)
+        {
+            count = (byte)Mathf.Clamp(nActive, 0, 255);
+            code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListActive, seatActive);
+            if (code == 0) count = 0;
+            return;
+        }
+
         // ─── A CARD OUT OF A PICK FAN IS NOT A HAND CARD, AND HAS NO PileOrigin EITHER ──────────
         // 2026-09-06 report item 7, the HELD half of it: "Aktuell ist der Faecher als auch die
         // Karte in der Hand des Spielers wieder nur die Rueckseite." While the game has the owner
@@ -518,8 +545,9 @@ internal static class LocalRigSampler
         // sampler drew before — a card whose pile this record cannot name stays a BACK rather than
         // being seated in a list it is not in.
         CardPileType heldPile = widget.CardType;
-        if (heldPile == CardPileType.Discarded || heldPile == CardPileType.Lost
-            || heldPile == CardPileType.Permalost)
+        if (!Cards.CardsGameApi.HandFanMember(widget, actor)
+            && (heldPile == CardPileType.Discarded || heldPile == CardPileType.Lost
+                || heldPile == CardPileType.Permalost))
         {
             bool burnt = heldPile != CardPileType.Discarded;
             Cards.CardsGameApi.GetPileArcWidgets(gameHand, burnt, s_heldFaceBuf);
@@ -533,46 +561,6 @@ internal static class LocalRigSampler
             }
             code = NetProtocol.EncodeHeldFace(
                 burnt ? NetProtocol.HeldFaceListBurnt : NetProtocol.HeldFaceListDiscard, atPile);
-            return;
-        }
-
-        // ─── AN ACTIVE / PERSISTENT CARD PICKED UP OUT OF THE MATRIX ────────────────────────────
-        // 2026-09-06 report item 9: "wenn ein Spieler eine aktive Karte in die Hand nimmt, soll
-        // diese auch mit der Vorderseite AUCH in der Auswahlphase sichtbar sein. (Aktuell sieht man
-        // nur die Rueckseite beim remote Spieler)." The obvious reading is that a phase gate covered
-        // it. That is the SMALLER half. An active card has CardType == Active, so it is not a
-        // CardsGameApi.HandFanMember, it has no VRCard.PileOrigin (nothing lent it) and it is in
-        // neither pile arc — every arm above missed it and the loop below found no seat, so this
-        // method returned code 0 IN EVERY PHASE and the receiver drew the only thing it could.
-        //
-        // THE LIST IS THE MODEL'S, NOT A WIDGET LIST, and that is deliberate: the receiver's active
-        // matrix (Net.RemoteActiveCards.Refresh) is drawn from CCharacterClass.ActivatedCards in
-        // list order, so indexing the same host-replicated list is the one expression both machines
-        // already share for this population. Walked raw rather than through the
-        // ActivatedAbilityCards projection, which allocates a fresh List on every call
-        // (CCharacterClass.cs:99) and this runs at the extras rate.
-        if (heldPile == CardPileType.Active)
-        {
-            CCharacterClass? cc = actor.CharacterClass;
-            System.Collections.Generic.List<CBaseCard>? activeCards = cc != null ? cc.ActivatedCards : null;
-            if (activeCards == null)
-                return;
-            int seatActive = -1;
-            int nActive = 0;
-            for (int i = 0; i < activeCards.Count; i++)
-            {
-                if (activeCards[i] is not CAbilityCard ability || ability == null)
-                    continue;
-                if (widget.AbilityCard != null && ability.CardInstanceID == widget.CardInstanceID)
-                    seatActive = nActive;
-                nActive++;
-            }
-            if (seatActive < 0)
-                return;
-            count = (byte)Mathf.Clamp(nActive, 0, 255);
-            code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListActive, seatActive);
-            if (code == 0)
-                count = 0; // could not be seated in five bits — an honest back, never half a thing
             return;
         }
 

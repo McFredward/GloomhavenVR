@@ -113,11 +113,12 @@ widgets, their pickers, and their size in the next headset test.
 The full set is in `CLAUDE.md`. These four have each been broken at least once *after* being
 written down:
 
-1. **The burnt fan is ALWAYS open** ("Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer
-   mit der Vorderseite sichtbar sein"). The **discard** fan is open too, **except during a short
-   rest**, where the whole fan is covered. Long rest is the ACTION phase and is fully open.
-   Write the rule as a CARD PROPERTY, never as a place — a rule written as a location cannot
-   follow a card out of that location, and that exact shape has been the defect twice.
+1. **Latest visibility ruling, 2026-09-09 (MB486 hardware report):** action phase cards are
+   open; ability-selection fans, held cards and placed cards are covered. Short-rest burn
+   flights are covered. A damage-sacrifice prompt within the action phase stays open.
+   This supersedes the older burnt-always-open and active-held selection exceptions.
+   Resolve actual model membership before delayed widget CardType; an unresolved positional
+   address must never guess a card identity.
 2. **Seeing a card's FACE and being allowed to NAME it in a prompt are two questions**, over one
    population. Merging them re-opens the ModBuild 477 identity leak.
    `scripts/check-card-identity-mask.py` fails the build if they become one predicate.
