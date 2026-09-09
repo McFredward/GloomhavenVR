@@ -2132,8 +2132,15 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private void LateUpdate()
     {
         using (Core.PerfMonitor.Scope("Cards.VRCardArt"))
+        {
             _face.MaintainArtArrival();
+            PreserveSpentBurnAppearance();
+        }
     }
+
+    // Native card effects can start after Update. Keep the spent base before both the
+    // camera draw and the owner appearance capture, regardless of LateUpdate ordering.
+    internal void PreserveSpentBurnAppearance() => _burnFx.PreserveSpentBurnAppearance(FullCard);
 
     private void UpdateBody()
     {

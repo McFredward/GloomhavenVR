@@ -453,6 +453,7 @@ internal sealed partial class RemoteCardArt
         }
 
         // Identity changed (or first show): rebuild the clone.
+        using var scope = Core.PerfMonitor.Scope("Net.CardAppearance.Build");
         DestroyClone();
         try
         {

@@ -10,6 +10,7 @@ namespace GloomhavenVR.Net;
 internal static class CardAppearanceSampler
 {
     private static readonly List<VRCard> Cards = new();
+    private static readonly List<AbilityCardUI> Pile = new();
     private static readonly Dictionary<FullAbilityCard, CardAppearanceBindings> Bindings = new();
     private static readonly HashSet<FullAbilityCard> Seen = new();
     private static readonly List<FullAbilityCard> Removed = new();
@@ -17,6 +18,7 @@ internal static class CardAppearanceSampler
     private static CardAppearanceState[] _previous = Array.Empty<CardAppearanceState>();
     internal static CardAppearanceState[] Sample()
     {
+        using var scope = PerfMonitor.Scope("Net.CardAppearance.Sample");
         CardsDriver.CopyVisibleCards(Cards); Seen.Clear();
         var states = new List<CardAppearanceState>();
         foreach (VRCard card in Cards)
@@ -35,10 +37,26 @@ internal static class CardAppearanceSampler
                 if (seat >= 0 && seat < NetProtocol.HeldFaceIndexUnknown && round!.Count <= 255)
                 { code = (byte)((CardPlumeState.RoundList << NetProtocol.HeldFaceListShift) | seat); count = (byte)round.Count; }
             }
+            if (code == 0 && card.GameCard?.AbilityCard != null)
+            {
+                CardsHandUI? hand = CardsHandManager.Instance?.GetHand(actor);
+                if (hand != null)
+                {
+                    CardsGameApi.GetPileArcWidgets(hand, burnt: false, Pile);
+                    if (!CardAppearanceAddress.TryPile(Pile, card.GameCard.AbilityCard,
+                        widget => widget?.AbilityCard, burnt: false, out code, out count))
+                    {
+                        CardsGameApi.GetPileArcWidgets(hand, burnt: true, Pile);
+                        CardAppearanceAddress.TryPile(Pile, card.GameCard.AbilityCard,
+                            widget => widget?.AbilityCard, burnt: true, out code, out count);
+                    }
+                }
+            }
             if (code == 0) continue;
             Seen.Add(full);
             try
             {
+                card.PreserveSpentBurnAppearance();
                 if (!Bindings.TryGetValue(full, out var binding)) Bindings[full] = binding = new CardAppearanceBindings(full.cardEffects);
                 var state = new CardAppearanceState { ActorId = NetFigures.StableActorId(actor), FaceCode = code, ListCount = count,
                     Nodes = binding.Capture(), ExtraGroups = binding.CaptureExtraGroups() };
@@ -75,5 +93,5 @@ internal static class CardAppearanceSampler
         if (!same) _previous = states.ToArray();
         return _previous;
     }
-    internal static void Reset() { CardAppearanceBindings.ResetAssets(); Cards.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
+    internal static void Reset() { CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
 }

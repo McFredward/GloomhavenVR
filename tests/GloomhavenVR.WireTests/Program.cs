@@ -32,6 +32,9 @@ internal static class Program
             CardProvenanceVectors.Run(t, repoRoot);
             CardAppearanceVectors.Run(t, repoRoot);
             CardAppearanceGroupVectors.Run(t);
+            CardAppearanceAddressVectors.Run(t, repoRoot);
+            NativeElementMaterialVectors.Run(t, repoRoot);
+            SpentBurnContinuityVectors.Run(t);
             CharacterDecisionParityVectors.Run(t, repoRoot);
             NativeDecisionPromptVectors.Run(t);
             PresentationCompressionVectors.Run(t);

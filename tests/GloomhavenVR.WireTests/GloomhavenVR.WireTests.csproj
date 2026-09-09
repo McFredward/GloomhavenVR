@@ -578,6 +578,13 @@
     <Compile Include="HeldFaceAtomicVectors.cs" />
     <Compile Include="CardAppearanceVectors.cs" />
     <Compile Include="CardAppearanceGroupVectors.cs" />
+    <Compile Include="CardAppearanceAddressVectors.cs" />
+    <Compile Include="NativeElementMaterialVectors.cs" />
+    <Compile Include="SpentBurnContinuityVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Cards/Art/SpentBurnContinuity.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Cards/Art/NativeBurnEnumerator.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/SpentAppearanceHistory.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceAddress.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Hands/Interact/LaserPointerPolicy.cs" />
     <Compile Include="MapLaserOwnershipVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceBinding.cs" />

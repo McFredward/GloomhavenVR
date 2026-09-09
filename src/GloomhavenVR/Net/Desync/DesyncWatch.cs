@@ -320,7 +320,7 @@ internal static class DesyncWatch
                 return;
             if (_stallAnnounced)
             {
-                // Only a HALTED stall re-announces (it can never clear itself), and only a bounded
+                // Only a HALTED stall re-announces while it remains blocked, and only a bounded
                 // number of times: an instrument that repeats for ever is the flood, not the answer.
                 if (_stallRepeatAt <= 0f || now < _stallRepeatAt || _stallRepeats >= MaxStallRepeats)
                     return;
@@ -334,12 +334,12 @@ internal static class DesyncWatch
             // That is only true while the processor is READY: the phase-mismatch branch that counts
             // toward the throw (ActionProcessor.cs:370-394) is reached ONLY after
             // `readyToProcessNextAction` passes (:279). A HALTED processor returns before it, so the
-            // counter is never touched, the deadline never arrives, HandleDesync never fires and the
-            // action waits FOR EVER with nothing anywhere reporting it. That is precisely what killed
-            // the ModBuild 348 session: the host sat at `Halted @ NONE` with BurnAvailableCard #40 at
+            // counter is not touched while halted. A native phase/animation completion can resume
+            // processing normally; the halted state alone does not prove a terminal session. In
+            // the ModBuild 348 session the host sat at `Halted @ NONE` with BurnAvailableCard #40 at
             // the head of the queue, and the single line this watch printed claimed a 15 s deadline
-            // that was never going to come. Distinguish the two, and keep saying it for the terminal
-            // one, because that stall does not clear itself.
+            // that was never going to come. Preserve that distinction without diagnosing every
+            // queued phase barrier as the historical failed burn coroutine.
             bool ready = ActionProcessor.ReadyToProcessNextAction;
             float budget = BudgetSeconds();
             string verdict = ready
@@ -348,20 +348,18 @@ internal static class DesyncWatch
                   "disagreement — the client has not caught up yet."
                 : "THE PROCESSOR IS HALTED, so the queue is not being drained at all: the game's " +
                   "incorrect-action counter is never reached (ActionProcessor.cs:279 returns before " +
-                  "it), NO deadline is running and NO desynchronisation will ever be declared. This " +
-                  "action will wait for ever and the session is already dead — it just has not been " +
-                  "told. Something the local rule engine was waiting on never arrived; the known case " +
-                  "is a lose/burn commit whose AnimateCardsLost coroutine was refused on an inactive " +
-                  "hand, which leaves the BURNER stuck in TakeDamageConfirmation (see the Cards " +
-                  "'BURN COMMIT HANG' line on that player's machine).";
+                  "it), NO deadline is running while it remains halted. A native phase or animation " +
+                  "completion can resume processing; this snapshot does not prove a dead session. " +
+                  "Check for DESYNC STALL CLEARED and continuing phase changes. A historical burn " +
+                  "failure left the BURNER stuck in TakeDamageConfirmation; that diagnosis needs an " +
+                  "actual Cards 'BURN COMMIT HANG' line on that player's machine.";
 
             VRLog.Alert(Name, $"{Tag} STALL: action {ActionName(head.ActionTypeID)} has been waiting " +
                               $"{held:0.0}s for phase {PhaseName(target)} while this client is in " +
                               $"{PhaseName(current)} ({queue.Count} queued), processor state " +
                               $"{StateName()}. {verdict}");
 
-            // A halted stall never clears on its own, so a single line would look exactly like a
-            // stall that did clear. Keep the repeat alive for that case only.
+            // Keep a bounded reminder while halted; ClearStall reports normal recovery.
             _stallRepeatAt = ready ? 0f : now + StallRepeatSeconds;
         }
         catch (Exception e)

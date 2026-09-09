@@ -104,6 +104,7 @@ internal sealed partial class RemoteCardArt
     }
     internal void ApplyNativeAppearance()
     {
+        using var scope = Core.PerfMonitor.Scope("Net.CardAppearance.Apply");
         if (_nativeBindings == null || _clone == null || _host == null || !_host.activeInHierarchy) return;
         if (!TryCaptureNativeDefaults()) return;
         if (_localNativeFrame != null)

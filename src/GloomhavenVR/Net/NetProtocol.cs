@@ -485,7 +485,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 491;
+    public const ushort ModBuild = 492;
+
+    // ModBuild 492 — MB491 rest appearance and full hardware-log review.
+    //   Rest offers now publish their original material output through exact-model canonical
+    //   pile addressing even without a VRCard.PileOrigin. Native burn start retains the actual
+    //   spent base instead of flashing blue; native progress remains independent of that paint.
+    //   Local/remote recovery clears spent history. Visibility rules, wire grammars and flight
+    //   routing remain unchanged: local controlled cards and the entire map are public;
+    //   remote selection and explicit short-rest burn flights retain their concealment.
+    //   The one-off long-rest whole-board disappearance is not explained by the supplied logs.
+    //   REMOTE BOARD VISIBILITY traces actual root transitions for the next reproduction.
+    //   Eleven reported synchronization waits all cleared; the diagnostic no longer declares
+    //   every halted processor a dead session. No network watchdog/gameplay threshold changed.
+    //   Remote element effects bind original materials even when the viewer's branch is inactive;
+    //   stale clone materials cannot blank the received native element frame.
+    //   Performance evidence shows CPU bursts and remote presentation-rate changes, but does
+    //   not establish streaming causality or a measured build-to-build regression. Narrow
+    //   native-appearance timings improve attribution without reducing animation sampling.
+    //   All17 checkers pass;251797 wire assertions plus883 native hierarchy assertions and
+    //   negative controls. StrictRelease0 errors/0 warnings;docs/refasm pass. Registration109
+    //   classes/167 methods,patch surface152,config625,log tokens4716. Against050e8801:
+    //   16 intended changed types,4 new helpers,no removals. Headset output remains unverified.
+    //   See .planning/MP-ROUND-492.md and its lane reports for evidence, gates and hardware limits.
+    //   DLL-only after full483; both players need492. GVR1/v3 unchanged;70 remains next free.
 
     // ModBuild 491 — MB490 hardware regressions: original card fronts and foreground laser ownership.
     //   Both supplied client banners are490. The screenshots and repeated group-bound exceptions

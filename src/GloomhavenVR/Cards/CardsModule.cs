@@ -78,6 +78,8 @@ internal sealed class CardsModule : IVRModule
         // the white action halves). The guard skips only those restarts and replays/heals
         // once the loads are quiet (see Cards/CardArtGuard.cs).
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_ShowCard_ArtGuard));
+        VRSession.Harmony?.PatchAll(typeof(BurnArtwork.ToggleEffect_PreserveSpentStart_Patch));
+        VRSession.Harmony?.PatchAll(typeof(BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch));
 
         // THE ENCHANTRESS EDGE (user 2026-08-23, item 4): a card enhanced at the Magierin must
         // update in the VR hand fan at once. The map-room fan's face is an Object.Instantiate

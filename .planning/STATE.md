@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-09 against `dev` = ModBuild 491.** The file this replaces had gone 168 builds
+**Updated 2026-09-09 against `dev` = ModBuild 492.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,22 +13,25 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **`dev` = ModBuild 491.** `main` is the release branch and is behind on purpose.
+- **`dev` = ModBuild 492.** `main` is the release branch and is behind on purpose.
 - **483 IS A FULL INSTALL.** The asset bundle changed for the first time since ModBuild 368:
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
   loud if it happens.
-- **Hardware evidence now covers 490**, with both client banners and `regression_3d_umgebung.jpg` /
-  `regression_board.jpg` inspected. **491 requires a headset retest.** The failed card construction
-  and pointer findings are recorded in [MP-REGRESSION-491.md](MP-REGRESSION-491.md). The prior
-  490 pre-test review did not exercise the original runtime hierarchy and missed the group bound.
+- **Hardware evidence now covers 491**, with both client banners verified. The user reports their
+  best run so far; earlier native card-construction errors are absent. **492 needs a headset
+  retest** for spent rest-card appearance. A single long-rest board disappearance remains
+  unexplained; actual root transitions now have diagnostics. Performance problems are measured,
+  but neither streaming causality nor a build-to-build regression is established. See
+  [MP-ROUND-492.md](MP-ROUND-492.md). The older regression JPGs belong to the 490 report.
 - **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
-- Gate readings at 491: all 17 checkers green · wire **251,752** assertions · production card
+- Gate readings at 492: all 17 checkers green · wire **251,797** assertions · production card
   binding harness **883** assertions plus an actual failing old-limit negative control · strict
   Release **0 errors / 0 warnings** · docs i18n and all 16 metadata-only reference assemblies pass.
-  Patch registration **107 classes / 165 methods**, surface **150**, config keys **625**, log tokens
-  **4,714**, instrument-writes baseline **61**, bundle **74,943,763 bytes** remain unchanged.
-  Compiled comparison against `48330b22`: 18 intended changed types and one new helper, none removed.
+  Patch registration **109 classes / 167 methods**, surface **152**, config keys **625**, log tokens
+  **4,716**, instrument-writes baseline **61**, bundle **74,943,763 bytes**. Two new card-effect
+  patches preserve spent appearance; no existing config, patch or grep token was removed.
+  Compiled comparison against `050e8801`: 16 intended changed types and four new helpers, none removed.
   Local controlled cards and the entire map remain open; concealment is remote-only in scenarios.
 
 ### Recent builds
@@ -47,6 +50,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 489 | native card output, atomic held fronts, character decisions, committed/pending health and correctly routed/sequenced flights | DLL only after 483 |
 | 490 | pre-test face/overlay/flight audit; later hardware exposed native group-bound rendering failures | DLL only after 483 |
 | 491 | repair dynamic native card artwork and independent laser paths behind grab bars | DLL only after 483 |
+| 492 | spent rest-burn continuity, native element material binding, board transition diagnostics and hardware-log review | DLL only after 483 |
 
 ---
 
@@ -62,6 +66,12 @@ in the zoomed-out pose where the room reads as a model in front of you. That sur
 not seen it yet, and it is one line to put back.
 
 ### 2b. Latest multiplayer corrections
+
+- Build 492 publishes rest-offer appearance from canonical pile models and retains the actual
+  spent base through native burn reset, with native completion tracked independently. Remote
+  element effects use original materials even when the viewer's branch is inactive. Board
+  disappearance remains open; diagnostic/performance evidence is in
+  [MP-ROUND-492.md](MP-ROUND-492.md) and its lane reports.
 
 - Build 491 fixes the native card hierarchy construction failure affecting local map fans and
   remote fronts. Map cards remain public. Independent map/world UI laser routes now respect
@@ -131,6 +141,11 @@ From the 2026-09 refactor's reviews (`.planning/refactor-2026-09/REVIEW-*.md`):
   Filed in `LANE-BOARDTEXT-357-NEEDED-OUTSIDE.md` §2.
 
 ### 2d. Owed on hardware — lines that have never printed
+
+Build 492 adds `REMOTE BOARD VISIBILITY` root-transition evidence and
+`Net.CardAppearance.Sample` / `.Build` / `.Apply` timing scopes. These have no hardware readings
+yet. The spent rest-burn picture, the original-material element correction and any recurrence
+of the one-off board disappearance still need observation.
 
 Grep tokens waiting for their first real reading. Several have been owed since 480.
 
