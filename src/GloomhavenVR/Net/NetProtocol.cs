@@ -467,8 +467,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 487;
+    public const ushort ModBuild = 488;
 
+    // ModBuild 488 — animate window facing after laser release (2026-09-09).
+    //   Modal windows and floated surface panels turn visibly toward the release-time viewer
+    //   direction using the grab bar's duration (default 150 ms) and ease-out cubic progression.
+    //   The modal's drawn ink centre stays fixed throughout the turn; surface panels retain
+    //   their existing centre pivot. Regrabbing or externally placing a window cancels the turn.
+    //   Existing WindowFacing policy and shared-window exemption remain authoritative. This is
+    //   a finite release transition, never a head-following billboard. No wire/config/assets
+    //   change; DLL-only after full483. Final animation feel requires a headset check.
 
     //
     // ModBuild 487 — MB486 multiplayer hardware follow-up (2026-09-09).
