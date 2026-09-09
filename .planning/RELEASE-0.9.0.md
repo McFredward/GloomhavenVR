@@ -20,6 +20,9 @@ now calls Enumerable.Reverse explicitly, retaining both transport modes. A globa
 selects stable SDK 8.0.4xx with latestPatch; workflows print dotnet --info and execute
 the standalone capture, playback and board-refresh harnesses with negative controls.
 The hosted wire suite remains compile-only because execution needs real game binaries.
+The first prepared CI run (34406888810) also exposed the runner's missing ripgrep
+command in negative-control verification. Those checks use portable fixed-string grep
+matching, preserving the requirement to reach the intended runtime assertion.
 
 ## Local evidence
 

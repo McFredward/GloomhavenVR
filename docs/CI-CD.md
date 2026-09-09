@@ -75,7 +75,8 @@ fixture now explicitly calls `Enumerable.Reverse`, preserving both transport cas
 
 Both workflows execute the standalone card-capture, native-playback and board-refresh production
 harnesses and their negative controls. Their supplied Unity API substitutes make them runnable
-without game binaries. The full byte-level wire suite still runs locally with the real game DLL;
+without game binaries. Negative-control log matching uses standard `grep`, so the
+runner does not need a separate ripgrep installation. The full byte-level wire suite still runs locally with the real game DLL;
 hosted workflows compile that suite but do not claim to execute it.
 
 ```
