@@ -65,7 +65,8 @@ internal static class CardAppearanceGroupVectors
                 CardAppearanceCodec.FragmentMessage, CardAppearanceCodec.MaxSize, compress: compressed);
             var receiver = new ExtrasFragments(CardAppearanceCodec.Message, CardAppearanceCodec.FragmentMessage, CardAppearanceCodec.MaxSize);
             byte[]? restored = null;
-            foreach (byte[] packet in pages.Reverse())
+            // Explicit LINQ avoids newer compilers selecting the void span Reverse overload.
+            foreach (byte[] packet in Enumerable.Reverse(pages))
             {
                 t.True(packet.Length <= ExtrasFragments.MaxDatagramBytes, "supplemental groups respect the physical event budget");
                 restored = receiver.Accept(2, packet, packet.Length, 0) ?? restored;
