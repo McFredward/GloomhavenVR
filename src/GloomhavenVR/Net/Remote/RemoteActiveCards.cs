@@ -639,13 +639,14 @@ internal sealed class RemoteActiveCards
             // no wire field is owed and none is added. RIGHT AFTER Set(), which is where the face
             // exists; the one-writer hold is taken inside RemoteCardArt, next to the art it
             // protects.
-            _cards[i].SetActiveCardLook(_playerId, i, _buffer[i],
-                UsedCardLook.FromPolicy(Cards.BurnLookPolicy.ForActivatedCard(_buffer[i])));
+            _cards[i].SetNativeCardAppearance(_playerId, actor, _buffer[i]);
             // …and the pulse pass's only way back from a hosted clone to the card it is showing.
             // Recorded HERE rather than derived again later, so the position the driver matches on
             // is the very Vector3 the cell was moved to and not a second evaluation of the same
             // formula that could drift from it.
             _cellPos.Add(cellAt);
+            RemoteActiveDepartures.Remember(_playerId, actor, _buffer[i],
+                _root.localPosition + _root.localScale.x * cellAt, (byte)i, (byte)_buffer.Count);
             _cellCard.Add(_buffer[i]);
         }
         _panelsByCard.Clear();
@@ -868,6 +869,7 @@ internal sealed class RemoteActiveCards
     /// the board root; this makes the clone ownership explicit — see <see cref="RemoteBoardCard.Destroy"/>.</summary>
     public void Destroy()
     {
+        RemoteActiveDepartures.Clear(_playerId);
         for (int i = 0; i < _cards.Count; i++)
             _cards[i]?.Destroy();
         // The pulse driver mints one Material per mirrored face it lights (see its class note on

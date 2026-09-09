@@ -412,6 +412,18 @@ internal static class BurnArtwork
         }
     }
 
+    /// <summary>The native loss sequence has a second timeline outside FullAbilityCard FX.
+    /// Its two flags distinguish a running sequence from the game's cancelled-but-latched flag.
+    /// Read the card owner's hand, never the current displayed character.</summary>
+    internal static bool LosingCards(AbilityCardUI? widget)
+    {
+        CardsHandManager manager = CardsHandManager.Instance;
+        CardsHandUI? hand = widget?.PlayerActor != null && manager != null
+            ? manager.GetHand(widget.PlayerActor) : null;
+        return hand != null && hand.gameObject.activeInHierarchy
+            && hand.AnimatingLostCards && hand.animatedLosingCard;
+    }
+
     /// <summary>
     /// THE ONE RELEASE EXPRESSION. May a burn whose artwork state is <paramref name="playing"/> and
     /// which has been held for <paramref name="held"/> seconds fly now?
@@ -436,10 +448,6 @@ internal static class BurnArtwork
     /// </summary>
     internal static bool Released(bool playing, float held)
     {
-        if (held >= MaxHoldSeconds)
-            return true;             // deadline: always go
-        if (playing)
-            return false;            // still burning ON the card — that is the whole point of the wait
-        return held >= StartGraceSeconds; // never started, or already done
+        return BurnFlightCompletion.MayRelease(playing, false, held, StartGraceSeconds);
     }
 }

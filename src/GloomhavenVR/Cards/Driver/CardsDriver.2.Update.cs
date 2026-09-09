@@ -322,6 +322,8 @@ internal sealed partial class CardsDriver
         _liveGrabs.Clear();
         _flyingToPile.Clear(); // issue 5: no fly survives a driver teardown
         _lastHalfCards.Clear();
+        _lastActiveCards.Clear();
+        _activeExitOrigins.Clear();
         _lastTrayCards.Clear(); // issue 1
         _lastVisibleCards.Clear();
         _lastCardWorldPos.Clear(); // issue 1
@@ -456,6 +458,8 @@ internal sealed partial class CardsDriver
         _pickReturnSettleAt = 0f;  // …and its landing deadline, which would rebuild for nobody
         _flyingToPile.Clear(); // issue 5: the hand's cards (any mid-flight) just died
         _lastHalfCards.Clear();
+        _lastActiveCards.Clear();
+        _activeExitOrigins.Clear();
         _lastTrayCards.Clear(); // issue 1: slot occupants die with the hand's cards
         _lastVisibleCards.Clear();
         _lastFieldCards.Clear(); // event-discard exit: the same rule for the pick-recess snapshot —

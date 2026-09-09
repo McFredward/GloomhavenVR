@@ -186,6 +186,8 @@ internal sealed class RemoteBurnFx
         /// It decides both the ORIGIN of the flight and whether this presentation draws a slab at
         /// all during the hold — see <see cref="Drive"/>.</summary>
         public int Recess;
+        public bool FromActive;
+        public Vector3 ActiveLocal;
 
         /// <summary>Card name, kept only so the hand-over line can name the same card the
         /// <c>BURN CARD</c> line above it named.</summary>
@@ -313,6 +315,8 @@ internal sealed class RemoteBurnFx
         public int Id;
         public int ActorId;
         public int Recess;
+        public bool FromActive;
+        public CardFlightSource? Source;
         public int FlushedToActorId;
 
         /// <summary>The card this token was minted for — carried so the expiry line can NAME the
@@ -437,6 +441,7 @@ internal sealed class RemoteBurnFx
     {
         public byte Endpoints;
         public byte Flags;
+        public CardFlightSource? Source;
         public int ActorId;
         public float ReceivedAt;
         public bool FallbackPlayed;
@@ -446,12 +451,12 @@ internal sealed class RemoteBurnFx
     private const float ReleaseResolveSeconds = 0.25f;
     private const float ReleaseMemorySeconds = 3f;
 
-    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0)
+    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null)
     {
         if (NetCardFx.To(endpoints) != CardFxAnchor.Burnt)
             return false;
-        int actorId = NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _));
-        if (TryApplyRelease(endpoints, actorId, flags))
+        int actorId = source?.ActorId ?? NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _));
+        if (TryApplyRelease(endpoints, actorId, flags, source))
             return true;
         // The semantic packet can beat the host-replicated pile. Defer its fallback briefly so
         // the next model walk can name the real card, then retain a receipt after fallback to
@@ -460,12 +465,12 @@ internal sealed class RemoteBurnFx
         {
             PendingRelease oldest = _pendingReleases[0];
             if (!oldest.FallbackPlayed && oldest.ActorId == actorId)
-                _owner.PlayUnclaimedBurnEvent(oldest.Endpoints, oldest.Flags);
+                _owner.PlayUnclaimedBurnEvent(oldest.Endpoints, oldest.Flags, oldest.Source);
             _pendingReleases.RemoveAt(0);
         }
         _pendingReleases.Add(new PendingRelease
         {
-            Endpoints = endpoints, Flags = flags, ActorId = actorId, ReceivedAt = Time.unscaledTime,
+            Endpoints = endpoints, Flags = flags, Source = source, ActorId = actorId, ReceivedAt = Time.unscaledTime,
         });
         _nextWalkAt = 0f;
         return true;
@@ -478,7 +483,7 @@ internal sealed class RemoteBurnFx
         _ => -1,
     };
 
-    private bool TryApplyRelease(byte endpoints, int actorId, byte flags)
+    private bool TryApplyRelease(byte endpoints, int actorId, byte flags, CardFlightSource? source)
     {
         PruneClaims();
         int recess = ReleaseRecess(endpoints);
@@ -489,10 +494,14 @@ internal sealed class RemoteBurnFx
             bool ownsActor = claim.ActorId == actorId
                              || (claim.FlushedToActorId == actorId
                                  && Time.unscaledTime - claim.ReleasedAt <= ReleaseMemorySeconds);
-            if (!ownsActor || (recess >= 0 && claim.Recess != recess))
+            if (!ownsActor || (NetCardFx.From(endpoints) == CardFxAnchor.Active && !claim.FromActive)
+                || (recess >= 0 && claim.Recess != recess))
                 continue;
             // An unnamed Board origin cannot distinguish two burns. Keep the event pending
             // instead of releasing whichever unrelated token happened to be oldest.
+            if (source.HasValue && source.Value.Count > 0
+                && (!claim.Source.HasValue || claim.Source.Value.Seat != source.Value.Seat
+                    || claim.Source.Value.Count != source.Value.Count)) continue;
             if (match >= 0)
                 return false;
             match = i;
@@ -522,21 +531,21 @@ internal sealed class RemoteBurnFx
         {
             PendingRelease pending = _pendingReleases[i];
             float age = Time.unscaledTime - pending.ReceivedAt;
-            if (pending.ActorId != actorId || age > ReleaseMemorySeconds)
+            if ((!pending.Source.HasValue && pending.ActorId != actorId) || age > ReleaseMemorySeconds)
             {
                 _pendingReleases.RemoveAt(i);
                 continue;
             }
             if (pending.FallbackPlayed)
                 continue;
-            if (TryApplyRelease(pending.Endpoints, pending.ActorId, pending.Flags))
+            if (TryApplyRelease(pending.Endpoints, pending.ActorId, pending.Flags, pending.Source))
             {
                 _pendingReleases.RemoveAt(i);
                 continue;
             }
             if (age >= ReleaseResolveSeconds)
             {
-                _owner.PlayUnclaimedBurnEvent(pending.Endpoints, pending.Flags);
+                _owner.PlayUnclaimedBurnEvent(pending.Endpoints, pending.Flags, pending.Source);
                 pending.FallbackPlayed = true;
             }
         }
@@ -688,10 +697,8 @@ internal sealed class RemoteBurnFx
                     for (int c = 0; c < _claimTokens.Count; c++)
                         if (_claimTokens[c].Id == b.ClaimId)
                             _claimTokens[c].FlushedToActorId = actorId;
-                    Handover(b, "the OWNER's presented character changed, which flushes his own "
-                                + "pending burn holds (CardsDriver.FlushBurnHolds) — this mirror "
-                                + "flushes on the same edge, read locally off his focus record, so "
-                                + "his card and this one leave on the same frame");
+                    // A focus change is not completion. Keep the old actor's claim until its
+                    // addressed release arrives; native artwork may still be running on that card.
                 }
             }
             _watchActor = actorId;
@@ -773,6 +780,8 @@ internal sealed class RemoteBurnFx
         // being for "a burn nobody could place" fired on half the burns in the round.
         int cardId = CardInstanceIdOf(widget);
         int recess = _owner.RecessOfBurningCard(cardId, out string recessHow);
+        bool fromActive = widget.AbilityCard != null
+            && RemoteActiveDepartures.TryPose(_owner.PlayerId, widget.AbilityCard, out _);
         CardFxAnchor origin = recess == 0 ? CardFxAnchor.Slot0
             : recess == 1 ? CardFxAnchor.Slot1
             : CardFxAnchor.Board;
@@ -799,6 +808,12 @@ internal sealed class RemoteBurnFx
         b.ClaimId = 0;              // a recycled slab must not carry the last burn's token
         b.HandoverLogged = false;
         b.Widget = widget;
+        if (widget.AbilityCard != null)
+            b.Art?.SetNativeAppearance(_owner.PlayerId, RemoteBoardFocus.ActorById(actorId), widget.AbilityCard);
+        b.FromActive = fromActive;
+        b.ActiveLocal = default;
+        if (fromActive && widget.AbilityCard != null)
+            RemoteActiveDepartures.TryPose(_owner.PlayerId, widget.AbilityCard, out b.ActiveLocal);
         b.ShortRestBurn = _owner.ShortRestInProgress || RevealGate.IsSecretSelectionPhase
             || (_shortRestActor == actorId && ReferenceEquals(_shortRestCandidate, widget.AbilityCard));
         if (_shortRestActor == actorId && ReferenceEquals(_shortRestCandidate, widget.AbilityCard))
@@ -847,7 +862,8 @@ internal sealed class RemoteBurnFx
         // PileViewer.TryGetPileWorld hands FlyToPile — so the card shrinks into the stack here
         // exactly as it does there, instead of vanishing over it at full size. No new wire field.
         float slotWidth = _owner.SlotCardWidth;
-        b.FromWidth = b.Recess >= 0 && slotWidth > 0.001f ? slotWidth : cardWidth;
+        b.FromWidth = b.FromActive ? cardWidth * Mathf.Max(0.01f, _owner.BoardTuning.ActiveCardScale)
+            : b.Recess >= 0 && slotWidth > 0.001f ? slotWidth : cardWidth;
         b.ToWidth = cardWidth * PileViewer.PileStack.SlabFactor;
         b.Go.transform.localScale = Vector3.one * (scale * (b.FromWidth / RemoteHandFan.DefaultCardWidth));
         // LYING ON THEIR BOARD, not billboarded at us: the owner's card rests in a recess of a
@@ -912,6 +928,8 @@ internal sealed class RemoteBurnFx
         {
             Id = b.ClaimId, Name = name, MintedAt = _lastPresentedAt,
             ActorId = actorId, Recess = recess,
+            FromActive = fromActive,
+            Source = widget.AbilityCard != null ? RemoteActiveDepartures.SourceOf(_owner.PlayerId, widget.AbilityCard) : null,
         });
         // THE SAME CENSUS POPULATION RemoteCardFx REPORTS (2026-09-06 report item 5). A burn IS a
         // card flying into a stack, and it reaches the viewer through this class instead of that one
@@ -987,9 +1005,7 @@ internal sealed class RemoteBurnFx
                 // A missing unreliable release can use the owner's EMPTY recess as fallback,
                 // after the native maximum hold. Never fly from a slot still occupied on its
                 // owner's board merely because this client's UI did not run the native effect.
-                bool release = b.OwnerReleased || BurnReleasePolicy.MayFallback(
-                    _owner.SlotOccupancyKnown, b.Recess, _owner.BoardSlotMask,
-                    b.Elapsed, BurnArtwork.MaxHoldSeconds);
+                bool release = b.OwnerReleased;
                 if (!release)
                 {
                     // WHO DRAWS THE CARD DURING THE HOLD. While the owner's recess is still drawing
@@ -1363,7 +1379,9 @@ internal sealed class RemoteBurnFx
     {
         CardFxAnchor origin = b.Recess == 0 ? CardFxAnchor.Slot0
             : b.Recess == 1 ? CardFxAnchor.Slot1 : CardFxAnchor.Board;
-        if (TryAnchor(origin, out Vector3 from)) b.From = from;
+        if (b.FromActive && _owner.TryDrawnBoardPose(out Vector3 bp, out Quaternion br, out float bs))
+            b.From = bp + br * (b.ActiveLocal * bs);
+        else if (TryAnchor(origin, out Vector3 from)) b.From = from;
         if (TryAnchor(CardFxAnchor.Burnt, out Vector3 to)) b.To = to;
         float height = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth) * (88f / 63.5f);
         b.Arc = Mathf.Max(height * 1.5f * DrawnBoardScale,

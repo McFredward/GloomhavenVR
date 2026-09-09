@@ -116,6 +116,7 @@ internal sealed class RemoteCardFx
         /// the edge gate for <see cref="SetFrontFace"/>. Seeded true because that is what
         /// <see cref="Acquire"/> builds it with.</summary>
         public bool WearsBack = true;
+        public ScenarioRuleLibrary.CPlayerActor? SourceActor;
 
         /// <summary>The owner's own card WIDTH at this flight's origin and at its destination, in
         /// metres. The slab ramps between them across the arc — see <see cref="WidthForAnchor"/>
@@ -181,7 +182,7 @@ internal sealed class RemoteCardFx
     /// resolved (no board pose yet / remote boards hidden / hand not tracked) — a missed cosmetic
     /// flight is always better than a card arcing to the world origin.
     /// </summary>
-    public void Play(byte endpoints, byte flags = 0)
+    public void Play(byte endpoints, byte flags = 0, CardFlightSource? source = null)
     {
         // THE WIRE FRAME. Play is called synchronously from RemoteAvatar's packet apply the moment
         // the FX sequence changes, so this IS the frame the wire named the flight — see the TIMING
@@ -224,6 +225,12 @@ internal sealed class RemoteCardFx
         // flight, and an ActiveCardId left on it would blank a matrix cell for a card that is not in
         // the air. ResolveFace re-stamps it below when this flight really is one.
         f.ActiveCardId = int.MinValue;
+        f.SourceActor = source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId) : null;
+        f.HasFace = false;
+        f.FaceCard = null;
+        f.FaceActor = null;
+        f.ShortRestBurn = CardFlightVisibility.Covered(flags);
+        f.Art?.HideFront();
 
         // The owner's own card size for THIS flight (see the _cardWidth block). Guarded above zero
         // because a wire value is never trusted; the struct's own fallback is already the default.
@@ -295,7 +302,21 @@ internal sealed class RemoteCardFx
             Vector3.one * (scale * (f.FromWidth / RemoteHandFan.DefaultCardWidth));
 
         // ─── THE FACE (2026-09-06 report item 5) ────────────────────────────────────────────────
-        string faceRule = ResolveFace(f, from, to, flags);
+        string faceRule;
+        if (from == CardFxAnchor.Active && RemoteActiveDepartures.TryTake(_owner.PlayerId,
+            source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId)
+                : RemoteBoardFocus.DisplayedActor(_owner, out _), to, source, out var departed, out Vector3 cell)
+            && departed != null)
+        {
+            if (_owner.TryDrawnBoardPose(out Vector3 bp, out Quaternion br, out float bs))
+                a = bp + br * (cell * bs);
+            f.From = a;
+            f.Arc = Mathf.Max(CardHeight * MinArcCardHeights * scale,
+                Vector3.Distance(a, b) * ArcFraction);
+            faceRule = DressFace(f, departed, "the original departed active cell", out string? refused)
+                ?? refused ?? "BACK — original active card artwork unavailable";
+        }
+        else faceRule = ResolveFace(f, from, to, flags);
 
         // …AND WHAT THE BODY UNDER IT WEARS (user item 10, 2026-09-06 late). ResolveFace is this
         // surface's ONE front/back decision — every arm of it ends with f.HasFace either set or
@@ -538,7 +559,7 @@ internal sealed class RemoteCardFx
             if (to == CardFxAnchor.Active)
                 f.ActiveCardId = card.CardInstanceID;
             ScenarioRuleLibrary.CPlayerActor? actor =
-                RemoteBoardFocus.DisplayedActor(_owner, out _);
+                f.SourceActor ?? RemoteBoardFocus.DisplayedActor(_owner, out _);
             // Cached artwork is a lookup source, not a retained permission. Recheck the phase,
             // and keep a short-rest burn covered for the entire flight, including a phase edge.
             f.FaceCard = card;
@@ -556,6 +577,7 @@ internal sealed class RemoteCardFx
                 return "BACK — the card was named but its face CLONE failed to build "
                      + "(RemoteAbilityCardSource found neither a live widget nor a poolable one)";
             f.HasFace = true;
+            f.Art.SetNativeAppearance(_owner.PlayerId, actor, card);
             DriveFlightLook(f, actor, card);
             return $"FRONT via RemoteAbilityCardSource.{path}, inherited from the round recess this "
                  + "client's own mirror was drawing that card in one tick ago";
@@ -600,14 +622,14 @@ internal sealed class RemoteCardFx
                               out string? refusal)
     {
         refusal = null;
-        ScenarioRuleLibrary.CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+        ScenarioRuleLibrary.CPlayerActor? actor = f.SourceActor ?? RemoteBoardFocus.DisplayedActor(_owner, out _);
         // The existing address names the source card; it does not grant face visibility.
         // Arrivals and departures share the phase policy, including accepted short-rest burns.
         f.FaceCard = card;
         f.FaceActor = actor;
         if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.BoardPickSeat, actor,
                                  card.CardInstanceID, out RevealGate.FaceRule rule)
-            == RevealGate.CardFaceSource.None)
+            == RevealGate.CardFaceSource.None || f.ShortRestBurn)
         {
             refusal = $"THE REVEAL GATE, for '{card.Name}' — {RevealGate.RuleText(rule)}. "
                     + "Selection-phase cards and the entire short-rest burn flight stay covered "
@@ -631,6 +653,7 @@ internal sealed class RemoteCardFx
             return null;
         }
         f.HasFace = true;
+        f.Art.SetNativeAppearance(_owner.PlayerId, actor, card);
         DriveFlightLook(f, actor, card);
         return $"FRONT via RemoteAbilityCardSource.{path}, from {origin}";
     }

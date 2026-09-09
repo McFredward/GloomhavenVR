@@ -865,6 +865,8 @@ internal sealed partial class CardsDriver
         // pre-batch pages are carried earlier and by a different trigger (FlyLockedPicksToPile).
         _lastFieldCards.Clear();
         _lastFieldCards.UnionWith(_fieldCards);
+        _lastActiveCards.Clear();
+        _lastActiveCards.AddRange(_active.Cards);
         for (int s = 0; s < 2; s++)
         {
             VRCard? occ = _tray.Occupant(s);
@@ -1268,6 +1270,17 @@ internal sealed partial class CardsDriver
         // Every other board zone (_halfBuffer, tray slots, _fieldCards, _shortRestCard) is
         // already resolved above.
         UpdateActive(hand);
+        // Preserve the source before any held-card/zone early return. An active bonus can expire
+        // while its owner is inspecting that card in a fist; the later release still leaves this cell.
+        for (int i = 0; i < _lastActiveCards.Count; i++)
+        {
+            VRCard previous = _lastActiveCards[i];
+            if (previous == null || previous.GameCard == null || _active.Contains(previous)) continue;
+            RoundCardExit exit = RoundCardExitOf(hand, previous, out CPlayerActor? owner);
+            if (exit is RoundCardExit.Discarded or RoundCardExit.Lost or RoundCardExit.PermanentlyLost)
+                _activeExitOrigins[previous.GameCard] = new Net.CardFlightSource(
+                    Net.NetFigures.StableActorId(owner), (byte)i, (byte)_lastActiveCards.Count);
+        }
 
         // Pile browse (test #21): refresh content or close — BEFORE the zone flags
         // below so freshly closed browse cards park in this same pass.
@@ -1285,6 +1298,8 @@ internal sealed partial class CardsDriver
             // park sweep must not re-park it (double-hide) while it shrinks out.
             if (card.IsFlying || card.IsVanishing)
                 continue;
+            if (card.GameCard != null && _burnHoldSince.ContainsKey(card.GameCard))
+                continue; // the native burn owns its original surface until the global hold pump releases it
             // Same rule, one more owner (character-swap exchange, 2026-08-09): a card the hand fan
             // is currently flying OUT of itself owns its transform until it lands. Parking it here
             // would teleport it into the pool mid-wipe — the exact pop the exchange exists to
@@ -2576,13 +2591,15 @@ internal sealed partial class CardsDriver
         // and would be clipped if this branch won the race for it.
         bool wasDocked = _lastHalfCards.Contains(card);
         bool wasPickField = !wasDocked && _lastFieldCards.Contains(card);
-        if (!wasDocked && !wasPickField)
-            return false; // never a fan/browse/active/etc. card
+        bool wasActive = _lastActiveCards.Contains(card)
+            || (card.GameCard != null && _activeExitOrigins.ContainsKey(card.GameCard));
+        if (!wasDocked && !wasPickField && !wasActive)
+            return false; // never infer a departure merely from a hidden fan or focus change
         if (!card.gameObject.activeInHierarchy)
             return false; // already parked/pooled — nothing to animate from
 
         RoundCardExit exit = RoundCardExitOf(hand, card, out CPlayerActor? owner);
-        if (wasPickField && exit != RoundCardExit.Discarded)
+        if (wasPickField && !wasActive && exit != RoundCardExit.Discarded)
         {
             // burn → TryStartBurnFly (artwork first); anything else → no pile at all. Logged on the
             // SAME per-widget-per-verdict dedupe as the docked refusal, so "the card popped and no
@@ -2606,6 +2623,10 @@ internal sealed partial class CardsDriver
                 LogFlightRefused(card, exit, owner);
                 return false;
         }
+        if (wasActive && card.GameCard != null && !_activeExitOrigins.ContainsKey(card.GameCard))
+            _activeExitOrigins[card.GameCard] = new Net.CardFlightSource(
+                Net.NetFigures.StableActorId(owner), (byte)_lastActiveCards.IndexOf(card),
+                (byte)_lastActiveCards.Count);
         // The card really moved — a later dock change for it is a different event and may log again.
         _loggedFlightRefusal.Remove(card.GameCard!);
 
@@ -2701,11 +2722,12 @@ internal sealed partial class CardsDriver
         int flightSeat = _tray.RecessSeatOfCard(card);
         if (flightSeat < 0)
             flightSeat = _tray.SlotOf(card);
-        Net.CardFxAnchor flightOrigin = SlotAnchor(flightSeat);
+        Net.CardFxAnchor flightOrigin = BurnOrPileOrigin(card.GameCard, flightSeat);
         ReportCardFx(flightOrigin, PileAnchor(fate), fate == PileKind.Burnt
-            ? Net.CardFlightVisibility.ConsumeBurn(card.GameCard?.AbilityCard) : (byte)0);
+            ? Net.CardFlightVisibility.ConsumeBurn(card.GameCard?.AbilityCard) : (byte)0,
+            FlightSourceOf(card.GameCard));
         CardFlightLedger.Note("own", fate.ToString(),
-            wasPickField ? "own-pick-field-commit" : "own-turn-clear",
+            wasActive ? "own-active-expiry" : wasPickField ? "own-pick-field-commit" : "own-turn-clear",
             CardsGameApi.CardName(card.GameCard!));
         card.FlyToPile(worldPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
@@ -2715,8 +2737,8 @@ internal sealed partial class CardsDriver
         }, minArc);
         // A played card whose fate is BURNT (a lost action) is a burn like any other — tag it with
         // the same BURN ANIM token the dedicated burn paths use so ONE grep proves every burn case.
-        string origin = wasPickField ? "pick field" : "turn-clear";
-        string leftWhat = wasPickField
+        string origin = wasActive ? "active expiry" : wasPickField ? "pick field" : "turn-clear";
+        string leftWhat = wasActive ? "CCharacterClass.ActivatedCards" : wasPickField
             ? "the board's PICK RECESS (an event discard the game just committed)"
             : "CCharacterClass.RoundAbilityCards/ExtraTurnCards";
         string tag = fate == PileKind.Burnt ? $"BURN ANIM [{origin}]" : $"Fly-to-pile [{origin}]";
@@ -2730,7 +2752,9 @@ internal sealed partial class CardsDriver
         // THE INSTRUMENT = this line present with NO FLIGHT FACE line on the peer at all: the event
         // was dropped or swallowed by the burn mirror, which is not an origin defect.
         VRLog.Note("Cards", $"FLIGHT ORIGIN [{origin}]: this client's own card left "
-            + (flightSeat >= 0
+            + (flightOrigin == Net.CardFxAnchor.Active
+                ? "the active column; its Active origin is preserved through the artwork hold"
+                : flightSeat >= 0
                 ? $"round recess {flightSeat + 1}, and that seat is what went on the wire "
                   + $"({flightOrigin}) — every peer's mirrored flight now starts at their copy of "
                   + "that recess, which is the point this player is watching the card leave"
@@ -2884,6 +2908,22 @@ internal sealed partial class CardsDriver
     /// <see cref="IsFreshBurn"/>); the fly-to-pile TRIGGER does NOT use it, because "not burnt"
     /// must not be read as "therefore discarded" — see <see cref="RoundCardExitOf"/>.
     /// </summary>
+    private Net.CardFxAnchor BurnOrPileOrigin(AbilityCardUI? widget, int seat) =>
+        widget != null && _activeExitOrigins.ContainsKey(widget)
+            ? Net.CardFxAnchor.Active : SlotAnchor(seat);
+
+    private Net.CardFlightSource? FlightSourceOf(AbilityCardUI? widget)
+    {
+        if (widget == null) return null;
+        if (_activeExitOrigins.TryGetValue(widget, out Net.CardFlightSource source))
+        {
+            _activeExitOrigins.Remove(widget);
+            return source;
+        }
+        int actorId = Net.NetFigures.StableActorId(widget.PlayerActor);
+        return actorId != 0 ? new Net.CardFlightSource(actorId, 0, 0) : null;
+    }
+
     private static PileKind PileFateOf(CardsHandUI hand, VRCard card) =>
         RoundCardExitOf(hand, card, out _) switch
         {
@@ -3010,8 +3050,8 @@ internal sealed partial class CardsDriver
         // block at TryStartFlyToPile's ReportCardFx for why a hardcoded Board anchor made every
         // mirrored flight start at the board centre). `from` above is this same card's real world
         // position, so both ends of this flight now agree on both machines.
-        ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
-            Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard));
+        ReportCardFx(BurnOrPileOrigin(widget, _tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
+            Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard), FlightSourceOf(widget));
         LogBurnAttribution(widget, "park-sweep");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
         VRCard flying = card;
@@ -3441,11 +3481,12 @@ internal sealed partial class CardsDriver
     /// far more often than before; suppressing here keeps the whole feature a LOCAL view change, and
     /// the owning client still reports its own flights on its own board exactly as before.</para>
     /// </summary>
-    private static void ReportCardFx(Net.CardFxAnchor from, Net.CardFxAnchor to, byte flags = 0)
+    private static void ReportCardFx(Net.CardFxAnchor from, Net.CardFxAnchor to, byte flags = 0,
+                                     Net.CardFlightSource? source = null)
     {
-        if (Board.CharacterFocus.ReadOnlyView)
+        if (Board.CharacterFocus.ReadOnlyView && !source.HasValue)
             return;
-        Net.NetCardFx.Report(from, to, flags);
+        Net.NetCardFx.Report(from, to, flags, source);
     }
 
     /// <summary>Wire anchor for a board slot index (-1 → the generic board anchor).</summary>
@@ -3484,6 +3525,7 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void TickBurnToPile(CardsHandUI? hand)
     {
+        FlushBurnHolds("native burn completion");
         if (hand == null)
         {
             // Same stranding risk as the hand CHANGE below: the hold owns the card, so losing the
@@ -3562,7 +3604,9 @@ internal sealed partial class CardsDriver
         {
             _burnHoldPruneScratch.Clear();
             foreach (AbilityCardUI held in _burnHoldSince.Keys)
-                if (!_burntWidgetBuffer.Contains(held))
+                if (held == null || held.AbilityCard == null || held.PlayerActor == null
+                    || (!held.PlayerActor.CharacterClass.LostAbilityCards.Contains(held.AbilityCard)
+                        && !held.PlayerActor.CharacterClass.PermanentlyLostAbilityCards.Contains(held.AbilityCard)))
                     _burnHoldPruneScratch.Add(held);
             for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
                 ClearBurnHold(_burnHoldPruneScratch[i]);
@@ -3662,42 +3706,26 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void FlushBurnHolds(string reason)
     {
-        if (_burnHoldSince.Count == 0)
-            return;
+        if (_burnHoldSince.Count == 0) return;
         _burnHoldPruneScratch.Clear();
-        foreach (AbilityCardUI held in _burnHoldSince.Keys)
-            if (held != null)
-                _burnHoldPruneScratch.Add(held);
-        _burnHoldSince.Clear();
-        _burnHoldLogged.Clear();
+        foreach (AbilityCardUI widget in _burnHoldSince.Keys)
+            _burnHoldPruneScratch.Add(widget);
         for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
         {
             AbilityCardUI widget = _burnHoldPruneScratch[i];
-            // ─── AND THE GATE BYPASS BELOW IS DELIBERATE AND CORRECT (2026-09-07 round, item 8) ──
-            // The round asked whether EVERY producer waits, and this one does not — LaunchBurnFlight
-            // skips TryTakeBurnFlightSlot entirely. That is not the oversight the other producer was
-            // (TryStartFlyToPile, which now waits): making a FLUSH wait would strand the card
-            // FOREVER, and the mechanism is exact. A flush runs because the presented hand is
-            // changing or going away, and the only thing that re-offers a held widget is
-            // TickBurnToPile walking the PRESENTED hand's burnt pile. One frame later this widget is
-            // not in that pile, so nothing would ever call the gate again, nothing would release the
-            // hold, and the card would lie on the board for the rest of the scenario. That exact
-            // sequence is the 2026-08-07 report ("die verbrannte Karte … bleibt liegen"), which is
-            // why the flush exists at all. Deadline semantics is the honest reading: the artwork has
-            // had whatever moment it was going to get.
-            //
-            // WHAT IT COSTS, STATED RATHER THAN HIDDEN. A flush is the ONE burn whose owner and
-            // mirror cannot release on the same term, because the trigger — this client's own 2D
-            // card-UI focus changing — is local presentation the rules model does not hold. The
-            // mirror closes it from the other end instead, with no new wire field: the owner's
-            // presented character already rides extension record 22, so RemoteBurnFx.Watch sees the
-            // same edge and flushes its own presentations on it (see its FOCUS FLUSH region). Same
-            // event, both sides, no third signal.
+            if (widget == null || widget.AbilityCard == null || widget.PlayerActor == null)
+            { ClearBurnHold(widget); continue; }
+            CCharacterClass cc = widget.PlayerActor.CharacterClass;
+            if (!cc.LostAbilityCards.Contains(widget.AbilityCard)
+                && !cc.PermanentlyLostAbilityCards.Contains(widget.AbilityCard))
+            { ClearBurnHold(widget); _activeExitOrigins.Remove(widget); continue; }
+            VRCard? card = _factory.Find(widget);
+            if (card != null && (card.IsHeld || card.IsFlying)) continue;
+            if (!TryTakeBurnFlightSlot(widget, card)) continue;
             VRLog.Info("Cards", $"BURN ANIM: FLUSHING the held flight of '{CardsGameApi.CardName(widget)}' — " +
-                                $"{reason}. A burned card must never be left lying on the board when the " +
-                                "character it belongs to is no longer the presented one.");
-            _knownBurntWidgets.Add(widget); // claim first: never two flights for one burn
-            LaunchBurnFlight(widget, "hand-switch flush");
+                $"{reason}; the native artwork and loss sequence have completed.");
+            _knownBurntWidgets.Add(widget);
+            LaunchBurnFlight(widget, "completed burn hold");
         }
         _burnHoldPruneScratch.Clear();
     }
@@ -3717,7 +3745,9 @@ internal sealed partial class CardsDriver
         }
         float held = now - hold.Since;
 
-        bool effectActive = BurnArtworkActive(card);
+        bool effectActive = BurnArtwork.Playing(BurnArtwork.EffectsOf(card != null ? card.FullCard : null))
+                            || BurnArtwork.Playing(BurnArtwork.EffectsOf(widget));
+        bool losingCards = BurnArtwork.LosingCards(widget);
         if (effectActive && !hold.ArtworkSeen)
         {
             hold = new BurnHold(hold.Since, artworkSeen: true);
@@ -3729,15 +3759,16 @@ internal sealed partial class CardsDriver
         // wins, a running artwork holds, otherwise the start grace — and moving it was the whole
         // point: "Das soll so synchron mit den anderen Spielern sein" cannot be a property of two
         // copies that agree today.
-        bool release = BurnArtwork.Released(effectActive, held);
+        bool release = BurnFlightCompletion.MayRelease(effectActive, losingCards, held,
+            BurnEffectStartGraceSeconds);
 
         if (!release)
         {
             if (_burnHoldLogged.Add(widget))
                 VRLog.Info("Cards", $"BURN ANIM: holding '{CardsGameApi.CardName(widget)}' ON THE BOARD " +
                                     $"while its burn artwork plays (effect {(effectActive ? "running" : "not started yet")}); " +
-                                    $"it flies to the Burnt pile afterwards, at the latest after " +
-                                    $"{BurnEffectMaxHoldSeconds:F1}s.");
+                                    $"it flies to the Burnt pile after the native artwork and owning-hand loss animation finish " +
+                                    $"(native loss sequence active={losingCards}).");
             return false;
         }
 
@@ -3927,8 +3958,8 @@ internal sealed partial class CardsDriver
             // since ModBuild 461 out of the RECESS it is lying in rather than off the board centre
             // (item 5's origin half). This branch is reached precisely because the real VR card is
             // still live at its true board position, so the seat is there to be read.
-            ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
-                Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard));
+            ReportCardFx(BurnOrPileOrigin(widget, _tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
+                Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard), FlightSourceOf(widget));
             LogBurnAttribution(widget, origin);
             CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
@@ -3978,8 +4009,8 @@ internal sealed partial class CardsDriver
         // (see the line below), so there is no transform to read a recess off. `fromPos` is a
         // REMEMBERED last position, not a seat, and naming a recess from it would be exactly the
         // approximation item 5's fix exists to remove.
-        ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt,
-            Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard));
+        ReportCardFx(BurnOrPileOrigin(widget, -1), Net.CardFxAnchor.Burnt,
+            Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard), FlightSourceOf(widget));
         // ─── A STANDING VIOLATION OF THE BURN RULING, AND IT NOW SAYS SO EVERY TIME IT FIRES ────
         // "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar
         // sein." BurnSlab.Launch builds ONE mesh with an edge material and a BACK material and no
