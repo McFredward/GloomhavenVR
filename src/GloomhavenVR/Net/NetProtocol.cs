@@ -485,7 +485,30 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 492;
+    public const ushort ModBuild = 493;
+
+    // ModBuild 493 — multiplayer CPU/allocation reduction with complete native presentation.
+    //   The MB491 two-player run measured significant recurring remote-board CPU work; the
+    //   brief MB492 singleplayer run supports that cost, but is not a controlled FPS baseline.
+    //   Owner card capture now reuses private scratch buffers and immutable unchanged output.
+    //   Every native property and hierarchy change is still sampled at the original cadence;
+    //   shader changes clear stale channels and published frames never become mutable scratch.
+    //   Native sends retain their already encoded immutable identity instead of decoding an
+    //   entire second graph locally. Payload ownership, bytes, boundary retention, recovery,
+    //   scheduling and all receive validation stay unchanged.
+    //   Remote playback avoids iterator allocation and exact redundant UI/material writes.
+    //   Native element effects own only their material field, preventing mirror/owner material
+    //   ping-pong while all other original widget fields continue to update.
+    //   Native board sections refresh independently of unrelated owner pose/animation traffic;
+    //   original live animation, actor/furniture edges and immediate clone recovery remain active.
+    //   Four-board/sender tests cover isolation and transition ordering. Narrow send/refresh
+    //   timings expose the remaining costs for hardware comparison; no FPS gain is claimed yet.
+    //   All17 checkers pass;253055 wire assertions,18206 capture,466 playback and1216 board
+    //   refresh assertions plus12 runtime negative controls. StrictRelease0 warnings/0 errors;
+    //   docs/refasm pass. Against baaf9871:21 intended changed types,9 additions,no removals.
+    //   Config625,patch surface152,registration109 classes/167 methods,log tokens4716 unchanged.
+    //   See .planning/MP-PERFORMANCE-493.md for production harness evidence and hardware limits.
+    //   DLL-only after full483; all peers need493. GVR1/v3 and every TLV unchanged;70 stays free.
 
     // ModBuild 492 — MB491 rest appearance and full hardware-log review.
     //   Rest offers now publish their original material output through exact-model canonical

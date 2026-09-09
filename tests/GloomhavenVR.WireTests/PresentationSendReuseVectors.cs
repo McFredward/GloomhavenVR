@@ -76,7 +76,29 @@ internal static class PresentationSendReuseVectors
         long reusedBytes = GC.GetAllocatedBytesForCurrentThread() - start;
         t.True(reusedBytes < decodedBytes / 2, "reuse removes decoded object graphs, not required payload ownership");
         Console.WriteLine($"  Native send enqueue allocation (32 cards, {iterations} samples): decoded={decodedBytes} B; reused={reusedBytes} B. .NET harness, not Unity frame timing.");
+
+        t.Case("native node copy: independent animation values without a discarded default array");
+        var original = new CardAppearanceNode { Role = 11, Flags = 3, Binding = 0, Mask = 0x80 };
+        for (int i = 0; i < original.Values.Length; i++) original.Values[i] = i * .03125f;
+        CardAppearanceNode copy = original.Copy();
+        t.True(copy.Role == original.Role && copy.Flags == original.Flags && copy.Binding == original.Binding
+            && copy.Mask == original.Mask && !ReferenceEquals(copy.Values, original.Values), "copy retains fields and owns its values");
+        for (int i = 0; i < copy.Values.Length; i++) t.True(copy.Values[i] == original.Values[i], "every native channel is copied");
+        copy.Values[0] = .75f;
+        t.True(original.Values[0] == 0f, "editing a copied frame never changes its predecessor");
+        for (int i = 0; i < 20; i++) { GC.KeepAlive(original.Copy()); GC.KeepAlive(LegacyCopy(original)); }
+        start = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < iterations; i++) GC.KeepAlive(LegacyCopy(original));
+        long legacyCopyBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        start = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < iterations; i++) GC.KeepAlive(original.Copy());
+        long copyBytes = GC.GetAllocatedBytesForCurrentThread() - start;
+        t.True(copyBytes < legacyCopyBytes, "deep copies no longer allocate a discarded default array");
+        Console.WriteLine($"  Native node copy allocation ({iterations} copies): legacy={legacyCopyBytes} B; current={copyBytes} B.");
     }
+
+    private static CardAppearanceNode LegacyCopy(CardAppearanceNode node) => new() {
+        Role = node.Role, Flags = node.Flags, Binding = node.Binding, Mask = node.Mask, Values = (float[])node.Values.Clone() };
 
     private static ExtrasSendScheduler Scheduler(ulong seed) => new(seed,
         NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);

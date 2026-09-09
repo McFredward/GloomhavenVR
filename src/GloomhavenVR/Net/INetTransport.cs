@@ -4,7 +4,8 @@ namespace GloomhavenVR.Net;
 
 /// <summary>
 /// Abstraction over the underlying multiplayer channel used to ship cosmetic rig packets.
-/// Pure bytes + sender player id — no Photon-Bolt or FFSNet types leak across this seam, so
+/// Payload bytes, sender player id and optional immutable local queue metadata — no Photon-Bolt
+/// or FFSNet types leak across this seam, so
 /// the avatar/sampler/renderer layers build and unit-reason independently of the transport,
 /// and an offline/no-netcode environment gets a null-object implementation
 /// (<see cref="NullNetTransport"/>) that keeps everything a strict no-op.

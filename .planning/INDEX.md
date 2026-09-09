@@ -14,10 +14,11 @@ says, per file, which is which.
 
 ## 0. READ THESE, IN THIS ORDER — then stop
 
-The latest multiplayer follow-up is [MP-ROUND-487.md](MP-ROUND-487.md), with linked card,
-initiative, widget and element evidence reports. Its MB486 screenshots/logs are hardware
-evidence; the MB487 repairs require a new headset test. The dated inventory below remains
-historical; `.planning/STATE.md` and the newest build notes carry the current status.
+The latest multiplayer follow-up is [MP-PERFORMANCE-493.md](MP-PERFORMANCE-493.md), documenting
+native capture/send/playback and independent section refresh optimization. It distinguishes
+production-harness evidence from the still-owed full-party headset performance test. The dated
+inventory below remains historical; `.planning/STATE.md` and the newest build notes carry the
+current status.
 
 | # | File | Why, in one line |
 |---|---|---|

@@ -21,7 +21,14 @@ internal sealed class CardAppearanceNode
         foreach (float value in Values) if (float.IsNaN(value) || float.IsInfinity(value)) return false;
         return true;
     }
-    internal CardAppearanceNode Copy() => new() { Role = Role, Flags = Flags, Binding = Binding, Mask = Mask, Values = (float[])Values.Clone() };
+    internal CardAppearanceNode Copy()
+    {
+        // A normal constructor allocates Values before an object initializer replaces it with
+        // the deep copy. Animated frames need an independent array, but never that discarded one.
+        var copy = (CardAppearanceNode)MemberwiseClone();
+        copy.Values = (float[])Values.Clone();
+        return copy;
+    }
     internal static bool Carries(uint mask, int index) => index < 8
         || index < 23 && (mask & (1u << (index - 8))) != 0
         || index < 27 && index >= 23 && (mask & (1u << 15)) != 0

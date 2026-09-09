@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-09 against `dev` = ModBuild 492.** The file this replaces had gone 168 builds
+**Updated 2026-09-09 against `dev` = ModBuild 493.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,7 +13,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **`dev` = ModBuild 492.** `main` is the release branch and is behind on purpose.
+- **`dev` = ModBuild 493.** `main` is the release branch and is behind on purpose.
 - **483 IS A FULL INSTALL.** The asset bundle changed for the first time since ModBuild 368:
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
@@ -25,14 +25,21 @@ change per build) → this file (where things stand and what is owed) → the bu
   but neither streaming causality nor a build-to-build regression is established. See
   [MP-ROUND-492.md](MP-ROUND-492.md). The older regression JPGs belong to the 490 report.
 - **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
-- Gate readings at 492: all 17 checkers green · wire **251,797** assertions · production card
-  binding harness **883** assertions plus an actual failing old-limit negative control · strict
-  Release **0 errors / 0 warnings** · docs i18n and all 16 metadata-only reference assemblies pass.
-  Patch registration **109 classes / 167 methods**, surface **152**, config keys **625**, log tokens
-  **4,716**, instrument-writes baseline **61**, bundle **74,943,763 bytes**. Two new card-effect
-  patches preserve spent appearance; no existing config, patch or grep token was removed.
-  Compiled comparison against `050e8801`: 16 intended changed types and four new helpers, none removed.
-  Local controlled cards and the entire map remain open; concealment is remote-only in scenarios.
+- **493 optimizes multiplayer native presentation without reducing fidelity or cadence.**
+  Card capture reuses immutable output; native sends avoid decoding their own snapshots; native
+  playback avoids redundant writes/material swaps; original board sections refresh independently.
+  Four-state production harnesses cover isolation and immediate transition/recovery behavior.
+  Hardware FPS and full-party headset output remain unmeasured. See
+  [MP-PERFORMANCE-493.md](MP-PERFORMANCE-493.md).
+- Gate readings at 493: all 17 checkers pass; wire **253,055** assertions; production capture
+  **18,206**, playback **466** and board refresh **1,216** assertions, with **12 runtime negative
+  controls** across these harnesses and the send/copy checks. Strict Release **0 errors / 0 warnings**;
+  docs i18n and all 16 metadata-only reference assemblies pass. Patch registration **109 classes /
+  167 methods**, surface **152**, config keys **625**, log tokens **4,716**, instrument-writes
+  baseline **61**, bundle **74,943,763 bytes**. No existing surface or wire grammar changed.
+  Compiled comparison against `baaf9871`: **21 intended changed types and nine new helpers/types**,
+  none removed; four changed types only embed the new ModBuild constant. Local controlled cards
+  and the entire map remain open; concealment is remote-only in scenarios.
 
 ### Recent builds
 
@@ -51,6 +58,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 490 | pre-test face/overlay/flight audit; later hardware exposed native group-bound rendering failures | DLL only after 483 |
 | 491 | repair dynamic native card artwork and independent laser paths behind grab bars | DLL only after 483 |
 | 492 | spent rest-burn continuity, native element material binding, board transition diagnostics and hardware-log review | DLL only after 483 |
+| 493 | multiplayer capture/send/playback and independent native-section refresh optimization, preserving complete animation | DLL only after 483 |
 
 ---
 
@@ -66,6 +74,12 @@ in the zoomed-out pose where the room reads as a model in front of you. That sur
 not seen it yet, and it is one line to put back.
 
 ### 2b. Latest multiplayer corrections
+
+- Build 493 removes redundant native presentation CPU/allocation work and adds regression harnesses
+  for four independent boards/senders. Review also closes pooled initiative identity and local element
+  readiness recovery dependencies. Per-frame source sampling, original widgets and all visual rules
+  remain intact. Hardware performance scaling is still owed; detailed proof and limits are in
+  [MP-PERFORMANCE-493.md](MP-PERFORMANCE-493.md).
 
 - Build 492 publishes rest-offer appearance from canonical pile models and retains the actual
   spent base through native burn reset, with native completion tracked independently. Remote
@@ -141,6 +155,10 @@ From the 2026-09 refactor's reviews (`.planning/refactor-2026-09/REVIEW-*.md`):
   Filed in `LANE-BOARDTEXT-357-NEEDED-OUTSIDE.md` §2.
 
 ### 2d. Owed on hardware — lines that have never printed
+
+Build 493 adds native send/transport and section refresh timing scopes. The short singleplayer 492
+run cannot measure those multiplayer paths. Compare overall frame/logic times as well: newly
+instrumented work changes named-scope coverage, so summed mod totals alone are not comparable.
 
 Build 492 adds `REMOTE BOARD VISIBILITY` root-transition evidence and
 `Net.CardAppearance.Sample` / `.Build` / `.Apply` timing scopes. These have no hardware readings

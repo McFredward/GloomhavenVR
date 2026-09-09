@@ -41,3 +41,35 @@ if ! rg -q 'reuse removes decoded object graphs' "$mutation_dir/run.log"; then
     exit 1
 fi
 echo "Native send negative control: redundant production decode failed the allocation assertion as expected."
+
+# Restore the scheduler, then independently reinstate the discarded per-node default array.
+python3 - "$repo_root" "$mutation_dir" <<'PY'
+import pathlib, sys
+root, target = map(pathlib.Path, sys.argv[1:])
+(target / 'ExtrasSendQueue.cs').write_text((root / 'src/GloomhavenVR/Net/ExtrasSendQueue.cs').read_text())
+source = (root / 'src/GloomhavenVR/Net/CardAppearanceState.cs').read_text()
+old = 'var copy = (CardAppearanceNode)MemberwiseClone();'
+assert source.count(old) == 1
+(target / 'CardAppearanceState.cs').write_text(source.replace(old,
+    'var copy = new CardAppearanceNode { Role = Role, Flags = Flags, Binding = Binding, Mask = Mask };'))
+project = target / 'GloomhavenVR.WireTests.csproj'
+text = project.read_text()
+old = '$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceState.cs'
+assert text.count(old) == 1
+project.write_text(text.replace(old, 'CardAppearanceState.cs'))
+PY
+if ! dotnet build "$project" -c Release --nologo > "$mutation_dir/build.log" 2>&1; then
+    cat "$mutation_dir/build.log" >&2
+    echo "node copy negative control did not compile" >&2
+    exit 1
+fi
+if "$mutation_dir/bin/Release/net8.0/GloomhavenVR.WireTests" "$repo_root" > "$mutation_dir/run.log" 2>&1; then
+    echo "node copy negative control unexpectedly passed" >&2
+    exit 1
+fi
+if ! rg -q 'deep copies no longer allocate a discarded default array' "$mutation_dir/run.log"; then
+    cat "$mutation_dir/run.log" >&2
+    echo "node copy negative control failed for an unrelated reason" >&2
+    exit 1
+fi
+echo "Native node copy negative control: discarded default array failed the allocation assertion as expected."
