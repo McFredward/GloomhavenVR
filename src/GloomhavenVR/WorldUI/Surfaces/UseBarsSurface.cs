@@ -717,6 +717,9 @@ internal sealed class UseBarsSurface
     private static readonly Component?[] NativeSources = new Component?[32];
     private static readonly Net.NativeUseBarState?[] WireNativeStates = new Net.NativeUseBarState?[32];
     private static readonly UIUseActiveBonus?[] AnimationSources = new UIUseActiveBonus?[8];
+    // Share the exact record25/45 slot walk with read-only native tooltip emitter sampling.
+    internal static UIUseActiveBonus? AnimationSourceAt(int slot) =>
+        slot >= 0 && slot < AnimationSources.Length ? AnimationSources[slot] : null;
     private static readonly List<Net.UseBarAnimationState> AnimationStateScratch = new(8);
     private static Net.UseBarAnimationState[]? WireAnimationStates;
 
