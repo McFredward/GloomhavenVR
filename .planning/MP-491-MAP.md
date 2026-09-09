@@ -67,3 +67,21 @@ while holding an old character's card, and a loadout edit without a count change
 Map fronts should remain public throughout. Also verify the scenario card shown
 in `regression_board.jpg`; its incomplete original artwork is a separate
 observable consequence of the shared lifecycle failure.
+
+## Original hierarchy capacity evidence
+
+The available game references contain managed assemblies and decompiled source,
+not the original card prefabs or their asset bundles. An exact ordinary-card
+maximum therefore cannot be measured from this checkout. The logs prove that
+real card hierarchies exceed eight groups; they do not report their actual count.
+
+The source also explains why a fixed prefab-only estimate is unsafe:
+`FullAbilityCard.BlockRaycasts` can add a root group; each
+`FullAbilityCardAction` has its own serialized group and references two
+`CardActionHighlight` components with groups. `CreateLayout.CreateConsume`
+instantiates a `ConsumeButton` with a group, and `CreateLayout.CreateInfuse`
+instantiates `InfuseElement` children per content entry, each reading its group.
+These content-dependent children must be included in the original hierarchy.
+An expanded wire capacity is a transport bound, not a source-proven maximum of
+all game cards. Local original-widget initialization/reset must not throw when
+that transport capacity is exceeded.
