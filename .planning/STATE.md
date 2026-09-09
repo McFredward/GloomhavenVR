@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-09 against `dev` = ModBuild 493.** The file this replaces had gone 168 builds
+**Updated 2026-09-09 against `dev` = ModBuild 494.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,7 +13,9 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **`dev` = ModBuild 493.** `main` is the release branch and is behind on purpose.
+- **ModBuild 494 prepares release 0.9.0 on `main`.** The release workflow publishes the full
+  package as Latest and advances `dev` to 0.9.1 after publication. Repository visibility is
+  managed separately by the owner. See [RELEASE-0.9.0.md](RELEASE-0.9.0.md).
 - **483 IS A FULL INSTALL.** The asset bundle changed for the first time since ModBuild 368:
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
@@ -31,14 +33,14 @@ change per build) → this file (where things stand and what is owed) → the bu
   Four-state production harnesses cover isolation and immediate transition/recovery behavior.
   Hardware FPS and full-party headset output remain unmeasured. See
   [MP-PERFORMANCE-493.md](MP-PERFORMANCE-493.md).
-- Gate readings at 493: all 17 checkers pass; wire **253,055** assertions; production capture
+- Gate readings at 494: all 17 checkers pass; wire **253,055** assertions; production capture
   **18,206**, playback **466** and board refresh **1,216** assertions, with **12 runtime negative
   controls** across these harnesses and the send/copy checks. Strict Release **0 errors / 0 warnings**;
   docs i18n and all 16 metadata-only reference assemblies pass. Patch registration **109 classes /
   167 methods**, surface **152**, config keys **625**, log tokens **4,716**, instrument-writes
   baseline **61**, bundle **74,943,763 bytes**. No existing surface or wire grammar changed.
-  Compiled comparison against `baaf9871`: **21 intended changed types and nine new helpers/types**,
-  none removed; four changed types only embed the new ModBuild constant. Local controlled cards
+  Compiled comparison against `36100039`: **13 changed types**, all limited to embedded version
+  and ModBuild constants; no types added or removed. Local controlled cards
   and the entire map remain open; concealment is remote-only in scenarios.
 
 ### Recent builds
@@ -59,6 +61,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 491 | repair dynamic native card artwork and independent laser paths behind grab bars | DLL only after 483 |
 | 492 | spent rest-burn continuity, native element material binding, board transition diagnostics and hardware-log review | DLL only after 483 |
 | 493 | multiplayer capture/send/playback and independent native-section refresh optimization, preserving complete animation | DLL only after 483 |
+| 494 | release 0.9.0, reproducible SDK selection and hosted native presentation regression harnesses | **full release package** |
 
 ---
 

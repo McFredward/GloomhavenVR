@@ -485,7 +485,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 493;
+    public const ushort ModBuild = 494;
+
+    // ModBuild 494 — version 0.9.0 release and hosted CI/update-channel verification.
+    //   Carries all MB493 multiplayer performance changes without gameplay/presentation edits.
+    //   SDK selection is explicit; reversed-fragment vectors name Enumerable.Reverse so a
+    //   newer compiler cannot select the in-place span overload. Vector coverage is preserved.
+    //   Hosted CI/release also execute the standalone native presentation regression harnesses.
+    //   Release mode enables the existing update check and publishes the regular latest channel.
+    //   Full package includes the unchanged483 bundle. All multiplayer peers require494.
+    //   GVR1/v3, all TLVs, visibility and native animation cadence remain unchanged.
 
     // ModBuild 493 — multiplayer CPU/allocation reduction with complete native presentation.
     //   The MB491 two-player run measured significant recurring remote-board CPU work; the

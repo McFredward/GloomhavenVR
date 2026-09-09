@@ -46,7 +46,8 @@ something a player has to know to play, so it lives here.
 
 ## Requirements
 
-- **.NET SDK 8+**
+- **.NET SDK 8.0.4xx** — `global.json` selects the latest installed stable patch in this
+  feature band, so local builds and hosted runners use the same compiler generation.
 - A Gloomhaven install — only its `Managed/` folder is needed at build time. Game DLLs are never
   committed.
 - Unity **2021.3.5f1** — only if you are rebuilding the asset bundle. Using any other 2021.3.x

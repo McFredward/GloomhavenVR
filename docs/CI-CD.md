@@ -65,6 +65,19 @@ keeps working.
 
 ## 1. Shape
 
+SDK selection is governed by `global.json`: stable .NET SDK 8.0.4xx, with the latest installed
+patch selected. Both workflows print `dotnet --info`. Installing an SDK with `setup-dotnet`
+alone does not constrain selection when a newer SDK is already present; the repository-level
+selection follows [Microsoft's global.json rules](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json).
+The release preparation for 0.9.0 reproduced a compiler-overload difference: under SDK10,
+`byte[][].Reverse()` selected the in-place span overload instead of LINQ. The reversed-fragment
+fixture now explicitly calls `Enumerable.Reverse`, preserving both transport cases.
+
+Both workflows execute the standalone card-capture, native-playback and board-refresh production
+harnesses and their negative controls. Their supplied Unity API substitutes make them runnable
+without game binaries. The full byte-level wire suite still runs locally with the real game DLL;
+hosted workflows compile that suite but do not claim to execute it.
+
 ```
         work                                     release
    ┌──────────────┐                        ┌──────────────────┐

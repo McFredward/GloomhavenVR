@@ -165,6 +165,9 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Verify selected SDK
+        run: dotnet --info
+
       - name: Cache NuGet packages
         uses: actions/cache@v5.1.0
         with:
@@ -264,6 +267,14 @@ jobs:
 
       - name: Asset bundle format
         run: bash scripts/check-bundle-format.sh
+
+      # These production-source harnesses provide their own Unity API substitutes and
+      # can execute on a hosted runner; byte-level wire vectors still require the real game.
+      - name: Native presentation regression harnesses
+        run: |
+          bash scripts/card-bindings-tests.sh
+          bash scripts/native-playback-tests.sh
+          bash scripts/board-refresh-tests.sh
 
       - name: Wire tests (compile only — vectors need the real game DLL)
         run: |

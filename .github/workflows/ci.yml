@@ -53,6 +53,9 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
+      - name: Verify selected SDK
+        run: dotnet --info
+
       - name: Cache NuGet packages
         uses: actions/cache@v5.1.0
         with:
@@ -242,6 +245,14 @@ jobs:
       # designed. The 210,000+ byte-level assertions do not run — a developer runs
       # scripts/wire-tests.sh. docs/CI-CD.md says so out loud.
       # ---------------------------------------------------------------------------
+      # These production-source harnesses provide their own Unity API substitutes and
+      # can execute on a hosted runner; byte-level wire vectors still require the real game.
+      - name: Native presentation regression harnesses
+        run: |
+          bash scripts/card-bindings-tests.sh
+          bash scripts/native-playback-tests.sh
+          bash scripts/board-refresh-tests.sh
+
       - name: Wire tests (compile only — see docs/CI-CD.md)
         run: |
           dotnet build tests/GloomhavenVR.WireTests/GloomhavenVR.WireTests.csproj \
