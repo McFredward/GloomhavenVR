@@ -26,7 +26,11 @@ internal static class CardAppearanceMirror
         {
             var state = snapshot.States[i];
             CPlayerActor? actor = RemoteBoardFocus.ActorById(state.ActorId);
-            bindings[i] = new CardAppearanceBinding<CAbilityCard>(actor != null ? Resolve(actor, state.FaceCode, state.ListCount) : null);
+            CAbilityCard? card = actor != null ? Resolve(actor, state.FaceCode, state.ListCount) : null;
+            // Legacy samples have no provenance. Production frames carry an immutable roster
+            // address, so even an already-delayed same-count replacement cannot adopt old paint.
+            if (state.SourceActorId != 0 && !ReferenceEquals(card, CardAppearanceProvenance.Resolve(state))) card = null;
+            bindings[i] = new CardAppearanceBinding<CAbilityCard>(card);
         }
         frame.PreviousCards = continuous ? frame.CurrentCards : bindings;
         frame.CurrentCards = bindings;

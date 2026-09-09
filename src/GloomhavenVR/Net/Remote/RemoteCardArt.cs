@@ -2408,6 +2408,14 @@ internal sealed partial class RemoteCardArt
     /// </summary>
     public bool SetAbilityCardFxProgress(CardFxLook look, float t)
     {
+        // Native owner output wins even when a legacy flight caller writes later in this frame.
+        // If its source disappeared, ApplyNativeAppearance relinquishes the flag and the explicit
+        // semantic flight may continue its own fallback below.
+        if (_nativeOutputApplied)
+        {
+            ApplyNativeAppearance();
+            if (_nativeOutputApplied) return true;
+        }
         if (_clone == null || look == CardFxLook.None)
             return false;
         // FIRST, and before the rig mints anything — see TakeFxLookHold for why the ordering is
@@ -3422,6 +3430,7 @@ internal sealed partial class RemoteCardArt
     {
         _nativeBindings = null;
         _nativeDefaults = null;
+        _localNativeFrame = null;
         _nativeOutputApplied = false;
         _nativeMaterials.Clear();
         // Let CardHalfTone have this face back before it goes: an id Unity is free to reuse must

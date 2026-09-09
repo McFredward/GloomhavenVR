@@ -80,6 +80,22 @@ internal static class CardAppearanceVectors
         var fresh = new CardAppearanceBinding<object>(replacementCard);
         t.True(fresh.Matches(replacementCard, replacementCard), "a fresh owner sample restores a current model binding");
         t.True(!fresh.Matches(replacementCard, null), "temporarily missing membership invalidates the old sample");
+        var ordinary = new[] { firstCard, replacementCard }; var supply = new[] { new object(), new object() };
+        t.True(CardAppearancePool.TryLocate(ordinary, supply, replacementCard, out ushort poolSeat, out ushort poolCount)
+            && poolSeat == 1 && poolCount == 2, "ordinary source uses immutable class-pool position");
+        t.True(ReferenceEquals(CardAppearancePool.Resolve(ordinary, supply, poolSeat, poolCount), replacementCard),
+            "ordinary roster provenance resolves exactly the original model");
+        t.True(CardAppearancePool.TryLocate(ordinary, supply, supply[1], out poolSeat, out poolCount)
+            && poolSeat == (CardAppearancePool.SupplyBit | 1) && poolCount == 2,
+            "supplied card gets a separate original donor-pool namespace");
+        t.True(ReferenceEquals(CardAppearancePool.Resolve(ordinary, supply, poolSeat, poolCount), supply[1]),
+            "supply ordinal cannot alias same-size ordinary pool ordinal");
+        t.True(CardAppearancePool.Resolve(ordinary, supply, poolSeat, 3) == null,
+            "different roster size refuses provenance atomically");
+        t.True(CardAppearancePool.Resolve(ordinary, supply, 2, 2) == null,
+            "source position outside matching pool rejects");
+        t.True(!CardAppearancePool.TryLocate(ordinary, supply, new object(), out _, out _),
+            "unowned model never invents a pool address");
         string native = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteCardArt.Native.cs"));
         t.True(native.Contains("CardAppearanceMirror.TryGet") && native.Contains("private void LateUpdate() => Art?.ApplyNativeAppearance()"), "actual output paints after ordinary mirror drivers");
         t.True(native.Contains("_nativeOutputApplied && !ExplicitFlightOwnsLook") && native.Contains("ClearPendingNativeAppearance();"),
@@ -93,8 +109,10 @@ internal static class CardAppearanceVectors
         t.True(native.Contains("SetFloatIfPresent(material, BurnId, 0f)") && native.Contains("_nativeDefaults")
             && native.Contains("group.alpha = node.Values[0]"), "native authority loss clears burn and restores previously overwritten group opacity");
         string bindings = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/CardAppearanceBindings.cs"));
-        t.True(bindings.Contains("VisibleInCard(graphic.transform, Root)") && bindings.Contains("if (!t.gameObject.activeSelf) return false;"),
+        t.True(bindings.Contains("VisibleInCard(graphic.transform, Root, detachedRoot)") && bindings.Contains("if (!t.gameObject.activeSelf) return false;"),
             "native flame visibility includes all intermediate original holders");
+        t.True(native.Contains("Capture(detachedRoot: true)") && native.Contains("ApplyNativeFrame(_localNativeFrame, _localNativeFrame, 1f)"),
+            "local fallback flight preserves original output after source widget release");
         string policy = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Art/BurnLookPolicy.cs"));
         string burn = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Art/BurnCardFx.cs"));
         t.True(policy.Contains("card = widget != null ? widget.AbilityCard : full.AbilityCard;")

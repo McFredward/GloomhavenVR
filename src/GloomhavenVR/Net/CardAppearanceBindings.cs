@@ -60,14 +60,14 @@ internal sealed class CardAppearanceBindings
         }
         if (Groups.Count > 8) throw new InvalidOperationException("Original card group count exceeds appearance bound.");
     }
-    internal CardAppearanceNode[] Capture()
+    internal CardAppearanceNode[] Capture(bool detachedRoot = false)
     {
         var nodes = new System.Collections.Generic.List<CardAppearanceNode>();
         for (byte role = 0; role < Graphics.Length; role++)
         {
             Graphic? graphic = Graphics[role];
             if (graphic == null) continue;
-            var node = new CardAppearanceNode { Role = role, Flags = (byte)((VisibleInCard(graphic.transform, Root) ? 1 : 0)
+            var node = new CardAppearanceNode { Role = role, Flags = (byte)((VisibleInCard(graphic.transform, Root, detachedRoot) ? 1 : 0)
                 | (graphic.enabled ? 2 : 0) | (graphic is TextMeshProUGUI tmp && tmp.enableVertexGradient ? 4 : 0)) };
             Put(node.Values, 0, graphic.color);
             Color renderer = graphic.canvasRenderer.GetColor();
@@ -98,16 +98,21 @@ internal sealed class CardAppearanceBindings
             CanvasGroup group = Groups[key];
             var node = new CardAppearanceNode { Role = groupRole++, Binding = key,
                 Flags = (byte)((group.gameObject.activeSelf ? 1 : 0) | (group.enabled ? 2 : 0) | (group.ignoreParentGroups ? 4 : 0)) };
-            node.Values[0] = group.alpha; nodes.Add(node);
+            node.Values[0] = group.alpha;
+            // A local fallback flight owns a new root pose/visibility after the original widget
+            // was parked. Preserve its inner native holders and output, not the parked root.
+            if (detachedRoot && ReferenceEquals(group.transform, Root)) { node.Flags |= 1; node.Values[0] = 1f; }
+            nodes.Add(node);
         }
         return nodes.ToArray();
     }
     // activeSelf alone misses disabled intermediate holders (including the native flame holder).
     // Capture the visible result inside this card; receiver-local board parents are not authority.
-    private static bool VisibleInCard(Transform transform, Transform root)
+    private static bool VisibleInCard(Transform transform, Transform root, bool detachedRoot)
     {
         for (Transform? t = transform; t != null; t = t.parent)
         {
+            if (ReferenceEquals(t, root) && detachedRoot) return true;
             if (!t.gameObject.activeSelf) return false;
             if (ReferenceEquals(t, root)) return true;
         }

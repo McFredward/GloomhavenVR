@@ -9,8 +9,11 @@ Build 489 has no new hardware evidence. These are source-proven repairs, not hea
 - Native appearance samples used to resolve a mutable actor/list/seat/count address on every draw.
   They now bind a model once on receipt and permanently invalidate that sample if its source
   changes. A same-count replacement cannot steal the preceding card's burn/ghost output, and
-  interpolation cannot cross model identities. A separate immutable pool-provenance integration
-  is required to validate samples that were already delayed before receipt.
+  interpolation cannot cross model identities. Production samples additionally carry immutable
+  class-pool provenance through additive 68 (integrator-owned DTO/codec). The receiver requires
+  dynamic and immutable addresses to resolve to the same model before binding. This also rejects
+  already-delayed same-count replacements. Supply cards use the high bit of the pool position;
+  borrowed cards retain their original donor actor/pool while their visible seat names the recipient.
 - Native playback no longer builds the synthetic legacy burn rig just to apply/reset original
   output. That rig assumes the high-detail shader and writes burn constants before actual paint.
   A pending native face now clears all four native restore terms, including `_Burn`, and flame
@@ -33,8 +36,12 @@ flight fallback paint remains owned by the flight classes and is not reset by na
 
 ## Validation
 
+- Local fallback flights can freeze the actual original card output without activating a parked
+  game widget. Only its detached root visibility belongs to the new flight; inner holder visibility
+  and native output remain original. Later synthetic flight writes cannot overwrite a native frame.
+
 - Strict Release: 0 errors, 0 warnings.
-- Wire suite with the production binding helper linked: 251,048 assertions (+11).
+- Wire suite with the production binding helper linked: 251,056 assertions (+19, including immutable ordinary/supply-pool and detached-flight seams).
 - Negative control: restoring per-draw rebinding produced exactly three regression failures
   (same-count replacement, resurrection, initially unresolved sample); repaired version passed.
 - No shared baseline was overwritten. Integrator runs the final complete gate set.

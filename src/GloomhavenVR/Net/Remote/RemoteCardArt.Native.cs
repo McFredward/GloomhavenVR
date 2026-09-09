@@ -13,12 +13,14 @@ internal sealed partial class RemoteCardArt
     private int _nativePlayer;
     private bool _nativeOutputApplied;
     private CardAppearanceNode[]? _nativeDefaults;
+    private CardAppearanceState? _localNativeFrame;
     private readonly List<Image> _nativeBoundsImages = new();
     private bool ExplicitFlightOwnsLook => Surface == FxSurface.Flight || Surface == FxSurface.CardFlight;
     private CPlayerActor? _nativeActor;
     private CAbilityCard? _nativeCard;
     internal void SetNativeAppearance(int playerId, CPlayerActor? actor, CAbilityCard? card)
     {
+        _localNativeFrame = null;
         bool changed = _nativePlayer != playerId || !ReferenceEquals(_nativeActor, actor) || !ReferenceEquals(_nativeCard, card);
         _nativePlayer = playerId; _nativeActor = actor; _nativeCard = card;
         if (changed)
@@ -71,9 +73,22 @@ internal sealed partial class RemoteCardArt
             SetFloatIfPresent(material, FxAnimId, 0f);
         }
     }
+    /// <summary>Freeze original output for a local flight; the new flight owns root pose and visibility.</summary>
+    internal void SetLocalNativeAppearance(FullAbilityCard source)
+    {
+        if (source == null || source.cardEffects == null) return;
+        _localNativeFrame = new CardAppearanceState { Nodes = new CardAppearanceBindings(source.cardEffects).Capture(detachedRoot: true) };
+        ApplyNativeAppearance();
+    }
     internal void ApplyNativeAppearance()
     {
-        if (_nativeBindings == null || _clone == null || _host == null || !_host.activeInHierarchy || _nativeActor == null || _nativeCard == null) return;
+        if (_nativeBindings == null || _clone == null || _host == null || !_host.activeInHierarchy) return;
+        if (_localNativeFrame != null)
+        {
+            ApplyNativeFrame(_localNativeFrame, _localNativeFrame, 1f);
+            return;
+        }
+        if (_nativeActor == null || _nativeCard == null) return;
         if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, _nativeActor) == RevealGate.CardFaceSource.None) return;
         if (!CardAppearanceMirror.TryGet(_nativePlayer, _nativeActor, _nativeCard, out var from, out var to, out float progress))
         {
@@ -81,6 +96,11 @@ internal sealed partial class RemoteCardArt
             _nativeOutputApplied = false;
             return;
         }
+        ApplyNativeFrame(from!, to!, progress);
+    }
+    private void ApplyNativeFrame(CardAppearanceState from, CardAppearanceState to, float progress)
+    {
+        if (_nativeBindings == null) return;
         // Validate the complete native role set before painting anything. A different prefab must
         // not receive a partial card that mixes owner output with this client's pooled defaults.
         foreach (var node in to!.Nodes)

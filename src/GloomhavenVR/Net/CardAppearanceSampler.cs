@@ -36,6 +36,10 @@ internal static class CardAppearanceSampler
             Seen.Add(full);
             if (!Bindings.TryGetValue(full, out var binding)) Bindings[full] = binding = new CardAppearanceBindings(full.cardEffects);
             var state = new CardAppearanceState { ActorId = NetFigures.StableActorId(actor), FaceCode = code, ListCount = count, Nodes = binding.Capture() };
+            // A late frame must not attach its material output to another card which has since
+            // occupied this same list seat. The original class pool is stable across moves/rests.
+            if (card.GameCard?.AbilityCard == null
+                || !CardAppearanceProvenance.Capture(state, actor, card.GameCard.AbilityCard)) continue;
             if (!state.Validate()) throw new InvalidOperationException("Native card appearance is outside the bounded wire domain.");
             states.Add(state);
         }
