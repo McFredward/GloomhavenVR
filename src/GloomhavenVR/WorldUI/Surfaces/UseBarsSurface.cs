@@ -338,6 +338,7 @@ internal sealed class UseBarsSurface
         // braces — the game re-Shows pooled slots at will), so the dock gate agrees with what is
         // actually visible in the same tick.
         EnforceActiveBonusSplit();
+        RestoreOriginalTooltips();
 
         for (int i = 0; i < _docks.Length; i++)
             _docks[i].Tick(); // convert / release, level-triggered on the polled slot state
@@ -365,6 +366,7 @@ internal sealed class UseBarsSurface
     {
         try
         {
+            RestoreOriginalTooltips();
             StackDocked();
             // Native LeanTween runs in Update. Sample its rendered targets here, after docking,
             // then enqueue/drain the independent animation stream in this same late frame.
@@ -1514,6 +1516,16 @@ internal sealed class UseBarsSurface
                               (bar == null ? "gone" : bar.IsShown ? "still shown" : "hidden") +
                               "); no GameObject active state was ever written, so the bar is exactly as the game " +
                               "left it.");
+    }
+
+    private static readonly List<KeyValuePair<CActiveBonus, UIUseActiveBonus>> TooltipSlots = new(8);
+
+    private static void RestoreOriginalTooltips()
+    {
+        CardsGameApi.ActiveBonusSlotsSnapshot(TooltipSlots);
+        for (int i = 0; i < TooltipSlots.Count; i++)
+            NativeUseBarTooltipHost.Restore(TooltipSlots[i].Value);
+        TooltipSlots.Clear();
     }
 
     // ---- the ITEM-BACKED ACTIVE BONUS rows leave the decision area (user ruling 2026-08-09) ----

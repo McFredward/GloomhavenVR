@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.Net;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -77,10 +78,11 @@ internal sealed class DamagePreviewSurface : WorldSurface
     {
         // Base gate (config + ConversionActive + in-scenario) AND the take-damage row must
         // actually be docked. When either drops we fall to the turn-off path below.
-        bool gate = WantConverted && !FlatScreen.ManualScreenActive && DecisionDockSurface.DockingTakeDamage;
+        bool gate = WantConverted && !FlatScreen.ManualScreenActive;
+        DamageDecisionPreviewState? picture = gate ? DamageDecisionPreview.SampleLocal() : null;
 
         WorldspacePanelUIController? controller = null;
-        int damage = 0, health = 0, damageToTake = 0;
+        int damageToTake = 0;
         string actorName = "actor";
 
         if (gate)
@@ -88,13 +90,11 @@ internal sealed class DamagePreviewSurface : WorldSurface
             TakeDamagePanel? panel = Singleton<TakeDamagePanel>.IsInitialized
                 ? Singleton<TakeDamagePanel>.Instance
                 : null;
-            if (panel != null && panel.IsOpen && panel.actorBeingAttacked != null)
+            if (panel != null && picture != null && panel.actorBeingAttacked != null)
             {
                 controller = ResolveController(panel);
                 if (controller != null)
                 {
-                    damage = panel.CalculateCurrentDamage();
-                    health = panel.CalculateCurrentHealth();
                     damageToTake = panel.damageToTake;
                     actorName = SafeActorName(panel.actorBeingAttacked);
                 }
@@ -112,7 +112,7 @@ internal sealed class DamagePreviewSurface : WorldSurface
             // idempotent per tick (see the class doc), so this stays live across shield /
             // active-bonus toggles without restarting the pulse.
             controller.Focus(true, FocusRequest);
-            controller.PreviewSimpleDamage(damage, health);
+            if (picture != null) DamageDecisionPreview.Apply(controller, picture);
 
             _activeController = controller;
             _activeDamageToTake = damageToTake;
