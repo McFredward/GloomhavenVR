@@ -93,4 +93,10 @@ internal struct AvatarState
     /// <summary>World-frame pose of the held card (meaningful only when
     /// <see cref="HasHeldCard"/>).</summary>
     public RigPose HeldCardPose;
+
+    // Additive rig-tail records: source address and actor sampled with the pose.
+    public bool HasHeldCardFace;
+    public int HeldFaceActorId;
+    public byte HeldFaceCode, HeldFaceCount;
+    public byte SecondHeldFaceCode, SecondHeldFaceCount;
 }

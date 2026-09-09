@@ -74,6 +74,11 @@ internal sealed class RemoteAvatar
     internal bool ShortRestInProgress { get; private set; }
     internal UseBarWidgetState[]? UseBarWidgetStates { get; private set; }
     internal NativeDecisionHighlightState? DecisionHighlight { get; private set; }
+    internal DamageDecisionPreviewState? DamageDecisionPreview { get; private set; }
+    internal bool HasDecisionAttribution { get; private set; }
+    internal int DecisionActorId { get; private set; }
+    internal bool DecisionPending { get; private set; }
+    internal bool DecisionVisible { get; private set; }
     internal uint PresenceRevision { get; private set; }
     internal NativeBoardState? NativeBoardState { get; private set; }
     internal float NativeInitiativeDepthPixels => NativeBoardState?.InitiativeDepthPixels ?? Defaults.InitiativeDepthMaxSpreadPx;
@@ -115,6 +120,7 @@ internal sealed class RemoteAvatar
         var history = NativeUseBarHistories[address];
         if (history.Count == 32) history.RemoveAt(0);
         history.Add(snapshot);
+        CharacterDecisionPresentation.Refresh(this);
     }
 
     internal UseBarAnimationState[]? AnimationStates { get; private set; }
@@ -130,6 +136,7 @@ internal sealed class RemoteAvatar
         AnimationStates = snapshot.States;
         if (AnimationHistory.Count == 32) AnimationHistory.RemoveAt(0);
         AnimationHistory.Add(snapshot);
+        CharacterDecisionPresentation.Refresh(this);
     }
 
     private bool _fxSeqInit;
@@ -354,6 +361,10 @@ internal sealed class RemoteAvatar
     /// <see cref="NetProtocol.FlagHeldCard"/> card): a SOURCE-LIST id and a seat in it, 0 for
     /// "names nothing". Never a card identity.</summary>
     private byte _heldFaceCode;
+    private int _heldFaceActorId, _secondHeldFaceActorId;
+    private bool _heldFaceAddressReady, _secondHeldFaceAddressReady;
+    internal int HeldFaceActorId(int poseSlot) => poseSlot == 1 ? _heldFaceActorId : _secondHeldFaceActorId;
+    internal bool HeldFaceAddressReady(int poseSlot) => poseSlot == 1 ? _heldFaceAddressReady : _secondHeldFaceAddressReady;
 
     /// <summary>How long the sender said that list was. <see cref="RemoteHeldCardFace"/> refuses to
     /// draw a front unless this client's own copy is exactly this long — the term that makes a
@@ -879,7 +890,7 @@ internal sealed class RemoteAvatar
         _controlBoard.TryActiveCellLocal(cardInstanceId, out boardLocal);
 
     /// <summary>The visible burn slab owns one recess until its animation finishes.</summary>
-    internal void PlayUnclaimedBurnEvent(byte endpoints, byte flags = 0) => _cardFx.Play(endpoints, flags);
+    internal void PlayUnclaimedBurnEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null) => _cardFx.Play(endpoints, flags, source);
 
     internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
     internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
@@ -1511,6 +1522,10 @@ internal sealed class RemoteAvatar
     public void SetTarget(in AvatarState state)
     {
         _target = state;
+        _heldFaceAddressReady = state.HasHeldCard && state.HasHeldCardFace;
+        _heldFaceActorId = _heldFaceAddressReady ? state.HeldFaceActorId : 0;
+        _heldFaceCode = _heldFaceAddressReady ? state.HeldFaceCode : (byte)0;
+        _heldFaceCount = _heldFaceAddressReady ? state.HeldFaceCount : (byte)0;
         _hasTarget = true;
         TimeSinceUpdate = 0f;
 
@@ -1761,8 +1776,9 @@ internal sealed class RemoteAvatar
         // unconditionally for the same reason as the grip mask beside it: the ABSENCE of the record
         // is the statement "these slabs name nothing", and a latched code would keep a front on a
         // card its owner has already put down.
-        _heldFaceCode = p.HasHeldCardFace ? p.HeldFaceCode : (byte)0;
-        _heldFaceCount = p.HasHeldCardFace ? p.HeldFaceCount : (byte)0;
+        // Slot 1 belongs to the rig pose; slower extras must never overwrite its address.
+        _secondHeldFaceAddressReady = p.HasSecondHeldCard && p.HasHeldCardFace;
+        _secondHeldFaceActorId = p.HasCharFocus ? p.CharFocusActorId : 0;
         _secondHeldFaceCode = p.HasHeldCardFace ? p.SecondHeldFaceCode : (byte)0;
         _secondHeldFaceCount = p.HasHeldCardFace ? p.SecondHeldFaceCount : (byte)0;
 
@@ -2168,6 +2184,12 @@ internal sealed class RemoteAvatar
                              + $"choosing={p.ShortRestInProgress}; record 46.");
         UseBarWidgetStates = p.UseBarWidgetStates;
         DecisionHighlight = p.DecisionHighlight;
+        DamageDecisionPreview = p.DamageDecisionPreview;
+        HasDecisionAttribution = p.HasDecisionAttribution;
+        DecisionActorId = p.DecisionActorId;
+        DecisionPending = p.DecisionPending;
+        DecisionVisible = p.DecisionVisible;
+        CharacterDecisionPresentation.Observe(this, DecisionActorId, DecisionPending, DecisionVisible);
         ShortRestInProgress = p.ShortRestInProgress;
         _burnFx.ObserveShortRestContext(); // capture the first open snapshot as well as the closing edge
         HasFanAnchor = p.HasFanAnchor;
@@ -2184,44 +2206,36 @@ internal sealed class RemoteAvatar
         PileBrowseHeld = PileBrowseOpen && p.PileBrowseHeld;
         PileBrowseLeftHand = PileBrowseHeld && p.PileBrowseLeftHand;
 
-        // Card FX (additive field): play ONLY on a sequence change (the same event is deliberately
-        // re-sent for redundancy), and never on the first packet we ever see from this peer.
-        if (p.HasCardFx)
+        if (p.FlightHistory != null)
         {
             if (!_fxSeqInit)
             {
                 _fxSeqInit = true;
-                _lastFxSeq = p.FxSeq; // adopt without playing — this event predates our joining
+                _lastFxSeq = p.FlightHistory.Sequence; // joining adopts the current state
             }
-            // A delayed redundant packet must not replay its old flight or roll the counter
-            // backward. The old != test treated reordering as a reset and played BOTH events.
-            else if (NetProtocol.IsNewCardFxSequence(p.FxSeq, _lastFxSeq))
-            {
-                // ─── THE LOSS, COUNTED EXACTLY, WITH NO NEW WIRE BYTE ───────────────────────────
-                // NetCardFx stamps the sequence +1 PER DISPATCHED EVENT and wraps at 255, so it is
-                // a DENSE counter and the gap between two arrivals IS the number of events this
-                // client never saw. Byte subtraction handles the wrap; a gap of 1 is the healthy
-                // case. Guarded at a sane ceiling so a peer that resets its counter (a hot reload)
-                // is reported as a resync rather than as hundreds of lost animations.
-                int gap = (byte)(p.FxSeq - _lastFxSeq);
-                if (gap > 1 && gap <= 32)
-                    _fxLost += gap - 1;
-                else if (gap > 32)
-                    _fxResyncs++;
-                _fxSeen++;
-                _lastFxSeq = p.FxSeq;
-                LogCardFxLoss(gap);
-                // ITEM 11a/11b: a BURN this client has already recognised out of the owner's
-                // host-replicated Lost pile is presented on the REAL card by RemoteBurnFx, which
-                // then swallows this event so the same burn cannot also fly as an anonymous back
-                // slab. Every other event - and every burn that mirror could not present - falls
-                // through to the unchanged path below.
-                byte visibility = p.HasCardFxVisibility && p.FxVisibilitySeq == p.FxSeq
-                    ? p.FxVisibilityFlags : (byte)0;
-                if (!_burnFx.ConsumesWireEvent(p.FxEndpoints, visibility))
-                    _cardFx.Play(p.FxEndpoints, visibility);
-            }
+            else
+                foreach (CardFlightEvent flight in p.FlightHistory.Since(_lastFxSeq))
+                    PlayCardFlight(flight.Sequence, flight.Endpoints, flight.Flags, flight.Source);
         }
+        else if (p.HasCardFx)
+        {
+            byte flags = p.HasCardFxVisibility && p.FxVisibilitySeq == p.FxSeq ? p.FxVisibilityFlags : (byte)0;
+            PlayCardFlight(p.FxSeq, p.FxEndpoints, flags, p.FlightSourceSeq == p.FxSeq ? p.FlightSource : null);
+        }
+    }
+
+    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source)
+    {
+        if (!_fxSeqInit) { _fxSeqInit = true; _lastFxSeq = sequence; return; }
+        if (!NetProtocol.IsNewCardFxSequence(sequence, _lastFxSeq)) return;
+        int gap = (byte)(sequence - _lastFxSeq);
+        if (gap > 1 && gap <= 32) _fxLost += gap - 1;
+        else if (gap > 32) _fxResyncs++;
+        _fxSeen++;
+        _lastFxSeq = sequence;
+        LogCardFxLoss(gap);
+        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source))
+            _cardFx.Play(endpoints, flags, source);
     }
 
     /// <summary>Card-FX events this client has SEEN arrive from that peer, and how many the

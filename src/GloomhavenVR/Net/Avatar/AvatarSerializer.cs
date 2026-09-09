@@ -42,8 +42,8 @@ internal static unsafe class AvatarSerializer
 {
     /// <summary>Upper bound on an encoded rig packet: header 12 + head 20 + 2 hands (20+5) +
     /// held-figure block (4+20) + hand-style byte + held-card pose (20) = 127, rounded up to
-    /// 132 for headroom.</summary>
-    public const int MaxSize = 132;
+    /// 148 including additive held-face address and actor TLVs.</summary>
+    public const int MaxSize = 148;
 
     private const float QuatScale = 32767f;
 
@@ -104,6 +104,19 @@ internal static unsafe class AvatarSerializer
         // pre-held-card readers keep finding the style byte at the expected offset.
         if (state.HasHeldCard)
             WritePose(buffer, ref i, in state.HeldCardPose);
+        if (state.HasHeldCard && state.HasHeldCardFace)
+        {
+            // Preserve the entire v3 prefix. Record 36 retains its original four-byte grammar.
+            buffer[i++] = NetProtocol.ExtIdHeldCardFace;
+            buffer[i++] = 4;
+            buffer[i++] = state.HeldFaceCode;
+            buffer[i++] = state.HeldFaceCount;
+            buffer[i++] = state.SecondHeldFaceCode;
+            buffer[i++] = state.SecondHeldFaceCount;
+            buffer[i++] = NetProtocol.ExtIdHeldFaceActor;
+            buffer[i++] = 4;
+            WriteI32(buffer, ref i, state.HeldFaceActorId);
+        }
         return i;
     }
 
@@ -144,7 +157,7 @@ internal static unsafe class AvatarSerializer
     public static bool TryRead(byte[] buffer, int length, out AvatarState state)
     {
         state = default;
-        if (buffer == null || length < 12)
+        if (buffer == null || length < 12 || length > buffer.Length)
             return false;
 
         int i = 0;
@@ -204,6 +217,34 @@ internal static unsafe class AvatarSerializer
             state.HasHeldCard = true;
             ReadPose(buffer, ref i, out state.HeldCardPose);
         }
+        bool face = false, actor = false;
+        while (i < length)
+        {
+            byte id = buffer[i++];
+            bool known = id == NetProtocol.ExtIdHeldCardFace || id == NetProtocol.ExtIdHeldFaceActor;
+            if (i == length) { if (known) return false; break; }
+            int size = buffer[i++];
+            // Older v3 permits opaque future suffixes. Only our known atomic records impose
+            // a completeness requirement; an unknown suffix cannot invalidate its legacy pose.
+            if (size > length - i) { if (known) return false; break; }
+            int next = i + size;
+            if (id == NetProtocol.ExtIdHeldCardFace && size == 4)
+            {
+                state.HeldFaceCode = buffer[i++];
+                state.HeldFaceCount = buffer[i++];
+                state.SecondHeldFaceCode = buffer[i++];
+                state.SecondHeldFaceCount = buffer[i++];
+                face = NetProtocol.HeldFaceList(state.HeldFaceCode) <= NetProtocol.HeldFaceListMax
+                    && NetProtocol.HeldFaceList(state.SecondHeldFaceCode) <= NetProtocol.HeldFaceListMax;
+            }
+            else if (id == NetProtocol.ExtIdHeldFaceActor && size == 4)
+            {
+                state.HeldFaceActorId = ReadI32(buffer, ref i);
+                actor = true;
+            }
+            i = next;
+        }
+        state.HasHeldCardFace = heldCard && face && actor;
         return true;
     }
 

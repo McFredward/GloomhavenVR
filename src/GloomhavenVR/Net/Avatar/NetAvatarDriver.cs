@@ -112,7 +112,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     private byte _lastFxEndpoints;
     private byte _lastFxSeq;
     private byte _lastFxVisibilityFlags;
+    private CardFlightSource? _lastFxSource;
     private NativeDecisionHighlightState? _lastSentDecisionHighlight, _decisionHighlightSnapshot;
+    private DamageDecisionPreviewState? _lastSentDamageDecisionPreview;
+    private int _lastSentDecisionActor;
+    private bool _lastSentDecisionPending, _lastSentDecisionVisible;
     private bool _hasFx;
 
     // Last broadcast fan sizes — an on-change extras send keeps a peer's fan appearing/disappearing
@@ -1999,6 +2003,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         bool shortRestChanged = shortRestInProgress != _lastSentShortRest;
         NativeDecisionHighlightState? decisionHighlight = _decisionHighlightSnapshot;
         bool decisionHighlightChanged = !ReferenceEquals(decisionHighlight, _lastSentDecisionHighlight);
+        DamageDecisionPreviewState? damagePreview = WorldUI.Surfaces.DamageDecisionPreview.SampleLocal();
+        bool damagePreviewChanged = !DamageDecisionPreviewState.SamePicture(damagePreview, _lastSentDamageDecisionPreview);
+        WorldUI.Surfaces.UseBarsSurface.SampleDecisionAttribution(out int decisionActor, out bool decisionPending, out bool decisionVisible);
+        bool decisionAttributionChanged = decisionActor != _lastSentDecisionActor
+            || decisionPending != _lastSentDecisionPending || decisionVisible != _lastSentDecisionVisible;
         bool sacrificeSeatChanged = seatCode0 != _lastSentSeatCode0
                                     || seatCode1 != _lastSentSeatCode1;
         bool spentHalfChanged = spentMask != _lastSentSpentMask;
@@ -2028,7 +2037,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             // THE FOUR HELD-CARD EDGES (records 36, 39, 41, 43) — the N7 ruling; see the
             // sampling block above for why each is discrete and what it costs.
             && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
-            && !fanSourceChanged && !shortRestChanged && !decisionHighlightChanged
+            && !fanSourceChanged && !shortRestChanged && !decisionHighlightChanged && !damagePreviewChanged && !decisionAttributionChanged
             // A DEBUG PRESS PRE-EMPTS THE CADENCE. It is a discrete, human-paced act whose entire
             // purpose is to be looked at, so up to 200 ms of cadence latency between two headsets is
             // exactly the "did that work?" the test page exists to remove. Also true throughout the
@@ -2087,6 +2096,15 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             extras.FanArcOrder = _fanArcOrderBuf;
         }
         extras.DecisionHighlight = decisionHighlight;
+        extras.DamageDecisionPreview = damagePreview;
+        extras.HasDecisionAttribution = true;
+        extras.DecisionActorId = decisionActor;
+        extras.DecisionPending = decisionPending;
+        extras.DecisionVisible = decisionVisible;
+        _lastSentDecisionActor = decisionActor;
+        _lastSentDecisionPending = decisionPending;
+        _lastSentDecisionVisible = decisionVisible;
+        _lastSentDamageDecisionPreview = damagePreview;
         _lastSentDecisionHighlight = decisionHighlight;
         extras.DominantRight = LocalRigSampler.LocalDominantRight();
 
@@ -3188,16 +3206,17 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // it was the first of a pair. NOT FIXED HERE — every remedy changes how a shipped field is
         // consumed on an unreliable channel and risks a duplicate flight or one replayed late out
         // of an already-empty recess, which is report item 7's own symptom. The loss is now
-        // COUNTED on both ends instead (NetCardFx's CARD FX OUTBOX and RemoteAvatar's CARD FX
-        // LOST), so the remedy can be chosen against a rate rather than against an argument. The
-        // three candidates, with their costs, are in NetCardFx.TryDequeue's doc.
-        if (NetCardFx.TryDequeue(out byte fxEndpoints, out byte fxSeq, out byte fxVisibilityFlags))
+        // Record62 now retains the last eight dispatches across coalescing and retransmission.
+        // The original single-event prefix remains byte-for-byte compatible.
+        if (NetCardFx.TryDequeue(out byte fxEndpoints, out byte fxSeq, out byte fxVisibilityFlags, out CardFlightSource? fxSource))
         {
             _lastFxEndpoints = fxEndpoints;
             _lastFxSeq = fxSeq;
             _lastFxVisibilityFlags = fxVisibilityFlags;
+            _lastFxSource = fxSource;
             _hasFx = true;
         }
+        extras.FlightHistory = NetCardFx.History;
         if (_hasFx)
         {
             extras.HasCardFx = true;
@@ -3206,6 +3225,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             extras.HasCardFxVisibility = true;
             extras.FxVisibilitySeq = _lastFxSeq;
             extras.FxVisibilityFlags = _lastFxVisibilityFlags;
+            extras.FlightSource = _lastFxSource;
+            extras.FlightSourceSeq = _lastFxSeq;
         }
 
         // SECOND HELD FIGURE (extension record 8): the mini in the player's OTHER hand, with the
@@ -3931,6 +3952,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             case NetProtocol.MsgCardPlume:
             case NetProtocol.MsgNativeUseBar:
             case NetProtocol.MsgNativeBoard:
+            case NetProtocol.MsgCardAppearance:
                 parsed = QueueNativePresentation(senderId, buffer, length);
                 if (parsed) VersionGuard.NotePacket(senderId);
                 break;
@@ -4391,6 +4413,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             // block the staleness sweep below it (same isolation contract as ApplyPending).
             try { avatar.Tick(dt); }
             catch (Exception e) { LogPhaseError($"RemoteAvatar.Tick for player {kv.Key}", e); }
+            try { WorldUI.Surfaces.DamageDecisionPreview.TickRemote(avatar, avatar.DamageDecisionPreview); }
+            catch (Exception e) { LogPhaseError($"Remote damage preview for player {kv.Key}", e); }
             // Teardown on staleness (covers Bolt player-left, a peer switching to flat, or a
             // long network stall — more robust than a single player-left callback).
             if (avatar.TimeSinceUpdate > NetProtocol.StaleTimeoutSeconds)
@@ -4425,6 +4449,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             ffs.ForgetPeer(playerId);
         if (_avatars.TryGetValue(playerId, out RemoteAvatar avatar))
         {
+            WorldUI.Surfaces.DamageDecisionPreview.ResetRemote(avatar);
+            CharacterDecisionPresentation.Remove(avatar);
             avatar.Destroy();
             _avatars.Remove(playerId);
         }

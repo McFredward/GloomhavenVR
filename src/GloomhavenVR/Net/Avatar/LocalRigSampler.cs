@@ -100,6 +100,13 @@ internal static class LocalRigSampler
             anchor.ToAnchor(cp, cr, out Vector3 acp, out Quaternion acr);
             state.HeldCardPose.Position = acp;
             state.HeldCardPose.Rotation = acr;
+            SampleHeldCardFaces(out state.HeldFaceCode, out state.HeldFaceCount,
+                out state.SecondHeldFaceCode, out state.SecondHeldFaceCount);
+            CPlayerActor? faceActor = Cards.ItemsPile.Current?.OwnerActor;
+            if (faceActor == null && RevealGate.InScenario)
+                faceActor = Board.CharacterFocus.PresentedActor;
+            state.HeldFaceActorId = faceActor != null ? NetFigures.StableActorId(faceActor) : 0;
+            state.HasHeldCardFace = true;
         }
 
         // Nothing to say if we have neither a head nor a tracked hand.

@@ -32,6 +32,8 @@ internal sealed partial class NetAvatarDriver
         // Presence consumes this immutable snapshot on its next tick, never an unfinished layout.
         try { _decisionHighlightSnapshot = NativeDecisionHighlightSampler.Sample(); }
         catch (Exception e) { _decisionHighlightSnapshot = null; LogPhaseError("Sample native decision highlight", e); }
+        try { TickCardAppearanceSend(now); }
+        catch (Exception e) { LogPhaseError("Sample native card appearance", e); }
         try { TickNativeBoardSend(now); }
         catch (Exception e) { LogPhaseError("Sample native board", e); }
         try
@@ -108,6 +110,8 @@ internal sealed partial class NetAvatarDriver
 
     private bool QueueNativePresentation(int sender, byte[] buffer, int length)
     {
+        if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgCardAppearance)
+            return QueueCardAppearance(sender, buffer, length);
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgNativeBoard)
         {
             if (!NativeBoardCodec.TryRead(buffer, length, out NativeBoardState? frame)) return false;
@@ -148,6 +152,7 @@ internal sealed partial class NetAvatarDriver
 
     private void ApplyNativePresentation()
     {
+        ApplyCardAppearance();
         foreach (var pair in _pendingBoards)
         {
             if (pair.Value.Count == 0) continue;
@@ -187,11 +192,15 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); }
+    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetCardAppearance(sender); }
 
     private void ResetNativePresentation()
     {
         _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
+        ResetCardAppearance();
+        _lastSentDamageDecisionPreview = null;
+        _lastSentDecisionActor = 0;
+        _lastSentDecisionPending = _lastSentDecisionVisible = false;
         _sentBoard = null; _nextBoardRefresh = _boardSourceTime = 0;
         NativeBoardSampler.Reset();
         NativeDecisionHighlightSampler.Reset();

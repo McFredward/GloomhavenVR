@@ -598,10 +598,12 @@ internal sealed class WristHud
         CPlayerActor? actor = ToLiveActor(resolved);
         bool liveRemap = !ReferenceEquals(resolved, actor);
         RefreshIdentity(actor);
+        int committedHp = actor != null && Surfaces.DamageDecisionPreview.TryGetCommittedHealth(actor, out int beforeDamage)
+            ? beforeDamage : actor?.Health ?? 0;
 
         if (actor != null)
         {
-            int hp = actor.Health, maxHp = actor.MaxHealth, xp = actor.XP,
+            int hp = committedHp, maxHp = actor.MaxHealth, xp = actor.XP,
                 gold = actor.Gold, level = actor.Level;
             bool actorChanged = !ReferenceEquals(actor, _lastValueActor);
             if (actorChanged || hp != _lastHp || maxHp != _lastMaxHp || xp != _lastXp
@@ -639,7 +641,7 @@ internal sealed class WristHud
             _sb.Append("<alpha=#AA>").Append(Core.Loc.Game("GUI_LEVEL", "Level")).Append(' ')
                .Append(actor.Level).Append("<alpha=#FF>\n");
             _sb.Append("<color=#ff6a5e>").Append(Core.Loc.Mod("hp")).Append(' ')
-               .Append(actor.Health).Append('/').Append(actor.MaxHealth).Append("</color>   ");
+               .Append(committedHp).Append('/').Append(actor.MaxHealth).Append("</color>   ");
             _sb.Append("<color=#7fd4ff>").Append(Core.Loc.Mod("xp")).Append(' ')
                .Append(actor.XP).Append("</color>\n");
             _sb.Append("<color=#ffd45e>").Append(Core.Loc.Mod("gold")).Append(' ')
@@ -655,9 +657,9 @@ internal sealed class WristHud
                 if (positives.Count > 0 || negatives.Count > 0)
                 {
                     for (int i = 0; i < positives.Count; i++)
-                        _sb.Append("<color=#9fe08a>+").Append(positives[i]).Append("</color> ");
+                        _sb.Append("<color=#9fe08a>+").Append(Core.Loc.Game(positives[i].ToString(), positives[i].ToString())).Append("</color> ");
                     for (int i = 0; i < negatives.Count; i++)
-                        _sb.Append("<color=#e08a8a>-").Append(negatives[i]).Append("</color> ");
+                        _sb.Append("<color=#e08a8a>-").Append(Core.Loc.Game(negatives[i].ToString(), negatives[i].ToString())).Append("</color> ");
                 }
                 else
                 {

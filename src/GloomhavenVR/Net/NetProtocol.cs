@@ -60,6 +60,14 @@ internal static class NetProtocol
     public const byte MsgPresentationBatch = 9;
     public const byte MsgNativeBoard = 10;
     public const byte MsgNativeBoardFragments = 11;
+    public const byte MsgCardAppearance = 12;
+    public const byte MsgCardAppearanceFragments = 13;
+    public const byte ExtIdDamageDecisionPreview = 57;
+    public const byte ExtIdCardAppearance = 58;
+    public const byte ExtIdHeldFaceActor = 59;
+    public const byte ExtIdDecisionAttribution = 60;
+    public const byte ExtIdCardFlightSource = 61;
+    public const byte ExtIdCardFlightHistory = 62;
     public const byte ExtIdNativeBoard = 52;
     public const byte ExtIdNativeUseBar = 50;
     public const byte ExtIdCardPlume = 51;

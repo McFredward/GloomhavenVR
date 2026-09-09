@@ -66,7 +66,7 @@ internal static class UseBarWidgetVectors
         t.Equal(11 + 8 * 206, count, "eight whole descriptors retain every native subwidget");
         t.True(PresenceSerializer.TryRead(buffer, count, out read)
                && UseBarWidgetState.Equivalent(all, read.UseBarWidgetStates), "whole bar round trips");
-        t.True(PresenceSerializer.MaxSize >= 3709 + 257, "full extras budget leaves a complete record margin");
+        t.True(PresenceSerializer.MaxSize >= 3823 + 257, "full extras budget leaves a complete record margin");
         UseBarWidgetState[]? duplicate = new[] { sample };
         var replacement = new UseBarWidgetState { Slot = sample.Slot };
         UseBarWidgetCodec.Store(ref duplicate, replacement);

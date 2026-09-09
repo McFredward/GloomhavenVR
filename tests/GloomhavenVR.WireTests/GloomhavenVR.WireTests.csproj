@@ -566,4 +566,19 @@
   <ItemGroup><Compile Include="NativeHighlightPresenceVectors.cs" /></ItemGroup>
   <ItemGroup><Compile Include="NativeItemBorrowOwnershipVectors.cs" /></ItemGroup>
   <ItemGroup><Compile Include="RemoteTooltipFitVectors.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/DamageDecisionPreviewState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceCodec.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightSource.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Cards/BurnFlightCompletion.cs" />
+    <Compile Include="BurnFlightCompletionVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightHistory.cs" />
+    <Compile Include="DamageDecisionPreviewVectors.cs" />
+    <Compile Include="HeldFaceAtomicVectors.cs" />
+    <Compile Include="CardAppearanceVectors.cs" />
+    <Compile Include="CharacterDecisionParityVectors.cs" />
+    <Compile Include="DecisionAttributionVectors.cs" />
+    <Compile Include="CardFlightHistoryVectors.cs" />
+  </ItemGroup>
 </Project>

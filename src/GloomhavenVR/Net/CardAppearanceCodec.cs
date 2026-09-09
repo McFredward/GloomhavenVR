@@ -7,7 +7,8 @@ namespace GloomhavenVR.Net;
 internal static class CardAppearanceCodec
 {
     internal const int MaxSize = 45056;
-    internal const byte Message = 12, FragmentMessage = 13, Record = 58;
+    internal const byte Message = NetProtocol.MsgCardAppearance, FragmentMessage = NetProtocol.MsgCardAppearanceFragments,
+        Record = NetProtocol.ExtIdCardAppearance;
     internal static int Write(CardAppearanceSnapshot snapshot, byte[] buffer)
     {
         if (buffer == null || buffer.Length < MaxSize) throw new ArgumentException("Invalid appearance output buffer.");

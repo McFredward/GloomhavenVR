@@ -85,6 +85,12 @@ internal struct PresenceState
 
     /// <summary>Record55: actual owner mandatory-damage highlight, including native Image geometry.</summary>
     public NativeDecisionHighlightState? DecisionHighlight;
+    public DamageDecisionPreviewState? DamageDecisionPreview;
+    public bool HasDecisionAttribution, DecisionPending, DecisionVisible;
+    public int DecisionActorId;
+    public CardFlightSource? FlightSource;
+    public byte FlightSourceSeq;
+    public CardFlightHistory? FlightHistory;
 
     /// <summary>
     /// True when the sender has a control-board PILE BROWSER open this packet (the "Abgelegt" /
@@ -1592,6 +1598,10 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>3709 -> 3823 in MB489: health57 (14), decision attribution60 (7), flight source61
+    /// (9), and recent flight history62 (84). MaxSize4088 leaves265 bytes, exceeding the257-byte
+    /// largest record, and stays within the unchanged4096-byte extras reassembly bound.</para>
+    ///
     /// <para>3449 -> 3709 in MB487: flight visibility provenance (54) adds four bytes and the
     /// original mandatory-highlight output (55) adds at most256. MaxSize3970 retains261 bytes
     /// of margin and stays below the unchanged4096-byte presence reassembly cap.</para>
@@ -1813,7 +1823,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 3970;
+    public const int MaxSize = 4088;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1841,7 +1851,8 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = state.DecisionHighlight != null || (state.HasCardFx && state.HasCardFxVisibility) || UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
+        bool extensions = state.HasDecisionAttribution || state.DamageDecisionPreview != null || state.FlightHistory != null
+            || (state.HasCardFx && state.FlightSource.HasValue) || state.DecisionHighlight != null || (state.HasCardFx && state.HasCardFxVisibility) || UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
                           // Record 34 is written only while a card is really held rigidly, so it
@@ -3190,6 +3201,47 @@ internal static class PresenceSerializer
             if (payload > 0 && payload <= 254)
             {
                 buffer[i++] = NetProtocol.ExtIdDecisionHighlight;
+                buffer[i++] = (byte)payload;
+                i += payload;
+                records++;
+            }
+        }
+        if (state.FlightHistory != null && i + 2 + CardFlightHistory.MaxSize <= buffer.Length)
+        {
+            int payload = state.FlightHistory.Write(buffer, i + 2);
+            if (payload > 0)
+            {
+                buffer[i++] = NetProtocol.ExtIdCardFlightHistory;
+                buffer[i++] = (byte)payload;
+                i += payload;
+                records++;
+            }
+        }
+        if (state.HasCardFx && state.FlightSource != null && state.FlightSourceSeq == state.FxSeq
+            && state.FlightSource.Value.Validate() && i + 9 <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdCardFlightSource;
+            buffer[i++] = 7;
+            buffer[i++] = state.FxSeq;
+            AvatarSerializer.WriteI32(buffer, ref i, state.FlightSource.Value.ActorId);
+            buffer[i++] = state.FlightSource.Value.Seat;
+            buffer[i++] = state.FlightSource.Value.Count;
+            records++;
+        }
+        if (state.HasDecisionAttribution && i + 7 <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdDecisionAttribution;
+            buffer[i++] = 5;
+            AvatarSerializer.WriteI32(buffer, ref i, state.DecisionPending ? state.DecisionActorId : 0);
+            buffer[i++] = (byte)((state.DecisionPending ? 1 : 0) | (state.DecisionPending && state.DecisionVisible ? 2 : 0));
+            records++;
+        }
+        if (state.DamageDecisionPreview != null && i + 2 + DamageDecisionPreviewCodec.MaxSize <= buffer.Length)
+        {
+            int payload = DamageDecisionPreviewCodec.Write(state.DamageDecisionPreview, buffer, i + 2);
+            if (payload > 0)
+            {
+                buffer[i++] = NetProtocol.ExtIdDamageDecisionPreview;
                 buffer[i++] = (byte)payload;
                 i += payload;
                 records++;
@@ -4567,6 +4619,35 @@ internal static class PresenceSerializer
                 state.HasFanSource = true;
                 state.FanSourceList = list;
             }
+        }
+        else if (id == NetProtocol.ExtIdCardFlightHistory && CardFlightHistory.TryRead(buffer, i, len, out CardFlightHistory? history))
+        {
+            state.FlightHistory = history;
+        }
+        else if (id == NetProtocol.ExtIdCardFlightSource && len == 7 && state.HasCardFx && buffer[i] == state.FxSeq)
+        {
+            int at = i + 1;
+            int actor = AvatarSerializer.ReadI32(buffer, ref at);
+            var source = new CardFlightSource(actor, buffer[at], buffer[at + 1]);
+            if (source.Validate()) { state.FlightSource = source; state.FlightSourceSeq = state.FxSeq; }
+        }
+        else if (id == NetProtocol.ExtIdDecisionAttribution && len == 5)
+        {
+            int at = i;
+            int actorId = AvatarSerializer.ReadI32(buffer, ref at);
+            byte flags = buffer[at];
+            if ((flags & ~3) == 0 && ((flags & 1) != 0 ? actorId != 0 : actorId == 0 && flags == 0))
+            {
+                state.HasDecisionAttribution = true;
+                state.DecisionActorId = actorId;
+                state.DecisionPending = (flags & 1) != 0;
+                state.DecisionVisible = (flags & 2) != 0;
+            }
+        }
+        else if (id == NetProtocol.ExtIdDamageDecisionPreview
+                 && DamageDecisionPreviewCodec.TryRead(buffer, i, len, out DamageDecisionPreviewState? preview))
+        {
+            state.DamageDecisionPreview = preview;
         }
         else if (id == NetProtocol.ExtIdDecisionHighlight
                  && NativeDecisionHighlightCodec.TryRead(buffer, i, len, out NativeDecisionHighlightState? highlight))

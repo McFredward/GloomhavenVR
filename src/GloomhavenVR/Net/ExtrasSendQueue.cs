@@ -24,7 +24,9 @@ internal sealed class ExtrasSendQueue
                 ? PresentationPending.SameNativeIdentity(x, y)
                 : a.Identity is UseBarAnimationSnapshot p && b.Identity is UseBarAnimationSnapshot q
                     ? PresentationPending.SameBonusIdentity(p, q)
-                    : a.Identity is NativeBoardState m && b.Identity is NativeBoardState n && m.Generation == n.Generation;
+                    : a.Identity is CardAppearanceSnapshot c && b.Identity is CardAppearanceSnapshot d
+                        ? CardAppearanceSnapshot.SameIdentity(c, d)
+                        : a.Identity is NativeBoardState m && b.Identity is NativeBoardState n && m.Generation == n.Generation;
     }
     private double _next;
     private ulong _sequence;
@@ -101,6 +103,7 @@ internal sealed class ExtrasSendScheduler
     private readonly ExtrasSendQueue _animation;
     private readonly ExtrasSendQueue _plumes;
     private readonly ExtrasSendQueue _board;
+    private readonly ExtrasSendQueue _appearance;
     private byte[]? _heldPage;
     private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
     private readonly byte _animationType;
@@ -115,6 +118,8 @@ internal sealed class ExtrasSendScheduler
             preserveFirst: true, snapshotLimit: CardPlumeCodec.MaxSize);
         _board = new ExtrasSendQueue(sequence, NetProtocol.MsgNativeBoard, NetProtocol.MsgNativeBoardFragments,
             preserveFirst: true, snapshotLimit: NativeBoardCodec.MaxSize);
+        _appearance = new ExtrasSendQueue(sequence, NetProtocol.MsgCardAppearance, NetProtocol.MsgCardAppearanceFragments,
+            preserveFirst: true, snapshotLimit: CardAppearanceCodec.MaxSize);
         for (int slot = 8; slot < _native.Length; slot++)
             _native[slot] = new ExtrasSendQueue((sequence & ~31UL) | (uint)slot,
                 NetProtocol.MsgNativeUseBar, NetProtocol.MsgNativeUseBarFragments,
@@ -137,6 +142,11 @@ internal sealed class ExtrasSendScheduler
         {
             if (identity is not NativeBoardState && NativeBoardCodec.TryRead(snapshot, length, out NativeBoardState? board)) identity = board;
             _board.Enqueue(snapshot, length, identity);
+        }
+        else if (type == NetProtocol.MsgCardAppearance)
+        {
+            if (identity is not CardAppearanceSnapshot && CardAppearanceCodec.TryRead(snapshot, length, out CardAppearanceSnapshot? appearance)) identity = appearance;
+            _appearance.Enqueue(snapshot, length, identity);
         }
         else if (type == NetProtocol.MsgCardPlume) _plumes.Enqueue(snapshot, length);
         else if (type == NetProtocol.MsgNativeUseBar && nativeSlot >= 8 && nativeSlot < 32)
@@ -180,13 +190,14 @@ internal sealed class ExtrasSendScheduler
         byte[]? result = announcement;
         // Empty streams cost no turn. With only the original two streams populated this is
         // still exactly two animation pages followed by one waiting presence page.
-        for (int attempt = 0; result == null && attempt < 7; attempt++)
+        for (int attempt = 0; result == null && attempt < 8; attempt++)
         {
             int turn = _turn;
-            _turn = (_turn + 1) % 7;
+            _turn = (_turn + 1) % 8;
             result = turn < 2 ? _animation.Next(now)
                 : turn == 2 ? _presence.Next(now)
-                : turn == 3 ? _plumes.Next(now) : turn == 6 ? _board.Next(now) : NextNative(now);
+                : turn == 3 ? _plumes.Next(now) : turn == 6 ? _board.Next(now)
+                : turn == 7 ? _appearance.Next(now) : NextNative(now);
         }
         return result;
     }
@@ -205,7 +216,7 @@ internal sealed class ExtrasSendScheduler
 
     internal void Clear()
     {
-        _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _heldPage = null;
+        _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _heldPage = null;
         for (int i = 8; i < _native.Length; i++) _native[i].Clear();
         _next = 0; _turn = 0; _nativeCursor = 8;
     }

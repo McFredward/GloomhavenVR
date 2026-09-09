@@ -11,7 +11,7 @@ internal static class PresentationBatch
     internal static bool ChildType(int type) => type == NetProtocol.MsgExtras
         || type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments
         || type == NetProtocol.MsgCardPlumeFragments || type == NetProtocol.MsgNativeUseBarFragments
-        || type == NetProtocol.MsgNativeBoardFragments;
+        || type == NetProtocol.MsgNativeBoardFragments || type == NetProtocol.MsgCardAppearanceFragments;
 
     internal static byte[] Write(List<byte[]> pages)
     {
