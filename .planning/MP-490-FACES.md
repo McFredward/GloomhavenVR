@@ -78,3 +78,20 @@ were restored, and no worker branch was pushed.
 
 These checks establish source behavior and wire invariants. They cannot prove the first rendered
 headset frame, asset arrival latency, or perceived timing. Those remain hardware verification.
+
+## Final local short-rest flight correction
+
+The final cross-lane review found that the transient local fallback burn slab already honored
+short-rest coverage, but the ordinary live VRCard flight retained its original front. The current
+ruling covers short-rest burn flights locally as well as remotely. `VRCard.FlyToPile` now accepts
+an optional `coverFace` flag, defaulting to false; the flight lane supplies it only from the
+captured short-rest provenance at its three burn launch sites.
+
+Coverage preserves the existing fitted backing mesh and uses the existing ability back material
+on both surfaces. The mod-owned canvas group hides front artwork without disabling the native
+widget or stopping its effects; nested groups temporarily obey the parent. Original material
+arrays, alpha and group flags are restored on cancellation, regrab, detach, pool return and
+completion. A new flight started synchronously by completion retains its own coverage choice.
+Ordinary local hand cards and action damage burns retain their front presentation. Source guards
+include a negative control removing the actual launch call. Final integration gates cover this
+last addition; no headset result is claimed.
