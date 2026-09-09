@@ -740,7 +740,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 "this peer's board is not being drawn (RemoteBoardGate)");
             PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.ActiveMatrix, _owner.PlayerId, 0, 0,
                 "this peer's board is not being drawn (RemoteBoardGate)");
-            SetActive(false);
+            SetActive(false, !_owner.HasBoard ? "received HasBoard=false" : "RemoteBoards=Off");
             return;
         }
 
@@ -793,9 +793,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // re-entry rebuild snaps to the peer's current pose and layout rather than easing in
             // from the origin.
             if (!RemoteBoardScenarioGate.Open)
-                Destroy();
+                Destroy("scenario gate closed");
             else
-                SetActive(false);
+                SetActive(false, "action-only board gate closed");
 
             return;
         }
@@ -807,7 +807,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         {
             VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] style switch " +
                               $"{_tray.Style} → {_owner.BoardStyle} — rebuilding from the new prefab.");
-            Destroy();
+            Destroy("owner board style changed");
         }
         // The peer's synced SLOT-CARD SIZE changed (extension record 11 — a live edit of their
         // [Cards] CardWidth / SlotOverlayScale, or the record appearing on the first packet after a
@@ -825,7 +825,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] tuning change (extension record " +
                               $"28): {_owner.BoardTuning} — rebuilding the board visuals at the " +
                               "layout the owner actually sees.");
-            Destroy();
+            Destroy("owner board tuning changed");
         }
         else if (_root != null && (Mathf.Abs(SlotCardW - _builtSlotCardW) > 0.0004f
                                    || Mathf.Abs(SlotFrameW - _builtSlotFrameW) > 0.0004f))
@@ -834,11 +834,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                               $"{_builtSlotCardW * 1000f:0.0} → {SlotCardW * 1000f:0.0} mm " +
                               "(extension record 11) — rebuilding the board visuals at the " +
                               "owner's real card size.");
-            Destroy();
+            Destroy("owner slot-card size changed");
         }
         EnsureBuilt();
         if (_root == null) return; // required native asset is being recovered
-        SetActive(true);
+        SetActive(true, "received board and scenario/mode gates allow presentation");
 
         // Place at the REAL synced world transform. The wire carries the OWNER's exact pose
         // (full quantized quaternion — the Frei movement scheme adds no axis the pose doesn't
@@ -2943,6 +2943,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _root = new GameObject($"GloomhavenVR.RemoteControlBoard[{_owner.PlayerId}]");
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
+        LogVisibilityEdge("CREATED", "new remote board root; content and pose are not initialized yet", null);
 
         // The peer's OWN board layout — their synced style, plus every dial they have moved off
         // the shipped default (extension record 28). Every dock seat below is read out of it, so
@@ -2966,7 +2967,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _tray = RemoteTrayVisual.Build(_root.transform, _owner.BoardTuning);
         if (_tray == null)
         {
-            Destroy();
+            Destroy("native board asset build did not resolve");
             _nextTrayProbeAt = Time.unscaledTime + TrayProbeSeconds;
             return;
         }
@@ -3273,14 +3274,40 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _loggedContent = string.Empty; // the next visible refresh must re-state what is drawn
     }
 
-    private void SetActive(bool active)
+    private void SetActive(bool active, string reason)
     {
-        if (_root != null && _root.activeSelf != active)
-            _root.SetActive(active);
+        if (_root == null || _root.activeSelf == active) return;
+        bool before = _root.activeSelf;
+        _root.SetActive(active);
+        LogVisibilityEdge("ACTIVE_CHANGED", reason, before);
     }
 
-    public void Destroy()
+    /// <summary>Measured root transitions only. A missing board frame was reported during a
+    /// long-rest burn in build 491, but that capture had no HasBoard/root-active history. These
+    /// edges distinguish an actual root hide/rebuild from a per-renderer or compositor defect;
+    /// they do not claim that an active object was rendered. No actor lookup or renderer sweep.</summary>
+    private void LogVisibilityEdge(string edge, string reason, bool? before)
     {
+        GameObject? root = _root;
+        if (root == null) return;
+        Transform pose = root.transform;
+        CanvasGroup? group = root.GetComponent<CanvasGroup>();
+        int focusActor = Board.CharacterFocus.FocusIdForPeer(_owner.PlayerId);
+        VRLog.Note("Net", $"REMOTE BOARD VISIBILITY [player {_owner.PlayerId}]: {edge} "
+            + $"frame={Time.frameCount} t={Time.unscaledTime:F3}s root={root.GetInstanceID()} "
+            + $"activeSelf={(before.HasValue ? before.Value.ToString() : "n/a")}->{root.activeSelf} "
+            + $"activeInHierarchy={root.activeInHierarchy} HasBoard={_owner.HasBoard} "
+            + $"scenarioGate={RemoteBoardScenarioGate.Open} mode={RemoteBoardGate.Mode} "
+            + $"focusActor={focusActor} (synced focus; 0=unstated, not a fallback actor lookup) "
+            + $"rootAlpha={(group != null ? group.alpha : 1f):F3} "
+            + $"position={pose.position} rotation={pose.rotation} scale={pose.lossyScale} "
+            + $"reason={reason}. Root state only, not proof of a rendered pixel; "
+            + "DESTROY_REQUESTED is Unity's deferred destruction request.");
+    }
+
+    public void Destroy(string reason = "avatar or module lifecycle teardown")
+    {
+        if (_root != null) LogVisibilityEdge("DESTROY_REQUESTED", reason, _root.activeSelf);
         _tag?.Destroy();
         _tag = null;
         _focusOutline?.Destroy();

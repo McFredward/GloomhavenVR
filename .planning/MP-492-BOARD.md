@@ -101,12 +101,30 @@ cannot distinguish a transient root gate from a rendering/order/compositor
 artifact. A content census sampled before or after the event cannot close that
 gap.
 
-If the event recurs, useful targeted evidence would pair the observed frame/time
-with the remote board's root instance and active state, current HasBoard flag,
-board pose/scale, and delivered fade alpha. Record changes at the actual receiver
-and root-visibility seams rather than inferring them from card state. This is a
-proposed measurement, not a behavior change silently shipped as a fix.
+## Added transition diagnostic
 
-Validation for this lane: read-only inspection of the current source and both
-clients' LogOutput/Player logs, plus `git diff --check` for this report. No runtime
-code or tests changed; no headset rendering outcome is claimed.
+After the initial read-only report, the integration review requested a narrow
+measurement for the next reproduction. `RemoteControlBoard` now emits
+`REMOTE BOARD VISIBILITY` only when its root is created, actually changes
+`activeSelf`, or is submitted for Unity's deferred destruction. Stable visible
+and stable hidden frames emit nothing. Existing gate and rebuild call sites pass
+an explicit reason; their decisions and lifecycle operations are unchanged.
+
+Each edge includes player, frame/time, root instance ID, before/after activeSelf,
+actual activeInHierarchy, received HasBoard, scenario gate, visibility mode,
+synced focus actor ID, root CanvasGroup alpha, pose and scale. The focus ID is
+labelled as the transmitted focus, not a newly resolved fallback actor. Creation
+is labelled as preceding content/pose initialization; destruction is labelled as
+a request, not evidence that a rendered pixel has already disappeared. There is
+no added actor-model lookup, renderer enumeration, wire record or per-frame log.
+Native material changes and compositor outcomes remain outside this instrument.
+
+If the event recurs, an ACTIVE_CHANGED-to-false or DESTROY_REQUESTED line can now
+attribute an actual board-root transition. Absence of such an edge narrows the
+search toward rendering/order/materials and does not prove the picture was fine.
+No speculative visibility/fade behavior change is shipped as a fix.
+
+Validation: both clients' LogOutput/Player logs and source paths inspected;
+`git diff --check` passed; strict Release build passed with 0 errors and 0 warnings;
+existing wire suite passed 251752 assertions. No tests were added for this
+observation-only change. No headset rendering outcome is claimed.
