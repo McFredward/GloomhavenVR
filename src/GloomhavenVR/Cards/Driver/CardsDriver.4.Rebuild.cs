@@ -3770,6 +3770,18 @@ internal sealed partial class CardsDriver
         // their inactive game widget or from their independently advanced animation clock.
         bool release = BurnFlightCompletion.MayRelease(effectActive, losingCards, held,
             BurnEffectStartGraceSeconds);
+        CPlayerActor? actor = widget.PlayerActor;
+        if (actor != null && !CardsGameApi.ControlsActor(actor)
+            && Net.NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out _))
+        {
+            Net.CardFxAnchor origin = BurnOrPileOrigin(widget, card != null ? _tray.RecessSeatOfCard(card) : -1);
+            Net.CardFlightSource? source = _activeExitOrigins.TryGetValue(widget, out Net.CardFlightSource activeSource)
+                ? activeSource : new Net.CardFlightSource(Net.NetFigures.StableActorId(actor), 0, 0);
+            release = Net.CardFlightVisibility.TryConsumeOwnerRelease(Net.NetFigures.StableActorId(actor),
+                origin, source, out byte ownerFlags);
+            if (release && Net.CardFlightVisibility.Covered(ownerFlags))
+                Net.CardFlightVisibility.MarkShortRest(widget.AbilityCard);
+        }
 
         if (!release)
         {

@@ -125,6 +125,17 @@ internal sealed class RemoteCardFx
         public float ToWidth = RemoteHandFan.DefaultCardWidth;
     }
 
+    private readonly struct PendingFlight
+    {
+        internal PendingFlight(byte endpoints, byte flags, CardFlightSource? source)
+        { Endpoints = endpoints; Flags = flags; Source = source; ReceivedAt = Time.unscaledTime; }
+        internal readonly byte Endpoints, Flags;
+        internal readonly CardFlightSource? Source;
+        internal readonly float ReceivedAt;
+    }
+    private readonly List<PendingFlight> _pending = new(MaxFlights);
+    private const float ResolveSeconds = 2f;
+
     private readonly List<Flight> _flights = new(MaxFlights);
     private GameObject? _root;
     private int _played;   // diagnostics: how many flights this avatar has played
@@ -184,6 +195,13 @@ internal sealed class RemoteCardFx
     /// </summary>
     public void Play(byte endpoints, byte flags = 0, CardFlightSource? source = null)
     {
+        if (TryPlay(endpoints, flags, source)) return;
+        if (_pending.Count >= MaxFlights) _pending.RemoveAt(0);
+        _pending.Add(new PendingFlight(endpoints, flags, source));
+    }
+
+    private bool TryPlay(byte endpoints, byte flags, CardFlightSource? source)
+    {
         // THE WIRE FRAME. Play is called synchronously from RemoteAvatar's packet apply the moment
         // the FX sequence changes, so this IS the frame the wire named the flight — see the TIMING
         // clause of the FLIGHT FACE line for what a non-zero difference would mean.
@@ -209,18 +227,28 @@ internal sealed class RemoteCardFx
                                     + "all (grep 'Remote board scenario gate' — the dial is not what "
                                     + "shut this) ") +
                               "right now, and this flight starts or ends on their board furniture.");
-            return;
+            return true;
         }
         if (!TryResolve(from, out Vector3 a) || !TryResolve(to, out Vector3 b))
         {
             VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} SKIPPED " +
                               "(endpoint unresolved — no synced board pose or the hand is not tracked).");
-            return;
+            return true;
         }
+
+        ScenarioRuleLibrary.CAbilityCard? departed = null;
+        Vector3 departedCell = default;
+        // MB490: the cosmetic packet can beat the model's destination-list update. Wait for
+        // this exact previous active seat; falling through would use an unrelated recess face
+        // and fly from the active column's centre while the source card remains in its cell.
+        if (from == CardFxAnchor.Active && !RemoteActiveDepartures.TryTake(_owner.PlayerId,
+            source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId)
+                : RemoteBoardFocus.DisplayedActor(_owner, out _), to, source, out departed, out departedCell))
+            return false;
 
         Flight f = Acquire();
         if (f.Go == null)
-            return;
+            return true;
         // A RECYCLED SLAB MUST NOT INHERIT THE LAST CARD'S IDENTITY. Acquire() hands back a parked
         // flight, and an ActiveCardId left on it would blank a matrix cell for a card that is not in
         // the air. ResolveFace re-stamps it below when this flight really is one.
@@ -303,13 +331,10 @@ internal sealed class RemoteCardFx
 
         // ─── THE FACE (2026-09-06 report item 5) ────────────────────────────────────────────────
         string faceRule;
-        if (from == CardFxAnchor.Active && RemoteActiveDepartures.TryTake(_owner.PlayerId,
-            source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId)
-                : RemoteBoardFocus.DisplayedActor(_owner, out _), to, source, out var departed, out Vector3 cell)
-            && departed != null)
+        if (from == CardFxAnchor.Active && departed != null)
         {
             if (_owner.TryDrawnBoardPose(out Vector3 bp, out Quaternion br, out float bs))
-                a = bp + br * (cell * bs);
+                a = bp + br * (departedCell * bs);
             f.From = a;
             f.Arc = Mathf.Max(CardHeight * MinArcCardHeights * scale,
                 Vector3.Distance(a, b) * ArcFraction);
@@ -327,8 +352,7 @@ internal sealed class RemoteCardFx
         SetFrontFace(f, showsBack: !f.HasFace);
 
         f.Go.transform.SetPositionAndRotation(a, f.Rotation);
-        if (!f.Go.activeSelf)
-            f.Go.SetActive(true);
+        f.Go.SetActive(CanDrawFlight(f));
 
         _played++;
         VRLog.Info("Net", $"Remote card FX [player {_owner.PlayerId}]: {from} -> {to} playing " +
@@ -393,6 +417,7 @@ internal sealed class RemoteCardFx
             + "card had in the recess for the whole arc), so a BACK here is a 1:1 breach. No card "
             + "identity crossed the wire: the face is this client's own read of the card its OWN "
             + "mirror was drawing in that recess.");
+        return true;
     }
 
     /// <summary>
@@ -486,7 +511,7 @@ internal sealed class RemoteCardFx
         f.FaceCard = null;
         f.FaceActor = null;
         f.ShortRestBurn = to == CardFxAnchor.Burnt
-            && (CardFlightVisibility.Covered(flags) || _owner.ShortRestInProgress || RevealGate.IsSecretSelectionPhase);
+            && (CardFlightVisibility.Covered(flags) || _owner.ShortRestInProgress);
         f.Art?.HideFront();
         // A GUARD ON THE WIRE VOCABULARY, not a live sender's arm — see this method's doc for the
         // enumeration of all nine announcement sites (none has from == HandFan) and for why the one
@@ -725,6 +750,11 @@ internal sealed class RemoteCardFx
         _ => $"CAUSE = {verdict} (unexpected on a refusal path — read this method)",
     };
 
+    // A public flight must not flash a back while artwork is loading. Keep its timeline
+    // running while withholding the slab; covered selection/short-rest bodies remain visible.
+    private static bool CanDrawFlight(Flight f) => f.ShortRestBurn
+        || RevealGate.IsSecretSelectionPhase || f.HasFace;
+
     private static void RefreshFaceVisibility(Flight f)
     {
         bool allowed = !f.ShortRestBurn && f.FaceCard != null
@@ -763,12 +793,20 @@ internal sealed class RemoteCardFx
 
     public void Tick(float dt)
     {
+        for (int i = 0; i < _pending.Count;)
+        {
+            PendingFlight pending = _pending[i];
+            if (Time.unscaledTime - pending.ReceivedAt > ResolveSeconds
+                || TryPlay(pending.Endpoints, pending.Flags, pending.Source)) _pending.RemoveAt(i);
+            else i++;
+        }
         for (int i = 0; i < _flights.Count; i++)
         {
             Flight f = _flights[i];
             if (!f.Active || f.Go == null)
                 continue;
             RefreshFaceVisibility(f);
+            f.Go.SetActive(CanDrawFlight(f));
             f.Elapsed += Mathf.Max(dt, 0f);
             float t = NetProtocol.CardFxSeconds > 0f
                 ? Mathf.Clamp01(f.Elapsed / NetProtocol.CardFxSeconds)
@@ -1195,6 +1233,7 @@ internal sealed class RemoteCardFx
 
     public void Destroy()
     {
+        _pending.Clear();
         for (int i = 0; i < _flights.Count; i++)
             _flights[i].Art?.Destroy();
         _flights.Clear();

@@ -1,4 +1,6 @@
 using System.Runtime.CompilerServices;
+using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace GloomhavenVR.Net;
 
@@ -35,5 +37,57 @@ internal static class CardFlightVisibility
             && (alreadyLost || !laterRound);
 
     internal static bool Covered(byte flags) => (flags & CoveredBurnBit) != 0;
-    internal static void Reset() => s_offered = new ConditionalWeakTable<object, object>();
+    private readonly struct OwnerRelease
+    {
+        internal OwnerRelease(int actor, byte endpoints, byte flags, CardFlightSource? source, double received)
+        { Actor = actor; Endpoints = endpoints; Flags = flags; Source = source; Received = received; }
+        internal readonly int Actor;
+        internal readonly byte Endpoints, Flags;
+        internal readonly CardFlightSource? Source;
+        internal readonly double Received;
+    }
+    private static readonly List<OwnerRelease> OwnerReleases = new(8);
+    private static double Now => (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency;
+
+    // A local read-only character view sees the same native burn as that character's owner.
+    // Its inactive proxy timeline cannot authorize an earlier flight. The integrator calls
+    // this only after validating the canonical sender and deduplicating its semantic event.
+    internal static void ObserveOwnerRelease(int actorId, byte endpoints, byte flags, CardFlightSource? source)
+    {
+        if (actorId == 0 || NetCardFx.To(endpoints) != CardFxAnchor.Burnt
+            || (source.HasValue && source.Value.ActorId != actorId)) return;
+        PruneOwnerReleases();
+        if (OwnerReleases.Count >= 32) OwnerReleases.RemoveAt(0);
+        OwnerReleases.Add(new OwnerRelease(actorId, endpoints, flags, source, Now));
+    }
+
+    internal static bool TryConsumeOwnerRelease(int actorId, CardFxAnchor origin,
+        CardFlightSource? source, out byte flags)
+    {
+        flags = 0;
+        PruneOwnerReleases();
+        int recess = origin == CardFxAnchor.Slot0 ? 0 : origin == CardFxAnchor.Slot1 ? 1 : -1;
+        for (int i = 0; i < OwnerReleases.Count; i++)
+        {
+            OwnerRelease release = OwnerReleases[i];
+            if (!BurnReleasePolicy.Matches(actorId, origin == CardFxAnchor.Active, recess, source,
+                release.Actor, NetCardFx.From(release.Endpoints), release.Source)) continue;
+            flags = release.Flags;
+            OwnerReleases.RemoveAt(i);
+            return true;
+        }
+        return false;
+    }
+
+    private static void PruneOwnerReleases()
+    {
+        double now = Now;
+        OwnerReleases.RemoveAll(release => now - release.Received > 8d);
+    }
+
+    internal static void Reset()
+    {
+        s_offered = new ConditionalWeakTable<object, object>();
+        OwnerReleases.Clear();
+    }
 }

@@ -23,6 +23,60 @@ internal static class BurnFlightCompletionVectors
         t.True(!new CardFlightSource(0, 0, 0).Validate(), "missing actor refused");
         t.True(!new CardFlightSource(4, 2, 2).Validate(), "out of range active seat refused");
         t.True(!new CardFlightSource(4, 1, 0).Validate(), "actor only source has no seat");
+        t.Case("burn: addressed release and renderer ownership survive focus changes");
+        var first = new CardFlightSource(4, 0, 2);
+        var second = new CardFlightSource(4, 1, 2);
+        var resized = new CardFlightSource(4, 0, 1);
+        t.True(BurnReleasePolicy.Matches(4, true, -1, first, 4, CardFxAnchor.Active, first),
+            "exact active departure releases its own claim");
+        t.True(!BurnReleasePolicy.Matches(4, true, -1, first, 5, CardFxAnchor.Active, first),
+            "changing focus cannot let another actor release the old burn");
+        t.True(!BurnReleasePolicy.Matches(4, true, -1, first, 4, CardFxAnchor.Active, second),
+            "second active card cannot release first claim");
+        t.True(!BurnReleasePolicy.Matches(4, true, -1, first, 4, CardFxAnchor.Active, resized),
+            "same seat in resized active population is not the old source");
+        t.True(!BurnReleasePolicy.Matches(4, true, -1, first, 4, CardFxAnchor.Board, null),
+            "generic board event cannot consume an active departure");
+        t.True(!BurnReleasePolicy.Matches(4, false, 0, null, 4, CardFxAnchor.Active, first),
+            "active departure cannot consume a recess burn");
+        t.True(BurnReleasePolicy.Matches(4, false, 0, null, 4, CardFxAnchor.Slot0, null),
+            "same actor and recess release normally");
+        t.True(!BurnReleasePolicy.Matches(4, false, 0, null, 4, CardFxAnchor.Slot1, null),
+            "paired sacrifice releases remain distinct");
+        t.True(!BurnReleasePolicy.OwnsBoard(4, 5), "old actor burn cannot suppress new actor recess");
+        t.True(BurnReleasePolicy.OwnsBoard(4, 4), "displayed actor burn suppresses its original renderer");
+        t.True(!BurnReleasePolicy.OwnsBoard(0, 0), "unknown actors grant no renderer ownership");
+        string remoteBurn = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteBurnFx.cs"));
+        string drive = RemoteCapVisibilityVectors.Method(remoteBurn, "private void Drive(");
+        t.True(HasBurnCancellation(drive), "recovered or destroyed burn drops claim and presentation");
+        t.True(!HasBurnCancellation(drive.Replace("DropClaim(b.ClaimId)", "NoOp()")),
+            "negative control: retaining claim after cancellation is detected");
+        t.Case("burn: local read-only view consumes canonical release exactly once");
+        CardFlightVisibility.Reset();
+        byte slot0Burn = (byte)(((byte)CardFxAnchor.Burnt << 4) | (byte)CardFxAnchor.Slot0);
+        byte slot1Burn = (byte)(((byte)CardFxAnchor.Burnt << 4) | (byte)CardFxAnchor.Slot1);
+        CardFlightVisibility.ObserveOwnerRelease(4, slot0Burn, 1, new CardFlightSource(4, 0, 0));
+        CardFlightVisibility.ObserveOwnerRelease(4, slot1Burn, 0, new CardFlightSource(4, 0, 0));
+        t.True(!CardFlightVisibility.TryConsumeOwnerRelease(5, CardFxAnchor.Slot0, null, out _),
+            "another displayed actor cannot spend the receipt");
+        t.True(CardFlightVisibility.TryConsumeOwnerRelease(4, CardFxAnchor.Slot1, null, out byte flags1)
+            && flags1 == 0, "second slot consumes independently without inheriting short-rest cover");
+        t.True(CardFlightVisibility.TryConsumeOwnerRelease(4, CardFxAnchor.Slot0, null, out byte flags0)
+            && flags0 == 1, "first slot retains explicit covered provenance");
+        t.True(!CardFlightVisibility.TryConsumeOwnerRelease(4, CardFxAnchor.Slot0, null, out _),
+            "canonical release cannot replay after consumption");
+        CardFlightVisibility.ObserveOwnerRelease(4, slot0Burn, 0, new CardFlightSource(5, 0, 0));
+        t.True(!CardFlightVisibility.TryConsumeOwnerRelease(4, CardFxAnchor.Slot0, null, out _),
+            "mismatched source actor is refused before registry insertion");
+        CardFlightVisibility.ObserveOwnerRelease(4, slot0Burn, 0, null);
+        CardFlightVisibility.Reset();
+        t.True(!CardFlightVisibility.TryConsumeOwnerRelease(4, CardFxAnchor.Slot0, null, out _),
+            "scenario teardown removes pending receipts");
+        string remoteFlight = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteCardFx.cs"));
+        string tryPlay = RemoteCapVisibilityVectors.Method(remoteFlight, "private bool TryPlay(");
+        t.True(HasDeferredActiveResolve(tryPlay), "active departure waits for its exact model source before acquiring a slab");
+        t.True(!HasDeferredActiveResolve(tryPlay.Replace("return false;", "return true;")),
+            "negative control: skipping unresolved active departure instead of retrying is detected");
         string rebuild = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs"));
         string flight = RemoteCapVisibilityVectors.Method(rebuild, "private bool TryStartFlyToPile(");
         t.True(HasActiveDestinationSwitch(flight), "actual active departures reach model destination switch");
@@ -34,6 +88,19 @@ internal static class BurnFlightCompletionVectors
         t.True(wait >= 0 && launch > wait, "focus change cannot bypass native completion");
         t.True(!flush.Contains("_burnHoldSince.Clear()"), "focus change retains pending old actor holds");
     }
+    private static bool HasDeferredActiveResolve(string body)
+    {
+        int resolve = body.IndexOf("!RemoteActiveDepartures.TryTake", StringComparison.Ordinal);
+        int retry = body.IndexOf("return false;", resolve >= 0 ? resolve : 0, StringComparison.Ordinal);
+        int acquire = body.IndexOf("Flight f = Acquire()", StringComparison.Ordinal);
+        return resolve >= 0 && retry > resolve && acquire > retry;
+    }
+
+    private static bool HasBurnCancellation(string body) => body.Contains("!b.HandoverLogged")
+        && body.Contains("!actor.CharacterClass.LostAbilityCards.Contains(card)")
+        && body.Contains("!actor.CharacterClass.PermanentlyLostAbilityCards.Contains(card)")
+        && body.Contains("DropClaim(b.ClaimId)") && body.Contains("b.Active = false");
+
     private static bool HasActiveDestinationSwitch(string body) =>
         body.Contains("_lastActiveCards.Contains(card)") && body.Contains("RoundCardExitOf(hand, card")
         && body.Contains("case RoundCardExit.Lost:") && body.Contains("case RoundCardExit.Discarded:");
