@@ -541,4 +541,10 @@
   <ItemGroup><Compile Include="PresentationSaturationVectors.cs" /></ItemGroup>
   <ItemGroup><Compile Include="NativeBoardVectors.cs" /></ItemGroup>
   <ItemGroup><Compile Include="LaserBarOwnershipVectors.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/Remote/InitiativeSelectionOrder.cs" />
+    <Compile Include="InitiativeSelectionOrderVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/Remote/RemoteCapVisibility.cs" />
+    <Compile Include="RemoteCapVisibilityVectors.cs" />
+  </ItemGroup>
 </Project>

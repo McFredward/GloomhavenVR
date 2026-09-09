@@ -16,6 +16,8 @@ internal static class Program
             // vector below is only meaningful while they agree.
             Shims.VerifyAgainstSource(repoRoot);
             LaserBarOwnershipVectors.Run(t, repoRoot);
+            InitiativeSelectionOrderVectors.Run(t, repoRoot);
+            RemoteCapVisibilityVectors.Run(t);
             GoldenVectors.Run(t);
             StoryVectors.Run(t);
             // The 3D map room's two records (20 + 21). Same reason StoryVectors is on this list,
