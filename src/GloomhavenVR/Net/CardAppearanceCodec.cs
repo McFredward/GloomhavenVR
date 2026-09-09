@@ -6,7 +6,9 @@ namespace GloomhavenVR.Net;
 /// <summary>Additive58 node pages in message12. Every page belongs to one atomic snapshot.</summary>
 internal static class CardAppearanceCodec
 {
-    internal const int MaxSize = 45056;
+    // 32 complete legacy cards + provenance + 56 supplemental groups each = 57,766 bytes.
+    // Keep the complete atomic frame below the existing transport's ushort length boundary.
+    internal const int MaxSize = 58368;
     internal const byte Message = NetProtocol.MsgCardAppearance, FragmentMessage = NetProtocol.MsgCardAppearanceFragments,
         Record = NetProtocol.ExtIdCardAppearance;
     internal static int Write(CardAppearanceSnapshot snapshot, byte[] buffer)
@@ -48,6 +50,23 @@ internal static class CardAppearanceCodec
             AvatarSerializer.WriteI32(buffer, ref at, state.SourceActorId);
             AvatarSerializer.WriteU32(buffer, ref at, state.PoolSeat | (uint)state.PoolCount << 16);
         }
+        for (int i = 0; i < snapshot.States.Length; i++)
+        {
+            var groups = snapshot.States[i].ExtraGroups;
+            for (int first = 0; first < groups.Length; first += 28)
+            {
+                int count = Math.Min(28, groups.Length - first);
+                buffer[at++] = NetProtocol.ExtIdCardAppearanceGroups;
+                buffer[at++] = (byte)(3 + count * 9);
+                buffer[at++] = (byte)i; buffer[at++] = (byte)groups.Length; buffer[at++] = (byte)first;
+                for (int n = first; n < first + count; n++)
+                {
+                    AvatarSerializer.WriteU32(buffer, ref at, groups[n].Binding);
+                    buffer[at++] = groups[n].Flags;
+                    AvatarSerializer.WriteF32(buffer, ref at, groups[n].Values[0]);
+                }
+            }
+        }
         return at;
     }
     internal static bool TryRead(byte[] buffer, int length, out CardAppearanceSnapshot? snapshot)
@@ -57,12 +76,34 @@ internal static class CardAppearanceCodec
         int at = 0;
         if (AvatarSerializer.ReadU32(buffer, ref at) != NetProtocol.Magic || buffer[at++] != NetProtocol.Version || buffer[at++] != Message) return false;
         var cards = new List<CardAppearanceState>(); var nodes = new List<CardAppearanceNode>();
+        var receivedGroups = new int[CardAppearanceState.CountMax];
         int count = -1, expectedNodes = 0; float time = -1; bool empty = false;
         while (at < length)
         {
             if (at + 2 > length) return false;
             byte record = buffer[at++]; int end = at + 1 + buffer[at++];
             if (end > length) return false;
+            if (record == NetProtocol.ExtIdCardAppearanceGroups)
+            {
+                if (count <= 0 || cards.Count != count || nodes.Count != expectedNodes
+                    || end - at < 12 || (end - at - 3) % 9 != 0) return false;
+                int groupIndex = buffer[at++], groupTotal = buffer[at++], groupFirst = buffer[at++];
+                int pageCount = (end - at) / 9;
+                if (groupIndex >= count || groupTotal == 0 || groupTotal > CardAppearanceState.MaxExtraGroups
+                    || groupFirst != receivedGroups[groupIndex] || groupFirst + pageCount > groupTotal) return false;
+                var groupCard = cards[groupIndex];
+                if (groupFirst == 0) groupCard.ExtraGroups = new CardAppearanceNode[groupTotal];
+                else if (groupTotal != groupCard.ExtraGroups.Length) return false;
+                for (int n = groupFirst; n < groupFirst + pageCount; n++)
+                {
+                    var group = new CardAppearanceNode { Role = 12, Binding = AvatarSerializer.ReadU32(buffer, ref at), Flags = buffer[at++] };
+                    group.Values[0] = AvatarSerializer.ReadF32(buffer, ref at);
+                    if (!group.Validate()) return false;
+                    groupCard.ExtraGroups[n] = group;
+                }
+                receivedGroups[groupIndex] += pageCount;
+                continue;
+            }
             if (record == NetProtocol.ExtIdCardAppearanceProvenance)
             {
                 if (end - at != 9) return false;
@@ -112,6 +153,7 @@ internal static class CardAppearanceCodec
         }
         if (count < 0 || cards.Count != count || count > 0 && nodes.Count != expectedNodes) return false;
         if (count > 0) cards[cards.Count - 1].Nodes = nodes.ToArray();
+        for (int i = 0; i < cards.Count; i++) if (receivedGroups[i] != cards[i].ExtraGroups.Length) return false;
         try { snapshot = new CardAppearanceSnapshot(time, cards.ToArray()); return true; }
         catch (ArgumentException) { return false; }
     }

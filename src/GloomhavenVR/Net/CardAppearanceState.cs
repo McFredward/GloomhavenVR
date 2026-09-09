@@ -32,11 +32,15 @@ internal sealed class CardAppearanceNode
 internal sealed class CardAppearanceState
 {
     internal const int CountMax = 32;
+    // Record58 retains its original eight group roles; record69 carries the remaining groups.
+    // This is a transport capacity, never a limit on constructing or resetting native artwork.
+    internal const int MaxExtraGroups = 56;
     internal int ActorId;
     internal int SourceActorId;
     internal ushort PoolSeat, PoolCount;
     internal byte FaceCode, ListCount;
     internal CardAppearanceNode[] Nodes = Array.Empty<CardAppearanceNode>();
+    internal CardAppearanceNode[] ExtraGroups = Array.Empty<CardAppearanceNode>();
     internal bool Validate()
     {
         if ((SourceActorId == 0 ? PoolSeat != 0 || PoolCount != 0 : PoolCount == 0 || PoolCount > 32768 || (PoolSeat & 32767) >= PoolCount)
@@ -44,7 +48,8 @@ internal sealed class CardAppearanceState
             || (!NetProtocol.HeldFaceNamesCard(FaceCode)
                 && NetProtocol.HeldFaceList(FaceCode) != CardPlumeState.RoundList)
             || NetProtocol.HeldFaceIndex(FaceCode) == NetProtocol.HeldFaceIndexUnknown
-            || Nodes == null || Nodes.Length == 0 || Nodes.Length > CardAppearanceNode.RoleCount) return false;
+            || Nodes == null || Nodes.Length == 0 || Nodes.Length > CardAppearanceNode.RoleCount
+            || ExtraGroups == null || ExtraGroups.Length > MaxExtraGroups) return false;
         int roles = 0;
         var groups = new System.Collections.Generic.HashSet<uint>();
         foreach (CardAppearanceNode node in Nodes)
@@ -53,21 +58,29 @@ internal sealed class CardAppearanceState
             roles |= 1 << node.Role;
             if (node.Role >= 12 && !groups.Add(node.Binding)) return false;
         }
+        foreach (CardAppearanceNode node in ExtraGroups)
+            if (node == null || node.Role != 12 || !node.Validate() || !groups.Add(node.Binding)) return false;
         return true;
     }
     internal CardAppearanceState Copy()
     {
         var copy = new CardAppearanceState { ActorId = ActorId, SourceActorId = SourceActorId, PoolSeat = PoolSeat, PoolCount = PoolCount, FaceCode = FaceCode, ListCount = ListCount,
-            Nodes = new CardAppearanceNode[Nodes.Length] };
+            Nodes = new CardAppearanceNode[Nodes.Length], ExtraGroups = new CardAppearanceNode[ExtraGroups.Length] };
         for (int i = 0; i < Nodes.Length; i++) copy.Nodes[i] = Nodes[i].Copy();
+        for (int i = 0; i < ExtraGroups.Length; i++) copy.ExtraGroups[i] = ExtraGroups[i].Copy();
         return copy;
     }
     internal static bool Same(CardAppearanceState a, CardAppearanceState b)
     {
-        if (a.SourceActorId != b.SourceActorId || a.PoolSeat != b.PoolSeat || a.PoolCount != b.PoolCount || a.ActorId != b.ActorId || a.FaceCode != b.FaceCode || a.ListCount != b.ListCount || a.Nodes.Length != b.Nodes.Length) return false;
-        for (int i = 0; i < a.Nodes.Length; i++)
+        if (a.SourceActorId != b.SourceActorId || a.PoolSeat != b.PoolSeat || a.PoolCount != b.PoolCount || a.ActorId != b.ActorId || a.FaceCode != b.FaceCode || a.ListCount != b.ListCount) return false;
+        return SameNodes(a.Nodes, b.Nodes) && SameNodes(a.ExtraGroups, b.ExtraGroups);
+    }
+    private static bool SameNodes(CardAppearanceNode[] a, CardAppearanceNode[] b)
+    {
+        if (a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
         {
-            var x = a.Nodes[i]; var y = b.Nodes[i];
+            var x = a[i]; var y = b[i];
             if (x.Role != y.Role || x.Flags != y.Flags || x.Binding != y.Binding || x.Mask != y.Mask) return false;
             for (int j = 0; j < x.Values.Length; j++) if (x.Values[j] != y.Values[j]) return false;
         }

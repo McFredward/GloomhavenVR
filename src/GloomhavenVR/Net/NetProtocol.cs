@@ -71,6 +71,7 @@ internal static class NetProtocol
     public const byte ExtIdSecondHeldFaceActor = 66;
     public const byte ExtIdHeldMapCard = 67;
     public const byte ExtIdCardAppearanceProvenance = 68;
+    public const byte ExtIdCardAppearanceGroups = 69;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;

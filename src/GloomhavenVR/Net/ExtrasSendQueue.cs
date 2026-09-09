@@ -200,14 +200,17 @@ internal sealed class ExtrasSendScheduler
         byte[]? result = announcement;
         // Empty streams cost no turn. With only the original two streams populated this is
         // still exactly two animation pages followed by one waiting presence page.
-        for (int attempt = 0; result == null && attempt < 9; attempt++)
+        // The extended native card hierarchy can fill 58 KiB before compression. Give it two
+        // turns so even incompressible maximum frames finish within the unchanged 32 s assembly
+        // lifetime under full contention. The global event size and 50 ms cadence do not change.
+        for (int attempt = 0; result == null && attempt < 10; attempt++)
         {
             int turn = _turn;
-            _turn = (_turn + 1) % 9;
+            _turn = (_turn + 1) % 10;
             result = turn < 2 ? _animation.Next(now)
                 : turn == 2 ? _presence.Next(now)
                 : turn == 3 ? _plumes.Next(now) : turn == 6 ? _board.Next(now)
-                : turn == 7 ? _appearance.Next(now) : turn == 8 ? _prompt.Next(now) : NextNative(now);
+                : turn == 7 || turn == 8 ? _appearance.Next(now) : turn == 9 ? _prompt.Next(now) : NextNative(now);
         }
         return result;
     }
