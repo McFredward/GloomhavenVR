@@ -668,15 +668,15 @@ internal static class RevealGate
         FaceRule.SelectionPhaseCovered =>
             "SELECTION PHASE — the game's own secret SelectAbilityCardsOrLongRest window is open "
             + "for this remote character, so this card is COVERED (a SHORT REST runs inside this "
-            + "phase and is covered with it: user 2026-09-07 item 6)",
+            + "phase and is covered with it; SHORT-REST burn flights remain covered: user 2026-09-09)",
         FaceRule.ActionPhaseOpen =>
             "ACTION PHASE — no secret is in flight, so the real front is shown (a LONG REST "
             + "resolves here, not in the selection window: user 2026-09-07 item 6)",
         // Historical enum values are retained for compatibility with diagnostic callers only.
         // CardFaces no longer emits these exemptions under the MB487 phase rule.
-        FaceRule.BurnOrActivePublicCard => "RETIRED BURN/ACTIVE EXCEPTION — no longer grants a face",
-        FaceRule.DiscardPileCard => "RETIRED PILE EXCEPTION — no longer grants a face",
-        FaceRule.PublicPopulation => "RETIRED POPULATION EXCEPTION — no longer grants a face",
+        FaceRule.BurnOrActivePublicCard => "BURN EXCEPTION / ACTIVE EXCEPTION: retired for card faces; phase policy applies",
+        FaceRule.DiscardPileCard => "PILE FAN: retired face exception; phase policy applies",
+        FaceRule.PublicPopulation => "PUBLIC POPULATION: retired face exception; phase policy applies",
         FaceRule.MapLoadout =>
             "MAP LOADOUT — no scenario is running, so there is no phase to be secret in",
         _ =>

@@ -547,4 +547,20 @@
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/Remote/RemoteCapVisibility.cs" />
     <Compile Include="RemoteCapVisibilityVectors.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardPresentationPolicy.cs" />
+    <Compile Include="CardVisibilityVectors.cs" />
+    <Compile Include="CardFxVisibilityVectors.cs" />
+  </ItemGroup>
+  <ItemGroup><Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightVisibility.cs" /></ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeDecisionHighlightState.cs" />
+    <Compile Include="NativeDecisionHighlightVectors.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeElementRenderState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeElementRenderCodec.cs" />
+    <Compile Include="NativeElementRenderVectors.cs" />
+  </ItemGroup>
+  <ItemGroup><Compile Include="NativeHighlightPresenceVectors.cs" /></ItemGroup>
 </Project>

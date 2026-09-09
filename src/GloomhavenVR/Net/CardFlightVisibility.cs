@@ -6,7 +6,7 @@ namespace GloomhavenVR.Net;
 /// its actual burn launch. Weak model keys survive widget recycling without retaining a scenario.</summary>
 internal static class CardFlightVisibility
 {
-    internal const byte CoveredBurnBit = 1;
+    internal const byte CoveredBurnBit = NetProtocol.CardFxCoveredBurnBit;
     private static ConditionalWeakTable<object, object> s_offered = new();
     private static readonly object Marker = new();
 

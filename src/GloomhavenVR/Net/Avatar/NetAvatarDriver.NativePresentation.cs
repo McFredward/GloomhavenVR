@@ -28,6 +28,10 @@ internal sealed partial class NetAvatarDriver
         if (NetSession.FlatNetMode || !VRSession.IsRunning || !_transport.IsOnline
             || _transport.LocalPlayerId <= 0) return;
         float now = Time.unscaledTime;
+        // Capture the final owner pixels in the same LateUpdate pass as native board animation.
+        // Presence consumes this immutable snapshot on its next tick, never an unfinished layout.
+        try { _decisionHighlightSnapshot = NativeDecisionHighlightSampler.Sample(); }
+        catch (Exception e) { _decisionHighlightSnapshot = null; LogPhaseError("Sample native decision highlight", e); }
         try { TickNativeBoardSend(now); }
         catch (Exception e) { LogPhaseError("Sample native board", e); }
         try
@@ -190,6 +194,8 @@ internal sealed partial class NetAvatarDriver
         _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
         _sentBoard = null; _nextBoardRefresh = _boardSourceTime = 0;
         NativeBoardSampler.Reset();
+        NativeDecisionHighlightSampler.Reset();
+        _lastSentDecisionHighlight = _decisionHighlightSnapshot = null;
         _sentPlumes = null; _plumeSnapshot = null; _nextPlumeRefresh = _nativeSourceTime = 0;
         Array.Clear(_sentNative, 0, _sentNative.Length);
         Array.Clear(_nativeSnapshots, 0, _nativeSnapshots.Length);

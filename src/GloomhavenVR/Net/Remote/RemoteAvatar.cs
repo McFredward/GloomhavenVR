@@ -73,6 +73,7 @@ internal sealed class RemoteAvatar
     /// <summary>Owner's explicit short-rest window (record 46), reset on every extras packet.</summary>
     internal bool ShortRestInProgress { get; private set; }
     internal UseBarWidgetState[]? UseBarWidgetStates { get; private set; }
+    internal NativeDecisionHighlightState? DecisionHighlight { get; private set; }
     internal uint PresenceRevision { get; private set; }
     internal NativeBoardState? NativeBoardState { get; private set; }
     internal float NativeInitiativeDepthPixels => NativeBoardState?.InitiativeDepthPixels ?? Defaults.InitiativeDepthMaxSpreadPx;
@@ -878,7 +879,7 @@ internal sealed class RemoteAvatar
         _controlBoard.TryActiveCellLocal(cardInstanceId, out boardLocal);
 
     /// <summary>The visible burn slab owns one recess until its animation finishes.</summary>
-    internal void PlayUnclaimedBurnEvent(byte endpoints) => _cardFx.Play(endpoints);
+    internal void PlayUnclaimedBurnEvent(byte endpoints, byte flags = 0) => _cardFx.Play(endpoints, flags);
 
     internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
     internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
@@ -1561,6 +1562,8 @@ internal sealed class RemoteAvatar
     /// Poses are already in world frame (converted by the driver).</summary>
     public void SetExtras(in PresenceState p)
     {
+        // Capture the previous short-rest candidate before this snapshot replaces its seat.
+        _burnFx.ObserveShortRestContext();
         unchecked { PresenceRevision++; }
         HasBoard = p.HasBoard;
         if (p.HasBoard)
@@ -2164,7 +2167,9 @@ internal sealed class RemoteAvatar
             VRLog.Note("Net", $"SHORT REST STATE RECEIVED [player {PlayerId}]: "
                              + $"choosing={p.ShortRestInProgress}; record 46.");
         UseBarWidgetStates = p.UseBarWidgetStates;
+        DecisionHighlight = p.DecisionHighlight;
         ShortRestInProgress = p.ShortRestInProgress;
+        _burnFx.ObserveShortRestContext(); // capture the first open snapshot as well as the closing edge
         HasFanAnchor = p.HasFanAnchor;
         FanAnchorLocal = p.HasFanAnchor ? p.FanAnchorLocal : Vector3.zero;
 
@@ -2211,8 +2216,10 @@ internal sealed class RemoteAvatar
                 // then swallows this event so the same burn cannot also fly as an anonymous back
                 // slab. Every other event - and every burn that mirror could not present - falls
                 // through to the unchanged path below.
-                if (!_burnFx.ConsumesWireEvent(p.FxEndpoints))
-                    _cardFx.Play(p.FxEndpoints);
+                byte visibility = p.HasCardFxVisibility && p.FxVisibilitySeq == p.FxSeq
+                    ? p.FxVisibilityFlags : (byte)0;
+                if (!_burnFx.ConsumesWireEvent(p.FxEndpoints, visibility))
+                    _cardFx.Play(p.FxEndpoints, visibility);
             }
         }
     }

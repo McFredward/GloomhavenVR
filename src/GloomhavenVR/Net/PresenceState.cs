@@ -77,6 +77,15 @@ internal struct PresenceState
     /// <summary>Packed endpoints: low nibble = FROM <see cref="CardFxAnchor"/>, high nibble = TO.</summary>
     public byte FxEndpoints;
 
+    /// <summary>Record54 binds sender-latched visibility to this exact semantic flight sequence.
+    /// Context may already have closed when the queue drains; no card identity is transmitted.</summary>
+    public bool HasCardFxVisibility;
+    public byte FxVisibilitySeq;
+    public byte FxVisibilityFlags;
+
+    /// <summary>Record55: actual owner mandatory-damage highlight, including native Image geometry.</summary>
+    public NativeDecisionHighlightState? DecisionHighlight;
+
     /// <summary>
     /// True when the sender has a control-board PILE BROWSER open this packet (the "Abgelegt" /
     /// "Verbrannt" reading fan — <c>Cards.PileBrowser</c>), wire flag
@@ -1583,6 +1592,10 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>3449 -> 3709 in MB487: flight visibility provenance (54) adds four bytes and the
+    /// original mandatory-highlight output (55) adds at most256. MaxSize3970 retains261 bytes
+    /// of margin and stays below the unchanged4096-byte presence reassembly cap.</para>
+    ///
     /// <para>1801 -> 3449 on 2026-09-08: original active-bonus subwidgets (47) add at most
     /// eight complete 204-byte slot descriptors plus their two-byte TLV headers (1648 bytes).
     /// MaxSize grows to 3710, leaving 261 bytes, greater than the largest single record (257).
@@ -1800,7 +1813,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 3710;
+    public const int MaxSize = 3970;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1828,7 +1841,7 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
+        bool extensions = state.DecisionHighlight != null || (state.HasCardFx && state.HasCardFxVisibility) || UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
                           // Record 34 is written only while a card is really held rigidly, so it
@@ -3159,6 +3172,26 @@ internal static class PresenceSerializer
                 buffer[i++] = NetProtocol.ExtIdUseBarWidgets;
                 buffer[i++] = (byte)payload;
                 UseBarWidgetCodec.Write(widget, buffer, ref i);
+                records++;
+            }
+        }
+        if (state.HasCardFx && state.HasCardFxVisibility && state.FxVisibilitySeq == state.FxSeq
+            && i + 4 <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdCardFxVisibility;
+            buffer[i++] = 2;
+            buffer[i++] = state.FxVisibilitySeq;
+            buffer[i++] = (byte)(state.FxVisibilityFlags & NetProtocol.CardFxCoveredBurnBit);
+            records++;
+        }
+        if (state.DecisionHighlight != null && i + 256 <= buffer.Length)
+        {
+            int payload = NativeDecisionHighlightCodec.Write(state.DecisionHighlight, buffer, i + 2);
+            if (payload > 0 && payload <= 254)
+            {
+                buffer[i++] = NetProtocol.ExtIdDecisionHighlight;
+                buffer[i++] = (byte)payload;
+                i += payload;
                 records++;
             }
         }
@@ -4534,6 +4567,19 @@ internal static class PresenceSerializer
                 state.HasFanSource = true;
                 state.FanSourceList = list;
             }
+        }
+        else if (id == NetProtocol.ExtIdDecisionHighlight
+                 && NativeDecisionHighlightCodec.TryRead(buffer, i, len, out NativeDecisionHighlightState? highlight))
+        {
+            state.DecisionHighlight = highlight;
+        }
+        else if (id == NetProtocol.ExtIdCardFxVisibility && len == 2
+                 && state.HasCardFx && buffer[i] == state.FxSeq
+                 && (buffer[i + 1] & ~NetProtocol.CardFxCoveredBurnBit) == 0)
+        {
+            state.HasCardFxVisibility = true;
+            state.FxVisibilitySeq = buffer[i];
+            state.FxVisibilityFlags = buffer[i + 1];
         }
         else if (id == NetProtocol.ExtIdUseBarWidgets
                  && UseBarWidgetCodec.TryRead(buffer, i, len, out UseBarWidgetState widget))

@@ -1814,7 +1814,8 @@ internal sealed partial class CardsDriver
             + $"peers draw: {(!online ? "n/a (offline)" : front ? "FRONT" : "BACK")} — "
             + Net.RevealGate.RuleText(rule)
             + ". Its accepted short-rest burn flight remains covered, including a phase edge. "
-            + "Record 39 names a model seat independently of face permission.");
+            + "CARD FACE: record 39 names a model seat independently of face permission. "
+            + "BURN EXCEPTION: the older face exemption is superseded by the current phase rule.");
     }
 
     /// <summary>

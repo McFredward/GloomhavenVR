@@ -465,7 +465,36 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 486;
+    public const ushort ModBuild = 487;
+
+
+    //
+    // ModBuild 487 — MB486 multiplayer hardware follow-up (2026-09-09).
+    //   A nearest reachable grab-bar query now runs before native uGUI pointer dispatch;
+    //   activate-on-down widgets behind the bar cannot also receive the carry's trigger pull.
+    //   Existing interactor order, nearer-widget priority and solid/palm arbitration remain.
+    //
+    //   Card faces follow the latest explicit phase rule on every peer surface: action is open,
+    //   selection is covered. Damage choices remain action-phase presentations. Authoritative
+    //   hand/active membership outranks delayed widget CardType for positional addressing.
+    //   Short-rest burn provenance is captured at the actual offer and carried with FxSeq in
+    //   additive TLV54, through closing contexts, queued releases and fallback flights. Old
+    //   observed candidates expire on model lifecycle edges. No card identity is transmitted.
+    //
+    //   Selection initiative rows retain owner order and settled original slots instead of
+    //   briefly handing a card-placement reorder to the viewer's arrangement. Remote caps keep
+    //   their authored size across repeated hide edges. Original bonus tooltips are initialized
+    //   on detached presentation data and inactive native widgets, eliminating prefab examples.
+    //   Original mandatory-highlight geometry, Image settings, artwork and colors travel in
+    //   additive TLV55, after native layout sampling; no guessed border or button size is used.
+    //
+    //   Both logs exposed unsupported legacy element animators. Additive TLV53 carries bounded
+    //   actual original hierarchy output alongside unchanged52 in message10: transforms,
+    //   component state, native sprites and rendered colors are applied last on inert clones.
+    //   No gameplay animation controller or clip callback runs on a remote native widget.
+    //   Message10 bound40960; presence bound3970 (worst3709, margin261), existing event cap864.
+    //   GVR1/v3 and prior record grammars remain unchanged. See .planning/MP-ROUND-487.md.
+    //   DLL-only after full483. Source/tests establish repairs; headset appearance is unverified.
     //
     // ModBuild 486 — native animation parity and systematic multiplayer review (2026-09-09).
     //   The owner's original show-animation targets now publish their rendered intermediate
@@ -23724,6 +23753,11 @@ internal static class NetProtocol
     /// states). At eight slots this adds 1648 bytes; full extras worst case is 3449. Oversized
     /// snapshots must use transport fragmentation, never a single oversized Bolt event.</summary>
     public const byte ExtIdUseBarWidgets = 47;
+
+    // MB487 additive presence records.53 belongs to the independent native-board stream.
+    internal const byte ExtIdCardFxVisibility = 54;
+    internal const byte CardFxCoveredBurnBit = 1;
+    internal const byte ExtIdDecisionHighlight = 55;
     /// <summary>Transport-only extras fragment, never parsed as an ordinary presence record.
     /// Multiple bounded chunks travel under MsgExtrasFragments and apply only after reassembly.</summary>
     public const byte ExtIdExtrasFragment = 48;

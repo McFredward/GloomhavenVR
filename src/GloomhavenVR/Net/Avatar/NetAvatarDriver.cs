@@ -111,6 +111,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     // and never play twice.
     private byte _lastFxEndpoints;
     private byte _lastFxSeq;
+    private byte _lastFxVisibilityFlags;
+    private NativeDecisionHighlightState? _lastSentDecisionHighlight, _decisionHighlightSnapshot;
     private bool _hasFx;
 
     // Last broadcast fan sizes — an on-change extras send keeps a peer's fan appearing/disappearing
@@ -1995,6 +1997,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         bool heldFaceChanged = faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1;
         bool shortRestInProgress = CardsDriver.ShortRestInProgress;
         bool shortRestChanged = shortRestInProgress != _lastSentShortRest;
+        NativeDecisionHighlightState? decisionHighlight = _decisionHighlightSnapshot;
+        bool decisionHighlightChanged = !ReferenceEquals(decisionHighlight, _lastSentDecisionHighlight);
         bool sacrificeSeatChanged = seatCode0 != _lastSentSeatCode0
                                     || seatCode1 != _lastSentSeatCode1;
         bool spentHalfChanged = spentMask != _lastSentSpentMask;
@@ -2024,7 +2028,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             // THE FOUR HELD-CARD EDGES (records 36, 39, 41, 43) — the N7 ruling; see the
             // sampling block above for why each is discrete and what it costs.
             && !heldFaceChanged && !sacrificeSeatChanged && !spentHalfChanged
-            && !fanSourceChanged && !shortRestChanged
+            && !fanSourceChanged && !shortRestChanged && !decisionHighlightChanged
             // A DEBUG PRESS PRE-EMPTS THE CADENCE. It is a discrete, human-paced act whose entire
             // purpose is to be looked at, so up to 200 ms of cadence latency between two headsets is
             // exactly the "did that work?" the test page exists to remove. Also true throughout the
@@ -2082,6 +2086,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             extras.FanArcOrderCount = fanArcOrderCount;
             extras.FanArcOrder = _fanArcOrderBuf;
         }
+        extras.DecisionHighlight = decisionHighlight;
+        _lastSentDecisionHighlight = decisionHighlight;
         extras.DominantRight = LocalRigSampler.LocalDominantRight();
 
         // Ghost hand (cosmetic): whether ANY of our hands is faded, plus the strength WE chose —
@@ -3185,10 +3191,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // COUNTED on both ends instead (NetCardFx's CARD FX OUTBOX and RemoteAvatar's CARD FX
         // LOST), so the remedy can be chosen against a rate rather than against an argument. The
         // three candidates, with their costs, are in NetCardFx.TryDequeue's doc.
-        if (NetCardFx.TryDequeue(out byte fxEndpoints, out byte fxSeq))
+        if (NetCardFx.TryDequeue(out byte fxEndpoints, out byte fxSeq, out byte fxVisibilityFlags))
         {
             _lastFxEndpoints = fxEndpoints;
             _lastFxSeq = fxSeq;
+            _lastFxVisibilityFlags = fxVisibilityFlags;
             _hasFx = true;
         }
         if (_hasFx)
@@ -3196,6 +3203,9 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             extras.HasCardFx = true;
             extras.FxSeq = _lastFxSeq;
             extras.FxEndpoints = _lastFxEndpoints;
+            extras.HasCardFxVisibility = true;
+            extras.FxVisibilitySeq = _lastFxSeq;
+            extras.FxVisibilityFlags = _lastFxVisibilityFlags;
         }
 
         // SECOND HELD FIGURE (extension record 8): the mini in the player's OTHER hand, with the
