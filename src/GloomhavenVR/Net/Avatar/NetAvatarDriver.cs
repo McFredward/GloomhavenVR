@@ -88,7 +88,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 var predecessor = new UseBarAnimationSnapshot(_lastAnimationSourceFrameTime,
                     _lastAnimationSnapshot.States);
                 int previousLength = UseBarAnimationCodec.Write(predecessor, _animationBuffer);
-                _transport.Send(_animationBuffer, previousLength);
+                _transport.Send(_animationBuffer, previousLength, predecessor);
             }
             _lastAnimationSnapshot = new UseBarAnimationSnapshot(now,
                 states ?? Array.Empty<UseBarAnimationState>());
@@ -99,7 +99,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         if (changed || now >= _nextAnimationRefresh)
         {
             int length = UseBarAnimationCodec.Write(_lastAnimationSnapshot, _animationBuffer);
-            _transport.Send(_animationBuffer, length);
+            _transport.Send(_animationBuffer, length, _lastAnimationSnapshot);
             _nextAnimationRefresh = now + 0.5f;
         }
         _lastAnimationSourceFrameTime = now;

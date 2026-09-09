@@ -101,13 +101,13 @@ internal sealed partial class NetAvatarDriver
     private void SendNativeBoard(NativeBoardState state)
     {
         int length = NativeBoardCodec.Write(state, _boardBuffer);
-        _transport.Send(_boardBuffer, length);
+        _transport.Send(_boardBuffer, length, state);
     }
 
     private void SendNative(NativeUseBarSnapshot snapshot)
     {
         int length = NativeUseBarPacket.Write(snapshot, _nativeBuffer);
-        if (length > 0) _transport.Send(_nativeBuffer, length);
+        if (length > 0) _transport.Send(_nativeBuffer, length, snapshot);
     }
 
     private bool QueueNativePresentation(int sender, byte[] buffer, int length)

@@ -110,6 +110,7 @@ internal static class Program
             TooltipPlumeVectors.Run(t);
             CardResidentVectors.Run(t);
             PresentationBoundaryVectors.Run(t);
+            PresentationSendReuseVectors.Run(t);
             PresentationSaturationVectors.Run(t);
             NativeUseBarVectors.Run(t);
             NativeBoardVectors.Run(t);

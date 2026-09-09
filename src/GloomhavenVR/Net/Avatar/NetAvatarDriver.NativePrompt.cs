@@ -38,7 +38,7 @@ internal sealed partial class NetAvatarDriver
     private void SendNativePrompt(NativeDecisionPromptSnapshot snapshot)
     {
         int length = NativeDecisionPromptCodec.Write(snapshot, _promptBuffer);
-        if (length > 0) _transport.Send(_promptBuffer, length);
+        if (length > 0) _transport.Send(_promptBuffer, length, snapshot);
     }
 
     private bool QueueNativePrompt(int sender, byte[] buffer, int length)

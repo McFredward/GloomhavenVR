@@ -64,4 +64,5 @@ fi
 # Exercise production native hierarchy discovery as well as pure wire DTO fixtures. The
 # controlled tree harness also proves that reinstating the old eight-group cap fails at runtime.
 bash "$ROOT/scripts/card-bindings-tests.sh"
+bash "$ROOT/scripts/presentation-send-tests.sh"
 exec "$OUT" "$ROOT"

@@ -245,7 +245,7 @@ internal sealed class FfsNetTransport : INetTransport
 
     // ---- send ---------------------------------------------------------------------------
 
-    public void Send(byte[] payload, int length)
+    public void Send(byte[] payload, int length, object? presentationIdentity = null)
     {
         if (_degraded || !_installed || _sendSideAction == null || _customDataCtor == null || !IsOnline)
             return;
@@ -255,12 +255,17 @@ internal sealed class FfsNetTransport : INetTransport
             int type = NetPacket.PeekType(payload, length);
             if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt)
             {
-                _extrasQueue.Enqueue(payload, length);
+                // Native writers already hold the immutable snapshot which produced these bytes.
+                // Re-decoding it here allocated a second complete card/widget graph per send.
+                // The scheduler still decodes byte-only callers, and every receiver validates
+                // the unchanged bytes normally. Queue boundaries/cadence and payload copies stay.
+                _extrasQueue.Enqueue(payload, length, identity: presentationIdentity);
                 return;
             }
             if (type == NetProtocol.MsgNativeUseBar)
             {
-                if (NativeUseBarPacket.TryRead(payload, length, out NativeUseBarSnapshot? native))
+                NativeUseBarSnapshot? native = presentationIdentity as NativeUseBarSnapshot;
+                if (native != null || NativeUseBarPacket.TryRead(payload, length, out native))
                     _extrasQueue.Enqueue(payload, length, native!.Address, native);
                 return;
             }

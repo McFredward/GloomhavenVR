@@ -38,7 +38,7 @@ internal sealed partial class NetAvatarDriver
     private void SendCardAppearance(CardAppearanceSnapshot snapshot)
     {
         int length = CardAppearanceCodec.Write(snapshot, _appearanceBuffer);
-        if (length > 0) _transport.Send(_appearanceBuffer, length);
+        if (length > 0) _transport.Send(_appearanceBuffer, length, snapshot);
     }
 
     private bool QueueCardAppearance(int sender, byte[] buffer, int length)

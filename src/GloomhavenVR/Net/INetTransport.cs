@@ -26,7 +26,10 @@ internal interface INetTransport
     /// peers (unreliable). Must be a safe no-op when <see cref="IsOnline"/> is false and must
     /// never throw into game code.
     /// </summary>
-    void Send(byte[] payload, int length);
+    /// <param name="presentationIdentity">Optional immutable snapshot used to write these exact
+    /// bytes successfully. Local queue metadata only; never transmitted or used on receive.
+    /// Supplying it avoids decoding our own native presentation just to preserve identity edges.</param>
+    void Send(byte[] payload, int length, object? presentationIdentity = null);
 
     /// <summary>
     /// Raised on the main thread for each inbound rig packet: (senderPlayerId, buffer, length).
@@ -46,7 +49,7 @@ internal sealed class NullNetTransport : INetTransport
 {
     public bool IsOnline => false;
     public int LocalPlayerId => 0;
-    public void Send(byte[] payload, int length) { }
+    public void Send(byte[] payload, int length, object? presentationIdentity = null) { }
 
     /// <summary>
     /// A REAL event, not <c>{ add { } remove { } }</c>. Empty accessors accept a handler and throw
