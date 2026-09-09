@@ -951,33 +951,11 @@ internal sealed class RemoteHandFan
     /// </summary>
     private readonly List<CAbilityCard> _mapArc = new(MaxCards);
 
-    /// <summary>
-    /// WHICH SEAT of this peer's map LOADOUT is in their fist right now, or -1.
-    ///
-    /// <para>Record 36 through <c>RemoteAvatar.SingleHeldHandSeat</c>, narrowed to
-    /// <c>NetProtocol.HeldFaceListMapLoadout</c> — the list id
-    /// <c>LocalRigSampler.NameHeldMapCard</c> writes for a card lifted out of the map fan. It is
-    /// NOT <c>RemoteAvatar.HeldHandSeats</c>, and that is the whole of the defect this method
-    /// exists to close: that helper filters record 36 to the HAND list (or a record-43 pile), so
-    /// a map-loadout seat was thrown away before any caller could see it.</para>
-    ///
-    /// <para>TWO FISTS ANSWER -1, by construction: <c>SingleHeldHandSeat</c> refuses when both pose
-    /// slots name an arc card, because it cannot say which is which. The arc is then one card
-    /// longer than the wire, the length belt refuses, and the fan draws BACKS — the safe direction,
-    /// and the one this whole path had never reached. Reading BOTH seats needs an accessor
-    /// <c>RemoteAvatar</c> does not expose (its <c>HeldSeatsIn</c> is private and its public
-    /// map-aware entry point answers a single seat); that is filed rather than forced, because a
-    /// second reading of record 36 in this file is how two surfaces come to disagree about what
-    /// "in the fist" means.</para>
-    /// </summary>
-    private int HeldMapLoadoutSeat()
-    {
-        if (!_owner.SingleHeldHandSeat(out int seat, out int listLength, out _, out byte listId))
-            return -1;
-        if (listId != NetProtocol.HeldFaceListMapLoadout || seat < 0 || listLength <= 0)
-            return -1;
-        return seat;
-    }
+    /// <summary>Both map-loadout seats come from the same validated held-address accessor as
+    /// the held faces. Two cards in hand are ordinary arc membership, never a reason to cover
+    /// the entire public map fan.</summary>
+    private int HeldMapLoadoutSeats(out int first, out int second, out int length)
+        => _owner.HeldMapSeats(out first, out second, out length);
 
     /// <summary>
     /// May slab <paramref name="widget"/> show its front? TRUE outright unless the arc was opened
@@ -1012,12 +990,12 @@ internal sealed class RemoteHandFan
     /// <summary>Project <see cref="_mapBuffer"/> into <see cref="_mapArc"/>, dropping
     /// <paramref name="heldSeat"/> when it names one. Allocation-free; a seat out of range drops
     /// nothing, which leaves the length belt to refuse rather than this method to guess.</summary>
-    private void BuildMapArc(int heldSeat)
+    private void BuildMapArc(int heldSeat, int secondHeldSeat)
     {
         _mapArc.Clear();
         for (int i = 0; i < _mapBuffer.Count; i++)
         {
-            if (i == heldSeat)
+            if (i == heldSeat || i == secondHeldSeat)
                 continue;
             _mapArc.Add(_mapBuffer[i]);
         }
@@ -1439,7 +1417,7 @@ internal sealed class RemoteHandFan
         // Which seat of the peer's map LOADOUT is in their fist this frame (-1 = none). Read on the
         // map branch below and used again for the census, so the number the log prints is the
         // number the arc was actually built with.
-        int heldMapSeat = -1;
+        int heldMapSeatCount = 0;
         // TRUE while the arc is open ONLY through the per-card burn exception — the population gate
         // said None and each slab must earn its own front. See the default branch of the switch
         // below, and PrintsFront, which is the only place it is honoured.
@@ -1584,9 +1562,11 @@ internal sealed class RemoteHandFan
                     // already here. When it is NOT — an unnameable fist, two fists, a loadout this
                     // client resolves at a different length — the belt below still refuses and the
                     // fan falls back to backs, which is where this path started.
-                    heldMapSeat = HeldMapLoadoutSeat();
-                    ResolveMapFronts(count + (heldMapSeat >= 0 ? 1 : 0));
-                    BuildMapArc(heldMapSeat);
+                    heldMapSeatCount = HeldMapLoadoutSeats(out int mapSeatA, out int mapSeatB,
+                        out int mapListLength);
+                    ResolveMapFronts(count + heldMapSeatCount);
+                    bool matchingLoadout = mapListLength == _mapBuffer.Count;
+                    BuildMapArc(matchingLoadout ? mapSeatA : -1, matchingLoadout ? mapSeatB : -1);
                     mapFronts = _mapArc.Count > 0;
                     showFronts = mapFronts;
                     break;
@@ -1710,7 +1690,7 @@ internal sealed class RemoteHandFan
         // seat, which HeldHandSeats below cannot see because it narrows to the HAND list). Seeded
         // here so the census line's fist column is the number the arc was really built with rather
         // than a zero that would make the belt equation look unbalanced.
-        int heldSeatCount = mapFronts && heldMapSeat >= 0 ? 1 : 0;
+        int heldSeatCount = mapFronts ? heldMapSeatCount : 0;
         if (!arcNamed && showFronts && !mapFronts && _handBuffer.Count != count)
         {
             heldSeatCount = _owner.HeldHandSeats(out int heldSeatA, out int heldSeatB);
@@ -1838,7 +1818,7 @@ internal sealed class RemoteHandFan
                     if (full != null && PrintsFront(publicCardsOnly, actor, widget)
                         && face.ShowFront(full))
                     {
-                        face.SetNativeAppearance(_owner.PlayerId, actor, full.AbilityCard);
+                        face.SetNativeAppearance(_owner.PlayerId, actor, widget.AbilityCard);
                         frontCount++;
                         SetFrontFace(i, showsBack: false);   // …and the same on the hand-widget arm
                         continue;

@@ -795,8 +795,8 @@ internal sealed class RemotePileFronts
                         // CurrentCardPile stamp: a card burnt to negate damage never gets that stamp
                         // written (CCharacterClass.MoveAbilityCard), so without it the burnt fan
                         // draws that card pristine while its owner sees it charred.
-                        art.SetNativeAppearance(_owner.PlayerId, actor, full != null ? full.AbilityCard : null);
-                        if (CardAppearanceMirror.TryGet(_owner.PlayerId, actor, full != null ? full.AbilityCard : null,
+                        art.SetNativeAppearance(_owner.PlayerId, actor, widget != null ? widget.AbilityCard : null);
+                        if (CardAppearanceMirror.TryGet(_owner.PlayerId, actor, widget != null ? widget.AbilityCard : null,
                             out _, out _, out _)) fxLooks++;
                     }
                 }

@@ -522,6 +522,17 @@ internal static class RemoteAbilityCardSource
     /// place, evaluated by the caller BEFORE any face object is created, is easier to audit than a
     /// gate re-derived in three files.
     /// </summary>
+    // The held map/active paths ask every frame. A pool borrow used to destroy and rebuild
+    // their clone on each call, continually restarting asynchronous artwork loads. Keep the
+    // successful borrowed model and actual clone key together; weak ownership follows the art.
+    private sealed class BorrowedFace
+    {
+        internal CAbilityCard? Card;
+        internal int Key;
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RemoteCardArt, BorrowedFace>
+        BorrowedFaces = new();
+
     internal static FacePath ShowFullFace(RemoteCardArt art, CPlayerActor? actor, CAbilityCard card)
     {
         if (art == null || card == null)
@@ -538,6 +549,12 @@ internal static class RemoteAbilityCardSource
             VRLog.Debug("Net", $"Remote card face: live-widget path unavailable ({e.Message}) — trying the pool.");
         }
 
+        BorrowedFace borrowed = BorrowedFaces.GetValue(art, _ => new BorrowedFace());
+        if (ReferenceEquals(borrowed.Card, card) && art.ShowsKey(borrowed.Key))
+        {
+            art.MaintainMipBake();
+            return FacePath.PooledBorrow;
+        }
         try
         {
             if (TryPooledClone(art, card))
@@ -698,7 +715,14 @@ internal static class RemoteAbilityCardSource
                                    "reloads its own header art on activation.");
             }
 
-            return art.ShowFront(ui.fullAbilityCard);
+            bool shown = art.ShowFront(ui.fullAbilityCard);
+            if (shown)
+            {
+                BorrowedFace borrowed = BorrowedFaces.GetValue(art, _ => new BorrowedFace());
+                borrowed.Card = card;
+                borrowed.Key = ui.fullAbilityCard.GetInstanceID();
+            }
+            return shown;
         }
         finally
         {

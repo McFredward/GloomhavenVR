@@ -71,6 +71,7 @@ internal sealed class RemoteHeldCardFace
     // Current model references. Resolve runs every frame; RemoteCardArt keeps its own clone
     // identity and mip-dirty gates, so unchanged references do not rebuild their artwork.
     private FullAbilityCard? _face;             // resolved ability face, if any
+    private CAbilityCard? _abilityCard;         // AbilityCardUI model, independent of the action-only full-widget field
     private CItem? _item;                       // resolved item, if any
 
     /// <summary>The resolved MAP-ROOM loadout card, if any. A separate field from
@@ -201,9 +202,12 @@ internal sealed class RemoteHeldCardFace
             // The actor stays optional on purpose: there is no CPlayerActor in the map room at all,
             // and asking a CMapCharacter for one THROWS. A null actor is now the map room's normal
             // state rather than a refusal.
-            actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
-            if (RevealGate.InScenario && (actor == null
-                || NetFigures.StableActorId(actor) != _owner.HeldFaceActorId(_slot)))
+            actor = RevealGate.InScenario
+                ? RemoteBoardFocus.ActorById(_owner.HeldFaceActorId(_slot))
+                : null;
+            // A held card belongs to its sampled actor even after the board changes focus.
+            // DisplayedActor here blanked an otherwise valid public card until focus returned.
+            if (RevealGate.InScenario && actor == null)
             {
                 HidePendingFront(code);
                 return;
@@ -231,7 +235,7 @@ internal sealed class RemoteHeldCardFace
             // word for word — "in der Auswahlphase … man nur die Rückseite sieht" — and it used to
             // call Hide(), which resets the silhouette to ABILITY. The gate governs the FACE; it
             // has nothing to say about the outline. See the EnsureBody call above.
-            HideKeepBody(code);
+            HidePendingFront(code);
             return;
         }
 
@@ -239,6 +243,7 @@ internal sealed class RemoteHeldCardFace
         // the same. Resolve this bounded list read each frame; the art layer still reuses clones.
         {
             _face = null;
+            _abilityCard = null;
             _item = null;
             _mapCard = null;
             _activeCard = null;
@@ -249,6 +254,7 @@ internal sealed class RemoteHeldCardFace
             catch (System.Exception ex)
             {
                 _face = null;
+                _abilityCard = null;
                 _item = null;
                 _mapCard = null;
                 _activeCard = null;
@@ -257,7 +263,7 @@ internal sealed class RemoteHeldCardFace
             }
         }
 
-        if (_face == null && _item == null && _mapCard == null && _activeCard == null)
+        if (_face == null && _abilityCard == null && _item == null && _mapCard == null && _activeCard == null)
         {
             Report(0, 1, $"the seat the sender named ({Describe(code, count)}) did not resolve on "
                        + "this client — a list of a different length, or an empty seat");
@@ -279,7 +285,10 @@ internal sealed class RemoteHeldCardFace
                 : _activeCard != null
                     ? RemoteAbilityCardSource.ShowFullFace(art, actor, _activeCard)
                       != RemoteAbilityCardSource.FacePath.None
-                    : art.ShowFront(_face!);
+                    : _face != null
+                        ? art.ShowFront(_face)
+                        : _abilityCard != null && RemoteAbilityCardSource.ShowFullFace(art, actor, _abilityCard)
+                          != RemoteAbilityCardSource.FacePath.None;
         if (!shown)
         {
             Report(0, 1, "the seat resolved but the face CLONE failed to build");
@@ -290,7 +299,9 @@ internal sealed class RemoteHeldCardFace
         // every part of the slab the print does not paint now reads as the owner's own card edge
         // instead of the back's burgundy/gold lattice. CardMesh.SetBodyFrontFace owns the rule.
         SetFrontFace(showsBack: false);
-        art.SetNativeAppearance(_owner.PlayerId, actor, _activeCard ?? _mapCard ?? (_face != null ? _face.AbilityCard : null));
+        // FullAbilityCard.AbilityCard is initialized only for action selection and can still
+        // name an earlier pooled use. The resolved AbilityCardUI owns the current hand/pile model.
+        art.SetNativeAppearance(_owner.PlayerId, actor, _activeCard ?? _mapCard ?? _abilityCard);
         Report(1, 0, $"{source} — resolved {Describe(code, count)} against this client's own copy of "
                    + "that host-replicated list");
         if (!_loggedShown || code != _loggedCode)
@@ -389,6 +400,7 @@ internal sealed class RemoteHeldCardFace
             }
             AbilityCardUI widget = _pileBuf[at];
             _face = widget != null ? widget.fullAbilityCard : null;
+            _abilityCard = widget != null ? widget.AbilityCard : null;
             _pileBuf.Clear();
             return;
         }
@@ -416,6 +428,7 @@ internal sealed class RemoteHeldCardFace
         if (n != count || found == null)
             return;
         _face = found.fullAbilityCard;
+        _abilityCard = found.AbilityCard;
     }
 
     /// <summary>
@@ -649,7 +662,7 @@ internal sealed class RemoteHeldCardFace
                           || heldList == NetProtocol.HeldFaceListDiscard;
             CAbilityCard? model = _activeCard;
             if (model == null && _face != null)
-                model = _face.AbilityCard;
+                model = _abilityCard;
             // THE OWNER IS NAMED so the durable look can ask the burnt LISTS before the card's
             // CurrentCardPile stamp. A card burnt to negate damage never gets that stamp written
             // (GameState.Lose1HandCardToAvoidAttack -> CCharacterClass.MoveAbilityCard), so without
@@ -753,6 +766,7 @@ internal sealed class RemoteHeldCardFace
     {
         _art?.HideFront();
         _face = null;
+        _abilityCard = null;
         _item = null;
         _mapCard = null;
         _activeCard = null;
@@ -805,7 +819,7 @@ internal sealed class RemoteHeldCardFace
             NetProtocol.HeldFaceListBurnt => "burnt pile",
             NetProtocol.HeldFaceListItems => "items (AllItems raw index)",
             NetProtocol.HeldFaceListMapLoadout => "map-room loadout",
-            NetProtocol.HeldFaceListActive => "ACTIVE pile (already public in every phase)",
+            NetProtocol.HeldFaceListActive => "ACTIVE pile (phase visibility applies)",
             _ => "list " + list,
         };
         return $"{where} seat {NetProtocol.HeldFaceIndex(code)} of {count}";

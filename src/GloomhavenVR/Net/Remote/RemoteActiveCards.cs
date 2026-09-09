@@ -592,7 +592,7 @@ internal sealed class RemoteActiveCards
             // NetProtocol.TuneCardLerpSpeed) — never this client's config. A mirror may not read the
             // viewer's dial, and this is the very number VRCard.Update runs his glide at.
             _cards[i].Move(cellAt, instant: !residentKeepsItsCard, _owner.BoardTuning.CardLerpSpeed);
-            if (held || _flyingSeats.Contains(i))
+            if (held || _flyingSeats.Contains(i) || _owner.BurnOwnsActiveCard(cardId))
             {
                 // Either in their fist and not in their matrix, or still in the AIR on its way
                 // here (user item 2). Moved to its own cell first so the gap sits where the owner's
