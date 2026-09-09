@@ -5,6 +5,11 @@ using UnityEngine.UI;
 namespace GloomhavenVR.Cards;
 
 /// <summary>
+/// MB489: owner-side native completion. The full-card shader and owning-hand loss sequence
+/// both finish before release; an actively running timeline has no wall-clock cutoff. Peers
+/// consume the owner's addressed semantic release and original appearance output. The older
+/// investigation below records why latched FX state and viewer-local handles were insufficient.
+///
 /// ONE COMPLETION SIGNAL FOR EVERY BURN, ON EVERY BOARD — the single place that answers "is the
 /// game's burn artwork still on this card?", "has it ever been painted on this card?" and "paint
 /// the settled end-state now".
@@ -64,9 +69,8 @@ internal static class BurnArtwork
     internal const float StartGraceSeconds = 0.5f;
 
     /// <summary>
-    /// Deadline: the longest a burned card may lie on any board, in seconds. Mirrored from
-    /// <c>CardsDriver.BurnEffectMaxHoldSeconds</c>. A burned card must never be stranded because its
-    /// artwork did not play.
+    /// Historical maximum-hold reference retained for legacy expiry/settle consumers. MB489 no
+    /// longer treats it as permission to cut a running shader or owning-hand loss sequence.
     /// </summary>
     internal const float MaxHoldSeconds = 3f;
 

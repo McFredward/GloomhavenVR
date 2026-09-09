@@ -3712,18 +3712,9 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>
-    /// LAND every burn flight that is still sitting in the artwork hold, right now, and clear the
-    /// hold table. The hold's whole contract is "the burn path OWNS this card — the caller must
-    /// leave it lying exactly where it is"; so anything that invalidates the hold WITHOUT landing
-    /// the flight strands a burned card on the board forever (the reported reappearance). The one
-    /// event that used to do that is a presented-hand change: <see cref="TickBurnToPile"/> simply
-    /// cleared the table, the widget was no longer offered (it is not in the NEW hand's burnt
-    /// pile), and nothing ever launched it. Now the switch flushes instead — each pending burn
-    /// flies to the burnt stack immediately, which is what the artwork deadline would have done a
-    /// moment later anyway.
-    ///
-    /// Called with the OLD baseline still in place, so the launch sites see the same world they
-    /// were held in. Safe to call with an empty table (no-op, no log).
+    /// Re-offer every pending burn, including an old character's after focus changes. The original
+    /// native artwork still owns the card; only actual completion launches its addressed flight.
+    /// Recovery cancels the presentation without inventing another pile transition.
     /// </summary>
     private void FlushBurnHolds(string reason)
     {
@@ -3774,12 +3765,9 @@ internal sealed partial class CardsDriver
             hold = new BurnHold(hold.Since, artworkSeen: true);
             _burnHoldSince[widget] = hold; // latched for the whole hold — see BurnHold.ArtworkSeen
         }
-        // ONE RELEASE EXPRESSION, SHARED WITH EVERY MIRROR. This used to be three lines of local
-        // boolean algebra; it is now BurnArtwork.Released, which RemoteBurnFx.Drive evaluates over
-        // the OWNER'S OWN widget on the peer's machine. The arithmetic is unchanged — deadline
-        // wins, a running artwork holds, otherwise the start grace — and moving it was the whole
-        // point: "Das soll so synchron mit den anderen Spielern sein" cannot be a property of two
-        // copies that agree today.
+        // Damage loss has a second native lifecycle outside FullAbilityCard.CardEffects. The
+        // owner's event is sent only when both are finished; peers do not infer that edge from
+        // their inactive game widget or from their independently advanced animation clock.
         bool release = BurnFlightCompletion.MayRelease(effectActive, losingCards, held,
             BurnEffectStartGraceSeconds);
 
@@ -3797,10 +3785,7 @@ internal sealed partial class CardsDriver
         _burnHoldLogged.Remove(widget);
         if (held > 0.01f)
         {
-            string arm = held >= BurnEffectMaxHoldSeconds
-                ? $"DEADLINE — {BurnEffectMaxHoldSeconds:F1}s ran out" +
-                  (effectActive ? " with the artwork STILL running" : " and the artwork was not running")
-                : hold.ArtworkSeen
+            string arm = hold.ArtworkSeen
                     // ─── THIS ARM SAID "ARTWORK END" AND COULD NOT KNOW THAT (2026-09-07, item 8) ─
                     // CardEffects.coroutine is nulled by THREE different histories: the timeline's
                     // own last statement (CardEffects.cs:618), RestoreCard() (:469-472) and every
@@ -3823,8 +3808,8 @@ internal sealed partial class CardsDriver
                       + "than finishing it (RestoreCard and ToggleAdditiveEffect null the same "
                       + "handle); BurnLookPolicy settles the card to the full burnt end state in "
                       + "that case, so every board still agrees on the picture"
-                    : $"START GRACE — the artwork NEVER started on this client, so " +
-                      $"{BurnEffectStartGraceSeconds:F2}s was the whole wait";
+                    : $"START GRACE — full-card artwork was not observed; the owning hand's native " +
+                      $"loss sequence is also finished, and the {BurnEffectStartGraceSeconds:F2}s startup grace elapsed";
             // HW-VERIFY (2026-09-05 item 11c "auch fuer mich blieb die Karte laenger liegen", and
             // the 2026-09-07 round's item 8): WHICH ARM released the hold, and after how long.
             // Grep token: "BURN HOLD".
@@ -3851,13 +3836,10 @@ internal sealed partial class CardsDriver
             // burn timeline not starting, not this gate.
             VRLog.Note("Cards", $"BURN HOLD: '{CardsGameApi.CardName(widget)}' waited {held:F2}s on the board " +
                                 $"(released by: {arm}) — flying to the Burnt pile now. The release term is " +
-                                "BurnArtwork.Released over the game's OWN running BurnCardTimeline handle " +
-                                "(CardEffects.coroutine), not its latched toggledEffects membership, which " +
-                                "for a LOST card never clears and used to make every burn run the full " +
-                                "ceiling. EVERY PEER'S MIRROR EVALUATES THIS SAME EXPRESSION over this same " +
-                                "widget (RemoteBurnFx.Drive; the model is local), so this number and the " +
-                                "'held=' on their BURN FLIGHT line for this card must agree — that pair IS " +
-                                "the 1:1 claim.");
+                                "the native card artwork plus the owning hand's loss-sequence completion, " +
+                                "never a deadline cutting a live animation. EVERY PEER'S MIRROR EVALUATES THIS SAME EXPRESSION " +
+                                "through the owner's addressed release event; a viewer-local coroutine is " +
+                                "not the owner's completion signal.");
         }
         return true;
     }

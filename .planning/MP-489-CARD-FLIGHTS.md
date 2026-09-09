@@ -51,3 +51,14 @@ Full compilation of the final checkpoint requires the primary agent's transport 
 and the card-appearance lane's native art API. The earlier pre-integration checkpoint built
 with zero warnings/errors; final merged gates and headset confirmation are the integrator's
 responsibility. Automated checks do not establish visual parity on hardware.
+
+Review follow-up: delayed releases require actual local control of their source actor; source
+metadata alone is not authorization. Source seats/counts come from the complete original model
+population captured during activation, so a missing widget cannot renumber another card. The
+bailed-handle grace follows the native game clock, preserving a genuinely paused zero-progress
+burn. Stale active origins clear when the model recovers a card to a live population.
+
+With the current integrator transport and card-appearance APIs copied read-only for validation,
+the final lane implementation compiled with **0 errors / 0 warnings**, and the combined wire
+suite passed **250,354 assertions**. Copies of unowned integration files are not committed in
+this lane. The root's final round gate remains authoritative after any later integration edits.
