@@ -52,8 +52,9 @@ The parallel-path review found the same omitted trigger geometry in
 `MapButtonRail.TickLaser`, `CombatLogSurface.TickCapLaser`, and the flat-menu
 screen-plane picker. All now check the foreground bar before hover/press and
 respect carry/release ownership. Existing cap hover exits clear the tint;
-flat-menu suppression stops cursor updates and uses its existing offscreen
-parking lifecycle. Already latched screen gestures retain their release unless
+flat-menu suppression immediately parks the virtual mouse offscreen through its
+existing bridge (synchronous device position plus queued state). An active
+fingertip retains its pixel, and native world-panel pointer events are separate. Already latched screen gestures retain their release unless
 an actual window carry takes ownership. Physical fingertip paths are unchanged.
 
 No game-state mutation, Harmony patch, configuration option or wire change was
@@ -66,7 +67,7 @@ registered-grabbable collection as the native-window prepass.
 - Existing `bash scripts/wire-tests.sh`: 251572 assertions passed before root
   registration of the new vectors.
 - Private runner source-linking the production `LaserPointerPolicy` and both
-  laser suites: 58 assertions passed. No shared test registration was modified.
+  laser suites: 64 assertions passed (including the follow-up parking guards). No shared test registration was modified.
 - The new `MapLaserOwnershipVectors` exercises near/far/equal depth, open rays,
   solid/native-UI blockers, three world scales, held/release/next-frame behavior,
   fallback arbitration and hand-specific activation. Behavioral negative controls
@@ -81,3 +82,19 @@ hardware confirmation: put a bar in front of a map icon, quest widget, table cap
 and flat-menu button; hover, hold/move, and release it; then move the bar away and
 verify each formerly blocked target works. Repeat with an idle offhand aimed at
 another icon and with handedness swapped.
+
+## Follow-up review: stale flat-menu cursor
+
+Root review found that the original `HideReticle` return stopped new cursor drives
+but left the previous screen pixel live until `VirtualMouse`'s two-frame idle grace
+expired. The carry check also followed `TryGetPick`, which already returns false
+while holding a window. The follow-up moves ownership before that return, after
+active-fingertip arbitration, and immediately parks on a measured bar/native-panel
+veto or carry/release ownership. Cancelling the screen latch also ends an active
+map pan and native drag without delivering `DirectClick`. Existing native panel
+pointers are not cancelled. The source guards reject a disconnected parking call,
+protect fingertip ordering, and verify the abort has no click path.
+
+Follow-up validation repeated the strict Release build (0 warnings/errors), the
+existing wire suite (251572 assertions), and the focused runner (64 assertions);
+all passed.

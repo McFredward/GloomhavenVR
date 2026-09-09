@@ -72,10 +72,38 @@ internal static class MapLaserOwnershipVectors
         int block = flat.IndexOf("!LaserPointerPolicy.TargetBeforeBlocker(dist, bar)", StringComparison.Ordinal);
         t.True(block > 0 && block < flat.IndexOf("VirtualMouse.WarpTo", StringComparison.Ordinal),
             "flat menu resolves bar before virtual mouse hover");
+        t.True(FlatYieldWired(flat), "confirmed blockers retire the stale screen pixel before an inactive-pick return");
+        t.True(!FlatYieldWired(flat.Replace("VirtualMouse.WarpTo(VirtualMouse.ParkPixel);", "")),
+            "negative control: HideReticle without clearing the mouse leaves stale hover");
+        t.True(!FlatYieldWired(flat.Replace("YieldScreenPointer();", "HideReticle();")),
+            "negative control: disconnected immediate-yield path is rejected");
+        int carry = flat.IndexOf("hand.RayGrab.OwnsPointerFrame", StringComparison.Ordinal);
+        t.True(flat.IndexOf("if (_pokePressing)", StringComparison.Ordinal) < carry,
+            "active fingertip owns the virtual mouse before laser carry arbitration");
+        string yield = flat.Substring(flat.IndexOf("private void YieldScreenPointer()", StringComparison.Ordinal));
+        yield = yield.Substring(0, yield.IndexOf("private void HideReticle()", StringComparison.Ordinal));
+        t.True(yield.Contains("if (_pokePressing) return;") && !yield.Contains("DirectClick("),
+            "yield protects a fingertip owner and never clicks on abort");
+        string hide = flat.Substring(flat.IndexOf("private void HideReticle()", StringComparison.Ordinal));
+        hide = hide.Substring(0, hide.IndexOf("private static readonly", StringComparison.Ordinal));
+        t.True(hide.Contains("_latched = false;") && hide.Contains("_stereo.EndMapPan();")
+            && hide.Contains("EndScreenDrag();") && !hide.Contains("DirectClick("),
+            "screen cancellation clears latch, pan and native drag without a click");
         string grab = Read("Hands/Interact/RayGrabDriver.cs");
         t.True(grab.Contains("else _lastCarryFrame = Time.frameCount;"), "successful same-frame ForceGrab claims release lifetime");
         t.True(grab.Contains("if (_hand.Grabber.Held is PanelGrabHandle) _lastCarryFrame = Time.frameCount;"),
             "carry observed before ProximityGrabber releases preserves that frame");
+    }
+
+    private static bool FlatYieldWired(string source)
+    {
+        int carry = source.IndexOf("hand.RayGrab.OwnsPointerFrame", StringComparison.Ordinal);
+        int pick = source.IndexOf("!pick.TryGetPick(out PickPose pose)", StringComparison.Ordinal);
+        return carry >= 0 && carry < pick
+            && source.Contains("VirtualMouse.WarpTo(VirtualMouse.ParkPixel);")
+            && Regex.IsMatch(source, @"hand\.RayGrab\.OwnsPointerFrame\)[\s\S]*?\{\s*YieldScreenPointer\(\);")
+            && Regex.IsMatch(source, @"!LaserPointerPolicy\.TargetBeforeBlocker\(dist, bar\)\)[\s\S]*?\{\s*YieldScreenPointer\(\);")
+            && Regex.IsMatch(source, @"hand\.RayUgui\.HitDistance < dist - 0\.005f\)[\s\S]*?\{\s*YieldScreenPointer\(\);");
     }
 
     private static bool MapWired(string source) =>

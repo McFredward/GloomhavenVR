@@ -25,23 +25,24 @@ internal sealed partial class FlatScreen
 
         TickPoke();
 
+        if (_pokePressing)
+        {
+            // The fingertip owns the virtual mouse; never park its live pixel for the laser.
+            HideReticle();
+            return;
+        }
+
         VRHand? hand = VRHands.Primary;
+        if (hand != null && hand.RayGrab.OwnsPointerFrame)
+        {
+            // A carry stands down TryGetPick, so ownership must be checked before that return.
+            YieldScreenPointer();
+            return;
+        }
+
         IPickProvider? pick = VRHands.PrimaryPick;
         if (pick == null || hand == null || !pick.TryGetPick(out PickPose pose))
         {
-            HideReticle();
-            return;
-        }
-
-        if (hand.RayGrab.OwnsPointerFrame)
-        {
-            HideReticle();
-            return;
-        }
-
-        if (_pokePressing)
-        {
-            // The fingertip owns the virtual mouse; the ray resumes after withdraw.
             HideReticle();
             return;
         }
@@ -73,7 +74,7 @@ internal sealed partial class FlatScreen
         // press is never abandoned mid-press (its release must still reach uGUI).
         if (!_pressing && hand.RayUgui.HasHit && hand.RayUgui.HitDistance < dist - 0.005f)
         {
-            HideReticle();
+            YieldScreenPointer();
             return;
         }
 
@@ -83,7 +84,7 @@ internal sealed partial class FlatScreen
         float bar = RayGrabDriver.OccludingBarDistance(pose.Origin, pose.Direction, dist);
         if (!_pressing && !LaserPointerPolicy.TargetBeforeBlocker(dist, bar))
         {
-            HideReticle();
+            YieldScreenPointer();
             return;
         }
 
@@ -475,12 +476,29 @@ internal sealed partial class FlatScreen
         _pokeLatched = false;
     }
 
+    /// <summary>Retire only the flat screen's pointer. Native world-panel pointers deliver
+    /// their own events, and an active fingertip remains the virtual mouse's owner.</summary>
+    private void YieldScreenPointer()
+    {
+        HideReticle();
+        if (_pokePressing) return;
+        // HideReticle alone leaves the previous screen pixel hovering for the virtual mouse's
+        // two-frame idle grace. A measured blocker is decisive now: update its device position
+        // synchronously and queue the same state using the existing pointer bridge.
+        VirtualMouse.WarpTo(VirtualMouse.ParkPixel);
+    }
+
     private void HideReticle()
     {
         if (_pressing)
         {
             _pressing = false;
             _latched = false;
+            if (_mapPanGesture)
+            {
+                _stereo.EndMapPan();
+                _mapPanGesture = false;
+            }
             EndScreenDrag();
             VRLog.Info("WorldUI", "FlatScreen pointer: press released (ray left the screen / pose lost).");
         }
