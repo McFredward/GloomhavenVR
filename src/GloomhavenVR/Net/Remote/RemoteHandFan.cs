@@ -2147,6 +2147,7 @@ internal sealed class RemoteHandFan
             return false;
         if (index < _mapPrinted.Count && _mapPrinted[index] == card.ID)
         {
+            face.SetNativeAppearance(_owner.PlayerId, null, card);
             // The steady-state upkeep the scenario path gets from ShowFront's dedup arm: the clone's
             // header art arrives async, so the mip bake has to keep rescanning.
             face.MaintainMipBake();
@@ -2154,6 +2155,7 @@ internal sealed class RemoteHandFan
         }
         if (RemoteAbilityCardSource.ShowFullFace(face, null, card) == RemoteAbilityCardSource.FacePath.None)
             return false;
+        face.SetNativeAppearance(_owner.PlayerId, null, card);
         if (index < _mapPrinted.Count)
             _mapPrinted[index] = card.ID;
         return true;

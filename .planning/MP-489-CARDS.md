@@ -84,3 +84,23 @@ material variant, and the mirror reads the original `misc_gui/AbilityCard/gui` p
 No prefab is instantiated. World-space FX bounds and flame draw ordering are applied to private
 material copies for either variant. The wire size is unchanged; the variant uses a validated flag.
 The new variant and continuity vectors add six assertions to the original746.
+
+## Ordinary recess review completion
+
+Ordinary round/decision recess clones still called `DriveUsedCardFx`, a receiver-clock replay
+of whole-card state, although active cells, hands, piles and explicit flights had native bindings.
+Every successfully cloned ordinary recess now binds the owner appearance immediately. Its
+spent-half adapter retains interaction state but no longer starts the synthetic whole-card clock;
+the owner shader, group and flame output paints in LateUpdate.
+
+Map fan clones (including their cached-face path) and held map cards now bind the actual model
+context as well. They have no scenario actor address, so this clears inherited pool decoration
+without claiming a nonexistent owner snapshot. Explicit burn/card flight fallback ownership is
+unchanged. This covers all ability-card `RemoteCardArt` construction sites together with the
+active/flight worker integrations; native items use their separate existing presentation pipeline.
+
+The full worker wire suite passed **250238 assertions**, including **754 appearance assertions**.
+Two added source regressions reject a missing ordinary recess binding/synthetic replay revival
+and loss of map model context. Shared registration was temporary and restored. Full strict
+compilation of the held adapter uses the root integration's atomic-address Avatar APIs. No
+headset visual outcome is asserted.

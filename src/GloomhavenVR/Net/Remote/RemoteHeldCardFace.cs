@@ -290,7 +290,7 @@ internal sealed class RemoteHeldCardFace
         // every part of the slab the print does not paint now reads as the owner's own card edge
         // instead of the back's burgundy/gold lattice. CardMesh.SetBodyFrontFace owns the rule.
         SetFrontFace(showsBack: false);
-        art.SetNativeAppearance(_owner.PlayerId, actor, _activeCard ?? (_face != null ? _face.AbilityCard : null));
+        art.SetNativeAppearance(_owner.PlayerId, actor, _activeCard ?? _mapCard ?? (_face != null ? _face.AbilityCard : null));
         Report(1, 0, $"{source} — resolved {Describe(code, count)} against this client's own copy of "
                    + "that host-replicated list");
         if (!_loggedShown || code != _loggedCode)

@@ -79,5 +79,13 @@ internal static class CardAppearanceVectors
         t.True(!native.Contains("group.alpha = 1f"), "original group opacity never forcibly normalized");
         string fan = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteHandFan.cs"));
         t.True(!fan.Contains("TickUsedCardFx(count, showFronts, mapFronts);"), "recovered fan never replays hidden local widget effects");
+        string recess = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteBoardCard.cs"));
+        t.True(recess.Contains("_art.SetNativeAppearance(_materialiseOwner.PlayerId, owner, card);")
+            && !recess.Contains("DriveUsedCardFx(playerId, slot, topSpent, bottomSpent);"),
+            "ordinary recess clones bind owner output without replaying a synthetic whole-card clock");
+        string held = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteHeldCardFace.cs"));
+        t.True(fan.Contains("face.SetNativeAppearance(_owner.PlayerId, null, card);")
+            && held.Contains("_activeCard ?? _mapCard ??"),
+            "map fan and held models clear inherited proxy paint even without a scenario appearance address");
     }
 }

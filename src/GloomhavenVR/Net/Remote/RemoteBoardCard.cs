@@ -505,6 +505,11 @@ internal sealed class RemoteBoardCard
             bool real = Path != RemoteAbilityCardSource.FacePath.None;
             if (real)
             {
+                if (_materialiseOwner != null)
+                {
+                    _art.Surface = RemoteCardArt.FxSurface.Recess;
+                    _art.SetNativeAppearance(_materialiseOwner.PlayerId, owner, card);
+                }
                 // A real face is up: show the dark card BODY behind it (the art is inset, so this is
                 // the card's edge) and retire the mod-drawn labels — the face carries all of it, in
                 // the game's own typography, and a second name on top would only fight it.
@@ -814,8 +819,8 @@ internal sealed class RemoteBoardCard
     ///
     /// <para>WHAT THIS METHOD IS NOT is the whole-card look. These CanvasGroups cover the two action
     /// halves only; the header, title and initiative disc sit outside them. The look that takes the
-    /// WHOLE card is <c>CardEffects</c>' own timeline, and it is driven from
-    /// <see cref="DriveUsedCardFx"/> below.</para>
+    /// WHOLE card is <c>CardEffects</c>' own timeline. The appearance stream supplies its actual
+    /// owner output, including the intermediate shader values and original group opacity.</para>
     /// </summary>
     public void SetSpentHalves(int playerId, int slot, bool topSpent, bool bottomSpent)
     {
@@ -835,10 +840,10 @@ internal sealed class RemoteBoardCard
             // rebuilt and the dim being re-applied.
             CardHalfTone.HoldMirroredDim(face, topSpent || bottomSpent);
 
-            // THE WHOLE-CARD LOOK, driven BEFORE the change gate below: it is a RAMP and needs
-            // every frame, while the dimming below is a one-shot write that only has to land on an
-            // edge. Two different cadences, one call site.
-            DriveUsedCardFx(playerId, slot, topSpent, bottomSpent);
+            // Keep the binding current before the half-state change gate. Native playback paints
+            // the owner's final output in LateUpdate, after these interaction-state writes.
+            if (_fxCard != null)
+                _art?.SetNativeAppearance(playerId, _fxOwner, _fxCard);
 
             if (_appliedSpent.HasValue && _appliedSpent.Value == (topSpent, bottomSpent))
                 return;
