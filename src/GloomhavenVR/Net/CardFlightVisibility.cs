@@ -28,6 +28,12 @@ internal static class CardFlightVisibility
         return CoveredBurnBit;
     }
 
+    // Closing the visual context alone is not cancellation: a model loss can arrive afterward.
+    // A returned/played/activated card or a later round, however, ends the old offer's lifetime.
+    internal static bool KeepObservedCandidate(bool actorAvailable, bool returnedToResources,
+        bool alreadyLost, bool laterRound) => actorAvailable && !returnedToResources
+            && (alreadyLost || !laterRound);
+
     internal static bool Covered(byte flags) => (flags & CoveredBurnBit) != 0;
     internal static void Reset() => s_offered = new ConditionalWeakTable<object, object>();
 }

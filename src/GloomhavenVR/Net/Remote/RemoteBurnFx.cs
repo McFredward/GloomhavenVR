@@ -561,17 +561,38 @@ internal sealed class RemoteBurnFx
 
     private CAbilityCard? _shortRestCandidate;
     private int _shortRestActor;
+    private int _shortRestRound;
 
     // Called before a packet replaces the old short-rest/seat snapshot, and every native-model
     // tick. This identity stays local: record 39 already supplied the bounded model address.
     internal void ObserveShortRestContext()
     {
+        PruneShortRestCandidate();
         if (!_owner.ShortRestInProgress) return;
-        if (_owner.TryNameArrivingRecessFace(0, out CAbilityCard? card) && card != null)
+        // The current local short-rest presentation uses recess 0; inspect the complete existing
+        // record 39 vocabulary so an alternate original seat cannot lose the same provenance.
+        for (int recess = 0; recess < 2; recess++)
         {
+            if (!_owner.TryNameArrivingRecessFace(recess, out CAbilityCard? card) || card == null) continue;
             _shortRestCandidate = card;
             _shortRestActor = NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _));
+            _shortRestRound = CardsGameApi.RoundNumber();
+            break;
         }
+    }
+
+    private void PruneShortRestCandidate()
+    {
+        if (_shortRestCandidate == null) return;
+        CCharacterClass? cc = RemoteBoardFocus.ActorById(_shortRestActor)?.CharacterClass;
+        bool returned = cc != null && (cc.HandAbilityCards.Contains(_shortRestCandidate)
+            || cc.RoundAbilityCards.Contains(_shortRestCandidate) || cc.ActivatedCards.Contains(_shortRestCandidate));
+        bool lost = cc != null && (cc.LostAbilityCards.Contains(_shortRestCandidate)
+            || cc.PermanentlyLostAbilityCards.Contains(_shortRestCandidate));
+        int round = CardsGameApi.RoundNumber();
+        bool laterRound = round > 0 && _shortRestRound > 0 && round != _shortRestRound;
+        if (!CardFlightVisibility.KeepObservedCandidate(cc != null, returned, lost, laterRound))
+            _shortRestCandidate = null;
     }
 
     internal void Tick(float dt)
@@ -1267,6 +1288,7 @@ internal sealed class RemoteBurnFx
         _pendingReleases.Clear();
         _shortRestCandidate = null;
         _shortRestActor = 0;
+        _shortRestRound = 0;
         if (_root != null)
         {
             // The body meshes are CardMesh's SHARED cache — never ours to destroy.

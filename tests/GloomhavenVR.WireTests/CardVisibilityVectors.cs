@@ -61,6 +61,12 @@ internal static class CardVisibilityVectors
     private static void Provenance(Harness t)
     {
         t.Case("487 short-rest provenance / capture before context closes, consume once");
+        t.True(CardFlightVisibility.KeepObservedCandidate(true, false, false, false), "a closing context retains a discard offer until model loss arrives");
+        t.True(CardFlightVisibility.KeepObservedCandidate(true, false, true, true), "accepted model loss survives a following-round edge until its presentation claims it");
+        t.True(!CardFlightVisibility.KeepObservedCandidate(true, true, false, false), "cancelled/redrawn candidate returned to hand cannot taint a later damage burn");
+        t.True(!CardFlightVisibility.KeepObservedCandidate(true, true, true, false), "authoritative returned membership outranks a stale simultaneous lost entry");
+        t.True(!CardFlightVisibility.KeepObservedCandidate(true, false, false, true), "unconsumed discard candidate expires with its originating round");
+        t.True(!CardFlightVisibility.KeepObservedCandidate(false, false, true, false), "actor teardown cannot retain a candidate indefinitely");
         CardFlightVisibility.Reset();
         object first = new(), redraw = new(), ordinary = new();
         CardFlightVisibility.MarkShortRest(first);
