@@ -33,6 +33,20 @@ Read the current rules, state and newest protocol build notes before implementat
 - Burn front resolution now uses the explicit model card and actor; a pooled FullAbilityCard's
   stale/null AbilityCard field is not treated as the identity authority.
 
+- The local recycled-card BurnSlab fallback explicitly documented an unresolved back-only
+  violation. It now owns an inert original-card clone with a frozen native appearance frame,
+  keeping short-rest provenance covered and withholding unresolved open art instead of flashing
+  a back. Source widget callbacks never run; source objects are never reparented. Destruction
+  releases clone resources. The same review found its board-up arc and fixed source scale: it
+  now uses ceiling/world-up and the recorded original world width like the live VRCard path.
+
+- Per-character hand teardown previously cleared pending sources/poses for every character.
+  It now removes only widgets belonging to the destroyed hand, preserving other pending holds.
+
+- Public front readiness now holds the flight clock as well as withholding the wrong back.
+  Original art gets a bounded two-second resolve window; known selection/short-rest backs fly
+  immediately. Missing art cannot consume an entire hidden arc, nor strand a permanent claim.
+
 ## Coverage
 
 Reviewed local round-recess exits, active expiry to Discard/Lost/PermanentlyLost, return/retrieve

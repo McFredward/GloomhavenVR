@@ -72,12 +72,33 @@ internal static class BurnFlightCompletionVectors
         CardFlightVisibility.Reset();
         t.True(!CardFlightVisibility.TryConsumeOwnerRelease(4, CardFxAnchor.Slot0, null, out _),
             "scenario teardown removes pending receipts");
+        string update = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Driver/CardsDriver.2.Update.cs"));
+        string destroyHand = RemoteCapVisibilityVectors.Method(update, "private void OnHandDestroying(");
+        t.True(!destroyHand.Contains("_burnHoldSince.Clear()") && destroyHand.Contains("ClearBurnHold(widget)"),
+            "one hand teardown cancels only its own pending burns");
+        t.True(!destroyHand.Contains("_activeExitOrigins.Clear()") && destroyHand.Contains("_activeExitOrigins.Remove(widget)"),
+            "unrelated active departure source survives another hand teardown");
         string remoteFlight = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteCardFx.cs"));
         string tryPlay = RemoteCapVisibilityVectors.Method(remoteFlight, "private bool TryPlay(");
         t.True(HasDeferredActiveResolve(tryPlay), "active departure waits for its exact model source before acquiring a slab");
         t.True(!HasDeferredActiveResolve(tryPlay.Replace("return false;", "return true;")),
             "negative control: skipping unresolved active departure instead of retrying is detected");
+        string tick = RemoteCapVisibilityVectors.Method(remoteFlight, "public void Tick(");
+        t.True(WaitsBeforeTravel(tick, "if (!drawable)", "f.Elapsed +="),
+            "an unresolved public front cannot consume the whole generic flight unseen");
+        t.True(!WaitsBeforeTravel(tick.Replace("continue;", "NoOp();"), "if (!drawable)", "f.Elapsed +="),
+            "negative control: advancing hidden travel while waiting for art is detected");
+        t.True(WaitsBeforeTravel(drive, "if (b.HandoverLogged && !CanDrawBurn(b))", "b.Elapsed +="),
+            "burn travel waits for public artwork with bounded cancellation");
         string rebuild = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs"));
+        string fallback = rebuild.Substring(rebuild.IndexOf("private sealed class BurnSlab", StringComparison.Ordinal));
+        t.True(HasOriginalFallback(fallback), "recycled local burn uses inert original art, original source size and ceiling arc");
+        t.True(!HasOriginalFallback(fallback.Replace("SetLocalNativeAppearance", "NoNativeOutput")),
+            "negative control: a clone without original output is refused");
+        t.True(!HasOriginalFallback(fallback.Replace("slab._up = Vector3.up", "slab._up = worldUp")),
+            "negative control: tilted-board fallback arc is refused");
+        t.True(!HasOriginalFallback(fallback.Replace("sourceWorldWidth / (parentLossy * w)", "1f")),
+            "negative control: fixed hand-size fallback is refused");
         string flight = RemoteCapVisibilityVectors.Method(rebuild, "private bool TryStartFlyToPile(");
         t.True(HasActiveDestinationSwitch(flight), "actual active departures reach model destination switch");
         t.True(!HasActiveDestinationSwitch(flight.Replace("_lastActiveCards.Contains(card)", "false")),
@@ -88,6 +109,18 @@ internal static class BurnFlightCompletionVectors
         t.True(wait >= 0 && launch > wait, "focus change cannot bypass native completion");
         t.True(!flush.Contains("_burnHoldSince.Clear()"), "focus change retains pending old actor holds");
     }
+    private static bool WaitsBeforeTravel(string body, string wait, string advance)
+    {
+        int gate = body.IndexOf(wait, StringComparison.Ordinal);
+        int elapsed = body.IndexOf(advance, StringComparison.Ordinal);
+        int paused = body.IndexOf("continue;", gate >= 0 ? gate : 0, StringComparison.Ordinal);
+        return gate >= 0 && paused > gate && elapsed > paused;
+    }
+
+    private static bool HasOriginalFallback(string body) => body.Contains("SetLocalNativeAppearance")
+        && body.Contains("RemoteAbilityCardSource.ShowFullFace") && body.Contains("slab._up = Vector3.up")
+        && body.Contains("sourceWorldWidth / (parentLossy * w)") && body.Contains("_art?.Destroy()");
+
     private static bool HasDeferredActiveResolve(string body)
     {
         int resolve = body.IndexOf("!RemoteActiveDepartures.TryTake", StringComparison.Ordinal);

@@ -97,6 +97,8 @@ internal sealed class RemoteCardFx
         public bool ActiveTargetCaptured;
         public float Arc;
         public float Elapsed;
+        public float ArtworkWait;
+        public byte Endpoints, Flags;
         public bool Active;
         /// <summary>True while this slab is carrying the real card FRONT rather than a back. It no
         /// longer decides the slab's ORIENTATION: that forked here until 2026-09-07 and the faceless
@@ -253,7 +255,9 @@ internal sealed class RemoteCardFx
         // flight, and an ActiveCardId left on it would blank a matrix cell for a card that is not in
         // the air. ResolveFace re-stamps it below when this flight really is one.
         f.ActiveCardId = int.MinValue;
-        f.SourceActor = source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId) : null;
+        f.SourceActor = source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId)
+            : RemoteBoardFocus.DisplayedActor(_owner, out _);
+        f.Endpoints = endpoints; f.Flags = flags; f.ArtworkWait = 0f;
         f.HasFace = false;
         f.FaceCard = null;
         f.FaceActor = null;
@@ -805,8 +809,25 @@ internal sealed class RemoteCardFx
             Flight f = _flights[i];
             if (!f.Active || f.Go == null)
                 continue;
+            if (f.FaceCard == null && !f.ShortRestBurn && !RevealGate.IsSecretSelectionPhase
+                && ReferenceEquals(f.SourceActor, RemoteBoardFocus.DisplayedActor(_owner, out _)))
+                ResolveFace(f, NetCardFx.From(f.Endpoints), NetCardFx.To(f.Endpoints), f.Flags);
             RefreshFaceVisibility(f);
-            f.Go.SetActive(CanDrawFlight(f));
+            bool drawable = CanDrawFlight(f);
+            f.Go.SetActive(drawable);
+            if (!drawable)
+            {
+                // Withholding a public back must not consume the whole unseen arc. Allow the
+                // correct source to load, then start/resume movement; teardown remains bounded.
+                f.ArtworkWait += Mathf.Max(dt, 0f);
+                if (f.ArtworkWait >= ResolveSeconds)
+                {
+                    f.Active = false;
+                    f.ActiveCardId = int.MinValue;
+                    f.Art?.HideFront();
+                }
+                continue;
+            }
             f.Elapsed += Mathf.Max(dt, 0f);
             float t = NetProtocol.CardFxSeconds > 0f
                 ? Mathf.Clamp01(f.Elapsed / NetProtocol.CardFxSeconds)

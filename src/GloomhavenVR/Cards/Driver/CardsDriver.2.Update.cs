@@ -329,6 +329,7 @@ internal sealed partial class CardsDriver
         _lastVisibleCards.Clear();
         _lastCardWorldPos.Clear(); // issue 1
         _lastCardWorldRot.Clear();
+        _lastCardWorldWidth.Clear();
         _burnWatchHand = null; // issue B
         _knownBurntWidgets.Clear();
         _burnHoldSince.Clear(); // artwork holds die with the driver — no orphaned release later
@@ -446,6 +447,18 @@ internal sealed partial class CardsDriver
             if (card != null)
                 _half.DestroyZonesFor(card);
         }
+        // Hand destruction is per character. Pending burns for another character survived a
+        // focus change intentionally and must keep their source/pose until their owner releases.
+        foreach (AbilityCardUI widget in cards)
+        {
+            if (widget is null) continue;
+            ClearBurnHold(widget);
+            _activeExitOrigins.Remove(widget);
+            _activeCellSources.Remove(widget);
+            _lastCardWorldPos.Remove(widget);
+            _lastCardWorldRot.Remove(widget);
+            _lastCardWorldWidth.Remove(widget);
+        }
         _factory.ReleaseHand(hand);
         _tray.ClearSlots();
         // Hand reorder: the hand's cards died — drop the persisted VR order + any pending reorder
@@ -460,20 +473,14 @@ internal sealed partial class CardsDriver
         _flyingToPile.Clear(); // issue 5: the hand's cards (any mid-flight) just died
         _lastHalfCards.Clear();
         _lastActiveCards.Clear();
-        _activeExitOrigins.Clear();
-        _activeCellSources.Clear();
         _lastTrayCards.Clear(); // issue 1: slot occupants die with the hand's cards
         _lastVisibleCards.Clear();
         _lastFieldCards.Clear(); // event-discard exit: the same rule for the pick-recess snapshot —
                                  // a dead VRCard is still a live reference in a HashSet, and the
                                  // pick-field pre-filter is a membership test on exactly this set
-        _lastCardWorldPos.Clear(); // issue 1: last-known poses die with the hand's cards
-        _lastCardWorldRot.Clear();
         _dockAnimSuppressed = true; // issue 2: the next hand's cards populate silently (no storm)
         _burnWatchHand = null; // issue B: re-baseline the burnt set for the next hand
         _knownBurntWidgets.Clear();
-        _burnHoldSince.Clear(); // the held widgets died with the hand — never release into a slab
-        _burnHoldLogged.Clear();
         _loggedStaleHandCard.Clear(); // ditto the item 10 model-belt dedupe (widgets are recycled)
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
         _shortRestPresented = null;
@@ -495,6 +502,7 @@ internal sealed partial class CardsDriver
             {
                 _lastCardWorldPos[widget] = card.transform.position;
                 _lastCardWorldRot[widget] = card.transform.rotation;
+                _lastCardWorldWidth[widget] = card.transform.lossyScale.x * CardsConfig.CardWidth.Value;
             }
             if (ReferenceEquals(card, _laserHover))
                 ClearLaserHover();

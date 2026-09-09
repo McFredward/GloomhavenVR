@@ -185,6 +185,7 @@ internal sealed class RemoteBurnFx
         public bool Active;
         public bool HasFace;
         public bool ShortRestBurn;
+        public float ArtworkWait;
         public Vector3 From;
         public Vector3 To;
         public float Arc;
@@ -761,6 +762,7 @@ internal sealed class RemoteBurnFx
         b.CardId = cardId;
         b.ActorId = actorId;
         b.OwnerReleased = false;
+        b.ArtworkWait = 0f;
         b.Recess = recess;
         b.Name = name;
         b.SeatedFrames = 0;
@@ -965,6 +967,18 @@ internal sealed class RemoteBurnFx
                 continue;
             }
             RefreshFaceVisibility(b);
+            if (b.HandoverLogged && !CanDrawBurn(b))
+            {
+                b.Go.SetActive(false);
+                b.ArtworkWait += step;
+                if (b.ArtworkWait >= 2f)
+                {
+                    DropClaim(b.ClaimId);
+                    b.Active = false;
+                    b.Art?.HideFront();
+                }
+                continue;
+            }
             b.Elapsed += step;
 
             // A stationary card follows its recess. Once released, VRCard.FlyToPile retains

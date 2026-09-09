@@ -213,6 +213,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
     // the whole flight; with no recorded pose the animation is skipped (never a teleport).
     private readonly Dictionary<AbilityCardUI, Vector3> _lastCardWorldPos = new(16);
     private readonly Dictionary<AbilityCardUI, Quaternion> _lastCardWorldRot = new(16);
+    private readonly Dictionary<AbilityCardUI, float> _lastCardWorldWidth = new(16);
 
     // Issue 2 (character/turn switch board cards must not pop): suppress the docked-card appear/
     // disappear animation for exactly the first Rebuild after a fresh board build / teardown (the

@@ -1332,6 +1332,7 @@ internal sealed partial class CardsDriver
             {
                 _lastCardWorldPos[card.GameCard] = card.transform.position;
                 _lastCardWorldRot[card.GameCard] = card.transform.rotation;
+                _lastCardWorldWidth[card.GameCard] = card.transform.lossyScale.x * CardsConfig.CardWidth.Value;
             }
             bool inFan = _fanBuffer.Contains(card);
             bool inHalf = _halfBuffer.Contains(card);
@@ -3056,6 +3057,7 @@ internal sealed partial class CardsDriver
         _knownBurntWidgets.Add(widget); // claim before the watcher's diff sees it (no double animation)
         _lastCardWorldPos.Remove(widget); // consumed — the real card is flying, no fallback slab wanted
         _lastCardWorldRot.Remove(widget);
+        _lastCardWorldWidth.Remove(widget);
         // MP parity (report 6): this launch site was the ONE burn flight that never reported —
         // every other pile flight (turn-clear, pile-watch, fallback slab) announces itself, so a
         // peer watching this player's board saw those but missed a burn that fired from the park
@@ -3986,6 +3988,7 @@ internal sealed partial class CardsDriver
             _knownBurntWidgets.Add(widget); // claim (same contract as TryStartBurnFly) — animate once
             _lastCardWorldPos.Remove(widget); // consumed
             _lastCardWorldRot.Remove(widget);
+            _lastCardWorldWidth.Remove(widget);
             VRLog.Info("Cards", $"BURN ANIM [{origin}]: '{CardsGameApi.CardName(widget)}' burned — real VR card " +
                                 $"flies from {card.transform.position} → Burnt pile ({FlyToPileSeconds:F2}s, arc " +
                                 $"{arcHeight:F3} m over the board). VR presentation only; game pile state untouched.");
@@ -3993,15 +3996,18 @@ internal sealed partial class CardsDriver
         }
 
         // Issue 1: the live VR card is already parked (position lost) or recycled, so fly a transient
-        // card-back slab from the burned card's LAST-KNOWN world pose — NEVER from the discard pile
+        // native card slab from the burned card's LAST-KNOWN world pose — NEVER from the discard pile
         // (that teleport to a different place first was the user's "glitched over the pile then
         // appeared somewhere else" bug). Keep that recorded rotation constant for the whole flight so
         // the card stays equally oriented. With no recorded pose there is genuinely nowhere to fly
         // from, so the animation is SKIPPED (no teleporting slab).
         bool hasFrom = _lastCardWorldPos.TryGetValue(widget, out Vector3 fromPos);
         Quaternion fromRot = _lastCardWorldRot.TryGetValue(widget, out Quaternion r) ? r : Quaternion.identity;
+        float fromWidth = _lastCardWorldWidth.TryGetValue(widget, out float rememberedWidth)
+            ? rememberedWidth : CardsConfig.CardWidth.Value * (AnchorParent()?.lossyScale.x ?? 1f);
         _lastCardWorldPos.Remove(widget); // consumed either way
         _lastCardWorldRot.Remove(widget);
+        _lastCardWorldWidth.Remove(widget);
         if (!hasFrom)
         {
             VRLog.Warn("Cards", $"BURN ANIM [none]: '{CardsGameApi.CardName(widget)}' → Burnt pile: NO last-known VR " +
@@ -4015,7 +4021,9 @@ internal sealed partial class CardsDriver
         if (anchor == null)
             return;
         float slabArc = Mathf.Max(minArc, Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction);
-        BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp, minArc);
+        byte flightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
+        BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, fromWidth, slabWidth, FlyToPileSeconds,
+            arcUp, widget, Net.CardFlightVisibility.Covered(flightFlags), minArc);
         LogBurnAttribution(widget, origin + "/slab");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin + "/slab", CardsGameApi.CardName(widget));
         // MP parity (report 6): the fallback slab is the same event on the wire.
@@ -4025,64 +4033,22 @@ internal sealed partial class CardsDriver
         // REMEMBERED last position, not a seat, and naming a recess from it would be exactly the
         // approximation item 5's fix exists to remove.
         ReportCardFx(BurnOrPileOrigin(widget, -1), Net.CardFxAnchor.Burnt,
-            Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard), FlightSourceOf(widget));
-        // ─── A STANDING VIOLATION OF THE BURN RULING, AND IT NOW SAYS SO EVERY TIME IT FIRES ────
-        // "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar
-        // sein." BurnSlab.Launch builds ONE mesh with an edge material and a BACK material and no
-        // front at all (see its own note), so every flight down this branch shows a card back on
-        // both faces — the one picture that ruling forbids outright, with no phase, pile or
-        // anti-cheat argument that outranks it.
-        //
-        // WHY IT IS NAMED HERE RATHER THAN FIXED HERE, stated so it cannot be read as an oversight.
-        // (1) It is the LOCAL owner's own flight, so it is invisible to the systematic face audit:
-        //     Net.PeerCardFaceCensus enumerates the surfaces that draw a PEER's card and this is not
-        //     one of them, which is exactly why a wrong face survived here while eight peer surfaces
-        //     were being audited. That blind spot is the finding; this line is what closes it.
-        // (2) Putting a real front on this slab is not a material swap. A card front in this mod is
-        //     a BORROWED uGUI widget on a FaceCanvas (Cards.CardFace), and putting one on a
-        //     self-destructing transient and restoring it is the machinery whose failure mode is
-        //     already recorded in this project ("Replaying them is how a burned card's face got put
-        //     back where it no longer belongs", CardFace.Restore). Doing that from the face lane
-        //     while the burn-sequencing lane is rewriting the callers is how two correct changes
-        //     make one broken flight.
-        // THE FALSIFIER IS THIS LINE'S OWN EXISTENCE: if it never appears in a hardware log, the
-        // branch is unreachable and the violation is theoretical; if it appears once, the front rig
-        // is owed and the log names the card it was owed for.
-        // HW-VERIFY
+            flightFlags, FlightSourceOf(widget));
+        // MB490: a recycled VRCard never justified losing its original front. The transient
+        // owns an inert native clone and releases it on destruction; the source stays untouched.
         VRLog.Note("Cards", $"CARD FACE RULE [{origin}/slab]: '{CardsGameApi.CardName(widget)}' " +
-                            "burned and is flying with its BACK — chosen by NO RULE. This is a " +
-                            "KNOWN STANDING VIOLATION of the burn ruling ('Beim Verbrennen EGAL " +
-                            "AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar " +
-                            "sein'): the transient BurnSlab is built with an edge material and a " +
-                            "card-BACK material and carries no front at all. It is reached ONLY " +
-                            "when no live VR card is left for the burned widget, so this line " +
-                            "APPEARING AT ALL is the evidence that the front rig is owed — and its " +
-                            "absence across a session is the evidence that the branch is dead. " +
-                            "Every other burn surface gets its front from " +
-                            "Net.RevealGate.IsPubliclyRevealedCard, which is a property of the CARD " +
-                            "and needs no phase; this one has no face host to give it to.");
-        VRLog.Info("Cards", $"BURN ANIM [{origin}/slab]: '{CardsGameApi.CardName(widget)}' burned — transient card-back slab " +
+                            $"burned; short-rest covered={Net.CardFlightVisibility.Covered(flightFlags)}. " +
+                            "The transient slab uses the original card artwork when open, and waits " +
+                            "for that artwork instead of flashing a back on a public burn.");
+        VRLog.Info("Cards", $"BURN ANIM [{origin}/slab]: '{CardsGameApi.CardName(widget)}' burned — transient native card slab " +
                             $"from {fromPos} (the burned card's true last position) → Burnt pile " +
                             $"({FlyToPileSeconds:F2}s, arc {slabArc:F3} m over the board), orientation held — no " +
                             "live VR card left for the burned widget.");
     }
 
-    /// <summary>
-    /// Transient card-back slab for the burn fallback (issue B): a pooled-free, self-destructing
-    /// mini card that flies from a source into the burnt pile with the SAME over-the-board arc as
-    /// <see cref="VRCard.FlyToPile"/>, then removes itself. Used only when the burned card has no
-    /// live VR representation to fly. Parented under the cards anchor so it shares the diorama
-    /// scale; works in world space on unscaled time (card phases pause timeScale).
-    ///
-    /// <para>IT DRAWS A CARD BACK ON BOTH FACES, AND THAT IS A KNOWN STANDING VIOLATION rather than
-    /// a design choice: the two materials below are the edge and the BACK, and there is no face host
-    /// on this object at all. The user's ruling is "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die
-    /// Karte immer mit der Vorderseite sichtbar sein", so a burn flight showing a back is wrong on
-    /// every path that reaches it. The caller emits a <c>CARD FACE RULE …/slab</c> line saying so
-    /// every time this launches — read that line's presence or absence before deciding whether the
-    /// front rig is worth building, because the branch is only reached when the burned widget has
-    /// no live VR card left and may well be dead.</para>
-    /// </summary>
+    /// <summary>Transient fallback when the live VRCard was recycled. Its inert native front
+    /// preserves the original artwork; explicit short-rest provenance keeps the flight covered.
+    /// The source widget is never reparented, and the clone dies with this finite flight.</summary>
     private sealed class BurnSlab : MonoBehaviour
     {
         private Vector3 _from;
@@ -4093,20 +4059,31 @@ internal sealed partial class CardsDriver
         private float _duration;
         private Vector3 _fromScale;
         private Vector3 _toScale;
+        private Net.RemoteCardArt? _art;
+        private AbilityCardUI? _widget;
+        private MeshRenderer? _body;
+        private bool _covered;
+        private bool _appearanceCaptured;
+        private float _artworkWait;
 
         internal static void Launch(Transform anchor, Vector3 fromWorld, Quaternion fixedRot, Vector3 toWorld,
-            float targetWorldWidth, float duration, Vector3 worldUp, float minArcHeight = 0f)
+            float sourceWorldWidth, float targetWorldWidth, float duration, Vector3 worldUp, AbilityCardUI widget,
+            bool covered, float minArcHeight = 0f)
         {
             float w = CardsConfig.CardWidth.Value;
             float h = CardsConfig.CardHeight;
 
             var go = new GameObject("BurnSlab");
             go.transform.SetParent(anchor, worldPositionStays: false);
-            var mf = go.AddComponent<MeshFilter>();
+            var body = new GameObject("Body");
+            body.transform.SetParent(go.transform, worldPositionStays: false);
+            Vector2 visible = CardFace.VisibleFaceRect(w, h);
+            body.transform.localScale = new Vector3(visible.x / w, visible.y / h, 1f);
+            var mf = body.AddComponent<MeshFilter>();
             // Round 17: this slab IS an ability card (see the material note below), so it wears
             // the same punched-out contour mesh once the Ability footprint is known.
             CardMesh.AttachBody(mf, CardBodyKind.Ability, w, h);
-            var mr = go.AddComponent<MeshRenderer>();
+            var mr = body.AddComponent<MeshRenderer>();
             // ABILITY kind, not the never-clipped Neutral pair (2026-08-11: "Der schwarze Rand soll
             // im gesamten Spiel entfernt werden egal wo die Karte ist"). This slab IS an ability
             // card — it is CardMesh.Get(CardWidth, CardHeight), the very mesh VRCard's backing uses,
@@ -4115,22 +4092,29 @@ internal sealed partial class CardsDriver
             // flight, front and centre over the board) as the only black rectangle left in the game.
             mr.sharedMaterials = new[]
             {
-                CardMesh.CreateEdgeMaterial(CardBodyKind.Ability),
+                CardMesh.CreateBackMaterial(CardBodyKind.Ability),
                 CardMesh.CreateBackMaterial(CardBodyKind.Ability),
             };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             Core.VRLayers.Apply(go);
 
             float parentLossy = anchor.lossyScale.x;
-            float startLocal = 1f; // full card size at the source
+            float startLocal = parentLossy > 1e-5f && w > 1e-5f
+                ? sourceWorldWidth / (parentLossy * w) : 1f;
             float endLocal = (parentLossy > 1e-5f && w > 1e-5f)
                 ? targetWorldWidth / (parentLossy * w)
                 : 0.5f;
 
             var slab = go.AddComponent<BurnSlab>();
+            slab._widget = widget;
+            slab._covered = covered;
+            slab._body = mr;
+            slab._art = new Net.RemoteCardArt(go.transform, w, h)
+                { Surface = Net.RemoteCardArt.FxSurface.Flight };
+            slab.RefreshArtwork();
             slab._from = fromWorld;
             slab._to = toWorld;
-            slab._up = worldUp.sqrMagnitude > 1e-6f ? worldUp.normalized : Vector3.up;
+            slab._up = Vector3.up; // VRCard.FlyToPile lifts toward the ceiling, independent of board tilt.
             slab._height = Mathf.Max(minArcHeight, Vector3.Distance(fromWorld, toWorld) * VRCard.FlyArcHeightFraction);
             slab._duration = Mathf.Max(0.05f, duration);
             slab._fromScale = Vector3.one * startLocal;
@@ -4143,8 +4127,32 @@ internal sealed partial class CardsDriver
             go.transform.rotation = fixedRot;
         }
 
+        private void RefreshArtwork()
+        {
+            bool front = _appearanceCaptured || (!_covered && _widget != null && _widget.AbilityCard != null && _art != null
+                && Net.RemoteAbilityCardSource.ShowFullFace(_art, _widget.PlayerActor, _widget.AbilityCard)
+                    != Net.RemoteAbilityCardSource.FacePath.None);
+            if (front && !_appearanceCaptured && _widget != null)
+            {
+                _art!.SetLocalNativeAppearance(_widget.fullAbilityCard);
+                _appearanceCaptured = true;
+            }
+            if (!front) _art?.HideFront();
+            if (_body != null) _body.enabled = _covered || front;
+            CardMesh.SetBodyFrontFace(transform, showsBack: !front);
+        }
+
+        private void OnDestroy() => _art?.Destroy();
+
         private void Update()
         {
+            RefreshArtwork();
+            if (!_covered && !_appearanceCaptured)
+            {
+                _artworkWait += Time.unscaledDeltaTime;
+                if (_artworkWait >= 2f) Destroy(gameObject);
+                return;
+            }
             _elapsed += Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap, like the fan anim
             float ft = _duration > 0f ? Mathf.Clamp01(_elapsed / _duration) : 1f;
             // THE FOURTH FLIGHT CURVE, AND IT WAS THE OWNER'S OWN CLASS (2026-09-07). This eased the
