@@ -35,8 +35,8 @@ Read the current rules, state and newest protocol build notes before implementat
 
 - The local recycled-card BurnSlab fallback explicitly documented an unresolved back-only
   violation. It now owns an inert original-card clone with a frozen native appearance frame,
-  keeping short-rest provenance covered and withholding unresolved open art instead of flashing
-  a back. Source widget callbacks never run; source objects are never reparented. Destruction
+  retaining short-rest cover exclusively in the remote event while always showing the local front.
+  It withholds unresolved original art instead of flashing a back. Source widget callbacks never run; source objects are never reparented. Destruction
   releases clone resources. The same review found its board-up arc and fixed source scale: it
   now uses ceiling/world-up and the recorded original world width like the live VRCard path.
 
@@ -44,16 +44,16 @@ Read the current rules, state and newest protocol build notes before implementat
   It now removes only widgets belonging to the destroyed hand, preserving other pending holds.
 
 - Public front readiness now holds the flight clock as well as withholding the wrong back.
-  Original art gets a bounded two-second resolve window; known selection/short-rest backs fly
+  Original art gets a bounded two-second resolve window; remote selection/short-rest backs fly
   immediately. Missing art cannot consume an entire hidden arc, nor strand a permanent claim.
 
-- The latest short-rest flight ruling applies locally and remotely. All three live local burn
-  launch paths now consume provenance once and pass the same covered bit to both the semantic
-  event and VRCard flight. The face lane's temporary cover restores on landing/cancel/reuse;
-  ordinary damage sacrifices keep their fronts.
+- The user's latest clarification makes concealment exclusively remote. Every local card keeps
+  its front, including short-rest flights and the recycled BurnSlab fallback. All three live
+  launch paths still consume provenance once and retain its covered bit in the semantic event,
+  so remote short-rest flights remain covered without changing the owner's local picture.
 
 - Authoritative release flags supersede tentative model-watch context. A delayed ordinary burn
-  cannot inherit the owner's later short-rest UI, and a proven short-rest burn remains covered.
+  cannot inherit the owner's later short-rest UI, and a proven remote short-rest burn remains covered.
 
 ## Coverage
 

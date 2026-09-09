@@ -103,6 +103,8 @@ internal static class BurnFlightCompletionVectors
         string rebuild = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs"));
         string fallback = rebuild.Substring(rebuild.IndexOf("private sealed class BurnSlab", StringComparison.Ordinal));
         t.True(HasOriginalFallback(fallback), "recycled local burn uses inert original art, original source size and ceiling arc");
+        t.True(!fallback.Contains("_covered") && fallback.Contains("_body.enabled = front"),
+            "local recycled burn always needs its original front, including a short rest");
         t.True(!HasOriginalFallback(fallback.Replace("SetLocalNativeAppearance", "NoNativeOutput")),
             "negative control: a clone without original output is refused");
         t.True(!HasOriginalFallback(fallback.Replace("slab._up = Vector3.up", "slab._up = worldUp")),
@@ -112,9 +114,10 @@ internal static class BurnFlightCompletionVectors
         foreach (string method in new[] { "private bool TryStartFlyToPile(", "private bool TryStartBurnFly(", "private void LaunchBurnFlight(" })
         {
             string launchBody = RemoteCapVisibilityVectors.Method(rebuild, method);
-            t.True(launchBody.Contains("coverFace: Net.CardFlightVisibility.Covered(")
-                && launchBody.Contains("Net.CardFlightVisibility.ConsumeBurn("),
-                "local live burn path preserves the same covered provenance as the wire: " + method);
+            t.True(LocalFrontKeepsRemoteProvenance(launchBody),
+                "local burn keeps its front while retaining remote cover provenance: " + method);
+            t.True(!LocalFrontKeepsRemoteProvenance(launchBody + "coverFace: true"),
+                "negative control: remote cover cannot be applied to a local live card: " + method);
         }
         string flight = RemoteCapVisibilityVectors.Method(rebuild, "private bool TryStartFlyToPile(");
         t.True(HasActiveDestinationSwitch(flight), "actual active departures reach model destination switch");
@@ -126,6 +129,9 @@ internal static class BurnFlightCompletionVectors
         t.True(wait >= 0 && launch > wait, "focus change cannot bypass native completion");
         t.True(!flush.Contains("_burnHoldSince.Clear()"), "focus change retains pending old actor holds");
     }
+    private static bool LocalFrontKeepsRemoteProvenance(string body) => !body.Contains("coverFace:")
+        && body.Contains("Net.CardFlightVisibility.ConsumeBurn(") && body.Contains("ReportCardFx(");
+
     private static bool WaitsBeforeTravel(string body, string wait, string advance)
     {
         int gate = body.IndexOf(wait, StringComparison.Ordinal);

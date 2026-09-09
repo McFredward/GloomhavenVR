@@ -2745,7 +2745,7 @@ internal sealed partial class CardsDriver
             _flyingToPile.Remove(flying);
             _factory.Park(flying);
             VRLog.Info("Cards", $"Fly-to-pile: '{flying.name}' reached the {dest} pile — parked.");
-        }, minArc, coverFace: Net.CardFlightVisibility.Covered(flightFlags));
+        }, minArc);
         // A played card whose fate is BURNT (a lost action) is a burn like any other — tag it with
         // the same BURN ANIM token the dedicated burn paths use so ONE grep proves every burn case.
         string origin = wasActive ? "active expiry" : wasPickField ? "pick field" : "turn-clear";
@@ -3077,7 +3077,7 @@ internal sealed partial class CardsDriver
             _flyingToPile.Remove(flying);
             _factory.Park(flying);
             VRLog.Info("Cards", $"BURN ANIM: '{flying.name}' reached the Burnt pile — parked.");
-        }, minArc, coverFace: Net.CardFlightVisibility.Covered(flightFlags));
+        }, minArc);
         VRLog.Info("Cards", $"BURN ANIM [{origin}]: '{CardsGameApi.CardName(widget)}' burned — real VR card flies " +
                             $"from {from} → Burnt pile ({FlyToPileSeconds:F2}s, arc {arcHeight:F3} m over the " +
                             "board, orientation locked). VR presentation only; the game's own pile state is " +
@@ -3986,7 +3986,7 @@ internal sealed partial class CardsDriver
                 _flyingToPile.Remove(flying);
                 _factory.Park(flying);
                 VRLog.Info("Cards", $"BURN ANIM: '{flying.name}' reached the Burnt pile — parked.");
-            }, minArc, coverFace: Net.CardFlightVisibility.Covered(liveFlightFlags));
+            }, minArc);
             _knownBurntWidgets.Add(widget); // claim (same contract as TryStartBurnFly) — animate once
             _lastCardWorldPos.Remove(widget); // consumed
             _lastCardWorldRot.Remove(widget);
@@ -4025,7 +4025,7 @@ internal sealed partial class CardsDriver
         float slabArc = Mathf.Max(minArc, Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction);
         byte flightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
         BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, fromWidth, slabWidth, FlyToPileSeconds,
-            arcUp, widget, Net.CardFlightVisibility.Covered(flightFlags), minArc);
+            arcUp, widget, minArc);
         LogBurnAttribution(widget, origin + "/slab");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin + "/slab", CardsGameApi.CardName(widget));
         // MP parity (report 6): the fallback slab is the same event on the wire.
@@ -4039,9 +4039,11 @@ internal sealed partial class CardsDriver
         // MB490: a recycled VRCard never justified losing its original front. The transient
         // owns an inert native clone and releases it on destruction; the source stays untouched.
         VRLog.Note("Cards", $"CARD FACE RULE [{origin}/slab]: '{CardsGameApi.CardName(widget)}' " +
-                            $"burned; short-rest covered={Net.CardFlightVisibility.Covered(flightFlags)}. " +
-                            "The transient slab uses the original card artwork when open, and waits " +
-                            "for that artwork instead of flashing a back on a public burn.");
+                            $"burned; remote short-rest covered={Net.CardFlightVisibility.Covered(flightFlags)}. " +
+                            "The local transient always uses the original front and waits for its artwork. " +
+                            "Legacy NO RULE / KNOWN STANDING VIOLATION: resolved by native artwork; " +
+                            "APPEARING AT ALL confirms fallback use. AUS WELCHEM GRUND applies locally; " +
+                            "only remote short-rest flights are covered.");
         VRLog.Info("Cards", $"BURN ANIM [{origin}/slab]: '{CardsGameApi.CardName(widget)}' burned — transient native card slab " +
                             $"from {fromPos} (the burned card's true last position) → Burnt pile " +
                             $"({FlyToPileSeconds:F2}s, arc {slabArc:F3} m over the board), orientation held — no " +
@@ -4049,7 +4051,8 @@ internal sealed partial class CardsDriver
     }
 
     /// <summary>Transient fallback when the live VRCard was recycled. Its inert native front
-    /// preserves the original artwork; explicit short-rest provenance keeps the flight covered.
+    /// preserves the original artwork. Local cards always show their fronts; short-rest cover
+    /// provenance belongs exclusively to the remote semantic event.
     /// The source widget is never reparented, and the clone dies with this finite flight.</summary>
     private sealed class BurnSlab : MonoBehaviour
     {
@@ -4064,14 +4067,13 @@ internal sealed partial class CardsDriver
         private Net.RemoteCardArt? _art;
         private AbilityCardUI? _widget;
         private MeshRenderer? _body;
-        private bool _covered;
         private bool _appearanceCaptured;
         private float _artworkWait;
         private bool _faceStateSet, _showsBack;
 
         internal static void Launch(Transform anchor, Vector3 fromWorld, Quaternion fixedRot, Vector3 toWorld,
             float sourceWorldWidth, float targetWorldWidth, float duration, Vector3 worldUp, AbilityCardUI widget,
-            bool covered, float minArcHeight = 0f)
+            float minArcHeight = 0f)
         {
             float w = CardsConfig.CardWidth.Value;
             float h = CardsConfig.CardHeight;
@@ -4110,7 +4112,6 @@ internal sealed partial class CardsDriver
 
             var slab = go.AddComponent<BurnSlab>();
             slab._widget = widget;
-            slab._covered = covered;
             slab._body = mr;
             slab._art = new Net.RemoteCardArt(go.transform, w, h)
                 { Surface = Net.RemoteCardArt.FxSurface.Flight };
@@ -4132,7 +4133,7 @@ internal sealed partial class CardsDriver
 
         private void RefreshArtwork()
         {
-            bool front = _appearanceCaptured || (!_covered && _widget != null && _widget.AbilityCard != null && _art != null
+            bool front = _appearanceCaptured || (_widget != null && _widget.AbilityCard != null && _art != null
                 && Net.RemoteAbilityCardSource.ShowFullFace(_art, _widget.PlayerActor, _widget.AbilityCard)
                     != Net.RemoteAbilityCardSource.FacePath.None);
             if (front && !_appearanceCaptured && _widget != null)
@@ -4141,7 +4142,7 @@ internal sealed partial class CardsDriver
                 _appearanceCaptured = true;
             }
             if (!front) _art?.HideFront();
-            if (_body != null) _body.enabled = _covered || front;
+            if (_body != null) _body.enabled = front;
             bool showsBack = !front;
             if (!_faceStateSet || _showsBack != showsBack)
             {
@@ -4156,7 +4157,7 @@ internal sealed partial class CardsDriver
         private void Update()
         {
             RefreshArtwork();
-            if (!_covered && !_appearanceCaptured)
+            if (!_appearanceCaptured)
             {
                 _artworkWait += Time.unscaledDeltaTime;
                 if (_artworkWait >= 2f) Destroy(gameObject);
