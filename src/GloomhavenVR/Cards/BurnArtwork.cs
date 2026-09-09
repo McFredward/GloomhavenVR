@@ -173,7 +173,7 @@ internal static class BurnArtwork
     private const float BailedPaintCeiling = 0.001f;
 
     /// <summary>
-    /// First unscaled time each <see cref="CardEffects"/> was OBSERVED holding a burn handle, so the
+    /// First native-clock time each <see cref="CardEffects"/> was OBSERVED holding a burn handle, so the
     /// <see cref="StartGraceSeconds"/> below is measured rather than assumed. Entries are dropped
     /// the moment the widget stops holding one (<see cref="Forget"/>), so the table's size tracks
     /// the burns in flight — a party's worth of card widgets at the very most.
@@ -192,7 +192,10 @@ internal static class BurnArtwork
     private static bool HandleIsABailedTimeline(CardEffects fx)
     {
         int id = fx.GetInstanceID();
-        float now = Time.unscaledTime;
+        if (Timekeeper.instance == null) return false;
+        // The native burn advances on this clock. A paused game must not turn its zero-progress
+        // but live coroutine into a supposed bail merely because wall time passed.
+        float now = Timekeeper.instance.m_GlobalClock.time;
         if (!HandleFirstSeen.TryGetValue(id, out float since))
         {
             if (HandleFirstSeen.Count >= HandleTableCap)

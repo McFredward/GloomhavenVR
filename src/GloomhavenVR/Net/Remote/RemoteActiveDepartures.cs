@@ -80,7 +80,8 @@ internal static class RemoteActiveDepartures
     }
 
     private static void Prune() => Cells.RemoveAll(c => Time.unscaledTime - c.Seen > Lifetime
-        || c.Actor.CharacterClass.HandAbilityCards.Contains(c.Card)
-        || c.Actor.CharacterClass.RoundAbilityCards.Contains(c.Card)
-        || c.Actor.CharacterClass.ExtraTurnCards.Contains(c.Card));
+        || (!c.Actor.CharacterClass.ActivatedCards.Contains(c.Card)
+            && (c.Actor.CharacterClass.HandAbilityCards.Contains(c.Card)
+                || c.Actor.CharacterClass.RoundAbilityCards.Contains(c.Card)
+                || c.Actor.CharacterClass.ExtraTurnCards.Contains(c.Card))));
 }

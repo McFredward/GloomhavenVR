@@ -1270,6 +1270,19 @@ internal sealed partial class CardsDriver
         // Every other board zone (_halfBuffer, tray slots, _fieldCards, _shortRestCard) is
         // already resolved above.
         UpdateActive(hand);
+        _burnHoldPruneScratch.Clear();
+        foreach (AbilityCardUI widget in _activeExitOrigins.Keys)
+        {
+            if (widget is null) continue;
+            CAbilityCard? model = widget != null ? widget.AbilityCard : null;
+            CCharacterClass? cc = widget != null ? widget.PlayerActor?.CharacterClass : null;
+            if (model == null || cc == null || cc.HandAbilityCards.Contains(model)
+                || cc.RoundAbilityCards.Contains(model) || cc.ExtraTurnCards.Contains(model)
+                || cc.ActivatedCards.Contains(model)) _burnHoldPruneScratch.Add(widget);
+        }
+        for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
+            _activeExitOrigins.Remove(_burnHoldPruneScratch[i]);
+        _burnHoldPruneScratch.Clear();
         // Preserve the source before any held-card/zone early return. An active bonus can expire
         // while its owner is inspecting that card in a fist; the later release still leaves this cell.
         for (int i = 0; i < _lastActiveCards.Count; i++)
@@ -3484,8 +3497,14 @@ internal sealed partial class CardsDriver
     private static void ReportCardFx(Net.CardFxAnchor from, Net.CardFxAnchor to, byte flags = 0,
                                      Net.CardFlightSource? source = null)
     {
-        if (Board.CharacterFocus.ReadOnlyView && !source.HasValue)
-            return;
+        if (source.HasValue)
+        {
+            // Delayed releases may belong to our previous character. A positional source is
+            // not ownership permission: never announce a native simulation for somebody else.
+            CPlayerActor? actor = Net.RemoteBoardFocus.ActorById(source.Value.ActorId);
+            if (!CardsGameApi.ControlsActor(actor)) return;
+        }
+        else if (Board.CharacterFocus.ReadOnlyView) return;
         Net.NetCardFx.Report(from, to, flags, source);
     }
 
@@ -3604,9 +3623,9 @@ internal sealed partial class CardsDriver
         {
             _burnHoldPruneScratch.Clear();
             foreach (AbilityCardUI held in _burnHoldSince.Keys)
-                if (held == null || held.AbilityCard == null || held.PlayerActor == null
+                if (held is not null && (held == null || held.AbilityCard == null || held.PlayerActor == null
                     || (!held.PlayerActor.CharacterClass.LostAbilityCards.Contains(held.AbilityCard)
-                        && !held.PlayerActor.CharacterClass.PermanentlyLostAbilityCards.Contains(held.AbilityCard)))
+                        && !held.PlayerActor.CharacterClass.PermanentlyLostAbilityCards.Contains(held.AbilityCard))))
                     _burnHoldPruneScratch.Add(held);
             for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
                 ClearBurnHold(_burnHoldPruneScratch[i]);
@@ -3684,8 +3703,9 @@ internal sealed partial class CardsDriver
     /// so a consumed hold can never release a SECOND animation later (the release gate itself
     /// clears these two on a normal in-path release).
     /// </summary>
-    private void ClearBurnHold(AbilityCardUI widget)
+    private void ClearBurnHold(AbilityCardUI? widget)
     {
+        if (widget is null) return;
         _burnHoldSince.Remove(widget);
         _burnHoldLogged.Remove(widget);
     }

@@ -929,7 +929,7 @@ internal sealed class RemoteBurnFx
             Id = b.ClaimId, Name = name, MintedAt = _lastPresentedAt,
             ActorId = actorId, Recess = recess,
             FromActive = fromActive,
-            Source = widget.AbilityCard != null ? RemoteActiveDepartures.SourceOf(_owner.PlayerId, widget.AbilityCard) : null,
+            Source = widget?.AbilityCard != null ? RemoteActiveDepartures.SourceOf(_owner.PlayerId, widget.AbilityCard) : null,
         });
         // THE SAME CENSUS POPULATION RemoteCardFx REPORTS (2026-09-06 report item 5). A burn IS a
         // card flying into a stack, and it reaches the viewer through this class instead of that one
