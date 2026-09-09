@@ -16,7 +16,7 @@ Map loadouts retain their existing public source. Offline/local ownership semant
 
 ## Evidence and causes
 
-Both supplied LogOutput logs advertise MB486. Host line 4220 is the local banner. No current card screenshot was supplied; the new bonus screenshots belong to the separate widget review.
+Both supplied LogOutput logs advertise MB486 at line 17 (the host also advertises its network build at 4220). No current card screenshot was supplied; the new bonus screenshots belong to the separate widget review.
 
 Host lines 41229–41661 contain action-phase open recesses alongside `LENGTH BELT` failures (four model-filtered cards versus six owner slabs), including held hand seats four and zero of six. Owner remote lines 27314, 27378 and 27425 send those six-card hand addresses. Later host lines 42860/42956 show three versus five. These are address-resolution failures, not evidence of a privacy refusal. Both logs also contain unnamed held addresses, while active fronts succeed later (remote 13914/20823; host 43081).
 
@@ -26,6 +26,14 @@ The short-rest leak is source-proven: card-aware RevealGate overloads reopened t
 
 ## Validation
 
-Strict Release build: zero errors and zero warnings. Initial full wire run: 238607 assertions passed. New vectors cover the phase matrix, stale UI/model membership, model-active sender precedence, removed population bypasses and per-frame flight checks, with mutations that restore historical defects as negative controls. Existing identity-mask tests and Python lint retain sender naming isolation while rejecting obsolete face exceptions. Final integration must register the new vector and pure helper explicitly in the wire-test project and invoke `CardVisibilityVectors.Run(t, repoRoot)`.
+Strict Release build: zero errors and zero warnings. Final full wire run: 238639 assertions passed. New vectors cover the phase matrix, stale UI/model membership, model-active sender precedence, removed population bypasses and per-frame flight checks, with mutations that restore historical defects as negative controls. Existing identity-mask tests and Python lint retain sender naming isolation while rejecting obsolete face exceptions. Final integration must register the new vector and both pure helpers explicitly in the wire-test project and invoke `CardVisibilityVectors.Run(t, repoRoot)`.
 
-These are source and automated-test results, not a headset image verification. Sender-latched short-rest provenance is a follow-up in this same lane because a receiver can process a closing context before receiving its burn event.
+These are source and automated-test results, not a headset image verification. Sender-latched short-rest provenance closes a separate ordering hole: RemoteAvatar used to replace the short-rest state before dispatching the same packet's burn event.
+
+## Short-rest origin across context changes
+
+The owner marks the actual offered model card before acceptance; redraw/cancel removes the mark. Every real or fallback burn-flight producer consumes that mark into the corresponding queued event. Weak model keys cannot confuse a recycled UI widget with another card, and consuming once prevents a recovered card's later damage burn retaining the short-rest tag. The bounded outbox now stores endpoint and visibility flags together. Parent-owned additive record 54 carries flags and the existing sequence, with no new card identity. Redundant packets retain the original event's provenance.
+
+The receiver keeps flags through early-event deferral and fallback; a matching model burn only gains coverage, never loses it. It also captures the existing record-39 sacrifice model locally before a closing snapshot overwrites the seat and short-rest context. An already identified short-rest burn stays covered through phase transitions for its whole flight. Tests cover repeat sampling, cancel/redraw, unrelated/recovered cards, queue ordering, sequence advancement and eviction.
+
+Limit: a peer that never received any short-rest context and first discovers a model burn after its local phase has advanced cannot infer the lost historical context before the matching semantic event arrives. The event narrows that presentation as soon as delivered. This is a loss/order limit, not a hardware-proven absolute guarantee. The normal selection-phase model-first hold remains covered independently of the event. Pure test registration additionally links `Net/CardFlightVisibility.cs`.

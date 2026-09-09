@@ -2702,7 +2702,8 @@ internal sealed partial class CardsDriver
         if (flightSeat < 0)
             flightSeat = _tray.SlotOf(card);
         Net.CardFxAnchor flightOrigin = SlotAnchor(flightSeat);
-        ReportCardFx(flightOrigin, PileAnchor(fate));
+        ReportCardFx(flightOrigin, PileAnchor(fate), fate == PileKind.Burnt
+            ? Net.CardFlightVisibility.ConsumeBurn(card.GameCard?.AbilityCard) : (byte)0);
         CardFlightLedger.Note("own", fate.ToString(),
             wasPickField ? "own-pick-field-commit" : "own-turn-clear",
             CardsGameApi.CardName(card.GameCard!));
@@ -3009,7 +3010,8 @@ internal sealed partial class CardsDriver
         // block at TryStartFlyToPile's ReportCardFx for why a hardcoded Board anchor made every
         // mirrored flight start at the board centre). `from` above is this same card's real world
         // position, so both ends of this flight now agree on both machines.
-        ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt);
+        ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
+            Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard));
         LogBurnAttribution(widget, "park-sweep");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
         VRCard flying = card;
@@ -3439,11 +3441,11 @@ internal sealed partial class CardsDriver
     /// far more often than before; suppressing here keeps the whole feature a LOCAL view change, and
     /// the owning client still reports its own flights on its own board exactly as before.</para>
     /// </summary>
-    private static void ReportCardFx(Net.CardFxAnchor from, Net.CardFxAnchor to)
+    private static void ReportCardFx(Net.CardFxAnchor from, Net.CardFxAnchor to, byte flags = 0)
     {
         if (Board.CharacterFocus.ReadOnlyView)
             return;
-        Net.NetCardFx.Report(from, to);
+        Net.NetCardFx.Report(from, to, flags);
     }
 
     /// <summary>Wire anchor for a board slot index (-1 → the generic board anchor).</summary>
@@ -3925,7 +3927,8 @@ internal sealed partial class CardsDriver
             // since ModBuild 461 out of the RECESS it is lying in rather than off the board centre
             // (item 5's origin half). This branch is reached precisely because the real VR card is
             // still live at its true board position, so the seat is there to be read.
-            ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt);
+            ReportCardFx(SlotAnchor(_tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
+                Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard));
             LogBurnAttribution(widget, origin);
             CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
@@ -3975,7 +3978,8 @@ internal sealed partial class CardsDriver
         // (see the line below), so there is no transform to read a recess off. `fromPos` is a
         // REMEMBERED last position, not a seat, and naming a recess from it would be exactly the
         // approximation item 5's fix exists to remove.
-        ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+        ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt,
+            Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard));
         // ─── A STANDING VIOLATION OF THE BURN RULING, AND IT NOW SAYS SO EVERY TIME IT FIRES ────
         // "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar
         // sein." BurnSlab.Launch builds ONE mesh with an edge material and a BACK material and no

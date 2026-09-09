@@ -1696,6 +1696,9 @@ internal sealed partial class CardsDriver
                 FlyShortRestCardToDiscard(_shortRestCard);
             _shortRestCard = card;
         }
+        // Capture after retiring the old physical offer: re-adoption can replace its widget
+        // while retaining the same model card. Acceptance may clear the native state later.
+        Net.CardFlightVisibility.MarkShortRest(lost);
 
         card.Grabbable = false;      // display-only — the docked choice commits, not a drop
         card.PokeSelectEnabled = false;
@@ -1803,49 +1806,15 @@ internal sealed partial class CardsDriver
                                               AbilityCardUI widget, bool swap)
     {
         bool online = FFSNetwork.IsOnline;
-        // THE POPULATION'S OWN PERMISSION, not the two-card commit's. This used to read
-        // PeersSeeOurCardFronts, which is the phase rule for a HAND card and is false for the whole
-        // of every short rest by construction — so the line reported "ANONYMOUS BACK ... backs by
-        // rule" about the card the user's 2026-09-05 item 15 ruling had carved out of that phase,
-        // and it said so with a term the watcher does not consult.
-        //
-        // AND IT IS NO LONGER THE ONLY TERM THE WATCHER ASKS — 2026-09-07 item 6 retired the
-        // carve-out, so the watcher now decides this recess with RevealGate.CardFaces over the SAME
-        // population, whose answer has TWO parts: the phase (which covers a short rest) and the
-        // BURN EXCEPTION for a card that is already public (which uncovers it the instant the owner
-        // accepts and it lands in LostAbilityCards). Both are printed below, because predicting one
-        // of two terms is how this line was wrong the first time.
-        bool populationPublic =
-            Net.RevealGate.IsPublicPopulation(Net.RevealGate.PeerCardPopulation.SacrificedCard);
-        bool cardAlreadyPublic =
-            Net.RevealGate.IsPubliclyRevealedCard(hand.PlayerActor, lost.CardInstanceID);
-        bool inRound = CardsGameApi.IsInRound(hand, lost);
-        // HW-VERIFY: grep SHORT REST SACRIFICE — the card this player is deciding about, the face
-        // THEY see, and the face every watcher draws for the same recess, with the term that
-        // decided it. FALSIFIER: a line reading `peers draw: FRONT (if record 39 seated it)` while
-        // the watcher's census still reads `board pick seat ... record 39 named NO seat` means the
-        // SENDER refused — read this client's own 'SHORT REST SEAT' line, whose SAMPLER SAYS clause
-        // names which term did it. A watcher census reading a FRONT here settles item 15.
-        VRLog.Note("Cards", $"SHORT REST SACRIFICE: {(swap ? "REDREW —" : "presenting")} " +
-            $"'{CardsGameApi.CardName(widget)}' in the LEFT recess, FRONT up, display-only " +
-            "(burn/redraw commits via the docked choice). " +
-            $"peers draw: {(!online ? "n/a (offline)" : populationPublic || cardAlreadyPublic ? "FRONT, if record 39 seated it" : "a NAMED back (record 39 still seats it, so the watcher knows WHICH card it is and is covering it by rule — not an anonymous back)")}" +
-            $" — RevealGate.IsPublicPopulation(SacrificedCard)={populationPublic} (false since " +
-            "2026-09-07 item 6: a short rest IS the selection phase and is covered with it), " +
-            $"RevealGate.IsPubliclyRevealedCard(this card)={cardAlreadyPublic} (the BURN EXCEPTION, " +
-            "which turns true the moment FinalizeShortRest commits the card into LostAbilityCards " +
-            "and is what puts the front back up for the burn). Those are the TWO terms the watcher " +
-            "asks for this recess, both through RevealGate.CardFaces, and its own '[Net] CARD FACE " +
-            "RULE' line names which of them chose the face it drew. " +
-            "PeersSeeOurCardFronts is deliberately NOT quoted here: it is the two-card commit's rule " +
-            "and it is false for the whole of every short rest, so quoting it can only ever report a " +
-            "back and never say why. " +
-            $"in RoundAbilityCards={inRound} (false is EXPECTED and is not the blocker: the " +
-            "sacrifice is a DISCARDED card the game's own RNG picked and PerformShortRest removes " +
-            "nothing, so it stays in DiscardedAbilityCards the whole time it lies here — which is " +
-            "exactly the list extension record 39 seats it in). " +
-            "Read against the watcher's own '[Net] PEER CARD FACE CENSUS' board-pick-seat row for " +
-            "the same moment, and against this client's own 'SHORT REST SEAT' line.");
+        bool front = Net.RevealGate.CardFaces(Net.RevealGate.PeerCardPopulation.SacrificedCard,
+            hand.PlayerActor, lost.CardInstanceID, out Net.RevealGate.FaceRule rule)
+            != Net.RevealGate.CardFaceSource.None;
+        VRLog.Note("Cards", $"SHORT REST SACRIFICE: {(swap ? "REDREW —" : "presenting")} "
+            + $"'{CardsGameApi.CardName(widget)}' in the LEFT recess, FRONT up, display-only. "
+            + $"peers draw: {(!online ? "n/a (offline)" : front ? "FRONT" : "BACK")} — "
+            + Net.RevealGate.RuleText(rule)
+            + ". Its accepted short-rest burn flight remains covered, including a phase edge. "
+            + "Record 39 names a model seat independently of face permission.");
     }
 
     /// <summary>
@@ -1857,6 +1826,7 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void FlyShortRestCardToDiscard(VRCard card)
     {
+        Net.CardFlightVisibility.Forget(card.GameCard?.AbilityCard);
         if (card.IsHeld || !card.gameObject.activeInHierarchy
             || !_piles.TryGetPileWorld(PileKind.Discard, out Vector3 pos, out float width))
         {
@@ -1944,6 +1914,9 @@ internal sealed partial class CardsDriver
             // EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar sein." The
             // slab this used to fall back to is a card BACK on both faces; the real VR card that
             // now flies carries the front it was already showing.
+            CardsHandUI? provenanceHand = CurrentHand();
+            if (provenanceHand != null && PileFateOf(provenanceHand, _shortRestCard) != PileKind.Burnt)
+                Net.CardFlightVisibility.Forget(_shortRestCard.GameCard?.AbilityCard);
             bool burnPathOwnsIt = TryStartBurnFly(CurrentHand(), _shortRestCard, "short-rest sacrifice");
             if (!burnPathOwnsIt && !_shortRestCard.IsFlying)
                 _factory.Park(_shortRestCard);

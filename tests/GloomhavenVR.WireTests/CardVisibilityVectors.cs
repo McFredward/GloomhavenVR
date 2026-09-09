@@ -9,6 +9,7 @@ internal static class CardVisibilityVectors
 {
     internal static void Run(Harness t, string repoRoot)
     {
+        Provenance(t);
         t.Case("487 card visibility / one phase decision for every peer surface");
         string[] surfaces = { "hand", "held active", "held hand", "placed", "active", "discard", "lost", "item", "damage pick" };
         foreach (string surface in surfaces)
@@ -55,6 +56,42 @@ internal static class CardVisibilityVectors
         }
         string pile = Read(repoRoot, "Net/Remote/RemotePileFronts.cs");
         t.True(!pile.Contains("gate = Gate.BurnException;"), "covered item/pile fans cannot enter an exception branch that paints fronts");
+    }
+
+    private static void Provenance(Harness t)
+    {
+        t.Case("487 short-rest provenance / capture before context closes, consume once");
+        CardFlightVisibility.Reset();
+        object first = new(), redraw = new(), ordinary = new();
+        CardFlightVisibility.MarkShortRest(first);
+        CardFlightVisibility.MarkShortRest(first);
+        t.Equal((byte)1, CardFlightVisibility.ConsumeBurn(first), "repeated offer survives context closing without a phase read");
+        t.Equal((byte)0, CardFlightVisibility.ConsumeBurn(first), "a later recovered-card damage burn is not mislabeled");
+        CardFlightVisibility.MarkShortRest(first);
+        CardFlightVisibility.Forget(first);
+        CardFlightVisibility.MarkShortRest(redraw);
+        t.Equal((byte)0, CardFlightVisibility.ConsumeBurn(first), "redrawn/cancelled old candidate is no longer a short-rest burn");
+        t.Equal((byte)1, CardFlightVisibility.ConsumeBurn(redraw), "replacement candidate carries its own provenance");
+        t.Equal((byte)0, CardFlightVisibility.ConsumeBurn(ordinary), "ordinary action damage burn remains open");
+        t.Equal((byte)0, CardFlightVisibility.ConsumeBurn(null), "missing model never borrows another card's provenance");
+        NetCardFx.Reset();
+        NetCardFx.Report(CardFxAnchor.Slot0, CardFxAnchor.Burnt, 1);
+        NetCardFx.Report(CardFxAnchor.Slot1, CardFxAnchor.Burnt, 0);
+        t.True(NetCardFx.TryDequeue(out byte a, out byte seqA, out byte flagsA), "first launch dequeues");
+        t.True(NetCardFx.TryDequeue(out byte b, out byte seqB, out byte flagsB), "second launch dequeues");
+        t.Equal((byte)CardFxAnchor.Slot0, (byte)NetCardFx.From(a), "covered provenance remains paired with first origin");
+        t.Equal((byte)1, flagsA, "covered launch survives another queued launch");
+        t.Equal((byte)CardFxAnchor.Slot1, (byte)NetCardFx.From(b), "ordinary provenance remains paired with second origin");
+        t.Equal((byte)0, flagsB, "ordinary launch cannot inherit covered predecessor");
+        t.Equal(unchecked((byte)(seqA + 1)), seqB, "the existing dense sequence is retained");
+        t.True(!NetCardFx.TryDequeue(out _, out _, out byte empty) && empty == 0, "empty dequeue has no stale provenance");
+        for (int i = 0; i < 10; i++) NetCardFx.Report(CardFxAnchor.Board, CardFxAnchor.Burnt, (byte)(i & 1));
+        for (int i = 2; i < 10; i++)
+        {
+            t.True(NetCardFx.TryDequeue(out _, out _, out byte flags), "bounded queue retains newest event");
+            t.Equal((byte)(i & 1), flags, "queue eviction cannot detach event provenance");
+        }
+        NetCardFx.Reset();
     }
 
     private static bool LegacyMembership(bool widgetHand, bool modelHand) => widgetHand && modelHand;

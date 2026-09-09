@@ -663,11 +663,8 @@ internal sealed class RemoteActiveCards
             showFronts
                 ? $"RevealGate.CardFaces(AlreadyPublic) — {RealFaceCount} real game-card face(s), "
                   + "the rest the mod-drawn fallback panel; rule: " + RevealGate.RuleText(faceRule)
-                : "RevealGate.CardFaces(AlreadyPublic) named NO source — selection is covered or no character resolved. "
-                  + "NOT the selection phase (this population is exempt from it) and NOT the "
-                  + "scenario capability either (this board's own gate answered that above and it "
-                  + "is passed in), so the ONLY way to read this line is a null actor; rule: "
-                  + RevealGate.RuleText(faceRule));
+                : "RevealGate.CardFaces(AlreadyPublic) named NO source — selection is covered "
+                  + "or the actor/scenario source is unavailable");
 
         // Change-gated on the shape itself, so the line below fires on a human-paced event (a card
         // going active) and never per refresh. The row count is re-derived here rather than carried

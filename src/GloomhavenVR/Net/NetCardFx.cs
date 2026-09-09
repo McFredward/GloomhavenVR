@@ -34,7 +34,7 @@ internal static class NetCardFx
     /// OLDEST so the newest, most relevant animation still goes out.</summary>
     private const int MaxQueued = 8;
 
-    private static readonly Queue<byte> s_queue = new(MaxQueued);
+    private static readonly Queue<(byte Endpoints, byte Flags)> s_queue = new(MaxQueued);
     private static byte s_seq;
     private static bool s_loggedFirst;
 
@@ -60,7 +60,7 @@ internal static class NetCardFx
     /// module: it never touches the transport (the driver drains it), never allocates beyond the
     /// bounded queue, and is a harmless no-op in single-player.
     /// </summary>
-    public static void Report(CardFxAnchor from, CardFxAnchor to)
+    public static void Report(CardFxAnchor from, CardFxAnchor to, byte flags = 0)
     {
         // Pack both endpoints into one byte: low nibble FROM, high nibble TO.
         byte packed = (byte)(((byte)from & 0x0F) | (((byte)to & 0x0F) << 4));
@@ -70,7 +70,7 @@ internal static class NetCardFx
             s_queue.Dequeue(); // nobody draining (single-player) — keep the newest
             s_dropped++;
         }
-        s_queue.Enqueue(packed);
+        s_queue.Enqueue((packed, (byte)(flags & CardFlightVisibility.CoveredBurnBit)));
 
         if (!s_loggedFirst)
         {
@@ -138,12 +138,18 @@ internal static class NetCardFx
     /// in the safe direction, which is why this was measured rather than patched blind.</para>
     /// </summary>
     public static bool TryDequeue(out byte endpoints, out byte seq)
+        => TryDequeue(out endpoints, out seq, out _);
+
+    public static bool TryDequeue(out byte endpoints, out byte seq, out byte flags)
     {
+        flags = 0;
         endpoints = 0;
         seq = s_seq;
         if (s_queue.Count == 0)
             return false;
-        endpoints = s_queue.Dequeue();
+        var next = s_queue.Dequeue();
+        endpoints = next.Endpoints;
+        flags = next.Flags;
         seq = ++s_seq; // wraps at 255 — dense by one per dispatch, which is what makes loss countable
         s_dispatched++;
         LogOutbox();
@@ -187,6 +193,7 @@ internal static class NetCardFx
     public static void Reset()
     {
         s_queue.Clear();
+        CardFlightVisibility.Reset();
         s_loggedFirst = false;
         // The COUNTERS are deliberately NOT reset: they are a session-long denominator, and a
         // hot reload in the middle of a scenario must not make the loss arithmetic restart at zero

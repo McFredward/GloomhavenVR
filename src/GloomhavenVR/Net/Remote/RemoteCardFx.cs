@@ -181,7 +181,7 @@ internal sealed class RemoteCardFx
     /// resolved (no board pose yet / remote boards hidden / hand not tracked) — a missed cosmetic
     /// flight is always better than a card arcing to the world origin.
     /// </summary>
-    public void Play(byte endpoints)
+    public void Play(byte endpoints, byte flags = 0)
     {
         // THE WIRE FRAME. Play is called synchronously from RemoteAvatar's packet apply the moment
         // the FX sequence changes, so this IS the frame the wire named the flight — see the TIMING
@@ -295,7 +295,7 @@ internal sealed class RemoteCardFx
             Vector3.one * (scale * (f.FromWidth / RemoteHandFan.DefaultCardWidth));
 
         // ─── THE FACE (2026-09-06 report item 5) ────────────────────────────────────────────────
-        string faceRule = ResolveFace(f, from, to);
+        string faceRule = ResolveFace(f, from, to, flags);
 
         // …AND WHAT THE BODY UNDER IT WEARS (user item 10, 2026-09-06 late). ResolveFace is this
         // surface's ONE front/back decision — every arm of it ends with f.HasFace either set or
@@ -459,13 +459,13 @@ internal sealed class RemoteCardFx
     /// here: a glide this class invented would not be driven by the owner's actual motion, and 1:1
     /// means the same motion at the same moment, not a plausible-looking one.</para>
     /// </summary>
-    private string ResolveFace(Flight f, CardFxAnchor from, CardFxAnchor to)
+    private string ResolveFace(Flight f, CardFxAnchor from, CardFxAnchor to, byte flags)
     {
         f.HasFace = false;
         f.FaceCard = null;
         f.FaceActor = null;
         f.ShortRestBurn = to == CardFxAnchor.Burnt
-            && (_owner.ShortRestInProgress || RevealGate.IsSecretSelectionPhase);
+            && (CardFlightVisibility.Covered(flags) || _owner.ShortRestInProgress || RevealGate.IsSecretSelectionPhase);
         f.Art?.HideFront();
         // A GUARD ON THE WIRE VOCABULARY, not a live sender's arm — see this method's doc for the
         // enumeration of all nine announcement sites (none has from == HandFan) and for why the one

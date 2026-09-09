@@ -436,6 +436,7 @@ internal sealed class RemoteBurnFx
     private sealed class PendingRelease
     {
         public byte Endpoints;
+        public byte Flags;
         public int ActorId;
         public float ReceivedAt;
         public bool FallbackPlayed;
@@ -445,12 +446,12 @@ internal sealed class RemoteBurnFx
     private const float ReleaseResolveSeconds = 0.25f;
     private const float ReleaseMemorySeconds = 3f;
 
-    internal bool ConsumesWireEvent(byte endpoints)
+    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0)
     {
         if (NetCardFx.To(endpoints) != CardFxAnchor.Burnt)
             return false;
         int actorId = NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _));
-        if (TryApplyRelease(endpoints, actorId))
+        if (TryApplyRelease(endpoints, actorId, flags))
             return true;
         // The semantic packet can beat the host-replicated pile. Defer its fallback briefly so
         // the next model walk can name the real card, then retain a receipt after fallback to
@@ -459,12 +460,12 @@ internal sealed class RemoteBurnFx
         {
             PendingRelease oldest = _pendingReleases[0];
             if (!oldest.FallbackPlayed && oldest.ActorId == actorId)
-                _owner.PlayUnclaimedBurnEvent(oldest.Endpoints);
+                _owner.PlayUnclaimedBurnEvent(oldest.Endpoints, oldest.Flags);
             _pendingReleases.RemoveAt(0);
         }
         _pendingReleases.Add(new PendingRelease
         {
-            Endpoints = endpoints, ActorId = actorId, ReceivedAt = Time.unscaledTime,
+            Endpoints = endpoints, Flags = flags, ActorId = actorId, ReceivedAt = Time.unscaledTime,
         });
         _nextWalkAt = 0f;
         return true;
@@ -477,7 +478,7 @@ internal sealed class RemoteBurnFx
         _ => -1,
     };
 
-    private bool TryApplyRelease(byte endpoints, int actorId)
+    private bool TryApplyRelease(byte endpoints, int actorId, byte flags)
     {
         PruneClaims();
         int recess = ReleaseRecess(endpoints);
@@ -505,6 +506,8 @@ internal sealed class RemoteBurnFx
             Burn burn = _burns[i];
             if (burn.ClaimId != id || !burn.Active)
                 continue;
+            burn.ShortRestBurn |= CardFlightVisibility.Covered(flags);
+            RefreshFaceVisibility(burn);
             burn.OwnerReleased = true;
             Handover(burn, "the owner's matching ->Burnt release event arrived for this actor and recess");
             break;
@@ -526,14 +529,14 @@ internal sealed class RemoteBurnFx
             }
             if (pending.FallbackPlayed)
                 continue;
-            if (TryApplyRelease(pending.Endpoints, pending.ActorId))
+            if (TryApplyRelease(pending.Endpoints, pending.ActorId, pending.Flags))
             {
                 _pendingReleases.RemoveAt(i);
                 continue;
             }
             if (age >= ReleaseResolveSeconds)
             {
-                _owner.PlayUnclaimedBurnEvent(pending.Endpoints);
+                _owner.PlayUnclaimedBurnEvent(pending.Endpoints, pending.Flags);
                 pending.FallbackPlayed = true;
             }
         }
@@ -556,10 +559,26 @@ internal sealed class RemoteBurnFx
 
     // ------------------------------------------------------------------ per frame --
 
+    private CAbilityCard? _shortRestCandidate;
+    private int _shortRestActor;
+
+    // Called before a packet replaces the old short-rest/seat snapshot, and every native-model
+    // tick. This identity stays local: record 39 already supplied the bounded model address.
+    internal void ObserveShortRestContext()
+    {
+        if (!_owner.ShortRestInProgress) return;
+        if (_owner.TryNameArrivingRecessFace(0, out CAbilityCard? card) && card != null)
+        {
+            _shortRestCandidate = card;
+            _shortRestActor = NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _));
+        }
+    }
+
     internal void Tick(float dt)
     {
         try
         {
+            ObserveShortRestContext();
             Watch();
         }
         catch (System.Exception ex)
@@ -759,7 +778,10 @@ internal sealed class RemoteBurnFx
         b.ClaimId = 0;              // a recycled slab must not carry the last burn's token
         b.HandoverLogged = false;
         b.Widget = widget;
-        b.ShortRestBurn = _owner.ShortRestInProgress || RevealGate.IsSecretSelectionPhase;
+        b.ShortRestBurn = _owner.ShortRestInProgress || RevealGate.IsSecretSelectionPhase
+            || (_shortRestActor == actorId && ReferenceEquals(_shortRestCandidate, widget.AbilityCard));
+        if (_shortRestActor == actorId && ReferenceEquals(_shortRestCandidate, widget.AbilityCard))
+            _shortRestCandidate = null;
         b.ArtworkObserved = false;
         b.StationaryShown = 0f;
         b.StationaryCharred = -1f;
@@ -880,6 +902,8 @@ internal sealed class RemoteBurnFx
             b.HasFace
                 ? "BURN: FRONT off this client's own copy of that character's LostAbilityCards — "
                   + RevealGate.RuleText(faceRule)
+                : b.ShortRestBurn
+                    ? "BURN: COVERED — short-rest origin remains covered for its complete flight"
                 : fronts
                     ? "BURN: RevealGate was OPEN but the front did not resolve — read the "
                       + "'BURN CARD [peer n]' line beside this for which half failed"
@@ -1241,6 +1265,8 @@ internal sealed class RemoteBurnFx
         _seeded = false;
         _claimTokens.Clear();
         _pendingReleases.Clear();
+        _shortRestCandidate = null;
+        _shortRestActor = 0;
         if (_root != null)
         {
             // The body meshes are CardMesh's SHARED cache — never ours to destroy.
