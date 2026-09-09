@@ -1278,7 +1278,7 @@ internal sealed partial class CardsDriver
             CCharacterClass? cc = widget != null ? widget.PlayerActor?.CharacterClass : null;
             if (model == null || cc == null || cc.HandAbilityCards.Contains(model)
                 || cc.RoundAbilityCards.Contains(model) || cc.ExtraTurnCards.Contains(model)
-                || cc.ActivatedCards.Contains(model)) _burnHoldPruneScratch.Add(widget);
+                || cc.ActivatedCards.Contains(model)) _burnHoldPruneScratch.Add(widget!);
         }
         for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
             _activeExitOrigins.Remove(_burnHoldPruneScratch[i]);
@@ -3627,7 +3627,7 @@ internal sealed partial class CardsDriver
                 if (held is not null && (held == null || held.AbilityCard == null || held.PlayerActor == null
                     || (!held.PlayerActor.CharacterClass.LostAbilityCards.Contains(held.AbilityCard)
                         && !held.PlayerActor.CharacterClass.PermanentlyLostAbilityCards.Contains(held.AbilityCard))))
-                    _burnHoldPruneScratch.Add(held);
+                    _burnHoldPruneScratch.Add(held!);
             for (int i = 0; i < _burnHoldPruneScratch.Count; i++)
                 ClearBurnHold(_burnHoldPruneScratch[i]);
         }
