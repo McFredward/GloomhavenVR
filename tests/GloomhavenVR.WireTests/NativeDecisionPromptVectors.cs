@@ -20,6 +20,7 @@ internal static class NativeDecisionPromptVectors
         t.True(NativeDecisionPromptCodec.TryRead(bytes, n, out var clear) && clear!.State == null
             && clear.SampleTime == 1 && clear.ActorId == 0, "explicit clear decodes");
         NativeDecisionPromptState s = State();
+        s.Frame = new float[] { 500, 80, 1920, 1080, 12, 9 };
         s.Lines[0].Warning.Rect[11] = 1.75f; s.Lines[0].Warning.Colors[7] = .37f;
         var snapshot = new NativeDecisionPromptSnapshot(2, 0x12345678, s);
         s.Lines[0].Tip.Text = "mutation";
@@ -27,6 +28,7 @@ internal static class NativeDecisionPromptVectors
         n = NativeDecisionPromptCodec.Write(snapshot, bytes);
         t.True(NativeDecisionPromptCodec.TryRead(bytes, n, out var read) && read!.ActorId == 0x12345678
             && read.State!.Lines[0].Warning.Rect[11] == 1.75f && read.State.Lines[0].Warning.Colors[7] == .37f
+            && read.State.Frame[0] == 500 && read.State.Frame[5] == 9
             && read.State.Lines[0].Tip.Font[4] == 2 && read.State.Lines[0].Tip.Text == "Schaden: 2",
             "actual intermediate warning scale and independent renderer alpha survive transport");
         for (int cut = 0; cut < n; cut++)

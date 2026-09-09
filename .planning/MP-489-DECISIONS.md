@@ -48,8 +48,8 @@ resolves canonical owner data directly, so there is no rebroadcast/echo and no t
 interaction authority. When the character belongs to this client, that remote board reads the
 same original local producer data through a read-only adapter.
 
-The shared prompt now clones the game's original HelpBoxLine instead of drawing a new TextMeshPro
-label. All stage objects stay under an inactive parent until native behaviours have been stripped.
+The shared prompt now clones the game's original HelpBox and HelpBoxLine hierarchy instead of
+drawing a new TextMeshPro label. All stage objects stay under an inactive parent until native behaviours have been stripped.
 No spectator canvas is registered with laser/poke routers and no mirror runs gameplay callbacks.
 
 Remote health-preview application validates the actual character claimant, finds the original
@@ -63,3 +63,31 @@ Full worker wire suite with the two new test registrations:249519 assertions pas
 including explicit negative controls removing actual claimant lookup and original tooltip restore.
 The actor-attribution review also covers short-rest/confirmation prompts through the dock's
 existing PromptOwner resolver, and detached mirror hosts now hide when their board mount hides.
+
+## Native prompt parity review
+
+The review found a remaining reconstruction in the decision sentence: the receiver composed text
+from a branch identifier, and the original warning-text animation never traveled. Record63 now
+samples actual HelpBox output with actor attribution and source time: original rich text (through
+existing DecisionLabelMask privacy policy), both normal and warning glyph channels, transforms,
+font settings, independent renderer colors, canvas-group state, reference pixels, original fitted
+host/parent frame and content padding. Playback interpolates source-time warning transforms and
+colors on inert original prefab clones. No game controller executes on a mirror. Changed-wording
+or actor boundaries reset playback; actual close produces an explicit clear.
+
+Owner focus changes retain the converted source and only render-hide its mod host, preserving
+native geometry while another player's board displays that character. Default board visibility
+still follows record60; canonical character mirrors consume the pending owner's actual picture.
+Applying the original owner fit and padding avoids receiver refitting canceling a warning pulse or
+moving the decision row away from the original glyph edge.
+
+The complete message14/record63 packet is bounded to4096 bytes, with strict UTF8 and ordered pages.
+The damage HelpBox source uses NormalizePool(...,1) in native RefreshTranslated; four original lines
+are supported, with1024 UTF8 bytes per normal/warning channel. Oversize output is rejected atomically
+and clears old content rather than silently dropping a line or truncating a sentence. Golden clear,
+all truncated packet tails, malformed pages, text/float validation, deep-copy ownership and actual
+warning scale/alpha plus owner fit are covered by NativeDecisionPromptVectors.
+
+Latest strict Release check passed with0 warnings and0 errors. Worker wire suite passed250101
+assertions, including native prompt fitting, warning playback and focus visibility source guards. Headset appearance remains unverified; this ledger records source and automated
+evidence, not a hardware success claim.

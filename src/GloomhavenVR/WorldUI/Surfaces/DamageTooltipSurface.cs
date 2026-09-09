@@ -78,6 +78,9 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// </summary>
 internal sealed class DamageTooltipSurface : WorldSurface
 {
+    private static DamageTooltipSurface? _current;
+    public DamageTooltipSurface() { _current = this; }
+    internal static ConvertedPanel? NativePromptPanel => _current?.Panel;
     /// <summary>Density-scale guards, mirroring <see cref="DecisionDockSurface"/>.</summary>
     private const float MaxDensityScale = 1f;
     private const float MinDensityScale = 0.5f;
@@ -119,23 +122,9 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// WHICH of <c>ShowDamageTooltip</c>'s branches the owner's tip window is showing right now, as
     /// one of <c>NetProtocol.DecisionText*</c>. <c>DecisionTextNone</c> while no tip is on show.
     ///
-    /// <para>A NUMBER, NEVER THE TEXT — and that is the whole design of the remote prompt line.
-    /// The receiver composes the sentence from its OWN localization table, because every input of
-    /// the game's branch selection except the branch itself is already replicated to it: in an
-    /// online game the non-controlling clients get the same damage message and their
-    /// <c>TakeDamagePanel.ShowOtherPlayer</c> stores the attacked actor, the damaging ability and
-    /// the numbers before hiding the window. What they CANNOT know is which branch the owner's
-    /// client took, because two of the four conditions are that client's own UI state (the
-    /// <c>UIActiveBonusBar</c> selection, the currently-toggled burn option) — so exactly that
-    /// travels, in three bits.</para>
-    ///
-    /// <para>WHY NOT SEND THE COMPOSED LINE, which is what records 7/9/12/13 do for their text: the
-    /// MANDATORY-USE branch builds its sentence by prefixing the NAMES OF ACTIVE-BONUS CARDS
-    /// (TakeDamagePanel.cs:325-333). The standing rule is absolute — no card identity on this wire,
-    /// ever; reveals only through <c>Net.RevealGate</c> — so that string may not travel, and a
-    /// record that carried the text "except in one branch" would be a rule with a hole in it. The
-    /// mirrored line therefore renders the mandatory hint WITHOUT the card names: less information
-    /// than the owner has, which is the designed failure direction.</para>
+    /// <para>This compact branch remains for legacy decision semantics. Record63 carries the
+    /// actual privacy-filtered native HelpBox output, fitted geometry and warning animation;
+    /// current renderers never reconstruct this sentence from the branch number.</para>
     /// </summary>
     internal static byte WireTextVariant { get; private set; }
 
@@ -181,6 +170,8 @@ internal sealed class DamageTooltipSurface : WorldSurface
     /// (the common "deal damage" tip that appears too high), fall back to the global
     /// box (the lethal mandatory-use hint). Null when neither is open.
     /// </summary>
+    internal static HelpBox? NativePromptSource => DecisionDockSurface.DockingTakeDamage ? OpenTip() : null;
+
     private static HelpBox? OpenTip()
     {
         InitiativeTrack? track = InitiativeTrack.Instance;
@@ -197,20 +188,16 @@ internal sealed class DamageTooltipSurface : WorldSurface
         box != null && box.myWindow != null && box.myWindow.IsOpen;
 
     /// <summary>
-    /// Converted while the take-damage row is docked AND the tip window is open — plus, since the
-    /// 2026-08-08 ruling, only while that row is actually SHOWN. The tip is "der Text der
-    /// Entscheidungsknoepfe" (see the class doc): leaving it up over an empty seat while the row is
-    /// render-hidden for another character's focus would show half a decision that belongs to
-    /// somebody else — and it is that same half a peer's mirrored board would then have to draw. So
-    /// the text follows its buttons in both places; returning the focus re-converts it, at the same
-    /// seat, because <see cref="Place"/> is derived purely from the mount.
+    /// Keep the original prompt converted throughout its logical decision, including owner
+    /// focus changes. The mod-owned outer canvas is render-hidden by UpdateFocusVisibility;
+    /// the native text, warning animation and fitted geometry remain available to character mirrors.
     /// </summary>
     protected override bool WantConverted
     {
         get
         {
             if (!base.WantConverted || FlatScreen.ManualScreenActive
-                || !DecisionDockSurface.DockingTakeDamage || DecisionDockSurface.RowFocusHidden)
+                || !DecisionDockSurface.DockingTakeDamage)
                 return false;
             return OpenTip() != null;
         }
@@ -240,13 +227,7 @@ internal sealed class DamageTooltipSurface : WorldSurface
             VRLog.Info("WorldUI", "DAMAGE TOOLTIP: HelpBox released — restored to its 2D home.");
         }
 
-        // THE SEAM THE ROW SEATS FROM IS DROPPED ONLY WHEN THIS PROMPT GENUINELY HAS NO LINE ANY
-        // MORE — never merely because the line is between conversions. The focus hide releases this
-        // surface outright (WantConverted gates on RowFocusHidden) and a re-convert needs a frame or
-        // two to fit, so nulling on release would send the widget row up to the area ceiling and back
-        // down every time the player looks away from the owner and back: exactly the pop-in the
-        // "never reveal before the final geometry" rule forbids. Latching it means the row is already
-        // in its final place when the display returns.
+        // Keep the measured seam through focus changes; only an actual prompt close clears it.
         if (!TipWindowOpen || !DecisionDockSurface.DockingTakeDamage)
             TextBottomUpMeters = null;
 
@@ -768,6 +749,7 @@ internal sealed class DamageTooltipSurface : WorldSurface
         // BEFORE the release: never strand a disabled canvas/renderer on a HelpBox that is about
         // to be handed back to its 2D home (the row's Shutdown ordering, same reason).
         RestoreFocusHide("the prompt-text surface is shutting down");
+        if (ReferenceEquals(_current, this)) _current = null;
         base.Shutdown(); // releases the conversion → HelpBox back in its 2D home
         _active = null;
         _loggedFocusVisibility = null;

@@ -101,10 +101,8 @@ internal sealed class CharacterDecisionMirror
 
     private float ShowPrompt(CPlayerActor actor, CharacterDecisionPresentation picture, bool rowUp, float ceiling)
     {
-        string? text = rowUp ? RemoteDecisionPrompt.Compose(picture.DecisionPromptKind,
-            picture.DecisionTextVariant, actor, true, picture.DecisionNames) : null;
         _promptRoot!.localPosition = new Vector3(0f, ceiling, 0f);
-        _prompt!.Show(text);
+        _prompt!.Show(rowUp ? picture : null);
         return _prompt.Height;
     }
 

@@ -2677,22 +2677,12 @@ internal sealed class RemoteBoardFurniture
     /// before the first measurement exists.</para></summary>
     private const float PromptLineHeight = 0.0168f;
 
-    /// <summary>The prompt label's LAST MEASURED rendered height, board-local metres AFTER the dock
-    /// scale — <c>TextMeshPro.renderedHeight</c> off a forced mesh update, i.e. what the
-    /// glyphs actually occupy rather than what was authored for them. Zero until the first non-empty
-    /// prompt has been laid out; <see cref="ApplyDecisionSeat"/> falls back to the authored line
-    /// height then. This exists because the owner's own side has always measured (DamageTooltipSurface
-    /// solves its seat from the fitted rect and DecisionDockSurface hangs the buttons off the
-    /// measured text bottom), and the mirror was the only one of the two using a constant.</summary>
+    /// <summary>Actual native prompt glyph height in board-local metres, after dock scale.</summary>
     private float _promptMeasuredHeight;
 
     /// <summary>
-    /// The mirrored PROMPT TEXT of the decision dock — the line the owner reads above their docked
-    /// buttons ("Schadensphase: Erleide entweder Schaden, verbrenne …"), composed on THIS machine
-    /// from the wire-carried variant id (see <see cref="RemoteDecisionPrompt"/> for why the text
-    /// itself may never ride the wire). Built once, empty and hidden; a game-HUD-font label with
-    /// the help box's own gold/grey rich-text colouring, MR-backed like every other line that hangs
-    /// below the board in open air. Display-only: one TMP, no collider, nothing to press.
+    /// Original HelpBox presentation, sourced from the actual owner's record63 snapshot.
+    /// The inert clone shares native content, fitting and intermediate warning animation.
     /// </summary>
     private RemoteOriginalDecisionPrompt BuildDecisionPrompt(Vector3 local, in RemoteBoardTuning tuning)
     {
@@ -2704,24 +2694,21 @@ internal sealed class RemoteBoardFurniture
     }
 
     /// <summary>
-    /// Show (or hide) the mirrored prompt line for the owner's docked decision. The text is
-    /// COMPOSED here from the wire's prompt-kind + text-variant pair and this client's own
-    /// localization — never received — so the mandatory-use variant's active-bonus card names
-    /// cannot travel; see <see cref="RemoteDecisionPrompt"/>. Change-gated on the composed string
-    /// (a per-tick TMP write re-triggers auto-size layout).
+    /// Show the actual owner prompt while the owning board displays its decision. Character
+    /// mirrors use the same pending source independently of the owner's board visibility.
     /// </summary>
     private void SetDecisionPrompt(CPlayerActor? actor, RemoteAvatar owner, bool realWidgets)
     {
         // No visible row on the owner's board ⇒ no line, whatever the last state record said. The
         // test is "a row of EITHER kind stands here": since ModBuild 105 the take-damage prompt is
         // normally drawn by the mirrored GAME widgets, which leaves _shownDecisionLines null.
-        string? text = !realWidgets && _shownDecisionLines == null
-            ? null
-            : RemoteDecisionPrompt.Compose(owner.DecisionPromptKind, owner.DecisionTextVariant,
-                                           actor, realWidgets, owner.DecisionNames);
+        CharacterDecisionPresentation presentation = CharacterDecisionPresentation.From(owner);
+        bool allowed = CharacterDecisionPresentation.BoardVisible(owner) && (realWidgets || _shownDecisionLines != null);
+        string? text = allowed && presentation.NativePrompt?.State != null
+            ? presentation.NativePrompt.State.Lines[0].Tip.Text : null;
         bool textChanged = text != _shownPromptText;
         _shownPromptText = text;
-        _decisionPrompt.Show(text);
+        _decisionPrompt.Show(text != null ? presentation : null);
         bool show = _decisionPrompt.Showing;
         float height = _decisionPrompt.Height * _decisionTuning.DecisionScale;
         bool sizeChanged = Mathf.Abs(_promptMeasuredHeight - height) > 0.00001f;
@@ -2730,16 +2717,16 @@ internal sealed class RemoteBoardFurniture
         ApplyDecisionSeat(show);
         if (!textChanged) return;
         VRLog.Info("Net", show
-            ? $"Remote decision prompt: line composed LOCALLY for prompt kind " +
+            ? $"Remote decision prompt: original native output for prompt kind " +
               $"{owner.DecisionPromptKind} / text variant {owner.DecisionTextVariant} — " +
               $"\"{StripRichText(text!)}\" — its bottom edge one DecisionGap " +
               $"({_decisionTuning.DecisionGap * _decisionTuning.DecisionScale * 1000f:F0} mm) above " +
               $"the mirrored row's top edge at board-local y {_decision.localPosition.y:F3}, which " +
               "is the seat the owner's own HelpBox takes over their own buttons (they hang it off " +
-              "the row's measured top edge at the same gap). The wire carried the VARIANT, never " +
-              "the words (no card identity, ever)."
+              "the row's measured top edge at the same gap). Record63 carries the privacy-filtered " +
+              "native words, glyph geometry and warning animation."
             : "Remote decision prompt: no line (no visible decision row, a prompt that has none, or " +
-              "a sender predating record 23).");
+              "a sender predating record 63).");
     }
 
     /// <summary>
@@ -2803,7 +2790,7 @@ internal sealed class RemoteBoardFurniture
                               ? $"the PROMPT LINE, so the button row drops to y {y:F3}: " +
                                 (_promptMeasuredHeight > 0f
                                     ? $"the line's MEASURED rendered height ({lineH:F4} m, " +
-                                      $"TMP renderedHeight after a forced mesh update — the authored " +
+                                      $"the original owner fit minus its actual content padding — the authored " +
                                       $"fallback would have said {PromptLineHeight * scale:F4} m)"
                                     : $"one authored line ({lineH:F4} m — NOT MEASURED YET, which " +
                                       "means the label had no text when this ran)") +

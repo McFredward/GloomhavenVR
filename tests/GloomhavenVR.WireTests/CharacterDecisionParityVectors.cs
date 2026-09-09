@@ -15,6 +15,8 @@ internal static class CharacterDecisionParityVectors
         string bars = Read("WorldUI/Surfaces/UseBarsSurface.cs");
         string preview = Read("WorldUI/Surfaces/DamageDecisionPreview.cs");
         string tooltip = Read("WorldUI/Surfaces/NativeUseBarTooltipHost.cs");
+        string damageTip = Read("WorldUI/Surfaces/DamageTooltipSurface.cs");
+        string sampler = Read("Net/NativeDecisionPromptSampler.cs");
         string prompt = Read("Net/Remote/RemoteOriginalDecisionPrompt.cs");
         t.Case("character decisions: owner authority, logical content and inert original widgets");
         t.True(CanonicalOwner(mirror), "foreign views resolve actual controller before a character snapshot");
@@ -39,6 +41,12 @@ internal static class CharacterDecisionParityVectors
         t.True(prompt.IndexOf("SetActive(false)", StringComparison.Ordinal) < prompt.IndexOf("Object.Instantiate", StringComparison.Ordinal)
             && prompt.IndexOf("RemoteWidgetMirror.Neutralize", StringComparison.Ordinal) < prompt.IndexOf("stage.SetActive(true)", StringComparison.Ordinal),
             "original prompt is instantiated under inactive parent and stripped before activation");
+        t.True(prompt.Contains("SetOwnerFrame") && prompt.Contains("_placement.localPosition = Vector3.up * padding")
+            && sampler.Contains("panel.FitContentPadding.y"), "prompt uses original fit and glyph-edge padding");
+        t.True(!prompt.Contains("RemoteDecisionPrompt.Compose") && sampler.Contains("Text(line.warningTextAnimation)")
+            && prompt.Contains("_clock.Advance"), "prompt uses actual native warning animation, not reconstructed text");
+        t.True(!damageTip.Contains("|| DecisionDockSurface.RowFocusHidden)")
+            && damageTip.Contains("UpdateFocusVisibility()"), "owner focus hides only the host, retaining logical native geometry");
         t.True(bars.Contains("_characterMirror.Tick()") && bars.Contains("ReadNativePresentation"),
             "production surface drives character mirror and exposes the same native intermediate values");
     }

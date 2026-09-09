@@ -17,6 +17,8 @@ internal sealed class CharacterDecisionPresentation
     }
     private static readonly ConditionalWeakTable<RemoteAvatar, Entry> Entries = new();
     internal bool Visible { get; private set; } = true;
+    internal NativeDecisionPromptSnapshot? NativePrompt { get; private set; }
+    internal List<NativeDecisionPromptSnapshot>? NativePromptHistory { get; private set; }
     internal int PlayerId { get; private set; }
     internal string? DecisionNames { get; private set; }
     internal string? DecisionLines { get; private set; }
@@ -78,6 +80,7 @@ internal sealed class CharacterDecisionPresentation
         UseBarsSurface.CopyWireBars(UseBarFlags, UseBarSlotCounts, UseBarSlotStates, UseBarSlotIds);
         UseBarWidgetStates = UseBarsSurface.WireWidgetStates;
         DecisionHighlight = NativeDecisionHighlightSampler.Sample();
+        NativePrompt = NativeDecisionPromptSampler.Sample(); NativePromptHistory = NativeDecisionPromptSampler.History;
         UseBarsSurface.ReadNativePresentation(out UseBarAnimationState[]? animation, out NativeUseBarState?[] native);
         if (LocalFrame == Time.frameCount) return;
         LocalFrame = Time.frameCount;
@@ -141,6 +144,9 @@ internal sealed class CharacterDecisionPresentation
     private void Capture(RemoteAvatar owner)
     {
         PlayerId = owner.PlayerId;
+        NativePrompt = NativeDecisionPromptRegistry.Latest(PlayerId); NativePromptHistory = NativeDecisionPromptRegistry.History(PlayerId);
+        if (!Entries.TryGetValue(owner, out Entry attribution) || !attribution.Pending
+            || NativePrompt?.ActorId != attribution.ActorId) NativePrompt = null;
         DecisionLines = owner.DecisionLines;
         DecisionNames = owner.DecisionNames;
         DecisionPromptKind = owner.DecisionPromptKind;

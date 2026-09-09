@@ -45,13 +45,14 @@ internal sealed class NativeDecisionPromptState
     internal static readonly UTF8Encoding Utf8 = new(false, true);
     internal float[] Rect = new float[18];
     internal float Alpha = 1f, ReferencePixelsPerUnit = 100f;
+    internal float[] Frame = new float[6]; // owner fit width/height, parent width/height, fit padding x/y
     internal byte Flags = 1;
     internal NativeDecisionPromptLine[] Lines = Array.Empty<NativeDecisionPromptLine>();
     internal bool Validate()
     {
         try
         {
-            if (!RectValid(Rect) || float.IsNaN(Alpha) || float.IsInfinity(Alpha) || Alpha < 0 || Alpha > 1
+            if (!RectValid(Rect) || !Values(Frame, 6) || Array.Exists(Frame, f => f < 0) || float.IsNaN(Alpha) || float.IsInfinity(Alpha) || Alpha < 0 || Alpha > 1
                 || float.IsNaN(ReferencePixelsPerUnit) || float.IsInfinity(ReferencePixelsPerUnit)
                 || ReferencePixelsPerUnit <= 0 || (Flags & ~7) != 0 || Lines == null
                 || Lines.Length == 0 || Lines.Length > MaxLines) return false;
@@ -76,7 +77,7 @@ internal sealed class NativeDecisionPromptState
     internal NativeDecisionPromptState Snapshot()
     {
         var copy = new NativeDecisionPromptState { Rect = (float[])Rect.Clone(), Alpha = Alpha,
-            ReferencePixelsPerUnit = ReferencePixelsPerUnit, Flags = Flags, Lines = new NativeDecisionPromptLine[Lines.Length] };
+            ReferencePixelsPerUnit = ReferencePixelsPerUnit, Frame = (float[])Frame.Clone(), Flags = Flags, Lines = new NativeDecisionPromptLine[Lines.Length] };
         for (int i = 0; i < Lines.Length; i++) copy.Lines[i] = Lines[i].Snapshot();
         return copy;
     }
@@ -119,7 +120,7 @@ internal static class NativeDecisionPromptCodec
             {
                 NativeDecisionPromptState s = snapshot.State;
                 if (!s.Validate()) return 0;
-                Floats(w, s.Rect); w.Write(s.Alpha); w.Write(s.ReferencePixelsPerUnit); w.Write(s.Flags);
+                Floats(w, s.Rect); Floats(w, s.Frame); w.Write(s.Alpha); w.Write(s.ReferencePixelsPerUnit); w.Write(s.Flags);
                 w.Write((byte)s.Lines.Length);
                 foreach (NativeDecisionPromptLine line in s.Lines)
                 { Floats(w, line.Rect); w.Write(line.Alpha); w.Write(line.Flags); Text(w, line.Tip); Text(w, line.Warning); }
@@ -175,7 +176,7 @@ internal static class NativeDecisionPromptCodec
             NativeDecisionPromptState? state = null;
             if (has == 1)
             {
-                state = new NativeDecisionPromptState { Rect = Floats(r, 18), Alpha = r.ReadSingle(),
+                state = new NativeDecisionPromptState { Rect = Floats(r, 18), Frame = Floats(r, 6), Alpha = r.ReadSingle(),
                     ReferencePixelsPerUnit = r.ReadSingle(), Flags = r.ReadByte() };
                 int n = r.ReadByte(); if (n == 0 || n > NativeDecisionPromptState.MaxLines) return false;
                 state.Lines = new NativeDecisionPromptLine[n];
