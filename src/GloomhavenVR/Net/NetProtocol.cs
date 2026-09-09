@@ -485,7 +485,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 490;
+    public const ushort ModBuild = 491;
+
+    // ModBuild 491 — MB490 hardware regressions: original card fronts and foreground laser ownership.
+    //   Both supplied client banners are490. The screenshots and repeated group-bound exceptions
+    //   establish that local map cards and remote fronts failed native artwork construction.
+    //   The eight-CanvasGroup assumption entered with489 and was first hardware-tested in490.
+    //   Native card construction/reset now handles the complete dynamic hierarchy independently
+    //   of wire capacity. Supplemental69 carries additional group state without changing58.
+    //   Local controlled cards always remain open; the entire map is public locally and remotely.
+    //   Native baseline capture waits for original asynchronous artwork to finish before freezing
+    //   reset state, preventing an unloaded alpha-zero baseline from hiding a later ready front.
+    //   Foreground grab bars own hover and click across independent map/world UI pointer paths;
+    //   map clicks use the triggering hand's own target and preserve carry/release ownership.
+    //   Full appearance maximum57766/buffer58368 fits existing ushort fragmentation. Two card
+    //   stream turns retain completion under saturation within the unchanged assembly lifetime;
+    //   event rate/size unchanged. Previous grammars and GVR1/v3 unchanged;70 is next free.
+    //   Gates: all17 checkers,251752 wire assertions plus883 production binding assertions and
+    //   old-cap runtime negative control; strict Release0 errors/0 warnings. Docs/refasm pass.
+    //   Config625, registration107 classes/165 methods, log tokens4714 unchanged; compiled diff
+    //   has18 intended changed types and1 new helper, none removed, against48330b22.
+    //   See .planning/MP-REGRESSION-491.md for evidence, final gates and hardware limits.
+    //   DLL-only after full483; the corrected headset picture still needs a hardware retest.
 
     // ModBuild 490 — pre-hardware review of all local/remote card faces, overlays and flights.
     //   Remote selection stays covered even on the viewer's own character. Held actors follow

@@ -61,4 +61,7 @@ if ! BUILD_LOG="$(dotnet build "$PROJ" -c Release -v quiet --nologo 2>&1)"; then
     echo "$BUILD_LOG" >&2
     exit 1
 fi
+# Exercise production native hierarchy discovery as well as pure wire DTO fixtures. The
+# controlled tree harness also proves that reinstating the old eight-group cap fails at runtime.
+bash "$ROOT/scripts/card-bindings-tests.sh"
 exec "$OUT" "$ROOT"

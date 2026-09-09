@@ -16,6 +16,7 @@ internal static class Program
             // vector below is only meaningful while they agree.
             Shims.VerifyAgainstSource(repoRoot);
             LaserBarOwnershipVectors.Run(t, repoRoot);
+            MapLaserOwnershipVectors.Run(t, repoRoot);
             InitiativeSelectionOrderVectors.Run(t, repoRoot);
             RemoteCapVisibilityVectors.Run(t, repoRoot);
             NativeDecisionHighlightVectors.Run(t);

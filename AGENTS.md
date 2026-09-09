@@ -46,3 +46,7 @@ The user clarified during the build 490 review (2026-09-09): concealment is excl
 remote presentation rule. Local cards of controlled characters are never concealed, including
 short-rest burn flights and fallback artwork. During selection, local character switching is
 already limited to controlled characters; do not add remote secrecy gates to local rendering.
+
+The build 490 hardware report (2026-09-09) explicitly confirms that the entire 3D map
+environment is public: neither local nor remote fans, held cards or other map card surfaces
+may be concealed. Artwork construction failures are rendering defects, not privacy decisions.

@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-09 against `dev` = ModBuild 490.** The file this replaces had gone 168 builds
+**Updated 2026-09-09 against `dev` = ModBuild 491.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,21 +13,23 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **`dev` = ModBuild 490.** `main` is the release branch and is behind on purpose.
+- **`dev` = ModBuild 491.** `main` is the release branch and is behind on purpose.
 - **483 IS A FULL INSTALL.** The asset bundle changed for the first time since ModBuild 368:
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
   loud if it happens.
-- **Hardware evidence now covers488**, with both latest client banners and both health screenshots
-  verified. **490 requires a headset retest.** The pre-test card review is in [MP-CARD-REVIEW-490.md](MP-CARD-REVIEW-490.md). See [MP-ROUND-489.md](MP-ROUND-489.md) for all thirteen
-  findings, the original Disarm explanation, and the additional parity review. The older timeout investigation remains in [MP-ROUND-484.md](MP-ROUND-484.md).
+- **Hardware evidence now covers 490**, with both client banners and `regression_3d_umgebung.jpg` /
+  `regression_board.jpg` inspected. **491 requires a headset retest.** The failed card construction
+  and pointer findings are recorded in [MP-REGRESSION-491.md](MP-REGRESSION-491.md). The prior
+  490 pre-test review did not exercise the original runtime hierarchy and missed the group bound.
 - **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
-- Gate readings at 490: 17 checkers green · wire **251,572** assertions · patch surface
-  **107 classes / 165 methods** · config keys **625** · log tokens **4,714** ·
-  instrument-writes baseline **61** · 0 errors, 0 warnings. Compiled comparison against
-  `97ad6c6a`: 38 intended changed types and 4 new types; no removed types. Docs/refasm pass.
-  Concealment is remote-only: local controlled cards remain open, including short-rest flights
-  (user clarification during the build 490 review).
+- Gate readings at 491: all 17 checkers green · wire **251,752** assertions · production card
+  binding harness **883** assertions plus an actual failing old-limit negative control · strict
+  Release **0 errors / 0 warnings** · docs i18n and all 16 metadata-only reference assemblies pass.
+  Patch registration **107 classes / 165 methods**, surface **150**, config keys **625**, log tokens
+  **4,714**, instrument-writes baseline **61**, bundle **74,943,763 bytes** remain unchanged.
+  Compiled comparison against `48330b22`: 18 intended changed types and one new helper, none removed.
+  Local controlled cards and the entire map remain open; concealment is remote-only in scenarios.
 
 ### Recent builds
 
@@ -43,7 +45,8 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 487 | laser ownership, phase-consistent card visibility, stable initiative, cap sizing and native tooltip/highlight/element output | DLL only after 483 |
 | 488 | short visible window-facing turn after release, matching grab-bar timing and preserving the drawn centre | DLL only after 483 |
 | 489 | native card output, atomic held fronts, character decisions, committed/pending health and correctly routed/sequenced flights | DLL only after 483 |
-| 490 | pre-test face/overlay/flight audit: stable source provenance, complete native reset, foreign focus and bounded artwork handover | DLL only after 483 |
+| 490 | pre-test face/overlay/flight audit; later hardware exposed native group-bound rendering failures | DLL only after 483 |
+| 491 | repair dynamic native card artwork and independent laser paths behind grab bars | DLL only after 483 |
 
 ---
 
@@ -59,6 +62,10 @@ in the zoomed-out pose where the room reads as a model in front of you. That sur
 not seen it yet, and it is one line to put back.
 
 ### 2b. Latest multiplayer corrections
+
+- Build 491 fixes the native card hierarchy construction failure affecting local map fans and
+  remote fronts. Map cards remain public. Independent map/world UI laser routes now respect
+  foreground grab bars and the clicking hand. See [MP-REGRESSION-491.md](MP-REGRESSION-491.md).
 
 - Build490 reviews every local/remote card surface for face visibility, native overlay output
   and semantic flight lifecycle. Fixes include viewer-independent selection privacy, held map

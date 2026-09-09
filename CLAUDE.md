@@ -5,7 +5,7 @@ into a room-scale VR game. The board becomes a diorama on a table, the game's 2D
 into world-space panels on a wooden control board, and the player holds a real card fan.
 Multiplayer is a first-class constraint, not an afterthought.
 
-**Verified against `dev` at ModBuild 490, 2026-09-09.** If that is many builds behind, the newest
+**Verified against `dev` at ModBuild 491, 2026-09-09.** If that is many builds behind, the newest
 truth is the build-note block at the top of `src/GloomhavenVR/Net/NetProtocol.cs`, newest first —
 that file is the project's real changelog. This one carries only what does not change per build.
 
@@ -57,10 +57,10 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    Health57, native card appearance58, atomic rig actor59, character decisions60, flight source61,
    flight history62, native decision prompts63, lossless presentation compression64 and damage avoidance65 are additive.
    Second held actor66, held map provenance67 and native appearance provenance68 retain positional
-   source addressing. The 38/40/42 holes may never be reused; 69 is next free.** No id
+   source addressing. The 38/40/42 holes may never be reused; 69 carries supplemental native card groups; 70 is next free.** No id
    has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
-   `scripts/wire-tests.sh` (final assertion count in STATE.md at ModBuild 490) is the proof; a `Write`+`TryRead` change
+   `scripts/wire-tests.sh` (final assertion count in STATE.md at ModBuild 491) is the proof; a `Write`+`TryRead` change
    made in lockstep is invisible to a round trip, which is why the golden vectors exist.
 4. **1:1 is a standing ruling.** A peer's board mirrors the owner's CONTENT, ANIMATION, ORDER,
    POSITION, SIZE, STATE and TIMING. A mirror must never read the viewer's dial. A shared
@@ -69,6 +69,7 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    **Card concealment is remote-only** (user clarification, 2026-09-09, build 490 review).
    Local controlled-character cards always retain their fronts, including short-rest burn flights.
    Remote selection cards and remote short-rest burn flights remain covered; action cards are open.
+   The entire 3D map is public, locally and remotely (build 490 hardware clarification).
 5. **Localisation:** every user-facing string EN+DE via `Core/Loc`. **Config:** every default on
    one annotated line in `Defaults/` with a `// => [Section] Key` comment, and a new key must end
    in a unit word `ConfigSteps` recognises or its stepper is unusable (user-reported twice; pinned
@@ -99,8 +100,9 @@ The guard's **exit code is 1 whenever the compiled form differs at all**, which 
 any change — read the printed verdict, not the status. Its baseline is per-worktree and
 gitignored; take your own with `bash scripts/refactor-guard.sh baseline` before you start.
 
-Current readings at 490: patch surface 107 classes / 165 methods · wire 251,572 assertions ·
+Current readings at 491: patch surface 107 classes / 165 methods · wire 251,752 assertions ·
 config keys 625 · log tokens 4,714 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
+The production native-card hierarchy harness adds 883 assertions and an old-limit negative control.
 A number that has moved is not automatically wrong — but it must be explained in the commit.
 
 **Read the NUMBER, not the word "green".** A deduplication in the 2026-09 round silently stopped

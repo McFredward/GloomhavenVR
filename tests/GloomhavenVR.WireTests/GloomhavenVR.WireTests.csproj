@@ -578,6 +578,8 @@
     <Compile Include="HeldFaceAtomicVectors.cs" />
     <Compile Include="CardAppearanceVectors.cs" />
     <Compile Include="CardAppearanceGroupVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Hands/Interact/LaserPointerPolicy.cs" />
+    <Compile Include="MapLaserOwnershipVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceBinding.cs" />
     <Compile Include="CardFaceLifecycleVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/MapCardFaceProjection.cs" />

@@ -200,7 +200,7 @@ internal sealed class ExtrasSendScheduler
         byte[]? result = announcement;
         // Empty streams cost no turn. With only the original two streams populated this is
         // still exactly two animation pages followed by one waiting presence page.
-        // The extended native card hierarchy can fill 58 KiB before compression. Give it two
+        // The extended native card hierarchy can fill 57 KiB before compression. Give it two
         // turns so even incompressible maximum frames finish within the unchanged 32 s assembly
         // lifetime under full contention. The global event size and 50 ms cadence do not change.
         for (int attempt = 0; result == null && attempt < 10; attempt++)
