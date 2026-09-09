@@ -1001,6 +1001,40 @@ internal sealed class RemoteHandFan
         }
     }
 
+    // Record67 names both the held model's stable class-pool seat and its actual arc seat.
+    // A fan republish can retain a held card, including one removed from the loadout, whereas
+    // an ordinary pluck removes it. Counts alone cannot distinguish those two native pictures.
+    private readonly List<int> _mapProjection = new(MaxCards);
+
+    private void BuildNamedMapArc(int count, out int heldCount)
+    {
+        heldCount = 0;
+        _mapArc.Clear();
+        RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint key);
+        if (!WorldUI.MapRoom.MapRoomHand.ResolveNamedMapLoadout(key, _mapBuffer)) return;
+        CAbilityCard? first = ResolveMapHeldModel(1, key);
+        CAbilityCard? second = ResolveMapHeldModel(2, key);
+        if ((_owner.HeldFaceMapKey(1) == key && first == null)
+            || (_owner.HeldFaceMapKey(2) == key && second == null)) return;
+        if (first != null) heldCount++;
+        if (second != null && !ReferenceEquals(first, second)) heldCount++;
+        int arcA = first != null ? _owner.HeldFaceMapArcSeat(1) : byte.MaxValue;
+        int arcB = second != null ? _owner.HeldFaceMapArcSeat(2) : byte.MaxValue;
+        if (!MapCardFaceProjection.TryBuild(_mapBuffer.Count,
+            first != null ? _mapBuffer.IndexOf(first) : -1, arcA,
+            second != null ? _mapBuffer.IndexOf(second) : -1, arcB, count, _mapProjection)) return;
+        for (int i = 0; i < _mapProjection.Count; i++)
+        {
+            int seat = _mapProjection[i];
+            _mapArc.Add(seat == -1 ? first! : seat == -2 ? second! : _mapBuffer[seat]);
+        }
+    }
+
+    private CAbilityCard? ResolveMapHeldModel(int slot, uint key)
+        => key != 0 && _owner.HeldFaceMapKey(slot) == key
+            ? WorldUI.MapRoom.MapRoomHand.ResolveMapPoolCard(key, _owner.HeldFaceMapPoolSeat(slot),
+                _owner.HeldFaceMapPoolCount(slot)) : null;
+
     /// <summary>
     /// The card at map-loadout seat <paramref name="seat"/> of THIS peer's loadout, or null when the
     /// seat cannot be trusted. For the held-card record's map branch
@@ -1562,11 +1596,16 @@ internal sealed class RemoteHandFan
                     // already here. When it is NOT — an unnameable fist, two fists, a loadout this
                     // client resolves at a different length — the belt below still refuses and the
                     // fan falls back to backs, which is where this path started.
-                    heldMapSeatCount = HeldMapLoadoutSeats(out int mapSeatA, out int mapSeatB,
-                        out int mapListLength);
-                    ResolveMapFronts(count + heldMapSeatCount);
-                    bool matchingLoadout = mapListLength == _mapBuffer.Count;
-                    BuildMapArc(matchingLoadout ? mapSeatA : -1, matchingLoadout ? mapSeatB : -1);
+                    if (_owner.HeldFaceMapKey(1) != 0 || _owner.HeldFaceMapKey(2) != 0)
+                        BuildNamedMapArc(count, out heldMapSeatCount);
+                    else
+                    {
+                        heldMapSeatCount = HeldMapLoadoutSeats(out int mapSeatA, out int mapSeatB,
+                            out int mapListLength);
+                        ResolveMapFronts(count + heldMapSeatCount);
+                        bool matchingLoadout = mapListLength == _mapBuffer.Count;
+                        BuildMapArc(matchingLoadout ? mapSeatA : -1, matchingLoadout ? mapSeatB : -1);
+                    }
                     mapFronts = _mapArc.Count > 0;
                     showFronts = mapFronts;
                     break;
@@ -3149,6 +3188,15 @@ internal sealed class RemoteHandFan
         _arcHeldSeatB = -1;
         _arcHeldListSeatA = -1;
         _arcHeldListSeatB = -1;
+        if (RevealGate.InMapPhase)
+        {
+            RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint key);
+            if (key != 0 && _owner.HeldFaceMapKey(1) == key && _owner.HeldFaceMapArcSeat(1) < count)
+                _arcHeldSeatA = _owner.HeldFaceMapArcSeat(1);
+            if (key != 0 && _owner.HeldFaceMapKey(2) == key && _owner.HeldFaceMapArcSeat(2) < count)
+                _arcHeldSeatB = _owner.HeldFaceMapArcSeat(2);
+            return;
+        }
         int held = _owner.HeldHandSeats(out int seatA, out int seatB, out int listLength);
         _arcHeldListLength = listLength;
         if (held == 0)

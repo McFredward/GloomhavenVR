@@ -171,7 +171,7 @@ internal sealed class RemoteHeldCardFace
             HidePendingFront(code);
             return;
         }
-        if (!NetProtocol.HeldFaceNamesCard(code))
+        if (!NetProtocol.HeldFaceNamesCard(code) && _owner.HeldFaceMapKey(_slot) == 0)
         {
             // A CARD IS IN THEIR FIST AND THE RECORD NAMES NO SEAT FOR IT — the state the 2026-09-05
             // evidence turned out to be made of, and the one state the old code reported as if
@@ -353,6 +353,12 @@ internal sealed class RemoteHeldCardFace
         // the seat this record names is a seat in the very list the fan is drawing.
         if (source == RevealGate.CardFaceSource.MapLoadout)
         {
+            if (_owner.HeldFaceMapKey(_slot) != 0)
+            {
+                _mapCard = WorldUI.MapRoom.MapRoomHand.ResolveMapPoolCard(_owner.HeldFaceMapKey(_slot),
+                    _owner.HeldFaceMapPoolSeat(_slot), _owner.HeldFaceMapPoolCount(_slot));
+                return;
+            }
             if (list != NetProtocol.HeldFaceListMapLoadout)
                 return; // a scenario list named while no scenario is running — say nothing
             _mapCard = _owner.HandFan?.MapLoadoutSeat(at, count);

@@ -271,6 +271,36 @@ internal sealed partial class MapRoomHand
         return false;
     }
 
+    // A held map card can survive both a character switch and removal from the loadout.
+    // Its immutable class-pool address follows the VR object, not the currently published fan.
+    private sealed class MapCardSource
+    {
+        internal MapRuleLibrary.Party.CMapCharacter? Character;
+        internal CAbilityCard? Model;
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<VRCard, MapCardSource>
+        MapCardSources = new();
+
+    internal static bool TryNameLocalMapCard(VRCard? card, out uint mapKey,
+        out ushort poolSeat, out ushort poolCount, out byte arcSeat)
+    {
+        mapKey = 0; poolSeat = 0; poolCount = 0; arcSeat = byte.MaxValue;
+        if (card == null || !MapCardSources.TryGetValue(card, out MapCardSource source)
+            || source.Character == null || source.Model == null) return false;
+        CCharacterClass? klass = CharacterClassManager.Find(source.Character.CharacterID);
+        List<CAbilityCard>? pool = klass != null ? klass.AbilityCardsPool : null;
+        if (pool == null || pool.Count == 0 || pool.Count > ushort.MaxValue) return false;
+        int seat = pool.IndexOf(source.Model);
+        if (seat < 0) return false;
+        mapKey = NetProtocol.HashMapKey(source.Character.CharacterName);
+        poolSeat = (ushort)seat; poolCount = (ushort)pool.Count;
+        IReadOnlyList<VRCard>? arc = CardFan.Current?.Cards;
+        if (arc != null)
+            for (int i = 0; i < arc.Count && i < byte.MaxValue; i++)
+                if (ReferenceEquals(arc[i], card)) { arcSeat = (byte)i; break; }
+        return mapKey != 0;
+    }
+
     /// <summary>The printed faces, index-aligned with <see cref="_cards"/>. An entry stays null
     /// until the card is first ACTIVE IN THE HIERARCHY — see <see cref="PrintPendingFaces"/> for
     /// why the print is deferred and not done at build time.</summary>
@@ -655,30 +685,10 @@ internal sealed partial class MapRoomHand
                 // new set because it no longer HAS a place in the loadout; that index is never used
                 // while it is held (every layout loop in CardFan skips IsHeld).
                 //
-                // ─── WHAT THIS COSTS A WATCHER, MEASURED AT SOURCE (2026-09-07) ─────────────────
-                // The re-publish below hands this card back to CardFan.SetCards, which re-adds it
-                // to _cards unconditionally — so the number on the wire (CardFan.Current.Count) is
-                // restored to n while the loadout every receiver resolves
-                // (MapRoomHand.ResolveLoadout over the peer's replicated CMapCharacter) is now
-                // n-1. And record 36 can say nothing about the gap: TryNameLocalLoadoutSeat seats
-                // the card through _loadout.IndexOf(model), which is -1 for a card the loadout no
-                // longer names, so it answers "names nothing".
-                //
-                // THE RECEIVER THEREFORE REFUSES THE WHOLE FAN (Net.RemoteHandFan's length belt,
-                // and MapRoomHand.TryResolvePeerLoadout's tier-0 belt behind it) and draws BACKS
-                // for as long as he holds the deselected card. That is a DELIBERATE trade and not
-                // an oversight: before those belts existed this state drew n-1 correct fronts plus
-                // one phantom slab, which looks right — and it is indistinguishable, from the
-                // receiver's seat, from the state where ResolveLoadout silently dropped a card its
-                // class pool does not carry, where the same arithmetic shifts every face after the
-                // gap. One of the two must be chosen blind, and a back is the failure the player
-                // can read.
-                //
-                // DRAWING IT EXACTLY NEEDS A WIRE FIELD and is filed rather than forced: the arc is
-                // n long with one seat holding a card that is in NO loadout, and nothing currently
-                // on the wire can say that. Record 36 cannot be stretched to carry it — its seat is
-                // an index into the loadout by contract, and Net.RemoteHeldCardFace draws the held
-                // card's own front from exactly that index.
+                // Record67 now carries this card's original character, stable class-pool seat,
+                // and actual fan seat. The peer keeps the same hidden slot while rendering the
+                // surviving fronts; it no longer has to cover the entire fan when the loadout
+                // stops naming this held card. No card identity is added to the wire.
                 _deferredLeave = true;
                 _diffDeferred.Add(id);
                 _diffCards.Add(card);
@@ -893,6 +903,7 @@ internal sealed partial class MapRoomHand
             go.transform.SetParent(holder, worldPositionStays: false);
             VRCard card = go.AddComponent<VRCard>();
             card.Build(backing);
+            MapCardSources.Add(card, new MapCardSource { Character = _character, Model = model });
             go.SetActive(true);   // active-SELF: the holder above keeps it out of the hierarchy
             return card;
         }

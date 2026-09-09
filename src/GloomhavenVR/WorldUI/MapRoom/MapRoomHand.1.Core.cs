@@ -977,6 +977,38 @@ internal sealed partial class MapRoomHand
     /// costs, and it is not on a per-frame path: the caller re-asks only when the peer's loadout
     /// size changes or on its own slow cadence.</para>
     /// </summary>
+    internal static CAbilityCard? ResolveMapPoolCard(uint characterKey, int seat, int count)
+    {
+        CMapCharacter? character = NamedMapCharacter(characterKey);
+        if (character == null) return null;
+        CCharacterClass? klass = CharacterClassManager.Find(character.CharacterID);
+        List<CAbilityCard>? pool = klass != null ? klass.AbilityCardsPool : null;
+        return pool != null && pool.Count == count && seat >= 0 && seat < pool.Count ? pool[seat] : null;
+    }
+
+    internal static bool ResolveNamedMapLoadout(uint characterKey, List<CAbilityCard> into)
+    {
+        into.Clear();
+        CMapCharacter? character = NamedMapCharacter(characterKey);
+        if (character == null) return false;
+        ResolveLoadout(character, into);
+        return true;
+    }
+
+    private static CMapCharacter? NamedMapCharacter(uint characterKey)
+    {
+        if (characterKey == 0) return null;
+        List<CMapCharacter> party = PartyMembers();
+        CMapCharacter? found = null;
+        for (int i = 0; i < party.Count; i++)
+        {
+            if (Net.NetProtocol.HashMapKey(party[i].CharacterName) != characterKey) continue;
+            if (found != null) return null; // an ambiguous hash cannot name an exact source
+            found = party[i];
+        }
+        return found;
+    }
+
     internal static bool TryResolvePeerLoadout(int playerId, int loadoutSize, uint characterKey,
                                                List<CAbilityCard> into, out string verdict)
     {
