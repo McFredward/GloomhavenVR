@@ -64,10 +64,11 @@ internal sealed class CardAppearanceBindings
             nodes.Add(node);
         }
         var keys = new System.Collections.Generic.List<uint>(Groups.Keys); keys.Sort();
+        byte groupRole = 12;
         foreach (uint key in keys)
         {
             CanvasGroup group = Groups[key];
-            var node = new CardAppearanceNode { Role = (byte)(12 + nodes.FindAll(n => n.Role >= 12).Count), Binding = key,
+            var node = new CardAppearanceNode { Role = groupRole++, Binding = key,
                 Flags = (byte)((group.gameObject.activeSelf ? 1 : 0) | (group.enabled ? 2 : 0) | (group.ignoreParentGroups ? 4 : 0)) };
             node.Values[0] = group.alpha; nodes.Add(node);
         }

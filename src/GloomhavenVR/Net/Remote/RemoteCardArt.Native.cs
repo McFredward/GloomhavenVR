@@ -15,8 +15,29 @@ internal sealed partial class RemoteCardArt
     private CAbilityCard? _nativeCard;
     internal void SetNativeAppearance(int playerId, CPlayerActor? actor, CAbilityCard? card)
     {
+        bool changed = _nativePlayer != playerId || !ReferenceEquals(_nativeActor, actor) || !ReferenceEquals(_nativeCard, card);
         _nativePlayer = playerId; _nativeActor = actor; _nativeCard = card;
+        if (changed) ClearPendingNativeAppearance();
         ApplyNativeAppearance();
+    }
+    private void ClearPendingNativeAppearance()
+    {
+        // The receiver's pooled widget may still be spent after a rest. Before the first owner
+        // frame is available it is never an authority for a newly exposed card's decoration.
+        if (_clone == null || _nativeBindings == null) return;
+        TakeFxLookHold();
+        if (_burnRigState == BurnRig.Unbuilt) BuildBurnRig();
+        ClearAbilityCardFx();
+        if (_nativeBindings.Graphics[11] is Graphic flame)
+        {
+            if (!_nativeMaterials.TryGetValue(flame, out var material))
+            {
+                material = new Material(flame.material) { name = flame.material.name + " (VR-native-card)" };
+                _ownedMaterials.Add(material); _nativeMaterials[flame] = material;
+            }
+            flame.material = material;
+            if (material.HasProperty(FxAnimId)) material.SetFloat(FxAnimId, 0f);
+        }
     }
     internal void ApplyNativeAppearance()
     {

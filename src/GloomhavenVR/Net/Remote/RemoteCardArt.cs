@@ -501,6 +501,7 @@ internal sealed partial class RemoteCardArt
             // activation on purpose: the widget's own OnEnable is the last thing that could touch its
             // Images, so writing here means nothing the game runs can land on top of the result.
             ApplySpentLook(itemFx, spentLook);
+            if (_nativeCard != null) ClearPendingNativeAppearance();
 
             // MIP BAKE (user report: "the aliasing on the remote cards is extreme — the fix for my
             // own local cards should apply here too"). The clone's Image sprites are verbatim

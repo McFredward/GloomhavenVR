@@ -16,6 +16,7 @@ internal sealed class CardAppearanceNode
     {
         if (Role >= RoleCount || (Flags & ~15) != 0 || Role != 11 && (Flags & 8) != 0
             || Role < 12 && Binding != 0 || Role >= 12 && Binding == 0 || (Role < 7 || Role == 11) && (Flags & 4) != 0
+            || Role >= 12 && (Values == null || Values.Length == 0 || Values[0] < 0f || Values[0] > 1f)
             || (Mask & ~AllowedMask(Role)) != 0 || Values == null || Values.Length != ValueCount) return false;
         foreach (float value in Values) if (float.IsNaN(value) || float.IsInfinity(value)) return false;
         return true;
@@ -42,10 +43,12 @@ internal sealed class CardAppearanceState
             || NetProtocol.HeldFaceIndex(FaceCode) == NetProtocol.HeldFaceIndexUnknown
             || Nodes == null || Nodes.Length == 0 || Nodes.Length > CardAppearanceNode.RoleCount) return false;
         int roles = 0;
+        var groups = new System.Collections.Generic.HashSet<uint>();
         foreach (CardAppearanceNode node in Nodes)
         {
             if (node == null || !node.Validate() || (roles & (1 << node.Role)) != 0) return false;
             roles |= 1 << node.Role;
+            if (node.Role >= 12 && !groups.Add(node.Binding)) return false;
         }
         return true;
     }

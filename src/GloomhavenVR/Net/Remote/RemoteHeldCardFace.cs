@@ -164,6 +164,12 @@ internal sealed class RemoteHeldCardFace
         // shape of the back is not a secret in any phase — it is the same silhouette the owner and
         // every onlooker can see in his hand.
         EnsureBody(KindOf(code));
+        if (_renderer != null) _renderer.enabled = true;
+        if (!_owner.HeldFaceAddressReady(_slot))
+        {
+            HidePendingFront(code);
+            return;
+        }
         if (!NetProtocol.HeldFaceNamesCard(code))
         {
             // A CARD IS IN THEIR FIST AND THE RECORD NAMES NO SEAT FOR IT — the state the 2026-09-05
@@ -173,7 +179,7 @@ internal sealed class RemoteHeldCardFace
             // draw a face for a seat nobody named.
             Report(0, 1, "the sender named no seat for this card (record 36 code 0) — nothing this "
                        + "receiver can do; read the owner's 'Held-card face SENT' line");
-            HideKeepBody(code);
+            HidePendingFront(code);
             return;
         }
 
@@ -196,6 +202,12 @@ internal sealed class RemoteHeldCardFace
             // and asking a CMapCharacter for one THROWS. A null actor is now the map room's normal
             // state rather than a refusal.
             actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+            if (RevealGate.InScenario && (actor == null
+                || NetFigures.StableActorId(actor) != _owner.HeldFaceActorId(_slot)))
+            {
+                HidePendingFront(code);
+                return;
+            }
             // The list byte selects artwork and silhouette; all held kinds share phase visibility.
             source = RevealGate.CardFaces(
                 NetProtocol.HeldFaceList(code) == NetProtocol.HeldFaceListItems
@@ -249,7 +261,7 @@ internal sealed class RemoteHeldCardFace
         {
             Report(0, 1, $"the seat the sender named ({Describe(code, count)}) did not resolve on "
                        + "this client — a list of a different length, or an empty seat");
-            HideArtKeepResolve();
+            HidePendingFront(code);
             return;
         }
 
@@ -271,7 +283,7 @@ internal sealed class RemoteHeldCardFace
         if (!shown)
         {
             Report(0, 1, "the seat resolved but the face CLONE failed to build");
-            HideArtKeepResolve();
+            HidePendingFront(code);
             return;
         }
         // USER ITEM 10: a front is up, so this body stops wearing the card BACK on its FRONT fan —
@@ -689,6 +701,15 @@ internal sealed class RemoteHeldCardFace
     /// gate for <see cref="SetFrontFace"/>. Seeded true because that is what
     /// <c>RemoteAvatar.BuildCardSlab</c> and <see cref="EnsureBody"/> build the slab with.</summary>
     private bool _wearsBack = true;
+
+    private void HidePendingFront(byte code)
+    {
+        HideKeepBody(code);
+        // A pending public face is not a secret back. Pose and seat now arrive atomically;
+        // if the replicated list is still catching up, publish the complete held card only
+        // once its correct front exists. Selection continues to display the real covered body.
+        if (_renderer != null && !RevealGate.IsSecretSelectionPhase) _renderer.enabled = false;
+    }
 
     private void HideArtKeepResolve()
     {
