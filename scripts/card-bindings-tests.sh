@@ -30,7 +30,7 @@ if dotnet run --project "$mutation_dir/GloomhavenVR.CardBindingsTests.csproj" --
     echo 'FAIL: old eight-group constructor limit escaped the runtime regression test.' >&2
     exit 1
 fi
-if ! rg -q 'Unhandled exception. System.InvalidOperationException: Legacy eight-group cap' "$mutation_dir/mutant.log"; then
+if ! grep -Fq 'Unhandled exception. System.InvalidOperationException: Legacy eight-group cap' "$mutation_dir/mutant.log"; then
     cat "$mutation_dir/mutant.log"
     echo 'FAIL: negative control did not reach the injected runtime defect.' >&2
     exit 1
@@ -69,7 +69,7 @@ PY
         shader_invalidation) expected='same material changed shader clears absent property lanes role/flags/binding/mask' ;;
         warmed_allocation) expected='Warmed unchanged capture/publication allocates no managed objects' ;;
     esac
-    if ! rg -q "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/mutant.log"; then
+    if ! grep -Fq "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/mutant.log"; then
         cat "$mutation_dir/mutant.log"
         echo "FAIL: $defect negative control did not reach the intended runtime defect." >&2
         exit 1

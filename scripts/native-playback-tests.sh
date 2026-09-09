@@ -33,7 +33,7 @@ PY
         material-ping-pong) expected='Claimed material avoids mirror/owner ping-pong' ;;
         stale-shader) expected='Shader replacement on the same material invalidates support immediately' ;;
     esac
-    if ! rg -F -q "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/mutant.log"; then
+    if ! grep -Fq "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/mutant.log"; then
         cat "$mutation_dir/mutant.log"
         echo "FAIL: negative control did not reach its runtime assertion: $mutation" >&2
         exit 1

@@ -38,7 +38,7 @@ case "$mutation" in
     actor-identity) expected='Pooled native row actor retarget invalidates every observer' ;;
     readiness-edge) expected='Locally recovered native output retries validated fit/show without a new packet' ;;
 esac
-if ! rg -Fq "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/mutant.log"; then
+if ! grep -Fq "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/mutant.log"; then
     cat "$mutation_dir/mutant.log"
     echo "FAIL: $mutation negative control did not reach the injected runtime defect." >&2
     exit 1
