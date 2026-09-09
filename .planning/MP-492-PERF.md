@@ -1,6 +1,6 @@
 # MP-492 performance evidence review
 
-Report-only worker review of dev `050e8801`; no runtime source changes in this lane.
+Initial performance review of dev `050e8801`; the subsequently delegated native-element correction is documented below.
 
 ## Evidence and limits
 
@@ -129,4 +129,15 @@ The repeated Cards `BOARD ANCHOR` message alone accounts for approximately 30.18
 4. Narrow the board/card rebuild scopes so the next 50–140 ms burst identifies clone construction, binding, appearance application, widget sampling or another operation.
 5. Reduce repeated diagnostic payload and measure diagnostics separately. Do not use diagnostic boilerplate's “not the mod”, “waiting” or “session dead” claims as measured root causes.
 
-This lane changes documentation only. Hardware improvement, absence of rendering regressions, and a causal comparison against a pre-change build remain unverified.
+The initial performance review was documentation only. Hardware improvement, absence of rendering regressions, and a causal comparison against a pre-change build remain unverified.
+
+
+## Follow-up: native element playback material provenance
+
+Additional delegated investigation found one native-element warning in the remote log at **17358**, around frame 46935, during gameplay. The following line explicitly reports **MIRROR BLANK (3 of 3), via=NATIVE-PENDING**. Line 17366 again reports MIRRORED-WIDGET. This was a real transient presentation loss, not just startup initialization. The log does not identify the failing element/material, nor precisely count blank frames.
+
+Source-proven defect: `RemoteNativeElements.Element.ValidateMaterial` checked the clone graphic's current material, and `Graphic` instantiated owner FX from that clone material. `RemoteWidgetMirror.Pair.Apply` deliberately skips inactive viewer branches before copying their materials. Such a clone is not a reliable material source when the owner's frame activates a currently inactive viewer effect: stale/default materials can reject the entire six-element frame. This dependency is proven in source; the sparse warning cannot prove which particular graphic took it in the hardware incident.
+
+The correction uses the exact original graphic retained in `NativeElementBindings.Graphics/Effects` for material validation and clone-owned material creation, independently of viewer branch activity. A changed original material reference invalidates and disposes the old owned copy. All `_FXAnim` writes still target owned copies; no game callback or substitute shader is introduced. Truly unavailable original materials remain a refusal, now naming element, graphic and shader instead of erasing that evidence.
+
+`NativeElementMaterialVectors` guards both binding populations, stale-clone rejection, original-material replacement and disposal, and original-material write isolation, with deliberately broken negative controls. These are source-bound ownership regressions, not a GPU rendering test. Validation: Release build succeeded with zero warnings/errors; the complete WireTests run with temporary worker-local registration passed 251,760 assertions. The registration is master-owned and must be added during integration. The next hardware run must verify element animation continuity.

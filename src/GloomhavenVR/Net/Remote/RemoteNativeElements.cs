@@ -128,6 +128,7 @@ internal sealed class RemoteNativeElements
         private readonly Graphic[] _graphics, _effects;
         private readonly RemoteUseBarAnimation[] _animations;
         private readonly Dictionary<Graphic, Material> _materials = new();
+        private readonly Dictionary<Graphic, Material> _materialSources = new();
         internal Element(NativeElementBindings source, RemoteWidgetMirror mirror)
         {
             _source = source;
@@ -157,8 +158,8 @@ internal sealed class RemoteNativeElements
             if (state.Graphics.Length != _graphics.Length || state.Effects.Length != _effects.Length
                 || state.Animations.Length != _animations.Length)
                 throw new InvalidOperationException("owner element fields differ from original widget");
-            for (int i = 0; i < _graphics.Length; i++) ValidateMaterial(_graphics[i], state.Graphics[i]);
-            for (int i = 0; i < _effects.Length; i++) ValidateMaterial(_effects[i], state.Effects[i]);
+            for (int i = 0; i < _graphics.Length; i++) ValidateMaterial(_source.Graphics[i], state.Graphics[i]);
+            for (int i = 0; i < _effects.Length; i++) ValidateMaterial(_source.Effects[i], state.Effects[i]);
             for (int a = 0; a < _animations.Length; a++)
             {
                 NativeUseBarAnimationBinding[] bindings = _source.Animations[a];
@@ -169,10 +170,21 @@ internal sealed class RemoteNativeElements
                         throw new InvalidOperationException("owner element animation target differs from original");
             }
         }
-        private static void ValidateMaterial(Graphic target, NativeElementGraphic state)
+        private void ValidateMaterial(Graphic original, NativeElementGraphic state)
         {
-            if ((state.Flags & 4) != 0 && (target.material == null || !target.material.HasProperty("_FXAnim")))
-                throw new InvalidOperationException("owner element effect does not match original material");
+            // Pair.Apply skips inactive viewer branches. Their clone can still carry a default
+            // or destroyed old material when the owner's frame activates the original effect.
+            // Bind the exact original graphic directly; clone state is never an asset source.
+            if ((state.Flags & 4) != 0) EffectMaterial(original);
+        }
+        private Material EffectMaterial(Graphic original)
+        {
+            Material material = original.material;
+            if (material == null || !material.HasProperty("_FXAnim"))
+                throw new InvalidOperationException("owner element effect has no original material: element="
+                    + _source.Source.elementType + ", graphic=" + original.name + ", shader="
+                    + (material != null && material.shader != null ? material.shader.name : "missing"));
+            return material;
         }
         internal void Apply(NativeElementState from, NativeElementState to, float t)
         {
@@ -185,22 +197,25 @@ internal sealed class RemoteNativeElements
                 if (state == 2) image.sprite = _source.Source.completeElement;
                 else if (state == 3) image.sprite = _source.Source.waningElement;
             }
-            for (int i = 0; i < _graphics.Length; i++) Graphic(_graphics[i], from.Graphics[i], to.Graphics[i], t);
-            for (int i = 0; i < _effects.Length; i++) Graphic(_effects[i], from.Effects[i], to.Effects[i], t);
+            for (int i = 0; i < _graphics.Length; i++) Graphic(_graphics[i], _source.Graphics[i], from.Graphics[i], to.Graphics[i], t);
+            for (int i = 0; i < _effects.Length; i++) Graphic(_effects[i], _source.Effects[i], from.Effects[i], to.Effects[i], t);
             for (int a = 0; a < _animations.Length; a++)
                 _animations[a].ApplyValues(from.Animations[a], to.Animations[a], t);
         }
-        private void Graphic(Graphic target, NativeElementGraphic from, NativeElementGraphic to, float t)
+        private void Graphic(Graphic target, Graphic source, NativeElementGraphic from, NativeElementGraphic to, float t)
         {
             NativeElementGraphic discrete = t < 1f ? from : to;
             target.gameObject.SetActive((discrete.Flags & 1) != 0); target.enabled = (discrete.Flags & 2) != 0;
             target.color = Color.LerpUnclamped(new Color(from.R, from.G, from.B, from.A), new Color(to.R, to.G, to.B, to.A), t);
             if ((discrete.Flags & 4) == 0) return;
-            Material original = target.material;
-            if (original == null || !original.HasProperty("_FXAnim"))
-                throw new InvalidOperationException("original element effect material is missing");
-            if (!_materials.TryGetValue(target, out Material material) || material == null)
-            { material = new Material(original); _materials[target] = material; }
+            Material original = EffectMaterial(source);
+            if (!_materials.TryGetValue(target, out Material material) || material == null
+                || !_materialSources.TryGetValue(target, out Material previous) || !ReferenceEquals(previous, original))
+            {
+                Material replacement = new Material(original);
+                if (material != null) Object.Destroy(material);
+                material = replacement; _materials[target] = material; _materialSources[target] = original;
+            }
             // Pair.Apply restores the viewer source material each tick. Only this clone-owned
             // instance receives owner animation output; the game's original is never written.
             target.material = material;
@@ -210,7 +225,7 @@ internal sealed class RemoteNativeElements
         {
             foreach (RemoteUseBarAnimation animation in _animations) animation?.Destroy();
             foreach (Material material in _materials.Values) if (material != null) Object.Destroy(material);
-            _materials.Clear();
+            _materials.Clear(); _materialSources.Clear();
         }
     }
 }
