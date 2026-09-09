@@ -512,7 +512,9 @@ internal sealed class RemoteBurnFx
             Burn burn = _burns[i];
             if (burn.ClaimId != id || !burn.Active)
                 continue;
-            burn.ShortRestBurn |= CardFlightVisibility.Covered(flags);
+            // The release's provenance supersedes the earlier model-watch context. An ordinary
+            // burn must not inherit a different short-rest offer that appeared before delivery.
+            burn.ShortRestBurn = CardFlightVisibility.Covered(flags);
             RefreshFaceVisibility(burn);
             burn.OwnerReleased = true;
             Handover(burn, "the owner's matching ->Burnt release event arrived for this actor and recess");

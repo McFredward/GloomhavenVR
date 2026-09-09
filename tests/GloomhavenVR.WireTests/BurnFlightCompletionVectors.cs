@@ -83,7 +83,17 @@ internal static class BurnFlightCompletionVectors
         t.True(HasDeferredActiveResolve(tryPlay), "active departure waits for its exact model source before acquiring a slab");
         t.True(!HasDeferredActiveResolve(tryPlay.Replace("return false;", "return true;")),
             "negative control: skipping unresolved active departure instead of retrying is detected");
+        string faceResolve = RemoteCapVisibilityVectors.Method(remoteFlight, "private string ResolveFace(");
+        t.True(!faceResolve.Contains("_owner.ShortRestInProgress")
+            && faceResolve.Contains("CardFlightVisibility.Covered(flags)"),
+            "delayed ordinary burn never inherits a later short-rest UI context");
+        string applyRelease = RemoteCapVisibilityVectors.Method(remoteBurn, "private bool TryApplyRelease(");
+        t.True(applyRelease.Contains("burn.ShortRestBurn = CardFlightVisibility.Covered(flags)")
+            && !applyRelease.Contains("burn.ShortRestBurn |="),
+            "canonical release replaces tentative model-watch cover instead of permanently latching it");
         string tick = RemoteCapVisibilityVectors.Method(remoteFlight, "public void Tick(");
+        t.True(RemoteCapVisibilityVectors.Method(remoteFlight, "public bool IsFlyingToActive(").Contains("f.Go == null"),
+            "destroyed generic slab cannot leave its active destination permanently suppressed");
         t.True(WaitsBeforeTravel(tick, "if (!drawable)", "f.Elapsed +="),
             "an unresolved public front cannot consume the whole generic flight unseen");
         t.True(!WaitsBeforeTravel(tick.Replace("continue;", "NoOp();"), "if (!drawable)", "f.Elapsed +="),
@@ -99,6 +109,13 @@ internal static class BurnFlightCompletionVectors
             "negative control: tilted-board fallback arc is refused");
         t.True(!HasOriginalFallback(fallback.Replace("sourceWorldWidth / (parentLossy * w)", "1f")),
             "negative control: fixed hand-size fallback is refused");
+        foreach (string method in new[] { "private bool TryStartFlyToPile(", "private bool TryStartBurnFly(", "private void LaunchBurnFlight(" })
+        {
+            string launchBody = RemoteCapVisibilityVectors.Method(rebuild, method);
+            t.True(launchBody.Contains("coverFace: Net.CardFlightVisibility.Covered(")
+                && launchBody.Contains("Net.CardFlightVisibility.ConsumeBurn("),
+                "local live burn path preserves the same covered provenance as the wire: " + method);
+        }
         string flight = RemoteCapVisibilityVectors.Method(rebuild, "private bool TryStartFlyToPile(");
         t.True(HasActiveDestinationSwitch(flight), "actual active departures reach model destination switch");
         t.True(!HasActiveDestinationSwitch(flight.Replace("_lastActiveCards.Contains(card)", "false")),

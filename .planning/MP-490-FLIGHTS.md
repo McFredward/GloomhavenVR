@@ -47,6 +47,14 @@ Read the current rules, state and newest protocol build notes before implementat
   Original art gets a bounded two-second resolve window; known selection/short-rest backs fly
   immediately. Missing art cannot consume an entire hidden arc, nor strand a permanent claim.
 
+- The latest short-rest flight ruling applies locally and remotely. All three live local burn
+  launch paths now consume provenance once and pass the same covered bit to both the semantic
+  event and VRCard flight. The face lane's temporary cover restores on landing/cancel/reuse;
+  ordinary damage sacrifices keep their fronts.
+
+- Authoritative release flags supersede tentative model-watch context. A delayed ordinary burn
+  cannot inherit the owner's later short-rest UI, and a proven short-rest burn remains covered.
+
 ## Coverage
 
 Reviewed local round-recess exits, active expiry to Discard/Lost/PermanentlyLost, return/retrieve

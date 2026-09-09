@@ -514,8 +514,9 @@ internal sealed class RemoteCardFx
         f.HasFace = false;
         f.FaceCard = null;
         f.FaceActor = null;
-        f.ShortRestBurn = to == CardFxAnchor.Burnt
-            && (CardFlightVisibility.Covered(flags) || _owner.ShortRestInProgress);
+        // Same-build semantic provenance is authoritative. The owner's current rest UI may
+        // already describe a later operation when a delayed ordinary burn event arrives.
+        f.ShortRestBurn = to == CardFxAnchor.Burnt && CardFlightVisibility.Covered(flags);
         f.Art?.HideFront();
         // A GUARD ON THE WIRE VOCABULARY, not a live sender's arm — see this method's doc for the
         // enumeration of all nine announcement sites (none has from == HandFan) and for why the one
@@ -807,8 +808,13 @@ internal sealed class RemoteCardFx
         for (int i = 0; i < _flights.Count; i++)
         {
             Flight f = _flights[i];
-            if (!f.Active || f.Go == null)
+            if (!f.Active) continue;
+            if (f.Go == null)
+            {
+                f.Active = false;
+                f.ActiveCardId = int.MinValue;
                 continue;
+            }
             if (f.FaceCard == null && !f.ShortRestBurn && !RevealGate.IsSecretSelectionPhase
                 && ReferenceEquals(f.SourceActor, RemoteBoardFocus.DisplayedActor(_owner, out _)))
                 ResolveFace(f, NetCardFx.From(f.Endpoints), NetCardFx.To(f.Endpoints), f.Flags);
@@ -933,7 +939,7 @@ internal sealed class RemoteCardFx
         for (int i = 0; i < _flights.Count; i++)
         {
             Flight f = _flights[i];
-            if (!f.Active || f.ActiveCardId != cardInstanceId)
+            if (!f.Active || f.Go == null || f.ActiveCardId != cardInstanceId)
                 continue;
             // THE BELT (see the doc): never answer for an arc that has already outlived itself.
             if (f.Elapsed > NetProtocol.CardFxSeconds)

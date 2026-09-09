@@ -2734,9 +2734,9 @@ internal sealed partial class CardsDriver
         if (flightSeat < 0)
             flightSeat = _tray.SlotOf(card);
         Net.CardFxAnchor flightOrigin = BurnOrPileOrigin(card.GameCard, flightSeat);
-        ReportCardFx(flightOrigin, PileAnchor(fate), fate == PileKind.Burnt
-            ? Net.CardFlightVisibility.ConsumeBurn(card.GameCard?.AbilityCard) : (byte)0,
-            FlightSourceOf(card.GameCard));
+        byte flightFlags = fate == PileKind.Burnt
+            ? Net.CardFlightVisibility.ConsumeBurn(card.GameCard?.AbilityCard) : (byte)0;
+        ReportCardFx(flightOrigin, PileAnchor(fate), flightFlags, FlightSourceOf(card.GameCard));
         CardFlightLedger.Note("own", fate.ToString(),
             wasActive ? "own-active-expiry" : wasPickField ? "own-pick-field-commit" : "own-turn-clear",
             CardsGameApi.CardName(card.GameCard!));
@@ -2745,7 +2745,7 @@ internal sealed partial class CardsDriver
             _flyingToPile.Remove(flying);
             _factory.Park(flying);
             VRLog.Info("Cards", $"Fly-to-pile: '{flying.name}' reached the {dest} pile — parked.");
-        }, minArc);
+        }, minArc, coverFace: Net.CardFlightVisibility.Covered(flightFlags));
         // A played card whose fate is BURNT (a lost action) is a burn like any other — tag it with
         // the same BURN ANIM token the dedicated burn paths use so ONE grep proves every burn case.
         string origin = wasActive ? "active expiry" : wasPickField ? "pick field" : "turn-clear";
@@ -3066,8 +3066,9 @@ internal sealed partial class CardsDriver
         // block at TryStartFlyToPile's ReportCardFx for why a hardcoded Board anchor made every
         // mirrored flight start at the board centre). `from` above is this same card's real world
         // position, so both ends of this flight now agree on both machines.
+        byte flightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
         ReportCardFx(BurnOrPileOrigin(widget, _tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
-            Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard), FlightSourceOf(widget));
+            flightFlags, FlightSourceOf(widget));
         LogBurnAttribution(widget, "park-sweep");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
         VRCard flying = card;
@@ -3076,7 +3077,7 @@ internal sealed partial class CardsDriver
             _flyingToPile.Remove(flying);
             _factory.Park(flying);
             VRLog.Info("Cards", $"BURN ANIM: '{flying.name}' reached the Burnt pile — parked.");
-        }, minArc);
+        }, minArc, coverFace: Net.CardFlightVisibility.Covered(flightFlags));
         VRLog.Info("Cards", $"BURN ANIM [{origin}]: '{CardsGameApi.CardName(widget)}' burned — real VR card flies " +
                             $"from {from} → Burnt pile ({FlyToPileSeconds:F2}s, arc {arcHeight:F3} m over the " +
                             "board, orientation locked). VR presentation only; the game's own pile state is " +
@@ -3975,8 +3976,9 @@ internal sealed partial class CardsDriver
             // since ModBuild 461 out of the RECESS it is lying in rather than off the board centre
             // (item 5's origin half). This branch is reached precisely because the real VR card is
             // still live at its true board position, so the seat is there to be read.
+            byte liveFlightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
             ReportCardFx(BurnOrPileOrigin(widget, _tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
-                Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard), FlightSourceOf(widget));
+                liveFlightFlags, FlightSourceOf(widget));
             LogBurnAttribution(widget, origin);
             CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
@@ -3984,7 +3986,7 @@ internal sealed partial class CardsDriver
                 _flyingToPile.Remove(flying);
                 _factory.Park(flying);
                 VRLog.Info("Cards", $"BURN ANIM: '{flying.name}' reached the Burnt pile — parked.");
-            }, minArc);
+            }, minArc, coverFace: Net.CardFlightVisibility.Covered(liveFlightFlags));
             _knownBurntWidgets.Add(widget); // claim (same contract as TryStartBurnFly) — animate once
             _lastCardWorldPos.Remove(widget); // consumed
             _lastCardWorldRot.Remove(widget);
@@ -4065,6 +4067,7 @@ internal sealed partial class CardsDriver
         private bool _covered;
         private bool _appearanceCaptured;
         private float _artworkWait;
+        private bool _faceStateSet, _showsBack;
 
         internal static void Launch(Transform anchor, Vector3 fromWorld, Quaternion fixedRot, Vector3 toWorld,
             float sourceWorldWidth, float targetWorldWidth, float duration, Vector3 worldUp, AbilityCardUI widget,
@@ -4139,7 +4142,13 @@ internal sealed partial class CardsDriver
             }
             if (!front) _art?.HideFront();
             if (_body != null) _body.enabled = _covered || front;
-            CardMesh.SetBodyFrontFace(transform, showsBack: !front);
+            bool showsBack = !front;
+            if (!_faceStateSet || _showsBack != showsBack)
+            {
+                CardMesh.SetBodyFrontFace(transform, showsBack);
+                _showsBack = showsBack;
+                _faceStateSet = true;
+            }
         }
 
         private void OnDestroy() => _art?.Destroy();

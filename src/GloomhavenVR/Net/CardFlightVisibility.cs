@@ -82,7 +82,8 @@ internal static class CardFlightVisibility
     private static void PruneOwnerReleases()
     {
         double now = Now;
-        OwnerReleases.RemoveAll(release => now - release.Received > 8d);
+        for (int i = OwnerReleases.Count - 1; i >= 0; i--)
+            if (now - OwnerReleases[i].Received > 8d) OwnerReleases.RemoveAt(i);
     }
 
     internal static void Reset()
