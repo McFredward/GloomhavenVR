@@ -20,17 +20,8 @@ namespace GloomhavenVR.Net;
 /// SOURCE (per-actor model, zero wire): <c>CCharacterClass.ActivatedAbilityCards</c> — the very list
 /// the local <c>ActivePileViewer</c> is fed from, read off the host-replicated actor.
 ///
-/// THIS COLUMN MUST NEVER SHOW A BACK, IN ANY PHASE, AND THE SENTENCE THAT USED TO STAND HERE SAID
-/// THE OPPOSITE. It read: "Card FRONTS are shown only through RevealGate.ShowRoundCardFronts, so
-/// during the secret selection phase a peer's active column shows BACKS — the same stance the
-/// round-card slots take." That is the exact inverse of the user's ruling (2026-09-06 item 9: "Die
-/// aktiven Karten sind immer sichtbar … d.h. aber auch, dass wenn ein Spieler eine aktive Karte in
-/// die Hand nimmt, soll diese auch mit der Vorderseite AUCH in der Auswahlphase sichtbar sein"),
-/// and it described a stance this class had already stopped taking — the population is
-/// <see cref="RevealGate.PeerCardPopulation.AlreadyPublic"/>, which
-/// <see cref="RevealGate.IsPublicPopulation"/> exempts from the phase term outright. An active card
-/// was played face-up in front of everybody; there is no secret left in it to keep. The census line
-/// at the foot of <see cref="Refresh"/> has said so all along, which is how the comment was caught.
+/// MB487: active cards follow the same phase visibility as held, fan and placed cards. The
+/// historical AlreadyPublic population name is retained but grants no selection-phase exemption.
 ///
 /// <para>CLOSED — THE 0.4 s OVERLAP, WHICH WAS ALSO THE WRONG-TIMING HALF OF USER ITEM 2. Since
 /// ModBuild 462 a card going active also flies a mirrored slab into this column
@@ -270,20 +261,6 @@ internal sealed class RemoteActiveCards
         return false;
     }
 
-    /// <summary>
-    /// Re-read the actor's active pile and repaint.
-    ///
-    /// <para>IT ASKS THE FACE RULE ITSELF, and that is the fix for 2026-09-05 report item 2b: "Die
-    /// Vorderseite der aktiven Karten in der kleinen Matrix neben dem Controllboard soll IMMER
-    /// angezeigt werden - das ist kein Geheimnis. Auch in der Auswahlphase." This method used to
-    /// TAKE a <c>showFronts</c> from its caller, and the caller had exactly one — the board's own
-    /// <c>RevealGate.ShowRoundCardFronts(actor)</c>, computed for the round-card recesses and
-    /// handed to every per-actor surface below it. So the selection phase, which is the right
-    /// answer for a card being CHOSEN, was also being applied to a card that was PLAYED FACE-UP in
-    /// front of everybody two rounds ago. A parameter is a carve-out the caller can forget; the
-    /// call below is one this surface declares about itself and no caller can take away —
-    /// <c>RevealGate.PeerCardPopulation.AlreadyPublic</c> carries the whole argument.</para>
-    /// </summary>
     /// <summary>Change key for <see cref="ReportActiveHeldIfChanged"/>.</summary>
     private int _loggedActiveHeld = int.MinValue;
 
@@ -686,7 +663,7 @@ internal sealed class RemoteActiveCards
             showFronts
                 ? $"RevealGate.CardFaces(AlreadyPublic) — {RealFaceCount} real game-card face(s), "
                   + "the rest the mod-drawn fallback panel; rule: " + RevealGate.RuleText(faceRule)
-                : "RevealGate.CardFaces(AlreadyPublic) named NO source — no character resolved. "
+                : "RevealGate.CardFaces(AlreadyPublic) named NO source — selection is covered or no character resolved. "
                   + "NOT the selection phase (this population is exempt from it) and NOT the "
                   + "scenario capability either (this board's own gate answered that above and it "
                   + "is passed in), so the ONLY way to read this line is a null actor; rule: "

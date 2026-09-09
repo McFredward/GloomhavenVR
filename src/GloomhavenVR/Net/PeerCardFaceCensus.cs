@@ -224,22 +224,12 @@ internal static class PeerCardFaceCensus
             bool online = FFSNetwork.IsOnline;
             return $"PHASE={phase}, online={online}, POLICY="
                  + (secret && online
-                     ? "BACKS ARE LAWFUL for a remote character's hand, held card, round slots, "
-                       + "pile arcs, item fan and the card lying in a recess — this IS the game's "
-                       + "own SelectAbilityCardsOrLongRest window and the two-card commit it "
-                       + "protects is in flight. A SHORT REST RUNS INSIDE THIS WINDOW AND IS "
-                       + "COVERED WITH IT (user 2026-09-07 item 6, his third statement of the "
-                       + "rule: 'Kurze Rast = Auswahlphase = verdeckt, Lange Rast = Aktionsphase = "
-                       + "alles offen') — so 'board pick seat' reading BACK here is CORRECT, and "
-                       + "its own rule says whether the card was named-and-covered or merely "
-                       + "unnameable. TWO things must still read 0 BACK even here: the active "
-                       + "matrix, and any card that is already public — activated, lost or "
-                       + "permanently lost — because the burn exception outranks the phase ('Beim "
-                       + "Verbrennen EGAL AUS WELCHEM GRUND'). Read the per-card [Net] CARD FACE "
-                       + "RULE lines for which rule chose any single face"
-                     : "FRONTS EVERYWHERE — no secret is in flight, so ANY non-zero BACK below is a "
-                       + "defect and the rule beside it names which one. A long rest is an ACTION "
-                       + "and lands here, not in the window above, whichever phase it resolves in");
+                     ? "BACKS ARE LAWFUL for every peer card surface, including active, held, placed, "
+                       + "pile and item cards. Short-rest burn flights remain covered through arrival "
+                       + "(user MB487 phase ruling, 2026-09-09); model membership cannot override it"
+                     : "FRONTS EVERYWHERE — action and damage selection disclose card artwork. "
+                       + "An already-started short-rest burn flight remains covered until it lands; "
+                       + "other BACK counts identify unresolved source/seat or rendering failures");
         }
         catch (System.Exception ex)
         {
@@ -385,18 +375,16 @@ internal static class PeerCardFaceCensus
             + "ASKED is a different and worse reading than a STALE one: STALE means it reported "
             + "earlier and has gone quiet, NEVER ASKED means no code path has ever handed this "
             + "census a verdict for it and this log therefore proves nothing about it either way — "
-            + "which is exactly how a whole surface hid for two rounds. 'active matrix' must NEVER show a "
-            + "BACK in any phase (user ruling 2026-09-05: an active card was played face-up, it is "
-            + "no secret). 'flight slab' is EVENT-DRIVEN — its ticks are FLIGHTS, not samples, so "
+            + "which is exactly how a whole surface hid for two rounds. The active matrix follows "
+            + "the same phase rule as held cards. 'flight slab' is EVENT-DRIVEN — its ticks are "
+            + "FLIGHTS, not samples, so "
             + "read its interval PEAK and not its live split (report item 5). 'board pick seat' 0 "
             + "FRONT / n BACK is the card lying on the board, and since 2026-09-07 item 6 it has "
             + "THREE readings, not two — its rule says which: the phase covered a card this client "
             + "HAD named (a short rest, and CORRECT), record 39 named no seat, or record 39 named "
             + "one this client could not resolve. Only the last two are defects. NO ROW HERE NAMES "
-            + "THE RULE FOR A SINGLE CARD: a population's rule is true of the population, and the "
-            + "burn exception fires per CARD inside a window the population rule has just declared "
-            + "shut — which is how ModBuild 470 printed 'round slots 1 FRONT' beside "
-            + "'ShowRoundCardFronts(actor)=false'. For one card, grep [Net] CARD FACE RULE.");
+            + "THE RULE FOR A SINGLE CARD: the current phase is the face decision for every "
+            + "population. For one card, grep [Net] CARD FACE RULE.");
 
         // Peaks are per-interval; the live values stay so a population that stops reporting keeps
         // its last picture rather than silently reading zero.

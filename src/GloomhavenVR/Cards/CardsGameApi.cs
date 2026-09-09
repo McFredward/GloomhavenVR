@@ -701,11 +701,14 @@ internal static class CardsGameApi
     /// </summary>
     internal static bool HandFanMember(AbilityCardUI? widget, CPlayerActor? owner)
     {
-        if (widget == null || widget.CardType != CardPileType.Hand || widget.IsLongRest)
+        if (widget == null || widget.IsLongRest || widget.AbilityCard == null)
             return false;
-        if (widget.AbilityCard == null)
-            return false;
-        return ClassifyHandExit(widget, owner) == HandExit.InHand;
+        // CardType is viewer-local UI bookkeeping. It can still say Round/Lost while the
+        // replicated model has already returned this card to the hand (MB486 damage-pick logs:
+        // owner six cards, observer four). Both wire addressing and rendering use this helper.
+        bool modelHand = owner?.CharacterClass?.HandAbilityCards?.Contains(widget.AbilityCard) == true;
+        return Net.CardPresentationPolicy.HandMember(widget.CardType == CardPileType.Hand,
+            modelHand, ClassifyHandExit(widget, owner) != HandExit.InHand);
     }
 
     /// <summary>

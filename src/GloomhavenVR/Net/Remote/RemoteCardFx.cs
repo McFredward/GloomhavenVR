@@ -102,6 +102,9 @@ internal sealed class RemoteCardFx
         /// longer decides the slab's ORIENTATION: that forked here until 2026-09-07 and the faceless
         /// arm billboarded at the LOCAL viewer's camera — see <see cref="SlabRotation"/>.</summary>
         public bool HasFace;
+        public ScenarioRuleLibrary.CAbilityCard? FaceCard;
+        public ScenarioRuleLibrary.CPlayerActor? FaceActor;
+        public bool ShortRestBurn;
 
         /// <summary><c>CAbilityCard.CardInstanceID</c> of the card this slab is carrying INTO THE
         /// ACTIVE MATRIX, or <see cref="int.MinValue"/> for every other flight. See
@@ -459,6 +462,10 @@ internal sealed class RemoteCardFx
     private string ResolveFace(Flight f, CardFxAnchor from, CardFxAnchor to)
     {
         f.HasFace = false;
+        f.FaceCard = null;
+        f.FaceActor = null;
+        f.ShortRestBurn = to == CardFxAnchor.Burnt
+            && (_owner.ShortRestInProgress || RevealGate.IsSecretSelectionPhase);
         f.Art?.HideFront();
         // A GUARD ON THE WIRE VOCABULARY, not a live sender's arm — see this method's doc for the
         // enumeration of all nine announcement sites (none has from == HandFan) and for why the one
@@ -532,24 +539,15 @@ internal sealed class RemoteCardFx
                 f.ActiveCardId = card.CardInstanceID;
             ScenarioRuleLibrary.CPlayerActor? actor =
                 RemoteBoardFocus.DisplayedActor(_owner, out _);
-            // THE PERMISSION IS RE-ASKED, not inherited. The memory only ever holds a face this
-            // board drew while the gate was OPEN, so this can hardly refuse — and it is asked anyway
-            // because a face permission that is carried rather than evaluated is the shape of defect
-            // RevealGate's own file note is written about.
-            //
-            // …AND IT IS ASKED WITH THE CARD IN HAND (2026-09-06 report item 6). The three-argument
-            // overload widens and never narrows: a card whose face is ALREADY PUBLIC is answered as
-            // AlreadyPublic whatever population the surface declared, and since this build a BURNED
-            // card is one of those — the user's ruling, verbatim, is "Beim Verbrennen EGAL AUS
-            // WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar sein". That is why the
-            // instance id is passed rather than the bare population: a Slot -> Burnt flight during
-            // the peer's own selection window must still carry the front.
-            if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
+            // Cached artwork is a lookup source, not a retained permission. Recheck the phase,
+            // and keep a short-rest burn covered for the entire flight, including a phase edge.
+            f.FaceCard = card;
+            f.FaceActor = actor;
+            if (f.ShortRestBurn || RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
                                      card.CardInstanceID)
                 == RevealGate.CardFaceSource.None)
-                return "BACK — RevealGate refused the front at flight time: the game's own secret "
-                     + "SelectAbilityCardsOrLongRest window for a remote character, and this card "
-                     + "is in neither their active nor their burnt piles, so nothing exempts it";
+                return "BACK — RevealGate refused the front at flight time: selection is covered, "
+                     + "and a short-rest burn remains covered throughout its flight";
             if (f.Art == null)
                 return "BACK — this pooled slab has no face overlay (its GameObject failed to build)";
             RemoteAbilityCardSource.FacePath path =
@@ -590,8 +588,8 @@ internal sealed class RemoteCardFx
     /// 8 ("die offene Karte soll verdeckt sein" during the short-rest flight) — the line that looked
     /// like it settled the item was falsified in ModBuild 477 — so it had to stop guessing. Read
     /// this beside the owner's own <c>[Cards] SHORT REST SACRIFICE</c> line and one grep answers it:
-    /// a GATE refusal names the phase and is the ruling working (a sacrifice still lying in the
-    /// recess is covered; an accepted one burns and is not), while a BUILDER refusal is a defect on
+    /// a GATE refusal names the phase and is the ruling working (a short-rest sacrifice stays
+    /// covered both in its recess and throughout its burn flight), while a BUILDER refusal is a defect on
     /// this client and has nothing to do with any ruling at all.</para>
     ///
     /// <para><c>null</c> in <paramref name="refusal"/> means the arrival path was never TRIED — the
@@ -603,29 +601,17 @@ internal sealed class RemoteCardFx
     {
         refusal = null;
         ScenarioRuleLibrary.CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
-        // THE ARRIVING CARD IS A PILE CARD BY CONSTRUCTION — record 39's vocabulary cannot express a
-        // hand seat — so the population it is asked under is the recess's own, BoardPickSeat.
-        //
-        // THAT POPULATION IS NO LONGER EXEMPT FROM THE PHASE (2026-09-07 item 6: a short rest IS
-        // the selection phase and is covered with it), so what carries a flight's front inside that
-        // window is now the three-argument overload's second term and nothing else — the BURN
-        // EXCEPTION, RevealGate.IsPubliclyRevealedCard. That is the term that matters here and it is
-        // enough: the flight this method exists for is a card leaving a recess for a PILE, and the
-        // one that leaves during a short rest is the accepted sacrifice, which the game commits into
-        // LostAbilityCards BEFORE the burn artwork starts. So an accepted sacrifice still flies with
-        // its front ("Beim Verbrennen EGAL AUS WELCHEM GRUND"), and a REDRAWN one — a card going
-        // back to the discard pile, still secret, still re-drawable — now flies covered, which is
-        // the ruling. Outside the selection window nothing changed: the gate is open on its own.
+        // The existing address names the source card; it does not grant face visibility.
+        // Arrivals and departures share the phase policy, including accepted short-rest burns.
+        f.FaceCard = card;
+        f.FaceActor = actor;
         if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.BoardPickSeat, actor,
                                  card.CardInstanceID, out RevealGate.FaceRule rule)
             == RevealGate.CardFaceSource.None)
         {
-            refusal = $"THE REVEAL GATE, for '{card.Name}' — {RevealGate.RuleText(rule)}. This is a "
-                    + "RULING and not a fault: a short-rest sacrifice still lying in the recess is "
-                    + "covered with the selection phase (user 2026-09-07 item 6), and an ACCEPTED "
-                    + "one is in LostAbilityCards before the artwork starts and flies with its "
-                    + "front. Compare against the owner's own '[Cards] SHORT REST SACRIFICE' line "
-                    + "for which of the two this moment was";
+            refusal = $"THE REVEAL GATE, for '{card.Name}' — {RevealGate.RuleText(rule)}. "
+                    + "Selection-phase cards and the entire short-rest burn flight stay covered "
+                    + "under the user's MB487 visibility rule.";
             return null;
         }
         if (f.Art == null)
@@ -716,6 +702,25 @@ internal sealed class RemoteCardFx
         _ => $"CAUSE = {verdict} (unexpected on a refusal path — read this method)",
     };
 
+    private static void RefreshFaceVisibility(Flight f)
+    {
+        bool allowed = !f.ShortRestBurn && f.FaceCard != null
+            && RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, f.FaceActor,
+                f.FaceCard.CardInstanceID, scenarioEstablished: true, out _) != RevealGate.CardFaceSource.None;
+        if (!allowed)
+        {
+            f.Art?.HideFront();
+            f.HasFace = false;
+        }
+        else if (!f.HasFace && f.Art != null)
+        {
+            f.HasFace = RemoteAbilityCardSource.ShowFullFace(f.Art, f.FaceActor, f.FaceCard!)
+                != RemoteAbilityCardSource.FacePath.None;
+            if (f.HasFace) DriveFlightLook(f, f.FaceActor, f.FaceCard!);
+        }
+        SetFrontFace(f, showsBack: !f.HasFace);
+    }
+
     /// <summary>
     /// THE ANCHOR THE MIRROR REALLY FLEW FROM, beside the one the wire carried — report item 7 in
     /// one line. The two disagree exactly when this client cannot resolve the seat the sender
@@ -740,6 +745,7 @@ internal sealed class RemoteCardFx
             Flight f = _flights[i];
             if (!f.Active || f.Go == null)
                 continue;
+            RefreshFaceVisibility(f);
             f.Elapsed += Mathf.Max(dt, 0f);
             float t = NetProtocol.CardFxSeconds > 0f
                 ? Mathf.Clamp01(f.Elapsed / NetProtocol.CardFxSeconds)

@@ -56,11 +56,10 @@ THE FOUR RULES, and each is pinned by the NAMES it must or must not contain:
   2. `RevealGate.PeersMayNameOurCard` keeps the PHASE term (`PeersSeeOurCardFronts`) and
      the burn/active exception (`IsPubliclyRevealedCard`), and does NOT read
      `IsDiscardedCard` — i.e. it did not follow the face side when the face side widened.
-  3. `RevealGate.PileFrontsReach` refuses `SacrificedCard` and `BoardPickSeat` — the two
-     populations that are a decision IN FLIGHT, which the pile ruling does not reach.
-  4. `RevealGate.IsPublicPopulation`'s exempt side names no PLACE: not `SacrificedCard`,
-     `BoardPickSeat`, `PickFan` or `Selectable`. A member may only be added there because
-     of WHAT THE CARD IS, never because of where it happens to be lying.
+  3. `RevealGate.PileFrontsReach` remains false: the MB487 user rule supersedes all
+     historical discard exceptions for artwork.
+  4. `RevealGate.IsPublicPopulation` remains false: active, lost and item cards follow
+     the same selection/action face policy. Naming remains a separate question.
 
 FALSE POSITIVES — THE POLICY
 ----------------------------
@@ -255,46 +254,20 @@ def lint_the_naming_predicate(gate: str) -> str:
 
 
 def lint_the_pile_scope(gate: str) -> tuple[str, str]:
-    """RULES 3 and 4 — the discard exemption's scope, and the exempt side's shape."""
+    """MB487: no spent/active/item population or membership can bypass selection coverage."""
     if not gate:
         return "", ""
     code = strip_noncode(gate)
-
     reach = expression_body(code, "PileFrontsReach")
-    require(reach is not None,
-            "RevealGate.PileFrontsReach was not found. It is the ONE term keeping the "
-            "2026-09-07 evening ruling ('Die Fächer der piles … immer mit Vorderseiten … ohne "
-            "Ausnahme') from colliding with the 2026-09-07 afternoon ruling ('Kurze Rast = "
-            "Auswahlphase = verdeckt') on the same card. Without it the short-rest sacrifice "
-            "draws face-up inside the secret window, because it IS a discard-pile card.")
+    require(reach is not None, "RevealGate.PileFrontsReach historical seam is missing.")
     if reach is not None:
-        require("SacrificedCard" in reach,
-                "PileFrontsReach must refuse PeerCardPopulation.SacrificedCard. That recess "
-                "holds a card the owner may still re-draw — CardsHandUI.PerformShortRest "
-                "removes nothing and only FinalizeShortRest moves it — so it is a decision in "
-                "flight and stays covered until the accept commits it, at which point the BURN "
-                "exception (a different predicate) opens it.")
-        require("BoardPickSeat" in reach,
-                "PileFrontsReach must refuse PeerCardPopulation.BoardPickSeat. A card laid in a "
-                "recess by a modal pick is the same shape of decision in flight, and the seat "
-                "that travels may name the DISCARD arc — so an unscoped discard exemption "
-                "reaches it.")
-
+        require(reach.strip() == "false", "MB487: discard membership must not reopen a covered face.")
+        require("SacrificedCard" not in reach and "BoardPickSeat" not in reach,
+                "MB487 covers every card surface, not only selected recess populations.")
     public = expression_body(code, "IsPublicPopulation")
-    require(public is not None,
-            "RevealGate.IsPublicPopulation was not found as an expression-bodied predicate.")
+    require(public is not None, "RevealGate.IsPublicPopulation historical seam is missing.")
     if public is not None:
-        named = [p for p in ("SacrificedCard", "BoardPickSeat", "PickFan", "Selectable")
-                 if p in public]
-        require(not named,
-                "IsPublicPopulation's exempt side must not name "
-                + ", ".join(named)
-                + ". Those are PLACES (or the whole secret population), and a place rule on "
-                  "this expression is what showed the user a front in a short rest. A member "
-                  "may only be added here when the thing is public because of WHAT IT IS — the "
-                  "active matrix, an item, a decision row's wording — and never because of "
-                  "where it happens to be lying.")
-
+        require(public.strip() == "false", "MB487: no population bypasses selection-phase artwork coverage.")
     return reach or "", public or ""
 
 
@@ -321,8 +294,8 @@ def main() -> int:
         return 1
 
     print("card identity: the mask asks the NAMING predicate; PeersMayNameOurCard keeps its "
-          "phase and burn terms and did not follow the face side; PileFrontsReach refuses both "
-          "decisions-in-flight; IsPublicPopulation names no place. 4 rules, 11 assertions.")
+          "phase and burn naming terms; PileFrontsReach and IsPublicPopulation permit no face "
+          "exceptions under the MB487 phase rule. 4 rules, 11 assertions.")
     return 0
 
 

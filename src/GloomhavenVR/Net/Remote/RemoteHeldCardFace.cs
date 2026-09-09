@@ -196,80 +196,14 @@ internal sealed class RemoteHeldCardFace
             // and asking a CMapCharacter for one THROWS. A null actor is now the map room's normal
             // state rather than a refusal.
             actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
-            // AN ITEM IN A FIST IS STILL AN ITEM (user, 2026-09-07 evening item 3, which extends the
-            // pile-fan ruling to the items fan). An item is not an ability card and was never part
-            // of the two-card commit the secret window protects, so it declares its own population
-            // and is exempt — see RevealGate.PeerCardPopulation.ItemCard for why that is a KIND and
-            // not a PLACE, and why it therefore follows the chip out of the arc. The list byte is
-            // the same one EnsureBody already reads for the silhouette, so this costs no new read
-            // and cannot disagree with the shape the card is drawn in.
+            // The list byte selects artwork and silhouette; all held kinds share phase visibility.
             source = RevealGate.CardFaces(
                 NetProtocol.HeldFaceList(code) == NetProtocol.HeldFaceListItems
                     ? RevealGate.PeerCardPopulation.ItemCard
                     : RevealGate.PeerCardPopulation.Selectable, actor);
-            // ─── AN ACTIVE CARD IS PUBLIC WHEREVER IT IS HELD (2026-09-06 report item 9) ────────
-            // "Die aktiven Karten sind immer sichtbar ... d.h. aber auch, dass wenn ein Spieler eine
-            // aktive Karte in die Hand nimmt, soll diese auch mit der Vorderseite AUCH in der
-            // Auswahlphase sichtbar sein." The active MATRIX's exemption is a statement about a
-            // PLACE; the user's point is that the place was never what made the card public — it was
-            // played face-up in front of everybody and picking it up does not un-play it.
-            //
-            // THE CARD'S OWN REVEALED-NESS IS THE TERM, not this surface, which is why it goes
-            // through RevealGate.IsPubliclyRevealedCard and not through a branch here: any other
-            // surface that ever draws the same card gets the same answer by asking. It is asked
-            // ONLY when the population's own answer was already None, and the overload can only
-            // WIDEN, so there is no state in which this hides something.
-            //
-            // The seat is resolved FIRST because the exemption is a fact about a CARD and there is
-            // no card until the seat is read. Reading it is a length-checked list index and nothing
-            // more — no clone, no face object — so the anti-cheat contract of
-            // RemoteAbilityCardSource.ShowFullFace ("only ever call this when the gate is OPEN") is
-            // untouched: the SHOW below still happens only under a non-None source.
-            //
-            // ─── AND THE BURNT LIST WIDENS FOR THE SAME REASON (2026-09-07 review, item B2) ─────
-            // This peek covered HeldFaceListActive and NOTHING ELSE, so it implemented half of one
-            // ruling. RevealGate.IsPubliclyRevealedCard reads THREE lists — ActivatedCards,
-            // LostAbilityCards and PermanentlyLostAbilityCards — and the user's ruling for the
-            // second and third pair is the strongest he has stated for any face: "Beim Verbrennen
-            // EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar sein." The
-            // sender can and does name a held card as HeldFaceListBurnt (LocalRigSampler's pile arm
-            // and its CardType arm both encode it), so a peer picking a burnt card out of their own
-            // burnt arc during a short rest held a BACK on every watcher — the exact picture the
-            // exception exists to prevent, on the surface closest to the player's eye.
-            //
-            // ─── AND HeldFaceListDiscard JOINED THEM (2026-09-07 evening report, item 6) ────────
-            // USER, VERBATIM: "sobald ich eine Karte aus dem Faecher (der die abgeworfenen Karten zu
-            // dem Zeitpunkt noch zeigt) nehme, sehen die anderen Spieler bei der genommenen Karte
-            // nur die Rueckseite ... Das darf nicht sein." This comment used to read: "HeldFaceList-
-            // Discard IS DELIBERATELY NOT HERE. A discarded card is not burnt and it is not in any
-            // of the three lists; its identity is still the selection window's secret, and widening
-            // to it would be a PLACE rule of exactly the kind RevealGate.IsPublicPopulation's own
-            // doc forbids adding." The last clause had it backwards, and the report is the proof:
-            // the ruling he gave in the SAME message ("Die Faecher der piles werden also ab jetzt
-            // immer mit Vorderseiten gezeigt ohne Ausnahme") is about the FAN, and a PLACE rule
-            // implementing it is exactly what leaves this surface — the card in the fist, one place
-            // over — drawing a back. RevealGate.IsDiscardedCard is a property of the CARD and
-            // reaches both, which is why this branch is three lines and not a second ruling.
-            //
-            // THE SEAT MUST STILL BE READ TO ASK. The exemption is a fact about a card and there is
-            // no card until the seat resolves; a length-checked list index is all that costs, and
-            // the anti-cheat ordering is untouched because the SHOW below still happens only under
-            // a non-None source.
-            if (source == RevealGate.CardFaceSource.None)
-            {
-                byte heldList = NetProtocol.HeldFaceList(code);
-                CAbilityCard? peek =
-                    heldList == NetProtocol.HeldFaceListActive
-                        ? TryPeekActiveSeat(actor, code, count)
-                  : heldList == NetProtocol.HeldFaceListBurnt
-                        ? TryPeekPileSeat(actor, code, count, burnt: true)
-                  : heldList == NetProtocol.HeldFaceListDiscard
-                        ? TryPeekPileSeat(actor, code, count, burnt: false)
-                  : null;
-                if (peek != null)
-                    source = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
-                                                  peek.CardInstanceID);
-            }
+            // MB487: the same phase decision covers every held source, including active and
+            // lost cards. Their model seat is resolved only after permission, never as an exemption.
+
         }
         catch (System.Exception ex)
         {
@@ -279,14 +213,8 @@ internal sealed class RemoteHeldCardFace
         }
         if (source == RevealGate.CardFaceSource.None)
         {
-            Report(0, 1, "RevealGate.CardFaces named no source — the game's own secret "
-                       + "SelectAbilityCardsOrLongRest window, or no context to resolve a face in. "
-                       + "The card-property exceptions were all asked and all refused: this card is "
-                       + "not in that character's ActivatedCards, not in their Lost/PermanentlyLost "
-                       + "lists and not in their DiscardedAbilityCards, so neither the active-card "
-                       + "ruling, nor the burn ruling, nor the pile-fan ruling reaches it. A HAND "
-                       + "card inside the secret window is the one state that legitimately lands "
-                       + "here");
+            Report(0, 1, "RevealGate.CardFaces named no source — selection-phase artwork is covered "
+                       + "for every held source, or scenario/map capability is unavailable");
             // A BACK, BUT STILL AN ITEM-SHAPED BACK. This branch is the report's second half almost
             // word for word — "in der Auswahlphase … man nur die Rückseite sieht" — and it used to
             // call Hide(), which resets the silhouette to ABILITY. The gate governs the FACE; it

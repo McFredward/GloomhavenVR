@@ -173,6 +173,7 @@ internal sealed class RemoteBurnFx
         public float Elapsed;
         public bool Active;
         public bool HasFace;
+        public bool ShortRestBurn;
         public Vector3 From;
         public Vector3 To;
         public float Arc;
@@ -758,6 +759,7 @@ internal sealed class RemoteBurnFx
         b.ClaimId = 0;              // a recycled slab must not carry the last burn's token
         b.HandoverLogged = false;
         b.Widget = widget;
+        b.ShortRestBurn = _owner.ShortRestInProgress || RevealGate.IsSecretSelectionPhase;
         b.ArtworkObserved = false;
         b.StationaryShown = 0f;
         b.StationaryCharred = -1f;
@@ -826,30 +828,10 @@ internal sealed class RemoteBurnFx
         RevealGate.FaceRule faceRule = RevealGate.FaceRule.NoContext;
         try
         {
-            // THE BURN CARVE-OUT (2026-09-06 report item 6). The user's ruling is absolute — "Beim
-            // Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der Vorderseite sichtbar
-            // sein" — and it is implemented ONCE, in RevealGate.IsPubliclyRevealedCard, which now
-            // answers TRUE for a card in either of that character's burnt lists. This surface gets
-            // it by asking the card-aware overload instead of the bare phase predicate; so does the
-            // Slot -> Burnt flight in RemoteCardFx and any surface added later. The old expression
-            // (ShowRoundCardFronts alone) drew a BACK for the whole of a burn that happened inside
-            // the peer's own selection window, which is exactly what he reported.
-            //
-            // ─── AN UNRESOLVABLE ID MAY NOT FALL BACK ONTO THE PHASE (2026-09-07 review) ───────
-            // cardId is int.MinValue when the widget has no model CAbilityCard behind it — and,
-            // because CardInstanceIdOf swallows, on ANY throw as well. RevealGate.CardFaces answers
-            // that id by dropping straight through to the population's own verdict, i.e. onto the
-            // phase term, so a burn that happened inside the owner's short rest drew a BACK for
-            // exactly the reason the carve-out exists to deny. THE WIDGET'S PROVENANCE IS ITSELF
-            // THE PROOF and it costs nothing to use: this method is only ever reached from the
-            // burnt-pile walk (CardsGameApi.GetPileWidgets(hand, burnt: true), narrowed by
-            // PileWidgetIsArcMember), so the card is in that character's Lost/PermanentlyLost lists
-            // by construction — which is the very membership IsPubliclyRevealedCard would have
-            // tested had it been given a usable id. So the fallback is AlreadyPublic, the population
-            // that names that fact, and never Selectable, which would let the phase decide a
-            // question the ruling has already settled.
+            // Model membership resolves the source only. Selection covers every burn, and the
+            // short-rest origin is latched so its flight cannot open at the following phase edge.
             bool idKnown = cardId != int.MinValue;
-            fronts = actor != null
+            fronts = !b.ShortRestBurn && actor != null
                      && RevealGate.CardFaces(
                             idKnown ? RevealGate.PeerCardPopulation.Selectable
                                     : RevealGate.PeerCardPopulation.AlreadyPublic,
@@ -911,6 +893,21 @@ internal sealed class RemoteBurnFx
         LogAttribution(name, fronts, b.HasFace, actor, recess, recessHow);
     }
 
+    private static void RefreshFaceVisibility(Burn b)
+    {
+        CPlayerActor? actor = RemoteBoardFocus.ActorById(b.ActorId);
+        bool allowed = !b.ShortRestBurn && RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable,
+            actor, b.CardId, scenarioEstablished: true, out _) != RevealGate.CardFaceSource.None;
+        if (!allowed)
+        {
+            b.Art?.HideFront();
+            b.HasFace = false;
+        }
+        else if (!b.HasFace && b.Art != null && b.Widget?.fullAbilityCard != null)
+            b.HasFace = b.Art.ShowFront(b.Widget.fullAbilityCard);
+        SetFrontFace(b, showsBack: !b.HasFace);
+    }
+
     /// <summary>Advance every live presentation: hold with the burn ramping on, then the arc.</summary>
     private void Drive(float dt)
     {
@@ -920,6 +917,7 @@ internal sealed class RemoteBurnFx
             Burn b = _burns[i];
             if (!b.Active || b.Go == null)
                 continue;
+            RefreshFaceVisibility(b);
             b.Elapsed += step;
 
             // A stationary card follows its recess. Once released, VRCard.FlyToPile retains

@@ -569,10 +569,8 @@ internal sealed class RemotePileFronts
                 gate = Gate.ShortRestCovered;
                 LogShortRestCover(actor);
             }
-            else
-            {
-                gate = Gate.BurnException;
-            }
+            // MB487: every selection-phase pile/item front remains covered. Membership in
+            // a spent or active list no longer turns this into a per-card exemption pass.
         }
         if (gate != Gate.ShortRestCovered)
             _loggedShortRestCover = int.MinValue; // re-arm, so the NEXT short rest announces itself

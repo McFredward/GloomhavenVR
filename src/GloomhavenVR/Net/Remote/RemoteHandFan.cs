@@ -1592,44 +1592,8 @@ internal sealed class RemoteHandFan
                     break;
                 default:
                     ClearMapFronts();
-                    // ─── THE BURN EXCEPTION IS A PROPERTY OF THE CARD, AND THIS GATE COULD NOT
-                    //     SEE ONE (2026-09-07) ────────────────────────────────────────────────
-                    // The call above is the TWO-ARGUMENT CardFaces — population and actor — which
-                    // by construction cannot reach RevealGate.IsPubliclyRevealedCard, because it
-                    // is handed no card. So this surface asked only the PHASE question, and during
-                    // the game's secret selection window it answered None for every card in the
-                    // arc without exception. Every card in a BURNT pile is by construction in the
-                    // exact two lists that exception walks (CCharacterClass.LostAbilityCards /
-                    // PermanentlyLostAbilityCards — a burn is committed into them before the burn
-                    // artwork even starts), so a peer picking a card out of their burnt pile drew
-                    // a fan of backs against the user's strongest ruling on any face:
-                    //
-                    //   "Beim Verbrennen EGAL AUS WELCHEM GRUND muss die Karte immer mit der
-                    //    Vorderseite sichtbar sein. Es gibt keinen Grund warum sie nicht sichtbar
-                    //    sein sollte."
-                    //
-                    // ROUTED THROUGH THE CARD-AWARE OVERLOAD, PER SLAB, AND IT ONLY WIDENS. The
-                    // resolve below fills the same buffer the open path fills, from the same
-                    // expression; what is different is that every slab must then pass
-                    // CardFaces(population, actor, cardInstanceId) on its own — see PrintsFront.
-                    // A slab whose card is not already public keeps the back the shut gate gave
-                    // it, so the secret window is exactly as closed as it was for every card the
-                    // ruling does not name.
-                    //
-                    // ONLY A PILE FAN PAYS FOR IT. IsFanSourcePile is a capability test and not a
-                    // secrecy one: a HAND-pile widget cannot be in ActivatedCards or either burnt
-                    // list — the game moves a card's widget out of CardPileType.Hand in the same
-                    // step it commits the model — so resolving the hand here would walk three
-                    // lists per slab per frame for the whole selection phase to answer false every
-                    // time. The one state where a hand widget and a burnt model coexist is this
-                    // client's copy of the peer's model lagging a choreographer turn, and that is
-                    // the length belt's case, not this one.
-                    if (RevealGate.InScenario && actor != null && pickFan)
-                    {
-                        ResolveHandFronts(actor, fanList);
-                        publicCardsOnly = _handBuffer.Count > 0;
-                        showFronts = publicCardsOnly;
-                    }
+                    // MB487: no card-property fallback may reopen a covered fan. The ordinary
+                    // scenario resolve runs again when the phase opens, including damage choices.
                     break;
             }
         }
