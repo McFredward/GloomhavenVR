@@ -5,7 +5,7 @@ into a room-scale VR game. The board becomes a diorama on a table, the game's 2D
 into world-space panels on a wooden control board, and the player holds a real card fan.
 Multiplayer is a first-class constraint, not an afterthought.
 
-**Verified against `dev` at ModBuild 483, 2026-09-08.** If that is many builds behind, the newest
+**Verified against `dev` at ModBuild 487, 2026-09-09.** If that is many builds behind, the newest
 truth is the build-note block at the top of `src/GloomhavenVR/Net/NetProtocol.cs`, newest first —
 that file is the project's real changelog. This one carries only what does not change per build.
 
@@ -52,11 +52,12 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    It is the multiplayer handshake key; mismatched peers get a blocking dialog.
 3. **Wire:** magic `GVR1`, `Version` byte stays **3**, every change is an **additive TLV** record
    that old readers skip by length. **44 presence record IDs exist through 47; transport-envelope TLV 48 carries unchanged
-   snapshots in message type 2. Native presentation streams use TLVs 49–52. The 38/40/42 holes
-   may never be reused; 53 is next free.** No id
+   snapshots in message type 2. Native presentation streams use TLVs 49–53; presence adds flight provenance54 and native
+   highlight55; native tooltip emitters use56 in the existing plume stream.
+   The 38/40/42 holes may never be reused; 57 is next free.** No id
    has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
-   `scripts/wire-tests.sh` (238,556 assertions at ModBuild 486) is the proof; a `Write`+`TryRead` change
+   `scripts/wire-tests.sh` (249,484 assertions at ModBuild 487) is the proof; a `Write`+`TryRead` change
    made in lockstep is invisible to a round trip, which is why the golden vectors exist.
 4. **1:1 is a standing ruling.** A peer's board mirrors the owner's CONTENT, ANIMATION, ORDER,
    POSITION, SIZE, STATE and TIMING. A mirror must never read the viewer's dial. A shared
@@ -92,8 +93,8 @@ The guard's **exit code is 1 whenever the compiled form differs at all**, which 
 any change — read the printed verdict, not the status. Its baseline is per-worktree and
 gitignored; take your own with `bash scripts/refactor-guard.sh baseline` before you start.
 
-Current readings at 486: patch surface 107 classes / 165 methods · wire 238,556 assertions ·
-config keys 625 · log tokens 4,709 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
+Current readings at 487: patch surface 107 classes / 165 methods · wire 249,484 assertions ·
+config keys 625 · log tokens 4,713 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
 A number that has moved is not automatically wrong — but it must be explained in the commit.
 
 **Read the NUMBER, not the word "green".** A deduplication in the 2026-09 round silently stopped
@@ -124,9 +125,9 @@ it is a full install.
   work by file so lanes cannot collide. Always give a lane `isolation: worktree`. **At most five
   lanes, and each lane may spawn at most ONE further worker** (his ruling, after a 5×4 fan-out hit
   the session limit and killed 21 agents mid-read).
-- **Agent worktrees are created from `origin/main`, which is hundreds of commits behind `dev`.**
-  Every lane brief must say so and every lane must state its base SHA. A file that "does not
-  exist" is usually the stale base talking.
+- **Codex worker worktrees start at the current `dev` integration commit** (AGENTS.md, user's
+  2026-09-08 ruling). Every lane states its base SHA and disjoint owned files; initialize its
+  dependencies with `scripts/worktree-setup.sh`. Never base new work on the older release branch.
 - **Never `git stash`** — `refs/stash` is shared across worktrees. **Never `cd`** in an
   integration round; use `git -C <worktree>` and absolute paths, or the next command silently runs
   somewhere else. Restrict merge patches to a lane's OWNED paths, never a broad `-- src/`.

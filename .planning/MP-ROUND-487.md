@@ -53,11 +53,63 @@ address resolution, never transmits card identities and never substitutes for Re
 - [Card visibility and membership](MP-487-CARDS.md)
 - [Initiative stability](MP-487-INITIATIVE.md)
 - [Original widgets and button geometry](MP-487-WIDGETS.md)
+- [Legacy element animation output](MP-487-ELEMENTS.md)
 
 ## Integration and validation
 
 Work started from dev `7f7f9431cb79ac999249caa54149730238b401e2`; the user's default
 VerticalDrag change is retained. Workers use fresh worktrees from that commit with
 explicit file ownership. Root baseline: 774 types,625 configuration keys,150 surface
-patches,4709 log tokens. Final gate readings and hardware limitations will be recorded
-here after integration. MB487 is a DLL-only update after the full MB483 install.
+patches,4709 log tokens. Final integration passes all17 guard checkers and249484 wire
+assertions. Strict Release has zero errors/warnings; EN/DE documentation checks and all16
+metadata-only reference assembly checks pass. Config625 and Harmony107 classes/165 methods
+remain unchanged. Log tokens4713 add four attributable diagnostics without removals.
+
+The compiled comparison contains47 changed and14 added types, with no removed types.
+Besides the reviewed feature changes, constant inlining accounts for version banners,
+presence buffer allocation and native-board transport bounds. The guard's exit1 denotes
+these intended compiled changes, not a failed checker. The user's VerticalDrag=true
+remains unchanged. MB487 is a DLL-only update after the full MB483 install.
+
+No two-headset retest was available. Verify front/back transitions when plucking active
+and damage-pick cards, the complete covered short-rest burn, stable selection initiative,
+nearest laser grab ownership, button sizing through repeated hides, and original bonus
+previews/highlight/tooltips including hover effects and board movement.
+
+## Additive wire changes
+
+Record53 appends original element hierarchy output to unchanged52 within message10.
+Complete board snapshots are bounded to40960 bytes and still fragmented into864-byte
+transport events. Record54 carries the semantic event sequence and covered-burn flag;
+provenance is latched before the owner closes the short-rest offer. Record55 carries
+actual mandatory-highlight geometry, sprite identity and native Image/color settings.
+It is sampled after the owner's native layout in LateUpdate and a changed snapshot
+preempts the presence cadence. Presence maximum3970 stays below the existing4096-byte
+assembly bound; worst-case3709 retains261 bytes of buffer margin. Prior record layouts,
+GVR1 and version3 remain unchanged. Record56 adds a distinct tooltip namespace to the
+existing native plume message: original emitter output is keyed by the bonus slot's
+existing45 identity. The combined64-emitter limit and12288-byte transport bound remain
+unchanged; worst-case9670 bytes includes the additional tooltip addressing.57 is next free.
+
+The short-rest renderer retains an observed offer through delayed loss replication,
+but clears obsolete candidates when the model returns them to hand/round/active cards.
+A context never observed on the peer cannot be reconstructed before its provenance
+arrives; the explicit flight flag remains authoritative once received. Hardware retesting
+must include closing/rest-phase edges and packet delay rather than assuming a green
+wire test establishes the headset picture.
+
+## Final ownership review
+
+Native `ObjectPool.RecycleCard` reparents ability widgets but leaves item widgets under
+their current parent (`ObjectPool.cs:542–551`). Destroying a temporary borrow holder after
+that return therefore destroys an item already stored back in the game's pool. The final
+review found this in the new tooltip and the existing item-face/plume borrow paths.
+All three now share `RemoteItemCardSource.ReturnBorrowed`: keep the card inactive and
+move it back under the game pool before recycling and destroying the temporary holder.
+Regression vectors bind the production return paths and reject the historical ordering.
+
+The same review checked inactive initialization, detached bonus/ability presentation
+data, private material ownership, asynchronous load cancellation, and exclusive front/back
+activation. No additional concrete defect was found in those reviewed paths. The original
+item effect's image arrays are serialized; the similar ability effect's runtime-only arrays
+must not be used as evidence of a missing item rig.

@@ -269,6 +269,7 @@
     <Compile Include="SharedWindowPoseVectors.cs" />
     <Compile Include="FanReflowVectors.cs" />
     <Compile Include="CardPlumeVectors.cs" />
+    <Compile Include="TooltipPlumeVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\CardPlumeState.cs" Link="wire\CardPlumeState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\CardPlumeCodec.cs" Link="wire\CardPlumeCodec.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\FanReflowMap.cs" Link="wire\FanReflowMap.cs" />
@@ -563,4 +564,6 @@
     <Compile Include="NativeElementRenderVectors.cs" />
   </ItemGroup>
   <ItemGroup><Compile Include="NativeHighlightPresenceVectors.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="NativeItemBorrowOwnershipVectors.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="RemoteTooltipFitVectors.cs" /></ItemGroup>
 </Project>

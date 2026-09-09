@@ -489,6 +489,9 @@ internal static class NetProtocol
     //   on detached presentation data and inactive native widgets, eliminating prefab examples.
     //   Original mandatory-highlight geometry, Image settings, artwork and colors travel in
     //   additive TLV55, after native layout sampling; no guessed border or button size is used.
+    //   Original tooltip branches stay outside the bar's fitted extent, as after native highlight
+    //   reparenting. Item-face, tooltip and plume borrows detach before temporary holder disposal;
+    //   native item recycling alone left a game-owned pooled object under that destroyed holder.
     //
     //   Both logs exposed unsupported legacy element animators. Additive TLV53 carries bounded
     //   actual original hierarchy output alongside unchanged52 in message10: transforms,

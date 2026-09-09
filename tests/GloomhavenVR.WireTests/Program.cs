@@ -20,6 +20,8 @@ internal static class Program
             RemoteCapVisibilityVectors.Run(t, repoRoot);
             NativeDecisionHighlightVectors.Run(t);
             NativeHighlightPresenceVectors.Run(t);
+            NativeItemBorrowOwnershipVectors.Run(t, repoRoot);
+            RemoteTooltipFitVectors.Run(t, repoRoot);
             NativeElementRenderVectors.Run(t);
             CardVisibilityVectors.Run(t, repoRoot);
             CardFxVisibilityVectors.Run(t);
@@ -89,6 +91,7 @@ internal static class Program
             SharedWindowPoseVectors.Run(t);
             FanReflowVectors.Run(t);
             CardPlumeVectors.Run(t);
+            TooltipPlumeVectors.Run(t);
             CardResidentVectors.Run(t);
             PresentationBoundaryVectors.Run(t);
             PresentationSaturationVectors.Run(t);

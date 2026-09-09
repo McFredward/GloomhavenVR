@@ -14,6 +14,11 @@ says, per file, which is which.
 
 ## 0. READ THESE, IN THIS ORDER — then stop
 
+The latest multiplayer follow-up is [MP-ROUND-487.md](MP-ROUND-487.md), with linked card,
+initiative, widget and element evidence reports. Its MB486 screenshots/logs are hardware
+evidence; the MB487 repairs require a new headset test. The dated inventory below remains
+historical; `.planning/STATE.md` and the newest build notes carry the current status.
+
 | # | File | Why, in one line |
 |---|---|---|
 | 0 | **`CLAUDE.md`** (repo root) | **Written after this audit, so it is not classified below.** The rules that do not change per build: who the user is and that he is answered in German, where the truth lives per question, the ten hard rules, the three gate commands with their current readings, the working practice that keeps parallel lanes from destroying each other, and the ways this project has actually lost time. It exists because the agent memory lives OUTSIDE the repository and does not travel with it. |
