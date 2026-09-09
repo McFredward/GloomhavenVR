@@ -204,6 +204,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// source). The cache-invalidation key for anything holding <see cref="CloneOf"/> results —
     /// a holder re-resolves when this moves, and never dereferences a node of a dead clone.</summary>
     public int RebuildStamp { get; private set; }
+    internal bool HasLiveClone => _clone != null;
 
     /// <summary>
     /// The CLONE node paired with source node <paramref name="src"/>, or null when the mirror is
@@ -229,6 +230,21 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                 return pairs[i].Dst;
         }
         return null;
+    }
+
+    /// <summary>Give only this graphic's material to native owner playback. Geometry, text,
+    /// activity and all other native fields continue through the ordinary mirror. Ownership is
+    /// clone-generation scoped and released with the exact material that acquired it.</summary>
+    internal void OwnMaterial(Graphic target, Material material)
+    {
+        for (int i = 0; i < _pairs.Length; i++)
+            if (ReferenceEquals(_pairs[i].DstGraphic, target)) { _pairs[i].OwnMaterial(material); return; }
+    }
+    internal void ReleaseMaterial(Graphic target, Material material)
+    {
+        for (int i = 0; i < _pairs.Length; i++)
+            if (ReferenceEquals(_pairs[i].DstGraphic, target))
+            { _pairs[i].ReleaseMaterial(material); return; }
     }
 
     /// <summary>
@@ -2269,6 +2285,10 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         /// measures the same objects the drive writes, so the two can never disagree.</summary>
         public RectTransform? DstRect => _dstRect;
         public Graphic? DstGraphic => _dstGraphic;
+        private NativePlaybackMaterialOwner _materialOwner;
+        public void OwnMaterial(Material material) => _materialOwner.Own(material);
+        public void ReleaseMaterial(Material material)
+        { if (_srcGraphic != null && _dstGraphic != null) _materialOwner.Release(_srcGraphic, _dstGraphic, material); }
 
         private readonly RectTransform? _srcRect;
         private readonly RectTransform? _dstRect;
@@ -2478,11 +2498,6 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         /// a panel whose materials never change costs one reference compare per node per frame and
         /// writes nothing (a <c>Graphic.material</c> setter dirties the graphic).</para>
         /// </summary>
-        private static void CopyMaterial(Graphic src, Graphic dst)
-        {
-            Material s = src.material;
-            if (!ReferenceEquals(dst.material, s))
-                dst.material = s;
-        }
+        private void CopyMaterial(Graphic src, Graphic dst) => _materialOwner.Copy(src, dst);
     }
 }

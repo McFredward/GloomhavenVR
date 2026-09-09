@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PlaybackSource Condition="'$(PlaybackSource)' == ''">../../src/GloomhavenVR/Net/Remote/NativePlaybackWrites.cs</PlaybackSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(PlaybackSource)" Link="Production/NativePlaybackWrites.cs" />
+  </ItemGroup>
+</Project>

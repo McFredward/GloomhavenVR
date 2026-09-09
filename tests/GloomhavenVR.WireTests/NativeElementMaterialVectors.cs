@@ -22,7 +22,9 @@ internal static class NativeElementMaterialVectors
             "negative control: a reused graphic must not retain an earlier original material variant");
         t.True(!SourceReplacement(source.Replace("Object.Destroy(material);", "")),
             "negative control: material replacement must release the preceding owned instance");
-        t.True(source.Contains("material.SetFloat(\"_FXAnim\"") && !source.Contains("original.SetFloat("),
+        t.True(source.Contains("NativePlaybackWrites.Float(material, FxAnim,")
+            && source.Contains("FxAnim = Shader.PropertyToID(\"_FXAnim\")")
+            && !source.Contains("original.SetFloat(") && !source.Contains("NativePlaybackWrites.Float(original,"),
             "animation output writes only the clone-owned material");
         t.True(source.Contains("throw new InvalidOperationException(\"owner element effect has no original material: element=\"")
             && source.Contains("original.name") && source.Contains("material.shader.name"),

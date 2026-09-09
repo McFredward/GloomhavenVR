@@ -38,7 +38,8 @@ internal sealed class RemoteNativeElements
     internal bool Apply(RemoteWidgetMirror mirror, InfusionBoardUI source)
     {
         NativeBoardState? latest = _latest;
-        if (latest == null || latest.Elements.Length != 6) { _generation = 0; return false; }
+        if (latest == null || latest.Elements.Length != 6)
+        { foreach (Element element in _elements) element.ReleaseMaterials(); _generation = 0; return false; }
         try
         {
             if (_stamp != mirror.RebuildStamp || _elements.Length != 6)
@@ -92,7 +93,8 @@ internal sealed class RemoteNativeElements
             Rect(_root!, from.Frame, to.Frame, 4, progress);
             for (int order = 0; order < 6; order++)
                 for (int i = 0; i < 6; i++)
-                    if (discrete.Elements[i].Sibling == order) _elements[i].Root.SetSiblingIndex(order);
+                    if (discrete.Elements[i].Sibling == order && _elements[i].Root.GetSiblingIndex() != order)
+                        _elements[i].Root.SetSiblingIndex(order);
             for (int i = 0; i < _elements.Length; i++)
             {
                 _elements[i].Apply(from.Elements[i], to.Elements[i], progress);
@@ -102,6 +104,7 @@ internal sealed class RemoteNativeElements
         }
         catch (Exception e)
         {
+            foreach (Element element in _elements) element.ReleaseMaterials();
             string refusal = e.GetType().Name + ": " + e.Message;
             if (_refusal != refusal)
             { _refusal = refusal; VRLog.Warn("Net", "NATIVE ELEMENT PLAYBACK: original output unavailable: " + refusal); }
@@ -112,9 +115,12 @@ internal sealed class RemoteNativeElements
     private static void Rect(RectTransform target, float[] from, float[] to, int at, float t)
     {
         float L(int i) => Mathf.LerpUnclamped(from[at + i], to[at + i], t);
-        target.anchoredPosition3D = new Vector3(L(0), L(1), L(2));
-        target.localScale = new Vector3(L(3), L(4), L(5));
-        target.sizeDelta = new Vector2(L(6), L(7));
+        var position = new Vector3(L(0), L(1), L(2));
+        var scale = new Vector3(L(3), L(4), L(5));
+        var size = new Vector2(L(6), L(7));
+        if (!target.anchoredPosition3D.Equals(position)) target.anchoredPosition3D = position;
+        if (!target.localScale.Equals(scale)) target.localScale = scale;
+        if (!target.sizeDelta.Equals(size)) target.sizeDelta = size;
     }
     private void DestroyBindings()
     { foreach (Element element in _elements) element.Destroy(); _elements = Array.Empty<Element>(); _root = null; _stamp = -1; }
@@ -125,13 +131,15 @@ internal sealed class RemoteNativeElements
         internal readonly RectTransform Root;
         internal readonly RemoteElementRenderedHierarchy Rendered;
         private readonly NativeElementBindings _source;
+        private readonly RemoteWidgetMirror _mirror;
+        private readonly Dictionary<Graphic, Material> _materialClaims = new();
         private readonly Graphic[] _graphics, _effects;
         private readonly RemoteUseBarAnimation[] _animations;
         private readonly Dictionary<Graphic, Material> _materials = new();
         private readonly Dictionary<Graphic, Material> _materialSources = new();
         internal Element(NativeElementBindings source, RemoteWidgetMirror mirror)
         {
-            _source = source;
+            _source = source; _mirror = mirror;
             Rendered = new RemoteElementRenderedHierarchy(source, mirror);
             Root = mirror.CloneOf(source.Source.transform) as RectTransform
                 ?? throw new InvalidOperationException("original element has no clone mapping");
@@ -189,13 +197,13 @@ internal sealed class RemoteNativeElements
         internal void Apply(NativeElementState from, NativeElementState to, float t)
         {
             NativeElementState discrete = t < 1f ? from : to;
-            Root.gameObject.SetActive((discrete.Flags & 1) != 0);
+            NativePlaybackWrites.Active(Root.gameObject, (discrete.Flags & 1) != 0);
             Rect(Root, from.Rect, to.Rect, 0, t);
             int state = (discrete.Flags >> 4) & 3;
             if (_graphics[0] is Image image)
             {
-                if (state == 2) image.sprite = _source.Source.completeElement;
-                else if (state == 3) image.sprite = _source.Source.waningElement;
+                if (state == 2 && !ReferenceEquals(image.sprite, _source.Source.completeElement)) image.sprite = _source.Source.completeElement;
+                else if (state == 3 && !ReferenceEquals(image.sprite, _source.Source.waningElement)) image.sprite = _source.Source.waningElement;
             }
             for (int i = 0; i < _graphics.Length; i++) Graphic(_graphics[i], _source.Graphics[i], from.Graphics[i], to.Graphics[i], t);
             for (int i = 0; i < _effects.Length; i++) Graphic(_effects[i], _source.Effects[i], from.Effects[i], to.Effects[i], t);
@@ -205,24 +213,42 @@ internal sealed class RemoteNativeElements
         private void Graphic(Graphic target, Graphic source, NativeElementGraphic from, NativeElementGraphic to, float t)
         {
             NativeElementGraphic discrete = t < 1f ? from : to;
-            target.gameObject.SetActive((discrete.Flags & 1) != 0); target.enabled = (discrete.Flags & 2) != 0;
-            target.color = Color.LerpUnclamped(new Color(from.R, from.G, from.B, from.A), new Color(to.R, to.G, to.B, to.A), t);
-            if ((discrete.Flags & 4) == 0) return;
+            NativePlaybackWrites.Active(target.gameObject, (discrete.Flags & 1) != 0);
+            if (target.enabled != ((discrete.Flags & 2) != 0)) target.enabled = (discrete.Flags & 2) != 0;
+            Color color = Color.LerpUnclamped(new Color(from.R, from.G, from.B, from.A), new Color(to.R, to.G, to.B, to.A), t);
+            if (!target.color.Equals(color)) target.color = color;
+            if ((discrete.Flags & 4) == 0)
+            {
+                if (_materialClaims.TryGetValue(target, out Material claimed))
+                { _mirror.ReleaseMaterial(target, claimed); _materialClaims.Remove(target); }
+                return;
+            }
             Material original = EffectMaterial(source);
             if (!_materials.TryGetValue(target, out Material material) || material == null
-                || !_materialSources.TryGetValue(target, out Material previous) || !ReferenceEquals(previous, original))
+                || !_materialSources.TryGetValue(target, out Material previous) || !ReferenceEquals(previous, original)
+                || material.shader != original.shader)
             {
                 Material replacement = new Material(original);
                 if (material != null) Object.Destroy(material);
                 material = replacement; _materials[target] = material; _materialSources[target] = original;
             }
-            // Pair.Apply restores the viewer source material each tick. Only this clone-owned
-            // instance receives owner animation output; the game's original is never written.
-            target.material = material;
-            material.SetFloat("_FXAnim", Mathf.LerpUnclamped(from.Fx, to.Fx, t));
+            // Reserve this material field only. Copying the viewer material before each owner
+            // frame dirtied the graphic twice even for a settled effect, multiplied by every board.
+            // Releasing on a non-effect frame restores normal source mirroring immediately.
+            if (!_materialClaims.TryGetValue(target, out Material claim) || !ReferenceEquals(claim, material))
+            { _mirror.OwnMaterial(target, material); _materialClaims[target] = material; }
+            NativePlaybackWrites.Material(target, material);
+            NativePlaybackWrites.Float(material, FxAnim, Mathf.LerpUnclamped(from.Fx, to.Fx, t));
+        }
+        private static readonly int FxAnim = Shader.PropertyToID("_FXAnim");
+        internal void ReleaseMaterials()
+        {
+            foreach (var claim in _materialClaims) _mirror.ReleaseMaterial(claim.Key, claim.Value);
+            _materialClaims.Clear();
         }
         internal void Destroy()
         {
+            ReleaseMaterials();
             foreach (RemoteUseBarAnimation animation in _animations) animation?.Destroy();
             foreach (Material material in _materials.Values) if (material != null) Object.Destroy(material);
             _materials.Clear(); _materialSources.Clear();

@@ -10,6 +10,7 @@ internal sealed partial class RemoteCardArt
 {
     private CardAppearanceBindings? _nativeBindings;
     private readonly Dictionary<Graphic, Material> _nativeMaterials = new();
+    private readonly NativePlaybackProperties[] _nativePropertySupport = new NativePlaybackProperties[12];
     private int _nativePlayer;
     private bool _nativeOutputApplied;
     private byte _nativeLastSourceList;
@@ -147,10 +148,12 @@ internal sealed partial class RemoteCardArt
                 return Mathf.Max(ramp, node.Values[8 + channel]);
         return ramp;
     }
-    private static IEnumerable<CardAppearanceNode> NativeNodes(CardAppearanceNode[] nodes, CardAppearanceNode[]? extra)
+    // Pattern-based enumeration stays on the stack, including the per-node source lookup.
+    // The old iterator allocated again for every node on every card on every remote board.
+    private static NativePlaybackRange<CardAppearanceNode> NativeNodes(CardAppearanceNode[] nodes, CardAppearanceNode[]? extra) => new(nodes, extra);
+    private uint NativeSupport(byte role, Material material)
     {
-        foreach (var node in nodes) yield return node;
-        if (extra != null) foreach (var node in extra) yield return node;
+        return (_nativePropertySupport[role] ??= new NativePlaybackProperties()).Support(material);
     }
     private void ApplyNativeFrame(CardAppearanceState from, CardAppearanceState to, float progress)
     {
@@ -169,7 +172,7 @@ internal sealed partial class RemoteCardArt
         {
             if (node.Role >= 7) continue;
             Material template = (node.Flags & 16) != 0 ? _nativeBindings.LowMaterial! : CardAppearanceBindings.AuthoredMaterial(node.Role)!;
-            needsBounds |= template.HasProperty(PosAndBoundsId);
+            needsBounds |= (NativeSupport(node.Role, template) & NativePlaybackProperties.BoundsMask) != 0;
             if (_nativeBindings.Graphics[node.Role] is Image image) _nativeBoundsImages.Add(image);
         }
         Vector4 nativeFootprint = default;
@@ -185,15 +188,13 @@ internal sealed partial class RemoteCardArt
             if (node.Role >= 12)
             {
                 CanvasGroup group = _nativeBindings.Groups[node.Binding];
-                group.alpha = V(0); group.enabled = (node.Flags & 2) != 0; group.ignoreParentGroups = (node.Flags & 4) != 0;
-                group.gameObject.SetActive((node.Flags & 1) != 0);
+                NativePlaybackWrites.Group(group, V(0), node.Flags);
                 continue;
             }
             Graphic graphic = _nativeBindings.Graphics[node.Role]!;
-            graphic.color = C(0); graphic.canvasRenderer.SetColor(C(4));
-            graphic.enabled = (node.Flags & 2) != 0;
-            graphic.gameObject.SetActive((node.Flags & 1) != 0);
-            if (graphic is TextMeshProUGUI text) text.enableVertexGradient = (node.Flags & 4) != 0;
+            NativePlaybackWrites.Graphic(graphic, C(0), C(4), node.Flags);
+            if (graphic is TextMeshProUGUI text && text.enableVertexGradient != ((node.Flags & 4) != 0))
+                text.enableVertexGradient = (node.Flags & 4) != 0;
             if (node.Mask == 0 && node.Role >= 7) continue;
             Material template = node.Role < 7
                 ? ((node.Flags & 16) != 0 ? _nativeBindings.LowMaterial! : CardAppearanceBindings.AuthoredMaterial(node.Role)!)
@@ -204,19 +205,20 @@ internal sealed partial class RemoteCardArt
                 material = new Material(template) { name = template.name + " (VR-native-card)" };
                 _ownedMaterials.Add(material); _nativeMaterials[graphic] = material;
             }
-            graphic.material = material;
+            NativePlaybackWrites.Material(graphic, material);
+            uint supported = NativeSupport(node.Role, material);
             // The clone moves/scales with fan/recess/held animations. Updating only when the
             // material was minted leaves a stale shader footprint after the first drawn frame.
-            if (node.Role < 7 && material.HasProperty(PosAndBoundsId)) material.SetVector(PosAndBoundsId, nativeFootprint);
+            if (node.Role < 7 && (supported & NativePlaybackProperties.BoundsMask) != 0) NativePlaybackWrites.Vector(material, PosAndBoundsId, nativeFootprint);
             for (int f = 0; f < CardAppearanceBindings.FloatIds.Length; f++)
-                if ((node.Mask & (1u << f)) != 0 && material.HasProperty(CardAppearanceBindings.FloatIds[f]))
-                    material.SetFloat(CardAppearanceBindings.FloatIds[f], V(8 + f));
-            if ((node.Mask & (1u << 15)) != 0 && material.HasProperty(CardAppearanceBindings.BurnTint)) material.SetColor(CardAppearanceBindings.BurnTint, C(23));
-            if ((node.Mask & (1u << 16)) != 0 && material.HasProperty(CardAppearanceBindings.FlameTint)) material.SetColor(CardAppearanceBindings.FlameTint, C(27));
-            if ((node.Mask & (1u << 17)) != 0 && material.HasProperty(CardAppearanceBindings.Noise)) material.SetTextureScale(CardAppearanceBindings.Noise, new Vector2(V(31), V(32)));
-            if (node.Role == 11 && material.HasProperty(CardAppearanceBindings.Particle))
+                if ((node.Mask & supported & (1u << f)) != 0)
+                    NativePlaybackWrites.Float(material, CardAppearanceBindings.FloatIds[f], V(8 + f));
+            if ((node.Mask & supported & (1u << 15)) != 0) NativePlaybackWrites.Color(material, CardAppearanceBindings.BurnTint, C(23));
+            if ((node.Mask & supported & (1u << 16)) != 0) NativePlaybackWrites.Color(material, CardAppearanceBindings.FlameTint, C(27));
+            if ((node.Mask & supported & (1u << 17)) != 0) NativePlaybackWrites.TextureScale(material, CardAppearanceBindings.Noise, new Vector2(V(31), V(32)));
+            if (node.Role == 11 && (supported & NativePlaybackProperties.ParticleMask) != 0)
             {
-                material.SetTexture(CardAppearanceBindings.Particle, (node.Flags & 8) != 0 ? _nativeBindings.GhostTexture : _nativeBindings.BurnTexture);
+                NativePlaybackWrites.Texture(material, CardAppearanceBindings.Particle, (node.Flags & 8) != 0 ? _nativeBindings.GhostTexture : _nativeBindings.BurnTexture);
                 // Low-detail native cards need the same world-space draw ordering even when
                 // the legacy high-detail burn rig had no matching _PosAndBounds images.
                 if (graphic is Image flameImage) MeasureFaceQueue(flameImage);
