@@ -61,7 +61,7 @@ namespace GloomhavenVR.Net;
 /// resolved by <see cref="RemoteAbilityCardSource"/> off the host-replicated model. No card
 /// identity, art reference or enhancement state ever crosses the wire; all of it is
 /// DELIBERATELY-NOT. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
-internal sealed class RemoteCardArt
+internal sealed partial class RemoteCardArt
 {
     // Physical card size the clone is fit to (matches the slab it overlays).
     private readonly float _cardWidth;
@@ -472,6 +472,8 @@ internal sealed class RemoteCardArt
             _nextArtHeal = Time.unscaledTime + Cards.CardArtGuard.TickIntervalSeconds;
 
             Neutralize(clone);
+            CardEffects? nativeEffects = clone.GetComponentInChildren<CardEffects>(true);
+            _nativeBindings = nativeEffects != null ? new CardAppearanceBindings(nativeEffects) : null;
             ItemFxRig itemFx = StripFragileEffects(clone, out _burnHeaderText, out _burnInitiativeText,
                                                   out _flameBurnTexture, out _flameGhostTexture,
                                                   out _flameQuadByName);
@@ -977,6 +979,7 @@ internal sealed class RemoteCardArt
         _backdrop.raycastTarget = false;
         backdrop.transform.SetAsFirstSibling();
 
+        _host.AddComponent<RemoteCardAppearancePump>().Art = this;
         _host.SetActive(false); // stays inactive until a clone is built + neutralized
     }
 
@@ -3415,6 +3418,8 @@ internal sealed class RemoteCardArt
 
     private void DestroyClone()
     {
+        _nativeBindings = null;
+        _nativeMaterials.Clear();
         // Let CardHalfTone have this face back before it goes: an id Unity is free to reuse must
         // never inherit a hold from a clone that is gone, which is the same argument the heal
         // budget below is released on.

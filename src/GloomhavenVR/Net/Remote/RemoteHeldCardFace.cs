@@ -465,7 +465,7 @@ internal sealed class RemoteHeldCardFace
         return found;
     }
 
-    private static CAbilityCard? TryPeekActiveSeat(CPlayerActor? actor, byte code, byte count)
+    internal static CAbilityCard? TryPeekActiveSeat(CPlayerActor? actor, byte code, byte count)
     {
         if (actor == null)
             return null;
