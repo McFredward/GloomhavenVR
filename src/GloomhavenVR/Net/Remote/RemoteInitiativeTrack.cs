@@ -244,6 +244,11 @@ internal sealed class RemoteInitiativeTrack
     public void TickLive()
     {
         _mirror.TickLive();
+        ApplyOwnerOverrides();
+    }
+
+    private void ApplyOwnerOverrides()
+    {
         ApplyHoverOverrides();
         ApplySelectionOverride();
         ApplyOrderOverride();
@@ -691,72 +696,37 @@ internal sealed class RemoteInitiativeTrack
     /// <summary>The row x each of those slots is at THIS frame, sampled before any write.</summary>
     private readonly float[] _orderSlotX = new float[MaxChips];
 
-    /// <summary>For rank r, the <see cref="_hoverNodes"/> index of the entry the PEER has at rank r
-    /// — resolved completely before a single transform is written, so a set mismatch bails with
-    /// nothing half-applied.</summary>
-    private readonly int[] _orderTarget = new int[MaxChips];
+    private readonly int[] _orderRowIds = new int[MaxChips];
+    private readonly float[] _orderResolvedX = new float[MaxChips];
+    private readonly InitiativeSelectionOrder _selectionOrder = new(MaxChips);
 
     /// <summary>Change-gate for the order-override diagnostic (a mismatch reason code; 0 = the
     /// override is applying cleanly).</summary>
     private int _loggedOrderState = int.MinValue;
 
-    /// <summary>
-    /// THE PLAYER BLOCK'S ON-SCREEN ORDER, re-decided from the PEER's own track — defect (a).
-    ///
-    /// <para>The mirror's drive copies each entry row's <c>anchoredPosition3D</c> off THIS client's
-    /// widget, so the peer's board inherits THIS client's arrangement. During the online
-    /// card-selection phase that arrangement is genuinely different from theirs
-    /// (<c>InitiativeTrackActorBehaviour.CompareTo</c>:160-171 — foreign players first, mine last),
-    /// so this pass PERMUTES the mirrored player rows into the order record 27 names.</para>
-    ///
-    /// <para>IT IS A PERMUTATION OF SLOTS, NOT A LAYOUT. The slots are read back off the clone
-    /// itself — whatever x the drive just wrote for each player row — and re-dealt by the peer's
-    /// rank. Nothing computes a position, so entry widths, the layout group's spacing, the enemy
-    /// block and the panel fit are all untouched and cannot drift: the same set of x values goes
-    /// back onto the same set of rows, only paired differently. ONLY x is written; y and z are
-    /// carried through verbatim, which is the ModBuild-80 initiative-row discipline (that leak was
-    /// exactly a y/z write on this row).</para>
-    ///
-    /// <para>IT BAILS WHOLE, NEVER PARTIALLY. The peer's id set and this client's player rows must
-    /// correspond one-to-one; if they do not — a peer mid-round-transition, an exhausted hero that
-    /// has landed on one machine and not yet the other, a party larger than the record's cap — the
-    /// pass writes NOTHING and the board keeps the mirrored arrangement, which is the same "show
-    /// the honest thing, never a guess" choice the hover and selection passes make. That is why
-    /// the targets are resolved into <see cref="_orderTarget"/> in full before the first write.</para>
-    ///
-    /// <para>IT STANDS DOWN DURING THE REORDER SLIDE (<c>InitiativeTrack.isAnimating</c>). The
-    /// slide is the one moment the row's x is owned by a tween rather than by the settled layout,
-    /// and the two arrangements CONVERGE across it: the sort that starts the slide is the one that
-    /// leaves the selection phase, after which every client's order is identical again. Re-dealing
-    /// tweening positions would land the row in the wrong final slots, so the slide plays through
-    /// as the mirror copies it. STATED LIMITATION: for those ~0.5 s a peer's board sees the slide
-    /// START from this client's arrangement rather than the owner's. The destination, the duration
-    /// and the easing are the same on every client (see the class doc's GLOBAL list), so only the
-    /// first frames differ, and they differ into the correct final row.</para>
-    /// </summary>
+    /// <summary>Hold one owner order and the original settled player slots throughout selection.
+    /// User MB487: placing a card briefly swaps remote portraits, then swaps them back. The old
+    /// isAnimating early return handed the clone to the VIEWER'S different order even for native
+    /// reorders with zero travel (486 peer log8577/8585/8599). Source tween positions and changing
+    /// record27 order must not replace a selection latch. Action phases immediately restore native
+    /// motion, even while the last selection record is still in flight. Only row x is written;
+    /// portrait depth, native effects and nonplayer rows retain their original owners.</summary>
     private void ApplyOrderOverride()
     {
         if (Source != RemoteWidgetMirror.Fidelity.MirroredWidget)
             return;
-        if (_peerOrderCount < 2)
+        bool selecting = PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest;
+        if (!selecting)
         {
+            _selectionOrder.Reset();
             LogOrderState(0, "no override wanted");
-            return;                  // nothing to permute (or no record at all)
+            return; // stale record27 cannot override an action-phase native slide
         }
         EnsureHoverCache();
-        if (_hoverNodes.Count == 0)
-            return;
-
-        try
-        {
-            InitiativeTrack track = InitiativeTrack.Instance;
-            if (track != null && track.isAnimating)
-            {
-                LogOrderState(1, "the track is mid-reorder — the slide owns the row x this frame");
-                return;
-            }
-        }
-        catch { /* a torn-down singleton reads as "not animating"; the bails below still guard */ }
+        if (_hoverNodes.Count == 0) return;
+        InitiativeTrack? track = InitiativeTrack.Instance;
+        bool settled = track != null && !track.isAnimating && !track.animationDelayed
+            && !WorldUI.Surfaces.InitiativeTrackSurface.ReorderInProgress;
 
         // 1. THIS client's player rows, in ITS on-screen order (ascending SOURCE sibling index —
         //    the clone's own sibling order is frozen at Instantiate time and is not the display
@@ -770,7 +740,8 @@ internal sealed class RemoteInitiativeTrack
             for (int i = 0; i < _hoverNodes.Count && i < 32; i++)
             {
                 HoverNode node = _hoverNodes[i];
-                if (!node.IsPlayer || node.Entry == null || node.SourceRow == null || node.ActorId == 0)
+                if (!node.IsPlayer || node.Entry == null || node.SourceRow == null || node.ActorId == 0
+                    || !node.SourceRow.gameObject.activeSelf)
                     continue;
                 if ((taken & (1 << i)) != 0)
                     continue;
@@ -786,48 +757,22 @@ internal sealed class RemoteInitiativeTrack
             taken |= 1 << best;
             _orderRow[n] = best;
             _orderSlotX[n] = _hoverNodes[best].Entry!.anchoredPosition3D.x;
+            _orderRowIds[n] = _hoverNodes[best].ActorId;
             n++;
         }
 
-        if (n != _peerOrderCount)
+        if (!_selectionOrder.TryResolve(selecting, CardsGameApi.RoundNumber(), settled,
+                _orderRowIds, _orderSlotX, n, _peerOrderIds, _peerOrderCount, _orderResolvedX))
         {
-            LogOrderState(2, $"this client shows {n} player row(s), the peer named " +
-                             $"{_peerOrderCount} — the sets do not correspond, so the mirrored " +
-                             "arrangement is left alone rather than half-permuted");
+            LogOrderState(2, "awaiting a matching owner set and settled original selection slots");
             return;
         }
-
-        // 2. Resolve EVERY rank before writing anything.
         for (int r = 0; r < n; r++)
         {
-            int want = _peerOrderIds[r];
-            int found = -1;
-            for (int k = 0; k < n; k++)
-            {
-                if (_hoverNodes[_orderRow[k]].ActorId == want)
-                {
-                    found = _orderRow[k];
-                    break;
-                }
-            }
-            if (found < 0)
-            {
-                LogOrderState(3, $"the peer named an entry (id {want}) this client's track does " +
-                                 "not show — the mirrored arrangement is left alone");
-                return;
-            }
-            _orderTarget[r] = found;
-        }
-
-        // 3. Deal the slots. x only.
-        for (int r = 0; r < n; r++)
-        {
-            RectTransform? row = _hoverNodes[_orderTarget[r]].Entry;
-            if (row == null)
-                continue;
+            RectTransform row = _hoverNodes[_orderRow[r]].Entry!;
             Vector3 p = row.anchoredPosition3D;
-            if (!Mathf.Approximately(p.x, _orderSlotX[r]))
-                row.anchoredPosition3D = new Vector3(_orderSlotX[r], p.y, p.z);
+            if (!Mathf.Approximately(p.x, _orderResolvedX[r]))
+                row.anchoredPosition3D = new Vector3(_orderResolvedX[r], p.y, p.z);
         }
         LogOrderState(4, $"{n} player row(s) re-dealt into the PEER's own on-screen order");
     }
@@ -2377,9 +2322,7 @@ internal sealed class RemoteInitiativeTrack
             // lands with the LOCAL widget's active flags copied verbatim, so the frame is
             // re-decided from the peer's record-23 set before anything can be presented).
             InvalidateHoverCache();
-            ApplyHoverOverrides();
-            ApplySelectionOverride();
-            ApplyNativeDepth();
+            ApplyOwnerOverrides();
             return;
         }
 
@@ -2392,7 +2335,7 @@ internal sealed class RemoteInitiativeTrack
         Count = 0;
     }
 
-    public void Destroy() => _mirror.Destroy();
+    public void Destroy() { _selectionOrder.Reset(); _mirror.Destroy(); }
 
     /// <summary>Entry count of the LIVE game track (the number the mirrored picture is showing) —
     /// diagnostics only, and null-safe for the frames where the track is mid-rebuild.</summary>

@@ -494,6 +494,11 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
 
     private static InitiativeTrackSurface? _depthSource;
 
+    /// <summary>The adopted row can still be moving after the game's Chronos flag clears.
+    /// Read only: remote selection-slot capture must wait for the actual native slide to settle.</summary>
+    internal static bool ReorderInProgress => _depthSource != null
+        && _depthSource.Panel != null && _depthSource._slide.Active;
+
     /// <summary>Read the authored depth saved before local compression. Remote mirrors must not
     /// attempt to invert a viewer cap of zero, which deliberately erases depth from the live UI.</summary>
     internal static float AuthoredDepth(Transform source)
