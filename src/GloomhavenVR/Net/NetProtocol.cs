@@ -63,6 +63,8 @@ internal static class NetProtocol
     public const byte ExtIdNativeBoard = 52;
     public const byte ExtIdNativeUseBar = 50;
     public const byte ExtIdCardPlume = 51;
+    // Original item-tooltip emitters have their own existing45 slot namespace in message5.
+    public const byte ExtIdTooltipPlume = 56;
 
     /// <summary>Extras (board + hand-count) send rate (Hz). Slower than the rig stream — the board
     /// moves rarely and the hand count changes on card play only.</summary>
@@ -492,6 +494,9 @@ internal static class NetProtocol
     //   actual original hierarchy output alongside unchanged52 in message10: transforms,
     //   component state, native sprites and rendered colors are applied last on inert clones.
     //   No gameplay animation controller or clip callback runs on a remote native widget.
+    //   Original item-tooltip smoke uses additive TLV56 in the existing plume stream, keyed by
+    //   the bonus slot's existing45 identity. Native seed, age and emitter output are mirrored;
+    //   no tooltip-hover burn timeline is invented. Combined plume bound12288 remains unchanged.
     //   Message10 bound40960; presence bound3970 (worst3709, margin261), existing event cap864.
     //   GVR1/v3 and prior record grammars remain unchanged. See .planning/MP-ROUND-487.md.
     //   DLL-only after full483. Source/tests establish repairs; headset appearance is unverified.
