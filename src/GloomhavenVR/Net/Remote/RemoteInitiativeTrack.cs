@@ -179,6 +179,7 @@ internal sealed class RemoteInitiativeTrack
     /// <summary>Which mechanism is drawing the track right now (diagnostics — see
     /// <see cref="RemoteWidgetMirror.Fidelity"/>).</summary>
     public RemoteWidgetMirror.Fidelity Source { get; private set; } = RemoteWidgetMirror.Fidelity.None;
+    internal bool HasMissingClone => Source == RemoteWidgetMirror.Fidelity.MirroredWidget && !_mirror.HasLiveClone;
 
     /// <summary>Why the real widget is not being mirrored, for the diagnostic line (empty when it is).</summary>
     public string Reason => _mirror.Reason;

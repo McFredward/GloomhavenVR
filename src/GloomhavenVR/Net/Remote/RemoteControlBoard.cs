@@ -620,12 +620,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                                                   //   items counts, deliberately UNGATED (vanilla lets
                                                   //   anyone open any player's card overview)
 
-    /// <summary>Idle recovery deadline only. Actual received/model/native content changes are
-    /// consumed immediately; an observer preference may not hold visible state behind this timer.</summary>
-    private float _nextRefreshAt;
-    private uint _contentPresenceRevision;
-    private ulong _contentNativeRevision;
-    private ulong _contentModelRevision;
+    // Each section owns its recovery clock. Owner animation/pose traffic must not make
+    // unrelated original panels repeat structure walks, fitting and draw-order discovery.
+    private readonly RemoteBoardRefreshGate _contentRefresh = new();
+    private NativeBoardState? _contentNativeBoard;
 
     /// <summary>Next unscaled time this board re-adopts its transparent subtree into its
     /// draw-order cluster (<see cref="BoardVisual.AdoptBoardOrder"/>). The content cadence: the
@@ -1013,43 +1011,43 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // twenty lines below always said the opposite, and it is the one the code matches.)
         _focusOutline?.Tick(visible: true, _tag.AvatarQuad, OwnerTag.AvatarQuadSize);
 
-        // Content (objectives / elements / round / initiative / rest / pile counts / active cards)
-        // on the shared cadence. Before the actor exists only the GLOBAL panels refresh (they are
-        // bit-identical on every client); the per-actor surfaces stay blank until the host assigns
-        // the character.
-        //
-        // THIS COMMENT USED TO READ "everything below is a MODEL read, not a wire read", AND THAT
-        // SENTENCE WAS THE DEFECT. It was true of the objectives, the elements, the initiative
-        // track and the active-card column, and it is why the 250 ms gate looked safe — but the
-        // furniture refresh reached from here (RemoteBoardFurniture.Refresh) was almost entirely
-        // WIRE reads: the owner's live button visibility, their cap states, their cap PRESS, their
-        // cap wordings, their decision option states, their use-bar slot states, the FOLLOW/PIN
-        // toggle, the wanted glow and the snap-hover rim. Every one of those landed up to 250 ms
-        // after the owner saw it, and anything briefer than the gate period — a quick press, a
-        // pointer crossing an option — fell between two samples and was never drawn at all. The
-        // SENDER had already ruled the other way: NetAvatarDriver pre-empts its own 5 Hz extras
-        // gate OUTRIGHT for those records so they land on the peer's next FRAME, and the receiver
-        // was spending that guarantee in a queue.
-        //
-        // The wire half now runs per frame in _furniture.TickWire, immediately after this block
-        // (see below). What is still reached from HERE is genuinely cadence work: model reads, and
-        // the furniture's own structural half — row rebuilds, a cloned-widget mirror walk, a
-        // localized string composition, a TMP re-measure and a walk over this client's live use-bar
-        // children. Read RemoteBoardFurniture.Refresh / TickWire for the itemised split.
-        ulong nativeRevision = NativeContentRevision();
-        ulong modelRevision = ModelContentRevision(actor, showFronts);
-        if (_owner.PresenceRevision != _contentPresenceRevision
-            || nativeRevision != _contentNativeRevision || modelRevision != _contentModelRevision
-            || Time.unscaledTime >= _nextRefreshAt)
+        // Every actual source/model/owner edge is consumed immediately. Global native sections
+        // now have separate invalidation from actor/furniture content: an owner use-bar sample
+        // or pose packet cannot re-fit objectives and initiative. Per-frame TickWire/TickLive
+        // below still render all intermediate animation and short-lived hover/press states.
+        // Native source scans remain shared per root/frame, including inactive hierarchy edges.
+        ReadNativeContentRevisions(out ulong objectivesRevision, out ulong elementsRevision,
+            out ulong trackRevision);
+        ulong globalModelRevision = GlobalModelRevision();
+        ulong modelRevision = ModelContentRevision(actor, showFronts, globalModelRevision);
+        RemoteBoardContent.Mix(ref elementsRevision, (int)globalModelRevision);
+        RemoteBoardContent.Mix(ref elementsRevision, (int)(globalModelRevision >> 32));
+        NativeBoardState? nativeBoard = _owner.NativeBoardState;
+        RemoteBoardContent.Mix(ref elementsRevision, unchecked((int)(nativeBoard?.Generation ?? 0)));
+        RemoteBoardRefreshSections recovery = RemoteBoardRefreshSections.None;
+        if (_objectives?.HasMissingClone == true) recovery |= RemoteBoardRefreshSections.Objectives;
+        if (_track?.HasMissingClone == true) recovery |= RemoteBoardRefreshSections.Track;
+        if (_elements?.HasMissingClone == true
+            || (_elements?.NeedsNativeRecovery == true && !ReferenceEquals(nativeBoard, _contentNativeBoard)
+                && nativeBoard?.Elements.Length == 6 && InfusionBoardUI.Instance != null))
+            recovery |= RemoteBoardRefreshSections.Elements;
+        _contentNativeBoard = nativeBoard;
+        RemoteBoardRefreshSections refresh = _contentRefresh.Poll(_owner.PresenceRevision,
+            objectivesRevision, elementsRevision, trackRevision, modelRevision, actor,
+            Time.unscaledTime, RemoteBoardContent.DefaultRefreshSeconds, recovery);
+        if (refresh != RemoteBoardRefreshSections.None)
         {
-            _contentPresenceRevision = _owner.PresenceRevision;
-            _contentNativeRevision = nativeRevision;
-            _contentModelRevision = modelRevision;
-            _nextRefreshAt = Time.unscaledTime + RemoteBoardContent.DefaultRefreshSeconds;
-            if (actor != null)
-                RefreshContent(actor, showFronts);
-            else
-                RefreshGlobalContent();
+            using var refreshTiming = PerfMonitor.Scope("Net.Board.ContentRefresh");
+            if ((refresh & ~RemoteBoardRefreshSections.Actor) != 0)
+                RefreshNativeContent(refresh);
+            if ((refresh & RemoteBoardRefreshSections.Actor) != 0)
+            {
+                using var actorTiming = PerfMonitor.Scope("Net.Board.ActorRefresh");
+                if (actor != null)
+                    RefreshContent(actor, showFronts);
+                else
+                    RefreshGlobalContent();
+            }
             // A DEAD BOARD HAS NO CARDS. Runs AFTER the refresh on purpose: that pass is what
             // re-paints the wire-fed pile counts and the item cue, so clearing before it would be
             // undone in the same tick. Called UNCONDITIONALLY and both ways, so the rule is
@@ -1078,11 +1076,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // one frame in its unpainted default look, and the use-bar drawer is never seated against
         // a decision-row height that has already moved.
         //
-        // COST ON THE UNCHANGED PATH: ~60 comparisons, zero allocations, zero GetComponent, zero
-        // scene query — the arithmetic is in TickWire's own doc. At a four-player table this runs
-        // for the three remote peers: 3 x 90 Hz x ~60 compares is under 0.01 ms of the 11.11 ms
-        // budget. The expensive halves (row rebuilds, the widget-mirror walk, the use-bar symbol
-        // resolve) stay on the 4 Hz cadence above, where they always were.
+        // Native use-bar descriptors retain immediate actor/furniture refresh above; this live
+        // pass still runs on every frame, independently of every content/recovery gate.
         _furniture?.TickWire(_owner, _slotOccupiedMask);
 
         // THE BOARD TOOLTIP, PER FRAME — beside the furniture's wire half, after the cadence block,
@@ -1266,19 +1261,28 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// </summary>
     private void TickBoardTooltip() => _boardTooltip?.Apply(_owner.TooltipText);
 
-    private static ulong NativeContentRevision()
+    private static void ReadNativeContentRevisions(out ulong objectives, out ulong elements,
+        out ulong trackRevision)
     {
-        ulong hash = 14695981039346656037UL;
+        objectives = 14695981039346656037UL;
         UIManager? ui = UIManager.Instance;
-        MixRevision(ref hash, RemoteBoardContent.NativeRevision(ui != null && ui.MissionObjectiveContainer != null
+        MixRevision(ref objectives, RemoteBoardContent.NativeRevision(ui != null && ui.MissionObjectiveContainer != null
             ? ui.MissionObjectiveContainer.transform : null));
-        MixRevision(ref hash, RemoteBoardContent.NativeRevision(ui != null && ui.ScenarioModifierContainer != null
+        MixRevision(ref objectives, RemoteBoardContent.NativeRevision(ui != null && ui.ScenarioModifierContainer != null
             ? ui.ScenarioModifierContainer.transform : null));
         InitiativeTrack? track = InitiativeTrack.Instance;
-        MixRevision(ref hash, RemoteBoardContent.NativeRevision(track != null ? track.transform : null));
-        InfusionBoardUI? elements = InfusionBoardUI.Instance;
-        MixRevision(ref hash, RemoteBoardContent.NativeRevision(elements != null ? elements.transform : null));
-        return hash;
+        trackRevision = RemoteBoardContent.NativeRevision(track != null ? track.transform : null);
+        // The game pools track rows. Actor/avatar references can change without a single
+        // hierarchy, sprite or text change; Refresh invalidates the hover/focus/order bindings.
+        if (track != null && track.actorsUI != null)
+            for (int i = 0; i < track.actorsUI.Count; i++)
+            {
+                InitiativeTrackActorBehaviour row = track.actorsUI[i];
+                RemoteBoardEntryIdentity.Mix(ref trackRevision, row,
+                    row != null ? row.Actor : null, row != null ? row.Avatar : null);
+            }
+        InfusionBoardUI? infusion = InfusionBoardUI.Instance;
+        elements = RemoteBoardContent.NativeRevision(infusion != null ? infusion.transform : null);
     }
 
     private static void MixRevision(ref ulong hash, ulong revision)
@@ -1287,12 +1291,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         RemoteBoardContent.Mix(ref hash, (int)(revision >> 32));
     }
 
-    private static ulong ModelContentRevision(CPlayerActor? actor, bool showFronts)
+    private static ulong GlobalModelRevision()
     {
         ulong hash = 14695981039346656037UL;
         RemoteBoardContent.Mix(ref hash, CardsGameApi.RoundNumber());
         RemoteBoardContent.Mix(ref hash, (int)PhaseManager.PhaseType);
-        RemoteBoardContent.Mix(ref hash, showFronts ? 1 : 0);
         for (int i = 0; i < 6; i++)
         {
             int column;
@@ -1304,6 +1307,12 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         RemoteBoardContent.Mix(ref hash, creating);
         RemoteBoardContent.Mix(ref hash, reserved);
         RemoteBoardContent.Mix(ref hash, available);
+        return hash;
+    }
+
+    private static ulong ModelContentRevision(CPlayerActor? actor, bool showFronts, ulong hash)
+    {
+        RemoteBoardContent.Mix(ref hash, showFronts ? 1 : 0);
         if (actor == null) return hash;
         RemoteBoardContent.Mix(ref hash, NetFigures.StableActorId(actor));
         if (showFronts) RemoteBoardContent.Mix(ref hash, actor.Initiative());
@@ -1323,16 +1332,30 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         return hash;
     }
 
-    /// <summary>The actorless subset of <see cref="RefreshContent"/> (join-time, before the host
-    /// assigns this peer a character): objectives, element infusions and the initiative track are
-    /// GLOBAL scenario state and render fine without an actor; everything per-actor stays blank.</summary>
+    // Native source structure/layout changes are still scanned every frame, shared across
+    // observers. Their live animation drive below remains unconditional. Only these costly
+    // Refresh/Fit passes are independent from unrelated owner extras and use-bar frames.
+    private void RefreshNativeContent(RemoteBoardRefreshSections sections)
+    {
+        try
+        {
+            using var timing = PerfMonitor.Scope("Net.Board.NativeRefresh");
+            if ((sections & RemoteBoardRefreshSections.Objectives) != 0) _objectives?.Refresh();
+            if ((sections & RemoteBoardRefreshSections.Elements) != 0) _elements?.Refresh();
+            if ((sections & RemoteBoardRefreshSections.Track) != 0) _track?.Refresh();
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Net", $"Remote board [{_owner.PlayerId}] native content refresh failed: {e.Message}");
+        }
+    }
+
+    /// <summary>Actorless owner content during join: wire-fed furniture, banner and pile counts.
+    /// Original global panels refresh independently through <see cref="RefreshNativeContent"/>.</summary>
     private void RefreshGlobalContent()
     {
         try
         {
-            _objectives?.Refresh();
-            _elements?.Refresh();
-            _track?.Refresh();
             _pickBanner?.Apply(_owner.PickBannerText);
             // The board TOOLTIP is NOT applied here any more — it runs per frame beside
             // _furniture.TickWire. See TickBoardTooltip.
@@ -1372,8 +1395,6 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     {
         try
         {
-            _objectives?.Refresh();
-            _elements?.Refresh();
             _pickBanner?.Apply(_owner.PickBannerText);
             // The board TOOLTIP is NOT applied here any more — it runs per frame beside
             // _furniture.TickWire. See TickBoardTooltip.
@@ -1382,7 +1403,6 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // for its OWN population, which is exempt from the selection phase. See
             // RemoteActiveCards.Refresh and RevealGate.PeerCardPopulation.AlreadyPublic.
             _active?.Refresh(actor);
-            _track?.Refresh();
             SyncInitiativeBadge();
 
             // Mip-bake upkeep for the two round-card slots' hosted faces (the active column does
@@ -3076,7 +3096,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _furniture = new RemoteBoardFurniture(_root.transform, _owner.BoardTuning, _tray,
             SlotAnchorBoardLocal(0), SlotAnchorBoardLocal(1),
             _builtSlotFrameW, _builtSlotCardW);
-        _nextRefreshAt = 0f; // repaint on the very next tick
+        _contentRefresh.Reset(); // repaint all new sections on the very next tick
 
         // Ownership tag pinned just above the board's top-left corner, always facing the head.
         // Y clears the initiative track drawn above the top edge (RemoteInitiativeTrack, y 0.165
@@ -3349,7 +3369,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _furniture = null;
         _piles[0] = _piles[1] = _piles[2] = null;
         _loggedContent = string.Empty;
-        _nextRefreshAt = 0f;
+        _contentRefresh.Reset();
+        _contentNativeBoard = null;
         // The frame material belongs to the destroyed quad; drop the handle and the style latch so a
         // rebuilt board re-applies the peer's style from scratch instead of trusting a stale int.
         // The tray visual is a child of _root and died with it — dropping the handle here is what

@@ -408,6 +408,9 @@ internal sealed class RemoteElementStrip
     /// <summary>Which mechanism the last <see cref="Refresh"/> drew with — the clone, the mod-drawn
     /// composition, or nothing at all. Reported by <see cref="EmitParity"/>.</summary>
     private RemoteWidgetMirror.Fidelity _drawnBy = RemoteWidgetMirror.Fidelity.None;
+    private RemoteBoardRecoveryEdge _nativeRecovery;
+    internal bool HasMissingClone => _drawnBy == RemoteWidgetMirror.Fidelity.MirroredWidget && !_mirror.HasLiveClone;
+    internal bool NeedsNativeRecovery => _nativeRecovery.Pending || _drawnBy != RemoteWidgetMirror.Fidelity.MirroredWidget;
 
     /// <summary>Consecutive content ticks on which the clone was up and driving but put NO ink on
     /// the board while the owner's own element board was showing something. See the demotion in
@@ -1505,6 +1508,7 @@ internal sealed class RemoteElementStrip
         // MrBacking surface, so leaving the fallback plate up would put two plates on one dock.
         if (_root.gameObject.activeSelf)
             _root.gameObject.SetActive(false);
+        _nativeRecovery.Reset();
         return true;
     }
 
@@ -1515,7 +1519,24 @@ internal sealed class RemoteElementStrip
         _native.Configure(_mirror);
         _mirror.TickLive();
         InfusionBoardUI? source = InfusionBoardUI.Instance;
-        if (source == null || !_native.Apply(_mirror, source)) _mirror.SetShown(false);
+        bool applied = source != null && _native.Apply(_mirror, source);
+        bool recovered = _nativeRecovery.Observe(applied);
+        if (!applied) _mirror.SetShown(false);
+        else if (recovered)
+        {
+            // A native material/source can become ready without another packet or geometry
+            // revision. Re-enter the original validated fit/show path on that local edge;
+            // never simply show an unfitted host, and never wait for the recovery timer.
+            bool mirrored = TryMirror();
+            _drawnBy = mirrored ? RemoteWidgetMirror.Fidelity.MirroredWidget : RemoteWidgetMirror.Fidelity.None;
+            if (!mirrored)
+            {
+                // Apply readiness alone is insufficient: keep retrying until the complete
+                // native fit/show transaction succeeds, even when this owner frame is unchanged.
+                _nativeRecovery.Observe(false);
+                _mirror.SetShown(false);
+            }
+        }
     }
 
     /// <summary>Drop the clone and its MrBacking registration. The mod-drawn half dies with the

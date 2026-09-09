@@ -112,6 +112,12 @@ internal sealed class RemoteObjectivesPanel
         RemoteWidgetMirror.Fidelity.None;
 
     /// <summary>Why the real widget is not being mirrored, for the diagnostic line (empty when it is).</summary>
+    // A source which never existed remains on normal recovery. A previously visible clone
+    // destroyed by a native sync failure must rebuild on the next tick, regardless of traffic.
+    internal bool HasMissingClone =>
+        Source == RemoteWidgetMirror.Fidelity.MirroredWidget && !_mirror.HasLiveClone
+        || RulesSource == RemoteWidgetMirror.Fidelity.MirroredWidget && !_rulesMirror.HasLiveClone;
+
     public string Reason => _mirror.Reason;
 
     /// <summary>The RESOLVED seat of this dock for the per-peer board log: the board-local mount

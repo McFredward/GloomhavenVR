@@ -143,14 +143,33 @@ internal static class RemoteBoardContent
     private sealed class NativeNode
     {
         internal readonly Transform Transform;
+        internal readonly GameObject GameObject;
+        internal readonly int InstanceId;
         internal readonly RectTransform? Rect;
         internal readonly Graphic? Graphic;
         internal readonly Image? Image;
         internal readonly RawImage? RawImage;
         internal readonly TMP_Text? Text;
+        private string? _text;
+        private int _textHash;
+
+        internal int TextHash(string? text)
+        {
+            // Strings are immutable; reading the current TMP value still happens every frame.
+            // Reusing its hash avoids rescanning unchanged objective prose for every native tick.
+            if (!ReferenceEquals(_text, text))
+            {
+                _text = text;
+                _textHash = text?.GetHashCode() ?? 0;
+            }
+            return _textHash;
+        }
+
         internal NativeNode(Transform node)
         {
             Transform = node;
+            GameObject = node.gameObject;
+            InstanceId = node.GetInstanceID();
             Rect = node as RectTransform;
             Graphic = node.GetComponent<Graphic>();
             Image = Graphic as Image;
@@ -171,8 +190,8 @@ internal static class RemoteBoardContent
         }
         else { node = new NativeNode(source); cache.Nodes.Add(node); }
         at++;
-        Mix(ref hash, source.GetInstanceID());
-        Mix(ref hash, source.gameObject.activeSelf ? 1 : 0);
+        Mix(ref hash, node.InstanceId);
+        Mix(ref hash, node.GameObject.activeSelf ? 1 : 0);
         int count = source.childCount;
         Mix(ref hash, count);
         if (node.Rect != null)
@@ -184,14 +203,19 @@ internal static class RemoteBoardContent
         if (node.Graphic != null) Mix(ref hash, node.Graphic.enabled ? 1 : 0);
         if (node.Image != null)
         {
-            Mix(ref hash, node.Image.sprite != null ? node.Image.sprite.GetInstanceID() : 0);
+            Sprite? sprite = node.Image.sprite;
+            Mix(ref hash, sprite != null ? sprite.GetInstanceID() : 0);
             Mix(ref hash, node.Image.type.GetHashCode());
         }
         if (node.RawImage != null)
-            Mix(ref hash, node.RawImage.texture != null ? node.RawImage.texture.GetInstanceID() : 0);
+        {
+            Texture? texture = node.RawImage.texture;
+            Mix(ref hash, texture != null ? texture.GetInstanceID() : 0);
+        }
         if (node.Text != null)
         {
-            Mix(ref hash, node.Text.text != null ? node.Text.text.GetHashCode() : 0);
+            string? text = node.Text.text;
+            Mix(ref hash, node.TextHash(text));
             Mix(ref hash, node.Text.fontSize.GetHashCode());
         }
         for (int i = 0; i < count; i++) ScanNative(source.GetChild(i), cache, ref at, ref hash);

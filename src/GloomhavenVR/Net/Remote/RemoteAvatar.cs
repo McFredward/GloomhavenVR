@@ -87,7 +87,9 @@ internal sealed class RemoteAvatar
     {
         if (NativeBoardState != null && state.SampleTime <= NativeBoardState.SampleTime) return;
         NativeBoardState = state;
-        unchecked { PresenceRevision++; }
+        // Elements and initiative depth consume this stream every Tick. It has no actor,
+        // decision or pile content: invalidating those sections here re-fits a whole board
+        // for each intermediate element animation sample. Keep the complete history below.
         if (NativeBoardHistory.Count == 32) NativeBoardHistory.RemoveAt(0);
         NativeBoardHistory.Add(state);
     }
