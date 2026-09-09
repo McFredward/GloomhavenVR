@@ -167,6 +167,7 @@ internal sealed class BurnCardFx
             _effectActive = false;
             Patches.HandSuppression.EndBurn(); // balance the BeginBurn from Tick
         }
+        BurnArtwork.ReleaseSpentBurnStart(BurnArtwork.EffectsOf(_policyFace));
         BurnLookPolicy.Forget(_policyFace);
         _policyFace = null;
         RestoreBound();

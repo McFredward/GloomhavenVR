@@ -1,4 +1,5 @@
 using Chronos;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -103,16 +104,17 @@ internal static class BurnArtwork
     }
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, BurnStartRecord> BurnStarts = new();
 
-    [HarmonyLib.HarmonyPatch(typeof(CardEffects), nameof(CardEffects.ToggleEffect))]
+    [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.ToggleEffect))]
     internal static class ToggleEffect_PreserveSpentStart_Patch
     {
         private static void Prefix(CardEffects __instance, bool active, CardEffects.FXTask effect)
         {
-            if (!active || effect != CardEffects.FXTask.BurnCard && effect != CardEffects.FXTask.LostMode) return;
             try
             {
                 FullAbilityCard? full = __instance.GetComponent<FullAbilityCard>();
                 if (full == null) full = __instance.GetComponentInParent<FullAbilityCard>();
+                ClearRecoveredSpentBurnStart(__instance, full);
+                if (!active || effect != CardEffects.FXTask.BurnCard && effect != CardEffects.FXTask.LostMode) return;
                 // Native Initialize/RestoreCard must still run normally. Only already initialized
                 // original output can supply a starting picture, including on its first VR frame.
                 PreserveSpentBurnStart(__instance, full?.AbilityCard, full?.playerActor, beforeReset: true);
@@ -124,7 +126,28 @@ internal static class BurnArtwork
         }
     }
 
-    [HarmonyLib.HarmonyPatch(typeof(CardEffects), nameof(CardEffects.BurnCardTimeline))]
+    private static void ClearRecoveredSpentBurnStart(CardEffects fx, FullAbilityCard? full)
+    {
+        var card = full != null ? full.AbilityCard : null;
+        var cards = full != null ? full.playerActor?.CharacterClass : null;
+        if (card == null || cards == null || cards.HandAbilityCards.Contains(card) || cards.RoundAbilityCards.Contains(card)
+            || BurnStarts.TryGetValue(fx, out var record) && !ReferenceEquals(record.Card, card))
+            BurnStarts.Remove(fx);
+    }
+
+    /// <summary>Retire unused history on detach, without cutting an original ongoing burn.</summary>
+    internal static void ReleaseSpentBurnStart(CardEffects? fx)
+    {
+        if (fx == null) return;
+        FullAbilityCard? full = fx.GetComponent<FullAbilityCard>();
+        if (full == null) full = fx.GetComponentInParent<FullAbilityCard>();
+        ClearRecoveredSpentBurnStart(fx, full);
+        // A card can outlive its VR wrapper while the native timeline continues. Keep its raw
+        // progress and floor until completion; a recycled idle source has no such ownership.
+        if (!Playing(fx)) BurnStarts.Remove(fx);
+    }
+
+    [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.BurnCardTimeline))]
     internal static class BurnCardTimeline_PreserveSpentStart_Patch
     {
         private static void Postfix(CardEffects __instance, bool burnAnim, ref System.Collections.IEnumerator __result)

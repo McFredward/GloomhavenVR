@@ -54,6 +54,14 @@ internal static class SpentBurnContinuityVectors
         continuity.Apply(card, false, true, activeBlue);
         t.True(activeBlue[0] == 0f, "an activated card returned to blue cannot resurrect older ghost output");
 
+        continuity.Apply(card, true, false, spent);
+        continuity.Clear(); // Native recovery toggle or retirement of an idle VR wrapper.
+        continuity.Apply(card, true, false, new float[3]); // Next prefix sees already-Lost hand sacrifice.
+        var afterHiddenRecovery = new float[3];
+        continuity.Apply(card, false, true, afterHiddenRecovery);
+        t.True(afterHiddenRecovery[0] == 0f,
+            "hidden recovery invalidation prevents old discard history surviving until another loss");
+
         t.Case("last spent owner frame retains provenance across lost transition only");
         var history = new SpentAppearanceHistory<object, object>(); var frame = new object();
         history.Remember(10, card, frame);
