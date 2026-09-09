@@ -16,7 +16,7 @@ internal static partial class Defaults
     // ---- Rig/ComfortSettings.cs ----------------------------------------------------
     internal const bool WorldGrabEnabled = true;                    // => [Comfort] WorldGrabEnabled
     internal const bool FreeMovement = true;                        // => [Comfort] FreeMovement
-    internal const bool VerticalDrag = false;                       // => [Comfort] VerticalDrag
+    internal const bool VerticalDrag = true;                        // => [Comfort] VerticalDrag
     internal const bool RotateEnabled = true;                       // => [Comfort] RotateEnabled
     internal const bool ScaleEnabled = true;                        // => [Comfort] ScaleEnabled
     internal const float ScaleMin = 0.5f;                           // => [Comfort] ScaleMin
