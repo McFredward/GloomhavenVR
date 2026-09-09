@@ -3,14 +3,17 @@ using UnityEngine;
 
 namespace GloomhavenVR.Net;
 
-/// <summary>Actual native smoke on a public list/seat. No card identifier, name or art travels.</summary>
+/// <summary>Actual native smoke on an existing card-list seat or record45 bonus slot.
+/// Tooltip sources reuse the established bonus identity; no new card identifier, name or art travels.</summary>
 internal sealed class CardPlumeState
 {
-    internal const int CountMax = 64;
+    internal const int CountMax = 64; // combined card and tooltip emitters
+    internal const byte CardSource = 0, BonusTooltipSource = 1;
     internal const byte RoundList = 7; // plume-only; record36 keeps its existing six-list domain
     internal const byte Playing = 1, Paused = 2, Emitting = 4, Looping = 8;
     internal int ActorId;
-    internal byte FaceCode, ListCount, Flags, EmitterIndex;
+    internal byte Source, BonusSlot, FaceCode, ListCount, Flags, EmitterIndex;
+    internal ushort BonusIdentity;
     internal uint Episode, RandomSeed;
     internal float Age, PlaybackRate, StartSizeMultiplier, StartSpeedMultiplier;
     internal bool CustomSpacePresent;
@@ -22,10 +25,14 @@ internal sealed class CardPlumeState
 
     internal bool Validate()
     {
-        if (ActorId == 0 || !(NetProtocol.HeldFaceNamesCard(FaceCode)
+        bool address = Source == CardSource
+            ? BonusSlot == 0 && BonusIdentity == 0 && (NetProtocol.HeldFaceNamesCard(FaceCode)
                 || (NetProtocol.HeldFaceList(FaceCode) == RoundList
                     && NetProtocol.HeldFaceIndex(FaceCode) != NetProtocol.HeldFaceIndexUnknown))
-            || ListCount <= NetProtocol.HeldFaceIndex(FaceCode) || ((Flags >> 4) & 3) == 3 || (Flags >> 6) == 3
+                && ListCount > NetProtocol.HeldFaceIndex(FaceCode)
+            : Source == BonusTooltipSource && FaceCode == 0 && ListCount == 0
+                && BonusSlot < 8 && BonusIdentity != UseBarSlotIdentity.NoIdentity;
+        if (ActorId == 0 || !address || ((Flags >> 4) & 3) == 3 || (Flags >> 6) == 3
             || !Finite(PlaybackRate) || PlaybackRate < 0 || !Finite(Age) || Age < 0 || !Finite(StartSizeMultiplier) || !Finite(StartSpeedMultiplier)) return false;
         if ((Flags >> 6) == 1 && (!Finite(EmitterLocalScale.x) || !Finite(EmitterLocalScale.y)
             || !Finite(EmitterLocalScale.z))) return false;
@@ -46,8 +53,15 @@ internal sealed class CardPlumeState
     private static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     internal CardPlumeState Snapshot() => (CardPlumeState)MemberwiseClone();
 
-    internal static bool Same(CardPlumeState a, CardPlumeState b) => a.ActorId == b.ActorId
-        && a.FaceCode == b.FaceCode && a.ListCount == b.ListCount && a.Flags == b.Flags
+    internal bool MatchesTooltipOwner(int actorId, ushort identity) => Source == BonusTooltipSource
+        && ActorId != 0 && BonusIdentity != 0 && ActorId == actorId && BonusIdentity == identity;
+
+    internal static bool SameAddress(CardPlumeState a, CardPlumeState b) => a.ActorId == b.ActorId
+        && a.Source == b.Source && a.FaceCode == b.FaceCode && a.BonusSlot == b.BonusSlot
+        && a.BonusIdentity == b.BonusIdentity && a.EmitterIndex == b.EmitterIndex;
+
+    internal static bool Same(CardPlumeState a, CardPlumeState b) => SameAddress(a, b)
+        && a.ListCount == b.ListCount && a.Flags == b.Flags
         && a.EmitterIndex == b.EmitterIndex && a.StartSizeMultiplier == b.StartSizeMultiplier
         && ((a.Flags >> 6) != 1 || a.EmitterLocalScale.Equals(b.EmitterLocalScale))
         && a.PlaybackRate == b.PlaybackRate && a.CustomSpacePresent == b.CustomSpacePresent
@@ -72,8 +86,7 @@ internal sealed class CardPlumeSnapshot
         {
             if (states[i] == null || !states[i].Validate()) throw new ArgumentException("Invalid native card plume.");
             for (int j = 0; j < i; j++)
-                if (states[j].ActorId == states[i].ActorId && states[j].FaceCode == states[i].FaceCode
-                    && states[j].EmitterIndex == states[i].EmitterIndex)
+                if (CardPlumeState.SameAddress(states[j], states[i]))
                     throw new ArgumentException("Duplicate native card plume seat.");
             States[i] = states[i].Snapshot();
         }

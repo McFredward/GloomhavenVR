@@ -30,9 +30,9 @@ internal sealed class RemoteCardPlume
     }
 
     private readonly RemoteAvatar _owner;
-    private readonly Dictionary<long, Host> _hosts = new();
-    private readonly HashSet<long> _seen = new();
-    private readonly List<long> _prune = new();
+    private readonly Dictionary<(int Actor, byte Source, byte Face, byte Slot, ushort Identity, byte Emitter), Host> _hosts = new();
+    private readonly HashSet<(int Actor, byte Source, byte Face, byte Slot, ushort Identity, byte Emitter)> _seen = new();
+    private readonly List<(int Actor, byte Source, byte Face, byte Slot, ushort Identity, byte Emitter)> _prune = new();
     private readonly List<AbilityCardUI> _widgets = new();
     private CardPlumeState[]? _lastStates;
     private float _receivedAt;
@@ -57,7 +57,7 @@ internal sealed class RemoteCardPlume
             {
                 CardPlumeState state = states[i];
                 if (!CanShow(state)) continue;
-                long key = ((long)state.ActorId << 16) | ((long)state.FaceCode << 8) | state.EmitterIndex;
+                var key = (state.ActorId, state.Source, state.FaceCode, state.BonusSlot, state.BonusIdentity, state.EmitterIndex);
                 _seen.Add(key);
                 if (!_hosts.TryGetValue(key, out Host? host) || host.Root == null)
                 {
@@ -70,7 +70,7 @@ internal sealed class RemoteCardPlume
             }
         }
         _prune.Clear();
-        foreach (long key in _hosts.Keys)
+        foreach (var key in _hosts.Keys)
             if (!_seen.Contains(key)) _prune.Add(key);
         for (int i = 0; i < _prune.Count; i++)
         {
@@ -169,7 +169,8 @@ internal sealed class RemoteCardPlume
         {
             // Item and child colours/gradients remain exactly authored. Only the ability root's
             // colour is overwritten at runtime by CardEffects.SpawnParticle.
-            if (NetProtocol.HeldFaceList(state.FaceCode) != NetProtocol.HeldFaceListItems && state.EmitterIndex == 0)
+            if (state.Source == CardPlumeState.CardSource
+                && NetProtocol.HeldFaceList(state.FaceCode) != NetProtocol.HeldFaceListItems && state.EmitterIndex == 0)
                 main.startColor = state.Color;
             main.simulationSpace = (ParticleSystemSimulationSpace)((state.Flags >> 4) & 3);
             main.scalingMode = (ParticleSystemScalingMode)((state.Flags >> 6) & 3);
@@ -207,7 +208,8 @@ internal sealed class RemoteCardPlume
             bridge = new GameObject("GloomhavenVR.RemoteCardPlumeFrame");
             bridge.SetActive(false);
             GameObject? root;
-            if (NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListItems)
+            if (state.Source == CardPlumeState.BonusTooltipSource
+                || NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListItems)
                 root = CloneItemEmitter(state, bridge.transform);
             else
             {
@@ -254,11 +256,19 @@ internal sealed class RemoteCardPlume
     private static GameObject? CloneItemEmitter(CardPlumeState state, Transform inactiveParent)
     {
         CPlayerActor? actor = RemoteBoardFocus.ActorById(state.ActorId);
-        List<CItem>? items = actor?.Inventory?.AllItems;
-        int seat = NetProtocol.HeldFaceIndex(state.FaceCode);
-        if (items == null || items.Count != state.ListCount || seat >= items.Count
-            || items[seat] == null || ObjectPool.instance == null) return null;
-        CItem item = items[seat];
+        CItem? item;
+        if (state.Source == CardPlumeState.BonusTooltipSource)
+        {
+            CActiveBonus? bonus = actor != null ? UseBarSlotSymbol.ResolveBonusModel(actor, state.BonusIdentity, out _) : null;
+            item = bonus?.Layout == null ? bonus?.BaseCard as CItem : null;
+        }
+        else
+        {
+            List<CItem>? items = actor?.Inventory?.AllItems;
+            int seat = NetProtocol.HeldFaceIndex(state.FaceCode);
+            item = items != null && items.Count == state.ListCount && seat < items.Count ? items[seat] : null;
+        }
+        if (item == null || ObjectPool.instance == null) return null;
         GameObject? holder = null;
         GameObject? card = null;
         try
@@ -275,8 +285,8 @@ internal sealed class RemoteCardPlume
         }
         finally
         {
-            if (card != null) ObjectPool.RecycleCard(item.ID, ObjectPool.ECardType.Item, card);
-            if (holder != null) Object.Destroy(holder);
+            try { if (card != null) RemoteItemCardSource.ReturnBorrowed(item.ID, card); }
+            finally { if (holder != null) Object.Destroy(holder); }
         }
     }
 
@@ -306,6 +316,21 @@ internal sealed class RemoteCardPlume
     {
         CPlayerActor? actor = RemoteBoardFocus.ActorById(state.ActorId);
         if (actor == null) return false;
+        if (state.Source == CardPlumeState.BonusTooltipSource)
+        {
+            int slot = state.BonusSlot;
+            if (_owner.UseBarSlotIds == null || slot >= _owner.UseBarSlotIds.Length
+                || !state.MatchesTooltipOwner(NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _)),
+                    _owner.UseBarSlotIds[slot]) || _owner.UseBarSlotStates == null
+                || slot >= _owner.UseBarSlotStates.Length) return false;
+            CActiveBonus? bonus = UseBarSlotSymbol.ResolveBonusModel(actor, state.BonusIdentity, out _);
+            if (bonus == null || bonus.Layout != null || bonus.BaseCard is not CItem) return false;
+            UseBarWidgetState? descriptor = null;
+            if (_owner.UseBarWidgetStates != null)
+                foreach (UseBarWidgetState value in _owner.UseBarWidgetStates)
+                    if (value.Slot == slot) { descriptor = value; break; }
+            return RemoteUseBarTooltip.IsShown(_owner.UseBarSlotStates[slot], descriptor);
+        }
         int list = NetProtocol.HeldFaceList(state.FaceCode);
         int seat = NetProtocol.HeldFaceIndex(state.FaceCode);
         CAbilityCard? card = null;

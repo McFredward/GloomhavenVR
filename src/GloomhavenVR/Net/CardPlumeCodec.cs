@@ -3,12 +3,16 @@ using UnityEngine;
 
 namespace GloomhavenVR.Net;
 
-/// <summary>Atomic actual smoke frames in additive TLV51. Local pose means owner-board-local,
-/// including the original smoke root's authored placement. No source card art or identity travels.</summary>
+/// <summary>Atomic actual smoke frames in additive TLV51 (cards) and TLV56 (native item tooltips). Local pose means owner-board-local,
+/// including the original smoke root's authored placement. No source card art or identity travels.
+/// Both record namespaces share one complete index/count: old51 readers refuse mixed snapshots
+/// instead of publishing their ordinary-card prefix; ordinary-only51 bytes remain unchanged.</summary>
 internal static class CardPlumeCodec
 {
     internal const int MaxSize = 12288;
-    internal const int MaxEncodedBytes = 9542;
+    internal const int MaxCardEncodedBytes = 9542;
+    internal const int MaxEncodedBytes = 9670;
+    private const byte TooltipRecord = NetProtocol.ExtIdTooltipPlume;
     private const int PayloadBytes = 94;
 
     internal static int Write(CardPlumeSnapshot snapshot, byte[] buffer)
@@ -30,11 +34,18 @@ internal static class CardPlumeCodec
         for (int i = 0; i < snapshot.States.Length; i++)
         {
             CardPlumeState state = snapshot.States[i];
-            buffer[at++] = NetProtocol.ExtIdCardPlume; buffer[at++] = (byte)(PayloadBytes + ((state.Flags >> 6) == 1 ? 12 : 0) + (((state.Flags >> 4) & 3) == 2 ? (state.CustomSpacePresent ? 41 : 1) : 0));
+            bool tooltip = state.Source == CardPlumeState.BonusTooltipSource;
+            buffer[at++] = tooltip ? TooltipRecord : NetProtocol.ExtIdCardPlume; buffer[at++] = (byte)(PayloadBytes + (tooltip ? 2 : 0) + ((state.Flags >> 6) == 1 ? 12 : 0) + (((state.Flags >> 4) & 3) == 2 ? (state.CustomSpacePresent ? 41 : 1) : 0));
             buffer[at++] = (byte)i; buffer[at++] = (byte)snapshot.States.Length;
             AvatarSerializer.WriteF32(buffer, ref at, snapshot.SampleTime);
             AvatarSerializer.WriteI32(buffer, ref at, state.ActorId);
-            buffer[at++] = state.FaceCode; buffer[at++] = state.ListCount; buffer[at++] = state.Flags;
+            if (tooltip)
+            {
+                buffer[at++] = state.Source; buffer[at++] = state.BonusSlot;
+                buffer[at++] = (byte)state.BonusIdentity; buffer[at++] = (byte)(state.BonusIdentity >> 8);
+            }
+            else { buffer[at++] = state.FaceCode; buffer[at++] = state.ListCount; }
+            buffer[at++] = state.Flags;
             buffer[at++] = state.EmitterIndex;
             AvatarSerializer.WriteU32(buffer, ref at, state.Episode);
             AvatarSerializer.WriteU32(buffer, ref at, state.RandomSeed);
@@ -84,9 +95,11 @@ internal static class CardPlumeCodec
             if (at + 2 > length) return false;
             int type = buffer[at++], bytes = buffer[at++], start = at, end = at + bytes;
             if (end > length) return false;
-            if (type != NetProtocol.ExtIdCardPlume) { at = end; continue; }
-            if (bytes != 6 && bytes != PayloadBytes && bytes != PayloadBytes + 1 && bytes != PayloadBytes + 41
-                && bytes != PayloadBytes + 12 && bytes != PayloadBytes + 13 && bytes != PayloadBytes + 53) return false;
+            bool tooltip = type == TooltipRecord;
+            if (type != NetProtocol.ExtIdCardPlume && !tooltip) { at = end; continue; }
+            int payloadBytes = PayloadBytes + (tooltip ? 2 : 0);
+            if ((bytes != 6 || tooltip) && bytes != payloadBytes && bytes != payloadBytes + 1 && bytes != payloadBytes + 41
+                && bytes != payloadBytes + 12 && bytes != payloadBytes + 13 && bytes != payloadBytes + 53) return false;
             int index = buffer[at++], count = buffer[at++];
             float stamp = AvatarSerializer.ReadF32(buffer, ref at);
             if (float.IsNaN(stamp) || float.IsInfinity(stamp) || stamp < 0
@@ -94,10 +107,10 @@ internal static class CardPlumeCodec
             expected = count; time = stamp;
             if (count == 0)
             {
-                if (bytes != 6 || index != 255 || received != 0) return false;
+                if (tooltip || bytes != 6 || index != 255 || received != 0) return false;
                 continue;
             }
-            if (bytes < PayloadBytes || index >= count) return false;
+            if (bytes < payloadBytes || index >= count) return false;
             if (states[index] != null)
             {
                 if (buffer[offsets[index] - 1] != bytes) return false;
@@ -107,20 +120,27 @@ internal static class CardPlumeCodec
             var state = new CardPlumeState
             {
                 ActorId = AvatarSerializer.ReadI32(buffer, ref at),
-                FaceCode = buffer[at++], ListCount = buffer[at++], Flags = buffer[at++], EmitterIndex = buffer[at++],
-                Episode = AvatarSerializer.ReadU32(buffer, ref at),
-                RandomSeed = AvatarSerializer.ReadU32(buffer, ref at),
-                Age = AvatarSerializer.ReadF32(buffer, ref at),
-                PlaybackRate = AvatarSerializer.ReadF32(buffer, ref at),
-                StartSizeMultiplier = AvatarSerializer.ReadF32(buffer, ref at),
-                StartSpeedMultiplier = AvatarSerializer.ReadF32(buffer, ref at),
-                Color = new Color(AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at),
-                    AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at)),
-                LocalPosition = ReadVector(buffer, ref at),
-                LocalRotation = new Quaternion(AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at),
-                    AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at)),
-                LocalScale = ReadVector(buffer, ref at),
             };
+            if (tooltip)
+            {
+                state.Source = buffer[at++]; state.BonusSlot = buffer[at++];
+                state.BonusIdentity = (ushort)(buffer[at++] | buffer[at++] << 8);
+                if (state.Source != CardPlumeState.BonusTooltipSource) return false;
+            }
+            else { state.FaceCode = buffer[at++]; state.ListCount = buffer[at++]; }
+            state.Flags = buffer[at++]; state.EmitterIndex = buffer[at++];
+            state.Episode = AvatarSerializer.ReadU32(buffer, ref at);
+            state.RandomSeed = AvatarSerializer.ReadU32(buffer, ref at);
+            state.Age = AvatarSerializer.ReadF32(buffer, ref at);
+            state.PlaybackRate = AvatarSerializer.ReadF32(buffer, ref at);
+            state.StartSizeMultiplier = AvatarSerializer.ReadF32(buffer, ref at);
+            state.StartSpeedMultiplier = AvatarSerializer.ReadF32(buffer, ref at);
+            state.Color = new Color(AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at),
+                AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at));
+            state.LocalPosition = ReadVector(buffer, ref at);
+            state.LocalRotation = new Quaternion(AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at),
+                AvatarSerializer.ReadF32(buffer, ref at), AvatarSerializer.ReadF32(buffer, ref at));
+            state.LocalScale = ReadVector(buffer, ref at);
             if ((state.Flags >> 6) == 1)
             {
                 if (end - at < 12) return false;
@@ -141,7 +161,7 @@ internal static class CardPlumeCodec
             }
             if (at != end || !state.Validate()) return false;
             for (int j = 0; j < states.Length; j++)
-                if (states[j] != null && states[j]!.ActorId == state.ActorId && states[j]!.FaceCode == state.FaceCode && states[j]!.EmitterIndex == state.EmitterIndex)
+                if (states[j] != null && CardPlumeState.SameAddress(states[j]!, state))
                     return false;
             states[index] = state; offsets[index] = start; received++;
         }

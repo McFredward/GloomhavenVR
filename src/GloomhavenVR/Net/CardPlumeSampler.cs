@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.Net;
 
-/// <summary>Reads only live native smoke bound to actual VR cards, in the owner's board frame.</summary>
+/// <summary>Reads live native smoke on actual VR cards and original item tooltips, in the owner's board frame.</summary>
 internal static class CardPlumeSampler
 {
     private static readonly List<BurnCardFx> s_live = new();
@@ -85,6 +85,7 @@ internal static class CardPlumeSampler
                     Add(board, actor!, code, (byte)items.Count, (byte)j, smoke);
                 }
             }
+            SampleBonusTooltips(board);
         }
         s_pruneEmitters.Clear();
         foreach (ParticleSystem smoke in s_activations.Keys)
@@ -98,7 +99,10 @@ internal static class CardPlumeSampler
         // Registry iteration order is not a wire identity. Stable ordering permits a true
         // unchanged snapshot to reuse its immutable array after all native reads have completed.
         s_states.Sort((a, b) => a.ActorId != b.ActorId ? a.ActorId.CompareTo(b.ActorId)
+            : a.Source != b.Source ? a.Source.CompareTo(b.Source)
             : a.FaceCode != b.FaceCode ? a.FaceCode.CompareTo(b.FaceCode)
+            : a.BonusSlot != b.BonusSlot ? a.BonusSlot.CompareTo(b.BonusSlot)
+            : a.BonusIdentity != b.BonusIdentity ? a.BonusIdentity.CompareTo(b.BonusIdentity)
             : a.EmitterIndex.CompareTo(b.EmitterIndex));
         bool same = s_previous.Length == s_states.Count;
         for (int i = 0; same && i < s_states.Count; i++)
@@ -107,8 +111,37 @@ internal static class CardPlumeSampler
         return s_previous;
     }
 
+    private static void SampleBonusTooltips(Transform board)
+    {
+        for (int slot = 0; slot < 8; slot++)
+        {
+            UIUseActiveBonus? source = WorldUI.Surfaces.UseBarsSurface.AnimationSourceAt(slot);
+            if (source == null || !source.gameObject.activeInHierarchy
+                || source.actor is not CPlayerActor actor) continue;
+            bool local = CardsGameApi.LocalControlsActor(actor, out bool ownershipKnown);
+            if (!local && (ownershipKnown || !actor.IsUnderMyControl)) continue;
+            UIItemTooltip? tooltip = source.tooltip != null ? source.tooltip.itemTooltip : null;
+            ItemCardUI? card = tooltip != null ? tooltip.m_ItemCardUI : null;
+            if (tooltip == null || card == null || !tooltip.gameObject.activeInHierarchy
+                || !card.gameObject.activeInHierarchy) continue;
+            ushort identity = UseBarSlotSymbol.SlotId(0, source.transform);
+            CActiveBonus? bonus = UseBarSlotSymbol.ResolveBonusModel(actor, identity, out _);
+            if (identity == 0 || bonus == null || bonus.Layout != null || bonus.BaseCard is not CItem item
+                || !ReferenceEquals(card.item, item)) continue;
+            ParticleSystem[] emitters = card.GetComponentsInChildren<ParticleSystem>(true);
+            for (int emitter = 0; emitter < emitters.Length; emitter++)
+            {
+                ParticleSystem smoke = emitters[emitter];
+                if (smoke == null || !smoke.gameObject.activeInHierarchy
+                    || (!smoke.isPlaying && !smoke.isPaused && !smoke.IsAlive(false))) continue;
+                if (emitter > byte.MaxValue) throw new InvalidOperationException("Native tooltip emitter index exceeds wire domain.");
+                Add(board, actor, 0, 0, (byte)emitter, smoke, (byte)slot, identity);
+            }
+        }
+    }
+
     private static void Add(Transform board, CPlayerActor actor, byte code, byte count,
-        byte emitter, ParticleSystem smoke)
+        byte emitter, ParticleSystem smoke, byte bonusSlot = 0, ushort bonusIdentity = 0)
     {
         ParticleSystem.MainModule main = smoke.main;
         Vector3 boardScale = board.lossyScale;
@@ -124,6 +157,8 @@ internal static class CardPlumeSampler
         var state = new CardPlumeState
         {
             ActorId = NetFigures.StableActorId(actor), FaceCode = code, ListCount = count,
+            Source = bonusIdentity != 0 ? CardPlumeState.BonusTooltipSource : CardPlumeState.CardSource,
+            BonusSlot = bonusSlot, BonusIdentity = bonusIdentity,
             EmitterIndex = emitter, Episode = activation.Episode, RandomSeed = smoke.randomSeed, Age = smoke.time,
             StartSizeMultiplier = main.startSizeMultiplier, StartSpeedMultiplier = main.startSpeedMultiplier,
             PlaybackRate = !smoke.isPaused && (smoke.isPlaying || smoke.IsAlive(false))
@@ -152,6 +187,8 @@ internal static class CardPlumeSampler
         }
         if (!state.Validate())
             throw new InvalidOperationException("Native smoke exceeds the validated presentation frame domain.");
+        if (s_states.Count >= CardPlumeState.CountMax)
+            throw new InvalidOperationException("Combined native card/tooltip emitters exceed the complete snapshot bound.");
         s_states.Add(state);
     }
 

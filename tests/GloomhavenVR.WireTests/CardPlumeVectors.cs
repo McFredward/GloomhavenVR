@@ -31,7 +31,7 @@ internal static class CardPlumeVectors
             maximum[i].CustomSpacePresent = true; maximum[i].CustomRotation = Quaternion.identity;
             maximum[i].CustomScale = Vector3.one; }
         length = CardPlumeCodec.Write(new CardPlumeSnapshot(3, maximum), buffer);
-        t.Equal(CardPlumeCodec.MaxEncodedBytes, length, "maximum native emitters fit the documented bound");
+        t.Equal(CardPlumeCodec.MaxCardEncodedBytes, length, "maximum native emitters fit the documented bound");
         t.True(length < CardPlumeCodec.MaxSize, "smoke leaves room within its dedicated transport buffer");
         for (int n = 0; n < length; n++)
             t.True(!CardPlumeCodec.TryRead(buffer, n, out _), "a torn smoke frame cannot publish a partial live set");

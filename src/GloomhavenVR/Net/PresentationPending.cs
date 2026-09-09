@@ -38,7 +38,7 @@ internal static class PresentationPending
         {
             bool found = false;
             foreach (CardPlumeState y in b.States)
-                if (x.ActorId == y.ActorId && x.FaceCode == y.FaceCode && x.EmitterIndex == y.EmitterIndex && x.Episode == y.Episode)
+                if (CardPlumeState.SameAddress(x, y) && x.Episode == y.Episode)
                 { found = true; break; }
             if (!found) return false;
         }
