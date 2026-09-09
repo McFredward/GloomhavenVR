@@ -1542,6 +1542,11 @@ internal sealed class UseBarsSurface
             && (GameState.WaitingForPlayerToSelectDamageResponse || GameState.WaitingForPlayerActorToAvoidDamageResponse))
             actor = panel.actorToShowCardsFor ?? panel.actorBeingAttacked as CPlayerActor
                 ?? (panel.actorBeingAttacked as CHeroSummonActor)?.Summoner;
+        if (actor == null && DecisionDockSurface.WireButtonLines != null)
+        {
+            DecisionDockSurface.PromptFocus.ShouldHide(out actor, out _);
+            if (actor != null && Board.CharacterFocus.IsForeign(actor)) actor = null;
+        }
         if (actor == null && Current != null)
         {
             foreach (BarDock dock in Current._docks)

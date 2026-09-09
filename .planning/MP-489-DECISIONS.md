@@ -58,3 +58,8 @@ the owner. Closing/removing a peer drops only the dedicated peer focus request.
 
 Current strict integration build:0 errors/0 warnings, with a temporary copy of the integrator's
 owner-lookup seam for compilation (that copy is intentionally excluded from worker commits).
+
+Full worker wire suite with the two new test registrations:249519 assertions passed (35 added),
+including explicit negative controls removing actual claimant lookup and original tooltip restore.
+The actor-attribution review also covers short-rest/confirmation prompts through the dock's
+existing PromptOwner resolver, and detached mirror hosts now hide when their board mount hides.

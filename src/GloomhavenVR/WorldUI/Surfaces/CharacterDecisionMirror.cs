@@ -32,7 +32,7 @@ internal sealed class CharacterDecisionMirror
 
     internal void TickAt(CPlayerActor? actor, RemoteAvatar boardOwner, Transform mount, float ceiling, float gap)
     {
-        if (actor == null) { Hide(); return; }
+        if (actor == null || !mount.gameObject.activeInHierarchy) { Hide(); return; }
         CharacterDecisionPresentation? picture;
         if (!CharacterDecisionPresentation.TryGetLocal(actor, out picture))
         {
