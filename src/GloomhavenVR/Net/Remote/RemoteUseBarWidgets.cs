@@ -54,7 +54,15 @@ internal sealed class RemoteUseBarWidgets
         _stageNative = new NativeUseBarState?[count];
         // Width-only fit, like UseBarsSurface.StackDocked; open pickers grow downward.
         _mirror = new RemoteWidgetMirror("UseBar" + bar, mount, Cards.PlayTray.DecisionMountWidth,
-            float.MaxValue, new Vector2(0f, -1f), densityScale: WorldUI.Surfaces.UseBarsSurface.DensityScale, contentOutsideFrame: true);
+            float.MaxValue, new Vector2(0f, -1f), densityScale: WorldUI.Surfaces.UseBarsSurface.DensityScale,
+            contentOutsideFrame: true, excludedFromFitBranch: IsOriginalTooltipRoot);
+    }
+
+    private bool IsOriginalTooltipRoot(Transform source)
+    {
+        foreach (Slot slot in _stageSlots)
+            if (slot.Tooltip?.OwnsRoot(source) == true) return true;
+        return false;
     }
 
     internal int Count => _count;

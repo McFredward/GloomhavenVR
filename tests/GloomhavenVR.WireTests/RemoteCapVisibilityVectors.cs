@@ -57,7 +57,7 @@ internal static class RemoteCapVisibilityVectors
         return dissolve.Length > 0 && !Regex.IsMatch(dissolve, @"_shownScale\s*=");
     }
 
-    private static string Method(string source, string signature)
+    internal static string Method(string source, string signature)
     {
         source = Regex.Replace(source, "//[^\\r\\n]*|/\\*[\\s\\S]*?\\*/|@\"(?:[^\"]|\"\")*\"|\"(?:\\\\.|[^\"\\\\])*\"", " ");
         int start = source.IndexOf(signature, StringComparison.Ordinal);

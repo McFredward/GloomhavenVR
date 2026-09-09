@@ -113,7 +113,9 @@ internal sealed class RemoteUseBarTooltip
         }
         finally
         {
-            try { if (borrowed != null) ObjectPool.RecycleCard(item.ID, ObjectPool.ECardType.Item, borrowed); }
+            // The native item recycle branch leaves its parent unchanged. The shared return
+            // detaches the game-owned borrow before this temporary holder can be destroyed.
+            try { if (borrowed != null) RemoteItemCardSource.ReturnBorrowed(item.ID, borrowed); }
             finally { UnityEngine.Object.Destroy(holder); }
         }
     }
@@ -225,6 +227,9 @@ internal sealed class RemoteUseBarTooltip
         && ReferenceEquals(_layout, model?.Layout) && _tracker == (model?.TrackerIndex ?? 0)
         && _remaining == (model?.Remaining ?? 0) && _strength == (model?.Ability.Strength ?? 0)
         && _itemState == (model?.BaseCard is CItem item ? item.SlotState : CItem.EItemSlotState.None);
+
+    internal bool OwnsRoot(Transform source) =>
+        _bonusRoot != null && source == _bonusRoot.transform || _itemRoot != null && source == _itemRoot.transform;
 
     internal RemoteUseBarTooltip Map(RemoteWidgetMirror mirror) => new()
     {

@@ -140,6 +140,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// assumption shipped.
     /// </summary>
     private readonly System.Func<Transform, bool>? _externalBranch;
+    private readonly System.Func<Transform, bool>? _excludedFromFitBranch;
 
     /// <summary>
     /// THE ONE PLACE THIS FILE TURNS TRAY METRES INTO uGUI PIXELS — <c>TrayPixelsPerMeter</c> ×
@@ -265,14 +266,18 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// CALLER decides — see <see cref="Pair.External"/>. Evaluated once per clone REBUILD, on the
     /// source and on the clone, never per frame. Null (the default) is every mirror that has no
     /// such branch, i.e. the behaviour that shipped before this parameter existed.</param>
+    /// <param name="excludedFromFitBranch">Original hover branches that leave the owner's measured
+    /// panel. Only their bounds are excluded; their real content and asynchronous art still sync.</param>
     public RemoteWidgetMirror(string name, Transform mount, float mountWidth, float mountMaxHeight,
         Vector2 grow, bool fitWidth = true, float densityScale = 1f, bool driveFromSource = true,
         LayoutOwner layoutOwner = LayoutOwner.Source,
-        System.Func<Transform, bool>? externallyShownBranch = null, bool contentOutsideFrame = false)
+        System.Func<Transform, bool>? externallyShownBranch = null, bool contentOutsideFrame = false,
+        System.Func<Transform, bool>? excludedFromFitBranch = null)
     {
         _contentOutsideFrame = contentOutsideFrame;
         _layoutOwner = layoutOwner;
         _externalBranch = externallyShownBranch;
+        _excludedFromFitBranch = excludedFromFitBranch;
         _driveFromSource = driveFromSource;
         _name = name;
         _mount = mount;
@@ -602,6 +607,12 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                 external++;
             }
         }
+        // Native highlighted tooltips leave the owner's measured panel before becoming visible.
+        // Keep copying their real content/async art while excluding only their bounds from fit.
+        if (_excludedFromFitBranch != null)
+            for (int i = 0; i < n; i++)
+                if (srcNodes[i] != null && _excludedFromFitBranch(srcNodes[i]))
+                    _pairs[i].ExcludeFromFit();
         int secret = SuppressSecretBranches(clone.transform);
         RebuildStamp++; // CloneOf holders must re-resolve against the fresh clone
         // A clone rebuild is an Instantiate of a whole game panel plus a full re-pair — the single
@@ -2021,7 +2032,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             // in, the panel would shrink on a peer's board for exactly as long as that peer hovers
             // an enemy: the owner's own dock never sizes itself to the popup either, so including it
             // would be a 1:1 breach, not a fix. One index jump per branch, the extents' whole point.
-            if (pairs[i].External)
+            if (pairs[i].External || pairs[i].ExcludedFromFit)
             {
                 int past = pairs[i].SkipTo;
                 i = past > i ? past - 1 : i;
@@ -2247,6 +2258,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         /// and no dependence whatever on this client having opened the popup first.</para>
         /// </summary>
         public bool External { get; private set; }
+        public bool ExcludedFromFit { get; private set; }
+        public void ExcludeFromFit() => ExcludedFromFit = true;
 
         /// <summary>Latch <see cref="External"/>. Through the array element, like
         /// <see cref="Suppress"/>.</summary>
