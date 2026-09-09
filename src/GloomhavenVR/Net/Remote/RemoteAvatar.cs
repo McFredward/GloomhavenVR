@@ -2234,6 +2234,14 @@ internal sealed class RemoteAvatar
         _fxSeen++;
         _lastFxSeq = sequence;
         LogCardFxLoss(gap);
+        // Explicit provenance cannot degrade to the currently viewed character after an actor
+        // disappears or control changes. A delayed cosmetic event must not dress an unrelated card.
+        if (source.HasValue)
+        {
+            ScenarioRuleLibrary.CPlayerActor? actor = RemoteBoardFocus.ActorById(source.Value.ActorId);
+            if (actor == null || !NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? controller)
+                || controller?.PlayerId != PlayerId) return;
+        }
         if (!_burnFx.ConsumesWireEvent(endpoints, flags, source))
             _cardFx.Play(endpoints, flags, source);
     }

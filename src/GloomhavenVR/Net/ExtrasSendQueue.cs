@@ -24,6 +24,8 @@ internal sealed class ExtrasSendQueue
                 ? PresentationPending.SameNativeIdentity(x, y)
                 : a.Identity is UseBarAnimationSnapshot p && b.Identity is UseBarAnimationSnapshot q
                     ? PresentationPending.SameBonusIdentity(p, q)
+                    : a.Identity is NativeDecisionPromptSnapshot h && b.Identity is NativeDecisionPromptSnapshot j
+                        ? NativeDecisionPromptSnapshot.SameIdentity(h, j)
                     : a.Identity is CardAppearanceSnapshot c && b.Identity is CardAppearanceSnapshot d
                         ? CardAppearanceSnapshot.SameIdentity(c, d)
                         : a.Identity is NativeBoardState m && b.Identity is NativeBoardState n && m.Generation == n.Generation;
@@ -82,7 +84,7 @@ internal sealed class ExtrasSendQueue
             }
             else _latest = null;
             _sequence += _sequenceStride;
-            _pages = ExtrasFragments.Encode(next, next.Length, _sequence, _payloadType, _envelopeType, _snapshotLimit);
+            _pages = ExtrasFragments.Encode(next, next.Length, _sequence, _payloadType, _envelopeType, _snapshotLimit, compress: true);
             _page = 0;
         }
         byte[] result = _pages[_page++];
@@ -104,6 +106,7 @@ internal sealed class ExtrasSendScheduler
     private readonly ExtrasSendQueue _plumes;
     private readonly ExtrasSendQueue _board;
     private readonly ExtrasSendQueue _appearance;
+    private readonly ExtrasSendQueue _prompt;
     private byte[]? _heldPage;
     private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
     private readonly byte _animationType;
@@ -120,6 +123,8 @@ internal sealed class ExtrasSendScheduler
             preserveFirst: true, snapshotLimit: NativeBoardCodec.MaxSize);
         _appearance = new ExtrasSendQueue(sequence, NetProtocol.MsgCardAppearance, NetProtocol.MsgCardAppearanceFragments,
             preserveFirst: true, snapshotLimit: CardAppearanceCodec.MaxSize);
+        _prompt = new ExtrasSendQueue(sequence, NetProtocol.MsgNativeDecisionPrompt, NetProtocol.MsgNativeDecisionPromptFragments,
+            preserveFirst: true, snapshotLimit: NativeDecisionPromptCodec.MaxSize);
         for (int slot = 8; slot < _native.Length; slot++)
             _native[slot] = new ExtrasSendQueue((sequence & ~31UL) | (uint)slot,
                 NetProtocol.MsgNativeUseBar, NetProtocol.MsgNativeUseBarFragments,
@@ -142,6 +147,11 @@ internal sealed class ExtrasSendScheduler
         {
             if (identity is not NativeBoardState && NativeBoardCodec.TryRead(snapshot, length, out NativeBoardState? board)) identity = board;
             _board.Enqueue(snapshot, length, identity);
+        }
+        else if (type == NetProtocol.MsgNativeDecisionPrompt)
+        {
+            if (identity is not NativeDecisionPromptSnapshot && NativeDecisionPromptCodec.TryRead(snapshot, length, out NativeDecisionPromptSnapshot? prompt)) identity = prompt;
+            _prompt.Enqueue(snapshot, length, identity);
         }
         else if (type == NetProtocol.MsgCardAppearance)
         {
@@ -190,14 +200,14 @@ internal sealed class ExtrasSendScheduler
         byte[]? result = announcement;
         // Empty streams cost no turn. With only the original two streams populated this is
         // still exactly two animation pages followed by one waiting presence page.
-        for (int attempt = 0; result == null && attempt < 8; attempt++)
+        for (int attempt = 0; result == null && attempt < 9; attempt++)
         {
             int turn = _turn;
-            _turn = (_turn + 1) % 8;
+            _turn = (_turn + 1) % 9;
             result = turn < 2 ? _animation.Next(now)
                 : turn == 2 ? _presence.Next(now)
                 : turn == 3 ? _plumes.Next(now) : turn == 6 ? _board.Next(now)
-                : turn == 7 ? _appearance.Next(now) : NextNative(now);
+                : turn == 7 ? _appearance.Next(now) : turn == 8 ? _prompt.Next(now) : NextNative(now);
         }
         return result;
     }
@@ -216,7 +226,7 @@ internal sealed class ExtrasSendScheduler
 
     internal void Clear()
     {
-        _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _heldPage = null;
+        _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _prompt.Clear(); _heldPage = null;
         for (int i = 8; i < _native.Length; i++) _native[i].Clear();
         _next = 0; _turn = 0; _nativeCursor = 8;
     }

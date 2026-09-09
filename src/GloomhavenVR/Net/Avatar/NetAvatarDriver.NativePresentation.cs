@@ -32,6 +32,8 @@ internal sealed partial class NetAvatarDriver
         // Presence consumes this immutable snapshot on its next tick, never an unfinished layout.
         try { _decisionHighlightSnapshot = NativeDecisionHighlightSampler.Sample(); }
         catch (Exception e) { _decisionHighlightSnapshot = null; LogPhaseError("Sample native decision highlight", e); }
+        try { TickNativePromptSend(now); }
+        catch (Exception e) { LogPhaseError("Sample native decision prompt", e); }
         try { TickCardAppearanceSend(now); }
         catch (Exception e) { LogPhaseError("Sample native card appearance", e); }
         try { TickNativeBoardSend(now); }
@@ -110,6 +112,8 @@ internal sealed partial class NetAvatarDriver
 
     private bool QueueNativePresentation(int sender, byte[] buffer, int length)
     {
+        if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgNativeDecisionPrompt)
+            return QueueNativePrompt(sender, buffer, length);
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgCardAppearance)
             return QueueCardAppearance(sender, buffer, length);
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgNativeBoard)
@@ -153,6 +157,7 @@ internal sealed partial class NetAvatarDriver
     private void ApplyNativePresentation()
     {
         ApplyCardAppearance();
+        ApplyNativePrompt();
         foreach (var pair in _pendingBoards)
         {
             if (pair.Value.Count == 0) continue;
@@ -192,12 +197,13 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetCardAppearance(sender); }
+    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); }
 
     private void ResetNativePresentation()
     {
         _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
         ResetCardAppearance();
+        ResetNativePrompt();
         _lastSentDamageDecisionPreview = null;
         _lastSentDecisionActor = 0;
         _lastSentDecisionPending = _lastSentDecisionVisible = false;

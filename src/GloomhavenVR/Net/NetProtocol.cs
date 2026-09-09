@@ -62,6 +62,12 @@ internal static class NetProtocol
     public const byte MsgNativeBoardFragments = 11;
     public const byte MsgCardAppearance = 12;
     public const byte MsgCardAppearanceFragments = 13;
+    public const byte MsgNativeDecisionPrompt = 14;
+    public const byte MsgNativeDecisionPromptFragments = 15;
+    public const byte ExtIdNativeDecisionPrompt = 63;
+    public const byte MsgPresentationCompression = 16;
+    public const byte ExtIdPresentationCompression = 64;
+    public const byte ExtIdDamageAvoidance = 65;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;
@@ -475,7 +481,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 488;
+    public const ushort ModBuild = 489;
+
+    // ModBuild489 — MB488 multiplayer findings and owner-presentation review (2026-09-09).
+    //   Actual owner card material/graphic/group output replaces destination/proxy guesses;
+    //   recovered fans clear inherited spent effects, and flame visibility is native output.
+    //   Held pose/source/actor arrive together, withholding an unresolved public front so a back
+    //   cannot flash before it. Character-bound original decisions and hover hints remain visible
+    //   on every board viewing the character; only its actual game controller can select them.
+    //   Native pending health uses PreDamageHealth as a fixed endpoint and synchronizes shield
+    //   previews with Pierce and selected card avoidance. Wrist HP stays committed until the response resolves; condition keys localize.
+    //   Active exits retain actual actor/model seat and route to Discard or Burnt by real fate.
+    //   Burns wait for both native timelines even across focus changes/paused clocks. Recent
+    //   flight history preserves paired launches through presence coalescing and retransmission.
+    //   Trample was blocked by original Disarm, proven on both clients; no rules change.
+    //   Additive57..65; messages12/13 card appearance,14/15 native decision prompt and16
+    //   lossless bounded compression with checksum. Original presentation bytes are preserved.
+    //   GVR1/v3 and previous grammars unchanged; extras3826 worst/4088 buffer/4096 assembly.
+    //   Gates: strict Release0 errors/0 warnings, all17 checkers,251037 wire assertions; config625,
+    //   patch registration107 classes/165 methods, log tokens4714. Docs/refasm checks pass.
+    //   See .planning/MP-ROUND-489.md for all thirteen findings and evidence limits. DLL-only
+    //   after full483; the actual headset picture and animation feel require a hardware retest.
 
     // ModBuild 488 — animate window facing after laser release (2026-09-09).
     //   Modal windows and floated surface panels turn visibly toward the release-time viewer

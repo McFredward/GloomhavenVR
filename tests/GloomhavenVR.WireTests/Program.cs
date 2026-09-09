@@ -29,6 +29,8 @@ internal static class Program
             HeldFaceAtomicVectors.Run(t);
             CardAppearanceVectors.Run(t, repoRoot);
             CharacterDecisionParityVectors.Run(t, repoRoot);
+            NativeDecisionPromptVectors.Run(t);
+            PresentationCompressionVectors.Run(t);
             DecisionAttributionVectors.Run(t);
             CardFlightHistoryVectors.Run(t);
             BurnFlightCompletionVectors.Run(t, repoRoot);

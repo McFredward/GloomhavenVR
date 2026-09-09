@@ -578,6 +578,10 @@
     <Compile Include="HeldFaceAtomicVectors.cs" />
     <Compile Include="CardAppearanceVectors.cs" />
     <Compile Include="CharacterDecisionParityVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeDecisionPromptState.cs" />
+    <Compile Include="NativeDecisionPromptVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/PresentationCompression.cs" />
+    <Compile Include="PresentationCompressionVectors.cs" />
     <Compile Include="DecisionAttributionVectors.cs" />
     <Compile Include="CardFlightHistoryVectors.cs" />
   </ItemGroup>

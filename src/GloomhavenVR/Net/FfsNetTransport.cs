@@ -54,6 +54,8 @@ internal sealed class FfsNetTransport : INetTransport
         NetProtocol.MsgUseBarAnimationFragments, assemblyLifetime: ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _plumeFragments = new(NetProtocol.MsgCardPlume,
         NetProtocol.MsgCardPlumeFragments, CardPlumeCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
+    private readonly ExtrasFragments _promptFragments = new(NetProtocol.MsgNativeDecisionPrompt,
+        NetProtocol.MsgNativeDecisionPromptFragments, NativeDecisionPromptCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _appearanceFragments = new(NetProtocol.MsgCardAppearance,
         NetProtocol.MsgCardAppearanceFragments, CardAppearanceCodec.MaxSize, ExtrasFragments.PresentationAssemblyLifetime);
     private readonly ExtrasFragments _boardFragments = new(NetProtocol.MsgNativeBoard,
@@ -81,6 +83,7 @@ internal sealed class FfsNetTransport : INetTransport
         _plumeFragments.Forget(senderId);
         _boardFragments.Forget(senderId);
         _appearanceFragments.Forget(senderId);
+        _promptFragments.Forget(senderId);
         for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Forget(senderId);
     }
     internal void ResetFragments()
@@ -90,6 +93,7 @@ internal sealed class FfsNetTransport : INetTransport
         _plumeFragments.Clear();
         _boardFragments.Clear();
         _appearanceFragments.Clear();
+        _promptFragments.Clear();
         for (int i = 8; i < _nativeFragments.Length; i++) _nativeFragments[i].Clear();
         _extrasQueue.Clear();
         _nextVersionAnnouncement = 0;
@@ -249,7 +253,7 @@ internal sealed class FfsNetTransport : INetTransport
         {
             if (length < 6 || length > payload.Length) return;
             int type = NetPacket.PeekType(payload, length);
-            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance)
+            if (type == NetProtocol.MsgExtras || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume || type == NetProtocol.MsgNativeBoard || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt)
             {
                 _extrasQueue.Enqueue(payload, length);
                 return;
@@ -394,18 +398,33 @@ internal sealed class FfsNetTransport : INetTransport
                 return;
             }
             int type = length >= 6 && length <= buffer.Length ? NetPacket.PeekType(buffer, length) : -1;
-            if (type == NetProtocol.MsgExtrasFragments || type == NetProtocol.MsgUseBarAnimationFragments
-                || type == NetProtocol.MsgCardPlumeFragments || type == NetProtocol.MsgNativeUseBarFragments
-                || type == NetProtocol.MsgNativeBoardFragments || type == NetProtocol.MsgCardAppearanceFragments)
+            int compressedType = type == NetProtocol.MsgPresentationCompression
+                ? ExtrasFragments.CompressedPayloadType(buffer, length) : -1;
+            if (type == NetProtocol.MsgPresentationCompression && compressedType < 0) return;
+            int routedType = type == NetProtocol.MsgPresentationCompression ? compressedType switch
+            {
+                NetProtocol.MsgExtras => NetProtocol.MsgExtrasFragments,
+                NetProtocol.MsgUseBarAnimation => NetProtocol.MsgUseBarAnimationFragments,
+                NetProtocol.MsgCardPlume => NetProtocol.MsgCardPlumeFragments,
+                NetProtocol.MsgNativeUseBar => NetProtocol.MsgNativeUseBarFragments,
+                NetProtocol.MsgNativeBoard => NetProtocol.MsgNativeBoardFragments,
+                NetProtocol.MsgCardAppearance => NetProtocol.MsgCardAppearanceFragments,
+                NetProtocol.MsgNativeDecisionPrompt => NetProtocol.MsgNativeDecisionPromptFragments,
+                _ => -1,
+            } : type;
+            if (routedType == NetProtocol.MsgExtrasFragments || routedType == NetProtocol.MsgUseBarAnimationFragments
+                || routedType == NetProtocol.MsgCardPlumeFragments || routedType == NetProtocol.MsgNativeUseBarFragments
+                || routedType == NetProtocol.MsgNativeBoardFragments || routedType == NetProtocol.MsgCardAppearanceFragments || routedType == NetProtocol.MsgNativeDecisionPromptFragments)
             {
                 _receivedFragments++;
-                int slot = type == NetProtocol.MsgNativeUseBarFragments ? ExtrasFragments.NativeSlotStream(buffer, length) : -1;
-                if (type == NetProtocol.MsgNativeUseBarFragments && (slot < 8 || slot >= 32)) return;
-                ExtrasFragments assembler = type == NetProtocol.MsgExtrasFragments ? _fragments
-                    : type == NetProtocol.MsgUseBarAnimationFragments ? _animationFragments
-                    : type == NetProtocol.MsgCardPlumeFragments ? _plumeFragments
-                    : type == NetProtocol.MsgNativeBoardFragments ? _boardFragments
-                    : type == NetProtocol.MsgCardAppearanceFragments ? _appearanceFragments : _nativeFragments[slot];
+                int slot = routedType == NetProtocol.MsgNativeUseBarFragments ? ExtrasFragments.NativeSlotStream(buffer, length) : -1;
+                if (routedType == NetProtocol.MsgNativeUseBarFragments && (slot < 8 || slot >= 32)) return;
+                ExtrasFragments assembler = routedType == NetProtocol.MsgExtrasFragments ? _fragments
+                    : routedType == NetProtocol.MsgUseBarAnimationFragments ? _animationFragments
+                    : routedType == NetProtocol.MsgCardPlumeFragments ? _plumeFragments
+                    : routedType == NetProtocol.MsgNativeBoardFragments ? _boardFragments
+                    : routedType == NetProtocol.MsgCardAppearanceFragments ? _appearanceFragments
+                    : routedType == NetProtocol.MsgNativeDecisionPromptFragments ? _promptFragments : _nativeFragments[slot];
                 byte[]? complete = assembler.Accept(senderId, buffer, length,
                     System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency);
                 if (complete != null)

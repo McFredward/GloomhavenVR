@@ -198,19 +198,12 @@ internal sealed class RemoteBurnFx
         /// its own. Zero means the card was never seated where this client could see it.</summary>
         public int SeatedFrames;
 
-        /// <summary>The owner's OWN burnt widget, kept so the hold can read the OWNER'S completion
-        /// signal — <see cref="BurnArtwork.Playing"/> over this widget's <c>CardEffects</c> — rather
-        /// than a proxy for it. The model is local, so this is the same object the owner's own
-        /// <c>CardsDriver.TryTakeBurnFlightSlot</c> reads on his machine.</summary>
+        /// <summary>This client's native counterpart, retained for model/artwork lookup. It is
+        /// not the owner's running coroutine; the owner's semantic event authorizes release.</summary>
         public AbilityCardUI? Widget;
 
-        /// <summary>Did this client ever OBSERVE the owner's burn artwork running on
-        /// <see cref="Widget"/>? False for the whole hold means the game's own
-        /// <c>BurnCardTimeline</c> bailed here (its first statement refuses an inactive hierarchy),
-        /// so the hold fell back to <see cref="BurnArtwork.StartGraceSeconds"/> — the SAME constant
-        /// the owner then used, which is why the fallback is still one signal and not a second
-        /// sequencer. Printed on the hand-over line; it is what separates a measured 1:1 from an
-        /// assumed one.</summary>
+        /// <summary>Whether this client's native counterpart was observed animating. Diagnostic
+        /// evidence only; absence cannot finish an owner's burn.</summary>
         public bool ArtworkObserved;
 
         /// <summary>Seconds this presentation's own slab stood STILL at the flight's origin before

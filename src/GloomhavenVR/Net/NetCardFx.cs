@@ -36,8 +36,25 @@ internal static class NetCardFx
 
     private static readonly Queue<(byte Endpoints, byte Flags, CardFlightSource? Source)> s_queue = new(MaxQueued);
     private static byte s_seq;
-    private static readonly Queue<CardFlightEvent> s_history = new(CardFlightHistory.CountMax);
-    internal static CardFlightHistory History { get; private set; } = new(0, System.Array.Empty<CardFlightEvent>());
+    private static readonly Queue<(CardFlightEvent Event, double SentAt)> s_history = new(CardFlightHistory.CountMax);
+    private static CardFlightHistory s_historySnapshot = new(0, System.Array.Empty<CardFlightEvent>());
+    internal static CardFlightHistory History => HistoryAt(Clock());
+    private static double Clock() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
+    internal static CardFlightHistory HistoryAt(double now)
+    {
+        bool changed = false;
+        while (s_history.Count > 0 && now - s_history.Peek().SentAt > 2.0)
+        { s_history.Dequeue(); changed = true; }
+        if (changed) RefreshHistory();
+        return s_historySnapshot;
+    }
+    private static void RefreshHistory()
+    {
+        var events = new CardFlightEvent[s_history.Count];
+        int i = 0;
+        foreach (var value in s_history) events[i++] = value.Event;
+        s_historySnapshot = new CardFlightHistory(s_seq, events);
+    }
     private static bool s_loggedFirst;
 
     /// <summary>How many events have ever been REPORTED into this outbox, and how many have ever
@@ -107,8 +124,8 @@ internal static class NetCardFx
         source = next.Source;
         seq = ++s_seq; // wraps at 255 — dense by one per dispatch, which is what makes loss countable
         if (s_history.Count == CardFlightHistory.CountMax) s_history.Dequeue();
-        s_history.Enqueue(new CardFlightEvent(seq, endpoints, flags, source));
-        History = new CardFlightHistory(seq, s_history.ToArray());
+        s_history.Enqueue((new CardFlightEvent(seq, endpoints, flags, source), Clock()));
+        RefreshHistory();
         s_dispatched++;
         LogOutbox();
         return true;
@@ -152,7 +169,7 @@ internal static class NetCardFx
     {
         s_queue.Clear();
         s_history.Clear();
-        History = new CardFlightHistory(s_seq, System.Array.Empty<CardFlightEvent>());
+        s_historySnapshot = new CardFlightHistory(s_seq, System.Array.Empty<CardFlightEvent>());
         CardFlightVisibility.Reset();
         s_loggedFirst = false;
         // The COUNTERS are deliberately NOT reset: they are a session-long denominator, and a

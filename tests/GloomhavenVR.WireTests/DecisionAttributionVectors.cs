@@ -17,11 +17,23 @@ internal static class DecisionAttributionVectors
             && decoded.DecisionPending && !decoded.DecisionVisible && decoded.DecisionActorId == 0x01020304
             && DamageDecisionPreviewState.SamePicture(decoded.DamageDecisionPreview, state.DamageDecisionPreview),
             "hidden owner focus still carries the correct actor and shield preview");
+        state.DamageDecisionPreview!.IsAvoidance = true;
+        size = PresenceSerializer.Write(state, buffer);
+        t.True(PresenceSerializer.TryRead(buffer, size, out decoded) && decoded.DamageDecisionPreview?.IsAvoidance == true,
+            "selected burn avoidance carries the actual native no-damage presentation");
+        state.DamageDecisionPreview.IsAvoidance = false;
+        size = PresenceSerializer.Write(state, buffer);
+        t.True(PresenceSerializer.TryRead(buffer, size, out decoded) && decoded.DamageDecisionPreview?.IsAvoidance == false,
+            "revising burn avoidance restores damage presentation by omission");
         state.DecisionPending = false; state.DamageDecisionPreview = null;
         size = PresenceSerializer.Write(state, buffer);
         t.True(PresenceSerializer.TryRead(buffer, size, out decoded) && decoded.HasDecisionAttribution
             && !decoded.DecisionPending && decoded.DecisionActorId == 0 && decoded.DamageDecisionPreview == null,
             "actual completion clears preview and character attachment");
+        state.DecisionPending = true; state.DecisionActorId = 0;
+        size = PresenceSerializer.Write(state, buffer);
+        t.True(PresenceSerializer.TryRead(buffer, size, out decoded) && decoded.HasDecisionAttribution
+            && !decoded.DecisionPending, "writer cannot advertise an ownerless pending decision");
         buffer[size - 1] = 2;
         t.True(PresenceSerializer.TryRead(buffer, size, out decoded) && !decoded.HasDecisionAttribution,
             "visible without pending cannot fabricate a decision");

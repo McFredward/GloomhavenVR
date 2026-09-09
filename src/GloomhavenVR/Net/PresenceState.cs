@@ -1598,8 +1598,8 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>3709 -> 3823 in MB489: health57 (14), decision attribution60 (7), flight source61
-    /// (9), and recent flight history62 (84). MaxSize4088 leaves265 bytes, exceeding the257-byte
+    /// <para>3709 -> 3826 in MB489: health57 (14), decision attribution60 (7), flight source61
+    /// (9), recent flight history62 (84), and paired avoidance65 (3). MaxSize4088 leaves262 bytes, exceeding the257-byte
     /// largest record, and stays within the unchanged4096-byte extras reassembly bound.</para>
     ///
     /// <para>3449 -> 3709 in MB487: flight visibility provenance (54) adds four bytes and the
@@ -3232,8 +3232,9 @@ internal static class PresenceSerializer
         {
             buffer[i++] = NetProtocol.ExtIdDecisionAttribution;
             buffer[i++] = 5;
-            AvatarSerializer.WriteI32(buffer, ref i, state.DecisionPending ? state.DecisionActorId : 0);
-            buffer[i++] = (byte)((state.DecisionPending ? 1 : 0) | (state.DecisionPending && state.DecisionVisible ? 2 : 0));
+            bool pending = state.DecisionPending && state.DecisionActorId != 0;
+            AvatarSerializer.WriteI32(buffer, ref i, pending ? state.DecisionActorId : 0);
+            buffer[i++] = (byte)((pending ? 1 : 0) | (pending && state.DecisionVisible ? 2 : 0));
             records++;
         }
         if (state.DamageDecisionPreview != null && i + 2 + DamageDecisionPreviewCodec.MaxSize <= buffer.Length)
@@ -3245,6 +3246,13 @@ internal static class PresenceSerializer
                 buffer[i++] = (byte)payload;
                 i += payload;
                 records++;
+                if (state.DamageDecisionPreview.IsAvoidance && i + 3 <= buffer.Length)
+                {
+                    buffer[i++] = NetProtocol.ExtIdDamageAvoidance;
+                    buffer[i++] = 1;
+                    buffer[i++] = 1;
+                    records++;
+                }
             }
         }
         return records;
@@ -4630,6 +4638,10 @@ internal static class PresenceSerializer
             int actor = AvatarSerializer.ReadI32(buffer, ref at);
             var source = new CardFlightSource(actor, buffer[at], buffer[at + 1]);
             if (source.Validate()) { state.FlightSource = source; state.FlightSourceSeq = state.FxSeq; }
+        }
+        else if (id == NetProtocol.ExtIdDamageAvoidance && len == 1 && buffer[i] == 1 && state.DamageDecisionPreview != null)
+        {
+            state.DamageDecisionPreview.IsAvoidance = true;
         }
         else if (id == NetProtocol.ExtIdDecisionAttribution && len == 5)
         {

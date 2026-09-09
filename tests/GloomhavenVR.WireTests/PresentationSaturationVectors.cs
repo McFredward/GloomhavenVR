@@ -17,13 +17,16 @@ internal static class PresentationSaturationVectors
         var scheduler = new ExtrasSendScheduler(32, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgUseBarAnimationFragments);
         var payloads = new List<byte[]> { Packet(NetProtocol.MsgExtras, ExtrasFragments.MaxSnapshotBytes),
             Packet(NetProtocol.MsgUseBarAnimation, UseBarAnimationCodec.MaxSize),
-            Packet(NetProtocol.MsgCardPlume, CardPlumeCodec.MaxSize), Packet(NetProtocol.MsgNativeBoard, NativeBoardCodec.MaxSize) };
+            Packet(NetProtocol.MsgCardPlume, CardPlumeCodec.MaxSize), Packet(NetProtocol.MsgNativeBoard, NativeBoardCodec.MaxSize),
+            Packet(NetProtocol.MsgCardAppearance, CardAppearanceCodec.MaxSize),
+            Packet(NetProtocol.MsgNativeDecisionPrompt, NativeDecisionPromptCodec.MaxSize) };
         var assemblers = new Dictionary<int, ExtrasFragments>();
         var oldAssemblers = new Dictionary<int, ExtrasFragments>();
         var completed = new HashSet<int>(); var oldCompleted = new HashSet<int>();
-        int[] types = { NetProtocol.MsgExtras, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgCardPlume, NetProtocol.MsgNativeBoard };
+        int[] types = { NetProtocol.MsgExtras, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgCardPlume, NetProtocol.MsgNativeBoard, NetProtocol.MsgCardAppearance, NetProtocol.MsgNativeDecisionPrompt };
         int[] envelopes = { NetProtocol.MsgExtrasFragments, NetProtocol.MsgUseBarAnimationFragments,
-            NetProtocol.MsgCardPlumeFragments, NetProtocol.MsgNativeBoardFragments };
+            NetProtocol.MsgCardPlumeFragments, NetProtocol.MsgNativeBoardFragments,
+            NetProtocol.MsgCardAppearanceFragments, NetProtocol.MsgNativeDecisionPromptFragments };
         for (int i = 0; i < types.Length; i++)
         {
             assemblers.Add(-envelopes[i], new ExtrasFragments((byte)types[i], (byte)envelopes[i], payloads[i].Length,
@@ -45,8 +48,8 @@ internal static class PresentationSaturationVectors
             double now = frame / (double)framesPerSecond;
             if (now >= nextEnqueue)
             {
-                for (int i = 0; i < 4; i++) scheduler.Enqueue(payloads[i], payloads[i].Length);
-                for (int slot = 8; slot < 32; slot++) scheduler.Enqueue(payloads[slot - 4], payloads[slot - 4].Length, slot);
+                for (int i = 0; i < types.Length; i++) scheduler.Enqueue(payloads[i], payloads[i].Length);
+                for (int slot = 8; slot < 32; slot++) scheduler.Enqueue(payloads[slot - 8 + types.Length], payloads[slot - 8 + types.Length].Length, slot);
                 nextEnqueue = now + .1;
             }
             byte[]? packet = scheduler.NextBatch(now, now >= nextAnnouncement ? announcement : null);
@@ -64,13 +67,13 @@ internal static class PresentationSaturationVectors
                 if (assemblers[key].Accept(123, page, page.Length, now) is byte[] full)
                 {
                     completed.Add(key);
-                    byte[] original = key >= 8 ? payloads[key - 4] : payloads[Array.IndexOf(envelopes, -key)];
+                    byte[] original = key >= 8 ? payloads[key - 8 + types.Length] : payloads[Array.IndexOf(envelopes, -key)];
                     t.True(Equal(full, original), "saturation never splices or truncates an atomic snapshot");
                 }
                 if (oldAssemblers[key].Accept(123, page, page.Length, now) != null) oldCompleted.Add(key);
             }
         }
-        t.Equal(28, completed.Count, "all 24 native slots and four other streams complete under sustained saturation");
+        t.Equal(30, completed.Count, "all 24 native slots and six other streams complete under sustained saturation");
         t.True(oldCompleted.Count < completed.Count, "legacy five-second cosmetic assembly deadline loses valid queued frames");
     }
     private static byte[] Packet(byte type, int length)

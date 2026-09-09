@@ -35,6 +35,11 @@ internal static class CardFlightHistoryVectors
         NetCardFx.TryDequeue(out _, out _, out _, out _); NetCardFx.TryDequeue(out _, out _, out _, out _);
         t.True(NetCardFx.History.Since(baseline).Count() == 2
             && NetCardFx.History.Events[1].Source!.Value.Seat == 1, "outbox cannot detach provenance when coalescing");
+        byte latest = NetCardFx.History.Sequence;
+        double afterExpiry = System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency + 3.0;
+        CardFlightHistory expired = NetCardFx.HistoryAt(afterExpiry);
+        t.True(expired.Events.Length == 0 && expired.Sequence == latest,
+            "old unseen flights expire without resetting the replay baseline");
         NetCardFx.Reset();
     }
 }

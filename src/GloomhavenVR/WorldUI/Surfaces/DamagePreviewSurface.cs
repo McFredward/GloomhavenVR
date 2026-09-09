@@ -28,13 +28,14 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// the game keeps feeding the same live <c>HealthBar</c>, and the adopted controller is
 /// the EXACT object the panel resolved for the attacked actor. While the take-damage row
 /// is docked (<see cref="DecisionDockSurface.DockingTakeDamage"/>) and the panel has a
-/// valid attacked actor, each tick it asserts <c>Focus(true, "VR_DAMAGE_PREVIEW")</c>
-/// (activates the overlay) then <c>PreviewSimpleDamage(currentDamage, currentHealth)</c>
-/// (repaints the pulsing cost region) — read via the panel's own publicized
-/// <c>CalculateCurrentDamage()/CalculateCurrentHealth()</c> so we never re-derive damage
-/// (standing rule, ActorBars.cs:310-313). Both calls are idempotent per tick:
-/// <c>HighlightPreview</c> only starts the pulse tween when none is running, and
-/// <c>PreviewSimpleDamage</c> merely re-writes slider values.
+/// valid attacked actor, each tick asserts <c>Focus(true, "VR_DAMAGE_PREVIEW")</c>
+/// and applies <see cref="DamageDecisionPreview"/> through the original health/info bars.
+/// ModBuild489 fixes the endpoint at the game's saved pre-damage health and projects the
+/// already-replayed model HP with effective shield after Pierce. The native health helper
+/// adds raw shield, so using it directly would contradict the panel's damage calculation.
+/// Selected card avoidance clears the native preview; hovering the damage button restores
+/// its alternative. Owner and peers consume the same presentation state without mutating HP.
+/// The native highlighting calls are idempotent and do not restart an existing pulse.
 ///
 /// On undock / panel close / no valid actor it turns the preview OFF exactly once
 /// (tracked by <see cref="_active"/>), mirroring <c>TakeDamagePanel.ResetPreviewing</c>:
