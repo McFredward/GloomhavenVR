@@ -25,17 +25,24 @@ internal sealed partial class RemoteCardArt
         if (!CardAppearanceMirror.TryGet(_nativePlayer, _nativeActor, _nativeCard, out var from, out var to, out float progress)) return;
         // Validate the complete native role set before painting anything. A different prefab must
         // not receive a partial card that mixes owner output with this client's pooled defaults.
-        foreach (var node in to!.Nodes) if (_nativeBindings.Graphics[node.Role] == null) return;
+        foreach (var node in to!.Nodes)
+            if (node.Role < 12 ? _nativeBindings.Graphics[node.Role] == null : !_nativeBindings.Groups.ContainsKey(node.Binding)) return;
         TakeFxLookHold();
         if (_burnRigState == BurnRig.Unbuilt) BuildBurnRig();
-        foreach (CanvasGroup group in _clone.GetComponentsInChildren<CanvasGroup>(true)) group.alpha = 1f;
         foreach (var node in to.Nodes)
         {
             var old = node;
-            foreach (var candidate in from!.Nodes) if (candidate.Role == node.Role && candidate.Mask == node.Mask) { old = candidate; break; }
+            foreach (var candidate in from!.Nodes) if (candidate.Role == node.Role && candidate.Binding == node.Binding && candidate.Mask == node.Mask) { old = candidate; break; }
             float k = old.Flags == node.Flags ? progress : 1f;
             float V(int i) => Mathf.LerpUnclamped(old.Values[i], node.Values[i], k);
             Color C(int i) => new(V(i), V(i + 1), V(i + 2), V(i + 3));
+            if (node.Role >= 12)
+            {
+                CanvasGroup group = _nativeBindings.Groups[node.Binding];
+                group.alpha = V(0); group.enabled = (node.Flags & 2) != 0; group.ignoreParentGroups = (node.Flags & 4) != 0;
+                group.gameObject.SetActive((node.Flags & 1) != 0);
+                continue;
+            }
             Graphic graphic = _nativeBindings.Graphics[node.Role]!;
             graphic.color = C(0); graphic.canvasRenderer.SetColor(C(4));
             graphic.enabled = (node.Flags & 2) != 0;

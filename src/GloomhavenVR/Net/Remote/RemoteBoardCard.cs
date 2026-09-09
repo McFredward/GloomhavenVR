@@ -926,11 +926,6 @@ internal sealed class RemoteBoardCard
     /// <param name="want">Rule 1's answer for the card in this slot, from the ONE expression both
     /// boards ask - <c>Cards.BurnLookPolicy.ForActivatedCard</c>, mapped into this module's enum by
     /// <c>UsedCardLook.FromPolicy</c>.</param>
-    internal void SetNativeCardAppearance(int playerId, CPlayerActor? actor, CAbilityCard? card)
-    {
-        _art?.SetNativeAppearance(playerId, actor, card);
-    }
-
     public void SetActiveCardLook(int playerId, int slot, CAbilityCard? card,
                                   RemoteCardArt.CardFxLook want)
     {
@@ -977,6 +972,12 @@ internal sealed class RemoteBoardCard
                             + $"mirrored ({ex.Message}) - this active cell draws a fresh card.");
         }
     }
+
+    internal void SetNativeCardAppearance(int playerId, CPlayerActor? actor, CAbilityCard? card)
+    {
+        _art?.SetNativeAppearance(playerId, actor, card);
+    }
+
 
     private void LogActiveWashIfChanged(int playerId, int slot, CAbilityCard? card,
                                        RemoteCardArt.CardFxLook look, bool took)

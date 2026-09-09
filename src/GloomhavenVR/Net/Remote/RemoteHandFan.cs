@@ -1838,6 +1838,7 @@ internal sealed class RemoteHandFan
                     if (full != null && PrintsFront(publicCardsOnly, actor, widget)
                         && face.ShowFront(full))
                     {
+                        face.SetNativeAppearance(_owner.PlayerId, actor, full.AbilityCard);
                         frontCount++;
                         SetFrontFace(i, showsBack: false);   // …and the same on the hand-widget arm
                         continue;
@@ -1856,7 +1857,9 @@ internal sealed class RemoteHandFan
 
         // Native particle episodes are mirrored centrally by RemoteCardPlume. The face wash
         // below remains tied to the matching resolved widget and its own material ownership.
-        TickUsedCardFx(count, showFronts, mapFronts);
+        // The owner frame, applied last by RemoteCardAppearancePump, owns the wash. Hidden
+        // local hand widgets can retain DiscardMode after either rest and are not that picture.
+        ClearUsedCardFx();
 
         // THE LEAVING HALF IS RE-GATED EVERY FRAME TOO — ON ITS OWN CHARACTER'S VERDICT, NOT THIS
         // ONE'S. Slabs on their way out of a character exchange keep the faces the gate had already

@@ -6,7 +6,7 @@ namespace GloomhavenVR.Net;
 /// <summary>Additive58 node pages in message12. Every page belongs to one atomic snapshot.</summary>
 internal static class CardAppearanceCodec
 {
-    internal const int MaxSize = 40960;
+    internal const int MaxSize = 45056;
     internal const byte Message = 12, FragmentMessage = 13, Record = 58;
     internal static int Write(CardAppearanceSnapshot snapshot, byte[] buffer)
     {
@@ -32,7 +32,8 @@ internal static class CardAppearanceCodec
                 buffer[at++] = state.FaceCode; buffer[at++] = state.ListCount;
                 buffer[at++] = (byte)state.Nodes.Length; buffer[at++] = node.Role; buffer[at++] = node.Flags;
                 AvatarSerializer.WriteU32(buffer, ref at, node.Mask);
-                for (int v = 0; v < CardAppearanceNode.ValueCount; v++)
+                if (node.Role >= 12) AvatarSerializer.WriteU32(buffer, ref at, node.Binding);
+                for (int v = 0; v < (node.Role >= 12 ? 1 : CardAppearanceNode.ValueCount); v++)
                     if (CardAppearanceNode.Carries(node.Mask, v)) AvatarSerializer.WriteF32(buffer, ref at, node.Values[v]);
                 buffer[sizeAt] = (byte)(at - sizeAt - 1);
             }
@@ -78,7 +79,8 @@ internal static class CardAppearanceCodec
             if (card.ActorId != actor || card.FaceCode != code || card.ListCount != listCount || nodeCount != expectedNodes || nodes.Count >= nodeCount) return false;
             var node = new CardAppearanceNode { Role = buffer[at++], Flags = buffer[at++], Mask = AvatarSerializer.ReadU32(buffer, ref at) };
             if (node.Role >= CardAppearanceNode.RoleCount || (node.Mask & ~CardAppearanceNode.AllowedMask(node.Role)) != 0) return false;
-            for (int v = 0; v < CardAppearanceNode.ValueCount; v++) if (CardAppearanceNode.Carries(node.Mask, v))
+            if (node.Role >= 12) { if (at + 4 > end) return false; node.Binding = AvatarSerializer.ReadU32(buffer, ref at); }
+            for (int v = 0; v < (node.Role >= 12 ? 1 : CardAppearanceNode.ValueCount); v++) if (CardAppearanceNode.Carries(node.Mask, v))
             {
                 if (at + 4 > end) return false;
                 node.Values[v] = AvatarSerializer.ReadF32(buffer, ref at);

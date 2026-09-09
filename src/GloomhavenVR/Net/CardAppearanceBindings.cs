@@ -19,7 +19,8 @@ internal sealed class CardAppearanceBindings
     internal static readonly int[] FloatIds = Array.ConvertAll(FloatNames, Shader.PropertyToID);
     internal static readonly int BurnTint = Shader.PropertyToID("_Burn_ColourTint"), FlameTint = Shader.PropertyToID("_TintColor"),
         Noise = Shader.PropertyToID("_AnimNoise_Mask"), Particle = Shader.PropertyToID("_ParticleTexture");
-    internal readonly Graphic?[] Graphics = new Graphic?[CardAppearanceNode.RoleCount];
+    internal readonly Graphic?[] Graphics = new Graphic?[12];
+    internal readonly System.Collections.Generic.Dictionary<uint, CanvasGroup> Groups = new();
     internal readonly Transform Root;
     internal readonly Texture? BurnTexture, GhostTexture;
     internal CardAppearanceBindings(CardEffects effects)
@@ -27,6 +28,13 @@ internal sealed class CardAppearanceBindings
         Root = effects.transform;
         for (int i = 0; i < Fields.Length; i++) Graphics[i] = Fields[i]?.GetValue(effects) as Graphic;
         BurnTexture = effects.overlayFrameBurn; GhostTexture = effects.overlayFrameGhost;
+        foreach (CanvasGroup group in Root.GetComponentsInChildren<CanvasGroup>(true))
+        {
+            uint key = GroupKey(group.transform, Root);
+            if (Groups.ContainsKey(key)) throw new InvalidOperationException("Duplicate original card group binding.");
+            Groups.Add(key, group);
+        }
+        if (Groups.Count > 8) throw new InvalidOperationException("Original card group count exceeds appearance bound.");
     }
     internal CardAppearanceNode[] Capture()
     {
@@ -39,14 +47,6 @@ internal sealed class CardAppearanceBindings
                 | (graphic.enabled ? 2 : 0) | (graphic is TextMeshProUGUI tmp && tmp.enableVertexGradient ? 4 : 0)) };
             Put(node.Values, 0, graphic.color);
             Color renderer = graphic.canvasRenderer.GetColor();
-            // Private widget ancestors are presentation, while the outer VR card/board fade is
-            // already mirrored by its own pose/visibility contract.
-            for (Transform? t = graphic.transform; t != null; t = t.parent)
-            {
-                CanvasGroup? group = t.GetComponent<CanvasGroup>();
-                if (group != null && group.enabled) renderer.a *= group.alpha;
-                if (ReferenceEquals(t, Root) || group != null && group.ignoreParentGroups) break;
-            }
             Put(node.Values, 4, renderer);
             Material material = graphic.material;
             uint allowed = CardAppearanceNode.AllowedMask(role);
@@ -63,7 +63,25 @@ internal sealed class CardAppearanceBindings
                 node.Flags |= 8;
             nodes.Add(node);
         }
+        var keys = new System.Collections.Generic.List<uint>(Groups.Keys); keys.Sort();
+        foreach (uint key in keys)
+        {
+            CanvasGroup group = Groups[key];
+            var node = new CardAppearanceNode { Role = (byte)(12 + nodes.FindAll(n => n.Role >= 12).Count), Binding = key,
+                Flags = (byte)((group.gameObject.activeSelf ? 1 : 0) | (group.enabled ? 2 : 0) | (group.ignoreParentGroups ? 4 : 0)) };
+            node.Values[0] = group.alpha; nodes.Add(node);
+        }
         return nodes.ToArray();
+    }
+    private static uint GroupKey(Transform transform, Transform root)
+    {
+        uint hash = 2166136261;
+        for (Transform? t = transform; t != null && !ReferenceEquals(t, root); t = t.parent)
+        {
+            foreach (char c in t.name) hash = (hash ^ c) * 16777619;
+            hash = (hash ^ (uint)t.GetSiblingIndex()) * 16777619;
+        }
+        return hash == 0 ? 1u : hash;
     }
     internal static void Put(float[] values, int offset, Color color)
     { values[offset] = color.r; values[offset + 1] = color.g; values[offset + 2] = color.b; values[offset + 3] = color.a; }

@@ -5,20 +5,22 @@ namespace GloomhavenVR.Net;
 /// <summary>Original card FX output, addressed only through existing actor/list positions.</summary>
 internal sealed class CardAppearanceNode
 {
-    internal const int RoleCount = 12, ValueCount = 33;
-    internal byte Role, Flags; // active, enabled, TMP gradient
+    internal const int RoleCount = 20, ValueCount = 33;
+    internal byte Role, Flags;
+    internal uint Binding; // stable original CanvasGroup path, only roles12..19 // active, enabled, TMP gradient
     internal uint Mask;
     // Graphic RGBA, renderer RGBA, fifteen shader floats, two shader colours, noise scale.
     internal float[] Values = new float[ValueCount];
     internal static uint AllowedMask(byte role) => role < 7 ? 0x2807Fu : role == 11 ? 0x17F80u : 0u;
     internal bool Validate()
     {
-        if (Role >= RoleCount || (Flags & ~15) != 0 || Role != 11 && (Flags & 8) != 0 || (Role < 7 || Role == 11) && (Flags & 4) != 0
+        if (Role >= RoleCount || (Flags & ~15) != 0 || Role != 11 && (Flags & 8) != 0
+            || Role < 12 && Binding != 0 || Role >= 12 && Binding == 0 || (Role < 7 || Role == 11) && (Flags & 4) != 0
             || (Mask & ~AllowedMask(Role)) != 0 || Values == null || Values.Length != ValueCount) return false;
         foreach (float value in Values) if (float.IsNaN(value) || float.IsInfinity(value)) return false;
         return true;
     }
-    internal CardAppearanceNode Copy() => new() { Role = Role, Flags = Flags, Mask = Mask, Values = (float[])Values.Clone() };
+    internal CardAppearanceNode Copy() => new() { Role = Role, Flags = Flags, Binding = Binding, Mask = Mask, Values = (float[])Values.Clone() };
     internal static bool Carries(uint mask, int index) => index < 8
         || index < 23 && (mask & (1u << (index - 8))) != 0
         || index < 27 && index >= 23 && (mask & (1u << 15)) != 0
@@ -60,7 +62,7 @@ internal sealed class CardAppearanceState
         for (int i = 0; i < a.Nodes.Length; i++)
         {
             var x = a.Nodes[i]; var y = b.Nodes[i];
-            if (x.Role != y.Role || x.Flags != y.Flags || x.Mask != y.Mask) return false;
+            if (x.Role != y.Role || x.Flags != y.Flags || x.Binding != y.Binding || x.Mask != y.Mask) return false;
             for (int j = 0; j < x.Values.Length; j++) if (x.Values[j] != y.Values[j]) return false;
         }
         return true;
