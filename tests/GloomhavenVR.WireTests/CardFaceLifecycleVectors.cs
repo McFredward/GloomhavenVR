@@ -21,6 +21,10 @@ internal static class CardFaceLifecycleVectors
             "local own-card visibility and private naming keep their separate ownership rule");
         string held = Read("Net/Remote/RemoteHeldCardFace.cs");
         string fan = Read("Net/Remote/RemoteHandFan.cs");
+        t.True(MapResolveIsImmediate(fan), "same-size map loadout replacements refresh at the next draw");
+        t.True(!MapResolveIsImmediate(fan.Replace("bool characterChanged = characterKey != _mapResolvedForCharacterKey;",
+            "if (Time.unscaledTime < _nextMapResolveAt) return; bool characterChanged = characterKey != _mapResolvedForCharacterKey;")),
+            "negative control: restoring the time gate rejects stale map fronts");
         string pile = Read("Net/Remote/RemotePileFronts.cs");
         string source = Read("Net/Remote/RemoteAbilityCardSource.cs");
         string active = Read("Net/Remote/RemoteActiveCards.cs");
@@ -103,6 +107,14 @@ internal static class CardFaceLifecycleVectors
             "stale out-of-range native arc seat rejected");
         t.True(!MapCardFaceProjection.TryBuild(4, 1, 255, -1, 255, 2, arc) && arc.Count == 0,
             "unexplained model/count disagreement rejects the whole projection");
+    }
+
+    private static bool MapResolveIsImmediate(string source)
+    {
+        int start = source.IndexOf("private void ResolveMapFronts(int loadoutSize)", StringComparison.Ordinal);
+        int end = source.IndexOf("private void ClearMapFronts()", start, StringComparison.Ordinal);
+        string body = source.Substring(start, end - start);
+        return body.Contains("TryResolvePeerLoadout(") && !body.Contains("Time.unscaledTime");
     }
 
     private static bool LocalShortRestCover(string source) => source.Contains("bool coverFace = false)")

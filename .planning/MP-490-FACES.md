@@ -95,3 +95,8 @@ completion. A new flight started synchronously by completion retains its own cov
 Ordinary local hand cards and action damage burns retain their front presentation. Source guards
 include a negative control removing the actual launch call. Final integration gates cover this
 last addition; no headset result is claimed.
+
+The last bounded map review also removed the old 500 ms membership cache for unheld fans.
+Same-character, same-count loadout replacement now reads the bounded replicated list on the next
+draw; per-card print keys still avoid rebuilding unchanged artwork. A source regression guard
+and a negative control restoring the delayed gate accompany this change.

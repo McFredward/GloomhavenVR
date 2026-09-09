@@ -938,9 +938,8 @@ internal sealed class RemoteHandFan
 
     /// <summary>
     /// The peer's map arc — <see cref="_mapBuffer"/> with the seat in their fist removed — and the
-    /// list the slabs are index-aligned with. Rebuilt every tick of the map branch rather than
-    /// cached with the buffer, because a card is picked up and put down far faster than
-    /// <see cref="MapResolveInterval"/>.
+    /// list the slabs are index-aligned with. Rebuilt every draw so both loadout edits and
+    /// held-seat changes take effect together.
     ///
     /// <para>WHY REMOVING A SEAT IS NOT A GUESS. It is exactly what the OWNER's own fan did to
     /// produce the arc: <c>CardFan.Remove</c> takes the plucked card out of the layout list and
@@ -1042,7 +1041,7 @@ internal sealed class RemoteHandFan
     ///
     /// <para>WHY THE HELD CARD ASKS THE FAN RATHER THAN RESOLVING ITS OWN. Naming the loadout means
     /// naming a CHARACTER first, and that resolution is a tiered deduction with a cache
-    /// (<see cref="ResolveMapFronts"/> over <c>MapRoomHand.TryResolvePeerLoadout</c>, keyed on the
+    /// (<see cref="ResolveMapFronts"/> over <c>MapRoomHand.TryResolvePeerLoadout</c>, using the
     /// peer's record-20 character key and its card count). Two independent runs of it can answer
     /// with two different characters on the frame a peer switches — and the failure that produces is
     /// not a missing face, it is the RIGHT card index into the WRONG character's loadout, i.e. a
@@ -1071,8 +1070,7 @@ internal sealed class RemoteHandFan
             // for the third time and one method over.
             //
             // The secrecy question is asked HERE, of the gate that owns it, and the buffer is then
-            // resolved on demand. Cost: one walk of the party, on a card being picked up, throttled
-            // by ResolveMapFronts' own cadence.
+            // resolved on demand. Cost: one bounded party/loadout walk; artwork itself stays cached.
             if (!RevealGate.ShowMapPhaseHandFronts)
                 return null;
             ResolveMapFronts(senderLength);
@@ -1137,14 +1135,10 @@ internal sealed class RemoteHandFan
     }
 
 
-    /// <summary>Card count the map loadout was last resolved for (-1 = never), and the next unscaled
-    /// time the resolve may run again. The resolve walks the party and is NOT a per-frame cost: it
-    /// re-runs on a count or character-key change, or on this slow cadence for a loadout edit made on
-    /// the peer's side while their fan is up.</summary>
+    /// <summary>Last resolved map count and character, used to clear stale print state.
+    /// Membership itself is read on every draw, including same-size loadout edits.</summary>
     private int _mapResolvedForCount = -1;
     private uint _mapResolvedForCharacterKey;
-
-    private float _nextMapResolveAt;
 
     /// <summary>The map room's own sentence about WHICH tier identified the hand (or why none did),
     /// written verbatim into the faces diagnostic.</summary>
@@ -1160,9 +1154,6 @@ internal sealed class RemoteHandFan
     /// since report 2 of 2026-09-07 removed the borrow it drives the printing and the diagnostics
     /// only.</summary>
     private bool _mapFronts;
-
-    /// <summary>Seconds between map-loadout resolves at a steady card count.</summary>
-    private const float MapResolveInterval = 0.5f;
 
     /// <summary>Eased fan-local X (metres) where the OWNER's gaze pierces their fan plane — the
     /// depth-bow apex, tracked here exactly as <c>CardFan.UpdateCardPresentation</c> tracks it
@@ -2082,12 +2073,11 @@ internal sealed class RemoteHandFan
     // ------------------------------------------------------------------ map-phase fronts --
 
     /// <summary>
-    /// Resolve (and cache) the map-phase loadout this peer's fan is holding into
+    /// Resolve the current map-phase loadout this peer's fan is holding into
     /// <see cref="_mapBuffer"/>. The identification itself belongs to the map room — see
     /// <c>MapRoomHand.TryResolvePeerLoadout</c>, which carries the tiers, their certainty and the
-    /// belt each one applies. Cached because that walk is O(party) and this is called every frame:
-    /// it re-runs when the peer's LOADOUT SIZE or CHARACTER KEY changes, including equal-sized
-    /// hands, and otherwise on <see cref="MapResolveInterval"/> to pick up same-character edits.
+    /// belt each one applies. Resolve every draw: neither count nor character identity detects
+    /// replacing one loadout card with another while the fan remains open.
     ///
     /// <para><paramref name="loadoutSize"/> IS THE WHOLE LOADOUT AND NOT THE ARC (2026-09-07).
     /// <see cref="_mapBuffer"/> is the peer's full loadout in initiative order — it has to be,
@@ -2101,13 +2091,11 @@ internal sealed class RemoteHandFan
     private void ResolveMapFronts(int loadoutSize)
     {
         RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint characterKey);
-        if (loadoutSize == _mapResolvedForCount && characterKey == _mapResolvedForCharacterKey
-            && Time.unscaledTime < _nextMapResolveAt)
-            return;
+        // Count and character identity cannot detect a same-size loadout replacement. Read
+        // the bounded replicated list on every draw; per-card print keys still avoid rebuilds.
         bool characterChanged = characterKey != _mapResolvedForCharacterKey;
         _mapResolvedForCount = loadoutSize;
         _mapResolvedForCharacterKey = characterKey;
-        _nextMapResolveAt = Time.unscaledTime + MapResolveInterval;
 
         int before = _mapBuffer.Count;
         int firstBefore = before > 0 && _mapBuffer[0] != null ? _mapBuffer[0].ID : 0;
