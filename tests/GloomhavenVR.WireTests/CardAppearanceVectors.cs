@@ -58,8 +58,24 @@ internal static class CardAppearanceVectors
         { int next = n + 2 + buffer[n + 1]; t.True(next == length || !CardAppearanceCodec.TryRead(buffer, next, out _), "complete prefix never publishes partial card population"); n = next; }
         var moved = new CardAppearanceSnapshot(10, states); moved.States[0].ListCount = 2;
         t.True(!CardAppearanceSnapshot.SameIdentity(maximum, moved), "source list count is part of frame identity");
+        var low = new CardAppearanceNode { Role = 0, Flags = 19, Mask = 1 };
+        low.Values[8] = 0.375f;
+        var lowFrame = new CardAppearanceSnapshot(11, new[] { new CardAppearanceState { ActorId = 1, FaceCode = 0x20, ListCount = 1, Nodes = new[] { low } } });
+        length = CardAppearanceCodec.Write(lowFrame, buffer);
+        t.True(CardAppearanceCodec.TryRead(buffer, length, out read) && (read!.States[0].Nodes[0].Flags & 16) != 0
+            && read.States[0].Nodes[0].Values[8] == 0.375f, "owner low-material variant travels independently of viewer settings");
+        low.Role = 11;
+        t.True(!low.Validate(), "card material variant cannot alias a flame role");
+        low.Role = 12; low.Binding = 1; low.Mask = 0;
+        t.True(!low.Validate(), "card material variant cannot alias a group role");
         string native = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteCardArt.Native.cs"));
         t.True(native.Contains("CardAppearanceMirror.TryGet") && native.Contains("private void LateUpdate() => Art?.ApplyNativeAppearance()"), "actual output paints after ordinary mirror drivers");
+        t.True(native.Contains("_nativeOutputApplied && !ExplicitFlightOwnsLook") && native.Contains("ClearPendingNativeAppearance();"),
+            "lost native list authority clears stale material once while explicit flights retain their own burn");
+        t.True(native.Contains("!_host.activeInHierarchy") && !native.Contains("!_clone.activeInHierarchy"),
+            "owner-hidden clone can reappear; only the policy-owned host blocks sampling");
+        t.True(native.Contains("CardAppearanceBindings.AuthoredMaterial(node.Role)") && native.Contains("_nativeBindings.LowMaterial"),
+            "both native material variants use their original authored assets");
         t.True(!native.Contains("group.alpha = 1f"), "original group opacity never forcibly normalized");
         string fan = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteHandFan.cs"));
         t.True(!fan.Contains("TickUsedCardFx(count, showFronts, mapFronts);"), "recovered fan never replays hidden local widget effects");

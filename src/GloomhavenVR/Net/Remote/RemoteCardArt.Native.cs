@@ -11,13 +11,20 @@ internal sealed partial class RemoteCardArt
     private CardAppearanceBindings? _nativeBindings;
     private readonly Dictionary<Graphic, Material> _nativeMaterials = new();
     private int _nativePlayer;
+    private bool _nativeOutputApplied;
+    private readonly List<Image> _nativeBoundsImages = new();
+    private bool ExplicitFlightOwnsLook => Surface == FxSurface.Flight || Surface == FxSurface.CardFlight;
     private CPlayerActor? _nativeActor;
     private CAbilityCard? _nativeCard;
     internal void SetNativeAppearance(int playerId, CPlayerActor? actor, CAbilityCard? card)
     {
         bool changed = _nativePlayer != playerId || !ReferenceEquals(_nativeActor, actor) || !ReferenceEquals(_nativeCard, card);
         _nativePlayer = playerId; _nativeActor = actor; _nativeCard = card;
-        if (changed) ClearPendingNativeAppearance();
+        if (changed)
+        {
+            _nativeOutputApplied = false;
+            if (!ExplicitFlightOwnsLook) ClearPendingNativeAppearance();
+        }
         ApplyNativeAppearance();
     }
     private void ClearPendingNativeAppearance()
@@ -41,13 +48,32 @@ internal sealed partial class RemoteCardArt
     }
     internal void ApplyNativeAppearance()
     {
-        if (_nativeBindings == null || _clone == null || !_clone.activeInHierarchy || _nativeActor == null || _nativeCard == null) return;
+        if (_nativeBindings == null || _clone == null || _host == null || !_host.activeInHierarchy || _nativeActor == null || _nativeCard == null) return;
         if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, _nativeActor) == RevealGate.CardFaceSource.None) return;
-        if (!CardAppearanceMirror.TryGet(_nativePlayer, _nativeActor, _nativeCard, out var from, out var to, out float progress)) return;
+        if (!CardAppearanceMirror.TryGet(_nativePlayer, _nativeActor, _nativeCard, out var from, out var to, out float progress))
+        {
+            if (_nativeOutputApplied && !ExplicitFlightOwnsLook) ClearPendingNativeAppearance();
+            _nativeOutputApplied = false;
+            return;
+        }
         // Validate the complete native role set before painting anything. A different prefab must
         // not receive a partial card that mixes owner output with this client's pooled defaults.
         foreach (var node in to!.Nodes)
+        {
             if (node.Role < 12 ? _nativeBindings.Graphics[node.Role] == null : !_nativeBindings.Groups.ContainsKey(node.Binding)) return;
+            if (node.Role < 7 && ((node.Flags & 16) != 0 ? _nativeBindings.LowMaterial : CardAppearanceBindings.AuthoredMaterial(node.Role)) == null) return;
+        }
+        _nativeBoundsImages.Clear();
+        bool needsBounds = false;
+        foreach (var node in to.Nodes)
+        {
+            if (node.Role >= 7) continue;
+            Material template = (node.Flags & 16) != 0 ? _nativeBindings.LowMaterial! : CardAppearanceBindings.AuthoredMaterial(node.Role)!;
+            needsBounds |= template.HasProperty(PosAndBoundsId);
+            if (_nativeBindings.Graphics[node.Role] is Image image) _nativeBoundsImages.Add(image);
+        }
+        Vector4 nativeFootprint = default;
+        if (needsBounds && !TryMeasureFxFootprint(_nativeBoundsImages, out nativeFootprint)) return;
         TakeFxLookHold();
         if (_burnRigState == BurnRig.Unbuilt) BuildBurnRig();
         foreach (var node in to.Nodes)
@@ -69,10 +95,18 @@ internal sealed partial class RemoteCardArt
             graphic.enabled = (node.Flags & 2) != 0;
             graphic.gameObject.SetActive((node.Flags & 1) != 0);
             if (graphic is TextMeshProUGUI text) text.enableVertexGradient = (node.Flags & 4) != 0;
-            if (node.Mask == 0) continue;
-            if (!_nativeMaterials.TryGetValue(graphic, out var material) || material == null)
+            if (node.Mask == 0 && node.Role >= 7) continue;
+            Material template = node.Role < 7
+                ? ((node.Flags & 16) != 0 ? _nativeBindings.LowMaterial! : CardAppearanceBindings.AuthoredMaterial(node.Role)!)
+                : graphic.material;
+            if (!_nativeMaterials.TryGetValue(graphic, out var material) || material == null || material.shader != template.shader)
             {
-                material = new Material(graphic.material) { name = graphic.material.name + " (VR-native-card)" };
+                if (material != null) { _ownedMaterials.Remove(material); Object.Destroy(material); }
+                material = new Material(template) { name = template.name + " (VR-native-card)" };
+                if (node.Role < 7 && material.HasProperty(PosAndBoundsId))
+                {
+                    material.SetVector(PosAndBoundsId, nativeFootprint);
+                }
                 _ownedMaterials.Add(material); _nativeMaterials[graphic] = material;
             }
             graphic.material = material;
@@ -83,8 +117,16 @@ internal sealed partial class RemoteCardArt
             if ((node.Mask & (1u << 16)) != 0 && material.HasProperty(CardAppearanceBindings.FlameTint)) material.SetColor(CardAppearanceBindings.FlameTint, C(27));
             if ((node.Mask & (1u << 17)) != 0 && material.HasProperty(CardAppearanceBindings.Noise)) material.SetTextureScale(CardAppearanceBindings.Noise, new Vector2(V(31), V(32)));
             if (node.Role == 11 && material.HasProperty(CardAppearanceBindings.Particle))
+            {
                 material.SetTexture(CardAppearanceBindings.Particle, (node.Flags & 8) != 0 ? _nativeBindings.GhostTexture : _nativeBindings.BurnTexture);
+                // Low-detail native cards need the same world-space draw ordering even when
+                // the legacy high-detail burn rig had no matching _PosAndBounds images.
+                if (graphic is Image flameImage) MeasureFaceQueue(flameImage);
+                if (_faceQueue >= 0 && material.renderQueue <= _faceQueue)
+                    material.renderQueue = Mathf.Min(_faceQueue + 1, FlameQueueCeiling);
+            }
         }
+        _nativeOutputApplied = true;
     }
 }
 

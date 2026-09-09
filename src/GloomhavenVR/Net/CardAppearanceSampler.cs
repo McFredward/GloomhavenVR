@@ -48,5 +48,5 @@ internal static class CardAppearanceSampler
         if (!same) _previous = states.ToArray();
         return _previous;
     }
-    internal static void Reset() { Cards.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
+    internal static void Reset() { CardAppearanceBindings.ResetAssets(); Cards.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
 }

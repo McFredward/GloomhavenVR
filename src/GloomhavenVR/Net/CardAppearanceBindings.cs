@@ -23,9 +23,33 @@ internal sealed class CardAppearanceBindings
     internal readonly System.Collections.Generic.Dictionary<uint, CanvasGroup> Groups = new();
     internal readonly Transform Root;
     internal readonly Texture? BurnTexture, GhostTexture;
+    internal readonly Material? LowMaterial;
+    private static Material?[]? _authoredMaterials;
+    private static readonly FieldInfo? LowMaterialField = typeof(CardEffects).GetField("_lowMaterial",
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+    internal static void ResetAssets() => _authoredMaterials = null;
+    internal static Material? AuthoredMaterial(byte role)
+    {
+        if (role >= 7) return null;
+        if (_authoredMaterials == null || _authoredMaterials[role] == null)
+        {
+            // PersistentData.CreateAbilityCard1 uses this exact original asset. Read its
+            // serialized materials without instantiating it or running CardEffects.Awake.
+            var manager = AssetBundleManager.Instance;
+            GameObject? prefab = manager != null ? manager.LoadAssetFromBundle<GameObject>("misc_gui", "AbilityCard", "gui") : null;
+            CardEffects? effects = prefab != null ? prefab.GetComponentInChildren<CardEffects>(true) : null;
+            if (effects == null) return null;
+            var materials = new Material?[7];
+            for (int i = 0; i < materials.Length; i++) materials[i] = (Fields[i]?.GetValue(effects) as Graphic)?.material;
+            _authoredMaterials = materials;
+        }
+        return _authoredMaterials[role];
+    }
     internal CardAppearanceBindings(CardEffects effects)
     {
         Root = effects.transform;
+        LowMaterial = LowMaterialField?.GetValue(effects) as Material;
         for (int i = 0; i < Fields.Length; i++) Graphics[i] = Fields[i]?.GetValue(effects) as Graphic;
         BurnTexture = effects.overlayFrameBurn; GhostTexture = effects.overlayFrameGhost;
         foreach (CanvasGroup group in Root.GetComponentsInChildren<CanvasGroup>(true))
@@ -49,6 +73,10 @@ internal sealed class CardAppearanceBindings
             Color renderer = graphic.canvasRenderer.GetColor();
             Put(node.Values, 4, renderer);
             Material material = graphic.material;
+            // SimplifiedUI replaces every affected native material with _lowMaterial in
+            // CardEffects.Initialize. The actual assigned shader identifies that variant;
+            // the receiver's own SimplifiedUI preference is never consulted.
+            if (role < 7 && LowMaterial != null && material.shader == LowMaterial.shader) node.Flags |= 16;
             uint allowed = CardAppearanceNode.AllowedMask(role);
             for (int f = 0; f < FloatIds.Length; f++) if ((allowed & (1u << f)) != 0 && material.HasProperty(FloatIds[f]))
             { node.Mask |= 1u << f; node.Values[8 + f] = material.GetFloat(FloatIds[f]); }

@@ -14,7 +14,7 @@ internal sealed class CardAppearanceNode
     internal static uint AllowedMask(byte role) => role < 7 ? 0x2807Fu : role == 11 ? 0x17F80u : 0u;
     internal bool Validate()
     {
-        if (Role >= RoleCount || (Flags & ~15) != 0 || Role != 11 && (Flags & 8) != 0
+        if (Role >= RoleCount || (Flags & ~31) != 0 || Role >= 7 && (Flags & 16) != 0 || Role != 11 && (Flags & 8) != 0
             || Role < 12 && Binding != 0 || Role >= 12 && Binding == 0 || (Role < 7 || Role == 11) && (Flags & 4) != 0
             || Role >= 12 && (Values == null || Values.Length == 0 || Values[0] < 0f || Values[0] > 1f)
             || (Mask & ~AllowedMask(Role)) != 0 || Values == null || Values.Length != ValueCount) return false;

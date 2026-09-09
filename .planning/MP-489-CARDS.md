@@ -68,3 +68,19 @@ The transport intentionally refuses an unresolvable address or an unsupported co
 population rather than applying a partial or guessed owner frame. A temporarily unresolved
 public held card waits for its front; it does not flash a secret back. The next hardware test
 must inspect both owner and peer pictures, including all burnt browser seats and recovered hands.
+
+## Integration review follow-up
+
+The review additionally found two presentation-state gaps. Losing the previously resolved
+owner address now clears stale wash once, including a recovered card that keeps the same widget
+identity. Explicit burn/card flight surfaces retain their separate semantic burn while their
+source list disappears. A native hidden root can also reappear: playback checks the policy-owned
+host's activity, not the native clone activity that a previous frame may have switched off.
+
+`CardEffects._useLowEffect` reads the platform's SimplifiedUI setting; Initialize substitutes its
+serialized `_lowMaterial` on all seven images. The owner now transmits the actual assigned
+material variant, and the mirror reads the original `misc_gui/AbilityCard/gui` prefab materials
+(the asset used by `PersistentData.CreateAbilityCard1`) or the original serialized low material.
+No prefab is instantiated. World-space FX bounds and flame draw ordering are applied to private
+material copies for either variant. The wire size is unchanged; the variant uses a validated flag.
+The new variant and continuity vectors add six assertions to the original746.

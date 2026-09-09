@@ -501,7 +501,7 @@ internal sealed partial class RemoteCardArt
             // activation on purpose: the widget's own OnEnable is the last thing that could touch its
             // Images, so writing here means nothing the game runs can land on top of the result.
             ApplySpentLook(itemFx, spentLook);
-            if (_nativeCard != null) ClearPendingNativeAppearance();
+            if (_nativeCard != null && !ExplicitFlightOwnsLook) ClearPendingNativeAppearance();
 
             // MIP BAKE (user report: "the aliasing on the remote cards is extreme — the fix for my
             // own local cards should apply here too"). The clone's Image sprites are verbatim
@@ -3420,6 +3420,7 @@ internal sealed partial class RemoteCardArt
     private void DestroyClone()
     {
         _nativeBindings = null;
+        _nativeOutputApplied = false;
         _nativeMaterials.Clear();
         // Let CardHalfTone have this face back before it goes: an id Unity is free to reuse must
         // never inherit a hold from a clone that is gone, which is the same argument the heal
