@@ -68,6 +68,18 @@ internal static class CardAppearanceVectors
         t.True(!low.Validate(), "card material variant cannot alias a flame role");
         low.Role = 12; low.Binding = 1; low.Mask = 0;
         t.True(!low.Validate(), "card material variant cannot alias a group role");
+        t.Case("native appearance address lifetime and pooled output reset");
+        var firstCard = new object(); var replacementCard = new object();
+        var pinned = new CardAppearanceBinding<object>(firstCard);
+        t.True(pinned.Matches(firstCard, firstCard), "received model owns its unchanged source address");
+        t.True(!pinned.Matches(replacementCard, firstCard), "another requester cannot borrow the pinned model's output");
+        t.True(!pinned.Matches(replacementCard, replacementCard), "same-count seat replacement cannot steal old burn output");
+        t.True(!pinned.Matches(firstCard, firstCard), "return to a formerly occupied seat cannot resurrect invalidated output");
+        var missing = new CardAppearanceBinding<object>(null);
+        t.True(!missing.Matches(firstCard, firstCard), "unresolved frame cannot bind late to an unrelated model");
+        var fresh = new CardAppearanceBinding<object>(replacementCard);
+        t.True(fresh.Matches(replacementCard, replacementCard), "a fresh owner sample restores a current model binding");
+        t.True(!fresh.Matches(replacementCard, null), "temporarily missing membership invalidates the old sample");
         string native = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteCardArt.Native.cs"));
         t.True(native.Contains("CardAppearanceMirror.TryGet") && native.Contains("private void LateUpdate() => Art?.ApplyNativeAppearance()"), "actual output paints after ordinary mirror drivers");
         t.True(native.Contains("_nativeOutputApplied && !ExplicitFlightOwnsLook") && native.Contains("ClearPendingNativeAppearance();"),
@@ -77,6 +89,17 @@ internal static class CardAppearanceVectors
         t.True(native.Contains("CardAppearanceBindings.AuthoredMaterial(node.Role)") && native.Contains("_nativeBindings.LowMaterial"),
             "both native material variants use their original authored assets");
         t.True(!native.Contains("group.alpha = 1f"), "original group opacity never forcibly normalized");
+        t.True(!native.Contains("BuildBurnRig();"), "native reset and playback never build a synthetic legacy burn rig");
+        t.True(native.Contains("SetFloatIfPresent(material, BurnId, 0f)") && native.Contains("_nativeDefaults")
+            && native.Contains("group.alpha = node.Values[0]"), "native authority loss clears burn and restores previously overwritten group opacity");
+        string bindings = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/CardAppearanceBindings.cs"));
+        t.True(bindings.Contains("VisibleInCard(graphic.transform, Root)") && bindings.Contains("if (!t.gameObject.activeSelf) return false;"),
+            "native flame visibility includes all intermediate original holders");
+        string policy = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Art/BurnLookPolicy.cs"));
+        string burn = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Art/BurnCardFx.cs"));
+        t.True(policy.Contains("card = widget != null ? widget.AbilityCard : full.AbilityCard;")
+            && burn.Contains("BurnLookPolicy.Enforce(full, OwnerCard?.GameCard);"),
+            "local burn policy reads the adopted widget instead of stale action-only FullAbilityCard model");
         string fan = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteHandFan.cs"));
         t.True(!fan.Contains("TickUsedCardFx(count, showFronts, mapFronts);"), "recovered fan never replays hidden local widget effects");
         string recess = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteBoardCard.cs"));

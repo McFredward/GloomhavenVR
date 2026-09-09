@@ -10,6 +10,8 @@ internal static class CardAppearanceMirror
     private sealed class Frame
     {
         internal CardAppearanceSnapshot? Previous, Current;
+        internal CardAppearanceBinding<CAbilityCard>[] PreviousCards = System.Array.Empty<CardAppearanceBinding<CAbilityCard>>(),
+            CurrentCards = System.Array.Empty<CardAppearanceBinding<CAbilityCard>>();
         internal readonly UseBarAnimationPlaybackClock Clock = new();
     }
     private static readonly Dictionary<int, Frame> Frames = new();
@@ -19,6 +21,15 @@ internal static class CardAppearanceMirror
         if (!Frames.TryGetValue(playerId, out var frame)) Frames[playerId] = frame = new Frame();
         if (frame.Current != null && snapshot.SampleTime <= frame.Current.SampleTime) return;
         bool continuous = frame.Current != null && snapshot.SampleTime - frame.Current.SampleTime <= UseBarAnimationPlaybackClock.MaximumContinuousGap;
+        var bindings = new CardAppearanceBinding<CAbilityCard>[snapshot.States.Length];
+        for (int i = 0; i < bindings.Length; i++)
+        {
+            var state = snapshot.States[i];
+            CPlayerActor? actor = RemoteBoardFocus.ActorById(state.ActorId);
+            bindings[i] = new CardAppearanceBinding<CAbilityCard>(actor != null ? Resolve(actor, state.FaceCode, state.ListCount) : null);
+        }
+        frame.PreviousCards = continuous ? frame.CurrentCards : bindings;
+        frame.CurrentCards = bindings;
         frame.Previous = continuous ? frame.Current : snapshot; frame.Current = snapshot;
         if (!continuous) frame.Clock.Reset(snapshot.SampleTime, Time.unscaledTime);
     }
@@ -30,13 +41,25 @@ internal static class CardAppearanceMirror
         previous = current = null; progress = 1f;
         if (actor == null || card == null || !Frames.TryGetValue(playerId, out var frame) || frame.Current == null) return false;
         int actorId = NetFigures.StableActorId(actor);
-        foreach (var state in frame.Current.States)
-            if (state.ActorId == actorId && ReferenceEquals(Resolve(actor, state.FaceCode, state.ListCount), card)) { current = state; break; }
+        // A seat is a receive-time address, not a permanent name. Once its population changes,
+        // this sample is invalid forever, even if that old card later returns to the same seat.
+        for (int i = 0; i < frame.Current.States.Length; i++)
+        {
+            var state = frame.Current.States[i];
+            if (state.ActorId != actorId || !frame.CurrentCards[i].Matches(card,
+                Resolve(actor, state.FaceCode, state.ListCount))) continue;
+            current = state;
+            break;
+        }
         if (current == null) return false;
         if (frame.Previous != null)
-            foreach (var state in frame.Previous.States)
-                if (state.ActorId == current.ActorId && state.FaceCode == current.FaceCode && state.ListCount == current.ListCount)
+            for (int i = 0; i < frame.Previous.States.Length; i++)
+            {
+                var state = frame.Previous.States[i];
+                if (state.ActorId == current.ActorId && state.FaceCode == current.FaceCode && state.ListCount == current.ListCount
+                    && frame.PreviousCards[i].Matches(card, Resolve(actor, state.FaceCode, state.ListCount)))
                 { previous = state; break; }
+            }
         previous ??= current;
         frame.Clock.Advance(Time.unscaledTime, frame.Current.SampleTime);
         progress = frame.Clock.Progress(frame.Previous!.SampleTime, frame.Current.SampleTime);

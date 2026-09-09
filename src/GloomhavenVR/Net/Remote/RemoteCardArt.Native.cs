@@ -12,6 +12,7 @@ internal sealed partial class RemoteCardArt
     private readonly Dictionary<Graphic, Material> _nativeMaterials = new();
     private int _nativePlayer;
     private bool _nativeOutputApplied;
+    private CardAppearanceNode[]? _nativeDefaults;
     private readonly List<Image> _nativeBoundsImages = new();
     private bool ExplicitFlightOwnsLook => Surface == FxSurface.Flight || Surface == FxSurface.CardFlight;
     private CPlayerActor? _nativeActor;
@@ -32,18 +33,42 @@ internal sealed partial class RemoteCardArt
         // The receiver's pooled widget may still be spent after a rest. Before the first owner
         // frame is available it is never an authority for a newly exposed card's decoration.
         if (_clone == null || _nativeBindings == null) return;
-        TakeFxLookHold();
-        if (_burnRigState == BurnRig.Unbuilt) BuildBurnRig();
+        // Native playback owns independent per-role materials, including the low-detail shader.
+        // Building the legacy burn rig here would first paint invented burn constants and could
+        // refuse the low-detail card before its inherited ghost/fire had ever been cleared.
         ClearAbilityCardFx();
-        if (_nativeBindings.Graphics[11] is Graphic flame)
-        {
-            if (!_nativeMaterials.TryGetValue(flame, out var material))
+        if (_nativeDefaults != null)
+            foreach (var node in _nativeDefaults)
             {
-                material = new Material(flame.material) { name = flame.material.name + " (VR-native-card)" };
-                _ownedMaterials.Add(material); _nativeMaterials[flame] = material;
+                if (node.Role >= 12)
+                {
+                    CanvasGroup group = _nativeBindings.Groups[node.Binding];
+                    group.alpha = node.Values[0]; group.enabled = (node.Flags & 2) != 0;
+                    group.ignoreParentGroups = (node.Flags & 4) != 0;
+                    group.gameObject.SetActive((node.Flags & 1) != 0);
+                }
+                else if (_nativeBindings.Graphics[node.Role] is Graphic graphic)
+                {
+                    graphic.color = new Color(node.Values[0], node.Values[1], node.Values[2], node.Values[3]);
+                    graphic.canvasRenderer.SetColor(new Color(node.Values[4], node.Values[5], node.Values[6], node.Values[7]));
+                    graphic.enabled = (node.Flags & 2) != 0;
+                    graphic.gameObject.SetActive((node.Flags & 1) != 0);
+                    if (graphic is TextMeshProUGUI text) text.enableVertexGradient = (node.Flags & 4) != 0;
+                }
             }
-            flame.material = material;
-            if (material.HasProperty(FxAnimId)) material.SetFloat(FxAnimId, 0f);
+        for (int role = 0; role < _nativeBindings.Graphics.Length; role++)
+        {
+            if (_nativeBindings.Graphics[role] is not Graphic graphic || role >= 7 && role != 11) continue;
+            if (!_nativeMaterials.TryGetValue(graphic, out var material) || material == null)
+            {
+                material = new Material(graphic.material) { name = graphic.material.name + " (VR-native-card)" };
+                _ownedMaterials.Add(material); _nativeMaterials[graphic] = material;
+            }
+            graphic.material = material;
+            // RestoreCard clears all four terms; leaving _Burn behind is a low/high pooled seam.
+            SetFloatIfPresent(material, GreyOutId, 0f); SetFloatIfPresent(material, FlowId, 0f);
+            SetFloatIfPresent(material, DissolveId, 0f); SetFloatIfPresent(material, BurnId, 0f);
+            SetFloatIfPresent(material, FxAnimId, 0f);
         }
     }
     internal void ApplyNativeAppearance()
@@ -75,7 +100,6 @@ internal sealed partial class RemoteCardArt
         Vector4 nativeFootprint = default;
         if (needsBounds && !TryMeasureFxFootprint(_nativeBoundsImages, out nativeFootprint)) return;
         TakeFxLookHold();
-        if (_burnRigState == BurnRig.Unbuilt) BuildBurnRig();
         foreach (var node in to.Nodes)
         {
             var old = node;
@@ -103,13 +127,12 @@ internal sealed partial class RemoteCardArt
             {
                 if (material != null) { _ownedMaterials.Remove(material); Object.Destroy(material); }
                 material = new Material(template) { name = template.name + " (VR-native-card)" };
-                if (node.Role < 7 && material.HasProperty(PosAndBoundsId))
-                {
-                    material.SetVector(PosAndBoundsId, nativeFootprint);
-                }
                 _ownedMaterials.Add(material); _nativeMaterials[graphic] = material;
             }
             graphic.material = material;
+            // The clone moves/scales with fan/recess/held animations. Updating only when the
+            // material was minted leaves a stale shader footprint after the first drawn frame.
+            if (node.Role < 7 && material.HasProperty(PosAndBoundsId)) material.SetVector(PosAndBoundsId, nativeFootprint);
             for (int f = 0; f < CardAppearanceBindings.FloatIds.Length; f++)
                 if ((node.Mask & (1u << f)) != 0 && material.HasProperty(CardAppearanceBindings.FloatIds[f]))
                     material.SetFloat(CardAppearanceBindings.FloatIds[f], V(8 + f));

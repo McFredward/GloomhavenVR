@@ -211,7 +211,9 @@ internal static class BurnLookPolicy
     /// <c>FullAbilityCard</c>. Costs one dictionary lookup and one float compare on the frames
     /// between checks.
     /// </summary>
-    internal static void Enforce(FullAbilityCard? full)
+    internal static void Enforce(FullAbilityCard? full) => Enforce(full, null);
+
+    internal static void Enforce(FullAbilityCard? full, AbilityCardUI? widget)
     {
         if (full == null)
             return;
@@ -225,7 +227,9 @@ internal static class BurnLookPolicy
         bool running;
         try
         {
-            card = full.AbilityCard;
+            // Preview/hand widgets do not initialize FullAbilityCard.AbilityCard; after pooling it
+            // may still name an earlier action card. The adopted AbilityCardUI owns this face.
+            card = widget != null ? widget.AbilityCard : full.AbilityCard;
             pile = card != null ? card.CurrentCardPile : CBaseCard.ECardPile.None;
             // The CARD half of the tracking key. A CardEffects belongs to a POOLED widget, so its
             // instance id alone would carry a verdict from a previous card into the next borrow of
@@ -262,9 +266,9 @@ internal static class BurnLookPolicy
         t.NextCheck = now + RecheckSeconds;
         s_track[id] = t;
 
-        if (IsActivated(full, card))
+        if (IsActivated(full, card, widget?.PlayerActor))
             EnforceActivated(fx, card, id, now);
-        else if (IsLost(full, card))
+        else if (IsLost(full, card, widget?.PlayerActor))
             EnforceLost(fx, card, id, now);
     }
 
@@ -309,11 +313,11 @@ internal static class BurnLookPolicy
     /// activation — is one of the few places the field is written at all, which is the finding
     /// <c>RemoteBoardCard.cs:1140-1155</c> records at length.</para>
     /// </summary>
-    private static bool IsActivated(FullAbilityCard full, CAbilityCard card)
+    private static bool IsActivated(FullAbilityCard full, CAbilityCard card, CPlayerActor? widgetOwner = null)
     {
         try
         {
-            CPlayerActor? owner = CardsGameApi.CardOwner(full);
+            CPlayerActor? owner = widgetOwner ?? CardsGameApi.CardOwner(full);
             if (owner != null)
                 return ActiveCardSet.IsActive(owner, card);
             return card.CurrentCardPile == CBaseCard.ECardPile.Activated;
@@ -360,13 +364,14 @@ internal static class BurnLookPolicy
     /// transient message payload, not a durable record, and a look built on it would go clean at
     /// the next attack.</para>
     /// </summary>
-    private static bool IsLost(FullAbilityCard? full, CAbilityCard card)
+    private static bool IsLost(FullAbilityCard? full, CAbilityCard card, CPlayerActor? widgetOwner = null)
     {
         try
         {
-            CPlayerActor? owner = full != null ? CardsGameApi.CardOwner(full) : null;
-            if (HeldInLostList(owner, card))
-                return true;
+            CPlayerActor? owner = widgetOwner ?? (full != null ? CardsGameApi.CardOwner(full) : null);
+            // Membership outranks a stale pile stamp in both directions, including recovery.
+            if (owner?.CharacterClass != null)
+                return HeldInLostList(owner, card);
             return card.CurrentCardPile == CBaseCard.ECardPile.Lost
                    || card.CurrentCardPile == CBaseCard.ECardPile.PermanentlyLost;
         }

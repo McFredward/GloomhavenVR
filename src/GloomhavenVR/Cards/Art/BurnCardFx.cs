@@ -103,7 +103,7 @@ internal sealed class BurnCardFx
         // "dieser Effekt war bei manchen Aktiven Karten vorhanden und wurde dort auch angezeigt -
         // aber nur eine Runde"); one bound for Discard never wears it; a LOST card is settled to
         // the full burnt end state; everything else is left to the game. See BurnLookPolicy.
-        BurnLookPolicy.Enforce(full);
+        BurnLookPolicy.Enforce(full, OwnerCard?.GameCard);
         _policyFace = full;
 
         // Symptom 4c-ii evidence: the burn/ghost timeline runs on the card's OWN uGUI
