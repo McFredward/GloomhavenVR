@@ -27,7 +27,7 @@ namespace GloomhavenVR.WorldUI;
 /// each <see cref="Tick"/> its world pose is copied from the frame and its scale is
 /// metersPerPixel × WorldScale × <c>extraScale</c> × factor — the SAME convention
 /// <see cref="ModalFallback"/> places it with, plus the live user grab factor. When the
-/// user is not gripping, the frame is static, so the host is static too (no drift).
+/// release re-face finishes, the frame is static, so the host is static too (no drift).
 ///
 /// INPUT: poke/laser clicks on the menu widgets are unaffected — they drive the real
 /// uGUI through the host's raycaster (UguiPokeSurfaces / RayUguiDriver), a different path
@@ -650,6 +650,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
     private Transform? _visual;                 // THE DRAWN pose — see the REMOTE POSE EASING block
     private GrabBarVisual? _bar;                // the drawn rod: three pieces, ONE material
+    private readonly WindowReFaceTween _reFaceTween = new();
     private GrabBarTween? _barTween;            // THE ONE WRITER of the rod's presented pose — see GrabBarTween
     private Transform? _badge;                  // the shared-window mark, null until built
     private Material? _badgeMaterial;           // the badge's OWN instance — the pulse's ONE writer
@@ -705,6 +706,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     {
         if (!Mathf.Approximately(extraScale, _extraScale))
         {
+            _reFaceTween.Cancel();
             _easing = false;
             _visualValid = false;
         }
@@ -724,6 +726,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// a menu's transparent regions.</para>
     internal void Build(ConvertedPanel panel, float extraScale, string logName)
     {
+        _reFaceTween.Cancel();
         _panel = panel;
         _extraScale = extraScale;
         _logName = logName;
@@ -752,6 +755,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// </summary>
     internal void PlaceFrameAt(Vector3 position, Quaternion rotation)
     {
+        _reFaceTween.Cancel();
         EnsureFrame();
         if (_frame == null)
             return;
@@ -787,6 +791,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// </summary>
     internal void SnapFrameTo(Vector3 position, Quaternion rotation)
     {
+        _reFaceTween.Cancel();
         EnsureFrame();
         if (_frame == null)
             return;
@@ -902,6 +907,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // unaffected.
     void IPanelGrabOwner.OnGrabFinished()
     {
+        _reFaceTween.Cancel();
         if (_frame == null)
             return;
         if (!WantsReFaceOnRelease())
@@ -965,26 +971,21 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
 
         float turned = Quaternion.Angle(_frame.rotation, facing);
-        // ROTATE THE RIGID BODY ABOUT THE PIVOT: turn, then translate so the pivot maps to itself.
-        // Scale is untouched, so the drawn centre — a fixed point of the frame's local space — is a
-        // fixed point of the whole operation, exactly. When the ink fills the frame the pivot IS the
-        // frame origin and the position write below is the identity, which is how every window that
-        // was already correct stays bit-for-bit where it was.
+        // The visible turn uses the same cubic ease-out and duration as the grab bar (150 ms
+        // by default). Keep the target fixed at release and preserve the ink pivot on EVERY
+        // step, rather than lerping positions along a chord through the rotation arc.
         Quaternion delta = facing * Quaternion.Inverse(_frame.rotation);
-        Vector3 was = _frame.position;
-        _frame.rotation = facing;
-        _frame.position = pivot + delta * (was - pivot);
-        float frameMovedMm = Vector3.Distance(was, _frame.position) * 1000f;
-        // Push the new frame pose onto the game-owned host in the same frame, so the panel
-        // does not visibly hang at the drag rotation until the next Tick.
-        Tick();
-        VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a move — re-faced the player " +
-                              $"(turned {turned:F1}°, yaw now {_frame.eulerAngles.y:F1}°) about " +
-                              $"{pivotNote}. THE DRAWN WINDOW DID NOT MOVE: the pivot is a fixed point " +
-                              $"of the turn by construction, and the mod-owned frame origin was carried " +
-                              $"{frameMovedMm:F0} mm around it to keep it there. A frame travel of 0 mm " +
-                              "means this window's ink is centred in its frame, which is the case the " +
-                              "old frame-origin behaviour also got right.");
+        Vector3 finalPosition = pivot + delta * (_frame.position - pivot);
+        float frameMovedMm = Vector3.Distance(_frame.position, finalPosition) * 1000f;
+        _reFaceTween.Begin(_frame, pivot, facing);
+        VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a move — re-facing the player " +
+                              $"(turning {turned:F1}°, target yaw {facing.eulerAngles.y:F1}° over " +
+                              $"{GrabBarTween.DurationSeconds * 1000f:F0} ms) about {pivotNote}. " +
+                              "THE DRAWN WINDOW DID NOT MOVE: the pivot is a fixed point " +
+                              "of every animation step by construction, and the mod-owned frame " +
+                              $"origin travels {frameMovedMm:F0} mm around it to keep it there. " +
+                              "A frame travel of 0 mm means this window's ink is centred in its " +
+                              "frame, which is the case the old frame-origin behaviour also got right.");
     }
 
     /// <summary>Below this the released panel already faces the player — no snap, no log.
@@ -1186,7 +1187,20 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     internal void LateSyncHost()
     {
         if (_panel == null || !_panel.IsAlive || _panel.HostGo == null || _frame == null)
+        {
+            _reFaceTween.Cancel();
             return;
+        }
+        // The carry has already anchored to this same visible frame. A new hand, a hidden
+        // host, or a change to shared ownership ends the release turn before it can write.
+        if (IsGrabbed || _shared || !_panel.HostGo.activeInHierarchy || _panel.RenderHidden
+            || _panel.OwnerRenderHidden || !_frame.gameObject.activeInHierarchy)
+            _reFaceTween.Cancel();
+        // The pose lock's eight-frame grab allowance can expire before a 150 ms turn at high
+        // refresh rates. Attribute every actual step to the release, including the final step.
+        if (_reFaceTween.Advance(_frame))
+            PanelPoseWatch.Announce(_panel, PanelPoseWatch.Writer.UserGrab,
+                "the player's release re-face animation");
         float factor = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         Transform host = _panel.HostGo.transform;
@@ -1438,6 +1452,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         internal GrabbableModal? Owner;
 
         private void LateUpdate() => Owner?.LateSyncHost();
+        private void OnDisable() => Owner?._reFaceTween.Cancel();
     }
 
     /// <summary>
@@ -3770,6 +3785,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// <summary>Destroy the mod-owned holder (the game host is released separately by the caller).</summary>
     internal void Destroy()
     {
+        _reFaceTween.Cancel();
         LiveHolders.Remove(this); // ModBuild 230 — leaves the sweep's live set with the holder itself
         if (_holder != null)
             Object.Destroy(_holder.gameObject);

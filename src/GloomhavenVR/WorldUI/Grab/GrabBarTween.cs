@@ -143,7 +143,7 @@ internal sealed class GrabBarTween
     internal Vector3 TargetPosition => _targetPos;
 
     /// <summary>The configured duration in seconds; 0 = every change is instant.</summary>
-    private static float DurationSeconds => Mathf.Max(0f, WorldUIConfig.GrabBarTweenMs.Value) * 0.001f;
+    internal static float DurationSeconds => Mathf.Max(0f, WorldUIConfig.GrabBarTweenMs.Value) * 0.001f;
 
     /// <param name="bar">The drawn rod this tween presents. Its <see cref="GrabBarVisual.Root"/>
     /// local position and uniform scale, and its length, are written by nobody else from here on.</param>

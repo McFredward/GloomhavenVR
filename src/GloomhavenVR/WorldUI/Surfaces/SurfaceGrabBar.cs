@@ -147,6 +147,7 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     private Transform? _holder;     // scene root, identity pose and identity scale
     private Transform? _frame;      // the GRAB ROOT at the panel centre; localScale = user factor
     private GrabBarVisual? _bar;    // the drawn rod: shaft + two caps, one material
+    private readonly WindowReFaceTween _reFaceTween = new();
     private GrabBarTween? _barTween; // THE ONE WRITER of the rod's presented pose — see GrabBarTween
     private BoxCollider? _grabZone; // the palm zone, on the frame, offset down to the rod
     private PanelGrabHandle? _handle;
@@ -212,6 +213,8 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     /// </summary>
     internal void SetWithheld(bool withheld)
     {
+        if (withheld)
+            _reFaceTween.Cancel();
         _withheld = withheld;
         // 2026-09-03 ("es ploppt") — the RELEASE grows the rod from zero at its place; the
         // WITHHOLD itself stays instant, and that is not an omission: both of its callers are
@@ -265,6 +268,7 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     /// bar's metres-per-host-pixel must be the host's own, not the diorama's.</param>
     internal void Build(ConvertedPanel panel, float extraScale, float worldScale, string logName)
     {
+        _reFaceTween.Cancel();
         _panel = panel;
         _extraScale = extraScale;
         _spawnWorldScale = Mathf.Max(worldScale, 0.01f);
@@ -353,7 +357,15 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     private void LateSync()
     {
         if (_panel == null || !_panel.IsAlive || _panel.HostGo == null || _frame == null)
+        {
+            _reFaceTween.Cancel();
             return;
+        }
+        if ((_handle != null && _handle.IsGrabbed) || !_panel.HostGo.activeInHierarchy
+            || _panel.RenderHidden || _panel.OwnerRenderHidden || _withheld
+            || !_frame.gameObject.activeInHierarchy)
+            _reFaceTween.Cancel();
+        _reFaceTween.Advance(_frame);
         SyncHost();
     }
 
@@ -480,8 +492,9 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     /// RE-FACE ON RELEASE. The one-hand carry yaws the panel with the WRIST, so a drag to the side
     /// leaves it turned to wherever the hand happened to point — readable only edge-on, and for a
     /// panel with no close X that is the difference between "moved" and "lost". The moment the LAST
-    /// hand lets go, the rotation is re-derived through <c>PanelPlacement.Facing</c>, the same
-    /// formula the spawn placement uses, so a moved panel reads exactly like a freshly floated one.
+    /// hand lets go, the target is captured through <c>PanelPlacement.Facing</c>, the same formula
+    /// the spawn placement uses. A short cubic ease-out turns it toward that fixed target using
+    /// the grab bar's duration, so a moved panel reads exactly like a freshly floated one.
     ///
     /// <para><b>THE PANEL DOES NOT TRAVEL.</b> The turn is about the frame origin, which for these
     /// hosts IS the drawn centre: <c>CanvasConversion</c> creates a pivot-centred host and
@@ -503,6 +516,7 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     /// </summary>
     void IPanelGrabOwner.OnGrabFinished()
     {
+        _reFaceTween.Cancel();
         if (_frame == null)
             return;
         if (!WindowReFacePolicy.WantsReFaceOnRelease(
@@ -518,11 +532,11 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         float turned = Quaternion.Angle(_frame.rotation, facing);
         if (turned < ReFaceEpsilonDeg)
             return;
-        _frame.rotation = facing;
-        SyncHost();
-        VRLog.Info("WorldUI", $"SURFACE WINDOW: '{_logName}' released after a move — re-faced the "
-                              + $"player by {turned:F1}°, about the frame origin (= the host's own "
-                              + "centre). The panel did not travel: only the orientation changed.");
+        _reFaceTween.Begin(_frame, _frame.position, facing);
+        VRLog.Info("WorldUI", $"SURFACE WINDOW: '{_logName}' released after a move — re-facing the "
+                              + $"player by {turned:F1}° over {GrabBarTween.DurationSeconds * 1000f:F0} ms, "
+                              + "about the frame origin (= the host's own centre). "
+                              + "The panel does not travel: only the orientation changes.");
     }
 
     // ---- construction ------------------------------------------------------------------------
@@ -616,6 +630,7 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     /// separately — this class never releases a conversion.</summary>
     internal void Destroy()
     {
+        _reFaceTween.Cancel();
         if (_holder != null)
             Object.Destroy(_holder.gameObject);
         _holder = null;
@@ -647,5 +662,6 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         internal SurfaceGrabBar? Owner;
 
         private void LateUpdate() => Owner?.LateSync();
+        private void OnDisable() => Owner?._reFaceTween.Cancel();
     }
 }
