@@ -159,6 +159,7 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private readonly HashSet<VRCard> _lastFieldCards = new();
     private readonly List<VRCard> _lastActiveCards = new();
     private readonly Dictionary<AbilityCardUI, Net.CardFlightSource> _activeExitOrigins = new();
+    private readonly Dictionary<AbilityCardUI, Net.CardFlightSource> _activeCellSources = new();
 
     // _pickExitFlown: pick-field cards whose exit flight has ALREADY been launched, so
     // RelayoutField stops re-homing them onto the beside-Slot2 overflow seats (that re-home IS the

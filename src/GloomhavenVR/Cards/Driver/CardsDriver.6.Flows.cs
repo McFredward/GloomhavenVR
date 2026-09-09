@@ -3363,6 +3363,20 @@ internal sealed partial class CardsDriver
             AbilityCardUI widget = _activeWidgetBuffer[i];
             if (widget.AbilityCard == null || widget.IsLongRest)
                 continue;
+            // Address the complete original model population, not the currently resolvable
+            // widget subset. Missing UI art must not renumber another card's wire source.
+            List<CBaseCard>? activeModels = ActiveCardSet.ActivatedCards(hand.PlayerActor);
+            int sourceSeat = -1, sourceCount = 0;
+            if (activeModels != null)
+                foreach (CBaseCard model in activeModels)
+                    if (model is CAbilityCard)
+                    {
+                        if (ReferenceEquals(model, widget.AbilityCard)) sourceSeat = sourceCount;
+                        sourceCount++;
+                    }
+            if (sourceSeat >= 0 && sourceCount <= byte.MaxValue)
+                _activeCellSources[widget] = new Net.CardFlightSource(
+                    Net.NetFigures.StableActorId(hand.PlayerActor), (byte)sourceSeat, (byte)sourceCount);
             VRCard card = AdoptedCard(widget);
             CardsGameApi.GetActiveHalves(hand, widget.AbilityCard, out bool top, out bool bottom);
             SetActiveHighlight(card, top, bottom); // native game action-region highlight

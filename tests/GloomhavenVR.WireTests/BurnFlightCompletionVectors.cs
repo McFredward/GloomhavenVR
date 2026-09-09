@@ -25,15 +25,17 @@ internal static class BurnFlightCompletionVectors
         t.True(!new CardFlightSource(4, 1, 0).Validate(), "actor only source has no seat");
         string rebuild = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs"));
         string flight = RemoteCapVisibilityVectors.Method(rebuild, "private bool TryStartFlyToPile(");
-        t.True(flight.Contains("_lastActiveCards.Contains(card)") && flight.Contains("RoundCardExitOf(hand, card")
-            && flight.Contains("case RoundCardExit.Lost:") && flight.Contains("case RoundCardExit.Discarded:"),
-            "actual active departures reach the same model destination switch");
-        t.True(!flight.Replace("_lastActiveCards.Contains(card)", "false").Contains("_lastActiveCards.Contains(card)"),
-            "active prefilter removal negative control");
+        t.True(HasActiveDestinationSwitch(flight), "actual active departures reach model destination switch");
+        t.True(!HasActiveDestinationSwitch(flight.Replace("_lastActiveCards.Contains(card)", "false")),
+            "removing the production active prefilter fails the same binding check");
         string flush = RemoteCapVisibilityVectors.Method(rebuild, "private void FlushBurnHolds(");
         int wait = flush.IndexOf("TryTakeBurnFlightSlot", StringComparison.Ordinal);
         int launch = flush.IndexOf("LaunchBurnFlight", StringComparison.Ordinal);
         t.True(wait >= 0 && launch > wait, "focus change cannot bypass native completion");
         t.True(!flush.Contains("_burnHoldSince.Clear()"), "focus change retains pending old actor holds");
     }
+    private static bool HasActiveDestinationSwitch(string body) =>
+        body.Contains("_lastActiveCards.Contains(card)") && body.Contains("RoundCardExitOf(hand, card")
+        && body.Contains("case RoundCardExit.Lost:") && body.Contains("case RoundCardExit.Discarded:");
+
 }

@@ -324,6 +324,7 @@ internal sealed partial class CardsDriver
         _lastHalfCards.Clear();
         _lastActiveCards.Clear();
         _activeExitOrigins.Clear();
+        _activeCellSources.Clear();
         _lastTrayCards.Clear(); // issue 1
         _lastVisibleCards.Clear();
         _lastCardWorldPos.Clear(); // issue 1
@@ -460,6 +461,7 @@ internal sealed partial class CardsDriver
         _lastHalfCards.Clear();
         _lastActiveCards.Clear();
         _activeExitOrigins.Clear();
+        _activeCellSources.Clear();
         _lastTrayCards.Clear(); // issue 1: slot occupants die with the hand's cards
         _lastVisibleCards.Clear();
         _lastFieldCards.Clear(); // event-discard exit: the same rule for the pick-recess snapshot —

@@ -1291,8 +1291,7 @@ internal sealed partial class CardsDriver
             if (previous == null || previous.GameCard == null || _active.Contains(previous)) continue;
             RoundCardExit exit = RoundCardExitOf(hand, previous, out CPlayerActor? owner);
             if (exit is RoundCardExit.Discarded or RoundCardExit.Lost or RoundCardExit.PermanentlyLost)
-                _activeExitOrigins[previous.GameCard] = new Net.CardFlightSource(
-                    Net.NetFigures.StableActorId(owner), (byte)i, (byte)_lastActiveCards.Count);
+                _activeExitOrigins[previous.GameCard] = CapturedActiveSource(previous.GameCard, owner);
         }
 
         // Pile browse (test #21): refresh content or close — BEFORE the zone flags
@@ -2637,9 +2636,7 @@ internal sealed partial class CardsDriver
                 return false;
         }
         if (wasActive && card.GameCard != null && !_activeExitOrigins.ContainsKey(card.GameCard))
-            _activeExitOrigins[card.GameCard] = new Net.CardFlightSource(
-                Net.NetFigures.StableActorId(owner), (byte)_lastActiveCards.IndexOf(card),
-                (byte)_lastActiveCards.Count);
+            _activeExitOrigins[card.GameCard] = CapturedActiveSource(card.GameCard, owner);
         // The card really moved — a later dock change for it is a different event and may log again.
         _loggedFlightRefusal.Remove(card.GameCard!);
 
@@ -2924,6 +2921,10 @@ internal sealed partial class CardsDriver
     private Net.CardFxAnchor BurnOrPileOrigin(AbilityCardUI? widget, int seat) =>
         widget != null && _activeExitOrigins.ContainsKey(widget)
             ? Net.CardFxAnchor.Active : SlotAnchor(seat);
+
+    private Net.CardFlightSource CapturedActiveSource(AbilityCardUI widget, CPlayerActor? actor) =>
+        _activeCellSources.TryGetValue(widget, out Net.CardFlightSource source)
+            ? source : new Net.CardFlightSource(Net.NetFigures.StableActorId(actor), 0, 0);
 
     private Net.CardFlightSource? FlightSourceOf(AbilityCardUI? widget)
     {
