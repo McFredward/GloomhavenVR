@@ -51,13 +51,14 @@ internal static class NativeBoardSampler
             for (int i = 0; i < _bindings.Length; i++)
             {
                 _bindings[i].Read();
-                if (!changed && !_bindings[i].Scratch.Same(_published!.Elements[i])) changed = true;
+                if (!changed && (!_bindings[i].Scratch.Same(_published!.Elements[i])
+                    || _published.RenderElements == null || !_bindings[i].Render.Scratch.Same(_published.RenderElements[i]))) changed = true;
             }
             if (changed)
             {
-                var elements = new NativeElementState[6];
-                for (int i = 0; i < elements.Length; i++) elements[i] = _bindings[i].Scratch;
-                _published = new NativeBoardState(Time.unscaledTime, depth, _generation, elements, Frame);
+                var elements = new NativeElementState[6]; var render = new NativeElementRenderState[6];
+                for (int i = 0; i < elements.Length; i++) { elements[i] = _bindings[i].Scratch; render[i] = _bindings[i].Render.Scratch; }
+                _published = new NativeBoardState(Time.unscaledTime, depth, _generation, elements, Frame, render);
             }
             _refusal = null;
             return _published;
@@ -92,7 +93,7 @@ internal static class NativeBoardSampler
         if (_bindings.Length != 6) return false;
         for (int i = 0; i < 6; i++)
             if (!source.elementsUI.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI element)
-                || !ReferenceEquals(element, _bindings[i].Source)) return false;
+                || !ReferenceEquals(element, _bindings[i].Source) || !_bindings[i].Render.Matches()) return false;
         return true;
     }
     internal static void Reset()
@@ -107,16 +108,20 @@ internal sealed class NativeElementBindings
     internal readonly Graphic[] Effects;
     internal readonly NativeUseBarAnimationBinding[][] Animations;
     internal readonly NativeElementState Scratch;
+    internal readonly NativeElementRenderBinding Render;
+    internal readonly bool RequiresRenderedHierarchy;
     internal NativeElementBindings(InfusionElementUI source)
     {
         Source = source;
+        Render = new NativeElementRenderBinding(source);
+        RequiresRenderedHierarchy = source.animatorCreating is AnimationGUIAnimator || source.animatorCreated is AnimationGUIAnimator;
         Graphics = new Graphic[] { source.elementImage, source.creationImage, source.availableHighlight,
             source.createElementText, source.creatingElementText, source.creationBumpImage, source.creationTextBackgroundImage };
         foreach (Graphic graphic in Graphics) Inside(graphic != null ? graphic.transform : null);
         Effects = BindEffects(source.effectsControl);
         Animations = new[] {
-            NativeUseBarAnimationBinding.Capture(source.animatorCreating, source.transform),
-            NativeUseBarAnimationBinding.Capture(source.animatorCreated, source.transform),
+            BindAnimator(source.animatorCreating),
+            BindAnimator(source.animatorCreated),
             BindLoop(source.loopAnimatorCreating),
         };
         Scratch = new NativeElementState { Graphics = NewGraphics(Graphics.Length), Effects = NewGraphics(Effects.Length),
@@ -131,6 +136,18 @@ internal sealed class NativeElementBindings
                     Kind = binding.Kind, Values = new float[binding.Components] };
             }
         }
+    }
+    private NativeUseBarAnimationBinding[] BindAnimator(GUIAnimator animator)
+    {
+        if (animator is AnimationGUIAnimator legacy)
+        {
+            // Legacy clips do not expose LeanTween settings. Record53 carries every actual
+            // rendered node instead, including the endpoint after Animation.Stop clears state.
+            if (legacy.m_Animation == null) throw new InvalidOperationException("original legacy element animation is missing");
+            Inside(legacy.m_Animation.transform);
+            return Array.Empty<NativeUseBarAnimationBinding>(); // no record52 recipe; record53 is REQUIRED
+        }
+        return NativeUseBarAnimationBinding.Capture(animator, Source.transform);
     }
     private static NativeElementGraphic[] NewGraphics(int count)
     {
@@ -190,6 +207,7 @@ internal sealed class NativeElementBindings
     }
     internal void Read()
     {
+        Render.Read();
         int state = Source.lastState switch { ElementInfusionBoardManager.EColumn.Inert => 1,
             ElementInfusionBoardManager.EColumn.Strong => 2, ElementInfusionBoardManager.EColumn.Waning => 3, _ => 0 };
         Scratch.Flags = (byte)((Source.gameObject.activeSelf ? 1 : 0) | (Source.elementImage.enabled ? 2 : 0)

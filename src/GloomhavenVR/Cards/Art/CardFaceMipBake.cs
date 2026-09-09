@@ -753,6 +753,10 @@ internal static class CardFaceMipBake
                             $"stays MIPLESS — {reason}.");
     }
 
+    /// <summary>Read-only original asset identity for owner-rendered public element sprite banks.</summary>
+    internal static Sprite OriginalFor(Sprite sprite) =>
+        s_originalByReplacement.TryGetValue(sprite.GetInstanceID(), out Sprite original) ? original : sprite;
+
     /// <summary>True when <paramref name="sprite"/> is one of OUR baked replacements — the
     /// rescan loops (here and in <c>WorldUI.PanelMipBake</c>) use it to recognize an Image
     /// that already samples a baked copy without a second dictionary shape.</summary>

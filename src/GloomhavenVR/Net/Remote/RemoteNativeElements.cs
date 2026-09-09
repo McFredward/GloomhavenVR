@@ -77,7 +77,10 @@ internal sealed class RemoteNativeElements
             float progress = _clock.Progress(from.SampleTime, to.SampleTime);
             // Validate the COMPLETE frame before any clone field is touched.
             for (int i = 0; i < _elements.Length; i++)
-            { _elements[i].Validate(from.Elements[i]); _elements[i].Validate(to.Elements[i]); }
+            {
+                _elements[i].Validate(from.Elements[i]); _elements[i].Validate(to.Elements[i]);
+                _elements[i].Rendered.Validate(from.RenderElements?[i]); _elements[i].Rendered.Validate(to.RenderElements?[i]);
+            }
             // Fit the same source-time frame being rendered, not a future newest envelope.
             _renderSize = new Vector2(Mathf.LerpUnclamped(from.Frame[0], to.Frame[0], progress),
                 Mathf.LerpUnclamped(from.Frame[1], to.Frame[1], progress));
@@ -91,7 +94,10 @@ internal sealed class RemoteNativeElements
                 for (int i = 0; i < 6; i++)
                     if (discrete.Elements[i].Sibling == order) _elements[i].Root.SetSiblingIndex(order);
             for (int i = 0; i < _elements.Length; i++)
+            {
                 _elements[i].Apply(from.Elements[i], to.Elements[i], progress);
+                _elements[i].Rendered.Apply(from.RenderElements?[i], to.RenderElements?[i], progress);
+            }
             _refusal = null; return true;
         }
         catch (Exception e)
@@ -117,6 +123,7 @@ internal sealed class RemoteNativeElements
     private sealed class Element
     {
         internal readonly RectTransform Root;
+        internal readonly RemoteElementRenderedHierarchy Rendered;
         private readonly NativeElementBindings _source;
         private readonly Graphic[] _graphics, _effects;
         private readonly RemoteUseBarAnimation[] _animations;
@@ -124,12 +131,18 @@ internal sealed class RemoteNativeElements
         internal Element(NativeElementBindings source, RemoteWidgetMirror mirror)
         {
             _source = source;
+            Rendered = new RemoteElementRenderedHierarchy(source, mirror);
             Root = mirror.CloneOf(source.Source.transform) as RectTransform
                 ?? throw new InvalidOperationException("original element has no clone mapping");
             _graphics = Map(source.Graphics, mirror); _effects = Map(source.Effects, mirror);
             _animations = new RemoteUseBarAnimation[source.Animations.Length];
-            for (int a = 0; a < _animations.Length; a++)
-                _animations[a] = RemoteUseBarAnimation.FromBindings(source.Animations[a]).Map(mirror, _materials);
+            try
+            {
+                for (int a = 0; a < _animations.Length; a++)
+                    _animations[a] = RemoteUseBarAnimation.FromBindings(source.Animations[a]).Map(mirror, _materials);
+            }
+            catch { Destroy(); throw; } // constructor failure never reaches the caller's element array
+
         }
         private static Graphic[] Map(Graphic[] originals, RemoteWidgetMirror mirror)
         {

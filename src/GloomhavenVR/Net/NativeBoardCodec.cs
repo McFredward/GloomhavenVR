@@ -8,7 +8,7 @@ namespace GloomhavenVR.Net;
 /// message11 reassembly is separate. No partial body or malformed tail can publish a frame.</summary>
 internal static class NativeBoardCodec
 {
-    internal const int MaxSize = 12288;
+    internal const int MaxSize = 40960;
     internal const byte MessageType = 10, FragmentType = 11, RecordId = 52;
     private const int BodyMax = 11000, ChunkBytes = 240;
 
@@ -16,7 +16,7 @@ internal static class NativeBoardCodec
     {
         if (state == null || buffer == null || buffer.Length < MaxSize) throw new ArgumentException("Invalid native board buffer.");
         // Revalidate publication arrays at the wire boundary; no truncated fallback state.
-        _ = new NativeBoardState(state.SampleTime, state.InitiativeDepthPixels, state.Generation, state.Elements, state.Frame);
+        _ = new NativeBoardState(state.SampleTime, state.InitiativeDepthPixels, state.Generation, state.Elements, state.Frame, state.RenderElements);
         var body = new byte[BodyMax]; int at = 0;
         AvatarSerializer.WriteF32(body, ref at, state.SampleTime);
         AvatarSerializer.WriteF32(body, ref at, state.InitiativeDepthPixels);
@@ -63,7 +63,7 @@ internal static class NativeBoardCodec
             U16(buffer, ref output, total); U16(buffer, ref output, offset);
             Buffer.BlockCopy(payload, offset, buffer, output, count); output += count;
         }
-        return output;
+        return state.RenderElements == null ? output : NativeElementRenderCodec.Write(state.RenderElements, buffer, output);
     }
 
     internal static bool TryRead(byte[] buffer, int length, out NativeBoardState? state)
@@ -73,6 +73,22 @@ internal static class NativeBoardCodec
         int at = 0;
         if (AvatarSerializer.ReadU32(buffer, ref at) != NetProtocol.Magic
             || buffer[at++] != NetProtocol.Version || buffer[at++] != MessageType) return false;
+        // Preserve additive TLV compatibility without weakening canonical known-page checks.
+        // Unknown records may occur anywhere; validate the entire envelope before parsing or
+        // publishing either known block. Known pages retain their exact order and bytes.
+        var known = new byte[length];
+        Buffer.BlockCopy(buffer, 0, known, 0, at);
+        int retained = at;
+        while (at < length)
+        {
+            if (at + 2 > length) return false;
+            int bytes = buffer[at + 1] + 2;
+            if (bytes > length - at) return false;
+            if (buffer[at] == RecordId || buffer[at] == NativeElementRenderCodec.RecordId)
+            { Buffer.BlockCopy(buffer, at, known, retained, bytes); retained += bytes; }
+            at += bytes;
+        }
+        buffer = known; length = retained; at = 6;
         byte[]? body = null; int filled = 0;
         while (at < length)
         {
@@ -85,6 +101,7 @@ internal static class NativeBoardCodec
             if (body == null) body = new byte[total];
             if (body.Length != total) return false;
             Buffer.BlockCopy(buffer, at, body, filled, count); at += count; filled += count;
+            if (filled == total) break;
         }
         if (body == null || filled != body.Length) return false;
         try
@@ -147,7 +164,10 @@ internal static class NativeBoardCodec
                 elements[i] = element;
             }
             if (p != body.Length) return false;
-            state = new NativeBoardState(time, depth, generation, elements, frame); return true;
+            NativeElementRenderState[]? renderElements = null;
+            if (at < length && !NativeElementRenderCodec.TryRead(buffer, length, ref at, out renderElements)) return false;
+            if (at != length) return false;
+            state = new NativeBoardState(time, depth, generation, elements, frame, renderElements); return true;
         }
         catch (ArgumentException) { return false; }
         catch (IndexOutOfRangeException) { return false; }
@@ -156,8 +176,8 @@ internal static class NativeBoardCodec
     }
     /// <summary>DeflateStream normally reads ahead beyond its final block. Restrict input to one
     /// byte per read so a valid stream followed by hidden garbage cannot consume the whole payload
-    /// and appear exact. Work stays bounded by the protocol's 11 KB input/output limits.</summary>
-    private sealed class ExactDeflateInput : Stream
+    /// and appear exact. Work stays bounded by the each record's bounded input/output limits.</summary>
+    internal sealed class ExactDeflateInput : Stream
     {
         private readonly MemoryStream _input;
         internal ExactDeflateInput(byte[] data, int offset, int count) =>
