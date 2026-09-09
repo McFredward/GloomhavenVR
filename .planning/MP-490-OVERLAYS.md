@@ -34,6 +34,11 @@ The native material roles, shader floats/colours, flame texture variant, origina
 and CanvasGroups remain original output. No gameplay controller was added to a clone. Explicit
 flight fallback paint remains owned by the flight classes and is not reset by native absence.
 
+Foreign-character focus uses the actual board owner's factory/adopted widgets too. The sampler's
+former character-control filter was removed: it suppressed visible foreign-character card effects
+although remote boards request output from this board's avatar. Received `RemoteCardArt` clones
+are outside that factory and never feed back into the sampler; gameplay authority stays unchanged.
+
 ## Validation
 
 - Local fallback flights can freeze the actual original card output without activating a parked
@@ -41,7 +46,7 @@ flight fallback paint remains owned by the flight classes and is not reset by na
   and native output remain original. Later synthetic flight writes cannot overwrite a native frame.
 
 - Strict Release: 0 errors, 0 warnings.
-- Wire suite with the production binding helper linked: 251,056 assertions (+19, including immutable ordinary/supply-pool and detached-flight seams).
+- Wire suite with the production binding helper linked: 251,057 assertions (+20, including immutable ordinary/supply-pool and detached-flight seams).
 - Negative control: restoring per-draw rebinding produced exactly three regression failures
   (same-count replacement, resurrection, initially unresolved sample); repaired version passed.
 - No shared baseline was overwritten. Integrator runs the final complete gate set.

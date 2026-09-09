@@ -22,8 +22,9 @@ internal static class CardAppearanceSampler
             FullAbilityCard? full = card.FullCard;
             CPlayerActor? actor = card.GameCard?.PlayerActor;
             if (full == null || full.cardEffects == null || actor == null) continue;
-            bool local = CardsGameApi.LocalControlsActor(actor, out bool known);
-            if (!local && (known || !actor.IsUnderMyControl)) continue;
+            // CopyVisibleCards enumerates this board's real adopted VRCard widgets, never
+            // received RemoteCardArt clones. A foreign character's visible card is still part
+            // of this board owner's picture; gameplay control is not presentation authority.
             LocalRigSampler.NameCard(actor, card, out byte code, out byte count);
             if (code == 0 && card.GameCard?.AbilityCard != null)
             {

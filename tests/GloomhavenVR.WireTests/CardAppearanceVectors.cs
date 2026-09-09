@@ -118,6 +118,11 @@ internal static class CardAppearanceVectors
         t.True(policy.Contains("card = widget != null ? widget.AbilityCard : full.AbilityCard;")
             && burn.Contains("BurnLookPolicy.Enforce(full, OwnerCard?.GameCard);"),
             "local burn policy reads the adopted widget instead of stale action-only FullAbilityCard model");
+        string sampler = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/CardAppearanceSampler.cs"));
+        string visible = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Cards/Driver/CardsDriver.7.Appearance.cs"));
+        t.True(sampler.Contains("CardsDriver.CopyVisibleCards(Cards)") && !sampler.Contains("LocalControlsActor")
+            && visible.Contains("Instance._factory.All"),
+            "actual visible foreign-character widgets publish board output without replaying received clones");
         string fan = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteHandFan.cs"));
         t.True(!fan.Contains("TickUsedCardFx(count, showFronts, mapFronts);"), "recovered fan never replays hidden local widget effects");
         string recess = File.ReadAllText(Path.Combine(root, "src/GloomhavenVR/Net/Remote/RemoteBoardCard.cs"));
