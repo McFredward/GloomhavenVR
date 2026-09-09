@@ -23,7 +23,9 @@ PY
 # Avoid compiling Bindings.cs twice: the explicit source link points outside the project tree.
 mv "$mutation_dir/Bindings.cs" "$mutation_dir/Bindings.fixture"
 if dotnet run --project "$mutation_dir/GloomhavenVR.CardBindingsTests.csproj" --configuration Release \
-    --property:BindingSource="$mutation_dir/Bindings.fixture" > "$mutation_dir/mutant.log" 2>&1; then
+    --property:BindingSource="$mutation_dir/Bindings.fixture" \
+    --property:StateSource="$repo_root/src/GloomhavenVR/Net/CardAppearanceState.cs" \
+    --property:CaptureSource="$repo_root/src/GloomhavenVR/Net/CardAppearanceCapture.cs" > "$mutation_dir/mutant.log" 2>&1; then
     cat "$mutation_dir/mutant.log"
     echo 'FAIL: old eight-group constructor limit escaped the runtime regression test.' >&2
     exit 1
@@ -34,3 +36,43 @@ if ! rg -q 'Unhandled exception. System.InvalidOperationException: Legacy eight-
     exit 1
 fi
 echo 'Card binding runtime negative control: old eight-group cap failed as expected.'
+# These independent mutations must execute the production capture path and fail for the
+# intended reason, not merely fail to compile. They pin immutability, shader replacement
+# invalidation and the allocation measurement itself.
+for defect in retained_snapshot shader_invalidation warmed_allocation; do
+    python3 - "$repo_root/src/GloomhavenVR/Net/CardAppearanceBindings.cs" "$mutation_dir/Bindings.fixture" "$defect" <<'PY'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+defect = sys.argv[3]
+if defect == 'retained_snapshot':
+    needle = '                published[i] = node;'
+    replacement = '                published[i] = source;'
+elif defect == 'shader_invalidation':
+    needle = ' || !ReferenceEquals(_maskShaders[role], shader)'
+    replacement = ''
+else:
+    needle = '        int count = 0;\n        for (byte role'
+    replacement = '        GC.KeepAlive(new byte[64]);\n        int count = 0;\n        for (byte role'
+assert source.count(needle) == 1, defect + ' mutation seam changed'
+pathlib.Path(sys.argv[2]).write_text(source.replace(needle, replacement))
+PY
+    if dotnet run --project "$mutation_dir/GloomhavenVR.CardBindingsTests.csproj" --configuration Release \
+        --property:BindingSource="$mutation_dir/Bindings.fixture" \
+        --property:StateSource="$repo_root/src/GloomhavenVR/Net/CardAppearanceState.cs" \
+        --property:CaptureSource="$repo_root/src/GloomhavenVR/Net/CardAppearanceCapture.cs" > "$mutation_dir/mutant.log" 2>&1; then
+        cat "$mutation_dir/mutant.log"
+        echo "FAIL: $defect escaped the capture regression test." >&2
+        exit 1
+    fi
+    case "$defect" in
+        retained_snapshot) expected='Changed graphic publishes a new node' ;;
+        shader_invalidation) expected='same material changed shader clears absent property lanes role/flags/binding/mask' ;;
+        warmed_allocation) expected='Warmed unchanged capture/publication allocates no managed objects' ;;
+    esac
+    if ! rg -q "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/mutant.log"; then
+        cat "$mutation_dir/mutant.log"
+        echo "FAIL: $defect negative control did not reach the intended runtime defect." >&2
+        exit 1
+    fi
+    echo "Card capture runtime negative control: $defect failed as expected."
+done

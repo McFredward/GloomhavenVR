@@ -23,7 +23,7 @@ namespace UnityEngine
     public sealed class Transform
     {
         public readonly GameObject gameObject;
-        public readonly string name;
+        public string name;
         public Transform? parent;
         public readonly List<Transform> Children = new();
         public Transform(GameObject owner, string name) { gameObject = owner; this.name = name; }
@@ -31,13 +31,15 @@ namespace UnityEngine
         public int GetSiblingIndex() => parent?.Children.IndexOf(this) ?? 0;
         public T[] GetComponentsInChildren<T>(bool includeInactive) where T : Component
         {
-            var result = new List<T>();
-            if (includeInactive || gameObject.activeSelf)
-            {
-                result.AddRange(gameObject.Components.OfType<T>());
-                foreach (var child in Children) result.AddRange(child.GetComponentsInChildren<T>(includeInactive));
-            }
-            return result.ToArray();
+            var result = new List<T>(); GetComponentsInChildren(includeInactive, result); return result.ToArray();
+        }
+        public void GetComponentsInChildren<T>(bool includeInactive, List<T> result) where T : Component
+        { result.Clear(); AppendComponents(includeInactive, result); }
+        private void AppendComponents<T>(bool includeInactive, List<T> result) where T : Component
+        {
+            if (!includeInactive && !gameObject.activeSelf) return;
+            foreach (Component component in gameObject.Components) if (component is T match) result.Add(match);
+            foreach (Transform child in Children) child.AppendComponents(includeInactive, result);
         }
     }
     public sealed class CanvasGroup : Component
@@ -54,20 +56,26 @@ namespace UnityEngine
     public sealed class Texture { }
     public sealed class Shader
     {
+        public readonly HashSet<int> Properties = new();
         public static int PropertyToID(string name) => name.GetHashCode();
     }
     public sealed class Material
     {
-        public readonly Shader shader = new();
-        public bool HasProperty(int property) => false;
-        public float GetFloat(int property) => 0;
-        public Color GetColor(int property) => default;
-        public Vector2 GetTextureScale(int property) => default;
-        public Texture? GetTexture(int property) => null;
+        public Shader shader = new();
+        public readonly Dictionary<int, float> Floats = new();
+        public readonly Dictionary<int, Color> Colors = new();
+        public readonly Dictionary<int, Vector2> Scales = new();
+        public readonly Dictionary<int, Texture?> Textures = new();
+        public bool HasProperty(int property) => shader.Properties.Contains(property);
+        public float GetFloat(int property) => Floats.TryGetValue(property, out float value) ? value : 0f;
+        public Color GetColor(int property) => Colors.TryGetValue(property, out Color value) ? value : default;
+        public Vector2 GetTextureScale(int property) => Scales.TryGetValue(property, out Vector2 value) ? value : default;
+        public Texture? GetTexture(int property) => Textures.TryGetValue(property, out Texture? value) ? value : null;
     }
     public sealed class CanvasRenderer
     {
-        public Color GetColor() => new(1f);
+        public Color Color = new(1f);
+        public Color GetColor() => Color;
     }
 }
 namespace UnityEngine.UI
@@ -99,12 +107,15 @@ public sealed class AssetBundleManager
 }
 namespace GloomhavenVR.Net
 {
-    // Capture output only; actual DTO/codec validation is exercised by GloomhavenVR.WireTests.
-    internal sealed class CardAppearanceNode
+    // Only the positional address constants are stubbed; node/state validation and snapshot
+    // retention below execute production code. The complete wire grammar has its own suite.
+    internal static class NetProtocol
     {
-        internal byte Role, Flags;
-        internal uint Binding, Mask;
-        internal float[] Values = new float[33];
-        internal static uint AllowedMask(byte role) => 0;
+        internal const byte HeldFaceIndexUnknown = 31;
+        internal static byte HeldFaceIndex(byte code) => (byte)(code & 31);
+        internal static byte HeldFaceList(byte code) => (byte)(code >> 5);
+        internal static bool HeldFaceNamesCard(byte code) => HeldFaceList(code) >= 1
+            && HeldFaceList(code) <= 6 && HeldFaceIndex(code) != HeldFaceIndexUnknown;
     }
+    internal static class CardPlumeState { internal const byte RoundList = 7; }
 }

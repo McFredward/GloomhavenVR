@@ -1,6 +1,7 @@
+// Frozen MB492 capture oracle. Compare complete output, including zero/unused lanes,
+// against the pre-optimization production algorithm. Runtime rendering remains Unity-owned.
 using System;
 using System.Reflection;
-using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -8,7 +9,7 @@ using UnityEngine.UI;
 namespace GloomhavenVR.Net;
 
 /// <summary>Serialized native CardEffects roles survive cloning even before Initialize ran.</summary>
-internal sealed class CardAppearanceBindings
+internal sealed class ReferenceCardAppearanceBindings
 {
     private static readonly string[] RoleFields = { "_headerImage", "_topButton", "_bottomAction", "_topDefAction", "_botDefAction",
         "_topDefActionIcon", "_botDefActionIcon", "_header", "_topDefActionTxt", "_bottomDefActionTxt", "_initiativeText", "_uiFxOverlay" };
@@ -26,17 +27,6 @@ internal sealed class CardAppearanceBindings
     internal readonly Texture? BurnTexture, GhostTexture;
     internal readonly Material? LowMaterial;
     private static Material?[]? _authoredMaterials;
-    private readonly List<CanvasGroup> _groupScan = new();
-    private readonly List<uint> _groupKeys = new();
-    private bool _groupsSorted;
-    private readonly List<CardAppearanceNode> _captureNodes = new();
-    private readonly List<CardAppearanceNode> _extraNodes = new();
-    private CardAppearanceNode[] _captured = Array.Empty<CardAppearanceNode>();
-    private CardAppearanceNode[] _capturedExtra = Array.Empty<CardAppearanceNode>();
-    private readonly Material?[] _maskMaterials = new Material?[12];
-    private readonly Shader?[] _maskShaders = new Shader?[12];
-    private readonly uint[] _materialMasks = new uint[12];
-    private readonly bool[] _particleProperties = new bool[12];
     private static readonly FieldInfo? LowMaterialField = typeof(CardEffects).GetField("_lowMaterial",
         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
@@ -58,7 +48,7 @@ internal sealed class CardAppearanceBindings
         }
         return _authoredMaterials[role];
     }
-    internal CardAppearanceBindings(CardEffects effects)
+    internal ReferenceCardAppearanceBindings(CardEffects effects)
     {
         Root = effects.transform;
         LowMaterial = LowMaterialField?.GetValue(effects) as Material;
@@ -69,29 +59,23 @@ internal sealed class CardAppearanceBindings
     internal void RefreshGroups()
     {
         Groups.Clear();
-        _groupKeys.Clear();
-        _groupsSorted = false;
-        Root.GetComponentsInChildren(true, _groupScan);
-        foreach (CanvasGroup group in _groupScan)
+        foreach (CanvasGroup group in Root.GetComponentsInChildren<CanvasGroup>(true))
         {
             uint key = GroupKey(group.transform, Root);
             if (Groups.ContainsKey(key)) throw new InvalidOperationException("Duplicate original card group binding.");
             Groups.Add(key, group);
-            _groupKeys.Add(key);
         }
     }
     internal CardAppearanceNode[] Capture(bool detachedRoot = false)
     {
         RefreshGroups();
-        int count = 0;
+        var nodes = new System.Collections.Generic.List<CardAppearanceNode>();
         for (byte role = 0; role < Graphics.Length; role++)
         {
             Graphic? graphic = Graphics[role];
             if (graphic == null) continue;
-            CardAppearanceNode node = Scratch(_captureNodes, count++);
-            node.Role = role;
-            node.Flags = (byte)((VisibleInCard(graphic.transform, Root, detachedRoot) ? 1 : 0)
-                | (graphic.enabled ? 2 : 0) | (graphic is TextMeshProUGUI tmp && tmp.enableVertexGradient ? 4 : 0));
+            var node = new CardAppearanceNode { Role = role, Flags = (byte)((VisibleInCard(graphic.transform, Root, detachedRoot) ? 1 : 0)
+                | (graphic.enabled ? 2 : 0) | (graphic is TextMeshProUGUI tmp && tmp.enableVertexGradient ? 4 : 0)) };
             Put(node.Values, 0, graphic.color);
             Color renderer = graphic.canvasRenderer.GetColor();
             Put(node.Values, 4, renderer);
@@ -100,102 +84,46 @@ internal sealed class CardAppearanceBindings
             // CardEffects.Initialize. The actual assigned shader identifies that variant;
             // the receiver's own SimplifiedUI preference is never consulted.
             if (role < 7 && LowMaterial != null && material.shader == LowMaterial.shader) node.Flags |= 16;
-            node.Mask = MaterialMask(role, material);
-            for (int f = 0; f < FloatIds.Length; f++) if ((node.Mask & (1u << f)) != 0)
-                node.Values[8 + f] = material.GetFloat(FloatIds[f]);
-            if ((node.Mask & (1u << 15)) != 0) Put(node.Values, 23, material.GetColor(BurnTint));
-            if ((node.Mask & (1u << 16)) != 0) Put(node.Values, 27, material.GetColor(FlameTint));
-            if ((node.Mask & (1u << 17)) != 0)
-            { Vector2 scale = material.GetTextureScale(Noise); node.Values[31] = scale.x; node.Values[32] = scale.y; }
+            uint allowed = CardAppearanceNode.AllowedMask(role);
+            for (int f = 0; f < FloatIds.Length; f++) if ((allowed & (1u << f)) != 0 && material.HasProperty(FloatIds[f]))
+            { node.Mask |= 1u << f; node.Values[8 + f] = material.GetFloat(FloatIds[f]); }
+            if ((allowed & (1u << 15)) != 0 && material.HasProperty(BurnTint))
+            { node.Mask |= 1u << 15; Put(node.Values, 23, material.GetColor(BurnTint)); }
+            if ((allowed & (1u << 16)) != 0 && material.HasProperty(FlameTint))
+            { node.Mask |= 1u << 16; Put(node.Values, 27, material.GetColor(FlameTint)); }
+            if ((allowed & (1u << 17)) != 0 && material.HasProperty(Noise))
+            { node.Mask |= 1u << 17; Vector2 scale = material.GetTextureScale(Noise); node.Values[31] = scale.x; node.Values[32] = scale.y; }
             // The two authored flame textures have a fixed role, never a transmitted asset name.
-            if (role == 11 && _particleProperties[role] && ReferenceEquals(material.GetTexture(Particle), GhostTexture))
+            if (role == 11 && material.HasProperty(Particle) && ReferenceEquals(material.GetTexture(Particle), GhostTexture))
                 node.Flags |= 8;
+            nodes.Add(node);
         }
-        count = CaptureGroups(_captureNodes, count, 0, 8, detachedRoot);
-        return Publish(_captureNodes, count, ref _captured);
+        nodes.AddRange(CaptureGroups(0, 8, detachedRoot));
+        return nodes.ToArray();
     }
     // Native action layouts contain more than eight CanvasGroups. The first eight keep their
     // original record58 roles; additive69 carries every remaining group. Never throw during
     // clone construction because a wire layout was smaller than the game's real widget tree.
     internal CardAppearanceNode[] CaptureExtraGroups(bool detachedRoot = false)
-    {
-        int count = CaptureGroups(_extraNodes, 0, 8, int.MaxValue, detachedRoot);
-        return Publish(_extraNodes, count, ref _capturedExtra);
-    }
+        => CaptureGroups(8, int.MaxValue, detachedRoot);
 
-    private int CaptureGroups(List<CardAppearanceNode> nodes, int written, int first, int count, bool detachedRoot)
+    private CardAppearanceNode[] CaptureGroups(int first, int count, bool detachedRoot)
     {
-        // Playback only needs the binding lookup. Sort once when capture actually needs the
-        // legacy/supplemental split, not for every remote refresh of the same native groups.
-        if (!_groupsSorted) { _groupKeys.Sort(); _groupsSorted = true; }
-        for (int index = first; index < _groupKeys.Count && index - first < count; index++)
+        var keys = new System.Collections.Generic.List<uint>(Groups.Keys); keys.Sort();
+        var nodes = new System.Collections.Generic.List<CardAppearanceNode>();
+        for (int index = first; index < keys.Count && index - first < count; index++)
         {
-            uint key = _groupKeys[index];
+            uint key = keys[index];
             CanvasGroup group = Groups[key];
-            CardAppearanceNode node = Scratch(nodes, written++);
-            node.Role = (byte)(first == 0 ? 12 + index : 12);
-            node.Binding = key;
-            node.Flags = (byte)((group.gameObject.activeSelf ? 1 : 0) | (group.enabled ? 2 : 0) | (group.ignoreParentGroups ? 4 : 0));
+            var node = new CardAppearanceNode { Role = (byte)(first == 0 ? 12 + index : 12), Binding = key,
+                Flags = (byte)((group.gameObject.activeSelf ? 1 : 0) | (group.enabled ? 2 : 0) | (group.ignoreParentGroups ? 4 : 0)) };
             node.Values[0] = group.alpha;
             // A local fallback flight owns a new root pose/visibility after the original widget
             // was parked. Preserve its inner native holders and output, not the parked root.
             if (detachedRoot && ReferenceEquals(group.transform, Root)) { node.Flags |= 1; node.Values[0] = 1f; }
+            nodes.Add(node);
         }
-        return written;
-    }
-    // MB493: sample every native value at the original cadence, but keep the working graph
-    // private. Published snapshots may still be queued/interpolated by another consumer and
-    // MUST never become the next sample's scratch buffers. Unchanged cards allocate no nodes.
-    private static CardAppearanceNode Scratch(List<CardAppearanceNode> nodes, int index)
-    {
-        if (index == nodes.Count) nodes.Add(new CardAppearanceNode());
-        CardAppearanceNode node = nodes[index];
-        node.Role = node.Flags = 0; node.Binding = node.Mask = 0;
-        Array.Clear(node.Values, 0, node.Values.Length);
-        return node;
-    }
-    private static CardAppearanceNode[] Publish(List<CardAppearanceNode> nodes, int count, ref CardAppearanceNode[] previous)
-    {
-        bool same = previous.Length == count;
-        for (int i = 0; same && i < count; i++) same = SameNode(nodes[i], previous[i]);
-        if (same) return previous;
-        var published = new CardAppearanceNode[count];
-        for (int i = 0; i < count; i++)
-        {
-            CardAppearanceNode source = nodes[i];
-            if (i < previous.Length && SameNode(source, previous[i])) published[i] = previous[i];
-            else
-            {
-                var node = new CardAppearanceNode { Role = source.Role, Flags = source.Flags,
-                    Binding = source.Binding, Mask = source.Mask };
-                Array.Copy(source.Values, node.Values, source.Values.Length);
-                published[i] = node;
-            }
-        }
-        return previous = published;
-    }
-    private static bool SameNode(CardAppearanceNode a, CardAppearanceNode b)
-    {
-        if (a.Role != b.Role || a.Flags != b.Flags || a.Binding != b.Binding || a.Mask != b.Mask) return false;
-        for (int i = 0; i < a.Values.Length; i++) if (a.Values[i] != b.Values[i]) return false;
-        return true;
-    }
-    private uint MaterialMask(byte role, Material material)
-    {
-        Shader shader = material.shader;
-        if (!ReferenceEquals(_maskMaterials[role], material) || !ReferenceEquals(_maskShaders[role], shader))
-        {
-            uint allowed = CardAppearanceNode.AllowedMask(role), mask = 0;
-            for (int f = 0; f < FloatIds.Length; f++)
-                if ((allowed & (1u << f)) != 0 && material.HasProperty(FloatIds[f])) mask |= 1u << f;
-            if ((allowed & (1u << 15)) != 0 && material.HasProperty(BurnTint)) mask |= 1u << 15;
-            if ((allowed & (1u << 16)) != 0 && material.HasProperty(FlameTint)) mask |= 1u << 16;
-            if ((allowed & (1u << 17)) != 0 && material.HasProperty(Noise)) mask |= 1u << 17;
-            _maskMaterials[role] = material; _maskShaders[role] = shader;
-            _materialMasks[role] = mask;
-            _particleProperties[role] = role == 11 && material.HasProperty(Particle);
-        }
-        return _materialMasks[role];
+        return nodes.ToArray();
     }
     // activeSelf alone misses disabled intermediate holders (including the native flame holder).
     // Capture the visible result inside this card; receiver-local board parents are not authority.

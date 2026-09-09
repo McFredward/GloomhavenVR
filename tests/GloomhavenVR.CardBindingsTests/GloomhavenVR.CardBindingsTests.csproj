@@ -5,8 +5,12 @@
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <BindingSource Condition="'$(BindingSource)' == ''">../../src/GloomhavenVR/Net/CardAppearanceBindings.cs</BindingSource>
+    <StateSource Condition="'$(StateSource)' == ''">../../src/GloomhavenVR/Net/CardAppearanceState.cs</StateSource>
+    <CaptureSource Condition="'$(CaptureSource)' == ''">../../src/GloomhavenVR/Net/CardAppearanceCapture.cs</CaptureSource>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(BindingSource)" Link="Production/CardAppearanceBindings.cs" />
+    <Compile Include="$(StateSource)" Link="Production/CardAppearanceState.cs" />
+    <Compile Include="$(CaptureSource)" Link="Production/CardAppearanceCapture.cs" />
   </ItemGroup>
 </Project>

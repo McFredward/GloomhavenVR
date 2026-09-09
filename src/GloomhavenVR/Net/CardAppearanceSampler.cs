@@ -11,7 +11,8 @@ internal static class CardAppearanceSampler
 {
     private static readonly List<VRCard> Cards = new();
     private static readonly List<AbilityCardUI> Pile = new();
-    private static readonly Dictionary<FullAbilityCard, CardAppearanceBindings> Bindings = new();
+    private static readonly List<CardAppearanceState> States = new();
+    private static readonly Dictionary<FullAbilityCard, CardAppearanceCapture> Bindings = new();
     private static readonly HashSet<FullAbilityCard> Seen = new();
     private static readonly List<FullAbilityCard> Removed = new();
     private static readonly Dictionary<FullAbilityCard, string> Failures = new();
@@ -20,7 +21,7 @@ internal static class CardAppearanceSampler
     {
         using var scope = PerfMonitor.Scope("Net.CardAppearance.Sample");
         CardsDriver.CopyVisibleCards(Cards); Seen.Clear();
-        var states = new List<CardAppearanceState>();
+        var states = States; states.Clear();
         foreach (VRCard card in Cards)
         {
             FullAbilityCard? full = card.FullCard;
@@ -57,16 +58,15 @@ internal static class CardAppearanceSampler
             try
             {
                 card.PreserveSpentBurnAppearance();
-                if (!Bindings.TryGetValue(full, out var binding)) Bindings[full] = binding = new CardAppearanceBindings(full.cardEffects);
-                var state = new CardAppearanceState { ActorId = NetFigures.StableActorId(actor), FaceCode = code, ListCount = count,
-                    Nodes = binding.Capture(), ExtraGroups = binding.CaptureExtraGroups() };
+                if (!Bindings.TryGetValue(full, out var capture)) Bindings[full] = capture = new CardAppearanceCapture(full.cardEffects);
+                var state = capture.Candidate;
+                state.ActorId = NetFigures.StableActorId(actor); state.FaceCode = code; state.ListCount = count;
+                state.Nodes = capture.Bindings.Capture(); state.ExtraGroups = capture.Bindings.CaptureExtraGroups();
                 // A late frame must not attach its material output to another card which has since
                 // occupied this same list seat. The original class pool is stable across moves/rests.
                 if (card.GameCard?.AbilityCard == null
                     || !CardAppearanceProvenance.Capture(state, actor, card.GameCard.AbilityCard)) continue;
-                if (!state.Validate()) throw new InvalidOperationException(
-                    $"Native card appearance has {binding.Groups.Count} groups and exceeds the bounded wire domain.");
-                states.Add(state);
+                states.Add(capture.Publish());
                 Failures.Remove(full);
             }
             catch (Exception ex)
@@ -89,9 +89,9 @@ internal static class CardAppearanceSampler
         if (states.Count > CardAppearanceState.CountMax) throw new InvalidOperationException("Native card appearance population exceeds wire bound.");
         states.Sort((a, b) => a.ActorId != b.ActorId ? a.ActorId.CompareTo(b.ActorId) : a.FaceCode.CompareTo(b.FaceCode));
         bool same = states.Count == _previous.Length;
-        for (int i = 0; same && i < states.Count; i++) same = CardAppearanceState.Same(states[i], _previous[i]);
+        for (int i = 0; same && i < states.Count; i++) same = ReferenceEquals(states[i], _previous[i]) || CardAppearanceState.Same(states[i], _previous[i]);
         if (!same) _previous = states.ToArray();
         return _previous;
     }
-    internal static void Reset() { CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
+    internal static void Reset() { CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); States.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
 }

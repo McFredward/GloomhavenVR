@@ -4,7 +4,7 @@ using GloomhavenVR.Net;
 using UnityEngine;
 using UnityEngine.UI;
 
-internal static class Program
+internal static partial class Program
 {
     private static int _assertions;
     private static void Check(bool condition, string message)
@@ -76,6 +76,7 @@ internal static class Program
             "Detached local flight ignores only the parked original root");
         Check(detached.Single(n => n.Role >= 12).Values[0] == 1f,
             "Detached root opacity belongs to the flight");
+        CaptureVectors();
         Console.WriteLine($"Card binding runtime harness: {_assertions} assertions passed.");
     }
 }
