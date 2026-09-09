@@ -33,6 +33,12 @@ internal sealed partial class FlatScreen
             return;
         }
 
+        if (hand.RayGrab.OwnsPointerFrame)
+        {
+            HideReticle();
+            return;
+        }
+
         if (_pokePressing)
         {
             // The fingertip owns the virtual mouse; the ray resumes after withdraw.
@@ -66,6 +72,16 @@ internal sealed partial class FlatScreen
         // order), which only flickers the reticle at the panel edge; an already-latched screen
         // press is never abandoned mid-press (its release must still reach uGUI).
         if (!_pressing && hand.RayUgui.HasHit && hand.RayUgui.HitDistance < dist - 0.005f)
+        {
+            HideReticle();
+            return;
+        }
+
+        // A floated popup's visible grab bar is a trigger collider, so neither the screen
+        // plane test nor RayUgui.HasHit includes it. Yield before mouse hover and pointer-down.
+        // An already latched screen gesture keeps its own release, as with nearer native UI.
+        float bar = RayGrabDriver.OccludingBarDistance(pose.Origin, pose.Direction, dist);
+        if (!_pressing && !LaserPointerPolicy.TargetBeforeBlocker(dist, bar))
         {
             HideReticle();
             return;

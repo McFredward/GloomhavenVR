@@ -50,6 +50,12 @@ internal sealed class RayGrabDriver
 
     private readonly VRHand _hand;
     private PanelGrabHandle? _hovered;
+    private int _lastCarryFrame = -1;
+
+    // RayGrab ticks before ProximityGrabber, so this stamp also owns the release frame after
+    // the grabber has cleared Held. Independent map input must not reuse that gesture.
+    internal bool OwnsPointerFrame => LaserPointerPolicy.OwnsCarryFrame(
+        _hand.Grabber.Held is PanelGrabHandle, _lastCarryFrame, Time.frameCount);
 
     internal RayGrabDriver(VRHand hand) => _hand = hand;
 
@@ -62,6 +68,7 @@ internal sealed class RayGrabDriver
 
     internal void Tick()
     {
+        if (_hand.Grabber.Held is PanelGrabHandle) _lastCarryFrame = Time.frameCount;
         // Dominant hand only (the off-hand holds the fan) and only while the ray is the
         // live effective state — Ray.Active is false while THIS hand already holds a
         // grabbable (including a laser-carry in progress), so we stop ray-testing and let
@@ -132,6 +139,7 @@ internal sealed class RayGrabDriver
             target.BeginLaserCarry(_hand, bestDist, bestPoint);
             if (!_hand.Grabber.ForceGrab(target, releaseOnTriggerUp: true))
                 target.CancelLaserCarry();
+            else _lastCarryFrame = Time.frameCount;
         }
     }
 
@@ -151,34 +159,8 @@ internal sealed class RayGrabDriver
 
         bestDist = maxDist;
 
-        var entries = VRInteractables.Grabbables;
-        for (int i = 0; i < entries.Count; i++)
-        {
-            // Only panel/modal drag handles are laser-draggable; cards etc. are not.
-            if (entries[i].Target is not PanelGrabHandle handle || !handle.CanGrab)
-                continue;
-            // LOST-MENU FIX: when the handle exposes a dedicated BAR collider (floated modal
-            // windows), the laser tests ONLY that narrow visible drag-bar strip. The wider
-            // registered grab ZONE stays palm-only (ProximityGrabber) — a floated menu sits
-            // between the user and the board, and ray-testing its generous zone made EVERY
-            // trigger aimed at the cards/board start a laser-carry of the menu instead. The
-            // hover beam-clamp (UiHitOverride below) follows the same collider, so the beam
-            // only latches onto the visible bar too.
-            Collider col = handle.BarCollider != null ? handle.BarCollider : entries[i].Collider;
-            if (col == null || !col.enabled || !col.gameObject.activeInHierarchy)
-                continue;
-            if (col.Raycast(ray, out RaycastHit hit, bestDist))
-            {
-                best = handle;
-                bestPoint = hit.point;
-                bestDist = hit.distance;
-            }
-        }
-
-        if (best == null)
-        {
+        if (!TryPickBarGeometry(ray, maxDist, requireGrabbable: true, out best, out bestPoint, out bestDist))
             return false;
-        }
 
         // A nearer solid physics hit (miniature/furniture) occludes the bar.
         PickPose pick = _hand.Ray.Current;
@@ -195,11 +177,38 @@ internal sealed class RayGrabDriver
         {
             // [Optimize] LeanLogStrings: skip the per-frame string build when the note is throttled.
             if (RayInteractor.WantFanOcclusionNote)
-                _hand.Ray.NoteFanOcclusion($"panel grab bar '{best.name}'", bestDist);
+                _hand.Ray.NoteFanOcclusion($"panel grab bar '{best!.name}'", bestDist);
             return false;
         }
 
         return true;
+    }
+
+    /// <summary>Geometric occlusion for independent world pickers, including policy-off offhand
+    /// aim. A visible bar is solid input geometry even when this hand cannot grab it.</summary>
+    internal static float OccludingBarDistance(Vector3 origin, Vector3 direction, float limit)
+    {
+        return TryPickBarGeometry(new Ray(origin, direction), limit, requireGrabbable: false,
+            out _, out _, out float distance) ? distance : float.PositiveInfinity;
+    }
+
+    private static bool TryPickBarGeometry(Ray ray, float limit, bool requireGrabbable,
+        out PanelGrabHandle? best, out Vector3 bestPoint, out float bestDist)
+    {
+        best = null; bestPoint = default; bestDist = limit;
+        var entries = VRInteractables.Grabbables;
+        for (int i = 0; i < entries.Count; i++)
+        {
+            if (entries[i].Target is not PanelGrabHandle handle || (requireGrabbable && !handle.CanGrab))
+                continue;
+            // Test the same narrow visible rod for both grabbing and occlusion. The larger palm
+            // zone must never hide an icon beside a bar that the ray did not actually hit.
+            Collider col = handle.BarCollider != null ? handle.BarCollider : entries[i].Collider;
+            if (col == null || !col.enabled || !col.gameObject.activeInHierarchy) continue;
+            if (!col.Raycast(ray, out RaycastHit hit, bestDist)) continue;
+            best = handle; bestPoint = hit.point; bestDist = hit.distance;
+        }
+        return best != null;
     }
 
     /// <summary>Next unscaled time <see cref="LogCarryYielded"/> may print, and what it swallowed.</summary>

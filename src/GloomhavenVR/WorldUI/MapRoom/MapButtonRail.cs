@@ -2054,7 +2054,8 @@ internal sealed class MapButtonRail
     private void TickLaser()
     {
         VRHand? hand = VRHands.Primary;
-        if (hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null)
+        if (hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null
+            || hand.RayGrab.OwnsPointerFrame)
         {
             ClearLaserHover();
             return;
@@ -2089,7 +2090,11 @@ internal sealed class MapButtonRail
         // does a nearer SOLID mod surface, which in THIS room is the player's own raised hand of
         // ability cards (see the method doc). Both read exactly as CombatLogSurface.TickCapLaser
         // reads them, off the ray's own precomputed terms; neither is inferred here.
-        if ((hand.RayUgui.HasHit && hand.RayUgui.HitDistance < best)
+        // Window bars are trigger colliders outside this cap-only scan. Test the same hand's
+        // geometric ray before granting either hover or click behind a foreground bar.
+        float bar = RayGrabDriver.OccludingBarDistance(origin, direction, MaxCapLaserMeters * hand.WorldScale);
+        if (!LaserPointerPolicy.TargetBeforeBlocker(best, bar)
+            || (hand.RayUgui.HasHit && hand.RayUgui.HitDistance < best)
             || hand.Ray.SolidOccluderDistance < best - SolidOccluderEpsilonMeters * hand.WorldScale)
         {
             ClearLaserHover();

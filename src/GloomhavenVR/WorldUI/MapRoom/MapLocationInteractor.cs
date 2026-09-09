@@ -355,17 +355,20 @@ internal sealed class MapLocationInteractor
         // beam of its own.
         VRHand? primaryHand = VRHands.Primary;
         bool primaryHasBeam = HasLiveBeam(primaryHand);
+        VRHand? hoverHand = primaryHand;
         MapLocation? want = PickFrom(primaryHand, out string how);
-        if (want == null && !primaryHasBeam)
+        if (want == null && LaserPointerPolicy.AllowFallback(primaryHasBeam,
+            primaryHand != null && primaryHand.RayGrab.OwnsPointerFrame))
         {
             MapLocation? alt = PickFrom(OtherHand(primaryHand), out string otherHow);
             if (alt != null)
             {
                 want = alt;
                 how = otherHow;
+                hoverHand = OtherHand(primaryHand);
             }
         }
-        SetHover(want, "laser", how, pointer: primaryHand);
+        SetHover(want, "laser", how, pointer: hoverHand);
         NoteRouteChange(primaryHand, primaryHasBeam, how);
 
         TickHoverVerdict();
@@ -381,10 +384,14 @@ internal sealed class MapLocationInteractor
         VRHand? clicking = TriggerEdgeHand();
         if (clicking == null)
             return;
-        // Claim the trigger WITHOUT moving the beam: the far-click half alone (see
-        // RayInteractor.SuppressFarClick's own doc on why the two duties are separate).
+        // MB491: the shared hover can belong to the OTHER hand. Re-pick through the clicking
+        // hand's own geometry before dispatch; a window-grab trigger must never select an icon
+        // that the resting offhand happened to hover while the primary beam stood down.
+        MapLocation? clicked = PickFrom(clicking, out _);
+        if (!LaserPointerPolicy.AllowClick(clicking.TriggerDown, clicking.RayGrab.OwnsPointerFrame,
+            clicked != null)) return;
         clicking.Ray.SuppressFarClick();
-        Dispatch(_hover, $"{clicking.Side} trigger", clicking);
+        Dispatch(clicked!, $"{clicking.Side} trigger", clicking);
     }
 
     /// <summary>Undo everything: unregister the poke adapters, hand the pick mask back, and drop a
@@ -750,14 +757,10 @@ internal sealed class MapLocationInteractor
     /// the other hand is asked whenever this one has no live beam (see <c>Tick</c>) and the other
     /// hand is precisely the one that is always policy-off.</para>
     ///
-    /// <para>WHAT WAS REJECTED: making the mod's own floated panels not block the pick, which the
-    /// 421 lane named as the lead. The panels do not block it — <c>PickFrom</c> raycasts
-    /// <c>Ray.Mask</c>, which this class narrows to the MapLocations' own layer (0x00008000, see
-    /// ApplyMask), and a converted window lives on the mod's dedicated layer 27; and the only
-    /// occluder <c>SolidOccluderDistance</c> can carry is a card fan or the control board
-    /// (<c>RayInteractor.ComputeFanOccluder</c>/<c>ComputeBoardOccluder</c>), neither of which
-    /// printed its "ray occluded by" line even once in either 420 log. Nothing was changed about
-    /// the panels, and nothing needed to be.</para>
+    /// <para>The historical map-only mask omitted floated panels and their trigger-collider
+    /// bars. ModBuild 491 therefore measures the foreground bar independently, and also respects
+    /// this hand's nearer native UI hit. Policy-off aim remains available only when neither a
+    /// carry nor its release frame owns the primary hand.</para>
     /// </summary>
     private MapLocation? PickFrom(VRHand? hand, out string how)
     {
@@ -776,12 +779,20 @@ internal sealed class MapLocationInteractor
             }
         }
 
-        // The occluder term is unchanged and needs no branch: RayInteractor.Tick resets
-        // SolidOccluderDistance to +inf on every inactive frame, so on the aim-pose route this
-        // Min is already just the length bound. A fan or the control board can only shorten a
-        // pick made through a LIVE beam, which is the only case it was ever measured for.
-        float limit = Mathf.Min(hand.Ray.SolidOccluderDistance,
-                                MaxPickMeters * Mathf.Max(hand.WorldScale, 0.0001f));
+        // MB491: map pads use their own layer-only raycast. A nearer trigger-collider bar
+        // is absent from both that mask and SolidOccluderDistance, so a correct visible beam
+        // clamp previously still delivered hover/click through it. Use the same rod geometry
+        // as RayGrab and the nearest native panel before picking either map collider family.
+        float reach = MaxPickMeters * Mathf.Max(hand.WorldScale, 0.0001f);
+        float bar = RayGrabDriver.OccludingBarDistance(pick.Origin, pick.Direction, reach);
+        float panel = hand.RayUgui.HasHit ? hand.RayUgui.HitDistance : float.PositiveInfinity;
+        float limit = LaserPointerPolicy.PickLimit(reach, hand.Ray.SolidOccluderDistance,
+            bar, panel, hand.RayGrab.OwnsPointerFrame);
+        if (limit <= 0f)
+        {
+            how = "the window grab owns this hand through its release frame";
+            return null;
+        }
         int n = Physics.RaycastNonAlloc(pick.Origin, pick.Direction, _hits, limit, hand.Ray.Mask);
 
         MapLocation? padHit = null, boxHit = null;
@@ -793,6 +804,7 @@ internal sealed class MapLocationInteractor
             if (c == null)
                 continue;
             float d = _hits[i].distance;
+            if (!LaserPointerPolicy.TargetBeforeBlocker(d, limit)) continue;
             if (_pads.TryLocation(c, out MapLocation padLoc))
             {
                 if (d < padDist)
@@ -1211,6 +1223,11 @@ internal sealed class MapLocationInteractor
     private bool RayOnMapOrTable(VRHand hand, out string what, out float distance)
     {
         distance = float.PositiveInfinity;
+        if (hand.RayGrab.OwnsPointerFrame)
+        {
+            what = "a window grab or its release frame";
+            return false;
+        }
         if (hand.RayUgui.HasHit)
         {
             Canvas? canvas = hand.RayUgui.HoveredCanvas;
@@ -1250,7 +1267,10 @@ internal sealed class MapLocationInteractor
         }
 
         float scale = Mathf.Max(hand.WorldScale, 0.0001f);
-        float limit = Mathf.Min(hand.Ray.SolidOccluderDistance, MaxPickMeters * scale);
+        float reach = MaxPickMeters * scale;
+        float bar = RayGrabDriver.OccludingBarDistance(pick.Origin, pick.Direction, reach);
+        float limit = LaserPointerPolicy.PickLimit(reach, hand.Ray.SolidOccluderDistance,
+            bar, float.PositiveInfinity, hand.RayGrab.OwnsPointerFrame);
         Bounds map = parchment.bounds;
         Bounds slab = map;
         // Bounds.Expand adds HALF of what it is given to each side, so the rim is doubled going in.
@@ -1265,10 +1285,10 @@ internal sealed class MapLocationInteractor
                    + $"(centre {slab.center}, size {slab.size}, world units)";
             return false;
         }
-        if (t > limit)
+        if (!LaserPointerPolicy.TargetBeforeBlocker(t, limit))
         {
             what = $"the map/table slab, but {t:F1} world units away — past this ray's limit of "
-                   + $"{limit:F1} (the raised card fan or the control board is in front of it), so it "
+                   + $"{limit:F1} (a raised card fan, control board or window grab bar is in front of it), so it "
                    + "does not count";
             return false;
         }

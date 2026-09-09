@@ -1,6 +1,7 @@
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
+using GloomhavenVR.Hands.Interact;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -1374,7 +1375,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         VRHand? hand = VRHands.Primary;
         if (cap == null || cap.Collider == null || !cap.Collider.enabled
             || !cap.gameObject.activeInHierarchy
-            || hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null)
+            || hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null
+            || hand.RayGrab.OwnsPointerFrame)
         {
             ClearCapLaserHover();
             return;
@@ -1390,7 +1392,11 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         // A nearer game-UI hit wins (the X on this panel's own host canvas is one of them), and so
         // does a nearer solid mod surface (control board / raised fan) — the same two vetoes
         // RayUguiDriver applies to a uGUI panel standing behind them.
-        if ((hand.RayUgui.HasHit && hand.RayUgui.HitDistance < rh.distance)
+        // Window bars are trigger colliders outside this cap-only scan. Test the same hand's
+        // geometric ray before granting either hover or click behind a foreground bar.
+        float bar = RayGrabDriver.OccludingBarDistance(origin, direction, MaxCapLaserMeters * hand.WorldScale);
+        if (!LaserPointerPolicy.TargetBeforeBlocker(rh.distance, bar)
+            || (hand.RayUgui.HasHit && hand.RayUgui.HitDistance < rh.distance)
             || hand.Ray.SolidOccluderDistance < rh.distance - SolidOccluderEpsilonMeters * hand.WorldScale)
         {
             ClearCapLaserHover();
