@@ -91,6 +91,9 @@ internal sealed class RemoteUseBarTooltip
                         material.SetVector("_PosAndBounds", new Vector4(rect.position.x, rect.position.y,
                             rect.rect.width, rect.rect.height));
                 }
+            // Native ItemCardEffects sets its used look with a 0.001-second transition. Its
+            // original smoke is sampled independently in record56, including native activation,
+            // seed, age and board pose; this stage must not start or retain a second emitter.
             _itemEffects = RemoteCardArt.PrepareNativeItem(clone, item.SlotState switch
             {
                 CItem.EItemSlotState.Spent => RemoteCardArt.SpentLook.Spent,
@@ -234,11 +237,16 @@ internal sealed class RemoteUseBarTooltip
         _backArt = mirror.CloneOf(_backArt?.transform)?.GetComponent<RawImage>(),
     };
 
+    // The independent native smoke stream uses the same owner visibility as this original
+    // tooltip. Covering the card front does not hide the tooltip or invent a smoke episode.
+    internal static bool IsShown(byte slotState, UseBarWidgetState? state) =>
+        (slotState & NetProtocol.UseSlotHoveredBit) != 0 && (state?.Flags ?? 0) == 0;
+
     internal void Paint(byte slotState, UseBarWidgetState? state)
     {
         if (_loads.Count > 0) UpdateLoadGroups();
         // Native CheckShowTooltip: hovered, with neither the element nor option picker open.
-        bool show = (slotState & NetProtocol.UseSlotHoveredBit) != 0 && (state?.Flags ?? 0) == 0;
+        bool show = IsShown(slotState, state);
         Set(_bonusRoot, show && !_itemKind);
         bool itemFaceAllowed = !_itemKind || RevealGate.CardFaces(RevealGate.PeerCardPopulation.ItemCard,
             _model?.Actor as CPlayerActor) != RevealGate.CardFaceSource.None;
