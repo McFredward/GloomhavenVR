@@ -46,6 +46,17 @@ internal static class CardFaceLifecycleVectors
             && fan.Contains("i == heldSeat || i == secondHeldSeat")
             && !fan.Contains("private int HeldMapLoadoutSeat()"), "two map holds project both source seats out of the public arc");
         t.True(active.Contains("_owner.BurnOwnsActiveCard(cardId)"), "active burn renderer excludes its duplicate stationary cell");
+        string local = Read("Cards/VRCard.cs");
+        t.True(LocalShortRestCover(local), "live local short-rest flight opts into covered original body and hidden native artwork");
+        t.True(!LocalShortRestCover(local.Replace("SetFlightFaceCovered(coverFace);", "")),
+            "negative control: declaring coverage without invoking it at launch fails");
+        t.True(local.Contains("_faceGroup.alpha = _flightFaceCovered ? 0f")
+            && local.Contains("_coveredFaceGroups[i].ignoreParentGroups = false;"),
+            "all native child groups obey the flight's parent cover");
+        t.True(local.Contains("SetFlightFaceCovered(false);\n        _flying = false;")
+            && local.Contains("if (!_flying) SetFlightFaceCovered(false);")
+            && local.Contains("_coveredBodyRenderers[i].sharedMaterials = _coveredBodyMaterials[i]"),
+            "cancel, completion and pool return restore the exact prior body presentation");
         string map = Read("WorldUI/MapRoom/MapRoomHand.2.Fan.cs");
         t.True(map.Contains("MapCardSources.Add(card, new MapCardSource { Character = _character, Model = model })")
             && map.Contains("CharacterClassManager.Find(source.Character.CharacterID)"),
@@ -93,6 +104,12 @@ internal static class CardFaceLifecycleVectors
         t.True(!MapCardFaceProjection.TryBuild(4, 1, 255, -1, 255, 2, arc) && arc.Count == 0,
             "unexplained model/count disagreement rejects the whole projection");
     }
+
+    private static bool LocalShortRestCover(string source) => source.Contains("bool coverFace = false)")
+        && source.Contains("SetFlightFaceCovered(coverFace);")
+        && source.Contains("Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability)")
+        && source.Contains("coveredMaterials[m] = back")
+        && source.Contains("body.sharedMaterials = coveredMaterials");
 
     private static bool HeldActor(string source) => source.Contains("RemoteBoardFocus.ActorById(_owner.HeldFaceActorId(_slot))")
         && !source.Contains("actor = RemoteBoardFocus.DisplayedActor");
