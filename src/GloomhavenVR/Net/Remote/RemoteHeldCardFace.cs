@@ -168,19 +168,17 @@ internal sealed class RemoteHeldCardFace
         if (_renderer != null) _renderer.enabled = true;
         if (!_owner.HeldFaceAddressReady(_slot))
         {
-            HidePendingFront(code);
+            ReportPending(code, "waiting for the held card source address");
             return;
         }
         if (!NetProtocol.HeldFaceNamesCard(code) && _owner.HeldFaceMapKey(_slot) == 0)
         {
             // A CARD IS IN THEIR FIST AND THE RECORD NAMES NO SEAT FOR IT — the state the 2026-09-05
-            // evidence turned out to be made of, and the one state the old code reported as if
-            // nothing were being drawn at all. It is a BACK on screen, so it is a BACK in the census,
-            // and the rule names the SENDER rather than this receiver: no amount of work here can
-            // draw a face for a seat nobody named.
-            Report(0, 1, "the sender named no seat for this card (record 36 code 0) — nothing this "
+            // evidence turned out to be made of. Count a back only when the covered body is
+            // actually visible; a pending public front is withheld. The rule names the sender
+            // because this receiver cannot draw a face for a seat nobody named.
+            ReportPending(code, "the sender named no seat for this card (record 36 code 0) — nothing this "
                        + "receiver can do; read the owner's 'Held-card face SENT' line");
-            HidePendingFront(code);
             return;
         }
 
@@ -209,7 +207,7 @@ internal sealed class RemoteHeldCardFace
             // DisplayedActor here blanked an otherwise valid public card until focus returned.
             if (RevealGate.InScenario && actor == null)
             {
-                HidePendingFront(code);
+                ReportPending(code, "waiting for the held card actor");
                 return;
             }
             // The list byte selects artwork and silhouette; all held kinds share phase visibility.
@@ -229,13 +227,12 @@ internal sealed class RemoteHeldCardFace
         }
         if (source == RevealGate.CardFaceSource.None)
         {
-            Report(0, 1, "RevealGate.CardFaces named no source — selection-phase artwork is covered "
+            ReportPending(code, "RevealGate.CardFaces named no source — selection-phase artwork is covered "
                        + "for every held source, or scenario/map capability is unavailable");
             // A BACK, BUT STILL AN ITEM-SHAPED BACK. This branch is the report's second half almost
             // word for word — "in der Auswahlphase … man nur die Rückseite sieht" — and it used to
             // call Hide(), which resets the silhouette to ABILITY. The gate governs the FACE; it
             // has nothing to say about the outline. See the EnsureBody call above.
-            HidePendingFront(code);
             return;
         }
 
@@ -265,9 +262,8 @@ internal sealed class RemoteHeldCardFace
 
         if (_face == null && _abilityCard == null && _item == null && _mapCard == null && _activeCard == null)
         {
-            Report(0, 1, $"the seat the sender named ({Describe(code, count)}) did not resolve on "
+            ReportPending(code, $"the seat the sender named ({Describe(code, count)}) did not resolve on "
                        + "this client — a list of a different length, or an empty seat");
-            HidePendingFront(code);
             return;
         }
 
@@ -291,8 +287,7 @@ internal sealed class RemoteHeldCardFace
                           != RemoteAbilityCardSource.FacePath.None;
         if (!shown)
         {
-            Report(0, 1, "the seat resolved but the face CLONE failed to build");
-            HidePendingFront(code);
+            ReportPending(code, "the seat resolved but the face CLONE failed to build");
             return;
         }
         // USER ITEM 10: a front is up, so this body stops wearing the card BACK on its FRONT fan —
@@ -720,6 +715,14 @@ internal sealed class RemoteHeldCardFace
     /// gate for <see cref="SetFrontFace"/>. Seeded true because that is what
     /// <c>RemoteAvatar.BuildCardSlab</c> and <see cref="EnsureBody"/> build the slab with.</summary>
     private bool _wearsBack = true;
+
+    private void ReportPending(byte code, string reason)
+    {
+        HidePendingFront(code);
+        int backs = _renderer != null && _renderer.enabled
+            && _renderer.gameObject.activeInHierarchy ? 1 : 0;
+        Report(0, backs, reason);
+    }
 
     private void HidePendingFront(byte code)
     {

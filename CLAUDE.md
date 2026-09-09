@@ -66,6 +66,9 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    POSITION, SIZE, STATE and TIMING. A mirror must never read the viewer's dial. A shared
    window's size and pose may never depend on anything client-local. Every feature is
    multiplayer-compatible, syncs fully or not at all, and stays playable alongside flat/unmodded.
+   **Card concealment is remote-only** (user clarification, 2026-09-09, build 490 review).
+   Local controlled-character cards always retain their fronts, including short-rest burn flights.
+   Remote selection cards and remote short-rest burn flights remain covered; action cards are open.
 5. **Localisation:** every user-facing string EN+DE via `Core/Loc`. **Config:** every default on
    one annotated line in `Defaults/` with a `// => [Section] Key` comment, and a new key must end
    in a unit word `ConfigSteps` recognises or its stepper is unusable (user-reported twice; pinned
@@ -96,8 +99,8 @@ The guard's **exit code is 1 whenever the compiled form differs at all**, which 
 any change — read the printed verdict, not the status. Its baseline is per-worktree and
 gitignored; take your own with `bash scripts/refactor-guard.sh baseline` before you start.
 
-Current readings at 488: patch surface 107 classes / 165 methods · wire 249,484 assertions ·
-config keys 625 · log tokens 4,713 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
+Current readings at 490: patch surface 107 classes / 165 methods · wire 251,572 assertions ·
+config keys 625 · log tokens 4,714 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
 A number that has moved is not automatically wrong — but it must be explained in the commit.
 
 **Read the NUMBER, not the word "green".** A deduplication in the 2026-09 round silently stopped

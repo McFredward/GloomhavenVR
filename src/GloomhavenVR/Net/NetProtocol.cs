@@ -486,7 +486,7 @@ internal static class NetProtocol
     /// 15 Hz board pose while moving).</summary>
     public const ushort ModBuild = 490;
 
-    // ModBuild490 — pre-hardware review of all local/remote card faces, overlays and flights.
+    // ModBuild 490 — pre-hardware review of all local/remote card faces, overlays and flights.
     //   Remote selection stays covered even on the viewer's own character. Held actors follow
     //   their actual widget/chip, not board focus; map holds retain original character/pool and
     //   actual arc holes across two plucks, focus changes and loadout edits. No card IDs or names.
@@ -498,9 +498,14 @@ internal static class NetProtocol
     //   on all viewing boards. Active-origin flights wait for the exact cached source; public
     //   travel waits for real front artwork. Local fallback flights use original native output,
     //   captured width and world-up. Unrelated hand destruction preserves other pending burns.
+    //   User clarification: concealment is remote-only. Local controlled cards and all local
+    //   short-rest flights retain original fronts; explicit short-rest flags cover remote flights.
     //   Additive66 second held actor,67 held map pool/arc provenance,68 native appearance pool
     //   provenance. Previous grammars and GVR1/v3 unchanged. Rig max159; extras3837/4096;
     //   native appearance <=41318/45056. Holes38/40/42 remain unused;69 is next free.
+    //   Gates: strict Release 0 errors/0 warnings, all 17 checkers, 251572 wire assertions;
+    //   config 625, patch registration 107 classes/165 methods, log tokens 4714. Docs/refasm pass.
+    //   Compiled comparison: 38 intended changed types, 4 new types, none removed.
     //   See .planning/MP-CARD-REVIEW-490.md for review coverage, gates and hardware limitations.
     //   DLL-only after full483. Latest supplied hardware remains488;490 requires a headset test.
 

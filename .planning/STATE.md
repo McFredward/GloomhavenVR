@@ -22,9 +22,12 @@ change per build) → this file (where things stand and what is owed) → the bu
   verified. **490 requires a headset retest.** The pre-test card review is in [MP-CARD-REVIEW-490.md](MP-CARD-REVIEW-490.md). See [MP-ROUND-489.md](MP-ROUND-489.md) for all thirteen
   findings, the original Disarm explanation, and the additional parity review. The older timeout investigation remains in [MP-ROUND-484.md](MP-ROUND-484.md).
 - **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
-- Gate readings at 489: 17 checkers green · wire **251,037** assertions · patch surface
+- Gate readings at 490: 17 checkers green · wire **251,572** assertions · patch surface
   **107 classes / 165 methods** · config keys **625** · log tokens **4,714** ·
-  instrument-writes baseline **61** · 0 errors, 0 warnings.
+  instrument-writes baseline **61** · 0 errors, 0 warnings. Compiled comparison against
+  `97ad6c6a`: 38 intended changed types and 4 new types; no removed types. Docs/refasm pass.
+  Concealment is remote-only: local controlled cards remain open, including short-rest flights
+  (user clarification during the build 490 review).
 
 ### Recent builds
 

@@ -38,6 +38,11 @@ must retain original presentation without running gameplay controllers or callba
 
 The latest multiplayer test ruling (2026-09-09, ModBuild 486 evidence) supersedes older
 pile/active-card face exceptions: during the action phase cards are face-up; during
-ability selection, remote fans, held cards and placed cards are face-down. Short-rest
+ability selection, remote fans, held cards and placed cards are face-down. Remote short-rest
 burn flights must remain face-down. Damage-sacrifice choices during the action phase
 remain face-up. Card-face visibility and permission to name private cards remain separate.
+
+The user clarified during the build 490 review (2026-09-09): concealment is exclusively a
+remote presentation rule. Local cards of controlled characters are never concealed, including
+short-rest burn flights and fallback artwork. During selection, local character switching is
+already limited to controlled characters; do not add remote secrecy gates to local rendering.
