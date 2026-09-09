@@ -618,7 +618,6 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <summary>Give the face back to the game (pool-safe). Idempotent.</summary>
     internal void DetachGameCard()
     {
-        SetFlightFaceCovered(false);
         ForgetActionHighlight();
         // Restore the game's own materials/sorting BEFORE handing the face back to the game.
         RestoreFaceHoverFx();
@@ -1596,10 +1595,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// card arcs OVER the board instead of passing through it — see <see cref="FlyArcOffset"/>.
     /// </summary>
     internal void FlyToPile(Vector3 targetWorldPos, float targetWorldWidth, float duration, Vector3 arcUp,
-        Action onComplete, float minArcHeight = 0f, bool coverFace = false)
+        Action onComplete, float minArcHeight = 0f)
     {
         CancelAppear(); // a fly wins over a running materialize — never leave it half-faded/bodiless
-        SetFlightFaceCovered(coverFace);
         _flying = true;
         _flyIntro = false; // fly-OUT: run the park/hide completion on arrival
         _flyElapsed = 0f;
@@ -1654,7 +1652,6 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     {
         if (IsHeld)
             return;
-        SetFlightFaceCovered(false);
         Transform? parent = transform.parent;
         // The destination is the home pose the layout just set (in parent-local space).
         Vector3 toWorld = parent != null ? parent.TransformPoint(_homePos) : _homePos;
@@ -1702,73 +1699,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <summary>Cancel any in-flight fly-to-pile (teardown / re-adoption). Does NOT run the callback.</summary>
     private void CancelFly()
     {
-        SetFlightFaceCovered(false);
         _flying = false;
         _flyIntro = false;
         _flyDone = null;
-    }
-
-    private bool _flightFaceCovered;
-    private float _flightFaceAlpha = 1f;
-    private Renderer[]? _coveredBodyRenderers;
-    private Material[][]? _coveredBodyMaterials;
-    private CanvasGroup[]? _coveredFaceGroups;
-    private bool[]? _coveredGroupIgnoreParents;
-
-    /// <summary>Cover only an explicitly named short-rest burn flight. Keep the original fitted
-    /// body mesh and its two faces, using the same existing back material as ordinary card backs.
-    /// Hide the live canvas through our own group; never disable the game's widget or its effects.
-    /// Every cancellation, detach, pool return and completed flight restores the exact materials.</summary>
-    private void SetFlightFaceCovered(bool covered)
-    {
-        if (_flightFaceCovered == covered) return;
-        if (covered)
-        {
-            _flightFaceAlpha = _faceGroup != null ? _faceGroup.alpha : 1f;
-            _flightFaceCovered = true;
-            SetVisualAlpha(0f);
-            // A nested native group must not opt out of the mod-owned cover. Preserve those
-            // flags rather than disabling the live widget (which would stop its native effects).
-            if (_canvas != null)
-            {
-                _coveredFaceGroups = _canvas.GetComponentsInChildren<CanvasGroup>(true);
-                _coveredGroupIgnoreParents = new bool[_coveredFaceGroups.Length];
-                for (int i = 0; i < _coveredFaceGroups.Length; i++)
-                {
-                    _coveredGroupIgnoreParents[i] = _coveredFaceGroups[i].ignoreParentGroups;
-                    _coveredFaceGroups[i].ignoreParentGroups = false;
-                }
-            }
-            if (_backing == null) return;
-            _coveredBodyRenderers = _backing.GetComponentsInChildren<Renderer>(true);
-            _coveredBodyMaterials = new Material[_coveredBodyRenderers.Length][];
-            Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability);
-            for (int i = 0; i < _coveredBodyRenderers.Length; i++)
-            {
-                Renderer body = _coveredBodyRenderers[i];
-                if (body == null) continue;
-                Material[] original = body.sharedMaterials;
-                _coveredBodyMaterials[i] = original;
-                var coveredMaterials = new Material[original.Length];
-                for (int m = 0; m < coveredMaterials.Length; m++) coveredMaterials[m] = back;
-                body.sharedMaterials = coveredMaterials;
-            }
-            return;
-        }
-        _flightFaceCovered = false;
-        SetVisualAlpha(_flightFaceAlpha);
-        if (_coveredFaceGroups != null && _coveredGroupIgnoreParents != null)
-            for (int i = 0; i < _coveredFaceGroups.Length; i++)
-                if (_coveredFaceGroups[i] != null)
-                    _coveredFaceGroups[i].ignoreParentGroups = _coveredGroupIgnoreParents[i];
-        _coveredFaceGroups = null;
-        _coveredGroupIgnoreParents = null;
-        if (_coveredBodyRenderers != null && _coveredBodyMaterials != null)
-            for (int i = 0; i < _coveredBodyRenderers.Length; i++)
-                if (_coveredBodyRenderers[i] != null && _coveredBodyMaterials[i] != null)
-                    _coveredBodyRenderers[i].sharedMaterials = _coveredBodyMaterials[i];
-        _coveredBodyRenderers = null;
-        _coveredBodyMaterials = null;
     }
 
     // ---------------------------------------------------------- appear / disappear (issue 2) --
@@ -1833,7 +1766,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             if (_faceGroup == null)
                 _faceGroup = _canvas.gameObject.AddComponent<CanvasGroup>();
         }
-        _faceGroup.alpha = _flightFaceCovered ? 0f : Mathf.Clamp01(alpha);
+        _faceGroup.alpha = Mathf.Clamp01(alpha);
     }
 
     // ------------------------------------------- body suppression during appear/disappear --
@@ -2222,7 +2155,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
         if (IsHeld)
         {
-            CancelFly(); // a re-grab mid-flight wins — restore its ordinary readable face
+            CancelFly(); // a re-grab mid-flight wins — the hand owns the pose and clears the old callback
             // A grab mid-APPEAR wins the same way — and because the held branch returns before the
             // appear tick below, the animation would otherwise be frozen half-faded with its body
             // suppressed (an invisible-ish card stuck in the hand). Finish it here instead: full
@@ -2267,13 +2200,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
                 }
                 Action? done = _flyDone;
                 _flyDone = null;
-                try { done?.Invoke(); }
-                finally
-                {
-                    // A completion may start another flight synchronously. Its own face policy
-                    // wins; otherwise hand the restored card back to the pool/next presentation.
-                    if (!_flying) SetFlightFaceCovered(false);
-                }
+                done?.Invoke();
             }
             return;
         }

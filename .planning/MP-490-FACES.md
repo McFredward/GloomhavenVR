@@ -57,8 +57,8 @@ short/long rest recovery, damage-sacrifice visibility, same-count reuse, source 
 character switches and held loadout removal. Flight and overlay internals are reviewed in their
 separate worker lanes; cross-file source/model findings were shared with both.
 
-The current rule remains action fronts, remote selection backs, and covered short-rest burn
-flights even across a phase edge. Damage sacrifices during the action phase remain open. No new
+The current rule remains action fronts, remote selection backs, and covered remote short-rest
+burn flights even across a phase edge. Locally controlled cards always retain their original fronts. Damage sacrifices during the action phase remain open. No new
 exception is introduced. Generic unresolved public-flight/held readiness is handled by the
 integrator and flight lane without flashing a covered back as a loading placeholder.
 
@@ -79,22 +79,20 @@ were restored, and no worker branch was pushed.
 These checks establish source behavior and wire invariants. They cannot prove the first rendered
 headset frame, asset arrival latency, or perceived timing. Those remain hardware verification.
 
-## Final local short-rest flight correction
+## User clarification: concealment is remote only
 
-The final cross-lane review found that the transient local fallback burn slab already honored
-short-rest coverage, but the ordinary live VRCard flight retained its original front. The current
-ruling covers short-rest burn flights locally as well as remotely. `VRCard.FlyToPile` now accepts
-an optional `coverFace` flag, defaulting to false; the flight lane supplies it only from the
-captured short-rest provenance at its three burn launch sites.
+The initial final-review interpretation applied short-rest flight coverage to local cards as well
+as remote copies. The user explicitly corrected that interpretation: **the locally controlling
+player always sees the original card fronts, including short-rest burn flights**. Only remote
+presentation is concealed under the phase and short-rest rules. The earlier local coverage change
+is therefore reversed; it is not an approved exception or a pending hardware choice.
 
-Coverage preserves the existing fitted backing mesh and uses the existing ability back material
-on both surfaces. The mod-owned canvas group hides front artwork without disabling the native
-widget or stopping its effects; nested groups temporarily obey the parent. Original material
-arrays, alpha and group flags are restored on cancellation, regrab, detach, pool return and
-completion. A new flight started synchronously by completion retains its own coverage choice.
-Ordinary local hand cards and action damage burns retain their front presentation. Source guards
-include a negative control removing the actual launch call. Final integration gates cover this
-last addition; no headset result is claimed.
+`VRCard.FlyToPile` has no concealment flag, and the local card's original face/materials/groups are
+not replaced for secrecy. Ordinary animation fading remains intact. Regrab cancellation still
+clears the preceding flight callback. Local fallback burn slabs and three launch sites are handled
+by the flight lane; remote short-rest provenance remains in the network report. The remote
+selection viewer-ownership fix remains valid. Regression guards now reject a local concealment
+override, with an injected negative control. Final integration gates cover this correction.
 
 The last bounded map review also removed the old 500 ms membership cache for unheld fans.
 Same-character, same-count loadout replacement now reads the bounded replicated list on the next

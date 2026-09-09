@@ -51,16 +51,14 @@ internal static class CardFaceLifecycleVectors
             && !fan.Contains("private int HeldMapLoadoutSeat()"), "two map holds project both source seats out of the public arc");
         t.True(active.Contains("_owner.BurnOwnsActiveCard(cardId)"), "active burn renderer excludes its duplicate stationary cell");
         string local = Read("Cards/VRCard.cs");
-        t.True(LocalShortRestCover(local), "live local short-rest flight opts into covered original body and hidden native artwork");
-        t.True(!LocalShortRestCover(local.Replace("SetFlightFaceCovered(coverFace);", "")),
-            "negative control: declaring coverage without invoking it at launch fails");
-        t.True(local.Contains("_faceGroup.alpha = _flightFaceCovered ? 0f")
-            && local.Contains("_coveredFaceGroups[i].ignoreParentGroups = false;"),
-            "all native child groups obey the flight's parent cover");
-        t.True(local.Contains("SetFlightFaceCovered(false);\n        _flying = false;")
-            && local.Contains("if (!_flying) SetFlightFaceCovered(false);")
-            && local.Contains("_coveredBodyRenderers[i].sharedMaterials = _coveredBodyMaterials[i]"),
-            "cancel, completion and pool return restore the exact prior body presentation");
+        t.True(LocalFacesRemainOriginal(local), "local controlled cards retain original faces during short-rest flights");
+        t.True(!LocalFacesRemainOriginal(local.Replace("_faceGroup.alpha = Mathf.Clamp01(alpha);",
+            "_faceGroup.alpha = _flightFaceCovered ? 0f : Mathf.Clamp01(alpha);")),
+            "negative control: a local concealment override is rejected");
+        t.True(!local.Contains("coverFace") && !local.Contains("SetFlightFaceCovered"),
+            "local flight API cannot apply remote-only secrecy to the owner's card");
+        t.True(local.Contains("CancelFly();") && local.Contains("_flyDone = null;"),
+            "regrab and pool cancellation still clear the preceding flight callback");
         string map = Read("WorldUI/MapRoom/MapRoomHand.2.Fan.cs");
         t.True(map.Contains("MapCardSources.Add(card, new MapCardSource { Character = _character, Model = model })")
             && map.Contains("CharacterClassManager.Find(source.Character.CharacterID)"),
@@ -117,11 +115,9 @@ internal static class CardFaceLifecycleVectors
         return body.Contains("TryResolvePeerLoadout(") && !body.Contains("Time.unscaledTime");
     }
 
-    private static bool LocalShortRestCover(string source) => source.Contains("bool coverFace = false)")
-        && source.Contains("SetFlightFaceCovered(coverFace);")
-        && source.Contains("Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability)")
-        && source.Contains("coveredMaterials[m] = back")
-        && source.Contains("body.sharedMaterials = coveredMaterials");
+    private static bool LocalFacesRemainOriginal(string source)
+        => source.Contains("_faceGroup.alpha = Mathf.Clamp01(alpha);")
+           && !source.Contains("_flightFaceCovered") && !source.Contains("_coveredBodyMaterials");
 
     private static bool HeldActor(string source) => source.Contains("RemoteBoardFocus.ActorById(_owner.HeldFaceActorId(_slot))")
         && !source.Contains("actor = RemoteBoardFocus.DisplayedActor");
