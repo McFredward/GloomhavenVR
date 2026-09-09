@@ -511,17 +511,6 @@ internal static class RemoteAbilityCardSource
             target.canvasRenderer.SetColor(Color.white);
     }
 
-    /// <summary>
-    /// Show <paramref name="card"/>'s REAL, fully detailed face on <paramref name="art"/>, trying the
-    /// live-widget path first and the pooled borrow second. Returns which path succeeded (or
-    /// <see cref="FacePath.None"/>, in which case <paramref name="art"/> is left showing nothing and
-    /// the caller must draw its own fallback).
-    ///
-    /// CALLER CONTRACT (anti-cheat): only ever call this when the reveal gate for
-    /// <paramref name="actor"/> is OPEN. Nothing here re-checks it, deliberately — one gate, in one
-    /// place, evaluated by the caller BEFORE any face object is created, is easier to audit than a
-    /// gate re-derived in three files.
-    /// </summary>
     // The held map/active paths ask every frame. A pool borrow used to destroy and rebuild
     // their clone on each call, continually restarting asynchronous artwork loads. Keep the
     // successful borrowed model and actual clone key together; weak ownership follows the art.
@@ -533,6 +522,17 @@ internal static class RemoteAbilityCardSource
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RemoteCardArt, BorrowedFace>
         BorrowedFaces = new();
 
+    /// <summary>
+    /// Show <paramref name="card"/>'s REAL, fully detailed face on <paramref name="art"/>, trying the
+    /// live-widget path first and the pooled borrow second. Returns which path succeeded (or
+    /// <see cref="FacePath.None"/>, in which case <paramref name="art"/> is left showing nothing and
+    /// the caller must draw its own fallback).
+    ///
+    /// CALLER CONTRACT (anti-cheat): only ever call this when the reveal gate for
+    /// <paramref name="actor"/> is OPEN. Nothing here re-checks it, deliberately — one gate, in one
+    /// place, evaluated by the caller BEFORE any face object is created, is easier to audit than a
+    /// gate re-derived in three files.
+    /// </summary>
     internal static FacePath ShowFullFace(RemoteCardArt art, CPlayerActor? actor, CAbilityCard card)
     {
         if (art == null || card == null)

@@ -1854,7 +1854,7 @@ internal sealed class RemoteHandFan
                 {
                     AbilityCardUI widget = _handBuffer[i];
                     FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
-                    if (full != null && PrintsFront(publicCardsOnly, actor, widget)
+                    if (widget != null && full != null && PrintsFront(publicCardsOnly, actor, widget)
                         && face.ShowFront(full))
                     {
                         face.SetNativeAppearance(_owner.PlayerId, actor, widget.AbilityCard);
