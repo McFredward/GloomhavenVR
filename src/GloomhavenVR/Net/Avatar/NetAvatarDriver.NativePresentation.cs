@@ -27,6 +27,7 @@ internal sealed partial class NetAvatarDriver
     {
         if (NetSession.FlatNetMode || !VRSession.IsRunning || !_transport.IsOnline
             || _transport.LocalPlayerId <= 0) return;
+        using var timing = PerfMonitor.Scope("Net.Presentation.NativeSend");
         float now = Time.unscaledTime;
         // Capture the final owner pixels in the same LateUpdate pass as native board animation.
         // Presence consumes this immutable snapshot on its next tick, never an unfinished layout.

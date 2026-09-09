@@ -104,6 +104,7 @@ internal sealed class FfsNetTransport : INetTransport
     internal void TickFragments(float now)
     {
         if (_degraded || !_installed || NetSession.FlatNetMode || !IsOnline) return;
+        using var timing = PerfMonitor.Scope("Net.Presentation.Transport");
         try
         {
             if (now >= _nextVersionAnnouncement)

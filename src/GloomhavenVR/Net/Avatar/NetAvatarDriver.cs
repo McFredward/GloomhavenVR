@@ -76,6 +76,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     {
         if (NetSession.FlatNetMode || !VRSession.IsRunning || !_transport.IsOnline
             || _transport.LocalPlayerId <= 0) return;
+        using var timing = PerfMonitor.Scope("Net.Presentation.BonusSend");
         float now = Time.unscaledTime;
         bool changed = !ReferenceEquals(states, _lastSentAnimations);
         if (changed || _lastAnimationSnapshot == null)
