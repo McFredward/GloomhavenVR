@@ -228,7 +228,7 @@ internal static class RemoteItemCardSource
         {
             if (cardGo != null && ui != null)
             {
-                try { ObjectPool.RecycleCard(ui.CardID, ObjectPool.ECardType.Item, cardGo); }
+                try { ReturnBorrowed(ui.CardID, cardGo); }
                 catch (System.Exception e) { VRLog.Warn("Net", $"Item-card borrow recycle failed: {e.Message}"); }
             }
             else if (cardGo != null)
@@ -238,6 +238,16 @@ internal static class RemoteItemCardSource
             if (holder != null)
                 Object.Destroy(holder);
         }
+    }
+
+    /// <summary>Return an inactive item borrow before its temporary holder is destroyed.
+    /// Native RecycleCard reparents ability widgets only; leaving an item under that holder
+    /// would destroy a game-owned object after adding its reference back to the pool.</summary>
+    internal static void ReturnBorrowed(int itemId, GameObject card)
+    {
+        card.SetActive(false);
+        card.transform.SetParent(ObjectPool.instance != null ? ObjectPool.instance.transform : null, false);
+        ObjectPool.RecycleCard(itemId, ObjectPool.ECardType.Item, card);
     }
 
     /// <summary>One Info line the first time an item face is manufactured in a session.</summary>
