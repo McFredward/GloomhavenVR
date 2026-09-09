@@ -13,6 +13,7 @@ internal static class NativeDecisionHighlightVectors
             PixelsPerUnitMultiplier = 2f, ReferencePixelsPerUnit = 100f,
             SpriteName = new string('s', 64), TextureName = new string('t', 64) };
         for (int i = 0; i < state.Rect.Length; i++) state.Rect[i] = i + .25f;
+        state.Rect[14] = state.Rect[15] = state.Rect[16] = 0f; state.Rect[17] = 1f;
         for (int i = 0; i < state.Colors.Length; i++) state.Colors[i] = i / 8f;
         byte[] buffer = new byte[NativeDecisionHighlightCodec.MaxSize + 2];
         buffer[0] = buffer[buffer.Length - 1] = 0xCC;
@@ -41,6 +42,10 @@ internal static class NativeDecisionHighlightVectors
         t.True(!state.Validate(), "invalid UTF16 source is refused");
         state = copy.Snapshot(); state.Rect[0] = float.NaN;
         t.True(!state.Validate(), "nonfinite geometry is refused");
+        state = copy.Snapshot(); state.Rect[17] = 0;
+        t.True(!state.Validate(), "zero quaternion rejected before Unity interpolation");
+        state = copy.Snapshot(); state.Rect[17] = 2;
+        t.True(!state.Validate(), "oversized nonunit quaternion rejected");
         state = copy.Snapshot(); state.PixelsPerUnitMultiplier = 0;
         t.True(!state.Validate(), "degenerate border scale is refused");
         state = copy.Snapshot(); state.TextureName = string.Empty;
@@ -48,6 +53,10 @@ internal static class NativeDecisionHighlightVectors
         byte[] malformed = Slice(buffer, 1, length);
         malformed[108] = 0x80;
         t.True(!NativeDecisionHighlightCodec.TryRead(malformed, 0, length, out _), "unknown render flag rejected");
+        malformed = Slice(buffer, 1, length); Array.Clear(malformed, 72, 4);
+        t.True(!NativeDecisionHighlightCodec.TryRead(malformed, 0, length, out _), "received zero quaternion rejected atomically");
+        malformed = Slice(buffer, 1, length); malformed[74] = 0; malformed[75] = 0x40;
+        t.True(!NativeDecisionHighlightCodec.TryRead(malformed, 0, length, out _), "received oversized quaternion rejected atomically");
         malformed = Slice(buffer, 1, length); malformed[125] = 0xFF;
         t.True(!NativeDecisionHighlightCodec.TryRead(malformed, 0, length, out _), "malformed UTF8 rejected atomically");
         malformed = Slice(buffer, 1, length); malformed[124] = 65;

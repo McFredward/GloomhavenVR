@@ -69,9 +69,9 @@ internal sealed class RemoteUseBarWidgets
         {
             RectTransform? container = RemoteUseBarSymbols.ContainerOf(_bar);
             bool live = TryLiveSlots(container, actor, owner);
-            // Active-bonus subchoices are owner-local. Once their descriptor exists, the original
-            // prefab is the stable source; a viewer's live picker must not overwrite their choices.
-            if (_bar == 0 && owner.UseBarWidgetStates != null || _bar > 0 && NativeDescriptor(owner, 0) != null)
+            // Active-bonus subchoices and tooltips are owner-local. Their original prefab stage
+            // also owns the phase cover; the viewer's live tooltip cannot supply that state.
+            if (_bar == 0 || _bar > 0 && NativeDescriptor(owner, 0) != null)
                 live = false;
             if (!live && _bar > 0)
                 for (int i = 0; i < _count; i++)
@@ -86,6 +86,7 @@ internal sealed class RemoteUseBarWidgets
                 {
                     if (_stageHost != null)
                     {
+                        ReleaseStageTooltips();
                         _stageHost.SetActive(false);
                         Object.Destroy(_stageHost);
                     }
@@ -121,8 +122,11 @@ internal sealed class RemoteUseBarWidgets
                     // Prefab stage has already been stripped; bindings were captured before that.
                     Slot original = live ? Capture(src) : _stageSlots[i];
                     if (live && _bar == 0 && src.GetComponent<UIUseActiveBonus>() is UIUseActiveBonus bonus)
+                    {
                         original.Subwidgets = RemoteUseBarSubwidgets.Capture(bonus, Model(actor, owner, i),
                             actor, Descriptor(owner, i), false);
+                        original.Tooltip = RemoteUseBarTooltip.Capture(bonus, Model(actor, owner, i), false);
+                    }
                     _slots[i] = original.Map(_mirror);
                     _slots[i].ActorId = live ? NetFigures.StableActorId(actor) : _stageActorId;
                     _slots[i].Identity = live ? SlotId(owner, i) : _stageIds[i];
@@ -260,8 +264,11 @@ internal sealed class RemoteUseBarWidgets
             foreach (UIOptionPicker picker in go.GetComponentsInChildren<UIOptionPicker>(true))
                 picker.content.SetActive(false);
             if (_bar == 0 && go.GetComponent<UIUseActiveBonus>() is UIUseActiveBonus bonus)
+            {
                 _stageSlots[i].Subwidgets = RemoteUseBarSubwidgets.Capture(bonus, Model(actor, owner, i),
                     actor, Descriptor(owner, i), true);
+                _stageSlots[i].Tooltip = RemoteUseBarTooltip.Capture(bonus, Model(actor, owner, i), true);
+            }
             if (_bar > 0 && _stageNative[i] is NativeUseBarState native)
                 _stageSlots[i].Native = RemoteNativeUseBar.Capture(SlotComponent(go.transform)!, actor,
                     _stageModels[i], native, true);
@@ -320,6 +327,7 @@ internal sealed class RemoteUseBarWidgets
                 || native.PreviewOption != oldNative.PreviewOption)) return false;
             if (native == null && oldNative != null) return false;
             if (_stageIds[i] != SlotId(owner, i) || !ReferenceEquals(_stageModels[i], StageModel(actor, owner, i))
+                || _bar == 0 && _stageSlots[i].Tooltip?.Matches(Model(actor, owner, i)) == false
                 || _stageConsumeCounts[i] != (state?.ConsumeIcons.Length ?? 0)
                 || _stageOptionCounts[i] != (state?.OptionStates.Length ?? 0))
                 return false;
@@ -368,6 +376,7 @@ internal sealed class RemoteUseBarWidgets
             NativeUseBarState? native = NativeDescriptor(owner, i);
             if (native != null) _stageSlots[i].Native?.Paint(native);
             PaintMasks(_stageSlots[i], State(owner, i), state);
+            _stageSlots[i].Tooltip?.Paint(State(owner, i), state);
         }
     }
 
@@ -403,6 +412,7 @@ internal sealed class RemoteUseBarWidgets
             bool hovered = (state & NetProtocol.UseSlotHoveredBit) != 0;
             bool pressed = (state & NetProtocol.UseSlotPressedBit) != 0;
             PaintMasks(slot, state, Descriptor(owner, i));
+            slot.Tooltip?.Paint(state, Descriptor(owner, i));
             // UIUseSlot keeps its ExtendedButton enabled; its CanvasGroup carries disabled alpha.
             slot.Button?.Paint(true, hovered, pressed);
             _slots[i] = slot;
@@ -495,6 +505,7 @@ internal sealed class RemoteUseBarWidgets
     private struct Slot
     {
         internal RemoteUseBarSubwidgets? Subwidgets;
+        internal RemoteUseBarTooltip? Tooltip;
         internal RemoteNativeUseBar? Native;
         internal RemoteUseBarAnimation? Animation;
         internal int ActorId;
@@ -507,6 +518,7 @@ internal sealed class RemoteUseBarWidgets
         internal Slot Map(RemoteWidgetMirror mirror) => new()
         {
             Subwidgets = Subwidgets?.Map(mirror), Native = Native?.Map(mirror),
+            Tooltip = Tooltip?.Map(mirror),
             Animation = Animation?.Map(mirror), ActorId = ActorId, Identity = Identity,
             Button = Button?.Map(mirror),
             Icon = mirror.CloneOf(Icon != null ? Icon.transform : null)?.GetComponent<Image>(),
@@ -522,14 +534,18 @@ internal sealed class RemoteUseBarWidgets
 
     private void ReleaseSlots()
     {
-        foreach (Slot slot in _slots) { slot.Animation?.Destroy(); slot.Native?.Destroy(); }
+        foreach (Slot slot in _slots) { slot.Animation?.Destroy(); slot.Native?.Destroy(); slot.Tooltip?.Destroy(); }
         _slots = Array.Empty<Slot>();
     }
+
+    private void ReleaseStageTooltips()
+    { foreach (Slot slot in _stageSlots) slot.Tooltip?.Destroy(); }
 
     internal void Destroy()
     {
         ReleaseSlots();
         _mirror.Destroy();
+        ReleaseStageTooltips();
         if (_stageHost != null)
             Object.Destroy(_stageHost);
     }

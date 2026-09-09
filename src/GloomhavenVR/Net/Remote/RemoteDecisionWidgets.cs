@@ -214,6 +214,7 @@ internal sealed class RemoteDecisionWidgets
     private GameObject? _damageIcon;
     private GameObject? _fatalIcon;
     private GameObject? _mandatory;
+    private readonly RemoteNativeDecisionHighlight _ownerHighlight = new();
 
     /// <summary>Every OTHER label under the clone — the two burn wordings and anything the prefab
     /// adds later. Repainted to the dock's parchment gold, exactly as
@@ -675,6 +676,7 @@ internal sealed class RemoteDecisionWidgets
             AnchorWidgetBlock();
             // …and only after the last measurement is the owner's live grow put back on the clone.
             TickHoverScales();
+            _ownerHighlight.Apply(_mandatory, _mirror.HostCanvas, owner.DecisionHighlight);
             if (!Showing)
             {
                 Showing = true;
@@ -730,6 +732,7 @@ internal sealed class RemoteDecisionWidgets
         // "one-frame switch wearing a ramp's clothes" this project has shipped before. Costs one
         // float compare per option on a settled row and writes nothing.
         TickHoverScales();
+        _ownerHighlight.Apply(_mandatory, _mirror.HostCanvas, owner.DecisionHighlight);
         // NOT gated on the roles being present: a DialogPopup has none by design (see _options),
         // and requiring them here would have silently switched the pointer drive off for exactly
         // the prompt this class most recently learned to mirror.
@@ -739,6 +742,7 @@ internal sealed class RemoteDecisionWidgets
         try
         {
             Apply(owner, owner.DecisionRoles ?? System.Array.Empty<byte>());
+            _ownerHighlight.Apply(_mandatory, _mirror.HostCanvas, owner.DecisionHighlight);
         }
         catch (System.Exception e)
         {
@@ -775,6 +779,7 @@ internal sealed class RemoteDecisionWidgets
     /// hardware log states whether a peer saw the real row or the fallback, and why).</summary>
     private bool Down(string reason)
     {
+        _ownerHighlight.Reset();
         // The grow goes with the row. A clone parked at 1.05 would come back for the NEXT prompt
         // already hovered and then ease down to rest, which is an animation the owner never played.
         for (int i = 0; i < _roles.Length; i++)

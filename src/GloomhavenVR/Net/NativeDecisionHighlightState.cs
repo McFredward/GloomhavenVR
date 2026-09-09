@@ -24,6 +24,8 @@ internal sealed class NativeDecisionHighlightState
             || !Finite(ReferencePixelsPerUnit) || ReferencePixelsPerUnit <= 0f) return false;
         foreach (float value in Rect) if (!Finite(value)) return false;
         foreach (float value in Colors) if (!Finite(value)) return false;
+        float norm = Rect[14] * Rect[14] + Rect[15] * Rect[15] + Rect[16] * Rect[16] + Rect[17] * Rect[17];
+        if (!Finite(norm) || Math.Abs(norm - 1f) > .01f) return false;
         return NameValid(SpriteName) && NameValid(TextureName)
             && (SpriteName.Length == 0) == (TextureName.Length == 0);
     }

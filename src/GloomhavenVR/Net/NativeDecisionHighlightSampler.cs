@@ -11,7 +11,8 @@ internal static class NativeDecisionHighlightSampler
 {
     private static readonly NativeDecisionHighlightState Scratch = new();
     private static NativeDecisionHighlightState? _last;
-    internal static void Reset() => _last = null;
+    private static bool _refused;
+    internal static void Reset() { _last = null; _refused = false; }
 
     internal static NativeDecisionHighlightState? Sample()
     {
@@ -46,7 +47,18 @@ internal static class NativeDecisionHighlightSampler
         if (sprite != null) sprite = CardFaceMipBake.OriginalFor(sprite);
         Scratch.SpriteName = sprite != null ? sprite.name : string.Empty;
         Scratch.TextureName = sprite != null && sprite.texture != null ? sprite.texture.name : string.Empty;
-        if (!Scratch.Validate()) { Reset(); return null; }
+        if (!Scratch.Validate())
+        {
+            _last = null;
+            if (!_refused)
+            {
+                _refused = true;
+                GloomhavenVR.Core.VRLog.Warn("Net", "NATIVE DECISION HIGHLIGHT SAMPLE: original Image output refused "
+                    + "(invalid rect/quaternion, Image settings, or public sprite/texture UTF8 name exceeds 64 bytes).");
+            }
+            return null;
+        }
+        _refused = false;
         if (NativeDecisionHighlightState.SamePicture(Scratch, _last)) return _last;
         Scratch.SampleTime = Time.unscaledTime;
         return _last = Scratch.Snapshot();
