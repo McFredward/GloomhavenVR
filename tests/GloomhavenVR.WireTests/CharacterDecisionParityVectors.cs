@@ -33,6 +33,11 @@ internal static class CharacterDecisionParityVectors
             "detached mirror host hides when its board hides");
         t.True(preview.Contains("pending.PreDamageHealth") && preview.Contains("NetFigures.StableActorId(pending.ActorDamaged)"),
             "committed health comes from matching original damage data, not a first-poll guess");
+        t.True(preview.Contains("panel.currentlyToggled != null")
+            && preview.Contains("panel.currentlyPreviewing != TakeDamagePanel.PreviewOptions.PreviewDamage")
+            && preview.Contains("if (state.IsAvoidance)") && preview.Contains("ResetPreview(state.CommittedHealth")
+            && !preview.Contains("panel.CalculateCurrentHealth()"),
+            "burn selection retains native hidden preview while damage hover restores pierce-aware projection");
         t.True(preview.Contains("Claimants.Contains(owner.PlayerId)") && preview.Contains("IsOwner(owner, actor)"),
             "peer damage preview requires actual character authority");
         t.True(OriginalTooltip(tooltip), "original native hover roots return from flat highlight holder");

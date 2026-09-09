@@ -91,3 +91,20 @@ warning scale/alpha plus owner fit are covered by NativeDecisionPromptVectors.
 Latest strict Release check passed with0 warnings and0 errors. Worker wire suite passed250101
 assertions, including native prompt fitting, warning playback and focus visibility source guards. Headset appearance remains unverified; this ledger records source and automated
 evidence, not a hardware success claim.
+
+## Final health review: pierce and card avoidance
+
+The integrator found that native CalculateCurrentHealth adds raw addedShield, while
+CalculateCurrentDamage and TakeDamage resolution subtract pierce first. The preview now uses
+replayed actor.Health plus max(0, addedShield - pierce), capped to the original committed endpoint
+and actor.MaxHealth. Full prevention returns zero damage. Applying the cap before pierce would
+still fail at full health, so regression vectors cover7→5 HP with shield2/pierce1,10→8 HP with
+shield10/pierce9, and a replayed7→6 HP with no remaining shield; each displays1 damage.
+
+Native RefreshDamagePreview also distinguishes an actually selected card-burn option from
+hovering the take-damage alternative. A selected burn with no damage hover calls ResetDamagePreview,
+which removes the damage label and preview highlight. The continuous VR bridge now preserves that
+presentation using original health/info-bar ResetPreview and ResetColors methods against committed
+HP. Record65 carries IsAvoidance beside unchanged record57; false/absence restores normal damage
+preview. Hovering only a card-burn alternative without selecting it does not invent avoidance.
+Seven new health assertions and one source guard cover these cases. Strict Release passed0/0.

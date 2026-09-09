@@ -31,12 +31,16 @@ internal static class DamageDecisionPreview
         CActor? actor = panel?.actorBeingAttacked;
         if (panel == null || actor == null || !panel.ThisPlayerHasTakeDamageControl
             || !TryGetCommittedHealth(actor, out int committed)) { Local = null; return null; }
-        // CalculateCurrentHealth is the game's projected result after selected mitigation. The
-        // old bridge combined it with a separately stale base-damage label, extending both the
-        // green and orange regions. The total bar must always end at the original HP instead.
-        int damage = DamageDecisionPreviewMath.Damage(committed, panel.CalculateCurrentHealth());
+        // The native CalculateCurrentHealth adds raw shield, unlike CalculateCurrentDamage
+        // and final mitigation, which subtract pierce. Preserve replayed actor HP but apply
+        // effective shield before the health cap, with the original endpoint fixed.
+        bool avoidance = panel.currentlyToggled != null
+            && panel.currentlyPreviewing != TakeDamagePanel.PreviewOptions.PreviewDamage;
+        int damage = avoidance ? 0 : DamageDecisionPreviewMath.MitigatedDamage(committed, actor.Health,
+            actor.MaxHealth, panel.addedShield, panel.pierce, panel.preventAllDamage);
         var sample = new DamageDecisionPreviewState { ActorId = NetFigures.StableActorId(actor), CommittedHealth = committed,
-            Damage = damage, BaseDamage = panel.damageToTake, OriginalMaxHealth = actor.OriginalMaxHealth };
+            Damage = damage, BaseDamage = panel.damageToTake, OriginalMaxHealth = actor.OriginalMaxHealth,
+            IsAvoidance = avoidance };
         if (!sample.Validate()) { Local = null; return null; }
         if (!DamageDecisionPreviewState.SamePicture(Local, sample)) Local = sample;
         return Local;
@@ -98,6 +102,18 @@ internal static class DamageDecisionPreview
 
     internal static void Apply(WorldspacePanelUIController controller, DamageDecisionPreviewState state)
     {
+        if (state.IsAvoidance)
+        {
+            // Match native ResetDamagePreview while using the committed baseline, avoiding
+            // a second dependence on already-replayed actor.Health + damageToTake.
+            controller.retaliateDisplayed = 0;
+            controller.m_HealthBar.ResetPreview(state.CommittedHealth, state.OriginalMaxHealth);
+            controller.m_HealthBar.ResetColors();
+            controller.m_InfoBar.ResetPreview();
+            controller.m_InfoBar.ResetColors();
+            controller.UnhighlightPreview();
+            return;
+        }
         controller.m_HealthBar.PreviewAttack(state.CommittedHealth, state.Damage, state.BaseDamage, state.OriginalMaxHealth);
         controller.m_InfoBar.PreviewAttack(state.CommittedHealth, state.Damage, state.BaseDamage,
             isEnemyAttacking: false, justDamage: true);

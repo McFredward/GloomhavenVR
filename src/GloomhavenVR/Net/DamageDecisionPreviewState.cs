@@ -7,13 +7,14 @@ internal sealed class DamageDecisionPreviewState
 {
     internal int ActorId;
     internal int CommittedHealth, Damage, BaseDamage, OriginalMaxHealth;
+    internal bool IsAvoidance;
     internal bool Validate() => ActorId != 0 && CommittedHealth >= 0 && CommittedHealth <= ushort.MaxValue
         && Damage >= 0 && Damage <= ushort.MaxValue && BaseDamage >= 0 && BaseDamage <= ushort.MaxValue
         && OriginalMaxHealth > 0 && OriginalMaxHealth <= ushort.MaxValue;
     internal static bool SamePicture(DamageDecisionPreviewState? a, DamageDecisionPreviewState? b) =>
         ReferenceEquals(a, b) || a != null && b != null && a.ActorId == b.ActorId
         && a.CommittedHealth == b.CommittedHealth && a.Damage == b.Damage
-        && a.BaseDamage == b.BaseDamage && a.OriginalMaxHealth == b.OriginalMaxHealth;
+        && a.IsAvoidance == b.IsAvoidance && a.BaseDamage == b.BaseDamage && a.OriginalMaxHealth == b.OriginalMaxHealth;
 }
 
 /// <summary>Record57 payload: i32 actor, u16 committed HP, damage, base damage, original max HP.</summary>
@@ -46,6 +47,16 @@ internal static class DamageDecisionPreviewCodec
 /// <summary>Keep the original-health endpoint fixed while mitigation changes projected HP.</summary>
 internal static class DamageDecisionPreviewMath
 {
+    internal static int MitigatedDamage(int committedHealth, int actorHealth, int maxHealth,
+        int addedShield, int pierce, bool preventAllDamage)
+    {
+        if (preventAllDamage) return 0;
+        // Apply pierce before clamping projected health. Clamping raw shield to max HP first
+        // loses the shield remainder and produces a different result near full health.
+        long shield = Math.Max(0L, (long)addedShield - pierce);
+        long projected = Math.Min(Math.Min(committedHealth, maxHealth), (long)actorHealth + shield);
+        return (int)Math.Min(ushort.MaxValue, Math.Max(0L, (long)committedHealth - projected));
+    }
     internal static int Damage(int committedHealth, int projectedHealth) =>
         (int)Math.Min(ushort.MaxValue, Math.Max(0L, (long)committedHealth - projectedHealth));
 }
