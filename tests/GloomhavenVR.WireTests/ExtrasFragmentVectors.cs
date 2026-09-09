@@ -220,7 +220,10 @@ internal static class ExtrasFragmentVectors
         var bytes = new byte[size];
         byte[] header = Hex.Bytes("31 52 56 47 03 01");
         Buffer.BlockCopy(header, 0, bytes, 0, header.Length);
-        for (int i = header.Length; i < size; i++) bytes[i] = (byte)(i * 17);
+        // Keep this paging fixture incompressible so the page-count assertions test pacing.
+        var entropy = new byte[size - header.Length];
+        new Random(489 + size).NextBytes(entropy);
+        Buffer.BlockCopy(entropy, 0, bytes, header.Length, entropy.Length);
         return bytes;
     }
 }
