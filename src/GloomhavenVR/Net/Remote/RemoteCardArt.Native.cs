@@ -12,6 +12,7 @@ internal sealed partial class RemoteCardArt
     private readonly Dictionary<Graphic, Material> _nativeMaterials = new();
     private int _nativePlayer;
     private bool _nativeOutputApplied;
+    private byte _nativeLastSourceList;
     private CardAppearanceNode[]? _nativeDefaults;
     private CardAppearanceNode[]? _nativeExtraDefaults;
     private CardAppearanceState? _localNativeFrame;
@@ -114,11 +115,36 @@ internal sealed partial class RemoteCardArt
         if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, _nativeActor) == RevealGate.CardFaceSource.None) return;
         if (!CardAppearanceMirror.TryGet(_nativePlayer, _nativeActor, _nativeCard, out var from, out var to, out float progress))
         {
+            // A discarded/active card changes its address when it starts burning. The old
+            // sample is correctly invalidated, but erasing its already drawn wash would flash
+            // a fresh blue card until the first owner sample at the lost address arrives.
+            if (_nativeOutputApplied && RetainSpentRecessDuringBurn()) return;
             if (_nativeOutputApplied && !ExplicitFlightOwnsLook) ClearPendingNativeAppearance();
             _nativeOutputApplied = false;
             return;
         }
         ApplyNativeFrame(from!, to!, progress);
+    }
+    private bool RetainSpentRecessDuringBurn()
+    {
+        if (Surface != FxSurface.Recess || _nativeCard == null || _nativeActor?.CharacterClass == null
+            || _nativeLastSourceList != NetProtocol.HeldFaceListDiscard && _nativeLastSourceList != NetProtocol.HeldFaceListActive)
+            return false;
+        var cards = _nativeActor.CharacterClass;
+        // Identity/actor changes already relinquish _nativeOutputApplied in SetNativeAppearance.
+        // Actual recovery immediately releases the old paint even if a delayed lost stamp remains.
+        return !cards.HandAbilityCards.Contains(_nativeCard) && !cards.RoundAbilityCards.Contains(_nativeCard)
+            && !cards.ActivatedCards.Contains(_nativeCard)
+            && (cards.LostAbilityCards.Contains(_nativeCard) || cards.PermanentlyLostAbilityCards.Contains(_nativeCard));
+    }
+    private float SpentBurnFloor(Image? image, int channel, float ramp, CardAppearanceState? spent)
+    {
+        if (spent == null || image == null || _nativeBindings == null) return ramp;
+        foreach (var node in spent.Nodes)
+            if (node.Role < 7 && ReferenceEquals(_nativeBindings.Graphics[node.Role], image)
+                && (node.Mask & (1u << channel)) != 0)
+                return Mathf.Max(ramp, node.Values[8 + channel]);
+        return ramp;
     }
     private static IEnumerable<CardAppearanceNode> NativeNodes(CardAppearanceNode[] nodes, CardAppearanceNode[]? extra)
     {
@@ -197,6 +223,7 @@ internal sealed partial class RemoteCardArt
                     material.renderQueue = Mathf.Min(_faceQueue + 1, FlameQueueCeiling);
             }
         }
+        _nativeLastSourceList = NetProtocol.HeldFaceList(to.FaceCode);
         _nativeOutputApplied = true;
     }
 }

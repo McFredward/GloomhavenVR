@@ -104,6 +104,7 @@ internal sealed class BurnCardFx
         // aber nur eine Runde"); one bound for Discard never wears it; a LOST card is settled to
         // the full burnt end state; everything else is left to the game. See BurnLookPolicy.
         BurnLookPolicy.Enforce(full, OwnerCard?.GameCard);
+        PreserveSpentBurnAppearance(full);
         _policyFace = full;
 
         // Symptom 4c-ii evidence: the burn/ghost timeline runs on the card's OWN uGUI
@@ -153,6 +154,10 @@ internal sealed class BurnCardFx
         if (smoke != null)
             Bind(smoke, cardTransform);
     }
+
+    /// <summary>Repeat after all Update writers and before publishing the owner picture.</summary>
+    internal void PreserveSpentBurnAppearance(FullAbilityCard? full)
+        => BurnArtwork.PreserveSpentBurnStart(BurnArtwork.EffectsOf(full), OwnerCard?.GameCard);
 
     /// <summary>Restore the tracked instance and drop it (disable/destroy/hot reload).</summary>
     internal void Detach()

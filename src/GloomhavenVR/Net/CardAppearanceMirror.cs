@@ -13,6 +13,7 @@ internal static class CardAppearanceMirror
         internal CardAppearanceBinding<CAbilityCard>[] PreviousCards = System.Array.Empty<CardAppearanceBinding<CAbilityCard>>(),
             CurrentCards = System.Array.Empty<CardAppearanceBinding<CAbilityCard>>();
         internal readonly UseBarAnimationPlaybackClock Clock = new();
+        internal readonly SpentAppearanceHistory<CAbilityCard, CardAppearanceState> Spent = new();
     }
     private static readonly Dictionary<int, Frame> Frames = new();
     private static readonly List<AbilityCardUI> Pile = new();
@@ -21,6 +22,7 @@ internal static class CardAppearanceMirror
         if (!Frames.TryGetValue(playerId, out var frame)) Frames[playerId] = frame = new Frame();
         if (frame.Current != null && snapshot.SampleTime <= frame.Current.SampleTime) return;
         bool continuous = frame.Current != null && snapshot.SampleTime - frame.Current.SampleTime <= UseBarAnimationPlaybackClock.MaximumContinuousGap;
+        frame.Spent.RemoveRecovered((actorId, card) => Recovered(RemoteBoardFocus.ActorById(actorId), card));
         var bindings = new CardAppearanceBinding<CAbilityCard>[snapshot.States.Length];
         for (int i = 0; i < bindings.Length; i++)
         {
@@ -31,6 +33,12 @@ internal static class CardAppearanceMirror
             // address, so even an already-delayed same-count replacement cannot adopt old paint.
             if (state.SourceActorId != 0 && !ReferenceEquals(card, CardAppearanceProvenance.Resolve(state))) card = null;
             bindings[i] = new CardAppearanceBinding<CAbilityCard>(card);
+            byte list = NetProtocol.HeldFaceList(state.FaceCode);
+            // This history is independent of mutable seats, but requires original immutable
+            // provenance and a real owner observation. Legacy/unresolved samples cannot seed it.
+            if (card != null && state.SourceActorId != 0 && !Recovered(actor, card)
+                && (list == NetProtocol.HeldFaceListDiscard || list == NetProtocol.HeldFaceListActive))
+                frame.Spent.Remember(state.ActorId, card, state);
         }
         frame.PreviousCards = continuous ? frame.CurrentCards : bindings;
         frame.CurrentCards = bindings;
@@ -67,6 +75,25 @@ internal static class CardAppearanceMirror
         previous ??= current;
         frame.Clock.Advance(Time.unscaledTime, frame.Current.SampleTime);
         progress = frame.Clock.Progress(frame.Previous!.SampleTime, frame.Current.SampleTime);
+        return true;
+    }
+    private static bool Recovered(CPlayerActor? actor, CAbilityCard card)
+    {
+        var cards = actor?.CharacterClass;
+        return cards == null || cards.HandAbilityCards.Contains(card) || cards.RoundAbilityCards.Contains(card);
+    }
+    internal static bool TryGetLastSpentFrame(int playerId, CPlayerActor? actor, CAbilityCard? card,
+        out CardAppearanceState? state)
+    {
+        state = null;
+        var cards = actor?.CharacterClass;
+        if (cards == null || card == null || !Frames.TryGetValue(playerId, out var frame)) return false;
+        bool lost = cards.LostAbilityCards.Contains(card) || cards.PermanentlyLostAbilityCards.Contains(card);
+        bool recovered = Recovered(actor, card) || cards.ActivatedCards.Contains(card) && lost;
+        if (!frame.Spent.TryGet(NetFigures.StableActorId(actor!), card, lost, recovered, out state)) return false;
+        // The immutable source roster may itself have been rebuilt; never reuse its old picture.
+        if (state == null || !ReferenceEquals(card, CardAppearanceProvenance.Resolve(state)))
+        { state = null; return false; }
         return true;
     }
     internal static CAbilityCard? Resolve(CPlayerActor actor, byte code, byte count)

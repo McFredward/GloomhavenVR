@@ -2429,6 +2429,9 @@ internal sealed partial class RemoteCardArt
             RewriteFxConstants(look);
 
         float k = Mathf.Clamp01(t);
+        CardAppearanceState? spent = null;
+        if (look == CardFxLook.Burn)
+            CardAppearanceMirror.TryGetLastSpentFrame(_nativePlayer, _nativeActor, _nativeCard, out spent);
         try
         {
             for (int i = 0; i < _burnImages.Length; i++)
@@ -2436,9 +2439,9 @@ internal sealed partial class RemoteCardArt
                 Material? mat = MaterialOf(_burnImages[i]);
                 if (mat == null)
                     continue;
-                SetFloatIfPresent(mat, GreyOutId, k);
-                SetFloatIfPresent(mat, FlowId, k);
-                SetFloatIfPresent(mat, DissolveId, Mathf.Lerp(0f, 0.646f, k));
+                SetFloatIfPresent(mat, GreyOutId, SpentBurnFloor(_burnImages[i], 0, k, spent));
+                SetFloatIfPresent(mat, FlowId, SpentBurnFloor(_burnImages[i], 1, k, spent));
+                SetFloatIfPresent(mat, DissolveId, SpentBurnFloor(_burnImages[i], 2, Mathf.Lerp(0f, 0.646f, k), spent));
             }
             // THE FIRE, ON ITS OWN CLOCK. CardEffects.cs:581 and :696 are the same line in both
             // timelines and it is NOT the face rate: Clamp(t * 4, 0, 1) / 2 reaches its settled 0.5
@@ -3433,6 +3436,7 @@ internal sealed partial class RemoteCardArt
         _nativeExtraDefaults = null;
         _localNativeFrame = null;
         _nativeOutputApplied = false;
+        _nativeLastSourceList = 0;
         _nativeMaterials.Clear();
         // Let CardHalfTone have this face back before it goes: an id Unity is free to reuse must
         // never inherit a hold from a clone that is gone, which is the same argument the heal

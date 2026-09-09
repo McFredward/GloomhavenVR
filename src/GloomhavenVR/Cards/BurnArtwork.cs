@@ -91,6 +91,147 @@ internal static class BurnArtwork
     internal const float FinishedGreyOut = 0.98f;
 
     private static readonly int GreyOutId = Shader.PropertyToID("_GreyOut");
+    private static readonly int[] BurnStartChannels = { GreyOutId, Shader.PropertyToID("_Flow"), Shader.PropertyToID("_Dissolve") };
+
+    private sealed class BurnStartRecord
+    {
+        internal readonly SpentBurnContinuity<ScenarioRuleLibrary.CAbilityCard> Continuity = new();
+        internal float[] Channels = System.Array.Empty<float>(), RawChannels = System.Array.Empty<float>();
+        internal ScenarioRuleLibrary.CAbilityCard? Card;
+        internal float RawGrey = -1f, LastDrawnGrey = -1f;
+        internal bool HasFloor;
+    }
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, BurnStartRecord> BurnStarts = new();
+
+    [HarmonyLib.HarmonyPatch(typeof(CardEffects), nameof(CardEffects.ToggleEffect))]
+    internal static class ToggleEffect_PreserveSpentStart_Patch
+    {
+        private static void Prefix(CardEffects __instance, bool active, CardEffects.FXTask effect)
+        {
+            if (!active || effect != CardEffects.FXTask.BurnCard && effect != CardEffects.FXTask.LostMode) return;
+            try
+            {
+                FullAbilityCard? full = __instance.GetComponent<FullAbilityCard>();
+                if (full == null) full = __instance.GetComponentInParent<FullAbilityCard>();
+                // Native Initialize/RestoreCard must still run normally. Only already initialized
+                // original output can supply a starting picture, including on its first VR frame.
+                PreserveSpentBurnStart(__instance, full?.AbilityCard, full?.playerActor, beforeReset: true);
+            }
+            catch (System.Exception ex)
+            {
+                Core.VRLog.Warn("Cards", $"Could not retain native spent burn start: {ex.Message}");
+            }
+        }
+    }
+
+    [HarmonyLib.HarmonyPatch(typeof(CardEffects), nameof(CardEffects.BurnCardTimeline))]
+    internal static class BurnCardTimeline_PreserveSpentStart_Patch
+    {
+        private static void Postfix(CardEffects __instance, bool burnAnim, ref System.Collections.IEnumerator __result)
+        {
+            __result = new NativeBurnEnumerator(__result,
+                () => RestoreNativeBurnChannels(__instance),
+                running =>
+                {
+                    // A native no-ramp settle is already authoritative completion. It must not
+                    // inherit an earlier cosmetic floor's raw in-progress reading.
+                    if (!burnAnim)
+                    {
+                        if (BurnStarts.TryGetValue(__instance, out var settled)) settled.HasFloor = false;
+                        return;
+                    }
+                    FullAbilityCard? full = __instance.GetComponent<FullAbilityCard>();
+                    if (full == null) full = __instance.GetComponentInParent<FullAbilityCard>();
+                    PreserveSpentBurnStart(__instance, full?.AbilityCard, full?.playerActor,
+                        beforeReset: false, nativeStep: running);
+                },
+                ex => Core.VRLog.Warn("Cards", $"Could not preserve native burn step: {ex.Message}"));
+        }
+    }
+    private static void RestoreNativeBurnChannels(CardEffects fx)
+    {
+        if (!BurnStarts.TryGetValue(fx, out var record) || !record.HasFloor || fx.imgComp == null) return;
+        var images = fx.imgComp;
+        if (record.RawChannels.Length != images.Length * BurnStartChannels.Length) return;
+        for (int image = 0; image < images.Length; image++)
+            for (int property = 0; property < BurnStartChannels.Length; property++)
+            {
+                Material? material = images[image] != null ? images[image].material : null;
+                float value = record.RawChannels[image * BurnStartChannels.Length + property];
+                if (!float.IsNaN(value) && material != null && material.HasProperty(BurnStartChannels[property]))
+                    material.SetFloat(BurnStartChannels[property], value);
+            }
+        record.HasFloor = false;
+    }
+
+    /// <summary>Keep the same model's actual spent wash through the native reset and ramp.</summary>
+    internal static void PreserveSpentBurnStart(CardEffects? fx, AbilityCardUI? widget)
+        => PreserveSpentBurnStart(fx, widget != null ? widget.AbilityCard : null,
+            widget != null ? widget.PlayerActor : null, beforeReset: false);
+
+    private static void PreserveSpentBurnStart(CardEffects? fx, ScenarioRuleLibrary.CAbilityCard? card,
+        ScenarioRuleLibrary.CPlayerActor? owner, bool beforeReset, bool nativeStep = false)
+    {
+        if (fx == null) return;
+        if (card == null || owner?.CharacterClass == null || fx.imgComp == null)
+        { BurnStarts.Remove(fx); return; }
+        bool spent = owner.CharacterClass.DiscardedAbilityCards.Contains(card);
+        bool active = owner.CharacterClass.ActivatedCards.Contains(card);
+        bool lost = owner.CharacterClass.LostAbilityCards.Contains(card)
+            || owner.CharacterClass.PermanentlyLostAbilityCards.Contains(card);
+        bool activeBurn = active && (beforeReset || nativeStep || fx.coroutine != null && Latched(fx));
+        if (!spent && !lost && !activeBurn) { BurnStarts.Remove(fx); return; }
+        var record = BurnStarts.GetValue(fx, _ => new BurnStartRecord());
+        if (!ReferenceEquals(record.Card, card))
+        {
+            record.Continuity.Clear(); record.HasFloor = false; record.Card = card;
+        }
+        // Activated cards may legitimately return to blue. Only their actual immediate
+        // pre-burn output is retained; historical max-wash belongs exclusively to discard.
+        if (beforeReset && active && !spent) record.Continuity.Clear();
+        bool burning = !beforeReset && (nativeStep || (spent || lost || activeBurn) && fx.gameObject.activeInHierarchy
+            && fx.coroutine != null && Latched(fx));
+        Image[] images = fx.imgComp;
+        if (record.Channels.Length != images.Length * BurnStartChannels.Length)
+        {
+            record.Channels = new float[images.Length * BurnStartChannels.Length];
+            record.RawChannels = new float[record.Channels.Length];
+        }
+        float grey = -1f;
+        for (int image = 0; image < images.Length; image++)
+            for (int property = 0; property < BurnStartChannels.Length; property++)
+            {
+                Material? material = images[image] != null ? images[image].material : null;
+                float value = material != null && material.HasProperty(BurnStartChannels[property])
+                    ? material.GetFloat(BurnStartChannels[property]) : float.NaN;
+                record.Channels[image * BurnStartChannels.Length + property] = value;
+                if (property == 0 && value > grey) grey = value;
+            }
+        // Never let the cosmetic floor masquerade as native completion or hide a bailed handle.
+        // Repeated LateUpdate/sampler reads of our own write retain the last native observation.
+        // The iterator wrapper restores raw channels before every native step, so a native final
+        // jump to exactly the floor is still observed, including after a coarse/paused frame.
+        if (!record.HasFloor || grey != record.LastDrawnGrey)
+        {
+            record.RawGrey = grey;
+            System.Array.Copy(record.Channels, record.RawChannels, record.Channels.Length);
+        }
+        if (beforeReset) { record.RawGrey = 0f; record.HasFloor = false; }
+        record.Continuity.Apply(card, spent || beforeReset, burning, record.Channels);
+        if (!burning) return;
+        record.LastDrawnGrey = -1f;
+        for (int image = 0; image < images.Length; image++)
+            for (int property = 0; property < BurnStartChannels.Length; property++)
+            {
+                float value = record.Channels[image * BurnStartChannels.Length + property];
+                Material? material = images[image] != null ? images[image].material : null;
+                if (!float.IsNaN(value) && material != null && material.HasProperty(BurnStartChannels[property])
+                    && material.GetFloat(BurnStartChannels[property]) < value)
+                { material.SetFloat(BurnStartChannels[property], value); record.HasFloor = true; }
+                if (property == 0 && value > record.LastDrawnGrey) record.LastDrawnGrey = value;
+            }
+    }
+
 
     /// <summary>
     /// The <see cref="CardEffects"/> that paints one pile/hand widget, or null. THE ONE PLACE that
@@ -307,6 +448,8 @@ internal static class BurnArtwork
     internal static float PaintProgress(CardEffects? fx)
     {
         SettledBurnPainted(fx, out float greyOut);
+        if (fx != null && BurnStarts.TryGetValue(fx, out var record) && record.HasFloor
+            && greyOut == record.LastDrawnGrey) return record.RawGrey;
         return greyOut;
     }
 
