@@ -28,6 +28,7 @@ internal sealed partial class NetAvatarDriver
         }
         if (changed || now >= _nextAppearanceRefresh)
         {
+            if (!changed) _appearanceSnapshot = new CardAppearanceSnapshot(now, states);
             SendCardAppearance(_appearanceSnapshot);
             _nextAppearanceRefresh = now + .5f;
         }
@@ -79,6 +80,19 @@ internal sealed partial class NetAvatarDriver
         _appearanceSnapshot = null;
         _nextAppearanceRefresh = _appearanceSourceTime = 0;
         CardAppearanceSampler.Reset();
+    }
+
+    internal static void MirrorCharacterCardFlight(RemoteAvatar sender, byte endpoints, byte flags, CardFlightSource source)
+    {
+        NetAvatarDriver? driver = _instance;
+        if (driver == null) return;
+        foreach (RemoteAvatar viewer in driver._avatars.Values)
+        {
+            if (ReferenceEquals(viewer, sender)) continue;
+            CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(viewer, out _);
+            if (actor != null && NetFigures.StableActorId(actor) == source.ActorId)
+                viewer.PlayMirroredCardFlight(endpoints, flags, source);
+        }
     }
 
     private static readonly List<int> DecisionClaimants = new();

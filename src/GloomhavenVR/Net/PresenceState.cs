@@ -517,6 +517,10 @@ internal struct PresenceState
     /// packet byte-identical to ModBuild 351's.
     /// </summary>
     public bool HasHeldCardFace;
+    public bool HasHeldMapCard;
+    public uint HeldMapKey;
+    public ushort HeldMapPoolSeat, HeldMapPoolCount;
+    public byte HeldMapArcSeat;
 
     /// <summary>Slot 1's code byte: the SOURCE LIST in bits 5..7 and the INDEX in bits 0..4, packed
     /// by <see cref="NetProtocol.EncodeHeldFace"/>. Slot 1 is the card in the rig packet's
@@ -608,6 +612,7 @@ internal struct PresenceState
     /// <summary>The LENGTH of the list slot 2's index points into, clamped to 255 (same contract as
     /// <see cref="HeldFaceCount"/>).</summary>
     public byte SecondHeldFaceCount;
+    public int SecondHeldFaceActorId;
 
     /// <summary>World-frame pose of the second held card (meaningful only when
     /// <see cref="HasSecondHeldCard"/>). The shared 20-byte pose encoding — and the ENTIRE
@@ -1598,6 +1603,10 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>MB490 adds at most11 bytes for mutually exclusive second-held actor66/map67:3837
+    /// worst case in a4096-byte buffer, leaving259 bytes (largest single record257).
+    /// The4096-byte extras reassembly bound is unchanged.</para>
+    ///
     /// <para>3709 -> 3826 in MB489: health57 (14), decision attribution60 (7), flight source61
     /// (9), recent flight history62 (84), and paired avoidance65 (3). MaxSize4088 leaves262 bytes, exceeding the257-byte
     /// largest record, and stays within the unchanged4096-byte extras reassembly bound.</para>
@@ -1823,7 +1832,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 4088;
+    public const int MaxSize = 4096;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1956,6 +1965,7 @@ internal static class PresenceSerializer
                           // it follows, and it is what keeps every packet of every player who is
                           // not holding a card byte-identical to the previous build's.
                           || (state.HasHeldCardFace && HeldFacePayload(in state) > 0)
+                          || (state.HasSecondHeldCard && state.HasHeldMapCard)
                           // A held-prop record whose first slot names nothing says nothing, so
                           // it must not open the tail either — the same rule the held-card face
                           // record above it follows, and it is what keeps every packet of every
@@ -3010,6 +3020,24 @@ internal static class PresenceSerializer
                 buffer[i++] = state.SecondHeldFaceCount;
             }
             records++;
+            if (state.HasSecondHeldCard && !state.HasHeldMapCard && state.SecondHeldFaceActorId != 0 && i + 6 <= buffer.Length)
+            {
+                buffer[i++] = NetProtocol.ExtIdSecondHeldFaceActor;
+                buffer[i++] = 4;
+                AvatarSerializer.WriteI32(buffer, ref i, state.SecondHeldFaceActorId);
+                records++;
+            }
+        }
+        // One pose can address either a scenario actor (66) or an immutable map pool (67).
+        // Keep map provenance independent of36: a retained held card can leave the loadout.
+        if (state.HasSecondHeldCard && state.HasHeldMapCard && state.HeldMapKey != 0
+            && state.HeldMapPoolSeat < state.HeldMapPoolCount && i + 11 <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdHeldMapCard; buffer[i++] = 9;
+            AvatarSerializer.WriteU32(buffer, ref i, state.HeldMapKey);
+            AvatarSerializer.WriteU32(buffer, ref i, state.HeldMapPoolSeat | (uint)state.HeldMapPoolCount << 16);
+            buffer[i++] = state.HeldMapArcSeat;
+            records++;
         }
         int sacrificeBytes = SacrificeSeatPayload(in state);
         if (state.HasSacrificeSeat && sacrificeBytes > 0
@@ -3789,6 +3817,7 @@ internal static class PresenceSerializer
             return false;
 
         int i = 0;
+        bool secondProvenanceSeen = false;
         if (AvatarSerializer.ReadU32(buffer, ref i) != NetProtocol.Magic) return false;
         if (buffer[i++] != NetProtocol.Version) return false;
         if (buffer[i++] != NetProtocol.MsgExtras) return false;
@@ -3883,8 +3912,28 @@ internal static class PresenceSerializer
                         break;
                     byte id = buffer[i++];
                     int len = buffer[i++];
+                    bool provenance = id == NetProtocol.ExtIdSecondHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard;
                     if (length < i + len)
+                    {
+                        if (provenance) return false;
                         break;
+                    }
+                    if (provenance)
+                    {
+                        if (secondProvenanceSeen || !state.HasSecondHeldCard) return false;
+                        secondProvenanceSeen = true;
+                        int at = i;
+                        if (id == NetProtocol.ExtIdSecondHeldFaceActor)
+                        {
+                            if (len != 4 || !state.HasHeldCardFace || AvatarSerializer.ReadI32(buffer, ref at) == 0) return false;
+                        }
+                        else
+                        {
+                            if (len != 9 || AvatarSerializer.ReadU32(buffer, ref at) == 0) return false;
+                            uint pool = AvatarSerializer.ReadU32(buffer, ref at);
+                            if ((ushort)pool >= (pool >> 16)) return false;
+                        }
+                    }
 
                     ReadExtensionRecord(buffer, i, id, len, ref state);
                     i += len; // known or not, the record's own length is how we move past it
@@ -4638,6 +4687,22 @@ internal static class PresenceSerializer
             int actor = AvatarSerializer.ReadI32(buffer, ref at);
             var source = new CardFlightSource(actor, buffer[at], buffer[at + 1]);
             if (source.Validate()) { state.FlightSource = source; state.FlightSourceSeq = state.FxSeq; }
+        }
+        else if (id == NetProtocol.ExtIdHeldMapCard && len == 9 && state.HasSecondHeldCard)
+        {
+            int at = i;
+            uint key = AvatarSerializer.ReadU32(buffer, ref at), pool = AvatarSerializer.ReadU32(buffer, ref at);
+            ushort seat = (ushort)pool, count = (ushort)(pool >> 16);
+            if (key != 0 && seat < count)
+            {
+                state.HasHeldMapCard = true; state.HeldMapKey = key;
+                state.HeldMapPoolSeat = seat; state.HeldMapPoolCount = count; state.HeldMapArcSeat = buffer[at];
+            }
+        }
+        else if (id == NetProtocol.ExtIdSecondHeldFaceActor && len == 4 && state.HasSecondHeldCard && state.HasHeldCardFace)
+        {
+            int at = i;
+            state.SecondHeldFaceActorId = AvatarSerializer.ReadI32(buffer, ref at);
         }
         else if (id == NetProtocol.ExtIdDamageAvoidance && len == 1 && buffer[i] == 1 && state.DamageDecisionPreview != null)
         {

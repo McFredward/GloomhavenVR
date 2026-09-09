@@ -33,11 +33,14 @@ internal sealed class CardAppearanceState
 {
     internal const int CountMax = 32;
     internal int ActorId;
+    internal int SourceActorId;
+    internal ushort PoolSeat, PoolCount;
     internal byte FaceCode, ListCount;
     internal CardAppearanceNode[] Nodes = Array.Empty<CardAppearanceNode>();
     internal bool Validate()
     {
-        if (ActorId == 0 || ListCount == 0 || NetProtocol.HeldFaceIndex(FaceCode) >= ListCount
+        if ((SourceActorId == 0 ? PoolSeat != 0 || PoolCount != 0 : PoolCount == 0 || PoolCount > 32768 || (PoolSeat & 32767) >= PoolCount)
+            || ActorId == 0 || ListCount == 0 || NetProtocol.HeldFaceIndex(FaceCode) >= ListCount
             || (!NetProtocol.HeldFaceNamesCard(FaceCode)
                 && NetProtocol.HeldFaceList(FaceCode) != CardPlumeState.RoundList)
             || NetProtocol.HeldFaceIndex(FaceCode) == NetProtocol.HeldFaceIndexUnknown
@@ -54,14 +57,14 @@ internal sealed class CardAppearanceState
     }
     internal CardAppearanceState Copy()
     {
-        var copy = new CardAppearanceState { ActorId = ActorId, FaceCode = FaceCode, ListCount = ListCount,
+        var copy = new CardAppearanceState { ActorId = ActorId, SourceActorId = SourceActorId, PoolSeat = PoolSeat, PoolCount = PoolCount, FaceCode = FaceCode, ListCount = ListCount,
             Nodes = new CardAppearanceNode[Nodes.Length] };
         for (int i = 0; i < Nodes.Length; i++) copy.Nodes[i] = Nodes[i].Copy();
         return copy;
     }
     internal static bool Same(CardAppearanceState a, CardAppearanceState b)
     {
-        if (a.ActorId != b.ActorId || a.FaceCode != b.FaceCode || a.ListCount != b.ListCount || a.Nodes.Length != b.Nodes.Length) return false;
+        if (a.SourceActorId != b.SourceActorId || a.PoolSeat != b.PoolSeat || a.PoolCount != b.PoolCount || a.ActorId != b.ActorId || a.FaceCode != b.FaceCode || a.ListCount != b.ListCount || a.Nodes.Length != b.Nodes.Length) return false;
         for (int i = 0; i < a.Nodes.Length; i++)
         {
             var x = a.Nodes[i]; var y = b.Nodes[i];
@@ -81,7 +84,9 @@ internal sealed class CardAppearanceSnapshot
         if (a.States.Length != b.States.Length) return false;
         for (int i = 0; i < a.States.Length; i++)
             if (a.States[i].ActorId != b.States[i].ActorId || a.States[i].FaceCode != b.States[i].FaceCode
-                || a.States[i].ListCount != b.States[i].ListCount) return false;
+                || a.States[i].ListCount != b.States[i].ListCount
+                || a.States[i].SourceActorId != b.States[i].SourceActorId || a.States[i].PoolSeat != b.States[i].PoolSeat
+                || a.States[i].PoolCount != b.States[i].PoolCount) return false;
         return true;
     }
     internal CardAppearanceSnapshot(float time, CardAppearanceState[] states)

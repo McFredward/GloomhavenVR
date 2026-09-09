@@ -143,7 +143,7 @@ internal static class RemoteBoardGate
             || !RemoteBoardScenarioGate.Open)
             return false;
         CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(owner, out _);
-        return SurfaceVisible(mode, actor == null || RevealGate.ShowRoundCardFronts(actor));
+        return SurfaceVisible(mode, actor == null || RevealGate.ShowPeerCardFronts(actor));
     }
 
     /// <summary>

@@ -101,12 +101,9 @@ internal static class LocalRigSampler
             state.HeldCardPose.Position = acp;
             state.HeldCardPose.Rotation = acr;
             SampleHeldCardFaces(out state.HeldFaceCode, out state.HeldFaceCount,
-                out state.SecondHeldFaceCode, out state.SecondHeldFaceCount);
-            CPlayerActor? faceActor = Cards.ItemsPile.Current?.OwnerActor;
-            if (faceActor == null && RevealGate.InScenario)
-                faceActor = Board.CharacterFocus.PresentedActor;
-            state.HeldFaceActorId = faceActor != null ? NetFigures.StableActorId(faceActor) : 0;
+                out state.SecondHeldFaceCode, out state.SecondHeldFaceCount, out state.HeldFaceActorId, out _);
             state.HasHeldCardFace = true;
+            state.HasHeldMapCard = SampleHeldMapCard(1, out state.HeldMapKey, out state.HeldMapPoolSeat, out state.HeldMapPoolCount, out state.HeldMapArcSeat);
         }
 
         // Nothing to say if we have neither a head nor a tracked hand.
@@ -314,66 +311,43 @@ internal static class LocalRigSampler
     /// so the honest answer is "names nothing" rather than a guess at whose list to index.</para>
     /// </summary>
     public static void SampleHeldCardFaces(out byte code0, out byte count0,
-                                           out byte code1, out byte count1)
+                                           out byte code1, out byte count1) =>
+        SampleHeldCardFaces(out code0, out count0, out code1, out count1, out _, out _);
+
+    internal static void SampleHeldCardFaces(out byte code0, out byte count0,
+        out byte code1, out byte count1, out int actor0, out int actor1)
     {
-        code0 = 0;
-        count0 = 0;
-        code1 = 0;
-        count1 = 0;
-        bool left = HoldsCardShape(VRHands.Left);
-        bool right = HoldsCardShape(VRHands.Right);
-        if (!left && !right)
-            return;
-        CPlayerActor? actor = Cards.ItemsPile.Current?.OwnerActor;
-        // ─── THE ACTOR CAME OUT OF THE ITEM PILE, AND THE ITEM PILE IS USUALLY NOT THERE ─────────
-        // 2026-09-05 report item 2c, "Innerhalb des Szenarios hat das wieder so gut wie garnicht
-        // funktioniert", and this line is the whole of it. Cards.ItemsPile.Current is PUBLISHED BY
-        // THE ITEM ARC AND ONLY WHILE IT IS OPEN — ItemsPile.Open assigns it, ItemsPile.Close nulls
-        // it, and its own doc comment says so ("Current is null the moment the arc goes"). A player
-        // in a scenario raises their item fan for a few seconds a session; the rest of the time this
-        // read answers null, the map-room branch below was taken, MapRoomHand had nothing to say
-        // because no map room is standing, and the record named NOTHING. So a card plucked out of a
-        // peer's HAND inside a scenario could never get a front — on any client, in any phase, for
-        // the whole life of the feature.
-        //
-        // THE EVIDENCE IS THE SILENCE, and it is only readable once the line's cadence is known:
-        // "Held-card face SENT" is change-gated on the CODE, so a code that is always 0 never changes and
-        // never prints. Both 100 MB logs of the 2026-09-05 session contain four such lines each and
-        // not one of them names the hand: 'map-room loadout' and 'items', never 'hand fan'. Two
-        // players played a whole scenario picking cards up and putting them down.
-        //
-        // THE CORRECT SOURCE IS THE CHARACTER WHOSE HAND THIS CLIENT IS PRESENTING, which is what
-        // the RECEIVER already resolves the seat against: RemoteBoardFocus.DisplayedActor follows
-        // extension record 22, and record 22 carries Board.CharacterFocus.PresentedActorId. Asking
-        // for the same fact on this side makes the two ends of the index name the same list by
-        // construction instead of by coincidence. Guarded on RevealGate.InScenario so a
-        // PresentedActor left standing from a finished scenario can never steal the map room's
-        // branch below — off-scenario the map loadout is the only list there is.
-        if (actor == null && RevealGate.InScenario)
-            actor = Board.CharacterFocus.PresentedActor;
-        // NO ACTOR IS NOT "NAMES NOTHING" ANY MORE — IT IS THE MAP ROOM (report item 5a). This used
-        // to return here, and the consequence was that in the map room the record was omitted
-        // outright and a card in a peer's hand could only ever be a back, while the fan beside it
-        // showed its fronts. The premise was sound and the conclusion did not follow: there really
-        // is no CPlayerActor and no ItemsPile in the map room (CMapCharacter.GetActor() reads
-        // ScenarioManager.Scenario, which is null there, and THROWS), but the map room has its own
-        // unit of identity and its own list — the loadout, resolved from the replicated
-        // CMapCharacter and already mirrored on every peer. So the absence of an actor selects a
-        // DIFFERENT SOURCE LIST rather than ending the sample.
-        if (actor == null)
-        {
-            NameHeldMapCard(left ? VRHands.Left : VRHands.Right, out code0, out count0);
-            if (left && right)
-                NameHeldMapCard(VRHands.Right, out code1, out count1);
-            return;
-        }
-        // Slot 1 = the LEFT hand's card when the left hand holds one, otherwise the right's —
-        // TrySampleHeldCard's unchanged preference, restated here rather than shared, because the
-        // two answers must agree about the SLOT and nothing else about them is common.
-        NameHeldCard(actor, left ? VRHands.Left : VRHands.Right, out code0, out count0);
-        // Slot 2 exists only while BOTH hands hold one, and is then the RIGHT hand's.
-        if (left && right)
-            NameHeldCard(actor, VRHands.Right, out code1, out count1);
+        code0 = count0 = code1 = count1 = 0;
+        actor0 = actor1 = 0;
+        bool left = HoldsCardShape(VRHands.Left), right = HoldsCardShape(VRHands.Right);
+        if (!left && !right) return;
+        SampleHeldFace(left ? VRHands.Left : VRHands.Right, out code0, out count0, out actor0);
+        if (left && right) SampleHeldFace(VRHands.Right, out code1, out count1, out actor1);
+    }
+
+    internal static bool SampleHeldMapCard(int poseSlot, out uint key, out ushort seat, out ushort count, out byte arcSeat)
+    {
+        key = 0; seat = count = 0; arcSeat = 255;
+        if (RevealGate.InScenario) return false;
+        bool left = HoldsCardShape(VRHands.Left), right = HoldsCardShape(VRHands.Right);
+        if ((!left && !right) || (poseSlot == 2 && (!left || !right))) return false;
+        VRHand? hand = poseSlot == 2 || !left ? VRHands.Right : VRHands.Left;
+        return hand?.Grabber?.Held is Cards.VRCard card
+            && WorldUI.MapRoom.MapRoomHand.TryNameLocalMapCard(card, out key, out seat, out count, out arcSeat);
+    }
+
+    private static void SampleHeldFace(VRHand? hand, out byte code, out byte count, out int actorId)
+    {
+        code = count = 0; actorId = 0;
+        if (!RevealGate.InScenario) { NameHeldMapCard(hand, out code, out count); return; }
+        // A physical hold survives a board focus change. Read the actual held widget/chip's
+        // owner, never the newly displayed character or whichever item fan happens to be open.
+        object? held = hand?.Grabber?.Held;
+        CPlayerActor? actor = held is Cards.VRCard card ? card.GameCard?.PlayerActor
+            : held is Cards.ItemsPile.ItemChip chip ? chip.Owner?.OwnerActor : null;
+        if (actor == null) return;
+        actorId = NetFigures.StableActorId(actor);
+        NameHeldCard(actor, hand, out code, out count);
     }
 
     /// <summary>

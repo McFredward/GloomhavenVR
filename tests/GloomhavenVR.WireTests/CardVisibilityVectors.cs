@@ -35,8 +35,8 @@ internal static class CardVisibilityVectors
 
         string gate = Read(repoRoot, "Net/RevealGate.cs");
         t.True(FaceMethodsIgnoreMembership(gate), "every CardFaces overload delegates to phase, never membership or population exceptions");
-        string leaked = gate.Replace("bool secret = !ShowRoundCardFronts(actor);",
-            "bool secret = !IsPublicPopulation(population) && !ShowRoundCardFronts(actor);");
+        string leaked = gate.Replace("bool secret = !ShowPeerCardFronts(actor);",
+            "bool secret = !IsPublicPopulation(population) && !ShowPeerCardFronts(actor);");
         t.True(leaked != gate && !FaceMethodsIgnoreMembership(leaked), "negative control: a real population bypass is rejected");
         t.True(FaceMethodsIgnoreMembership("// IsPubliclyRevealedCard(actor, cardInstanceId)\n" + gate), "historical comments cannot satisfy or break the gate");
 

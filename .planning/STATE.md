@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-09 against `dev` = ModBuild 489.** The file this replaces had gone 168 builds
+**Updated 2026-09-09 against `dev` = ModBuild 490.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,13 +13,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **`dev` = ModBuild 489.** `main` is the release branch and is behind on purpose.
+- **`dev` = ModBuild 490.** `main` is the release branch and is behind on purpose.
 - **483 IS A FULL INSTALL.** The asset bundle changed for the first time since ModBuild 368:
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
   loud if it happens.
 - **Hardware evidence now covers488**, with both latest client banners and both health screenshots
-  verified. **489 requires a headset retest.** See [MP-ROUND-489.md](MP-ROUND-489.md) for all thirteen
+  verified. **490 requires a headset retest.** The pre-test card review is in [MP-CARD-REVIEW-490.md](MP-CARD-REVIEW-490.md). See [MP-ROUND-489.md](MP-ROUND-489.md) for all thirteen
   findings, the original Disarm explanation, and the additional parity review. The older timeout investigation remains in [MP-ROUND-484.md](MP-ROUND-484.md).
 - **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
 - Gate readings at 489: 17 checkers green · wire **251,037** assertions · patch surface
@@ -40,6 +40,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 487 | laser ownership, phase-consistent card visibility, stable initiative, cap sizing and native tooltip/highlight/element output | DLL only after 483 |
 | 488 | short visible window-facing turn after release, matching grab-bar timing and preserving the drawn centre | DLL only after 483 |
 | 489 | native card output, atomic held fronts, character decisions, committed/pending health and correctly routed/sequenced flights | DLL only after 483 |
+| 490 | pre-test face/overlay/flight audit: stable source provenance, complete native reset, foreign focus and bounded artwork handover | DLL only after 483 |
 
 ---
 
@@ -55,6 +56,11 @@ in the zoomed-out pose where the room reads as a model in front of you. That sur
 not seen it yet, and it is one line to put back.
 
 ### 2b. Latest multiplayer corrections
+
+- Build490 reviews every local/remote card surface for face visibility, native overlay output
+  and semantic flight lifecycle. Fixes include viewer-independent selection privacy, held map
+  provenance, stale pooled models/materials, actor-scoped burn claims and owner release mirroring.
+  See [MP-CARD-REVIEW-490.md](MP-CARD-REVIEW-490.md).
 
 - Build489 addresses the thirteen MB488 findings and additional review defects. Cards mirror actual
   owner output; native decisions follow their character; damage previews preserve committed HP;

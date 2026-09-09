@@ -362,6 +362,14 @@ internal sealed class RemoteAvatar
     /// "names nothing". Never a card identity.</summary>
     private byte _heldFaceCode;
     private int _heldFaceActorId, _secondHeldFaceActorId;
+    private uint _heldMapKey, _secondHeldMapKey;
+    private byte _heldMapArcSeat, _secondHeldMapArcSeat;
+    internal byte HeldFaceMapArcSeat(int slot) => slot == 1 ? _heldMapArcSeat : _secondHeldMapArcSeat;
+    private ushort _heldMapPoolSeat, _heldMapPoolCount, _secondHeldMapPoolSeat, _secondHeldMapPoolCount;
+    internal uint HeldFaceMapKey(int slot) => slot == 1 ? _heldMapKey : _secondHeldMapKey;
+    internal ushort HeldFaceMapPoolSeat(int slot) => slot == 1 ? _heldMapPoolSeat : _secondHeldMapPoolSeat;
+    internal ushort HeldFaceMapPoolCount(int slot) => slot == 1 ? _heldMapPoolCount : _secondHeldMapPoolCount;
+
     private bool _heldFaceAddressReady, _secondHeldFaceAddressReady;
     internal int HeldFaceActorId(int poseSlot) => poseSlot == 1 ? _heldFaceActorId : _secondHeldFaceActorId;
     internal bool HeldFaceAddressReady(int poseSlot) => poseSlot == 1 ? _heldFaceAddressReady : _secondHeldFaceAddressReady;
@@ -435,6 +443,9 @@ internal sealed class RemoteAvatar
     /// a browse loan does not shrink <c>CardFan.Current.Count</c>, so the lengths do not come out
     /// even and nothing is dropped. The removal is applied only when it makes the two agree.</para>
     /// </summary>
+    internal int HeldMapSeats(out int seatA, out int seatB, out int listLength) =>
+        HeldSeatsIn(NetProtocol.HeldFaceListMapLoadout, out seatA, out seatB, out listLength);
+
     internal int HeldHandSeats(out int seatA, out int seatB) =>
         HeldHandSeats(out seatA, out seatB, out _);
 
@@ -582,7 +593,7 @@ internal sealed class RemoteAvatar
         listLength = 0;
         poseSlotA = 0;
         int n = 0;
-        if (NetProtocol.HeldFaceNamesCard(_heldFaceCode)
+        if (HeldSlotMatchesBoard(1) && NetProtocol.HeldFaceNamesCard(_heldFaceCode)
             && NetProtocol.HeldFaceList(_heldFaceCode) == listId)
         {
             seatA = NetProtocol.HeldFaceIndex(_heldFaceCode);
@@ -590,7 +601,7 @@ internal sealed class RemoteAvatar
             poseSlotA = 1;
             n++;
         }
-        if (NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
+        if (HeldSlotMatchesBoard(2) && NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
             && NetProtocol.HeldFaceList(_secondHeldFaceCode) == listId)
         {
             int seat = NetProtocol.HeldFaceIndex(_secondHeldFaceCode);
@@ -610,6 +621,18 @@ internal sealed class RemoteAvatar
             n++;
         }
         return n;
+    }
+
+    private bool HeldSlotMatchesBoard(int slot)
+    {
+        if (RevealGate.InScenario)
+        {
+            var actor = RemoteBoardFocus.DisplayedActor(this, out _);
+            return HeldFaceAddressReady(slot) && actor != null
+                && HeldFaceActorId(slot) == NetFigures.StableActorId(actor);
+        }
+        uint key = HeldFaceMapKey(slot);
+        return key == 0 || RemoteMapRoom.TryGetPeerFanCharacterKey(PlayerId, out uint currentKey) && key == currentKey;
     }
 
     /// <summary>
@@ -647,7 +670,7 @@ internal sealed class RemoteAvatar
         rawSeat = -1;
         listLength = 0;
         byte code = poseSlot == 1 ? _heldFaceCode : poseSlot == 2 ? _secondHeldFaceCode : (byte)0;
-        if (!NetProtocol.HeldFaceNamesCard(code)
+        if (!HeldSlotMatchesBoard(poseSlot) || !NetProtocol.HeldFaceNamesCard(code)
             || NetProtocol.HeldFaceList(code) != NetProtocol.HeldFaceListItems)
             return false;
         rawSeat = NetProtocol.HeldFaceIndex(code);
@@ -689,8 +712,8 @@ internal sealed class RemoteAvatar
         listLength = 0;
         poseSlot = 0;
         listId = NetProtocol.HeldFaceListNone;
-        bool a = IsFanArcList(_heldFaceCode);
-        bool b = IsFanArcList(_secondHeldFaceCode);
+        bool a = HeldSlotMatchesBoard(1) && IsFanArcList(_heldFaceCode);
+        bool b = HeldSlotMatchesBoard(2) && IsFanArcList(_secondHeldFaceCode);
         if (a == b)
             return false; // none, or two fists — no single card to hand off
         byte code = a ? _heldFaceCode : _secondHeldFaceCode;
@@ -891,6 +914,8 @@ internal sealed class RemoteAvatar
 
     /// <summary>The visible burn slab owns one recess until its animation finishes.</summary>
     internal void PlayUnclaimedBurnEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null) => _cardFx.Play(endpoints, flags, source);
+
+    internal bool BurnOwnsActiveCard(int cardInstanceId) => _burnFx.OwnsActiveCard(cardInstanceId);
 
     internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
     internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
@@ -1522,7 +1547,10 @@ internal sealed class RemoteAvatar
     public void SetTarget(in AvatarState state)
     {
         _target = state;
-        _heldFaceAddressReady = state.HasHeldCard && state.HasHeldCardFace;
+        _heldMapKey = state.HasHeldCard && state.HasHeldMapCard ? state.HeldMapKey : 0;
+        _heldMapArcSeat = state.HeldMapArcSeat;
+        _heldMapPoolSeat = state.HeldMapPoolSeat; _heldMapPoolCount = state.HeldMapPoolCount;
+        _heldFaceAddressReady = state.HasHeldCard && (state.HasHeldCardFace || state.HasHeldMapCard);
         _heldFaceActorId = _heldFaceAddressReady ? state.HeldFaceActorId : 0;
         _heldFaceCode = _heldFaceAddressReady ? state.HeldFaceCode : (byte)0;
         _heldFaceCount = _heldFaceAddressReady ? state.HeldFaceCount : (byte)0;
@@ -1777,8 +1805,11 @@ internal sealed class RemoteAvatar
         // is the statement "these slabs name nothing", and a latched code would keep a front on a
         // card its owner has already put down.
         // Slot 1 belongs to the rig pose; slower extras must never overwrite its address.
-        _secondHeldFaceAddressReady = p.HasSecondHeldCard && p.HasHeldCardFace;
-        _secondHeldFaceActorId = p.HasCharFocus ? p.CharFocusActorId : 0;
+        _secondHeldFaceAddressReady = p.HasSecondHeldCard && (p.HasHeldCardFace || p.HasHeldMapCard);
+        _secondHeldFaceActorId = p.SecondHeldFaceActorId;
+        _secondHeldMapKey = p.HasSecondHeldCard && p.HasHeldMapCard ? p.HeldMapKey : 0;
+        _secondHeldMapArcSeat = p.HeldMapArcSeat;
+        _secondHeldMapPoolSeat = p.HeldMapPoolSeat; _secondHeldMapPoolCount = p.HeldMapPoolCount;
         _secondHeldFaceCode = p.HasHeldCardFace ? p.SecondHeldFaceCode : (byte)0;
         _secondHeldFaceCount = p.HasHeldCardFace ? p.SecondHeldFaceCount : (byte)0;
 
@@ -2242,6 +2273,18 @@ internal sealed class RemoteAvatar
             if (actor == null || !NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? controller)
                 || controller?.PlayerId != PlayerId) return;
         }
+        if (source.HasValue)
+        {
+            CardFlightVisibility.ObserveOwnerRelease(source.Value.ActorId, endpoints, flags, source);
+            NetAvatarDriver.MirrorCharacterCardFlight(this, endpoints, flags, source.Value);
+        }
+        PlayMirroredCardFlight(endpoints, flags, source);
+    }
+
+    // Called only after the canonical sender's sequence and actual character ownership validate.
+    // A foreign-focus board consumes the same semantic release without minting another sequence.
+    internal void PlayMirroredCardFlight(byte endpoints, byte flags, CardFlightSource? source)
+    {
         if (!_burnFx.ConsumesWireEvent(endpoints, flags, source))
             _cardFx.Play(endpoints, flags, source);
     }

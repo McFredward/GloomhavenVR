@@ -577,6 +577,10 @@
     <Compile Include="DamageDecisionPreviewVectors.cs" />
     <Compile Include="HeldFaceAtomicVectors.cs" />
     <Compile Include="CardAppearanceVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceBinding.cs" />
+    <Compile Include="CardFaceLifecycleVectors.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/MapCardFaceProjection.cs" />
+    <Compile Include="CardProvenanceVectors.cs" />
     <Compile Include="CharacterDecisionParityVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/NativeDecisionPromptState.cs" />
     <Compile Include="NativeDecisionPromptVectors.cs" />

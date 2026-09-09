@@ -769,7 +769,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             out bool exhausted);
         _ = viaFocus; // the state is stated in RemoteBoardFocus' own change-gated log line
 
-        bool showFronts = actor != null && RevealGate.ShowRoundCardFronts(actor);
+        bool showFronts = actor != null && RevealGate.ShowPeerCardFronts(actor);
 
         bool showBoard = RemoteBoardGate.SurfaceVisible(vis, actor == null || showFronts);
 

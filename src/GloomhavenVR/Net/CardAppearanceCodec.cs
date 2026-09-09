@@ -39,6 +39,15 @@ internal static class CardAppearanceCodec
                 buffer[sizeAt] = (byte)(at - sizeAt - 1);
             }
         }
+        for (int i = 0; i < snapshot.States.Length; i++)
+        {
+            var state = snapshot.States[i];
+            if (state.SourceActorId == 0) continue;
+            buffer[at++] = NetProtocol.ExtIdCardAppearanceProvenance; buffer[at++] = 9;
+            buffer[at++] = (byte)i;
+            AvatarSerializer.WriteI32(buffer, ref at, state.SourceActorId);
+            AvatarSerializer.WriteU32(buffer, ref at, state.PoolSeat | (uint)state.PoolCount << 16);
+        }
         return at;
     }
     internal static bool TryRead(byte[] buffer, int length, out CardAppearanceSnapshot? snapshot)
@@ -54,6 +63,18 @@ internal static class CardAppearanceCodec
             if (at + 2 > length) return false;
             byte record = buffer[at++]; int end = at + 1 + buffer[at++];
             if (end > length) return false;
+            if (record == NetProtocol.ExtIdCardAppearanceProvenance)
+            {
+                if (end - at != 9) return false;
+                int provenanceIndex = buffer[at++];
+                if (provenanceIndex >= cards.Count || cards[provenanceIndex].SourceActorId != 0) return false;
+                int actorId = AvatarSerializer.ReadI32(buffer, ref at);
+                uint pool = AvatarSerializer.ReadU32(buffer, ref at);
+                if (actorId == 0) return false;
+                cards[provenanceIndex].SourceActorId = actorId;
+                cards[provenanceIndex].PoolSeat = (ushort)pool; cards[provenanceIndex].PoolCount = (ushort)(pool >> 16);
+                continue;
+            }
             if (record != Record) { at = end; continue; }
             if (empty || end - at < 6) return false;
             int index = buffer[at++], total = buffer[at++]; float sample = AvatarSerializer.ReadF32(buffer, ref at);

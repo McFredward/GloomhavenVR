@@ -96,6 +96,10 @@ internal struct AvatarState
 
     // Additive rig-tail records: source address and actor sampled with the pose.
     public bool HasHeldCardFace;
+    public bool HasHeldMapCard;
+    public uint HeldMapKey;
+    public ushort HeldMapPoolSeat, HeldMapPoolCount;
+    public byte HeldMapArcSeat;
     public int HeldFaceActorId;
     public byte HeldFaceCode, HeldFaceCount;
     public byte SecondHeldFaceCode, SecondHeldFaceCount;

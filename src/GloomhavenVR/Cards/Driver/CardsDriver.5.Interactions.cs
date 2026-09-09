@@ -1735,6 +1735,7 @@ internal sealed partial class CardsDriver
         {
             _lastCardWorldPos[widget] = seatPos;
             _lastCardWorldRot[widget] = seatRot;
+            _lastCardWorldWidth[widget] = card.transform.lossyScale.x * CardsConfig.CardWidth.Value;
         }
 
         // Issue 2: the offered sacrifice ORIGINATES in the discard pile (short rest loses a random

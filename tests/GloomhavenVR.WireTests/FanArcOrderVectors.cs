@@ -290,7 +290,7 @@ internal static class FanArcOrderVectors
         // every time the sum moves — it has been stale once already in this very round.
         // 1747 -> 1798 on 2026-09-07: the USE-BAR SLOT IDENTITY record (45), 51 bytes at its
         // maximum ([id][len] + its 49-byte payload: an entry count and 16 three-byte entries).
-        const int documentedWorstCase = 3826; // Includes57/60/61/62/65.
+        const int documentedWorstCase = 3837; // Includes57/60/61/62/65.
         const int largestSingleRecord = 257;   // board tuning: 2 TLV + one 255-byte page
         t.True(PresenceSerializer.MaxSize >= documentedWorstCase + largestSingleRecord,
                $"MaxSize {PresenceSerializer.MaxSize} leaves "

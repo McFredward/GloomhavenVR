@@ -5,7 +5,7 @@ into a room-scale VR game. The board becomes a diorama on a table, the game's 2D
 into world-space panels on a wooden control board, and the player holds a real card fan.
 Multiplayer is a first-class constraint, not an afterthought.
 
-**Verified against `dev` at ModBuild 489, 2026-09-09.** If that is many builds behind, the newest
+**Verified against `dev` at ModBuild 490, 2026-09-09.** If that is many builds behind, the newest
 truth is the build-note block at the top of `src/GloomhavenVR/Net/NetProtocol.cs`, newest first —
 that file is the project's real changelog. This one carries only what does not change per build.
 
@@ -56,10 +56,11 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    highlight55; native tooltip emitters use56 in the existing plume stream.
    Health57, native card appearance58, atomic rig actor59, character decisions60, flight source61,
    flight history62, native decision prompts63, lossless presentation compression64 and damage avoidance65 are additive.
-   The 38/40/42 holes may never be reused; 66 is next free.** No id
+   Second held actor66, held map provenance67 and native appearance provenance68 retain positional
+   source addressing. The 38/40/42 holes may never be reused; 69 is next free.** No id
    has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
-   `scripts/wire-tests.sh` (final assertion count in STATE.md at ModBuild 489) is the proof; a `Write`+`TryRead` change
+   `scripts/wire-tests.sh` (final assertion count in STATE.md at ModBuild 490) is the proof; a `Write`+`TryRead` change
    made in lockstep is invisible to a round trip, which is why the golden vectors exist.
 4. **1:1 is a standing ruling.** A peer's board mirrors the owner's CONTENT, ANIMATION, ORDER,
    POSITION, SIZE, STATE and TIMING. A mirror must never read the viewer's dial. A shared

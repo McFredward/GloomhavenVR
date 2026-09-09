@@ -561,6 +561,11 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// that would turn a physical grab into a stream of log lines.</summary>
     private byte _lastSentFaceCode0;
     private byte _lastSentFaceCode1;
+    private byte _lastSentFaceCount0, _lastSentFaceCount1;
+    private int _lastSentSecondFaceActor;
+    private uint _lastSentSecondMapKey;
+    private byte _lastSentSecondMapArcSeat;
+    private ushort _lastSentSecondMapSeat, _lastSentSecondMapCount;
 
     /// <summary>Last SACRIFICE SEAT codes put on the wire (record 39), one per ROUND RECESS. Same
     /// change-gating rule and same exclusion of the COUNT bytes as the held-card codes above: the
@@ -1985,7 +1990,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // and the discard arc, and allocate nothing — LocalRigSampler.s_heldFaceBuf is a reused
         // buffer whose own note says this send path must stay allocation-free.
         LocalRigSampler.SampleHeldCardFaces(out byte faceCode0, out byte faceCount0,
-                                            out byte faceCode1, out byte faceCount1);
+                                            out byte faceCode1, out byte faceCount1, out _, out int secondFaceActor);
         LocalRigSampler.SampleSacrificeSeats(out byte seatCode0, out byte seatCount0,
                                              out byte seatCode1, out byte seatCount1,
                                              out string seatReason);
@@ -1998,7 +2003,12 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // latch is written UNCONDITIONALLY inside FillHeldCardRecords, FillHeldCardRecords runs on
         // every packet that goes out, and a true term forces a packet out. So a term that opens the
         // gate is cleared by the very packet it forced, on the same tick.
-        bool heldFaceChanged = faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1;
+        bool secondMapCard = LocalRigSampler.SampleHeldMapCard(2, out uint secondMapKey, out ushort secondMapSeat, out ushort secondMapCount, out byte secondMapArcSeat);
+        bool heldFaceChanged = faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1
+            || faceCount0 != _lastSentFaceCount0 || faceCount1 != _lastSentFaceCount1
+            || secondFaceActor != _lastSentSecondFaceActor || secondMapKey != _lastSentSecondMapKey
+            || secondMapSeat != _lastSentSecondMapSeat || secondMapCount != _lastSentSecondMapCount
+            || secondMapArcSeat != _lastSentSecondMapArcSeat;
         bool shortRestInProgress = CardsDriver.ShortRestInProgress;
         bool shortRestChanged = shortRestInProgress != _lastSentShortRest;
         NativeDecisionHighlightState? decisionHighlight = _decisionHighlightSnapshot;
@@ -3361,6 +3371,9 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         if (secondCard)
         {
             extras.HasSecondHeldCard = true;
+            extras.SecondHeldFaceActorId = secondFaceActor;
+            extras.HasHeldMapCard = secondMapCard; extras.HeldMapKey = secondMapKey;
+            extras.HeldMapPoolSeat = secondMapSeat; extras.HeldMapPoolCount = secondMapCount; extras.HeldMapArcSeat = secondMapArcSeat;
             extras.SecondHeldCardPose.Position = secondCardPos;
             extras.SecondHeldCardPose.Rotation = secondCardRot;
         }
@@ -3448,6 +3461,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 + "about WHEN the packet leaves, never what is in it. The term's own SENT line "
                 + "follows immediately and carries the value.");
         }
+        _lastSentFaceCount0 = faceCount0; _lastSentFaceCount1 = faceCount1;
+        _lastSentSecondFaceActor = secondFaceActor;
+        _lastSentSecondMapArcSeat = secondMapArcSeat;
+        _lastSentSecondMapKey = secondMapKey; _lastSentSecondMapSeat = secondMapSeat; _lastSentSecondMapCount = secondMapCount;
         FillHeldCardRecords(ref extras, faceCode0, faceCount0, faceCode1, faceCount1,
                             seatCode0, seatCount0, seatCode1, seatCount1, seatReason,
                             spentMask, fanSource);

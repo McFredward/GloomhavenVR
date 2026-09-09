@@ -27,6 +27,8 @@ internal static class Program
             CardFxVisibilityVectors.Run(t);
             DamageDecisionPreviewVectors.Run(t);
             HeldFaceAtomicVectors.Run(t);
+            CardFaceLifecycleVectors.Run(t, repoRoot);
+            CardProvenanceVectors.Run(t, repoRoot);
             CardAppearanceVectors.Run(t, repoRoot);
             CharacterDecisionParityVectors.Run(t, repoRoot);
             NativeDecisionPromptVectors.Run(t);

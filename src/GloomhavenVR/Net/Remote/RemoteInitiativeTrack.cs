@@ -2483,7 +2483,7 @@ internal sealed class RemoteInitiativeTrack
     {
         try
         {
-            if (a is CPlayerActor pa && !RevealGate.ShowRoundCardFronts(pa))
+            if (a is CPlayerActor pa && !RevealGate.ShowPeerCardFronts(pa))
                 return "?";
             int v = a.Initiative();
             if (v < 0)

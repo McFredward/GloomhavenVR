@@ -43,7 +43,7 @@ internal static unsafe class AvatarSerializer
     /// <summary>Upper bound on an encoded rig packet: header 12 + head 20 + 2 hands (20+5) +
     /// held-figure block (4+20) + hand-style byte + held-card pose (20) = 127, rounded up to
     /// 148 including additive held-face address and actor TLVs.</summary>
-    public const int MaxSize = 148;
+    public const int MaxSize = 159;
 
     private const float QuatScale = 32767f;
 
@@ -116,6 +116,13 @@ internal static unsafe class AvatarSerializer
             buffer[i++] = NetProtocol.ExtIdHeldFaceActor;
             buffer[i++] = 4;
             WriteI32(buffer, ref i, state.HeldFaceActorId);
+        }
+        if (state.HasHeldCard && state.HasHeldMapCard && state.HeldMapKey != 0 && state.HeldMapPoolSeat < state.HeldMapPoolCount)
+        {
+            buffer[i++] = NetProtocol.ExtIdHeldMapCard; buffer[i++] = 9;
+            WriteU32(buffer, ref i, state.HeldMapKey);
+            WriteU32(buffer, ref i, state.HeldMapPoolSeat | (uint)state.HeldMapPoolCount << 16);
+            buffer[i++] = state.HeldMapArcSeat;
         }
         return i;
     }
@@ -221,7 +228,7 @@ internal static unsafe class AvatarSerializer
         while (i < length)
         {
             byte id = buffer[i++];
-            bool known = id == NetProtocol.ExtIdHeldCardFace || id == NetProtocol.ExtIdHeldFaceActor;
+            bool known = id == NetProtocol.ExtIdHeldCardFace || id == NetProtocol.ExtIdHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard;
             if (i == length) { if (known) return false; break; }
             int size = buffer[i++];
             // Older v3 permits opaque future suffixes. Only our known atomic records impose
@@ -242,8 +249,19 @@ internal static unsafe class AvatarSerializer
                 state.HeldFaceActorId = ReadI32(buffer, ref i);
                 actor = true;
             }
+            if (id == NetProtocol.ExtIdHeldMapCard)
+            {
+                if (size != 9 || state.HasHeldMapCard) return false;
+                state.HeldMapKey = ReadU32(buffer, ref i);
+                uint pool = ReadU32(buffer, ref i);
+                state.HeldMapArcSeat = buffer[i++];
+                state.HeldMapPoolSeat = (ushort)pool; state.HeldMapPoolCount = (ushort)(pool >> 16);
+                if (!heldCard || state.HeldMapKey == 0 || state.HeldMapPoolSeat >= state.HeldMapPoolCount) return false;
+                state.HasHeldMapCard = true;
+            }
             i = next;
         }
+        if (state.HasHeldMapCard && state.HeldFaceActorId != 0) return false;
         state.HasHeldCardFace = heldCard && face && actor;
         return true;
     }

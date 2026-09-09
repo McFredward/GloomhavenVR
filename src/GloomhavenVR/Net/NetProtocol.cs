@@ -68,6 +68,9 @@ internal static class NetProtocol
     public const byte MsgPresentationCompression = 16;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;
+    public const byte ExtIdSecondHeldFaceActor = 66;
+    public const byte ExtIdHeldMapCard = 67;
+    public const byte ExtIdCardAppearanceProvenance = 68;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;
@@ -481,7 +484,25 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 489;
+    public const ushort ModBuild = 490;
+
+    // ModBuild490 — pre-hardware review of all local/remote card faces, overlays and flights.
+    //   Remote selection stays covered even on the viewer's own character. Held actors follow
+    //   their actual widget/chip, not board focus; map holds retain original character/pool and
+    //   actual arc holes across two plucks, focus changes and loadout edits. No card IDs or names.
+    //   Pooled FullAbilityCard action-only identity no longer overrides AbilityCardUI's model.
+    //   Native effects bind immutable pool provenance and receive-time model; late or reused seats
+    //   cannot inherit a different card's paint. Graphics/groups/materials reset completely and
+    //   actual hierarchy visibility/footprint follows the owner, including foreign character views.
+    //   Burns cancel on recovery, retain actor-scoped seats and wait for canonical owner releases
+    //   on all viewing boards. Active-origin flights wait for the exact cached source; public
+    //   travel waits for real front artwork. Local fallback flights use original native output,
+    //   captured width and world-up. Unrelated hand destruction preserves other pending burns.
+    //   Additive66 second held actor,67 held map pool/arc provenance,68 native appearance pool
+    //   provenance. Previous grammars and GVR1/v3 unchanged. Rig max159; extras3837/4096;
+    //   native appearance <=41318/45056. Holes38/40/42 remain unused;69 is next free.
+    //   See .planning/MP-CARD-REVIEW-490.md for review coverage, gates and hardware limitations.
+    //   DLL-only after full483. Latest supplied hardware remains488;490 requires a headset test.
 
     // ModBuild489 — MB488 multiplayer findings and owner-presentation review (2026-09-09).
     //   Actual owner card material/graphic/group output replaces destination/proxy guesses;
