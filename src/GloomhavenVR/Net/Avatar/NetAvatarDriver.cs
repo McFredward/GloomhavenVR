@@ -478,19 +478,6 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// only rides packets that were going out anyway.</summary>
     private int _lastSentCapPress = -1;
 
-    // BOARD POSE MOTION (defect 7 "Bewegen kommt nicht flüssig an"): the last SENT board pose in
-    // the shared anchor frame. While the pose is CHANGING (the owner drags/scales their board),
-    // extras go out at the RIG rate (SendRateHz, 15 Hz) instead of the idle 5 Hz — the receiver's
-    // exponential easing then gets the same sample density the head/hands get, which is exactly
-    // the smoothness bar the avatars already meet. Idle boards keep the flat 5 Hz cadence, so
-    // this costs nothing while nobody moves a board. Chosen over a receive-side interpolation
-    // buffer because it reuses the proven avatar pipeline unchanged (no new latency, no new
-    // wire field, no second interpolation scheme to maintain).
-    private bool _sentBoardPoseValid;
-    private Vector3 _lastSentBoardPos;
-    private Quaternion _lastSentBoardRot = Quaternion.identity;
-    private float _lastSentBoardScale = 1f;
-
     // SLOT-CARD SIZE (extension record 11, user report "Die Kartengröße am fremden Board stimmt
     // nicht 1:1"): the last broadcast (frameCode | cardCode << 16), so a live config edit (the
     // debug menu's per-board sliders) is an EDGE that pre-empts the 5 Hz gate and the confirmation
@@ -938,7 +925,6 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         RemoteMapStory.Reset();        // …nor a map story page or a shared window pose
         _lastSentCapPress = -1;        // …and never replays a stale keycap press into a new session
         Cards.BoardCapPress.Clear();   // …including the latch it is diffed against
-        _sentBoardPoseValid = false; // and never diffs a new session's pose against a stale one
         _sentSecondFigureValid = false; // nor a new session's second held figure
         _lastSentSecondActorId = 0;
         _sentSecondCardValid = false;   // nor its second held card
@@ -1152,6 +1138,19 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         if (!LocalRigSampler.TrySample(_anchor, IncludeFingers, out AvatarState state))
             return;
 
+        // Board and mask are one atomic motion sample. Sending the board only in large
+        // fragmented presence snapshots gave it a different delivery clock, even with the
+        // same nominal rate and receiver easing. Includes follow, fixed, grabs and scaling;
+        // no inferred attachment to the head can distort the owner's actual board pose.
+        state.HasBoardPose = true;
+        Transform? board = PlayTray.Current?.Root;
+        state.HasBoard = board != null;
+        if (board != null)
+        {
+            _anchor.ToAnchor(board.position, board.rotation,
+                out state.BoardPose.Position, out state.BoardPose.Rotation);
+            state.BoardScale = Mathf.Max(board.lossyScale.x, 1e-4f);
+        }
         int len = AvatarSerializer.Write(in state, _sendBuffer);
         _transport.Send(_sendBuffer, len);
     }
@@ -1317,41 +1316,19 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             float ls = board.lossyScale.x;
             boardScale = ls > 0f ? ls : 1f;
         }
-        // "Moving" = the pose left the last SENT sample by more than float noise. While true,
-        // extras ride at the RIG rate (15 Hz) so a carried board arrives as smoothly as a hand;
-        // the moment it settles, one final exact sample goes out and the cadence falls back to
-        // 5 Hz (see the field block for why this path was chosen over an interp buffer).
-        bool boardMoving = board != null && _sentBoardPoseValid
-            && ((boardPos - _lastSentBoardPos).sqrMagnitude > 1e-8f
-                || Quaternion.Angle(boardRot, _lastSentBoardRot) > 0.05f
-                || !Mathf.Approximately(boardScale, _lastSentBoardScale));
+        // Board motion rides the rig packet directly; it no longer raises the cadence of
+        // this much larger content snapshot. Other interactive edges keep their own gates.
         float fastInterval = 1f / NetProtocol.SendRateHz;
-        bool poseDue = boardMoving && _extrasAccumulator >= fastInterval;
 
         // A DRAGGED SHARED WINDOW RIDES THE SAME FAST CADENCE AS A DRAGGED BOARD (user request 7,
         // 2026-08-22, verbatim: "Die Bewegungen der 'blauen' MP-Fenster, die 1:1 synchronisiert
         // werden sollen, sollen auch die Bewegung und die Position voll übertragen (flüssig, wie bei
         // der Position des Boards auch)!").
         //
-        // THE COMPARISON IS THE POINT OF THE REQUEST, so this is the board's own mechanism and not a
-        // second one: while the local player carries a blue-barred window, the whole extras packet
-        // goes out at the RIG rate (SendRateHz = 15 Hz) instead of the idle ExtrasSendRateHz = 5 Hz,
-        // and falls straight back the moment they let go. That is literally the line above, applied
-        // to a second moving thing — and the receiving half is the matching easing in
-        // WorldUI.GrabbableModal, which is the other thing the board has and the window did not.
-        //
-        // WHY IT IS A RATE CHANGE AT ALL, given that the receiver was the preferred lever: it is not
-        // instead of the receiver, it is the other half. An exponential ease reproduces the motion it
-        // is fed; fed five samples a second it converges five times a second, which is smooth but
-        // COARSE — the board round already measured this ("Bewegen kommt nicht flüssig an" was
-        // answered with 15 Hz + easing, not with easing alone, and defect (e) then showed the same
-        // for the scale). BANDWIDTH IS A SHARED BUDGET and this is why the cost is bounded on three
-        // sides: it never PRE-EMPTS (>= fastInterval, so a 90 Hz drag cannot become a 90 Hz packet
-        // stream — the same guard every motion term here carries); it is true only while a hand is
-        // actually on a shared window's bar, which is a human-paced act of at most a few seconds; and
-        // AnyGrabbedHere() is false — after one Singleton test — for every scenario without a story
-        // box open and for every client with the 3D map switched off, so an ordinary session's packet
-        // cadence is byte-for-byte what it was.
+        // Shared windows retain their existing 15 Hz active-grab presence gate. The board
+        // moved to an atomic rig-tail pose in 497; this separate window route and all of its
+        // interactive pre-emption remain unchanged. Motion is bounded by the rig interval,
+        // never the owner's headset frame rate, and returns to idle cadence after release.
         //
         // "GRABBED" RATHER THAN "THE POSE CHANGED": see SharedWindows.AnyGrabbedHere for why there is
         // no single last-sent pose to diff here and why the grab is the right superset.
@@ -2032,7 +2009,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
 
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
-            && !poseDue && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
+            && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
             && !propChanged && !propDue
             && !cardGripChanged
@@ -2085,14 +2062,6 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             extras.Board.Position = boardPos;
             extras.Board.Rotation = boardRot;
             extras.BoardScale = boardScale;
-            _sentBoardPoseValid = true;
-            _lastSentBoardPos = boardPos;
-            _lastSentBoardRot = boardRot;
-            _lastSentBoardScale = boardScale;
-        }
-        else
-        {
-            _sentBoardPoseValid = false;
         }
 
         extras.HandCardCount = (byte)Mathf.Clamp(handNow, 0, 255);
@@ -4523,6 +4492,13 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
 
     private void ToWorld(ref AvatarState state)
     {
+        if (state.HasBoardPose && state.HasBoard)
+        {
+            _anchor.ToWorld(state.BoardPose.Position, state.BoardPose.Rotation,
+                out Vector3 p, out Quaternion r);
+            state.BoardPose.Position = p;
+            state.BoardPose.Rotation = r;
+        }
         if (state.HeadValid)
         {
             _anchor.ToWorld(state.Head.Position, state.Head.Rotation, out Vector3 p, out Quaternion r);

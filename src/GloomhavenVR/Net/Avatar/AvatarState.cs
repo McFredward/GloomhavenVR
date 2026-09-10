@@ -27,6 +27,13 @@ internal struct HandStateSample
 /// </summary>
 internal struct AvatarState
 {
+    // Additive record70 is sampled in the same frame/packet as head and hands. Presence
+    // remains a legacy fallback; explicit absence prevents delayed extras reviving a board.
+    public bool HasBoardPose;
+    public bool HasBoard;
+    public RigPose BoardPose;
+    public float BoardScale;
+
     public bool HeadValid;
     public RigPose Head;
 

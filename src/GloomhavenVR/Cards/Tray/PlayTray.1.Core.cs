@@ -1693,7 +1693,14 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                                 $"now {levelDelta.magnitude / Mathf.Max(scale, 1e-4f):F2} m).");
 
         _root.position = pos;
-        _root.rotation = ComputeBoardRotation(flatForward, board);
+        // First spawn and B+Y reset face the seated player, including the default seat on
+        // their LEFT. Reusing head heading plus a persisted grab yaw made that side-mounted
+        // board face past them. Only the arrival heading changes; authored tilt remains.
+        bool arrival = forceFirstSeat || !_everPlaced;
+        _root.rotation = arrival
+            ? BoardPlacementPose.FacePlayer(headT.position, pos, flatForward,
+                90f - CardsConfig.BoardTilt(board).Value - CardsConfig.EffectiveTrayPitch)
+            : ComputeBoardRotation(flatForward, board);
         // THE SIZE IS SOLVED IN THE FRAME IT IS SEEN IN (2026-09-05 report — the block above
         // TrySolveBoardScale in PlayTray.2.Watchdog.cs carries the whole measurement). This used
         // to be `ComputeBoardScale(board)` written straight in, i.e. a stored localScale replayed

@@ -838,28 +838,12 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         if (_root == null) return; // required native asset is being recovered
         SetActive(true, "received board and scenario/mode gates allow presentation");
 
-        // Place at the REAL synced world transform. The wire carries the OWNER's exact pose
-        // (full quantized quaternion — the Frei movement scheme adds no axis the pose doesn't
-        // cover). Since mod build 2 the SENDER raises the extras cadence to the rig rate
-        // (15 Hz) while the pose is CHANGING (NetAvatarDriver.TickExtrasSend, defect 7
-        // "Bewegen kommt nicht flüssig an"), so during an active drag this easing gets the
-        // same sample density the head/hands get — the exact pipeline whose smoothness is
-        // already accepted — and an idle board still costs only 5 Hz. Ease with the shared
-        // avatar sharpness; once the owner releases, the eased pose converges on the exact
-        // transmitted one (snap on first build so a fresh board never lerps in from the origin).
+        // Board pose now arrives in the SAME rig packet as the head and hands (record70),
+        // sampled together, decoded together and eased with the identical coefficient. Large
+        // fragmented content snapshots cannot rewind it. Preserve the actual world pose in
+        // every follow/fixed/grab mode, including the owner's full rotation and board scale.
         Vector3 wantPos = _owner.BoardPosition;
         Quaternion wantRot = _owner.BoardRotation;
-        // SCALE IS PART OF THE POSE — defect (e) of this round ("das Bewegen ist jetzt flüssig,
-        // aber das Skalieren/Zoomen des Bretts nicht").
-        //
-        // The SENDER already treats it as such: TickExtrasSend's "moving" test includes the scale,
-        // so resizing a board raises the extras cadence to the rig rate (15 Hz) exactly like
-        // dragging it does, and the scale rides in the very same 24-byte board block. The RECEIVER
-        // was the asymmetry: position and rotation were eased on the shared avatar sharpness while
-        // the scale was ASSIGNED, so a smooth 15 Hz stream of scales was rendered as 15 visible
-        // steps per second — a board that glides while it moves and stutters while it zooms, which
-        // is precisely what was reported. Easing it on the SAME k (and snapping on the same first
-        // apply, so a fresh board never grows in from 1.0) makes zoom and move one motion.
         float wantScale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         Transform rt = _root!.transform;
         if (!_poseInit)

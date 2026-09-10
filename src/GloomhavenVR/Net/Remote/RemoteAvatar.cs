@@ -304,17 +304,19 @@ internal sealed class RemoteAvatar
 
     // ---- received extras / rig data (world frame) --------------------------------------------
 
+    private readonly RemoteBoardPoseState _boardPose = new();
+
     /// <summary>True when the sender broadcast a control-board world pose.</summary>
-    public bool HasBoard { get; private set; }
+    public bool HasBoard => _boardPose.HasBoard;
 
     /// <summary>Control-board world position (valid when <see cref="HasBoard"/>).</summary>
-    public Vector3 BoardPosition { get; private set; }
+    public Vector3 BoardPosition => _boardPose.Pose.Position;
 
     /// <summary>Control-board world rotation (valid when <see cref="HasBoard"/>).</summary>
-    public Quaternion BoardRotation { get; private set; } = Quaternion.identity;
+    public Quaternion BoardRotation => _boardPose.Pose.Rotation;
 
     /// <summary>Control-board uniform scale (valid when <see cref="HasBoard"/>).</summary>
-    public float BoardScale { get; private set; } = 1f;
+    public float BoardScale => _boardPose.Scale;
 
     /// <summary>How many cards are in the sender's hand fan (rendered as backs only).</summary>
     public int HandCardCount { get; private set; }
@@ -1549,6 +1551,7 @@ internal sealed class RemoteAvatar
     public void SetTarget(in AvatarState state)
     {
         _target = state;
+        _boardPose.AcceptRig(in state);
         _heldMapKey = state.HasHeldCard && state.HasHeldMapCard ? state.HeldMapKey : 0;
         _heldMapArcSeat = state.HeldMapArcSeat;
         _heldMapPoolSeat = state.HeldMapPoolSeat; _heldMapPoolCount = state.HeldMapPoolCount;
@@ -1610,13 +1613,7 @@ internal sealed class RemoteAvatar
         // Capture the previous short-rest candidate before this snapshot replaces its seat.
         _burnFx.ObserveShortRestContext();
         unchecked { PresenceRevision++; }
-        HasBoard = p.HasBoard;
-        if (p.HasBoard)
-        {
-            BoardPosition = p.Board.Position;
-            BoardRotation = p.Board.Rotation;
-            BoardScale = p.BoardScale > 0f ? p.BoardScale : 1f;
-        }
+        _boardPose.AcceptPresence(in p);
         HandCardCount = p.HandCardCount;
         // FAN ARC ORDER (record 44). Adopt-if-published with a local default of "no order stated",
         // exactly like every other optional record here: a sender that omits it leaves the previous
