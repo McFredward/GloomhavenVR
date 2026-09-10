@@ -9,20 +9,11 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// THE THREE ASSET CHOICES ARE PICTURES, NOT A LIST OF WORDS.
+/// Picture pickers for the environment, hands, masks and control board.
 ///
-/// <para>USER RULING (2026-09-02, verbatim): <i>"Hierbei will ich, dass das umstellen der Assets
-/// etwas präsenter wird. Am Besten will ich dass die Umgebung (Wald, Keller, Default, Schwarz,
-/// Mixed Reality) als Kacheln mit einem Bild darin angeboten werden. Genau für die Hände und
-/// Masken."</i> Three pickers — environment, hands, masks — become a strip of picture tiles. Every
-/// other setting in the pane keeps its row; this is not a new menu, it is a different control on
-/// three rows that were dropdowns.</para>
-///
-/// <para><b>WHY A DROPDOWN WAS THE WRONG CONTROL HERE.</b> The other named-choice rows in this
-/// window pick a BEHAVIOUR ("Laser only", "Always") and a word says it exactly. These three pick an
-/// APPEARANCE, and "Runenschleier" tells a player nothing about what will be on their face. A
-/// dropdown also hides every alternative until it is opened, which is the opposite of what the
-/// ruling asks for ("präsenter").</para>
+/// <para>The 2026-09-02 ruling introduced the first three strips; the 2026-09-10 ruling adds
+/// control-board renders and brighter labels throughout. Every picker writes the existing config
+/// entry through Apply, retaining setting-change events, dependent rows and multiplayer sync.</para>
 ///
 /// <para><b>THE FIVE ENVIRONMENT TILES ARE NOT ONE ENUM.</b> <see cref="SkyStyle"/> has four
 /// members; "Mixed Reality" is a separate dial, <c>[MixedReality] Enabled</c>, and its own class
@@ -39,15 +30,9 @@ namespace GloomhavenVR.WorldUI;
 /// </list>
 /// No key changes its meaning, its range or its default, and no new key is introduced.</para>
 ///
-/// <para><b>MULTIPLAYER.</b> Presentation only. The tiles write the same three entries the
-/// dropdowns wrote, through the same <c>Apply</c> wrapper, so hand style and mask id keep riding
-/// the wire exactly as before and the environment stays what it always was — each player's own
-/// room. Nothing here reads a peer's copy of a key, and nothing here is mirrored.</para>
-///
-/// <para><b>ART SHIPS INSIDE THE PLUGIN DLL.</b> Eleven 320x240 PNGs, 425,715 bytes measured, as
-/// <c>EmbeddedResource</c> — the route <see cref="EmbeddedTexture"/> exists for and states the case
-/// for: the asset bundle is 74,558,728 bytes and putting eleven thumbnails in it would cost every
-/// user a full re-install instead of a DLL drop. See <c>GloomhavenVR.csproj</c>.</para>
+/// <para>Thumbnails are embedded in the plugin DLL, so changing menu artwork does not require
+/// a new asset bundle. Board thumbnails are composed from the repository's actual asset renders
+/// by <c>unity/asset-preview/build_board_tiles.py</c>.</para>
 ///
 /// <para><b>THERE IS NEVER AN EMPTY STRIP.</b> A tile whose PNG is missing or undecodable keeps its
 /// plate, its border and its label and stays clickable; the picker degrades to labelled tiles,
@@ -61,9 +46,9 @@ internal static partial class VROptionsTab
     // A FIXED TILE WIDTH, not a share of the row. Sharing the row would make the three-tile pickers
     // draw tiles half again as wide as the five-tile one, and the picture inside would then float in
     // the middle of its own plate (preserveAspect fits the 4:3 art to the SHORTER side). One width
-    // means one apparent size across all three strips.
+    // means one apparent size across all strips.
     private const float TileWidth = 232f;
-    private const float TileHeight = 204f;
+    private const float TileHeight = 209f;
     private const float TileGap = 10f;
 
     /// <summary>
@@ -91,21 +76,21 @@ internal static partial class VROptionsTab
 
     /// <summary>Bottom strip of the tile that carries the name. The label is not optional: art
     /// alone cannot distinguish two dark rooms, and it is the whole control when art is missing.</summary>
-    private const float TileLabelHeight = 27f;
+    private const float TileLabelHeight = 32f;
 
     /// <summary>How small a tile label may get before <c>VROptionsTab.ProbeCaptionFit</c> reports
     /// it by name instead of shrinking further. Higher than the settings rows' floor on purpose: a
     /// tile is narrower than a row, and a 9-point word centred under a picture stops reading as the
     /// picture's name.</summary>
-    private const float TileLabelFloor = 10f;
+    private const float TileLabelFloor = 12f;
 
-    private const float TileLabelSize = 16f;
+    private const float TileLabelSize = 18f;
 
     // ---- colours --------------------------------------------------------------------------
     //
     // Three redundant cues say "this one". A border alone is not enough in a headset (it is a thin
     // ring at the edge of vision), so the selected tile ALSO shows its picture at full brightness
-    // while the others are dimmed, and its label goes bold and gold. Any one of the three read on
+    // while the others are dimmed, and its label goes bold and pale gold. Any one of the three read on
     // its own is enough to answer "which is on?".
     private static readonly Color TileBorderOn = new(0.85f, 0.69f, 0.30f, 1f);
     private static readonly Color TileBorderOnHot = new(1f, 0.85f, 0.45f, 1f);
@@ -126,12 +111,15 @@ internal static partial class VROptionsTab
     private static readonly Color TilePlate = new(0.07f, 0.065f, 0.06f, 1f);
     private static readonly Color TilePictureOn = Color.white;
     private static readonly Color TilePictureOff = new(0.56f, 0.55f, 0.53f, 1f);
-    private static readonly Color TileLabelOff = new(0.72f, 0.70f, 0.66f, 1f);
+    // Keep both states readable on the opaque caption band: selection must not dim a name.
+    // Do not reuse the darker border gold as text ink (user report, 2026-09-10).
+    private static readonly Color TileLabelOn = new(1f, 0.91f, 0.66f, 1f);
+    private static readonly Color TileLabelOff = new(0.95f, 0.94f, 0.90f, 1f);
 
     /// <summary>Built sprites, by manifest name. The TEXTURE is already cached for the process by
     /// <see cref="EmbeddedTexture"/>; this caches the Sprite wrapper so re-opening the tab does not
-    /// allocate eleven more of them. Misses are cached as null for the same reason.</summary>
-    private static readonly Dictionary<string, Sprite?> TileSprites = new(11);
+    /// allocate the wrappers again. Misses are cached as null for the same reason.</summary>
+    private static readonly Dictionary<string, Sprite?> TileSprites = new(14);
 
     /// <summary>One choice in a picture picker.</summary>
     private sealed class VariantTile
@@ -150,8 +138,7 @@ internal static partial class VROptionsTab
         /// <para>It is a return value rather than a fixed flag on the tile because the only case is
         /// dynamic: a sky tile rebuilds the page ONLY IF it had to clear <c>[MixedReality]
         /// Enabled</c> on the way past, and whether it had to is not known until the click.
-        /// <c>Apply</c> already covers the other two pickers on its own — hand style is a variant
-        /// selector, and it rebuilds for those.</para>
+        /// <c>Apply</c> already rebuilds for hand and board variant selectors.</para>
         /// </summary>
         internal Func<bool> Choose = () => false;
     }
@@ -168,7 +155,9 @@ internal static partial class VROptionsTab
         || (string.Equals(item.Section, "Hands", StringComparison.Ordinal)
             && string.Equals(item.Key, "HandStyle", StringComparison.Ordinal))
         || (string.Equals(item.Section, "Net", StringComparison.Ordinal)
-            && string.Equals(item.Key, "MaskId", StringComparison.Ordinal));
+            && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
+        || (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
+            && string.Equals(item.Key, "Board", StringComparison.Ordinal));
 
     /// <summary>
     /// THE ONE ENTRY POINT. Returns false for every other setting, so a single call at the top of
@@ -518,12 +507,21 @@ internal static partial class VROptionsTab
         {
             picture = MakeTileChild<Image>(tileRect, "Picture", TileBorder, TileBorder);
             var pictureRect = (RectTransform)picture.transform;
-            pictureRect.offsetMin = new Vector2(TileBorder, TileLabelHeight);
+            pictureRect.offsetMin = new Vector2(TileBorder, TileBorder + TileLabelHeight);
             pictureRect.offsetMax = new Vector2(-TileBorder, -TileBorder);
             picture.sprite = sprite;
             picture.preserveAspect = true;
             picture.raycastTarget = false;
         }
+
+        // A harvested panel sprite can contain transparent or patterned texels. Give every
+        // caption a solid band so its contrast does not depend on that artwork or the scene.
+        var caption = MakeTileChild<Image>(tileRect, "CaptionPlate", TileBorder, TileBorder);
+        var captionRect = (RectTransform)caption.transform;
+        captionRect.anchorMax = new Vector2(1f, 0f);
+        captionRect.offsetMax = new Vector2(-TileBorder, TileBorder + TileLabelHeight);
+        caption.color = TilePlate;
+        caption.raycastTarget = false;
 
         var labelGo = new GameObject("Label", typeof(RectTransform));
         var labelRect = (RectTransform)labelGo.transform;
@@ -535,12 +533,18 @@ internal static partial class VROptionsTab
         labelRect.offsetMax = new Vector2(-TileBorder, TileBorder + TileLabelHeight);
         var label = labelGo.AddComponent<TextMeshProUGUI>();
         NativeButtonSkin.ApplyFont(label);
+        // The sampled font supplies typography and depth state, not this picker's ink. TMP
+        // multiplies vertex colour by _FaceColor, so normalize only this label's private material.
+        label.enableVertexGradient = false;
+        Material? labelMaterial = label.font != null ? label.fontMaterial : null;
+        if (labelMaterial != null && labelMaterial.HasProperty("_FaceColor"))
+            labelMaterial.SetColor("_FaceColor", Color.white);
         label.text = tile.Label();
         label.fontSize = TileLabelSize;
         label.alignment = TextAlignmentOptions.Center;
         // The name must never be replaced by an ellipsis (standing ruling for this pane): shrink
         // the glyphs instead and keep the word readable. ONE implementation of that ruling now —
-        // VROptionsTab.FitCaption — with this pane's own floor of 10 (a tile is narrower than a
+        // VROptionsTab.FitCaption — with this pane's own floor of 12 (a tile is narrower than a
         // settings row and a 9-point word centred under a picture reads as a caption, not a name).
         // The probe comes with it: this path used to fail SILENTLY when a name did not fit, so an
         // over-long German environment name was invisible in the log.
@@ -643,7 +647,7 @@ internal static partial class VROptionsTab
 
             if (made.Label != null)
             {
-                made.Label.color = on ? TileBorderOn : TileLabelOff;
+                made.Label.color = on ? TileLabelOn : TileLabelOff;
                 made.Label.fontStyle = on ? FontStyles.Bold : FontStyles.Normal;
             }
         }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.Cards;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Net;
 using UnityEngine;
@@ -8,24 +9,10 @@ using UnityEngine;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// WHAT EACH OF THE THREE PICTURE PICKERS OFFERS. Separated from the widget that draws them
-/// (<c>VariantTiles.cs</c>) because these two things change for different reasons: the drawing is
-/// settled, while the CONTENT grows every time an asset ships.
-///
-/// <para><b>NO NEW CONFIG KEYS AND NO CHANGED VALUES.</b> Every tile writes an entry that already
-/// existed and reads it back the same way its dropdown did. The three live in three different
-/// files — <c>[Sky] Style</c> in <c>rig</c>, <c>[Hands] HandStyle</c> in the main config,
-/// <c>[Net] MaskId</c> in <c>net</c> — which is why each is reached through its own owner rather
-/// than through <c>item.Entry</c>: that is what the dropdowns did too, and a BoxedValue write would
-/// have to guess the stored type.</para>
-///
-/// <para><b>EVERY STRIP ALWAYS HAS EXACTLY ONE TILE LIT.</b> Both numeric pickers CLAMP when they
-/// decide what is selected, matching what the game actually does with an out-of-range value rather
-/// than what the file happens to say: <see cref="HandStyles.Clamp"/> is what the loader wears, the
-/// mask id is clamped by both the wire and <c>HeadMaskLibrary.BuildHead</c>, and a <see
-/// cref="SkyStyle"/> that is not a defined non-Default member is treated as Default by
-/// <c>SkyAlternative.Tick</c>. A strip with nothing lit would read as broken, and a hand-edited cfg
-/// is enough to produce one.</para>
+/// The choices offered by the four picture pickers. The drawing lives in VariantTiles.cs.
+/// Each tile writes its existing typed config entry and uses the existing localized name.
+/// A valid current value selects one tile; an unknown board or mask value selects none rather
+/// than pretending that a different asset was chosen.
 /// </summary>
 internal static partial class VROptionsTab
 {
@@ -46,7 +33,37 @@ internal static partial class VROptionsTab
             && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
             return MaskTiles();
 
+        if (string.Equals(item.Section, "Cards", StringComparison.Ordinal)
+            && string.Equals(item.Key, "Board", StringComparison.Ordinal))
+            return BoardTiles();
+
         return null;
+    }
+
+    // ---- boards -----------------------------------------------------------------------------
+
+    /// <summary>Keep enum identities, localized names and the existing tray rebuild event.
+    /// Apply also rebuilds the per-board settings below this strip.</summary>
+    private static VariantTile[] BoardTiles()
+    {
+        var tiles = new VariantTile[ControlBoards.Count];
+        for (int i = 0; i < tiles.Length; i++)
+        {
+            ControlBoard board = (ControlBoard)i;
+            tiles[i] = new VariantTile
+            {
+                Resource = TileResourcePrefix + "tile_board_" + board.ToString().ToLowerInvariant() + ".png",
+                Label = () => ControlBoards.DisplayName(board),
+                Selected = () => CardsConfig.Board != null && CardsConfig.Board.Value == board,
+                Choose = () =>
+                {
+                    if (CardsConfig.Board != null)
+                        CardsConfig.Board.Value = board;
+                    return false;
+                },
+            };
+        }
+        return tiles;
     }
 
     // ---- environment ------------------------------------------------------------------------
