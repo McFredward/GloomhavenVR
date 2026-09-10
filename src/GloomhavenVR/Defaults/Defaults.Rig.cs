@@ -29,13 +29,12 @@ internal static partial class Defaults
     internal const FlightDirectionSource FlightDirection = FlightDirectionSource.Head;  // => [Comfort] FlightDirection
     internal const float FlightMaxSpeed = 1.27367f;                 // => [Comfort] FlightMaxSpeed
     internal const TurnHandChoice FlightHand = TurnHandChoice.Left;   // => [Comfort] FlightHand
-    internal const bool TurnStickVertical = false;                  // => [Comfort] TurnStickVertical  (pinned: the user asked for it as an OPTION, and its off state is the pre-feature behaviour)
+    internal const bool TurnStickVertical = true;                  // => [Comfort] TurnStickVertical  (pinned: user default ruling 2026-09-10 - vertical movement enabled)
     // ---- the laser-carry reel (user request 2026-08-23) — it OVERRULES the two rows above ----
     //
     // ON, and that is the request rather than an opinion: "Falls sie noch nicht existiert,
     // implementiere sie" asks for the behaviour, and "als Option an/ausschaltbar" asks only that
-    // the switch exist. Contrast TurnStickVertical directly above, which is pinned OFF because
-    // there the user asked to be able to SET it and its off state is the pre-feature behaviour.
+    // the switch exist. Vertical movement also defaults on since the user ruling of 2026-09-10.
     // While a laser carry holds a hand, this takes that hand's stick Y and BOTH flight rows stand
     // down for the duration — see Flight.cs, where each stand-down names itself in the log rather
     // than going quiet, because a silent suppression is indistinguishable from a broken stick.

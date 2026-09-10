@@ -379,10 +379,7 @@ internal static class ComfortSettings
             new AcceptableValueRange<float>(0.2f, 3f));
         FlightHand = Bind("FlightHand", Defaults.FlightHand,
             "Which thumbstick flies. Dominant follows [Hands] PrimaryHand.");
-        // OFF BY DEFAULT, and that is the request itself rather than caution added on top: the user
-        // asked to be able to SET it ("Ich will es auch Optional einstelbar machen"). Its off state
-        // is exactly today's behaviour, so nothing about the flow depends on it, and uncommanded
-        // vertical motion is the one nausea risk in this feature.
+        // Enabled by default by the user ruling of 2026-09-10; the setting remains optional.
         TurnStickVertical = Bind("TurnStickVertical", Defaults.TurnStickVertical,
             "Push the TURN stick forward to rise and back to sink, straight up and down, at the " +
             "same speed as FlightMaxSpeed. Turning keeps the sideways axis and is never blocked by " +
@@ -390,11 +387,7 @@ internal static class ComfortSettings
             "it lifts at all, so a diagonal push at 45 degrees is a pure turn. Needs the turn hand " +
             "and the flight hand to be DIFFERENT hands - with both on one controller, forward and " +
             "backward flight already owns that axis and keeps it, and this does nothing.");
-        // ON BY DEFAULT, and unlike TurnStickVertical above that is not a contradiction: the user
-        // asked for the BEHAVIOUR ("implementiere sie") and named the switch only so it can be
-        // turned OFF ("als Option an/ausschaltbar"). A window pulled toward the player is also a
-        // strictly safer motion than the vertical lift — the player is not moved, one window is,
-        // and only while they hold its bar with the trigger.
+        // The reel owns this stick axis only while a window is laser-carried.
         LaserCarryReel = Bind("LaserCarryReel", Defaults.LaserCarryReel,
             "While you hold a window at a distance with the laser, pull that hand's thumbstick " +
             "BACK to draw the window toward you and push it forward to send it away - the " +

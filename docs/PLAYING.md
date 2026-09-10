@@ -30,12 +30,14 @@ and turning sticks stay left and right respectively; configure those separately 
 
 - **Resize a held figure:** hold the other hand's trigger and move your hands apart or together.
 - **45° snap turns:** enable under **Comfort ▸ Turning**.
-- **Rise/sink with the turning stick:** enable under **Comfort ▸ Locomotion** (off by default).
+- **Rise/sink:** push the right stick forward/back (on by default); change under **Comfort ▸ Locomotion**.
 
 The interactive tutorial highlights each control on your controllers. Toggle it under
 **Comfort ▸ Hands & aiming**.
 
 ## Cards and the control board
+
+**Left recess = initiative.** Put your initiative card on the left and the second card on the right.
 
 <p align="center">
   <img src="img/board-en.png" width="820" alt="Labelled control board: card slots, confirm and undo buttons, rests, initiative order, active cards, items and card piles.">
@@ -46,6 +48,14 @@ The interactive tutorial highlights each control on your controllers. Toggle it 
 | **Selection** | Turn your palm up to open the fan. Take two cards with the trigger and place them in the board slots; the left slot sets initiative. Press **Confirm**. Click portraits in the initiative order to select the cards for each character you control. |
 | **Action** | On your character's turn, select the top or bottom card action, choose targets and use available items. Resolve decisions and end the turn on the board. |
 | **Inspect characters** | During selection, switch between characters you control. During the action phase, click **any character** in the initiative order to inspect their cards, items and decisions, including other players' characters and characters whose turn it is not. Actions remain limited to characters you control and the current game rules. |
+
+**Sort your hand:** lift a card, hold it over the desired gap in your fan and release. This works
+for your own characters on the campaign map and in both scenario phases; the order carries into
+the scenario and other players see it. Long-rest discard choices cannot be reordered.
+
+The board **follows you by default**; use its **Follow/Fixed** control to change that. Hold
+**Y + B** to recenter yourself and reset the board in front of you. Other players' boards become
+transparent by default while covering the scenario. Existing saved settings remain in effect.
 
 The **discard**, **burnt** and **item** piles open as fans. The board also holds **active cards**,
 **Undo**, **Skip**, rest buttons and the decision area.

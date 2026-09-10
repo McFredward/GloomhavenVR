@@ -30,12 +30,14 @@ Fliegen bleibt standardmäßig links, Drehen rechts; beides lässt sich unter **
 
 - **Gehaltene Figur skalieren:** Trigger der anderen Hand halten und die Hände auseinander oder zusammen bewegen.
 - **45°-Drehschritte:** Unter **Komfort ▸ Drehen** einschalten.
-- **Steigen/sinken mit dem Dreh-Stick:** Unter **Komfort ▸ Fortbewegung** einschalten (standardmäßig aus).
+- **Steigen/sinken:** Rechten Stick nach vorn/hinten drücken (standardmäßig an); ändern unter **Komfort ▸ Fortbewegung**.
 
 Das interaktive Tutorial markiert die jeweilige Taste auf deinen Controllern.
 Ein- und ausschalten unter **Komfort ▸ Hände & Zielen**.
 
 ## Karten und Kontrollbrett
+
+**Linke Mulde = Initiative.** Lege deine Initiativkarte links und die zweite Karte rechts ab.
 
 <p align="center">
   <img src="img/board-de.png" width="820" alt="Beschriftetes Kontrollbrett: Kartenfächer, Bestätigen und Rückgängig, Rasten, Initiativreihenfolge, aktive Karten, Gegenstände und Kartenstapel.">
@@ -46,6 +48,15 @@ Ein- und ausschalten unter **Komfort ▸ Hände & Zielen**.
 | **Auswahlphase** | Handfläche nach oben drehen, um den Fächer zu öffnen. Zwei Karten mit dem Trigger nehmen und auf das Brett legen; das linke Fach bestimmt die Initiative. **Bestätigen** drücken. Über die Porträts in der Initiativreihenfolge die Karten für jeden eigenen Charakter auswählen. |
 | **Aktionsphase** | Ist dein Charakter am Zug, die obere oder untere Kartenaktion wählen, Ziele auswählen und verfügbare Gegenstände nutzen. Entscheidungen treffen und den Zug am Brett beenden. |
 | **Charaktere ansehen** | In der Auswahlphase zwischen eigenen Charakteren wechseln. In der Aktionsphase über die Initiativreihenfolge **jeden Charakter** ansehen: auch fremde und solche, die gerade nicht am Zug sind. Karten, Gegenstände und Entscheidungen bleiben einsehbar. Aktionen sind auf eigene Charaktere und die aktuellen Spielregeln beschränkt. |
+
+**Handkarten sortieren:** Eine Karte nehmen, über die gewünschte Lücke im Fächer halten und
+loslassen. Das geht bei eigenen Charakteren auf der Kampagnenkarte und in beiden Szenariophasen.
+Die Reihenfolge bleibt beim Szenariostart erhalten und ist für Mitspieler sichtbar.
+Abgeworfene Karten bei der langen Rast lassen sich nicht umsortieren.
+
+Das Brett **folgt dir standardmäßig**; über **Folgen/Fixiert** kannst du umschalten. **Y + B**
+halten, um dich neu zu zentrieren und das Brett vor dir zurückzusetzen. Fremde Bretter werden
+standardmäßig durchsichtig, wenn sie das Szenario verdecken. Gespeicherte Einstellungen gelten weiter.
 
 Die Stapel für **abgeworfene Karten**, **verbrannte Karten** und **Gegenstände** öffnen sich als
 Fächer. Auf dem Brett liegen auch **aktive Karten**, **Rückgängig**, **Überspringen**, Rast-Tasten

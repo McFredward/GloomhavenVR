@@ -8,12 +8,12 @@ namespace GloomhavenVR.Net;
 
 /// <summary>
 /// What a peer's control board does while it stands between this viewer and the play field.
-/// <see cref="Off"/> is the shipped behaviour, bit for bit: nothing is measured, nothing is
-/// written, no material is touched.
+/// <see cref="Off"/> leaves the board solid: nothing is measured or written.
+/// Transparent is the default since the user ruling of 2026-09-10.
 /// </summary>
 internal enum PeerBoardFadeMode
 {
-    /// <summary>Never yield. A peer's board renders exactly as it does today (default).</summary>
+    /// <summary>Never yield. A peer's board stays solid.</summary>
     Off = 0,
 
     /// <summary>Fade to <see cref="PeerBoardFadeTuning.Alpha"/> while the board occludes the
@@ -46,7 +46,7 @@ internal static class PeerBoardFadeTuning
 {
     private static ConfigFile? _file;
 
-    /// <summary>Off (shipped behaviour) / Transparent / Hidden — see <see cref="PeerBoardFadeMode"/>.</summary>
+    /// <summary>Off / Transparent (default) / Hidden — see <see cref="PeerBoardFadeMode"/>.</summary>
     internal static ConfigEntry<PeerBoardFadeMode>? FadeMode;
     /// <summary>Residual opacity of an occluding board in <see cref="PeerBoardFadeMode.Transparent"/>.</summary>
     internal static ConfigEntry<float>? OccludedAlpha;

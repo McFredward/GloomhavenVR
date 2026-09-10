@@ -238,14 +238,14 @@ LABELS = {
             "left_stick":  "Left stick: move through the room",
             "left_button": "X: opens the pause menu",
             "trigger":     "Trigger, either hand: take a card, point and click",
-            "right_stick": "Right stick: turn",
+            "right_stick": "Right stick: turn, rise/sink",
             "right_button": "A: ping a hex for everyone",
             "grip":        "Grip — hold to touch and grab",
         },
         "cells": [
             (BLUE, "Thumbstick — push", [
                 "Left stick: move through the room.",
-                "Right stick, left or right: turn.",
+                "Right stick: left/right turns; forward/back rises/sinks.",
                 "While laser-carrying: pull that hand’s stick back to reel the window in.",
             ]),
             (BLUE, "Thumbstick — click in", [
@@ -291,14 +291,14 @@ LABELS = {
             "left_stick":  "Linker Stick: durch den Raum bewegen",
             "left_button": "X: öffnet das Pause-Menü",
             "trigger":     "Trigger, beide Hände: Karte nehmen, zeigen und klicken",
-            "right_stick": "Rechter Stick: drehen",
+            "right_stick": "Rechter Stick: drehen, hoch/runter",
             "right_button": "A: ein Feld für alle markieren",
             "grip":        "Grip — halten: berühren und greifen",
         },
         "cells": [
             (BLUE, "Thumbstick — drücken", [
                 "Linker Stick: durch den Raum bewegen.",
-                "Rechter Stick, links oder rechts: drehen.",
+                "Rechter Stick: links/rechts drehen; vor/zurück steigen/sinken.",
                 "Beim Laser-Tragen: Stick dieser Hand zurückziehen, um das Fenster heranzuholen.",
             ]),
             (BLUE, "Thumbstick — eindrücken", [

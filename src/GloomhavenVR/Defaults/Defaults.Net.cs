@@ -37,7 +37,7 @@ internal static partial class Defaults
     // dev.gloomhavenvr.boardfade.cfg would have come back UNMAPPED and the tuning would have been
     // dropped on the floor at the next re-base — the exact failure mode that cost six builds on
     // [Water] RippleSpeed. The values are the shipped ones, unchanged, moved verbatim.
-    internal const PeerBoardFadeMode PeerBoardFade_Mode = PeerBoardFadeMode.Off;       // => [PeerBoardFade] Mode
+    internal const PeerBoardFadeMode PeerBoardFade_Mode = PeerBoardFadeMode.Transparent;       // => [PeerBoardFade] Mode  (pinned: user default ruling 2026-09-10 - transparent while occluding the play field)
     internal const float PeerBoardOccludedAlpha = 0.25f;                               // => [PeerBoardFade] OccludedAlpha
     internal const float PeerBoardOnFraction = 0.12f;                                  // => [PeerBoardFade] OnFraction
     internal const float PeerBoardOffFraction = 0.05f;                                 // => [PeerBoardFade] OffFraction

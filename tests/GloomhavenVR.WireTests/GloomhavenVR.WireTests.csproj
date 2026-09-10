@@ -299,6 +299,9 @@
          cannot drift from the arithmetic; its one VRLog.Warn is shimmed (see Shims.cs). -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\BoardAnchors.cs" Link="cards\BoardAnchors.cs" />
     <Compile Include="BoardSeatVectors.cs" />
+    <Compile Include="BoardRigPoseVectors.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\Tray\BoardPlacementPose.cs" Link="cards\BoardPlacementPose.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Remote\RemoteBoardPoseState.cs" Link="wire\RemoteBoardPoseState.cs" />
     <!-- WHICH SYMBOL IS ON WHICH KEY, and how far a pressed key has actually moved. Two pure
          functions added by the 2026-08-25 board-button overhaul, both LINKED rather than copied,
          and both here for the reason the seat clamps above them are: every other gate in this

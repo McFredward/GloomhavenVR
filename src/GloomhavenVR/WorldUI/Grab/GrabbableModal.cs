@@ -1283,9 +1283,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     //      origin. Its scale rides the SAME k — defect (e) of that round was exactly a board that
     //      "glides while it moves and stutters while it zooms", because the scale was assigned while
     //      the pose was eased.
-    //   2. THE SENDER RAISES ITS CADENCE WHILE THE THING MOVES. NetAvatarDriver.TickExtrasSend's
-    //      boardMoving/poseDue pair puts the whole extras packet on the rig rate (15 Hz) for as long
-    //      as the board's pose keeps changing, and back on 5 Hz the moment it settles.
+    //   2. THE SENDER SUPPLIES RIG-RATE MOTION SAMPLES. Board motion uses the rig packet
+    //      since497; shared windows retain their 15 Hz active-grab extras gate.
     // The shared window ASSIGNED its pose (this class's PlaceFrameAt, called straight from
     // Net.RemoteMapStory / Net.RemoteStorySync) at whatever rate the record arrived. Half of the fix
     // is here; the sender half is in NetAvatarDriver, keyed on SharedWindows.AnyGrabbedHere().

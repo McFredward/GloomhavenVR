@@ -432,18 +432,11 @@ internal static class SharedWindows
     /// <para><b>WHY THIS EXISTS: user request 7 (2026-08-22, verbatim)</b> — "Die Bewegungen der
     /// 'blauen' MP-Fenster, die 1:1 synchronisiert werden sollen, sollen auch die Bewegung und die
     /// Position voll übertragen (flüssig, wie bei der Position des Boards auch)". The board's
-    /// smoothness is TWO mechanisms, not one, and this is the SENDER half of it: while the owner is
-    /// dragging their board, <c>NetAvatarDriver.TickExtrasSend</c> raises the whole extras packet to
-    /// the RIG rate (<c>NetProtocol.SendRateHz</c> = 15 Hz) instead of the idle
-    /// <c>ExtrasSendRateHz</c> = 5 Hz, so the receiver's easing gets the same sample density the
-    /// head and hands already get ("Bewegen kommt nicht flüssig an", defect 7 of the 1:1-parity
-    /// round — see the boardMoving/poseDue pair there and the note in
-    /// <c>Net.RemoteControlBoard</c>). A shared window that is being carried is the same kind of
-    /// motion and now rides the same cadence.</para>
+    /// smoothness combines rig-rate samples and receiver easing. Shared-window grabs retain
+    /// their 15 Hz extras gate; since build497 the board itself travels in the small rig packet.
+    /// Both use the shared interpolation sharpness.</para>
     ///
-    /// <para><b>WHY "GRABBED" AND NOT "THE POSE CHANGED".</b> The board's own test compares the
-    /// sampled pose against the last SENT one, because the board has exactly one pose and the sender
-    /// already holds it. There is no such single quantity here — three window kinds, each of which
+    /// <para><b>WHY "GRABBED" AND NOT "THE POSE CHANGED".</b> Three window kinds
     /// may be absent — and a per-kind last-sent cache in this class would be a second copy of state
     /// <c>Net.RemoteMapStory</c> / <c>Net.RemoteStorySync</c> already keep. A hand on the bar is a
     /// strict SUPERSET of the interval the pose changes in, it cannot false-positive on a standing

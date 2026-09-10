@@ -175,5 +175,14 @@ internal sealed class RemoteOriginalDecisionPrompt
         if (_stageHost != null) Object.Destroy(_stageHost);
         _stageHost = null; _stage = null; _lines.Clear(); _targets.Clear(); _mappedStamp = -1;
     }
-    internal void Destroy() { _mirror.Destroy(); ReleaseStage(); Object.Destroy(_placement.gameObject); }
+    internal void Destroy()
+    {
+        _mirror.Destroy();
+        ReleaseStage();
+        // Scene teardown can destroy the parent before module shutdown (MB496 log).
+        // Unity's null comparison must precede gameObject access on the retained wrapper.
+        if (_placement != null) Object.Destroy(_placement.gameObject);
+        Showing = false;
+        _identity = null;
+    }
 }

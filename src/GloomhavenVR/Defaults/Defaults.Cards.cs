@@ -44,7 +44,7 @@ internal static partial class Defaults
     internal const float TrayYaw = -40.568f;                                                          // => [Cards] TrayYaw
     internal const float TrayScale = 1.42826f;                                                        // => [Cards] TrayScale
     internal const float PokePadPixels = 14f;                                                         // => [Cards] PokePadPixels
-    internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
+    internal const bool TrayFollow = true;                                                           // => [Cards] TrayFollow  (pinned: user default ruling 2026-09-10 - follow rather than fixed)
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Free;                            // => [Cards] BoardMoveMode
     internal const float TrayPitch = 43.585f;                                                         // => [Cards] TrayPitch
     internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees  (legacy: superseded by the per-board BoardPitchMin_<board>)

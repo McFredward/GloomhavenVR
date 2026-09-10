@@ -213,6 +213,7 @@ internal static class Program
             // inert path matters just as much, because a clamp that fired on the bundle he
             // already has would move Oak's caps 8 mm and be blamed on anything but the clamp.
             BoardSeatVectors.Run(t);
+            BoardRigPoseVectors.Run(t);
             BoardCapSymbolVectors.Run(t);
             // WHETHER THE WORD ON THE KEY IS THE WHOLE WORD. The ModBuild 281 cap said
             // "AUSWAHL BEEN" for "Auswahl beenden" and every gate on this list agreed with it. The
