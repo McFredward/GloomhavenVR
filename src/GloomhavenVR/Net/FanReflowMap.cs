@@ -34,6 +34,31 @@ internal static class FanReflowMap
         return true;
     }
 
+    /// <summary>Join two explicitly stated positional injections. Unlike held-card arithmetic,
+    /// this also handles two fists and a reorder committed on the return frame. No fronts needed.</summary>
+    internal static bool TryJoin(int[]? oldOrder, int oldCount, int[]? newOrder, int newCount,
+        int capacity, int[] into)
+    {
+        if (oldCount <= 0 || newCount < 0 || into.Length < newCount
+            || !Valid(oldOrder, oldCount, oldCount, capacity)
+            || !Valid(newOrder, newCount, newCount, capacity)) return false;
+        for (int next = 0; next < newCount; next++)
+        {
+            into[next] = -1;
+            for (int old = 0; old < oldCount; old++)
+                if (newOrder![next] == oldOrder![old]) { into[next] = old; break; }
+        }
+        return true;
+    }
+
+    internal static bool SameSource(byte beforeDomain, byte afterDomain,
+        System.Collections.Generic.IReadOnlyList<int> before, System.Collections.Generic.IReadOnlyList<int> after)
+    {
+        if (beforeDomain != afterDomain || before.Count == 0 || before.Count != after.Count) return false;
+        for (int i = 0; i < before.Count; i++) if (before[i] != after[i]) return false;
+        return true;
+    }
+
     private static int Seat(int index, int[]? order, int count, int omitted) => count > 0
         ? order![index] : omitted >= 0 && index >= omitted ? index + 1 : index;
 

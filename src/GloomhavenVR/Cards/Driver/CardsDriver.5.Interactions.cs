@@ -398,13 +398,26 @@ internal sealed partial class CardsDriver
             return;
         }
 
+        // MB497: reordering an owned normal hand is presentation-only in every phase,
+        // including an inspection view or a damage choice. It must run before pick/game routes.
+        if (fanOrigin && CanReorderFan(card)
+            && ReferenceEquals(_insertHighlightCard, card) && _insertGap >= 0)
+        {
+            int gap = _insertGap;
+            ClearFanInsertion();
+            hand.SendHaptic(HapticPreset.ClickPulse);
+            CommitFanInsertion(card, gap);
+            VRLog.Info("Cards", $"Fan reorder ({hand.Side}): card committed to fan gap {gap} (session-only VR order).");
+            return;
+        }
+
         // INSPECTION RELEASE (user ruling 2026-08-08: "Ich möchte das man jederzeit auch eine Karte
         // aus der Hand nehmen kann um sie sich genau anzuschauen, auch wenn man die Karte nirgendwo
         // ablegen kann. Das soll also niemals blockiert sein"). The card was picked up purely to be
         // READ — the fan was in CardFan.FanMode.Inspect when it was grabbed (VRCard.InspectOnly is
         // stamped by the zone funnel and by the fan's own membership seams). It returns HOME to the
         // fan, animated, and NOTHING else happens: no SelectCard, no UnselectCard, no slot
-        // occupancy, no initiative reconcile, not even a fan-reorder commit.
+        // occupancy or initiative reconcile. Owner fan reorders were handled above.
         //
         // POSITION IN THE ROUTING IS LOAD-BEARING — this sits BEFORE CurrentHand() on purpose, so
         // no game hand is even resolved for an inspect-only card. That matters most for a focus
@@ -688,9 +701,9 @@ internal sealed partial class CardsDriver
             // release, the take-back lands at that gap instead of the game-sorted position —
             // same "what glows is what drops" contract as the fan-origin reorder. The gap and its
             // neighbour ids are captured NOW (the fan may change while the unselect is queued);
-            // the _fanOrder splice runs in the unselect COMPLETION so the rebuild it triggers
-            // sees the card back in the game hand — splicing earlier would race ReorderFanBuffer's
-            // prune (the id is not in the hand until the unselect lands) and lose the position.
+            // the returnOrder splice runs in the unselect COMPLETION so the rebuild it triggers
+            // sees the card back in the game hand. Capture this character's order list as well:
+            // a focus change while the action is queued must not edit a different character.
             int gap = ReferenceEquals(_insertHighlightCard, card) ? _insertGap : -1;
             int insertBeforeId = int.MinValue; // id of the card right of the gap (insert before it)
             int insertAfterId = int.MinValue;  // id of the last fan card (gap past the end)
@@ -710,25 +723,14 @@ internal sealed partial class CardsDriver
             _fan.Add(card);
             int cardId = FanId(card);
             CardsHandUI handRef = gameHand;
+            List<int> returnOrder = _fanOrders.ForCharacter(gameHand.PlayerActor.CharacterName);
             CardActionQueue.Enqueue(
                 () => CardsGameApi.UnselectCard(handRef, ability),
                 () =>
                 {
                     if (gap >= 0 && cardId != int.MinValue)
                     {
-                        _fanOrder.Remove(cardId);
-                        int at = _fanOrder.Count;
-                        if (insertBeforeId != int.MinValue)
-                        {
-                            int idx = _fanOrder.IndexOf(insertBeforeId);
-                            at = idx >= 0 ? idx : _fanOrder.Count;
-                        }
-                        else if (insertAfterId != int.MinValue)
-                        {
-                            int idx = _fanOrder.IndexOf(insertAfterId);
-                            at = idx >= 0 ? idx + 1 : _fanOrder.Count;
-                        }
-                        _fanOrder.Insert(at, cardId);
+                        FanOrderMemory.Insert(returnOrder, cardId, insertBeforeId, insertAfterId);
                     }
                     _dirty = true;
                 });

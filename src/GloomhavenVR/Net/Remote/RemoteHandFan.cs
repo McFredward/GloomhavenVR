@@ -65,23 +65,10 @@ namespace GloomhavenVR.Net;
 ///     owner's head, and the depth BOW with its gaze relief and stacking clamp (see
 ///     <see cref="LayoutCards"/>), plus the fan-out reveal timing.
 ///
-/// KNOWN, DELIBERATE GAPS (nothing here is derivable from synced data, and all are transient or
-/// opt-in cosmetics — none is worth a wire field):
-///   * REORDER INSERTION GAP: while the owner DRAGS a card sideways to a new seat their own fan
-///     opens a gap at the drop index (CardFan._insertGap, pushed by the driver each frame). Nothing
-///     on the wire says where that gap is, so a peer's fan does not open one and the reorder reads
-///     as a card jumping rather than sliding into a space. That is a genuine wire item and is held
-///     as one.
+/// REORDER INSERTION: record71 carries the owner's gap index, including explicit closure.
+/// Neighbour offsets and the gold marker use the original CardFan helpers with the owner's
+/// dimensions and falloff. Covered cards still have public geometry; no front is resolved for it.
 ///
-///     (THE HOVER SPLIT USED TO BE LISTED HERE WITH IT, AND BOTH ITS CLAUSES WERE FALSE — retired
-///     2026-09-07. The bullet read "Nothing on the wire says which card, so a peer's fan never
-///     splits". Extension record 6 carries the hovered INDEX (RemoteAvatar.HandHighlightIndex), and
-///     LayoutCards has been drawing the split off it for builds — the `pos += rot * new
-///     Vector3(SplitOffset(i - hovered), 0f, 0f)` term, on the shared Cards.FanSweep.SplitOffset
-///     curve, with the card itself lifting on VRCard's own pop. The sentence welded a SHIPPED
-///     feature to an unshipped one, and for as long as it stood, anybody grepping this list for
-///     what was missing found the split already crossed off and the gap not named at all. A
-///     class-doc claim is a hypothesis, exactly like a log string.)
 /// (GAZE-BIAS YAW left this list. It said the receiver "could compute the whole eased/hysteretic
 /// yaw from the peer's synced head gaze, but not whether the SENDER has the toggle on — that one bit
 /// is the only missing input", and that was true and then simply stood there: an owner who switched
@@ -602,6 +589,7 @@ internal sealed class RemoteHandFan
     /// </summary>
     private void BeginSwap(CPlayerActor? leavingActor)
     {
+        if (_insertionOverlay != null) _insertionOverlay.SetActive(false);
         _openElapsed = -1f; // the exchange supersedes a reveal still in the air (CardFan.BeginSwapOut)
 
         // (1) the previous generation keeps going from where it IS.
@@ -991,6 +979,7 @@ internal sealed class RemoteHandFan
     /// nothing, which leaves the length belt to refuse rather than this method to guess.</summary>
     private void BuildMapArc(int heldSeat, int secondHeldSeat)
     {
+        if (TryApplyMapArcOrder(_owner.HandCardCount)) return;
         _mapArc.Clear();
         for (int i = 0; i < _mapBuffer.Count; i++)
         {
@@ -1011,6 +1000,11 @@ internal sealed class RemoteHandFan
         _mapArc.Clear();
         RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint key);
         if (!WorldUI.MapRoom.MapRoomHand.ResolveNamedMapLoadout(key, _mapBuffer)) return;
+        if (TryApplyMapArcOrder(count))
+        {
+            heldCount = _mapBuffer.Count - count;
+            return;
+        }
         CAbilityCard? first = ResolveMapHeldModel(1, key);
         CAbilityCard? second = ResolveMapHeldModel(2, key);
         if ((_owner.HeldFaceMapKey(1) == key && first == null)
@@ -1027,6 +1021,16 @@ internal sealed class RemoteHandFan
             int seat = _mapProjection[i];
             _mapArc.Add(seat == -1 ? first! : seat == -2 ? second! : _mapBuffer[seat]);
         }
+    }
+
+    private bool TryApplyMapArcOrder(int count)
+    {
+        int[]? order = _owner.FanArcOrder;
+        if (order == null || _owner.FanArcOrderCount != count
+            || !NetProtocol.ValidateFanArcOrder(order, count, _mapBuffer.Count)) return false;
+        _mapArc.Clear();
+        for (int i = 0; i < count; i++) _mapArc.Add(_mapBuffer[order![i]]);
+        return true;
     }
 
     private CAbilityCard? ResolveMapHeldModel(int slot, uint key)
@@ -1321,6 +1325,7 @@ internal sealed class RemoteHandFan
                               "The MOTION is mirrored; no card identity is transmitted for it. Incoming " +
                               "and outgoing fronts remain under their respective reveal gates.");
         }
+        if (!_swapIdentity.SameAs(nextIdentity)) _poseOrderCount = 0;
         _swapIdentity = nextIdentity;
         _shownActorId = shownId;
         _shownActor = shownActor;
@@ -1381,6 +1386,7 @@ internal sealed class RemoteHandFan
         // identical to hiding now — the slabs are destroyed either way, in the same frame.
         if (count == 0)
         {
+            if (_insertionOverlay != null) _insertionOverlay.SetActive(false);
             TickSwap(dt);
             if (_cards.Count > 0)
                 Rebuild(0);
@@ -1401,6 +1407,7 @@ internal sealed class RemoteHandFan
         }
 
         TickSwap(dt);
+        ValidatePoseSource(RemoteBoardFocus.ActorById(focusId) ?? shownActor);
 
         // Rebuild the card slabs only when the count actually changes (cheap; the sizes/poses of
         // existing slabs are refreshed every frame below and auto-inherit AppliedScale via the
@@ -1409,6 +1416,9 @@ internal sealed class RemoteHandFan
         // see the self-heal note there), which funnels through this same rebuild.
         if (count != _builtCount)
             Rebuild(count);
+        else
+            CarryReorderedPoses(count);
+        RememberPoseOrder(count);
 
         if (!_root.activeSelf)
         {
@@ -4651,6 +4661,22 @@ internal sealed class RemoteHandFan
         if (hovered < 0 || hovered >= _cards.Count)
             hovered = -1;
 
+        int insertionGap = _owner.FanInsertionGap;
+        if (closing || insertionGap < 0 || insertionGap > n) insertionGap = -1;
+        if (insertionGap >= 0)
+        {
+            if (_insertionOverlay == null)
+                _insertionOverlay = CardFan.CreateInsertionOverlay(root, _cardWidth,
+                    _cardWidth * DefaultCardHeight / DefaultCardWidth);
+            CardFan.SizeInsertionOverlay(_insertionOverlay.transform, _cardWidth,
+                _cardWidth * DefaultCardHeight / DefaultCardWidth);
+            CardFan.PositionInsertionOverlay(_insertionOverlay.transform, insertionGap,
+                start, step, _radius, arch, tilt);
+            _insertionOverlay.SetActive(true);
+        }
+        else if (_insertionOverlay != null && _insertionOverlay.activeSelf)
+            _insertionOverlay.SetActive(false);
+
         for (int i = 0; i < _cards.Count; i++)
         {
             // ─── THE SEAT IN THE OWNER'S FIST IS NOT DRAWN HERE (report item 1, 2026-09-06) ────
@@ -4685,6 +4711,8 @@ internal sealed class RemoteHandFan
             // the toe-in below, exactly like VRCard applies it on top of the layout's home pose.
             if (hovered >= 0 && i != hovered)
                 pos += rot * new Vector3(SplitOffset(i - hovered), 0f, 0f);
+            if (insertionGap >= 0)
+                pos += rot * new Vector3(CardFan.InsertionOffset(i, insertionGap, _cardWidth, _splitFalloff), 0f, 0f);
 
             // Per-card TOE-IN (CardFan.Relayout): aim THIS card's normal at the owner's head instead
             // of inheriting the root's single billboard normal. FromToRotation is the minimal arc
@@ -5404,6 +5432,7 @@ internal sealed class RemoteHandFan
             _shownActorId = 0;
             _shownActor = null;
             _swapIdentity = default;
+        _poseOrderCount = 0;
             _builtCount = -1;
             _frontsShown = false;
             ClearPops();
@@ -5610,6 +5639,98 @@ internal sealed class RemoteHandFan
     }
 
     private readonly int[] _reflowFrom = new int[MaxCards];
+    // Geometry has a positional order even when privacy forbids resolving a single front.
+    // Keep it independently of the face gather, which correctly clears on a covered hand.
+    private GameObject? _insertionOverlay;
+    private readonly int[] _poseOrder = new int[MaxCards];
+    private int _poseOrderCount;
+
+    private readonly List<int> _poseSourceIds = new(MaxCards);
+    private readonly List<int> _poseSourceScratch = new(MaxCards);
+    private readonly List<AbilityCardUI> _poseWidgets = new(MaxCards);
+    private readonly List<CAbilityCard> _poseMapModels = new(MaxCards);
+    private byte _poseSourceDomain;
+
+    private void ValidatePoseSource(CPlayerActor? actor)
+    {
+        // Wire seats index a canonical list, not persistent identities. A burn, a map loadout
+        // edit or a hand/pile switch invalidates those addresses even when counts happen to match.
+        // Compare local scalar model IDs only; no card names, fronts or new private wire data.
+        _poseSourceScratch.Clear();
+        byte domain = NetProtocol.IsFanSourcePile(_owner.FanSourceList)
+            ? _owner.FanSourceList : NetProtocol.HeldFaceListHand;
+        try
+        {
+            if (!RevealGate.InScenario)
+            {
+                domain = NetProtocol.HeldFaceListMapLoadout;
+                RemoteMapRoom.TryGetPeerFanCharacterKey(_owner.PlayerId, out uint key);
+                if (WorldUI.MapRoom.MapRoomHand.ResolveNamedMapLoadout(key, _poseMapModels))
+                    for (int i = 0; i < _poseMapModels.Count; i++) _poseSourceScratch.Add(_poseMapModels[i].ID);
+            }
+            else if (actor != null && CardsHandManager.Instance != null)
+            {
+                CardsHandUI hand = CardsHandManager.Instance.GetHand(actor);
+                if (hand != null)
+                {
+                    if (NetProtocol.IsFanSourcePile(domain))
+                    {
+                        CardsGameApi.GetPileArcWidgets(hand, domain == NetProtocol.HeldFaceListBurnt, _poseWidgets);
+                        for (int i = 0; i < _poseWidgets.Count; i++) _poseSourceScratch.Add(_poseWidgets[i].CardInstanceID);
+                    }
+                    else if (hand.cardsUI != null)
+                        for (int i = 0; i < hand.cardsUI.Count; i++)
+                            if (CardsGameApi.HandFanMember(hand.cardsUI[i], actor))
+                                _poseSourceScratch.Add(hand.cardsUI[i].CardInstanceID);
+                }
+            }
+        }
+        catch (System.Exception) { _poseSourceScratch.Clear(); }
+        if (!FanReflowMap.SameSource(_poseSourceDomain, domain, _poseSourceIds, _poseSourceScratch))
+            _poseOrderCount = 0;
+        _poseSourceDomain = domain;
+        _poseSourceIds.Clear(); _poseSourceIds.AddRange(_poseSourceScratch);
+    }
+
+    private void RememberPoseOrder(int count)
+    {
+        int[]? order = _owner.FanArcOrder;
+        if (order != null && _owner.FanArcOrderCount == count
+            && NetProtocol.ValidateFanArcOrder(order, count, NetProtocol.FanArcOrderMaxSeats))
+        {
+            for (int i = 0; i < count; i++) _poseOrder[i] = order![i];
+            _poseOrderCount = count;
+        }
+        else if (_poseOrderCount != count) _poseOrderCount = 0;
+    }
+
+    private void CarryReorderedPoses(int count)
+    {
+        if (_poseOrderCount != count || _owner.FanArcOrderCount != count
+            || !FanReflowMap.TryJoin(_poseOrder, count, _owner.FanArcOrder, count,
+                NetProtocol.FanArcOrderMaxSeats, _reflowFrom)) return;
+        bool changed = false;
+        for (int i = 0; i < count; i++)
+        {
+            if (_reflowFrom[i] < 0) return; // different membership, not a reorder
+            changed |= _reflowFrom[i] != i;
+        }
+        if (!changed) return;
+        _carryPos.Clear(); _carryRot.Clear(); _carryScale.Clear();
+        for (int i = 0; i < count; i++)
+        {
+            Transform t = _cards[i].transform;
+            _carryPos.Add(t.localPosition); _carryRot.Add(t.localRotation);
+            _carryScale.Add(t.localScale.x);
+        }
+        for (int i = 0; i < count; i++)
+        {
+            Transform t = _cards[i].transform;
+            int from = _reflowFrom[i];
+            t.localPosition = _carryPos[from]; t.localRotation = _carryRot[from];
+            t.localScale = Vector3.one * _carryScale[from];
+        }
+    }
 
     /// <summary>Destroy and recreate exactly <paramref name="count"/> back-on-both-faces slabs, each
     /// with its own (initially hidden) cloned-front overlay. Only called when the count changes
@@ -5658,7 +5779,10 @@ internal sealed class RemoteHandFan
                 heldSeat = liveSeat;
             else if (count == _builtCount + 1 && _fistCount == _builtCount)
                 heldSeat = _fistSeat;
-            if (heldSeat >= 0)
+            if (_poseOrderCount == _builtCount && _owner.FanArcOrderCount == count)
+                carry = FanReflowMap.TryJoin(_poseOrder, _poseOrderCount,
+                    _owner.FanArcOrder, count, NetProtocol.FanArcOrderMaxSeats, _reflowFrom);
+            if (!carry && heldSeat >= 0)
                 carry = FanReflowMap.TryBuild(_builtCount, count, heldSeat,
                     _appliedOrder, _appliedOrderCount, _owner.FanArcOrder, _owner.FanArcOrderCount, _reflowFrom);
             else if (count == _builtCount)
@@ -5827,6 +5951,7 @@ internal sealed class RemoteHandFan
 
     private void Hide()
     {
+        if (_insertionOverlay != null) _insertionOverlay.SetActive(false);
         // ZERO IS A READING (see PeerCardFaceCensus): a hidden fan must overwrite its census row
         // rather than leave the last frame's front count standing for the rest of the session.
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.HandFan, _owner.PlayerId, 0, 0,
@@ -5876,6 +6001,7 @@ internal sealed class RemoteHandFan
         _shownActorId = 0;
         _shownActor = null;
         _swapIdentity = default;
+        _poseOrderCount = 0;
         // Presentation state resets exactly like CardFan.Open does: the apex starts centred (a fan
         // that popped open already leaning would read as a glitch) and the next appearance logs its
         // geometry once so a hardware log has a line per fan, not one per session.
@@ -5906,6 +6032,7 @@ internal sealed class RemoteHandFan
         _shownActorId = 0;
         _shownActor = null;
         _swapIdentity = default;
+        _poseOrderCount = 0;
         for (int i = _faces.Count - 1; i >= 0; i--)
             _faces[i].Destroy();
         _faces.Clear();

@@ -4224,6 +4224,7 @@ internal sealed partial class CardsDriver
         // INSPECT, not Interactive: grab it, carry it, hand it over, read it — and the release
         // returns it home without touching a game seam. Set BEFORE SetCards so the first frame is
         // already correct (the fan's own contract, see CardFan.SetMode).
+        ReorderFanBuffer();
         _fan.SetMode(CardFan.FanMode.Inspect);
         _fan.SetCards(_fanBuffer, swap);
         // SINGLE-CARD ARRIVAL. Runs AFTER SetCards for the same reason the scenario's own dock

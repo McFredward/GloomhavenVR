@@ -337,7 +337,7 @@ internal sealed partial class CardsDriver
         CardFlightLedger.Reset(); // one scenario's flight ordinals never accuse the next one's first
         _loggedStaleHandCard.Clear(); // item 10 model-belt dedupe dies with the driver
         _fanOriginCards.Clear();
-        _fanOrder.Clear();
+        _fanOrder = new List<int>(24); // detach transient view; stable per-character order survives
         _insertGap = -1;
         _insertHighlightCard = null;
         VRCard.InteractionBlockedHand = null;
@@ -461,9 +461,9 @@ internal sealed partial class CardsDriver
         }
         _factory.ReleaseHand(hand);
         _tray.ClearSlots();
-        // Hand reorder: the hand's cards died — drop the persisted VR order + any pending reorder
-        // (session-only; ids don't survive a hand teardown).
-        _fanOrder.Clear();
+        // Drop pending physical gestures, but retain scalar character/card ordering across widget
+        // destruction so map preparation and scenario order survive a scene transition.
+        _fanOrder = new List<int>(24); // detach transient view; stable per-character order survives
         _fanOriginCards.Clear();
         ClearFanInsertion();
         _fieldCards.Clear(); // the hand's VRCards just died — no dead refs on the field

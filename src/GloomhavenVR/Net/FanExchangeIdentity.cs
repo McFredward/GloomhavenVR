@@ -19,6 +19,9 @@ internal readonly struct FanExchangeIdentity
     internal static FanExchangeIdentity Scenario(int actorId) => new(false, actorId, 0);
     internal static FanExchangeIdentity Map(uint characterKey) => new(true, 0, characterKey);
 
+    internal bool SameAs(FanExchangeIdentity next)
+        => _map == next._map && _actorId == next._actorId && _characterKey == next._characterKey;
+
     internal bool ShouldExchangeTo(FanExchangeIdentity next, bool visible, int outgoing, int incoming)
     {
         if (!visible || (outgoing <= 0 && incoming <= 0) || _map != next._map)

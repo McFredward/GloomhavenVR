@@ -17,11 +17,11 @@ internal sealed partial class CardsDriver
 {
     // ------------------------------------------------------------- hand fan reorder --
 
-    // Persisted VR fan order (session-only), keyed by AbilityCardUI.CardInstanceID. Applied to
-    // _fanBuffer every Rebuild (before _fan.SetCards) so it OVERRIDES the game's own SortCards
-    // re-sort — a pure VR-presentation reorder with zero gameplay effect. Pruned to the present
-    // hand each Rebuild so stale ids (id reuse across scenarios) never accumulate.
-    private readonly List<int> _fanOrder = new(24);
+    // MB497: a character's chosen order survives action phases, widget destruction and the
+    // map-to-scenario transition. Class card IDs are local-only, scoped by persistent character
+    // name; instance IDs change when the scenario constructs its cards. No game list is written.
+    private static readonly FanOrderMemory _fanOrders = new();
+    private List<int> _fanOrder = new(24);
     private readonly List<VRCard> _fanReorderScratch = new(24);
 
     // Cards plucked OUT of the fan and still held — eligible for a reorder commit on release.
@@ -36,14 +36,44 @@ internal sealed partial class CardsDriver
     // (see CollectRoundCards).
     private bool _loggedLongRestEmptyBoard;
 
-    /// <summary>Stable CardInstanceID key for a fan card (int.MinValue = no game card).</summary>
-    private static int FanId(VRCard? card) =>
-        card != null && card.GameCard != null ? card.GameCard.CardInstanceID : int.MinValue;
+    private static int FanId(VRCard? card) => TryFanKey(card, out _, out int id) ? id : int.MinValue;
+
+    private static bool TryFanKey(VRCard? card, out string character, out int id)
+    {
+        character = string.Empty;
+        id = int.MinValue;
+        if (card == null) return false;
+        AbilityCardUI? widget = card.GameCard;
+        if (widget?.PlayerActor != null && widget.AbilityCard != null)
+        {
+            character = widget.PlayerActor.CharacterName;
+            id = widget.AbilityCard.ID;
+            return !string.IsNullOrEmpty(character);
+        }
+        return WorldUI.MapRoom.MapRoomHand.TryFanOrderKey(card, out character, out id);
+    }
+
+    // Reordering is presentation-only, independently of whether playing is currently allowed.
+    // Pile-choice fans (notably long rest) and characters controlled by somebody else refuse it.
+    private bool CanReorderFan(VRCard? card)
+    {
+        if (_fakeActive || card == null) return false;
+        if (OffScenarioFanActive)
+            return WorldUI.MapRoom.MapRoomHand.CanReorderLocalFan(card);
+        CardsHandUI? shown = Board.CharacterFocus.PresentedHand(CurrentHand());
+        return shown != null && FanOrderMemory.CanReorder(
+            CardsGameApi.ControlsActor(shown.PlayerActor),
+            (_fanSourcePile == CardPileType.None || _fanSourcePile == CardPileType.Hand)
+                && (CardsGameApi.HandFanMember(card.GameCard, shown.PlayerActor)
+                    || (_tray.ContainsCard(card) && !card.InspectOnly
+                        && CardsGameApi.Mode(shown) == CardHandMode.CardsSelection)),
+            CardsGameApi.HandOwnsWidget(shown, card.GameCard));
+    }
 
     /// <summary>
     /// Stage A: stable-reorder <see cref="_fanBuffer"/> to match the persisted <see cref="_fanOrder"/>
     /// just before <c>_fan.SetCards</c>. Any card whose id is not yet tracked keeps its game-relative
-    /// order and is registered (appended); tracked ids no longer in the hand are pruned. This is the
+    /// order and is registered (appended); absent cards retain their slot for the next rest. This is the
     /// single seam that overrides the game's re-sort. Allocation-free steady state (reused scratch).
     /// </summary>
     private void ReorderFanBuffer()
@@ -52,45 +82,8 @@ internal sealed partial class CardsDriver
         if (n == 0)
             return;
 
-        // Register newcomers (append, preserving current game-relative order among unknowns).
-        for (int i = 0; i < n; i++)
-        {
-            int id = FanId(_fanBuffer[i]);
-            if (id != int.MinValue && !_fanOrder.Contains(id))
-                _fanOrder.Add(id);
-        }
-        // Prune tracked ids absent from the current hand (id reuse / hand change hygiene).
-        for (int k = _fanOrder.Count - 1; k >= 0; k--)
-        {
-            int id = _fanOrder[k];
-            bool present = false;
-            for (int i = 0; i < n; i++)
-            {
-                if (FanId(_fanBuffer[i]) == id) { present = true; break; }
-            }
-            if (!present)
-                _fanOrder.RemoveAt(k);
-        }
-
-        // Emit in _fanOrder order (stable), then any leftover (null-id) card in original order.
-        _fanReorderScratch.Clear();
-        _fanReorderScratch.AddRange(_fanBuffer);
-        _fanBuffer.Clear();
-        for (int k = 0; k < _fanOrder.Count; k++)
-        {
-            int id = _fanOrder[k];
-            for (int i = 0; i < _fanReorderScratch.Count; i++)
-            {
-                VRCard c = _fanReorderScratch[i];
-                if (c != null && FanId(c) == id) { _fanBuffer.Add(c); break; }
-            }
-        }
-        for (int i = 0; i < _fanReorderScratch.Count; i++)
-        {
-            VRCard c = _fanReorderScratch[i];
-            if (c != null && !_fanBuffer.Contains(c))
-                _fanBuffer.Add(c);
-        }
+        if (!TryFanKey(_fanBuffer[0], out string character, out _)) return;
+        _fanOrder = _fanOrders.Apply(character, _fanBuffer, _fanReorderScratch, FanId);
     }
 
     /// <summary>
@@ -116,27 +109,10 @@ internal sealed partial class CardsDriver
             "a change no publish announced — a card was plucked out of the fan or came home to it");
         LogFanOrderMirror();
 
-        // Only the REAL hand fan reorders (CardsSelection). Pick-mode "fans" (discard/burnt piles)
-        // reuse the same _fan but must not telegraph a reorder gap — their releases route through
-        // HandlePickRelease, never the commit path.
-        CardsHandUI? reorderHand = _fakeActive ? null : CurrentHand();
-        if (!_fan.IsOpen || reorderHand == null || CardsGameApi.Mode(reorderHand) != CardHandMode.CardsSelection)
-        {
-            ClearFanInsertion();
-            return;
-        }
         VRCard? held = HeldCard(out VRHand? holder);
-        // Eligible: plucked out of the fan (reorder) OR lifted off a tray slot (T1 — take-back
-        // straight into a chosen fan position). Board slot telegraph (UpdateSlotHighlight ran
-        // first) wins outright.
-        // INSPECTION grabs never telegraph a gap (2026-08-08). A locked CardsSelection hand keeps
-        // mode == CardsSelection, so an inspect-only card WOULD reach the gap logic here — but its
-        // release routes home before the reorder-commit branch is even considered, so the gold gap
-        // would promise a re-seat that cannot happen. Same "what glows is what drops" contract the
-        // slot telegraph honours through IsReadOnlyViewerCard.
-        bool eligible = held != null && !held.InspectOnly
+        bool eligible = held != null && CanReorderFan(held)
             && (_fanOriginCards.Contains(held) || _tray.ContainsCard(held));
-        if (held == null || holder == null || !eligible || _snapHighlightSlot >= 0)
+        if (!_fan.IsOpen || held == null || holder == null || !eligible || _snapHighlightSlot >= 0)
         {
             ClearFanInsertion();
             return;
@@ -144,10 +120,12 @@ internal sealed partial class CardsDriver
 
         int gap = _fan.NearestGap(held.transform.position);
         _insertHighlightCard = gap >= 0 ? held : null;
+        // A native rebuild clears CardFan's marker without clearing this gesture's cached index.
+        // Reassert presentation every frame; SetInsertionGap is already an equality no-op.
+        _fan.SetInsertionGap(gap);
         if (gap != _insertGap)
         {
             _insertGap = gap;
-            _fan.SetInsertionGap(gap);
             if (gap >= 0)
                 holder.SendHaptic(HapticPreset.HoverTick); // debounced: only on gap change
         }
@@ -171,6 +149,8 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void CommitFanInsertion(VRCard card, int gap)
     {
+        if (TryFanKey(card, out string character, out _))
+            _fanOrder = _fanOrders.ForCharacter(character);
         int id = FanId(card);
         if (id == int.MinValue)
         {
@@ -178,24 +158,16 @@ internal sealed partial class CardsDriver
             return;
         }
         IReadOnlyList<VRCard> fan = _fan.Cards; // current fan order (the held card is already out)
-        _fanOrder.Remove(id);
-        int insertAt = _fanOrder.Count;
-        if (fan.Count == 0)
-        {
-            insertAt = _fanOrder.Count;
-        }
-        else if (gap < fan.Count)
-        {
-            int idx = _fanOrder.IndexOf(FanId(fan[gap]));      // before the card now to its right
-            insertAt = idx >= 0 ? idx : _fanOrder.Count;
-        }
-        else
-        {
-            int idx = _fanOrder.IndexOf(FanId(fan[fan.Count - 1])); // after the last fan card
-            insertAt = idx >= 0 ? idx + 1 : _fanOrder.Count;
-        }
-        _fanOrder.Insert(insertAt, id);
+        int before = gap < fan.Count ? FanId(fan[gap]) : int.MinValue;
+        int after = gap >= fan.Count && fan.Count > 0 ? FanId(fan[fan.Count - 1]) : int.MinValue;
+        FanOrderMemory.Insert(_fanOrder, id, before, after);
         _fan.Add(card);
+        // Publish immediately: the map source is event-driven and would otherwise restore the
+        // old home until its next loadout change. Other held cards remain outside the arc.
+        _fanBuffer.Clear();
+        _fanBuffer.AddRange(_fan.Cards);
+        ReorderFanBuffer();
+        _fan.SetCards(_fanBuffer);
         _dirty = true;
     }
 
@@ -1495,10 +1467,9 @@ internal sealed partial class CardsDriver
             }
         }
 
-        // Hand reorder (Stage A): apply the persisted VR order to the real hand fan only —
-        // overrides the game's SortCards. Pick-mode "fans" (discard/burnt piles) are transient
-        // and keep game order.
-        if (mode == CardHandMode.CardsSelection)
+        // The normal hand keeps its authored order in every phase. Discard/burnt choice fans
+        // keep the game's order and never inherit the normal hand's presentation history.
+        if (_fanSourcePile == CardPileType.None || _fanSourcePile == CardPileType.Hand)
             ReorderFanBuffer();
         // FAN MODE: told BEFORE its content, so the very first frame of a restricted view already
         // carries the right affordance (a fan that learned its mode one frame late would offer the

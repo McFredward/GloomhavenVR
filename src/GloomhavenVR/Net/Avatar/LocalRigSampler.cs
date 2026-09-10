@@ -783,6 +783,21 @@ internal static class LocalRigSampler
                 return ReportFanArcOrder(false, n, 0, 0u,
                     $"arc past the {NetProtocol.FanArcOrderMaxSeats}-seat 4-bit cap");
 
+            if (Cards.CardsDriver.OffScenarioFanActive)
+            {
+                int length = 0;
+                for (int i = 0; i < n; i++)
+                {
+                    if (!WorldUI.MapRoom.MapRoomHand.TryNameLocalLoadoutSeat(arc[i], out int seat, out int size)
+                        || (i > 0 && size != length)) return false;
+                    length = size;
+                    order[i] = seat;
+                }
+                if (!NetProtocol.ValidateFanArcOrder(order, n, length)) return false;
+                count = n;
+                return true;
+            }
+
             // THE ARC NAMES ITS OWN HAND. See HandListingArc for the whole of why this is no
             // longer CardsGameApi.ActiveHand().
             Cards.VRCard first = arc[0];
@@ -808,7 +823,7 @@ internal static class LocalRigSampler
             // targeting controllable can displace), while the third is the genuine foreign-hand
             // refusal this test was written for. ReportFanArcOrder's change key folds why.Length and
             // the three lengths are distinct, so the three cannot collapse into one line.
-            CPlayerActor? mine = NetPlayerActors.ActorFor(localPlayerId);
+            CPlayerActor? mine = Board.CharacterFocus.PresentedActor ?? NetPlayerActors.ActorFor(localPlayerId);
             if (actor == null)
                 return ReportFanArcOrder(false, n, 0, 0u,
                     "the hand listing this arc has no PlayerActor");
