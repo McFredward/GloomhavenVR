@@ -7,12 +7,18 @@ its round-by-round narrative and for nothing else.
 **Read in this order.** `CLAUDE.md` (rules, gates, working practice — the part that does not
 change per build) → this file (where things stand and what is owed) → the build-note block above
 `ModBuild` in `src/GloomhavenVR/Net/NetProtocol.cs`, newest first (what happened, per build) →
-`.planning/INDEX.md` (which of the 50-odd planning docs are still live).
+`.planning/INDEX.md` (which planning records are current or historical).
 
 ---
 
 ## 1. Position
 
+- **1.0.0 repository preparation (2026-09-10):** current guides and CI instructions reconciled,
+  historical references clearly marked, generated logs/renders and shader disassembly kept local,
+  installer/uninstaller edge cases fixed, stale local bundle overrides prevented, release notices packaged. Version and runtime
+  remain 0.9.1 / ModBuild 497. See [RELEASE-READINESS.md](RELEASE-READINESS.md) for validation
+  and separate publication follow-ups. No release, tag, main-branch push or visibility change
+  is part of this preparation. The maintainer explicitly deferred the fire-asset license question.
 - **`dev` = 0.9.1, ModBuild 497.** Release 0.9.0 (494) was published from `main` by
   [Release run 34407935479](https://github.com/McFredward/GloomhavenVR/actions/runs/34407935479);
   the pipeline passed and advanced `dev` to 0.9.1. See [RELEASE-0.9.0.md](RELEASE-0.9.0.md).
@@ -156,9 +162,11 @@ not seen it yet, and it is one line to put back.
 - Local and remote card pulse/flight/rest repairs are integrated. The supplied disconnect is a
   confirmed transport receive timeout; its underlying cause remains unresolved.
 
-### 2c. Deferred with their cost attached — these need HIS decision, not more work
+### 2c. Historical refactor follow-ups
 
-From the 2026-09 refactor's reviews (`.planning/refactor-2026-09/REVIEW-*.md`):
+From the 2026-09 refactor's reviews (`.planning/refactor-2026-09/REVIEW-*.md`). These record
+previous findings and deferrals; they are not new user-approved exceptions to the current
+contracts. Recheck each finding against source and later rulings before implementation:
 
 - **Four records ride the send cadence, not the edge** — resolved in 482 for records 36/39/41/43.
   The remaining question is whether any OTHER record has the same shape.
@@ -181,18 +189,21 @@ From the 2026-09 refactor's reviews (`.planning/refactor-2026-09/REVIEW-*.md`):
   it has survived: it changes how three captions LOOK, so it wants his eye, not a silent fix.
   Filed in `LANE-BOARDTEXT-357-NEEDED-OUTSIDE.md` §2.
 
-### 2d. Owed on hardware — lines that have never printed
+### 2d. Hardware evidence and remaining observations
 
-Build 493 adds native send/transport and section refresh timing scopes. The short singleplayer 492
-run cannot measure those multiplayer paths. Compare overall frame/logic times as well: newly
-instrumented work changes named-scope coverage, so summed mod totals alone are not comparable.
+The build 496 multiplayer logs now measure the native send/transport, section-refresh and
+card-appearance instrumentation introduced in 492/493. See [MP-497-PERF.md](MP-497-PERF.md):
+board, revision and native-send readings are present; some appearance/transport scopes are
+below the printing threshold in individual windows. Compare frame and logic times as well,
+without adding nested scopes or equating a missing line with zero work. The short singleplayer
+492 run could not measure those multiplayer paths. Four-player scaling is still unmeasured.
 
-Build 492 adds `REMOTE BOARD VISIBILITY` root-transition evidence and
-`Net.CardAppearance.Sample` / `.Build` / `.Apply` timing scopes. These have no hardware readings
-yet. The spent rest-burn picture, the original-material element correction and any recurrence
-of the one-off board disappearance still need observation.
+`REMOTE BOARD VISIBILITY` records root transitions, but the one-off long-rest disappearance
+remains unexplained. Rest-burn appearance and native-material corrections need headset
+confirmation; source and timing checks alone cannot establish the picture.
 
-Grep tokens waiting for their first real reading. Several have been owed since 480.
+Historical diagnostic watch list (some items date to 480); check the current build and logs
+before asserting that a token has never printed:
 
 `Remote BURN look` · `DOCK MIRROR` · `GATE 3` · `NOT ASKED` · `REMOTE GLOW BLEND` ·
 `SHORT REST PILE COVER` · `HELD BAR HIDE REFUSED` · `BURN ANIM STUCK` · `BURN ANIM FLAG LATCHED` ·
@@ -212,18 +223,20 @@ widgets, their pickers, and their size in the next headset test.
 The full set is in `CLAUDE.md`. These four have each been broken at least once *after* being
 written down:
 
-1. **Latest visibility ruling, 2026-09-09 (MB486 hardware report):** action phase cards are
-   open; ability-selection fans, held cards and placed cards are covered. Short-rest burn
-   flights are covered. A damage-sacrifice prompt within the action phase stays open.
-   This supersedes the older burnt-always-open and active-held selection exceptions.
+1. **Visibility, including the later MB490 user clarifications (2026-09-09):** concealment
+   applies only to remote presentation in scenarios. Local controlled-character cards are
+   always open, including short-rest flights. The entire 3D map is public, locally and remotely.
+   In scenarios, remote action cards and action-phase damage sacrifices are open; remote
+   ability-selection fans, held and placed cards are covered. Remote short-rest burn flights
+   remain covered. This supersedes older pile/active-held exceptions and local concealment.
    Resolve actual model membership before delayed widget CardType; an unresolved positional
    address must never guess a card identity.
 2. **Seeing a card's FACE and being allowed to NAME it in a prompt are two questions**, over one
    population. Merging them re-opens the ModBuild 477 identity leak.
    `scripts/check-card-identity-mask.py` fails the build if they become one predicate.
-3. **The language on a peer's board is deliberately MIXED**: the sender's where the text itself
-   travels, the viewer's where only a key does. It is filed in `Core/Loc/Loc.cs`. **This is not a
-   gap; do not "fix" it.**
+3. **Historical localization behavior is documented in `Core/Loc/Loc.cs`:** transported text
+   uses the sender's language; locally resolved keys use the viewer's. An implementation comment
+   alone does not establish a user-approved exception to visual parity; follow `AGENTS.md`.
 4. **The options button opens and closes the pause menu and touches nothing else.**
 
 ---
@@ -233,7 +246,7 @@ written down:
 | subsystem | read first | why |
 |---|---|---|
 | wall fade | `.planning/perf/WALL-FADE-CLOSEOUT.md` | closed on hardware; every dial is settled and the instruments that lied are listed |
-| multiplayer 1:1 | `.planning/multiplayer/DESIGN-1TO1-RESIDUE.md` §6 | the topic is closed; two of its last three "debts" were false |
+| multiplayer 1:1 | `.planning/multiplayer/DESIGN-1TO1-RESIDUE.md` §6 | historical closeout; later parity rulings and build reviews still apply |
 | the 2026-09 refactor | `.planning/refactor-2026-09/BRIEF.md` + the five `REVIEW-*.md` | what was found, what was deferred, and what the tooling could not see |
 | static batching | `.planning/static-batching-removed.md` | tried and completely removed by user ruling |
 | per-eye fade rivalry | `.planning/wall-fade-stereo-rivalry.md` | parked; unfixable on the game's masonry shader without losing the dissolve |
@@ -243,11 +256,13 @@ written down:
 ## 5. The shape of a round
 
 1. Read his German report. Take the **symptom** as data; re-derive the cause.
-2. Land any shared contract yourself, then dispatch lanes on **disjoint file sets**
-   (`isolation: worktree`, at most five, each with at most one sub-worker).
+2. Land shared contracts, then delegate independent tasks on **disjoint file sets** in separate
+   Git worktrees created from current `dev`. Initialize dependencies with `worktree-setup.sh`,
+   respect the session concurrency limit and never overwrite a shared baseline symlink.
 3. Review every diff. Restrict each merge patch to the lane's OWNED paths.
 4. Apply the cross-lane `NEEDED-OUTSIDE-*.md` items yourself.
-5. Bump `ModBuild` **once**, with a build note that a stranger could act on.
+5. Bump `ModBuild` **once** for a changed runtime build handed to a player, with actionable
+   build notes. Documentation or packaging-only preparation does not change compatibility.
 6. Run the three gate commands from `CLAUDE.md`. Regenerate `docs/PATCH-INVENTORY.md` once, at
    the end, if any patch class moved.
 7. Push to `origin/dev`.

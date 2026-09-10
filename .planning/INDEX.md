@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-10 for build497 and the preparation for public1.0.0. This directory holds internal
+Updated 2026-09-10 for build 497 and the preparation for public 1.0.0. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -10,7 +10,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../AGENTS.md](../AGENTS.md) | Agent workflow, integration ownership and current user rulings |
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
-| [RELEASE-READINESS.md](RELEASE-READINESS.md) | Upcoming1.0.0 repository audit and publication prerequisites |
+| [RELEASE-READINESS.md](RELEASE-READINESS.md) | Upcoming 1.0.0 repository audit and publication prerequisites |
 | [../docs/DEVELOPING.md](../docs/DEVELOPING.md) | Developer setup and required gates |
 | [../docs/CI-CD.md](../docs/CI-CD.md) | Actual release pipeline and main-branch provenance |
 | [../src/GloomhavenVR/Net/NetProtocol.cs](../src/GloomhavenVR/Net/NetProtocol.cs) | Newest-first build notes and additive wire record registry |
@@ -19,9 +19,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 ## Latest measured work
 
 - [MP-ROUND-497.md](MP-ROUND-497.md): board motion, hand order, remote insertion cues and defaults.
-- [MP-497-PERF.md](MP-497-PERF.md): actual496 hardware logs, one peer, measured frame times and limits.
-- [SDK-INSTALL-496.md](SDK-INSTALL-496.md): SDK10 compatibility and installer diagnostics.
-- [RELEASE-0.9.0.md](RELEASE-0.9.0.md): completed release494; historical evidence, not the next version.
+- [MP-497-PERF.md](MP-497-PERF.md): actual 496 hardware logs, one peer, measured frame times and limits.
+- [SDK-INSTALL-496.md](SDK-INSTALL-496.md): SDK 10 compatibility and installer diagnostics.
+- [RELEASE-0.9.0.md](RELEASE-0.9.0.md): completed release 494; historical evidence, not the next version.
 - [MP-PERFORMANCE-493.md](MP-PERFORMANCE-493.md): multiplayer optimization and production harnesses.
 
 ## Retained history

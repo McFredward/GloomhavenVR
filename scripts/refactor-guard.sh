@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Behaviour fingerprint for refactoring — proves what a change really touched.
 #
-# The mod has no automated tests; every behaviour was won on hardware. So a
-# refactor cannot be verified by running it — it has to be verified by showing
-# that the COMPILED code is unchanged wherever we did not intend a change.
+# Automated source, wire and presentation tests cover specific contracts; headset
+# behavior still needs hardware evidence. The compiled comparison additionally shows
+# which production types changed, including changes outside the intended scope.
 #
 # How: build Release, decompile the DLL back to C# with ilspycmd (-p groups the
 # output by namespace/type, so it is independent of our source file layout),

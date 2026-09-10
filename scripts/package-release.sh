@@ -98,7 +98,7 @@ stage_text() {
     LC_ALL=C sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' -e "s/@VERSION@/$VERSION/g" -e 's/$/\r/' "$src" >> "$dest"
 }
 
-# Software licences travel with both complete and DLL-only developer packages. Keep them
+# Software licences travel with release packages and local installations. Keep them
 # below BepInEx so existing in-game updaters accept the package without a protocol change.
 stage_text "$ROOT/LICENSE" "$PLUGDIR/LICENSE.txt"
 mkdir -p "$PLUGDIR/Licenses"

@@ -1,5 +1,10 @@
 # Harvesting the XR runtime set (Unity 2021.3 → `libs/`)
 
+> Alternative editor-harvest workflow retained for investigation. Current CI/release builds
+> use the pinned source packages in `scripts/build-runtimedeps.sh` and native downloads in
+> `scripts/fetch-natives.sh`; see [DEVELOPING](../docs/DEVELOPING.md). The output below describes
+> the original harvest design, not the current shipped DLL inventory.
+
 > Goal: produce the **one coherent set** of XR binaries the mod ships
 > (TOOLCHAIN.md §5.2, risk R5): managed `Unity.XR.*` DLLs, native
 > `UnityOpenXR.dll` + `openxr_loader.dll`, and a version-matched
@@ -32,18 +37,12 @@ Binaries are **never committed** (root `.gitignore` has `*.dll`);
 
 ## Editor version rule (read before installing)
 
-AssetBundles and package assemblies must come from a **Unity 2021.3 LTS**
-editor (TOOLCHAIN.md §4.1): bundles built by a *newer major/minor* Unity than
-the game runtime (2021.3.5f1) may be rejected; older-into-newer is fine, and
-within the same 2021.3.x LTS stream the serialization layout is stable.
+Use **Unity 2021.3.5f1**, the exact game editor. Later 2021.3.x editors have produced
+incompatible UnityFS wrappers and shaders in hardware tests. Being in the same LTS family
+does not make them interchangeable. Stripping or rewriting the version header cannot repair
+those shaders. See [prebuilt/README.md](../prebuilt/README.md).
 
-- **Safest:** exactly **2021.3.5f1** (the game's version).
-- **Acceptable:** any 2021.3.x — e.g. **2021.3.45f2** (final 2021.3 release,
-  2025-10-03), still downloadable although 2021 LTS is out of support.
-- If anything acts up, fall back to 2021.3.5f1 and/or test bundles built with
-  `BuildAssetBundleOptions.AssetBundleStripUnityVersion`.
-
-## Option A — dummy build + harvest (canonical path)
+## Option A — dummy build + harvest (alternative path)
 
 ### 1. Install Unity Hub (~3 min)
 
@@ -57,7 +56,6 @@ Install Editor → Archive:
 
 | Version | Hub deep link |
 |---|---|
-| 2021.3.45f2 (recommended) | `unityhub://2021.3.45f2/88f88f591b2e` |
 | 2021.3.5f1 (game-exact) | `unityhub://2021.3.5f1/40eb3a945986` |
 
 (Download archive page: https://unity.com/releases/editor/archive)

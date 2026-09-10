@@ -9,9 +9,8 @@ Unity **2021.3.5f1**, TypeTrees ON.
 > `scripts/check-bundle-format.sh` (run by `refactor-guard.sh check`) enforces this.
 
 **Built NATIVELY with Unity 2021.3.5f1** (the game's exact version) → UnityFS archive
-**format 7** and shaders compiled for the game runtime. This is the primary path since the
-headless license for 2021.3.5 was solved (mint a Personal ULF from Hub's token — see
-`.planning/debug/mint-ulf.sh` and `unity-license-headless.md`).
+**format 7** and shaders compiled for the game runtime. Build with a licensed installation
+of that exact editor; machine-specific activation files and credentials stay private.
 
 Two failure modes this fixes, both seen in-game before:
 - **Format 8 → "Unable to read header from archive file"**: the 2021.3.45f1 editor emits a
@@ -21,16 +20,17 @@ Two failure modes this fixes, both seen in-game before:
   (`Shader GloomhavenVR/BoardLit is not supported on this GPU`) → magenta. Compiling the
   shader with 2021.3.5 fixes it.
 
-**Fallback** if only the 2021.3.45 editor is available: build with it, then downgrade the
-wrapper to format 7 with `unity/repack-bundle/repack_fmt7.py` (UnityPy, copies inner bytes
-verbatim). NOTE the repack cannot fix the pink shader — only a native 2021.3.5 build does —
-so the native path is strongly preferred. Verify either way: `head -c12 gloomhavenvr.bundle | xxd`
+**Historical investigation:** `unity/repack-bundle/repack_fmt7.py` can downgrade the wrapper
+while preserving its contents, but cannot repair shaders compiled with the wrong editor.
+It is not a replacement for the exact-editor release build. Verify the wrapper with: `head -c12 gloomhavenvr.bundle | xxd`
 → offset 8 must read `00000007`.
 
 Deployed to `BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle` automatically by
-`scripts/install.ps1` and `scripts/package-release.sh` (a freshly built
-`unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle` is preferred when
-present; this committed copy is the fallback).
+`scripts/install.ps1` and `scripts/package-release.sh` **by default**, even if an older ignored
+Unity output exists. For deliberate local asset testing, select
+`unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle` using `-UseLocalBundle` in
+PowerShell or `GHVR_USE_LOCAL_BUNDLE=1` for the shell packager. Missing explicitly selected
+output is an error. Promote tested assets into this committed copy before releasing.
 
 ## Contents
 - `PlayTray.prefab` — the control-board 3D asset (aged-oak + brass board, ~0.64 × 0.32 m):

@@ -13,7 +13,7 @@ A hosted Ubuntu runner produces the complete release archive using these inputs:
 | Plugin and preloader | Source in `src/`; the plugin compiles against committed metadata-only `libs/RefAsm` when no game install is available |
 | Unity XR managed dependencies | `scripts/build-runtimedeps.sh`, from pinned package-source tags |
 | OpenXR native libraries | `scripts/fetch-natives.sh`, with pinned SHA256 hashes |
-| Asset bundle | Committed `prebuilt/gloomhavenvr.bundle`; local packaging prefers a freshly built bundle when present |
+| Asset bundle | Committed `prebuilt/gloomhavenvr.bundle` by default; local Unity output requires explicit opt-in |
 | Installation instructions | `packaging/INSTALL.txt.in` and `packaging/INSTALL.de.txt.in` |
 | License texts and notices | Root GPL `LICENSE`, `packaging/THIRD-PARTY.txt` and pinned XR dependency notices under `Licenses/` in the archive |
 
@@ -68,7 +68,10 @@ on `dev`; a push or merge to `main` is a release action.
 
 ### 2.2 Review the exact candidate
 
-Before editing, create a local compiled-form baseline if one is not already available:
+Before editing, create a local compiled-form baseline if one is not already available.
+Workers must first detach the shared baseline symlinks as described in
+[CLAUDE.md](../CLAUDE.md#the-gates--run-all-of-them-before-you-push); never overwrite the
+integration baseline through a worktree link:
 
 ```bash
 bash scripts/refactor-guard.sh baseline

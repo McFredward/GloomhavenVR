@@ -123,8 +123,12 @@ requires, and it has to travel with the copies. `LICENSE.txt` carries the mod's 
 **The bundle is REQUIRED.** Every 3D asset (hands, control board, card backing, map table, head
 avatars, environments, controller models) and every shader the mod ships lives in it; without the
 file the mod starts, logs an Alert per subsystem and degrades to procedural placeholders everywhere.
-The bundle comes from a fresh Unity build if there is one, else from the committed
-`prebuilt/gloomhavenvr.bundle`. If neither exists the script warns on stderr and ships
+Both installation and packaging use the committed `prebuilt/gloomhavenvr.bundle` by default.
+An old ignored Unity output must not silently override the reviewed assets. To test a newly
+built local bundle, use `GHVR_USE_LOCAL_BUNDLE=1 bash scripts/package-release.sh` or
+`.\scripts\install.ps1 -UseLocalBundle`; explicit local selection fails if that file is missing.
+After asset validation, copy the new bundle into `prebuilt/` and commit it for the release.
+If the default committed bundle is missing, the script warns on stderr and ships
 [`packaging/gloomhavenvr.bundle.README.txt`](../packaging/gloomhavenvr.bundle.README.txt) (English
 and German in one file) at the bundle's path, so the player who opens that zip is told what is
 missing, where it goes and which log line proves it loaded — `[Hands] gloomhavenvr.bundle loaded
@@ -285,7 +289,7 @@ GloomhavenVR.sln
 │   ├── Defaults/               every shipped default value, in one place
 │   └── Assets/                 the mod's own embedded art (the wordmark)
 ├── libs/                       RefAsm/ committed metadata; Natives/ + RuntimeDeps/ built locally
-├── prebuilt/                   the committed asset bundle shipped when Unity is unavailable
+├── prebuilt/                   the reviewed asset bundle used by default for installs and packages
 ├── tools/RuntimeDepsBuild/     provisional RuntimeDeps compile from needle-mirror source
 ├── packaging/INSTALL.txt.in    the template for the zip's INSTALL.txt
 ├── scripts/                    build, install, packaging, bundle and verification scripts
