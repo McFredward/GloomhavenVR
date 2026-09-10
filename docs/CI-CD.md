@@ -1,784 +1,243 @@
-# CI/CD — how GloomhavenVR builds and releases itself
+# CI/CD — build, verification and release
 
-Developer document. Everything here is verified against the scripts and the shipped
-build, not assumed. Where something cannot be done, it says so instead of pretending.
+Current workflow reference, reviewed against the tracked scripts on 2026-09-10.
+Start with [DEVELOPING.md](DEVELOPING.md) for local setup. The workflow files and scripts
+are authoritative; historical build results live in [STATE.md](../.planning/STATE.md).
 
----
+## 0. Building without the game
 
-## 0. The one fact everything else depends on
+A hosted Ubuntu runner produces the complete release archive using these inputs:
 
-**A GitHub-hosted Ubuntu runner can produce the complete, installable release zip.**
-Not a partial one. Verified end to end by running the real scripts with the game
-install hidden, exactly as CI sees it:
-
-| Piece | Where it comes from on the runner | Size |
-|---|---|---|
-| `GloomhavenVR.dll` | compiled against `libs/RefAsm` (committed metadata stubs) | 6.4 MB |
-| `GloomhavenVR.Preload.dll` | compiled, no game references at all | 31 KB |
-| `RuntimeDeps/Unity.XR.*.dll` | `scripts/build-runtimedeps.sh` — compiled from needle-mirror package source at pinned **tags** | 270 KB |
-| `Natives/openxr_loader.dll`, `UnityOpenXR.dll` | `scripts/fetch-natives.sh` — SHA256-pinned download from the OpenXR package | 2.7 MB |
-| `gloomhavenvr.bundle` | **already in the repository** at `prebuilt/gloomhavenvr.bundle` | 71 MB |
-| `INSTALL.txt`, `INSTALL-DEUTSCH.txt` | rendered from `packaging/INSTALL.txt.in` and `packaging/INSTALL.de.txt.in` | ~4 KB each |
-| `THIRD-PARTY.txt` | copied from `packaging/` — the licence notice the bundled art requires; ships only when the bundle does | 2 KB |
-
-Result: `dist/GloomhavenVR-<version>.zip`, a little over the bundle's own size,
-`package-release.sh`'s own layout assertions passing.
-
-**No exact byte count is written down here on purpose.** It used to be, and it went stale the
-first time the bundle was rebuilt — twice over, because the bundle figure it was computed from
-was stale too. `ls -l prebuilt/gloomhavenvr.bundle` is the answer, and it is current by
-construction.
-
-Two things that are often assumed and are worth stating plainly:
-
-* **The 71 MB asset bundle is not a problem, because it is committed.**
-  `prebuilt/gloomhavenvr.bundle` is a tracked blob in `main`'s history.
-  `package-release.sh` falls back to it whenever a freshly built bundle is absent, which
-  on a runner is always. So **a release is ~71 MB, not ~300 KB**, and
-  `scripts/check-bundle-format.sh` runs in CI in full — it is not skipped.
-
-  It is **not** frozen. It is rebuilt whenever an asset changes, and has been many times
-  (ModBuild 291-296, 324-326, 330, 335-336, 340, 352, 363, 368 and 483 among others).
-  `git log --oneline -- prebuilt/gloomhavenvr.bundle` is the record; **do not assume a build
-  is DLL-only without running it.** The list above is a snapshot taken at ModBuild 483
-  (2026-09-08) and will be stale the next time an asset changes; that log will not be.
-
-  The reason this keeps mattering: 368 rebuilt the bundle, then **369 through 482 were all
-  DLL-only** — long enough for "the bundle does not change any more" to become received
-  wisdom — and then **483 rebuilt it** (74,943,671 -> 74,943,763 bytes) and is a FULL
-  INSTALL. A tester handed only the CI artifact for 483 would have run 483's code against
-  482's assets.
-* **Nothing about the pipeline requires a self-hosted runner.** That option was on the
-  table and is not needed.
-
-The zip layout is exactly what `scripts/package-release.sh` and the two
-`packaging/INSTALL*.txt.in` templates define. The pipeline does not change it.
-
-**The in-game auto-updater constrains that layout and is not consulted when it changes.**
-`Core/SelfUpdate/SelfUpdateZip.cs` re-verifies every entry of a downloaded zip and rejects
-the whole archive on anything it does not recognise outside `BepInEx/`. Adding a file to the
-zip root is therefore a change to the updater's accept-list as well as to the packager —
-change both in the same commit, or the update path breaks silently while every local install
-keeps working.
-
----
-
-## 1. Shape
-
-SDK selection is governed by `global.json`: prefer stable .NET SDK 8.0.4xx, with `major`
-roll-forward to a later installed SDK when that family is absent. This keeps .NET 10-only
-developer installations usable. Both workflows install 8.0.x, print `dotnet --info` and
-assert that 8.0.4xx was selected. The repository-level selection follows
-[Microsoft's global.json rules](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json).
-The initial 0.9.0 `latestPatch` restriction blocked install.ps1 on a machine with only
-10.0.102 and 10.0.301. Build 496 restores later-SDK fallback and checks SDK resolution
-at the start of installation, before downloads or game changes.
-The release preparation for 0.9.0 reproduced a compiler-overload difference: under SDK10,
-`byte[][].Reverse()` selected the in-place span overload instead of LINQ. The reversed-fragment
-fixture now explicitly calls `Enumerable.Reverse`, preserving both transport cases.
-
-Both workflows execute the standalone card-capture, native-playback and board-refresh production
-harnesses and their negative controls. Their supplied Unity API substitutes make them runnable
-without game binaries. Negative-control log matching uses standard `grep`, so the
-runner does not need a separate ripgrep installation. The full byte-level wire suite still runs locally with the real game DLL;
-hosted workflows compile that suite but do not claim to execute it.
-
-```
-        work                                     release
-   ┌──────────────┐                        ┌──────────────────┐
-   │     dev      │  ── git push dev:main ▸│       main       │
-   └──────────────┘                        └──────────────────┘
-        ▲                                           │
-        │        the bump commit and the tag        │
-        └─────────── go back to dev / to refs/tags ─┘
-
-   ci.yml                                   release.yml
-   push to dev + PRs to dev and main        push to main
-   build, gates                             build, package, tag,
-   no release, no tag, no bump              GitHub Release, then bump dev
-```
-
-* **`dev`** is the working branch. Everything lands there. Its builds are never
-  released — that is the decision, and `ci.yml` has no code that could release.
-* **`main`** is the release branch. **A push to `main` publishes a release.** There is
-  no button, no approval step and no dry run. Pushing `dev` into `main` *is* the
-  release action.
-* There is no `master` branch and there is not meant to be one.
-
-### The invariant: `main` is only ever a fast-forward of `dev`
-
-**Nothing writes a commit to `main` except `git push origin dev:main`.** Not the
-release workflow, not a merge, not a hotfix. That is what keeps the release procedure
-one command forever instead of turning into a merge-back ritual, and it is load-bearing
-enough that `release.yml` refuses to release a commit that is not already contained in
-`dev` (it says so, before it builds anything).
-
-This was not always true, and it is worth knowing why the file says so much about it.
-An earlier `release.yml` committed the version bump **onto `main`** and pushed
-`HEAD:main`. `main` then carried a commit `dev` had never seen, so the *second*
-`git push origin dev:main` was a non-fast-forward and the remote rejected it. The
-workflow's own "refuse if `origin/main` moved" guard could not catch it — the thing
-that had moved `main` was the previous run of that same workflow. The pipeline worked
-exactly once and then wedged.
-
-The fix was structural rather than defensive: the workflow now writes **no commit to
-`main` at all**. It writes exactly two refs, `refs/tags/v<version>` and
-`refs/heads/dev`. `scripts/release-sim.sh` reproduces both the old failure and the new
-behaviour offline, in a scratch repository — `--old` wedges at release 2, the default
-runs three consecutive releases with every `dev:main` push a fast-forward.
-
-A pleasant side effect, and the reason §2.1a below can be short: **a branch ruleset on
-`main` cannot break this pipeline, because a ruleset blocks commits and this pipeline
-pushes none to `main`.**
-
----
-
-## 2. What YOU do by hand — the complete list
-
-### 2.1 Allow the release workflow to write (REQUIRED, one time)
-
-`release.yml` pushes a tag, creates a release, and pushes the bookkeeping version bump
-to `dev`. It declares `permissions: contents: write`, and **`GITHUB_TOKEN` with that
-scope is sufficient — no Personal Access Token is needed.** The workflow-level
-`permissions:` block raises the token's scope above the repository default, so in
-principle this works out of the box. Set the repository default to match anyway, so a
-403 can never be the surprise that eats a release:
-
-> **Settings → Actions → General → Workflow permissions**
-> select **“Read and write permissions”** → **Save**
-
-Leave “Allow GitHub Actions to create and approve pull requests” **off**; nothing here
-opens a pull request.
-
----
-
-### 2.1a “Only I may push directly; everyone else opens a pull request”
-
-**This section replaces an earlier instruction that said the opposite** (*“do not put a
-branch protection rule on `main`”*, and *“add `github-actions[bot]` to the rule's
-bypass list”*). Both were written for the old release design and the second of them was
-never possible in the first place — see the note at the end. The old design needed
-`main` writable by the bot; the current one does not, which is what makes this section
-safe to write at all.
-
-#### What is already true today, before you change anything
-
-The repository is **public**. On GitHub, public means **read**, and only read:
-
-> *“A repository owned by a personal account has two permission levels: the repository
-> owner and collaborators.”* — GitHub Docs, *Permission levels for a personal account
-> repository*
-
-Nobody outside those two levels can push to `main`, to `dev`, or to any other branch.
-Making a repository public grants visibility and the right to fork; it grants no write
-access to anyone. A stranger's only route in is **fork → pull request**, and merging
-that pull request is an action *you* take.
-
-**So the goal — “only I can push directly, everyone else must open a PR” — is already
-met today, provided you have no collaborators.** Check that in one place:
-
-> **Settings → Collaborators** — the list should be empty (only you, the owner).
-
-Do not oversell what the ruleset below adds. It buys exactly three things:
-
-1. **Future-proofing.** The day you add a collaborator with write access, they can push
-   straight to `main` — and a push to `main` *publishes a release*. The ruleset is what
-   stops that from being possible before it can happen by surprise.
-2. **Accident-proofing for you.** A ruleset that blocks force-pushes and deletions on
-   `main` protects the release history from a mistyped command of your own, and that is
-   the failure mode you are actually most exposed to as a solo owner.
-3. **A visible contract.** Outside contributors can see that `main` is protected and
-   that PRs are the way in.
-
-It does **not** make the repository more private, and it does **not** close a hole that
-is currently open to the public.
-
-#### The clicks
-
-> **Settings → Rules → Rulesets → New ruleset → New branch ruleset**
-
-| Field | Set it to | Why |
-|---|---|---|
-| **Ruleset Name** | `protect-main` | anything; it is a label |
-| **Enforcement status** | **Active** | `Disabled` creates it without effect |
-| **Bypass list** → *+ Add bypass* | **Repository admin** | **this is the entry that keeps `git push origin dev:main` working for you.** You are the owner, so you hold the admin role |
-| **Target branches** → *Add target* → *Include by pattern* | `main` | not `dev` — see below |
-| ☑ **Restrict deletions** | on | `main` cannot be deleted |
-| ☑ **Block force pushes** | on | release history cannot be rewritten |
-| ☑ **Require a pull request before merging** | on | this is the rule you actually asked for |
-| ↳ **Required approvals** | **0** | see the warning below |
-| ☑ **Require status checks to pass** → *+ Add checks* → `Build and gates` | on, optional | the `ci.yml` job. It only becomes selectable after that job has reported on the repository at least once, which is why PRs to `main` were added to `ci.yml`'s triggers |
-
-Everything else can stay off. In particular **do not create a *tag* ruleset** (the
-`New tag ruleset` button next to the branch one). A tag ruleset matching `v*` is the one
-piece of configuration that *would* break the release pipeline, because pushing
-`refs/tags/v<version>` is the only write it makes to the release side.
-
-**Required approvals must be 0 if you work alone.** GitHub does not let you approve your
-own pull request. Set it to 1 and any PR you open yourself becomes unmergeable through
-the UI — you would be relying on your bypass entry for every single change, which makes
-the rule theatre. With 0, a PR is still *required*; it just does not require a second
-person who does not exist. Raise it to 1 the day a second person does.
-
-#### Should `dev` get a ruleset too? — **No. Recommended against.**
-
-It is tempting for symmetry, and it is the one change that can break the pipeline.
-
-* **What it would break.** After publishing, `release.yml` pushes one commit to `dev`
-  (`chore(release): set <Version> to …`) so the next release starts from a fresh number
-  without you editing anything. A pull-request rule on `dev` blocks that push.
-* **And it cannot be bypassed the obvious way.** `GITHUB_TOKEN` acts as
-  `github-actions[bot]`, which is a *system identity*, not a GitHub App — and the
-  bypass picker offers repository/organization admins, the maintain and write roles,
-  teams, GitHub Apps and Dependabot. `github-actions[bot]` is not among them. GitHub's
-  own position on why is on the record: *“If we enabled GitHub Actions to push to a
-  protected branch then any collaborator in your repo could push any code to any branch
-  they wanted simply by creating a branch and coding the workflow to push to some other
-  branch.”* Getting around it means a dedicated GitHub App token, a deploy key, or a PAT
-  for a bot account — three moving parts and a secret to rotate, bought for a branch
-  that the public cannot push to anyway.
-* **What it would buy.** Nothing today. Non-collaborators cannot push to `dev` either.
-
-So: **protect `main`, leave `dev` open.** If you later add a collaborator and want `dev`
-gated as well, the honest options are (a) accept that the bump lands by hand — the
-workflow tells you the exact two commands and the release itself is unaffected — or
-(b) set up a deploy key or GitHub App for the bump. Do not reach for (b) before there is
-a second person.
-
-#### If the bypass entry does not work, nothing is lost
-
-This is the part worth knowing before you click anything: **after the release rework,
-the pipeline does not need to push to `main` at all.** So even a ruleset with no bypass
-entry whatsoever cannot break a release. The only thing a wrong bypass list can block is
-*your own* `git push origin dev:main`, and a blocked push changes nothing on the server
-— you fix the bypass list and push again.
-
-That also makes the verification trivial, and it should be your first act after
-enabling the ruleset:
-
-```bash
-git push origin dev:main
-```
-
-If it is accepted, the bypass entry works. If it comes back with *“Changes must be made
-through a pull request”*, the bypass entry is not taking effect — fix it before doing
-anything else. There is no state to clean up either way.
-
-#### Where this document is inferring rather than certain
-
-* **Certain** (GitHub Docs): public grants read only; a personal repository has exactly
-  two permission levels, owner and collaborator; the ruleset menu path is
-  *Settings → Rules → Rulesets → New ruleset → New branch ruleset*; the bypass list
-  admits repository admins, organization owners, enterprise owners, the maintain/write
-  roles, teams, GitHub Apps and Dependabot; the rule labels quoted in the table are the
-  documented ones; enforcement is Active or Disabled.
-* **High confidence, not from a single documentation line:** that
-  `github-actions[bot]` cannot be added to a ruleset bypass list. This is GitHub staff's
-  stated position plus consistent community reports, not a sentence in the reference
-  docs. **Verify it by looking:** open the bypass picker and search for “Actions”. If it
-  *is* offered, the recommendation against protecting `dev` softens — but the
-  recommendation for `main` does not change, because `main` needs no bypass for the bot
-  either way.
-* **Not verified against your account:** whether *your* bypass picker shows exactly the
-  entries listed above. GitHub's ruleset UI differs between personal and
-  organization-owned repositories, and this repository is personal. If “Repository
-  admin” is not offered, look for a “Roles” or “Organization admin” grouping; if none of
-  them appear at all, use the classic screen instead
-  (**Settings → Branches → Add branch protection rule**, *Require a pull request before
-  merging*, and leave *Do not allow bypassing the above settings* **unchecked** so that
-  you, as admin, retain the direct push). The classic screen's exact admin-bypass
-  semantics are the part this document is least sure of — which is another reason to
-  prefer the ruleset, where the bypass list is explicit and visible.
-
-### 2.2 Make `dev` the default branch (OPTIONAL, one click)
-
-Only cosmetic — it decides what a visitor and a fresh `git clone` land on, and where a
-new pull request points by default. Nothing in the pipeline depends on it.
-
-> **Settings → Branches → Default branch → ✎ → `dev` → Update**
-
-`main` is left exactly where it is either way. There is no rename, nothing is deleted
-and no history moves.
-
-### 2.3 Release (whenever you want one)
-
-```bash
-git push origin dev:main
-```
-
-That single command fires `release.yml`, which builds, packages, publishes and then
-advances the version number on `dev` for next time. **It is a real release the moment
-you press enter.** There is no undo beyond deleting the release and the tag afterwards.
-
-Before you type it, four things are worth having done:
-
-```bash
-scripts/wire-tests.sh        # the golden vectors (210,000+ assertions) — CI CANNOT run these (see §5)
-scripts/ci-build.sh Release  # sanity: 0 errors and 0 warnings
-scripts/bump-version.sh      # THE number about to be released — it is not bumped for you first
-git log --oneline main..dev  # what is about to go out
-```
-
-**The version that goes out is the one already in the csproj**, not that number plus
-one. `scripts/bump-version.sh` with no argument prints it and changes nothing. The
-workflow reads exactly that, tags it, and only *afterwards* bumps `dev` to the number
-the *next* release will use. So the csproj on `dev` always names the next release, never
-the last one — and if you want the next release to be a minor or a major instead of a
-patch, run `scripts/bump-version.sh --minor` (or `--major`) on `dev` and push that
-before you release.
-
-Afterwards, `dev` is exactly `main` plus one bookkeeping commit. That is expected and is
-what keeps the next `git push origin dev:main` a fast-forward. Nothing needs merging
-back.
-
-**The very first release** was a special case, in two ways, and both are now history —
-`v0.1.0` was tagged on 2026-08-23 and the csproj on `dev` moved to `0.1.1`, exactly as the
-machinery above describes. It is written up here because the same two things apply to any
-repository adopting this pipeline, and because the second one is still live code.
-
-It was **`v0.1.0`** — the number that was sitting in the csproj — because a release publishes
-the committed version rather than bumping past it.
-
-And it had no previous tag: `main` carried over two thousand commits of history and nothing to
-compare against. `scripts/release-notes.sh` handles that deliberately — it does **not** print
-two thousand commit subjects (that would exceed GitHub's 125,000-character release-body limit
-and the API call would fail outright). It says plainly that this is the first release and links
-to the full commit history instead.
-
-Every later release still lists the real commit subjects since the previous tag, capped
-at 100 with an explicit "… and N more" and with `chore(release):` commits filtered out —
-but they sit inside a collapsed `<details>` block labelled as the developers' own change
-log, because **the release body is read by players** and a raw commit subject is not a
-sentence a player can use.
-
-The player-facing "What's new" section comes from **`packaging/release-highlights/<version>.md`**
-if that file exists; its contents are pasted in verbatim. That file is the only place
-player-language release notes can come from — there is no automatic way to derive them
-from commit subjects, and the script does not pretend there is. When the file is absent
-the script says so in the body and prints a reminder on stderr. Write it on `dev` before
-you release; see `packaging/release-highlights/README.md`.
-
-`scripts/release-notes.sh` no longer reads any source file. It used to parse `ModBuild`
-out of `NetProtocol.cs` for a "**Multiplayer:** ModBuild N" line; that number means
-nothing to a player, and dropping it means a refactor of `NetProtocol.cs` can no longer
-silently blank a line in a release body.
-
-One failure mode to be aware of: a workflow runs from the version of itself **at the
-pushed commit**. If you ever push a commit to `main` that predates `.github/workflows/`,
-*nothing happens at all* — no run, no error, no release. Push `dev` (which contains
-the workflows) and this cannot occur.
-
-### 2.4 Regenerate the reference assemblies after a game update (REQUIRED, then)
-
-The runner compiles against stripped stubs of the game's assemblies. A Gloomhaven
-patch changes the signatures those stubs describe.
-
-```bash
-dotnet tool install -g JetBrains.Refasmer.CliTool   # once per machine
-scripts/make-refasm.sh                              # after every game update
-git add libs/RefAsm && git commit -m "chore(refasm): regenerate against game build <x>"
-```
-
-Note the package name: `JetBrains.Refasmer` is the *library* and installs no command;
-the CLI is `JetBrains.Refasmer.CliTool` and its command is `refasmer`.
-
-The script is deterministic — if the game did not actually change, the regeneration
-produces byte-identical files and `git status` stays clean. If you skip this after a
-game update, CI goes red (or, worse, stays green) for a defect that only exists in the
-stubs. Details in `libs/RefAsm/README.md`.
-
-### 2.5 The repository is public — what that changed
-
-**It is public now**, so this is a record rather than a plan.
-
-Nothing broke. One capability appeared: while the repository was **private**, release
-assets required an authenticated download and the planned in-game auto-updater could
-not fetch them. Now
-`https://github.com/<owner>/<repo>/releases/latest/download/GloomhavenVR-<v>.zip`
-is an anonymous download and the updater works. (`release.yml` used to print a notice
-about this on every run; it has been removed, because it described a private
-repository.)
-
-Nothing else changed. In particular, public did **not** grant anyone write access —
-§2.1a spells out what it did and did not do, and what a ruleset adds on top.
-
----
-
-## 3. `ci.yml` — the working branch
-
-Triggers on **push to `dev`**, and on **pull requests to `dev` and to `main`**.
-Concurrency group per ref with `cancel-in-progress: true`: a newer push supersedes an
-older run, because the old run is answering a question nobody is asking any more.
-
-`main` is in the pull-request list on purpose. Once §2.1a's ruleset is in place, a pull
-request is the only way anyone but you gets code into `main`, and a PR against a branch
-this workflow does not list would get **no gates at all, silently**. It is also the job
-you would select under *Require status checks to pass* — a check only becomes
-selectable in that picker after it has reported on the repository at least once.
-
-A pull-request run from a **fork** gets a read-only token and no secrets. Nothing here
-needs either: every gate is a local read of the tree, and the artifact upload is guarded
-to push events.
-
-| Step | What it proves |
+| Component | Source |
 |---|---|
-| `check-refasm.py` | the committed stubs still contain zero method bodies |
-| `build-runtimedeps.sh` | the three shipped Unity XR assemblies still compile |
-| `ci-build.sh Release` | 0 errors and **0** warnings |
-| `check-mirrors.sh` | no mirrored constant was tuned in only one place |
-| `check-frame-order.sh` | no locked per-frame order moved |
-| `patch-inventory.sh check` | no Harmony patch class went unregistered |
-| `check-wire-coverage.py` | wire fields are covered |
-| `check-card-identity-mask.py` | the card FACE question and the card NAMING question are still two predicates (ModBuild 477 item 7 — §5) |
-| `check-mirror-dials.py` | every live config dial a mirror reads carries a recorded verdict saying whose copy it is |
-| `check-enum-arrays.py` | no latch array is sized by a literal that disagrees with the enum indexing it |
-| `check-partial-order.py` | no static field initialiser depends on another part of its own partial type (i.e. on a file NAME) |
-| `check-instrument-writes.py` | no NEW load-bearing write sits inside a `Log*`/`Census*`/`Report*` method |
-| `check-remote-defaults.py` | every frozen remote constant resolves to the same `Defaults` entry as the local bind it mirrors |
-| `check-tune-fields.py` | every board-tuning field id is inside a declared width range, and the sampler ascends |
-| `check-desync-surface.py` | every patch on a network-action receiver carries a recorded verdict |
-| `check-hw-verify.py` | every `// HW-VERIFY` line prints at the DEFAULT log level |
-| `check-options-coverage.py` | every option is reachable and correctly filed in the menu |
-| `check-docs-i18n.py` | the user-facing docs ship in English and German |
-| `check-surface.py` diff vs the PR base | no config key, patch registration or log marker was REMOVED (pull requests only — a push has no base to diff against) |
-| `rebase-defaults.py check` | config defaults have not drifted — **skipped on a runner with a notice**: its input is a tester's cfg drop in gitignored `.planning/debug/default/` |
-| `check-bundle-format.sh` | the committed bundle is still UnityFS format 7 / 2021.3.5f1 |
-| wire tests **compile** | no wire file was moved or renamed (the vectors do not run — §5) |
+| Plugin and preloader | Source in `src/`; the plugin compiles against committed metadata-only `libs/RefAsm` when no game install is available |
+| Unity XR managed dependencies | `scripts/build-runtimedeps.sh`, from pinned package-source tags |
+| OpenXR native libraries | `scripts/fetch-natives.sh`, with pinned SHA256 hashes |
+| Asset bundle | Committed `prebuilt/gloomhavenvr.bundle`; local packaging prefers a freshly built bundle when present |
+| Installation instructions | `packaging/INSTALL.txt.in` and `packaging/INSTALL.de.txt.in` |
+| License texts and notices | Root GPL `LICENSE`, `packaging/THIRD-PARTY.txt` and pinned XR dependency notices under `Licenses/` in the archive |
 
-It also uploads `GloomhavenVR.dll` + `GloomhavenVR.Preload.dll` as a 14-day workflow
-artifact on pushes. It costs ~6 MB per push instead of the ~71 MB a full zip would cost,
-and for a DLL-only build it is the whole useful payload for a hardware test.
+The archive layout is documented in [DEVELOPING.md](DEVELOPING.md#packaging-a-release).
+A full release includes the asset bundle. A CI artifact contains only the plugin and
+preloader DLLs: it can update an existing compatible install, but cannot establish one.
+Check the bundle history before calling an update DLL-only. Build 483 changed the bundle;
+older installs need the full package even when a later build changes only code.
 
-**It is not sufficient for every build.** The artifact carries no bundle, so a build that
-rebuilt `prebuilt/gloomhavenvr.bundle` cannot be tested from it — the tester needs a full
-zip. `git log --oneline -1 -- prebuilt/gloomhavenvr.bundle` tells you which kind of build
-you have; say which one when you hand a build over.
+The auto-updater validates the archive layout in `Core/SelfUpdate/SelfUpdateZip.cs`.
+A new top-level archive file requires an explicit change to that accept-list as well as
+both packaging paths. Validate the update path when changing the package.
 
-### The warning gate
+## 1. Branches and SDK
 
-**The ratchet reached zero and stayed there.** `Directory.Build.props` sets
-`<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` (since 2026-08-27), so the compiler
-itself now stops a new warning before `ci-build.sh` gets a chance to count one.
+| Event | Workflow | Result |
+|---|---|---|
+| Push to `dev` | `.github/workflows/ci.yml` | Build and gates; DLL artifact; no release, tag or version bump |
+| Pull request to `dev` or `main` | `ci.yml` | Build and gates, including a surface comparison against the PR base |
+| Push to `main` | `.github/workflows/release.yml` | Build, package, tag and publish; then advance the next version on `dev` |
 
-`scripts/ci-build.sh` still asserts the count, as a second line that survives someone
-switching the property off: `EXPECT_WARNINGS=0`, with `EXPECT_CODES` and `EXPECT_FILES`
-**deliberately empty** — meaning any warning of any kind in any file fails the gate. That
-is the strongest form the gate has ever had, and it only became possible once the count
-was zero.
+**Every release comes from `main`.** Integrate work into `dev`, then fast-forward `main`
+to the reviewed `dev` commit when a release is authorized. A push to `main` starts the
+real release pipeline; it is not a dry run or a branch-protection test.
 
-It deliberately does **not** check line numbers: those move whenever the surrounding code
-is edited, and a gate that cries wolf gets switched off.
+`release.yml` refuses a commit not contained in `dev`. It never commits to `main`:
+its only Git writes are the release tag and the subsequent version bump on `dev`.
+This preserves the next fast-forward. An older design bumped on `main` and made the
+second release a non-fast-forward; `scripts/release-sim.sh --old` preserves that failure.
 
-If a warning is ever accepted again, put its code and its file back into `EXPECT_CODES` /
-`EXPECT_FILES` rather than only raising the count — a bare count accepts a *different*
-warning in a different file just as happily.
+`global.json` prefers stable .NET SDK 8.0.4xx and permits a later SDK family when absent.
+Both workflows install .NET 8 and verify that 8.0.4xx was selected. Local .NET 10-only
+installations are supported by the major roll-forward policy introduced in build 496.
+The game plugin still targets net472; the SDK version is not the game's runtime version.
 
----
+## 2. Maintainer steps
 
-## 4. `release.yml` — the release branch
+### 2.1 Repository permissions and branch rules
 
-Triggers on **push to `main`**. Concurrency group `release-main` with
-**`cancel-in-progress: false`**: releases queue, they never cancel each other, because
-a half-published release is worse than a slow one.
+The release job declares `contents: write` for its `GITHUB_TOKEN`. Repository or
+organization policy must allow it to push `v*` tags, create releases and push the
+bookkeeping commit to `dev`. The maintainer must be able to fast-forward `main`.
+Review the actual repository rules before release; this file does not attest that any
+particular ruleset, visibility setting or account permission is enabled.
 
-**The refs it writes are `refs/tags/v<version>` and `refs/heads/dev`. That is the whole
-list.** It writes no commit to `main` — see §1 for why that matters and what it cost to
-learn.
+A rule that blocks the post-release push to `dev` leaves the release published but the
+next version unadvanced. The workflow prints recovery commands. A rule that blocks the
+tag prevents publication. The workflow needs no permission to push commits to `main`.
 
-Order of operations, and why it is that order:
+The repository's default branch does not change these triggers. Contributions belong
+on `dev`; a push or merge to `main` is a release action.
 
-1. **Read the version and refuse early.** `scripts/bump-version.sh` with no argument
-   *prints* `<Version>` from `src/GloomhavenVR/GloomhavenVR.csproj` and changes nothing.
-   That number is the release. Before anything is built, the workflow refuses if:
-   * `v<version>` already exists (that version has been released), or
-   * the commit being released is **not contained in `origin/dev`** — releasing it would
-     leave `main` ahead of `dev` and break the fast-forward invariant, or
-   * the working tree is not clean.
+### 2.2 Review the exact candidate
 
-   All three are cheap, so the cost of being told is thirty seconds and not a wasted
-   fifteen-minute run.
-2. **Build with `GhvrReleaseBuild=true`**, set as a **job-level environment variable**.
-   It has to be the environment and not `-p:` on one command, because
-   `package-release.sh` runs its own `dotnet build` internally and a `-p:` would not
-   reach it. MSBuild reads environment variables as properties, so it does.
-   This is what makes `BuildInfo.IsDevBuild` false; every other build in the project is
-   a dev build and shows the short commit hash in-game.
-
-   The build is stamped from a **clean tree at the exact commit being tagged**, which is
-   simply the checkout as `actions/checkout` produced it. The old design had to
-   bump-commit *before* building to achieve that; this design gets it for free and
-   asserts it (step 1, and again after packaging) rather than assuming it. A release
-   stamped `…-dirty` is a bug report waiting to happen.
-3. **The gates — and this is NOT the same set `ci.yml` runs.** Verified at ModBuild 483
-   (2026-09-08) by diffing the two workflows: `release.yml` runs `check-refasm.py`,
-   `build-runtimedeps.sh`, `fetch-natives.sh` (which `ci.yml` does not), `ci-build.sh`,
-   `check-mirrors.sh`, `check-frame-order.sh`, `patch-inventory.sh check`,
-   `check-wire-coverage.py`, `check-card-identity-mask.py`, `check-mirror-dials.py`,
-   `check-enum-arrays.py`, `rebase-defaults.py` (skipped with a notice, same as CI),
-   `check-bundle-format.sh`, and the wire-test **compile**.
-
-   It does **not** run the eight the 2026-09 tooling review wired into `ci.yml` only:
-   `check-partial-order.py`, `check-instrument-writes.py`, `check-remote-defaults.py`,
-   `check-tune-fields.py`, `check-desync-surface.py`, `check-hw-verify.py`,
-   `check-options-coverage.py`, `check-docs-i18n.py` — nor the `check-surface.py` diff,
-   which is a pull-request-only step and has no base to diff against on a release push.
-
-   **So the release path is the weaker of the two, not the stricter one.** In practice the
-   commit being released has already passed `ci.yml` on `dev`, which is what covers the gap —
-   but the surface diff is skipped even there on a straight push. Until `release.yml` catches
-   up, run `scripts/refactor-guard.sh check` locally before `dev:main`; it is the only place
-   all seventeen run together.
-4. **`package-release.sh`**, then an explicit assertion that
-   `dist/GloomhavenVR-<version>.zip` exists under that exact name, that the asset bundle
-   is inside it, and that the build did not dirty a tracked file behind our back.
-5. **Push the tag, then create the release.** In that order, so a rejected tag push
-   leaves no release and no orphan; `gh release create --verify-tag` refuses to invent a
-   tag that is not there.
-6. **Bump `<Version>` on `dev`** — *after* the release is live, because it is
-   bookkeeping and not part of the release. This is where the bump commit lives now.
-
-### The hazards
-
-**Infinite loop — structurally impossible now.** The workflow triggers on `main` and
-writes only to tags and to `dev`; `dev` runs `ci.yml`, which publishes nothing and
-pushes nothing. There is no cycle to break.
-
-The old `[skip ci]` marker on the bump commit is **deliberately gone**, and that is a
-reversal worth recording. It was the belt to `GITHUB_TOKEN`'s braces when the bump went
-onto `main`. Now the bump goes onto `dev`, where that commit will one day be the HEAD
-commit of a `git push origin dev:main` — releasing twice with no work in between does
-exactly that. GitHub honours `[skip ci]` on the head commit of a push, so the marker
-would have **silently suppressed a real release**: no run, no error, no annotation. A
-safety net that turns into a trap gets removed.
-
-**Tag / version disagreement.** The version is read exactly once, from the csproj, and
-never written during a release. Everything downstream reads the same line:
-`package-release.sh` names the zip with the same `sed` expression, the tag is
-`v$VERSION`, the release title is `$VERSION`, and the DLL is compiled from the very
-commit the tag points at — which is `github.sha`, which is what `main` points at. The
-workflow then asserts the zip exists under the expected name before publishing anything.
-There is no second place a version could come from.
-
-**Two releases fired close together.** The concurrency group serialises the runs; the
-second does not cancel the first, because a half-published release is worse than a slow
-one. The second run then reads the *same* `<Version>` — the first run's bump commit is
-on `dev`, not on the commit the second run is building — sees that the tag already
-exists, and **refuses before building anything**. The remedy is the ordinary release
-command: `git push origin dev:main` again, which now carries the bump. Nothing is
-half-published in between. `scripts/release-sim.sh --race` walks through exactly this.
-
-**`main` rewritten mid-release.** `main` moving *forward* while a release builds is
-harmless — the tag names the commit that was actually built and tested. `main` moving
-*away* from it (a force-push backwards) is not, so the workflow re-checks containment
-just before pushing the tag and refuses if the commit is no longer on `main`.
-
-### Proving it without GitHub
-
-`scripts/release-sim.sh` reproduces the branch topology offline in a scratch repository,
-using the real `scripts/bump-version.sh`:
+Before editing, create a local compiled-form baseline if one is not already available:
 
 ```bash
-scripts/release-sim.sh --old      # the previous design: wedges at release 2
-scripts/release-sim.sh            # the current design: 3 releases, all fast-forward
-scripts/release-sim.sh --race     # two pushes in quick succession
+bash scripts/refactor-guard.sh baseline
 ```
 
-The build and the GitHub API are not simulated — neither of them touches a ref, and the
-defect this exists to catch was purely topological.
+After integration, run the complete local gates with the real game references available:
 
----
+```bash
+bash scripts/refactor-guard.sh check --summary
+bash scripts/ci-build.sh Release
+python3 scripts/check-docs-i18n.py
+bash scripts/bump-version.sh
+git log --oneline origin/main..dev
+```
 
-## 5. What CI cannot check, and why
+The guard includes the full wire suite. It exits 1 for a compiled-form difference,
+which is normal after code changes: inspect the verdict and account for every change.
+A build must have zero errors and warnings. Record assertion counts and hardware evidence
+in the round notes. CI success does not establish headset appearance or four-player scaling.
 
-### The wire vectors do not run. This one matters.
+When a tester configuration is available, also run
+`python3 scripts/rebase-defaults.py check`. It requires the gitignored
+`.planning/debug/default/` drop; a missing drop is not a successful comparison. Preserve
+explicitly pinned user defaults and investigate unresolved entries rather than overwriting
+saved tuning wholesale.
 
-`scripts/wire-tests.sh` drives over 200,000 byte-exact assertions over the multiplayer
-wire format — the suite prints the exact count as it runs, and it grows with every wire
-change, so no figure is frozen here. It **cannot run on a hosted runner**, and no amount of work in this lane
-changes that:
+### 2.3 Release when authorized
 
-* `tests/GloomhavenVR.WireTests` references `UnityEngine.CoreModule.dll` with
-  `Private="true"` — it **loads and executes** it. That is on purpose: the vectors
-  depend on `Mathf.RoundToInt`'s banker's rounding (`RoundToInt(0.5f) == 0`,
-  `RoundToInt(1.5f) == 2`), which sits directly on the quantization path, and the
-  project's own comment records that a hand-written shim was rejected for exactly that
-  reason.
-* A reference assembly cannot be executed. The CLR refuses it:
-  `BadImageFormatException: Cannot load a reference assembly for execution`. Verified
-  against `libs/RefAsm/UnityEngine.CoreModule.dll`.
-* The NuGet `UnityEngine.Modules 2021.3.5` package does not help — its
-  `UnityEngine.CoreModule.dll` is itself a stub, and calling `Mathf.RoundToInt` through
-  it throws `NullReferenceException`. Verified, not assumed.
-* Shipping the real `UnityEngine.CoreModule.dll` is out of the question: it is the
-  publisher's binary and the repository is public.
+Set the intended version on `dev` before release. `scripts/bump-version.sh` without
+arguments only prints it; `--major`, `--minor` and `--patch` change it. Prepare the
+bilingual player summary in `packaging/release-highlights/<version>.md`, commit and
+push the candidate to `dev`, and review its CI result and local gates.
 
-**What CI does instead:** it *compiles* the wire test project. That still catches the
-failure its `<Compile Include>` list was written to catch — a wire file moved, renamed
-or split. It does not catch a changed byte, and it does not pretend to. Both workflows
-emit an explicit notice/warning annotation saying so, and `release.yml`'s is a
-`::warning::` on purpose.
+Then fast-forward the release branch:
 
-**So: run `scripts/wire-tests.sh` locally before pushing to `main`.** It is the one
-gate a release genuinely cannot self-serve.
+```bash
+git push origin dev:main
+```
 
-#### One of those tests was not a wire test at all, and it cost the repository a guard
+**This publishes the version already committed in the csproj.** It does not increment
+that version first. Follow the Release run through publication and the `dev` bump;
+verify the tag names the tested `main` commit and the expected archive is attached.
+Do not create a release from a worker branch or directly from a `dev` artifact.
 
-`tests/GloomhavenVR.WireTests` also carries **source lints** — files that read `.cs`
-text and assert a rule about it. They touch no Unity type and would run on any runner.
-They were nevertheless compile-only, for years, because they share an executable with
-the golden vectors: **blocked purely by co-location.**
+### 2.4 After a game update
 
-Review R1 of 2026-09-07 (finding F2) found that this had silently disarmed the only
-guard against the ModBuild 477 card-identity leak returning.
-`CardIdentityMaskVectors.cs` pins four rules keeping "may a peer **see** this card's
-face" and "may a prompt **name** this card in words" as two separate predicates —
-folding them is a one-line change that every other gate in the repository passes, and
-its symptom is a peer being told which card a short rest singled out, inside the game's
-own secret window. R1 ran its three regexes by hand: green, and enforced by nothing.
+Regenerate the metadata-only reference assemblies using `scripts/make-refasm.sh` against
+the new game install, then run `scripts/check-refasm.py`, build and test locally.
+See [libs/RefAsm/README.md](../libs/RefAsm/README.md) for the procedure. Commit only the
+metadata stubs, never the game's executable assemblies or decompiled sources.
 
-`scripts/check-card-identity-mask.py` is that lint as a standalone checker. It runs in
-`ci.yml`, in `release.yml` and in `refactor-guard.sh check`. **The C# file was
-deliberately not moved or edited** — it stays as the belt-and-braces local run, and the
-two are meant to agree; where the Python one is stricter (it blanks string literals as
-well as comments) its own header says so and why.
+### 2.5 Public downloads and the updater
 
-**The rule this leaves behind:** a source lint added to the wire-test project is a lint
-that will never run in CI. Put it in `scripts/` instead, or add a standalone twin like
-this one and say in both files that they are twins.
+The in-game updater uses the public release endpoint without a repository credential.
+A private repository cannot serve that path to an ordinary player. Making the project
+public and testing an actual release download are separate maintainer actions; source
+checks and a successful build do not prove that the public endpoint is reachable.
 
-### Everything else that CI cannot see
+## 3. Verification coverage
 
-* **Anything requiring a headset.** The mod's real failure modes — stereo rivalry,
-  aliasing, a window drawn behind its host, a figure culled one eye first — are seen by
-  eye, one photograph per round. No pipeline replaces that.
-* **The asset bundle's contents.** `check-bundle-format.sh` reads the 30-byte UnityFS
-  header and nothing else. It proves the runtime can open the archive; it proves
-  nothing about the meshes and shaders inside. Rebuilding the bundle needs
-  `/home/claw/unity-2021.3.5` — the game-exact editor — and is a local step.
-* **Whether the reference assemblies are current.** CI proves they are stubs, never
-  that they match the installed game. Only §2.4 does that.
-* **The RuntimeDeps provenance.** The runner rebuilds the *provisional* set from
-  package source. If the editor-harvested set (`unity/HARVESTING.md`) is ever adopted,
-  a release built here would silently ship the provisional set instead — the harvested
-  DLLs are gitignored and the runner has no way to obtain them. `versions.json` inside
-  the zip records which set was used, so the fact is at least visible. Revisit this
-  before the first harvested set is put into service.
+Both workflows run the same source checks, strict build, reference-assembly validation,
+bundle-format check, bilingual-docs check and standalone native presentation harnesses.
+The surface diff runs only for pull requests, because it needs a base commit. Locally,
+`refactor-guard.sh` compares against the stored baseline even without a PR.
 
----
+The shared source checks cover mirrored constants, frame order, patch inventory, wire
+coverage, identity secrecy, remote dial ownership, enum array sizes, partial initializer
+order, instrument writes, remote defaults, tuning IDs, network-action receivers,
+hardware-verification logging and option reachability. The workflow files list the
+commands explicitly. The former eight-check gap in the release workflow is closed.
+
+The card-capture, native-playback and board-refresh harnesses execute production source
+with controlled Unity API substitutes and deliberate failing variants. These run on
+hosted CI as well as through the local wire-test driver. The local driver also checks
+presentation-send reuse. Their coverage does not replace the full wire vectors or a
+headset test.
+
+## 4. Release order and recovery
+
+`release.yml` performs these steps in order:
+
+1. Read `<Version>`, reject an existing tag, require a clean tree and containment in `dev`.
+2. Build and verify with job-level `GhvrReleaseBuild=true`, including builds inside packaging.
+3. Package and require the exact versioned archive, the asset bundle and an unchanged tracked tree.
+4. Render release notes; recheck that the tag is absent and `main` still contains the candidate.
+5. Push the tag at the candidate commit, then create the release with `--verify-tag` and the archive.
+6. Fetch current `dev` and bump its patch version if it still equals the released version.
+   Retry a rejected push up to three times; preserve any manually advanced version.
+
+Release runs are serialized and not cancelled by a newer push. CI runs may supersede
+older CI runs. The release version bump carries no `[skip ci]`: such a marker could
+later suppress a real release when that commit is pushed to `main`.
+
+Release notes use an optional version-specific highlights file and a collapsed, capped
+commit list. See [the highlights guide](../packaging/release-highlights/README.md).
+
+Test the branch topology without publishing:
+
+```bash
+bash scripts/release-sim.sh --old
+bash scripts/release-sim.sh
+bash scripts/release-sim.sh --race
+```
+
+This simulates Git topology and version bumps, not the hosted build, GitHub API or updater.
+
+| Failure | Recovery |
+|---|---|
+| Non-fast-forward when publishing `dev:main` | Fetch and integrate the missing `main` history into `dev`; re-run review and gates. Never force-push. |
+| Branch or tag rule rejects a push | Review the actual repository rule and required actor permissions; do not use a real release push as a speculative test. |
+| Existing version tag | Check whether the release already completed and whether the next-version bump landed. Do not overwrite or delete a published tag. |
+| Candidate not contained in `dev` | Integrate that history into `dev` before releasing. |
+| Tag exists but release creation failed | Inspect the failed run; recover the release using the already-tested tag and matching archive. Do not retag a different commit. |
+| Release published, next-version bump failed | Update `dev` to the next intended version and commit/push it. Do not rerun publication. |
+| Hundreds of missing game members at compile time | Check game/reference-assembly versions; regenerate stubs as in §2.4. |
+| Archive rejected by updater | Check the public endpoint, expected archive name and `SelfUpdateZip` layout rules. |
+| No release run after a `main` push | Check workflow presence, repository Actions settings and a `[skip ci]` marker in the pushed commit. |
+
+## 5. What automation cannot establish
+
+### Full wire vectors require the real Unity assembly
+
+`tests/GloomhavenVR.WireTests` executes the game's `UnityEngine.CoreModule.dll` because
+quantization depends on `Mathf.RoundToInt` behavior. Metadata-only references cannot run,
+and replacing that implementation with a test shim would change the behavior under test.
+The real game DLL cannot be redistributed to hosted runners.
+
+Both workflows therefore **compile** this project and explicitly announce that its
+byte-level assertions were not executed. Run `scripts/wire-tests.sh` locally before a
+release; it reports the current assertion count. The local umbrella guard already calls it.
+
+Pure source checks should live in `scripts/`, or have a standalone twin there, so CI
+can execute them. `check-card-identity-mask.py` and `CardIdentityMaskVectors.cs` are such
+a pair; keep their rules aligned.
+
+### Other limits
+
+- **Headset behavior:** stereo rendering, pointer interaction, local/remote animation parity,
+  native materials, actual frame times and full-party scaling need hardware evidence.
+- **Bundle content:** the format checker validates the UnityFS wrapper and editor version,
+  not every mesh or shader. Rebuilding requires Unity 2021.3.5f1 and the appropriate asset
+  generator before packing; see [DEVELOPING.md](DEVELOPING.md#asset-bundle).
+- **Reference freshness:** CI proves the committed assemblies contain metadata, not that
+  they match the user's current game install.
+- **RuntimeDeps provenance:** hosted builds compile the provisional package-source set.
+  An editor-harvested set would require an explicit distribution change; gitignored local
+  DLLs do not reach a runner. `versions.json` records the packaged provenance.
+- **Updates:** public availability, download, staged replacement, relaunch and recovery must
+  be exercised on Windows with an actual release candidate.
 
 ## 6. Versions
 
-`<Version>` in `src/GloomhavenVR/GloomhavenVR.csproj` is the single source of truth,
-`MAJOR.MINOR.PATCH`. Read it rather than trusting a number written here; at the time of
-writing it is `0.1.1`, and `v0.1.0` is the one tag that exists.
+`src/GloomhavenVR/GloomhavenVR.csproj` owns `MAJOR.MINOR.PATCH`. `dev` names the next intended
+release; after publication the workflow advances its patch component. Dev builds append
+the commit identifier and release builds omit the dev marker through `GhvrReleaseBuild`.
+Read the source and tags for current values instead of maintaining a second version here.
 
-* **The number on `dev` is the version the NEXT release will carry**, not the one that
-  was last released. A release publishes what the csproj already says and then advances
-  it — which is why `v0.1.0` was released and `dev` moved to `0.1.1` the same minute.
-  (This is a change: the previous design bumped first and released `current + 1`.)
-* **A release** advances the patch component automatically, on `dev`, after publishing:
-  `0.1.0 → 0.1.1 → 0.1.2`. For a minor or a major, run
-  `scripts/bump-version.sh --minor` / `--major` on `dev` and push it *before* releasing
-  — that number is then the one that goes out. The workflow leaves the csproj alone if
-  it finds a number other than the one it just released, so a hand-set version is never
-  overwritten.
-* **A dev build** keeps the number and appends the short commit hash. The `BuildInfo`
-  contract carries `Version`, `Commit`, `IsDevBuild` and a `Display` string, and the
-  mod shows it in-game — so a screenshot from a test session identifies the exact
-  build it came from.
-* **`NetProtocol.ModBuild` is a different number and stays manual.** It is the
-  multiplayer wire-compat counter; two peers with different ModBuilds cannot play
-  together. Do not couple it to the release version.
+`NetProtocol.ModBuild` is independent: it is the manual multiplayer compatibility counter.
+Increment it for each build handed to another player and record the changes beside it.
+Mismatched builds are blocked even when their semantic version matches.
 
----
+## 7. Agent workflow
 
-## 7. When it breaks
+Follow [AGENTS.md](../AGENTS.md) for integration, authorization and file ownership, then
+[CLAUDE.md](../CLAUDE.md) for technical contracts and the latest
+[STATE.md](../.planning/STATE.md) for outstanding validation. Agent-specific tooling does
+not replace Git permissions or the release checks above. Never put credentials in tracked
+files or treat local shell hooks as a security boundary.
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `git push origin dev:main` rejected, `non-fast-forward` | `main` carries a commit `dev` does not have — somebody (or something) wrote to `main` directly | get that commit onto `dev` (`git cherry-pick` / `git merge`), then push again. Nothing but `dev:main` may ever write to `main` — §1 |
-| `git push origin dev:main` rejected, *“Changes must be made through a pull request”* | the §2.1a ruleset is active and your bypass entry is not taking effect | add **Repository admin** to the ruleset's bypass list. Nothing was published and nothing needs cleaning up |
-| Push to `main` did nothing at all | the pushed commit predates `.github/workflows/`, **or** its subject contains `[skip ci]` | push `dev` (which has the workflows) into `main`, not an old commit. No commit this pipeline creates carries `[skip ci]` any more — §4 |
-| `remote: Permission to … denied to github-actions[bot]` (403) | repository workflow permissions are read-only, **or** a ruleset on `dev` is blocking the post-release bump. It is *not* `main`: the workflow pushes no commit there | §2.1 for the permissions toggle; §2.1a for why `dev` should not be protected. The release itself is unaffected either way — only the version bump is, and the workflow prints the two commands that fix it by hand |
-| `Release published, version bump FAILED` | as above — the bump could not reach `dev` | the release is complete and correct. Run `scripts/bump-version.sh --patch` on `dev`, commit, push. Skip it and the *next* release fails with `Tag vX.Y.Z already exists` |
-| `The commit being released is not contained in origin/dev` | something was pushed to `main` that is not on `dev` | nothing was built. Get it onto `dev` first — this refusal is what keeps `dev:main` a fast-forward forever |
-| `Tag vX.Y.Z already exists` | that version has been released — usually two releases fired close together, so the second one is building a commit that predates the first one's bump | `git push origin dev:main` again; `dev` now carries the bump. If it really is a re-push of an old commit, set `<Version>` past it on `dev` |
-| `main no longer contains <sha>` | `main` was force-pushed backwards mid-release | nothing was published. Sort `main` out, then release again |
-| Build fails with hundreds of `CS0117` / `CS1061` | `libs/RefAsm` is stale after a game update | §2.4 |
-| `error: N warning(s), expected exactly 0` | a new warning — normally the compiler stops it first, so seeing this means `TreatWarningsAsErrors` was switched off | fix the warning. Raising `EXPECT_WARNINGS` in `scripts/ci-build.sh` gives the ratchet away |
-| `check-refasm.py` says a file has IL bodies | a real game DLL was committed into `libs/RefAsm` | `git rm` it and re-run `scripts/make-refasm.sh` — never commit game DLLs |
-| `Dirty tree at checkout` | a tracked file differs from the commit being released | should be impossible on a runner; read the file list the step prints |
-| Tag exists but no GitHub Release | `gh release create` failed after the tag push | re-run `gh release create v<x> dist/…zip …` locally, or delete the tag and release again |
-| Release asset 404s for the auto-updater | was the private-repository symptom; the repository is public now, so look for a wrong URL or a missing asset instead | §2.5 |
-
-Nothing in this pipeline is destructive to the repository. It creates tags and one
-bookkeeping commit on `dev`; it deletes nothing, rewrites nothing, and writes no commit
-to `main`. The worst failure leaves an unpublished build and a red run.
-
----
-
-## 8. Giving an agent `gh`, safely
-
-The owner asked for this before authenticating `gh` on a machine an agent drives:
-*only I push directly, and nothing gets deleted by accident.* Two controls, at two
-different layers.
-
-### 8.1 The token scope — the control that cannot be worked around
-
-Deleting a repository through the API requires the **`delete_repo`** scope, which is
-**separate** from `repo` and off unless you tick it.
-
-- **Classic token:** tick `repo`, `read:org`, `workflow`. **Leave `delete_repo`
-  unticked.** `gh auth login` through a browser requests exactly those three and never
-  asks for `delete_repo`.
-- **Fine-grained token:** `Contents: Read and write`, `Metadata: Read`, and
-  `Administration: Read and write` only if an agent is to create the branch ruleset for
-  you. Fine-grained tokens have no repository-deletion permission at all.
-
-With that token, a repository-delete call fails at GitHub with a 403 no matter what
-runs it. **This is the guarantee. Everything below is defence in depth.**
-
-What the scope does *not* cover: `repo` still permits removing releases, tags,
-branches, secrets and workflow runs. That is what the hook is for.
-
-### 8.2 The Claude Code hook — the accident guard
-
-`.claude/settings.json` installs a `PreToolUse` hook on the Bash tool,
-`.claude/hooks/guard-destructive.py`. It reads every command before it runs and exits
-2 — which blocks the call and hands the reason back to the model — for:
-
-| refused | examples |
-|---|---|
-| any `gh` argument that is a destructive verb | delete, delete-asset, remove, archive, unarchive, transfer, rename, purge, logout |
-| hiding a public repository | `gh repo edit --visibility …` |
-| the API escape hatch | `gh api -X DELETE …`, `gh api graphql` |
-| remote-destructive git | `git push --force`, `--force-with-lease`, `--delete`, `--mirror`, `--prune`, a colon refspec, a leading `+` refspec |
-
-It scans the **whole** command string, so a call hidden after `;`, `&&`, `|`, a
-newline or inside a command substitution is caught — those four were holes in the first
-draft and are now regression tests. A here-document fed to a shell is judged as the
-script it is; one fed to `git commit -F -` or `cat` is treated as data, because a
-commit message may legitimately describe the very commands this guard refuses. It
-**fails closed**: a command that mentions `gh` or `git` and cannot be parsed is
-refused, not guessed at.
-
-Ordinary work is untouched: `git push origin dev:main`, `gh release create`,
-`gh pr create`, `gh api` with GET/POST/PUT/PATCH (branch protection is created with
-`PUT`), and every local git operation including `reset --hard` and `branch -D`.
-
-```
-python3 .claude/hooks/test-guard-destructive.py
-```
-
-68 cases — 40 refusals, 27 allowances, and one unparsable command proving it fails
-closed (the script prints the tally; take it from there rather than from here). **Run it after editing the guard.** The three files are tracked in git on
-purpose (`.gitignore` re-includes them) so a fresh clone gets the guard; the rest of
-`.claude/` stays ignored.
-
-### 8.3 The honest limit
-
-The hook inspects the command string the Bash tool is given. A `gh` call inside a
-script file would reach the tool as `bash deploy.sh` and the hook would not see it.
-That is why §8.1 is written first and is not optional: **the token scope is the control
-that holds regardless of what the tool sees.** The hook's job is to make a slip
-impossible, not to contain an adversary.
+The retained [Claude Code settings](../.claude/settings.json) and shell guard are optional
+legacy-client tooling. They do not run as Codex permission enforcement. Their regression
+check is `python3 .claude/hooks/test-guard-destructive.py`.

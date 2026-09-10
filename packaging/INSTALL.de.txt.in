@@ -11,7 +11,7 @@ Dieselbe Anleitung MIT BILDERN, dazu die Steuerung und alle Einstellungen:
 
 
 DU BRAUCHST
-  * Gloomhaven (digital) für den PC, v1.1.x — Steam oder GOG.
+  * Gloomhaven (digital) für den PC — Steam oder GOG; getestet mit 1.1.8307.0.
   * Windows und ein PC-VR-Headset. Entwickelt und getestet auf einer
     Quest 3 über Virtual Desktop; Quest Link, Steam Link und SteamVR
     sollten gehen, sind aber nicht getestet.
@@ -55,13 +55,13 @@ Alles andere steckt schon in diesem Zip.
 4. DAS SPIEL STARTEN
    Setz das Headset auf und starte Gloomhaven so wie immer.
 
-   BEIM ERSTEN START NACH DEM INSTALLIEREN ODER UPDATEN SCHLIESST SICH DAS
-   SPIEL EINMAL UND GEHT VON SELBST WIEDER AUF. Das soll so sein, es ist
-   kein Absturz.
+   DAS SPIEL KANN EINMAL VON SELBST NEU STARTEN, wenn die Mod ihre
+   Rendering-Einstellungen aktiviert. Das ist normal, meist bei der ersten
+   Installation; es passiert nicht bei jedem Update.
 
    Deine Spielstände und deine Einstellungen bleiben unangetastet.
 
-   Die Mod schreibt genau EINE Spieldatei: GH_Data\boot.config. Das
+   Die Mod ändert Rendering-Einstellungen in GH_Data\boot.config. Das
    Original liegt als boot.config.gloomhavenvr-backup daneben. Falls das
    Spiel irgendwann gar nicht mehr startet, kopier dieses Backup zurück
    über boot.config.
@@ -74,16 +74,15 @@ EINSTELLUNGEN
   Du kannst alles direkt im Headset einstellen. Öffne das Optionen-Fenster
   des Spiels und geh auf den Reiter VR Optionen.
 
-  Wenn du das Spiel eine Weile völlig unverändert spielen willst, setz
+  Um die VR-Mod zu deaktivieren, setz
   unter [General] in BepInEx\config\dev.gloomhavenvr.cfg Enabled = false.
   Du musst dafür nichts deinstallieren.
 
 
 MIT ANDEREN ZUSAMMEN SPIELEN
-  Alle, die zusammen spielen, brauchen dieselbe Version der Mod. Haben zwei
-  Leute unterschiedliche, sagt das Spiel das, statt die Sitzung still
-  schiefgehen zu lassen. Wer die Mod gar nicht hat, spielt trotzdem ganz
-  normal mit.
+  Alle VR-Spieler brauchen denselben Mod-Build. Ein Dialog blockiert
+  unterschiedliche Builds. Spieler ohne Mod können am flachen Bildschirm
+  mitspielen.
 
 
 WENN ETWAS SCHIEFGEHT
@@ -93,4 +92,6 @@ WENN ETWAS SCHIEFGEHT
   Etwas anderes: schick die ganze Datei
     BepInEx\LogOutput.log
   sag, was du gerade gemacht hast, und sag, welches Headset du benutzt und
-  wie du es anschließt.
+  wie du es anschließt. Bewahre das Log des betroffenen Durchlaufs auf.
+  Bei einem reproduzierbaren Problem setz [General] LogLevel = Debug und
+  wiederhole es für ein genaueres Log.

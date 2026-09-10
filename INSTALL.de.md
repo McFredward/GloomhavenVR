@@ -14,7 +14,7 @@
 
 | | |
 |---|---|
-| **Spiel** | Gloomhaven (digital) für den PC, v1.1.x — Steam oder GOG |
+| **Spiel** | Gloomhaven (digital) für den PC — Steam oder GOG; getestet mit 1.1.8307.0 |
 | **PC** | Windows, ein PC-VR-Headset, zwei getrackte Controller mit Thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — Schritt 1 installiert ihn, einmalig |
 
@@ -69,12 +69,12 @@ Stell sie in der App ein, mit der du streamst:
 
 Setz das Headset auf und starte Gloomhaven wie immer. Du solltest am Tisch stehen.
 
-> **Beim ersten Start nach dem Installieren oder Updaten schließt sich das Spiel einmal und geht von
-> selbst wieder auf.** Das soll so sein, es ist kein Absturz.
+> **Wenn die Mod ihre Rendering-Einstellungen aktiviert, kann das Spiel einmal von selbst neu starten.**
+> Das ist normal, meist bei der ersten Installation; es passiert nicht bei jedem Update.
 
 Deine Spielstände, deine Kampagne und deine Einstellungen bleiben unangetastet.
 
-Die Mod schreibt genau eine Spieldatei, `GH_Data/boot.config`, und legt das Original als
+Die Mod ändert Rendering-Einstellungen in `GH_Data/boot.config` und legt das Original als
 `boot.config.gloomhavenvr-backup` daneben. Falls das Spiel irgendwann gar nicht mehr startet, kopier
 es zurück über `boot.config`.
 
@@ -93,11 +93,12 @@ du im Update-Fenster **Ignorieren** oder **Update**.
 Drückst du Update, lädt sie herunter (~70 MB), tauscht die Dateien, schließt das Spiel und startet es
 wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben unangetastet.**
 
-- **Geht es schief, hat sich nichts geändert.** Das Panel sagt, woran es lag; installier dann von Hand.
+- **Scheitert der Download oder die Prüfung, bleiben die installierten Dateien unverändert.**
+  Das Panel nennt den Fehler; installier dann von Hand.
 - **Die alte Version bleibt liegen** in `BepInEx/GloomhavenVR-update/backup/`, bis die neue
-  erfolgreich gestartet ist. Verschlimmert ein Update etwas, kopier die zwei Ordner zurück.
-- **Im Mehrspieler brauchen alle dieselbe Version.** Ein Dialog blockiert unterschiedliche
-  Versionen. Aktualisiert gemeinsam.
+  erfolgreich gestartet ist. Solange das Backup vorhanden ist, kannst du die zwei Ordner zurückkopieren.
+- **Im Mehrspieler brauchen alle VR-Spieler denselben Mod-Build.** Ein Dialog blockiert
+  unterschiedliche Builds. Aktualisiert gemeinsam.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -122,7 +123,7 @@ gespeichert.
 Der Text der Mod folgt der Sprache des Spiels: **Englisch und Deutsch**; alles andere fällt auf
 Englisch zurück.
 
-Wenn du eine Weile völlig unverändert spielen willst, setz `[General] Enabled = false` in
+Um die VR-Mod zu deaktivieren, setz `[General] Enabled = false` in
 `BepInEx/config/dev.gloomhavenvr.cfg`. Die Einstellungen stehen auch in den Konfigurationsdateien
 der Mod unter `BepInEx/config/`.
 
@@ -140,9 +141,9 @@ der Mod unter `BepInEx/config/`.
 | Das Spiel startet gar nicht mehr | `GH_Data/boot.config.gloomhavenvr-backup` über `GH_Data/boot.config` kopieren |
 | Ein Update hat die Mod zerlegt | Die zwei Ordner aus `BepInEx/GloomhavenVR-update/backup/` zurückkopieren |
 
-**Ein Problem melden:** Schick die ganze `BepInEx/LogOutput.log`, dazu was du gerade gemacht hast,
-dein Headset und die App, mit der du streamst. Setz vorher `[General] LogLevel = Debug` und
-reproduzier es dann. Das Standard-Log ist zu leise, um damit eine Meldung zu beantworten.
+**Ein Problem melden:** Schick `BepInEx/LogOutput.log`, dazu was du gerade gemacht hast, dein
+Headset und deine Streaming-App. Bewahre das Log des betroffenen Durchlaufs auf. Bei einem
+reproduzierbaren Problem setz `[General] LogLevel = Debug` und wiederhole es für ein genaueres Log.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

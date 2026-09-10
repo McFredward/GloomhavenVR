@@ -1,5 +1,9 @@
 # Phase 4 — Comfort & table-manipulation surface (`GloomhavenVR.Rig`)
 
+> **Historical phase interface reference.** Preserve cited contracts, but resolve current APIs
+> and behavior from source. See [the documentation index](README.md) for current entry points.
+
+
 > Owned by the Rig module (feat/comfort), updated by the Phase-5 integration pass
 > (markers: **P5**). The in-VR settings surface binds exactly to `ComfortSettings` +
 > the runtime ops below. It is **no longer a mod-owned panel**: `WorldUI/SettingsPanel.*.cs`

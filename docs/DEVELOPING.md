@@ -1,34 +1,29 @@
 # Developing GloomhavenVR
 
-Everything a contributor needs that a player does not. The [README](../README.md) is written for
-players; nothing in it is required to build the mod, and nothing here belongs in it.
+Build, test and contribution reference. For player instructions, see the [README](../README.md).
+The [documentation index](README.md) separates current guides from historical phase notes.
 
-> **Read [`.planning/STATE.md`](../.planning/STATE.md) first.** It is the handover document: the
-> hard rules, the verification gates every change must pass, the multiplayer 1:1 ruling, what the
-> recent rounds fixed and why, the open queue, and the operational hazards that have each cost a
-> round. The phase documents below describe how the project was *built*; `STATE.md` describes where
-> it *is*.
+> Read [AGENTS.md](../AGENTS.md), [CLAUDE.md](../CLAUDE.md) and
+> [STATE.md](../.planning/STATE.md) before implementation. They define the workflow, technical
+> contracts, current integration state and outstanding hardware validation. Per-build changes
+> are recorded beside `NetProtocol.ModBuild`; phase documents preserve historical design evidence.
 
 ## What it is, technically
 
 A BepInEx 5 plugin (net472, Unity Mono) plus a BepInEx **preloader patcher**, Harmony-patched with
 HarmonyX against Gloomhaven (digital) v1.1.8307.0 on Unity 2021.3.5f1. No game file is modified
-except two `key=value` lines in `GH_Data/boot.config` (graphics jobs — the preloader writes them and
-keeps a backup). Everything else lives under `BepInEx/`.
+except two `key=value` lines in `GH_Data/boot.config` (graphics jobs — the preloader keeps a
+backup). The preloader also installs its OpenXR libraries under `GH_Data/Plugins/x86_64/`
+and its subsystem manifest under `GH_Data/UnitySubsystems/UnityOpenXR/`. Plugin files and
+settings live under `BepInEx/`.
 
 ### The restart on the first start
 
-The player docs carry three sentences about this and nothing more: the game closes and reopens
-itself once, that is meant to happen, and here is how to put the original `boot.config` back. The
-mechanism lives here, one link away from [`INSTALL.md`](../INSTALL.md). A player installing a mod
-needs to know what will happen, whether it is normal, and what to do if it goes wrong; nothing else
-on that page may compete with those three.
-
 Unity reads the graphics-jobs flags out of `GH_Data/boot.config` **while it is starting up**, so the
-run that switches them on can never be the run that benefits. The preloader therefore writes the two
-lines, keeps the original as `boot.config.gloomhavenvr-backup`, and restarts the game once. On the
-test machine that is a locked 45 Hz becoming a clean 90. It cannot loop, and it happens before any
-save is touched.
+run that switches them on can never be the run that benefits. When enabling those flags, the
+preloader writes the two lines, keeps the original as `boot.config.gloomhavenvr-backup`, and requests a bounded restart.
+An install whose flags are already enabled does not need another graphics-jobs restart.
+This happens before a save is loaded; hardware results depend on the scene and machine.
 
 Two ways to skip the restart, both in `BepInEx/config/dev.gloomhavenvr.cfg`:
 
@@ -39,10 +34,10 @@ Two ways to skip the restart, both in `BepInEx/config/dev.gloomhavenvr.cfg`:
 
 ### Controller models in the tutorial
 
-The in-headset tutorial draws the controller the player is actually holding. **A Steam Frame is
-shown a neutral controller** — Valve does not distribute a model of theirs. This used to be a
-parenthesis in [`PLAYING.md`](PLAYING.md); it is a fact about one headset's asset availability, not
-something a player has to know to play, so it lives here.
+The in-headset tutorial selects its controller model and button names through
+`Compat/Tutorial/Controls/ControllerVisual.cs`. Its device table uses a generic model when no
+matching bundled model exists, including the Steam Frame mapping. Check that table before
+adding a device-specific illustration.
 
 ## Requirements
 
@@ -115,12 +110,15 @@ BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll
 BepInEx/plugins/GloomhavenVR/RuntimeDeps/versions.json
 BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle
 BepInEx/plugins/GloomhavenVR/THIRD-PARTY.txt
+BepInEx/plugins/GloomhavenVR/LICENSE.txt
+BepInEx/plugins/GloomhavenVR/Licenses/*.txt
 BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll
 BepInEx/patchers/GloomhavenVR/Natives/*.dll
 ```
 
 `THIRD-PARTY.txt` ships only when the bundle does — it is the licence notice the bundled art
-requires, and it has to travel with the copies.
+requires, and it has to travel with the copies. `LICENSE.txt` carries the mod's GPL text;
+`Licenses/` carries the pinned XR dependency notices and their source/provenance list.
 
 **The bundle is REQUIRED.** Every 3D asset (hands, control board, card backing, map table, head
 avatars, environments, controller models) and every shader the mod ships lives in it; without the
@@ -195,8 +193,7 @@ Run before proposing a change:
 
 ```sh
 scripts/ci-build.sh Release        # 0 errors AND 0 warnings — TreatWarningsAsErrors is on
-scripts/refactor-guard.sh check    # the umbrella gate, see below
-python3 scripts/rebase-defaults.py check     # needs a tester's cfg drop, see below
+scripts/refactor-guard.sh check --summary # umbrella gate; create a baseline before editing
 python3 scripts/check-docs-i18n.py # the four player-facing docs and their German twins
 ```
 
@@ -207,12 +204,14 @@ compiled form — `patch-inventory.sh check`,
 `check-desync-surface.py`, `check-hw-verify.py`, `check-options-coverage.py`,
 `check-card-identity-mask.py`, `check-mirror-dials.py`, `check-enum-arrays.py`, `wire-tests.sh`,
 `check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is
-duplicated work, not extra coverage. The three lines beside it are the ones it does **not** cover.
+duplicated work, not extra coverage. The strict build and bilingual-docs checks must also be run
+explicitly. The guard needs a local baseline (`scripts/refactor-guard.sh baseline`, taken before
+editing); exit 1 means compiled output differs, so inspect its verdict and explain the changes.
 
-`ci.yml` runs sixteen of those seventeen (everything but `wire-tests.sh`, which is compile-only on a
-runner — see [`CI-CD.md`](CI-CD.md) §5) plus `check-refasm.py`. So the desk guard is the *stricter*
-of the two, not a convenience: the surface diff runs against a stored baseline here and only against
-the PR base there, and push events skip it entirely.
+Both hosted workflows run the same source checks and standalone native presentation harnesses.
+The full wire executable is compile-only on hosted runners because it needs the game's real Unity
+assembly; the surface comparison runs only on PRs there. The local guard covers both.
+See [CI-CD.md](CI-CD.md#3-verification-coverage) for the coverage and limits.
 
 `check-card-identity-mask.py` is a standalone **twin** of
 `tests/GloomhavenVR.WireTests/CardIdentityMaskVectors.cs`. The C# original is a pure text lint that
@@ -223,8 +222,9 @@ than to the wire-test project, where CI cannot execute it. See docs/CI-CD.md §5
 
 `rebase-defaults.py check` compares the shipped defaults against a tester's `.cfg` drop in
 `.planning/debug/default`. That directory is gitignored, so it is absent on a fresh clone and on a
-runner — CI prints a notice and skips. It is a **local** gate, and the one that catches a value the
-user tuned on hardware being silently overwritten by a later edit.
+runner — CI prints a notice and skips. Run it locally when a tester drop is available. It catches
+drift from hardware tuning; explicit pins preserve intentional shipped defaults. Investigate unresolved entries without
+blindly replacing user-approved defaults.
 
 `check-docs-i18n.py` runs in `ci.yml` ("User-facing docs ship in English and German"). It had no
 automatic caller until the 2026-09 tooling review wired it, along with seven other checkers the desk
@@ -242,7 +242,7 @@ GloomhavenVR.sln
 │   │   ├── Startup/            getting an OpenXR runtime up before anything touches Unity.XR
 │   │   ├── Events/             the game-event bridge and the VR mode state machine
 │   │   ├── Perf/               the frame budget: measuring it, and spending less of it
-│   │   ├── WallFade/           the wall-fade driver (32 files) and its prop classifiers
+│   │   ├── WallFade/           the wall-fade driver and its prop classifiers
 │   │   ├── Haunt/              the apparitions and their schedule
 │   │   ├── Sound/              ambience: what the room sounds like
 │   │   ├── Environment/        what the room looks like beyond the board (sky, mood, lights)
@@ -254,8 +254,8 @@ GloomhavenVR.sln
 │   ├── Rig/                    VR camera rig, world grab/scale, comfort, locomotion, quality
 │   ├── Hands/                  hand models, finger curling · Interact/ interaction primitives
 │   ├── Cards/                  the card hand: config, API, fan, the card type itself
-│   │   ├── Driver/             the 6-part interaction driver (laser, rebuild, flows)
-│   │   ├── Tray/               the 7-part play tray
+│   │   ├── Driver/             the interaction driver (laser, rebuild, flows)
+│   │   ├── Tray/               the physical play tray
 │   │   ├── Art/                what a card LOOKS like: face, mesh, contour, glow, dust
 │   │   ├── Caps/               the wooden board's physical controls and their engraving
 │   │   ├── Piles/              draw / discard / burnt / item piles and their browsers
@@ -284,13 +284,15 @@ GloomhavenVR.sln
 │   ├── Compat/                 stereo/PPv2 fixes, scene variants · Tutorial/
 │   ├── Defaults/               every shipped default value, in one place
 │   └── Assets/                 the mod's own embedded art (the wordmark)
-├── libs/                       Natives/ + RuntimeDeps/ — populated by scripts, never committed
+├── libs/                       RefAsm/ committed metadata; Natives/ + RuntimeDeps/ built locally
 ├── prebuilt/                   the committed asset bundle shipped when Unity is unavailable
 ├── tools/RuntimeDepsBuild/     provisional RuntimeDeps compile from needle-mirror source
 ├── packaging/INSTALL.txt.in    the template for the zip's INSTALL.txt
 ├── scripts/                    build, install, packaging, bundle and verification scripts
-├── tests/GloomhavenVR.WireTests/  the only executable tests: byte-exact wire vectors and the
-│                               pure-arithmetic lints that ride along with them
+├── tests/GloomhavenVR.WireTests/  byte-exact wire vectors and accompanying lints (real Unity DLL)
+├── tests/GloomhavenVR.CardBindingsTests/  production card capture with controlled Unity substitutes
+├── tests/GloomhavenVR.NativePlaybackTests/  production native presentation playback
+├── tests/GloomhavenVR.BoardRefreshTests/  production section refresh and invalidation
 ├── unity/                      the Unity 2021.3.5f1 asset project and its guides
 ├── docs/                       this file, interface contracts, patch inventory, test scripts
 └── .planning/                  STATE.md, roadmap, architecture, verified game-API research
@@ -333,22 +335,9 @@ is otherwise unverified. Both fired during the restructure and both were right.
 
 ## Document index
 
-| Doc | Contents |
-|---|---|
-| [`CAMERA-POLICY.md`](CAMERA-POLICY.md) | camera ownership and layer policy — the rule set that came out of hardware tests #3/#4 |
-| [`INTERFACES-P2.md`](INTERFACES-P2.md) | shared module API: hands, interactors, event bus, mode matrix, module-config pattern |
-| [`INTERFACES-P4.md`](INTERFACES-P4.md) | comfort / rig surface (`ComfortSettings`, world grab, menu rig) |
-| [`PATCH-INVENTORY.md`](PATCH-INVENTORY.md) | **generated** — every Harmony patch (method → module → type) |
-| [`PATCH-NOTES.md`](PATCH-NOTES.md) | hand-maintained companion: why each patch exists, contention rules |
-| [`TESTING-FULL-LOOP.md`](TESTING-FULL-LOOP.md) | the end-to-end hardware session script |
-| [`TESTING-P1.md`](TESTING-P1.md), [`-P2`](TESTING-P2.md), [`-P3A`](TESTING-P3A.md), [`-P3B`](TESTING-P3B.md), [`-P3C`](TESTING-P3C.md), [`-P4`](TESTING-P4.md) | per-phase hardware checklists; P1 §4 is the stage-by-stage failure-triage table. **Do not retire these:** shipping code cites P1, P2, P3B and P3C by path — P1 §4 from a user-visible error message (`Core/Startup/OpenXRBootstrap.cs`, `Preload/Patcher.cs`), the rest from source comments |
-| [`CI-CD.md`](CI-CD.md) | the two GitHub workflows, the release order of operations, and why each gate sits where it does |
-| [`NET-ACTION-SURFACE.md`](NET-ACTION-SURFACE.md) | hand-maintained ledger — the game types that dispatch network actions, which of them the mod patches, and a recorded verdict per patch. **Not generated:** `check-desync-surface.py generate` only *prints* candidate rows with the note column blank; the verdict and the note are human judgements and the gate checks they exist, never what they say |
-| [`ASSET-GUIDE-MITWIRKENDE.md`](ASSET-GUIDE-MITWIRKENDE.md) | the brief for the external 3D artist who edits the meshes and textures; file names, paths and bone/anchor names are contracts. German on purpose — it has exactly one reader and he works in German |
-| [`PLAYING.md`](PLAYING.md) / [`PLAYING.de.md`](PLAYING.de.md) | player-facing; listed here so you know to change both and to run `check-docs-i18n.py` after |
-| [`img/README.md`](img/README.md) | how every image and clip in the README was produced |
-| [`VIDEO-SHOTLIST.md`](VIDEO-SHOTLIST.md) | the clips that still have to be recorded — one row each, with the target filename and the spot in the docs that is already prepared for it |
-| [`../.planning/`](../.planning/) | STATE.md, architecture, roadmap, game-API research |
+See [docs/README.md](README.md) for current guides, source-checked ledgers and historical
+phase references. Historical test files retain their paths because shipping diagnostics and
+source comments refer to them; they are not a complete current release checklist.
 
 ## Licence
 

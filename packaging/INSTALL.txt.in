@@ -11,7 +11,7 @@ The same guide WITH PICTURES, plus the controls and every setting:
 
 
 YOU NEED
-  * Gloomhaven (digital) for PC, v1.1.x — Steam or GOG.
+  * Gloomhaven (digital) for PC — Steam or GOG; tested with 1.1.8307.0.
   * Windows and a PC-VR headset. Developed and tested on a Quest 3 over
     Virtual Desktop; Quest Link, Steam Link and SteamVR should work but are
     not tested.
@@ -51,12 +51,12 @@ Everything else is already inside this zip.
 4. START THE GAME
    Put the headset on and start Gloomhaven the way you normally do.
 
-   THE FIRST TIME AFTER INSTALLING OR UPDATING, THE GAME CLOSES AND REOPENS
-   BY ITSELF, ONCE. That is meant to happen, it is not a crash.
+   THE GAME MAY RESTART ONCE when the mod enables its rendering settings.
+   This is expected, usually on the first installation; not on every update.
 
    Your save games and your settings are not touched.
 
-   The mod writes exactly ONE game file: GH_Data\boot.config. The original
+   The mod changes rendering settings in GH_Data\boot.config. The original
    is kept next to it as boot.config.gloomhavenvr-backup. If the game ever
    refuses to start, copy that backup back over boot.config.
 
@@ -68,15 +68,14 @@ SETTINGS
   You can change everything from inside the headset. Open the game's own
   Options window and pick the VR Options tab.
 
-  To play the game completely unmodified for a while, set Enabled = false
+  To disable the VR mod, set Enabled = false
   under [General] in BepInEx\config\dev.gloomhavenvr.cfg. Nothing to
   uninstall.
 
 
 PLAYING WITH OTHER PEOPLE
-  Everyone playing together needs the same version of the mod. If two
-  people differ, the game says so instead of letting the session go quietly
-  wrong. People without the mod can still play with you normally.
+  All VR players need the same mod build. A dialog blocks mismatched
+  builds. People without the mod can still join on a flat screen.
 
 
 IF SOMETHING GOES WRONG
@@ -86,4 +85,5 @@ IF SOMETHING GOES WRONG
   Anything else: send the whole of
     BepInEx\LogOutput.log
   say what you were doing, and say which headset you use and how you
-  connect it.
+  connect it. Keep the log from the affected run. For a repeatable issue,
+  set [General] LogLevel = Debug and reproduce it for a more detailed log.

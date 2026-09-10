@@ -86,7 +86,7 @@ default and skipping it is the cloner's choice, not the repository's. LFS saves 
 working copy, so for a clip committed once it saves nothing, while spending the account's
 1 GB/month LFS bandwidth on every clone.
 
-## How they are embedded — a POSTER that links to the file, and why `<video>` lost
+## Historical embedding attempts — repository video and poster links
 
 The first attempt used `<video src="https://github.com/OWNER/REPO/raw/main/…">`. The user saw
 nothing, and there were TWO independent reasons, either of which alone is fatal:
@@ -95,9 +95,8 @@ nothing, and there were TWO independent reasons, either of which alone is fatal:
    not have them. The tag pointed at a 404.
 2. **The repository was private at the time**, so a `raw` URL needed authentication and a
    `<video>` element has no way to ask for it: it rendered empty even when the path was right.
-   The repository is public now, so this second reason has expired — but reason 1 and reason 3
-   have not, and reason 1 alone is fatal. Do not read "it was only because we were private" as
-   permission to try a `raw` URL again.
+   Public availability must be checked independently of branch and file existence. Changing
+   visibility does not repair a wrong path; the current guides use attachment URLs.
 
 And a third that is not GitHub's fault: `<video>` is only conditionally allowed through GitHub's
 HTML sanitiser, so a tag that works today is not a thing to build a pitch on.
@@ -164,14 +163,14 @@ accept the height.
 mp4s and posters were retired with the files: neither clip, neither poster and no `docs/img/*.mp4`
 exists. The README carries six attachment clips today.)
 
-**Which URL is which is taken on the maintainer's word**, in the order he sends them. It used to be
-impossible to check from here because an attachment URL on a private repo 404s without a session —
-**the repository is public now, so it CAN be checked**: open the `user-attachments` URL and look.
-Do that before assuming a mis-ordered pair, and swap the two `src` attributes if it really is one.
+**Verify each attachment before changing its placement.** Open the supplied URL and inspect
+the footage; a filename or the order of a message is not proof of its content. Before public
+release, also verify playback without a signed-in repository session.
 
-## The clips that exist — NONE
+## Committed gameplay clips — none
 
-**Not one moving image is committed to this repository any more.** Every mp4 and its poster went on
+**Gameplay MP4s are hosted as attachments.** The animated `promo.gif` header remains committed.
+Every former gameplay MP4 and its poster went on
 2026-09-07 — `control-board` first, then `card-fan`, `figure-grab`, `map-interaction` and
 `physical-interaction` — and `figure-lift.gif`, the last survivor, followed the same evening.
 
@@ -217,11 +216,8 @@ Where these files stand now: **all five are deleted**, and so is the GIF derived
 `physical-interaction` the same evening, each with its poster; `figure-lift.gif` followed once its
 footage was uploaded.
 
-**Which attachment URL is which was taken on the maintainer's word**, in the order he sent them
-(`control-board` first, `physical-interaction` second). That was unverifiable while the repository
-was private — an attachment URL 404s without a session — but **the repository is public now and the
-URLs open for anyone**, so a clip suspected of sitting under the wrong heading should be OPENED
-rather than reasoned about. Swapping the two `src` attributes is still the fix if it is one.
+The initial URL mapping came from the maintainer's upload order. Inspect the footage before
+swapping a clip suspected of sitting under the wrong heading; public access is a separate check.
 
 ## Encoding a new clip
 
@@ -439,36 +435,19 @@ All four use the fixed non-zero clock (3.7 s) the element review set uses, and t
 station was ADDED to the Views table — nothing above it moved. Do not move an existing station to
 get a nicer frame; fifty review frames hang off each one.
 
-## Still missing
+## Additional recordings
 
-**The shot list moved.** What is still to be recorded, where each clip goes, how long it should be
-and what a viewer should understand afterwards now live in ONE place:
-**[`docs/VIDEO-SHOTLIST.md`](../VIDEO-SHOTLIST.md)**. Keeping a second list here is how the two
-drifted apart — the table that stood here still asked for `map-room.mp4`, which shipped under a
-different name entirely, and it still said there were no placeholders in the READMEs, which stopped
-being true when the six spots were prepared and stopped being true again when the last of them was
-filled on 2026-09-07.
-
-**There ARE placeholders now, and since 2026-09-07 every one of them is VISIBLE on the rendered
-page.** They used to be HTML comments, which render as nothing — and the person who has to shoot the
-clips said so: *"habe ich dich das letzte mal gebeten Platzhalter für videos und Bilder einzubauen
-… die sehe ich in der README nicht."* Each spot is now a bordered box naming the clip, what it has
-to show and what to replace to fill it, with the finished markup still in a comment underneath so a
-missing `.mp4` is never a broken image. Find them with:
-
-```bash
-grep -rn "VIDEO PLACEHOLDER" README.md README.de.md docs/PLAYING.md docs/PLAYING.de.md
-```
-
-Six clips, twelve boxes (both languages). To publish one: drop the file in, delete the box, delete
-the two comment markers around the markup under it, and keep the two language pages in step. Every
-clip except the two README ones also needs a poster beside it, same name plus `-poster.jpg`.
+The optional recordings and intended destinations live in
+[VIDEO-SHOTLIST.md](../VIDEO-SHOTLIST.md). The READMEs contain six completed attachment
+clips each; the playing guides link to those clips and have no video placeholders.
+Update both languages when adding a recording. Keep MP4 uploads outside Git and follow
+the encoding procedure above.
 
 ## The three built diagrams -- `controls-*.png`, `board-*.png` and `install-tree-*.png`
 
-These are the only images here that exist in **two language versions**, and the reason they are
-scripts rather than files is the same in all three cases: **the artwork is made once, every word is
-drawn at build time.**
+These diagrams ship in English and German, as do `env-styles-{en,de}.png`. Each diagram
+generator reuses one artwork source and draws the localized words at build time; commit
+the generated images alongside changes to the script.
 
 ```
 python3 docs/img/build-controls-diagram.py     -> controls-{en,de}.png, controls-left-{en,de}.png

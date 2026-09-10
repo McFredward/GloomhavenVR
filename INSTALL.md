@@ -14,7 +14,7 @@
 
 | | |
 |---|---|
-| **Game** | Gloomhaven (digital) for PC, v1.1.x — Steam or GOG |
+| **Game** | Gloomhaven (digital) for PC — Steam or GOG; tested with 1.1.8307.0 |
 | **PC** | Windows, a PC-VR headset, two tracked controllers with thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — step 1 installs it, once |
 
@@ -68,12 +68,12 @@ game. Set it in whichever app you stream with:
 
 Put the headset on and launch the game the way you normally do. You should be standing at the table.
 
-> **On the first start after installing or updating, the game closes and reopens itself, once.**
-> That is meant to happen, it is not a crash.
+> **The game may close and reopen once when the mod enables its rendering settings.**
+> This is expected, usually on the first installation; it does not happen on every update.
 
 Your saves, your campaign and your settings are not touched.
 
-The mod writes exactly one game file, `GH_Data/boot.config`, and keeps the original beside it as
+The mod changes the rendering settings in `GH_Data/boot.config` and keeps the original beside it as
 `boot.config.gloomhavenvr-backup`. If the game ever refuses to start, copy that back over
 `boot.config`.
 
@@ -92,10 +92,11 @@ choose **Ignore** or **Update** in the update panel.
 Press Update and it downloads (~70 MB), swaps the files, closes the game and starts it again.
 **Your saves, your campaign and your settings are not touched.**
 
-- **If it fails, nothing changed.** The panel says what went wrong; install by hand instead.
+- **If the download or validation fails, installed files are unchanged.**
+  The panel reports the error; install by hand instead.
 - **The old version is kept** in `BepInEx/GloomhavenVR-update/backup/` until the new one has started
-  successfully. Copy those two folders back if an update ever leaves you worse off.
-- **Everyone in a multiplayer session needs the same version.** A dialog blocks mismatched versions.
+  successfully. While that backup exists, you can copy those two folders back to restore it.
+- **All VR players in a multiplayer session need the same mod build.** A dialog blocks mismatched versions.
   Update together.
 
 <p align="center">
@@ -121,7 +122,7 @@ saved for you.
 The mod's text follows the game's language: **English and German**; anything else falls back to
 English.
 
-If you want to play completely unmodified for a while, set `[General] Enabled = false` in
+To disable the VR mod, set `[General] Enabled = false` in
 `BepInEx/config/dev.gloomhavenvr.cfg`. Settings are also stored in the mod’s files under
 `BepInEx/config/`.
 
@@ -139,9 +140,9 @@ If you want to play completely unmodified for a while, set `[General] Enabled = 
 | The game will not start at all | Copy `GH_Data/boot.config.gloomhavenvr-backup` over `GH_Data/boot.config` |
 | An update left the mod broken | Copy the two folders out of `BepInEx/GloomhavenVR-update/backup/` back over the installed ones |
 
-If you want to report something, send the whole of `BepInEx/LogOutput.log`, plus what you were
-doing, your headset and the app you stream with. Set `[General] LogLevel = Debug` and reproduce it
-first. The default log is too quiet to answer a report with.
+To report a problem, include `BepInEx/LogOutput.log`, what you were doing, your headset and
+streaming app. Keep the log from the affected run. For a repeatable issue, set
+`[General] LogLevel = Debug` and reproduce it for a more detailed log.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

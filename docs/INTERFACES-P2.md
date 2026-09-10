@@ -1,5 +1,9 @@
 # Phase 2 — Shared interface surface (updated for Phase 5)
 
+> **Historical phase interface reference.** Preserve cited contracts, but resolve current APIs
+> and behavior from source. See [the documentation index](README.md) for current entry points.
+
+
 > This API was FROZEN during the parallel P3/P4 phases and re-opened by the Phase-5
 > integration pass. Everything marked **P5** below is an additive integration change;
 > the pre-P5 surface is behavior-preserving except where explicitly noted (per-hand

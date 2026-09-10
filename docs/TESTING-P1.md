@@ -1,5 +1,10 @@
 # Phase 1 Windows validation — stereo + head tracking (R1)
 
+> **Historical hardware checklist.** Retained for source and diagnostic links; this is not
+> the current release acceptance list. Use [STATE.md](../.planning/STATE.md) and the latest
+> build notes for current behavior and outstanding headset checks.
+
+
 > **Audited 2026-09-08 at ModBuild 483** (base `49ceab21`). Every `[Section] Key`, log
 > marker, type, method and file path named below was grepped against the tree. Config
 > keys: no doc here names a live key that has been removed, and every key described as
