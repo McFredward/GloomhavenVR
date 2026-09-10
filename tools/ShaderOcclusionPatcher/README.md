@@ -1,4 +1,9 @@
-# ShaderOcclusionPatcher
+# ShaderOcclusionPatcher — legacy recovery tool
+
+> Current installations use runtime rendering fixes and do not patch game shader files. This
+> tool remains for detecting and restoring backups from older installations. The installer and
+> uninstaller use its verification/recovery paths. Do not run `patch` as a current installation step.
+> The original implementation notes below describe the retired approach.
 
 Fixes VR depth-occlusion bleed in Gloomhaven Digital: several of the game's
 shaders are compiled with a hardcoded `ZTest Always` in their **serialized pass

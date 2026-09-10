@@ -2,14 +2,14 @@
 # GloomhavenVR — Unity batch-mode driver for the companion asset project.
 #
 # Usage:
-#   UNITY_PATH=/path/to/2021.3.x/Editor/Unity(.exe) ./scripts/build-bundles.sh [bundles|harvest]
+#   UNITY_PATH=/path/to/2021.3.5f1/Editor/Unity(.exe) ./scripts/build-bundles.sh [bundles|harvest]
 #
 #   bundles  (default) build Assets/Bundle/** -> unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle
 #   harvest  dummy Windows Mono player build + collect XR RuntimeDeps/natives -> libs/
 #
 # Typical UNITY_PATH values:
-#   Windows (Git Bash): "/c/Program Files/Unity/Hub/Editor/2021.3.45f2/Editor/Unity.exe"
-#   Linux:              "$HOME/Unity/Hub/Editor/2021.3.45f2/Editor/Unity"
+#   Windows (Git Bash): "/c/Program Files/Unity/Hub/Editor/2021.3.5f1/Editor/Unity.exe"
+#   Linux:              "$HOME/Unity/Hub/Editor/2021.3.5f1/Editor/Unity"
 #     (harvest additionally needs the "Windows Build Support (Mono)" editor module)
 #
 # Notes:
@@ -24,7 +24,7 @@ CMD="${1:-bundles}"
 
 if [[ -z "${UNITY_PATH:-}" ]]; then
     echo "ERROR: UNITY_PATH is not set." >&2
-    echo "Point it at a Unity 2021.3.x editor binary (see unity/HARVESTING.md §2)." >&2
+    echo "Point it at a Unity 2021.3.5f1 editor binary (see unity/HARVESTING.md §2)." >&2
     exit 2
 fi
 if [[ ! -e "$UNITY_PATH" ]]; then

@@ -11,16 +11,13 @@ that file is the project's real changelog. This one carries only what does not c
 
 ## The user
 
-Frederik (`frederik@lissek.info`, GitHub `McFredward`). **Always answer him in German.** Code,
-comments, log strings, doc comments and agent prompts are English; user-facing strings are EN+DE
-through `Core/Loc`. He tests on real hardware (Quest 3 over Virtual Desktop, PC-VR) every round
-and reports numbered findings. A round is: read his report → dispatch workers on disjoint file
-sets → review their diffs → merge → bump `ModBuild` → run the gates → push → write him a German
-report.
+The maintainer is **McFredward**. Answer the maintainer in German. Code, comments, log strings,
+doc comments and developer documentation are English; player-facing strings are EN+DE through
+`Core/Loc`. Hardware tests use Quest 3 over Virtual Desktop. Treat observations as evidence and
+verify proposed causes against source, current build banners and supplied screenshots.
 
-**He is usually right about what he saw and often wrong about why.** Take the observation as data
-and re-derive the cause. Several rounds were lost to accepting his diagnosis instead of his
-symptom, and several more to explaining away a screenshot that showed the bug.
+`AGENTS.md` adapts these technical contracts to the current agent workflow and takes precedence
+over older Claude-specific instructions retained in historical planning records.
 
 ## Where the truth lives
 
@@ -97,8 +94,10 @@ python3 scripts/check-docs-i18n.py               # EN/DE docs agree
 harmless, but it is not what makes the gate strict — the assignment in the script is.
 
 The guard's **exit code is 1 whenever the compiled form differs at all**, which is normal after
-any change — read the printed verdict, not the status. Its baseline is per-worktree and
-gitignored; take your own with `bash scripts/refactor-guard.sh baseline` before you start.
+any change — read the printed verdict, not the status. Baselines are gitignored. Worktree setup
+links the integration baseline for read-only comparisons; before creating a fresh worker baseline,
+remove only the worker symlinks for `.planning/refactor/.guard/baseline` and `baseline.rev`, then
+run `bash scripts/refactor-guard.sh baseline`. Never write through a shared baseline symlink.
 
 Current readings at 497: patch surface 109 classes / 167 methods · wire 253,579 assertions ·
 config keys 625 · log tokens 4,716 · instrument-writes baseline 61 · bundle 74,943,763 bytes.
@@ -111,12 +110,10 @@ A number that has moved is not automatically wrong — but it must be explained 
 two wire vectors from being reached; the suite stayed green while the assertion count fell by two,
 and only the count caught it. Print counts in commit messages.
 
-**CI and the release workflow now run the same thirteen checkers**, plus one PR-only step: the
-surface diff against the pull request's base, which needs a base commit and therefore cannot run
-on a release. Until 2026-09-08 the RELEASE path ran eight fewer than CI — the path with no undo
-was the weaker one. **The wire vectors cannot run on a hosted runner at all** (they need the
-game's real `UnityEngine.CoreModule.dll` for `Mathf`'s banker's rounding), so run the full local
-set before pushing to `main`.
+The workflow definitions and [CI/CD guide](docs/CI-CD.md) describe hosted validation. Both CI
+and Release run the source checks and production presentation harnesses. Full golden wire vectors
+still require the game's real Unity runtime and must run locally; hosted runners compile them
+against metadata references. A hosted green run does not replace that local gate.
 
 **Bundles are built ONLY with `/home/claw/unity-2021.3.5`**, never `unity-2021.3`. The wrong
 editor produces a bundle that loads nothing and fails silently into the procedural fallback;
@@ -130,11 +127,10 @@ it is a full install.
 
 - **`main` is the release branch; work goes to `dev`.** Push every change to `origin/dev`
   unasked. Never push a worktree branch to the remote — only `main` and `dev` exist on GitHub.
-  GitHub operations are additive and read-only; never destructive.
-- **Delegate implementation.** The integrator lands the shared contract first, then splits the
-  work by file so lanes cannot collide. Always give a lane `isolation: worktree`. **At most five
-  lanes, and each lane may spawn at most ONE further worker** (his ruling, after a 5×4 fan-out hit
-  the session limit and killed 21 agents mid-read).
+  Do not rewrite published history or change repository visibility without explicit authorization.
+- **Delegate independent implementation tasks** with explicit, disjoint file ownership. Create
+  separate Git worktrees before dispatch; a tool call does not imply filesystem isolation. Respect
+  the current session's concurrency limit and avoid nested workers when no slot is available.
 - **Codex worker worktrees start at the current `dev` integration commit** (AGENTS.md, user's
   2026-09-08 ruling). Every lane states its base SHA and disjoint owned files; initialize its
   dependencies with `scripts/worktree-setup.sh`. Never base new work on the older release branch.
@@ -146,12 +142,12 @@ it is a full install.
   BEFORE resuming the lane.
 - Hardware logs go in gitignored `.planning/debug/`. Triage them with
   `python3 scripts/log-triage.py`, and anchor every grep on `GloomhavenVR] `.
-- Commit trailer: `Co-Authored-By: Claude <model> <noreply@anthropic.com>` plus the session link.
+- Attribute commits truthfully. Do not add a Claude coauthor or session link to Codex work.
 
 ## Privacy
 
 The asset creator's real name never reaches a tracked file — handles only: **ARMA**, **JJ-Pueppi**.
-The key in gitignored `/home/claw/gloomhaven_vr/.env` is never printed, echoed, pasted, or written
+The key in gitignored `.env` is never printed, echoed, pasted, or written
 into any tracked file.
 
 ## How this project has actually lost time

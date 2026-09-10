@@ -38,7 +38,8 @@ dotnet ShaderDisasm.dll <out> "VFX/ParticleMasterUnlitAdd_Shd" \
    .../StreamingAssets/aa/StandaloneWindows64/misc_shaders_assets_all.bundle
 dotnet disrun.dll asm <out>/VFX_ParticleMasterUnlitAdd_Shd.*.blob02.PIXEL.dxbc   # DXDecompiler runner (scratch)
 ```
-Evidence files are in `evidence/` (full disassembly + parsed-form reports).
+Evidence files are generated locally in ignored `evidence/` (full disassembly and parsed-form
+reports); see [evidence/README.md](evidence/README.md). They are not distributed with this source tree.
 
 ---
 
@@ -68,58 +69,15 @@ Evidence files are in `evidence/` (full disassembly + parsed-form reports).
 
 ---
 
-## The occlusion / wall-fade block (annotated assembly)
+## Occlusion and wall-fade interpretation
 
-The particle's own clip-space depth is computed from its world position (`v5` -> world via
-`cb2 = unity_ObjectToWorld`, then `cb3 = unity_MatrixVP`), and `_TilesOcclusionMap` is sampled at the
-**screen-space UV** `v4.xy / v4.w` (a `ComputeScreenPos` projective coord):
+The inspected program projects the particle through the rendering camera's view/projection
+matrices, samples the tile-occlusion texture in screen space, and combines its depth/coverage
+channels with the material's wall-fade setting. The global occlusion switch can bypass that result.
+Independent soft-particle depth fading and the edge mask further modulate the output alpha.
 
-```
-; particle clip depth = (unity_MatrixVP * worldPos).z / .w
-mul  r1.yz, r3.yyyy, cb3[18].zzwz
-mad  r1.yz, cb3[17].zzwz, r3.xxxx, r1.yzyy
-mad  r1.yz, cb3[19].zzwz, r3.zzzz, r1.yzyy
-mad  r1.yz, cb3[20].zzwz, r3.wwww, r1.yzyy
-div  r1.y, r1.y, r1.z                       ; r1.y = particle NDC depth
-sample r3.xyzw, r2.yzyy, t0.xyzw, s1         ; t0 = _TilesOcclusionMap, screen-space UV
-ge   r1.y, r3.w, r1.y                        ; occlDepthTest = (occ.a >= particleDepth) ? 1 : 0
-add  r1.z, -r3.x, l(1)                        ; 1 - occ.r   (occlusion coverage from the .r channel)
-movc r1.y, r1.y, l(1), r1.z                   ; wallFactor = occlDepthTest ? 1 : (1 - occ.r)
-mul  r1.y, r1.y, cb0[5].y                     ; *= _ToggleWallfade   (material toggle/scale)
-...                                           ; combine wallFactor with the soulercoaster noise mask -> r0.x
-itof r0.y, cb0[5].z                           ; ToggleWallFade  (global INT, via itof)
-mad  r0.x, r0.y, r0.x, l(1)                    ; blend the wall term by the int toggle
-ne   r0.yz, l(0,0,0,0), cb0[5].xxwx            ; r0.y = (_EnableOcclusionMap != 0) ; r0.z = (_Toggle_DepthFade != 0)
-movc r0.x, r0.y, r0.x, l(1)                    ; *** if _EnableOcclusionMap == 0 -> r0.x = 1 (NO occlusion) ***
-```
-
-Then depth fade (soft particle) and edge mask, each also gated and multiplied into `r0.x`:
-
-```
-sample r1.xyzw, r2.yzyy, t1.xyzw, s2           ; t1 = _CameraDepthTexture, screen-space UV
-mad  r0.y, cb1[7].z, r2.w, cb1[7].w            ; linearize particle depth via _ZBufferParams
-mad  r0.w, cb1[7].z, r1.x, cb1[7].w            ; linearize scene depth
-add  r0.y, -r0.y, r0.w                          ; sceneDepth - particleDepth
-div  r0.y, r0.y, cb0[7].x                        ; / _DepthFade_Distance
-min  r0.y, |r0.y|, l(1)
-movc r0.y, r0.z, r0.y, l(1)                      ; if _Toggle_DepthFade == 0 -> 1
-mul  r0.x, r0.y, r0.x
-ne   r0.y, l(0), cb0[7].y                        ; _Apply_EdgeMask
-... edge mask ...
-movc r0.y, r0.y, r0.z, l(1)                      ; if _Apply_EdgeMask == 0 -> 1
-mul  r0.x, r0.y, r0.x
-```
-
-Finally the accumulated factor `r0.x` multiplies the fragment **alpha** and the result is emitted for the
-additive/alpha-blended transparent pass:
-
-```
-sample r1.xyzw, r0.yzyy, t2.xyzw, s0           ; t2 = _MainTex (flipbook / flipped UV)
-mul  r1.xyzw, r1.xyzw, v3.xyzw                  ; * vertex color
-mul  r1.xyzw, r1.xyzw, cb0[4].xyzw              ; * _TintColor
-mul  r1.w, r0.x, r1.w                            ; *** alpha *= occlusion*depthfade*edgemask factor ***
-add  o0.xyzw, r1.xyzw, r1.xyzw                   ; additive output (x2)
-```
+These are engineering observations from locally extracted evidence. Full shader instructions
+belong with the developer's private game references and are intentionally not reproduced here.
 
 ### Answers to the specific questions
 
@@ -149,11 +107,7 @@ add  o0.xyzw, r1.xyzw, r1.xyzw                   ; additive output (x2)
 `decompiled/GH.Runtime/TilesOcclusionGenerator.cs` (~L155-191) builds a `CommandBuffer` on the game camera
 at `CameraEvent.BeforeGBuffer`: draws room renderers with an occlusion material into an
 `R8G8B8A8_SNorm` RT **with a 24-bit depth buffer**, pixel-corrects (needs the rendering camera's view
-matrices) and blurs, then:
-```
-m_OcclusionBuffer.SetGlobalTexture("_TilesOcclusionMap", num3);
-m_OcclusionBuffer.SetGlobalFloat(Shader.PropertyToID("_EnableOcclusionMap"), 1f);
-```
+matrices) and blurs, then publishes the generated texture and enables the occlusion-map global.
 `ToggleWallFade` is a **global int** toggled elsewhere: `Shader.SetGlobalInt("ToggleWallFade", 1/0)`
 (`Main.cs`, `ActivateWallFadeInGame.cs`, `DebugMenu.cs`, `ToggleWallTransparencyGlobal.cs`) — matching the
 `itof cb0[5].z` in the shader exactly. This confirms the slot binding above.

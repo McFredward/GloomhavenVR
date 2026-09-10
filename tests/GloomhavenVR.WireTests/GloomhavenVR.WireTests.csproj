@@ -144,7 +144,7 @@
        Both are decided by arithmetic, so VoiceCurve.cs was written free of Unity (beyond Mathf), of
        config and of the game model, and VoiceIcon.cs free of everything at all — it does not even
        call Math.Sqrt — precisely so both could be linked in here and driven metre by metre and
-       texel by texel. VoiceIcon being linked is also what lets the icon renders in .planning/voice/
+       texel by texel. VoiceIcon being linked is also what lets the icon renders in .planning/debug/renders/voice/
        be produced BY THE SHIPPED RASTERISER rather than by a lookalike. -->
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Voice\VoiceCurve.cs" Link="voice\VoiceCurve.cs" />
