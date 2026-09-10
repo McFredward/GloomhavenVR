@@ -377,7 +377,9 @@ if (Test-Path $backupDir) {
     if ($LASTEXITCODE -ne 0) { Write-Error "ShaderOcclusionPatcher build failed." }
 
     $restoredCount = (Get-ChildItem -Path $backupDir -File -Recurse | Measure-Object).Count
-    Invoke-RepoDotnet $patcherDll restore --game-data $gameDataDir --backup-dir $backupDir
+    # A newer SDK may be the only .NET installation. This standalone net8.0 maintenance
+    # tool may use that newer runtime; the game's net472 plugin target is unaffected.
+    Invoke-RepoDotnet --roll-forward Major $patcherDll restore --game-data $gameDataDir --backup-dir $backupDir
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "SHADER RESTORE FAILED." -ForegroundColor Red
