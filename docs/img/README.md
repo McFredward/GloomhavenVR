@@ -471,14 +471,26 @@ scripts rather than files is the same in all three cases: **the artwork is made 
 drawn at build time.**
 
 ```
-python3 docs/img/build-controls-diagram.py     -> controls-en.png, controls-de.png
+python3 docs/img/build-controls-diagram.py     -> controls-{en,de}.png, controls-left-{en,de}.png
 python3 docs/img/build-board-diagram.py        -> board-en.png,    board-de.png
 python3 docs/img/build-install-tree.py         -> install-tree-en.png, install-tree-de.png
 ```
 
 All three need Pillow and the Inter fonts at `/usr/share/fonts/opentype/inter`.
 
-### `controls-{en,de}.png` -- the button map in the playing guide
+### `controls-{en,de}.png` and `controls-left-{en,de}.png` -- the controller maps
+
+The default map explicitly names the right main controller; the `controls-left-*` map shows
+left-main-controller bindings. Both use the same untouched source artwork and physical anchors.
+`BoardPing.Tick` reads the main hand's lower face button (A on right, X on left), while
+`NonDominantHold.Tick` supplies the other hand's lower button to `OptionsToggle` for pause.
+The default movement/turn sticks stay physically left/right (`Defaults.Rig.cs`); handedness
+alone does not swap them. Window reeling uses the carrying hand's stick (`PanelGrabHandle.ReelHand`
+and `LaserCarryReel.OwnsStick`), correcting the previous diagram's right-stick-only claim.
+Main-controller switching is documented in the picture: press that controller's trigger in the
+main menu (`FlatScreen.TickHandednessSwitch`) or use VR Options → Dominant hand.
+The generator checks callout geometry in all four variants before writing any output. Inspect all
+four output images after generation; left-main mode swaps action colours with the X/A labels.
 
 The single highest-value picture in the documentation set: the controls are what a new player needs
 first, and prose is the worst possible carrier for a button map. It replaces two markdown tables and
@@ -508,7 +520,7 @@ halves of a lookup. **Do not "fix" them back out.**
 `Rig/WorldGrab.cs`, `Rig/SnapTurn.cs`, `Rig/Flight.cs`, `Board/BoardPing.cs`,
 `WorldUI/Options/OptionsToggle.cs`, `WorldUI/Grab/NonDominantHold.cs`, `Defaults/Defaults.Rig.cs` --
 because the docs were stale in three places when this was drawn, and a fourth was found when the
-callouts went on: **X opens the game's PAUSE screen, not an "options menu"**
+callouts went on: **The off-hand lower button opens the game's PAUSE screen, not an "options menu"**
 (`OptionsToggle.cs:11-15`; the mod's options are one button inside it). If a binding moves, re-read
 the source.
 

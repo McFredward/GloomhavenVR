@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build docs/img/controls-en.png and controls-de.png — the controller map in the playing guide.
+"""Build localized controller maps for both main-controller choices in the playing guide.
 
 WHY THIS IS A SCRIPT AND NOT A HAND-DRAWN IMAGE
 -----------------------------------------------
@@ -74,6 +74,7 @@ Usage:  python3 docs/img/build-controls-diagram.py
 """
 
 import os
+import copy
 from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -124,7 +125,7 @@ SCALE    = 0.76        # the artwork is drawn at its own resolution; this is how
 GAP      = 180         # the lane between the two controllers. It is this wide because the shared
                        # bindings are named IN it: at 28 px, which is all the picture needed when
                        # every word lived in the legend, the gutter held a leader and nothing else.
-TOP_BAND = 178         # room above the controllers for the two names that belong to both hands
+TOP_BAND = 248         # room for the handedness heading and the two shared-input callouts
 LX       = round((W - (ART_W * SCALE + GAP)) / 2.0)
 
 # Ring geometry, in canvas pixels. OUTER is the halo's outside edge — what a leader has to keep
@@ -178,13 +179,13 @@ CALLOUT_GEOM = {
                         leads=[[(285, -30), (285, 113)], [(695, -30), (695, 113)]]),
     "left_stick":  dict(colour=BLUE,   at=(-14,   60), align="r", maxw=326, rows=2,
                         leads=[[(144, 106)]]),
-    "options":     dict(colour=GREEN,  at=(-14,  173), align="r", maxw=326, rows=2,
+    "left_button": dict(colour=GREEN,  at=(-14,  173), align="r", maxw=326, rows=2,
                         leads=[[(248, 181)]]),
     "trigger":     dict(colour=ORANGE, at=(-14,  323), align="r", maxw=326, rows=3,
                         leads=[[(224, 345)]]),
     "right_stick": dict(colour=BLUE,   at=(994,   60), align="l", maxw=326, rows=2,
                         leads=[[(836, 106)]]),
-    "ping":        dict(colour=RED,    at=(994,  173), align="l", maxw=326, rows=2,
+    "right_button": dict(colour=RED,    at=(994,  173), align="l", maxw=326, rows=2,
                         leads=[[(732, 181)]]),
     "grip":        dict(colour=CYAN,   at=(MID,  430), align="c", maxw=420, rows=2,
                         leads=[[(296, 393)], [(684, 393)]]),
@@ -196,10 +197,10 @@ LEAD_TARGET = {
     "stick_click": [("L", "stick"), ("R", "stick")],
     "recentre":    [("L", "Y"), ("R", "B")],
     "left_stick":  [("L", "stick")],
-    "options":     [("L", "X")],
+    "left_button": [("L", "X")],
     "trigger":     [("L", "trigger")],
     "right_stick": [("R", "stick")],
-    "ping":        [("R", "A")],
+    "right_button": [("R", "A")],
     "grip":        [("L", "grip"), ("R", "grip")],
 }
 
@@ -227,24 +228,25 @@ LAYOUT = [
 LABELS = {
     "en": {
         "left": "LEFT", "right": "RIGHT",
-        # The callouts answer "what does this one do" in one breath. The legend below keeps the
+        "title": "Right main controller · default controls",
+        # The callouts name each action beside its physical input. The legend below keeps the
         # detail; nothing here is written twice, and where a name serves both hands it says so
         # either with two leaders or, for the trigger, in the words.
         "callouts": {
             "stick_click": "Click a stick in: pull yourself along",
             "recentre":    "Hold Y + B: recentre yourself",
             "left_stick":  "Left stick: move through the room",
-            "options":     "X: opens the pause menu",
+            "left_button": "X: opens the pause menu",
             "trigger":     "Trigger, either hand: take a card, point and click",
-            "right_stick": "Right stick: turn · reel a window in",
-            "ping":        "A: ping a hex for everyone",
+            "right_stick": "Right stick: turn",
+            "right_button": "A: ping a hex for everyone",
             "grip":        "Grip — hold to touch and grab",
         },
         "cells": [
             (BLUE, "Thumbstick — push", [
                 "Left stick: move through the room.",
                 "Right stick, left or right: turn.",
-                "Right stick, pull back: reel a window in.",
+                "While laser-carrying: pull that hand’s stick back to reel the window in.",
             ]),
             (BLUE, "Thumbstick — click in", [
                 "Hold it in and move your hand: pull yourself along.",
@@ -261,7 +263,7 @@ LABELS = {
             # WorldUI/Options/OptionsToggle.cs:11-15 with WorldUI/Grab/NonDominantHold.cs:82-84:
             # a short tap of the NON-DOMINANT lower face button opens the game's own PAUSE screen,
             # and the mod's options are one button inside it. It is X only under the shipped
-            # right-handed default, which is what the note below covers.
+            # right-main default; the left-main variant below swaps the physical labels.
             (GREEN, "X — short tap", [
                 "Opens and closes the game's pause menu.",
                 "The VR options sit inside it.",
@@ -273,12 +275,12 @@ LABELS = {
                 "Recentre yourself where you stand.",
             ]),
         ],
-        "note": "A Quest 3 is shown; every supported controller has the same keys in the same "
-                "places. Handedness, turning and every binding above are changeable in VR "
-                "Options. The in-game tutorial covers all of it.",
+        "note": "Quest Touch Plus shown. Change the main controller with its trigger in the main "
+                "menu or in VR Options → Dominant hand. Movement and turn sticks have separate settings.",
     },
     "de": {
         "left": "LINKS", "right": "RECHTS",
+        "title": "Hauptcontroller rechts · Standardbelegung",
         # German is 15-30 % longer than the English beside it, and these sit in gaps between drawn
         # parts rather than in a column that can grow. Where a faithful translation does not fit,
         # the WORDING is shortened — never the type, which is already at the floor for a picture
@@ -287,17 +289,17 @@ LABELS = {
             "stick_click": "Stick eindrücken: dich heranziehen",
             "recentre":    "Y + B halten: neu zentrieren",
             "left_stick":  "Linker Stick: durch den Raum bewegen",
-            "options":     "X: öffnet das Pause-Menü",
+            "left_button": "X: öffnet das Pause-Menü",
             "trigger":     "Trigger, beide Hände: Karte nehmen, zeigen und klicken",
-            "right_stick": "Rechter Stick: drehen, Fenster heranholen",
-            "ping":        "A: ein Feld für alle markieren",
+            "right_stick": "Rechter Stick: drehen",
+            "right_button": "A: ein Feld für alle markieren",
             "grip":        "Grip — halten: berühren und greifen",
         },
         "cells": [
             (BLUE, "Thumbstick — drücken", [
                 "Linker Stick: durch den Raum bewegen.",
                 "Rechter Stick, links oder rechts: drehen.",
-                "Rechter Stick, zurückziehen: Fenster heranholen.",
+                "Beim Laser-Tragen: Stick dieser Hand zurückziehen, um das Fenster heranzuholen.",
             ]),
             (BLUE, "Thumbstick — eindrücken", [
                 "Gedrückt halten und die Hand bewegen: dich heranziehen.",
@@ -322,11 +324,36 @@ LABELS = {
                 "Dich neu zentrieren, wo du gerade stehst.",
             ]),
         ],
-        "note": "Abgebildet ist eine Quest 3; jeder unterstützte Controller hat dieselben Tasten "
-                "an denselben Stellen. Händigkeit, Drehen und jede Belegung oben lassen sich "
-                "in den VR-Optionen ändern. Das Tutorial im Spiel erklärt alles davon.",
+        "note": "Abgebildet: Quest Touch Plus. Hauptcontroller wechseln: dessen Trigger im Hauptmenü "
+                "drücken oder VR-Optionen → Dominante Hand. Bewegung und Drehung haben eigene Stick-Einstellungen.",
     },
 }
+
+
+# Main-hand selection only swaps the lower face-button roles. FlightHand defaults to Left and
+# TurnHand to Right (Defaults.Rig.cs), independently of PrimaryHand. LaserCarryReel owns the
+# stick of PanelGrabHandle.ReelHand, so either physical stick can reel a carried window.
+# BoardPing.Tick reads VRHands.Primary.PrimaryDown; NonDominantHold.Tick observes the other
+# hand's PrimaryButton for OptionsToggle. Keep artwork/anchors physical and swap actions/colours.
+for language in ("en", "de"):
+    variant = copy.deepcopy(LABELS[language])
+    variant["title"] = ("Left main controller · default controls" if language == "en" else
+                        "Hauptcontroller links · Standardbelegung")
+    variant["callouts"]["left_button"] = ("X: ping a hex for everyone" if language == "en" else
+                                            "X: ein Feld für alle markieren")
+    variant["callouts"]["right_button"] = ("A: opens the pause menu" if language == "en" else
+                                             "A: öffnet das Pause-Menü")
+    colour, title, lines = variant["cells"][4]
+    variant["cells"][4] = (colour, title.replace("X", "A", 1), lines)
+    colour, title, lines = variant["cells"][5]
+    variant["cells"][5] = (colour, "X", lines)
+    LABELS["left-" + language] = variant
+
+
+def action_colour(variant, key, default):
+    if variant.startswith("left-"):
+        return {"left_button": RED, "right_button": GREEN, "X": RED, "A": GREEN}.get(key, default)
+    return default
 
 
 CALL_SIZE = 29     # the callout type. 29 px is 14.5 px at the 860 the guides show this at — the
@@ -640,6 +667,11 @@ def build(lang):
     d = ImageDraw.Draw(im)
 
     txt = LABELS[lang]
+    title_font = font("Inter-SemiBold.otf", 36)
+    title_width = d.textlength(txt["title"], font=title_font)
+    if title_width > W - 2 * MARGIN:
+        raise SystemExit("Controller heading exceeds canvas width: " + lang)
+    d.text(((W - title_width) / 2, 22), txt["title"], font=title_font, fill=INK)
 
     f_call = font("Inter-SemiBold.otf", CALL_SIZE)
     f_hand = font("Inter-SemiBold.otf", HAND_SIZE)
@@ -652,7 +684,7 @@ def build(lang):
         for key in table:
             colour = {"stick": BLUE, "trigger": ORANGE, "grip": CYAN,
                       "X": GREEN, "A": RED, "Y": PURPLE, "B": PURPLE}[key]
-            ring(d, anchor_px(hand, key), colour, r=RING_R[key])
+            ring(d, anchor_px(hand, key), action_colour(lang, key, colour), r=RING_R[key])
 
     # --- the callouts ---------------------------------------------------------------------
     # Drawn over the rings, so a leader crossing the plate stays readable and a name never
@@ -661,7 +693,7 @@ def build(lang):
     for key, g in CALLOUT_GEOM.items():
         lines, widths, box, polys = block(d, lang, key, f_call)
         for poly in polys:
-            leader(d, g["colour"], poly)
+            leader(d, action_colour(lang, key, g["colour"]), poly)
         for i, ln in enumerate(lines):
             if g["align"] == "c":
                 lx0 = (box[0] + box[2]) / 2.0 - widths[i] / 2.0
@@ -669,7 +701,7 @@ def build(lang):
                 lx0 = box[2] - widths[i]
             else:
                 lx0 = box[0]
-            d.text((lx0, box[1] + i * CALL_LH), ln, font=f_call, fill=g["colour"],
+            d.text((lx0, box[1] + i * CALL_LH), ln, font=f_call, fill=action_colour(lang, key, g["colour"]),
                    stroke_width=5, stroke_fill=PAPER)
 
     # --- LEFT / RIGHT under each controller -----------------------------------------------
@@ -728,5 +760,5 @@ RULE_Y   = HAND_Y + 62
 
 if __name__ == "__main__":
     check_geometry(RULE_Y)
-    for lang in ("en", "de"):
+    for lang in LABELS:
         build(lang)
