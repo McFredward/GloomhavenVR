@@ -692,7 +692,11 @@ internal sealed class CardFan
             // case where a card of an exchange still in the air is named by a NON-swap set.
             if (cards[i] != null)
                 RescueFromLeaving(cards[i]);
-            _cards.Add(cards[i]);
+            // MB497: a grab removes one card from the physical arc. A model rebuild must not
+            // put it back while it is still held: that made the count flap N/N-1 and reshuffled
+            // the covered remote fan. The authored order below still remembers its return seat.
+            if (cards[i] != null && !cards[i].IsHeld)
+                _cards.Add(cards[i]);
             // Membership → interaction verdicts (gate-hand veto + mode), and the held-card rule
             // that keeps a card the player is HOLDING transferable between the hands: see
             // StampMembership. NOTE the incoming list legitimately still names a held card — the
@@ -705,7 +709,7 @@ internal sealed class CardFan
         // its publisher put it instead of on the right-hand end (see _authoredOrder). Snapshotted
         // rather than aliased: the caller reuses its buffer every rebuild.
         _authoredOrder.Clear();
-        _authoredOrder.AddRange(_cards);
+        _authoredOrder.AddRange(cards);
         if (IsOpen)
         {
             // instant during an exchange: the swap-in blend below drives every incoming card's
@@ -873,6 +877,8 @@ internal sealed class CardFan
     /// around it and the board-slot-style glow appears there. Pushed by the driver each frame
     /// while a fan-originating card is held over the fan (<c>CardsDriver.UpdateFanInsertion</c>).
     /// </summary>
+    internal int InsertionGap => IsOpen ? _insertGap : -1;
+
     public void SetInsertionGap(int gap)
     {
         int n = _cards.Count;
@@ -942,15 +948,18 @@ internal sealed class CardFan
     /// most for the immediate neighbours and decaying outward (gaussian in slot-distance, reusing
     /// <see cref="CardsConfig.FanSplitFalloff"/>), opening a card-width slot for the incoming card.
     /// </summary>
-    private static float GapOffset(int i, int gap)
+    private static float GapOffset(int i, int gap) =>
+        InsertionOffset(i, gap, CardsConfig.CardWidth.Value, CardsConfig.FanSplitFalloff.Value);
+
+    internal static float InsertionOffset(int i, int gap, float cardWidth, float splitFalloff)
     {
         int d;
         float side;
         if (i < gap) { d = gap - i; side = -1f; }
         else { d = i - gap + 1; side = 1f; }
-        float falloff = Mathf.Max(0.0001f, CardsConfig.FanSplitFalloff.Value);
+        float falloff = Mathf.Max(0.0001f, splitFalloff);
         float x = (d - 1) / falloff;
-        float half = CardsConfig.CardWidth.Value * FanInsertGapFactor * 0.5f;
+        float half = cardWidth * FanInsertGapFactor * 0.5f;
         return side * half * Mathf.Exp(-x * x);
     }
 
@@ -2094,13 +2103,7 @@ internal sealed class CardFan
         if (_insertGap >= 0)
         {
             EnsureOverlay();
-            float gapAngle = start + step * (_insertGap - 0.5f);
-            float gapRad = gapAngle * Mathf.Deg2Rad;
-            _overlay!.transform.localRotation = Quaternion.Euler(0f, 0f, -gapAngle * tiltFactor);
-            _overlay.transform.localPosition = new Vector3(
-                Mathf.Sin(gapRad) * radius,
-                (Mathf.Cos(gapRad) - 1f) * radius * archFactor,
-                -ZStagger * _insertGap + OverlayProudZ);
+            PositionInsertionOverlay(_overlay!.transform, _insertGap, start, step, radius, archFactor, tiltFactor);
             if (!_overlay.activeSelf)
                 _overlay.SetActive(true);
         }
@@ -2161,20 +2164,27 @@ internal sealed class CardFan
     {
         if (_overlay != null || _root == null)
             return;
-        float w = CardsConfig.CardWidth.Value;
-        float h = CardsConfig.CardHeight;
-        _overlay = CardGlow.CreateGlowQuad("FanInsertHighlight", _root,
-            new Vector3(w * 1.24f, h * 1.24f, 1f), Vector3.zero,
-            new Color(1f, 0.85f, 0.3f, 0.95f)); // same gold as the board slot glow
-        Core.VRLayers.Apply(_overlay);
-        // Perspective (user report 2026-08-08, MR: "Die mixed reality hintergründe schieben sich
-        // vor den outlines von karten"). This glow is a depth-LESS transparent quad 1.24x the card,
-        // i.e. it draws where no card slab wrote depth — at sortingOrder 0 every MR backing plate
-        // (which rides its panel's ladder slot at >= 100) painted over it even when the panel was
-        // metres BEHIND the hand. The board's own slot glow is the same quad, but it is board
-        // furniture and rides PlayTray.AdoptFurniture's cluster band; the HAND fan is free-floating,
-        // so it ranks itself against the panel ladder. Full root cause on CardCueOrder.
-        CardGlow.RankWithPanels(_overlay);
+        _overlay = CreateInsertionOverlay(_root, CardsConfig.CardWidth.Value, CardsConfig.CardHeight);
+    }
+
+    internal static GameObject CreateInsertionOverlay(Transform parent, float width, float height)
+    {
+        GameObject overlay = CardGlow.CreateGlowQuad("FanInsertHighlight", parent,
+            new Vector3(width * 1.24f, height * 1.24f, 1f), Vector3.zero,
+            new Color(1f, 0.85f, 0.3f, 0.95f));
+        Core.VRLayers.Apply(overlay);
+        CardGlow.RankWithPanels(overlay);
+        return overlay;
+    }
+
+    internal static void PositionInsertionOverlay(Transform overlay, int gap, float start,
+        float step, float radius, float arch, float tilt)
+    {
+        float angle = start + step * (gap - 0.5f);
+        float rad = angle * Mathf.Deg2Rad;
+        overlay.localRotation = Quaternion.Euler(0f, 0f, -angle * tilt);
+        overlay.localPosition = new Vector3(Mathf.Sin(rad) * radius,
+            (Mathf.Cos(rad) - 1f) * radius * arch, -ZStagger * gap + OverlayProudZ);
     }
 
     /// <summary>
