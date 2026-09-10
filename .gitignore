@@ -120,3 +120,6 @@ preview-controllers.log
 # Unity license activation/request files are per-machine credentials, never source assets.
 *.alf
 *.ulf
+
+# Local game-derived shader reports/disassembly; regenerate from a licensed game install.
+/tools/ShaderDisasm/evidence/*.txt

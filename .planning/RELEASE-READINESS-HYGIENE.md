@@ -19,8 +19,9 @@ as distributable source, and environment files were not opened.
 | Historical `.planning/voice/*.csv` and `*.json` | Retain | Recorded probe inputs/results and authored-curve evidence are referenced by the spatial-voice investigation. New dumps no longer overwrite the historical CSV. |
 | `.claude/settings.json` and both `.claude/hooks/*.py` files | Retain unchanged | Functional optional Claude Code tooling, with 68 passing hook tests. They do not run under Codex and are not a security boundary. |
 | `tools/ShaderOcclusionPatcher/` | Retain | Both install and uninstall scripts invoke its **restore** command for legacy installations. Removing it would strand users with previously modified game files. The current mod does not need its patch command. |
-| `tools/ShaderDisasm/` | Retain pending separate publication review | Research tooling and findings remain referenced by production comments about particle/decal behavior. Lack of a runtime project reference does not make diagnostic tools dead code. |
-| Both `classdata.tpk` files | Retain; declare binary attributes | Identical 289,605-byte tool inputs copied by their separate projects. Consolidation would require changing project/resource paths and resolving provenance, not merely deleting a duplicate. |
+| `tools/ShaderDisasm/` source and findings | Retain | Research tooling and findings remain referenced by production comments about particle/decal behavior. Lack of a runtime project reference does not make diagnostic tools dead code. |
+| `tools/ShaderDisasm/evidence/*.txt` | Integrator untracks nine generated reports; preserve local evidence | Game-derived shader dumps are local investigation output, not distributable source inputs. A directory README documents regeneration; an ignore rule prevents restaging. |
+| Both `classdata.tpk` files | Retain; declare binary attributes | Identical 289,605-byte tool inputs copied by their separate projects. These are UABEA/AssetsTools type metadata, not extracted game code; the integrator records their MIT provenance. Consolidation would require changing project/resource paths, not merely deleting a duplicate. |
 | `.planning/` archives, investigations and harnesses | Retain | Preserve previous decisions and regression reasoning. The inventory contains 170 Markdown files and 53 supporting files before cleanup; historical status belongs in the planning index. |
 | `prebuilt/`, Unity source assets, `libs/RefAsm/` | Retain unchanged | Required release/build inputs. The 16 reference assemblies are intentionally tracked metadata-only build references; source ownership and redistribution remain part of the separate publication audit. |
 
@@ -57,12 +58,16 @@ reason that the exact editor version matters. No binary was rebuilt or modified.
 
 ## Publication review boundary
 
-The separate integrator audit must account for game-derived shader disassembly
-under `tools/ShaderDisasm/evidence/`, the two tool type-package inputs, reference
-assembly metadata and source/art asset provenance. Their presence is identified
-here; this lane makes no licensing or legal conclusion about them. Removing
-scratch from the current tree does **not** remove previous commits, raw logs or
-assets from Git history. No history rewriting was performed.
+The integrator's publication review identifies the generated shader disassembly under
+`tools/ShaderDisasm/evidence/` as local game-derived output and untracks the nine
+reports separately, retaining instructions to regenerate them. The type-package
+inputs remain, with their UABEA/AssetsTools metadata provenance documented by the
+integrator. Reference assembly metadata and source/art asset provenance are also
+covered by that separate audit.
+
+Removing generated files from the current tree does **not** remove previous
+commits, raw logs, shader dumps or assets from Git history. Publication of that
+history remains a separate review item. No history rewriting was performed.
 
 ## Validation and integration
 
