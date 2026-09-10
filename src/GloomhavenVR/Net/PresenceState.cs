@@ -1116,6 +1116,11 @@ internal struct PresenceState
     /// its persistent sample buffer); only the first count entries go on the wire.</summary>
     public int[]? FanArcOrder;
 
+    /// <summary>Record71: the owner's currently open insertion gap, -1 when inactive.
+    /// The gap belongs to the same atomic HandCardCount/order/focus snapshot.</summary>
+    public bool HasFanInsertionGap;
+    public int FanInsertionGap;
+
     /// <summary>
     /// True when this packet carries the sender's OWN TUNING of their board, fan and board mesh
     /// (extension record <see cref="NetProtocol.ExtIdBoardTuning"/>). Written ONLY while at least
@@ -1603,6 +1608,10 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>MB497 adds three bytes for insertion-gap record71: 3837 -> 3840 worst case.
+    /// The allocation-only buffer grows to4097 to retain a257-byte spare-record margin;
+    /// the actual snapshot remains below the unchanged4096-byte reassembly limit.</para>
+    ///
     /// <para>MB490 adds at most11 bytes for mutually exclusive second-held actor66/map67:3837
     /// worst case in a4096-byte buffer, leaving259 bytes (largest single record257).
     /// The4096-byte extras reassembly bound is unchanged.</para>
@@ -1832,7 +1841,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 4096;
+    public const int MaxSize = 4097;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1907,6 +1916,7 @@ internal static class PresenceSerializer
                           // The sampler already returns 0 outside the online card-selection phase,
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
+                          || state.HasFanInsertionGap
                           || (state.HasFanArcOrder && state.FanArcOrderCount > 0
                               && state.FanArcOrder != null)
                           || (state.HasTrackOrder && state.TrackOrderCount > 0
@@ -2666,6 +2676,17 @@ internal static class PresenceSerializer
                 i += payload - 1;
                 records++;
             }
+        }
+        if (state.HasFanInsertionGap && i + 3 <= buffer.Length)
+        {
+            buffer[i++] = NetProtocol.ExtIdFanInsertionGap;
+            buffer[i++] = 1;
+            int gap = state.FanInsertionGap;
+            // A gap indexes the physical arc, including its end. Never publish an active
+            // marker against a different count; an invalid local sample clears it instead.
+            buffer[i++] = gap >= 0 && gap <= 16 && gap <= state.HandCardCount
+                ? (byte)(gap + 1) : (byte)0;
+            records++;
         }
         if (state.HasBoardTuning && state.BoardTuningBytes != null)
         {
@@ -3813,6 +3834,7 @@ internal static class PresenceSerializer
     public static bool TryRead(byte[] buffer, int length, out PresenceState state)
     {
         state = default;
+        state.FanInsertionGap = -1;
         if (buffer == null || length < 7)
             return false;
 
@@ -3909,14 +3931,22 @@ internal static class PresenceSerializer
                 for (int r = 0; r < records; r++)
                 {
                     if (length < i + 2)
+                    {
+                        if (length > i && buffer[i] == NetProtocol.ExtIdFanInsertionGap) return false;
                         break;
+                    }
                     byte id = buffer[i++];
                     int len = buffer[i++];
                     bool provenance = id == NetProtocol.ExtIdSecondHeldFaceActor || id == NetProtocol.ExtIdHeldMapCard;
                     if (length < i + len)
                     {
-                        if (provenance) return false;
+                        if (provenance || id == NetProtocol.ExtIdFanInsertionGap) return false;
                         break;
+                    }
+                    if (id == NetProtocol.ExtIdFanInsertionGap)
+                    {
+                        if (state.HasFanInsertionGap || len != 1 || buffer[i] > 17
+                            || buffer[i] > state.HandCardCount + 1) return false;
                     }
                     if (provenance)
                     {
@@ -3954,7 +3984,12 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
-        if (id == NetProtocol.ExtIdHandScale && len >= 1)
+        if (id == NetProtocol.ExtIdFanInsertionGap && len == 1)
+        {
+            state.HasFanInsertionGap = true;
+            state.FanInsertionGap = buffer[i] - 1;
+        }
+        else if (id == NetProtocol.ExtIdHandScale && len >= 1)
         {
             state.HasHandScale = true;
             state.HandScaleCode = buffer[i];

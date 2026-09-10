@@ -127,6 +127,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// <summary>Persistent sample buffer for extension record 44 (the fan arc order) — sized to
     /// the record's own seat cap so the sampler can never be asked to write past it.</summary>
     private readonly int[] _fanArcOrderBuf = new int[NetProtocol.FanArcOrderMaxSeats];
+    private readonly FanPresentationSendState _fanPresentationSent = new();
     private int _lastSentItemCount = -1;
 
     // ITEM-USE CLIP (extension record 26): the last broadcast fan index of the chip lying in our own
@@ -925,6 +926,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         RemoteMapStory.Reset();        // …nor a map story page or a shared window pose
         _lastSentCapPress = -1;        // …and never replays a stale keycap press into a new session
         Cards.BoardCapPress.Clear();   // …including the latch it is diffed against
+        _fanPresentationSent.Reset();  // new peers need a complete fan presentation sample
         _sentSecondFigureValid = false; // nor a new session's second held figure
         _lastSentSecondActorId = 0;
         _sentSecondCardValid = false;   // nor its second held card
@@ -1222,6 +1224,10 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // resolves for us — NetPlayerActors.ActorFor(this id), the receiver's own expression.
         bool fanArcOrder = LocalRigSampler.SampleFanArcOrder(
             _transport.LocalPlayerId, _fanArcOrderBuf, out int fanArcOrderCount);
+        int fanInsertionGap = CardFan.Current?.InsertionGap ?? -1;
+        if (fanInsertionGap > handNow || fanInsertionGap > 16) fanInsertionGap = -1;
+        bool fanPresentationChanged = _fanPresentationSent.HasChanged(
+            fanArcOrder, fanArcOrderCount, _fanArcOrderBuf, fanInsertionGap);
         ItemsPile? itemsNow = ItemsPile.Current;
         int itemsCount = itemsNow != null && itemsNow.IsOpen ? itemsNow.Chips.Count : 0;
         bool countsChanged = handNow != _lastSentHandCount || itemsCount != _lastSentItemCount;
@@ -2008,7 +2014,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         float heldEdgeEarlyMs = (interval - _extrasAccumulator) * 1000f;
 
         if (_extrasAccumulator < interval && !fxPending && !countsChanged && !browseChanged
-            && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
+            && !maskSizeChanged && !boardStyleChanged && !handScaleChanged && !fanPresentationChanged
             && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
             && !propChanged && !propDue
@@ -2050,6 +2056,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             return;
         _extrasAccumulator = 0f;
         _lastSentHandCount = handNow;
+        _fanPresentationSent.MarkSent(fanArcOrder, fanArcOrderCount, _fanArcOrderBuf, fanInsertionGap);
         _lastSentItemCount = itemsCount;
 
         var extras = default(PresenceState);
@@ -2065,6 +2072,8 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         }
 
         extras.HandCardCount = (byte)Mathf.Clamp(handNow, 0, 255);
+        extras.HasFanInsertionGap = true;
+        extras.FanInsertionGap = fanInsertionGap;
         // …AND THE ORDER THOSE SLABS GO IN (record 44). Written beside the count it permutes, from
         // the sample taken on the same frame. Absent whenever the sampler could not answer or the
         // arc is already in the derived order — silence means "keep the order you have", which is

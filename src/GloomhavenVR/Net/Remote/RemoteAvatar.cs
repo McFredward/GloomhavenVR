@@ -409,6 +409,9 @@ internal sealed class RemoteAvatar
     /// <summary>How many entries of <see cref="FanArcOrder"/> are valid. 0 when none.</summary>
     internal int FanArcOrderCount { get; private set; }
 
+    /// <summary>Owner's insertion marker/gap in this same count/order snapshot; -1 inactive.</summary>
+    internal int FanInsertionGap { get; private set; } = -1;
+
     /// <summary>
     /// WHICH SEATS OF THIS PEER'S HAND LIST ARE CURRENTLY IN THEIR FIST — the seats named by record
     /// 36 for the two pose slots, filtered to <see cref="NetProtocol.HeldFaceListHand"/>, handed back
@@ -1621,6 +1624,7 @@ internal sealed class RemoteAvatar
         // consumer re-belts the pair every frame.
         FanArcOrder = p.HasFanArcOrder ? p.FanArcOrder : null;
         FanArcOrderCount = p.HasFanArcOrder ? p.FanArcOrderCount : 0;
+        FanInsertionGap = p.HasFanInsertionGap ? p.FanInsertionGap : -1;
         DominantRight = p.DominantRight;
 
         // SECOND HELD FIGURE (extension record 8): the mini in the sender's other hand. Absent ⇒
