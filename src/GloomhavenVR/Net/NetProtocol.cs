@@ -72,6 +72,9 @@ internal static class NetProtocol
     public const byte ExtIdHeldMapCard = 67;
     public const byte ExtIdCardAppearanceProvenance = 68;
     public const byte ExtIdCardAppearanceGroups = 69;
+    /// <summary>Board pose on the rig stream: flags byte0 absent, or flags1 + RigPose20 + scale4.
+    /// Shares the head/hand packet cadence; the extras board record remains for legacy fallback.</summary>
+    public const byte ExtIdBoardRigPose = 70;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;
