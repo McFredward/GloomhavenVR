@@ -57,6 +57,19 @@ $root = Split-Path -Parent $PSScriptRoot
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
+# SDK resolution starts at the process working directory, even with an absolute project
+# path. Use the repository policy for both preflight and every subsequent dotnet command,
+# including invocation from another folder, and always restore the caller's location.
+function Invoke-RepoDotnet {
+    Push-Location -LiteralPath $root
+    try {
+        & dotnet @args
+        $script:LASTEXITCODE = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+}
+
 # --- 1. toolchain ----------------------------------------------------------
 Step "Checking toolchain"
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
@@ -65,6 +78,35 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Error "git not found. Install https://git-scm.com/download/win, then re-run."
 }
+
+# Finding dotnet.exe only proves that a host is installed. A runtime-only installation or
+# an incompatible global.json policy must fail before downloads or local/game file writes.
+# Windows PowerShell 5.1 represents redirected native stderr as error records; collect those
+# without terminating so the SDK resolver's exit code gets the actionable diagnostic below.
+$previousErrorAction = $ErrorActionPreference
+$previousNativeErrorAction = $PSNativeCommandUseErrorActionPreference
+try {
+    $ErrorActionPreference = "Continue"
+    $PSNativeCommandUseErrorActionPreference = $false
+    $sdkOutput = @(Invoke-RepoDotnet --version 2>&1)
+    $sdkExitCode = $LASTEXITCODE
+    if ($sdkExitCode -ne 0) {
+        $installedSdks = @(Invoke-RepoDotnet --list-sdks 2>&1)
+    }
+} finally {
+    $ErrorActionPreference = $previousErrorAction
+    $PSNativeCommandUseErrorActionPreference = $previousNativeErrorAction
+}
+if ($sdkExitCode -ne 0) {
+    $sdkPolicy = (Get-Content -LiteralPath (Join-Path $root "global.json") -Raw | ConvertFrom-Json).sdk
+    $installedSummary = if ($installedSdks.Count -gt 0) { $installedSdks -join "`n  " } else { "(none)" }
+    Write-Error ("No compatible .NET SDK can be selected for this repository.`n" +
+        "  Policy: $root\global.json (version $($sdkPolicy.version), rollForward $($sdkPolicy.rollForward)).`n" +
+        "  Installed SDKs:`n  $installedSummary`n" +
+        "Install a supported .NET SDK from https://dotnet.microsoft.com/download, then re-run. " +
+        "See docs/DEVELOPING.md for the supported toolchain. No installation files have been changed.")
+}
+Write-Host "    .NET SDK: $($sdkOutput -join ' ') (repository policy)"
 
 # --- 2. locate game --------------------------------------------------------
 Step "Locating Gloomhaven"
@@ -180,7 +222,7 @@ if ($depsMissing) {
     New-Item -ItemType Directory -Force -Path $runtimeDepsDir | Out-Null
     foreach ($p in $packages) {
         Write-Host "    building $($p.Proj)"
-        dotnet build (Join-Path $root "tools\RuntimeDepsBuild\$($p.Proj)\$($p.Proj).csproj") -c Release --nologo -v quiet
+        Invoke-RepoDotnet build (Join-Path $root "tools\RuntimeDepsBuild\$($p.Proj)\$($p.Proj).csproj") -c Release --nologo -v quiet
         if ($LASTEXITCODE -ne 0) { Write-Error "RuntimeDeps build failed: $($p.Proj)" }
         Copy-Item (Join-Path $root "tools\RuntimeDepsBuild\$($p.Proj)\bin\Release\net472\$($p.Proj).dll") $runtimeDepsDir -Force
     }
@@ -205,7 +247,7 @@ if ($behind -and [int]$behind -gt 0) {
     Write-Host "    WARNING: branch is $behind commit(s) BEHIND upstream - 'git pull' for the latest." -ForegroundColor Red
 }
 
-dotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo
+Invoke-RepoDotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo
 if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 
 # --- 7. deploy into the game ------------------------------------------------
@@ -331,11 +373,11 @@ if (Test-Path $backupDir) {
     $patcherProj = Join-Path $root "tools\ShaderOcclusionPatcher\ShaderOcclusionPatcher.csproj"
     $patcherDll  = Join-Path $root "tools\ShaderOcclusionPatcher\bin\Release\net8.0\ShaderOcclusionPatcher.dll"
 
-    dotnet build $patcherProj -c Release --nologo -v quiet
+    Invoke-RepoDotnet build $patcherProj -c Release --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { Write-Error "ShaderOcclusionPatcher build failed." }
 
     $restoredCount = (Get-ChildItem -Path $backupDir -File -Recurse | Measure-Object).Count
-    dotnet $patcherDll restore --game-data $gameDataDir --backup-dir $backupDir
+    Invoke-RepoDotnet $patcherDll restore --game-data $gameDataDir --backup-dir $backupDir
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "SHADER RESTORE FAILED." -ForegroundColor Red
