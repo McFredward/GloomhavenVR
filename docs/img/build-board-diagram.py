@@ -454,11 +454,11 @@ LABELS = {
                 "Middle: UNDO. Bottom: SKIP, raised only when a step can be skipped.",
                 "Push a key in with your fingertip while holding grip, or point and click.",
             ]),
-            # Cards/Caps/RestControls.cs:6-30 and :83-200.
+            # RestControls.Update: visibility is offered && canShort/canLong, not disabled styling.
             (ORANGE, "The two rest keys — left", [
                 "Upper: short rest — your discards come back, at the cost of one card.",
                 "Lower: long rest — declares the long rest for this round.",
-                "Both grey out while the game is not offering that rest.",
+                "A rest key appears only while it can change your choice.",
             ]),
             # Cards/Tray/PlayTray.1.Core.cs:1158-1273 (BuildHandle), :1043-1075 (carry).
             (CYAN, "The grab rod", [
@@ -470,7 +470,7 @@ LABELS = {
             # PlayTray.3.Pose.cs:571 (the round readout).
             (PURPLE, "Top edge — the round", [
                 "The game's own initiative track docks here, portraits and all,",
-                "including the '?' for anyone who has not locked in yet.",
+                "with initiative hidden behind '?' during card selection.",
                 "The round number is engraved into the top-right corner.",
             ]),
             # PlayTray.1.Core.cs:903-921, PlayTray.3.Pose.cs:512-518,
@@ -482,13 +482,14 @@ LABELS = {
             ]),
             # Cards/Piles/PileViewer.cs:212-243 and :1005-1025, PileBrowser.cs:9-27,
             # Piles/ItemsPile.cs:14-55.
-            # Cards/Piles/ActivePileViewer.cs (the matrix), PlayTray.3.Pose.cs:506 (its mount).
+            # ActivePileViewer / CardsDriver.4.Rebuild: immediate inspection; RoundCardExit routes
+            # completed effects to their actual pile. Modal choices follow CardsDriver.6.Flows.
             (RED, "Right — the stacks and your active cards", [
                 "Three stacks, top to bottom, each carrying its own live count.",
                 "Tap one and it fans out above the board so you can read it.",
-                "Items can be taken out of the fan; the other two are for reading.",
-                "Further out: the cards you have active right now, three to a row.",
-                "Pull one out to read it and it goes back on its own.",
+                "Take items out to use them; card choices follow the current rest, damage or recovery prompt.",
+                "Further out: active cards, immediately grabbable for inspection.",
+                "When an effect ends, its card goes to the discard or burnt stack as required.",
             ]),
             # Cards/CardFan.cs, Hands/Interact/PalmGate.cs,
             # CardsDriver.2.Update.cs:1219-1300 (the gate), .3.Laser.cs:150-177 (the pluck).
@@ -534,7 +535,7 @@ LABELS = {
             (ORANGE, "Die beiden Rast-Tasten — links", [
                 "Oben: kurze Rast — deine abgeworfenen Karten kommen zurück, eine bleibt weg.",
                 "Unten: lange Rast — meldet die lange Rast für diese Runde an.",
-                "Beide werden blass, solange das Spiel diese Rast nicht anbietet.",
+                "Eine Rast-Taste erscheint nur, wenn sie deine Auswahl ändern kann.",
             ]),
             (CYAN, "Die Greifstange", [
                 "Mit einer Hand greifen trägt das ganze Brett: Karten, Tasten,",
@@ -542,8 +543,8 @@ LABELS = {
                 "Mit beiden Händen greifen macht das Brett größer oder kleiner.",
             ]),
             (PURPLE, "Obere Kante — die Runde", [
-                "Hier dockt die Initiativleiste des Spiels selbst an, mit allen Porträts,",
-                "samt dem '?' für alle, die sich noch nicht festgelegt haben.",
+                "Hier dockt die Initiativleiste des Spiels mit den Porträts an.",
+                "In der Auswahlphase bleibt die Initiative hinter einem '?' verborgen.",
                 "Die Rundennummer ist oben rechts ins Brett eingraviert.",
             ]),
             (GOLD, "Links — Aufgaben und Elemente", [
@@ -554,9 +555,9 @@ LABELS = {
             (RED, "Rechts — die Stapel und deine aktiven Karten", [
                 "Drei Stapel von oben nach unten, jeder mit seiner eigenen Anzahl.",
                 "Tippe einen an, und er fächert sich über dem Brett zum Lesen auf.",
-                "Gegenstände kannst du herausnehmen; die anderen beiden sind zum Nachschauen.",
-                "Weiter außen: deine gerade aktiven Karten, drei pro Reihe.",
-                "Zieh eine heraus, um sie zu lesen — sie kehrt von selbst zurück.",
+                "Gegenstände herausnehmen und nutzen; Karten bei Rast, Schaden oder Rückgewinnung nach Aufforderung wählen.",
+                "Weiter außen: aktive Karten, sofort zum Nachschauen greifbar.",
+                "Endet ein Effekt, geht seine Karte je nach Ergebnis in die Ablage oder den Verbrannt-Stapel.",
             ]),
             (PINK, "Deine Handkarten", [
                 "Dreh deine freie Hand mit der Handfläche zu dir — der Fächer geht auf.",
