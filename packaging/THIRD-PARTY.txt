@@ -9,6 +9,16 @@ The full provenance record for the environment art — every source URL, the dat
 licence was re-read at its source, and the modifications made — lives in the repository
 at unity/GloomhavenVR.Assets/Assets/Bundle/Environments/License.md.
 
+SOFTWARE LICENCES
+------------------
+GloomhavenVR's GPL-3.0 licence is included beside this notice as LICENSE.txt.
+Separately licensed Unity XR runtime dependencies and OpenXR native libraries are
+included with the mod. Their pinned upstream copyright and third-party notices,
+together with the referenced licence texts, are included in the Licenses folder.
+See Licenses/SOURCES.txt for versions and provenance. These dependencies are not
+relicensed under GloomhavenVR's GPL-3.0 licence.
+
+
 VR CONTROLLER MODELS
 --------------------
 The controller models shown during the tutorial's controls lesson (Meta Quest

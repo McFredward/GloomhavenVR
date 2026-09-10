@@ -98,6 +98,14 @@ stage_text() {
     LC_ALL=C sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' -e "s/@VERSION@/$VERSION/g" -e 's/$/\r/' "$src" >> "$dest"
 }
 
+# Software licences travel with both complete and DLL-only developer packages. Keep them
+# below BepInEx so existing in-game updaters accept the package without a protocol change.
+stage_text "$ROOT/LICENSE" "$PLUGDIR/LICENSE.txt"
+mkdir -p "$PLUGDIR/Licenses"
+for notice in "$ROOT"/packaging/licenses/*.txt; do
+    stage_text "$notice" "$PLUGDIR/Licenses/$(basename "$notice")"
+done
+
 # Asset bundle: prefer a freshly built one, else the committed prebuilt copy.
 #
 # THE BUNDLE IS REQUIRED. Every 3D asset the mod draws (hands, control board, card backing,
@@ -175,6 +183,8 @@ unzip -l "$ZIP"
 LISTING="$(unzip -l "$ZIP")"
 for path in \
     "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll" \
+    "BepInEx/plugins/GloomhavenVR/LICENSE.txt" \
+    "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt" \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \
     "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
     "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll" \

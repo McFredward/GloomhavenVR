@@ -110,12 +110,10 @@ fi
 
     echo "## Install"
     echo
-    echo "Download \`GloomhavenVR-$VERSION.zip\` below and unpack it into your Gloomhaven"
-    echo "folder — the one with \`GH.exe\` in it. Everything the mod needs is in that archive;"
-    echo "there is nothing else to download. \`INSTALL.txt\` inside it — or"
-    echo "\`INSTALL-DEUTSCH.txt\`, the same guide in German — walks you through the one other"
-    echo "thing you need (a free program called BepInEx, installed once) and the headset"
-    echo "setting to check first."
+    echo "Install BepInEx once, then download \`GloomhavenVR-$VERSION.zip\` below and extract it"
+    echo "into your Gloomhaven folder, beside \`GH.exe\`. The archive includes the mod and its"
+    echo "VR assets. Follow \`INSTALL.txt\` or \`INSTALL-DEUTSCH.txt\` inside the archive for"
+    echo "the BepInEx download and headset setup."
     echo
     if [[ -n "$PREV" ]]; then
         echo "**Updating from an older version?** Unpack this zip over the top of the old one."

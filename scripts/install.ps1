@@ -150,10 +150,13 @@ if (-not $managed) { Write-Error "No *_Data\Managed\GH.Runtime.dll under '$GameP
 Write-Host "    managed: $managed"
 
 $propsUser = Join-Path $root "Directory.Build.props.user"
+# Game paths may contain XML metacharacters (for example, D:\Games & Tools).
+# Preserve the literal path when MSBuild parses the generated local properties file.
+$managedXml = [System.Security.SecurityElement]::Escape($managed)
 $propsContent = @"
 <Project>
   <PropertyGroup>
-    <GameManaged>$managed</GameManaged>
+    <GameManaged>$managedXml</GameManaged>
   </PropertyGroup>
 </Project>
 "@
@@ -298,6 +301,15 @@ function Write-WindowsText([string]$Source, [string]$Destination, [hashtable]$Re
     foreach ($key in $Replace.Keys) { $text = $text.Replace($key, [string]$Replace[$key]) }
     $text = $text.Replace("`r`n", "`n").Replace("`n", "`r`n")
     [System.IO.File]::WriteAllText($Destination, $text, $script:Utf8Bom)
+}
+
+# Match package-release.sh: retain the mod licence and pinned runtime notices in installs
+# and archives. The updater already accepts these paths below BepInEx.
+Write-WindowsText (Join-Path $root "LICENSE") (Join-Path $pluginDir "LICENSE.txt")
+$licenseDir = Join-Path $pluginDir "Licenses"
+New-Item -ItemType Directory -Force -Path $licenseDir | Out-Null
+foreach ($notice in Get-ChildItem -LiteralPath (Join-Path $root "packaging\licenses") -Filter "*.txt" -File) {
+    Write-WindowsText $notice.FullName (Join-Path $licenseDir $notice.Name)
 }
 
 # Asset bundle: a freshly built one is preferred, else the committed prebuilt copy.
@@ -501,6 +513,8 @@ if (-not $NoPackage) {
     # missing one of these looks fine and fails at the stranger's machine.
     $required = @(
         "BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll",
+        "BepInEx/plugins/GloomhavenVR/LICENSE.txt",
+        "BepInEx/plugins/GloomhavenVR/Licenses/SOURCES.txt",
         "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll",
         "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll",
         "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll",

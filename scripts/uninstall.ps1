@@ -91,18 +91,36 @@ if (Test-Path $backupDir) {
 if ($restored -gt 0) {
     Step "Verifying restored files"
     if (Get-Command dotnet -ErrorAction SilentlyContinue) {
-        $patcherProj = Join-Path $root "tools\ShaderOcclusionPatcher\ShaderOcclusionPatcher.csproj"
-        $patcherDll  = Join-Path $root "tools\ShaderOcclusionPatcher\bin\Release\net8.0\ShaderOcclusionPatcher.dll"
-        dotnet build $patcherProj -c Release --nologo -v quiet
-        if ($LASTEXITCODE -ne 0) { Write-Error "ShaderOcclusionPatcher build failed." }
-        dotnet $patcherDll verify --game-data $gameDataDir --manifest-out (Join-Path ([IO.Path]::GetTempPath()) "ghvr-uninstall-verify.json")
-        if ($LASTEXITCODE -eq 2) {
-            Write-Host "    OK - original (unpatched) shader state confirmed." -ForegroundColor Green
-        } elseif ($LASTEXITCODE -eq 0) {
-            Write-Host "    WARNING: shaders still look patched after restore - backup may be incomplete." -ForegroundColor Yellow
-            Write-Host "    Use Steam 'Verify integrity of game files' to restore pristine files." -ForegroundColor Yellow
-        } else {
-            Write-Host "    WARNING: verify tool reported an error - falling back is safe via Steam 'Verify integrity'." -ForegroundColor Yellow
+        # Verification is optional: restoring backups and removing the mod must also work
+        # with only a runtime installed, an unavailable SDK, or an offline restore failure.
+        # Select the repository SDK policy even when invoked from another directory.
+        $previousNativeErrorAction = $PSNativeCommandUseErrorActionPreference
+        Push-Location -LiteralPath $root
+        try {
+            $PSNativeCommandUseErrorActionPreference = $false
+            $patcherProj = Join-Path $root "tools\ShaderOcclusionPatcher\ShaderOcclusionPatcher.csproj"
+            $patcherDll  = Join-Path $root "tools\ShaderOcclusionPatcher\bin\Release\net8.0\ShaderOcclusionPatcher.dll"
+            dotnet build $patcherProj -c Release --nologo -v quiet
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Verification tool could not be built. Backups were restored; continuing uninstall."
+            } else {
+                # Match install.ps1: the standalone net8.0 tool may use a newer installed
+                # runtime. This does not change the game's net472 plugin target.
+                dotnet --roll-forward Major $patcherDll verify --game-data $gameDataDir --manifest-out (Join-Path ([IO.Path]::GetTempPath()) "ghvr-uninstall-verify.json")
+                if ($LASTEXITCODE -eq 2) {
+                    Write-Host "    OK - original (unpatched) shader state confirmed." -ForegroundColor Green
+                } elseif ($LASTEXITCODE -eq 0) {
+                    Write-Host "    WARNING: shaders still look patched after restore - backup may be incomplete." -ForegroundColor Yellow
+                    Write-Host "    Use Steam 'Verify integrity of game files' to restore pristine files." -ForegroundColor Yellow
+                } else {
+                    Write-Warning "Verification tool reported an error. Continuing uninstall; Steam 'Verify integrity' remains available."
+                }
+            }
+        } catch {
+            Write-Warning "Verification could not run: $($_.Exception.Message). Backups were restored; continuing uninstall."
+        } finally {
+            Pop-Location
+            $PSNativeCommandUseErrorActionPreference = $previousNativeErrorAction
         }
     } else {
         Write-Host "    .NET SDK not found - skipping verify (files were copied back 1:1 from the backup)."

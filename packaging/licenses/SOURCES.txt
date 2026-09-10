@@ -1,0 +1,37 @@
+Runtime software notices shipped with GloomhavenVR
+================================================
+
+The package-specific LICENSE and Third Party Notices files below are copied from
+the pinned source checkouts used by scripts/build-runtimedeps.sh. One redundant
+trailing blank line is removed from the OpenXR LICENSE; its text is unchanged.
+The packaging scripts only convert text encoding and line endings for Windows.
+
+Unity XR Management 4.5.0 (Unity.XR.Management.dll)
+  https://github.com/needle-mirror/com.unity.xr.management/tree/4bed75a6b044755dc2854fee33a20119c792fb5e
+  LICENSE.md -> Unity.XR.management-4.5.0-LICENSE.txt
+
+Unity XR Core Utils 2.2.3 (Unity.XR.CoreUtils.dll)
+  https://github.com/needle-mirror/com.unity.xr.core-utils/tree/c25ad69335f74ba9abf91e10a141badde91dfc43
+  LICENSE.md -> Unity.XR.core-utils-2.2.3-LICENSE.txt
+
+Unity OpenXR 1.10.0 (Unity.XR.OpenXR.dll, UnityOpenXR.dll, openxr_loader.dll)
+  https://github.com/needle-mirror/com.unity.xr.openxr/tree/dc3a991d6f01595011b254cc9379d0b9fb00aab2
+  LICENSE.md -> Unity.XR.openxr-1.10.0-LICENSE.txt
+  Third Party Notices.md -> Unity.XR.openxr-1.10.0-Third-Party-Notices.txt
+  Native binaries use the same package version, pinned by scripts/fetch-natives.sh.
+  The upstream Oculus notice applies to Android Quest builds; this Windows mod
+  does not enable that build target. The upstream notice is retained in full.
+
+Referenced licence texts retrieved from the publishers on 2026-09-10:
+  Unity Companion License v1.4 (2024-10-29)
+    https://unity.com/legal/licenses/unity-companion-license
+    -> unity-companion-license.txt (page licence body, without site navigation)
+  Unity Package Distribution License v2.1 (2023-07-21)
+    https://unity.com/legal/licenses/unity-package-distribution-license
+    -> unity-package-distribution-license.txt (page licence body)
+  Apache License 2.0
+    https://www.apache.org/licenses/LICENSE-2.0.txt
+    -> Apache-2.0.txt (verbatim)
+
+The mod's own GPL-3.0 licence is in ../LICENSE.txt. These separate notices do not
+change upstream terms or grant rights to the game, Unity, or the bundle's art.
