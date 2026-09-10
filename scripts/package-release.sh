@@ -30,11 +30,25 @@
 # packaging/ stay plain UTF-8 + LF in git; the conversion happens here, at staging.
 #
 # Usage: scripts/package-release.sh
+# Developer local bundle opt-in: GHVR_USE_LOCAL_BUNDLE=1 scripts/package-release.sh
 # Refuses to package when libs/Natives or libs/RuntimeDeps are not populated.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG=Release
+
+# An ignored Unity output can be older than the tracked asset set. Use the committed
+# bundle unless the developer explicitly requests their local build. Validate that
+# request before building or replacing anything in dist/.
+BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
+if [[ "${GHVR_USE_LOCAL_BUNDLE:-0}" == "1" ]]; then
+    BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
+    if [[ ! -f "$BUNDLE" ]]; then
+        echo "error: GHVR_USE_LOCAL_BUNDLE=1 requested a missing local bundle: $BUNDLE" >&2
+        exit 1
+    fi
+fi
+echo "Asset bundle source: $BUNDLE"
 
 # ---- version from the plugin csproj ------------------------------------------------------
 VERSION="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' "$ROOT/src/GloomhavenVR/GloomhavenVR.csproj" | head -1)"
@@ -106,7 +120,7 @@ for notice in "$ROOT"/packaging/licenses/*.txt; do
     stage_text "$notice" "$PLUGDIR/Licenses/$(basename "$notice")"
 done
 
-# Asset bundle: prefer a freshly built one, else the committed prebuilt copy.
+# Copy the explicitly selected asset bundle.
 #
 # THE BUNDLE IS REQUIRED. Every 3D asset the mod draws (hands, control board, card backing,
 # map table, head avatars, environments, controller models) and every shader it ships live in
@@ -115,8 +129,6 @@ done
 # completes, so a developer can package a DLL-only build on a checkout that has no bundle,
 # but it says so on stderr and ships a bilingual README at the probe location that says the
 # same to the player — the previous README called the bundle OPTIONAL, which it never was.
-BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
-[[ -f "$BUNDLE" ]] || BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
 if [[ -f "$BUNDLE" ]]; then
     cp "$BUNDLE" "$PLUGDIR/gloomhavenvr.bundle"
     # The bundle carries third-party art (the WebXR Input Profiles controller models,
@@ -125,8 +137,8 @@ if [[ -f "$BUNDLE" ]]; then
     # ships beside it.
     stage_text "$ROOT/packaging/THIRD-PARTY.txt" "$PLUGDIR/THIRD-PARTY.txt"
 else
-    echo "WARNING: no gloomhavenvr.bundle found (neither $ROOT/unity/GloomhavenVR.Assets/Build/Bundles/" >&2
-    echo "         nor $ROOT/prebuilt/). The bundle is REQUIRED — this zip is INCOMPLETE and must not" >&2
+    echo "WARNING: selected bundle is missing: $BUNDLE" >&2
+    echo "         The bundle is REQUIRED — this zip is INCOMPLETE and must not" >&2
     echo "         be published. Shipping packaging/gloomhavenvr.bundle.README.txt in its place." >&2
     stage_text "$ROOT/packaging/gloomhavenvr.bundle.README.txt" "$PLUGDIR/gloomhavenvr.bundle.README.txt"
 fi

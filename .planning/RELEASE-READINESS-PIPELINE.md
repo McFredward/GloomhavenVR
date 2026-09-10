@@ -103,3 +103,34 @@ Windows PowerShell 5.1 on a real install, an actual main-triggered hosted releas
 public Latest download, updater application/restart/rollback, and headset behavior
 remain untested here. The outstanding four-player hardware performance test and
 unexplained one-off long-rest board disappearance remain in the draft highlights.
+
+## Integrated follow-up: stale local bundle selection
+
+The main checkout exposed a packaging defect absent from the clean worker checkout:
+its ignored Unity `Build/Bundles/gloomhavenvr.bundle` was an older 68,522,833-byte
+asset set, while committed `prebuilt/gloomhavenvr.bundle` is 74,943,763 bytes. Both
+packagers treated existence of local output as evidence that it was fresher, silently
+replacing the release asset set with old content.
+
+Both scripts now select committed `prebuilt` by default. Developers can explicitly
+choose local Unity output using `GHVR_USE_LOCAL_BUNDLE=1` for package-release.sh or
+`-UseLocalBundle` for install.ps1. A missing explicitly requested local file fails
+before build, dist replacement, downloads or installation writes. The source path
+is printed. Missing default prebuilt retains the existing incomplete developer-package
+warning/README behavior and never silently falls back to local output.
+
+Validation: complete shell packages with distinguishable committed/local fixtures
+selected the expected file for default and opt-in. Missing opt-in failed before
+mock-dotnet invocation and preserved an existing ZIP. PowerShell executed the actual
+selection block for both paths; its complete missing-opt-in script failed before
+toolchain checks or writes. With prebuilt absent and local output present, neither
+default path selected the local file. Existing six uninstall, XML and Windows licence
+staging fixtures passed again; Bash syntax, PowerShell parsing and diff checks passed.
+
+An actual Release package was rebuilt with the stale main bundle temporarily visible
+through a worker-only ignored symlink. Its bundle matched the committed SHA-256:
+`cf9df05f092cf5f09eae559a32c11a5d948c13df1f81a24d10cc281b5a9b6c43`.
+Build: 0 warnings/errors; package layout and text checks passed. The temporary symlink
+was removed; neither actual asset was changed. Evidence is in
+`/tmp/release100-bundle-check.py`, `/tmp/release100-bundle-check.log` and
+`/tmp/release100-bundle-package.log`.

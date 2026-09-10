@@ -49,11 +49,25 @@ param(
     # Skip building dist\GloomhavenVR-<version>.zip. The zip is cheap (it copies the
     # tree that was just deployed) and it is what goes on the GitHub releases page,
     # so it is on by default — this is for a fast iterate-and-test loop.
-    [switch]$NoPackage
+    [switch]$NoPackage,
+    # Use an explicitly built local Unity bundle instead of the committed asset set.
+    [switch]$UseLocalBundle
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+
+# Ignored Unity output can be stale. Select the committed asset set by default and
+# reject a missing explicitly requested local build before any installation writes.
+$bundle = Join-Path $root "prebuilt\gloomhavenvr.bundle"
+if ($UseLocalBundle) {
+    $bundle = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
+    if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) {
+        Write-Error "-UseLocalBundle requested a missing local bundle: $bundle"
+    }
+}
+Write-Host "Asset bundle source: $bundle"
+if (-not (Test-Path -LiteralPath $bundle -PathType Leaf)) { $bundle = $null }
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 
@@ -312,7 +326,7 @@ foreach ($notice in Get-ChildItem -LiteralPath (Join-Path $root "packaging\licen
     Write-WindowsText $notice.FullName (Join-Path $licenseDir $notice.Name)
 }
 
-# Asset bundle: a freshly built one is preferred, else the committed prebuilt copy.
+# Copy the asset bundle selected before installation.
 #
 # THE BUNDLE IS REQUIRED. Every 3D asset the mod draws (hands, control board, card backing,
 # map table, head avatars, environments, controller models) and every shader it ships live
@@ -321,11 +335,8 @@ foreach ($notice in Get-ChildItem -LiteralPath (Join-Path $root "packaging\licen
 # zip without it is not a release -- so both are said out loud below, and the README that
 # ships in the bundle's place (packaging\gloomhavenvr.bundle.README.txt, EN + DE) says the
 # same to the player. package-release.sh does exactly the same; two packagers, one layout.
-$bundleFresh    = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
-$bundlePrebuilt = Join-Path $root "prebuilt\gloomhavenvr.bundle"
-$bundle = if (Test-Path $bundleFresh) { $bundleFresh } elseif (Test-Path $bundlePrebuilt) { $bundlePrebuilt } else { $null }
 if (-not $bundle) {
-    Write-Warning ("gloomhavenvr.bundle not found (neither $bundleFresh nor $bundlePrebuilt). The bundle is " +
+    Write-Warning ("The selected committed prebuilt/gloomhavenvr.bundle is missing. The bundle is " +
                    "REQUIRED: this install and the zip built from it are INCOMPLETE -- crude placeholder hands, " +
                    "flat board, no environments. Shipping packaging\gloomhavenvr.bundle.README.txt in its place.")
     Write-WindowsText (Join-Path $root "packaging\gloomhavenvr.bundle.README.txt") (Join-Path $pluginDir "gloomhavenvr.bundle.README.txt")
