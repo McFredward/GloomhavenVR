@@ -34,7 +34,7 @@ Details: [hygiene inventory](RELEASE-READINESS-HYGIENE.md) and
 
 ## Verification
 
-Integrated checks passed against the unchanged production baseline `21648697`: No gameplay, network,
+Integrated checks passed against production baseline `21648697`. No gameplay, network,
 rendering source or bundled artwork was changed by this audit; ModBuild remains 497.
 
 - Full 17-checker guard: **253,579 wire assertions**, card capture **18,206**, native playback
@@ -54,6 +54,17 @@ rendering source or bundled artwork was changed by this audit; ModBuild remains 
   SHA-256 comparisons; see the pipeline report for the fixture scope and platform limitations.
 - A final documentation review resolved 223 current-guide/local-reference targets, and corrected
   stale STATE claims about concealment, worker limits and available performance measurements.
+
+### Optional tester-default comparison
+
+`rebase-defaults.py check` was also run against the available older tester configuration;
+it returns **2**, so this optional comparison is not counted as a green gate. Its three value
+differences are cheats enabled, Debug logging and disabled vertical world dragging in that
+local drop versus shipped false/Info/true. These are not changed by this audit. Three
+non-literal card-grip initializers are refused by its parser; manual source comparison confirms
+30 degrees, zero offset and 0.22 seconds match the drop. Three unmatched keys are stale
+HandsDisturbScenery/HandsDisturbVfx/CombatLogUserClosed entries, with no current bind.
+The requested build 497 defaults remain explicitly pinned. No automatic rebase was applied.
 
 ## History and publication boundaries
 
