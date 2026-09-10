@@ -78,7 +78,7 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
 ## Vollwertiger VR-Mehrspieler
 
 Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Andere sehen, wie du Miniaturen
-hochhebst und auf den Tisch zeigst. Fenster mit <img src="docs/img/net-shared.png" width="32" alt="Zwei-Personen-Symbol für geteilte Fenster">
+hochhebst und auf den Tisch zeigst. Fenster mit <img src="docs/img/net-shared.svg" width="22" height="16" alt="Blaues Zwei-Personen-Symbol für geteilte Fenster">
 sind geteilt; **Fenster ohne dieses Symbol siehst nur du**.
 Wer kein Headset hat, spielt am flachen Bildschirm in derselben Partie mit.
 

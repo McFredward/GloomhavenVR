@@ -76,7 +76,7 @@ the window; use its **X** to close it.
 
 | Mark on the window | Who sees it? |
 |---|---|
-| <img src="img/net-shared.png" width="32" alt="Two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits at the top right, below the close **X** when present. |
+| <img src="img/net-shared.svg" width="22" height="16" alt="Blue two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits at the top right, below the close **X** when present. |
 | **No symbol: local** | Only you. |
 
 ## The campaign map

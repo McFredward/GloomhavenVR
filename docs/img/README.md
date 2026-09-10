@@ -781,9 +781,10 @@ recipe is `unity/asset-preview/build_variant_tile_default.py` and its provenance
 
 ## Shared-window marker
 
-`net-shared.png` is an exact copy of `src/GloomhavenVR/Assets/net_shared.png`, the
-embedded icon selected by `GrabbableModal.BadgeResource`. Player guides show the actual
-two-player marker instead of a substitute glyph. The source texture is gold; the
-runtime material tints it blue with a soft pulse. The guide names that difference.
-It identifies shared windows at the top right, below the close button when present. Copy from the runtime asset when
-that asset changes; do not redraw it independently.
+`net-shared.svg` embeds the original `src/GloomhavenVR/Assets/net_shared.png` glyph and applies
+`GrabbableModal.BadgeTint` at the bright end of its blue pulse. The SVG frames the visible glyph
+instead of the tall source canvas; at 22 × 16 pixels it sits within a normal text line. The original
+artwork and alpha remain unchanged. No replacement symbol is drawn.
+
+Regenerate with `python3 docs/img/build-shared-marker.py` when the runtime asset or tint changes.
+The marker identifies shared windows at the top right, below the close button when present.

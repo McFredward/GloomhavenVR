@@ -78,7 +78,7 @@ Drop it and it settles back onto a hex.
 ## Full VR multiplayer
 
 Every VR player has a mask, hands and their own control board. Others see you lift miniatures and
-point at the table. Windows marked <img src="docs/img/net-shared.png" width="32" alt="Two-person shared-window symbol">
+point at the table. Windows marked <img src="docs/img/net-shared.svg" width="22" height="16" alt="Blue two-person shared-window symbol">
 are shared; **windows without this symbol are visible only to you**.
 People without a headset join the same game on a flat screen.
 

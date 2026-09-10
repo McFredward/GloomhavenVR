@@ -78,7 +78,7 @@ Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenste
 
 | Zeichen am Fenster | Wer sieht es? |
 |---|---|
-| <img src="img/net-shared.png" width="32" alt="Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt oben rechts, unter dem Schließen-**X**, sofern vorhanden. |
+| <img src="img/net-shared.svg" width="22" height="16" alt="Blaues Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt oben rechts, unter dem Schließen-**X**, sofern vorhanden. |
 | **Kein Symbol: lokal** | Nur du. |
 
 ## Die Kampagnenkarte
