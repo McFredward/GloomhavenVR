@@ -6,93 +6,71 @@
   <img src="img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
 </p>
 
-Noch nicht installiert? → [Installationsanleitung](../INSTALL.de.md)
-
-<p align="center">
-  <img src="img/divider.png" width="600" alt="">
-</p>
+[Installation](../INSTALL.de.md) · [Steuerung](#die-steuerung) · [Rundenablauf](#karten-und-kontrollbrett)
 
 ## Die Steuerung
 
 <p align="center">
-  <img src="img/controls-de.png" width="820" alt="Ein Quest-3-Controllerpaar, jede Belegung direkt im Bild benannt: linker Stick zum Fliegen, rechter Stick zum Drehen und Heranholen von Fenstern, Stick eindrücken zum Heranziehen, X für das Pause-Menü, A zum Markieren eines Feldes, Y+B halten zum Neuzentrieren, dazu Trigger und Grip, die in beiden Händen gleich sind">
+  <img src="img/controls-de.png" width="820" alt="Quest-3-Steuerung mit rechtem Hauptcontroller: A markiert ein Feld, X öffnet Pause. Linker Stick fliegt, rechter Stick dreht; der Stick der haltenden Hand bewegt ein Fenster näher oder weiter weg.">
 </p>
 
-**Du musst das nicht lernen.** Das Tutorial macht aus deinen Händen den Controller, den du
-tatsächlich hältst, und lässt für jede der vierzehn Steuerungen die passende Taste aufleuchten — in
-der Reihenfolge, in der sie nützlich werden. Abschalten unter **Komfort ▸ Hände & Zielen**.
-
-Drei Sachen, die das Bild nicht zeigen kann:
-
-- Eine gehaltene Figur größer oder kleiner machen: mit einer Hand halten, den **Trigger der anderen
-  Hand** ziehen, dann die Hände auseinander oder zusammen bewegen.
-- 45°-Sprünge statt fließendem Drehen: **Komfort ▸ Drehen**.
-- Steigen und sinken auf dem Dreh-Stick. Standardmäßig aus, einschalten unter
-  **Komfort ▸ Fortbewegung**.
+<details>
+<summary><b>Linker Hauptcontroller — Tastenbelegung anzeigen</b></summary>
 
 <p align="center">
-  <img src="img/divider-small.png" width="340" alt="">
+  <img src="img/controls-left-de.png" width="820" alt="Quest-3-Steuerung mit linkem Hauptcontroller: X markiert ein Feld, A öffnet Pause. Die Standard-Sticks für Fliegen und Drehen bleiben unverändert.">
 </p>
+
+</details>
+
+**Hauptcontroller wählen:** Drück im **Hauptmenü den Trigger** des gewünschten Controllers oder
+wähle **VR Optionen ▸ Komfort ▸ Hände & Zielen ▸ Dominante Hand**. Der Laser wechselt auf diese
+Hand, der Kartenfächer auf die andere. **A und X tauschen ihre Funktionen für Pause und Markieren.**
+Fliegen bleibt standardmäßig links, Drehen rechts; beides lässt sich unter **Komfort** separat einstellen.
+
+- **Gehaltene Figur skalieren:** Trigger der anderen Hand halten und die Hände auseinander oder zusammen bewegen.
+- **45°-Drehschritte:** Unter **Komfort ▸ Drehen** einschalten.
+- **Steigen/sinken mit dem Dreh-Stick:** Unter **Komfort ▸ Fortbewegung** einschalten (standardmäßig aus).
+
+Das interaktive Tutorial markiert die jeweilige Taste auf deinen Controllern.
+Ein- und ausschalten unter **Komfort ▸ Hände & Zielen**.
 
 ## Karten und Kontrollbrett
 
-› Video: [Karten, Kontrollbrett und Tisch](../README.de.md#karten-kontrollbrett-und-tisch), auf der Startseite.
-
-Dreh die Handfläche nach oben, und deine Hand fächert sich davor auf. Nimm eine Karte mit dem
-Trigger und leg sie in einen Slot deines Kontrollbretts. Die Reihenfolge der Slots ist deine
-Initiative, genau wie im echten Spiel. Wenn beide Karten drin sind, drück **Bestätigen**. Wenn du am
-Zug bist, tipp die obere oder untere Hälfte einer gespielten Karte an, um die Hälfte zu wählen.
-
-Auf dem Brett neben dir liegen außerdem Rückgängig, die Marken für kurze und lange Rast,
-Überspringen, die Entscheidungs-Schublade, eine Mulde für Gegenstände und die Stapel für Ablage,
-Verbranntes und Gegenstände. Jeder Stapel klappt als Fächer auf, über dem Brett oder in der
-Handfläche.
-
 <p align="center">
-  <img src="img/board-de.png" width="820" alt="Das Kontrollbrett mit allen beschrifteten Teilen: die beiden Kartenmulden, die drei Tasten rechts, die beiden Rast-Tasten links, die Greifstange, die Initiativleiste, Aufgaben und Elemente, die Stapel für Ablage, Verbranntes und Gegenstände, die Matrix deiner aktiven Karten sowie deine Handkarten">
+  <img src="img/board-de.png" width="820" alt="Beschriftetes Kontrollbrett: Kartenfächer, Bestätigen und Rückgängig, Rasten, Initiativreihenfolge, aktive Karten, Gegenstände und Kartenstapel.">
 </p>
 
-<p align="center">
-  <img src="img/divider-small.png" width="340" alt="">
-</p>
+| Phase | Ablauf |
+|---|---|
+| **Auswahlphase** | Handfläche nach oben drehen, um den Fächer zu öffnen. Zwei Karten mit dem Trigger nehmen und auf das Brett legen; das linke Fach bestimmt die Initiative. **Bestätigen** drücken. Über die Porträts in der Initiativreihenfolge die Karten für jeden eigenen Charakter auswählen. |
+| **Aktionsphase** | Ist dein Charakter am Zug, die obere oder untere Kartenaktion wählen, Ziele auswählen und verfügbare Gegenstände nutzen. Entscheidungen treffen und den Zug am Brett beenden. |
+| **Charaktere ansehen** | In der Auswahlphase zwischen eigenen Charakteren wechseln. In der Aktionsphase über die Initiativreihenfolge **jeden Charakter** ansehen: auch fremde und solche, die gerade nicht am Zug sind. Karten, Gegenstände und Entscheidungen bleiben einsehbar. Aktionen sind auf eigene Charaktere und die aktuellen Spielregeln beschränkt. |
+
+Die Stapel für **abgeworfene Karten**, **verbrannte Karten** und **Gegenstände** öffnen sich als
+Fächer. Auf dem Brett liegen auch **aktive Karten**, **Rückgängig**, **Überspringen**, Rast-Tasten
+und der Entscheidungsbereich.
+
+[Video: Karten und Kontrollbrett](../README.de.md#karten-kontrollbrett-und-tisch)
 
 ## Das Szenario-Brett
 
-› Video: [Karten, Kontrollbrett und Tisch](../README.de.md#karten-kontrollbrett-und-tisch), auf der Startseite.
-
-Zeig mit dem Laser darauf und drück den Trigger, um ein Feld, einen Gegner, eine Tür oder eine Truhe
-auszuwählen. Oder halt den **Grip** und berühr es mit der Fingerspitze. Der Grip muss mit Absicht
-dabei sein: sonst würde eine Hand, die nur über das Brett streicht, dauernd etwas auswählen.
-
-Heb eine Figur mit dem Trigger hoch, dann siehst du ihren kommenden Zug.
-
-<p align="center">
-  <img src="img/divider-small.png" width="340" alt="">
-</p>
+Ein Feld, einen Gegner, eine Tür oder eine Truhe mit **Laser + Trigger** auswählen oder **Grip**
+halten und mit der Fingerspitze berühren. Eine Figur mit dem Trigger hochheben, um ihre Werte und
+ihren geplanten Zug zu sehen. Das Szenario mit beiden Händen greifen, verschieben, drehen und skalieren.
 
 ## Fenster
 
-Die Fenster des Spiels werden zu Tafeln im Raum: Charakterbögen, Händler, Dialoge, die Geschichte.
-Greif die Stange oben, um eine zu bewegen, ihre Größe zu ändern oder sie über ihr X zu schließen.
-Solange der Laser eine hält, holst du sie mit dem Stick näher heran oder schiebst sie weg. Wo du ein
-Fenster hinstellst, da bleibt es.
-
-<p align="center">
-  <img src="img/divider-small.png" width="340" alt="">
-</p>
+Ein Fenster direkt oder mit dem Laser an der oberen Stange greifen und verschieben. Beim Halten
+mit dem Laser bewegt der **Stick derselben Hand** das Fenster näher oder weiter weg.
+Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenster schließen.
 
 ## Die Kampagnenkarte
 
-› Video: [Die Kampagnenkarte](../README.de.md#die-kampagnenkarte), auf der Startseite.
+[Video: Kampagnenkarte](../README.de.md#die-kampagnenkarte)
 
-Zwischen den Szenarien ist die Karte ein Raum mit einem Tisch darin. Die Gildenmeister-Tasten sind
-Kappen am Tischrand, wenn du auf einen Ort zeigst, kommt sein Auftragsschild, und dein Gruppenmarker
-läuft die Strecke wirklich ab. Wenn dir die alte flache Karte lieber ist, findest du sie unter
-**Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte**.
-
-<p align="center">
-  <img src="img/divider-small.png" width="340" alt="">
-</p>
+Auf einen Ort zeigen, um dessen Auftragsschild einzublenden. Die Gildenmeister-Tasten liegen am
+Tischrand. Für die originale flache Karte **Umgebung & Ton ▸ Kampagnenkarte ▸ Originale 2D-Karte** aktivieren.
 
 ## Umgebungen
 
@@ -101,31 +79,18 @@ läuft die Strecke wirklich ab. Wenn dir die alte flache Karte lieber ist, finde
   <img src="img/env-forest.jpg" width="350" alt="Der Nachtwald">
 </p>
 
-Ein **Keller** drinnen, ein **Nachtwald** draußen mit einem Sternfeld aus einem echten Katalog, der
-**Standard**-Himmel des Spiels oder **Aus (schwarz)**. Beide gebauten Räume haben Feuerschein,
-Wassertropfen, Mondlicht und leisen räumlichen Klang.
-
-In beiden stecken außerdem seltene Erscheinungen: ein Gesicht am vergitterten Fenster, jemand im
-Dunkel des Treppenschachts, Augen, die im Unterholz blinzeln. Sie tauchen nie über dem Brett auf und
-nie zwei gleichzeitig, und alle in einer Sitzung sehen dieselbe im selben Moment. Unter
-**Umgebung & Ton ▸ Grusel** kannst du sie herunterregeln oder abschalten, und diese Einstellung gilt nur
-für dich.
-
-<p align="center">
-  <img src="img/divider-small.png" width="340" alt="">
-</p>
+In den VR Optionen **Keller**, **Nachtwald**, **Standard**-Himmel des Spiels, **Aus (schwarz)** oder
+**Mixed Reality** wählen. Elemente beeinflussen Licht und Umgebung.
+Seltene Erscheinungen lassen sich unter **Umgebung & Ton ▸ Grusel** reduzieren oder abschalten.
 
 ## Mehrspieler
 
-› Video: [Vollwertiger VR-Mehrspieler](../README.de.md#vollwertiger-vr-mehrspieler), auf der Startseite.
+[Video: VR-Mehrspieler](../README.de.md#vollwertiger-vr-mehrspieler)
 
-- Alle in einer VR-Sitzung brauchen dieselbe Version. Passt sie nicht, kommt ein Hinweis, statt dass
-  die Sitzung still schiefgeht. Also [gemeinsam aktualisieren](../INSTALL.de.md#updates).
-- Wer die Mod gar nicht hat, spielt ganz normal mit. Nichts, was die Mod sendet, ändert den
-  Spielzustand.
-- Was die anderen von dir sehen: Kopf und beide Hände mit echten Fingerhaltungen, deine Maske und
-  deinen Handstil, was du gerade hältst (Karten immer als Rückseiten), die Anzahl deiner
-  Fächerkarten und ein Live-Abbild deines Kontrollbretts.
-- Was ihr teilt: Kartenfenster, mit einem kleinen Abzeichen in der Ecke; das Geschichtsfenster, auf
-  derselben Seite für alle; und eine Uhr, damit die Umgebungsgeräusche und die Erscheinungen bei
-  allen im selben Moment am selben Ort passieren.
+- VR-Spieler brauchen dieselbe Mod-Version; [gemeinsam aktualisieren](../INSTALL.de.md#updates).
+  Spieler ohne Mod können am flachen Bildschirm mitspielen.
+- Andere Spieler sehen deine Hände, Maske, gehaltenen Objekte und ein Live-Abbild deines Bretts.
+  Im Szenario sind fremde Fächer, Handkarten und abgelegte Karten **in der Auswahlphase verdeckt**
+  und **in der Aktionsphase offen**. Fremde Verbrennungsflüge bei kurzer Rast bleiben verdeckt.
+- **Eigene Karten bleiben sichtbar.** Auf der **3D-Kampagnenkarte** sind alle Karten für alle offen.
+- Geteilte Kartenfenster und die Seiten der Geschichte bleiben für alle synchron.

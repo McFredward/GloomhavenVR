@@ -6,8 +6,6 @@
   <a href="INSTALL.de.md"><img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
 </p>
 
-It comes down to two archives into the game folder, and takes about five minutes.
-
 <p align="center">
   <img src="docs/img/divider.png" width="600" alt="">
 </p>
@@ -33,7 +31,7 @@ It comes down to two archives into the game folder, and takes about five minutes
    [BepInEx release page](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5).
 2. Extract it into your **Gloomhaven folder** — the one with `GH.exe` in it.
    *(Steam: right-click the game → Manage → Browse local files.)*
-3. Start the game once, then quit. `BepInEx/LogOutput.log` now exists — that is your proof.
+3. Start the game once, then quit. Check that `BepInEx/LogOutput.log` exists.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -88,9 +86,8 @@ The mod writes exactly one game file, `GH_Data/boot.config`, and keeps the origi
 
 ## Updating
 
-**The mod updates itself, and it asks first.** Once a session, while you stand in the main menu in
-VR, it checks its releases page. If there is a newer version, an **Update available** panel floats in
-front of you: *Ignore* or *Update*.
+The mod checks for updates once per session in the VR main menu. If a newer release is available,
+choose **Ignore** or **Update** in the update panel.
 
 Press Update and it downloads (~70 MB), swaps the files, closes the game and starts it again.
 **Your saves, your campaign and your settings are not touched.**
@@ -98,8 +95,8 @@ Press Update and it downloads (~70 MB), swaps the files, closes the game and sta
 - **If it fails, nothing changed.** The panel says what went wrong; install by hand instead.
 - **The old version is kept** in `BepInEx/GloomhavenVR-update/backup/` until the new one has started
   successfully. Copy those two folders back if an update ever leaves you worse off.
-- **Everyone in a multiplayer session needs the same version.** A mismatch is blocked with a dialog
-  rather than allowed to go quietly wrong. Update together.
+- **Everyone in a multiplayer session needs the same version.** A dialog blocks mismatched versions.
+  Update together.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -125,8 +122,8 @@ The mod's text follows the game's language: **English and German**; anything els
 English.
 
 If you want to play completely unmodified for a while, set `[General] Enabled = false` in
-`BepInEx/config/dev.gloomhavenvr.cfg`. That is easier than uninstalling. Every setting is also a
-text file in that folder, but you should not need them.
+`BepInEx/config/dev.gloomhavenvr.cfg`. Settings are also stored in the mod’s files under
+`BepInEx/config/`.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

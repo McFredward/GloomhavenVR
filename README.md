@@ -12,8 +12,8 @@
   <a href="https://steamdb.info/app/780290/patchnotes/">
     <img src="https://img.shields.io/badge/Supported Game version-1.1.8307.0-yellow.svg" alt="Supported game version">
   </a>
-  <a>
-    <img src="https://img.shields.io/badge/version-0.1.1-7c3aed.svg" alt="Mod version">
+  <a href="https://github.com/McFredward/GloomhavenVR/releases/latest">
+    <img src="https://img.shields.io/github/v/release/McFredward/GloomhavenVR?color=7c3aed" alt="Latest release">
   </a>
 </p>
 
@@ -37,8 +37,7 @@
 
 <p align="center">
   <a href="INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
-  <a href="docs/PLAYING.md#the-controls">Controls</a> &nbsp;·&nbsp;
-  <a href="docs/PLAYING.md">Playing guide</a>
+  <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
 <p align="center">
@@ -153,8 +152,8 @@ ambient level, Dark eclipses the moon.
 
 ## Hands, masks and board styles
 
-Three pairs of hands, three masks and three control boards, each on its own dropdown. You can
-change them in the middle of a session and the others see it.
+Choose hands, masks and control boards from picture tiles in **VR Options**. Each has three
+styles. Changes apply immediately and are visible to other players.
 
 <p align="center">
   <img src="docs/img/styles.png" width="720" alt="Three hands, three masks, and three control boards with the grab rod each one comes with">
@@ -173,8 +172,7 @@ not yours.
 **Gloomhaven (Digital)** for PC (Steam or GOG) · Windows · a PC-VR headset with two tracked
 controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
 
-[→ Install guide](INSTALL.md). It comes down to two archives into the game folder. After that,
-[the controls](docs/PLAYING.md#the-controls) and the [playing guide](docs/PLAYING.md).
+[→ Install guide](INSTALL.md) · [→ Playing & controls](docs/PLAYING.md)
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">

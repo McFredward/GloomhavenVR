@@ -12,8 +12,8 @@
   <a href="https://steamdb.info/app/780290/patchnotes/">
     <img src="https://img.shields.io/badge/Supported Game version-1.1.8307.0-yellow.svg" alt="Supported game version">
   </a>
-  <a>
-    <img src="https://img.shields.io/badge/version-0.1.1-7c3aed.svg" alt="Mod version">
+  <a href="https://github.com/McFredward/GloomhavenVR/releases/latest">
+    <img src="https://img.shields.io/github/v/release/McFredward/GloomhavenVR?color=7c3aed" alt="Aktuelles Release">
   </a>
 </p>
 
@@ -37,8 +37,7 @@
 
 <p align="center">
   <a href="INSTALL.de.md"><b>Installieren →</b></a> &nbsp;·&nbsp;
-  <a href="docs/PLAYING.de.md#die-steuerung">Steuerung</a> &nbsp;·&nbsp;
-  <a href="docs/PLAYING.de.md">Spielanleitung</a>
+  <a href="docs/PLAYING.de.md">Spielablauf &amp; Steuerung</a>
 </p>
 
 <p align="center">
@@ -158,8 +157,8 @@ Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelheit verfinstert den Mond.
 
 ## Hände, Masken und Brett-Stile
 
-Drei Handpaare, drei Masken und drei Kontrollbretter, jeweils in einem eigenen Dropdown. Du kannst
-mitten in der Sitzung umstellen, und die anderen sehen es.
+Wähle Hände, Masken und Kontrollbretter über Bildkacheln in den **VR Optionen**. Es gibt jeweils
+drei Stile. Änderungen wirken sofort und sind für andere Spieler sichtbar.
 
 <p align="center">
   <img src="docs/img/styles.png" width="720" alt="Drei Handpaare, drei Masken und drei Kontrollbretter mit der Greifstange, die zu jedem gehört">
@@ -179,9 +178,7 @@ behält dessen Stange, nicht deine.
 getrackten Controllern · Room-Scale. Entwickelt wurde die Mod auf einer Quest 3 über
 Virtual Desktop.
 
-[→ Installationsanleitung](INSTALL.de.md). Es läuft auf zwei Archive hinaus, die in den Spielordner
-entpackt werden. Danach [die Steuerung](docs/PLAYING.de.md#die-steuerung) und die
-[Spielanleitung](docs/PLAYING.de.md).
+[→ Installationsanleitung](INSTALL.de.md) · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -209,5 +206,3 @@ Nicht verbunden mit Flaming Fowl Studios, Twin Sails Interactive, Asmodee oder C
 Gloomhaven und die zugehörigen Grafiken gehören ihren Eigentümern.
 
 **Du arbeitest an der Mod?** [docs/DEVELOPING.md](docs/DEVELOPING.md) (nur auf Englisch)
-
-</details>

@@ -6,8 +6,6 @@
   <img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;<b>Deutsch</b>
 </p>
 
-Es läuft auf zwei Archive in den Spielordner hinaus und dauert etwa fünf Minuten.
-
 <p align="center">
   <img src="docs/img/divider.png" width="600" alt="">
 </p>
@@ -34,7 +32,7 @@ Es läuft auf zwei Archive in den Spielordner hinaus und dauert etwa fünf Minut
    [BepInEx-Release-Seite](https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5).
 2. Entpack es in deinen **Gloomhaven-Ordner** — den, in dem `GH.exe` liegt.
    *(Bei Steam: Rechtsklick auf das Spiel → Verwalten → Lokale Dateien durchsuchen.)*
-3. Starte das Spiel einmal, dann beenden. `BepInEx/LogOutput.log` gibt es jetzt — das ist dein Beweis.
+3. Starte das Spiel einmal, dann beenden. Prüf, ob `BepInEx/LogOutput.log` vorhanden ist.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -89,9 +87,8 @@ es zurück über `boot.config`.
 
 ## Updates
 
-**Die Mod aktualisiert sich selbst, und sie fragt vorher.** Einmal pro Sitzung, während du in VR im
-Hauptmenü stehst, schaut sie auf ihrer Releases-Seite nach. Gibt es eine neuere Version, schwebt ein
-Panel **Update verfügbar** vor dir: *Ignorieren* oder *Update*.
+Die Mod prüft einmal pro Sitzung im VR-Hauptmenü auf Updates. Bei einer neueren Version wählst
+du im Update-Fenster **Ignorieren** oder **Update**.
 
 Drückst du Update, lädt sie herunter (~70 MB), tauscht die Dateien, schließt das Spiel und startet es
 wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben unangetastet.**
@@ -99,8 +96,8 @@ wieder. **Deine Spielstände, deine Kampagne und deine Einstellungen bleiben una
 - **Geht es schief, hat sich nichts geändert.** Das Panel sagt, woran es lag; installier dann von Hand.
 - **Die alte Version bleibt liegen** in `BepInEx/GloomhavenVR-update/backup/`, bis die neue
   erfolgreich gestartet ist. Verschlimmert ein Update etwas, kopier die zwei Ordner zurück.
-- **Im Mehrspieler brauchen alle dieselbe Version.** Passt sie nicht, blockiert die Mod mit einem
-  Hinweis, statt die Sitzung still schiefgehen zu lassen. Aktualisiert gemeinsam.
+- **Im Mehrspieler brauchen alle dieselbe Version.** Ein Dialog blockiert unterschiedliche
+  Versionen. Aktualisiert gemeinsam.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -126,8 +123,8 @@ Der Text der Mod folgt der Sprache des Spiels: **Englisch und Deutsch**; alles a
 Englisch zurück.
 
 Wenn du eine Weile völlig unverändert spielen willst, setz `[General] Enabled = false` in
-`BepInEx/config/dev.gloomhavenvr.cfg`. Das ist einfacher als deinstallieren. Jede Einstellung gibt
-es auch als Textdatei in diesem Ordner, brauchen solltest du sie aber nicht.
+`BepInEx/config/dev.gloomhavenvr.cfg`. Die Einstellungen stehen auch in den Konfigurationsdateien
+der Mod unter `BepInEx/config/`.
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
