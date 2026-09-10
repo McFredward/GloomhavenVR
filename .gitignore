@@ -65,9 +65,11 @@ buildhands.log
 # build transcript kept by scripts/ci-build.sh for the warning gate
 build-ci.log
 
-# environment bake / preview transcripts (Unity batch). build-bundles.log IS tracked —
-# it is the record of which editor wrote the shipped bundle — but the per-round bake and
-# preview logs are scratch and land at the repo root by default.
+# Unity/editor build and preview transcripts are local scratch. Bundle provenance is recorded
+# in prebuilt/README.md and release-readiness notes; check-bundle-format.sh verifies the artifact.
+/build*.log
+/preview*.log
+/harvest.log
 env-build*.log
 env-preview*.log
 
@@ -111,3 +113,10 @@ preview-controllers.log
 .planning/**/*.jpeg
 .planning/**/*.gif
 .planning/**/*.mp4
+
+# Generated wire-test voice-badge frames (current output lives in .planning/debug/renders/voice/).
+.planning/**/*.ppm
+
+# Unity license activation/request files are per-machine credentials, never source assets.
+*.alf
+*.ulf

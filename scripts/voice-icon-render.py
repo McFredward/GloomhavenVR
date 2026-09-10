@@ -8,7 +8,7 @@ RASTERISER and not by a lookalike. This script only scales and labels them; it d
 The frames are composited over mid grey by the test itself, because the badge is drawn over
 whatever the room happens to be and its dark contrast rim would be invisible over black.
 
-Usage:  python3 scripts/voice-icon-render.py [outdir]     (default .planning/voice)
+Usage:  python3 scripts/voice-icon-render.py [outdir]     (default .planning/debug/renders/voice)
 """
 import os
 import sys
@@ -20,7 +20,7 @@ SCALE = 192
 
 def main() -> int:
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".planning", "voice")
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".planning", "debug", "renders", "voice")
 
     frames = []
     for step in range(4):

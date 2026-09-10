@@ -26,6 +26,7 @@
 *.pdf    binary
 *.alf    binary
 *.ulf    binary
+*.tpk    binary
 
 # Unity YAML assets stay TEXT (diffable, and CRLF-safe for Unity): *.prefab, *.mat,
 # *.asset, *.meta, *.unity — left to default handling on purpose.

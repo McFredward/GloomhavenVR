@@ -352,8 +352,8 @@ internal static class VoiceVectors
     // ---------------------------------------------------------------------------------------------
     private static void Dump(Harness t, string repoRoot)
     {
-        t.Case("voice icon renders written to .planning/voice/");
-        string dir = Path.Combine(repoRoot, ".planning", "voice");
+        t.Case("voice icon renders written to .planning/debug/renders/voice/");
+        string dir = Path.Combine(repoRoot, ".planning", "debug", "renders", "voice");
         Directory.CreateDirectory(dir);
 
         var rgba = new byte[VoiceIcon.ByteCount];
