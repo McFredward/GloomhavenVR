@@ -40,6 +40,8 @@
   <a href="docs/PLAYING.md">Playing &amp; controls</a>
 </p>
 
+> **Recommended: play the first tutorial.** It explains the gameplay basics and many VR-specific controls and interactions.
+
 <p align="center">
   <img src="docs/img/divider.png" width="600" alt="">
 </p>

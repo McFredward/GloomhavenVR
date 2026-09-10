@@ -428,6 +428,7 @@ LABELS = {
         # Two or three words each. The legend below keeps the detail; these answer "what is that".
         "callouts": {
             "recesses":   "Card recesses",
+            "slot_initiative": "Initiative",
             "keys":       "Confirm · Undo · Skip",
             "rest":       "Short + long rest keys",
             "rod":        "Grab rod",
@@ -510,6 +511,7 @@ LABELS = {
         # shown at half its rendered width.
         "callouts": {
             "recesses":   "Kartenmulden",
+            "slot_initiative": "Initiative",
             "keys":       "Bestätigen · Rückgängig · Überspringen",
             "rest":       "Kurze + lange Rast-Tasten",
             "rod":        "Greifstange",
@@ -651,7 +653,7 @@ def fit(d, lang, key, f, maxw, rows):
 
 def callout_frames():
     """Every callout's DRAWING FRAME in canvas pixels — the anchor, alignment and budget build()
-    hands to callout(), for all twelve of them in one place.
+    hands to callout(), for all of them in one place.
 
     The two plate callouts are placed by the plate that carries them rather than by CALLOUT_GEOM,
     so their frames are derived from exactly the expressions the draw uses. If those two ever drift
@@ -667,6 +669,12 @@ def callout_frames():
     frames["elements"] = dict(x=X(DOCK_ELEMENTS[0]) + PLATE_CALLOUT_INSET,
                               y=Y(DOCK_ELEMENTS[3]) + 12, align="l",
                               maxw=plate_callout_maxw(DOCK_ELEMENTS), rows=1, colour=GOLD)
+    # User request 2026-09-10: label initiative directly inside the LEFT recess.
+    # Its frame follows the measured slot and keeps the central carved emblem visible.
+    sx, sy = ANCHOR["Slot1"]
+    frames["slot_initiative"] = dict(x=X(sx), y=Y(sy + SLOT_HALF[1]) + 32,
+                                     align="c", maxw=2 * SLOT_HALF[0] * PPM - 32,
+                                     rows=1, colour=BLUE)
     return frames
 
 
@@ -745,7 +753,14 @@ def check_callouts():
                     "%s, outside the picture block (%.0f, %.0f)-(%.0f, %.0f).\nMove its `at` in "
                     "CALLOUT_GEOM, or shorten the WORDING — the type is already at the floor for a "
                     "picture shown at half its rendered width." % ((where,) + block))
-            if _hits(b, silhouette):
+            if key == "slot_initiative":
+                sx, sy = ANCHOR["Slot1"]
+                slot = box((sx - SLOT_HALF[0], sy - SLOT_HALF[1],
+                            sx + SLOT_HALF[0], sy + SLOT_HALF[1]))
+                if not (slot[0] + 8 <= b[0] and b[2] <= slot[2] - 8
+                        and slot[1] + 8 <= b[1] and b[3] <= slot[3] - 8):
+                    raise SystemExit("%s, outside the LEFT initiative recess." % where)
+            if key != "slot_initiative" and _hits(b, silhouette):
                 raise SystemExit(
                     "%s, ON THE BOARD ITSELF (%.0f, %.0f)-(%.0f, %.0f).\nEvery name lives outside "
                     "the wood and reaches its marker with a leader; that is what the two lanes "
@@ -1013,6 +1028,10 @@ def build(lang):
         callout(key, g["colour"], X(g["at"][0]), Y(g["at"][1]), g["align"], g["maxw"],
                 lead=[(X(p[0]), Y(p[1])) for p in g["lead"]] if g["lead"] else None,
                 rows=g["rows"])
+
+    slot_label = callout_frames()["slot_initiative"]
+    callout("slot_initiative", slot_label["colour"], slot_label["x"], slot_label["y"],
+            slot_label["align"], slot_label["maxw"], rows=slot_label["rows"])
 
     # ---- the legend ----------------------------------------------------------------------
     rule_y = TOP + block_h + 34

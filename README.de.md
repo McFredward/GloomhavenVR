@@ -40,6 +40,8 @@
   <a href="docs/PLAYING.de.md">Spielablauf &amp; Steuerung</a>
 </p>
 
+> **Empfehlung: Spiele zuerst das erste Tutorial.** Es erklärt die Spielgrundlagen und viele Besonderheiten der VR-Bedienung.
+
 <p align="center">
   <img src="docs/img/divider.png" width="600" alt="">
 </p>
