@@ -106,6 +106,8 @@ internal static class Program
             UseBarAnimationPlaybackVectors.Run(t);
             SharedWindowPoseVectors.Run(t);
             FanReflowVectors.Run(t);
+            FanInteractionVectors.Run(t);
+            FanInsertionGapVectors.Run(t);
             CardPlumeVectors.Run(t);
             TooltipPlumeVectors.Run(t);
             CardResidentVectors.Run(t);

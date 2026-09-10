@@ -1721,7 +1721,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _placed = true;
         _everPlaced = true;
         VRLog.Info("Cards", $"Control board placed ({board}: tilt {CardsConfig.BoardTilt(board).Value}°, " +
-                            $"yaw {CardsConfig.TrayYaw.Value + CardsConfig.BoardYaw(board).Value:F0}°, " +
+                            $"world yaw {_root.rotation.eulerAngles.y:F0}° (arrival={arrival}), " +
                             $"scale {appliedScale:F2}×)" +
                             (firstSeat
                                 ? $" — FIRST SEAT: fixed spot beside the head on the LEFT ({offset.x:F2} m " +

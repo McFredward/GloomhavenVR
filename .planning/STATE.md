@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-10 against `dev` = ModBuild 496.** The file this replaces had gone 168 builds
+**Updated 2026-09-10 against `dev` = ModBuild 497.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,7 +13,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **`dev` = 0.9.1, ModBuild 496.** Release 0.9.0 (494) was published from `main` by
+- **`dev` = 0.9.1, ModBuild 497.** Release 0.9.0 (494) was published from `main` by
   [Release run 34407935479](https://github.com/McFredward/GloomhavenVR/actions/runs/34407935479);
   the pipeline passed and advanced `dev` to 0.9.1. See [RELEASE-0.9.0.md](RELEASE-0.9.0.md).
 - **496 fixes SDK selection for installation on .NET 10-only machines.** The 494 SDK pin
@@ -28,12 +28,15 @@ change per build) → this file (where things stand and what is owed) → the bu
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
   loud if it happens.
-- **Hardware evidence now covers 491**, with both client banners verified. The user reports their
-  best run so far; earlier native card-construction errors are absent. **492 needs a headset
-  retest** for spent rest-card appearance. A single long-rest board disappearance remains
-  unexplained; actual root transitions now have diagnostics. Performance problems are measured,
-  but neither streaming causality nor a build-to-build regression is established. See
-  [MP-ROUND-492.md](MP-ROUND-492.md). The older regression JPGs belong to the 490 report.
+- **Latest hardware evidence covers496, local logs only, one additional player.** Regular scenario
+  windows average11.35ms/frame; after a room expansion12.69ms. The run supports the user's smooth
+  experience; neither progressive collapse nor a leak is established. Managed heap samples rise.
+  See [MP-497-PERF.md](MP-497-PERF.md). Older remote logs and regression JPGs are not from this run.
+- **497 synchronizes board motion with head/hand packets and extends hand ordering.** Owned normal
+  hands reorder in selection, action and map, retaining order into the scenario; remote concealed
+  plucks preserve surviving card positions. Review also closes the previously missing remote
+  insertion gap/marker. Arrival/recenter yaw faces the player. Requested defaults and bilingual
+  guides are updated; saved settings remain. See [MP-ROUND-497.md](MP-ROUND-497.md).
 - **484 is DLL-only relative to 483.** Upgrading from the tested 482 requires the full 483 bundle.
 - **493 optimizes multiplayer native presentation without reducing fidelity or cadence.**
   Card capture reuses immutable output; native sends avoid decoding their own snapshots; native
@@ -41,18 +44,20 @@ change per build) → this file (where things stand and what is owed) → the bu
   Four-state production harnesses cover isolation and immediate transition/recovery behavior.
   Hardware FPS and full-party headset output remain unmeasured. See
   [MP-PERFORMANCE-493.md](MP-PERFORMANCE-493.md).
-- Gate readings at 496: all 17 checkers pass; wire **253,055** assertions; production capture
-  **18,206**, playback **466** and board refresh **1,216** assertions, with **12 runtime negative
-  controls** across these harnesses and the send/copy checks. Strict Release **0 errors / 0 warnings**;
-  docs i18n and all 16 metadata-only reference assemblies pass. Patch registration **109 classes /
-  167 methods**, surface **152**, config keys **625**, log tokens **4,716**, instrument-writes
-  baseline **61**, bundle **74,943,763 bytes**. No existing surface or wire grammar changed.
-  Compiled comparison against `9cc13012`: **seven changed types**, all embedded ModBuild
-  constants; no added or removed types/resources. SDK 10.0.102 and 10.0.401 strict builds
-  also pass. The same wire test binary passes **253,055** assertions on runtime 8 and
-  **253,063** on runtime 10: runtime Deflate lengths add two packet-budget checks and six
-  truncation checks, with identical decoded payloads. Local controlled cards
-  and the entire map remain open; concealment is remote-only in scenarios.
+- Gate readings at497: all17 checkers pass; wire **253,579** assertions (**+524**: board88,
+  fan61, insertion/edge375). Production capture **18,206**, playback **466**, board refresh
+  **1,216** and the **12 existing runtime negative controls** pass. Worker-only negative controls
+  also rejected three deliberate board defects and three fan defects. Strict Release **0 errors /
+  0 warnings**; bilingual docs and all16 metadata-only reference assemblies pass. Patch registration
+  **109 classes /167 methods**, surface **152**, config keys **625**, log tokens **4,716**,
+  instrument-writes baseline **61**, bundle **74,943,763 bytes**. Records70/71 are additive;
+  existing grammars and4096-byte presence reassembly bound remain intact. The documented presence
+  budget grows3837→3840 bytes; allocation4097 retains257 spare bytes. This budget is historical
+  arithmetic plus a tested three-byte tail, not a new saturated whole-protocol fixture.
+  Compiled comparison against `1a714ee2`: **25 changed types and four added helpers**, no removed
+  types or resources; changes match the reviewed source, defaults, packet capacity and embedded
+  build constants. Local controlled cards and the entire map remain open; concealment is remote-only
+  in scenarios.
 
 ### Recent builds
 
@@ -75,6 +80,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 494 | release 0.9.0, reproducible SDK selection and hosted native presentation regression harnesses | **full release package** |
 | 495 | rendered board variant tiles, brighter larger captions and concise illustrated EN/DE play guidance | DLL only after 483 |
 | 496 | SDK 10 installation compatibility, early SDK diagnostics and maintenance-tool runtime fallback | DLL only after 483 |
+| 497 | atomic board motion, stable hand sorting across phases/map, remote insertion cues and requested defaults | DLL only after 483 |
 
 ---
 
@@ -90,6 +96,11 @@ in the zoomed-out pose where the room reads as a model in front of you. That sur
 not seen it yet, and it is one line to put back.
 
 ### 2b. Latest multiplayer corrections
+
+- Build497 addresses follow-board sample timing, initial heading and owned hand ordering. Its
+  hardware checklist includes concealed plucks, map-to-scenario sorting, remote insertion cues and
+  long-rest exclusion. The user still needs to verify headset appearance and full-party scaling.
+  Evidence and source changes: [MP-ROUND-497.md](MP-ROUND-497.md).
 
 - Build 493 removes redundant native presentation CPU/allocation work and adds regression harnesses
   for four independent boards/senders. Review also closes pooled initiative identity and local element

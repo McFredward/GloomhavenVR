@@ -490,7 +490,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 496;
+    public const ushort ModBuild = 497;
+
+    // ModBuild 497 — atomic board motion, stable and freely reorderable owned hand fans.
+    //   Local496 hardware: 59.5 regular scenario minutes average11.35ms; room expansion12.69ms.
+    //   No progressive collapse established; rising sampled heap remains a profiling question.
+    //   Additive rig70 samples board pose/scale beside head/hands; delayed extras cannot rewind it.
+    //   Board motion alone no longer promotes large extras snapshots to15Hz. Arrival/recenter yaw
+    //   faces the player from the actual seat, preserving tilt and subsequent placement.
+    //   Owned normal hands reorder in selection, actions and map; local character/card order
+    //   survives map-to-scenario reconstruction. Long-rest discard fans remain excluded.
+    //   Held cards stay outside physical fans across rebuilds. Remote positional reflow works
+    //   under concealment and distinguishes source-list changes; map order uses existing44.
+    //   Additive71 mirrors insertion gap and marker with explicit clearing in the same fan snapshot.
+    //   Defaults: vertical turn stick on, board follows, occluding peer board transparent; saved
+    //   settings retain their values. EN/DE controls and initiative guidance match these defaults.
+    //   Guard dead prompt transforms at shutdown, matching the supplied496 stack trace.
+    //   GVR1/v3 and previous record grammars unchanged;72 next free. DLL-only after483;
+    //   all multiplayer peers require497. Headset output and four-player scaling need verification.
 
     // ModBuild 496 — restore installation with newer .NET SDKs.
     //   The release494 global.json latestPatch policy rejected SDK10-only developer machines

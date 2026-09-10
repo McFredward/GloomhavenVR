@@ -55,7 +55,7 @@ Die Reihenfolge bleibt beim Szenariostart erhalten und ist für Mitspieler sicht
 Abgeworfene Karten bei der langen Rast lassen sich nicht umsortieren.
 
 Das Brett **folgt dir standardmäßig**; über **Folgen/Fixiert** kannst du umschalten. **Y + B**
-halten, um dich neu zu zentrieren und das Brett vor dir zurückzusetzen. Fremde Bretter werden
+halten, um dich neu zu zentrieren und das Brett neben dir zurückzusetzen. Fremde Bretter werden
 standardmäßig durchsichtig, wenn sie das Szenario verdecken. Gespeicherte Einstellungen gelten weiter.
 
 Die Stapel für **abgeworfene Karten**, **verbrannte Karten** und **Gegenstände** öffnen sich als

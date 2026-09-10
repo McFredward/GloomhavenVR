@@ -54,7 +54,7 @@ for your own characters on the campaign map and in both scenario phases; the ord
 the scenario and other players see it. Long-rest discard choices cannot be reordered.
 
 The board **follows you by default**; use its **Follow/Fixed** control to change that. Hold
-**Y + B** to recenter yourself and reset the board in front of you. Other players' boards become
+**Y + B** to recenter yourself and reset the board beside you. Other players' boards become
 transparent by default while covering the scenario. Existing saved settings remain in effect.
 
 The **discard**, **burnt** and **item** piles open as fans. The board also holds **active cards**,
