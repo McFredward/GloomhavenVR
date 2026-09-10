@@ -75,9 +75,10 @@ Drop it and it settles back onto a hex.
 
 ## Full VR multiplayer
 
-Every VR player has a mask, hands and their own control board. If you lift a miniature, move a
-window or point at something, the others see it. People without a headset join the same game on a
-flat screen.
+Every VR player has a mask, hands and their own control board. Others see you lift miniatures and
+point at the table. Windows marked <img src="docs/img/net-shared.png" width="32" alt="Two-person shared-window symbol">
+are shared; **windows without this symbol are visible only to you**.
+People without a headset join the same game on a flat screen.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" width="720" controls muted loop></video>

@@ -64,6 +64,11 @@ Move a window by grabbing its top bar directly or with the laser. While holding 
 use **that hand's stick** to move it closer or farther away. Grip the bar with both hands to resize
 the window; use its **X** to close it.
 
+| Mark on the window | Who sees it? |
+|---|---|
+| <img src="img/net-shared.png" width="32" alt="Two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits at the top right, below the close **X** when present. |
+| **No symbol: local** | Only you. |
+
 ## The campaign map
 
 [Watch: campaign map](../README.md#the-campaign-map)
@@ -92,4 +97,3 @@ Rare ambient apparitions can be reduced or disabled under **World & sound ▸ Cr
   In scenarios, remote fans, held cards and placed cards are **covered during selection** and
   **open during the action phase**. Remote short-rest burn flights stay covered.
 - **Your own cards remain visible.** In the **3D campaign map**, all cards are visible to everyone.
-- Shared map windows and story pages stay synchronized across the session.

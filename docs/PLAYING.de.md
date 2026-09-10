@@ -65,6 +65,11 @@ Ein Fenster direkt oder mit dem Laser an der oberen Stange greifen und verschieb
 mit dem Laser bewegt der **Stick derselben Hand** das Fenster näher oder weiter weg.
 Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenster schließen.
 
+| Zeichen am Fenster | Wer sieht es? |
+|---|---|
+| <img src="img/net-shared.png" width="32" alt="Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt oben rechts, unter dem Schließen-**X**, sofern vorhanden. |
+| **Kein Symbol: lokal** | Nur du. |
+
 ## Die Kampagnenkarte
 
 [Video: Kampagnenkarte](../README.de.md#die-kampagnenkarte)
@@ -93,4 +98,3 @@ Seltene Erscheinungen lassen sich unter **Umgebung & Ton ▸ Grusel** reduzieren
   Im Szenario sind fremde Fächer, Handkarten und abgelegte Karten **in der Auswahlphase verdeckt**
   und **in der Aktionsphase offen**. Fremde Verbrennungsflüge bei kurzer Rast bleiben verdeckt.
 - **Eigene Karten bleiben sichtbar.** Auf der **3D-Kampagnenkarte** sind alle Karten für alle offen.
-- Geteilte Kartenfenster und die Seiten der Geschichte bleiben für alle synchron.

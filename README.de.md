@@ -75,10 +75,10 @@ gleich macht. Leg sie zurück, dann setzt sie sich wieder auf ein Feld.
 
 ## Vollwertiger VR-Mehrspieler
 
-Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Wenn du eine Miniatur
-hochhebst, ein Fenster verschiebst oder auf etwas zeigst, sehen die anderen das. Wer kein Headset
-hat, spielt am flachen
-Bildschirm in derselben Partie mit.
+Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Andere sehen, wie du Miniaturen
+hochhebst und auf den Tisch zeigst. Fenster mit <img src="docs/img/net-shared.png" width="32" alt="Zwei-Personen-Symbol für geteilte Fenster">
+sind geteilt; **Fenster ohne dieses Symbol siehst nur du**.
+Wer kein Headset hat, spielt am flachen Bildschirm in derselben Partie mit.
 
 <p align="center">
   <video src="https://github.com/user-attachments/assets/df3e1980-e719-4b95-8832-bc7236431f14" width="720" controls muted loop></video>
