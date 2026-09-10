@@ -485,7 +485,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 494;
+    public const ushort ModBuild = 495;
+
+    // ModBuild 495 — illustrated board selection and concise bilingual player guidance.
+    //   Control-board variants use rendered picture tiles backed by the existing Cards/Board
+    //   entry and Apply path, retaining per-board settings rebuilds and multiplayer propagation.
+    //   All variant captions use brighter text and a larger legibility floor on a dedicated
+    //   opaque backing. Original selection borders and native panel presentation are retained.
+    //   Player docs combine controls and play guidance, illustrate both dominant-hand layouts,
+    //   and distinguish card selection, action execution and character inspection.
+    //   Three board thumbnails ship inside the DLL; the build483 bundle is unchanged.
+    //   GVR1/v3 and all TLVs remain unchanged. All multiplayer peers require495.
+
 
     // ModBuild 494 — version 0.9.0 release and hosted CI/update-channel verification.
     //   Carries all MB493 multiplayer performance changes without gameplay/presentation edits.

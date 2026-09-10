@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-09 against `dev` = ModBuild 494.** The file this replaces had gone 168 builds
+**Updated 2026-09-10 against `dev` = ModBuild 495.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,9 +13,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **ModBuild 494 prepares release 0.9.0 on `main`.** The release workflow publishes the full
-  package as Latest and advances `dev` to 0.9.1 after publication. Repository visibility is
-  managed separately by the owner. See [RELEASE-0.9.0.md](RELEASE-0.9.0.md).
+- **`dev` = 0.9.1, ModBuild 495.** Release 0.9.0 (494) was published from `main` by
+  [Release run 34407935479](https://github.com/McFredward/GloomhavenVR/actions/runs/34407935479);
+  the pipeline passed and advanced `dev` to 0.9.1. See [RELEASE-0.9.0.md](RELEASE-0.9.0.md).
+- **495 adds rendered control-board tiles and improves every variant caption.** Bilingual player
+  documentation combines controls and play guidance, covers both main-controller layouts and
+  distinguishes selection, actions and character inspection. This is DLL-only after 483.
+  Actual headset caption readability and tile interaction still require hardware confirmation.
 - **483 IS A FULL INSTALL.** The asset bundle changed for the first time since ModBuild 368:
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
@@ -33,14 +37,16 @@ change per build) → this file (where things stand and what is owed) → the bu
   Four-state production harnesses cover isolation and immediate transition/recovery behavior.
   Hardware FPS and full-party headset output remain unmeasured. See
   [MP-PERFORMANCE-493.md](MP-PERFORMANCE-493.md).
-- Gate readings at 494: all 17 checkers pass; wire **253,055** assertions; production capture
+- Gate readings at 495: all 17 checkers pass; wire **253,055** assertions; production capture
   **18,206**, playback **466** and board refresh **1,216** assertions, with **12 runtime negative
   controls** across these harnesses and the send/copy checks. Strict Release **0 errors / 0 warnings**;
   docs i18n and all 16 metadata-only reference assemblies pass. Patch registration **109 classes /
   167 methods**, surface **152**, config keys **625**, log tokens **4,716**, instrument-writes
   baseline **61**, bundle **74,943,763 bytes**. No existing surface or wire grammar changed.
-  Compiled comparison against `36100039`: **13 changed types**, all limited to embedded version
-  and ModBuild constants; no types added or removed. Local controlled cards
+  Compiled comparison against `e859a6f4`: **8 changed types** (VROptionsTab plus seven
+  embedded ModBuild updates), the generated resource project and three new embedded PNGs.
+  No removed types or resources. Options localization backlog shrinks from nine to eight.
+  See [UI-DOCS-495.md](UI-DOCS-495.md). Local controlled cards
   and the entire map remain open; concealment is remote-only in scenarios.
 
 ### Recent builds
@@ -62,6 +68,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 492 | spent rest-burn continuity, native element material binding, board transition diagnostics and hardware-log review | DLL only after 483 |
 | 493 | multiplayer capture/send/playback and independent native-section refresh optimization, preserving complete animation | DLL only after 483 |
 | 494 | release 0.9.0, reproducible SDK selection and hosted native presentation regression harnesses | **full release package** |
+| 495 | rendered board variant tiles, brighter larger captions and concise illustrated EN/DE play guidance | DLL only after 483 |
 
 ---
 

@@ -770,12 +770,6 @@ KNOWN_ORPHANS = {
 # TO FIX ONE: add a `HasSpecialRow` branch with a `BuildPresetRow` over Loc ids (the pattern is
 # three branches deep in VROptionsTab.4.Curated.cs now), then delete its line here.
 ENUM_LABELS_NOT_LOCALIZED = {
-    # Oak / Steel / Bronze on a CURATED everyday row ("Kontrollbrett"), and the localized names it
-    # should be using ALREADY EXIST: ControlBoards was written as "the reference implementation for
-    # a USER-FACING style choice in this codebase (count / clamp / DISPLAY NAME)" and its own doc
-    # says "a user-facing control must show a LOCALIZED NAME, not the raw C# enum member". The row
-    # simply never asked. Closest thing to a free fix in this set.
-    ("Cards", "Board"): "the localized names exist (ControlBoards.DisplayName); the row never asks",
     # Round / Square, six rows (two groups × three boards) under Erweitert ▸ Brett. The two Loc ids
     # ARE ALREADY WRITTEN and unused — Loc.cs carries ["round"] = ("Round","Rund") and ["square"] =
     # ("Square","Eckig") with no consumer in the mod. Six rows, one branch, two existing ids.
@@ -786,7 +780,7 @@ ENUM_LABELS_NOT_LOCALIZED = {
     ("Cards", "RestButtonShape_Steel"): "Round/Square — Loc ids 'round'/'square' exist unused",
     ("Cards", "RestButtonShape_Bronze"): "Round/Square — Loc ids 'round'/'square' exist unused",
     # Off / ActionPhaseOnly / Always on a CURATED everyday row ("Mitspieler-Bretter"), and the worst
-    # of the nine on its own terms: "ActionPhaseOnly" is not even English prose, it is a member name
+    # of the remaining entries on its own terms: "ActionPhaseOnly" is not even English prose, it is a member name
     # with the middle word capitalized, offered to a player as one of three things to pick.
     ("Net", "RemoteBoards"): "Off/ActionPhaseOnly/Always — a curated everyday row, the same defect "
                              "class the user reported for [PeerBoardFade] Mode",
