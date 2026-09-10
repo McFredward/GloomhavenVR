@@ -778,3 +778,12 @@ glyph renders as a tofu box on exactly the row that matters.
 they ship inside the plugin DLL, not here. `tile_env_default.png` was rebuilt in the same round; its
 recipe is `unity/asset-preview/build_variant_tile_default.py` and its provenance is
 `.planning/variant-tiles.md`.
+
+## Shared-window marker
+
+`net-shared.png` is an exact copy of `src/GloomhavenVR/Assets/net_shared.png`, the
+embedded icon selected by `GrabbableModal.BadgeResource`. Player guides show the actual
+two-player marker instead of a substitute glyph. The source texture is gold; the
+runtime material tints it blue with a soft pulse. The guide names that difference.
+It identifies shared windows at the top right, below the close button when present. Copy from the runtime asset when
+that asset changes; do not redraw it independently.

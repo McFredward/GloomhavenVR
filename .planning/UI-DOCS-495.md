@@ -23,6 +23,8 @@ and tutorial filler, and explain selection/action phases and character inspectio
   swap with dominance; default flight/turn sticks remain independently configured.
   Reeling uses the carrying hand's stick. Selection/action flow and inspection permissions
   are explicit. The release badge tracks the published release.
+- The shared-window explanation includes the exact runtime badge and distinguishes
+  local windows without that badge, visible only to their own player.
 - Review corrected stale privacy prose and board-image captions for rest-button visibility,
   hidden selection initiative, immediate active-card inspection and actual destination piles.
 - Removed the obsolete Cards/Board raw-enum-label exception from the options checker:
