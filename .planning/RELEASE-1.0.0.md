@@ -18,18 +18,32 @@ exact commit. Only the existing main-triggered workflow creates the tag and rele
 `GhvrReleaseBuild=true` stamps release identity, and the regular release is marked Latest.
 The workflow subsequently advances the version on `dev` to 1.0.1.
 
-Local required gates, compiled changes and hosted publication results must be recorded
-from their actual outcomes. The candidate is not a published release until the pipeline
-has produced its tag, release page and full archive. No standalone dev release is used.
+Local candidate checks passed: all 17 guard checkers; 253,579 wire assertions; production
+card capture 18,206, native playback 466 and board refresh 1,216 assertions; all 12 runtime
+negative controls. Strict Release: zero warnings/errors. EN/DE documentation, all 16
+metadata-only reference assemblies and the exact-editor bundle check passed.
+
+Compiled comparison against `21648697`: 13 changed types, none added/removed. An exact
+normalized comparison proves all changes are embedded version 0.9.1 to 1.0.0 and ModBuild
+497 to 498 constants. Configuration keys 625, patch surface 152 and log tokens 4,716 remain.
+
+A separate fixture compiles the unchanged production updater from tag `v0.9.0`: it accepts
+both upgrade comparisons and the new nested license paths, and rejects a license at the
+ZIP root. The complete `Core/SelfUpdate` source tree is unchanged since 0.9.0.
+
+Hosted publication is verified from the actual Release run and its tag/archive. No standalone
+dev release is used. Hardware application/restart is not covered by the local fixture.
 
 ## Updater test
 
 The updater queries the public `/releases/latest` endpoint without credentials. The
-repository must be public before starting the test. Start from an installed older version:
+repository must be public before starting the test. Restart the game after changing visibility
+and remain in the VR main menu; a visibility change alone does not trigger another request.
+Start from an installed older version:
 0.9.0 release checks normally; a 0.9.1 development build needs
 `[Dev] UpdateCheckOnDevBuilds = true` in `BepInEx/config/dev.gloomhavenvr.cfg`.
 Do not install 1.0.0 manually first when testing discovery of the upgrade to 1.0.0.
 
 Actual headset download/apply/restart and full-party performance remain hardware checks.
-Keep the affected run's log if the update fails. The earlier rare long-rest board visibility
+Keep `BepInEx/LogOutput.log` and `BepInEx/GloomhavenVR-update/update.log` if the update fails. The earlier rare long-rest board visibility
 report remains unresolved; publication does not change that evidence.

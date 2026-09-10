@@ -493,14 +493,14 @@ internal static class NetProtocol
     public const ushort ModBuild = 498;
 
     // ModBuild 498 — release 1.0.0 from main through the existing release pipeline.
-    //   Carries build497 gameplay, native presentation, board motion and hand ordering unchanged.
-    //   Full release includes the reviewed build483 bundle (74,943,763 bytes); packaging uses
+    //   Carries build 497 gameplay, native presentation, board motion and hand ordering unchanged.
+    //   Full release includes the reviewed build 483 bundle (74,943,763 bytes); packaging uses
     //   committed prebuilt assets unless a developer explicitly opts into local Unity output.
     //   Installer path escaping, optional uninstall verification, software notices and current
     //   bilingual guides are included. Release builds enable the existing public updater check;
-    //   a0.9.1 dev client needs [Dev] UpdateCheckOnDevBuilds=true to discover1.0.0.
-    //   User authorized publication2026-09-10 and handles repository visibility separately.
-    //   GVR1/v3, record grammars and game-state authority unchanged; all VR peers require498.
+    //   a 0.9.1 dev client needs [Dev] UpdateCheckOnDevBuilds=true to discover 1.0.0.
+    //   User authorized publication 2026-09-10 and handles repository visibility separately.
+    //   GVR1/v3, record grammars and game-state authority unchanged; all VR peers require 498.
     //   Local gates and hosted publication do not establish headset update/restart outcomes,
     //   four-player performance or resolution of the earlier one-off long-rest disappearance.
 
