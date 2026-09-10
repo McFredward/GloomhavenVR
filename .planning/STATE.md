@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-10 against `dev` = ModBuild 497.** The file this replaces had gone 168 builds
+**Updated 2026-09-10 against the 1.0.0 release candidate, ModBuild 498.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,13 +13,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.0 / ModBuild 498 release authorized on 2026-09-10.** Prepared on `dev` for the
+  main-triggered release pipeline. Gameplay and presentation carry build 497 unchanged; the
+  full package includes the reviewed build 483 bundle and repository-readiness fixes. See
+  [RELEASE-1.0.0.md](RELEASE-1.0.0.md) for candidate verification and publication status.
+  The maintainer handles public visibility and the in-headset update test separately.
 - **1.0.0 repository preparation (2026-09-10):** current guides and CI instructions reconciled,
   historical references clearly marked, generated logs/renders and shader disassembly kept local,
   installer/uninstaller edge cases fixed, stale local bundle overrides prevented, release notices packaged. Version and runtime
   remain 0.9.1 / ModBuild 497. See [RELEASE-READINESS.md](RELEASE-READINESS.md) for validation
   and separate publication follow-ups. No release, tag, main-branch push or visibility change
   is part of this preparation. The maintainer explicitly deferred the fire-asset license question.
-- **`dev` = 0.9.1, ModBuild 497.** Release 0.9.0 (494) was published from `main` by
+- **Previous development version: 0.9.1, ModBuild 497.** Release 0.9.0 (494) was published from `main` by
   [Release run 34407935479](https://github.com/McFredward/GloomhavenVR/actions/runs/34407935479);
   the pipeline passed and advanced `dev` to 0.9.1. See [RELEASE-0.9.0.md](RELEASE-0.9.0.md).
 - **496 fixes SDK selection for installation on .NET 10-only machines.** The 494 SDK pin
@@ -87,6 +92,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 | 495 | rendered board variant tiles, brighter larger captions and concise illustrated EN/DE play guidance | DLL only after 483 |
 | 496 | SDK 10 installation compatibility, early SDK diagnostics and maintenance-tool runtime fallback | DLL only after 483 |
 | 497 | atomic board motion, stable hand sorting across phases/map, remote insertion cues and requested defaults | DLL only after 483 |
+| 498 | release 1.0.0 with build 497 gameplay and reviewed installation/packaging | **full release package** |
 
 ---
 

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-10 for build 497 and the preparation for public 1.0.0. This directory holds internal
+Updated 2026-09-10 for the authorized 1.0.0 release, build 498. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [RELEASE-1.0.0.md](RELEASE-1.0.0.md): release candidate, checks and publication status.
 - [MP-ROUND-497.md](MP-ROUND-497.md): board motion, hand order, remote insertion cues and defaults.
 - [MP-497-PERF.md](MP-497-PERF.md): actual 496 hardware logs, one peer, measured frame times and limits.
 - [SDK-INSTALL-496.md](SDK-INSTALL-496.md): SDK 10 compatibility and installer diagnostics.
