@@ -871,14 +871,15 @@ internal sealed class CardFan
     /// overlay's <c>SlotGlowBaseZ</c> (-0.006).</summary>
     private const float OverlayProudZ = -0.006f;
 
+    /// <summary>Public geometry of the currently offered insertion slot; no card identity.</summary>
+    internal int InsertionGap => IsOpen ? _insertGap : -1;
+
     /// <summary>
     /// Hand reorder: open (or move) the insertion GAP at <paramref name="gap"/> (0..n; -1 = none).
     /// Mirrors <see cref="SetHovered"/> — records the gap and relayouts so the fan slides apart
     /// around it and the board-slot-style glow appears there. Pushed by the driver each frame
     /// while a fan-originating card is held over the fan (<c>CardsDriver.UpdateFanInsertion</c>).
     /// </summary>
-    internal int InsertionGap => IsOpen ? _insertGap : -1;
-
     public void SetInsertionGap(int gap)
     {
         int n = _cards.Count;
@@ -2103,7 +2104,8 @@ internal sealed class CardFan
         if (_insertGap >= 0)
         {
             EnsureOverlay();
-            PositionInsertionOverlay(_overlay!.transform, _insertGap, start, step, radius, archFactor, tiltFactor);
+            SizeInsertionOverlay(_overlay!.transform, CardsConfig.CardWidth.Value, CardsConfig.CardHeight);
+            PositionInsertionOverlay(_overlay.transform, _insertGap, start, step, radius, archFactor, tiltFactor);
             if (!_overlay.activeSelf)
                 _overlay.SetActive(true);
         }
@@ -2176,6 +2178,9 @@ internal sealed class CardFan
         CardGlow.RankWithPanels(overlay);
         return overlay;
     }
+
+    internal static void SizeInsertionOverlay(Transform overlay, float width, float height)
+        => overlay.localScale = new Vector3(width * 1.24f, height * 1.24f, 1f);
 
     internal static void PositionInsertionOverlay(Transform overlay, int gap, float start,
         float step, float radius, float arch, float tilt)
