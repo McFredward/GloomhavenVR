@@ -65,10 +65,14 @@ keeps working.
 
 ## 1. Shape
 
-SDK selection is governed by `global.json`: stable .NET SDK 8.0.4xx, with the latest installed
-patch selected. Both workflows print `dotnet --info`. Installing an SDK with `setup-dotnet`
-alone does not constrain selection when a newer SDK is already present; the repository-level
-selection follows [Microsoft's global.json rules](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json).
+SDK selection is governed by `global.json`: prefer stable .NET SDK 8.0.4xx, with `major`
+roll-forward to a later installed SDK when that family is absent. This keeps .NET 10-only
+developer installations usable. Both workflows install 8.0.x, print `dotnet --info` and
+assert that 8.0.4xx was selected. The repository-level selection follows
+[Microsoft's global.json rules](https://learn.microsoft.com/en-us/dotnet/core/tools/global-json).
+The initial 0.9.0 `latestPatch` restriction blocked install.ps1 on a machine with only
+10.0.102 and 10.0.301. Build 496 restores later-SDK fallback and checks SDK resolution
+at the start of installation, before downloads or game changes.
 The release preparation for 0.9.0 reproduced a compiler-overload difference: under SDK10,
 `byte[][].Reverse()` selected the in-place span overload instead of LINQ. The reversed-fragment
 fixture now explicitly calls `Enumerable.Reverse`, preserving both transport cases.

@@ -54,7 +54,13 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Verify selected SDK
-        run: dotnet --info
+        run: |
+          dotnet --info
+          SDK_VERSION="$(dotnet --version)"
+          [[ "$SDK_VERSION" =~ ^8\.0\.4[0-9][0-9]$ ]] || {
+            echo "::error::Expected CI SDK 8.0.4xx, selected $SDK_VERSION"
+            exit 1
+          }
 
       - name: Cache NuGet packages
         uses: actions/cache@v5.1.0

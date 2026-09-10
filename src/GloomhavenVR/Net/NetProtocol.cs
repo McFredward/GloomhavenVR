@@ -485,7 +485,16 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 495;
+    public const ushort ModBuild = 496;
+
+    // ModBuild 496 — restore installation with newer .NET SDKs.
+    //   The release494 global.json latestPatch policy rejected SDK10-only developer machines
+    //   before dotnet build could load. Prefer SDK8.0.4xx with major roll-forward when absent;
+    //   hosted workflows explicitly verify SDK8 selection. The portable Reverse fixture remains.
+    //   install.ps1 resolves the SDK from the repository before downloads or game changes and
+    //   reports missing/incompatible SDKs directly. Gameplay, presentation and wire are unchanged.
+    //   DLL-only after483. All multiplayer peers require496.
+
 
     // ModBuild 495 — illustrated board selection and concise bilingual player guidance.
     //   Control-board variants use rendered picture tiles backed by the existing Cards/Board
