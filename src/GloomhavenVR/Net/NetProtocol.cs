@@ -75,6 +75,8 @@ internal static class NetProtocol
     /// <summary>Board pose on the rig stream: flags byte0 absent, or flags1 + RigPose20 + scale4.
     /// Shares the head/hand packet cadence; the extras board record remains for legacy fallback.</summary>
     public const byte ExtIdBoardRigPose = 70;
+    /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
+    public const byte ExtIdFanInsertionGap = 71;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;
