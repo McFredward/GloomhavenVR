@@ -1,6 +1,6 @@
 # CI/CD — build, verification and release
 
-Current workflow reference, reviewed against the tracked scripts on 2026-09-10.
+Current workflow reference, reviewed against the tracked scripts on 2026-09-13.
 Start with [DEVELOPING.md](DEVELOPING.md) for local setup. The workflow files and scripts
 are authoritative; historical build results live in [STATE.md](../.planning/STATE.md).
 
@@ -31,8 +31,9 @@ both packaging paths. Validate the update path when changing the package.
 
 | Event | Workflow | Result |
 |---|---|---|
-| Push to `dev` | `.github/workflows/ci.yml` | Build and gates; DLL artifact; no release, tag or version bump |
+| Push to `dev` | `.github/workflows/ci.yml` | Build and gates; no artifact, release, tag or version bump |
 | Pull request to `dev` or `main` | `ci.yml` | Build and gates, including a surface comparison against the PR base |
+| Manual CI on `dev`, `upload_dev_build=true` | `ci.yml` | Full build and gates, then an optional temporary DLL download |
 | Push to `main` | `.github/workflows/release.yml` | Build, package, tag and publish; then advance the next version on `dev` |
 
 **Every release comes from `main`.** Integrate work into `dev`, then fast-forward `main`
@@ -153,6 +154,54 @@ headset test.
 `FlatScreen.WantVisible` method to verify screen, dialog and rescue priorities. Its negative
 controls reject both missing suppression and accidental suppression of real modal screens.
 
+## Temporary development downloads
+
+Normal pushes and pull requests run every existing check and retain their workflow logs,
+without uploading binaries. Local installation through `scripts/install.ps1` is unchanged.
+For a hardware-test download, request the existing CI workflow explicitly on `dev`:
+
+```bash
+gh workflow run ci.yml --ref dev -f upload_dev_build=true
+```
+
+In the Actions UI, select **CI → Run workflow → dev** and enable the upload input when that
+button is available. GitHub shows the manual control from the default branch's workflow;
+until the next authorized merge to `main`, use the CLI against the registered workflow on
+`dev`. Running CI without the input only checks the code. No manual CI action publishes a
+release or tag. Upload requests on other refs are rejected with an explicit instruction.
+
+A separate maintenance job with `actions: write` runs on trusted dev pushes and manual
+upload requests. Ordinary pushes prune to at most three matching dev artifacts younger than
+two days. Manual upload runs are serialized and reserve a slot by pruning to two before the
+following single upload. Cleanup jobs also serialize their API snapshots/deletions. New downloads expire after two days and include the commit,
+run ID and attempt in their names. The build job retains read-only repository permissions;
+PRs never run maintenance; build/test steps never receive its write token.
+
+Cleanup and dev upload are optional delivery steps. Failure produces a workflow warning and
+job summary; a failed cleanup prevents another upload. Build/test failures still fail CI and
+prevent delivery. The release workflow does not use this optional policy: its main-branch
+ZIP upload remains mandatory through `gh release create`, outside Actions artifact storage.
+
+The cleanup script defaults to previewing its decisions:
+
+```bash
+python3 scripts/prune-dev-artifacts.py --repo McFredward/GloomhavenVR
+# Apply the same count/age policy when an explicit cleanup is intended:
+python3 scripts/prune-dev-artifacts.py --repo McFredward/GloomhavenVR --apply
+```
+
+Only exact `GloomhavenVR-dev-<40-hex-SHA>` names (with an optional run-ID/attempt suffix)
+are eligible. Pagination and candidate metadata are validated before deleting any artifact.
+Release assets, workflow runs/logs, unrelated artifacts and caches are outside its scope.
+Regression tests run in CI and locally with
+`python3 -m unittest discover -s tests -p 'test_prune_dev_artifacts.py'`.
+
+GitHub can take 6–12 hours to refresh artifact usage after deletion. The
+[Actions billing documentation](https://docs.github.com/en/billing/concepts/product-billing/github-actions)
+distinguishes artifact storage, free workflow logs/summaries and the separate cache allowance.
+[Release assets](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases#storage-and-bandwidth-quotas)
+use separate limits; do not move release ZIPs into temporary Actions artifacts.
+
 ## 4. Release order and recovery
 
 `release.yml` performs these steps in order:
@@ -189,6 +238,7 @@ This simulates Git topology and version bumps, not the hosted build, GitHub API 
 | Existing version tag | Check whether the release already completed and whether the next-version bump landed. Do not overwrite or delete a published tag. |
 | Candidate not contained in `dev` | Integrate that history into `dev` before releasing. |
 | Tag exists but release creation failed | Inspect the failed run; recover the release using the already-tested tag and matching archive. Do not retag a different commit. |
+| Optional dev download missing | Read the CI summary and cleanup/upload step. Check artifact quota; deletion may take 6–12 hours to become visible. Checks remain strict. |
 | Release published, next-version bump failed | Update `dev` to the next intended version and commit/push it. Do not rerun publication. |
 | Hundreds of missing game members at compile time | Check game/reference-assembly versions; regenerate stubs as in §2.4. |
 | Archive rejected by updater | Check the public endpoint, expected archive name and `SelfUpdateZip` layout rules. |

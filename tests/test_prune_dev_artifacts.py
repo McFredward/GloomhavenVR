@@ -190,6 +190,7 @@ class ApiTests(unittest.TestCase):
                 MODULE.api("DELETE", "repos/owner/repo/actions/artifacts/1")
             self.assertNotIn("secret", str(caught.exception))
             self.assertNotIn("sensitive", str(caught.exception))
+            self.assertIn(f"HTTP {status}", str(caught.exception))
 
     def test_missing_cli_fails_cleanly(self):
         with patch.object(MODULE.subprocess, "run", side_effect=FileNotFoundError()), self.assertRaises(MODULE.CleanupError):

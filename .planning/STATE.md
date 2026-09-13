@@ -13,6 +13,10 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **CI storage policy (2026-09-13):** normal pushes/PRs no longer upload DLL artifacts.
+  Manual CI on dev can request a tested download; serialized cleanup retains at most three
+  builds for two days. Release ZIP publication on main remains mandatory and unchanged.
+  Version 1.0.0 / ModBuild 499 runtime is unchanged. See [CI-STORAGE.md](CI-STORAGE.md).
 - **1.0.0 / ModBuild 499 fixes an unintended fallback screen during remote long-rest burns.**
   Current 498 logs show the opaque desktop composite appearing while the remote board stays
   active; older 491 evidence has the same signature. Native foreign-hand UI locks were outside

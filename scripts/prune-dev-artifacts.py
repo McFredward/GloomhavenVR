@@ -46,8 +46,11 @@ def api(method, endpoint):
     if result.returncode:
         if method == "DELETE" and re.search(r"\(HTTP 404\)", result.stderr):
             return None
-        # CLI stderr can contain account information; never echo it or credentials.
-        raise CleanupError(f"GitHub API {method} failed for {endpoint} (exit {result.returncode}).")
+        # Preserve the status needed to diagnose permissions/rate limits without
+        # echoing CLI stderr, account details or credentials.
+        status = re.search(r"\(HTTP ([0-9]{3})\)", result.stderr)
+        detail = f"HTTP {status.group(1)}; " if status else ""
+        raise CleanupError(f"GitHub API {method} failed for {endpoint} ({detail}exit {result.returncode}).")
     return result.stdout
 
 

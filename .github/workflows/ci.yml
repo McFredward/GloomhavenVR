@@ -21,9 +21,16 @@ name: CI
 # at all — silently. This is also the job a "require status checks" rule would select.
 #
 # A pull_request run from a FORK gets a read-only token and no secrets. Nothing here
-# needs either: the artifact upload is guarded to push events, and every gate is a
-# local read of the tree.
+# needs either: artifact cleanup is limited to trusted dev runs, and uploads require
+# an explicit manual request. Every gate is a local read of the tree.
 on:
+  workflow_dispatch:
+    inputs:
+      upload_dev_build:
+        description: 'Upload a temporary DLL build for hardware testing (dev only)'
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [dev]
   pull_request:
@@ -32,21 +39,62 @@ on:
 permissions:
   contents: read
 
-# A second push supersedes the first: the older run is answering a question nobody is
-# asking any more. (The release workflow does the opposite — see release.yml.)
+# Normal pushes supersede older checks. Manual artifact requests share a serialized
+# group so pruning to two before one upload cannot leave more than three dev builds.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_dev_build && 'ci-dev-artifacts' || format('ci-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || !inputs.upload_dev_build }}
 
 jobs:
+  prune_dev_artifacts:
+    name: Maintain optional dev artifact storage
+    if: ${{ github.ref == 'refs/heads/dev' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload_dev_build)) }}
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    concurrency:
+      group: ci-dev-artifact-cleanup
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: write
+    outputs:
+      can_upload: ${{ steps.prune.outcome == 'success' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.1.0
+      - name: Retain recent dev artifacts and reserve any requested upload slot
+        id: prune
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_DEV_BUILDS: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_dev_build && '2' || '3' }}
+        run: python3 scripts/prune-dev-artifacts.py --repo "$GITHUB_REPOSITORY" --keep "$KEEP_DEV_BUILDS" --max-age-days 2 --apply
+      - name: Report cleanup failure
+        if: ${{ !cancelled() && steps.prune.outcome != 'success' }}
+        run: |
+          echo '::warning::Optional dev artifact cleanup failed. Checks will still run; a requested dev upload is skipped until cleanup succeeds.'
+          echo 'Dev artifact maintenance failed. Review the cleanup step; build/test results remain authoritative.' >> "$GITHUB_STEP_SUMMARY"
+
   build:
     name: Build and gates
+    needs: prune_dev_artifacts
+    # Storage maintenance is optional; a skipped or failed cleanup must not skip checks.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6.1.0
         # Shallow is fine: the build stamps `git rev-parse --short HEAD`, which a
         # depth-1 checkout answers correctly. Only the release workflow needs history.
+
+      - name: Validate manual artifact request
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_dev_build && github.ref != 'refs/heads/dev' }}
+        run: |
+          echo "::error::Temporary DLL uploads are available only on dev. Select dev when running CI."
+          exit 1
+
+      - name: Artifact cleanup regression tests
+        run: python3 -m unittest discover -s tests -p 'test_prune_dev_artifacts.py'
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@v5.4.0
@@ -268,18 +316,36 @@ jobs:
           echo "::notice title=Wire vectors not executed::The golden-vector assertions need the game's real UnityEngine.CoreModule.dll (Mathf banker's rounding) and cannot run on a hosted runner. Run scripts/wire-tests.sh locally before a release."
 
       # ---------------------------------------------------------------------------
-      # A dev build the user can actually install, without paying 74 MB of artifact
-      # storage per push. Every install since ModBuild 172 has been plugin-DLL-only
-      # (the bundle has been byte-identical since then), so the two DLLs are what a
-      # hardware test needs. The full zip is a RELEASE artifact, not a CI one.
+      # A temporary DLL download is an explicit hardware-test request. Normal pushes
+      # and PRs keep their checks/logs but consume no Actions artifact storage.
+      # Full release ZIPs remain mandatory uploads through release.yml on main.
       # ---------------------------------------------------------------------------
-      - name: Upload dev build (plugin + preloader only)
-        if: github.event_name == 'push'
+      - name: Upload requested dev build (plugin + preloader only)
+        id: dev_upload
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.upload_dev_build && github.ref == 'refs/heads/dev' && needs.prune_dev_artifacts.outputs.can_upload == 'true' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v6.0.0
         with:
-          name: GloomhavenVR-dev-${{ github.sha }}
+          name: GloomhavenVR-dev-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             src/GloomhavenVR/bin/Release/net472/GloomhavenVR.dll
             src/GloomhavenVR.Preload/bin/Release/net472/GloomhavenVR.Preload.dll
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 2
+
+      - name: Report optional dev download
+        if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.upload_dev_build && github.ref == 'refs/heads/dev' }}
+        env:
+          CLEANUP_READY: ${{ needs.prune_dev_artifacts.outputs.can_upload }}
+          UPLOAD_OUTCOME: ${{ steps.dev_upload.outcome }}
+        run: |
+          if [ "$UPLOAD_OUTCOME" = success ]; then
+            echo 'Temporary DLL download uploaded. Retained for at most two days; at most three dev builds are kept.' >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$CLEANUP_READY" != true ]; then
+            echo '::warning::Dev download skipped because storage cleanup failed. Build/test results remain authoritative. Release uploads are unaffected.'
+            echo 'No dev download: optional artifact cleanup failed. Review the cleanup job. Build/test results remain authoritative.' >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$UPLOAD_OUTCOME" = failure ]; then
+            echo '::warning::Optional dev upload failed. Check artifact storage/quota; GitHub may need 6-12 hours to refresh usage after deletion. Build/test results remain authoritative.'
+            echo 'No dev download: optional upload failed. Review its error above; this does not suppress build/test failures.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No dev download: build or validation did not reach upload. Review the failed checks.' >> "$GITHUB_STEP_SUMMARY"

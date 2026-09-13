@@ -18,6 +18,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [CI-STORAGE.md](CI-STORAGE.md): bounded manual dev downloads; main release uploads retained.
 - [REST-499.md](REST-499.md): native card-loss fallback fix, current 498 and historical 491 evidence.
 - [RELEASE-1.0.0.md](RELEASE-1.0.0.md): release candidate, checks and publication status.
 - [MP-ROUND-497.md](MP-ROUND-497.md): board motion, hand order, remote insertion cues and defaults.
