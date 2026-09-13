@@ -490,7 +490,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 498;
+    public const ushort ModBuild = 499;
+
+    // ModBuild 499 — prevent the remote long-rest burn from raising an empty desktop screen.
+    //   Build 498 logs show native foreign-hand AnimateCardsLost locking the UI before burn
+    //   discovery. The fallback captures an opaque full-scene quad while the remote board stays
+    //   active; the older 491 incident has the same signature. Local BeginBurn alone misses it.
+    //   CardLossModalGuard requires every current UI lock owner to be an animating CardsHandUI.
+    //   Native lock release ends suppression even when cancellation leaves its animation flag
+    //   set. Explicit screens, manual/rescue requests and unrelated lock owners retain fallback.
+    //   Original card effects, face rules, flights, board fade and game actions are unchanged.
+    //   Version remains 1.0.0 at the user's request; the published main/tag is not rewritten.
+    //   DLL-only since 483; GVR1/v3 and all record layouts unchanged. All VR peers require 499.
+    //   Production lock/fallback regression tests and project gates cover source behavior;
+    //   the headset flash still needs a long-rest replay. See .planning/REST-499.md.
+
 
     // ModBuild 498 — release 1.0.0 from main through the existing release pipeline.
     //   Carries build 497 gameplay, native presentation, board motion and hand ordering unchanged.

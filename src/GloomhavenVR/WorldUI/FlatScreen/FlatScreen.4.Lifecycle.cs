@@ -10,6 +10,8 @@ namespace GloomhavenVR.WorldUI;
 
 internal sealed partial class FlatScreen
 {
+    private bool _cardLossFallbackNoted;
+
     /// <summary>
     /// End-of-frame hook (WorldUI driver coroutine, after Unity's XR mirror blit).
     ///
@@ -127,6 +129,8 @@ internal sealed partial class FlatScreen
             return false;
 
         VRMode mode = VRModeStateMachine.CurrentMode;
+        if (mode != VRMode.ModalUI)
+            _cardLossFallbackNoted = false;
         if (mode == VRMode.Menu2D)
             return true; // always auto-show in Menu2D — user ruling 2026-08-11: the manual chord
                          // needs a scenario board, so an OFF here left the main menu unreachable.
@@ -148,6 +152,19 @@ internal sealed partial class FlatScreen
             // A genuinely floated modal always shows (its own window/composite is wanted).
             if (ModalFallback.ScreenWanted)
                 return true;
+            // Native foreign-hand loss locks start before remote burn discovery and outlive
+            // its material animation. Only the actual lock owners establish this empty modal;
+            // owner effects, flight timing and the game's input lock remain unchanged.
+            if (CardLossModalGuard.OwnsAllLocks(UIManager.Instance, Cards.Patches.HandSuppression.Active))
+            {
+                if (!_cardLossFallbackNoted)
+                {
+                    _cardLossFallbackNoted = true;
+                    VRLog.Info("WorldUI", "CARD LOSS MODAL: empty FlatScreen fallback suppressed; " +
+                        "all native UI locks belong to animating card hands.");
+                }
+                return false;
+            }
             // Item 5b (test #23): burning a card UI-locks the game (→ ModalUI), but the burn
             // plays on the WORLD card (BurnCardFx) and the burn-confirm is a DialogPopup, not
             // a UIConfirmationBox — so IsConfirmationBoxOpen() is false and the catch-all below
