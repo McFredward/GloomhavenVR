@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-10 against the 1.0.0 release candidate, ModBuild 498.** The file this replaces had gone 168 builds
+**Updated 2026-09-13 for the 1.0.0 long-rest hotfix, ModBuild 499.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.0 / ModBuild 499 fixes an unintended fallback screen during remote long-rest burns.**
+  Current 498 logs show the opaque desktop composite appearing while the remote board stays
+  active; older 491 evidence has the same signature. Native foreign-hand UI locks were outside
+  the local burn guard. The new guard checks every actual lock owner and preserves explicit
+  screen requests. Original card/board presentation is unchanged. Headset confirmation remains
+  pending. See [REST-499.md](REST-499.md) and its linked evidence reports.
+- **499 local gates pass:** all 17 checkers, unchanged 253,579 wire assertions and existing
+  production suites; new modal harness 1,058 assertions plus five negative controls. Strict
+  Release has zero warnings/errors. Compiled scope is the fallback fix, its new helper and
+  version constants. Config/patch surfaces are unchanged; one diagnostic was added.
+- **499 remains version 1.0.0 at the maintainer's request.** The already published main/tag
+  `v1.0.0` identifies build 498; this hotfix does not rewrite that tag or replace its assets.
+  A later release publication must come from `main` and deliberately handle that existing tag.
 - **1.0.0 / ModBuild 498 release authorized on 2026-09-10.** Prepared on `dev` for the
   main-triggered release pipeline. Gameplay and presentation carry build 497 unchanged; the
   full package includes the reviewed build 483 bundle and repository-readiness fixes. See
@@ -39,7 +52,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   74,943,671 → 74,943,763 bytes. Builds 369–482 were all DLL-only drops. A DLL-only install of
   483 shows neither of its two content changes, and the `ENV SKY BRANCH` log line says so out
   loud if it happens.
-- **Latest hardware evidence covers496, local logs only, one additional player.** Regular scenario
+- **Previous performance hardware evidence covers496, local logs only, one additional player.** Regular scenario
   windows average11.35ms/frame; after a room expansion12.69ms. The run supports the user's smooth
   experience; neither progressive collapse nor a leak is established. Managed heap samples rise.
   See [MP-497-PERF.md](MP-497-PERF.md). Older remote logs and regression JPGs are not from this run.

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-10 for the authorized 1.0.0 release, build 498. This directory holds internal
+Updated 2026-09-13 for the 1.0.0 long-rest hotfix, build 499. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [REST-499.md](REST-499.md): native card-loss fallback fix, current 498 and historical 491 evidence.
 - [RELEASE-1.0.0.md](RELEASE-1.0.0.md): release candidate, checks and publication status.
 - [MP-ROUND-497.md](MP-ROUND-497.md): board motion, hand order, remote insertion cues and defaults.
 - [MP-497-PERF.md](MP-497-PERF.md): actual 496 hardware logs, one peer, measured frame times and limits.

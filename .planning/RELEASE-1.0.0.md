@@ -1,5 +1,8 @@
 # Release 1.0.0 — ModBuild 498
 
+> Historical build-498 release record. The 2026-09-13 build-499 hotfix is tracked in
+> [REST-499.md](REST-499.md); it keeps version 1.0.0 but does not alter this published tag.
+
 ## Authorization and scope
 
 On 2026-09-10 the maintainer requested release 1.0.0 from `main`, retaining existing
