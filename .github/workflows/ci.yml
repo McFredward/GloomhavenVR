@@ -258,6 +258,7 @@ jobs:
           bash scripts/card-bindings-tests.sh
           bash scripts/native-playback-tests.sh
           bash scripts/board-refresh-tests.sh
+          bash scripts/card-loss-modal-tests.sh
 
       - name: Wire tests (compile only — see docs/CI-CD.md)
         run: |

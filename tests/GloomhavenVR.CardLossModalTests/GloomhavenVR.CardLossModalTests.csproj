@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <CardLossGuardSource Condition="'$(CardLossGuardSource)' == ''">../../src/GloomhavenVR/WorldUI/CardLossModalGuard.cs</CardLossGuardSource>
+    <FlatScreenLifecycleSource Condition="'$(FlatScreenLifecycleSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.4.Lifecycle.cs</FlatScreenLifecycleSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(CardLossGuardSource)" Link="Production/CardLossModalGuard.cs" />
+    <Compile Include="$(IntermediateOutputPath)FlatScreenPolicy.g.cs" />
+  </ItemGroup>
+  <Target Name="ExtractProductionFlatScreenPolicy" BeforeTargets="BeforeCompile">
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-flat-screen.py&quot; &quot;$(FlatScreenLifecycleSource)&quot; &quot;$(IntermediateOutputPath)FlatScreenPolicy.g.cs&quot;" />
+  </Target>
+</Project>
