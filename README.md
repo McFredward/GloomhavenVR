@@ -48,7 +48,7 @@
 
 <table>
 <tr>
-<td width="50%"><video src="https://github.com/user-attachments/assets/f23ad920-838c-4c2f-aba2-24378b3323e8" controls muted loop></video></td>
+<td width="50%"><video src="https://github.com/user-attachments/assets/e03c2053-7da2-48c4-a022-05af58362b09" controls muted loop></video></td>
 <td width="50%"><video src="https://github.com/user-attachments/assets/5bc45e99-89d1-4b3b-aa7d-47a74c184805" controls muted loop></video></td>
 </tr>
 </table>
