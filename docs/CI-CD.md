@@ -157,7 +157,8 @@ controls reject both missing suppression and accidental suppression of real moda
 
 `scripts/map-flow-tests.sh` checks native loadout ownership, the actual curtain/travel policies
 and input admission in the map interactor. It covers reusing the party root after the story,
-native multiplayer barriers and map locks, with negative controls for missing integration,
+the separate outer PartyPanel and inner controller-owned window, native multiplayer barriers
+and map locks, with negative controls for the former descendant-only ownership check, missing integration,
 overbroad curtain release and inappropriate travel visibility.
 
 `scripts/flight-timing-tests.sh` checks transfer of card presentation between a board seat

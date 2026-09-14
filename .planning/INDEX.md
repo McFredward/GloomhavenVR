@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-14 for the multiplayer animation hotfix, build 501. This directory holds internal
+Updated 2026-09-14 for the single-player party-container hotfix, build 502. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [MAP-502.md](MAP-502.md): native outer/inner party-window handover after quest introductions.
+- [MAP-502-EVIDENCE.md](MAP-502-EVIDENCE.md): two single-player reproductions and the multiplayer fallback comparison.
+- [MAP-502-IMPLEMENTATION.md](MAP-502-IMPLEMENTATION.md): narrow hierarchy ownership and production regression coverage.
 - [MP-501.md](MP-501.md): card-flight ownership and immediate held-figure action handovers.
 - [MP-501-EVIDENCE.md](MP-501-EVIDENCE.md): matching build 500 multiplayer log timelines.
 - [MP-501-FLIGHT-REVIEW.md](MP-501-FLIGHT-REVIEW.md): independent flight lifecycle review.

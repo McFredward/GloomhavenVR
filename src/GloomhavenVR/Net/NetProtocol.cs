@@ -490,7 +490,23 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 501;
+    public const ushort ModBuild = 502;
+
+    // ModBuild 502 — release the native party wrapper after single-player quest stories.
+    //   Fresh build 501 logs reproduce missing battle goals for quests 078 and 039. Native
+    //   loadout interaction starts, clears its hide request and opens the inner party/picker,
+    //   but the story curtain still refuses the OUTER PartyPanel UIWindow. Build 500 admitted
+    //   only party.window and its descendants; the actual floated wrapper is its ancestor.
+    //   Admit the nearest native PartyPanel ancestor containing that live owner, with the same
+    //   map/loadout/open/hide-request guards. Unrelated ancestors and same-ID windows stay out.
+    //   Multiplayer previously escaped via the 90-tick mutual-hold fallback; the earlier quest
+    //   popup in single-player stopped that fallback after 19/18 ticks. The hierarchy handover
+    //   now works directly, without a timer, forced Show, skipped choice or network-state write.
+    //   The regression harness includes the observed wrapper/inner-owner hierarchy and rejects
+    //   the previous predicate deliberately. The handover log names both window instances.
+    //   Version remains 1.0.0, DLL-only since 483, no wire/asset changes. Hardware replay still
+    //   required; all VR peers use 502. See .planning/MAP-502.md and its linked evidence.
+
 
     // ModBuild 501 — atomic remote card departures and held-figure action handovers.
     //   Both build 500 clients (7745d90c8) log flight start while the source recess remains

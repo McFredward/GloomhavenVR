@@ -2103,8 +2103,9 @@ internal static class StoryComposite
     /// current native ownership; a once-per-curtain diagnostic latch never changes the answer.
     ///
     /// <para>Membership is frozen by reference, but the native loadout reopens the same party
-    /// instance for required decisions. Its released hide request and open window end that
-    /// member's refusal without releasing unrelated story-hidden panels.</para>
+    /// presentation for required decisions. The live party controller can own an inner UIWindow
+    /// beneath the floated PartyPanel wrapper; both identities must hand over. Its released hide
+    /// request and open window end that refusal without releasing unrelated story-hidden panels.</para>
     /// </summary>
     internal static bool CurtainRefuses(UIWindow? window)
     {
@@ -2114,16 +2115,20 @@ internal static class StoryComposite
         {
             if (ReferenceEquals(CurtainMembers[i], window))
             {
-                // The native loadout reopens the same party window after the story.
-                // It now owns required decisions even if a quest popup fills the room.
+                // The native loadout owns required decisions after the story. Its inner
+                // party window may sit beneath the wrapper captured by the curtain.
                 if (LoadoutWindowOwnership.IsCurrentContent(window))
                 {
                     if (!_loadoutCurtainOwnerNoted)
                     {
                         _loadoutCurtainOwnerNoted = true;
+                        var nativeOwner = NewPartyDisplayUI.PartyDisplay?.window;
+                        // HW-VERIFY: the admitted PartyPanel may be a different UIWindow than
+                        // its native controller owns; confirm both names in an offline replay.
                         VRLog.Note(Scope, $"STORY CURTAIN LOADOUT HANDOVER: '{window.name}' " +
-                            "was reopened by the native loadout; its earlier curtain membership " +
-                            "no longer withholds this decision window. Native conversion follows.");
+                            $"(ID {window.ID}) admitted for native party window '{nativeOwner?.name ?? "<missing>"}' " +
+                            $"(same instance: {ReferenceEquals(window, nativeOwner)}). Earlier curtain " +
+                            "membership no longer withholds the original loadout decisions.");
                     }
                     return false;
                 }

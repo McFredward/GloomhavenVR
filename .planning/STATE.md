@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-14 for the multiplayer animation hotfix, ModBuild 501 (version 1.0.0).** The file this replaces had gone 168 builds
+**Updated 2026-09-14 for the single-player party-container hotfix, ModBuild 502 (version 1.0.0).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,18 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.0 / ModBuild 502 fixes the missing native party-container handover.** Fresh 501
+  single-player logs for quests 078 and 039 show battle-goal selection open beneath a still
+  refused outer PartyPanel. Build 500 admitted its different inner owner but missed that
+  ancestor; multiplayer success came from the older 90-tick fallback. The current native
+  PartyPanel wrapper is now admitted directly while intro/readiness guards remain intact.
+  See [MAP-502.md](MAP-502.md) and its evidence/review. Headset replay remains pending.
+- **502 local gates pass:** all 17 source checkers, 253,579 wire assertions, existing suites
+  and expanded map-flow tests (1,987 assertions/six negative controls). Strict Release has
+  zero warnings/errors; bilingual docs pass. Compiled review: nine changed types, seven of
+  them build constants only, with no additions/removals. Surfaces remain 625/160/4,719.
+- **502 remains version 1.0.0 on dev.** The existing main/tag stays build 498. Build 501's
+  card-flight/figure fixes are retained; its final hosted CI passed at `5aeb2cce`.
 - **1.0.0 / ModBuild 501 fixes remote animation handovers.** Matching build 500 logs
   identify a flight starting while its remote source recess is still occupied; remote
   dock clearing additionally kept a stationary crumble beneath the flying copy. Source and
@@ -28,7 +40,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 - **501 retains version 1.0.0 and is integrated on dev.** Existing main/tag `v1.0.0` remains build 498.
   New regression harnesses run in both CI and main release checks. Final headset timing remains
   unverified until the next hardware test.
-- **1.0.0 / ModBuild 500 fixes a map preparation softlock.** Current offline 499 logs show
+- **ModBuild 500 attempted a map preparation softlock fix; 502 corrects its missing ancestor case.** Offline 499 logs show
   native battle goals opened under a party root still refused by frozen story-curtain
   membership. The native loadout's released hide request now admits its original root and
   descendants. VR map input and offline travel also honor the native map lock; online quest
