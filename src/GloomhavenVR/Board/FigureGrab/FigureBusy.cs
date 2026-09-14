@@ -188,6 +188,10 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// hätte der User sie losgelassen") — see <c>FigureGrabbable.OnRelease</c> for why the glide's
 /// 0.28 s of continued bar-hide is safe (no deactivation edge, so nothing can be killed by it).</para>
 ///
+/// <para>SUPERSEDED IN BUILD 501: the September multiplayer report explicitly requires native
+/// actions to start immediately at the board. Forced releases now restore instantly on both
+/// clients; only voluntary idle releases retain the historical 0.28-second glide above.</para>
+///
 /// ───────────────────────── AN OPEN DECISION IS A WAIT, NOT A RESOLVE (2026-09-07, ModBuild 479)
 ///
 /// <para>User report, verbatim: "Im Test hat mein Character schaden bekommen und ich will ihn
@@ -406,6 +410,13 @@ internal static class FigureBusy
     /// </summary>
     private static readonly string[] IdleStateNames = { "Idle-Run", "SleepIdle", "CheerAllyIdle", "CheerEnemyIdle" };
 
+    internal static bool IsIdleClip(string state)
+    {
+        for (int i = 0; i < IdleStateNames.Length; i++)
+            if (state == IdleStateNames[i]) return true;
+        return false;
+    }
+
     /// <summary>
     /// Per-actor Animator resolution cache (keyed by root GameObject instance id, exactly like the
     /// driver's FigureScanCache: a destroyed value falls back to a re-resolve, an id can never pin
@@ -486,6 +497,15 @@ internal static class FigureBusy
     /// </summary>
     private static bool FigureItselfBusy(ActorBehaviour actor, out string why)
     {
+        // RunBlend can animate movement inside the native "Idle-Run" state. The locomotion
+        // flags are the direct signal, independent of animator state names or a cached wait.
+        if (actor.IsMoving || actor.m_NewLocoTarget || actor.m_Jump || actor.m_IsPushPullInProgress
+            || actor.m_Teleport)
+        {
+            why = "the figure itself is moving, jumping, being pushed or teleporting";
+            return true;
+        }
+
         // (1) An attack-modifier flow is LIVE on this figure's own bar. This is the exact flag the
         //     deadlock latched: the flow's completion writes it false, and hiding the bar's host
         //     while the mini is in the hand is what stops the completion from ever running.

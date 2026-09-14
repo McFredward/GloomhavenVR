@@ -190,6 +190,17 @@ internal static class FigureGhosts
         OverlayPulse.ResetPeak();       // ...and re-bases the overlay high-water mark to this board
     }
 
+    /// <summary>Retire the held-only snapshot on the same frame that a native action takes the
+    /// real miniature home, even when that happens after this frame's regular ghost tick.</summary>
+    internal static void ReleaseIfUnheld(ActorBehaviour actor)
+    {
+        if (actor == null || HeldFigures.Owns(actor) || NetHeldFigures.Owns(actor))
+            return;
+        if (_ghosts.TryGetValue(actor, out Ghost ghost) && ghost.Go != null)
+            ghost.Go.SetActive(false); // Destroy is deferred; the duplicate must stop drawing now
+        Destroy(actor);
+    }
+
     private static void Destroy(ActorBehaviour actor)
     {
         if (_ghosts.TryGetValue(actor, out Ghost ghost))

@@ -98,6 +98,12 @@ internal static class FigureRingSuppressor
         }
     }
 
+    internal static void ReleaseIfUnheld(ActorBehaviour actor)
+    {
+        if (actor != null && !HeldFigures.Owns(actor) && !NetHeldFigures.Owns(actor))
+            Restore(actor);
+    }
+
     private static void Restore(ActorBehaviour? actor)
     {
         if (actor is null)

@@ -79,6 +79,13 @@ internal static class NetFigures
     {
         public ActorBehaviour Actor = null!;
         public int ActorId;
+        // A native action ended this presentation lease. Keep the slot until the sender clears
+        // or changes it: delayed held samples must not re-grab an actor after its action ends.
+        public bool ActionReleased;
+        public Vector3 HomeLocalPosition;
+        public Quaternion HomeLocalRotation = Quaternion.identity;
+        public Vector3 HomeAnimatedLocalPosition;
+        public Transform? HomeParent;
         public Vector3 TargetPos;
         public Quaternion TargetRot = Quaternion.identity;
 
@@ -379,10 +386,27 @@ internal static class NetFigures
     public static void ApplyRemoteHeld(int playerId, int slot, int actorId, Vector3 pos,
                                        Quaternion rot, bool handKnown = false, bool leftHand = false)
     {
+        bool interrupted = InterruptedLease(actorId);
+        if (_byPlayer.TryGetValue(playerId, out PlayerHeld existing))
+        {
+            RemoteHeld? held = slot == SlotSecondary ? existing.Secondary : existing.Primary;
+            if (held != null && held.ActorId == actorId && held.ActionReleased)
+                return; // keep the lease even through a destroyed/unresolved actor interval
+        }
         ActorBehaviour? actor = Resolve(actorId);
         if (actor == null)
         {
             ReleaseRemoteSlot(playerId, slot);
+            if (interrupted)
+            {
+                // A shifted alias can arrive while the scene instance is missing. Retain its
+                // advertised id until a genuine sender clear/switch, independently of Unity life.
+                if (!_byPlayer.TryGetValue(playerId, out PlayerHeld pending))
+                    _byPlayer[playerId] = pending = new PlayerHeld();
+                var rejected = new RemoteHeld { ActorId = actorId, ActionReleased = true };
+                if (slot == SlotSecondary) pending.Secondary = rejected;
+                else pending.Primary = rejected;
+            }
             return;
         }
 
@@ -393,7 +417,8 @@ internal static class NetFigures
         // genuinely fresh hold (not already held by any peer or locally) so it is captured at home;
         // NotifyHeld is idempotent regardless. Despawn is reconciled by FigureGhosts.Tick when the
         // release drops the actor from NetHeldFigures (RebuildSet, ReleaseRemote, or the Tick prune).
-        if (!NetHeldFigures.Owns(actor) && !HeldFigures.Owns(actor))
+        if (!interrupted && !FigureBusy.HoldMustEnd(actor)
+            && !NetHeldFigures.Owns(actor) && !HeldFigures.Owns(actor))
         {
             // ONE resolver with the local path (ModBuild 335) — the clone and the pose must never
             // come from different objects, and m_AnimatedGameObject is not reliably the figure.
@@ -429,6 +454,7 @@ internal static class NetFigures
             if (slot == SlotSecondary) player.Secondary = rec;
             else player.Primary = rec;
 
+            RemoteHeld? sharedHome = FindActiveHold(actor);
             // SEED THE SIZE FROM WHAT THIS PEER LAST REPORTED, rather than starting at 1 and easing
             // up. The size and the hold arrive on different packets in no fixed order, so a fresh
             // record routinely knows the factor already — a late joiner, a re-resolved figure, a
@@ -448,11 +474,26 @@ internal static class NetFigures
             // local at all. Re-reading it per frame would read back the size WE just wrote.
             Transform? home = RootTransform(actor);
             if (home != null)
+            {
                 rec.HomeLocalScale = home.localScale;
+                rec.HomeLocalPosition = home.localPosition;
+                rec.HomeLocalRotation = home.localRotation;
+                rec.HomeParent = home.parent;
+                if (actor.m_AnimatedGameObject != null)
+                    rec.HomeAnimatedLocalPosition = actor.m_AnimatedGameObject.transform.localPosition;
+            }
             // Diagnostic only since ModBuild 157 (see RemoteHeld.GrabRigScale): the [SizeSync] line
             // prints the ratio this value WOULD have produced, next to the factor that arrived, so
             // one log can show whether the old reconstruction and the new number agree.
             rec.GrabRigScale = NetAvatarDriver.TryGetPeerRigScale(playerId, out float rigNow) ? rigNow : 0f;
+            if (sharedHome != null)
+            {
+                rec.HomeLocalPosition = sharedHome.HomeLocalPosition;
+                rec.HomeLocalRotation = sharedHome.HomeLocalRotation;
+                rec.HomeLocalScale = sharedHome.HomeLocalScale;
+                rec.HomeAnimatedLocalPosition = sharedHome.HomeAnimatedLocalPosition;
+                rec.HomeParent = sharedHome.HomeParent;
+            }
         }
         rec.Actor = actor;
         rec.ActorId = actorId;
@@ -461,6 +502,17 @@ internal static class NetFigures
         rec.HandKnown = handKnown;
         rec.LeftHand = leftHand;
 
+        // A hold packet can arrive after the native action has already started on this client.
+        // Preserve a rejected lease just like an interrupted one, rather than reviving it when
+        // the animator next becomes idle before the owner's release packet arrives.
+        if (interrupted || HeldFigures.Owns(actor) || FigureBusy.HoldMustEnd(actor))
+        {
+            // If this was an active lease, return it before latching. A freshly rejected
+            // incoming record has never authored a pose and must not reset native action output.
+            if (NetHeldFigures.Owns(actor))
+                ReleaseForNativeAction(actor);
+            rec.ActionReleased = true;
+        }
         DropDuplicateSecondary(player);
         RebuildSet();
     }
@@ -602,9 +654,16 @@ internal static class NetFigures
     {
         if (rec == null)
             return false;
+        if (rec.ActionReleased)
+            return true; // retain quarantine even if the scene actor is destroyed or replaced
         Transform? t = RootTransform(rec.Actor);
         if (t == null)
             return false; // actor gone → drop this hold
+        if (FigureBusy.HoldMustEnd(rec.Actor))
+        {
+            ReleaseForNativeAction(rec.Actor);
+            return true;
+        }
         t.position = Vector3.Lerp(t.position, rec.TargetPos, k);
         t.rotation = Quaternion.Slerp(t.rotation, rec.TargetRot, k);
 
@@ -658,6 +717,85 @@ internal static class NetFigures
         return true;
     }
 
+    /// <summary>
+    /// Relinquish cosmetic pose ownership BEFORE native movement reads the root transform.
+    /// Build 500 suppressed native writers until a network release, while SetLocoTarget already
+    /// sampled the held transform as its path origin. Restore the board-local home pose once and
+    /// retain an interrupted lease so delayed samples cannot pull it back into the hand. Nothing
+    /// in the native actor, rule engine or choreographer is advanced or written here.
+    /// </summary>
+    internal static void ReleaseForNativeAction(ActorBehaviour actor)
+    {
+        if (!NetHeldFigures.Owns(actor))
+            return;
+        RemoteHeld? home = FindActiveHold(actor);
+        foreach (PlayerHeld player in _byPlayer.Values)
+        {
+            if (player.Primary != null && ReferenceEquals(player.Primary.Actor, actor))
+                player.Primary.ActionReleased = true;
+            if (player.Secondary != null && ReferenceEquals(player.Secondary.Actor, actor))
+                player.Secondary.ActionReleased = true;
+        }
+        RebuildSet();
+        FigureGhosts.ReleaseIfUnheld(actor);
+        FigureRingSuppressor.ReleaseIfUnheld(actor);
+        if (home == null)
+            return;
+        Transform? root = RootTransform(actor);
+        if (root != null)
+        {
+            // Never reparent a remote actor or resurrect a scene replaced during teardown.
+            if (root.parent == home.HomeParent)
+            {
+                root.localPosition = home.HomeLocalPosition;
+                root.localRotation = home.HomeLocalRotation;
+            }
+            if (actor.m_AnimatedGameObject != null)
+                actor.m_AnimatedGameObject.transform.localPosition = home.HomeAnimatedLocalPosition;
+        }
+        if (root != null)
+        {
+            root.localScale = home.HomeLocalScale;
+            FigureCloth.Note(root.gameObject, 1f);
+        }
+        // Every alias has now relinquished its scale. A late packet/release must not restore
+        // the old size over a later legitimate hold of the same native actor.
+        foreach (PlayerHeld player in _byPlayer.Values)
+        {
+            if (player.Primary != null && ReferenceEquals(player.Primary.Actor, actor))
+                player.Primary.ScaleTouched = false;
+            if (player.Secondary != null && ReferenceEquals(player.Secondary.Actor, actor))
+                player.Secondary.ScaleTouched = false;
+        }
+        // HW-VERIFY: REMOTE FIGURE ACTION RELEASE must precede the native action's visible
+        // movement/clip; the headset confirms the origin is on the board, not in the peer's hand.
+        VRLog.Note("Net", $"REMOTE FIGURE ACTION RELEASE actor {home.ActorId}: restored board pose before native motion; stale held samples remain refused until release or switch.");
+    }
+
+    private static RemoteHeld? FindActiveHold(ActorBehaviour actor)
+    {
+        foreach (PlayerHeld player in _byPlayer.Values)
+        {
+            if (player.Primary != null && !player.Primary.ActionReleased && ReferenceEquals(player.Primary.Actor, actor))
+                return player.Primary;
+            if (player.Secondary != null && !player.Secondary.ActionReleased && ReferenceEquals(player.Secondary.Actor, actor))
+                return player.Secondary;
+        }
+        return null;
+    }
+
+    private static bool InterruptedLease(int actorId)
+    {
+        foreach (PlayerHeld player in _byPlayer.Values)
+        {
+            if (player.Primary != null && player.Primary.ActionReleased && player.Primary.ActorId == actorId)
+                return true;
+            if (player.Secondary != null && player.Secondary.ActionReleased && player.Secondary.ActorId == actorId)
+                return true;
+        }
+        return false;
+    }
+
     // ---- helpers ------------------------------------------------------------------------
 
     /// <summary>
@@ -674,8 +812,12 @@ internal static class NetFigures
     private static void DropDuplicateSecondary(PlayerHeld player)
     {
         if (player.Primary != null && player.Secondary != null
+            && !player.Primary.ActionReleased && !player.Secondary.ActionReleased
             && ReferenceEquals(player.Primary.Actor, player.Secondary.Actor))
+        {
+            player.Primary.ScaleTouched |= player.Secondary.ScaleTouched;
             player.Secondary = null;
+        }
     }
 
     /// <summary>Rebuild <see cref="NetHeldFigures"/> as the union of every player's held actors —
@@ -686,9 +828,9 @@ internal static class NetFigures
         _scratchActors.Clear();
         foreach (PlayerHeld player in _byPlayer.Values)
         {
-            if (player.Primary != null && player.Primary.Actor != null)
+            if (player.Primary != null && !player.Primary.ActionReleased && player.Primary.Actor != null)
                 _scratchActors.Add(player.Primary.Actor);
-            if (player.Secondary != null && player.Secondary.Actor != null)
+            if (player.Secondary != null && !player.Secondary.ActionReleased && player.Secondary.Actor != null)
                 _scratchActors.Add(player.Secondary.Actor);
         }
         NetHeldFigures.ReplaceWith(_scratchActors);
@@ -776,6 +918,13 @@ internal static class NetFigures
     {
         if (rec == null || !rec.ScaleTouched)
             return;
+        if (HeldFigures.Owns(rec.Actor))
+            return; // a local holder owns its own scale
+        foreach (PlayerHeld player in _byPlayer.Values)
+        {
+            if (OtherActiveHold(player.Primary, rec) || OtherActiveHold(player.Secondary, rec))
+                return; // another peer still owns this visual
+        }
         Transform? t = RootTransform(rec.Actor);
         if (t == null)
             return;
@@ -786,6 +935,10 @@ internal static class NetFigures
         // above) because the size may already be home while the cloth is still mid-correction.
         FigureCloth.Note(t.gameObject, 1f);
     }
+
+    private static bool OtherActiveHold(RemoteHeld? candidate, RemoteHeld releasing)
+        => candidate != null && !candidate.ActionReleased && !ReferenceEquals(candidate, releasing)
+           && ReferenceEquals(candidate.Actor, releasing.Actor);
 
     private static Transform? RootTransform(ActorBehaviour actor)
     {

@@ -1,4 +1,7 @@
+using System;
+using GloomhavenVR.Core;
 using HarmonyLib;
+using GloomhavenVR.Net;
 
 namespace GloomhavenVR.Board.FigureGrab;
 
@@ -40,12 +43,63 @@ internal static class ActorBehaviour_HeldTransform_Patch
     [HarmonyPrefix]
     [HarmonyPatch("Update")]
     private static bool Update_Prefix(ActorBehaviour __instance)
-        => !HeldFigures.Owns(__instance) && !NetHeldFigures.Owns(__instance);
+        => AllowNativeTransform(__instance);
 
     [HarmonyPrefix]
     [HarmonyPatch("LateUpdate")]
     private static bool LateUpdate_Prefix(ActorBehaviour __instance)
-        => !HeldFigures.Owns(__instance) && !NetHeldFigures.Owns(__instance);
+        => AllowNativeTransform(__instance);
+
+    // SetLocoTarget samples the current transform to build its origin/direction, so restoring
+    // at Update alone is too late. These prefixes release cosmetic ownership only; every native
+    // action body still runs exactly once with its original arguments and game-state authority.
+    [HarmonyPrefix]
+    [HarmonyPatch(nameof(ActorBehaviour.SetLocoTarget))]
+    private static void SetLocoTarget_Prefix(ActorBehaviour __instance) => ReleaseForNativeAction(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(nameof(ActorBehaviour.PushPullToLocation))]
+    private static void PushPullToLocation_Prefix(ActorBehaviour __instance) => ReleaseForNativeAction(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(nameof(ActorBehaviour.TeleportToLocation))]
+    private static void TeleportToLocation_Prefix(ActorBehaviour __instance) => ReleaseForNativeAction(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(nameof(ActorBehaviour.TeleportToCurrentLocoTarget))]
+    private static void TeleportToCurrentLocoTarget_Prefix(ActorBehaviour __instance) => ReleaseForNativeAction(__instance);
+
+    [HarmonyPrefix]
+    [HarmonyPatch(nameof(ActorBehaviour.ForceSetLocoIntermediateTarget))]
+    private static void ForceSetLocoIntermediateTarget_Prefix(ActorBehaviour __instance) => ReleaseForNativeAction(__instance);
+
+    internal static void ReleaseForNativeAction(ActorBehaviour actor)
+    {
+        try
+        {
+            if (HeldFigures.Owns(actor))
+                FigureGrabbable.ReleaseForNativeAction(actor);
+            if (NetHeldFigures.Owns(actor))
+                NetFigures.ReleaseForNativeAction(actor);
+            FigureGhosts.ReleaseIfUnheld(actor);
+            FigureRingSuppressor.ReleaseIfUnheld(actor);
+        }
+        catch (Exception error)
+        {
+            // Cosmetic cleanup must never cancel the native action or reach a network desync
+            // handler. The ordinary teardown/watchdog paths retain their independent cleanup.
+            VRLog.Error("FigureGrab", $"Native figure transform handover failed: {error}");
+        }
+    }
+
+    private static bool AllowNativeTransform(ActorBehaviour actor)
+    {
+        if (!HeldFigures.Owns(actor) && !NetHeldFigures.Owns(actor))
+            return true;
+        if (FigureBusy.HoldMustEnd(actor))
+            ReleaseForNativeAction(actor);
+        return !HeldFigures.Owns(actor) && !NetHeldFigures.Owns(actor);
+    }
 
     /// <summary>
     /// TASK #2 — while a figure is held (by anyone), the game's selection-ring toggles

@@ -1097,10 +1097,9 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             // belt stays because the suppression the game could hang on lives in HeldFigures, not
             // in the grabber: if the grabber ever fails to tick (mode policy, interactor disabled,
             // a hand going untracked in the same frame) the actor must STILL leave HeldFigures —
-            // via the glide's landing now, 0.28 s, which is safe (no deactivation edge; see
-            // FigureBusy's deadlock-safety notes) — or ActorBars keeps its bar host deactivated.
-            // Both routes are glide-guarded and idempotent, so they cannot fight (OnRelease
-            // absorbs a release for a figure already gliding).
+            // immediately before native animation can consume a held pose. Build 501 supersedes
+            // the older forced-release glide; both routes restore idempotently and stale grabber
+            // callbacks cannot take ownership back from the native action.
             if (FigureBusy.HoldMustEnd(grabbable.Actor, out string why))
                 grabbable.AutoReleaseToBoard(why);
         }
