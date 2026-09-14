@@ -3377,7 +3377,14 @@ internal sealed partial class CardsDriver
                 continue;
             }
             card.FlyFromPile(pilePos, slabWidth, FlyToPileSeconds, arcUp, minArc);
-            ReportCardFx(Net.CardFxAnchor.Discard, Net.CardFxAnchor.HandFan);
+            CPlayerActor? returnActor = card.GameCard != null ? card.GameCard.PlayerActor : null;
+            var returnHand = returnActor?.CharacterClass.HandAbilityCards;
+            int returnSeat = card.GameCard != null && returnHand != null
+                ? returnHand.IndexOf(card.GameCard.AbilityCard) : -1;
+            Net.CardFlightSource? returnSource = returnSeat >= 0 && returnHand!.Count <= byte.MaxValue
+                ? new Net.CardFlightSource(Net.NetFigures.StableActorId(returnActor),
+                    (byte)returnSeat, (byte)returnHand.Count) : FlightSourceOf(card.GameCard);
+            ReportCardFx(Net.CardFxAnchor.Discard, Net.CardFxAnchor.HandFan, source: returnSource);
             // ROW 9 OF THE FLIGHT INVENTORY, and it was a hole in the ledger until 2026-09-07. This
             // is the one own-board producer that flies OUT of a pile into the hand, so the ledger's
             // pile-shaped destination vocabulary had no word for it and the flight was invisible to

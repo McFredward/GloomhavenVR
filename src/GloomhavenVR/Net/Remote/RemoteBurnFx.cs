@@ -159,7 +159,9 @@ internal sealed class RemoteBurnFx
         for (int i = 0; i < _burns.Count; i++)
         {
             Burn burn = _burns[i];
-            if (burn.Active && OwnsDisplayedBoard(burn) && burn.Recess == recess && burn.Go != null && burn.Go.activeSelf)
+            if (burn.Active && OwnsDisplayedBoard(burn) && burn.Recess == recess && burn.Go != null && burn.Go.activeSelf
+                && (!burn.HandoverLogged || _owner.OwnsFlightSlot(recess,
+                    RemoteBoardFocus.ActorById(burn.ActorId), burn.FlightGeneration)))
                 return true;
         }
         return false;
@@ -242,6 +244,7 @@ internal sealed class RemoteBurnFx
         public int ClaimId;
         public int ActorId;
         public bool OwnerReleased;
+        public long FlightGeneration;
 
         /// <summary>Has the arc been reported? One line per burn, at the hand-over instant.</summary>
         public bool HandoverLogged;
@@ -1088,7 +1091,10 @@ internal sealed class RemoteBurnFx
             // split could read worse than the single slab it replaced. Writing the settled state
             // every frame of the flight is the same idempotent call the burnt-pile fan makes.
             bool showFlight = CanDrawBurn(b);
-            if (showFlight && OwnsDisplayedBoard(b)) _owner.SuppressBurnRecess(b.Recess);
+            if (showFlight && OwnsDisplayedBoard(b))
+                _owner.TransferCardToFlight(b.FromActive ? CardFxAnchor.Active
+                    : b.Recess == 0 ? CardFxAnchor.Slot0 : b.Recess == 1 ? CardFxAnchor.Slot1 : CardFxAnchor.Board,
+                    b.CardId, RemoteBoardFocus.ActorById(b.ActorId), b.FlightGeneration);
             b.Go.SetActive(showFlight);
             if (b.HasFace && b.Art != null && !b.Art.SetAbilityBurnProgress(1f))
                 b.HasFace = false;
@@ -1412,6 +1418,7 @@ internal sealed class RemoteBurnFx
         float after = b.Elapsed;
         if (OwnsDisplayedBoard(b)) CaptureFlightPose(b);
         b.HandoverLogged = true;
+        b.FlightGeneration = _owner.NextFlightOwnership();
         // THIS TOKEN'S OWN WINDOW STARTS HERE. The owner reports his '-> Burnt' event when his card
         // is really cleared, which is the signal this hand-over just read off his widget, so the
         // slack after this instant is all the swallow needs — and it is this token's slack, not the

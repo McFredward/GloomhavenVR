@@ -367,6 +367,12 @@ internal sealed class RemoteActiveCards
             + "overlap this replaces.");
     }
 
+    internal void TransferToFlight(int cardId, CPlayerActor? actor, long generation)
+    {
+        if (_panelsByCard.TryGetValue(cardId, out RemoteBoardCard panel))
+            panel.TransferToFlight(cardId, actor, generation);
+    }
+
     public void Refresh(CPlayerActor actor)
     {
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It

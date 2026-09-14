@@ -310,6 +310,69 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _slotAnonMask &= ~(1 << recess);
     }
 
+    private readonly System.Collections.Generic.Dictionary<int, long[]> _flightOwners = new();
+
+    internal bool OwnsFlightSlot(int slot, CPlayerActor? actor, long generation) =>
+        actor != null && slot >= 0 && slot < SlotCount
+        && _flightOwners.TryGetValue(NetFigures.StableActorId(actor), out long[]? epochs)
+        && epochs[slot] == generation;
+
+    private bool ClaimFlightSlot(int slot, CPlayerActor? actor, long generation)
+    {
+        if (actor == null || slot < 0 || slot >= SlotCount) return false;
+        int actorId = NetFigures.StableActorId(actor);
+        if (!_flightOwners.TryGetValue(actorId, out long[]? epochs))
+        {
+            epochs = new long[SlotCount];
+            _flightOwners.Add(actorId, epochs);
+        }
+        if (generation < epochs[slot]) return false;
+        epochs[slot] = generation;
+        return true;
+    }
+
+    internal int TransferCardToFlight(CardFxAnchor from, int cardId, CPlayerActor? actor, long generation)
+    {
+        if (_root == null || !_root.activeSelf
+            || !ReferenceEquals(actor, RemoteBoardFocus.DisplayedActor(_owner, out _)))
+            return int.MinValue;
+        int slot = from == CardFxAnchor.Slot0 ? 0 : from == CardFxAnchor.Slot1 ? 1 : -1;
+        if (slot >= 0)
+        {
+            if (!ClaimFlightSlot(slot, actor, generation)) return int.MinValue;
+            int captured = _cards[slot]?.TransferToFlight(cardId, actor, generation) ?? int.MinValue;
+            if (_cards[slot] != null && _cards[slot].FlightTransferred)
+            {
+                SuppressBurnRecess(slot);
+                _slotOccupiedMask &= ~(1 << slot);
+            }
+            return captured;
+        }
+        if (from == CardFxAnchor.Active && cardId != int.MinValue) _active?.TransferToFlight(cardId, actor, generation);
+        return cardId;
+    }
+
+    internal void BeginFlightArrival(int recess, CPlayerActor? actor, long generation)
+    {
+        if (_root == null || !_root.activeSelf || !ClaimFlightSlot(recess, actor, generation)) return;
+        _cards[recess]?.PrepareFlightArrival();
+        SuppressBurnRecess(recess);
+    }
+
+    internal void CompleteFlightLanding(CardFxAnchor destination, CPlayerActor? sourceActor, long generation)
+    {
+        CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _, out bool exhausted);
+        if (actor == null || !ReferenceEquals(actor, sourceActor) || exhausted || _root == null || !_root.activeSelf) return;
+        if (destination == CardFxAnchor.Active) _active?.Refresh(actor);
+        else if (destination == CardFxAnchor.Slot0 || destination == CardFxAnchor.Slot1)
+        {
+            int slot = destination == CardFxAnchor.Slot0 ? 0 : 1;
+            if (!ClaimFlightSlot(slot, actor, generation)) return;
+            _cards[slot]?.PrepareFlightArrival();
+            SeatSlots(actor, RevealGate.ShowPeerCardFronts(actor), false);
+        }
+    }
+
     /// <summary>
     /// WHICH RECESS A BURNING CARD IS LYING IN, for a mirror that has to draw the burn SOMEWHERE
     /// (<c>Net.RemoteBurnFx</c>) -- 0, 1, or -1 when no fact on this client places it.
@@ -2441,7 +2504,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         if (!ReferenceEquals(actor, _latchedActor))
         {
             for (int i = 0; i < _latchedFaces.Length; i++)
+            {
                 _latchedFaces[i] = null;
+                _cards[i].ClearFlightTransfer();
+            }
         }
         else if (!showFronts)
         {
@@ -2474,7 +2540,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             SeatedHandCardExcess = 0;
             for (int i = 0; i < SlotCount; i++)
             {
-                if (_owner.BurnOwnsRecess(i))
+                if (_owner.BurnOwnsRecess(i) || _owner.FlightOwnsRecess(i))
                 {
                     SuppressBurnRecess(i);
                     continue;
@@ -2562,9 +2628,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // The burn owns the card as soon as its slab is visible, including a sacrifice whose
             // discard seat no longer resolves after acceptance. Do not rebuild a second back
             // under that front between the 4 Hz content refresh and the owner's occupancy edge.
-            if (_owner.BurnOwnsRecess(i))
+            if (_owner.BurnOwnsRecess(i) || _owner.FlightOwnsRecess(i))
             {
                 SuppressBurnRecess(i);
+                if (compact && (wire & (1 << i)) != 0) next++;
                 continue;
             }
             if ((wire & (1 << i)) == 0)
@@ -2638,6 +2705,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                     + RevealGate.RuleText(pickRule);
                 LogRecessFaceRule(i, sacrifice, pickFront, pickRule, actor);
                 _cards[i].Set(sacrifice, pickFront, actor);
+                if (_cards[i].FlightTransferred)
+                {
+                    SuppressBurnRecess(i);
+                    _slotOccupiedMask &= ~(1 << i);
+                }
                 // NOT LATCHED. _latchedFaces exists so a recess whose ROUND card the model has
                 // drained keeps the face it legitimately showed; a sacrifice is the opposite kind
                 // of card — it leaves the moment its owner accepts or re-draws, and a latch would
@@ -2749,6 +2821,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                             + "so the sampler was never able to name it. Read 'RECESS HAND-OFF' for "
                             + "this peer, never the owner's 'SHORT REST SEAT' line");
                 _cards[i].SetAnonymousBack();
+                if (_cards[i].FlightTransferred) _slotOccupiedMask &= ~(1 << i);
                 LogAnonymousRecess(i, actor);
                 continue;
             }
@@ -2789,6 +2862,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                          != RevealGate.CardFaceSource.None;
             LogRecessFaceRule(i, card, front, rule, actor);
             _cards[i].Set(card, front, actor);
+            if (_cards[i].FlightTransferred)
+            {
+                _slotOccupiedMask &= ~(1 << i);
+                continue;
+            }
             if (front)
             {
                 _slotFaceMask |= 1 << i;
@@ -3311,6 +3389,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
 
     public void Destroy(string reason = "avatar or module lifecycle teardown")
     {
+        if (reason == "scenario gate closed" || reason == "avatar or module lifecycle teardown")
+            _flightOwners.Clear();
         if (_root != null) LogVisibilityEdge("DESTROY_REQUESTED", reason, _root.activeSelf);
         _tag?.Destroy();
         _tag = null;

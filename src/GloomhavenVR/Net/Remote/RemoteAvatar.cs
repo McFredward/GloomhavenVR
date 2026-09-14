@@ -922,6 +922,19 @@ internal sealed class RemoteAvatar
     /// <summary>The visible burn slab owns one recess until its animation finishes.</summary>
     internal void PlayUnclaimedBurnEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null) => _cardFx.Play(endpoints, flags, source);
 
+    private long _flightOwnershipSequence;
+    internal long NextFlightOwnership() => ++_flightOwnershipSequence;
+    internal bool IsFlyingToHand(int cardId) => _cardFx.IsFlyingToHand(cardId);
+    internal bool FlightOwnsRecess(int recess) => _cardFx.OwnsRecess(recess);
+    internal int TransferCardToFlight(CardFxAnchor from, int cardId, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
+        _controlBoard.TransferCardToFlight(from, cardId, actor, generation);
+    internal bool OwnsFlightSlot(int slot, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
+        _controlBoard.OwnsFlightSlot(slot, actor, generation);
+    internal void BeginFlightArrival(int recess, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
+        _controlBoard.BeginFlightArrival(recess, actor, generation);
+    internal void CompleteFlightLanding(CardFxAnchor destination, ScenarioRuleLibrary.CPlayerActor? sourceActor, long generation) =>
+        _controlBoard.CompleteFlightLanding(destination, sourceActor, generation);
+
     internal bool BurnOwnsActiveCard(int cardInstanceId) => _burnFx.OwnsActiveCard(cardInstanceId);
 
     internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);

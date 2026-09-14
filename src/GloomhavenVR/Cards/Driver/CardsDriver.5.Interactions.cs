@@ -1489,7 +1489,7 @@ internal sealed partial class CardsDriver
             // PickSeatOfIndex(i), which by the time this runs already answers with the
             // beside-Slot2 overflow seat the card is being spared from ever taking.
             int recess = i - firstIndex;
-            ReportCardFx(SlotAnchor(recess), PileAnchor(PileKind.Discard));
+            ReportCardFx(SlotAnchor(recess), PileAnchor(PileKind.Discard), source: FlightSourceOf(card.GameCard));
             CardFlightLedger.Note("own", "Discard", "own-pick-page-turn",
                 card.GameCard != null ? CardsGameApi.CardName(card.GameCard) : card.name);
             card.FlyToPile(pilePos, slabWidth, FlyToPileSeconds, arcUp, () =>
@@ -1751,7 +1751,7 @@ internal sealed partial class CardsDriver
             card.FlyFromPile(srcPos, srcWidth, FlyToPileSeconds, BoardUp(), BoardArcMin());
             // MP parity (report 6): the short-rest sacrifice flying OUT of the discard pile into
             // the left slot is a card gliding back out of a pile — peers replay it in reverse.
-            ReportCardFx(Net.CardFxAnchor.Discard, Net.CardFxAnchor.Slot0);
+            ReportCardFx(Net.CardFxAnchor.Discard, Net.CardFxAnchor.Slot0, source: FlightSourceOf(widget));
             VRLog.Info("Cards", $"Short rest: sacrifice '{CardsGameApi.CardName(widget)}' flies OUT of the discard " +
                                 $"pile into the left slot ({FlyToPileSeconds:F2}s, arc over the board, orientation " +
                                 "locked) — it originates there (issue 2; not a fly-from-below).");
@@ -1841,7 +1841,7 @@ internal sealed partial class CardsDriver
         _flyingToPile.Add(card);
         VRCard flying = card;
         // MP parity (report 6): the redrawn sacrifice flying back into the discard pile.
-        ReportCardFx(Net.CardFxAnchor.Slot0, Net.CardFxAnchor.Discard);
+        ReportCardFx(Net.CardFxAnchor.Slot0, Net.CardFxAnchor.Discard, source: FlightSourceOf(card.GameCard));
         CardFlightLedger.Note("own", "Discard", "own-short-rest-redraw",
             card.GameCard != null ? CardsGameApi.CardName(card.GameCard) : card.name);
         card.FlyToPile(pos, width, FlyToPileSeconds, BoardUp(), () =>

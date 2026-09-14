@@ -4582,6 +4582,29 @@ internal sealed class RemoteHandFan
     /// The result is frame-for-frame the shape the owner sees, with no new wire field and no version
     /// bump. What is NOT derivable is listed on <see cref="RemoteHandFan"/>'s known-gaps note.
     /// </summary>
+    internal bool TryFlightSeat(int cardId, out Vector3 world)
+    {
+        for (int i = 0; i < _handBuffer.Count && i < _cards.Count; i++)
+            if (_handBuffer[i] != null && _handBuffer[i].CardInstanceID == cardId)
+            {
+                world = _cards[i].transform.position;
+                return true;
+            }
+        world = default;
+        return false;
+    }
+
+    internal void RefreshFlightSeats()
+    {
+        for (int i = 0; i < _cards.Count; i++)
+        {
+            bool arriving = i < _handBuffer.Count && _handBuffer[i] != null
+                && _owner.IsFlyingToHand(_handBuffer[i].CardInstanceID);
+            bool shown = !arriving && i != _arcHeldSeatA && i != _arcHeldSeatB;
+            if (_cards[i].activeSelf != shown) _cards[i].SetActive(shown);
+        }
+    }
+
     private void LayoutCards(int n, float dt)
     {
         if (n <= 0 || _root == null)
@@ -4693,8 +4716,11 @@ internal sealed class RemoteHandFan
             // item arc), and it would also break the positional face zip below, which is what
             // keeps slab i a name for card i.
             bool inFist = i == _arcHeldSeatA || i == _arcHeldSeatB;
-            if (_cards[i].activeSelf == inFist)
-                _cards[i].SetActive(!inFist);
+            bool arriving = i < _handBuffer.Count && _handBuffer[i] != null
+                && _owner.IsFlyingToHand(_handBuffer[i].CardInstanceID);
+            bool hidden = inFist || arriving;
+            if (_cards[i].activeSelf == hidden)
+                _cards[i].SetActive(!hidden);
             if (inFist)
                 continue;   // no pose for a card that is not in the arc — the owner gives it none either
 

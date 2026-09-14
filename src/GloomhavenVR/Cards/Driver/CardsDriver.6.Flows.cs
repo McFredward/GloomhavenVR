@@ -3647,7 +3647,7 @@ internal sealed partial class CardsDriver
             // centre rather than dropping the packet. ReportCardFx suppresses the whole thing under
             // a read-only character focus, which is right: that flight belongs to the watched
             // character's board, not to ours.
-            ReportCardFx(origin, Net.CardFxAnchor.Active);
+            ReportCardFx(origin, Net.CardFxAnchor.Active, source: FlightSourceOf(card.GameCard));
             // HW-VERIFY: user item 7 (2026-09-06 late), the OWNER's half. Grep token: ACTIVE FLIGHT.
             // Its other half prints on every OTHER machine as '[Net] FLIGHT FACE ... -> Active'.
             // Read the two side by side — that comparison is the only way "remote und lokal gleich"

@@ -2,6 +2,8 @@ namespace GloomhavenVR.Net;
 
 /// <summary>Public actor and positional source, captured before a card leaves its population.
 /// Count zero carries only the actor; the semantic endpoint already identifies the source area.
+/// Discard-to-hand recovery addresses the destination's native HandAbilityCards list after
+/// restoration; its semantic endpoints distinguish that address from an active source cell.
 /// No card identity is transmitted.</summary>
 internal readonly struct CardFlightSource
 {

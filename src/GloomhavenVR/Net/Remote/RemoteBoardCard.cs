@@ -417,6 +417,39 @@ internal sealed class RemoteBoardCard
             + "the two builders have drifted again, which is what this line exists to catch.");
     }
 
+    // A semantic flight transfers this renderer rather than starting its dock-vanish ramp.
+    // Keep the exact local identity fenced until seating observes empty/new content, so a model
+    // snapshot that still contains the departed card cannot repaint it during or after the arc.
+    private int _flightDepartedId = int.MinValue;
+    private int _flightDepartedOwner = int.MinValue;
+    private long _flightGeneration;
+    private readonly System.Collections.Generic.Dictionary<int, long> _retiredFlightGenerations = new();
+
+    internal int TransferToFlight(int cardId, CPlayerActor? owner, long generation = 1)
+    {
+        int ownerId = OwnerKey(owner);
+        if (_retiredFlightGenerations.TryGetValue(ownerId, out long retired) && generation <= retired)
+            return int.MinValue;
+        if (cardId == int.MinValue) cardId = _shownId;
+        if (cardId == int.MinValue) { Blank(); return int.MinValue; }
+        if (!_shownEmpty && _shownId != cardId && _shownId != AnonymousCardId) return int.MinValue;
+        _flightDepartedId = cardId;
+        _flightDepartedOwner = ownerId;
+        _flightGeneration = generation;
+        Blank();
+        return cardId;
+    }
+
+    internal void PrepareFlightArrival()
+    {
+        ClearFlightTransfer();
+        Blank();
+        _materialiseSeeded = false;
+    }
+
+    internal bool FlightTransferred => _flightDepartedId != int.MinValue;
+    internal void ClearFlightTransfer() => _flightDepartedId = _flightDepartedOwner = int.MinValue;
+
     /// <summary>
     /// Show <paramref name="card"/> face-up when <paramref name="front"/> — as the REAL game card
     /// face when one can be resolved for <paramref name="owner"/>, else as the mod-drawn
@@ -435,6 +468,14 @@ internal sealed class RemoteBoardCard
         bool empty = card == null;
         int id = card != null ? card.CardInstanceID : int.MinValue;
         int ownerId = OwnerKey(owner);
+        if (!empty && id == _flightDepartedId && ownerId == _flightDepartedOwner)
+        {
+            Blank();
+            return;
+        }
+        if (_flightDepartedId != int.MinValue && ownerId == _flightDepartedOwner)
+            _retiredFlightGenerations[ownerId] = _flightGeneration;
+        _flightDepartedId = _flightDepartedOwner = int.MinValue;
         if (empty == _shownEmpty && id == _shownId && front == _shownFront && ownerId == _shownOwner)
             return;
         // THE MATERIALISE's own change question, asked BEFORE the shown state is overwritten: this
@@ -557,6 +598,11 @@ internal sealed class RemoteBoardCard
     /// </summary>
     public void SetAnonymousBack()
     {
+        if (_flightDepartedId != int.MinValue)
+        {
+            Blank();
+            return;
+        }
         if (!_shownEmpty && _shownId == AnonymousCardId && !_shownFront)
             return; // already showing the anonymous back — nothing to repaint
         bool arrived = _shownEmpty || _shownId != AnonymousCardId;

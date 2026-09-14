@@ -95,6 +95,10 @@ internal sealed class RemoteCardFx
         public Vector3 ArcUp;
         public Quaternion Rotation;
         public bool ActiveTargetCaptured;
+        public long Generation;
+        public bool SourceTransferred;
+        public int TransferredCardId = int.MinValue;
+        public int HandCardId = int.MinValue;
         public float Arc;
         public float Elapsed;
         public float ArtworkWait;
@@ -129,8 +133,9 @@ internal sealed class RemoteCardFx
 
     private readonly struct PendingFlight
     {
-        internal PendingFlight(byte endpoints, byte flags, CardFlightSource? source)
-        { Endpoints = endpoints; Flags = flags; Source = source; ReceivedAt = Time.unscaledTime; }
+        internal PendingFlight(byte endpoints, byte flags, CardFlightSource? source, long generation)
+        { Endpoints = endpoints; Flags = flags; Source = source; Generation = generation; ReceivedAt = Time.unscaledTime; }
+        internal readonly long Generation;
         internal readonly byte Endpoints, Flags;
         internal readonly CardFlightSource? Source;
         internal readonly float ReceivedAt;
@@ -197,12 +202,13 @@ internal sealed class RemoteCardFx
     /// </summary>
     public void Play(byte endpoints, byte flags = 0, CardFlightSource? source = null)
     {
-        if (TryPlay(endpoints, flags, source)) return;
+        long generation = _owner.NextFlightOwnership();
+        if (TryPlay(endpoints, flags, source, generation)) return;
         if (_pending.Count >= MaxFlights) _pending.RemoveAt(0);
-        _pending.Add(new PendingFlight(endpoints, flags, source));
+        _pending.Add(new PendingFlight(endpoints, flags, source, generation));
     }
 
-    private bool TryPlay(byte endpoints, byte flags, CardFlightSource? source)
+    private bool TryPlay(byte endpoints, byte flags, CardFlightSource? source, long generation)
     {
         // THE WIRE FRAME. Play is called synchronously from RemoteAvatar's packet apply the moment
         // the FX sequence changes, so this IS the frame the wire named the flight — see the TIMING
@@ -248,6 +254,19 @@ internal sealed class RemoteCardFx
                 : RemoteBoardFocus.DisplayedActor(_owner, out _), to, source, out departed, out departedCell))
             return false;
 
+        ScenarioRuleLibrary.CAbilityCard? returning = null;
+        if (to == CardFxAnchor.HandFan && source.HasValue && source.Value.Count > 0)
+        {
+            var hand = RemoteBoardFocus.ActorById(source.Value.ActorId)?.CharacterClass.HandAbilityCards;
+            if (hand == null || hand.Count != source.Value.Count || source.Value.Seat >= hand.Count)
+                return false;
+            returning = hand[source.Value.Seat];
+            // An open fan owns an actual ordered seat; a closed fan lands at the palm anchor
+            // already resolved above. Freeze that endpoint just as VRCard.FlyFromPile does.
+            if (_owner.HandCardCount > 0 && !_owner.HandFan.TryFlightSeat(returning.CardInstanceID, out b))
+                return false;
+        }
+
         Flight f = Acquire();
         if (f.Go == null)
             return true;
@@ -255,6 +274,10 @@ internal sealed class RemoteCardFx
         // flight, and an ActiveCardId left on it would blank a matrix cell for a card that is not in
         // the air. ResolveFace re-stamps it below when this flight really is one.
         f.ActiveCardId = int.MinValue;
+        f.Generation = generation;
+        f.SourceTransferred = false;
+        f.TransferredCardId = int.MinValue;
+        f.HandCardId = returning?.CardInstanceID ?? int.MinValue;
         f.SourceActor = source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId)
             : RemoteBoardFocus.DisplayedActor(_owner, out _);
         f.Endpoints = endpoints; f.Flags = flags; f.ArtworkWait = 0f;
@@ -335,7 +358,10 @@ internal sealed class RemoteCardFx
 
         // ─── THE FACE (2026-09-06 report item 5) ────────────────────────────────────────────────
         string faceRule;
-        if (from == CardFxAnchor.Active && departed != null)
+        if (returning != null)
+            faceRule = DressFace(f, returning, "the recovered native hand seat", out string? returnRefusal)
+                ?? returnRefusal ?? "BACK — recovered card artwork unavailable";
+        else if (from == CardFxAnchor.Active && departed != null)
         {
             if (_owner.TryDrawnBoardPose(out Vector3 bp, out Quaternion br, out float bs))
                 a = bp + br * (departedCell * bs);
@@ -356,6 +382,7 @@ internal sealed class RemoteCardFx
         SetFrontFace(f, showsBack: !f.HasFace);
 
         f.Go.transform.SetPositionAndRotation(a, f.Rotation);
+        TransferVisibleFlight(f);
         f.Go.SetActive(CanDrawFlight(f));
 
         _played++;
@@ -553,8 +580,7 @@ internal sealed class RemoteCardFx
                 string? arrivalRule = DressFace(f, incoming,
                     $"the card record 39 says is arriving in their round recess {arriving + 1}",
                     out arrivalRefusal);
-                if (arrivalRule != null)
-                    return arrivalRule;
+                return arrivalRule ?? arrivalRefusal ?? "BACK — arriving recess artwork unavailable";
             }
             if (!_owner.TryTakeDepartedRecessFace(slot, to, out ScenarioRuleLibrary.CAbilityCard? card,
                                                   out RemoteControlBoard.DepartedFaceVerdict verdict)
@@ -802,7 +828,7 @@ internal sealed class RemoteCardFx
         {
             PendingFlight pending = _pending[i];
             if (Time.unscaledTime - pending.ReceivedAt > ResolveSeconds
-                || TryPlay(pending.Endpoints, pending.Flags, pending.Source)) _pending.RemoveAt(i);
+                || TryPlay(pending.Endpoints, pending.Flags, pending.Source, pending.Generation)) _pending.RemoveAt(i);
             else i++;
         }
         for (int i = 0; i < _flights.Count; i++)
@@ -820,6 +846,7 @@ internal sealed class RemoteCardFx
                 ResolveFace(f, NetCardFx.From(f.Endpoints), NetCardFx.To(f.Endpoints), f.Flags);
             RefreshFaceVisibility(f);
             bool drawable = CanDrawFlight(f);
+            if (drawable) TransferVisibleFlight(f);
             f.Go.SetActive(drawable);
             if (!drawable)
             {
@@ -880,8 +907,58 @@ internal sealed class RemoteCardFx
                 // frameless back for one frame if a later reuse ever failed before ResolveFace.
                 SetFrontFace(f, showsBack: true);
                 f.Go.SetActive(false);
+                f.HandCardId = int.MinValue;
+                _owner.CompleteFlightLanding(NetCardFx.To(f.Endpoints), f.SourceActor, f.Generation);
+                if (NetCardFx.To(f.Endpoints) == CardFxAnchor.HandFan) _owner.HandFan.RefreshFlightSeats();
             }
         }
+    }
+
+    // Capture and dress precede this handover. Board refreshes may still contain the source,
+    // but they cannot draw it again; the arriving seat is withheld until this arc completes.
+    private void TransferVisibleFlight(Flight f)
+    {
+        if (!CanDrawFlight(f) || !ReferenceEquals(f.SourceActor,
+            RemoteBoardFocus.DisplayedActor(_owner, out _))) return;
+        // Reassert the retained identity after a focus-away/back or native refresh. Never
+        // recapture a replacement merely because its predecessor's flight is still running.
+        if (!f.SourceTransferred || f.TransferredCardId != int.MinValue)
+        {
+            int captured = _owner.TransferCardToFlight(NetCardFx.From(f.Endpoints),
+                f.TransferredCardId != int.MinValue ? f.TransferredCardId
+                    : f.FaceCard?.CardInstanceID ?? int.MinValue, f.SourceActor, f.Generation);
+            if (captured != int.MinValue) f.TransferredCardId = captured;
+        }
+        if (!f.SourceTransferred)
+        {
+            f.SourceTransferred = true;
+            if (NetCardFx.To(f.Endpoints) == CardFxAnchor.HandFan) _owner.HandFan.RefreshFlightSeats();
+            if (NetCardFx.To(f.Endpoints) == CardFxAnchor.Slot0) _owner.BeginFlightArrival(0, f.SourceActor, f.Generation);
+            if (NetCardFx.To(f.Endpoints) == CardFxAnchor.Slot1) _owner.BeginFlightArrival(1, f.SourceActor, f.Generation);
+        }
+        CardFxAnchor to = NetCardFx.To(f.Endpoints);
+        int destinationSlot = to == CardFxAnchor.Slot0 ? 0 : to == CardFxAnchor.Slot1 ? 1 : -1;
+        if (destinationSlot >= 0 && _owner.OwnsFlightSlot(destinationSlot, f.SourceActor, f.Generation))
+            _owner.SuppressBurnRecess(destinationSlot);
+    }
+
+    internal bool IsFlyingToHand(int cardId)
+    {
+        foreach (Flight f in _flights)
+            if (f.Active && f.Go != null && f.HandCardId == cardId && CanDrawFlight(f)
+                && ReferenceEquals(f.SourceActor, RemoteBoardFocus.DisplayedActor(_owner, out _))) return true;
+        return false;
+    }
+
+    internal bool OwnsRecess(int recess)
+    {
+        CardFxAnchor slot = recess == 0 ? CardFxAnchor.Slot0 : CardFxAnchor.Slot1;
+        foreach (Flight f in _flights)
+            if (f.Active && f.Go != null && CanDrawFlight(f)
+                && ReferenceEquals(f.SourceActor, RemoteBoardFocus.DisplayedActor(_owner, out _))
+                && NetCardFx.To(f.Endpoints) == slot
+                && _owner.OwnsFlightSlot(recess, f.SourceActor, f.Generation)) return true;
+        return false;
     }
 
     /// <summary>Tell this flight slab's card BODY what its FRONT fan wears — see
