@@ -367,13 +367,18 @@ internal sealed class RemoteActiveCards
             + "overlap this replaces.");
     }
 
+    internal void PrepareFlightArrival(int cardId)
+    {
+        if (_panelsByCard.TryGetValue(cardId, out RemoteBoardCard panel)) panel.PrepareFlightArrival();
+    }
+
     internal void TransferToFlight(int cardId, CPlayerActor? actor, long generation)
     {
         if (_panelsByCard.TryGetValue(cardId, out RemoteBoardCard panel))
             panel.TransferToFlight(cardId, actor, generation);
     }
 
-    public void Refresh(CPlayerActor actor)
+    public void Refresh(CPlayerActor actor, int completedFlightCardId = int.MinValue)
     {
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It
         // still needs a character to resolve against; the ONLY term it drops is the phase.
@@ -476,14 +481,18 @@ internal sealed class RemoteActiveCards
             int flying;
             try { flying = _buffer[i].CardInstanceID; }
             catch { continue; }
-            if (_seatedIds.Contains(flying))
+            bool inTheAir = _owner.IsCardFlyingToActive(flying);
+            if (_seatedIds.Contains(flying) && !inTheAir)
                 continue;                       // already drawn here: never take it back
+            // An actual completed flight supersedes the model-first lost-event grace for
+            // this exact card. Other arrivals retain their deadline and running-flight guard.
+            if (flying == completedFlightCardId)
+                _arrivalDeadlines[flying] = Time.unscaledTime;
             if (!_arrivalDeadlines.TryGetValue(flying, out float deadline))
             {
                 deadline = Time.unscaledTime + NetProtocol.CardFxSeconds;
                 _arrivalDeadlines.Add(flying, deadline);
             }
-            bool inTheAir = _owner.IsCardFlyingToActive(flying);
             if (Time.unscaledTime < deadline || inTheAir)
                 _flyingSeats.Add(i);
             if (inTheAir)
@@ -582,6 +591,7 @@ internal sealed class RemoteActiveCards
             }
             Vector3 cellAt = CellLocal(i, Count, _cardW, _grid);
             int cardId = _buffer[i].CardInstanceID;
+            if (cardId == completedFlightCardId) _cards[i].PrepareFlightArrival();
             bool residentKeepsItsCard = _panelsByCard.ContainsKey(cardId);
             bool held = i == activeSeatA || i == activeSeatB;
             if (!held && _heldPoseSlots.TryGetValue(cardId, out int oldPoseSlot))

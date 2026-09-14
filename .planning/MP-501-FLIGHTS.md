@@ -71,15 +71,17 @@ network tick, allocation per card per frame, TLV or packet grammar.
 ## Validation and limits
 
 The source-extracted production transfer/seating prefixes execute against a renderer test
-host: 762 assertions cover both seats, front/back states, 180 stale refreshes, another actor,
+host: 782 assertions cover both seats, front/back states, 180 stale refreshes, another actor,
 replacement cards, anonymous cards, empty acknowledgement and cancellation of an already
 running dock crumble. Production integration assertions verify call order, arrival
 ownership, recovery count/address resolution, frozen recovery endpoint and exhausted/focus
 cleanup. Actual extracted flight and board orchestration also exercises focus-away/back, overlapping
 same-card arrival/departure generations, native acknowledgement retirement and suppressed
-wire-empty Slot0 preserving Slot1. Five negative controls remove immediate transfer, permit
+wire-empty Slot0 preserving Slot1. Eight negative controls remove immediate transfer, permit
 stale repaint, remove arrival ownership, permit an older generation to reclaim a newer card,
-and ignore retirement; each must fail at its intended defect. The renderer host is not Unity and
+ignore retirement, substitute the drawn pose for the home, retain active arrival grace after
+actual landing, and let an older active generation reclaim a newer card. Each fails at its
+intended defect. The renderer host is not Unity and
 these tests do not prove final headset geometry or shader pixels.
 
 The worker strict Release build has zero warnings/errors. The integrator runs all required
@@ -87,3 +89,21 @@ checks after merging. Hardware replay must cover paired Slot0/Slot1 exits, activ
 exits, redraw/accept/cancel short rests, damage and long-rest burns, open/closed recovery,
 character switching, and delayed/coalesced snapshots. Current evidence establishes the prior
 race and native vanish overlap, not the final hardware outcome.
+
+## Final recovery geometry and active landing review
+
+Recovery now captures the fan layout's exact local home position, rotation and scale before
+hover pop and standing reflow, then composes them through the actual fan parent once. An open
+fan therefore uses its home rotation rather than board rotation; a closed fan uses the same
+head-facing palm frame as CardFan.TryResolveArrivalPose. Width converts the captured pile width
+into hand-parent scale and follows that parent during the arc, retaining native exchange home
+scale without hover enlargement. On landing only the corresponding card snaps to its current
+home position/rotation/scale, clears pop and becomes visible. Other fan seats remain untouched.
+
+Actual active landing now overrides only that card's model-first fallback deadline and skips a
+second materialize ramp. Previously seated active cards also yield to a subsequently drawable
+incoming flight. Actor/card generations prevent an older artwork-delayed arrival or departure
+from reclaiming a newer transition, including its first drawable frame. Other missing events
+retain the existing bounded arrival grace. The new extracted geometry, landing and generation
+checks specifically distinguish a drawn/reflow pose from the native home, verify rotation/scale
+and same-frame handoff, and exercise late active grace plus superseding active transitions.

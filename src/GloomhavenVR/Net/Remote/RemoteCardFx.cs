@@ -99,6 +99,7 @@ internal sealed class RemoteCardFx
         public bool SourceTransferred;
         public int TransferredCardId = int.MinValue;
         public int HandCardId = int.MinValue;
+        public bool RecoveryHome;
         public float Arc;
         public float Elapsed;
         public float ArtworkWait;
@@ -255,6 +256,8 @@ internal sealed class RemoteCardFx
             return false;
 
         ScenarioRuleLibrary.CAbilityCard? returning = null;
+        Quaternion recoveryRotation = Quaternion.identity;
+        float recoveryHomeScale = 1f;
         if (to == CardFxAnchor.HandFan && source.HasValue && source.Value.Count > 0)
         {
             var hand = RemoteBoardFocus.ActorById(source.Value.ActorId)?.CharacterClass.HandAbilityCards;
@@ -263,8 +266,12 @@ internal sealed class RemoteCardFx
             returning = hand[source.Value.Seat];
             // An open fan owns an actual ordered seat; a closed fan lands at the palm anchor
             // already resolved above. Freeze that endpoint just as VRCard.FlyFromPile does.
-            if (_owner.HandCardCount > 0 && !_owner.HandFan.TryFlightSeat(returning.CardInstanceID, out b))
-                return false;
+            if (_owner.HandCardCount > 0)
+            {
+                if (!_owner.HandFan.TryFlightSeat(returning.CardInstanceID, out b,
+                    out recoveryRotation, out recoveryHomeScale)) return false;
+            }
+            else recoveryRotation = RemoteHandFan.ClosedFlightRotation(_owner, b);
         }
 
         Flight f = Acquire();
@@ -278,6 +285,7 @@ internal sealed class RemoteCardFx
         f.SourceTransferred = false;
         f.TransferredCardId = int.MinValue;
         f.HandCardId = returning?.CardInstanceID ?? int.MinValue;
+        f.RecoveryHome = returning != null;
         f.SourceActor = source.HasValue ? RemoteBoardFocus.ActorById(source.Value.ActorId)
             : RemoteBoardFocus.DisplayedActor(_owner, out _);
         f.Endpoints = endpoints; f.Flags = flags; f.ArtworkWait = 0f;
@@ -312,7 +320,7 @@ internal sealed class RemoteCardFx
         f.Arc = Mathf.Max(CardHeight * MinArcCardHeights * scale,
                           Vector3.Distance(a, b) * ArcFraction);
         f.Elapsed = 0f;
-        f.Rotation = SlabRotation;
+        f.Rotation = f.RecoveryHome ? recoveryRotation : SlabRotation;
         f.ActiveTargetCaptured = to != CardFxAnchor.Active;
         f.Active = true;
         // ─── THE SLAB IS THE SIZE THE OWNER'S CARD IS, AT BOTH ENDS OF THE ARC (2026-09-07,
@@ -350,11 +358,20 @@ internal sealed class RemoteCardFx
         //     why the premise is quoted here rather than deleted.
         f.FromWidth = WidthForAnchor(from);
         f.ToWidth = WidthForAnchor(to);
+        if (f.RecoveryHome)
+        {
+            // The local recovered card is parented to the hand/rig, not to the board. Its
+            // captured pile width is converted into that parent's scale once; home scale
+            // excludes hover pop and retains any in-progress native character exchange.
+            f.FromWidth *= scale / Mathf.Max(1e-5f, _owner.AppliedScale);
+            f.ToWidth = _cardWidth * recoveryHomeScale;
+        }
         // Board scale × the owner's card width AT THE ORIGIN; the Body child under it carries the
         // printed-face squash (see the _cardWidth block and Acquire), and Tick ramps this to the
         // destination width across the arc.
         f.Go.transform.localScale =
-            Vector3.one * (scale * (f.FromWidth / RemoteHandFan.DefaultCardWidth));
+            Vector3.one * ((f.RecoveryHome ? _owner.AppliedScale : scale)
+                * (f.FromWidth / RemoteHandFan.DefaultCardWidth));
 
         // ─── THE FACE (2026-09-06 report item 5) ────────────────────────────────────────────────
         string faceRule;
@@ -783,8 +800,8 @@ internal sealed class RemoteCardFx
 
     // A public flight must not flash a back while artwork is loading. Keep its timeline
     // running while withholding the slab; covered selection/short-rest bodies remain visible.
-    private static bool CanDrawFlight(Flight f) => f.ShortRestBurn
-        || RevealGate.IsSecretSelectionPhase || f.HasFace;
+    private static bool CanDrawFlight(Flight f) => f.Active
+        && (f.ShortRestBurn || RevealGate.IsSecretSelectionPhase || f.HasFace);
 
     private static void RefreshFaceVisibility(Flight f)
     {
@@ -841,12 +858,24 @@ internal sealed class RemoteCardFx
                 f.ActiveCardId = int.MinValue;
                 continue;
             }
+            if (f.SourceTransferred && f.ActiveCardId != int.MinValue
+                && !_owner.OwnsActiveFlight(f.ActiveCardId, f.SourceActor, f.Generation))
+            {
+                // The owner already departed this card again while its older arrival was
+                // waiting for artwork/model data here. Never land that older lease over it.
+                f.Active = false;
+                f.ActiveCardId = int.MinValue;
+                f.Art?.HideFront();
+                f.Go.SetActive(false);
+                continue;
+            }
             if (f.FaceCard == null && !f.ShortRestBurn && !RevealGate.IsSecretSelectionPhase
                 && ReferenceEquals(f.SourceActor, RemoteBoardFocus.DisplayedActor(_owner, out _)))
                 ResolveFace(f, NetCardFx.From(f.Endpoints), NetCardFx.To(f.Endpoints), f.Flags);
             RefreshFaceVisibility(f);
             bool drawable = CanDrawFlight(f);
             if (drawable) TransferVisibleFlight(f);
+            drawable = drawable && f.Active;
             f.Go.SetActive(drawable);
             if (!drawable)
             {
@@ -894,11 +923,13 @@ internal sealed class RemoteCardFx
             // be dragging their diorama), which is the same reason the position write is per frame
             // — and read off the board AS DRAWN, for the reason DrawnBoardScale states.
             f.Go.transform.localScale = Vector3.one
-                * (DrawnBoardScale * (Mathf.Lerp(f.FromWidth, f.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
+                * ((f.RecoveryHome ? _owner.AppliedScale : DrawnBoardScale)
+                    * (Mathf.Lerp(f.FromWidth, f.ToWidth, e) / RemoteHandFan.DefaultCardWidth));
             if (t >= 1f)
             {
                 f.Active = false;
                 f.HasFace = false;
+                int completedActiveCardId = f.ActiveCardId;
                 f.ActiveCardId = int.MinValue;   // the card has landed; its cell must draw again
                 f.Art?.HideFront();
                 // …and a parked slab with no print on it goes back to the card BACK on both
@@ -907,9 +938,11 @@ internal sealed class RemoteCardFx
                 // frameless back for one frame if a later reuse ever failed before ResolveFace.
                 SetFrontFace(f, showsBack: true);
                 f.Go.SetActive(false);
+                int completedHandCardId = f.HandCardId;
                 f.HandCardId = int.MinValue;
-                _owner.CompleteFlightLanding(NetCardFx.To(f.Endpoints), f.SourceActor, f.Generation);
-                if (NetCardFx.To(f.Endpoints) == CardFxAnchor.HandFan) _owner.HandFan.RefreshFlightSeats();
+                _owner.CompleteFlightLanding(NetCardFx.To(f.Endpoints), f.SourceActor, f.Generation, completedActiveCardId);
+                if (NetCardFx.To(f.Endpoints) == CardFxAnchor.HandFan)
+                    _owner.HandFan.CompleteFlightSeat(completedHandCardId, f.SourceActor);
             }
         }
     }
@@ -928,10 +961,19 @@ internal sealed class RemoteCardFx
                 f.TransferredCardId != int.MinValue ? f.TransferredCardId
                     : f.FaceCard?.CardInstanceID ?? int.MinValue, f.SourceActor, f.Generation);
             if (captured != int.MinValue) f.TransferredCardId = captured;
+            if (NetCardFx.From(f.Endpoints) == CardFxAnchor.Active && f.FaceCard != null
+                && !_owner.OwnsActiveFlight(f.FaceCard.CardInstanceID, f.SourceActor, f.Generation))
+                f.Active = false;
         }
         if (!f.SourceTransferred)
         {
             f.SourceTransferred = true;
+            if (NetCardFx.To(f.Endpoints) == CardFxAnchor.Active)
+            {
+                _owner.BeginActiveFlight(f.ActiveCardId, f.SourceActor, f.Generation);
+                if (!_owner.OwnsActiveFlight(f.ActiveCardId, f.SourceActor, f.Generation))
+                    f.Active = false;
+            }
             if (NetCardFx.To(f.Endpoints) == CardFxAnchor.HandFan) _owner.HandFan.RefreshFlightSeats();
             if (NetCardFx.To(f.Endpoints) == CardFxAnchor.Slot0) _owner.BeginFlightArrival(0, f.SourceActor, f.Generation);
             if (NetCardFx.To(f.Endpoints) == CardFxAnchor.Slot1) _owner.BeginFlightArrival(1, f.SourceActor, f.Generation);
@@ -1016,7 +1058,8 @@ internal sealed class RemoteCardFx
         for (int i = 0; i < _flights.Count; i++)
         {
             Flight f = _flights[i];
-            if (!f.Active || f.Go == null || f.ActiveCardId != cardInstanceId)
+            if (!f.Active || f.Go == null || f.ActiveCardId != cardInstanceId
+                || !_owner.OwnsActiveFlight(cardInstanceId, f.SourceActor, f.Generation))
                 continue;
             // THE BELT (see the doc): never answer for an arc that has already outlived itself.
             if (f.Elapsed > NetProtocol.CardFxSeconds)

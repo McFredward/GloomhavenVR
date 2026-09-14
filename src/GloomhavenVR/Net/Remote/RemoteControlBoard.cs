@@ -312,6 +312,29 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
 
     private readonly System.Collections.Generic.Dictionary<int, long[]> _flightOwners = new();
 
+    private readonly System.Collections.Generic.Dictionary<(int Actor, int Card), long> _activeFlightOwners = new();
+
+    internal bool OwnsActiveFlight(int cardId, CPlayerActor? actor, long generation) =>
+        actor != null && cardId != int.MinValue
+        && _activeFlightOwners.TryGetValue((NetFigures.StableActorId(actor), cardId), out long epoch)
+        && epoch == generation;
+
+    private bool ClaimActiveFlight(int cardId, CPlayerActor? actor, long generation)
+    {
+        if (actor == null || cardId == int.MinValue) return false;
+        var key = (NetFigures.StableActorId(actor), cardId);
+        if (_activeFlightOwners.TryGetValue(key, out long previous) && generation < previous) return false;
+        _activeFlightOwners[key] = generation;
+        return true;
+    }
+
+    internal void BeginActiveFlight(int cardId, CPlayerActor? actor, long generation)
+    {
+        if (_root == null || !_root.activeSelf || !ReferenceEquals(actor, RemoteBoardFocus.DisplayedActor(_owner, out _))
+            || !ClaimActiveFlight(cardId, actor, generation)) return;
+        _active?.PrepareFlightArrival(cardId);
+    }
+
     internal bool OwnsFlightSlot(int slot, CPlayerActor? actor, long generation) =>
         actor != null && slot >= 0 && slot < SlotCount
         && _flightOwners.TryGetValue(NetFigures.StableActorId(actor), out long[]? epochs)
@@ -348,7 +371,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             }
             return captured;
         }
-        if (from == CardFxAnchor.Active && cardId != int.MinValue) _active?.TransferToFlight(cardId, actor, generation);
+        if (from == CardFxAnchor.Active && cardId != int.MinValue)
+        {
+            if (!ClaimActiveFlight(cardId, actor, generation)) return int.MinValue;
+            _active?.TransferToFlight(cardId, actor, generation);
+        }
         return cardId;
     }
 
@@ -359,11 +386,15 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         SuppressBurnRecess(recess);
     }
 
-    internal void CompleteFlightLanding(CardFxAnchor destination, CPlayerActor? sourceActor, long generation)
+    internal void CompleteFlightLanding(CardFxAnchor destination, CPlayerActor? sourceActor, long generation, int activeCardId)
     {
         CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out _, out bool exhausted);
         if (actor == null || !ReferenceEquals(actor, sourceActor) || exhausted || _root == null || !_root.activeSelf) return;
-        if (destination == CardFxAnchor.Active) _active?.Refresh(actor);
+        if (destination == CardFxAnchor.Active)
+        {
+            if (!ClaimActiveFlight(activeCardId, actor, generation)) return;
+            _active?.Refresh(actor, activeCardId);
+        }
         else if (destination == CardFxAnchor.Slot0 || destination == CardFxAnchor.Slot1)
         {
             int slot = destination == CardFxAnchor.Slot0 ? 0 : 1;
@@ -3390,7 +3421,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     public void Destroy(string reason = "avatar or module lifecycle teardown")
     {
         if (reason == "scenario gate closed" || reason == "avatar or module lifecycle teardown")
+        {
             _flightOwners.Clear();
+            _activeFlightOwners.Clear();
+        }
         if (_root != null) LogVisibilityEdge("DESTROY_REQUESTED", reason, _root.activeSelf);
         _tag?.Destroy();
         _tag = null;

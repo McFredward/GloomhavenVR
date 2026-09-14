@@ -4582,16 +4582,53 @@ internal sealed class RemoteHandFan
     /// The result is frame-for-frame the shape the owner sees, with no new wire field and no version
     /// bump. What is NOT derivable is listed on <see cref="RemoteHandFan"/>'s known-gaps note.
     /// </summary>
-    internal bool TryFlightSeat(int cardId, out Vector3 world)
+    // The owner's FlyFromPile captures SetHome's target, not the transform part-way through
+    // reflow or its hover pop. Retain the matching layout output before those visual offsets.
+    private readonly Vector3[] _flightHomePositions = new Vector3[MaxCards];
+    private readonly Quaternion[] _flightHomeRotations = new Quaternion[MaxCards];
+    private readonly float[] _flightHomeScales = new float[MaxCards];
+
+    internal bool TryFlightSeat(int cardId, out Vector3 world, out Quaternion rotation, out float homeScale)
     {
+        if (_root != null)
+            for (int i = 0; i < _handBuffer.Count && i < _cards.Count; i++)
+                if (_handBuffer[i] != null && _handBuffer[i].CardInstanceID == cardId
+                    && _flightHomeScales[i] > 0f)
+                {
+                    Transform parent = _root.transform;
+                    world = parent.TransformPoint(_flightHomePositions[i]);
+                    rotation = parent.rotation * _flightHomeRotations[i];
+                    homeScale = _flightHomeScales[i];
+                    return true;
+                }
+        world = default;
+        rotation = Quaternion.identity;
+        homeScale = 1f;
+        return false;
+    }
+
+    internal static Quaternion ClosedFlightRotation(RemoteAvatar owner, Vector3 world)
+    {
+        Vector3 away = owner.HeadHolder != null ? world - owner.HeadHolder.position : Vector3.zero;
+        if (away.sqrMagnitude > 1e-6f) return Quaternion.LookRotation(away.normalized, Vector3.up);
+        Transform? holder = owner.NonDominantHandHolder;
+        return holder != null ? (owner.PalmAnchorFor(holder) ?? holder).rotation : Quaternion.identity;
+    }
+
+    internal void CompleteFlightSeat(int cardId, CPlayerActor? actor)
+    {
+        if (!ReferenceEquals(actor, _shownActor)) return;
         for (int i = 0; i < _handBuffer.Count && i < _cards.Count; i++)
             if (_handBuffer[i] != null && _handBuffer[i].CardInstanceID == cardId)
             {
-                world = _cards[i].transform.position;
-                return true;
+                Transform t = _cards[i].transform;
+                t.localPosition = _flightHomePositions[i];
+                t.localRotation = _flightHomeRotations[i];
+                t.localScale = Vector3.one * (SlabScale * _flightHomeScales[i]);
+                _pop[i] = 0f;
+                break;
             }
-        world = default;
-        return false;
+        RefreshFlightSeats();
     }
 
     internal void RefreshFlightSeats()
@@ -4803,6 +4840,9 @@ internal sealed class RemoteHandFan
             // toward the viewer along the card's own −Z, a touch up its +Y, and 18 % bigger. The
             // 0..1 ramp is eased locally on the same MoveTowards rate the local card uses, so the
             // pop grows and relaxes at the local speed and the wire only ever carries the index.
+            _flightHomePositions[i] = pos;
+            _flightHomeRotations[i] = rot;
+            _flightHomeScales[i] = Mathf.Max(1e-4f, swapScale);
             float popT = PopAmount(i, hovered, dt);
             if (popT > 0f)
                 pos += rot * new Vector3(0f, PopUp * popT, -_popForward * popT);

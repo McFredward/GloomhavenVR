@@ -928,12 +928,16 @@ internal sealed class RemoteAvatar
     internal bool FlightOwnsRecess(int recess) => _cardFx.OwnsRecess(recess);
     internal int TransferCardToFlight(CardFxAnchor from, int cardId, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
         _controlBoard.TransferCardToFlight(from, cardId, actor, generation);
+    internal bool OwnsActiveFlight(int cardId, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
+        _controlBoard.OwnsActiveFlight(cardId, actor, generation);
+    internal void BeginActiveFlight(int cardId, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
+        _controlBoard.BeginActiveFlight(cardId, actor, generation);
     internal bool OwnsFlightSlot(int slot, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
         _controlBoard.OwnsFlightSlot(slot, actor, generation);
     internal void BeginFlightArrival(int recess, ScenarioRuleLibrary.CPlayerActor? actor, long generation) =>
         _controlBoard.BeginFlightArrival(recess, actor, generation);
-    internal void CompleteFlightLanding(CardFxAnchor destination, ScenarioRuleLibrary.CPlayerActor? sourceActor, long generation) =>
-        _controlBoard.CompleteFlightLanding(destination, sourceActor, generation);
+    internal void CompleteFlightLanding(CardFxAnchor destination, ScenarioRuleLibrary.CPlayerActor? sourceActor, long generation, int activeCardId) =>
+        _controlBoard.CompleteFlightLanding(destination, sourceActor, generation, activeCardId);
 
     internal bool BurnOwnsActiveCard(int cardInstanceId) => _burnFx.OwnsActiveCard(cardInstanceId);
 
