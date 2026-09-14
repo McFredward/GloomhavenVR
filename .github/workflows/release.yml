@@ -32,8 +32,9 @@
 #      That value IS the version being released. The checkout is already clean and
 #      already at the exact commit that will be tagged, so the DLL is stamped from a
 #      clean tree with no ceremony required.
-#   2. refuse early if v<version> already exists, or if the commit is not contained in
-#      `dev` (releasing such a commit is what breaks the invariant above)
+#   2. refuse early if v<version> already exists, except for the one controlled 1.0.0
+#      package refresh below, or if the commit is not contained in `dev` (releasing such
+#      a commit is what breaks the invariant above)
 #   3. build with GhvrReleaseBuild=true (=> BuildInfo.IsDevBuild is false) and run the
 #      same gates CI runs
 #   4. scripts/package-release.sh -> dist/GloomhavenVR-<version>.zip, asserted by name
@@ -111,15 +112,31 @@ jobs:
           VERSION="$(bash scripts/bump-version.sh)"
           echo "Releasing $VERSION from ${GITHUB_SHA}"
 
+          # BUILD 503 RECOVERY — v1.0.0 was published before the maintainer's final
+          # hardware hotfixes landed. The maintainer explicitly asked for the existing
+          # public release's DOWNLOAD to be refreshed from the final main commit, while
+          # preserving the original annotated tag as immutable release provenance. This
+          # is deliberately a SINGLE known tag and source commit, not a general escape
+          # hatch for changing published versions. The publish step replaces only the
+          # identically named ZIP and release body, then the normal dev bookkeeping moves
+          # the next development version to 1.0.1.
+          REFRESH_EXISTING=false
+          FINAL_100_TAG_TARGET="b691d493519dca619215131004c811dfd6f98498"
           if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
-            echo "::error title=Version already released::Tag v$VERSION already exists."
-            echo "::error::Nothing was built. Two ways this happens:"
-            echo "::error::  (a) two releases were fired close together — the bump commit for the"
-            echo "::error::      previous one is on 'dev', not on this commit. Run"
-            echo "::error::      'git push origin dev:main' again; dev now carries the bump."
-            echo "::error::  (b) you re-pushed an old commit. Set <Version> in"
-            echo "::error::      src/GloomhavenVR/GloomhavenVR.csproj past v$VERSION on dev."
-            exit 1
+            TAG_TARGET="$(git rev-parse "refs/tags/v$VERSION^{}")"
+            if [[ "$VERSION" == "1.0.0" && "$TAG_TARGET" == "$FINAL_100_TAG_TARGET" ]]; then
+              REFRESH_EXISTING=true
+              echo "::notice title=Final 1.0.0 package refresh::Keeping immutable v1.0.0 tag at $TAG_TARGET; replacing its ZIP from $GITHUB_SHA."
+            else
+              echo "::error title=Version already released::Tag v$VERSION already exists."
+              echo "::error::Nothing was built. Two ways this happens:"
+              echo "::error::  (a) two releases were fired close together — the bump commit for the"
+              echo "::error::      previous one is on 'dev', not on this commit. Run"
+              echo "::error::      'git push origin dev:main' again; dev now carries the bump."
+              echo "::error::  (b) you re-pushed an old commit. Set <Version> in"
+              echo "::error::      src/GloomhavenVR/GloomhavenVR.csproj past v$VERSION on dev."
+              exit 1
+            fi
           fi
 
           # THE INVARIANT CHECK. `main` must never contain a commit `dev` does not,
@@ -159,6 +176,7 @@ jobs:
 
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION"    >> "$GITHUB_OUTPUT"
+          echo "refresh_existing=$REFRESH_EXISTING" >> "$GITHUB_OUTPUT"
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@v5.4.0
@@ -328,6 +346,7 @@ jobs:
       # the next `git push origin dev:main` is an ordinary fast-forward.
       # -----------------------------------------------------------------------------
       - name: Push the tag
+        if: ${{ steps.version.outputs.refresh_existing != 'true' }}
         run: |
           set -euo pipefail
           TAG="${{ steps.version.outputs.tag }}"
@@ -362,13 +381,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "${{ steps.version.outputs.tag }}" \
-            "dist/GloomhavenVR-${{ steps.version.outputs.version }}.zip" \
-            --title "GloomhavenVR ${{ steps.version.outputs.version }}" \
-            --notes-file RELEASE_NOTES.md \
-            --verify-tag \
-            --latest
-          echo "Published ${{ steps.version.outputs.tag }}"
+          ZIP="dist/GloomhavenVR-${{ steps.version.outputs.version }}.zip"
+          if [[ "${{ steps.version.outputs.refresh_existing }}" == "true" ]]; then
+            gh release upload "${{ steps.version.outputs.tag }}" "$ZIP" --clobber
+            gh release edit "${{ steps.version.outputs.tag }}" \
+              --title "GloomhavenVR ${{ steps.version.outputs.version }}" \
+              --notes-file RELEASE_NOTES.md \
+              --latest
+            echo "Refreshed ${{ steps.version.outputs.tag }} from ${GITHUB_SHA}; immutable tag retained."
+          else
+            gh release create "${{ steps.version.outputs.tag }}" \
+              "$ZIP" \
+              --title "GloomhavenVR ${{ steps.version.outputs.version }}" \
+              --notes-file RELEASE_NOTES.md \
+              --verify-tag \
+              --latest
+            echo "Published ${{ steps.version.outputs.tag }}"
+          fi
 
       # -----------------------------------------------------------------------------
       # Bookkeeping — AFTER the release is live, because it is not part of the release.

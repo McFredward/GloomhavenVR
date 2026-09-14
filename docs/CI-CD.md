@@ -247,7 +247,7 @@ This simulates Git topology and version bumps, not the hosted build, GitHub API 
 |---|---|
 | Non-fast-forward when publishing `dev:main` | Fetch and integrate the missing `main` history into `dev`; re-run review and gates. Never force-push. |
 | Branch or tag rule rejects a push | Review the actual repository rule and required actor permissions; do not use a real release push as a speculative test. |
-| Existing version tag | Check whether the release already completed and whether the next-version bump landed. Do not overwrite or delete a published tag. |
+| Existing version tag | Check whether the release already completed and whether the next-version bump landed. Do not overwrite or delete a published tag. The sole documented exception is the build-503 refresh of the existing `v1.0.0` ZIP: it retains the original tag and replaces only the release asset/body from the final `main` commit. |
 | Candidate not contained in `dev` | Integrate that history into `dev` before releasing. |
 | Tag exists but release creation failed | Inspect the failed run; recover the release using the already-tested tag and matching archive. Do not retag a different commit. |
 | Optional dev download missing | Read the CI summary and cleanup/upload step. Check artifact quota; deletion may take 6–12 hours to become visible. Checks remain strict. |
