@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-14 for the single-player party-container hotfix, build 502. This directory holds internal
+Updated 2026-09-15 for the combined-gold held-card hotfix, build 503. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [GOLD-503.md](GOLD-503.md): current combined gold-pile value in held-prop cards.
 - [MAP-502.md](MAP-502.md): native outer/inner party-window handover after quest introductions.
 - [MAP-502-EVIDENCE.md](MAP-502-EVIDENCE.md): two single-player reproductions and the multiplayer fallback comparison.
 - [MAP-502-IMPLEMENTATION.md](MAP-502-IMPLEMENTATION.md): narrow hierarchy ownership and production regression coverage.

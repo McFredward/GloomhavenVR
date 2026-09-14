@@ -1420,20 +1420,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         string name = Translate(_prop.PrefabName);
         if (_prop.ObjectType == ScenarioManager.ObjectImportType.MoneyToken)
         {
-            // The game prices a money token by the scenario's gold conversion, defaulting to 1
-            // when the scenario carries no level-table entry (CAbilityLoot.cs:302, CActor.cs:1930).
-            int gold = 1;
-            try
-            {
-                CScenario? scenario = ScenarioManager.Scenario;
-                if (scenario != null && scenario.SLTE != null)
-                    gold = scenario.SLTE.GoldConversion;
-            }
-            catch
-            {
-                gold = 1; // a half-built scenario state must never cost the player their card
-            }
-            title = $"{gold} {Translate("Gold")}";
+            title = $"{GoldAtCurrentPile()} {Translate("Gold")}";
         }
         else
         {
@@ -1452,6 +1439,50 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         }
         if (lines.Count > 0)
             description = string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// The amount a held gold pile currently represents.
+    ///
+    /// <para>A gold visual is one <see cref="CObjectProp"/>, while the game represents a pile
+    /// that grew from several deaths as several <c>MoneyToken</c> props on the same tile. The
+    /// native hover card therefore counts the tile's tokens before applying <c>GoldConversion</c>
+    /// (WorldspaceStarHexDisplay.cs:3413-3420). The former held-card path priced only this
+    /// prop's one token, so a laser could correctly say "3 Gold" immediately before the same
+    /// pile was picked up and its card incorrectly said "1 Gold". Read the same tile collection
+    /// here; it is presentation-only and never changes the prop list or scenario state.</para>
+    ///
+    /// <para>The one-token value remains the fallback while a scene is tearing down or the game
+    /// has not yet supplied a tile list. A missing read must not suppress a held-prop card.</para>
+    /// </summary>
+    private int GoldAtCurrentPile()
+    {
+        int perToken = 1;
+        try
+        {
+            CScenario? scenario = ScenarioManager.Scenario;
+            if (scenario?.SLTE != null)
+                perToken = scenario.SLTE.GoldConversion;
+
+            CTile? tile = _prop?.PropTile;
+            List<CObjectProp>? props = tile?.m_Props;
+            if (props == null)
+                return perToken;
+
+            int tokens = 0;
+            for (int i = 0; i < props.Count; i++)
+            {
+                CObjectProp? prop = props[i];
+                if (prop != null
+                    && prop.ObjectType == ScenarioManager.ObjectImportType.MoneyToken)
+                    tokens++;
+            }
+            return (tokens > 0 ? tokens : 1) * perToken;
+        }
+        catch
+        {
+            return perToken; // a half-built scenario state must never cost the player their card
+        }
     }
 
     /// <summary>Localize, falling back to the raw term. <c>TryGetTranslation</c> rather than

@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-14 for the single-player party-container hotfix, ModBuild 502 (version 1.0.0).** The file this replaces had gone 168 builds
+**Updated 2026-09-15 for the combined-gold held-card hotfix, ModBuild 503 (version 1.0.0).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.0 / ModBuild 503 makes held gold-pile cards match the laser-hover amount.** Native hover
+  totals every `MoneyToken` on the tile, while the held card had only applied `GoldConversion` to
+  its one grabbed token. A combined pile can now show the same current total in both views without
+  a game-state write. See [GOLD-503.md](GOLD-503.md). Headset confirmation remains pending.
+- **503 local gates pass:** all 17 source checkers, 253,579 wire assertions, existing production
+  suites and negative controls pass; strict Release has zero warnings/errors and bilingual docs
+  pass. Compiled review: eight changed types, seven build-constant-only and `GrabbableProp`; no
+  additions/removals. Config/patch/log surfaces remain 625/160/4,719.
 - **1.0.0 / ModBuild 502 fixes the missing native party-container handover.** Fresh 501
   single-player logs for quests 078 and 039 show battle-goal selection open beneath a still
   refused outer PartyPanel. Build 500 admitted its different inner owner but missed that

@@ -490,7 +490,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 502;
+    public const ushort ModBuild = 503;
+
+    // ModBuild 503 — show the current value of a combined gold pile in a held-prop card.
+    //   The native hover totals every MoneyToken on a tile and then applies GoldConversion, but
+    //   the held card previously applied that conversion to only the one token being carried.
+    //   Consequently a pile built by several deaths could correctly read "3 Gold" under the
+    //   laser and incorrectly read "1 Gold" as soon as it was picked up. The held presentation
+    //   now reads that same native tile collection and uses the hover's count/conversion rule.
+    //   The collection is read only; no prop, tile or scenario state is changed. A teardown-safe
+    //   one-token fallback preserves the existing card if the game temporarily has no tile list.
+    //   Version remains 1.0.0, DLL-only since 483, no wire or asset change. Hardware confirmation
+    //   remains required; all VR peers use 503. See .planning/GOLD-503.md.
 
     // ModBuild 502 — release the native party wrapper after single-player quest stories.
     //   Fresh build 501 logs reproduce missing battle goals for quests 078 and 039. Native
