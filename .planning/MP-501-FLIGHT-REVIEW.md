@@ -1,7 +1,7 @@
 # Independent review: card flight ownership
 
-Reviewed 2026-09-14 against the evolving `codex/mp501-flights` lane based on
-`7745d90c8`. Hardware evidence is in `MP-501-EVIDENCE.md`. This review concerns
+Reviewed 2026-09-14 against the `codex/mp501-flights` lane based on
+`7745d90c8`, including the final ownership checkpoint `72c756a7`. Hardware evidence is in `MP-501-EVIDENCE.md`. This review concerns
 source ownership and interleaved events; it does not certify headset pixels.
 
 ## Corrections prompted by independent review
@@ -34,6 +34,10 @@ source ownership and interleaved events; it does not certify headset pixels.
   fence at the burn's actual flight handover. Review additionally required this
   transfer to occur only when that flight is drawable; the owner-release event
   alone cannot justify hiding a source while public artwork is unavailable.
+  The final `72c756a7` source was rechecked: `RemoteBurnFx.Tick` transfers only
+  inside `showFlight && OwnsDisplayedBoard(b)`, immediately before the flight
+  visibility write. `Handover` allocates its generation without blanking the
+  source. This requested drawable guard is confirmed in the final checkpoint.
 
 Normal short-rest random redraw excludes the first card from its candidates
 (`CardsHandUI.PerformFinalShortRest`); the same-id overlap is an interleaving/rearm
@@ -58,14 +62,50 @@ level-event overrides can select from the full discard population.
 - The actor/slot generation ledger clears on scenario-gate and avatar lifecycle
   teardown. The native board, fan, flight and burn tick order remains unchanged.
 
+## Follow-up: native recovery home and active arrival
+
+The final geometry pass compared `VRCard.FlyFromPile`, `CardFan.SetHome` layout,
+and `CardFan.TrySeatArrival` against the observer. Local recovery captures the
+pre-hover home position, parent-times-home rotation, and home scale. Sampling the
+currently reflowing fan slab instead, or retaining board-plane rotation, therefore
+changed the arc even when its card identity was correct. The follow-up retains the
+remote layout output before hover and interpolation, including exchange scale;
+closed-fan recovery resolves the palm seat and head-facing orientation. Its width
+conversion accounts for the hand/rig scale independently of the board scale.
+
+Independent review also identified a second handover issue: merely enabling the
+hidden destination slab after the arc preserves its intermediate reflow and hover
+pose. Native `VRCard.Update` explicitly settles at its home pose and scale. The
+follow-up now settles only the completed card at its cached home position,
+rotation, and scale, resets its pop, and then refreshes visibility. Actor identity
+prevents a late completion from moving another displayed character's fan.
+
+For active arrivals, a completed known flight must retire that card's model-first
+arrival grace immediately and suppress a second materialise transition. An older
+completion must also respect a newer active departure. This interleaving is
+possible on the observer because `RemoteCardFx.Tick` pauses the arc clock while
+public artwork is unavailable, although the owner has already landed and can use
+the card. Native single-flight ownership alone cannot rule it out. The final follow-up
+adds actor/card generations for active arrivals and departures, rejects stale
+completion claims, and cancels superseded arrivals before their first drawable
+frame. `CanDrawFlight` also requires the flight to remain active. A known running
+flight now takes precedence over the seated-id shortcut, preventing a card that
+settled during the artwork wait from repainting during the delayed arc.
+
 ## Validation
 
 The reviewer independently ran `bash scripts/flight-timing-tests.sh` on the
-candidate: **762 assertions**, with **five negative controls** failing at their
+ownership checkpoint: **762 assertions**, with **five negative controls** failing at their
 intended defects. The updated harness executes extracted production transfer and
 landing orchestration as well as panel policies. Cases include focus away/back,
 newer same-card arrival, foreign/exhausted completion, retirement after empty and
 replacement acknowledgement, and the compact cursor's wire-empty case.
+
+The reviewer reran the final geometry/active follow-up harness: **781 assertions**
+and the same **five negative controls** passed. Added cases execute extracted
+home lookup and completion, parent-transformed position and rotation, exchange
+scale without hover, late active grace, and active generation ownership. No
+remaining source-backed blocker was found in these reviewed paths.
 
 These are Unity renderer substitutes. Their successful execution establishes
 the tested state transitions and ordering, not actual shader output, headset
