@@ -54,24 +54,25 @@ param(
     [switch]$NoPackage,
     # Use an explicitly built local Unity bundle instead of the committed asset set.
     [switch]$UseLocalBundle,
-    # Test-only semantic version passed to MSBuild without editing the checkout. This lets a
-    # current updater implementation test the public update path against a newer release.
+    # Test-only semantic version passed to MSBuild without editing the checkout. It also builds
+    # in release mode, so the updater follows the same enabled path as a published release.
     [string]$FakeVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
-# A test install must still be an ordinary production-shaped build; only BuildInfo.Version is
-# overridden. Keep the input narrow so it reaches MSBuild as one inert property value, never as an
-# additional command-line option. package-release.ps1 reads the checked-in Version and would label
-# the deployed fake DLL as a real archive, so a fake-version install deliberately creates no ZIP.
+# A test install must still be an ordinary production-shaped build. Its semantic version is
+# overridden and the release-build marker is set, so the updater cannot reject it as a dev build.
+# Keep the input narrow so it reaches MSBuild as one inert property value, never as an additional
+# command-line option. package-release.ps1 reads the checked-in Version and would label the
+# deployed fake DLL as a real archive, so a fake-version install deliberately creates no ZIP.
 if ($FakeVersion -and $FakeVersion -notmatch '^\d+\.\d+\.\d+$') {
     Write-Error "-FakeVersion must use MAJOR.MINOR.PATCH, for example -FakeVersion 0.9.0."
 }
 if ($FakeVersion) {
     $NoPackage = $true
-    Write-Host "TEST BUILD: stamping version $FakeVersion without changing the checkout; release ZIP packaging is skipped." -ForegroundColor Yellow
+    Write-Host "TEST BUILD: stamping release-mode version $FakeVersion without changing the checkout; release ZIP packaging is skipped." -ForegroundColor Yellow
 }
 
 # Ignored Unity output can be stale. Select the committed asset set by default and
@@ -282,7 +283,7 @@ if ($behind -and [int]$behind -gt 0) {
 }
 
 if ($FakeVersion) {
-    Invoke-RepoDotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo "-p:Version=$FakeVersion"
+    Invoke-RepoDotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo "-p:Version=$FakeVersion" "-p:GhvrReleaseBuild=true"
 } else {
     Invoke-RepoDotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo
 }
