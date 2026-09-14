@@ -10,7 +10,7 @@ project="$repo_root/tests/GloomhavenVR.FigureHoldTests/GloomhavenVR.FigureHoldTe
 dotnet run --project "$project" --configuration Release
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-for mutation in native-origin late-held-sample local-forced-glide idle-run-motion attack-participant; do
+for mutation in native-origin late-held-sample local-forced-glide idle-run-motion attack-participant animation-failure-guard; do
     python3 - "$repo_root" "$mutation_dir" "$mutation" <<'PY'
 import pathlib
 import sys
@@ -29,6 +29,9 @@ changes = {
     'idle-run-motion': ('Board/FigureGrab/FigureBusy.cs',
         'if (actor.IsMoving || actor.m_NewLocoTarget || actor.m_Jump || actor.m_IsPushPullInProgress\n            || actor.m_Teleport)',
         'if (bool.Parse("false"))'),
+    'animation-failure-guard': ('Board/FigureGrab/MF_HeldFigureAnimation_Patch.cs',
+        'catch (Exception error)',
+        'catch (Exception error) when (error is ArgumentException)'),
     'attack-participant': ('Board/FigureGrab/Choreographer_HeldFigureAction_Patch.cs',
         'Release(choreographer, attacking.m_AttackingActor);',
         '// Release(choreographer, attacking.m_AttackingActor);'),
@@ -43,6 +46,7 @@ PY
         late-held-sample) property=FigureSource; expected='Stale hold must not resume after native action returns idle' ;;
         local-forced-glide) property=LocalSource; expected='Local forced release must be immediate, never a release glide' ;;
         idle-run-motion) property=BusySource; expected='Native locomotion flag must release even within Idle-Run' ;;
+        animation-failure-guard) property=AnimationSource; expected='injected animator probe failure' ;;
         attack-participant) property=MessageSource; expected='Attack must restore attacker and actual target before native facing reads' ;;
     esac
     if dotnet run --project "$project" --configuration Release \
@@ -51,7 +55,11 @@ PY
         echo "FAIL: $mutation escaped the figure hold regression test." >&2
         exit 1
     fi
-    if ! grep -Fq "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/output.log"; then
+    failure_signature="Unhandled exception. System.InvalidOperationException: $expected"
+    if [[ "$mutation" == animation-failure-guard ]]; then
+        failure_signature='Unhandled exception. System.Reflection.TargetInvocationException:'
+    fi
+    if ! grep -Fq "$failure_signature" "$mutation_dir/output.log"         || ! grep -Fq "$expected" "$mutation_dir/output.log"; then
         cat "$mutation_dir/output.log"
         echo "FAIL: $mutation did not reach the injected runtime defect." >&2
         exit 1

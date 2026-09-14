@@ -1,3 +1,5 @@
+using System;
+using GloomhavenVR.Core;
 using HarmonyLib;
 using UnityEngine;
 
@@ -12,13 +14,23 @@ internal static class MF_HeldFigureAnimation_Patch
     [HarmonyPrefix]
     private static void Prefix(Animator animator, string state)
     {
-        if ((HeldFigures.Count == 0 && NetHeldFigures.Count == 0) || animator == null
-            || animator.runtimeAnimatorController == null || FigureBusy.IsIdleClip(state)
-            || !animator.HasState(0, Animator.StringToHash(state)))
+        if (HeldFigures.Count == 0 && NetHeldFigures.Count == 0)
             return;
-        ActorBehaviour? actor = FindHeldActor(animator.transform);
-        if (actor != null)
-            ActorBehaviour_HeldTransform_Patch.ReleaseForNativeAction(actor);
+        try
+        {
+            if (animator == null || animator.runtimeAnimatorController == null || FigureBusy.IsIdleClip(state)
+                || !animator.HasState(0, Animator.StringToHash(state)))
+                return;
+            ActorBehaviour? actor = FindHeldActor(animator.transform);
+            if (actor != null)
+                ActorBehaviour_HeldTransform_Patch.ReleaseForNativeAction(actor);
+        }
+        catch (Exception error)
+        {
+            // The native animation still executes. A cosmetic lookup must not escape into the
+            // choreographer/network action's error handling or suppress its normal callback.
+            VRLog.Error("FigureGrab", $"Native figure animation handover failed: {error}");
+        }
     }
 
     private static ActorBehaviour? FindHeldActor(Transform animated)

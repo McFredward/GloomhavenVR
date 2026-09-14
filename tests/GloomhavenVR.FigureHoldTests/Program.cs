@@ -170,10 +170,25 @@ static class Program
             animationPrefix.Invoke(null, new object[] { animator, "Attack" });
             Check(NetHeldFigures.Owns(a), "Missing native animation must not release a figure");
             animator.ValidState = true;
+            animator.ThrowOnState = true;
+            animationPrefix.Invoke(null, new object[] { animator, "Attack" });
+            Check(NetHeldFigures.Owns(a), "Cosmetic animator probe failure must not escape the native animation prefix");
+            animator.ThrowOnState = false;
+            choreo.ThrowOnLookup = true;
+            typeof(Choreographer_HeldFigureAction_Patch).GetMethod("Prefix", BindingFlags.NonPublic | BindingFlags.Static)!
+                .Invoke(null, new object[] { choreo, new CActorDead_MessageData { m_Actor = a.Actor } });
+            Check(NetHeldFigures.Owns(a), "Cosmetic participant lookup failure must not escape native message dispatch");
+            choreo.ThrowOnLookup = false;
             animationPrefix.Invoke(null, new object[] { animator, "Attack" });
             Check(!NetHeldFigures.Owns(a), "Actual non-idle animation must relinquish its exact held actor before Play");
             NetFigures.ReleaseRemote(1);
             var hand = new GloomhavenVR.Hands.VRHand();
+            var failedLocal = FigureGrabbable.Create(a, hand);
+            failedLocal.ThrowOnRestore = true;
+            Patch("SetLocoTarget_Prefix", a);
+            Check(HeldFigures.Owns(a), "Cosmetic restore failure must not escape the native movement prefix");
+            failedLocal.ThrowOnRestore = false;
+            failedLocal.Restore();
             var local = FigureGrabbable.Create(a, hand);
             a.Busy = true;
             local.OnRelease(hand, Vector3.zero);

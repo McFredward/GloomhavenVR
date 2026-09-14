@@ -92,11 +92,16 @@ namespace UnityEngine
         public Transform transform;
         public object? runtimeAnimatorController = new();
         public bool ValidState = true;
+        public bool ThrowOnState;
         public Animator(Transform t)
         {
             transform = t;
         }
-        public bool HasState(int l, int h) => ValidState;
+        public bool HasState(int l, int h)
+        {
+            if (ThrowOnState) throw new InvalidOperationException("injected animator probe failure");
+            return ValidState;
+        }
         public static int StringToHash(string s) => s.GetHashCode();
     }
     public static class Time
@@ -291,8 +296,10 @@ namespace GloomhavenVR.Net
 
 public sealed class Choreographer
 {
+    public bool ThrowOnLookup;
     public UnityEngine.GameObject FindClientActorGameObject(ScenarioRuleLibrary.CActor a)
     {
+        if (ThrowOnLookup) throw new InvalidOperationException("injected actor resolver failure");
         foreach (var p in WorldspaceUITools.Instance._panelUIControllers)
             if (ReferenceEquals(p.m_ObjectToTrack.Actor?.Actor, a))
                 return p.m_ObjectToTrack;
@@ -384,6 +391,7 @@ namespace GloomhavenVR.Board.FigureGrab
         private Quaternion _glideFromRot, _origLocalRot;
         private float _glideStartTime;
         public int RestoreCount;
+        public bool ThrowOnRestore;
         public bool GlidingNow => _glideActive;
         private GameObject Root => _actor.m_RootGameObject;
         public static FigureGrabbable Create(ActorBehaviour actor, GloomhavenVR.Hands.VRHand hand)
@@ -423,6 +431,7 @@ namespace GloomhavenVR.Board.FigureGrab
         public void Restore()
         {
             RestoreCount++;
+            if (ThrowOnRestore) throw new InvalidOperationException("injected cosmetic restore failure");
             Live.Remove(this);
             Gliding.Remove(this);
             _glideActive = false;

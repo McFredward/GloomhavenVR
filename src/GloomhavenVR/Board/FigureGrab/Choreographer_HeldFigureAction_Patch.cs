@@ -21,11 +21,12 @@ internal static class Choreographer_HeldFigureAction_Patch
     {
         // ProcessMessage itself requeues foreign-thread calls. Touch Unity presentation only on
         // the game's main thread, when the original body will actually consume the message.
-        if (ScenarioRuleClient.s_MainThread != Thread.CurrentThread || message == null
-            || SceneController.Instance.GlobalErrorMessage.ShowingMessage || PhaseManager.CurrentPhase == null)
+        if (ScenarioRuleClient.s_MainThread != Thread.CurrentThread || message == null)
             return;
         try
         {
+            if (SceneController.Instance.GlobalErrorMessage.ShowingMessage || PhaseManager.CurrentPhase == null)
+                return;
             ReleaseParticipants(__instance, message);
         }
         catch (Exception error)

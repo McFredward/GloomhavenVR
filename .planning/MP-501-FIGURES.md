@@ -69,14 +69,17 @@ attack/damage/death and non-idle animation handovers are covered.
 
 ## Validation
 
-`bash scripts/figure-hold-tests.sh`: **1,344 assertions** and **five runtime
+`bash scripts/figure-hold-tests.sh`: **1,440 assertions** and **six runtime
 negative controls** pass. It compiles production `NetFigures`, held membership,
 transform/message/clip prefixes and ring restoration, extracts the actual local
 release/glide policies, per-figure busy predicate and ghost-retirement methods,
 and uses small Unity/game stand-ins. Native local Restore integration is also
 checked against production source. Controls remove pre-origin restoration,
 revive a stale held lease, restore the old forced glide, omit locomotion flags,
-and omit the attacking actor; each reaches its intended failing assertion.
+omit the attacking actor, and let a cosmetic animator probe exception escape the native
+entry guard; each reaches its intended runtime failure. Injected participant-lookup,
+animator-probe and local-restore failures are contained while the native prefix returns
+normally. Unity scene-read checks are inside the guards as well.
 
 Strict Release build: **0 warnings / 0 errors**. Surface comparison against the
 fresh build-500 baseline: config **625 unchanged**, patch census **152 → 160**, log

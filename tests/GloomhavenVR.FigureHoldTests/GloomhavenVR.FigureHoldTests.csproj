@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><NoWarn>$(NoWarn);CS8600</NoWarn><GenerateDocumentationFile>false</GenerateDocumentationFile><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AnimationSource Condition="'$(AnimationSource)' == ''">../../src/GloomhavenVR/Board/FigureGrab/MF_HeldFigureAnimation_Patch.cs</AnimationSource>
     <MessageSource Condition="'$(MessageSource)' == ''">../../src/GloomhavenVR/Board/FigureGrab/Choreographer_HeldFigureAction_Patch.cs</MessageSource>
     <BusySource Condition="'$(BusySource)' == ''">../../src/GloomhavenVR/Board/FigureGrab/FigureBusy.cs</BusySource>
     <LocalSource Condition="'$(LocalSource)' == ''">../../src/GloomhavenVR/Board/FigureGrab/FigureGrabbable.cs</LocalSource>
@@ -12,7 +13,7 @@
     <Compile Include="../../src/GloomhavenVR/Board/FigureGrab/FigureRingSuppressor.cs" Link="Production/FigureRingSuppressor.cs" />
     <Compile Include="$(FigureSource)" Link="Production/NetFigures.cs" />
     <Compile Include="$(MessageSource)" Link="Production/Choreographer_HeldFigureAction_Patch.cs" />
-    <Compile Include="../../src/GloomhavenVR/Board/FigureGrab/MF_HeldFigureAnimation_Patch.cs" Link="Production/MF_HeldFigureAnimation_Patch.cs" />
+    <Compile Include="$(AnimationSource)" Link="Production/MF_HeldFigureAnimation_Patch.cs" />
     <Compile Include="$(PatchSource)" Link="Production/ActorBehaviour_HeldTransform_Patch.cs" />
     <Compile Include="../../src/GloomhavenVR/Board/FigureGrab/NetHeldFigures.cs" Link="Production/NetHeldFigures.cs" />
   </ItemGroup>
