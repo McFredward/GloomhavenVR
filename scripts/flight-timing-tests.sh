@@ -47,6 +47,6 @@ PY
         active-grace) expected='Exact completed active flight must override future model-first grace immediately';;
         active-generation) expected='Old active completion must not reset newer departure fence or grace';;
     esac
-    if ! rg -q "$expected" "$work_dir/mutant.log"; then cat "$work_dir/mutant.log"; exit 1; fi
+    if ! grep -Fq "$expected" "$work_dir/mutant.log"; then cat "$work_dir/mutant.log"; exit 1; fi
     echo "Flight timing negative control: $mutation failed as expected."
 done
