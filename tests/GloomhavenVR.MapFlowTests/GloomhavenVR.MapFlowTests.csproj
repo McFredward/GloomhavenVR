@@ -4,6 +4,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ModalSource Condition="'$(ModalSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/ModalFallback.10.CatchAll.cs</ModalSource>
     <LoadoutSource Condition="'$(LoadoutSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/LoadoutWindowOwnership.cs</LoadoutSource>
     <StorySource Condition="'$(StorySource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs</StorySource>
     <MapGateSource Condition="'$(MapGateSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapInputGate.cs</MapGateSource>
@@ -16,6 +17,6 @@
     <Compile Include="$(IntermediateOutputPath)MapPolicies.g.cs" />
   </ItemGroup>
   <Target Name="ExtractProductionMapPolicies" BeforeTargets="BeforeCompile">
-    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-map-policies.py&quot; &quot;$(StorySource)&quot; &quot;$(InteractorSource)&quot; &quot;$(TravelSource)&quot; &quot;$(IntermediateOutputPath)MapPolicies.g.cs&quot;" />
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-map-policies.py&quot; &quot;$(StorySource)&quot; &quot;$(InteractorSource)&quot; &quot;$(TravelSource)&quot; &quot;$(IntermediateOutputPath)MapPolicies.g.cs&quot; &quot;$(ModalSource)&quot;" />
   </Target>
 </Project>

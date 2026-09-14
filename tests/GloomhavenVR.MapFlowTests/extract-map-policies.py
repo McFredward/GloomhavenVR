@@ -42,6 +42,7 @@ assert len(active) == 1, 'Production travel visibility expression changed'
 output = '''#nullable enable
 using System;
 using System.Collections.Generic;
+using UnityEngine;
 using UnityEngine.UI;
 using GloomhavenVR.WorldUI.MapRoom;
 namespace GloomhavenVR.WorldUI
@@ -60,6 +61,8 @@ namespace GloomhavenVR.WorldUI
     }
 }
 '''
+ancestor = method(Path(sys.argv[5]).read_text(), '    private static UIWindow? RefusedForTheMomentAbove(UIWindow window)')
+output += '\nnamespace GloomhavenVR.WorldUI { internal static partial class ModalFallback {\n' + ancestor + '\n} }\n'
 Path(sys.argv[4]).parent.mkdir(parents=True, exist_ok=True)
 Path(sys.argv[4]).write_text(output)
 print('Map flow source integration: 6 native input admission sites verified.')

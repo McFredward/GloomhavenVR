@@ -15,6 +15,7 @@ internal static class Program
     private static void Main()
     {
         LoadoutTransition();
+        NativePartyContainerTransitions();
         NativeMapLocks();
         Console.WriteLine($"Map flow production regression harness: {_assertions:N0} assertions passed.");
     }
@@ -91,6 +92,104 @@ internal static class Program
         StoryComposite._curtainLifted = false;
         StoryComposite._curtainStanding = false;
         Check(!StoryComposite.CurtainRefuses(unrelated), "Lapsed curtain remains transparent");
+    }
+
+    private static void NativePartyContainerTransitions()
+    {
+        var canvas = new UIWindow { IsOpen = true };
+        var outer = new UIWindow { IsOpen = true, ID = UIWindowID.PartyPanel };
+        var unrelated = new UIWindow { IsOpen = true, ID = UIWindowID.PartyPanel };
+        var owner = new UIWindow { IsOpen = true };
+        var decisions = new UIWindow { IsOpen = true };
+        var sibling = new UIWindow { IsOpen = true };
+        outer.transform.parent = canvas.transform;
+        unrelated.transform.parent = canvas.transform;
+        owner.transform.parent = outer.transform;
+        decisions.transform.parent = owner.transform;
+        sibling.transform.parent = outer.transform;
+        var manager = new UILoadoutManager { IsOpen = true };
+        var party = new NewPartyDisplayUI { window = owner };
+        Singleton<UILoadoutManager>.Instance = manager;
+        Singleton<UILoadoutManager>.IsInitialized = true;
+        NewPartyDisplayUI.PartyDisplay = party;
+        MapRoomDriver.Active = true;
+        StoryComposite._curtainStanding = true;
+        StoryComposite._curtainLifted = false;
+        StoryComposite.CurtainMembers.Clear();
+        StoryComposite.CurtainMembers.AddRange(new[] { outer, unrelated, sibling });
+
+        // The reported two quests reuse the native outer PartyPanel and a DIFFERENT
+        // inner party.window. Existing popups must not postpone the actual handover.
+        foreach (string quest in new[] { "078", "039" })
+        {
+            party.hideRequests.Add(manager);
+            Check(StoryComposite.CurtainRefuses(outer), "Native outer container stays curtained during quest intro " + quest);
+            Check(ReferenceEquals(ModalFallback.RefusedAncestor(decisions), outer), "Native ancestor refusal must block required decision descendants during intro");
+            party.hideRequests.Remove(manager);
+            for (int frame = 0; frame < 120; frame++)
+            {
+                Check(!StoryComposite.CurtainRefuses(outer), "Native outer PartyPanel must escape the curtain when its different inner owner reopens");
+                Check(ModalFallback.RefusedAncestor(decisions) == null, "Reopened decisions must escape the actual ancestor refusal walk");
+                Check(StoryComposite.CurtainRefuses(unrelated), "Unrelated same-ID party container must remain curtained");
+                Check(StoryComposite.CurtainRefuses(sibling), "Unrelated sibling content must retain its own frozen refusal");
+                Check(!LoadoutWindowOwnership.IsCurrentContent(canvas), "A common native canvas must not acquire party ownership");
+            }
+            Check(StoryComposite.Withheld == 2, "Outer container handover must remove only its own frozen refusal");
+            party.hideRequests.Add(manager);
+            Check(StoryComposite.CurtainRefuses(outer), "Multiplayer wait must rearm the outer container refusal immediately");
+            Check(ReferenceEquals(ModalFallback.RefusedAncestor(decisions), outer), "Multiplayer wait must block descendants through the native ancestor walk");
+            party.hideRequests.Remove(manager);
+            manager.IsOpen = false;
+            Check(StoryComposite.CurtainRefuses(outer), "Ending a quest must revoke the outer container exemption");
+            manager.IsOpen = true;
+        }
+
+        owner.IsOpen = false;
+        Check(StoryComposite.CurtainRefuses(outer), "Closed inner native owner cannot release its container");
+        owner.IsOpen = true;
+        owner.transform.parent = unrelated.transform;
+        Check(StoryComposite.CurtainRefuses(outer), "Reparenting the native owner revokes the former container immediately");
+        Check(!StoryComposite.CurtainRefuses(unrelated), "Reparenting admits only the current native PartyPanel container");
+        owner.transform.parent = outer.transform;
+        var nearer = new UIWindow { IsOpen = true, ID = UIWindowID.PartyPanel };
+        nearer.transform.parent = outer.transform;
+        owner.transform.parent = nearer.transform;
+        Check(!LoadoutWindowOwnership.IsCurrentContent(outer), "A higher PartyPanel ancestor cannot bypass the nearest native container");
+        Check(LoadoutWindowOwnership.IsCurrentContent(nearer), "Nearest PartyPanel identity determines the live container");
+        owner.ID = UIWindowID.PartyPanel;
+        Check(!LoadoutWindowOwnership.IsCurrentContent(nearer), "An owner that is itself PartyPanel needs no additional ancestor exemption");
+        owner.ID = UIWindowID.None;
+        owner.transform.parent = outer.transform;
+        var spacer = new UnityEngine.Transform { parent = outer.transform };
+        owner.transform.parent = spacer;
+        Check(LoadoutWindowOwnership.IsCurrentContent(outer), "Non-window hierarchy nodes must not hide the actual PartyPanel container");
+        owner.transform.parent = null;
+        Check(!LoadoutWindowOwnership.IsCurrentContent(outer), "Detached native owner must not leave a cached container exemption");
+        Check(LoadoutWindowOwnership.IsCurrentContent(owner), "Detached current owner retains its own direct identity");
+        owner.transform.parent = outer.transform;
+        var replacement = new UIWindow { IsOpen = true };
+        replacement.transform.parent = unrelated.transform;
+        party.window = replacement;
+        Check(StoryComposite.CurtainRefuses(outer), "Replacing the inner native owner revokes the old container");
+        Check(!StoryComposite.CurtainRefuses(unrelated), "Replacement owner admits its own current native container");
+        party.window = owner;
+        foreach (var destroyed in new UnityEngine.Object[] { owner, outer, party, manager })
+        {
+            destroyed.Destroyed = true;
+            Check(!LoadoutWindowOwnership.IsCurrentContent(outer), "Destroyed native ownership chain cannot keep a container exemption");
+            destroyed.Destroyed = false;
+        }
+        party.window = null;
+        Check(!LoadoutWindowOwnership.IsCurrentContent(outer), "Missing native owner cannot keep a container exemption");
+        party.window = owner;
+        Singleton<UILoadoutManager>.IsInitialized = false;
+        Check(!LoadoutWindowOwnership.IsCurrentContent(outer), "Scene teardown must revoke container ownership before singleton access");
+        Singleton<UILoadoutManager>.IsInitialized = true;
+        MapRoomDriver.Active = false;
+        Check(!LoadoutWindowOwnership.IsCurrentContent(outer), "Native container handover remains map-only");
+        MapRoomDriver.Active = true;
+        StoryComposite._curtainStanding = false;
+        StoryComposite.CurtainMembers.Clear();
     }
 
     private static void NativeMapLocks()

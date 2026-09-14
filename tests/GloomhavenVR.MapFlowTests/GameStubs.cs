@@ -19,6 +19,8 @@ namespace UnityEngine
     internal sealed class Transform : Object
     {
         internal Transform? parent;
+        internal UnityEngine.UI.UIWindow? window;
+        internal T? GetComponent<T>() where T : Object => window as T;
         internal bool IsChildOf(Transform other)
         {
             for (Transform? at = this; at != null; at = at.parent)
@@ -33,10 +35,13 @@ namespace UnityEngine
 }
 namespace UnityEngine.UI
 {
+    internal enum UIWindowID { None, PartyPanel }
     internal sealed class UIWindow : UnityEngine.Object
     {
         internal bool IsOpen;
-        internal readonly UnityEngine.Transform transform = new();
+        internal UIWindowID ID;
+        internal readonly UnityEngine.Transform transform;
+        internal UIWindow() { transform = new UnityEngine.Transform { window = this }; }
     }
 }
 internal static class Singleton<T> where T : class
@@ -75,6 +80,19 @@ namespace GloomhavenVR.WorldUI
         internal static bool _curtainLifted;
         internal static readonly List<UnityEngine.UI.UIWindow> CurtainMembers = new();
     }
+    internal static partial class ModalFallback
+    {
+        private static readonly HashSet<string> IntervalAncestorWarned = new();
+        internal static UnityEngine.UI.UIWindow? RefusedAncestor(UnityEngine.UI.UIWindow window) => RefusedForTheMomentAbove(window);
+    }
+    // Isolate the story-curtain row of the native refusal table. Other refusal
+    // classes are outside this fixture; the ancestor traversal is production code.
+    internal enum FloatRefusalClass { PastThePointOfNoReturn }
+    internal static class FloatRefusalTable
+    {
+        internal static bool RefusesForTheMoment(UnityEngine.UI.UIWindow window) => StoryComposite.CurtainRefuses(window);
+        internal static string? Describe(UnityEngine.UI.UIWindow window) => null;
+    }
     internal sealed partial class MapTravelConfirm
     {
         internal bool _parkedIsReadyToggle;
@@ -86,4 +104,5 @@ namespace GloomhavenVR.WorldUI
 internal static class VRLog
 {
     internal static void Note(string scope, string message) { }
+    internal static void Info(string scope, string message) { }
 }
