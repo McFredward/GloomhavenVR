@@ -121,3 +121,20 @@ it does not justify relying on a wait or broad curtain timeout as the fix.
   topology. A replacement regression case must retain distinct outer `PartyPanel` and inner
   controller-owned windows, plus unrelated ancestors and children. Passing that case remains
   source verification; both single-player quests still require headset replay after the fix.
+
+## Independent implementation review
+
+The build 502 helper change was reviewed in the separate `map502-fix` worktree. It admits
+only the nearest current `PartyPanel` window on the native inner owner's ancestor chain,
+using exact object identity. Direct owner/descendant admission stays intact; no cache,
+forced native show, gameplay callback or broad curtain release was added. The root's
+updated handover diagnostic distinguishes admitted wrapper and native inner owner.
+
+The expanded regression fixture retains the two different windows and exercises extracted
+production `StoryComposite.CurtainRefuses` and `ModalFallback.RefusedForTheMomentAbove`.
+Its refusal-table stub intentionally isolates the story row; it does not claim to test all
+other table families. Cases cover two successive quests, native hide requests, unrelated
+same-ID windows, common and higher ancestors, nearest-container selection, spacer transforms,
+reparenting, replacement, destruction and scene teardown. The old descendant-only predicate
+is a deliberate negative control. No blocking source or fixture issue was found in this review.
+Final assertion counts and complete gate results belong in the integration report.
