@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-13 for the 1.0.0 long-rest hotfix, build 499. This directory holds internal
+Updated 2026-09-14 for the map story/loadout hotfix, build 500. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,9 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [MAP-500.md](MAP-500.md): native loadout handover, map input locks and hardware acceptance.
+- [MAP-500-EVIDENCE.md](MAP-500-EVIDENCE.md): current offline 499 softlock timeline and cause.
+- [MAP-500-TRAVEL.md](MAP-500-TRAVEL.md): locked VR selection and incorrect travel admission.
 - [CI-STORAGE.md](CI-STORAGE.md): bounded manual dev downloads; main release uploads retained.
 - [REST-499.md](REST-499.md): native card-loss fallback fix, current 498 and historical 491 evidence.
 - [RELEASE-1.0.0.md](RELEASE-1.0.0.md): release candidate, checks and publication status.

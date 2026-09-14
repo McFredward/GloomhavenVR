@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-13 for the 1.0.0 long-rest hotfix, ModBuild 499.** The file this replaces had gone 168 builds
+**Updated 2026-09-14 for the map story/loadout hotfix, ModBuild 500 (version 1.0.0).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.0 / ModBuild 500 fixes a map preparation softlock.** Current offline 499 logs show
+  native battle goals opened under a party root still refused by frozen story-curtain
+  membership. The native loadout's released hide request now admits its original root and
+  descendants. VR map input and offline travel also honor the native map lock; online quest
+  readiness retains its own visibility/state rule. No game state is forged to escape.
+  See [MAP-500.md](MAP-500.md) and its evidence reports. Headset replay remains pending.
+- **500 local gates pass:** all 17 checkers, unchanged 253,579 wire assertions and prior
+  production suites; new map-flow harness 757 assertions with five negative controls.
+  Strict Release has zero warnings/errors; bilingual docs pass. Reviewed compiled scope:
+  11 changed types (including seven build-constant-only changes), two new helpers, no removal.
+  Config/patch surfaces remain 625/152; log markers increase 4,717 to 4,718.
+- **500 retains version 1.0.0 and is integrated on dev.** The existing main/tag `v1.0.0`
+  still identifies build 498; no release assets or tags are changed by this hotfix.
 - **CI storage policy (2026-09-13):** normal pushes/PRs no longer upload DLL artifacts.
   Manual CI on dev can request a tested download; serialized cleanup retains at most three
   builds for two days. Release ZIP publication on main remains mandatory and unchanged.

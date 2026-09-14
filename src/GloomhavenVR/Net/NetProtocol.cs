@@ -490,7 +490,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 499;
+    public const ushort ModBuild = 500;
+
+    // ModBuild 500 — unblock native battle goals after map story and honor map input locks.
+    //   Current offline build 499 logs prove the game reopened its original party window for
+    //   BATTLE_GOALS, but frozen story-curtain membership still refused that same instance.
+    //   The expected quest popup made the generic mutual-hold recovery mistake it for progress.
+    //   LoadoutWindowOwnership reads the native manager's released hide request and open party
+    //   root, admitting that root and its required descendants without bypassing the intro or
+    //   multiplayer readiness barrier. Other curtain members retain their original refusal.
+    //   Native map locks now gate VR hover, clicks, deselection and remote selection adoption.
+    //   Offline travel presentation follows the same lock; online quest-ready keeps its own
+    //   native visibility/state gate. Stale remote edges remain consumed rather than replayed.
+    //   Source-linked transition/input regression tests cover the reported sequence. Headset
+    //   replay, normal unlock/travel and host/client preparation still need hardware validation.
+    //   Version remains 1.0.0; published main/tag/assets are unchanged. DLL-only since 483,
+    //   GVR1/v3 and record layouts unchanged; all VR peers require 500. See .planning/MAP-500.md.
 
     // ModBuild 499 — prevent the remote long-rest burn from raising an empty desktop screen.
     //   Build 498 logs show native foreign-hand AnimateCardsLost locking the UI before burn

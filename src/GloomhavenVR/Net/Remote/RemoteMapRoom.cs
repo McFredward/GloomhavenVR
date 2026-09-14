@@ -805,6 +805,9 @@ internal static class RemoteMapRoom
                                 + "MapLocation.Deselect for key 0), so IsSelectable() and the game's "
                                 + "own click action still decide. If nothing visibly happened, the "
                                 + "game refused it and would have refused the same click here."
+                              : MapInputGate.IsBlocked
+                              ? "The native map interaction mask is locked; this edge was consumed "
+                                + "without changing selection and will not be replayed after unlock."
                               : "ALREADY the selection at this table — nothing was driven. An edge "
                                 + "that arrives twice therefore costs one comparison, which is why "
                                 + "a duplicated packet cannot double-click anything.")

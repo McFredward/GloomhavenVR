@@ -2068,6 +2068,7 @@ internal static class StoryComposite
     private static bool _curtainLifted;
     private static int _curtainCycles;
     private static bool _curtainCapReported;
+    private static bool _loadoutCurtainOwnerNoted;
     private static string _curtainNames = "none";
     private static string _curtainWhy =
         "the quest-intro story curtain has never been raised in this session";
@@ -2098,12 +2099,12 @@ internal static class StoryComposite
 
     /// <summary>
     /// IS THE CURTAIN HOLDING THIS WINDOW OUT OF THE FLOAT SET RIGHT NOW? The question
-    /// <c>FloatRefusalTable</c> must ask, and — like <see cref="HoldsStoryFloatBack"/> — a PURE
-    /// read with no state and no logging, because that table's verdict is re-entered several times
-    /// per tick from a recursive ancestor walk and every caller must get the same answer.
+    /// <c>FloatRefusalTable</c> must ask from its recursive ancestor walk. The verdict reads only
+    /// current native ownership; a once-per-curtain diagnostic latch never changes the answer.
     ///
-    /// <para>The membership test is by REFERENCE against a set that was frozen at the edge, so this
-    /// method cannot refuse a window that opened afterwards however the level flaps.</para>
+    /// <para>Membership is frozen by reference, but the native loadout reopens the same party
+    /// instance for required decisions. Its released hide request and open window end that
+    /// member's refusal without releasing unrelated story-hidden panels.</para>
     /// </summary>
     internal static bool CurtainRefuses(UIWindow? window)
     {
@@ -2112,7 +2113,22 @@ internal static class StoryComposite
         for (int i = 0; i < CurtainMembers.Count; i++)
         {
             if (ReferenceEquals(CurtainMembers[i], window))
+            {
+                // The native loadout reopens the same party window after the story.
+                // It now owns required decisions even if a quest popup fills the room.
+                if (LoadoutWindowOwnership.IsCurrentContent(window))
+                {
+                    if (!_loadoutCurtainOwnerNoted)
+                    {
+                        _loadoutCurtainOwnerNoted = true;
+                        VRLog.Note(Scope, $"STORY CURTAIN LOADOUT HANDOVER: '{window.name}' " +
+                            "was reopened by the native loadout; its earlier curtain membership " +
+                            "no longer withholds this decision window. Native conversion follows.");
+                    }
+                    return false;
+                }
                 return true;
+            }
         }
         return false;
     }
@@ -2219,6 +2235,7 @@ internal static class StoryComposite
     /// </summary>
     private static void RaiseCurtain(UIWindow? story, UIWindow? loadout)
     {
+        _loadoutCurtainOwnerNoted = false;
         CurtainMembers.Clear();
         ModalFallback.CollectFloatedWindows(CurtainMembers, story);
         // The loadout screen is NOT a curtain member: it has a claim of its own that knows when the
@@ -2256,10 +2273,10 @@ internal static class StoryComposite
                           + "the mod withdraws the floats that are the VR equivalent of the UI it just "
                           + $"took away. FROZEN MEMBER SET, {CurtainMembers.Count} window(s): "
                           + $"[{_curtainNames}]. THE SET IS TAKEN ONCE AND NEVER APPENDED TO — the "
-                          + "battle-goal picker, the party display, the loadout screen and the quest "
-                          + "popup the loadout re-shows all open AFTER this instant and are therefore "
-                          + "out of scope BY CONSTRUCTION, which is the one thing ModBuild 231's "
-                          + "level-triggered version of this rule could not promise. NOTHING IS WRITTEN "
+                          + "new window instances remain out of scope. The native loadout can reopen "
+                          + "the SAME party instance for battle goals, cards and equipment; its "
+                          + "released hide request and open window then exempt that member through "
+                          + "STORY CURTAIN LOADOUT HANDOVER. NOTHING IS WRITTEN "
                           + "TO THE GAME: no Hide, no Escape, no SetActive, no CanvasGroup — this is a "
                           + "FloatRefusalTable refusal (asked at the top of the catch-all loop, so the "
                           + "churn fuse never counts it) and WithdrawRefusedFloat takes down the floats "
@@ -2331,7 +2348,7 @@ internal static class StoryComposite
         for (int i = 0; i < CurtainMembers.Count; i++)
         {
             UIWindow m = CurtainMembers[i];
-            if (m != null && m.IsOpen)
+            if (m != null && m.IsOpen && CurtainRefuses(m))
                 n++;
         }
         return n;
