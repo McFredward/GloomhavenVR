@@ -173,6 +173,10 @@ internal sealed class MapLocationInteractor
     /// the "once per change, naming the node" line.</returns>
     internal bool AdoptSelection(MapLocation? loc, string why)
     {
+        // A remote selection edge has the same admission rule as a local pointer. In
+        // particular it must not deselect the committed quest behind a native map lock.
+        if (MapInputGate.IsBlocked)
+            return false;
         if (ReferenceEquals(loc, _selected))
             return false;
 
@@ -765,6 +769,11 @@ internal sealed class MapLocationInteractor
     private MapLocation? PickFrom(VRHand? hand, out string how)
     {
         how = "no hand";
+        if (MapInputGate.IsBlocked)
+        {
+            how = "the native map interaction mask is locked";
+            return null;
+        }
         if (hand == null || !hand.HasPose)
             return null;
         bool viaBeam = hand.Ray.TryGetPick(out PickPose pick);
@@ -978,6 +987,10 @@ internal sealed class MapLocationInteractor
     internal void SetHover(MapLocation? want, string why, string how = "the fingertip",
                            VRHand? pointer = null)
     {
+        // Both laser and fingertip entries bypass the flat map's full-screen lock mask.
+        // Preserve exit delivery so a lock raised during a hover clears its native preview.
+        if (want != null && MapInputGate.IsBlocked)
+            want = null;
         if (ReferenceEquals(want, _hover))
             return;
 
@@ -1125,17 +1138,11 @@ internal sealed class MapLocationInteractor
         // report: one table click after the quest confirm re-opened the quest list in the middle of
         // the point of no return (second_logs/LogOutput.log:5977 -> :5978).
         //
-        // HOVER IS NOT GATED. The same log has twelve quest-preview cards during that lock and
-        // reading them is the point of the room. Only the DESELECT is refused, and with it trigger
-        // (2) below ("its quest window was closed IS a deselection") for the length of the lock —
-        // which is correct for the same reason: during the lock the flat game cannot close that
-        // window by hand either.
-        if (Singleton<AdventureMapUIManager>.IsInitialized)
-        {
-            AdventureMapUIManager mapUi = Singleton<AdventureMapUIManager>.Instance;
-            if (mapUi != null && mapUi.IsLocked)
-                return;
-        }
+        // Build 500 extends this same native mask to hover and select. The former exemption
+        // for previewing while locked also allowed direct clicks to reopen the quest card
+        // during battle-goal selection (build 499 hardware log), which the flat mask forbids.
+        if (MapInputGate.IsBlocked)
+            return;
 
         // (2) the window that the selection opened has gone. GRACE FIRST: the popup takes a few
         // frames to come up after the click, and testing it immediately would deselect the location
@@ -1442,6 +1449,8 @@ internal sealed class MapLocationInteractor
 
     private void Deselect(string why)
     {
+        if (MapInputGate.IsBlocked)
+            return;
         MapLocation? sel = _selected;
         _selected = null;
         _selectedDecisionId = null;
@@ -2238,6 +2247,11 @@ internal sealed class MapLocationInteractor
     /// </summary>
     internal void Dispatch(MapLocation loc, string source, VRHand? hand = null)
     {
+        // OnPointerClick/OnMapLocationSelect do not test the map's interaction mask:
+        // normal input cannot reach them through it. Gate BEFORE either the capital route
+        // or pointer dispatch, including direct fingertip and remote selection calls.
+        if (MapInputGate.IsBlocked)
+            return;
         if (loc == null)
             return;
 

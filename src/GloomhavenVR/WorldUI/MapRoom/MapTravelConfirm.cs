@@ -1018,7 +1018,15 @@ internal static class MapTravelConfirm
         // UIReadyToggle.IsVisible is literally `window.IsOpen` (decompiled UIReadyToggle.cs:138).
         // Reading activeInHierarchy for it would report "shown" forever and the confirm would stand
         // on the quest card after the game had taken it away.
-        bool active = options.activeInHierarchy && (!_parkedIsReadyToggle || ReadyToggleVisible());
+        // Build 500: an adopted offline container no longer sits behind the native map's
+        // interaction mask. After story/loadout transitions it can remain active while the
+        // manager is locked, exposing an inert Reisen button on the persistent quest card.
+        // Use the same lock verdict as AdventureMapUIManager.OnTravelButtonClick. This only
+        // hides our presentation; it never unlocks the map or invokes a game callback. Online
+        // readiness retains its own window/state gate, which is independent of this map lock.
+        bool active = options.activeInHierarchy && (_parkedIsReadyToggle
+            ? ReadyToggleVisible()
+            : mgr != null && !MapInputGate.IsBlockedBy(mgr));
         if (active != _wasActive)
         {
             _wasActive = active;
