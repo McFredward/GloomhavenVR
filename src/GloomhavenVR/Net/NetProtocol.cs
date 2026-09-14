@@ -490,7 +490,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 503;
+    public const ushort ModBuild = 504;
+
+    // ModBuild 504 — build the self-update dialog with actual uGUI transforms.
+    //   A 0.9.0 main-menu update check successfully parsed the public release and found a newer
+    //   version, then threw InvalidCastException in SelfUpdateDialog.BuildProgressRow before the
+    //   player could see the prompt. Its Progress, Track and Fill nodes were plain GameObjects
+    //   whose Transform was cast to RectTransform. Every dialog layout node is now explicitly a
+    //   RectTransform. The production dialog harness builds the full choice/progress path and
+    //   mutates Progress back to a bare Transform as a negative control; that mutant must throw.
+    //   Version remains 1.0.1, DLL-only since 483, no wire or asset change. Hardware confirmation
+    //   remains required; all VR peers use 504.
 
     // ModBuild 503 — show the current value of a combined gold pile in a held-prop card.
     //   The native hover totals every MoneyToken on a tile and then applies GoldConversion, but

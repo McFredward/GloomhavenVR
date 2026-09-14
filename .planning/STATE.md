@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for the combined-gold held-card hotfix, ModBuild 503 (version 1.0.0).** The file this replaces had gone 168 builds
+**Updated 2026-09-15 for the self-update prompt repair, ModBuild 504 (version 1.0.1 on dev).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,12 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.1 / ModBuild 504 repairs the self-update prompt.** The 0.9.0 hardware log proves that
+  the public latest-release request and version comparison succeeded, then a bare `Transform` in
+  `SelfUpdateDialog.BuildProgressRow` threw before the dialog could be drawn. Every dialog layout
+  node now has an explicit `RectTransform`; a production harness constructs the choice/progress
+  path and mutates the Progress node back to the failing form as a negative control. See
+  [UPDATE-504.md](UPDATE-504.md). Headset confirmation remains pending.
 - **1.0.0 / ModBuild 503 makes held gold-pile cards match the laser-hover amount.** Native hover
   totals every `MoneyToken` on the tile, while the held card had only applied `GoldConversion` to
   its one grabbed token. A combined pile can now show the same current total in both views without
