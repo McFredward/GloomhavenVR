@@ -28,8 +28,10 @@ The focused production harness opens the actual choice dialog, exercises progres
 asserts that every affected node is a `RectTransform`. Its source mutation converts Progress back
 to a plain `GameObject`; the harness must then fail with the logged `InvalidCastException`.
 
-## Validation and limit
+## Validation
 
 The focused harness, strict Release build, refactor guard, mirrors and bilingual docs pass. The
-next headset run must start a 0.9.0 installation at the main menu and verify the visible update
-choice plus the install path.
+headset retest used `install.ps1 -FakeVersion 0.9.0` and confirmed the visible update prompt.
+The installer now combines the temporary version with `GhvrReleaseBuild=true`, so that test uses
+the same enabled updater path as a published release instead of the deliberately disabled dev
+build path. It does not alter the checkout or create a release ZIP.

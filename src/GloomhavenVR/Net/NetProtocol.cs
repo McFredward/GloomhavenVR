@@ -499,8 +499,10 @@ internal static class NetProtocol
     //   whose Transform was cast to RectTransform. Every dialog layout node is now explicitly a
     //   RectTransform. The production dialog harness builds the full choice/progress path and
     //   mutates Progress back to a bare Transform as a negative control; that mutant must throw.
-    //   Version remains 1.0.1, DLL-only since 483, no wire or asset change. Hardware confirmation
-    //   remains required; all VR peers use 504.
+    //   The final 1.0.0 refresh also adds install.ps1 -FakeVersion for testing this exact update
+    //   path: it stamps a lower semantic version while retaining release-build semantics. The
+    //   headset test confirmed the prompt appears. DLL-only since 483, no wire or asset change;
+    //   all VR peers use 504.
 
     // ModBuild 503 — show the current value of a combined gold pile in a held-prop card.
     //   The native hover totals every MoneyToken on a tile and then applies GoldConversion, but
