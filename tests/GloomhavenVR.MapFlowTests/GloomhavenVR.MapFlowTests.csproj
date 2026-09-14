@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LoadoutSource Condition="'$(LoadoutSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/LoadoutWindowOwnership.cs</LoadoutSource>
+    <StorySource Condition="'$(StorySource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/StoryComposite.cs</StorySource>
+    <MapGateSource Condition="'$(MapGateSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapInputGate.cs</MapGateSource>
+    <InteractorSource Condition="'$(InteractorSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapLocationInteractor.cs</InteractorSource>
+    <TravelSource Condition="'$(TravelSource)' == ''">../../src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs</TravelSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(LoadoutSource)" Link="Production/LoadoutWindowOwnership.cs" />
+    <Compile Include="$(MapGateSource)" Link="Production/MapInputGate.cs" />
+    <Compile Include="$(IntermediateOutputPath)MapPolicies.g.cs" />
+  </ItemGroup>
+  <Target Name="ExtractProductionMapPolicies" BeforeTargets="BeforeCompile">
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/extract-map-policies.py&quot; &quot;$(StorySource)&quot; &quot;$(InteractorSource)&quot; &quot;$(TravelSource)&quot; &quot;$(IntermediateOutputPath)MapPolicies.g.cs&quot;" />
+  </Target>
+</Project>
