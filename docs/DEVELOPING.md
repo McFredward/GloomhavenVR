@@ -93,6 +93,20 @@ adding a device-specific illustration.
 
    `scripts\uninstall.ps1` reverses it, including the `boot.config` restore.
 
+### Test the updater against a published release
+
+Build and deploy the current checkout while stamping only its runtime semantic version as an older
+one:
+
+```powershell
+.\scripts\install.ps1 -GamePath "C:\...\Gloomhaven" -FakeVersion 0.9.0
+```
+
+`-FakeVersion` accepts only `MAJOR.MINOR.PATCH`. It passes that value to MSBuild without changing
+the checkout, leaves the source `ModBuild` intact and automatically skips release-ZIP packaging.
+Use a version below the public latest release, start the game in single-player and wait for the main
+menu. This is for updater testing only; do not join VR multiplayer with that installation.
+
 ## Packaging a release
 
 ```sh

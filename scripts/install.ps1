@@ -41,6 +41,8 @@
     .\scripts\install.ps1
 .EXAMPLE
     .\scripts\install.ps1 -GamePath "D:\Games\Gloomhaven"
+.EXAMPLE
+    .\scripts\install.ps1 -GamePath "D:\Games\Gloomhaven" -FakeVersion 0.9.0
 #>
 param(
     [string]$GamePath = "",
@@ -51,11 +53,26 @@ param(
     # so it is on by default — this is for a fast iterate-and-test loop.
     [switch]$NoPackage,
     # Use an explicitly built local Unity bundle instead of the committed asset set.
-    [switch]$UseLocalBundle
+    [switch]$UseLocalBundle,
+    # Test-only semantic version passed to MSBuild without editing the checkout. This lets a
+    # current updater implementation test the public update path against a newer release.
+    [string]$FakeVersion = ""
 )
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+
+# A test install must still be an ordinary production-shaped build; only BuildInfo.Version is
+# overridden. Keep the input narrow so it reaches MSBuild as one inert property value, never as an
+# additional command-line option. package-release.ps1 reads the checked-in Version and would label
+# the deployed fake DLL as a real archive, so a fake-version install deliberately creates no ZIP.
+if ($FakeVersion -and $FakeVersion -notmatch '^\d+\.\d+\.\d+$') {
+    Write-Error "-FakeVersion must use MAJOR.MINOR.PATCH, for example -FakeVersion 0.9.0."
+}
+if ($FakeVersion) {
+    $NoPackage = $true
+    Write-Host "TEST BUILD: stamping version $FakeVersion without changing the checkout; release ZIP packaging is skipped." -ForegroundColor Yellow
+}
 
 # Ignored Unity output can be stale. Select the committed asset set by default and
 # reject a missing explicitly requested local build before any installation writes.
@@ -248,7 +265,7 @@ if ($depsMissing) {
 }
 
 # --- 6. build the mod -------------------------------------------------------
-Step "Building GloomhavenVR ($Configuration)"
+Step "Building GloomhavenVR ($Configuration)$(if ($FakeVersion) { ", test version $FakeVersion" })"
 
 # Show exactly which commit is being built and warn on a behind/dirty tree, so a stale
 # DLL can never be deployed unnoticed (the running mod logs the same stamp on startup).
@@ -264,7 +281,11 @@ if ($behind -and [int]$behind -gt 0) {
     Write-Host "    WARNING: branch is $behind commit(s) BEHIND upstream - 'git pull' for the latest." -ForegroundColor Red
 }
 
-Invoke-RepoDotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo
+if ($FakeVersion) {
+    Invoke-RepoDotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo "-p:Version=$FakeVersion"
+} else {
+    Invoke-RepoDotnet build (Join-Path $root "GloomhavenVR.sln") -c $Configuration --nologo
+}
 if ($LASTEXITCODE -ne 0) { Write-Error "Build failed." }
 
 # --- 7. deploy into the game ------------------------------------------------
