@@ -13,7 +13,7 @@
     <img src="https://img.shields.io/badge/Supported Game version-1.1.8307.0-yellow.svg" alt="Supported game version">
   </a>
   <a href="https://github.com/McFredward/GloomhavenVR/releases/latest">
-    <img src="https://img.shields.io/github/v/release/McFredward/GloomhavenVR?color=7c3aed" alt="Latest release">
+    <img src="https://img.shields.io/github/v/release/McFredward/GloomhavenVR?color=7c3aed&amp;cacheSeconds=300&amp;v=1.0.0" alt="Latest release">
   </a>
 </p>
 

@@ -192,7 +192,7 @@ internal sealed class SelfUpdateDialog
 
     private void Build()
     {
-        var go = new GameObject("GloomhavenVR.SelfUpdateDialog") { layer = 5 };
+        var go = new GameObject("GloomhavenVR.SelfUpdateDialog", typeof(RectTransform)) { layer = 5 };
         _root = go;
         _canvas = go.AddComponent<Canvas>();
         _canvas.renderMode = RenderMode.WorldSpace;
@@ -201,7 +201,7 @@ internal sealed class SelfUpdateDialog
         var rect = (RectTransform)go.transform;
         rect.sizeDelta = new Vector2(PanelWidth, PanelHeight);
 
-        var bg = new GameObject("Background") { layer = 5 };
+        var bg = new GameObject("Background", typeof(RectTransform)) { layer = 5 };
         bg.transform.SetParent(go.transform, worldPositionStays: false);
         var image = bg.AddComponent<Image>();
         image.color = new Color(0.09f, 0.10f, 0.16f, 0.96f);
@@ -251,7 +251,11 @@ internal sealed class SelfUpdateDialog
 
     private void BuildProgressRow(Transform parent)
     {
-        var row = new GameObject("Progress") { layer = 5 };
+        // The 0.0.9 update check reached ShowChoice, then this bare Transform cast threw before
+        // the prompt could render (Player.log: SelfUpdateDialog.BuildProgressRow:257). These are
+        // uGUI layout nodes, so create their RectTransforms explicitly; adding an Image later is
+        // not a contract that may be relied upon to replace a Transform.
+        var row = new GameObject("Progress", typeof(RectTransform)) { layer = 5 };
         _progressRow = row;
         row.transform.SetParent(parent, worldPositionStays: false);
         var rowRect = (RectTransform)row.transform;
@@ -261,7 +265,7 @@ internal sealed class SelfUpdateDialog
         rowRect.anchoredPosition = new Vector2(0f, 124f);
         rowRect.sizeDelta = new Vector2(-56f, 74f);
 
-        var track = new GameObject("Track") { layer = 5 };
+        var track = new GameObject("Track", typeof(RectTransform)) { layer = 5 };
         track.transform.SetParent(row.transform, worldPositionStays: false);
         var trackImage = track.AddComponent<Image>();
         trackImage.color = new Color(0.05f, 0.06f, 0.09f, 1f);
@@ -273,7 +277,7 @@ internal sealed class SelfUpdateDialog
         trackRect.anchoredPosition = Vector2.zero;
         trackRect.sizeDelta = new Vector2(0f, 28f);
 
-        var fill = new GameObject("Fill") { layer = 5 };
+        var fill = new GameObject("Fill", typeof(RectTransform)) { layer = 5 };
         fill.transform.SetParent(track.transform, worldPositionStays: false);
         var fillImage = fill.AddComponent<Image>();
         fillImage.color = new Color(0.42f, 0.66f, 0.44f, 1f);
@@ -336,7 +340,7 @@ internal sealed class SelfUpdateDialog
     private static TextMeshProUGUI MakeText(Transform parent, string name, string text, float size,
         FontStyles style, TextAlignmentOptions align)
     {
-        var go = new GameObject(name) { layer = 5 };
+        var go = new GameObject(name, typeof(RectTransform)) { layer = 5 };
         go.transform.SetParent(parent, worldPositionStays: false);
         var tmp = go.AddComponent<TextMeshProUGUI>();
         tmp.text = text;
@@ -351,7 +355,7 @@ internal sealed class SelfUpdateDialog
     private static GameObject MakeButton(Transform parent, string name, Color color, float anchorX,
         out TextMeshProUGUI label, UnityEngine.Events.UnityAction onClick)
     {
-        var go = new GameObject(name) { layer = 5 };
+        var go = new GameObject(name, typeof(RectTransform)) { layer = 5 };
         go.transform.SetParent(parent, worldPositionStays: false);
         var image = go.AddComponent<Image>();
         image.color = color;

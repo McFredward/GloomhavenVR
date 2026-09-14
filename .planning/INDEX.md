@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-15 for the combined-gold held-card hotfix, build 503. This directory holds internal
+Updated 2026-09-15 for the final 1.0.0 refresh, build 504. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [UPDATE-504.md](UPDATE-504.md): public update check reaches the prompt; the prompt now builds
+  its uGUI layout with valid RectTransforms, confirmed through the release-mode fake-version test.
 - [GOLD-503.md](GOLD-503.md): current combined gold-pile value in held-prop cards.
 - [MAP-502.md](MAP-502.md): native outer/inner party-window handover after quest introductions.
 - [MAP-502-EVIDENCE.md](MAP-502-EVIDENCE.md): two single-player reproductions and the multiplayer fallback comparison.

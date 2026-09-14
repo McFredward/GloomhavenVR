@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <DialogSource Condition="'$(DialogSource)' == ''">../../src/GloomhavenVR/WorldUI/SelfUpdateDialog.cs</DialogSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(DialogSource)" Link="Production/SelfUpdateDialog.cs" />
+  </ItemGroup>
+</Project>
