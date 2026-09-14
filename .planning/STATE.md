@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-14 for the map story/loadout hotfix, ModBuild 500 (version 1.0.0).** The file this replaces had gone 168 builds
+**Updated 2026-09-14 for the multiplayer animation hotfix, ModBuild 501 (version 1.0.0).** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,21 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.0 / ModBuild 501 fixes remote animation handovers.** Matching build 500 logs
+  identify a flight starting while its remote source recess is still occupied; remote
+  dock clearing additionally kept a stationary crumble beneath the flying copy. Source and
+  destination ownership now survive delayed seating, overlapping flights and character changes.
+  Held figures return to the board before native movement/facing/animation reads, with stale
+  held samples rejected until release/switch. Recovery flights use native hand provenance.
+  See [MP-501.md](MP-501.md), its independent reviews and hardware replay checklist.
+- **501 local gates:** all 17 source checkers, 253,579 wire assertions and existing production
+  suites; new flight tests cover 782 assertions/eight negative controls and figure tests cover
+  1,440 assertions/six negative controls. Strict Release has zero warnings/errors; bilingual
+  docs pass. Compiled review: 21 changed types (six build-constant-only), two new patch types,
+  no removal. Config remains 625, patch signatures 152 to 160, log markers 4,718 to 4,719.
+- **501 retains version 1.0.0 and is integrated on dev.** Existing main/tag `v1.0.0` remains build 498.
+  New regression harnesses run in both CI and main release checks. Final headset timing remains
+  unverified until the next hardware test.
 - **1.0.0 / ModBuild 500 fixes a map preparation softlock.** Current offline 499 logs show
   native battle goals opened under a party root still refused by frozen story-curtain
   membership. The native loadout's released hide request now admits its original root and

@@ -490,7 +490,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 500;
+    public const ushort ModBuild = 501;
+
+    // ModBuild 501 — atomic remote card departures and held-figure action handovers.
+    //   Both build 500 clients (7745d90c8) log flight start while the source recess remains
+    //   occupied. Remote dock clearing additionally ran its own 0.30 s crumble under the arc.
+    //   Flight ownership now blanks the source immediately and fences stale seating until
+    //   empty/replacement content or an explicit new arrival. Incoming recess/active/hand
+    //   cards stay with their flight until landing; focus changes and paired slots retain
+    //   independent ownership. Active landing overrides only its own arrival grace, and obsolete
+    //   delayed arrivals cannot overwrite newer departures. Pick-restart hand returns use existing
+    //   positional provenance and the native fan home pose, rotation, scale and landing handover.
+    //   Native SetLocoTarget sampled a remote-held root before its release packet arrived,
+    //   making the hand pose the movement origin. Release cosmetic holds before native motion
+    //   and facing setup, and before an available non-idle animation plays. Interrupted remote
+    //   holds remain rejected through delayed samples, slot shifts and actor replacement until
+    //   release/switch. Normal idle manual releases still glide; action releases are immediate
+    //   under the user's latest ruling. No native game position, path or action is forged.
+    //   Production regression harnesses cover the handovers and are included in CI/release.
+    //   Headset confirmation of frame timing remains required. Version stays 1.0.0; existing
+    //   main/tag/assets unchanged. DLL-only since 483, GVR1/v3 and record layouts unchanged;
+    //   all VR peers require 501. See .planning/MP-501.md and the linked evidence/reviews.
 
     // ModBuild 500 — unblock native battle goals after map story and honor map input locks.
     //   Current offline build 499 logs prove the game reopened its original party window for

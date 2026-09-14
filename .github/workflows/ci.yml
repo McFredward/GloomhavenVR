@@ -308,6 +308,8 @@ jobs:
           bash scripts/board-refresh-tests.sh
           bash scripts/card-loss-modal-tests.sh
           bash scripts/map-flow-tests.sh
+          bash scripts/flight-timing-tests.sh
+          bash scripts/figure-hold-tests.sh
 
       - name: Wire tests (compile only — see docs/CI-CD.md)
         run: |

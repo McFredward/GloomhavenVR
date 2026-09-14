@@ -20,8 +20,8 @@ occurred" dialog, and the session is shut down with a single Main Menu button.
 
 `check-desync-surface.py` knows **37** such receiver types, weighted by how many of the
 ~121 dispatch entries reach each one. The mod patches **seven** of them, and the table
-below carries **17** patch classes (3 CANNOT-THROW, 4 GUARDED-DEEPER, 6 ISOLATED,
-4 SELF-GUARDED) — the gate prints those figures every run, so read them from it rather
+below carries **18** patch classes (3 CANNOT-THROW, 4 GUARDED-DEEPER, 6 ISOLATED,
+5 SELF-GUARDED) — the gate prints those figures every run, so read them from it rather
 than from here.
 
 The seven, with their weight: `Choreographer` (27 actions — the heaviest in the game),
@@ -39,7 +39,7 @@ Full analysis, with the evidence:
 | verdict | meaning |
 |---|---|
 | **ISOLATED** | The body is wrapped in `Net.Desync.DispatchGuard`. A throw is logged with its stack and never reaches the game's dispatch. |
-| **SELF-GUARDED** | The body carries its own `try/catch` with a stated fallback, written before this ledger existed. |
+| **SELF-GUARDED** | The body carries its own `try/catch` with a stated fallback. |
 | **GUARDED-DEEPER** | The body's only real work is one call that is already guarded one level down (today: `VREvents.Invoke`, whose own doc says a subscriber exception must never propagate into the game's message pump). Wrapping it again would add noise, not safety. |
 | **CANNOT-THROW** | The body is a constant expression or a single field write. There is nothing in it that can throw. |
 | **WAIVED** | Judged exposed but deliberately left unguarded, with the reason in the note. There are none today. |
@@ -52,6 +52,7 @@ Full analysis, with the evidence:
 | `CardsHandManager_ShowAll_Patch` | CardsHandManager | **GUARDED-DEEPER** | `HandSuppression.Arm()` (one bool write) then `VREvents.Raise` with a literal payload. |
 | `CardsHandManager_ShowHands_Patch` | CardsHandManager | **ISOLATED** | The one Show postfix that reads live game state (`ActivePlayer`, `m_PushPopCardHandMode`) *before* reaching the guarded `Raise`. Wrapped in ModBuild 334. |
 | `CardsHandManager_ShowList_Patch` | CardsHandManager | **GUARDED-DEEPER** | As `ShowAll`: a bool write and a `Raise` whose payload comes from the patched method's own arguments. |
+| `Choreographer_HeldFigureAction_Patch` | Choreographer | **SELF-GUARDED** | Main-thread cosmetic hold release before native movement/aim/animation reads. The presentation probe is inside `try/catch`; a failure is logged and the original message always runs. No native queue, arguments or gameplay state are changed. |
 | `Choreographer_ProcessMessage_Patch` | Choreographer | **GUARDED-DEEPER** | Null-checks the message, then `VREvents.Raise`. Runs inside Choreographer's ~8 ms/frame pump, so it must also stay cheap. |
 | `Choreographer_SetChoreographerState_Patch` | Choreographer | **GUARDED-DEEPER** | A single `VREvents.Raise` of the enum argument. |
 | `Choreographer_TileHandler_OwnershipGuard` | Choreographer | **SELF-GUARDED** | Full `try/catch` returning `true` — "a throwing guard must never eat the game's click dispatch". The model the other verdicts are measured against. |

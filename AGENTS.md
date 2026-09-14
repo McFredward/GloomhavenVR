@@ -50,3 +50,8 @@ already limited to controlled characters; do not add remote secrecy gates to loc
 The build 490 hardware report (2026-09-09) explicitly confirms that the entire 3D map
 environment is public: neither local nor remote fans, held cards or other map card surfaces
 may be concealed. Artwork construction failures are rendering defects, not privacy decisions.
+
+The build 500 hardware ruling (2026-09-14) requires immediate return of a held figure to
+its board position before any non-idle action starts, locally and for remote observers.
+This supersedes the older forced-release glide ruling; ordinary idle manual releases keep
+their usual glide. Native movement must never derive its start from a hand-held transform.

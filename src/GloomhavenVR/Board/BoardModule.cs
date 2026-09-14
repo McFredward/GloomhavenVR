@@ -116,6 +116,9 @@ internal sealed class BoardModule : IVRModule
         // P8: suppress the game's per-frame figure-transform writes for HELD actors only,
         // so a grabbed mini can ride the hand (gated by HeldFigures.Owns).
         VRSession.Harmony?.PatchAll(typeof(FigureGrab.ActorBehaviour_HeldTransform_Patch));
+        // Return held figures before native action setup samples their transform or plays a clip.
+        VRSession.Harmony?.PatchAll(typeof(FigureGrab.Choreographer_HeldFigureAction_Patch));
+        VRSession.Harmony?.PatchAll(typeof(FigureGrab.MF_HeldFigureAnimation_Patch));
         // USER-BUG: during the action phase, laser-clicking a NON-current player's initiative
         // avatar re-docked the wrong actor's cards and deadlocked the action board. Reject that
         // human click with the game's own invalid-click SFX, keeping the current actor selected.

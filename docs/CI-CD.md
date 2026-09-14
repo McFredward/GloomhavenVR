@@ -144,8 +144,9 @@ order, instrument writes, remote defaults, tuning IDs, network-action receivers,
 hardware-verification logging and option reachability. The workflow files list the
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
-The card-capture, native-playback, board-refresh, card-loss-modal and map-flow harnesses execute production source
-with controlled Unity API substitutes and deliberate failing variants. These run on
+The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, flight-timing
+and figure-hold harnesses execute production source with controlled Unity API substitutes
+and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
 presentation-send reuse. Their coverage does not replace the full wire vectors or a
 headset test.
@@ -158,6 +159,11 @@ controls reject both missing suppression and accidental suppression of real moda
 and input admission in the map interactor. It covers reusing the party root after the story,
 native multiplayer barriers and map locks, with negative controls for missing integration,
 overbroad curtain release and inappropriate travel visibility.
+
+`scripts/flight-timing-tests.sh` checks transfer of card presentation between a board seat
+and a flight, including stale state and arrival ownership. `scripts/figure-hold-tests.sh`
+checks that native action setup receives the board pose and delayed held samples cannot
+reclaim an action-released figure. Both include production integration checks.
 
 ## Temporary development downloads
 

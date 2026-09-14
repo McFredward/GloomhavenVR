@@ -178,3 +178,15 @@ from (never `cardsToggle` / `CardWindowSelected`), and what the merchant/temple/
 path (`OnClick:837-856`), the multiplayer assign-role button (`OnClickAssignRole`), the FTUE and the
 gamepad flow are all outside the gate. Every panel the auto-open could have opened — the class/info
 sheet and the battle goal — stays one click away on its own icon in the same row.
+
+## Held figure action handover (ModBuild 501)
+
+`Choreographer_HeldFigureAction_Patch` releases affected cosmetic holds before native
+message processing reads movement origins or attack-facing positions. It follows the native
+main-thread and phase guards and always allows the original message body to run. Its own
+exception boundary prevents a presentation failure from entering network desync handling.
+`MF_HeldFigureAnimation_Patch` covers actual available non-idle clips, including aura actors;
+missing clips and idle loops leave inspection holds intact. Both are explicitly registered
+in `BoardModule`. Five additional `ActorBehaviour_HeldTransform_Patch` prefixes restore
+the board pose before native movement setters capture their origin. No gameplay callback
+is skipped and no authoritative position or movement path is written.
