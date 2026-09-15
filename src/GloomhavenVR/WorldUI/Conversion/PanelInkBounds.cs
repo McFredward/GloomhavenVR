@@ -585,7 +585,12 @@ internal static class PanelInkBounds
                             ink.Transient++;
                             ink.TransientMask |= 1 << family;
                         }
-                        else if (plateTestUsable && visible.width >= plateW && visible.height >= plateH)
+                        // A movie's sole RawImage IS its content, despite filling the frame. In
+                        // build 505 the generic backdrop exclusion left no ink and hid its grab
+                        // bar after two empty samples. Exempt only the declared content identity:
+                        // all visibility/alpha/clip checks above and other backdrop rules remain.
+                        else if (!ReferenceEquals(graphic, panel.ContentGraphic)
+                                 && plateTestUsable && visible.width >= plateW && visible.height >= plateH)
                         {
                             ink.Plates++;
                             // ModBuild 449 — THE PLATE STILL CONTRIBUTES NOTHING TO THE UNION, and

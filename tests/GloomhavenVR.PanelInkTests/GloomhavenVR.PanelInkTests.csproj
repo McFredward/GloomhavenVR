@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <InkSource Condition="'$(InkSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs</InkSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(InkSource)" Link="Production/PanelInkBounds.cs" />
+  </ItemGroup>
+</Project>
