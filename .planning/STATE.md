@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for tutorial layout and party placement fixes, ModBuild 508.** The file this replaces had gone 168 builds
+**Updated 2026-09-15 for release 1.0.1 preparation, ModBuild 509.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **1.0.1 / ModBuild 509 is the release candidate requested by the maintainer.**
+  Combat log startup now defaults to off; existing preferences and manual display
+  remain available. This includes the video/tutorial/placement corrections through
+  508. Hosted runner dependency and protected-main release provenance issues found
+  during preparation are being corrected before publication. See
+  [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
 
 - **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**
   The user confirms the deadlock is resolved, and the log completes BuyItem/FTUE.
