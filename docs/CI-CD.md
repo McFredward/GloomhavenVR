@@ -1,6 +1,6 @@
 # CI/CD — build, verification and release
 
-Current workflow reference, reviewed against the tracked scripts on 2026-09-13.
+Current workflow reference, reviewed against the tracked scripts on 2026-09-15.
 Start with [DEVELOPING.md](DEVELOPING.md) for local setup. The workflow files and scripts
 are authoritative; historical build results live in [STATE.md](../.planning/STATE.md).
 
@@ -36,14 +36,26 @@ both packaging paths. Validate the update path when changing the package.
 | Manual CI on `dev`, `upload_dev_build=true` | `ci.yml` | Full build and gates, then an optional temporary DLL download |
 | Push to `main` | `.github/workflows/release.yml` | Build, package, tag and publish; then advance the next version on `dev` |
 
-**Every release comes from `main`.** Integrate work into `dev`, then fast-forward `main`
-to the reviewed `dev` commit when a release is authorized. A push to `main` starts the
-real release pipeline; it is not a dry run or a branch-protection test.
+**Every release comes from `main`.** Integrate work into `dev`, then merge a reviewed
+`dev` → `main` pull request when a release is authorized. Use a merge commit, not a
+squash or rebase merge. The resulting push to `main` starts publication automatically;
+it is not a dry run or a branch-protection test. A direct fast-forward is also supported
+where repository rules permit it, but is not required by the pipeline.
 
-`release.yml` refuses a commit not contained in `dev`. It never commits to `main`:
-its only Git writes are the release tag and the subsequent version bump on `dev`.
-This preserves the next fast-forward. An older design bumped on `main` and made the
-second release a non-fast-forward; `scripts/release-sim.sh --old` preserves that failure.
+`release.yml` requires the candidate to belong to current `main` and either already
+belong to `dev` history or be a two-parent merge whose tree exactly matches its second
+parent, with that parent contained in current `dev`. This permits the ordinary PR merge
+commit while rejecting extra merge-resolution edits and unrelated same-tree commits.
+A concurrently advancing `dev` is allowed: the reviewed source may be its ancestor.
+
+After publication, the pipeline merges the release commit into the current `dev`, verifies
+that this preserves the entire current development tree, and advances its version only
+if it still names the released version. An independently advanced version stays intact,
+including when only the release ancestry needs recording. A rejected push is retried
+against freshly fetched refs; no force-push is used. Nothing commits to `main`.
+
+Both workflows explicitly install `ripgrep` before the production test scripts; hosted
+runner images are not assumed to provide the `rg` command.
 
 `global.json` prefers stable .NET SDK 8.0.4xx and permits a later SDK family when absent.
 Both workflows install .NET 8 and verify that 8.0.4xx was selected. Local .NET 10-only
@@ -56,8 +68,8 @@ The game plugin still targets net472; the SDK version is not the game's runtime 
 
 The release job declares `contents: write` for its `GITHUB_TOKEN`. Repository or
 organization policy must allow it to push `v*` tags, create releases and push the
-bookkeeping commit to `dev`. The maintainer must be able to fast-forward `main`.
-Review the actual repository rules before release; this file does not attest that any
+bookkeeping commits to `dev`. The maintainer must be able to merge the release PR into
+`main`; the workflow does not need a branch-protection bypass. Review the actual repository rules before release; this file does not attest that any
 particular ruleset, visibility setting or account permission is enabled.
 
 A rule that blocks the post-release push to `dev` leaves the release published but the
@@ -106,11 +118,9 @@ arguments only prints it; `--major`, `--minor` and `--patch` change it. Prepare 
 bilingual player summary in `packaging/release-highlights/<version>.md`, commit and
 push the candidate to `dev`, and review its CI result and local gates.
 
-Then fast-forward the release branch:
-
-```bash
-git push origin dev:main
-```
+Open a pull request from `dev` to `main`, review its checks and merge it using
+**Create a merge commit**. Do not squash or rebase the release PR. Its resulting tree
+must match the reviewed `dev` source; resolve any content conflicts on `dev` first.
 
 **This publishes the version already committed in the csproj.** It does not increment
 that version first. Follow the Release run through publication and the `dev` bump;
@@ -240,13 +250,14 @@ use separate limits; do not move release ZIPs into temporary Actions artifacts.
 
 `release.yml` performs these steps in order:
 
-1. Read `<Version>`, reject an existing tag, require a clean tree and containment in `dev`.
+1. Read `<Version>`, reject an existing tag, require a clean tree and verify main/dev provenance.
 2. Build and verify with job-level `GhvrReleaseBuild=true`, including builds inside packaging.
 3. Package and require the exact versioned archive, the asset bundle and an unchanged tracked tree.
 4. Render release notes; recheck that the tag is absent and `main` still contains the candidate.
 5. Push the tag at the candidate commit, then create the release with `--verify-tag` and the archive.
-6. Fetch current `dev` and bump its patch version if it still equals the released version.
-   Retry a rejected push up to three times; preserve any manually advanced version.
+6. Fetch current `dev`, integrate the released merge without changing current dev content,
+   and bump its patch version if it still equals the released version. Retry a rejected
+   push up to three times; preserve any manually advanced version and concurrent work.
 
 Release runs are serialized and not cancelled by a newer push. CI runs may supersede
 older CI runs. The release version bump carries no `[skip ci]`: such a marker could
@@ -263,17 +274,21 @@ bash scripts/release-sim.sh
 bash scripts/release-sim.sh --race
 ```
 
-This simulates Git topology and version bumps, not the hosted build, GitHub API or updater.
+The default suite executes the production provenance/bookkeeping helper against temporary
+local repositories. It covers repeated PR merges, rejected content changes and unrelated
+commits, concurrent dev changes, a rejected push and retry, and a manually advanced version.
+`--old` reproduces the historical main-bookkeeping failure; `--race` runs the current suite,
+including its race cases. It does not simulate the hosted build, GitHub API or updater.
 
 | Failure | Recovery |
 |---|---|
 | Non-fast-forward when publishing `dev:main` | Fetch and integrate the missing `main` history into `dev`; re-run review and gates. Never force-push. |
 | Branch or tag rule rejects a push | Review the actual repository rule and required actor permissions; do not use a real release push as a speculative test. |
 | Existing version tag | Check whether the release already completed and whether the next-version bump landed. Do not overwrite or delete a published tag. The sole documented exception is the build-503 refresh of the existing `v1.0.0` ZIP: it retains the original tag and replaces only the release asset/body from the final `main` commit. |
-| Candidate not contained in `dev` | Integrate that history into `dev` before releasing. |
+| Candidate fails release provenance | Use a normal merge of reviewed `dev` into `main`; its tree must match the dev source parent. Integrate content/conflict resolutions into `dev` first. |
 | Tag exists but release creation failed | Inspect the failed run; recover the release using the already-tested tag and matching archive. Do not retag a different commit. |
 | Optional dev download missing | Read the CI summary and cleanup/upload step. Check artifact quota; deletion may take 6–12 hours to become visible. Checks remain strict. |
-| Release published, next-version bump failed | Update `dev` to the next intended version and commit/push it. Do not rerun publication. |
+| Release published, dev bookkeeping failed | Merge the release commit into current `dev`, preserve concurrent work, and advance the version if still needed. `scripts/release-provenance.sh prepare REPO RELEASE_SHA DEV_SHA MAIN_SHA RELEASE_VERSION` prepares this locally; review and push `dev` normally. Do not rerun publication. |
 | Hundreds of missing game members at compile time | Check game/reference-assembly versions; regenerate stubs as in §2.4. |
 | Archive rejected by updater | Check the public endpoint, expected archive name and `SelfUpdateZip` layout rules. |
 | No release run after a `main` push | Check workflow presence, repository Actions settings and a `[skip ci]` marker in the pushed commit. |

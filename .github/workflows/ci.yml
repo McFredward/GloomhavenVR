@@ -93,6 +93,15 @@ jobs:
           echo "::error::Temporary DLL uploads are available only on dev. Select dev when running CI."
           exit 1
 
+      - name: Install test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ripgrep
+          rg --version
+
+      - name: Release topology regression tests
+        run: bash scripts/release-sim.sh
+
       - name: Artifact cleanup regression tests
         run: python3 -m unittest discover -s tests -p 'test_prune_dev_artifacts.py'
 
