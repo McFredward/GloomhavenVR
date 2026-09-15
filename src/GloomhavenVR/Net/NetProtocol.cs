@@ -492,7 +492,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 506;
+    public const ushort ModBuild = 507;
+
+    // ModBuild 507 — restore native savegame tutorial input and readable hints.
+    //   The 506 hardware log names CLICK WITHHELD on Movie: its deliberately disabled
+    //   identity-only UIWindow triggered the pooled-native-window Start guard. Admit only
+    //   the exact live movie surface; campaign clicks use native Escape, hero movies use
+    //   the decoder's original completion callback, never raw Stop or a mirror continuation.
+    //   The screenshot's tiny HelpText is a desktop-wide native line shrunk into a party
+    //   column. Reflow its original TMP and border at authored font size; restore all layout
+    //   settings on handback. Retire a previous standalone panel's pending dissolve before
+    //   recording the hint's native home, so its old release callback cannot steal it back.
+    //   The merchant actually exited, but BuyItem stayed active: off-bar UIGuildmasterButton
+    //   Select uses silent SetValue and omits the FTUE toggle listener. Dispatch the native
+    //   toggle change (and sibling deselections) once so tutorial hints and locks advance
+    //   through the game's own callbacks. Never unlock travel or complete FTUE from a timer.
+    //   Production pointer/sweep, hint, and off-bar dispatch tests include negative controls.
+    //   See .planning/SAVEGAME-507.md. Headset replay remains required. Version 1.0.1,
+    //   DLL-only since 483, no wire change; all VR peers use 507.
 
     // ModBuild 506 — keep native movie windows in the ordinary grab lifecycle.
     //   The 505 retest shows the movie but repeated first-time bar transitions into hidden

@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for native movie window lifecycle fixes, ModBuild 506.** The file this replaces had gone 168 builds
+**Updated 2026-09-15 for native savegame tutorial continuation fixes, ModBuild 507.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **1.0.1 / ModBuild 507 repairs savegame tutorial input and hint layout.**
+  The live movie surface now accepts laser/poke skip through native continuation.
+  Original HelpText wraps at authored font size; pending standalone dissolve callbacks
+  are retired before owner adoption. The merchant-to-map dispatcher now emits complete
+  native toggle events: its former silent Select omitted the FTUE listener, leaving
+  BuyItem active and blocking quest progression. Native tutorial/travel locks remain
+  authoritative. See [SAVEGAME-507.md](SAVEGAME-507.md). Headset replay remains required.
+- **507 source and regression gates pass:** all 17 checkers, 253,674 wire assertions
+  and production suites; movie 66 assertions/six negative controls, hints 38/five,
+  native off-bar dispatch 10/two. Surfaces remain 625/161/4,723. Retained build-502
+  compiled comparison: 30 changed types, 13 additions, no removals. Strict Release
+  has zero warnings/errors; bilingual documentation and whitespace checks pass.
 
 - **1.0.1 / ModBuild 506 corrects the movie-window regression reported on 505.**
   The ordinary orphan sweep now recognizes the live video's exact grab holder,

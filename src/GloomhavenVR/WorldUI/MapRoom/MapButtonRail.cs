@@ -2393,27 +2393,27 @@ internal sealed class MapButtonRail
     /// — writing <c>SetActive(true)</c>, calling <c>EnableHeadquartersOptions(us, true)</c>, or
     /// dropping the player's map selection to make the game write it back — was a write war, a
     /// measured no-op, or a press that ate what the player had just done. The class doc lists all
-    /// three as rejected and they stay rejected. NOTHING HERE WRITES TO THE GAME'S UI STATE.</para>
+    /// three as rejected and they stay rejected. This route does not change container visibility
+    /// or native tutorial/travel locks.</para>
     ///
     /// <para><b>THE NUMBER IS <c>UIGuildmasterHUD.currentMode</c>, and the game hands it out.</b>
-    /// <c>UIGuildmasterButton.Select()</c> (decompiled UIGuildmasterButton.cs:205-212) is public and
-    /// does exactly what a real click ends in: <c>toggle.SetValue(true)</c> then
-    /// <c>OnValueChanged(true)</c> → <c>RefreshSelected()</c> + <c>OnSelected.Invoke(mode)</c>, and
-    /// <c>OnSelected</c> is where <c>UIGuildmasterHUD</c> hangs <c>UpdateCurrentMode</c> (:431, and
-    /// the two hand-written campaign delegates for the map and city buttons at :207-235). It is a
-    /// METHOD CALL, so <c>ExecuteEvents</c>' inactive-target rule never comes into it and the bar
-    /// can stay as down as the game wants. The mode's own <c>Enter()</c> then opens the destination
-    /// window, which is not a child of the bar, so it appears normally and the mod floats it.</para>
+    /// Setting the native <c>Toggle.isOn</c> emits its complete <c>onValueChanged</c> event:
+    /// the button's own callback selects the mode, and separate tutorial listeners advance
+    /// the current FTUE step. <c>UIGuildmasterButton.Select()</c> is not equivalent: its
+    /// <c>SetValue</c> extension suppresses external listeners. Build 506 therefore opened
+    /// WorldMap while leaving BuyItem active. A property assignment works with an inactive
+    /// bar, without bypassing the button's native callback or activating its container.
+    /// The mode's own <c>Enter()</c> opens the destination window for normal VR conversion.</para>
     ///
     /// <para><b>WHY THE GROUP HAS TO BE UNWOUND BY HAND, and it is the game's own rule.</b> uGUI's
     /// <c>Toggle.Set</c> notifies its <c>ToggleGroup</c> only while <c>m_Group.isActiveAndEnabled
     /// &amp;&amp; IsActive()</c>, and the group lives ON the bar (<c>toggleGroup =
     /// optionsContainer.GetComponentInChildren&lt;ToggleGroup&gt;()</c>, :156), so with the bar down
     /// neither term holds and the previously selected toggle would be left ON beside the new one.
-    /// The loop below turns the others off through <c>UIGuildmasterButton.Deselect()</c> — the
-    /// public counterpart, which runs the same <c>RefreshSelected()</c> the group's own notification
-    /// would have run — in the same order a real click produces: old off, then new on. When the bar
-    /// comes back the game finds exactly the state its own click would have left.</para>
+    /// The loop below turns the other owned toggles off with notification, preserving their
+    /// complete native event lists in the same order as a real click: old off, then new on.
+    /// The target is silently normalized first so even a stale-on toggle emits one true event.
+    /// When the bar returns, its toggles reflect the selected mode.</para>
     ///
     /// <para><b>WHAT IS NOT DONE, STATED.</b> No <c>pointerEnter/Down/Up/Click/Exit</c> is sent, so
     /// the game's own press SOUND — which is played by those handlers off the button's serialized
@@ -2430,6 +2430,9 @@ internal sealed class MapButtonRail
     private void SelectThroughTheGamesOwnApi(UIGuildmasterButton button, string source, bool physical)
     {
         EGuildmasterMode mode = button.GuildmasterMode;
+        Toggle? selectedToggle = ToggleOf(button);
+        if (selectedToggle == null)
+            return;
         int deselected = 0;
         string turnedOff = string.Empty;
         try
@@ -2444,19 +2447,23 @@ internal sealed class MapButtonRail
                     continue;
                 if (other.Toggle == null || !other.Toggle.isOn)
                     continue;
-                other.Button.Deselect();
+                other.Toggle.isOn = false;
                 deselected++;
                 turnedOff = turnedOff.Length == 0
                     ? other.Button.GuildmasterMode.ToString()
                     : turnedOff + ", " + other.Button.GuildmasterMode;
             }
 
-            // NORMALISE, THEN SELECT. Select() is a no-op on a toggle that is already on, and a
-            // toggle can be left on by a mode the game exited without the group's help — which is
-            // precisely the state this whole method exists inside. Deselect() first makes the
-            // Select() below unconditional, and it is the same pair a real click produces.
-            button.Deselect();
-            button.Select();
+            // Deliver the real toggle event, including native tutorial listeners. Build 506
+            // used UIGuildmasterButton.Select(), whose SetValue extension temporarily replaces
+            // onValueChanged with an EMPTY event and manually calls only the mode callback.
+            // WorldMap consequently opened, but BuyItem never completed: its help stayed up
+            // and the tutorial retained the travel lock. A hidden ancestor prevents pointer
+            // dispatch and ToggleGroup arbitration, not Toggle.isOn's event delivery. The
+            // sibling loop above supplies the group arbitration; this one value change runs
+            // both the native mode callback and its tutorial listeners exactly once.
+            selectedToggle.SetIsOnWithoutNotify(false);
+            selectedToggle.isOn = true;
         }
         catch (System.Exception ex)
         {
@@ -2494,8 +2501,8 @@ internal sealed class MapButtonRail
                           + "sollen drückbar bleiben bis zum point of no return. Aktuell grauen alle "
                           + "buttons aus wenn eine Quest ausgewählt ist.' HOW: not a pointer event — "
                           + "ExecuteEvents refuses an inactive target — but the game's own public "
-                          + "UIGuildmasterButton.Select(), which is what a real click ends in "
-                          + "(toggle.SetValue(true), RefreshSelected, OnSelected.Invoke -> "
+                          + "Toggle.isOn=true, including all native onValueChanged listeners "
+                          + "(RefreshSelected, OnSelected.Invoke -> "
                           + "UIGuildmasterHUD.UpdateCurrentMode -> the old mode's Exit and this "
                           + $"mode's Enter). {deselected} sibling toggle(s) were turned off by hand "
                           + $"first{(deselected > 0 ? " (" + turnedOff + ")" : string.Empty)}, because "

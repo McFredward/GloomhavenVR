@@ -308,6 +308,7 @@ jobs:
           bash scripts/board-refresh-tests.sh
           bash scripts/card-loss-modal-tests.sh
           bash scripts/map-flow-tests.sh
+          bash scripts/map-button-tests.sh
           bash scripts/flight-timing-tests.sh
           bash scripts/figure-hold-tests.sh
           bash scripts/self-update-dialog-tests.sh

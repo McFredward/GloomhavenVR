@@ -144,7 +144,7 @@ order, instrument writes, remote defaults, tuning IDs, network-action receivers,
 hardware-verification logging and option reachability. The workflow files list the
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
-The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, flight-timing,
+The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, map-button, flight-timing,
 figure-hold, native-video, panel-ink, shared-video-playback and introduction-hint harnesses execute
 production source with controlled Unity API substitutes and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
@@ -161,6 +161,10 @@ the separate outer PartyPanel and inner controller-owned window, native multipla
 and map locks, with negative controls for the former descendant-only ownership check, missing integration,
 overbroad curtain release and inappropriate travel visibility.
 
+`scripts/map-button-tests.sh` executes the production off-bar dispatch. It checks complete
+native toggle notification, sibling deselection and repeated presses; negative controls
+reject the former silent Select/Deselect paths that omitted tutorial listeners.
+
 `scripts/flight-timing-tests.sh` checks transfer of card presentation between a board seat
 and a flight, including stale state and arrival ownership. `scripts/figure-hold-tests.sh`
 checks that native action setup receives the board pose and delayed held samples cannot
@@ -169,10 +173,13 @@ reclaim an action-released figure. Both include production integration checks.
 `scripts/native-video-tests.sh` checks decoded-frame and initial-pose readiness, native intro
 skip routing, video-window cleanup and the actual modal orphan sweep against the live
 movie owner. Negative controls cover lost ownership, missing persistent-lifetime enrollment
-and missing content binding. `scripts/panel-ink-tests.sh` exercises the production ink walker:
+and missing content binding. The actual pointer guard and attached click handler cover
+laser/poke skip, stale playback identities and native hero-movie completion.
+`scripts/panel-ink-tests.sh` exercises the production ink walker:
 full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and
 clipped pixels retain their exclusions. `scripts/hint-tests.sh` checks queued native message
-ownership and atomic removal of a standalone conversion before composite adoption. Their
+ownership, pending standalone dissolve cancellation and native text reflow/restoration
+before composite adoption. Their
 negative controls reject premature empty frames, lost message ownership and missing cleanup.
 `scripts/video-playback-tests.sh` additionally exercises cosmetic decoder failures and native audio
 restoration; wire vectors cover the additive movie record and stale playback identities.
