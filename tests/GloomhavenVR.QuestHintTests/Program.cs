@@ -15,6 +15,9 @@ internal static class Program
 
     private static void Main()
     {
+        var prefix = typeof(QuestPreparationHint).GetMethod("Prefix", BindingFlags.Static | BindingFlags.NonPublic)!;
+        Check(prefix.GetCustomAttribute<HarmonyLib.HarmonyPriority>()?.Priority == HarmonyLib.Priority.Last,
+            "Producer scope must be captured before suppression can skip later prefixes");
         var quest = new UIIntroduceBase();
         var goal = new UIIntroduceBase();
         var manager = new QuestManager { questIntroduction = quest };
@@ -62,6 +65,13 @@ namespace GloomhavenVR.Core
 }
 namespace HarmonyLib
 {
+    public static class Priority { public const int Last = 0; }
+    [AttributeUsage(AttributeTargets.Method)]
+    public sealed class HarmonyPriority : Attribute
+    {
+        public int Priority { get; }
+        public HarmonyPriority(int priority) { Priority = priority; }
+    }
     [AttributeUsage(AttributeTargets.Class)]
     public sealed class HarmonyPatch : Attribute
     {

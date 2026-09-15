@@ -177,8 +177,9 @@ and missing content binding. The actual pointer guard and attached click handler
 laser/poke skip, stale playback identities and native hero-movie completion.
 `scripts/panel-ink-tests.sh` exercises the production ink walker:
 full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and
-clipped pixels retain their exclusions. `scripts/hint-tests.sh` checks queued native message
-ownership, pending standalone dissolve cancellation and native text reflow/restoration
+clipped pixels retain their exclusions. It also tests placement-only annotation exclusion
+in the ink walk and drawn-content union, while hit/chrome bounds retain the hint controls. `scripts/hint-tests.sh` checks queued native message
+ownership, pending standalone dissolve cancellation and native sibling text/frame reflow/restoration
 before composite adoption. Their
 negative controls reject premature empty frames, lost message ownership and missing cleanup.
 `scripts/quest-hint-tests.sh` executes the exact-producer suppression prefix, checking

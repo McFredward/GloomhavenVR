@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-15 for savegame tutorial continuation, build 507. This directory holds internal
+Updated 2026-09-15 for tutorial layout and party placement, build 508. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [TUTORIAL-508.md](TUTORIAL-508.md): sibling text/frame geometry, owner-only corner bounds
+  and user-authorized omission of the premature quest-preparation hint.
 - [SAVEGAME-507.md](SAVEGAME-507.md): native video skip, readable owner hints and complete
   world-map toggle events for the merchant tutorial/quest continuation.
 - [VIDEO-WINDOW-506.md](VIDEO-WINDOW-506.md): persistent movie grab ownership and full-frame ink.

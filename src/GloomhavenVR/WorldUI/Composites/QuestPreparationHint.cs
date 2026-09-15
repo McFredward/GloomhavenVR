@@ -20,6 +20,9 @@ namespace GloomhavenVR.WorldUI;
 [HarmonyPatch(typeof(UIIntroduceBase), "Show", new[] { typeof(IntroductionConfigUI), typeof(Action) })]
 internal static class QuestPreparationHint
 {
+    // HintProducerScopePatch must capture its prior scope before a skipping prefix runs;
+    // its finalizer always restores that captured value, including nested continuations.
+    [HarmonyPriority(Priority.Last)]
     private static bool Prefix(UIIntroduceBase __instance, Action? __1)
     {
         if (!VRSession.IsRunning || !Singleton<QuestManager>.IsInitialized)

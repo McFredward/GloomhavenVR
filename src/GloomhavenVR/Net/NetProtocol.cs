@@ -492,7 +492,24 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 507;
+    public const ushort ModBuild = 508;
+
+    // ModBuild 508 — tutorial hint geometry, preparation flow and stable party placement.
+    //   The 507 hardware retest confirms quest progression but shows HelpText outside its
+    //   border. Native HelpText and BG are siblings under LabelArea; 507 incorrectly treated
+    //   their parent as the border and kept the old offsets, so the measured union stayed
+    //   wide and scaled the text down. Fit the actual native siblings together and restore
+    //   their original layout on release. No replacement text or frame is constructed.
+    //   The quest-selection preparation hint asks to inspect cards while VR is showing story.
+    //   The user permits this specific hint's omission. Suppress only QuestManager's exact
+    //   serialized producer before it creates a process/queue entry, honoring its continuation;
+    //   keep the later battle-goal introduction and all tutorial/travel locks native.
+    //   Party corner re-seating included an adopted hint's geometry in its placement union,
+    //   shifting the owner by 1.072m in the log. Placement excludes adopted hints while their
+    //   pixels remain part of interaction/chrome bounds; ordinary user placement is retained.
+    //   Geometry, placement and exact-producer regressions include failing negative controls.
+    //   See .planning/TUTORIAL-508.md. Version 1.0.1, DLL-only since 483, no wire change;
+    //   all VR peers use 508. Headset verification remains required.
 
     // ModBuild 507 — restore native savegame tutorial input and readable hints.
     //   The 506 hardware log names CLICK WITHHELD on Movie: its deliberately disabled

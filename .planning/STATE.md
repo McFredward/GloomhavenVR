@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for native savegame tutorial continuation fixes, ModBuild 507.** The file this replaces had gone 168 builds
+**Updated 2026-09-15 for tutorial layout and party placement fixes, ModBuild 508.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,15 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**
+  The user confirms the deadlock is resolved, and the log completes BuyItem/FTUE.
+  HelpText and its separate native BG now reflow and align together instead of leaving
+  the border and text apart. Corner placement excludes adopted hint geometry while
+  retaining it for interaction/chrome. The exact quest-preparation hint is omitted
+  under the user's explicit exception; the later battle-goal explanation remains
+  native and all quest/tutorial continuations retain their original authority.
+  See [TUTORIAL-508.md](TUTORIAL-508.md). Final headset confirmation remains required.
 
 - **1.0.1 / ModBuild 507 repairs savegame tutorial input and hint layout.**
   The live movie surface now accepts laser/poke skip through native continuation.
