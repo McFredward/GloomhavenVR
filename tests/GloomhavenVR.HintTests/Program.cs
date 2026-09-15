@@ -101,7 +101,64 @@ internal static class Program
         ModalFallback.Converted.Add(wp);
         Check(!ModalFallback.ReleaseForComposite(window), "An actual user-close cannot be stolen by a composite");
         Check(ModalFallback.Converted.Count == 1 && Events.Trace.Count == 0, "Rejected handover must leave pending close untouched");
-        Console.WriteLine($"Hint provenance and transfer: {_checks} assertions passed.");
+        ModalFallback.Converted.Clear();
+        Events.Trace.Clear();
+        var dying = new ConvertedPanel { Target = window.transform };
+        dying.OnCancel = () => CanvasConversion.Release(dying);
+        CanvasConversion.ActivePanels.Add(dying);
+        Check(ModalFallback.ReleaseForComposite(window), "A reopening hint must adopt from a pending standalone dissolve");
+        Check(dying.Released && CanvasConversion.ActivePanels.Count == 0, "Pending dissolve must release before the composite records native home");
+        Check(dying.ReleaseCount == 1, "Cancel completion must not release a converted target twice");
+        var untouched = new ConvertedPanel { Target = new UnityEngine.Transform() };
+        CanvasConversion.ActivePanels.Add(untouched);
+        var withoutRunner = new ConvertedPanel { Target = window.transform };
+        CanvasConversion.ActivePanels.Add(withoutRunner);
+        Check(ModalFallback.ReleaseForComposite(window) && withoutRunner.Released, "Live conversion without a runner must also hand back synchronously");
+        Check(!untouched.Released && CanvasConversion.ActivePanels.Count == 1, "Composite takeover must not release a different native window");
+        Reflow();
+        Console.WriteLine($"Hint provenance, transfer and reflow: {_checks} assertions passed.");
+    }
+
+    private static void Reflow()
+    {
+        var box = new UnityEngine.RectTransform { sizeDelta = new UnityEngine.Vector2(844, 40) };
+        var text = new TMPro.TMP_Text { text = "Klicke auf den ersten Charakterplatz, um den Personalisten zu öffnen.", enableAutoSizing = true };
+        text.rectTransform.parent = box;
+        text.rectTransform.sizeDelta = new UnityEngine.Vector2(804, 28);
+        var fitter = new UnityEngine.UI.ContentSizeFitter();
+        var textFitter = new UnityEngine.UI.ContentSizeFitter { enabled = false };
+        var layout = new UnityEngine.UI.LayoutGroup();
+        box.Components.Add(typeof(UnityEngine.UI.ContentSizeFitter), fitter);
+        box.Components.Add(typeof(UnityEngine.UI.LayoutGroup), layout);
+        text.transform.Components.Add(typeof(UnityEngine.UI.ContentSizeFitter), textFitter);
+        var reflow = new HintTextReflow();
+        string originalText = text.text;
+        reflow.Apply(text, 280);
+        Check(text.enableWordWrapping && !text.enableAutoSizing && text.fontSize == 24, "Narrow hints must wrap at authored font size instead of shrinking glyphs");
+        Check(box.rect.width == 280 && text.rectTransform.rect.width == 240, "Native border padding must survive narrow-column reflow");
+        Check(text.rectTransform.rect.height > 28 && box.rect.height == text.rectTransform.rect.height + 12, "Wrapped native TMP height must grow its original plate");
+        Check(text.text == originalText, "Reflow must preserve native localized content");
+        Check(!fitter.enabled && !layout.enabled, "Native single-line layout writers must stand down while parked");
+        reflow.Apply(text, 280);
+        Check(text.MeshUpdates == 1, "Unchanged parked hints must not rebuild meshes every frame");
+        text.text += " Noch eine zusätzliche Zeile.";
+        reflow.Apply(text, 280);
+        Check(text.MeshUpdates == 2, "Native localization or content change must recompute wrapped geometry");
+        reflow.Apply(text, 1920);
+        Check(box.rect.width == 844, "Wide owners must not expand hints beyond their native authored width");
+        reflow.Restore();
+        Check(box.sizeDelta.x == 844 && box.sizeDelta.y == 40 && text.rectTransform.sizeDelta.x == 804 && text.rectTransform.sizeDelta.y == 28, "Unpark must restore both native rects exactly");
+        Check(!text.enableWordWrapping && text.enableAutoSizing && text.fontSize == 24, "Unpark must restore native wrapping, sizing and font settings");
+        Check(fitter.enabled && layout.enabled && !textFitter.enabled, "Unpark must restore each original layout writer state");
+        reflow.Apply(text, 280);
+        var nextBox = new UnityEngine.RectTransform { sizeDelta = new UnityEngine.Vector2(600, 60) };
+        var nextText = new TMPro.TMP_Text { text = "Next message" };
+        nextText.rectTransform.parent = nextBox;
+        nextText.rectTransform.sizeDelta = new UnityEngine.Vector2(560, 30);
+        reflow.Apply(nextText, 300);
+        Check(box.rect.width == 844 && fitter.enabled, "Switching native text instances must restore the preceding message");
+        reflow.Restore();
+        Check(nextBox.rect.width == 600 && nextText.rectTransform.rect.width == 560, "New message restore must use its own native layout snapshot");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]

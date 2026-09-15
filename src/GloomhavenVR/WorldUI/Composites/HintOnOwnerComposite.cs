@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GLOO.Introduction;
 using GloomhavenVR.Core;
+using ScenarioRuleLibrary.CustomLevels;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -78,6 +79,8 @@ internal static class HintOnOwnerComposite
     private static object? _message;
     private static HintMessageOrigins.Origin? _origin;
     private static Graphic? _screenDimmer;
+    private static LevelMessageUILayout? _nativeLayout;
+    private static readonly HintTextReflow TextReflow = new();
 
     /// <summary>
     /// PER-HINT LATCHES FOR THE LEDGER, and they are not tidiness. <see cref="ResolveOwner"/> and
@@ -188,6 +191,7 @@ internal static class HintOnOwnerComposite
             _message = null;
             _origin = null;
             _screenDimmer = null;
+            _nativeLayout = null;
             return;
         }
 
@@ -199,6 +203,8 @@ internal static class HintOnOwnerComposite
         {
             if (_parked != null && !ReferenceEquals(_hint, hint))
                 Unpark("a different native introduction window took over");
+            TextReflow.Restore();
+            _nativeLayout = Singleton<UIIntroductionManager>.Instance.LayoutGroup._currentMessage;
             _hint = hint;
             _message = message;
             _origin = HintMessageOrigins.For(message);
@@ -566,6 +572,14 @@ internal static class HintOnOwnerComposite
         }
         float availableWidth = Mathf.Max(1f, Mathf.Min(ownerInk.width, frame.width) - 2f * FrameMarginPx);
         float availableHeight = Mathf.Max(1f, Mathf.Min(ownerInk.height, frame.height) - HintGapPx - FrameMarginPx);
+        if (_nativeLayout != null
+            && _nativeLayout._message?.LayoutType == CLevelMessage.ELevelMessageLayoutType.HelpText
+            && _nativeLayout.title != null)
+        {
+            TextReflow.Apply(_nativeLayout.title, availableWidth);
+            if (!TryPaintedBounds(_parked, win, panel: null, exclude: null, out hintInk, out hintCount))
+                return;
+        }
         // Measure in current scale and compute an absolute authored scale. Never grow beyond the
         // original authored size, and never use the hint to grow the host that determines this fit.
         float ratio = Mathf.Min(availableWidth / hintInk.width, availableHeight / hintInk.height);
@@ -695,6 +709,7 @@ internal static class HintOnOwnerComposite
     /// </summary>
     private static void Unpark(string why)
     {
+        TextReflow.Restore();
         RectTransform? rect = _parked;
         UIWindow? owner = _ownerWindow;
         _parked = null;
@@ -826,6 +841,7 @@ internal static class HintOnOwnerComposite
         _message = null;
         _origin = null;
         _screenDimmer = null;
+        _nativeLayout = null;
         HintMessageOrigins.Reset();
         _verdict = string.Empty;
         _disabledByError = false;
