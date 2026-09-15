@@ -172,8 +172,9 @@ not yours.
 
 ## Requirements and install
 
-**Gloomhaven (Digital)** for PC (Steam or GOG) · Windows · a PC-VR headset with two tracked
-controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
+**Gloomhaven (Digital)** for PC (Steam, GOG, or Epic Games Store) · Windows · a PC-VR headset
+with two tracked controllers · room-scale. It was developed on a Quest 3 over Virtual Desktop.
+For Epic, give the installer the game folder with `-GamePath`.
 
 [→ Install guide](INSTALL.md) · [→ Playing & controls](docs/PLAYING.md)
 
