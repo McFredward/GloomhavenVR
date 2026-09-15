@@ -97,6 +97,11 @@ internal sealed class WorldUIModule : IVRModule
         // camera, which on a floated window is a world X/Y translation of hundreds of units. See
         // TooltipOnWindow for the whole diagnosis; these patches are the seams.
         VRSession.Harmony?.PatchAll(typeof(Patches.TooltipWindowPatches));
+        VRSession.Harmony?.PatchAll(typeof(HintProducerScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(HintHighlightScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(HintRewardScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(HintMessageOriginPatch));
+        VRSession.Harmony?.PatchAll(typeof(HintDirectConceptScopePatch));
         // ModBuild 203: the mercenary roster's own hover animation moves the slot out from under
         // a stationary VR laser (OnPointerEnter grows it and then ScrollToFit scrolls the list),
         // so enter->exit->enter closes into a loop and BOTH edges rebuild the character sheet —

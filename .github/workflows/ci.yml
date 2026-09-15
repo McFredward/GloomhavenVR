@@ -311,6 +311,8 @@ jobs:
           bash scripts/flight-timing-tests.sh
           bash scripts/figure-hold-tests.sh
           bash scripts/self-update-dialog-tests.sh
+          bash scripts/native-video-tests.sh
+          bash scripts/hint-tests.sh
 
       - name: Wire tests (compile only — see docs/CI-CD.md)
         run: |

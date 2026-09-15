@@ -490,7 +490,27 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 504;
+    public const ushort ModBuild = 505;
+
+    // ModBuild 505 — savegame videos and native introduction window ownership.
+    //   Build 504's campaign intro decoded and played audio but its camera only reached the
+    //   desktop. Native fullscreen movies now draw in a dedicated grabbable VR window, joining
+    //   the normal window ordering and waiting for a decoded frame before revealing chrome.
+    //   Multiplayer mirrors use local movie assets and additive TLV 72 for playback identity,
+    //   time and shared pose; only original native decoders publish sources. Cosmetic playback
+    //   never invokes the game's completion callbacks. First remote reveal waits for shared pose.
+    //   Native intro clicks use its original skip continuation. Source election and retirement
+    //   prevent concurrent native copies or delayed samples from replaying a completed movie.
+    //   Tutorial hints now follow each queued native message's actual producer and serialized
+    //   UI owner. Before parking, the old float is released synchronously, restoring native
+    //   transforms and removing its empty grab bar/capture/fit writer. A same-tick hierarchy
+    //   recheck prevents reconstruction. Hint ink excludes its fullscreen dimmer and does not
+    //   resize the owner. Native closing fades retain their owner; layout flags restore exactly.
+    //   Introduction windows are not sticky and have no mod X bypassing native continuation.
+    //   Production hint/video harnesses and runtime negative controls join CI and release gates.
+    //   Hardware replay remains required. Development version 1.0.1, DLL-only since 483;
+    //   GVR1/v3 and prior record layouts unchanged, all VR peers must use 505.
+    //   See .planning/SAVEGAME-505.md for evidence and validation.
 
     // ModBuild 504 — build the self-update dialog with actual uGUI transforms.
     //   A 0.9.0 main-menu update check successfully parsed the public release and found a newer
