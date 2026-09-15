@@ -22,6 +22,10 @@ internal static partial class Program
         Check(screen.Read(rescue: true), "Programmatic rescue stays above card-loss suppression");
         VRModeStateMachine.CurrentMode = VRMode.Menu2D;
         Check(screen.Read(), "Main menu stays visible even with a stale native hand transaction");
+        NativeVideoWindow.Visible = true;
+        Check(!screen.Read(), "Prepared standalone movie suppresses the duplicate desktop composite");
+        NativeVideoWindow.Visible = false;
+        Check(screen.Read(), "Movie completion immediately restores the normal main-menu policy");
         VRModeStateMachine.CurrentMode = VRMode.TableIdle;
         Check(!screen.Read(), "Ordinary table mode does not request a desktop screen");
         VRModeStateMachine.CurrentMode = VRMode.ModalUI;

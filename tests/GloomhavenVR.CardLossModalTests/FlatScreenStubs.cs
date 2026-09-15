@@ -17,6 +17,7 @@ namespace GloomhavenVR.Cards.Patches
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class NativeVideoWindow { internal static bool Visible; }
     internal static class LoadingIndicator { internal static bool FlatScreenSuppressed; }
     internal static class ModalFallback { internal static bool ScreenWanted, WindowModalActive; }
     internal static class WorldUIConfig

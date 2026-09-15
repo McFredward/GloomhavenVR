@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <VideoSource Condition="'$(VideoSource)' == ''">../../src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs</VideoSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(VideoSource)" Link="Production/NativeVideoWindow.cs" />
+  </ItemGroup>
+</Project>
