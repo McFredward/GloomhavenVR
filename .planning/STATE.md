@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for release 1.0.1 preparation, ModBuild 509.** The file this replaces had gone 168 builds
+**Updated 2026-09-15 after release 1.0.1 publication, ModBuild 509.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,13 +13,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **1.0.1 / ModBuild 509 is the release candidate requested by the maintainer.**
-  Combat log startup now defaults to off; existing preferences and manual display
-  remain available. This includes the video/tutorial/placement corrections through
-  508. Hosted runner dependency and protected-main release provenance issues found
-  during preparation are corrected; 36 offline release topology assertions pass. Local gates pass with
-  253,674 wire assertions and a strict Release build with zero warnings/errors. See
-  [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
+- **1.0.1 / ModBuild 509 is published as the latest GitHub release.**
+  main and v1.0.1 name PR #3 merge be74759e; Release run 35014316673 succeeded.
+  The public ZIP matches its published SHA256 and contains the complete asset bundle;
+  its DLL reports 1.0.1 / build 509 / be74759 / IsDevBuild=false. Combat log startup
+  defaults to off while saved preferences and manual display remain available.
+  Candidate CI and all local gates passed, including 253,674 wire assertions and
+  36 release topology checks. See [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
+- **dev now targets 1.0.2.** The workflow preserved main ancestry and advanced the
+  version in bot commit 12f66604. ModBuild remains 509 until another hardware build
+  is prepared. No additional main push is needed for this release.
 
 - **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**
   The user confirms the deadlock is resolved, and the log completes BuyItem/FTUE.

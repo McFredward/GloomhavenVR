@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-15 for release 1.0.1 preparation, build 509. This directory holds internal
+Updated 2026-09-15 after release 1.0.1 publication, build 509. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points

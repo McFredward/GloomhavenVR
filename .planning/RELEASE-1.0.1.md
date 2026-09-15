@@ -53,6 +53,25 @@ dev changes, rejected-push retry and independently advanced versions. The histor
 main-bump failure reproduces with --old. Workflow actionlint, Bash syntax and YAML
 validation pass.
 
-Hosted candidate CI, the final main SHA, Release workflow result and published asset
-will be recorded after completion. The release workflow owns tag creation, ZIP
-publication and the next development version bump.
+Publication completed on 2026-09-15 at 19:39 UTC:
+
+- Final candidate CI: [35013539643](https://github.com/McFredward/GloomhavenVR/actions/runs/35013539643), successful for dev 6dc66256.
+- The maintainer merged PR #3 using a merge commit after the API token refused PR
+  creation. main and annotated tag v1.0.1 both name
+  be74759e33f87aa76be313071010f1ddcbecdf47.
+- [Release workflow 35014316673](https://github.com/McFredward/GloomhavenVR/actions/runs/35014316673)
+  completed successfully, including publication and dev bookkeeping.
+- [GloomhavenVR 1.0.1](https://github.com/McFredward/GloomhavenVR/releases/tag/v1.0.1)
+  is public, latest, and neither draft nor prerelease.
+- The anonymously downloaded GloomhavenVR-1.0.1.zip is 85,069,252 bytes, passes ZIP
+  CRC validation, and matches GitHub's SHA256:
+  4a9c084281f763a1f1e55bc4e9c1561642abbb91bc3ede990e88c0ce39e59af6.
+- The ZIP contains the 74,943,763-byte asset bundle. The actual downloaded plugin's
+  compiled metadata identifies Version 1.0.1, ModBuild 509, commit be74759 and
+  IsDevBuild=false. This verifies download provenance, not headset behavior.
+- Bot merge d6062e55 records main ancestry on dev; bot commit 12f66604 advances
+  dev to Version 1.0.2. The only tree difference between main and that dev tip is
+  the csproj version. The local dev checkout was fast-forwarded to it.
+
+The public latest-release endpoint returns v1.0.1 and the expected ZIP. This does
+not by itself verify an update prompt or installation in a running headset.
