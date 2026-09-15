@@ -44,6 +44,12 @@ Relative to build 508, the two additional changed types are Defaults and WorldUI
 the compiled ConfigFile binding now supplies false for the startup preference.
 Surfaces remain 625 config keys / 161 patch signatures / 4,724 log tokens.
 
+The integrated production release helper passes 36 offline Git assertions, including
+three successive PR releases, invalid same-tree/squash/resolution commits, concurrent
+dev changes, rejected-push retry and independently advanced versions. The historical
+main-bump failure reproduces with --old. Workflow actionlint, Bash syntax and YAML
+validation pass.
+
 Hosted candidate CI, the final main SHA, Release workflow result and published asset
 will be recorded after completion. The release workflow owns tag creation, ZIP
 publication and the next development version bump.

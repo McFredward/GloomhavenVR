@@ -17,7 +17,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   Combat log startup now defaults to off; existing preferences and manual display
   remain available. This includes the video/tutorial/placement corrections through
   508. Hosted runner dependency and protected-main release provenance issues found
-  during preparation are being corrected before publication. Local gates pass with
+  during preparation are corrected; 36 offline release topology assertions pass. Local gates pass with
   253,674 wire assertions and a strict Release build with zero warnings/errors. See
   [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
 
