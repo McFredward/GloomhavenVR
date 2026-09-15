@@ -20,6 +20,14 @@ namespace UnityEngine
         public readonly List<Transform> Children = new();
         public int childCount => Children.Count;
         public Transform GetChild(int index) => Children[index];
+        public bool IsChildOf(Transform ancestor)
+        { for (Transform? p = parent; p != null; p = p.parent) if (ReferenceEquals(p, ancestor)) return true; return false; }
+        public void GetComponentsInChildren<T>(bool includeInactive, List<T> result) where T : Component
+        {
+            if (!includeInactive && !gameObject.activeInHierarchy) return;
+            T? own = GetComponent<T>(); if (own != null) result.Add(own);
+            foreach (Transform child in Children) child.GetComponentsInChildren(includeInactive, result);
+        }
         public void SetParent(Transform value) { parent = value; value.Children.Add(this); }
     }
     public sealed class RectTransform : Transform
@@ -63,6 +71,13 @@ namespace UnityEngine
         public Rect(float x, float y, float w, float h) { xMin = x; yMin = y; xMax = x + w; yMax = y + h; }
         public static Rect MinMaxRect(float x, float y, float right, float top)
             => new Rect(x, y, right - x, top - y);
+    }
+    public struct Vector2
+    {
+        public float x, y;
+        public Vector2(float a, float b) { x = a; y = b; }
+        public static Vector2 Min(Vector2 a, Vector2 b) => new(Math.Min(a.x, b.x), Math.Min(a.y, b.y));
+        public static Vector2 Max(Vector2 a, Vector2 b) => new(Math.Max(a.x, b.x), Math.Max(a.y, b.y));
     }
     public struct Color { public float a; }
     public class CanvasRenderer : Component
@@ -111,11 +126,17 @@ namespace GloomhavenVR.WorldUI
         public UnityEngine.RectTransform Target = null!;
         public UnityEngine.UI.Graphic? ContentGraphic;
     }
-    internal static class CanvasConversion
+    internal static partial class CanvasConversion
     {
         internal const float FixedFitPlateWidthFraction = .80f;
         internal const float FixedFitPlateHeightFraction = .95f;
         internal const float FitMinAlpha = .05f;
+    }
+    internal static class HintOnOwnerComposite
+    {
+        internal static UnityEngine.Transform? Parked;
+        internal static bool IsParkedContent(UnityEngine.Transform? value) => Parked != null && value != null
+            && (ReferenceEquals(value, Parked) || value.IsChildOf(Parked));
     }
     internal static class TransientFamilies
     {

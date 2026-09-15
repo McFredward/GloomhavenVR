@@ -6090,7 +6090,7 @@ internal static partial class CanvasConversion
     /// there starves VR input.</para>
     /// </summary>
     internal static bool TryMeasureDrawnContent(ConvertedPanel? panel, out Rect content,
-        out Rect host, out int contributors)
+        out Rect host, out int contributors, bool includeParkedHint = true)
     {
         content = default;
         host = default;
@@ -6103,7 +6103,7 @@ internal static partial class CanvasConversion
             if (host.width < 1f || host.height < 1f)
                 return false; // degenerate host (not laid out yet) — nothing to measure against
             RectTransform root = ResolveFitRoot(panel, panel.FitContentRoot);
-            if (!TryMeasureDrawnUnion(panel, root, host, out content, out contributors, out _, out _))
+            if (!TryMeasureDrawnUnion(panel, root, host, out content, out contributors, out _, out _, includeParkedHint))
                 return false;
             return content.width >= 1f && content.height >= 1f;
         }
@@ -6554,7 +6554,8 @@ internal static partial class CanvasConversion
     /// then falls back to the host rect rather than holding a stale grown one.</para>
     /// </summary>
     private static bool TryMeasureDrawnUnion(ConvertedPanel panel, RectTransform root, Rect host,
-        out Rect union, out int contributors, out string outsideOwner, out float outsideBy)
+        out Rect union, out int contributors, out string outsideOwner, out float outsideBy,
+        bool includeParkedHint = true)
     {
         union = default;
         contributors = 0;
@@ -6570,10 +6571,18 @@ internal static partial class CanvasConversion
         AuthoredOffsetMemo.Clear();
         HitGraphicScratch.Clear();
         root.GetComponentsInChildren(includeInactive: false, HitGraphicScratch);
+        // Build 507's battle-goal annotation temporarily reached x=-2056 while its
+        // character column stayed at x=-982. Sharing this hit union with placement
+        // moved the owner 1.072m (hardware log: MAP ROOM CORNER RE-SEATED). The hit
+        // plane must retain every visible hint button, but a guest cannot move its
+        // owner's spawn. The root exemption preserves measurements of the hint itself.
+        bool excludeHint = !includeParkedHint && !HintOnOwnerComposite.IsParkedContent(root);
         for (int i = 0; i < HitGraphicScratch.Count; i++)
         {
             Graphic g = HitGraphicScratch[i];
             if (g == null)
+                continue;
+            if (excludeHint && HintOnOwnerComposite.IsParkedContent(g.transform))
                 continue;
             if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
                 continue; // mod cue art is presentation, not content (see TryMeasureContent)

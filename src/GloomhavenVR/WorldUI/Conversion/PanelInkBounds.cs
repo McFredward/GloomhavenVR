@@ -444,7 +444,7 @@ internal static class PanelInkBounds
     /// nothing measurable, which the caller must treat as "keep the frame-based placement".
     /// Never throws: a throw here would stand down a window's whole follow tick.
     /// </summary>
-    internal static bool TryMeasure(ConvertedPanel panel, out Ink ink)
+    internal static bool TryMeasure(ConvertedPanel panel, out Ink ink, bool includeParkedHint = true)
     {
         ink = default;
         ink.BottomName = string.Empty;
@@ -455,7 +455,7 @@ internal static class PanelInkBounds
         ink.PlateBottomName = string.Empty;
         try
         {
-            return MeasureCore(panel, ref ink);
+            return MeasureCore(panel, ref ink, includeParkedHint);
         }
         catch (System.Exception)
         {
@@ -465,7 +465,7 @@ internal static class PanelInkBounds
         }
     }
 
-    private static bool MeasureCore(ConvertedPanel panel, ref Ink ink)
+    private static bool MeasureCore(ConvertedPanel panel, ref Ink ink, bool includeParkedHint)
     {
         RectTransform? host = panel.HostRect;
         Transform? target = panel.Target;
@@ -491,6 +491,7 @@ internal static class PanelInkBounds
         // exactly one walk. (The only behavioural difference is that inheritance answers with the
         // OUTERMOST marker where the fit answers with the innermost; they are non-zero for the same
         // set of nodes, which is all an exclusion reads.)
+        bool excludeHint = !includeParkedHint && !HintOnOwnerComposite.IsParkedContent(target);
         Stack.Clear();
         Stack.Add(new ClipFrame(target, Unbounded, 0));
         while (Stack.Count > 0)
@@ -508,6 +509,11 @@ internal static class PanelInkBounds
             }
 
             bool isRoot = ReferenceEquals(t, target);
+            // Placement must measure the owner independently of the transient annotation.
+            // The ordinary ink query retains it for chrome/input; measuring the hint itself
+            // also remains valid, since it is then the target rather than an owner guest.
+            if (excludeHint && HintOnOwnerComposite.IsParkedContent(t))
+                continue;
             // MOD-OWNED FURNITURE, BY NAME, ONE NAME AT A TIME (ModBuild 242). The subtree skip is
             // kept — every entry in the table is a self-contained overlay or a frame-anchored plate,
             // and skipping a breathing ring's children is the point — but the SET is now explicit,

@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(InkSource)" Link="Production/PanelInkBounds.cs" />
+    <Compile Include="$(DrawnUnionSource)" Link="Production/DrawnUnion.cs" />
   </ItemGroup>
 </Project>
