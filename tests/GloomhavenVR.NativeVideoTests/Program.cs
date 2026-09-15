@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using UnityEngine.EventSystems;
 using GloomhavenVR.Hands.Interact;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
@@ -12,6 +14,19 @@ static class Program
     {
         _assertions++;
         if (!condition) throw new Exception("Native video assertion: " + reason);
+    }
+
+    private static NativeVideoClick MovieHandler() => CanvasConversion.Ordered.Single().Target.gameObject
+        .Components.OfType<NativeVideoClick>().Single();
+
+    private static void ClickMovie(string source)
+    {
+        var handler = MovieHandler();
+        // Execute the production choke point used by UguiPointer.Release, then dispatch the
+        // real component attached by NativeVideoWindow.Build. A direct TrySkip call missed506.
+        bool withheld = UguiPointer.ShouldWithholdUnstartedWindowClick(handler.gameObject, source);
+        Check(!withheld, "laser and poke delivery guard admits the actual movie handler");
+        if (!withheld) ((IPointerClickHandler)handler).OnPointerClick(new PointerEventData());
     }
 
     static void Main()
@@ -96,7 +111,7 @@ static class Program
         native.isPlaying = true;
         NativeVideoWindow.Tick();
         Check(NativeVideoWindow.NativePlayer == native, "native playback retains authority over cosmetic mirror");
-        Check(!NativeVideoWindow.TrySkipNativeIntro(), "elected mirror cannot invoke local native continuation");
+        Check(!NativeVideoWindow.TrySkipNativeMovie(), "elected mirror cannot invoke local native continuation");
         NativeVideoWindow.SetRemoteSource(null);
         NativeVideoWindow.Tick();
         uint generation = NativeVideoWindow.NativePlaybackGeneration;
@@ -106,12 +121,60 @@ static class Program
         var step = new GameObject("Campaign step").AddComponent<UIMapFTUEInitialStep>();
         var tracker = step.gameObject.AddComponent<ClickTrackerExtended>();
         step.SetTracker(tracker, "CP_Intro/GH_CP_Intro");
-        Check(NativeVideoWindow.TrySkipNativeIntro() && step.Escapes == 1, "movie click calls the original active intro escape");
+        ClickMovie("laser-R");
+        Check(step.Escapes == 1, "movie laser click calls the original active intro escape");
+        ClickMovie("poke-L");
+        Check(step.Escapes == 2, "movie fingertip click uses the same native escape");
+        var pooled = new GameObject("Pooled confirmation").AddComponent<UIWindow>();
+        var pooledClick = new GameObject("Movie");
+        pooledClick.transform.SetParent(pooled.transform, false);
+        Check(UguiPointer.ShouldWithholdUnstartedWindowClick(pooledClick, "laser-R"),
+            "unstarted native confirmation remains protected even with matching movie name");
+        pooled.HasGoneToStartingState = true;
+        Check(!UguiPointer.ShouldWithholdUnstartedWindowClick(pooledClick, "poke-L"),
+            "started native window remains clickable");
+        pooled.HasGoneToStartingState = false; pooled.IsOpen = true;
+        Check(!UguiPointer.ShouldWithholdUnstartedWindowClick(pooledClick, "laser-R"),
+            "explicitly opened native window remains clickable");
+        var otherChild = new GameObject("Other child");
+        otherChild.transform.SetParent(NativeVideoWindow.Window!.transform, false);
+        Check(UguiPointer.ShouldWithholdUnstartedWindowClick(otherChild, "laser-R"),
+            "movie identity exemption never applies to arbitrary child controls");
         tracker.enabled = false;
-        Check(!NativeVideoWindow.TrySkipNativeIntro() && step.Escapes == 1, "stale disabled intro cannot receive a movie click");
+        Check(!NativeVideoWindow.TrySkipNativeMovie() && step.Escapes == 2, "stale disabled intro cannot receive a movie click");
         tracker.enabled = true;
         step.SetTracker(tracker, "CP_Intro/Other");
-        Check(!NativeVideoWindow.TrySkipNativeIntro(), "different movie cannot drive the intro continuation");
+        Check(!NativeVideoWindow.TrySkipNativeMovie(), "different movie cannot drive the intro continuation");
+        var previousHandler = MovieHandler();
+        native.url = "/game/StreamingAssets/Movies/Heroes/Brute.mov";
+        NativeVideoWindow.Tick();
+        owner.RewardInputLocked = true;
+        previousHandler.OnPointerClick(new PointerEventData());
+        Check(native.isPlaying && owner.Completions == 0, "stale movie handler cannot complete replacement movie");
+        ClickMovie("laser-R");
+        Check(!native.isPlaying && owner.Completions == 1 && !owner.RewardInputLocked,
+            "hero click runs native completion and releases reward input lock");
+        ClickMovie("laser-R");
+        Check(owner.Completions == 1, "repeated click after native stop cannot complete twice");
+        native.isPlaying = true;
+        owner.Completed = () =>
+        {
+            native.url = "/game/StreamingAssets/Movies/Heroes/Spellweaver.mov";
+            native.isPlaying = true;
+        };
+        ClickMovie("poke-L");
+        Check(owner.Completions == 2 && native.isPlaying && native.url.EndsWith("Spellweaver.mov"),
+            "native continuation may start the next hero without being stopped afterwards");
+        owner.Completed = null;
+        NativeVideoWindow.Tick();
+        NativeVideoWindow.SetRemoteSource(mirror);
+        NativeVideoWindow.SetRemotePose(new Vector3(), new Quaternion(), 1f);
+        NativeVideoWindow.Tick();
+        ClickMovie("laser-R");
+        Check(owner.Completions == 2 && native.isPlaying && mirror.isPlaying,
+            "mirror click cannot complete native hero or stop cosmetic peer playback");
+        NativeVideoWindow.SetRemoteSource(null);
+        NativeVideoWindow.Tick();
         NativeVideoWindow.SetNativePresentationSuppressed(true);
         NativeVideoWindow.Tick();
         Check(!NativeVideoWindow.Visible && NativeVideoWindow.NativePlayer == native && native.isPlaying,

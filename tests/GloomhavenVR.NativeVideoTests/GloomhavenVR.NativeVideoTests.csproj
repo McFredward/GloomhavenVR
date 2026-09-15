@@ -9,5 +9,6 @@
   <ItemGroup>
     <Compile Include="$(VideoSource)" Link="Production/NativeVideoWindow.cs" />
     <Compile Include="$(ChromeSweepSource)" Link="Production/ModalChromeSweep.cs" />
+    <Compile Include="$(PointerGuardSource)" Link="Production/PointerGuard.cs" />
   </ItemGroup>
 </Project>

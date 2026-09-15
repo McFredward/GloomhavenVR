@@ -38,6 +38,9 @@ internal static class NativeVideoWindow
     private static readonly FieldInfo? IntroPath = typeof(UIMapFTUEInitialStep).GetField(
         "introVideoPath", BindingFlags.Instance | BindingFlags.NonPublic);
 
+    private static readonly MethodInfo? NativeEndReached = typeof(VideoCamera).GetMethod(
+        "EndReached", BindingFlags.Instance | BindingFlags.NonPublic, null, new[] { typeof(VideoPlayer) }, null);
+
     internal static UIWindow? Window { get; private set; }
     internal static bool Visible => _root != null && _root.activeSelf;
     internal static uint NativePlaybackGeneration => _nativePlaybackGeneration;
@@ -140,6 +143,12 @@ internal static class NativeVideoWindow
     // at the world origin and pulled the still-playing movie down into the table. Ownership
     // is the live window's exact handle, never a name exemption for leftover chrome.
     internal static bool OwnsGrab(GrabbableModal grab) => Visible && ReferenceEquals(_grab, grab);
+
+    // This UIWindow is a disabled identity for shared chrome, never a native pooled popup.
+    // Exempt only the live movie's real click surface from the native Start/IsOpen guard.
+    // A stale handler from a destroyed window must not skip a replacement movie either.
+    internal static bool OwnsClick(GameObject? target) => Visible && _image != null
+        && ReferenceEquals(_image.gameObject, target);
 
     internal static void SetRemoteSource(VideoPlayer? player)
     {
@@ -293,7 +302,7 @@ internal static class NativeVideoWindow
         ObserveNative(null);
     }
 
-    internal static bool TrySkipNativeIntro()
+    internal static bool TrySkipNativeMovie()
     {
         // The original intro's click calls Escape -> its own ClickTracker callback, which stops
         // video AND performs FadeInShow. VideoCamera.Stop alone omits that continuation. Resolve
@@ -311,12 +320,29 @@ internal static class NativeVideoWindow
             if (owner != null) return false; // ambiguous ownership cannot choose a continuation
             owner = step;
         }
-        if (owner == null) return false;
-        return owner.Escape();
+        if (owner != null)
+        {
+            VRLog.Note("WorldUI", "NATIVE VIDEO WINDOW: skip delivered to the native campaign intro click.");
+            return owner.Escape();
+        }
+
+        // Hero unlock movies have no UIMapFTUEInitialStep/ClickTracker owner. The game's
+        // completion method stops the exact decoder, restores any disabled objects and
+        // invokes its currently installed continuation (including chained unlocks). Calling
+        // Stop alone would leave the reward promise/input lock unresolved. This runs only
+        // for a real local player showing an allowlisted hero asset, never a peer mirror.
+        if (!key.StartsWith("Heroes/", StringComparison.Ordinal) || !IsPlaybackKey(key)
+            || NativeEndReached == null || VideoCamera.s_This == null) return false;
+        VRLog.Note("WorldUI", "NATIVE VIDEO WINDOW: skip delivered to native hero-video completion.");
+        NativeEndReached.Invoke(VideoCamera.s_This, new object[] { native });
+        return true;
     }
 }
 
 internal sealed class NativeVideoClick : MonoBehaviour, IPointerClickHandler
 {
-    public void OnPointerClick(PointerEventData eventData) => NativeVideoWindow.TrySkipNativeIntro();
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        if (NativeVideoWindow.OwnsClick(gameObject)) NativeVideoWindow.TrySkipNativeMovie();
+    }
 }

@@ -16,6 +16,7 @@ namespace UnityEngine
     {
         public GameObject gameObject = null!;
         public Transform transform => gameObject.transform;
+        public string name => gameObject.name;
         public bool enabled = true;
         public bool isActiveAndEnabled => enabled && gameObject.activeSelf;
     }
@@ -24,6 +25,7 @@ namespace UnityEngine
         public Vector3 position;
         public Vector3 localScale;
         private Transform? _parent;
+        public Transform? parent => _parent;
         public Transform root => _parent?.root ?? this;
         public Transform(GameObject go) { gameObject = go; }
         public void SetParent(Transform parent, bool preserve) { _parent = parent; }
@@ -38,11 +40,13 @@ namespace UnityEngine
     {
         public readonly List<Component> Components = new();
         public readonly Transform transform;
+        public string name;
         public bool activeSelf = true;
         public bool Persistent;
         public Scene scene => new();
         public GameObject(string name, params Type[] types)
         {
+            this.name = name;
             transform = Array.IndexOf(types, typeof(RectTransform)) >= 0 ? new RectTransform(this) : new Transform(this);
         }
         public T AddComponent<T>() where T : Component, new()
@@ -52,6 +56,8 @@ namespace UnityEngine
             Object.Instances.Add(result);
             return result;
         }
+        public T? GetComponentInParent<T>(bool includeInactive) where T : Component =>
+            Components.OfType<T>().FirstOrDefault() ?? transform.parent?.gameObject.GetComponentInParent<T>(includeInactive);
         public void SetActive(bool active) { activeSelf = active; }
     }
     public struct Scene { public bool isLoaded => true; }
@@ -75,7 +81,7 @@ namespace UnityEngine
 }
 namespace UnityEngine.UI
 {
-    public sealed class UIWindow : UnityEngine.Component { }
+    public sealed class UIWindow : UnityEngine.Component { public bool HasGoneToStartingState; public bool IsOpen; }
     public sealed class GraphicRaycaster : UnityEngine.Component { }
     public sealed class RawImage : UnityEngine.Component
     {
@@ -116,6 +122,18 @@ public sealed class VideoCamera : UnityEngine.Component
     public static VideoCamera? s_This;
     public UnityEngine.Camera m_Camera = null!;
     public UnityEngine.Video.VideoPlayer m_VideoPlayer = null!;
+    public int Completions;
+    public bool RewardInputLocked;
+    public Action? Completed;
+    public void Stop() { m_VideoPlayer.isPlaying = false; }
+    private void EndReached(UnityEngine.Video.VideoPlayer player)
+    {
+        if (!ReferenceEquals(player, m_VideoPlayer)) throw new Exception("wrong native decoder");
+        Stop();
+        RewardInputLocked = false;
+        Completions++;
+        Completed?.Invoke();
+    }
 }
 namespace GloomhavenVR.Core
 {
