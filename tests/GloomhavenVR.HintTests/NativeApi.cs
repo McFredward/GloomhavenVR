@@ -18,7 +18,7 @@ namespace UnityEngine
         internal readonly Dictionary<Type, Component> Components = new();
         internal readonly Dictionary<string, Transform> Children = new();
         public Transform? Find(string path) => Children.TryGetValue(path, out Transform? child) ? child : null;
-        public T? GetComponent<T>() where T : Component => Components.TryGetValue(typeof(T), out Component? c) ? (T)c : null;
+        public T? GetComponent<T>() where T : Component => Components.Values.OfType<T>().FirstOrDefault();
     }
     public struct Vector2 { public float x, y; public Vector2(float x, float y) { this.x = x; this.y = y; } }
     public struct Vector3 { public float x, y, z; public Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; } }
@@ -68,7 +68,8 @@ namespace UnityEngine
 namespace UnityEngine.UI
 {
     public class UIWindow : UnityEngine.Component { public bool NativeHidden; }
-    public class Image : UnityEngine.Component { }
+    public class Graphic : UnityEngine.Component { }
+    public class Image : Graphic { }
     public class ContentSizeFitter : UnityEngine.Behaviour { }
     public class LayoutGroup : UnityEngine.Behaviour { }
 }

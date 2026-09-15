@@ -59,7 +59,7 @@ internal sealed class HintTextReflow
             // Resolve the observed native sibling by exact path and component, not an arbitrary
             // image somewhere in the message (which could be a dimmer or an illustrated page).
             RectTransform? border = box.Find("BG") as RectTransform;
-            if (border == null || border.GetComponent<Image>() == null)
+            if (border == null || border.GetComponent<Graphic>() == null)
                 return;
             _text = text;
             _box = box;
