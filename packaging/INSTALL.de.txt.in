@@ -11,7 +11,8 @@ Dieselbe Anleitung MIT BILDERN, dazu die Steuerung und alle Einstellungen:
 
 
 DU BRAUCHST
-  * Gloomhaven (digital) für den PC — Steam oder GOG; getestet mit 1.1.8307.0.
+  * Gloomhaven (digital) für den PC — Steam, GOG oder Epic Games Store;
+    getestet mit 1.1.8307.0.
   * Windows und ein PC-VR-Headset. Entwickelt und getestet auf einer
     Quest 3 über Virtual Desktop; Quest Link, Steam Link und SteamVR
     sollten gehen, sind aber nicht getestet.
@@ -65,9 +66,6 @@ Alles andere steckt schon in diesem Zip.
    Original liegt als boot.config.gloomhavenvr-backup daneben. Falls das
    Spiel irgendwann gar nicht mehr startet, kopier dieses Backup zurück
    über boot.config.
-
-   Warum sie neu startet und wie du das vermeidest, steht auf der oben
-   verlinkten Projektseite.
 
 
 EINSTELLUNGEN

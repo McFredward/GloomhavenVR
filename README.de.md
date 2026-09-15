@@ -178,7 +178,7 @@ behält dessen Stange, nicht deine.
 
 **Gloomhaven (Digital)** für den PC (Steam, GOG oder Epic Games Store) · Windows · ein
 PC-VR-Headset mit zwei getrackten Controllern · Room-Scale. Entwickelt wurde die Mod auf einer
-Quest 3 über Virtual Desktop. Bei Epic gibst du dem Installer den Spielordner mit `-GamePath` an.
+Quest 3 über Virtual Desktop.
 
 [→ Installationsanleitung](INSTALL.de.md) · [→ Spielablauf & Steuerung](docs/PLAYING.de.md)
 
