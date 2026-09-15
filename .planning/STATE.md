@@ -20,6 +20,14 @@ change per build) → this file (where things stand and what is owed) → the bu
   Chrome shares the canvas's persistent lifetime and module teardown; local and
   remote movie windows use the same ordinary grab/resize and modal ordering paths.
   See [VIDEO-WINDOW-506.md](VIDEO-WINDOW-506.md). Headset replay remains required.
+- **506 local gates pass:** all 17 source checkers, 253,674 wire assertions and the
+  production regression suites. Movie ownership/sweep coverage now has 50 assertions
+  and four negative controls; the ink walker adds 111 assertions/two negative controls.
+  Strict Release: zero warnings/errors; bilingual docs and whitespace checks pass.
+  Config/patch/log surfaces remain 625/161/4,723. Retained build-502 compiled comparison:
+  28 changed types and 12 additions, no removals; the only newly changed types compared
+  with the 505 review are ConvertedPanel and PanelInkBounds, alongside the intended
+  movie/modal changes and build constants in types already in that review.
 
 - **1.0.1 / ModBuild 505 fixes savegame introduction presentation.** Build 504 logs
   show native fullscreen video decoding to the desktop and introduction messages

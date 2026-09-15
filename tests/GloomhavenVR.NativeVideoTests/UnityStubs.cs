@@ -155,7 +155,7 @@ namespace GloomhavenVR.WorldUI
         public UnityEngine.GameObject HostGo = null!;
         public UnityEngine.Canvas HostCanvas = null!;
         public UnityEngine.UI.GraphicRaycaster HostRaycaster = null!;
-        public UnityEngine.UI.RawImage? ContentGraphic;
+        public UnityEngine.UI.RawImage? ContentGraphic = null;
         public int BaseSortingOrder;
     }
     internal sealed class GrabbableModal : GloomhavenVR.Hands.Interact.IPanelGrabOwner

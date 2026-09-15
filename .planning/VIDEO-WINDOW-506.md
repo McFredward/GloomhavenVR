@@ -51,7 +51,17 @@ including repeated sweeps, ordinary modal ownership, a same-name orphan, remote
 ownership, content binding, modal ordering and persistent-lifetime enrollment.
 The production ink walker tests full-frame content, other backdrop exclusion,
 visibility, clipping and repeated measurements. Deliberately reintroduced defects
-must fail both suites. Final full-gate counts are recorded in STATE.md.
+must fail both suites. Movie/sweep coverage passes 50 assertions and four negative
+controls; the ink walker passes 111 assertions and two negative controls. All 17
+source checkers, 253,674 wire assertions and existing production suites pass. Strict
+Release has zero warnings/errors; bilingual docs and whitespace checks pass.
+
+The retained build-502 compiled baseline reports 28 changed types, 12 additions and
+no removals, including earlier fixes through 505. Only ConvertedPanel and
+PanelInkBounds join the already-reviewed changed-type set, with movie/modal behavior
+and build constants changing as intended. The guard exits 1 for these reviewed
+compiled differences, not for a source-check or test failure. Config, patch-signature
+and log-token surfaces remain unchanged from 505 at 625/161/4,723.
 
 Headset confirmation is still required: replay the same savegame for longer than
 30 seconds, grab with laser and hand, resize, release, skip/finish, and repeat with
