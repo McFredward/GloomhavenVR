@@ -1,186 +1,20 @@
 using System.Collections.Generic;
 using GLOO.Introduction;
 using GloomhavenVR.Core;
+using ScenarioRuleLibrary.CustomLevels;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// A TUTORIAL HINT IS NOT A WINDOW. IT BELONGS ON THE WINDOW IT IS TALKING ABOUT.
-///
-/// <para><b>USER REPORT (2026-09-03, .planning/debug/tutorial-hints.jpg, verbatim, item 4):</b>
-/// <i>"Problem bereits beim letzten Test erkannt: Die Tutorial-Hints sind ein eigenes großes Fenster
-/// siehe tutorial-hints.jpg. Das soll nicht sein - wie die Tooltips auch sollen sie auf dem
-/// jeweiligen Fenster direkt selber auftauchen!"</i></para>
-///
-/// <para><b>WHAT THE SCREENSHOT SHOWS.</b> The floated character screen stands on the left with the
-/// "Gemeisterte Fertigkeiten" (mastered ability cards) list inside it; the quest popup stands on the
-/// right; and BETWEEN AND BELOW THEM, in its own frame with its own brass grab bar and its own close
-/// cross, floats a box reading <i>"Wenn Söldner eine Stufe aufsteigen, schalten sie neue, stärkere
-/// Fertigkeitskarten frei… "</i> over a FORTFAHREN button. That box is talking about the list in the
-/// window two metres to its left.</para>
-///
-/// <para>=====================================================================================
-/// SECTION 1 — WHICH WINDOW THAT BOX ACTUALLY IS, AND WHY THE EXISTING no-X FAMILY NEVER SAW IT
-/// =====================================================================================</para>
-///
-/// <para>It is <c>Introduction Canvas/LevelBoxMessageLayoutGroup</c> — named by the mod's own
-/// identity line in the ModBuild 377 hardware log, which also records that it reached the room
-/// through the CATCH-ALL rather than through any family:</para>
-/// <code>
-///   CATCH-ALL: unknown scenario window 'LevelBoxMessageLayoutGroup' (ID None) floated —
-///              enroll it explicitly.                                    (LogOutput.log:2681)
-///   WINDOW IDENTITY 'LevelBoxMessageLayoutGroup' (ID None): path Introduction Canvas/
-///              LevelBoxMessageLayoutGroup; rect 1920x1080; components [RectTransform,
-///              CanvasRenderer, CanvasGroup, UIWindow, LevelMessageUILayoutGroup,
-///              InteractabilityIsolatedUIControl]; nearest ancestor UIWindow &lt;none&gt;. (:2682)
-/// </code>
-///
-/// <para><b>SO IT CARRIES <c>LevelMessageUILayoutGroup</c> — AND IT IS STILL NOT A MEMBER OF THE
-/// LEVEL-MESSAGE FAMILY THE MOD KNOWS.</b> <c>ModalFallback.LevelMessageGroupIndex</c> identifies
-/// that family by REFERENCE against <c>LevelMessagesUIHandler.s_Instance</c>'s two serialized groups
-/// (<c>LevelMessageBoxLayoutGroup</c> / <c>LevelMessageHelpTextLayoutGroup</c>). This is a THIRD
-/// instance of the same component, owned by a different singleton entirely:
-/// <c>UIIntroductionManager</c> holds its own <c>[SerializeField] LevelMessageUILayoutGroup
-/// layoutGroup</c> (decompiled GLOO.Introduction/UIIntroductionManager.cs:32) and drives it with its
-/// own pending-message queue. Every scripted-message identity test in the mod therefore answers
-/// FALSE for it, which is why it fell through to the catch-all and was given the default treatment:
-/// a grab bar, an HMD-centred spawn pose, and a close cross.</para>
-///
-/// <para><b>AND THAT CORRECTS THE ROUND'S OWN BRIEFING.</b> The brief expected this box to be the
-/// <c>isLevelMsg</c> family of <c>ModalFallback.8.Convert.cs</c> and asked why the photo shows an X
-/// on a family that is excluded from getting one. Both halves are answered by the same fact: it is
-/// NOT that family, so the 2026-08-02 no-X ruling never applied to it and the catch-all's default
-/// (every converted window gets an X unless it is on the exclusion list) gave it one. Nothing in
-/// <c>WorldUI/Modal/**</c> is wrong; the object was simply never recognised.</para>
-///
-/// <para>=====================================================================================
-/// SECTION 2 — WHO OWNS A HINT, FROM THE GAME'S OWN DATA
-/// =====================================================================================</para>
-///
-/// <para>The association is not a position on screen and it is not a guess. Every panel that
-/// introduces a concept holds the introducer as a SERIALIZED REFERENCE on itself:</para>
-/// <code>
-///   UIPerksWindow                       : [SerializeField] UIIntroduce introduction;     (:22)
-///   UIPartyCharacterAbilityCardsDisplay : [SerializeField] UIIntroduce introduction;     (:85)
-///   UIPartyCharacterEquipmentDisplay    : [SerializeField] UIIntroduce introduction;     (:62)
-///   UILevelUpWindow                     : [SerializeField] UIIntroduceLevelUp introduction; (:42)
-/// </code>
-/// <para>and the introducer records ITS OWN live state: <c>UIIntroduceBase.Show(config, onFinished)</c>
-/// sets <c>isShown = true</c> and clears it from the promise's done/fail handlers
-/// (GLOO.Introduction/UIIntroduceBase.cs:20-40). So "which hint is on screen" and "who put it there"
-/// are one and the same question, answered by the game: the single <c>UIIntroduceBase</c> whose
-/// <c>isShown</c> is true. <see cref="ResolveIntroducer"/> reads exactly that, ONCE per hint (on the
-/// rising edge of the hint window, never per frame — [[findobjectsoftype-is-the-default-suspect]]).</para>
-///
-/// <para><b>FROM THE INTRODUCER TO THE WINDOW: THE TOOLTIP PATH, NOT A SECOND ONE.</b>
-/// <see cref="ResolveOwner"/> asks <c>ModalFallback.FindOwningWindow(introducer.transform)</c> —
-/// byte-for-byte the call every local tooltip is placed by (<c>WorldUI/Patches/TooltipWindowPatches</c>
-/// → <c>TooltipOnWindow</c>), and it is the right call for the user's own reason: he asked for
-/// "wie die Tooltips auch". It answers OWNERSHIP and never topmost-ness — the very distinction that
-/// file records as the root cause of the ModBuild 190 defect, where a topmost rule laid the board's
-/// card hints onto whatever unrelated window happened to be floating. A second arm walks the
-/// introducer's ancestor <c>UIWindow</c>s and asks <c>ModalFallback.PanelFor</c> for each, for the
-/// case where the owner's subtree has not been re-parented under the host.</para>
-///
-/// <para><b>WHEN THERE IS NO ANSWER, THERE IS NO PARK, AND THAT IS THE HONEST FALLBACK.</b> Two of
-/// the nineteen <c>EIntroductionConcept</c> members are raised by callers that hold no
-/// <c>UIIntroduce</c> at all — <c>MapChoreographer</c> (LinkedQuest, :427) and
-/// <c>UIUnlockLocationFlowManager</c> (CityQuest, :121) call
-/// <c>UIIntroductionManager.Show(concept)</c> directly. For those the game expresses no owner, so
-/// this class claims none: the hint keeps exactly the presentation it has today — its own floated
-/// frame, readable, grabbable, with its own FORTFAHREN button — and the log line says so by name.
-/// A fallback that PICKED a window (the focused one, the topmost one) would put a sentence about
-/// linked quests onto the merchant's inventory with the same confidence as a correct answer, which
-/// is the failure [[one-contributor-is-not-the-union]] and [[a-claim-must-not-measure-itself]] are
-/// both about. Guessing is worse than the status quo here; not guessing is not.</para>
-///
-/// <para>=====================================================================================
-/// SECTION 3 — HOW IT IS PUT ON THE WINDOW, AND WHY NOTHING IN WorldUI/Modal HAD TO CHANGE
-/// =====================================================================================</para>
-///
-/// <para><see cref="Park"/> re-parents the HINT WINDOW'S OWN RectTransform under the owner GAME
-/// WINDOW's rect — the same object <c>StoryComposite</c> and <c>LoadoutConfirmPark</c> park into,
-/// with the same record-the-home-first / restore-verbatim discipline and the same explicit layer
-/// write ([[one-shared-layer-leaks]]: per-window capture cameras cull BY LAYER and the owner is
-/// already converted when the hint arrives, so a subtree that lands between two of the conversion's
-/// own sweeps is drawn by the wrong camera or by two).</para>
-///
-/// <para><b>AND THAT ONE CHOICE OF PARENT IS WHAT MAKES THE FLOAT GO AWAY WITH NO NEW RULE.</b>
-/// <c>ModalFallback.RendersInsideFloatedAncestor</c> walks a window's PARENT CHAIN for a
-/// <c>UIWindow</c> that is a live floated host this instant, and both the catch-all
-/// (<c>CatchAllEligible</c>) and the enrolled path (<c>ModalFallback.4.Tick</c>) refuse a window it
-/// answers true for — "the parent wins (ModBuild 181/184)". Parking under the owner's window rect
-/// makes the owner an ANCESTOR of the hint, so the existing rule sees it and the hint stops being a
-/// window of its own. No <c>FloatRefusalTable</c> row, no claim plumbing, no edit anywhere in
-/// <c>WorldUI/Modal/**</c>. It also cannot churn the catch-all's float fuse: this class runs from
-/// the first lines of <c>StoryComposite.Tick</c>, i.e. from the first line of
-/// <c>ModalFallback.TickWindowLiveness</c>, and the convert pass runs LATER IN THE SAME TICK — so on
-/// the very tick the hint opens it is already a sub-view before anything counts it as a float.</para>
-///
-/// <para><b>THE PLACEMENT IS A RELATIVE CORRECTION ON MEASURED INK</b>, <see cref="ApplyPose"/>,
-/// which is <c>StoryComposite.ApplyPose</c>'s shape for its recorded reason: the hint's rect is
-/// 1920x1080 and its ink sits wherever the game's own FixedLowerRight layout put it inside that
-/// rect, so there is no pivot arithmetic that could predict it. The ink is measured where it
-/// currently is, the delta to where it should be is computed, and the delta is added to
-/// <c>anchoredPosition</c>. The target is: horizontally centred on the OWNER's painted content, ink
-/// bottom <see cref="HintGapPx"/> above the owner's painted bottom, then clamped inside the owner's
-/// own frame so a uGUI mask can never cull it. Change-gated on <see cref="OffsetEpsilonPx"/>, so a
-/// settled hint costs two measurements and no write.</para>
-///
-/// <para><b>THE ANCHOR COLLAPSE IS DONE WITH THE SIZE CAPTURED FIRST</b> —
-/// [[anchors-own-a-stretch-child-size]]: the hint window is a STRETCH child of 'Introduction Canvas',
-/// so collapsing its anchors to a point without writing <c>sizeDelta</c> would leave it 0x0, which is
-/// exactly the 'Image' 0x0 px that cost ModBuild 232 a round.</para>
-///
-/// <para>=====================================================================================
-/// SECTION 4 — THE ENGAGEMENT RULING IS PRESERVED, AND IT IS PRESERVED BY CONSTRUCTION
-/// =====================================================================================</para>
-///
-/// <para><b>USER RULING (2026-08-02), as recorded verbatim in <c>ModalFallback.8.Convert.cs</c>:</b>
-/// scripted tutorial/level-message windows get no X — <i>the player MUST engage with a tutorial hint
-/// (its own dismiss button or the action it demands); an X let them skip instruction chains and
-/// strand triggers.</i></para>
-///
-/// <para>The mod-drawn X is attached in exactly one place, <c>ModalCloseButton.Attach</c>, and only
-/// from the conversion of a window that is being FLOATED. A hint parked by this class is never
-/// converted and never floated, so no X is made for it and none can be. That is strictly stronger
-/// than an exclusion-list entry: an exclusion has to be maintained as the list grows, this cannot be
-/// forgotten. The FORTFAHREN button is the game's own <c>LevelMessageUILayout</c> child and moves
-/// with the subtree; it is raised to the owner's LAST SIBLING (<see cref="KeepOnTop"/>), so it is
-/// both drawn and hit-tested above the owner's own content. Nothing here presses it, and nothing
-/// here writes <c>Show</c>, <c>Hide</c>, <c>Escape</c>, <c>SetActive</c> or a <c>CanvasGroup</c> on
-/// any game object — the hint's own lifetime stays <c>UIIntroductionManager</c>'s.</para>
-///
-/// <para><b>AND THE EXITS ARE NEVER "NOTHING".</b> If the owner window closes, is released or stops
-/// being a live floated host, <see cref="Unpark"/> puts the hint back under 'Introduction Canvas'
-/// with its parent, sibling index, anchors, pivot, anchoredPosition, sizeDelta, rotation and scale
-/// restored verbatim — and it runs BEFORE the release loop that destroys the host (that is why this
-/// class is ticked from where it is ticked). On the next tick the ancestor rule no longer answers,
-/// and the hint floats on its own again exactly as it does today. There is no state in which a hint
-/// exists and is unreachable. The standing rules bound it the same way: nothing is left empty (the
-/// hint never floats as a frame it has been emptied of — it is moved WHOLE), and no input, canvas or
-/// window is disabled, so the options menu is reachable throughout.</para>
-///
-/// <para><b>MULTIPLAYER: NOTHING GOES ON THE WIRE, AND NO WIRE FIELD IS NEEDED.</b> A hint is raised
-/// by <c>UIIntroductionManager</c> from a LOCAL panel interaction and is gated on
-/// <c>AdventureState.MapState.MapParty.HasIntroduced(concept)</c> — the local player's own campaign
-/// save (UIIntroduceLevelUp.cs:12-30). It teaches THIS player his own UI; the other client neither
-/// has the same panel open nor the same "already introduced" set. This class only re-parents a local
-/// uGUI subtree under a local host on this client, so two players may legitimately disagree about
-/// every verdict in it — the same conclusion, for the same reason, that <c>LoadoutConfirmPark</c> and
-/// <c>FloatRefusalTable</c> already record. The 1:1 owner-size ruling is satisfied without a term:
-/// the hint inherits the OWNER window's transform and scale by being its child, so on a mirrored
-/// board it is drawn at the owner's size by construction and never reads a viewer-side dial
-/// ([[a-mirror-must-not-read-the-viewers-dial]]).</para>
-///
-/// <para><b>THE ONE GREP THAT IS ONLY TRUE IF THE COMPLAINT IS FIXED:</b> <c>HINT ON WINDOW</c>. See
-/// <see cref="Report"/> — it names the hint, the owner it was anchored to, HOW that owner was
-/// resolved, and the fallback when there is none, and it carries running counts so it can never read
-/// as a dead instrument ([[a-held-instrument-reads-as-dead]]). Before this build the family printed
-/// NOTHING at a printed tier — "TUTORIAL" and "Tutorial hint" both return zero hits in the ModBuild
-/// 380 log — which is why the defect survived two hardware rounds.</para>
+/// Parks the native introduction group inside the screen that actually produced its current
+/// message. Build 504's save-game logs showed seven opens but one park, and that park captured
+/// a converted host as its home. The old global isShown scan confused queued processes with the
+/// current message; parking an already converted target also left two writers resizing it.
+/// Message provenance now follows native queue objects (including asynchronous highlight steps),
+/// and ModalFallback hands back any standalone conversion before this class records the home.
+/// Native contents, callbacks and dismiss buttons remain intact. No focused/topmost window guess.
 /// </summary>
 internal static class HintOnOwnerComposite
 {
@@ -234,51 +68,19 @@ internal static class HintOnOwnerComposite
     private static Quaternion _homeRotation;
     private static Vector3 _homeScale;
     private static LayoutElement? _addedIgnore;
+    private static bool _homeIgnoreLayout;
 
     /// <summary>Every transform of the parked hint whose layer this class overwrote, and the value
     /// the GAME had there — the shared record (<see cref="MovedSubtreeLayers"/>), which carries the
     /// walk, the restore guard and the two counts the report line below prints.</summary>
     private static readonly MovedSubtreeLayers Layers = new(64);
 
-    // ---- the owner resolution, taken once per hint ----------------------------------------------
-
-    /// <summary>The <c>UIIntroduceBase</c> the game reports as showing, resolved on the rising edge
-    /// of the hint window. Null when the game expresses no owner for this hint.</summary>
-    private static UIIntroduceBase? _introducer;
-
-    /// <summary>True once the scan has been run for the CURRENT hint window instance.</summary>
-    private static bool _scanned;
-
-    /// <summary>
-    /// Scans already spent on THIS hint. One is the expected number: <c>UIIntroduceBase.Show</c> sets
-    /// <c>isShown = true</c> BEFORE it calls <c>process.Process(config)</c>, and that call runs
-    /// straight through to <c>layoutGroup.Show</c> → <c>window.Show()</c> synchronously
-    /// (UIIntroductionManager.cs:39-99), so the flag is already up on the first tick that sees the
-    /// window open. <see cref="MaxScansPerHint"/> buys exactly one retry against that reading being
-    /// wrong for some caller — bounded, because an unbounded retry is a per-frame
-    /// <c>FindObjectsOfType</c> ([[findobjectsoftype-is-the-default-suspect]]) and this project has
-    /// shipped that three times.
-    ///
-    /// <para>THE BUDGET ALSO PAYS FOR OWNER CHANGES INSIDE ONE CHAIN, which is a real case and not a
-    /// hypothetical: <c>UIIntroductionManager</c> queues messages and only hides its window when the
-    /// PENDING LIST EMPTIES (ShowNextMessage, :84-95), so a second panel's introduction can arrive
-    /// while the window is still open and the cached introducer would then be stale. The cache is
-    /// dropped on the EDGE where the game clears <c>isShown</c>, and the budget bounds how many such
-    /// edges are re-resolved. Past it the last verdict simply stands — ugly, bounded, and never a
-    /// per-frame scan.</para>
-    /// </summary>
-    private static int _scans;
-
-    /// <summary>See <see cref="_scans"/>. Counted per HINT, not per tick.</summary>
-    private const int MaxScansPerHint = 8;
-
-    /// <summary>How many <c>UIIntroduceBase</c> instances reported <c>isShown</c> on the scan — 1 is
-    /// the healthy value, 0 means a direct <c>UIIntroductionManager</c> caller, &gt;1 means the
-    /// association is ambiguous and this class declines rather than guesses.</summary>
-    private static int _shownCount;
-
-    /// <summary>Instances walked by the scan, for the cost clause of the log line.</summary>
-    private static int _scanWalked;
+    // Native message identity changes even while the group remains continuously open.
+    private static object? _message;
+    private static HintMessageOrigins.Origin? _origin;
+    private static Graphic? _screenDimmer;
+    private static LevelMessageUILayout? _nativeLayout;
+    private static readonly HintTextReflow TextReflow = new();
 
     /// <summary>
     /// PER-HINT LATCHES FOR THE LEDGER, and they are not tidiness. <see cref="ResolveOwner"/> and
@@ -306,7 +108,6 @@ internal static class HintOnOwnerComposite
     /// files.</summary>
     private static int _refused;
 
-    private static int _ambiguous;
     private static int _throws;
     private static bool _disabledByError;
 
@@ -334,6 +135,10 @@ internal static class HintOnOwnerComposite
     /// <summary>True while this class is drawing a hint inside a floated window — read by nothing
     /// today, and kept because it is the one question a future reader will ask of this file.</summary>
     internal static bool Standing => _parked != null && _ownerWindow != null;
+
+    internal static bool IsParkedContent(Transform? transform) =>
+        _parked != null && transform != null
+        && (ReferenceEquals(transform, _parked) || transform.IsChildOf(_parked));
 
     /// <summary>
     /// One tick. Called from the first lines of <c>StoryComposite.Tick</c>, i.e. from the first line
@@ -383,41 +188,38 @@ internal static class HintOnOwnerComposite
             if (_parked != null)
                 Unpark("the hint was dismissed — the game closed the introduction window");
             _hint = null;
-            _introducer = null;
-            _scanned = false;
-            _shownCount = 0;
+            _message = null;
+            _origin = null;
+            _screenDimmer = null;
+            _nativeLayout = null;
             return;
         }
 
-        // Rising edge (or a different window instance): resolve the owner ONCE. The scan is the only
-        // FindObjectsOfType in this file and it is deliberately edge-driven — the per-tick answer is
-        // the cached component reference, which costs one null check.
-        bool newHint = !_scanned || !ReferenceEquals(_hint, hint);
-        if (newHint)
+        object? message = Singleton<UIIntroductionManager>.Instance.m_CurrentlyDisplayedMessageInfo;
+        // ShowNextMessage clears the current message before the group's native hide animation
+        // finishes. Keep that last message's owner during its visible fade; null is not a new hint
+        // and must not unpark it into a freshly spawned standalone grab bar.
+        if (!ReferenceEquals(_hint, hint) || (message != null && !ReferenceEquals(_message, message)))
         {
             if (_parked != null && !ReferenceEquals(_hint, hint))
-                Unpark("a different introduction window took over");
+                Unpark("a different native introduction window took over");
+            TextReflow.Restore();
+            _nativeLayout = Singleton<UIIntroductionManager>.Instance.LayoutGroup._currentMessage;
             _hint = hint;
-            _scanned = true;
+            _message = message;
+            _origin = HintMessageOrigins.For(message);
+            // LevelMessageUILayout.Init controls this exact root Image through ShowScreenBG.
+            // It is a 1920-wide screen dimmer, not the narrower native message plate (the build504
+            // logs also measure 644/844-wide content). Preserve its rendering, but do not let its
+            // width shrink the message text threefold when parking on a 304px character column.
+            // Keep the reference through the native closing fade, just like its message origin.
+            _screenDimmer = Singleton<UIIntroductionManager>.Instance.LayoutGroup._currentMessage?.GetComponent<Image>();
             _hintsSeen++;
-            _scans = 0;
             _countedNoOwner = false;
             _countedRefused = false;
         }
-        // THE CACHE IS DROPPED ON THE GAME'S OWN EDGE. A UIIntroduceBase that no longer reports
-        // isShown is no longer the owner of what is on screen, and inside one chain the window can
-        // outlive it (see MaxScansPerHint). One field read per tick.
-        if (_introducer != null && !_introducer.isShown)
-            _introducer = null;
-        // The bounded retry: only while nothing has been found, and never more than
-        // MaxScansPerHint times for one hint. Once an introducer is in hand this costs one branch.
-        if (_introducer == null && _scans < MaxScansPerHint)
-        {
-            _scans++;
-            _introducer = ResolveIntroducer();
-        }
 
-        ConvertedPanel? panel = ResolveOwner(_introducer, out UIWindow? owner, out string how);
+        ConvertedPanel? panel = ResolveOwner(_origin?.Anchor, out UIWindow? owner, out string how);
         _how = how;
 
         if (panel == null || owner == null)
@@ -478,71 +280,28 @@ internal static class HintOnOwnerComposite
     }
 
     /// <summary>
-    /// WHO RAISED THIS HINT — the single <c>UIIntroduceBase</c> the GAME reports as showing.
-    ///
-    /// <para><c>UIIntroduceBase.isShown</c> is set in <c>Show(config, onFinished)</c> and cleared from
-    /// both branches of the promise (GLOO.Introduction/UIIntroduceBase.cs:20-40), so it is true for
-    /// exactly the interval the introduction is on screen. Ambiguity is REFUSED rather than broken by
-    /// a tie-break: two shown introducers would mean the owner cannot be named, and naming the wrong
-    /// window is worse than the box the user is complaining about.</para>
-    ///
-    /// <para>Edge-driven, once per hint. <c>Object.FindObjectsOfType</c> in a per-frame path is this
-    /// project's most-shipped performance defect ([[findobjectsoftype-is-the-default-suspect]]); here
-    /// it runs on the rising edge of a window the player sees a handful of times per campaign, and
-    /// the walked count is printed so a future round can see the cost rather than assume it.</para>
-    /// </summary>
-    private static UIIntroduceBase? ResolveIntroducer()
-    {
-        UIIntroduceBase? found = null;
-        _shownCount = 0;
-        _scanWalked = 0;
-        UIIntroduceBase[] all = Object.FindObjectsOfType<UIIntroduceBase>(includeInactive: true);
-        _scanWalked = all.Length;
-        for (int i = 0; i < all.Length; i++)
-        {
-            UIIntroduceBase b = all[i];
-            if (b == null || !b.isShown)
-                continue;
-            _shownCount++;
-            found ??= b;
-        }
-        if (_shownCount > 1)
-        {
-            _ambiguous++;
-            return null;
-        }
-        return found;
-    }
-
-    /// <summary>
     /// FROM THE INTRODUCER TO THE FLOATED WINDOW IT LIVES IN — the tooltip path first, the ancestry
     /// walk second, and a named refusal when neither answers.
     /// </summary>
-    private static ConvertedPanel? ResolveOwner(UIIntroduce? introducer, out UIWindow? owner,
+    private static ConvertedPanel? ResolveOwner(Transform? anchor, out UIWindow? owner,
                                                 out string how)
     {
         owner = null;
-        if (introducer == null)
+        if (anchor == null)
         {
-            how = _shownCount > 1
-                ? $"REFUSED — {_shownCount} UIIntroduceBase instances report isShown at once, so the "
-                  + "game does not name ONE owner for this hint and picking one would be a guess"
-                : "NONE — no UIIntroduceBase reports isShown, i.e. this introduction was raised by a "
-                  + "direct UIIntroductionManager.Show(concept) caller (MapChoreographer's LinkedQuest "
-                  + "or UIUnlockLocationFlowManager's CityQuest), which holds no UIIntroduce and so "
-                  + "expresses no owner window in the game's data";
+            how = _origin?.Description ?? "native message has no recorded presentation owner";
             CountNoOwner();
             return null;
         }
 
         // ARM 1 — the tooltip path, byte-for-byte: ownership, never topmost-ness.
-        ConvertedPanel? panel = ModalFallback.FindOwningWindow(introducer.transform);
+        ConvertedPanel? panel = ModalFallback.FindOwningWindow(anchor);
         if (panel != null && panel.IsAlive && panel.HostRect != null)
         {
-            owner = OwnerWindowOf(introducer, panel);
+            owner = OwnerWindowOf(anchor, panel);
             if (owner != null)
             {
-                how = $"ModalFallback.FindOwningWindow(introducer '{introducer.name}') — the same "
+                how = $"ModalFallback.FindOwningWindow(introducer '{anchor.name}') — the same "
                       + "ownership walk every local tooltip is placed by";
                 return panel;
             }
@@ -550,7 +309,7 @@ internal static class HintOnOwnerComposite
 
         // ARM 2 — the introducer's own ancestor windows, for the case where the owner's subtree has
         // not been re-parented under a host. Nearest first: the innermost floated window wins.
-        for (Transform? t = introducer.transform; t != null; t = t.parent)
+        for (Transform? t = anchor; t != null; t = t.parent)
         {
             var w = t.GetComponent<UIWindow>();
             if (w == null || ReferenceEquals(w, _hint))
@@ -559,12 +318,12 @@ internal static class HintOnOwnerComposite
             if (p == null || !p.IsAlive || p.HostRect == null)
                 continue;
             owner = w;
-            how = $"the nearest ancestor UIWindow of the introducer '{introducer.name}' that the mod "
+            how = $"the nearest ancestor UIWindow of the introducer '{anchor.name}' that the mod "
                   + "is floating this instant (ModalFallback.PanelFor)";
             return p;
         }
 
-        how = $"NONE — the introducer '{introducer.name}' resolves to no floated window: neither the "
+        how = $"NONE — the introducer '{anchor.name}' resolves to no floated window: neither the "
               + "tooltip ownership walk nor its own ancestor UIWindows name one the mod is drawing "
               + "right now (the owner screen is on the flat screen, or not open)";
         CountNoOwner();
@@ -575,7 +334,7 @@ internal static class HintOnOwnerComposite
     /// made a CHILD of, so <c>ModalFallback.RendersInsideFloatedAncestor</c> can find it by walking
     /// parents. Falls back to the introducer's own ancestry when the panel's target carries no
     /// window on its own GameObject.</summary>
-    private static UIWindow? OwnerWindowOf(UIIntroduce introducer, ConvertedPanel panel)
+    private static UIWindow? OwnerWindowOf(Transform anchor, ConvertedPanel panel)
     {
         if (panel.Target != null)
         {
@@ -589,7 +348,7 @@ internal static class HintOnOwnerComposite
             if (onTarget != null && ModalFallback.PanelFor(onTarget) != null)
                 return onTarget;
         }
-        for (Transform? t = introducer.transform; t != null; t = t.parent)
+        for (Transform? t = anchor; t != null; t = t.parent)
         {
             var w = t.GetComponent<UIWindow>();
             if (w != null && !ReferenceEquals(w, _hint) && ModalFallback.PanelFor(w) != null)
@@ -629,6 +388,15 @@ internal static class HintOnOwnerComposite
             return false;
         }
 
+        // A late owner can arrive after the fallback floated this group. Release that writer
+        // before recording any transform; otherwise the saved home is a disposable mod host.
+        if (!ModalFallback.ReleaseForComposite(hint))
+        {
+            _how = "REFUSED — the standalone hint conversion has not handed back ownership";
+            CountRefused();
+            return false;
+        }
+
         Vector2 measured = rect.rect.size;
         if (measured.x < MinParkSizePx || measured.y < MinParkSizePx)
         {
@@ -664,6 +432,7 @@ internal static class HintOnOwnerComposite
             le = hint.gameObject.AddComponent<LayoutElement>();
             _addedIgnore = le;
         }
+        _homeIgnoreLayout = le.ignoreLayout;
         le.ignoreLayout = true;
 
         _parked = rect;
@@ -773,7 +542,7 @@ internal static class HintOnOwnerComposite
     {
         if (_parked == null || owner.transform is not RectTransform win)
             return;
-        if (!TryPaintedBounds(_parked, win, panel, exclude: null, out Rect hintInk, out int hintCount)
+        if (!TryPaintedBounds(_parked, win, panel: null, exclude: null, out Rect hintInk, out int hintCount)
             || hintCount == 0)
             return;
         if (!TryPaintedBounds(win, win, panel, exclude: _parked, out Rect ownerInk, out int ownerCount)
@@ -781,6 +550,46 @@ internal static class HintOnOwnerComposite
             return;
 
         Rect frame = win.rect;
+        if (panel?.HostRect != null)
+        {
+            // Native targets can retain a 1920px screen rect while their converted capture has
+            // fitted to a narrow column. Clamp in the host's actual rectangle mapped into the
+            // owner's authored coordinates, not that invisible native screen reservation.
+            panel.HostRect.GetWorldCorners(Corners);
+            Vector3 first = win.InverseTransformPoint(Corners[0]);
+            float minFrameX = first.x, maxFrameX = first.x;
+            float minFrameY = first.y, maxFrameY = first.y;
+            for (int i = 1; i < Corners.Length; i++)
+            {
+                Vector3 point = win.InverseTransformPoint(Corners[i]);
+                minFrameX = Mathf.Min(minFrameX, point.x);
+                maxFrameX = Mathf.Max(maxFrameX, point.x);
+                minFrameY = Mathf.Min(minFrameY, point.y);
+                maxFrameY = Mathf.Max(maxFrameY, point.y);
+            }
+            if (maxFrameX > minFrameX && maxFrameY > minFrameY)
+                frame = Rect.MinMaxRect(minFrameX, minFrameY, maxFrameX, maxFrameY);
+        }
+        float availableWidth = Mathf.Max(1f, Mathf.Min(ownerInk.width, frame.width) - 2f * FrameMarginPx);
+        float availableHeight = Mathf.Max(1f, Mathf.Min(ownerInk.height, frame.height) - HintGapPx - FrameMarginPx);
+        if (_nativeLayout != null
+            && _nativeLayout._message?.LayoutType == CLevelMessage.ELevelMessageLayoutType.HelpText
+            && _nativeLayout.title != null)
+        {
+            TextReflow.Apply(_nativeLayout.title, availableWidth);
+            if (!TryPaintedBounds(_parked, win, panel: null, exclude: null, out hintInk, out hintCount))
+                return;
+        }
+        // Measure in current scale and compute an absolute authored scale. Never grow beyond the
+        // original authored size, and never use the hint to grow the host that determines this fit.
+        float ratio = Mathf.Min(availableWidth / hintInk.width, availableHeight / hintInk.height);
+        float scale = Mathf.Min(1f, _parked.localScale.x * ratio);
+        if (Mathf.Abs(_parked.localScale.x - scale) > 0.0001f)
+        {
+            _parked.localScale = Vector3.one * scale;
+            if (!TryPaintedBounds(_parked, win, panel: null, exclude: null, out hintInk, out hintCount))
+                return;
+        }
 
         float wantMinX = ownerInk.center.x - hintInk.width * 0.5f;
         float wantMinY = ownerInk.yMin + HintGapPx;
@@ -832,6 +641,8 @@ internal static class HintOnOwnerComposite
             {
                 Graphic g = PaintScratch[i];
                 if (g == null)
+                    continue;
+                if (ReferenceEquals(root, _parked) && ReferenceEquals(g, _screenDimmer))
                     continue;
                 RectTransform rt = g.rectTransform;
                 if (rt == null)
@@ -898,6 +709,7 @@ internal static class HintOnOwnerComposite
     /// </summary>
     private static void Unpark(string why)
     {
+        TextReflow.Restore();
         RectTransform? rect = _parked;
         UIWindow? owner = _ownerWindow;
         _parked = null;
@@ -914,14 +726,17 @@ internal static class HintOnOwnerComposite
             Layers.Restore();
             if (_addedIgnore != null)
             {
-                Object.Destroy(_addedIgnore);
+                // A queued message can move to a different owner in this same tick. Deferred
+                // Destroy would let Park adopt the doomed component, losing ignoreLayout at the
+                // end of the frame. This is exclusively the component this class created.
+                Object.DestroyImmediate(_addedIgnore);
                 _addedIgnore = null;
             }
             else
             {
                 LayoutElement? le = rect.GetComponent<LayoutElement>();
                 if (le != null)
-                    le.ignoreLayout = false;
+                    le.ignoreLayout = _homeIgnoreLayout;
             }
             if (_home == null || owner == null || owner.transform == null)
                 return;
@@ -989,51 +804,33 @@ internal static class HintOnOwnerComposite
         string verdict = owner != null
             ? $"ON '{owner.name}' (ID {owner.ID}) via {_how}"
             : $"NOT ANCHORED — {_how}";
-        string signature = $"{verdict}|{_parks}|{_unparks}|{_noOwner}|{_refused}|{_ambiguous}";
+        string signature = $"{verdict}|{_hintsSeen}|{_parks}|{_unparks}|{_noOwner}|{_refused}";
         if (signature == _verdict)
             return;
         _verdict = signature;
         _reports++;
 
-        string body;
-        if (owner != null)
-        {
-            body = $"the introduction hint '{hint.name}' (ID {hint.ID}) is drawn INSIDE the floated "
-                   + $"window '{owner.name}' (ID {owner.ID}), as a child of that window's own rect. "
-                   + $"OWNER RESOLVED BY: {_how}. It is therefore NOT a window of its own: "
-                   + "ModalFallback.RendersInsideFloatedAncestor finds the owner above it and both "
-                   + "the catch-all and the enrolled path refuse the float, so it has no grab bar "
-                   + "and — the 2026-08-02 engagement ruling — no close cross, because the X is only "
-                   + "ever made by the conversion of a window that IS floated. Its own FORTFAHREN / "
-                   + "dismiss button is the only exit and it is raised to the owner's last sibling, "
-                   + $"so it is drawn and hit-tested above the owner's content. Host layer written "
-                   + $"over {Layers.Count} transform(s), {Layers.Skipped} foreign render subtree(s) "
-                   + $"left alone; host rect {(panel?.HostRect != null ? panel.HostRect.name : "<none>")}. "
-                   + "ITS HOME, restored verbatim on the hand-back: parent "
-                   + $"'{(_home != null ? _home.name : "<none>")}', sibling {_homeIndex}, scene "
-                   + $"'{_homeScene.name}' (persistent={_homeWasPersistent}).";
-        }
-        else
-        {
-            body = $"the introduction hint '{hint.name}' (ID {hint.ID}) is NOT anchored to a window "
-                   + $"this tick. WHY: {_how}. FALLBACK, AND WHAT IT GETS WRONG: nothing is moved, so "
-                   + "the hint keeps the presentation it had before this build — its own floated "
-                   + "frame with a grab bar and a close cross, standing beside the window it is "
-                   + "talking about instead of on it. That is the reported defect and it is "
-                   + "deliberately preferred to the alternative: picking the focused or topmost "
-                   + "window would put this text onto an unrelated panel with the same confidence as "
-                   + "a correct answer. The hint stays readable and dismissable either way.";
-        }
+        string body = owner != null
+            ? $"the introduction hint '{hint.name}' (ID {hint.ID}) is drawn INSIDE the floated "
+              + $"window '{owner.name}' (ID {owner.ID}). OWNER RESOLVED BY: {_how}. "
+              + $"Host layer written over {Layers.Count} transform(s), {Layers.Skipped} foreign "
+              + $"render subtree(s) left alone; host rect {panel?.HostRect?.name ?? "<none>"}. "
+              + $"Message scale {(_parked != null ? _parked.localScale.x : 1f):0.###}; "
+              + $"screen dimmer excluded from measurement={_screenDimmer != null}. "
+              + $"ITS HOME: native parent '{_home?.name ?? "<none>"}', sibling {_homeIndex}, "
+              + $"scene '{_homeScene.name}' (persistent={_homeWasPersistent})."
+            : $"the introduction hint '{hint.name}' (ID {hint.ID}) is NOT anchored to a window "
+              + $"this tick. WHY: {_how}. FALLBACK, AND WHAT IT GETS WRONG: the hint cannot yet "
+              + "annotate its actual owner; its native message remains in a standalone presentation "
+              + "until its actual owner has a live VR host. Only the native dismiss/action advances "
+              + "the introduction; no focused or topmost owner is guessed.";
 
         // HW-VERIFY: this family printed NOTHING at a printed tier before ModBuild 381 — "TUTORIAL"
         // and "Tutorial hint" both return zero hits in the ModBuild 380 log — which is why the
         // defect survived two hardware rounds. The next round's answer is read off this line.
         VRLog.Note(Scope, $"HINT ON WINDOW: {body} COUNTS: hints seen {_hintsSeen}, parked {_parks}, "
                           + $"handed back {_unparks}, no owner {_noOwner}, park refused {_refused}, "
-                          + $"ambiguous {_ambiguous}, "
-                          + $"throws {_throws}, reports {_reports}; the owner scan walked "
-                          + $"{_scanWalked} UIIntroduceBase instance(s) on this hint's rising edge "
-                          + $"and found {_shownCount} reporting isShown.");
+                          + $"throws {_throws}, reports {_reports}; current message owner: {_origin?.Description ?? "<none>"}.");
     }
 
     /// <summary>Module teardown — hand the hint back before anything else is torn down.</summary>
@@ -1041,10 +838,11 @@ internal static class HintOnOwnerComposite
     {
         Unpark("module teardown");
         _hint = null;
-        _introducer = null;
-        _scanned = false;
-        _shownCount = 0;
-        _scanWalked = 0;
+        _message = null;
+        _origin = null;
+        _screenDimmer = null;
+        _nativeLayout = null;
+        HintMessageOrigins.Reset();
         _verdict = string.Empty;
         _disabledByError = false;
     }

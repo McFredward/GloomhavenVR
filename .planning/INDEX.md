@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-15 for the final 1.0.0 refresh, build 504. This directory holds internal
+Updated 2026-09-15 for release 1.0.1 preparation, build 509. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,13 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [RELEASE-1.0.1.md](RELEASE-1.0.1.md): combat log startup default and verified main release provenance.
+- [TUTORIAL-508.md](TUTORIAL-508.md): sibling text/frame geometry, owner-only corner bounds
+  and user-authorized omission of the premature quest-preparation hint.
+- [SAVEGAME-507.md](SAVEGAME-507.md): native video skip, readable owner hints and complete
+  world-map toggle events for the merchant tutorial/quest continuation.
+- [VIDEO-WINDOW-506.md](VIDEO-WINDOW-506.md): persistent movie grab ownership and full-frame ink.
+- [SAVEGAME-505.md](SAVEGAME-505.md): shared native movie windows and per-message hint provenance.
 - [UPDATE-504.md](UPDATE-504.md): public update check reaches the prompt; the prompt now builds
   its uGUI layout with valid RectTransforms, confirmed through the release-mode fake-version test.
 - [GOLD-503.md](GOLD-503.md): current combined gold-pile value in held-prop cards.

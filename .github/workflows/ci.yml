@@ -93,6 +93,15 @@ jobs:
           echo "::error::Temporary DLL uploads are available only on dev. Select dev when running CI."
           exit 1
 
+      - name: Install test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ripgrep
+          rg --version
+
+      - name: Release topology regression tests
+        run: bash scripts/release-sim.sh
+
       - name: Artifact cleanup regression tests
         run: python3 -m unittest discover -s tests -p 'test_prune_dev_artifacts.py'
 
@@ -308,9 +317,15 @@ jobs:
           bash scripts/board-refresh-tests.sh
           bash scripts/card-loss-modal-tests.sh
           bash scripts/map-flow-tests.sh
+          bash scripts/map-button-tests.sh
           bash scripts/flight-timing-tests.sh
           bash scripts/figure-hold-tests.sh
           bash scripts/self-update-dialog-tests.sh
+          bash scripts/native-video-tests.sh
+          bash scripts/panel-ink-tests.sh
+          bash scripts/video-playback-tests.sh
+          bash scripts/hint-tests.sh
+          bash scripts/quest-hint-tests.sh
 
       - name: Wire tests (compile only — see docs/CI-CD.md)
         run: |

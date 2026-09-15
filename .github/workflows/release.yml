@@ -1,66 +1,10 @@
-# GloomhavenVR — release.
-#
-# TRIGGER: a push to `main`. `main` IS the release branch; `dev` is where work lands.
-# Pushing `dev` into `main` publishes a release. There is nothing else to do and no
-# button to press — which is why the first push to `main` deserves a moment's thought
-# before it is typed.
-#
-# THE ONE INVARIANT THIS WORKFLOW EXISTS TO PROTECT
-# -------------------------------------------------
-# `main` is only ever a fast-forward of `dev`. Nothing but `git push origin dev:main`
-# ever writes to it — not this workflow, not anybody. That is why the release procedure
-# stays one command forever instead of turning into a merge-back ritual.
-#
-# An earlier version of this file broke that invariant: it committed the version bump
-# ONTO `main` and pushed `HEAD:main`. It worked once. The second `git push origin
-# dev:main` was then a non-fast-forward and GitHub rejected it, because `main` carried
-# a commit `dev` had never seen. The "refuse if origin/main moved" guard could not
-# catch it — the thing that moved `main` was the previous run of this same workflow.
-# So the pipeline wedged exactly one release after it appeared to work.
-#
-# The fix is structural: **this workflow never pushes a commit to `main`.** It writes
-# exactly two refs, and neither of them is a branch on the release side:
-#
-#     refs/tags/v<version>     the release tag, pointing AT the pushed commit
-#     refs/heads/dev           the bookkeeping bump for the NEXT version
-#
-# That also makes the pipeline immune to branch protection on `main`: a branch ruleset
-# blocks commits, and this workflow has none to push. See docs/CI-CD.md §2.1.
-#
-# WHAT IT DOES, in order
-#   1. read <Version> from src/GloomhavenVR/GloomhavenVR.csproj — no edit, no commit.
-#      That value IS the version being released. The checkout is already clean and
-#      already at the exact commit that will be tagged, so the DLL is stamped from a
-#      clean tree with no ceremony required.
-#   2. refuse early if v<version> already exists, except for the one controlled 1.0.0
-#      package refresh below, or if the commit is not contained in `dev` (releasing such
-#      a commit is what breaks the invariant above)
-#   3. build with GhvrReleaseBuild=true (=> BuildInfo.IsDevBuild is false) and run the
-#      same gates CI runs
-#   4. scripts/package-release.sh -> dist/GloomhavenVR-<version>.zip, asserted by name
-#      and asserted to contain the asset bundle
-#   5. push the TAG (only the tag), then create the GitHub Release with the zip
-#   6. bookkeeping: bump <Version> on `dev` so the next release has a fresh number
-#
-# THE HAZARDS AND HOW THEY ARE SOLVED — see docs/CI-CD.md for the long version.
-#
-#   Infinite loop. Structurally impossible now: this workflow triggers on `main` and
-#   writes only to tags and to `dev`, and `dev`'s workflow (ci.yml) publishes nothing
-#   and pushes nothing. The old `[skip ci]` marker on the bump commit is deliberately
-#   GONE — see the "Bump dev" step for why it turned from a safety net into a trap.
-#
-#   Tag / version disagreement. The version is READ once from the csproj and never
-#   written during a release. package-release.sh names the zip with the same sed
-#   expression, the tag is v$VERSION, the release title is $VERSION, and the DLL is
-#   compiled from the very commit the tag points at. The workflow then asserts the zip
-#   exists under the exact expected name before it publishes anything.
-#
-#   Two releases fired close together. `concurrency` with cancel-in-progress FALSE
-#   queues runs instead of cancelling them (a half-published release is worse than a
-#   slow one). The second run reads the same <Version> — because the bump commit from
-#   the first run is on `dev`, not on the commit the second run is building — sees that
-#   v<version> already exists, and refuses BEFORE building anything. The remedy is the
-#   ordinary one: `git push origin dev:main` again, which now carries the bump.
+# Releases build and tag the exact commit pushed to main. Protected main is updated
+# through a reviewed dev -> main PR using a merge commit; a fast-forward is also valid.
+# Provenance requires either existing dev ancestry or an unchanged merge of a dev
+# ancestor. The workflow never commits to main. After publication it records the
+# release merge in current dev history and advances dev's next version if needed.
+# Concurrent dev work is retained; every dev push is a normal fast-forward retry.
+# See docs/CI-CD.md and the production-helper tests in scripts/release-sim.sh.
 name: Release
 
 on:
@@ -100,6 +44,15 @@ jobs:
       # run after a fifteen-minute build, because the whole point is to fail before
       # anything has been produced that could be half-published.
       # -----------------------------------------------------------------------------
+      - name: Install test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ripgrep
+          rg --version
+
+      - name: Release topology regression tests
+        run: bash scripts/release-sim.sh
+
       - name: Determine the version and check it can be released
         id: version
         run: |
@@ -132,37 +85,19 @@ jobs:
               echo "::error::Nothing was built. Two ways this happens:"
               echo "::error::  (a) two releases were fired close together — the bump commit for the"
               echo "::error::      previous one is on 'dev', not on this commit. Run"
-              echo "::error::      'git push origin dev:main' again; dev now carries the bump."
+              echo "::error::      a new reviewed dev-to-main PR; dev now carries the bump."
               echo "::error::  (b) you re-pushed an old commit. Set <Version> in"
               echo "::error::      src/GloomhavenVR/GloomhavenVR.csproj past v$VERSION on dev."
               exit 1
             fi
           fi
 
-          # THE INVARIANT CHECK. `main` must never contain a commit `dev` does not,
-          # or the next `git push origin dev:main` is a non-fast-forward and the whole
-          # release procedure wedges. Checked here, before the build, so the cost of
-          # being told is thirty seconds rather than a wasted run.
-          #
-          # FETCH_HEAD, not origin/dev, and that is not a stylistic choice:
-          # actions/checkout narrows `remote.origin.fetch` to the ref it checked out,
-          # so refs/remotes/origin/dev may simply not exist on the runner even after a
-          # successful fetch. `git merge-base` against a name that does not resolve
-          # exits non-zero — which this guard would have read as "not contained in dev"
-          # and turned into a refusal to release anything, ever. FETCH_HEAD is written
-          # by every `git fetch <remote> <ref>` regardless of the refspec.
+          # FETCH_HEAD works even with actions/checkout's narrowed fetch refspec.
           git fetch --no-tags origin dev
           DEV_TIP="$(git rev-parse FETCH_HEAD)"
-          echo "dev tip: $DEV_TIP"
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" "$DEV_TIP"; then
-            echo "::error title=main would move ahead of dev::The commit being released"
-            echo "::error::($GITHUB_SHA) is not contained in origin/dev."
-            echo "::error::Releasing it would leave 'main' ahead of 'dev', and your next"
-            echo "::error::'git push origin dev:main' would be REJECTED as a non-fast-forward."
-            echo "::error::Get this commit onto dev first (cherry-pick or merge), then push dev:main."
-            echo "::error::Nothing was built and nothing was published."
-            exit 1
-          fi
+          git fetch --no-tags origin main
+          MAIN_TIP="$(git rev-parse FETCH_HEAD)"
+          bash scripts/release-provenance.sh check "$PWD" "$GITHUB_SHA" "$DEV_TIP" "$MAIN_TIP"
 
           # A release stamped `…-dirty` is a bug report waiting to happen. The old
           # design created a bump commit to guarantee a clean tree; this design starts
@@ -301,9 +236,15 @@ jobs:
           bash scripts/board-refresh-tests.sh
           bash scripts/card-loss-modal-tests.sh
           bash scripts/map-flow-tests.sh
+          bash scripts/map-button-tests.sh
           bash scripts/flight-timing-tests.sh
           bash scripts/figure-hold-tests.sh
           bash scripts/self-update-dialog-tests.sh
+          bash scripts/native-video-tests.sh
+          bash scripts/panel-ink-tests.sh
+          bash scripts/video-playback-tests.sh
+          bash scripts/hint-tests.sh
+          bash scripts/quest-hint-tests.sh
 
       - name: Wire tests (compile only — vectors need the real game DLL)
         run: |
@@ -342,9 +283,8 @@ jobs:
       # Publish. Tag FIRST, release SECOND: a rejected tag push must leave nothing
       # behind, and `gh release create --verify-tag` refuses to invent one.
       #
-      # NOTE what is NOT here: any push to `main`. The tag points at ${{ github.sha }},
-      # which is what `main` already points at, so `main` and `dev` stay identical and
-      # the next `git push origin dev:main` is an ordinary fast-forward.
+      # No commit is pushed to main. The tag names the tested main commit, including
+      # a PR merge commit when that is how the release branch was updated.
       # -----------------------------------------------------------------------------
       - name: Push the tag
         if: ${{ steps.version.outputs.refresh_existing != 'true' }}
@@ -405,23 +345,9 @@ jobs:
       # If this step fails the release is still complete and correct; only the next
       # version number needs a hand. That is the whole reason it is last.
       #
-      # This is where the bump commit lives now: on `dev`, on top of whatever `dev` is
-      # at this moment, NOT on `main`. `dev` is therefore always exactly `main` plus
-      # this one commit (plus whatever work has landed since), so `git push origin
-      # dev:main` is a fast-forward for the second release and for every release after
-      # it. That is the bug this file was rewritten to fix.
-      #
-      # NO `[skip ci]` IN THE SUBJECT, deliberately, and this is a reversal:
-      #   * it is not needed for its original purpose. A push made with GITHUB_TOKEN
-      #     does not start a workflow run — documented GitHub behaviour — and even if
-      #     it did, `dev` runs ci.yml, which releases nothing and pushes nothing. The
-      #     loop the marker guarded against cannot exist in this topology.
-      #   * and it is now actively harmful. This commit sits on `dev` and will one day
-      #     be the HEAD commit of a `git push origin dev:main` — releasing twice with
-      #     no work in between does exactly that. GitHub honours `[skip ci]` on the
-      #     head commit of a push, so the marker would silently suppress a real
-      #     release: no run, no error, no annotation. A safety net that turns into a
-      #     trap gets removed.
+      # Retain the PR merge in dev ancestry before its next version bump. Concurrent
+      # work and an independently advanced version are preserved. No skip-ci marker:
+      # the next real release must remain eligible even when no feature work intervenes.
       # -----------------------------------------------------------------------------
       - name: Bump <Version> on dev for the next release
         run: |
@@ -432,31 +358,25 @@ jobs:
           git config user.name  'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
+          # Keep the reviewed helper available when checking out a concurrently
+          # advanced dev tree. Build outputs are ignored and are never committed.
+          PROVENANCE_SCRIPT="$(mktemp)"
+          cp scripts/release-provenance.sh "$PROVENANCE_SCRIPT"
+          trap 'rm -f "$PROVENANCE_SCRIPT"' EXIT
           for attempt in 1 2 3; do
-            # FETCH_HEAD throughout, not origin/dev — actions/checkout may not maintain
-            # a remote-tracking ref for it. See the version step for the full note.
             git fetch --no-tags origin dev
             DEV_TIP="$(git rev-parse FETCH_HEAD)"
-
-            DEV_VERSION="$(git show "$DEV_TIP:src/GloomhavenVR/GloomhavenVR.csproj" \
-                           | sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' | head -1)"
-            if [[ "$DEV_VERSION" != "$VERSION" ]]; then
-              # Somebody set the number by hand (a --minor or --major bump on dev is
-              # exactly how a non-patch release is prepared). Do not fight them.
-              echo "::notice title=No bump needed::dev already says <Version>$DEV_VERSION, not $VERSION — leaving it alone."
-              exit 0
+            git fetch --no-tags origin main
+            MAIN_TIP="$(git rev-parse FETCH_HEAD)"
+            if ! bash "$PROVENANCE_SCRIPT" prepare "$PWD" "$GITHUB_SHA" "$DEV_TIP" "$MAIN_TIP" "$VERSION"; then
+              echo "::error::Release $TAG is already published; local dev bookkeeping failed. Review the provenance/merge error above and repair dev without rerunning publication."
+              exit 1
             fi
-
-            git checkout -B release-bump "$DEV_TIP"
-            NEXT="$(bash scripts/bump-version.sh --patch)"
-            git add src/GloomhavenVR/GloomhavenVR.csproj
-            git commit -m "chore(release): set <Version> to $NEXT after $TAG"
 
             if git push origin HEAD:dev; then
-              echo "::notice title=Next version::dev is now at <Version>$NEXT."
+              echo "::notice title=Dev bookkeeping complete::Release ancestry and next version are recorded on dev."
               exit 0
             fi
-
             echo "push to dev rejected (attempt $attempt/3) — refetching and retrying"
           done
 
@@ -464,9 +384,9 @@ jobs:
           echo "::error::complete — the tag, the zip and the release are all correct and nothing"
           echo "::error::needs re-running. ONLY the bookkeeping bump did not land."
           echo "::error::"
-          echo "::error::Fix it by hand, on dev, one line:"
-          echo "::error::    bash scripts/bump-version.sh --patch"
-          echo "::error::    git commit -am 'chore(release): set <Version> after $TAG' && git push origin dev"
+          echo "::error::Fetch current dev/main, merge $GITHUB_SHA into dev, then advance"
+          echo "::error::the version only if it still says $VERSION. Push dev normally."
+          echo "::error::scripts/release-provenance.sh prepare performs that local bookkeeping."
           echo "::error::"
           echo "::error::If this keeps happening, a branch ruleset on 'dev' is blocking"
           echo "::error::github-actions[bot]. Either add it to that ruleset's bypass list or drop"

@@ -105,6 +105,7 @@ internal static class Program
             UseBarAnimationVectors.Run(t);
             UseBarAnimationPlaybackVectors.Run(t);
             SharedWindowPoseVectors.Run(t);
+            VideoWindowVectors.Run(t);
             FanReflowVectors.Run(t);
             FanInteractionVectors.Run(t);
             FanInsertionGapVectors.Run(t);

@@ -124,7 +124,8 @@ internal static partial class Defaults
     // and now means "have it up when a scenario begins", which is the same answer to the same
     // intent. Showing and hiding it DURING play is the options button and the panel's X, and
     // neither writes this.
-    internal const bool CombatLogAtStart = true;             // => [WorldUI] CombatLog
+    // Release 1.0.1: new profiles start without the panel; saved preferences remain authoritative.
+    internal const bool CombatLogAtStart = false;             // => [WorldUI] CombatLog (pinned: user default ruling 2026-09-15 - hidden at scenario start)
     internal const bool Dialogs = true;                      // => [WorldUI] Dialogs
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls

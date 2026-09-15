@@ -2826,6 +2826,10 @@ internal static partial class ModalFallback
         for (int i = 0; i < OpenWindows.Count; i++)
         {
             UIWindow window = OpenWindows[i];
+            // Composite adoption runs after OpenWindows was sampled. Recheck the live
+            // hierarchy here: a newly parked hint must not be converted again this tick.
+            if (RendersInsideFloatedAncestor(window))
+                continue;
             if (!FloatWantedFor(window, convertWanted))
                 continue;
             if (IsConverted(window) || ContainsWindow(Failed, window))

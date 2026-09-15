@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <HintOriginsSource Condition="'$(HintOriginsSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs</HintOriginsSource>
+    <HintTransferSource Condition="'$(HintTransferSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/ModalFallback.CompositeTransfer.cs</HintTransferSource>
+    <HintReflowSource Condition="'$(HintReflowSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/HintTextReflow.cs</HintReflowSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(HintOriginsSource)" Link="Production/HintMessageOrigins.cs" />
+    <Compile Include="$(HintTransferSource)" Link="Production/ModalFallback.CompositeTransfer.cs" />
+    <Compile Include="$(HintReflowSource)" Link="Production/HintTextReflow.cs" />
+  </ItemGroup>
+</Project>

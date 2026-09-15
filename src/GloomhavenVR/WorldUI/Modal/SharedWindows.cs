@@ -183,6 +183,9 @@ internal enum SharedWindowKind : byte
     /// byte. A pose published under kind 1 would be applied to the map story box.</para>
     /// </summary>
     Encounter = 4,
+
+    /// <summary>Native fullscreen movies, presented through their own VR window and record72.</summary>
+    Video = 5,
 }
 
 /// <summary>See <see cref="SharedWindowKind"/> for the whole design; this is the accessor both the
@@ -225,6 +228,9 @@ internal static class SharedWindows
     {
         if (window == null)
             return SharedWindowKind.None;
+
+        if (ReferenceEquals(NativeVideoWindow.Window, window))
+            return SharedWindowKind.Video;
 
         if (Singleton<StoryController>.IsInitialized)
         {
@@ -290,7 +296,7 @@ internal static class SharedWindows
             return false;               // singleplayer: every window is a private window
         return kind switch
         {
-            SharedWindowKind.ScenarioStory => true,
+            SharedWindowKind.ScenarioStory or SharedWindowKind.Video => true,
             // THE ENCOUNTER JOINS THE MAP-PHASE GATE, not the scenario one, and that is read from
             // the game rather than assumed: a road/city event is raised from MapChoreographer on
             // the campaign map and its record travels in the map room's parchment frame like the
@@ -454,7 +460,8 @@ internal static class SharedWindows
         GrabbedHere(SharedWindowKind.ScenarioStory)
         || GrabbedHere(SharedWindowKind.MapStory)
         || GrabbedHere(SharedWindowKind.QuestConfirm)
-        || GrabbedHere(SharedWindowKind.Encounter);
+        || GrabbedHere(SharedWindowKind.Encounter)
+        || GrabbedHere(SharedWindowKind.Video);
 
     /// <summary>One kind's answer for <see cref="AnyGrabbedHere"/> — participation first, so a
     /// non-participating client never even looks for the window.</summary>
@@ -469,6 +476,8 @@ internal static class SharedWindows
     {
         switch (kind)
         {
+            case SharedWindowKind.Video:
+                return NativeVideoWindow.Window;
             case SharedWindowKind.ScenarioStory:
                 if (!Singleton<StoryController>.IsInitialized)
                     return null;
@@ -515,6 +524,8 @@ internal static class SharedWindows
     /// </summary>
     internal static bool TryGetGrab(SharedWindowKind kind, out GrabbableModal? grab)
     {
+        if (kind == SharedWindowKind.Video)
+            return NativeVideoWindow.TryGetGrab(out grab);
         if (kind == SharedWindowKind.QuestConfirm)
             return ModalFallback.TryGetGrabById(UIWindowID.QuestPopup, out grab);
 

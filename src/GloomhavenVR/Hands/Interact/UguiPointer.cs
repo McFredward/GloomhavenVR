@@ -1092,6 +1092,13 @@ internal sealed class UguiPointer
         if (win == null)
             return false; // mod chrome and anything else outside a game window: always delivered
 
+        // ModBuild 506 hardware: Movie clicks reached this guard but its deliberately
+        // disabled identity-only UIWindow never runs Start or Show. Preserve the protection
+        // for all native pooled windows; only the live movie's exact surface is mod chrome.
+        if (ReferenceEquals(win, WorldUI.NativeVideoWindow.Window)
+            && WorldUI.NativeVideoWindow.OwnsClick(clickHandler))
+            return false;
+
         if (win.HasGoneToStartingState || win.IsOpen)
             return false;
 

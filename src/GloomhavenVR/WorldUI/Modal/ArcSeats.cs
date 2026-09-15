@@ -332,9 +332,12 @@ internal static partial class ModalFallback
                  + "still behind the reveal gate, so no graphic passes the visibility test) — the "
                  + "reservation falls back to the frame, exactly as every build before ModBuild 234";
 
+        // Tutorial annotations are guests of this window, not an anchor for its pose.
+        // Both the visible query and pre-reveal fallback must exclude them. The hit and
+        // chrome queries retain the guest so its native Continue button remains reachable.
         bool viaInk = false;
         if (!CanvasConversion.TryMeasureDrawnContent(panel, out Rect content, out Rect host,
-                out int contributors))
+                out int contributors, includeParkedHint: false))
         {
             // ---- ModBuild 245: THE VISIBILITY TEST IS THE WRONG INSTRUMENT BEFORE THE REVEAL, AND
             //      THAT IS WHY HIS TWO MAP WINDOWS KEPT LANDING ON TOP OF EACH OTHER.
@@ -359,7 +362,7 @@ internal static partial class ModalFallback
             // Using it here makes the reservation right on the FIRST placement instead of the
             // second, so the corners are free when the corner pass runs. [[open-is-not-drawing]],
             // [[reserve-what-is-drawn]] — this is the third time this class of defect has shipped.
-            if (!PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink) || !ink.Valid)
+            if (!PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink, includeParkedHint: false) || !ink.Valid)
                 return g;
             RectTransform? hostRect = panel.HostRect;
             if (hostRect == null)
@@ -3950,7 +3953,7 @@ internal static partial class ModalFallback
             note = "THE FRAME ORIGIN (this window has no host RectTransform to map anything through)";
             return false;
         }
-        if (PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink) && ink.Valid
+        if (PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink, includeParkedHint: false) && ink.Valid
             && ink.Rect.width > 0.5f && ink.Rect.height > 0.5f)
         {
             local = new Vector3(ink.Rect.center.x, ink.Rect.center.y, 0f);
@@ -3971,7 +3974,7 @@ internal static partial class ModalFallback
         // content.center − host.center, i.e. as a DIFFERENCE, so it does not assume where either
         // rect's origin sits.
         if (CanvasConversion.TryMeasureDrawnContent(panel, out Rect content, out Rect hostRect2,
-                out int contributors)
+                out int contributors, includeParkedHint: false)
             && content.width > 0.5f && content.height > 0.5f)
         {
             local = new Vector3(content.center.x - hostRect2.center.x,

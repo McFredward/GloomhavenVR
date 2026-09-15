@@ -58,6 +58,7 @@ internal sealed partial class FlatScreen
 
     public void Shutdown()
     {
+        NativeVideoWindow.Shutdown();
         Core.Events.VREvents.SceneLoaded -= OnSceneLoaded;
         ManualScreenActive = false;
         // The rescue latch is static and therefore outlives this instance; a module teardown must
@@ -90,6 +91,11 @@ internal sealed partial class FlatScreen
         // The [WorldUI] FlatScreen kill switch is gone (always on — user ruling 2026-08-11:
         // essential; the floating screen is the ONLY VR surface for the game's 2D flows).
         if (!WorldUIConfig.ConversionActive)
+            return false;
+
+        // Fullscreen native movies own a separate world-space window, including on the map
+        // where the desktop composite is deliberately suppressed.
+        if (NativeVideoWindow.Visible)
             return false;
 
         // LOADING GATE ("only the spinner on black"): while the VR loading indicator is

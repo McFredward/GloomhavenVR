@@ -444,6 +444,7 @@ internal sealed partial class FlatScreen
 
     public void Tick()
     {
+        NativeVideoWindow.Tick();
         // ITEM 9: keep the flat monitor a clean left-eye mirror while VR runs (must run
         // regardless of the flat-screen's own visibility — it is a global desktop concern).
         TickDesktopMirrorMode();

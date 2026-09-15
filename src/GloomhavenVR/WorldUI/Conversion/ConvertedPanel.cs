@@ -14,6 +14,13 @@ internal sealed class ConvertedPanel
     // What was moved.
     public RectTransform Target = null!;
 
+    /// <summary>
+    /// Exact authored content that fills the frame, such as the movie image. The ink walk
+    /// normally excludes full-frame backgrounds; this identity keeps real full-frame content
+    /// measurable without admitting other backdrop plates. Visibility and clipping still apply.
+    /// </summary>
+    public Graphic? ContentGraphic;
+
     // Original placement (restored on Release).
     public Transform OriginalParent = null!;
     public int OriginalSiblingIndex;

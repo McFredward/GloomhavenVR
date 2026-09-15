@@ -463,6 +463,28 @@ internal static partial class CanvasConversion
     internal static int OrderAboveDistance(float eyeDistance, int lift)
         => FartherPanelOrder(eyeDistance) + lift;
 
+    private static readonly List<ConvertedPanel> StandaloneOrderPanels = new(1);
+
+    /// <summary>
+    /// A mod-owned movie canvas has no native subtree to convert, but still needs the same full
+    /// draw-order slot as every native window. Putting its content in a spare furniture offset
+    /// would let its grab bar pierce a nearer panel. This registration owns only ordering, never
+    /// conversion maintenance, fitting, native window visibility or restoration.
+    /// </summary>
+    internal static void RegisterStandalonePanelOrder(ConvertedPanel panel)
+    {
+        if (!StandaloneOrderPanels.Contains(panel)) StandaloneOrderPanels.Add(panel);
+        // Creation occurs after the last ordinary conversion tick on some frames. Assign the
+        // complete slot, including the already-built grab/badge followers, before first render.
+        TickPanelOrder();
+    }
+
+    internal static void UnregisterStandalonePanelOrder(ConvertedPanel panel)
+    {
+        StandaloneOrderPanels.Remove(panel);
+        panel.OrderListed = false;
+    }
+
     /// <summary>
     /// The ladder order of the NEAREST panel that is still behind <paramref name="eyeDistance"/>
     /// (tie = behind, see <see cref="OrderAboveDistance"/>), or one step below the whole ladder
@@ -569,9 +591,9 @@ internal static partial class CanvasConversion
         // the clock is one static bool test.
         using (Core.PerfMonitor.Scope("Order.Measure"))
         {
-            for (int i = 0; i < Active.Count; i++)
+            for (int i = 0; i < Active.Count + StandaloneOrderPanels.Count; i++)
             {
-                ConvertedPanel panel = Active[i];
+                ConvertedPanel panel = i < Active.Count ? Active[i] : StandaloneOrderPanels[i - Active.Count];
                 if (!panel.IsAlive || panel.HostCanvas == null || panel.HostRect == null)
                     continue;
                 panel.OrderDistance = PanelEyeDistance(panel, eye);

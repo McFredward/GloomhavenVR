@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for the final 1.0.0 refresh, ModBuild 504.** The file this replaces had gone 168 builds
+**Updated 2026-09-15 for release 1.0.1 preparation, ModBuild 509.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,76 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.1 / ModBuild 509 is the release candidate requested by the maintainer.**
+  Combat log startup now defaults to off; existing preferences and manual display
+  remain available. This includes the video/tutorial/placement corrections through
+  508. Hosted runner dependency and protected-main release provenance issues found
+  during preparation are corrected; 36 offline release topology assertions pass. Local gates pass with
+  253,674 wire assertions and a strict Release build with zero warnings/errors. See
+  [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
+
+- **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**
+  The user confirms the deadlock is resolved, and the log completes BuyItem/FTUE.
+  HelpText and its separate native BG now reflow and align together instead of leaving
+  the border and text apart. Corner placement excludes adopted hint geometry while
+  retaining it for interaction/chrome. The exact quest-preparation hint is omitted
+  under the user's explicit exception; the later battle-goal explanation remains
+  native and all quest/tutorial continuations retain their original authority.
+  See [TUTORIAL-508.md](TUTORIAL-508.md). Final headset confirmation remains required.
+- **508 source/regression gates pass:** all 17 checkers, 253,674 wire assertions and
+  production suites. Hints: 45 assertions/seven negative controls; ink/placement:
+  218 assertions/four runtime negatives plus one binding negative; preparation prefix:
+  13 assertions/three negatives. Compiled comparison with retained build 502: 30 changed
+  types, 14 additions, no removals. Surfaces: 625 config keys / 161 patch signatures /
+  4,724 log tokens; runtime patch inventory 117 classes / 184 methods. Strict Release
+  passes with zero warnings/errors; bilingual docs and whitespace checks pass.
+
+- **1.0.1 / ModBuild 507 repairs savegame tutorial input and hint layout.**
+  The live movie surface now accepts laser/poke skip through native continuation.
+  Original HelpText wraps at authored font size; pending standalone dissolve callbacks
+  are retired before owner adoption. The merchant-to-map dispatcher now emits complete
+  native toggle events: its former silent Select omitted the FTUE listener, leaving
+  BuyItem active and blocking quest progression. Native tutorial/travel locks remain
+  authoritative. See [SAVEGAME-507.md](SAVEGAME-507.md). Headset replay remains required.
+- **507 source and regression gates pass:** all 17 checkers, 253,674 wire assertions
+  and production suites; movie 66 assertions/six negative controls, hints 38/five,
+  native off-bar dispatch 10/two. Surfaces remain 625/161/4,723. Retained build-502
+  compiled comparison: 30 changed types, 13 additions, no removals. Strict Release
+  has zero warnings/errors; bilingual documentation and whitespace checks pass.
+
+- **1.0.1 / ModBuild 506 corrects the movie-window regression reported on 505.**
+  The ordinary orphan sweep now recognizes the live video's exact grab holder,
+  preventing repeated destruction/recreation at the world origin. Its full-frame
+  image is explicitly content, so the backdrop exclusion cannot hide its handle.
+  Chrome shares the canvas's persistent lifetime and module teardown; local and
+  remote movie windows use the same ordinary grab/resize and modal ordering paths.
+  See [VIDEO-WINDOW-506.md](VIDEO-WINDOW-506.md). Headset replay remains required.
+- **506 local gates pass:** all 17 source checkers, 253,674 wire assertions and the
+  production regression suites. Movie ownership/sweep coverage now has 50 assertions
+  and four negative controls; the ink walker adds 111 assertions/two negative controls.
+  Strict Release: zero warnings/errors; bilingual docs and whitespace checks pass.
+  Config/patch/log surfaces remain 625/161/4,723. Retained build-502 compiled comparison:
+  28 changed types and 12 additions, no removals; the only newly changed types compared
+  with the 505 review are ConvertedPanel and PanelInkBounds, alongside the intended
+  movie/modal changes and build constants in types already in that review.
+
+- **1.0.1 / ModBuild 505 fixes savegame introduction presentation.** Build 504 logs
+  show native fullscreen video decoding to the desktop and introduction messages
+  retaining old standalone conversions after adoption into a character window.
+  Dedicated movie windows support shared playback/pose through additive TLV 72.
+  Per-message native provenance and serialized owner references replace the global
+  producer scan. Atomic conversion handover removes empty frames; hint fit excludes
+  its fullscreen dimmer and cannot resize its owner. Native continue/fade behavior
+  remains authoritative. See [SAVEGAME-505.md](SAVEGAME-505.md). Headset replay remains
+  required; no main/tag/release change is part of this round.
+- **505 local gates pass:** all 17 source checkers, 253,674 wire assertions and the
+  production suites with their negative controls. New movie/hint suites cover 39
+  native-video, 35 shared-playback and 20 hint assertions; updater coverage adds
+  nine assertions. Strict Release has zero warnings/errors; bilingual docs pass.
+  Compiled review against the retained build-502 baseline: 26 changed types, 12
+  additions, no removals (including already-integrated gold/updater/version changes).
+  Config keys remain 625; patch signatures increase 160→161 and log markers
+  4,719→4,723, with no removals. Runtime patch inventory: 116 classes/183 methods.
 - **1.0.0 / ModBuild 504 repairs the self-update prompt.** The 0.9.0 hardware log proves that
   the public latest-release request and version comparison succeeded, then a bare `Transform` in
   `SelfUpdateDialog.BuildProgressRow` threw before the dialog could be drawn. Every dialog layout

@@ -77,6 +77,8 @@ internal static class NetProtocol
     public const byte ExtIdBoardRigPose = 70;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
+    /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
+    public const byte ExtIdVideoWindow = 72;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;
@@ -490,7 +492,83 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 504;
+    public const ushort ModBuild = 509;
+
+    // ModBuild 509 — release 1.0.1, combat log hidden by default at scenario start.
+    //   User request: disable the combat log by default. Change the annotated startup
+    //   preference only; existing saved choices still win, and the VR options action
+    //   can show the panel at any time. Includes the savegame video, tutorial continuation,
+    //   native hint geometry and party placement fixes from builds 505–508.
+    //   Version 1.0.1, DLL-only since 483, no wire change; all VR peers use 509.
+    //   See .planning/RELEASE-1.0.1.md for release provenance and validation.
+
+    // ModBuild 508 — tutorial hint geometry, preparation flow and stable party placement.
+    //   The 507 hardware retest confirms quest progression but shows HelpText outside its
+    //   border. Native HelpText and BG are siblings under LabelArea; 507 incorrectly treated
+    //   their parent as the border and kept the old offsets, so the measured union stayed
+    //   wide and scaled the text down. Fit the actual native siblings together and restore
+    //   their original layout on release. No replacement text or frame is constructed.
+    //   The quest-selection preparation hint asks to inspect cards while VR is showing story.
+    //   The user permits this specific hint's omission. Suppress only QuestManager's exact
+    //   serialized producer before it creates a process/queue entry, honoring its continuation;
+    //   keep the later battle-goal introduction and all tutorial/travel locks native.
+    //   Party corner re-seating included an adopted hint's geometry in its placement union,
+    //   shifting the owner by 1.072m in the log. Placement excludes adopted hints while their
+    //   pixels remain part of interaction/chrome bounds; ordinary user placement is retained.
+    //   Geometry, placement and exact-producer regressions include failing negative controls.
+    //   See .planning/TUTORIAL-508.md. Version 1.0.1, DLL-only since 483, no wire change;
+    //   all VR peers use 508. Headset verification remains required.
+
+    // ModBuild 507 — restore native savegame tutorial input and readable hints.
+    //   The 506 hardware log names CLICK WITHHELD on Movie: its deliberately disabled
+    //   identity-only UIWindow triggered the pooled-native-window Start guard. Admit only
+    //   the exact live movie surface; campaign clicks use native Escape, hero movies use
+    //   the decoder's original completion callback, never raw Stop or a mirror continuation.
+    //   The screenshot's tiny HelpText is a desktop-wide native line shrunk into a party
+    //   column. Reflow its original TMP and border at authored font size; restore all layout
+    //   settings on handback. Retire a previous standalone panel's pending dissolve before
+    //   recording the hint's native home, so its old release callback cannot steal it back.
+    //   The merchant actually exited, but BuyItem stayed active: off-bar UIGuildmasterButton
+    //   Select uses silent SetValue and omits the FTUE toggle listener. Dispatch the native
+    //   toggle change (and sibling deselections) once so tutorial hints and locks advance
+    //   through the game's own callbacks. Never unlock travel or complete FTUE from a timer.
+    //   Production pointer/sweep, hint, and off-bar dispatch tests include negative controls.
+    //   See .planning/SAVEGAME-507.md. Headset replay remains required. Version 1.0.1,
+    //   DLL-only since 483, no wire change; all VR peers use 507.
+
+    // ModBuild 506 — keep native movie windows in the ordinary grab lifecycle.
+    //   The 505 retest shows the movie but repeated first-time bar transitions into hidden
+    //   state. Two independent presentation defects: the modal orphan sweep did not recognize
+    //   the live video's GrabbableModal, destroyed it, and its next Tick recreated a frame at
+    //   the world origin; the sole full-frame movie Graphic was classified as background,
+    //   leaving no ink to keep its handle visible. Exact live ownership now survives sweeps
+    //   (same-name orphans still retire), and ContentGraphic identifies the movie's pixels
+    //   without weakening normal dimmer/background exclusions or visibility checks.
+    //   Video chrome shares the persistent canvas lifetime, closes with module teardown and
+    //   uses the regular modal draw tier. Local and remote use the same frame and ink path.
+    //   Production sweep/owner and ink walker regressions include deliberate failing variants.
+    //   Hardware replay remains required. Version 1.0.1, DLL-only since 483; no wire changes,
+    //   all VR peers use 506. See .planning/VIDEO-WINDOW-506.md.
+
+    // ModBuild 505 — savegame videos and native introduction window ownership.
+    //   Build 504's campaign intro decoded and played audio but its camera only reached the
+    //   desktop. Native fullscreen movies now draw in a dedicated grabbable VR window, joining
+    //   the normal window ordering and waiting for a decoded frame before revealing chrome.
+    //   Multiplayer mirrors use local movie assets and additive TLV 72 for playback identity,
+    //   time and shared pose; only original native decoders publish sources. Cosmetic playback
+    //   never invokes the game's completion callbacks. First remote reveal waits for shared pose.
+    //   Native intro clicks use its original skip continuation. Source election and retirement
+    //   prevent concurrent native copies or delayed samples from replaying a completed movie.
+    //   Tutorial hints now follow each queued native message's actual producer and serialized
+    //   UI owner. Before parking, the old float is released synchronously, restoring native
+    //   transforms and removing its empty grab bar/capture/fit writer. A same-tick hierarchy
+    //   recheck prevents reconstruction. Hint ink excludes its fullscreen dimmer and does not
+    //   resize the owner. Native closing fades retain their owner; layout flags restore exactly.
+    //   Introduction windows are not sticky and have no mod X bypassing native continuation.
+    //   Production hint/video harnesses and runtime negative controls join CI and release gates.
+    //   Hardware replay remains required. Development version 1.0.1, DLL-only since 483;
+    //   GVR1/v3 and prior record layouts unchanged, all VR peers must use 505.
+    //   See .planning/SAVEGAME-505.md for evidence and validation.
 
     // ModBuild 504 — build the self-update dialog with actual uGUI transforms.
     //   A 0.9.0 main-menu update check successfully parsed the public release and found a newer
