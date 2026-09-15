@@ -43,6 +43,9 @@ build-502 compiled comparison has 32 changed types, 14 additions and no removals
 Relative to build 508, the two additional changed types are Defaults and WorldUIConfig:
 the compiled ConfigFile binding now supplies false for the startup preference.
 Surfaces remain 625 config keys / 161 patch signatures / 4,724 log tokens.
+The default is pinned against future cfg rebases. The retained tester cfg still differs
+in Cheats.Enabled, Comfort.VerticalDrag and General.LogLevel; those stale/test-specific
+values were reviewed and were not imported as release defaults.
 
 The integrated production release helper passes 36 offline Git assertions, including
 three successive PR releases, invalid same-tree/squash/resolution commits, concurrent
