@@ -21,6 +21,13 @@ change per build) → this file (where things stand and what is owed) → the bu
   under the user's explicit exception; the later battle-goal explanation remains
   native and all quest/tutorial continuations retain their original authority.
   See [TUTORIAL-508.md](TUTORIAL-508.md). Final headset confirmation remains required.
+- **508 source/regression gates pass:** all 17 checkers, 253,674 wire assertions and
+  production suites. Hints: 45 assertions/seven negative controls; ink/placement:
+  218 assertions/four runtime negatives plus one binding negative; preparation prefix:
+  13 assertions/three negatives. Compiled comparison with retained build 502: 30 changed
+  types, 14 additions, no removals. Surfaces: 625 config keys / 161 patch signatures /
+  4,724 log tokens; runtime patch inventory 117 classes / 184 methods. Strict Release
+  passes with zero warnings/errors; bilingual docs and whitespace checks pass.
 
 - **1.0.1 / ModBuild 507 repairs savegame tutorial input and hint layout.**
   The live movie surface now accepts laser/poke skip through native continuation.

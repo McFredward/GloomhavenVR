@@ -66,7 +66,22 @@ both the actual ink walker and drawn-content union. The exact-producer prefix su
 checks callback preservation, unrelated/battle-goal hints, scene identity and flat
 mode. Each suite includes deliberately reintroduced defects that must fail.
 
-Final gate counts and compiled review will be recorded after integration.
+All 17 source checkers and 253,674 wire assertions pass, together with the existing
+production regression suites. Hint geometry/provenance passes 45 assertions and seven
+negative controls; ink/drawn-union placement passes 218 assertions, four runtime
+negative controls and one placement-binding negative control. The new preparation
+prefix suite passes 13 assertions and three negative controls.
+
+The retained build-502 compiled baseline reports 30 changed types and 14 additions,
+no removals. Compared with the build-507 review, QuestPreparationHint is the one new
+type; changes to existing hint, placement and module/build types match the reviewed
+source. The guard exits 1 for these expected compiled differences, not for a test
+failure. Config keys remain 625 and patch signatures 161 (the new prefix shares an
+existing target); runtime patch inventory is 117 classes / 184 methods. Log tokens
+increase by one to 4,724 with QUEST PREPARATION HINT OMITTED.
+
+Strict Release passes with zero warnings/errors. Bilingual documentation and whitespace
+checks pass.
 
 ## Hardware acceptance
 
