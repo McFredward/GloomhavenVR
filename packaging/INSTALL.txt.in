@@ -11,7 +11,8 @@ The same guide WITH PICTURES, plus the controls and every setting:
 
 
 YOU NEED
-  * Gloomhaven (digital) for PC — Steam or GOG; tested with 1.1.8307.0.
+  * Gloomhaven (digital) for PC — Steam, GOG or Epic Games Store;
+    tested with 1.1.8307.0.
   * Windows and a PC-VR headset. Developed and tested on a Quest 3 over
     Virtual Desktop; Quest Link, Steam Link and SteamVR should work but are
     not tested.
@@ -59,9 +60,6 @@ Everything else is already inside this zip.
    The mod changes rendering settings in GH_Data\boot.config. The original
    is kept next to it as boot.config.gloomhavenvr-backup. If the game ever
    refuses to start, copy that backup back over boot.config.
-
-   Why it restarts, and how to avoid it, is on the project page linked at
-   the top of this file.
 
 
 SETTINGS

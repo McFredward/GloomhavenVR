@@ -14,7 +14,7 @@
 
 | | |
 |---|---|
-| **Game** | Gloomhaven (digital) for PC — Steam or GOG; tested with 1.1.8307.0 |
+| **Game** | Gloomhaven (digital) for PC — Steam, GOG or Epic Games Store; tested with 1.1.8307.0 |
 | **PC** | Windows, a PC-VR headset, two tracked controllers with thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — step 1 installs it, once |
 
@@ -76,9 +76,6 @@ Your saves, your campaign and your settings are not touched.
 The mod changes the rendering settings in `GH_Data/boot.config` and keeps the original beside it as
 `boot.config.gloomhavenvr-backup`. If the game ever refuses to start, copy that back over
 `boot.config`.
-
-<sub>Why it restarts, and how to avoid it:
-[docs/DEVELOPING.md](docs/DEVELOPING.md#the-restart-on-the-first-start)</sub>
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -162,5 +159,4 @@ These are optional and do nothing without the mod: `GH_Data/Plugins/x86_64/Unity
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-A short version of this page ships inside the release zip as `INSTALL.txt`. Building from source:
-[`docs/DEVELOPING.md`](docs/DEVELOPING.md).
+A short version of this page ships inside the release zip as `INSTALL.txt`.
