@@ -28,11 +28,8 @@ WHERE THE FILE GOES
 HOW TO GET IT
   Download the release zip from
     https://github.com/McFredward/GloomhavenVR/releases
-  Every published release contains the bundle; the release pipeline refuses to publish
-  a zip without it. A zip without it came out of a developer's checkout that had neither
-  a fresh Unity build nor the committed prebuilt copy (prebuilt/gloomhavenvr.bundle).
-  Developers: scripts/build-bundles.sh, on Unity 2021.3.5f1 exactly — any other 2021.3.x
-  editor writes a bundle the game cannot read.
+  Every published release contains the bundle. Extract the full release zip into
+  your Gloomhaven folder, replacing the incomplete installation.
 
 HOW TO CHECK IT LOADED
   Start the game once, then open <Gloomhaven folder>\BepInEx\LogOutput.log and look for
@@ -76,11 +73,8 @@ WO DIE DATEI HINGEHÖRT
 WOHER DU SIE BEKOMMST
   Lade das Release-Zip herunter von
     https://github.com/McFredward/GloomhavenVR/releases
-  Jedes veröffentlichte Release enthält das Bundle; die Release-Pipeline veröffentlicht kein
-  Zip ohne. Ein Zip ohne Bundle stammt aus einem Entwickler-Checkout, in dem weder ein
-  frischer Unity-Build noch die eingecheckte Kopie (prebuilt/gloomhavenvr.bundle) lag.
-  Entwickler: scripts/build-bundles.sh, mit Unity 2021.3.5f1 — genau dieser Version; jeder
-  andere 2021.3.x-Editor schreibt ein Bundle, das das Spiel nicht lesen kann.
+  Jedes veröffentlichte Release enthält das Bundle. Entpacke das vollständige
+  Release-Zip in deinen Gloomhaven-Ordner und ersetze die unvollständige Installation.
 
 SO PRÜFST DU, OB ES GELADEN WURDE
   Starte das Spiel einmal, öffne dann <Gloomhaven-Ordner>\BepInEx\LogOutput.log und such nach

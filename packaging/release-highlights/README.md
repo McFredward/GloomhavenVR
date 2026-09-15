@@ -32,6 +32,10 @@ The reader is somebody deciding whether to download an update. Write what **chan
   There is no standing list to point at any more: the playing guide's *Known limitations* section
   was removed on the user's instruction (`erstmal komplett`, 2026-09-07), so a limitation a player
   needs to know about has to be written into the notes for the release it survives.
+- Keep development setup, installer-script arguments, CI results, pending hardware tests and
+  release/tag bookkeeping in `docs/DEVELOPING.md`, `docs/CI-CD.md` or `.planning/` evidence.
+  An untested configuration is not a player-facing defect. For an actual unresolved defect,
+  describe its visible effect and any workaround, not the investigation status.
 - Markdown works. Headings above `###` do not — the section already sits under `## What's new`.
 - No version numbers, no build numbers, no file names, no `ModBuild`. If a player has to know a
   number, the game tells them.
@@ -41,7 +45,8 @@ The reader is somebody deciding whether to download an update. Write what **chan
 1. Write `packaging/release-highlights/<version>.md` on `dev`.
 2. `bash scripts/release-notes.sh <version> /tmp/notes.md && cat /tmp/notes.md` — read it as the
    player will, top to bottom.
-3. Push `dev`, then `git push origin dev:main` to release.
+3. Push `dev`, then follow the reviewed `dev` → `main` merge procedure in
+   [the CI/CD guide](../../docs/CI-CD.md#23-release-when-authorized).
 
 Without step 1 the release still succeeds; it just has no plain-language notes, and the script
 reminds you of that on stderr.

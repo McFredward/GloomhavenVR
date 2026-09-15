@@ -14,7 +14,7 @@
 
 | | |
 |---|---|
-| **Spiel** | Gloomhaven (digital) für den PC — Steam oder GOG; getestet mit 1.1.8307.0 |
+| **Spiel** | Gloomhaven (digital) für den PC — Steam, GOG oder Epic Games Store; getestet mit 1.1.8307.0 |
 | **PC** | Windows, ein PC-VR-Headset, zwei getrackte Controller mit Thumbsticks |
 | **Loader** | BepInEx 5.4.23.5 (x64) — Schritt 1 installiert ihn, einmalig |
 
@@ -77,9 +77,6 @@ Deine Spielstände, deine Kampagne und deine Einstellungen bleiben unangetastet.
 Die Mod ändert Rendering-Einstellungen in `GH_Data/boot.config` und legt das Original als
 `boot.config.gloomhavenvr-backup` daneben. Falls das Spiel irgendwann gar nicht mehr startet, kopier
 es zurück über `boot.config`.
-
-<sub>Warum sie neu startet und wie du es vermeidest:
-[docs/DEVELOPING.md](docs/DEVELOPING.md#the-restart-on-the-first-start) (nur auf Englisch)</sub>
 
 <p align="center">
   <img src="docs/img/divider-small.png" width="340" alt="">
@@ -163,5 +160,4 @@ Diese hier sind optional und tun ohne die Mod nichts: `GH_Data/Plugins/x86_64/Un
   <img src="docs/img/divider-small.png" width="340" alt="">
 </p>
 
-Eine Kurzfassung dieser Seite liegt als `INSTALL-DEUTSCH.txt` im Release-Zip. Aus dem Quellcode
-bauen: [`docs/DEVELOPING.md`](docs/DEVELOPING.md) (nur auf Englisch).
+Eine Kurzfassung dieser Seite liegt als `INSTALL-DEUTSCH.txt` im Release-Zip.

@@ -22,6 +22,9 @@ to Codex and record the user's instructions of 2026-09-08.
   refactor baseline private to its worktree; never overwrite a shared symlink.
 - Never use `git stash`. Preserve unrelated work and the read-only game references.
   Do not print `.env` or copy its contents into tracked files.
+- Keep player documentation and release highlights focused on installation from release archives,
+  controls and visible changes. Installer scripts, CI/build details and pending hardware tests
+  belong in developer documentation or `.planning/`, not in player instructions.
 - Commit useful checkpoints. Attribute commits truthfully: the Claude-specific
   coauthor and session-link template in `CLAUDE.md` does not apply to Codex.
 - Distinguish source-proven fixes, log evidence, and unverified hardware outcomes.
