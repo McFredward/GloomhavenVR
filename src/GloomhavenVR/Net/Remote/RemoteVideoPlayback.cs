@@ -27,11 +27,16 @@ internal static class RemoteVideoPlayback
     private static VideoPlayer? _mirror;
     private static uint _mirrorToken;
     private static int _mirrorOwner;
+    private static uint _failedMirrorToken;
+    private static int _failedMirrorOwner;
+    private static bool _mirrorEnded;
     private static uint _sentToken;
     private static bool _sentPlaying;
     private static VideoPlayer? _mutedNative;
     private static bool[]? _savedMute;
     private static AudioSource?[]? _savedAudioSources;
+    private static AudioSource?[]? _audioBindings;
+    private static VideoAudioOutputMode _mutedMode;
 
     internal static bool SendDue
     {
@@ -163,7 +168,8 @@ internal static class RemoteVideoPlayback
         else EnsureMirror();
         bool suppressed = _native != null && _suppressedNativeToken == _token;
         NativeVideoWindow.SetNativePresentationSuppressed(suppressed);
-        SyncNativeAudio(_native != null && (_mirror != null || suppressed));
+        bool mirrorAudible = _mirror != null && _mirror.isPrepared && (_mirror.isPlaying || _mirror.isPaused);
+        SyncNativeAudio(_native != null && (mirrorAudible || suppressed));
         RemoteMapStory.ResolveVideoPose(_poseKey);
     }
 
@@ -176,11 +182,15 @@ internal static class RemoteVideoPlayback
     private static void EnsureMirror()
     {
         if (_mirror != null && (_mirrorOwner != _owner || _mirrorToken != _activeToken)) StopMirror();
+        // An unavailable local decoder is not evidence that the native source completed.
+        // Preserve that publication and any healthy local native fallback; retry only when
+        // the source really begins a new play, rather than creating a per-frame error loop.
+        if (_failedMirrorOwner == _owner && _failedMirrorToken == _activeToken) return;
         if (_mirror == null)
         {
             if (!NativeVideoWindow.TryResolvePlaybackKey(_active.Clip ?? string.Empty, out string url))
             {
-                RetireOwner("movie asset unavailable");
+                FailMirror("movie asset unavailable");
                 return;
             }
             var root = new GameObject("GloomhavenVR Shared Video Decoder");
@@ -193,12 +203,13 @@ internal static class RemoteVideoPlayback
             _mirror.url = url;
             _mirrorOwner = _owner;
             _mirrorToken = _activeToken;
+            _mirrorEnded = false;
             _mirror.prepareCompleted += Prepared;
             _mirror.loopPointReached += Ended;
             _mirror.errorReceived += Failed;
             NativeVideoWindow.SetRemoteSource(_mirror);
             _mirror.Prepare();
-            VRLog.Info("Net", $"SHARED VIDEO START: owner={_owner}, token={_activeToken}, clip={_active.Clip}");
+            VRLog.Note("Net", $"SHARED VIDEO START: owner={_owner}, token={_activeToken}, clip={_active.Clip}");
         }
         if (RemoteMapStory.TryVideoInitialPose(_owner, _poseKey, out Vector3 pos, out Quaternion rot, out float size))
             NativeVideoWindow.SetRemotePose(pos, rot, size);
@@ -208,16 +219,18 @@ internal static class RemoteVideoPlayback
     private static void Prepared(VideoPlayer player)
     {
         if (player != _mirror) return;
+        SyncNativeAudio(_native != null);
         ApplyPlayback(player, initial: true);
     }
 
     private static void ApplyPlayback(VideoPlayer player, bool initial)
     {
+        if (_mirrorEnded) return;
         double target = _active.Millis / 1000d
             + (_active.Playing ? Math.Max(0, Time.unscaledTime - _activeAt) : 0);
         if (player.length > 0 && target >= player.length)
         {
-            RetireOwner("source reached movie end");
+            HoldMirrorEnd(player);
             return;
         }
         if (player.canSetTime && (initial || Math.Abs(player.time - target) > 0.35)) player.time = target;
@@ -228,19 +241,29 @@ internal static class RemoteVideoPlayback
 
     private static void Ended(VideoPlayer player)
     {
-        if (player == _mirror) RetireOwner("decoder reached movie end");
+        if (player == _mirror) HoldMirrorEnd(player);
     }
 
     private static void Failed(VideoPlayer player, string reason)
     {
-        if (player == _mirror) RetireOwner(reason);
+        if (player == _mirror) FailMirror(reason);
     }
 
-    private static void RetireOwner(string reason)
+    private static void HoldMirrorEnd(VideoPlayer player)
     {
-        FinishActivePlayback();
-        VRLog.Info("Net", $"SHARED VIDEO STOP: owner={_owner}, token={_activeToken}, reason={reason}");
+        // A cosmetic decoder can reach its end before the elected owner's stop packet.
+        // Freeze its last frame; never re-Play it and never retire authoritative sources.
+        _mirrorEnded = true;
+        player.Pause();
+    }
+
+    private static void FailMirror(string reason)
+    {
+        _failedMirrorOwner = _owner;
+        _failedMirrorToken = _activeToken;
+        VRLog.Note("Net", $"SHARED VIDEO STOP: owner={_owner}, token={_activeToken}, reason={reason}");
         StopMirror();
+        RestoreNativeAudio();
     }
 
     private static void FinishActivePlayback()
@@ -254,12 +277,18 @@ internal static class RemoteVideoPlayback
 
     private static void SyncNativeAudio(bool mute)
     {
-        if (!mute || _mutedNative != _native) RestoreNativeAudio();
-        if (!mute || _native == null || _mutedNative != null) return;
+        if (!mute || _mutedNative != _native || AudioBindingChanged()) RestoreNativeAudio();
+        // Track counts and target AudioSources become available only after preparation and
+        // can change on the reused native component. A zero-track sample must not latch a
+        // permanent "already muted" state, nor may an old binding leave the next one audible.
+        if (!mute || _native == null || !_native.isPrepared || _native.audioTrackCount == 0
+            || _mutedNative != null) return;
         _mutedNative = _native;
+        _mutedMode = _native.audioOutputMode;
         int count = _native.audioTrackCount;
         _savedMute = new bool[count];
         _savedAudioSources = new AudioSource?[count];
+        _audioBindings = new AudioSource?[count];
         for (ushort i = 0; i < count; i++)
         {
             if (_native.audioOutputMode == VideoAudioOutputMode.Direct)
@@ -270,6 +299,7 @@ internal static class RemoteVideoPlayback
             else if (_native.audioOutputMode == VideoAudioOutputMode.AudioSource)
             {
                 AudioSource source = _native.GetTargetAudioSource(i);
+                _audioBindings[i] = source;
                 if (source == null) continue;
                 bool seen = false;
                 for (int j = 0; j < i; j++)
@@ -282,19 +312,31 @@ internal static class RemoteVideoPlayback
         }
     }
 
+    private static bool AudioBindingChanged()
+    {
+        if (_mutedNative == null || _native == null) return false;
+        if (!_native.isPrepared || _native.audioOutputMode != _mutedMode
+            || _savedMute == null || _savedMute.Length != _native.audioTrackCount) return true;
+        if (_mutedMode != VideoAudioOutputMode.AudioSource) return false;
+        for (ushort i = 0; i < _savedMute.Length; i++)
+            if (_audioBindings?[i] != _native.GetTargetAudioSource(i)) return true;
+        return false;
+    }
+
     private static void RestoreNativeAudio()
     {
-        if (_mutedNative != null && _savedMute != null)
+        if (_savedMute != null)
             for (ushort i = 0; i < _savedMute.Length; i++)
             {
                 AudioSource? source = _savedAudioSources?[i];
                 if (source != null) source.mute = _savedMute[i];
-                else if (_mutedNative.audioOutputMode == VideoAudioOutputMode.Direct && i < _mutedNative.audioTrackCount)
+                else if (_mutedNative != null && _mutedMode == VideoAudioOutputMode.Direct && i < _mutedNative.audioTrackCount)
                     _mutedNative.SetDirectAudioMute(i, _savedMute[i]);
             }
         _mutedNative = null;
         _savedMute = null;
         _savedAudioSources = null;
+        _audioBindings = null;
     }
 
     private static void StopMirror()
@@ -309,6 +351,7 @@ internal static class RemoteVideoPlayback
         _mirror = null;
         _mirrorOwner = 0;
         _mirrorToken = 0;
+        _mirrorEnded = false;
     }
 
     internal static void Reset()
@@ -321,6 +364,8 @@ internal static class RemoteVideoPlayback
         _nativeClip = string.Empty;
         _owner = _localId = 0;
         _suppressedNativeToken = 0;
+        _failedMirrorOwner = 0;
+        _failedMirrorToken = 0;
         _lastClip = string.Empty;
         _closedUntil = 0;
         _activeToken = _poseKey = _sentToken = 0;
