@@ -420,13 +420,13 @@ internal static partial class CanvasConversion
     /// only while a fit is armed, but the plate sweep runs per panel per FRAME — so the invisible
     /// rows must be rejected without ever touching it.</para>
     /// </summary>
-    internal static bool CountsAsFitContent(ConvertedPanel? panel, Graphic? g)
+    internal static bool CountsAsFitContent(ConvertedPanel? panel, Graphic? g, bool includeParkedHint = false)
     {
         if (panel == null || panel.HostRect == null || g == null)
             return false;
         // A parked introduction is sized against its owner. Counting it back into the
         // owner's fit creates a feedback loop (build 504: a 304px column became 1920px).
-        if (HintOnOwnerComposite.IsParkedContent(g.transform))
+        if (!includeParkedHint && HintOnOwnerComposite.IsParkedContent(g.transform))
             return false;
         if (!TryGetVisibleHostRect(panel, g, out _, out _))
             return false;

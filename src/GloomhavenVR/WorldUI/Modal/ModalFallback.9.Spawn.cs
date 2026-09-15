@@ -3506,7 +3506,9 @@ internal static partial class ModalFallback
         int graphics = LiveCheckGraphics.Count;
         for (int i = 0; i < graphics; i++)
         {
-            if (CanvasConversion.CountsAsFitContent(panel, LiveCheckGraphics[i]))
+            // A parked hint must not resize its owner, but remains visible content for
+            // liveness even if the native owner temporarily blanks the UI beneath it.
+            if (CanvasConversion.CountsAsFitContent(panel, LiveCheckGraphics[i], includeParkedHint: true))
                 return true;
         }
         LiveCheckRenderers.Clear();

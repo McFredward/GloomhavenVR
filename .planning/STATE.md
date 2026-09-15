@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for the final 1.0.0 refresh, ModBuild 504.** The file this replaces had gone 168 builds
+**Updated 2026-09-15 for savegame introduction fixes, ModBuild 505.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,23 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **1.0.1 / ModBuild 505 fixes savegame introduction presentation.** Build 504 logs
+  show native fullscreen video decoding to the desktop and introduction messages
+  retaining old standalone conversions after adoption into a character window.
+  Dedicated movie windows support shared playback/pose through additive TLV 72.
+  Per-message native provenance and serialized owner references replace the global
+  producer scan. Atomic conversion handover removes empty frames; hint fit excludes
+  its fullscreen dimmer and cannot resize its owner. Native continue/fade behavior
+  remains authoritative. See [SAVEGAME-505.md](SAVEGAME-505.md). Headset replay remains
+  required; no main/tag/release change is part of this round.
+- **505 local gates pass:** all 17 source checkers, 253,674 wire assertions and the
+  production suites with their negative controls. New movie/hint suites cover 39
+  native-video, 35 shared-playback and 20 hint assertions; updater coverage adds
+  nine assertions. Strict Release has zero warnings/errors; bilingual docs pass.
+  Compiled review against the retained build-502 baseline: 26 changed types, 12
+  additions, no removals (including already-integrated gold/updater/version changes).
+  Config keys remain 625; patch signatures increase 160→161 and log markers
+  4,719→4,723, with no removals. Runtime patch inventory: 116 classes/183 methods.
 - **1.0.0 / ModBuild 504 repairs the self-update prompt.** The 0.9.0 hardware log proves that
   the public latest-release request and version comparison succeeded, then a bare `Transform` in
   `SelfUpdateDialog.BuildProgressRow` threw before the dialog could be drawn. Every dialog layout

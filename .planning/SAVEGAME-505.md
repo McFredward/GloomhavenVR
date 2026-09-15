@@ -52,9 +52,19 @@ native continuation.
 
 ## Validation
 
-Production-linked hint and video harnesses, negative controls, wire vectors and full
-project gates are run during integration. Final counts are recorded in STATE.md and
-the integration commit. Automated checks do not prove headset rendering.
+All 17 source checkers, 253,674 wire assertions and the existing production suites
+pass. New production-linked suites pass 39 native-video, 35 shared-playback and 20
+hint assertions, with eight deliberate failing variants between them. The updater
+suite also passes nine assertions and its negative control. Strict Release builds
+with zero warnings/errors; bilingual docs and whitespace checks pass.
+
+Compiled comparison against the retained build-502 baseline reports 26 changed
+types and 12 additions, with no removals. Changes include the already-integrated
+gold/updater fixes and version constants; remaining changes are video presentation,
+shared playback and hint ownership/lifecycle. Config keys remain 625, patch
+signatures increase 160→161, and log markers 4,719→4,723, with none removed. The
+guard's nonzero result denotes these reviewed compiled differences, not a failing
+source check or test. Automated checks do not prove headset rendering.
 
 Hardware replay still needs: campaign intro from a save, the complete first-character
 creation sequence, repeated hints on the same screen, another fullscreen movie, and

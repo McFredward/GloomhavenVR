@@ -802,10 +802,11 @@ internal static class HintOnOwnerComposite
               + $"render subtree(s) left alone; host rect {panel?.HostRect?.name ?? "<none>"}. "
               + $"Message scale {(_parked != null ? _parked.localScale.x : 1f):0.###}; "
               + $"screen dimmer excluded from measurement={_screenDimmer != null}. "
-              + $"Native home '{_home?.name ?? "<none>"}', sibling {_homeIndex}, "
+              + $"ITS HOME: native parent '{_home?.name ?? "<none>"}', sibling {_homeIndex}, "
               + $"scene '{_homeScene.name}' (persistent={_homeWasPersistent})."
             : $"the introduction hint '{hint.name}' (ID {hint.ID}) is NOT anchored to a window "
-              + $"this tick. WHY: {_how}. Its native message remains in a standalone presentation "
+              + $"this tick. WHY: {_how}. FALLBACK, AND WHAT IT GETS WRONG: the hint cannot yet "
+              + "annotate its actual owner; its native message remains in a standalone presentation "
               + "until its actual owner has a live VR host. Only the native dismiss/action advances "
               + "the introduction; no focused or topmost owner is guessed.";
 
