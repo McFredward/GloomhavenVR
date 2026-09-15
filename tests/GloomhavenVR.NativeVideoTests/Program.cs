@@ -37,6 +37,7 @@ static class Program
         Check(!window.enabled, "identity cannot register native window lifecycle");
         Check(NativeVideoWindow.TryGetGrab(out _), "video can be grabbed");
         Check(GrabbableModal.LiveCount == 1 && UguiPokeSurfaces.Canvases.Count == 1, "one frame and pointer surface");
+        Check(CanvasConversion.Ordered.Count == 1, "first reveal participates in the native window draw ladder");
         for (int i = 0; i < 100; i++) NativeVideoWindow.Tick();
         Check(NativeVideoWindow.Window == window && GrabbableModal.LiveCount == 1, "stable frames do not rebuild chrome");
         native.isPaused = true; native.isPlaying = false;
@@ -46,6 +47,7 @@ static class Program
         NativeVideoWindow.Tick();
         Check(!NativeVideoWindow.Visible && GrabbableModal.LiveCount == 0 && UguiPokeSurfaces.Canvases.Count == 0,
             "native completion removes frame and interaction atomically");
+        Check(CanvasConversion.Ordered.Count == 0, "movie completion removes the order-only registration");
 
         var mirror = new GameObject("Mirror").AddComponent<VideoPlayer>();
         mirror.texture = new Texture(); mirror.frame = 20; mirror.isPrepared = mirror.isPlaying = true;

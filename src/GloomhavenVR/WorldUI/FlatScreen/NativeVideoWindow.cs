@@ -241,6 +241,7 @@ internal static class NativeVideoWindow
             if (frame != null) frame.localScale = Vector3.one * _remoteGrabFactor;
             _grab.SnapFrameTo(position, rotation);
         }
+        CanvasConversion.RegisterStandalonePanelOrder(_panel);
         _shownSource = source;
         _shownUrl = source.url;
         // HW-VERIFY
@@ -249,7 +250,11 @@ internal static class NativeVideoWindow
 
     private static void Close()
     {
-        if (_panel != null) UguiPokeSurfaces.Unregister(_panel.HostCanvas);
+        if (_panel != null)
+        {
+            CanvasConversion.UnregisterStandalonePanelOrder(_panel);
+            UguiPokeSurfaces.Unregister(_panel.HostCanvas);
+        }
         _grab?.Destroy();
         _grab = null;
         if (_root != null)

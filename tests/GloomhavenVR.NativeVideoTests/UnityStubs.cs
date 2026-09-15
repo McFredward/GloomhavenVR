@@ -133,7 +133,13 @@ namespace GloomhavenVR.WorldUI
 {
     internal sealed class ConfigValue { internal float Value = 1; }
     internal static class WorldUIConfig { internal static bool ConversionActive = true; internal static ConfigValue CanvasScaleMm = new(); }
-    internal static class CanvasConversion { internal static UnityEngine.Camera? WorldCamera; }
+    internal static class CanvasConversion
+    {
+        internal static UnityEngine.Camera? WorldCamera;
+        internal static readonly HashSet<ConvertedPanel> Ordered = new();
+        internal static void RegisterStandalonePanelOrder(ConvertedPanel panel) => Ordered.Add(panel);
+        internal static void UnregisterStandalonePanelOrder(ConvertedPanel panel) => Ordered.Remove(panel);
+    }
     internal static class PanelLayout { internal static float WorldScale => 1; }
     internal static class PanelPlacement
     {
