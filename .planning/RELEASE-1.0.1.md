@@ -36,6 +36,14 @@ No license or visibility changes are part of this request.
 
 ## Validation and publication
 
-Local gates, hosted candidate CI, the final main SHA, Release workflow result and
-published asset will be recorded here after completion. The release workflow owns
-tag creation, ZIP publication and the next development version bump.
+Local validation passes all 17 source checkers, 253,674 wire assertions and the
+production regression suites with their negative controls. Strict Release has zero
+warnings/errors; bilingual documentation and whitespace checks pass. The retained
+build-502 compiled comparison has 32 changed types, 14 additions and no removals.
+Relative to build 508, the two additional changed types are Defaults and WorldUIConfig:
+the compiled ConfigFile binding now supplies false for the startup preference.
+Surfaces remain 625 config keys / 161 patch signatures / 4,724 log tokens.
+
+Hosted candidate CI, the final main SHA, Release workflow result and published asset
+will be recorded after completion. The release workflow owns tag creation, ZIP
+publication and the next development version bump.
