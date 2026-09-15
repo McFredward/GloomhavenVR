@@ -149,8 +149,18 @@ internal static partial class ModalFallback
     /// <see cref="MandatoryDecisionTerm"/> for the seventeen map-room windows that were torn down
     /// because those two questions shared one predicate.</para>
     /// </summary>
-    internal static bool IsMandatoryDecision(UIWindow? window, out string reason) =>
-        MandatoryDecisionTerms.IsMandatory(ClassifyMandatoryDecision(window, out reason));
+    internal static bool IsMandatoryDecision(UIWindow? window, out string reason)
+    {
+        // IntroductionManager queues the next hint from its native continue callback.
+        // A generic modal X/Hide bypasses that callback and leaves the queue unresolved.
+        // Its layout group is distinct from LevelMessagesUIHandler's scenario tutorial.
+        if (IsIntroductionWindow(window))
+        {
+            reason = "introduction message — its native continue callback owns the message queue";
+            return true;
+        }
+        return MandatoryDecisionTerms.IsMandatory(ClassifyMandatoryDecision(window, out reason));
+    }
 
     /// <summary>
     /// The same sweep as <see cref="IsMandatoryDecision"/>, answering WHICH TERM matched instead of

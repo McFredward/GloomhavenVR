@@ -424,6 +424,10 @@ internal static partial class CanvasConversion
     {
         if (panel == null || panel.HostRect == null || g == null)
             return false;
+        // A parked introduction is sized against its owner. Counting it back into the
+        // owner's fit creates a feedback loop (build 504: a 304px column became 1920px).
+        if (HintOnOwnerComposite.IsParkedContent(g.transform))
+            return false;
         if (!TryGetVisibleHostRect(panel, g, out _, out _))
             return false;
         // Mod-owned cue art (focus rings, frames, tints) is a PRESENTATION overlay on the game's
@@ -766,6 +770,8 @@ internal static partial class CanvasConversion
         for (int i = 0; i < GraphicScratch.Count; i++)
         {
             Graphic g = GraphicScratch[i];
+            if (HintOnOwnerComposite.IsParkedContent(g.transform))
+                continue;
             // Mod-owned cue art (focus rings, frames, tints) is a PRESENTATION overlay on the
             // game's content, not content. It also BREATHES — Board.FocusCue pulses a ring's
             // scale — so measuring it makes the union oscillate and re-place the whole panel
@@ -3417,6 +3423,8 @@ internal static partial class CanvasConversion
         for (int i = 0; i < FixedFitGraphics.Count; i++)
         {
             Graphic g = FixedFitGraphics[i];
+            if (HintOnOwnerComposite.IsParkedContent(g.transform))
+                continue;
             if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
                 continue;
             if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax))
