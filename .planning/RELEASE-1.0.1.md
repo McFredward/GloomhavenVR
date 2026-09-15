@@ -86,15 +86,16 @@ listed consistently. Playing guides were reviewed without changes. AGENTS.md and
 release-highlights authoring guide record the rule for future edits.
 
 The primary agent prepared documentation integration branch `docs/player-guides-main`
-at `990af4e4`, based directly on main `be74759e`; it contains only documentation changes
-and retains Version 1.0.1. Its `[skip ci]` commit marker must survive the final squash
-merge so the main push does not publish a release. Runtime source, workflows, scripts
-and assets are identical to main. This is a documentation-only PR, not the merge-commit
-procedure used for an actual release. The corresponding edits are already integrated
-into dev, which continues to target 1.0.2.
+at `990af4e4`, based directly on main `be74759e`. PR #4 was squash-merged as
+`c9df03d0` on 2026-09-15 at 20:57 UTC after the maintainer granted the token the
+missing permissions. It changes only documentation and retains Version 1.0.1.
+The final commit includes `[skip ci]`; no Release workflow ran for this commit.
+Runtime source, workflows, scripts and assets are identical to the published main
+source. This was a documentation-only PR, not the merge-commit procedure used for
+an actual release. Its ancestry is merged back into dev, which retains Version 1.0.2.
 
-GitHub rejected PR creation and edits to the older v0.9.0/v1.0.0 release bodies with
-`Resource not accessible by personal access token` (HTTP 403 for release edits).
-The main merge and those two published text updates are therefore pending repository
-write access or maintainer action. The public v1.0.1 body already omits the pending-test
-sentence; its source highlights now agree. No release, tag or download was replaced.
+The existing v0.9.0 and v1.0.0 release bodies were edited in place to remove internal
+test status and describe player-visible behavior. The public v1.0.1 body already
+omitted the pending-test sentence; its source highlights now agree. The initial
+HTTP 403 failures are resolved. Release IDs, tags and asset IDs/sizes/digests remain
+unchanged; no release or download was replaced.
