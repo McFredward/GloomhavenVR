@@ -77,6 +77,7 @@ internal static class HintOnOwnerComposite
     // Native message identity changes even while the group remains continuously open.
     private static object? _message;
     private static HintMessageOrigins.Origin? _origin;
+    private static Graphic? _screenDimmer;
 
     /// <summary>
     /// PER-HINT LATCHES FOR THE LEDGER, and they are not tidiness. <see cref="ResolveOwner"/> and
@@ -186,6 +187,7 @@ internal static class HintOnOwnerComposite
             _hint = null;
             _message = null;
             _origin = null;
+            _screenDimmer = null;
             return;
         }
 
@@ -200,6 +202,12 @@ internal static class HintOnOwnerComposite
             _hint = hint;
             _message = message;
             _origin = HintMessageOrigins.For(message);
+            // LevelMessageUILayout.Init controls this exact root Image through ShowScreenBG.
+            // It is a 1920-wide screen dimmer, not the narrower native message plate (the build504
+            // logs also measure 644/844-wide content). Preserve its rendering, but do not let its
+            // width shrink the message text threefold when parking on a 304px character column.
+            // Keep the reference through the native closing fade, just like its message origin.
+            _screenDimmer = Singleton<UIIntroductionManager>.Instance.LayoutGroup._currentMessage?.GetComponent<Image>();
             _hintsSeen++;
             _countedNoOwner = false;
             _countedRefused = false;
@@ -536,6 +544,26 @@ internal static class HintOnOwnerComposite
             return;
 
         Rect frame = win.rect;
+        if (panel?.HostRect != null)
+        {
+            // Native targets can retain a 1920px screen rect while their converted capture has
+            // fitted to a narrow column. Clamp in the host's actual rectangle mapped into the
+            // owner's authored coordinates, not that invisible native screen reservation.
+            panel.HostRect.GetWorldCorners(Corners);
+            Vector3 first = win.InverseTransformPoint(Corners[0]);
+            float minFrameX = first.x, maxFrameX = first.x;
+            float minFrameY = first.y, maxFrameY = first.y;
+            for (int i = 1; i < Corners.Length; i++)
+            {
+                Vector3 point = win.InverseTransformPoint(Corners[i]);
+                minFrameX = Mathf.Min(minFrameX, point.x);
+                maxFrameX = Mathf.Max(maxFrameX, point.x);
+                minFrameY = Mathf.Min(minFrameY, point.y);
+                maxFrameY = Mathf.Max(maxFrameY, point.y);
+            }
+            if (maxFrameX > minFrameX && maxFrameY > minFrameY)
+                frame = Rect.MinMaxRect(minFrameX, minFrameY, maxFrameX, maxFrameY);
+        }
         float availableWidth = Mathf.Max(1f, Mathf.Min(ownerInk.width, frame.width) - 2f * FrameMarginPx);
         float availableHeight = Mathf.Max(1f, Mathf.Min(ownerInk.height, frame.height) - HintGapPx - FrameMarginPx);
         // Measure in current scale and compute an absolute authored scale. Never grow beyond the
@@ -599,6 +627,8 @@ internal static class HintOnOwnerComposite
             {
                 Graphic g = PaintScratch[i];
                 if (g == null)
+                    continue;
+                if (ReferenceEquals(root, _parked) && ReferenceEquals(g, _screenDimmer))
                     continue;
                 RectTransform rt = g.rectTransform;
                 if (rt == null)
@@ -759,7 +789,7 @@ internal static class HintOnOwnerComposite
         string verdict = owner != null
             ? $"ON '{owner.name}' (ID {owner.ID}) via {_how}"
             : $"NOT ANCHORED — {_how}";
-        string signature = $"{verdict}|{_parks}|{_unparks}|{_noOwner}|{_refused}";
+        string signature = $"{verdict}|{_hintsSeen}|{_parks}|{_unparks}|{_noOwner}|{_refused}";
         if (signature == _verdict)
             return;
         _verdict = signature;
@@ -770,6 +800,8 @@ internal static class HintOnOwnerComposite
               + $"window '{owner.name}' (ID {owner.ID}). OWNER RESOLVED BY: {_how}. "
               + $"Host layer written over {Layers.Count} transform(s), {Layers.Skipped} foreign "
               + $"render subtree(s) left alone; host rect {panel?.HostRect?.name ?? "<none>"}. "
+              + $"Message scale {(_parked != null ? _parked.localScale.x : 1f):0.###}; "
+              + $"screen dimmer excluded from measurement={_screenDimmer != null}. "
               + $"Native home '{_home?.name ?? "<none>"}', sibling {_homeIndex}, "
               + $"scene '{_homeScene.name}' (persistent={_homeWasPersistent})."
             : $"the introduction hint '{hint.name}' (ID {hint.ID}) is NOT anchored to a window "
@@ -792,6 +824,7 @@ internal static class HintOnOwnerComposite
         _hint = null;
         _message = null;
         _origin = null;
+        _screenDimmer = null;
         HintMessageOrigins.Reset();
         _verdict = string.Empty;
         _disabledByError = false;

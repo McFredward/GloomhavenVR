@@ -3,9 +3,14 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <HintOriginsSource Condition="'$(HintOriginsSource)' == ''">../../src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs</HintOriginsSource>
+    <HintTransferSource Condition="'$(HintTransferSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/ModalFallback.CompositeTransfer.cs</HintTransferSource>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../src/GloomhavenVR/WorldUI/Composites/HintMessageOrigins.cs" Link="Production/HintMessageOrigins.cs" />
-    <Compile Include="../../src/GloomhavenVR/WorldUI/Modal/ModalFallback.CompositeTransfer.cs" Link="Production/ModalFallback.CompositeTransfer.cs" />
+    <Compile Include="$(HintOriginsSource)" Link="Production/HintMessageOrigins.cs" />
+    <Compile Include="$(HintTransferSource)" Link="Production/ModalFallback.CompositeTransfer.cs" />
   </ItemGroup>
 </Project>
