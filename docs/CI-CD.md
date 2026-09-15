@@ -181,6 +181,9 @@ clipped pixels retain their exclusions. `scripts/hint-tests.sh` checks queued na
 ownership, pending standalone dissolve cancellation and native text reflow/restoration
 before composite adoption. Their
 negative controls reject premature empty frames, lost message ownership and missing cleanup.
+`scripts/quest-hint-tests.sh` executes the exact-producer suppression prefix, checking
+native continuation, unrelated/battle-goal hints, scene identity and flat-game behavior.
+Negative controls remove the callback, broaden producer matching and remove the VR gate.
 `scripts/video-playback-tests.sh` additionally exercises cosmetic decoder failures and native audio
 restoration; wire vectors cover the additive movie record and stale playback identities.
 

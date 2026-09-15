@@ -98,6 +98,7 @@ internal sealed class WorldUIModule : IVRModule
         // TooltipOnWindow for the whole diagnosis; these patches are the seams.
         VRSession.Harmony?.PatchAll(typeof(Patches.TooltipWindowPatches));
         VRSession.Harmony?.PatchAll(typeof(HintProducerScopePatch));
+        VRSession.Harmony?.PatchAll(typeof(QuestPreparationHint));
         VRSession.Harmony?.PatchAll(typeof(HintHighlightScopePatch));
         VRSession.Harmony?.PatchAll(typeof(HintRewardScopePatch));
         VRSession.Harmony?.PatchAll(typeof(HintMessageOriginPatch));
