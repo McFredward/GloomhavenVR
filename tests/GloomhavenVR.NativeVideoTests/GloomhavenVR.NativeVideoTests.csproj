@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(VideoSource)" Link="Production/NativeVideoWindow.cs" />
+    <Compile Include="$(ChromeSweepSource)" Link="Production/ModalChromeSweep.cs" />
   </ItemGroup>
 </Project>

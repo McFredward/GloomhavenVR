@@ -38,7 +38,33 @@ static class Program
         Check(NativeVideoWindow.TryGetGrab(out _), "video can be grabbed");
         Check(GrabbableModal.LiveCount == 1 && UguiPokeSurfaces.Canvases.Count == 1, "one frame and pointer surface");
         Check(CanvasConversion.Ordered.Count == 1, "first reveal participates in the native window draw ladder");
-        for (int i = 0; i < 100; i++) NativeVideoWindow.Tick();
+        NativeVideoWindow.TryGetGrab(out var ownGrab);
+        Check(ownGrab!.GrabRoot!.root.gameObject.Persistent, "grab holder survives scene unload with the movie");
+        Check(NativeVideoWindow.OwnsGrab(ownGrab), "live movie owns its exact chrome");
+        var orphan = new GrabbableModal();
+        var ordinary = new GrabbableModal();
+        var fixturePanel = new ConvertedPanel { HostGo = new GameObject("Other panel") };
+        orphan.Build(fixturePanel, 1f, "Native video");
+        ordinary.Build(fixturePanel, 1f, "Ordinary modal");
+        ModalFallback.Converted.Add(new ModalFallback.WindowPanel { Grab = ordinary });
+        var position = ownGrab.GrabRoot.position;
+        foreach (var panel in CanvasConversion.Ordered)
+        {
+            Check(panel.ContentGraphic != null && panel.Target.gameObject.Components.Contains(panel.ContentGraphic),
+                "movie declares its actual pixels as full-frame content");
+            Check(panel.BaseSortingOrder == ModalFallback.ModalHostSortingOrder, "movie uses the ordinary modal draw tier");
+        }
+        for (int i = 0; i < 100; i++)
+        {
+            ModalFallback.SweepForTest();
+            NativeVideoWindow.Tick();
+        }
+        Check(!ownGrab.Destroyed && NativeVideoWindow.OwnsGrab(ownGrab), "orphan sweep preserves the live movie holder");
+        Check(ownGrab.GrabRoot.position.Equals(position), "orphan sweeps do not relocate the movie");
+        Check(orphan.Destroyed && ModalFallback.Orphans == 1, "same-name orphan is still destroyed");
+        Check(!ordinary.Destroyed && ModalFallback.LastSweepCount == 2, "ordinary modal ownership stays valid");
+        ordinary.Destroy();
+        ModalFallback.Converted.Clear();
         Check(NativeVideoWindow.Window == window && GrabbableModal.LiveCount == 1, "stable frames do not rebuild chrome");
         native.isPaused = true; native.isPlaying = false;
         NativeVideoWindow.Tick();
@@ -47,6 +73,7 @@ static class Program
         NativeVideoWindow.Tick();
         Check(!NativeVideoWindow.Visible && GrabbableModal.LiveCount == 0 && UguiPokeSurfaces.Canvases.Count == 0,
             "native completion removes frame and interaction atomically");
+        Check(!NativeVideoWindow.OwnsGrab(ownGrab), "completed movie no longer claims chrome");
         Check(CanvasConversion.Ordered.Count == 0, "movie completion removes the order-only registration");
 
         var mirror = new GameObject("Mirror").AddComponent<VideoPlayer>();
@@ -60,6 +87,10 @@ static class Program
         Check(NativeVideoWindow.Visible, "remote-only playback gets same window");
         Check(NativeVideoWindow.TryGetGrab(out var remoteGrab) && ((IPanelGrabOwner)remoteGrab!).GrabRoot!.position.x == 12,
             "first remote reveal already carries elected pose");
+        NativeVideoWindow.TryGetGrab(out var mirrorGrab);
+        ModalFallback.SweepForTest();
+        Check(!mirrorGrab!.Destroyed && NativeVideoWindow.OwnsGrab(mirrorGrab), "remote movie survives the same orphan sweep");
+        Check(mirrorGrab.GrabRoot!.root.gameObject.Persistent, "remote holder shares the canvas lifetime");
         Check(NativeVideoWindow.NativePlayer == null && NativeVideoWindow.PlaybackKey == string.Empty,
             "remote playback never becomes native sender authority");
         native.isPlaying = true;

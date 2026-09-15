@@ -145,7 +145,7 @@ hardware-verification logging and option reachability. The workflow files list t
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
 The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, flight-timing,
-figure-hold, native-video, shared-video-playback and introduction-hint harnesses execute
+figure-hold, native-video, panel-ink, shared-video-playback and introduction-hint harnesses execute
 production source with controlled Unity API substitutes and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
 presentation-send reuse. Their coverage does not replace the full wire vectors or a
@@ -167,7 +167,11 @@ checks that native action setup receives the board pose and delayed held samples
 reclaim an action-released figure. Both include production integration checks.
 
 `scripts/native-video-tests.sh` checks decoded-frame and initial-pose readiness, native intro
-skip routing and video-window cleanup. `scripts/hint-tests.sh` checks queued native message
+skip routing, video-window cleanup and the actual modal orphan sweep against the live
+movie owner. Negative controls cover lost ownership, missing persistent-lifetime enrollment
+and missing content binding. `scripts/panel-ink-tests.sh` exercises the production ink walker:
+full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and
+clipped pixels retain their exclusions. `scripts/hint-tests.sh` checks queued native message
 ownership and atomic removal of a standalone conversion before composite adoption. Their
 negative controls reject premature empty frames, lost message ownership and missing cleanup.
 `scripts/video-playback-tests.sh` additionally exercises cosmetic decoder failures and native audio

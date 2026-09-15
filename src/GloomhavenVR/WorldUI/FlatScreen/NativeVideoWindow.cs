@@ -135,6 +135,12 @@ internal static class NativeVideoWindow
         return grab != null;
     }
 
+    // ModBuild 505 registered a real GrabbableModal without telling the ordinary orphan
+    // sweep who owned it. The five-second sweep destroyed it; Tick then rebuilt a frame
+    // at the world origin and pulled the still-playing movie down into the table. Ownership
+    // is the live window's exact handle, never a name exemption for leftover chrome.
+    internal static bool OwnsGrab(GrabbableModal grab) => Visible && ReferenceEquals(_grab, grab);
+
     internal static void SetRemoteSource(VideoPlayer? player)
     {
         if (_remoteSource != player) _remotePoseReady = false;
@@ -219,6 +225,8 @@ internal static class NativeVideoWindow
         {
             Target = rect, HostGo = root, HostRect = host,
             HostCanvas = canvas, HostRaycaster = raycaster,
+            BaseSortingOrder = ModalFallback.ModalHostSortingOrder,
+            ContentGraphic = _image,
         };
         VRLayers.Apply(root);
         Camera head = CanvasConversion.WorldCamera!;
@@ -235,6 +243,10 @@ internal static class NativeVideoWindow
         _grab = new GrabbableModal();
         _grab.Build(_panel, SharedWindowSizeLaw.ExtraScale(host.sizeDelta, WorldUIConfig.CanvasScaleMm.Value),
             "Native video");
+        // The native movie can span a scene unload. Its ordinary grab holder must survive
+        // for exactly as long as the persistent movie canvas, and Close destroys both.
+        Transform? grabFrame = ((IPanelGrabOwner)_grab).GrabRoot;
+        if (grabFrame != null) UnityEngine.Object.DontDestroyOnLoad(grabFrame.root.gameObject);
         if (source == _remoteSource)
         {
             Transform? frame = ((IPanelGrabOwner)_grab).GrabRoot;
@@ -245,7 +257,8 @@ internal static class NativeVideoWindow
         _shownSource = source;
         _shownUrl = source.url;
         // HW-VERIFY
-        VRLog.Note("WorldUI", "NATIVE VIDEO WINDOW: opened from a prepared video texture; native playback unchanged.");
+        VRLog.Note("WorldUI", "NATIVE VIDEO WINDOW: opened from a prepared video texture; native playback unchanged. "
+            + "Window owns its persistent grab holder; movie pixels are foreground content for the bar.");
     }
 
     private static void Close()

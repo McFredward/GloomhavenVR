@@ -492,7 +492,21 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 505;
+    public const ushort ModBuild = 506;
+
+    // ModBuild 506 — keep native movie windows in the ordinary grab lifecycle.
+    //   The 505 retest shows the movie but repeated first-time bar transitions into hidden
+    //   state. Two independent presentation defects: the modal orphan sweep did not recognize
+    //   the live video's GrabbableModal, destroyed it, and its next Tick recreated a frame at
+    //   the world origin; the sole full-frame movie Graphic was classified as background,
+    //   leaving no ink to keep its handle visible. Exact live ownership now survives sweeps
+    //   (same-name orphans still retire), and ContentGraphic identifies the movie's pixels
+    //   without weakening normal dimmer/background exclusions or visibility checks.
+    //   Video chrome shares the persistent canvas lifetime, closes with module teardown and
+    //   uses the regular modal draw tier. Local and remote use the same frame and ink path.
+    //   Production sweep/owner and ink walker regressions include deliberate failing variants.
+    //   Hardware replay remains required. Version 1.0.1, DLL-only since 483; no wire changes,
+    //   all VR peers use 506. See .planning/VIDEO-WINDOW-506.md.
 
     // ModBuild 505 — savegame videos and native introduction window ownership.
     //   Build 504's campaign intro decoded and played audio but its camera only reached the

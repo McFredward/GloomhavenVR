@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for savegame introduction fixes, ModBuild 505.** The file this replaces had gone 168 builds
+**Updated 2026-09-15 for native movie window lifecycle fixes, ModBuild 506.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **1.0.1 / ModBuild 506 corrects the movie-window regression reported on 505.**
+  The ordinary orphan sweep now recognizes the live video's exact grab holder,
+  preventing repeated destruction/recreation at the world origin. Its full-frame
+  image is explicitly content, so the backdrop exclusion cannot hide its handle.
+  Chrome shares the canvas's persistent lifetime and module teardown; local and
+  remote movie windows use the same ordinary grab/resize and modal ordering paths.
+  See [VIDEO-WINDOW-506.md](VIDEO-WINDOW-506.md). Headset replay remains required.
 
 - **1.0.1 / ModBuild 505 fixes savegame introduction presentation.** Build 504 logs
   show native fullscreen video decoding to the desktop and introduction messages

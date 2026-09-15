@@ -9,7 +9,7 @@ namespace UnityEngine
         public static readonly List<Object> Instances = new();
         public static T[] FindObjectsOfType<T>() => Instances.OfType<T>().ToArray();
         public static void Destroy(Object o) { }
-        public static void DontDestroyOnLoad(Object o) { }
+        public static void DontDestroyOnLoad(Object o) { ((GameObject)o).Persistent = true; }
     }
     public class MonoBehaviour : Component { }
     public class Component : Object
@@ -23,8 +23,10 @@ namespace UnityEngine
     {
         public Vector3 position;
         public Vector3 localScale;
+        private Transform? _parent;
+        public Transform root => _parent?.root ?? this;
         public Transform(GameObject go) { gameObject = go; }
-        public void SetParent(Transform parent, bool preserve) { }
+        public void SetParent(Transform parent, bool preserve) { _parent = parent; }
         public void SetPositionAndRotation(Vector3 p, Quaternion q) { position = p; }
     }
     public sealed class RectTransform : Transform
@@ -37,6 +39,7 @@ namespace UnityEngine
         public readonly List<Component> Components = new();
         public readonly Transform transform;
         public bool activeSelf = true;
+        public bool Persistent;
         public Scene scene => new();
         public GameObject(string name, params Type[] types)
         {
@@ -117,7 +120,8 @@ public sealed class VideoCamera : UnityEngine.Component
 namespace GloomhavenVR.Core
 {
     internal static class VRLayers { internal static void Apply(UnityEngine.GameObject go) { } }
-    internal static class VRLog { internal static void Note(string a, string b) { } }
+    internal static class VRLog { internal static void Note(string a, string b) { }
+        internal static void Warn(string a, string b) { } }
 }
 namespace GloomhavenVR.Hands.Interact
 {
@@ -151,17 +155,37 @@ namespace GloomhavenVR.WorldUI
         public UnityEngine.GameObject HostGo = null!;
         public UnityEngine.Canvas HostCanvas = null!;
         public UnityEngine.UI.GraphicRaycaster HostRaycaster = null!;
+        public UnityEngine.UI.RawImage? ContentGraphic;
+        public int BaseSortingOrder;
     }
     internal sealed class GrabbableModal : GloomhavenVR.Hands.Interact.IPanelGrabOwner
     {
         public UnityEngine.Transform? GrabRoot { get; } = new UnityEngine.GameObject("Frame").transform;
-        internal static int LiveCount;
-        internal void Build(ConvertedPanel p, float s, string n) { LiveCount++; }
-        internal void Destroy() { LiveCount--; }
+        internal static readonly List<GrabbableModal> LiveHolders = new();
+        internal static int LiveCount => LiveHolders.Count;
+        internal string LogName = "Menu";
+        internal bool Destroyed;
+        internal void Build(ConvertedPanel p, float s, string n)
+        {
+            LogName = n;
+            GrabRoot!.SetPositionAndRotation(p.HostGo.transform.position, new UnityEngine.Quaternion());
+            LiveHolders.Add(this);
+        }
+        internal void Destroy() { Destroyed = true; LiveHolders.Remove(this); }
         internal void Tick() { }
         internal void SetExtraScale(float s) { }
         internal void SyncSharedState(UnityEngine.UI.UIWindow? w) { }
         internal void SnapFrameTo(UnityEngine.Vector3 p, UnityEngine.Quaternion q) { GrabRoot?.SetPositionAndRotation(p, q); }
+    }
+    internal static partial class ModalFallback
+    {
+        internal const int ModalHostSortingOrder = 1000;
+        internal sealed class WindowPanel { internal GrabbableModal? Grab; }
+        internal static readonly List<WindowPanel> Converted = new();
+        private static int _chromeLive, _chromeOrphansSinceCensus;
+        internal static int Orphans => _chromeOrphansSinceCensus;
+        internal static int LastSweepCount => _chromeLive;
+        internal static void SweepForTest() => SweepOrphanChrome();
     }
     internal static class SharedWindowSizeLaw
     {

@@ -2342,6 +2342,10 @@ internal static partial class ModalFallback
 
     private static void ReleaseAllWindows(string reason)
     {
+        // The video owns a normal modal handle outside Converted. Close its canvas and
+        // handle together before the teardown sweep, rather than leaving a live movie
+        // capable of recreating chrome after the WorldUI module has shut down.
+        NativeVideoWindow.Shutdown();
         // WINDOW MATERIALISE. Scenario exit / VR off. Five windows dissolving into a scene that is
         // being torn down is not a nicer teardown, it is a slower one — and this path does not run
         // through the prune loop, so it never STARTS an effect itself. This only ENDS effects that
@@ -4078,7 +4082,7 @@ internal static partial class ModalFallback
         for (int i = GrabbableModal.LiveHolders.Count - 1; i >= 0; i--)
         {
             GrabbableModal holder = GrabbableModal.LiveHolders[i];
-            bool owned = false;
+            bool owned = NativeVideoWindow.OwnsGrab(holder);
             for (int j = 0; j < Converted.Count; j++)
             {
                 if (ReferenceEquals(Converted[j].Grab, holder))
