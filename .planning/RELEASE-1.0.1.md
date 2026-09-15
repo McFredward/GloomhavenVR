@@ -75,3 +75,26 @@ Publication completed on 2026-09-15 at 19:39 UTC:
 
 The public latest-release endpoint returns v1.0.1 and the expected ZIP. This does
 not by itself verify an update prompt or installation in a running headset.
+
+## Documentation audience cleanup after publication
+
+The maintainer's 2026-09-15 ruling keeps developer installer arguments, build/release
+bookkeeping and pending hardware tests out of player instructions and release highlights.
+Those validation obligations remain in this record and STATE.md. The English/German
+README, installation guides and packaging text now follow that boundary; Epic remains
+listed consistently. Playing guides were reviewed without changes. AGENTS.md and the
+release-highlights authoring guide record the rule for future edits.
+
+The primary agent prepared documentation integration branch `docs/player-guides-main`
+at `990af4e4`, based directly on main `be74759e`; it contains only documentation changes
+and retains Version 1.0.1. Its `[skip ci]` commit marker must survive the final squash
+merge so the main push does not publish a release. Runtime source, workflows, scripts
+and assets are identical to main. This is a documentation-only PR, not the merge-commit
+procedure used for an actual release. The corresponding edits are already integrated
+into dev, which continues to target 1.0.2.
+
+GitHub rejected PR creation and edits to the older v0.9.0/v1.0.0 release bodies with
+`Resource not accessible by personal access token` (HTTP 403 for release edits).
+The main merge and those two published text updates are therefore pending repository
+write access or maintainer action. The public v1.0.1 body already omits the pending-test
+sentence; its source highlights now agree. No release, tag or download was replaced.
