@@ -13,7 +13,7 @@ mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.HintTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in lost-queued-origin missing-standalone-release pending-dissolve no-word-wrap no-layout-restore; do
+for mutation in lost-queued-origin missing-standalone-release pending-dissolve no-word-wrap no-layout-restore untouched-sibling-border stale-desktop-offsets; do
     python3 - "$origins_source" "$transfer_source" "$mutation_dir" "$mutation" "$reflow_source" <<'PY'
 import pathlib
 import sys
@@ -39,6 +39,14 @@ elif mutation == 'no-word-wrap':
     needle = 'text.enableWordWrapping = true;'
     assert reflow.count(needle) == 1
     reflow = reflow.replace(needle, 'text.enableWordWrapping = false;')
+elif mutation == 'untouched-sibling-border':
+    needle = 'Seat(_border!, availableWidth, height + _verticalPadding);'
+    assert reflow.count(needle) == 1
+    reflow = reflow.replace(needle, '; // regression: original sibling border stays wide')
+elif mutation == 'stale-desktop-offsets':
+    needle = 'rect.anchoredPosition3D = new Vector3(0f, 0f, position.z);'
+    assert reflow.count(needle) == 1
+    reflow = reflow.replace(needle, '; // regression: retain old desktop offsets')
 else:
     needle = 'if (_box != null) _box.sizeDelta = _boxSize;'
     assert reflow.count(needle) == 1
@@ -60,6 +68,8 @@ PY
         missing-standalone-release) expected='Retire capture owner and grab before composite records its home' ;;
         pending-dissolve) expected='Pending dissolve must release before the composite records native home' ;;
         no-word-wrap) expected='Narrow hints must wrap at authored font size instead of shrinking glyphs' ;;
+        untouched-sibling-border) expected='The actual native sibling border must follow the reflowed text' ;;
+        stale-desktop-offsets) expected='Reflowed text must remain inside its original border despite desktop anchors and offsets' ;;
         no-layout-restore) expected='Unpark must restore both native rects exactly' ;;
     esac
     if ! rg -Fq "Unhandled exception. System.Exception: $expected" "$mutation_dir/mutant.log"; then

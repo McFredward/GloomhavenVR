@@ -16,17 +16,41 @@ namespace UnityEngine
     {
         public Transform? parent;
         internal readonly Dictionary<Type, Component> Components = new();
+        internal readonly Dictionary<string, Transform> Children = new();
+        public Transform? Find(string path) => Children.TryGetValue(path, out Transform? child) ? child : null;
         public T? GetComponent<T>() where T : Component => Components.TryGetValue(typeof(T), out Component? c) ? (T)c : null;
     }
     public struct Vector2 { public float x, y; public Vector2(float x, float y) { this.x = x; this.y = y; } }
-    public struct Rect { public float width, height; }
+    public struct Vector3 { public float x, y, z; public Vector3(float x, float y, float z) { this.x = x; this.y = y; this.z = z; } }
+    public struct Rect { public float width, height, x, y; public float xMin => x; public float yMin => y; public float xMax => x + width; public float yMax => y + height; }
     public class RectTransform : Transform
     {
         public enum Axis { Horizontal, Vertical }
-        public Vector2 sizeDelta;
-        public Rect rect => new() { width = sizeDelta.x, height = sizeDelta.y };
+        public Vector2 sizeDelta, anchorMin, anchorMax, pivot;
+        public Vector3 anchoredPosition3D;
+        public Rect rect
+        {
+            get
+            {
+                Rect parentRect = (parent as RectTransform)?.rect ?? default;
+                float width = sizeDelta.x + (anchorMax.x - anchorMin.x) * parentRect.width;
+                float height = sizeDelta.y + (anchorMax.y - anchorMin.y) * parentRect.height;
+                return new Rect { width = width, height = height, x = -pivot.x * width, y = -pivot.y * height };
+            }
+        }
+        // Rect coordinates relative to the parent, including Unity's anchor/pivot contribution.
+        internal Rect InParent
+        {
+            get
+            {
+                Rect r = rect, p = (parent as RectTransform)?.rect ?? default;
+                r.x += p.x + (anchorMin.x + (anchorMax.x - anchorMin.x) * pivot.x) * p.width + anchoredPosition3D.x;
+                r.y += p.y + (anchorMin.y + (anchorMax.y - anchorMin.y) * pivot.y) * p.height + anchoredPosition3D.y;
+                return r;
+            }
+        }
         public void SetSizeWithCurrentAnchors(Axis axis, float size)
-        { if (axis == Axis.Horizontal) sizeDelta.x = size; else sizeDelta.y = size; }
+        { Rect p = (parent as RectTransform)?.rect ?? default; if (axis == Axis.Horizontal) sizeDelta.x = size - (anchorMax.x - anchorMin.x) * p.width; else sizeDelta.y = size - (anchorMax.y - anchorMin.y) * p.height; }
     }
     public static class Mathf
     {
@@ -44,6 +68,7 @@ namespace UnityEngine
 namespace UnityEngine.UI
 {
     public class UIWindow : UnityEngine.Component { public bool NativeHidden; }
+    public class Image : UnityEngine.Component { }
     public class ContentSizeFitter : UnityEngine.Behaviour { }
     public class LayoutGroup : UnityEngine.Behaviour { }
 }

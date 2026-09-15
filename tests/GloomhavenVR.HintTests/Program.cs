@@ -121,10 +121,19 @@ internal static class Program
 
     private static void Reflow()
     {
-        var box = new UnityEngine.RectTransform { sizeDelta = new UnityEngine.Vector2(844, 40) };
+        var box = new UnityEngine.RectTransform { sizeDelta = new UnityEngine.Vector2(844, 40), pivot = new UnityEngine.Vector2(.1f, .9f) };
+        var border = AddBorder(box, 820, 43);
+        border.anchorMin = border.anchorMax = new UnityEngine.Vector2(1, 0);
+        border.pivot = new UnityEngine.Vector2(.8f, .2f);
+        border.anchoredPosition3D = new UnityEngine.Vector3(-110, 35, 2);
+        var borderFitter = new UnityEngine.UI.ContentSizeFitter();
+        border.Components.Add(typeof(UnityEngine.UI.ContentSizeFitter), borderFitter);
         var text = new TMPro.TMP_Text { text = "Klicke auf den ersten Charakterplatz, um den Personalisten zu öffnen.", enableAutoSizing = true };
         text.rectTransform.parent = box;
-        text.rectTransform.sizeDelta = new UnityEngine.Vector2(804, 28);
+        text.rectTransform.sizeDelta = new UnityEngine.Vector2(800, 23);
+        text.rectTransform.anchorMin = text.rectTransform.anchorMax = new UnityEngine.Vector2(0, 1);
+        text.rectTransform.pivot = new UnityEngine.Vector2(.2f, .8f);
+        text.rectTransform.anchoredPosition3D = new UnityEngine.Vector3(310, -35, -2);
         var fitter = new UnityEngine.UI.ContentSizeFitter();
         var textFitter = new UnityEngine.UI.ContentSizeFitter { enabled = false };
         var layout = new UnityEngine.UI.LayoutGroup();
@@ -135,8 +144,12 @@ internal static class Program
         string originalText = text.text;
         reflow.Apply(text, 280);
         Check(text.enableWordWrapping && !text.enableAutoSizing && text.fontSize == 24, "Narrow hints must wrap at authored font size instead of shrinking glyphs");
-        Check(box.rect.width == 280 && text.rectTransform.rect.width == 240, "Native border padding must survive narrow-column reflow");
-        Check(text.rectTransform.rect.height > 28 && box.rect.height == text.rectTransform.rect.height + 12, "Wrapped native TMP height must grow its original plate");
+        Check(box.rect.width == 280 && text.rectTransform.rect.width == 260, "Native border padding must survive narrow-column reflow");
+        Check(text.rectTransform.rect.height > 23 && box.rect.height == text.rectTransform.rect.height + 20, "Wrapped native TMP height must grow its original plate");
+        Check(border.rect.width == 280 && border.rect.height == text.rectTransform.rect.height + 20, "The actual native sibling border must follow the reflowed text");
+        Check(Contains(border.InParent, text.rectTransform.InParent), "Reflowed text must remain inside its original border despite desktop anchors and offsets");
+        Check(border.anchoredPosition3D.z == 2 && text.rectTransform.anchoredPosition3D.z == -2, "Reflow must preserve authored text and plate depth ordering");
+        Check(!borderFitter.enabled, "The native border fitter must not overwrite the wrapped height");
         Check(text.text == originalText, "Reflow must preserve native localized content");
         Check(!fitter.enabled && !layout.enabled, "Native single-line layout writers must stand down while parked");
         reflow.Apply(text, 280);
@@ -145,13 +158,16 @@ internal static class Program
         reflow.Apply(text, 280);
         Check(text.MeshUpdates == 2, "Native localization or content change must recompute wrapped geometry");
         reflow.Apply(text, 1920);
-        Check(box.rect.width == 844, "Wide owners must not expand hints beyond their native authored width");
+        Check(box.rect.width == 820, "Wide owners must not expand hints beyond their native authored width");
         reflow.Restore();
-        Check(box.sizeDelta.x == 844 && box.sizeDelta.y == 40 && text.rectTransform.sizeDelta.x == 804 && text.rectTransform.sizeDelta.y == 28, "Unpark must restore both native rects exactly");
+        Check(box.sizeDelta.x == 844 && box.sizeDelta.y == 40 && text.rectTransform.sizeDelta.x == 800 && text.rectTransform.sizeDelta.y == 23, "Unpark must restore both native rects exactly");
+        Check(border.anchorMin.x == 1 && border.anchorMax.y == 0 && border.pivot.x == .8f && border.anchoredPosition3D.x == -110 && border.anchoredPosition3D.y == 35 && border.rect.width == 820 && border.rect.height == 43 && borderFitter.enabled, "Unpark must restore the sibling border pose, size and fitter exactly");
+        Check(text.rectTransform.anchorMin.x == 0 && text.rectTransform.anchorMax.y == 1 && text.rectTransform.pivot.x == .2f && text.rectTransform.anchoredPosition3D.x == 310 && text.rectTransform.anchoredPosition3D.y == -35, "Unpark must restore the native text anchors, pivot and offsets exactly");
         Check(!text.enableWordWrapping && text.enableAutoSizing && text.fontSize == 24, "Unpark must restore native wrapping, sizing and font settings");
         Check(fitter.enabled && layout.enabled && !textFitter.enabled, "Unpark must restore each original layout writer state");
         reflow.Apply(text, 280);
         var nextBox = new UnityEngine.RectTransform { sizeDelta = new UnityEngine.Vector2(600, 60) };
+        AddBorder(nextBox, 600, 60);
         var nextText = new TMPro.TMP_Text { text = "Next message" };
         nextText.rectTransform.parent = nextBox;
         nextText.rectTransform.sizeDelta = new UnityEngine.Vector2(560, 30);
@@ -159,7 +175,24 @@ internal static class Program
         Check(box.rect.width == 844 && fitter.enabled, "Switching native text instances must restore the preceding message");
         reflow.Restore();
         Check(nextBox.rect.width == 600 && nextText.rectTransform.rect.width == 560, "New message restore must use its own native layout snapshot");
+        var unknownBox = new UnityEngine.RectTransform { sizeDelta = new UnityEngine.Vector2(900, 50) };
+        var unknownText = new TMPro.TMP_Text { text = "Unsupported native hierarchy" };
+        unknownText.rectTransform.parent = unknownBox;
+        unknownText.rectTransform.sizeDelta = new UnityEngine.Vector2(850, 30);
+        reflow.Apply(unknownText, 280);
+        Check(unknownText.MeshUpdates == 0 && unknownBox.rect.width == 900, "Unknown native layouts must remain untouched instead of resizing an arbitrary parent");
     }
+
+    private static UnityEngine.RectTransform AddBorder(UnityEngine.RectTransform box, float width, float height)
+    {
+        var border = new UnityEngine.RectTransform { parent = box, sizeDelta = new UnityEngine.Vector2(width, height) };
+        border.Components.Add(typeof(UnityEngine.UI.Image), new UnityEngine.UI.Image());
+        box.Children.Add("BG", border);
+        return border;
+    }
+
+    private static bool Contains(UnityEngine.Rect outside, UnityEngine.Rect inside) =>
+        outside.xMin <= inside.xMin && outside.yMin <= inside.yMin && outside.xMax >= inside.xMax && outside.yMax >= inside.yMax;
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static WeakReference RecordDiscardedMessage()
