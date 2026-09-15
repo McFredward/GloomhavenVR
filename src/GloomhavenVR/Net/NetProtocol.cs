@@ -492,7 +492,15 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 508;
+    public const ushort ModBuild = 509;
+
+    // ModBuild 509 — release 1.0.1, combat log hidden by default at scenario start.
+    //   User request: disable the combat log by default. Change the annotated startup
+    //   preference only; existing saved choices still win, and the VR options action
+    //   can show the panel at any time. Includes the savegame video, tutorial continuation,
+    //   native hint geometry and party placement fixes from builds 505–508.
+    //   Version 1.0.1, DLL-only since 483, no wire change; all VR peers use 509.
+    //   See .planning/RELEASE-1.0.1.md for release provenance and validation.
 
     // ModBuild 508 — tutorial hint geometry, preparation flow and stable party placement.
     //   The 507 hardware retest confirms quest progression but shows HelpText outside its
