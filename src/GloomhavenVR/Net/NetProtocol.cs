@@ -77,6 +77,8 @@ internal static class NetProtocol
     public const byte ExtIdBoardRigPose = 70;
     /// <summary>Owner fan insertion gap: one byte gap + 1; zero clears the marker.</summary>
     public const byte ExtIdFanInsertionGap = 71;
+    /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
+    public const byte ExtIdVideoWindow = 72;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;

@@ -924,6 +924,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         RemoteStorySync.Reset();       // …and never carries a story page/pose into a new session
         RemoteMapRoom.Reset();         // …nor a peer's map-room placard (which owns a GameObject)
         RemoteMapStory.Reset();        // …nor a map story page or a shared window pose
+        RemoteVideoPlayback.Reset();  // …nor a cosmetic movie decoder or prior playback identity
         _lastSentCapPress = -1;        // …and never replays a stale keycap press into a new session
         Cards.BoardCapPress.Clear();   // …including the latch it is diffed against
         _fanPresentationSent.Reset();  // new peers need a complete fan presentation sample
@@ -1053,6 +1054,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                 // teardown also destroys every placard GameObject it built.
                 RemoteMapRoom.Reset();
                 RemoteMapStory.Reset();
+                RemoteVideoPlayback.Reset();
                 VRLog.Info("Net", "FLAT-NET MODE ACTIVE: remote avatars/boards torn down; mod "
                                   + "send + receive gated for the rest of the session.");
             }
@@ -2046,7 +2048,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             // does, so 200 ms of cadence latency is the feature failing rather than merely lagging.
             // Both getters return false outright while MapRoomDriver.Active is off, so a client
             // with the 3D map switched off evaluates two bools and is otherwise untouched.
-            && !RemoteMapRoom.SendDue && !RemoteMapStory.SendDue
+            && !RemoteMapRoom.SendDue && !RemoteMapStory.SendDue && !RemoteVideoPlayback.SendDue
             // …and a shared window being CARRIED here raises the cadence to the rig rate for as long
             // as the hand is on it, exactly as a carried board does (see sharedWindowDue above).
             // Note this sits beside RemoteMapStory.SendDue and does NOT duplicate it: that getter is
@@ -2062,6 +2064,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         var extras = default(PresenceState);
 
         FillEnvironmentRecords(ref extras);
+        RemoteVideoPlayback.Sample(ref extras, _transport.LocalPlayerId);
 
         if (board != null)
         {
@@ -4157,6 +4160,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     // build — transmits, and "forgotten" is exactly "not standing at this table".
                     RemoteMapRoom.Observe(kv.Key, in p);
                     RemoteMapStory.Observe(kv.Key, in p);
+                    RemoteVideoPlayback.Observe(kv.Key, in p);
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
@@ -4186,6 +4190,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         // keeps that client's picture byte-for-byte the pre-record one.
         RemoteMapRoom.Resolve();
         RemoteMapStory.Resolve();
+        RemoteVideoPlayback.Resolve(_transport != null ? _transport.LocalPlayerId : 0);
     }
 
     /// <summary>A peer's last environment-clock reading (extension record 31) and when it

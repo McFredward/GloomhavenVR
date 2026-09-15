@@ -431,7 +431,7 @@ internal static class UseBarSlotIdentityVectors
         // 1747 -> 1798 on 2026-09-07: [id][len] + UseBarSlotIdentityMaxRecordBytes 49. THIS LITERAL
         // IS A CONSUMER OF THE SUM IN PresenceSerializer.MaxSize's doc block and must be re-read
         // from it every time the sum moves.
-        const int documentedWorstCase = 3840; // MB497: prior3837 plus three-byte insertion record71.
+        const int documentedWorstCase = 4044; // Prior3840 plus maximum204-byte video record72.
         const int largestSingleRecord = 257;   // board tuning: 2 TLV + one 255-byte page
         t.True(PresenceSerializer.MaxSize >= documentedWorstCase + largestSingleRecord,
                $"MaxSize {PresenceSerializer.MaxSize} leaves "

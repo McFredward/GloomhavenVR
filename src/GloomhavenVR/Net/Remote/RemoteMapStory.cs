@@ -86,7 +86,7 @@ namespace GloomhavenVR.Net;
 /// nothing is ever read off the host. What travels is WHERE the window stands, which is the half the
 /// game has no opinion about.</para>
 /// </summary>
-internal static class RemoteMapStory
+internal static partial class RemoteMapStory
 {
     private const string Scope = "Net";
 
