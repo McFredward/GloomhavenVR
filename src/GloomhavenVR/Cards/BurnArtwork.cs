@@ -103,6 +103,7 @@ internal static class BurnArtwork
         internal bool HasFloor;
     }
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, BurnStartRecord> BurnStarts = new();
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<CardEffects, NativeBurnEnumerator> BurnTimelines = new();
 
     [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.ToggleEffect))]
     internal static class ToggleEffect_PreserveSpentStart_Patch
@@ -152,7 +153,7 @@ internal static class BurnArtwork
     {
         private static void Postfix(CardEffects __instance, bool burnAnim, ref System.Collections.IEnumerator __result)
         {
-            __result = new NativeBurnEnumerator(__result,
+            var playback = new NativeBurnEnumerator(__result,
                 () => RestoreNativeBurnChannels(__instance),
                 running =>
                 {
@@ -169,6 +170,9 @@ internal static class BurnArtwork
                         beforeReset: false, nativeStep: running);
                 },
                 ex => Core.VRLog.Warn("Cards", $"Could not preserve native burn step: {ex.Message}"));
+            BurnTimelines.Remove(__instance);
+            BurnTimelines.Add(__instance, playback);
+            __result = playback;
         }
     }
     private static void RestoreNativeBurnChannels(CardEffects fx)
@@ -326,6 +330,11 @@ internal static class BurnArtwork
                 Forget(fx);
                 return false;
             }
+            // StartCoroutine can return a non-null handle after a synchronous native bail or
+            // settle. Observe the actual iterator even when pre-existing spent paint is nonzero;
+            // neither the stale handle nor the shader's latched end state proves it is running.
+            if (BurnTimelines.TryGetValue(fx, out var playback) && playback.Started)
+                return !playback.Finished;
             return !HandleIsABailedTimeline(fx);
         }
         catch
