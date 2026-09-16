@@ -18,6 +18,9 @@ static class Program
     private static void Reset()
     {
         RewardShowcase.Tick(false);
+        Singleton<InputManager>.Instance = Component<InputManager>("Input");
+        Singleton<KeyActionHandlerController>.Instance = Component<KeyActionHandlerController>("Key actions");
+        Synchronizer.Sent = ActionProcessor.HaltRequests = 0;
         Singleton<ScenarioRewardManager>.Instance = null!;
         Singleton<CampaignRewardsManager>.Instance = null!;
         Singleton<UIRewardsManager>.Instance = null!;
@@ -190,6 +193,96 @@ static class Program
         Check(RewardShowcase.TryConfirm(), "campaign native continuation receives allowed explicit press");
         Time.frameCount++;
         Check(!RewardShowcase.TryConfirm() && campaign.Completions == 1, "completed native campaign continuation cannot repeat");
+    }
+
+    private static void ContinueHoverAndClick()
+    {
+        var guild = new Guild();
+        var button = Component<RewardContinueButton>("Continue pointer surface");
+        var image = button.gameObject.AddComponent<Image>();
+        button.targetGraphic = image;
+        button.onClick.AddListener(() => RewardShowcase.TryConfirm());
+        button.RefreshSkin();
+        Check(image.sprite == NativeButtonSkin.SpriteFor(NativeButtonSkin.FaceState.Idle), "reward Continue starts with native idle artwork");
+        button.OnPointerEnter(new UnityEngine.EventSystems.PointerEventData());
+        Check(image.sprite == NativeButtonSkin.SpriteFor(NativeButtonSkin.FaceState.Accent)
+            && image.color == NativeButtonSkin.ColorFor(NativeButtonSkin.FaceState.Accent), "pointer hover paints native highlighted sprite and tint");
+        button.RefreshSkin();
+        Check(image.sprite == NativeButtonSkin.SpriteFor(NativeButtonSkin.FaceState.Accent), "per-frame refresh preserves pointer hover artwork");
+        button.OnPointerDown();
+        Check(image.sprite == NativeButtonSkin.SpriteFor(NativeButtonSkin.FaceState.Pressed), "pointer down paints native pressed artwork");
+        button.OnPointerUp();
+        Check(image.sprite == NativeButtonSkin.SpriteFor(NativeButtonSkin.FaceState.Accent), "pointer release returns to hovered artwork");
+        button.OnPointerClick();
+        Check(guild.Rewards.PendingInput, "ordinary reward Button pointer click reaches native input bridge");
+        button.OnPointerExit();
+        Check(image.sprite == NativeButtonSkin.SpriteFor(NativeButtonSkin.FaceState.Idle), "pointer exit restores native idle artwork");
+        guild.Rewards.NativeConsumeInput();
+        button.interactable = false;
+        button.OnPointerEnter(new UnityEngine.EventSystems.PointerEventData());
+        Check(image.sprite == NativeButtonSkin.SpriteFor(NativeButtonSkin.FaceState.Disabled), "disabled observer control does not highlight");
+        button.OnPointerClick();
+        Check(!guild.Rewards.PendingInput, "disabled observer pointer click cannot send native input");
+    }
+
+    private static void NativeRewardCompletion()
+    {
+        foreach (bool guildMode in new[] { false, true })
+        foreach (bool online in new[] { false, true })
+        {
+            var guild = new Guild();
+            guild.Rewards.IsGuildmasterMode = guildMode;
+            FFSNetwork.IsOnline = online;
+            FFSNetwork.IsClient = online; // Owning client must work too.
+            guild.Rewards.InteractionChecker = () => true;
+            bool blocked = true;
+            guild.Rewards.onProcessEnded = () => blocked = false;
+            var process = guild.Rewards.BeginNativeRewards(new[] { 10, 20 }, new[] { 30 });
+            guild.Rewards.StepNativeRewards(process);
+            Check(guild.Rewards.ShownRewards.Count == 1 && blocked, "native first reward shows before any confirmation");
+            if (!guildMode)
+            {
+                guild.Rewards.ConfirmPressed();
+                guild.Rewards.StepNativeRewards(process);
+                Check(!guild.Rewards.PendingInput && guild.Rewards.ShownRewards.Count == 1 && blocked,
+                    "old gamepad adapter reproduces tutorial reward deadlock without physical button edge");
+            }
+            for (int displayed = 1; displayed <= 3; displayed++)
+            {
+                Time.frameCount++;
+                Check(RewardShowcase.TryConfirm() && guild.Rewards.PendingInput,
+                    "explicit VR input works in tutorial and guild modes without physical gamepad edge");
+                Check(blocked && guild.Rewards.CompletedProcesses == 0,
+                    "VR input cannot itself complete reward process or release game queue");
+                // Native group boundaries consume additional frames after the input.
+                for (int step = 0; step < 3 && guild.Rewards.ProcessingRewards
+                    && (guild.Rewards.PendingInput || guild.Rewards.ShownRewards.Count <= displayed); step++)
+                    guild.Rewards.StepNativeRewards(process);
+                Check(guild.Rewards.ShownRewards.Count == Math.Min(3, displayed + 1),
+                    "native iterator shows every reward across group boundaries");
+                if (displayed < 3) Check(blocked, "intermediate reward does not release native queue");
+            }
+            Check(!blocked && !guild.Window.IsOpen && guild.Rewards.CompletedProcesses == 1,
+                "native final reward invokes onProcessEnded and releases game queue exactly once");
+            Check((Synchronizer.Sent > 0) == online, "native iterator alone sends online reward progression");
+            guild.Rewards.StepNativeRewards(process);
+            Check(guild.Rewards.CompletedProcesses == 1, "completed native iterator cannot repeat callback");
+        }
+        var observer = new Guild();
+        FFSNetwork.IsClient = FFSNetwork.IsOnline = true;
+        observer.Rewards.InteractionChecker = () => false;
+        bool observerBlocked = true;
+        observer.Rewards.onProcessEnded = () => observerBlocked = false;
+        var peerProcess = observer.Rewards.BeginNativeRewards(new[] { 99 });
+        observer.Rewards.StepNativeRewards(peerProcess);
+        Check(!RewardShowcase.TryConfirm() && !observer.Rewards.PendingInput,
+            "shared observer cannot enqueue native reward continuation");
+        observer.Rewards.StepNativeRewards(peerProcess);
+        Check(observerBlocked && Synchronizer.Sent == 0, "observer remains waiting without authoritative native message");
+        observer.Rewards.ReceiveNativeProcessNextReward();
+        for (int i = 0; i < 3; i++) observer.Rewards.StepNativeRewards(peerProcess);
+        Check(!observerBlocked && observer.Rewards.CompletedProcesses == 1 && Synchronizer.Sent == 0,
+            "native peer message completes observer without rebroadcast or local ownership bypass");
     }
 
     private static void GuildInputAndLifecycle()
@@ -441,6 +534,8 @@ static class Program
         CampaignButtonRepair();
         CampaignGates();
         GuildInputAndLifecycle();
+        NativeRewardCompletion();
+        ContinueHoverAndClick();
         GuildGatesAndAuthority();
         IdentityAndInitialPlacement();
         SharedRevealHandoff();

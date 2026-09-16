@@ -6,6 +6,8 @@ using System.Linq;
 // The test executes the production bridge; no game assemblies or gameplay bodies ship here.
 namespace UnityEngine
 {
+    public readonly record struct Color(float r, float g, float b, float a);
+    public sealed class Sprite : Object { }
     public class Object
     {
         public bool Destroyed;
@@ -74,6 +76,7 @@ namespace UnityEngine
     }
     public readonly record struct Quaternion(float x, float y, float z, float w);
 }
+namespace UnityEngine.EventSystems { public sealed class PointerEventData { } }
 namespace UnityEngine.Events
 {
     public delegate void UnityAction();
@@ -101,7 +104,25 @@ namespace UnityEngine.UI
         public readonly UnityEngine.Events.UnityEvent onClick = new();
         public bool IsInteractable() => interactable && AncestorsInteractable;
     }
-    public class Button : Selectable { }
+    public class Graphic : UnityEngine.MonoBehaviour { public UnityEngine.Color color; }
+    public class Image : Graphic { public UnityEngine.Sprite? sprite; }
+    public class Button : Selectable
+    {
+        protected enum SelectionState { Normal, Highlighted, Pressed, Selected, Disabled }
+        protected SelectionState currentSelectionState;
+        public Graphic? targetGraphic;
+        protected virtual void DoStateTransition(SelectionState state, bool instant) { }
+        private void Change(SelectionState state)
+        {
+            currentSelectionState = IsInteractable() ? state : SelectionState.Disabled;
+            DoStateTransition(currentSelectionState, false);
+        }
+        public virtual void OnPointerEnter(UnityEngine.EventSystems.PointerEventData data) => Change(SelectionState.Highlighted);
+        public void OnPointerExit() => Change(SelectionState.Normal);
+        public void OnPointerDown() => Change(SelectionState.Pressed);
+        public void OnPointerUp() => Change(SelectionState.Highlighted);
+        public void OnPointerClick() { if (IsInteractable()) onClick.Invoke(); }
+    }
 }
 public class ExtendedButton : UnityEngine.UI.Button { }
 public class Singleton<T> : UnityEngine.MonoBehaviour where T : class
@@ -139,12 +160,13 @@ public sealed class UICampaignRewardWindow : UnityEngine.MonoBehaviour
     public void WireNativeMouseListener() => continueButton.onClick.AddListener(OnContinueButtonClick);
     public void Hide() => throw new Exception("Presentation must not hide campaign rewards");
 }
-public sealed class UIRewardsManager : Singleton<UIRewardsManager>
+public sealed partial class UIRewardsManager : Singleton<UIRewardsManager>
 {
     private bool processingRewards = true;
     public bool networkProcessIfServer = true;
     public Func<bool>? interactionChecker;
-    public bool isConfirmPressed;
+    private bool _inputLatch;
+    public bool isConfirmPressed { get => _inputLatch; set { _inputLatch = value; if (value) NativeCalls++; } }
     public UnityEngine.UI.UIWindow myWindow = null!;
     public bool ProcessingRewards { get => processingRewards; set => processingRewards = value; }
     public bool NetworkProcess { get => networkProcessIfServer; set => networkProcessIfServer = value; }
@@ -154,12 +176,33 @@ public sealed class UIRewardsManager : Singleton<UIRewardsManager>
     public bool IsShown => myWindow.IsOpen;
     public int NativeCalls;
     public int ConsumedInputs;
-    public void ConfirmPressed() { NativeCalls++; isConfirmPressed = true; }
+    public bool IsGuildmasterMode = true;
+    public void ConfirmPressed()
+    {
+        // Native UIRewardsManager -> LongPressHandlerBase requires a real gamepad edge
+        // outside Guildmaster. A VR uGUI click does not satisfy it.
+        if (IsGuildmasterMode) isConfirmPressed = true;
+    }
     public void NativeConsumeInput() { if (isConfirmPressed) ConsumedInputs++; isConfirmPressed = false; }
     public void MoveToNextReward() => throw new Exception("Presentation must not bypass native reward input");
-    public void EndProcess() => throw new Exception("Presentation must not end native reward processing");
+    public int CompletedProcesses;
+    public Action? onProcessEnded;
+    private bool _nativeProcessStep;
+    private void EndProcess()
+    {
+        if (!_nativeProcessStep) throw new Exception("Presentation must not end native reward processing");
+        processingRewards = false;
+        myWindow.IsOpen = myWindow.IsVisible = false;
+        CompletedProcesses++;
+        onProcessEnded?.Invoke();
+    }
 }
-public sealed class ESCMenu : Singleton<ESCMenu> { public bool IsOpen; }
+public sealed class ESCMenu : Singleton<ESCMenu>
+{
+    public bool IsOpen;
+    public Action? BeforeMainMenuLoadingStarted;
+    public Action<bool>? EscMenuStateChanged;
+}
 public static class FFSNetwork { public static bool IsClient; public static bool IsOnline; public static bool IsHost => !IsClient; }
 public sealed class Choreographer
 {
@@ -238,6 +281,13 @@ namespace GloomhavenVR.WorldUI
         internal static bool ModalWindowStyle = true;
     }
     internal static class FlatScreen { internal static bool ManualScreenActive; }
+    internal static class NativeButtonSkin
+    {
+        internal enum FaceState { Idle, Accent, Pressed, Disabled }
+        private static readonly UnityEngine.Sprite[] Sprites = { new(), new(), new(), new() };
+        internal static UnityEngine.Sprite SpriteFor(FaceState state) => Sprites[(int)state];
+        internal static UnityEngine.Color ColorFor(FaceState state) => new((int)state, 1, 1, 1);
+    }
     internal sealed class RewardShowcaseButton
     {
         internal static UIRewardsManager? Owner;

@@ -20,6 +20,7 @@ internal static partial class RewardShowcase
     private static bool? _loggedPermission;
     private static bool _enabled;
     private static int _lastConfirmFrame = -1;
+    private static UIRewardsManager? _pendingNativeInput;
 
     internal static UIWindow? Window
     {
@@ -65,6 +66,13 @@ internal static partial class RewardShowcase
 
     internal static void Tick(bool enabled)
     {
+        if (_pendingNativeInput != null && (!_pendingNativeInput.ProcessingRewards || !_pendingNativeInput.isConfirmPressed))
+        {
+            VRLog.Note("WorldUI", "REWARD SHOWCASE INPUT: native showcase consumed VR Continue; "
+                + $"processing={_pendingNativeInput.ProcessingRewards}, windowOpen={_pendingNativeInput.myWindow?.IsOpen}.");
+            _pendingNativeInput = null;
+        }
+        if (!enabled) _pendingNativeInput = null;
         _enabled = enabled;
         UIWindow? window = enabled ? Window : null;
         if (window == null)
@@ -109,8 +117,20 @@ internal static partial class RewardShowcase
         if (Manager is CampaignScenarioRewardManager campaign)
             campaign.manager.rewardsWindow.OnContinueButtonClick();
         else
-            Guildmaster!.ConfirmPressed();
-        VRLog.Info("WorldUI", "REWARD SHOWCASE INPUT: explicit VR Continue forwarded to the native reward input.");
+        {
+            // UIRewardsManager is also used by SingleScenario / FrontEndTutorial. Its
+            // ConfirmPressed method is a GAMEPAD adapter: outside Guildmaster it calls
+            // LongConfirmHandler.Pressed, which refuses a uGUI click without the physical
+            // CONFIRM_ACTION_BUTTON edge. Build 510 therefore drew a dead Continue button.
+            // Feed only the native input latch, equivalent to the other MouseClickLeft
+            // operand in ProcessRewards. That coroutine still checks authority, advances
+            // each reward/group, sends ProcessNextReward and invokes onProcessEnded. This
+            // is NOT nextRewardOverride, which would skip those input/authority checks.
+            UIRewardsManager guild = Guildmaster!;
+            guild.isConfirmPressed = true;
+            _pendingNativeInput = guild;
+        }
+        VRLog.Note("WorldUI", "REWARD SHOWCASE INPUT: explicit VR Continue forwarded to the native reward input.");
         return true;
     }
 }

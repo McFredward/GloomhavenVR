@@ -5,6 +5,7 @@ export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
 project="$repo_root/tests/GloomhavenVR.RewardShowcaseTests/GloomhavenVR.RewardShowcaseTests.csproj"
 # Overrides let isolated review worktrees test another lane before integration; hosted
 # and normal local gates always use their own committed production files.
+continue_button_source="$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardContinueButton.cs"
 reward_source="${REWARD_SHOWCASE_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcase.cs}"
 identity_source="${REWARD_IDENTITY_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcaseIdentity.cs}"
 placement_source="${REWARD_PLACEMENT_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcasePlacement.cs}"
@@ -46,25 +47,38 @@ assert guard < visible
 hold = reveal[guard:reveal.index('\n        //', guard)]
 assert 'SetPanelRenderVisible(panel, visible: false);' in hold and 'return;' in hold
 PY
+native_source="$repo_root/decompiled/GH.Runtime/UIRewardsManager.cs"
+if [[ -f "$native_source" ]]; then
+    python3 - "$native_source" "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/NativeRewardProcess.cs" <<'PYCOMPARE'
+import pathlib, sys
+a, b = (pathlib.Path(p).read_text() for p in sys.argv[1:])
+start = a.index('\tprivate IEnumerator<float> ProcessRewards(')
+end = a.index('\n\tprivate void InstanceOnEscMenuStateChanged', start)
+assert a[start:end] in b, 'Native reward coroutine fixture diverged from the game reference'
+PYCOMPARE
+fi
 dotnet run --project "$project" --configuration Release \
+    --property:ContinueButtonSource="$continue_button_source" \
     --property:RewardSource="$reward_source" \
     --property:IdentitySource="$identity_source" \
     --property:PlacementSource="$placement_source" \
     --property:CatchAllSource="$mutation_dir/RewardPoll.fixture"
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in missing-listener duplicate-listener reveal authority native-input identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable; do
-    python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" <<'PY'
+for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable; do
+    python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" <<'PY'
 import pathlib, sys
 reward, identity, placement, out = map(pathlib.Path, sys.argv[1:5])
 sources = {'Reward': reward.read_text(), 'Identity': identity.read_text(),
-           'Placement': placement.read_text(), 'Poll': (out / 'RewardPoll.fixture').read_text()}
+           'Placement': placement.read_text(), 'Continue': pathlib.Path(sys.argv[6]).read_text(), 'Poll': (out / 'RewardPoll.fixture').read_text()}
 mutations = {
     'missing-listener': ('Reward', 'rewards.continueButton.onClick.AddListener(rewards.OnContinueButtonClick);', '{}'),
     'duplicate-listener': ('Reward', 'rewards.continueButton.onClick.RemoveListener(rewards.OnContinueButtonClick);', '{}'),
     'reveal': ('Reward', '!rewards.isRevealing', 'true'),
     'authority': ('Reward', 'guild.interactionChecker != null ? guild.interactionChecker() : !FFSNetwork.IsClient', 'true'),
-    'native-input': ('Reward', 'Guildmaster!.ConfirmPressed();', 'Guildmaster!.MoveToNextReward();'),
+    'native-input': ('Reward', 'guild.isConfirmPressed = true;', 'guild.MoveToNextReward();'),
+    'hover-state': ('Continue', 'SelectionState.Highlighted or SelectionState.Selected => NativeButtonSkin.FaceState.Accent,', 'SelectionState.Highlighted or SelectionState.Selected => NativeButtonSkin.FaceState.Idle,'),
+    'gamepad-adapter': ('Reward', 'guild.isConfirmPressed = true;', 'guild.ConfirmPressed();'),
     'identity-block': ('Identity', '!choreographer.m_BlockClientMessageProcessing', 'false'),
     'placement-key': ('Placement', 'RewardShowcaseIdentity.ContentKey(window) != _key', 'false'),
     'poll-binding': ('Poll', 'RewardShowcase.Tick(inScenario && WorldUIConfig.ConversionActive);', 'RewardShowcase.Tick(false);'),
@@ -82,8 +96,10 @@ PY
         missing-listener) expected='gamepad-created campaign button receives one native listener' ;;
         duplicate-listener) expected='campaign close and reopen retain exactly one native binding' ;;
         reveal) expected='campaign reveal animation gates input' ;;
-        authority) expected='guild authority matches native processing predicate' ;;
+        authority) expected='shared observer cannot enqueue native reward continuation' ;;
         native-input) expected='Presentation must not bypass native reward input' ;;
+        hover-state) expected='pointer hover paints native highlighted sprite and tint' ;;
+        gamepad-adapter) expected='explicit VR input works in tutorial and guild modes without physical gamepad edge' ;;
         identity-block) expected='unblocked stale activation cannot identify current reward' ;;
         placement-key) expected='pose for previous chest cannot move next chest reward' ;;
         poll-binding) expected='gamepad-created campaign button receives one native listener' ;;
@@ -92,6 +108,7 @@ PY
         screen-unavailable) expected='manual desktop reward source is unavailable for shared floating placement' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --configuration Release \
+        --property:ContinueButtonSource="$mutation_dir/Continue.mutant" \
         --property:RewardSource="$mutation_dir/Reward.mutant" \
         --property:IdentitySource="$mutation_dir/Identity.mutant" \
         --property:PlacementSource="$mutation_dir/Placement.mutant" \

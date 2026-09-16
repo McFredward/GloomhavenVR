@@ -16,7 +16,7 @@ internal sealed class RewardShowcaseButton
 {
     private UIRewardsManager? _owner;
     private RectTransform? _root;
-    private Button? _button;
+    private RewardContinueButton? _button;
     private TextMeshProUGUI? _label;
     private Image? _image;
     private readonly List<Graphic> _graphics = new(16);
@@ -31,6 +31,7 @@ internal sealed class RewardShowcaseButton
         _button.interactable = canConfirm;
         _label.text = Loc.RewardContinue;
         ApplySkin();
+        _button.RefreshSkin();
         Place(owner);
     }
 
@@ -53,7 +54,8 @@ internal sealed class RewardShowcaseButton
         _image.type = Image.Type.Sliced;
         _image.color = new Color(.33f, .30f, .24f, 1f);
         _image.raycastTarget = true;
-        _button = go.AddComponent<Button>();
+        _button = go.AddComponent<RewardContinueButton>();
+        _button.transition = Selectable.Transition.None;
         _button.targetGraphic = _image;
         _button.onClick.AddListener(Continue);
         var label = new GameObject("Label", typeof(RectTransform)) { layer = go.layer };
