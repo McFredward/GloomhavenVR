@@ -1,7 +1,7 @@
 namespace UnityEngine { internal sealed class GameObject { internal bool activeInHierarchy=true; } internal static class Time { internal static float unscaledTime; } }
 namespace ScenarioRuleLibrary {
     internal class CAbilityCard { }
-    internal class CPlayerActor { internal CCharacterClass CharacterClass = new(); }
+    internal class CPlayerActor { internal bool Controlled=true; internal CCharacterClass CharacterClass = new(); }
     internal class CCharacterClass {
         internal List<CAbilityCard> RoundAbilityCards = new(), ExtraTurnCards = new(), DiscardedAbilityCards = new(), LostAbilityCards = new(), PermanentlyLostAbilityCards = new(), ActivatedCards = new(), HandAbilityCards = new();
     }
@@ -16,6 +16,7 @@ namespace GloomhavenVR.Cards {
         internal static object? EffectsOf(object? value) => value;
         internal static bool Playing(object? value) => value is FullAbilityCard full ? full.Playing : value is AbilityCardUI widget && widget.Playing;
     }
+    internal static class CardsGameApi { internal static bool ControlsActor(CPlayerActor? actor)=>actor?.Controlled==true; }
     internal enum PileKind { Discard, Burnt }
     internal enum RoundCardExit { NoModel, StillRound, Discarded, Lost, PermanentlyLost, Activated, Hand, OffModel }
     internal sealed class Factory { internal List<VRCard> All = new(); }

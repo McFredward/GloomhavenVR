@@ -52,6 +52,17 @@ static class Program {
             Check(d.Pending&&d.Renders==1,"Owner progress arriving after foreign focus admission must still stop card replacement");
             GloomhavenVR.Net.CardAppearanceMirror.Pending.Remove(foreign);d.Tick();Check(!d.Pending&&d.Renders==2,"A read-only adopted hand must resume when its owner clears native progress");
         }
+        {
+            Time.unscaledTime=0;var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var card=Card(actor);d.Add(card);
+            actor.CharacterClass.LostAbilityCards.Add(card.GameCard!.AbilityCard!);
+            Check(CardsDriver.ExpectsBurnFlight(card.GameCard.AbilityCard!),"A fresh controlled adopted loss must retain progress until its real flight is reported");
+            card.IsHeld=true;Check(!CardsDriver.ExpectsBurnFlight(card.GameCard.AbilityCard!),"A held card cannot promise an unlaunchable flight");card.IsHeld=false;
+            card.GameCard.Playing=true;d.Tick();card.Parked=true;
+            Check(CardsDriver.ExpectsBurnFlight(card.GameCard.AbilityCard!),"An existing original burn hold must retain progress independently of its current wrapper pose");
+            actor.Controlled=false;Check(!CardsDriver.ExpectsBurnFlight(card.GameCard.AbilityCard!),"Foreign presentation holds must never retain the sender's own progress");
+            actor.Controlled=true;var next=new CardsDriver();next.Bind(actor);next.Add(card);card.Parked=false;next.Known(card.GameCard);
+            Check(!CardsDriver.ExpectsBurnFlight(card.GameCard.AbilityCard!),"Historical lost-pile browsing must not retain progress for a nonexistent flight");
+        }
         Console.WriteLine($"Burn layout: {checks} assertions passed.");
     }
 }

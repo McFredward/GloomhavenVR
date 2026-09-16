@@ -90,6 +90,26 @@ internal sealed partial class CardsDriver
     private CardsHandUI? PresentedHandForCardLayout(CardsHandUI? gameHand) =>
         _burnLayoutPending ? _boundHand : Board.CharacterFocus.PresentedHand(gameHand);
 
+    /// <summary>Only the controlled original's real pending flight path may bridge native
+    /// completion to ReportCardFx. Historical lost-pile browsing and foreign progress never
+    /// authorize this retention, so the sender cannot wait on its own replicated progress.</summary>
+    internal static bool ExpectsBurnFlight(ScenarioRuleLibrary.CAbilityCard original)
+    {
+        CardsDriver? driver = Instance;
+        if (driver == null) return false;
+        foreach (AbilityCardUI widget in driver._burnHoldSince.Keys)
+            if (widget != null && ReferenceEquals(widget.AbilityCard, original)
+                && CardsGameApi.ControlsActor(widget.PlayerActor)) return true;
+        foreach (VRCard card in driver._factory.All)
+        {
+            if (card == null || card.IsHeld || card.IsFlying || card.IsVanishing || driver.IsParked(card)) continue;
+            AbilityCardUI? widget = card.GameCard;
+            if (widget != null && ReferenceEquals(widget.AbilityCard, original)
+                && CardsGameApi.ControlsActor(widget.PlayerActor) && driver.IsFreshBurn(driver._boundHand, card)) return true;
+        }
+        return false;
+    }
+
     private bool DeferLayoutForBurn()
     {
         if (!_burnLayoutPending) return false;
