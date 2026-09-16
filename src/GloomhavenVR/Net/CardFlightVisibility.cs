@@ -39,12 +39,13 @@ internal static class CardFlightVisibility
     internal static bool Covered(byte flags) => (flags & CoveredBurnBit) != 0;
     private readonly struct OwnerRelease
     {
-        internal OwnerRelease(int actor, byte endpoints, byte flags, CardFlightSource? source, double received)
-        { Actor = actor; Endpoints = endpoints; Flags = flags; Source = source; Received = received; }
+        internal OwnerRelease(int actor, byte endpoints, byte flags, CardFlightSource? source, double received, float completionTime)
+        { Actor = actor; Endpoints = endpoints; Flags = flags; Source = source; Received = received; CompletionTime = completionTime; }
         internal readonly int Actor;
         internal readonly byte Endpoints, Flags;
         internal readonly CardFlightSource? Source;
         internal readonly double Received;
+        internal readonly float CompletionTime;
     }
     private static readonly List<OwnerRelease> OwnerReleases = new(8);
     private static double Now => (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency;
@@ -52,13 +53,13 @@ internal static class CardFlightVisibility
     // A local read-only character view sees the same native burn as that character's owner.
     // Its inactive proxy timeline cannot authorize an earlier flight. The integrator calls
     // this only after validating the canonical sender and deduplicating its semantic event.
-    internal static void ObserveOwnerRelease(int actorId, byte endpoints, byte flags, CardFlightSource? source)
+    internal static void ObserveOwnerRelease(int actorId, byte endpoints, byte flags, CardFlightSource? source, float completionTime = -1f)
     {
         if (actorId == 0 || NetCardFx.To(endpoints) != CardFxAnchor.Burnt
             || (source.HasValue && source.Value.ActorId != actorId)) return;
         PruneOwnerReleases();
         if (OwnerReleases.Count >= 32) OwnerReleases.RemoveAt(0);
-        OwnerReleases.Add(new OwnerRelease(actorId, endpoints, flags, source, Now));
+        OwnerReleases.Add(new OwnerRelease(actorId, endpoints, flags, source, Now, completionTime));
     }
 
     internal static bool TryConsumeOwnerRelease(int actorId, CardFxAnchor origin,
@@ -79,11 +80,26 @@ internal static class CardFlightVisibility
         return false;
     }
 
+    internal static bool TryPeekOwnerRelease(int actorId, CardFxAnchor origin,
+        CardFlightSource? source, out byte flags, out float completionTime)
+    {
+        flags = 0; completionTime = -1f;
+        PruneOwnerReleases();
+        int recess = origin == CardFxAnchor.Slot0 ? 0 : origin == CardFxAnchor.Slot1 ? 1 : -1;
+        foreach (OwnerRelease release in OwnerReleases)
+        {
+            if (!BurnReleasePolicy.Matches(actorId, origin == CardFxAnchor.Active, recess, source,
+                release.Actor, NetCardFx.From(release.Endpoints), release.Source)) continue;
+            flags = release.Flags; completionTime = release.CompletionTime; return true;
+        }
+        return false;
+    }
+
     private static void PruneOwnerReleases()
     {
         double now = Now;
         for (int i = OwnerReleases.Count - 1; i >= 0; i--)
-            if (now - OwnerReleases[i].Received > 8d) OwnerReleases.RemoveAt(i);
+            if (OwnerReleases[i].CompletionTime < 0f && now - OwnerReleases[i].Received > 8d) OwnerReleases.RemoveAt(i);
     }
 
     internal static void Reset()

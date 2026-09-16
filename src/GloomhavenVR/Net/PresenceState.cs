@@ -97,6 +97,7 @@ internal struct PresenceState
     public CardFlightSource? FlightSource;
     public byte FlightSourceSeq;
     public CardFlightHistory? FlightHistory;
+    public CardBurnCompletionHistory? BurnCompletions;
 
     /// <summary>
     /// True when the sender has a control-board PILE BROWSER open this packet (the "Abgelegt" /
@@ -1614,6 +1615,9 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>Burn completion75 adds44 bytes: 4133 -> 4177 worst case; buffer4434 keeps257
+    /// spare bytes and existing bounded4352 reassembly still suffices.</para>
+    ///
     /// <para>Reward pose handshake74 adds at most59 bytes: 4074 -> 4133 worst case.
     /// The reassembly bound is4352 and the allocation-only buffer4390 retains257 spare bytes.
     /// The envelope layout and864-byte datagram cap do not change.</para>
@@ -1859,7 +1863,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 4390;
+    public const int MaxSize = 4434;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1887,7 +1891,7 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = state.HasDecisionAttribution || state.DamageDecisionPreview != null || state.FlightHistory != null
+        bool extensions = state.HasDecisionAttribution || state.DamageDecisionPreview != null || state.FlightHistory != null || state.BurnCompletions != null
             || (state.HasCardFx && state.FlightSource.HasValue) || state.DecisionHighlight != null || (state.HasCardFx && state.HasCardFxVisibility) || UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
@@ -3277,6 +3281,17 @@ internal static class PresenceSerializer
             if (payload > 0 && payload <= 254)
             {
                 buffer[i++] = NetProtocol.ExtIdDecisionHighlight;
+                buffer[i++] = (byte)payload;
+                i += payload;
+                records++;
+            }
+        }
+        if (state.BurnCompletions != null && i + 2 + CardBurnCompletionHistory.MaxSize <= buffer.Length)
+        {
+            int payload = state.BurnCompletions.Write(buffer, i + 2);
+            if (payload > 0)
+            {
+                buffer[i++] = NetProtocol.ExtIdCardBurnCompletion;
                 buffer[i++] = (byte)payload;
                 i += payload;
                 records++;
@@ -4751,6 +4766,10 @@ internal static class PresenceSerializer
                 state.HasFanSource = true;
                 state.FanSourceList = list;
             }
+        }
+        else if (id == NetProtocol.ExtIdCardBurnCompletion && CardBurnCompletionHistory.TryRead(buffer, i, len, out CardBurnCompletionHistory? completion))
+        {
+            state.BurnCompletions = completion;
         }
         else if (id == NetProtocol.ExtIdCardFlightHistory && CardFlightHistory.TryRead(buffer, i, len, out CardFlightHistory? history))
         {

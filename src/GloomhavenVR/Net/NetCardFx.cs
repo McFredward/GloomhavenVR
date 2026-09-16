@@ -34,10 +34,11 @@ internal static class NetCardFx
     /// OLDEST so the newest, most relevant animation still goes out.</summary>
     private const int MaxQueued = 8;
 
-    private static readonly Queue<(byte Endpoints, byte Flags, CardFlightSource? Source)> s_queue = new(MaxQueued);
+    private static readonly Queue<(byte Endpoints, byte Flags, CardFlightSource? Source, float CompletionTime)> s_queue = new(MaxQueued);
     private static byte s_seq;
-    private static readonly Queue<(CardFlightEvent Event, double SentAt)> s_history = new(CardFlightHistory.CountMax);
+    private static readonly Queue<(CardFlightEvent Event, double SentAt, float CompletionTime)> s_history = new(CardFlightHistory.CountMax);
     private static CardFlightHistory s_historySnapshot = new(0, System.Array.Empty<CardFlightEvent>());
+    internal static CardBurnCompletionHistory BurnCompletions { get; private set; } = new(0, System.Array.Empty<(byte, float)>());
     internal static CardFlightHistory History => HistoryAt(Clock());
     private static double Clock() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     internal static CardFlightHistory HistoryAt(double now)
@@ -52,7 +53,13 @@ internal static class NetCardFx
     {
         var events = new CardFlightEvent[s_history.Count];
         int i = 0;
-        foreach (var value in s_history) events[i++] = value.Event;
+        var completions = new List<(byte, float)>();
+        foreach (var value in s_history)
+        {
+            events[i++] = value.Event;
+            if (value.CompletionTime >= 0f) completions.Add((value.Event.Sequence, value.CompletionTime));
+        }
+        BurnCompletions = new CardBurnCompletionHistory(s_seq, completions.ToArray());
         s_historySnapshot = new CardFlightHistory(s_seq, events);
     }
     private static bool s_loggedFirst;
@@ -79,7 +86,7 @@ internal static class NetCardFx
     /// module: it never touches the transport (the driver drains it), never allocates beyond the
     /// bounded queue, and is a harmless no-op in single-player.
     /// </summary>
-    public static void Report(CardFxAnchor from, CardFxAnchor to, byte flags = 0, CardFlightSource? source = null)
+    public static void Report(CardFxAnchor from, CardFxAnchor to, byte flags = 0, CardFlightSource? source = null, float completionTime = -1f)
     {
         // Pack both endpoints into one byte: low nibble FROM, high nibble TO.
         byte packed = (byte)(((byte)from & 0x0F) | (((byte)to & 0x0F) << 4));
@@ -89,7 +96,8 @@ internal static class NetCardFx
             s_queue.Dequeue(); // nobody draining (single-player) — keep the newest
             s_dropped++;
         }
-        s_queue.Enqueue((packed, (byte)(flags & CardFlightVisibility.CoveredBurnBit), source));
+        if (to != CardFxAnchor.Burnt || float.IsNaN(completionTime) || float.IsInfinity(completionTime)) completionTime = -1f;
+        s_queue.Enqueue((packed, (byte)(flags & CardFlightVisibility.CoveredBurnBit), source, completionTime));
 
         if (!s_loggedFirst)
         {
@@ -124,7 +132,7 @@ internal static class NetCardFx
         source = next.Source;
         seq = ++s_seq; // wraps at 255 — dense by one per dispatch, which is what makes loss countable
         if (s_history.Count == CardFlightHistory.CountMax) s_history.Dequeue();
-        s_history.Enqueue((new CardFlightEvent(seq, endpoints, flags, source), Clock()));
+        s_history.Enqueue((new CardFlightEvent(seq, endpoints, flags, source), Clock(), next.CompletionTime));
         RefreshHistory();
         s_dispatched++;
         LogOutbox();
@@ -169,6 +177,7 @@ internal static class NetCardFx
     {
         s_queue.Clear();
         s_history.Clear();
+        BurnCompletions = new CardBurnCompletionHistory(s_seq, System.Array.Empty<(byte, float)>());
         s_historySnapshot = new CardFlightHistory(s_seq, System.Array.Empty<CardFlightEvent>());
         CardFlightVisibility.Reset();
         s_loggedFirst = false;

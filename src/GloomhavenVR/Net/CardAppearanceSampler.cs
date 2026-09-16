@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace GloomhavenVR.Net;
 
-internal static class CardAppearanceSampler
+internal static partial class CardAppearanceSampler
 {
     private static readonly List<VRCard> Cards = new();
     private static readonly List<AbilityCardUI> Pile = new();
@@ -86,6 +86,7 @@ internal static class CardAppearanceSampler
         foreach (var full in Removed) { Bindings.Remove(full); Failures.Remove(full); }
         Removed.Clear(); foreach (var full in Failures.Keys) if (!Seen.Contains(full)) Removed.Add(full);
         foreach (var full in Removed) Failures.Remove(full);
+        AppendBurnFinals(states);
         if (states.Count > CardAppearanceState.CountMax) throw new InvalidOperationException("Native card appearance population exceeds wire bound.");
         states.Sort((a, b) => a.ActorId != b.ActorId ? a.ActorId.CompareTo(b.ActorId) : a.FaceCode.CompareTo(b.FaceCode));
         bool same = states.Count == _previous.Length;
@@ -93,5 +94,5 @@ internal static class CardAppearanceSampler
         if (!same) _previous = states.ToArray();
         return _previous;
     }
-    internal static void Reset() { CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); States.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
+    internal static void Reset() { BurnFinals.Clear(); _finalCapacityLogged = false; CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); States.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
 }
