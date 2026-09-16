@@ -7,6 +7,7 @@ namespace GloomhavenVR.Net;
 internal static partial class RemoteMapStory
 {
     private static readonly Local RewardLocal = new();
+    private static readonly RewardPoseHandshake RewardHandshake = new();
     private static readonly RewardPoseHandoff RewardHandoff = new();
     private static readonly Dictionary<int, PeerEntry> RewardPeers = new(), RewardCandidates = new();
     private static readonly Dictionary<int, byte> RewardStamp = new();
@@ -23,6 +24,7 @@ internal static partial class RemoteMapStory
         get
         {
             uint key = RewardKey;
+            if (RewardHandshake.Changed) return true;
             if (key != _rewardSentKey || (key != 0 && RewardShowcasePlacement.LocalPlacementFailed != _rewardSentUnavailable)) return true;
             if (key == 0 || RewardShowcasePlacement.LocalPlacementFailed) return false;
             bool pending = RewardShowcasePlacement.LocalRevealPending;
@@ -39,6 +41,7 @@ internal static partial class RemoteMapStory
 
     private static void ResetRewardPose()
     {
+        RewardHandshake.Reset();
         RewardLocal.Reset(); RewardHandoff.Reset(); RewardPeers.Clear(); RewardCandidates.Clear(); RewardStamp.Clear();
         RewardStampAt.Clear(); RewardMoved.Clear(); RewardUnavailable.Clear(); RewardReady.Clear(); RewardParticipants.Clear();
         _rewardSentKey = 0; _rewardSentPose = _rewardMoved = _rewardSentUnavailable = _rewardSentReady = _rewardWasPending = false;
@@ -46,6 +49,7 @@ internal static partial class RemoteMapStory
     }
     private static void SetRewardIdentity(uint key)
     {
+        RewardHandshake.SetLocalKey(key);
         if (RewardLocal.Key == key) return;
         RewardLocal.Reset(); RewardHandoff.Reset(); RewardLocal.Key = key; _rewardMoved = false; _rewardSentPose = false;
         _rewardWasPending = _rewardSentReady = false;
@@ -55,6 +59,9 @@ internal static partial class RemoteMapStory
         _rewardPlayerId = localPlayerId;
         uint key = RewardKey;
         SetRewardIdentity(key);
+        RefreshRewardHandshake(localPlayerId);
+        presence.RewardPoseHandshake = RewardHandshake.Sample();
+        presence.HasRewardPoseHandshake = presence.RewardPoseHandshake.Key != 0 || presence.RewardPoseHandshake.Count != 0;
         _rewardSentKey = key;
         _rewardSentUnavailable = key != 0 && RewardShowcasePlacement.LocalPlacementFailed;
         if (key == 0) return;
@@ -82,6 +89,9 @@ internal static partial class RemoteMapStory
     internal static void ObserveReward(int sender, in PresenceState presence)
     {
         if (sender <= 0) return;
+        if (presence.HasRewardPoseHandshake)
+            RewardHandshake.Observe(sender, in presence.RewardPoseHandshake, Time.unscaledTime);
+        else RewardHandshake.Forget(sender);
         if (!presence.HasRewardWindow || !RewardWindowCodec.Valid(in presence.RewardWindow))
         { ForgetReward(sender); return; }
         SharedWindowEntry entry = presence.RewardWindow.Window;
@@ -101,6 +111,7 @@ internal static partial class RemoteMapStory
         _rewardPlayerId = localPlayerId;
         uint key = RewardKey;
         SetRewardIdentity(key);
+        RefreshRewardHandshake(localPlayerId);
         PruneStale(RewardPeers, RewardStamp, RewardStampAt);
         Scratch.Clear(); foreach (int peer in RewardMoved.Keys) if (!RewardPeers.ContainsKey(peer)) Scratch.Add(peer);
         foreach (int peer in Scratch) { RewardMoved.Remove(peer); RewardUnavailable.Remove(peer); RewardReady.Remove(peer); }
@@ -121,6 +132,11 @@ internal static partial class RemoteMapStory
         if (RewardLocal.FollowingPeer != 0 && RewardMoved.TryGetValue(RewardLocal.FollowingPeer, out bool moved))
             _rewardMoved |= moved;
     }
+    private static void RefreshRewardHandshake(int localPlayerId)
+    {
+        NetAvatarDriver.CollectRewardPosePeers(RewardParticipants);
+        RewardHandshake.Refresh(localPlayerId, RewardParticipants, Time.unscaledTime, PeerStaleSeconds);
+    }
     private static int RewardInitialOwner(uint key, int localPlayerId)
     {
         NetAvatarDriver.CollectRewardPosePeers(RewardParticipants);
@@ -133,13 +149,25 @@ internal static partial class RemoteMapStory
                 established = RewardPosePolicy.ConsiderInitialOwner(established, peer, false);
         if (established != int.MaxValue) return established;
         int owner = RewardPosePolicy.ConsiderInitialOwner(int.MaxValue, localPlayerId,
-            key != 0 && RewardShowcasePlacement.LocalPlacementFailed);
+            key != 0 && (RewardShowcasePlacement.LocalPlacementFailed || RewardHandshake.LocalDeclined(key)));
         foreach (int peer in RewardParticipants)
         {
-            bool unavailable = RewardPeers.TryGetValue(peer, out PeerEntry state) && state.ContentKey == key
-                && RewardUnavailable.TryGetValue(peer, out bool failed) && failed;
+            bool unavailable = RewardHandshake.PeerDeclined(peer, key)
+                || (RewardPeers.TryGetValue(peer, out PeerEntry state) && state.ContentKey == key
+                    && RewardUnavailable.TryGetValue(peer, out bool failed) && failed);
             owner = RewardPosePolicy.ConsiderInitialOwner(owner, peer, unavailable);
         }
+        if (owner != int.MaxValue) return owner;
+        // The original publisher can finish or leave while late native copies still stand.
+        // If every candidate declined its initial role, promote an ACTUAL remaining window;
+        // an absent peer that sent a decline still cannot originate a pose. The same lowest-id
+        // rule runs on all survivors, and no native confirmation or gameplay lock is changed.
+        owner = RewardPosePolicy.ConsiderInitialOwner(int.MaxValue, localPlayerId,
+            key == 0 || RewardKey != key || RewardShowcasePlacement.LocalPlacementFailed);
+        foreach (int peer in RewardParticipants)
+            if (RewardPeers.TryGetValue(peer, out PeerEntry remaining) && remaining.ContentKey == key)
+                owner = RewardPosePolicy.ConsiderInitialOwner(owner, peer,
+                    RewardUnavailable.TryGetValue(peer, out bool unavailable) && unavailable);
         return owner == int.MaxValue ? 0 : owner;
     }
     private static void SelectRewardCandidates(uint key, int localPlayerId)

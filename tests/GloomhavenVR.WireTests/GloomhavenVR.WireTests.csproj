@@ -65,6 +65,7 @@
          Sprite, and this project references UnityEngine.CoreModule and nothing else. -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarSlotIdentity.cs" Link="wire\UseBarSlotIdentity.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\VideoWindowState.cs" Link="wire\VideoWindowState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardPoseHandshake.cs" Link="wire\RewardPoseHandshake.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardWindowState.cs" Link="wire\RewardWindowState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardPoseHandoff.cs" Link="wire\RewardPoseHandoff.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Board\IBoardAnchor.cs" Link="wire\IBoardAnchor.cs" />
@@ -276,6 +277,7 @@
     <Compile Include="FanInsertionGapVectors.cs" />
     <Compile Include="VideoWindowVectors.cs" />
     <Compile Include="RewardWindowVectors.cs" />
+    <Compile Include="RewardPoseHandshakeVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\FanOrderMemory.cs" Link="cards\FanOrderMemory.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\FanPresentationSendState.cs" Link="wire\FanPresentationSendState.cs" />
     <Compile Include="CardPlumeVectors.cs" />

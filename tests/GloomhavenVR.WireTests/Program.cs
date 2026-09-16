@@ -107,6 +107,7 @@ internal static class Program
             SharedWindowPoseVectors.Run(t);
             VideoWindowVectors.Run(t);
             RewardWindowVectors.Run(t, repoRoot);
+            RewardPoseHandshakeVectors.Run(t);
             FanReflowVectors.Run(t);
             FanInteractionVectors.Run(t);
             FanInsertionGapVectors.Run(t);

@@ -13,6 +13,8 @@ internal struct PresenceState
 {
     public bool HasRewardWindow;
     public RewardWindowState RewardWindow;
+    public bool HasRewardPoseHandshake;
+    public RewardPoseHandshakeState RewardPoseHandshake;
     public bool HasVideoWindow;
     public VideoWindowState VideoWindow;
     /// <summary>True when <see cref="Board"/>/<see cref="BoardScale"/> carry a valid control-board
@@ -1612,6 +1614,10 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>Reward pose handshake74 adds at most59 bytes: 4074 -> 4133 worst case.
+    /// The reassembly bound is4352 and the allocation-only buffer4390 retains257 spare bytes.
+    /// The envelope layout and864-byte datagram cap do not change.</para>
+    ///
     /// <para>Reward record 73 adds at most 30 bytes: 4044 -> 4074 worst case, still below
     /// the 4096-byte reassembly limit. The allocation-only buffer grows to 4331,
     /// retaining the 257-byte spare-record margin.</para>
@@ -1853,7 +1859,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 4331;
+    public const int MaxSize = 4390;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1929,6 +1935,7 @@ internal static class PresenceSerializer
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
                           || state.HasVideoWindow
+                          || state.HasRewardPoseHandshake
                           || state.HasRewardWindow
                           || state.HasFanInsertionGap
                           || (state.HasFanArcOrder && state.FanArcOrderCount > 0
@@ -2691,6 +2698,8 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.HasRewardPoseHandshake && RewardPoseHandshakeCodec.Write(buffer, ref i, in state.RewardPoseHandshake))
+            records++;
         if (state.HasRewardWindow && RewardWindowCodec.Write(buffer, ref i, in state.RewardWindow))
             records++;
         if (state.HasVideoWindow && VideoWindowCodec.Write(buffer, ref i, in state.VideoWindow))
@@ -4002,6 +4011,11 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
+        if (id == NetProtocol.ExtIdRewardPoseHandshake)
+        {
+            state.HasRewardPoseHandshake = RewardPoseHandshakeCodec.TryRead(buffer, i, len, out state.RewardPoseHandshake);
+            return;
+        }
         if (id == NetProtocol.ExtIdRewardWindow)
         {
             state.HasRewardWindow = RewardWindowCodec.TryRead(buffer, i, len, out state.RewardWindow);

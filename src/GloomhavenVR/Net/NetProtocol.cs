@@ -81,10 +81,13 @@ internal static class NetProtocol
     public const byte ExtIdVideoWindow = 72;
     /// <summary>Shared native reward pose; distinct from legacy shared-window record21.</summary>
     public const byte ExtIdRewardWindow = 73;
+    /// <summary>Key/generation-scoped explicit declines of shared reward first-placement candidacy.</summary>
+    public const byte ExtIdRewardPoseHandshake = 74;
     /// <summary>Record 73 only: absolute scenario game-world pose, independent of local camera pan/seat.
     /// Legacy record 21 retains its existing frame 0/1 grammar.</summary>
     public const byte RewardFrameScenario = 2;
-    public const ushort RewardWindowMinPeerBuild = 510;
+    // Initial placement requires explicit decline support; older avatars never block it.
+    public const ushort RewardWindowMinPeerBuild = 512;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;
