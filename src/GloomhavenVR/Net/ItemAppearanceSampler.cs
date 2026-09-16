@@ -30,6 +30,9 @@ internal static class ItemAppearanceSampler
     internal static void Reset() { Chips.Clear(); Entries.Clear(); Output.Clear(); _previous = Array.Empty<ItemAppearanceState>(); _generation = 0; }
     internal static void RetainCompletion(ItemsPile.ItemChip chip)
     {
+        // Offline sessions do not run the sampler's pruning pass. Their local native effect
+        // needs no network snapshot and must not retain item graphs across successive scenarios.
+        if (!NetAvatarDriver.CanPublishNativePresentation) return;
         Entry? entry = Capture(chip, completed: true);
         if (entry != null) entry.Seen = true;
     }

@@ -8,6 +8,10 @@ namespace GloomhavenVR.Net;
 
 internal sealed partial class NetAvatarDriver
 {
+    internal static bool CanPublishNativePresentation => _instance != null && _instance.isActiveAndEnabled
+        && !NetSession.FlatNetMode && Core.VRSession.IsRunning && _instance._transport.IsOnline
+        && _instance._transport.LocalPlayerId > 0;
+
     private readonly byte[] _itemAppearanceBuffer = new byte[ItemAppearanceCodec.MaxSize];
     private ItemAppearanceState[]? _sentItemAppearances;
     private ItemAppearanceSnapshot? _itemAppearanceSnapshot;

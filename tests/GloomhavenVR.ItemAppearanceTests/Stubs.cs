@@ -56,3 +56,4 @@ namespace GloomhavenVR.Net
     internal static class NetFigures {internal static int StableActorId(CPlayerActor? actor)=>actor?.Id??0;}
     internal static class RemoteBoardFocus {internal static readonly Dictionary<int,CPlayerActor> Actors=new();internal static CPlayerActor? ActorById(int id)=>Actors.GetValueOrDefault(id);}
 }
+namespace GloomhavenVR.Net { internal static class NetAvatarDriver { internal static bool CanPublishNativePresentation = true; } }

@@ -33,6 +33,10 @@ static class Program
         var actor=new CPlayerActor{Id=17};actor.Inventory!.AllItems.Add(item);RemoteBoardFocus.Actors[17]=actor;
         var owner=new ItemsPile{OwnerActor=actor}; var native=Art("native");
         var chip=new ItemsPile.ItemChip{Owner=owner,Item=item,NativeItemCard=new(native.fx),BurnPresentationPending=true,PendingUse=true};
+        NetAvatarDriver.CanPublishNativePresentation=false;
+        ItemAppearanceSampler.RetainCompletion(chip);
+        Check(ItemAppearanceSampler.Sample().Length==0,"Offline burns must not retain unsampled item graphs");
+        NetAvatarDriver.CanPublishNativePresentation=true;
         ItemsPile.ItemChip.Registered.Add(chip);
         var pending=ItemAppearanceSampler.Sample();Check(pending.Length==1&&pending[0].Flags==5,"Only the actual pending use card arms a clipped burn");
         Check(ReferenceEquals(pending,ItemAppearanceSampler.Sample()),"Unchanged native sampling must reuse the published frame");
