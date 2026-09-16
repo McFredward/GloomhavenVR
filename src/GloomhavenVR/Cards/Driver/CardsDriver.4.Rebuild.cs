@@ -1725,6 +1725,15 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void DrainSwapExit()
     {
+        if (_burnLayoutPending)
+        {
+            // Pausing an exchange for a native burn must also pause its restore deadline.
+            // Otherwise cleanup would destroy the still-visible outgoing card under its FX.
+            if (_pendingFaceRestore.Count > 0)
+                _faceRestoreDeadline += Time.unscaledDeltaTime;
+            return;
+        }
+
         if (_fan.HasLeavingCards)
         {
             _swapLanded.Clear();

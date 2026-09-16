@@ -570,6 +570,7 @@ internal sealed partial class CardsDriver
         // such a frame, and it would otherwise leave a character's 2D hand adopted indefinitely. The
         // cost of being here rather than after the fan's tick is that a card is parked one frame
         // after it stops moving, at the gather point, shrunk and off the end of the arc.
+        RefreshBurnLayoutBarrier();
         DrainSwapExit();
 
         Transform? anchor = AnchorParent();
@@ -615,8 +616,6 @@ internal sealed partial class CardsDriver
             VRLog.Info("Cards", "Control board anchor restored (hands are back) — the board rebuilds and " +
                                 "re-places in front of the player this frame.");
         }
-
-        RefreshBurnLayoutBarrier();
 
         if (_boardChanged && !_burnLayoutPending)
         {

@@ -12,7 +12,8 @@ def method(text,name):
 rebuild=source[source.index('    private void Rebuild(Transform anchor)'):]
 assert rebuild.index('if (DeferLayoutForBurn()) return;') < rebuild.index('Board.CharacterFocus.ResolveHand'), 'Burn admission must precede actor resolution'
 update=(cards/'Driver/CardsDriver.2.Update.cs').read_text()
-assert update.index('RefreshBurnLayoutBarrier();') < update.index('if (_boardChanged && !_burnLayoutPending)') < update.index('Rebuild(anchor);'), 'Burn discovery must precede board replacement'
+assert update.index('RefreshBurnLayoutBarrier();') < update.index('DrainSwapExit();') < update.index('if (_boardChanged && !_burnLayoutPending)') < update.index('Rebuild(anchor);'), 'Burn discovery must precede board replacement'
+assert '_faceRestoreDeadline += Time.unscaledDeltaTime;' in method(source,'private void DrainSwapExit()'), 'Paused exchange must retain original faces'
 assert 'if (modalBlock || _burnLayoutPending)' in update, 'Burn wait must disarm retained card grabs'
 field=(cards/'Driver/CardsDriver.5.Interactions.cs').read_text()
 assert 'if (DeferLayoutForBurn()) return;' in method(field,'private void RelayoutField()'), 'Pick field must await burn'
