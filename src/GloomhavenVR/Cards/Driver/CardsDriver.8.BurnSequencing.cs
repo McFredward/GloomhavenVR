@@ -31,6 +31,7 @@ internal sealed partial class CardsDriver
                 if (card == null || card.IsFlying || card.IsVanishing || IsParked(card)) continue;
                 AbilityCardUI? widget = card.GameCard;
                 if (widget == null) continue;
+                ObserveForeignBurnProgress(widget);
 
                 _burnLayoutNativeActive |= BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))
                     || BurnArtwork.Playing(BurnArtwork.EffectsOf(widget));

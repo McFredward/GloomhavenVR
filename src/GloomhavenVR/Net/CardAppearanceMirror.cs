@@ -66,6 +66,13 @@ internal static class CardAppearanceMirror
         => actor != null && NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? owner)
             && owner != null && owner.HasBurnInProgress(NetFigures.StableActorId(actor));
 
+    internal static bool TryOwnerBurnProgress(CPlayerActor actor, CAbilityCard card, out float started)
+    {
+        started = -1f;
+        return NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? owner) && owner != null
+            && owner.TryBurnProgress(NetFigures.StableActorId(actor), card, out started);
+    }
+
     internal static void Remove(int playerId) => Frames.Remove(playerId);
     internal static void Reset() { Frames.Clear(); Pile.Clear(); }
     internal static bool TryGet(int playerId, CPlayerActor? actor, CAbilityCard? card,

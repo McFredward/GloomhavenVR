@@ -7,6 +7,10 @@ using UnityEngine;
 namespace GloomhavenVR.Net;
 
 /// <summary>
+/// MB513 supersedes the historical reconstruction/zero-wire notes below: original native output,
+/// immutable provenance and owner lifecycle clocks are authoritative. A flight waits for native
+/// completion; unadopted native burns complete without fabricating a VR flight.
+///
 /// A PEER'S BURN, ON THE RIGHT CARD, AT THE RIGHT MOMENT — the receiving half of the burn flow
 /// (2026-09-05 multiplayer report, items 11a and 11b).
 ///
@@ -274,6 +278,7 @@ internal sealed class RemoteBurnFx
         /// not the owner's running coroutine; the owner's semantic event authorizes release.</summary>
         public AbilityCardUI? Widget;
         public CAbilityCard? OriginalCard;
+        public bool ObservedOwnerProgress;
 
         /// <summary>Whether this client's native counterpart was observed animating. Diagnostic
         /// evidence only; absence cannot finish an owner's burn.</summary>
@@ -877,6 +882,7 @@ internal sealed class RemoteBurnFx
         b.CardId = cardId;
         b.ActorId = actorId;
         b.OwnerReleased = false;
+        b.ObservedOwnerProgress = false;
         b.CompletionTime = -1f;
         b.PresentationPlayer = _owner.PlayerId;
         b.ArtworkWait = 0f;
@@ -1072,7 +1078,11 @@ internal sealed class RemoteBurnFx
             // disappear immediately, never retain a claim or suppress a newly seated card.
             CPlayerActor? actor = RemoteBoardFocus.ActorById(b.ActorId);
             CAbilityCard? card = b.OriginalCard;
-            if (!b.HandoverLogged && (actor == null || card == null
+            bool ownerRunning = actor != null && card != null && CardAppearanceMirror.TryOwnerBurnProgress(actor, card, out _);
+            if (ownerRunning) b.ObservedOwnerProgress = true;
+            bool completedWithoutFlight = BurnReleasePolicy.RetireWithoutFlight(b.ObservedOwnerProgress, ownerRunning,
+                b.OwnerReleased, BurnArtwork.Playing(BurnArtwork.EffectsOf(b.Widget)));
+            if (!b.HandoverLogged && (actor == null || card == null || completedWithoutFlight
                 || (!actor.CharacterClass.LostAbilityCards.Contains(card)
                     && !actor.CharacterClass.PermanentlyLostAbilityCards.Contains(card))))
             {

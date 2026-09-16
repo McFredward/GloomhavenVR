@@ -15,7 +15,7 @@ for mutation in active-layout recess-layout early-native wrong-provenance releas
 import pathlib,sys
 root=pathlib.Path(sys.argv[1]); mutation=sys.argv[2]
 file,old,new={
-'initial-history':('Remote/RemoteAvatar.cs','if ((initial || _burnProgressKeys.Contains(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))','if (bool.Parse("false") && (initial || _burnProgressKeys.Contains(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))'),
+'initial-history':('Remote/RemoteAvatar.cs','if ((initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))','if (bool.Parse("false") && (initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))'),
 'incoming-progress':('Remote/RemoteBurnFx.cs','if (IncomingBurnPending) return RemoteBoardFocus.ActorById(_watchActor);',''),
 'progress-is-release':('Remote/RemoteAvatar.cs','if (entry.InProgress) continue;',''),
 'duplicate-terminal':('Remote/RemoteAvatar.cs','if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;',''),

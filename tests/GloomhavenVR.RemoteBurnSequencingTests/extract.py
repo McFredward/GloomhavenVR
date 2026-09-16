@@ -86,7 +86,7 @@ internal int PlayerId=7; internal BurnFixture _burnFx=new(); internal int Dispat
 private Dictionary<(int Actor,int Source,ushort Seat,ushort Count),float> _burnCompletionTimes=new();
 private object? _burnCompletionScenario; private bool _burnCompletionsInitialized;
 private HashSet<int> _burnProgressActors=new();
-private HashSet<(int Actor,int Source,ushort Seat,ushort Count)> _burnProgressKeys=new();
+private Dictionary<(int Actor,int Source,ushort Seat,ushort Count),float> _burnProgressKeys=new();
 internal bool HasBurnInProgress(int actorId)=>_burnProgressActors.Contains(actorId);
 private void PlayMirroredCardFlight(byte endpoints,byte flags,CardFlightSource source,float time,int player,CAbilityCard card) {Dispatched++;}
 """ + method(avatar,'private void ApplyBurnCompletions(').replace('private void ApplyBurnCompletions','internal void ApplyBurnCompletions') + "\n}\n"

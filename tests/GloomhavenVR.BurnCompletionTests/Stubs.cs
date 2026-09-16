@@ -38,6 +38,7 @@ internal sealed class CardsHandManager
 namespace GloomhavenVR.Core { internal static class VRLog { internal static void Warn(string category, string message) { } } }
 namespace GloomhavenVR.Cards
 {
+    internal static class CardsDriver { internal static bool ExpectFlight; internal static bool ExpectsBurnFlight(ScenarioRuleLibrary.CAbilityCard card)=>ExpectFlight; }
     internal static class BurnArtwork {
 internal static CardEffects? EffectsOf(FullAbilityCard? full)=>full?.cardEffects;
 internal static CardEffects? EffectsOf(AbilityCardUI? widget)=>widget?.fullAbilityCard.cardEffects;

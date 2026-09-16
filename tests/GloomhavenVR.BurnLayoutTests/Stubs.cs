@@ -23,6 +23,7 @@ namespace GloomhavenVR.Cards {
     internal sealed class Active { internal List<VRCard> Cards = new(); internal bool Contains(VRCard card) => Cards.Contains(card); }
     internal sealed class Half { internal bool ReadOnly; internal void SetReadOnly(bool value) => ReadOnly = value; }
     internal sealed partial class CardsDriver {
+        private void ObserveForeignBurnProgress(AbilityCardUI widget) { }
         private static CardsDriver? Instance;
         private readonly Factory _factory = new();
         private readonly Active _active = new();

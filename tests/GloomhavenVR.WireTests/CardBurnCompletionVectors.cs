@@ -101,6 +101,11 @@ internal static class CardBurnCompletionVectors
         NetCardFx.NoteBurnProgress(progressIdentity,31f,running:false);
         t.True(!Array.Exists(NetCardFx.BurnCompletions.Entries,e=>e.ActorId==5),
             "Unadopted native completion clears admission without inventing a terminal flight");
+        t.True(BurnReleasePolicy.RetireWithoutFlight(true,false,false,false),"Observed offscreen completion retires without an invented flight");
+        t.True(!BurnReleasePolicy.RetireWithoutFlight(true,true,false,false),"Running owner progress still owns the original presentation");
+        t.True(!BurnReleasePolicy.RetireWithoutFlight(true,false,true,false),"Actual owner release keeps the native flight path");
+        t.True(!BurnReleasePolicy.RetireWithoutFlight(true,false,false,true),"A running native proxy cannot be retired early");
+        t.True(!BurnReleasePolicy.RetireWithoutFlight(false,false,false,false),"Absence of progress is not evidence of completion");
         NetCardFx.Reset(); CardFlightVisibility.Reset();
         t.True(NetCardFx.BurnCompletions.Entries.Length == 0, "teardown clears completed provenance");
     }

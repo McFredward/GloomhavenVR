@@ -4,6 +4,9 @@ namespace GloomhavenVR.Net;
 /// cannot fly just because this client's inactive UI lacks the owner's native coroutine.</summary>
 internal static class BurnReleasePolicy
 {
+    internal static bool RetireWithoutFlight(bool observedOwnerProgress, bool ownerRunning, bool hasOwnerRelease, bool nativePlaying)
+        => observedOwnerProgress && !ownerRunning && !hasOwnerRelease && !nativePlaying;
+
     internal static bool MayFallback(bool occupancyKnown, int recess, int occupiedMask,
                                      float elapsed, float maximumNativeHold)
     {

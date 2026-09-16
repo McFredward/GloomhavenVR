@@ -2288,8 +2288,16 @@ internal sealed class RemoteAvatar
     private object? _burnCompletionScenario;
     private bool _burnCompletionsInitialized;
     private readonly System.Collections.Generic.HashSet<int> _burnProgressActors = new();
-    private readonly System.Collections.Generic.HashSet<(int Actor, int Source, ushort Seat, ushort Count)> _burnProgressKeys = new();
+    private readonly System.Collections.Generic.Dictionary<(int Actor, int Source, ushort Seat, ushort Count), float> _burnProgressKeys = new();
     internal bool HasBurnInProgress(int actorId) => _burnProgressActors.Contains(actorId);
+    internal bool TryBurnProgress(int actorId, ScenarioRuleLibrary.CAbilityCard card, out float started)
+    {
+        foreach (var entry in _burnProgressKeys)
+            if (entry.Key.Actor == actorId && ReferenceEquals(card,
+                CardAppearanceProvenance.Resolve(entry.Key.Source, entry.Key.Seat, entry.Key.Count)))
+            { started = entry.Value; return true; }
+        started = -1f; return false;
+    }
     internal bool WaitingIncomingBurn => _burnFx.IncomingBurnPending;
     private void ApplyBurnCompletions(CardBurnCompletionHistory? history)
     {
@@ -2309,7 +2317,7 @@ internal sealed class RemoteAvatar
             if (entry.InProgress) continue; // Admission state is never a release or a completed animation.
             if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;
             var card = CardAppearanceProvenance.Resolve(entry.SourceActorId, entry.PoolSeat, entry.PoolCount);
-            if ((initial || _burnProgressKeys.Contains(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))
+            if ((initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))
             {
                 // Seed historical provenance even when its actor/ownership has not arrived yet.
                 // Retrying that baseline later must not create a claim for a past animation.
@@ -2328,7 +2336,7 @@ internal sealed class RemoteAvatar
         _burnProgressActors.Clear(); _burnProgressKeys.Clear();
         foreach (var entry in history.Entries)
             if (entry.InProgress)
-            { _burnProgressActors.Add(entry.ActorId); _burnProgressKeys.Add(entry.Key); }
+            { _burnProgressActors.Add(entry.ActorId); _burnProgressKeys[entry.Key] = entry.Time; }
     }
 
     private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source, CardBurnCompletionHistory? completions = null)

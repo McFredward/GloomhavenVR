@@ -99,7 +99,10 @@ internal static class Program
         Check(NetCardFx.Progress.Contains((8,0)),"Offscreen native start publishes progress without a VR wrapper or AbilityCardUI parent");
         CardAppearanceSampler.AdvanceProgressForTest();
         Check(NetCardFx.Progress.Contains((8,0)),"Actual running iterator keeps incoming admission blocked");
-        native.cardEffects.Running=false;
+        native.cardEffects.Running=false; GloomhavenVR.Cards.CardsDriver.ExpectFlight=true;
+        CardAppearanceSampler.AdvanceProgressForTest();
+        Check(NetCardFx.Progress.Contains((8,0)),"A normal visible burn keeps progress between native completion and its real flight report");
+        GloomhavenVR.Cards.CardsDriver.ExpectFlight=false;
         CardAppearanceSampler.AdvanceProgressForTest();
         Check(NetCardFx.Progress.Count==0,"Actual native completion clears an unadopted incoming burn without a flight");
         Console.WriteLine($"Burn completion capture: {checks} assertions passed.");

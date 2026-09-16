@@ -3691,6 +3691,22 @@ internal sealed partial class CardsDriver
     /// <summary>Reused scratch for pruning stale hold entries (allocation-free steady state).</summary>
     private readonly List<AbilityCardUI> _burnHoldPruneScratch = new(4);
 
+    private readonly Dictionary<AbilityCardUI, (CAbilityCard Card, CPlayerActor Actor, int Owner, float Started)> _foreignBurnProgress = new();
+
+    private void ObserveForeignBurnProgress(AbilityCardUI widget)
+    {
+        var actor = widget.PlayerActor; var original = widget.AbilityCard;
+        if (actor == null || original == null || CardsGameApi.ControlsActor(actor)
+            || !Net.NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out Net.RemoteAvatar? owner) || owner == null) return;
+        if (owner.TryBurnProgress(Net.NetFigures.StableActorId(actor), original, out float started))
+            _foreignBurnProgress[widget] = (original, actor, owner.PlayerId, started);
+        else if (_foreignBurnProgress.TryGetValue(widget, out var prior)
+            && (!ReferenceEquals(prior.Card, original) || !ReferenceEquals(prior.Actor, actor)
+                || prior.Owner != owner.PlayerId
+                || Net.CardAppearanceMirror.HasRecoveredSourceAfter(owner.PlayerId, actor, original, prior.Started)))
+            _foreignBurnProgress.Remove(widget);
+    }
+
     /// <summary>
     /// Drop all artwork-hold state for <paramref name="widget"/>. Called when a flight for the
     /// widget actually launches on ANOTHER path (the turn-clear sweep consumes the burn), when the
@@ -3701,6 +3717,7 @@ internal sealed partial class CardsDriver
     private void ClearBurnHold(AbilityCardUI? widget)
     {
         if (widget is null) return;
+        _foreignBurnProgress.Remove(widget);
         if (_burnHoldSince.ContainsKey(widget) && widget.AbilityCard != null && widget.PlayerActor != null
             && !widget.PlayerActor.CharacterClass.LostAbilityCards.Contains(widget.AbilityCard)
             && !widget.PlayerActor.CharacterClass.PermanentlyLostAbilityCards.Contains(widget.AbilityCard))
@@ -3779,7 +3796,24 @@ internal sealed partial class CardsDriver
             // original widget has displayed the owner's final sample; consuming early would
             // discard the only completion edge while the visible burn is still running.
             int actorId = Net.NetFigures.StableActorId(actor);
-            release = release && owner != null
+            ObserveForeignBurnProgress(widget);
+            bool ownerRunning = owner != null && owner.TryBurnProgress(actorId, widget.AbilityCard, out _);
+            bool witnessedOriginal = owner != null
+                && _foreignBurnProgress.TryGetValue(widget, out var observed)
+                && ReferenceEquals(observed.Card, widget.AbilityCard) && ReferenceEquals(observed.Actor, actor)
+                && observed.Owner == owner.PlayerId;
+            bool hasOwnerRelease = Net.CardFlightVisibility.TryPeekOwnerRelease(actorId, origin, source, out _, out _, widget.AbilityCard);
+            bool completedWithoutFlight = Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal,
+                ownerRunning, hasOwnerRelease, !release);
+            if (completedWithoutFlight)
+            {
+                // The owner never adopted this burn, so its actual native completion has no
+                // originating VR flight. Retire this read-only hold without inventing one.
+                ClearBurnHold(widget); _activeExitOrigins.Remove(widget); _knownBurntWidgets.Add(widget);
+                _dirty = true;
+                return false;
+            }
+            release = release && !ownerRunning && owner != null
                 && Net.CardFlightVisibility.TryPeekOwnerRelease(actorId, origin, source,
                     out _, out float completionTime, widget.AbilityCard)
                 && (completionTime < 0f || Net.CardAppearanceMirror.HasPresentedThrough(

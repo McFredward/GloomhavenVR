@@ -332,6 +332,7 @@ internal sealed partial class CardsDriver
         _lastCardWorldWidth.Clear();
         _burnWatchHand = null; // issue B
         _knownBurntWidgets.Clear();
+        _foreignBurnProgress.Clear();
         _burnHoldSince.Clear(); // artwork holds die with the driver — no orphaned release later
         _burnHoldLogged.Clear();
         CardFlightLedger.Reset(); // one scenario's flight ordinals never accuse the next one's first

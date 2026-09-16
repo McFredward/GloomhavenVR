@@ -61,7 +61,9 @@ internal static partial class CardAppearanceSampler
                 && ReferenceEquals(CardAppearanceProvenance.Resolve(tracked.Identity), tracked.Card)
                 && (BurnArtwork.Playing(BurnArtwork.EffectsOf(tracked.Full))
                     || BurnArtwork.Playing(BurnArtwork.EffectsOf(tracked.Widget)) || BurnArtwork.LosingCards(tracked.Widget));
-            if (running) continue;
+            if (running || CardsDriver.ExpectsBurnFlight(tracked.Card)) continue;
+            // A visible held burn keeps its progress until the owner reports its real flight.
+            // An unadopted burn has no such flight; clearing progress is its completion edge.
             NetCardFx.NoteBurnProgress(tracked.Identity, Time.unscaledTime, running: false);
             NativeBurns.RemoveAt(i);
         }
