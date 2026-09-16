@@ -30,6 +30,15 @@ PY
     if dotnet run --project "$project" --configuration Release --property:HandshakeSource="$mutation_dir/Handshake.cs" --property:RewardSource="$mutation_dir/Reward.cs" >"$mutation_dir/output" 2>&1; then
         echo "ERROR: reward pose mutation survived: $mutation" >&2; exit 1
     fi
-    if ! rg -q 'Unhandled exception.*System.Exception' "$mutation_dir/output"; then cat "$mutation_dir/output"; exit 1; fi
+    case "$mutation" in
+        late-opening|missing-reply) expected='nonparticipant declares inability for requested key' ;;
+        stale-response) expected='old generation does not exclude source on reopened chest' ;;
+        routing) expected='production explicit no-window response permits actual controller reveal' ;;
+        empty-reorder) expected='late empty extras cannot revoke follower role while originating avatar remains live' ;;
+        survivor) expected='last surviving native copy becomes a real pose publisher after source departure' ;;
+    esac
+    if ! rg -qF "Unhandled exception. System.Exception: $expected" "$mutation_dir/output"; then
+        cat "$mutation_dir/output"; exit 1
+    fi
     echo "Reward pose negative control rejected: $mutation"
 done

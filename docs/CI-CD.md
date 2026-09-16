@@ -155,7 +155,7 @@ hardware-verification logging and option reachability. The workflow files list t
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
 The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, map-button, flight-timing,
-figure-hold, native-video, reward-showcase, modal-close, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
+figure-hold, native-video, reward-showcase, modal-close, reward-pose, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
 production source with controlled Unity API substitutes and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
 presentation-send reuse. Their coverage does not replace the full wire vectors or a
@@ -203,6 +203,11 @@ and bypasses of native progression.
 window classifier. It covers pooled windows that change policy after conversion, native
 rescue ownership, ordinary menus and city destinations. Negative controls restore unchecked
 close, missing rescue and incorrect rescue lifetime behavior.
+
+`scripts/reward-pose-tests.sh` executes production reward pose sampling, receiving and election
+with the key/opening-scoped handshake. It covers explicit absence, concurrent keys, late
+opening, stale replies, reordered empty snapshots and a departing position sender. Golden
+wire vectors include record 74, full snapshots and bounded four-sender fragment reassembly.
 
 `scripts/panel-ink-tests.sh` exercises the production ink walker:
 full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and
