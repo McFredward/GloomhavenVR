@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-// A bounded uGUI hierarchy model for the real production ink walk. Geometry is axis-aligned;
+// A bounded uGUI hierarchy model for the real production ink walk, with 2D transform chains;
 // these tests claim content classification, alpha, clipping and visibility, not Unity rendering.
 namespace UnityEngine
 {
@@ -17,6 +17,25 @@ namespace UnityEngine
     public class Transform : Component
     {
         public Transform? parent;
+        public Vector3 localPosition;
+        public Vector3 localScale = new(1, 1, 1);
+        public float angleDegrees;
+        public Vector3 TransformPoint(Vector3 point)
+        {
+            double angle = angleDegrees * Math.PI / 180;
+            float x = point.x * localScale.x, y = point.y * localScale.y;
+            var own = new Vector3((float)(x * Math.Cos(angle) - y * Math.Sin(angle)) + localPosition.x,
+                (float)(x * Math.Sin(angle) + y * Math.Cos(angle)) + localPosition.y, point.z + localPosition.z);
+            return parent == null ? own : parent.TransformPoint(own);
+        }
+        public Vector3 InverseTransformPoint(Vector3 point)
+        {
+            Vector3 own = parent == null ? point : parent.InverseTransformPoint(point);
+            double angle = -angleDegrees * Math.PI / 180;
+            float x = own.x - localPosition.x, y = own.y - localPosition.y;
+            return new Vector3((float)(x * Math.Cos(angle) - y * Math.Sin(angle)) / localScale.x,
+                (float)(x * Math.Sin(angle) + y * Math.Cos(angle)) / localScale.y, own.z - localPosition.z);
+        }
         public readonly List<Transform> Children = new();
         public int childCount => Children.Count;
         public Transform GetChild(int index) => Children[index];
@@ -35,12 +54,11 @@ namespace UnityEngine
         public Rect rect = Rect.MinMaxRect(-640, -360, 640, 360);
         public void GetWorldCorners(Vector3[] corners)
         {
-            corners[0] = new Vector3(rect.xMin, rect.yMin, 0);
-            corners[1] = new Vector3(rect.xMin, rect.yMax, 0);
-            corners[2] = new Vector3(rect.xMax, rect.yMax, 0);
-            corners[3] = new Vector3(rect.xMax, rect.yMin, 0);
+            corners[0] = TransformPoint(new Vector3(rect.xMin, rect.yMin, 0));
+            corners[1] = TransformPoint(new Vector3(rect.xMin, rect.yMax, 0));
+            corners[2] = TransformPoint(new Vector3(rect.xMax, rect.yMax, 0));
+            corners[3] = TransformPoint(new Vector3(rect.xMax, rect.yMin, 0));
         }
-        public Vector3 InverseTransformPoint(Vector3 point) => point;
     }
     public class GameObject : Object
     {
@@ -62,6 +80,15 @@ namespace UnityEngine
     {
         public readonly float x, y, z;
         public Vector3(float a, float b, float c) { x = a; y = b; z = c; }
+    }
+    public readonly struct Bounds
+    {
+        public readonly Vector3 min, max;
+        public Bounds(Vector3 center, Vector3 size)
+        {
+            min = new(center.x - size.x / 2, center.y - size.y / 2, center.z - size.z / 2);
+            max = new(center.x + size.x / 2, center.y + size.y / 2, center.z + size.z / 2);
+        }
     }
     public struct Rect
     {
@@ -106,7 +133,7 @@ namespace UnityEngine.UI
     public class RectMask2D : UnityEngine.Component { }
     public class Mask : UnityEngine.Component { }
 }
-namespace TMPro { public class TMP_Text : UnityEngine.UI.Graphic { public string text = string.Empty; } }
+namespace TMPro { public class TMP_Text : UnityEngine.UI.Graphic { public string text = string.Empty; public UnityEngine.Bounds textBounds; } }
 public sealed class NewPartyDisplayUI
 {
     public static NewPartyDisplayUI? PartyDisplay => null;
@@ -145,3 +172,10 @@ namespace GloomhavenVR.WorldUI
         internal static bool IsDeclaredEffectQuad(UnityEngine.Transform value, UnityEngine.Transform root) => false;
     }
 }
+
+public class Singleton<T> where T : class
+{
+    public static T? Instance;
+    public static bool IsInitialized => Instance != null;
+}
+public sealed class UIRewardsManager { public TMPro.TMP_Text? rewardAnnouncementText; }

@@ -5,9 +5,11 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <HeadingSource Condition="'$(HeadingSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/RewardHeadingBounds.cs</HeadingSource>
     <InkSource Condition="'$(InkSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs</InkSource>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(HeadingSource)" Link="Production/RewardHeadingBounds.cs" />
     <Compile Include="$(InkSource)" Link="Production/PanelInkBounds.cs" />
     <Compile Include="$(DrawnUnionSource)" Link="Production/DrawnUnion.cs" />
   </ItemGroup>

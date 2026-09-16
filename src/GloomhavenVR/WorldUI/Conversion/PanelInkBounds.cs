@@ -553,7 +553,10 @@ internal static class PanelInkBounds
                         continue; // fully clipped away: neither this nor anything under it draws
 
                     var graphic = t.GetComponent<Graphic>();
-                    if (Draws(graphic) && Intersect(clip, bounds, out Rect visible)
+                    // Expand drawn glyphs only; clip geometry and the authored scale census
+                    // must retain the original RectTransform bounds.
+                    Rect drawBounds = RewardHeadingBounds.Expand(host, graphic, bounds);
+                    if (Draws(graphic) && Intersect(clip, drawBounds, out Rect visible)
                         && visible.width > 0f && visible.height > 0f)
                     {
                         // ---- ModBuild 449 - THE HANDLE FOLLOWED AN ANIMATION, NOT THE CONTENT. ---
