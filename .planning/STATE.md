@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for the general continuation audit, ModBuild 512 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for the native burn sequencing audit, ModBuild 513 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.2 / ModBuild 513 sequences every native burn before card replacement.**
+  Round slots, fans, active grids and character exchange retain their previous presentation
+  until all native burns finish. Actual iterator completion distinguishes finished handles.
+  Observers wait for the canonical owner's completion frame; durable original-card release
+  addresses delayed delivery and slot reuse. Consumed items retain their native widget and
+  share original item appearance through additive stream 17/18 (record 76).
+  Native gameplay callbacks and mandatory decisions keep running. See
+  [BURN-SEQUENCING-513.md](BURN-SEQUENCING-513.md). Logs remain local 510 / remote 500;
+  build-513 headset acceptance is open. No main merge or release publication is included.
 
 - **dev / 1.0.2 / ModBuild 512 audits mandatory input and native continuation.**
   Map reward managers can be reached outside a scenario controller; failed blocking map
@@ -64,7 +74,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   Candidate CI and all local gates passed, including 253,674 wire assertions and
   36 release topology checks. See [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
 - **dev targets 1.0.2.** The workflow preserved main ancestry and advanced the
-  version in bot commit 12f66604. Build 512 is the next hardware candidate;
+  version in bot commit 12f66604. Build 513 is the next hardware candidate;
   the published 1.0.1 release remains unchanged.
 
 - **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**

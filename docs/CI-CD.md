@@ -179,6 +179,16 @@ overbroad curtain release and inappropriate travel visibility.
 native toggle notification, sibling deselection and repeated presses; negative controls
 reject the former silent Select/Deselect paths that omitted tutorial listeners.
 
+`scripts/burn-layout-tests.sh` and `scripts/remote-burn-sequencing-tests.sh` exercise
+production card-layout barriers, sequential burns, native release ordering and observer
+handoffs. `scripts/burn-completion-tests.sh` checks retained original final frames through
+widget retirement, recovery and address changes. `scripts/item-burn-tests.sh` observes
+native item iterators, including paused game time, cancellation and overlapping effects.
+`scripts/item-appearance-tests.sh` executes original item capture, codec, native writes and
+clip release against controlled Unity APIs, and verifies the actual transport registration.
+Each runs in both workflows and the local wire driver, with runtime negative controls.
+These controlled tests cannot establish headset rendering quality.
+
 `scripts/flight-timing-tests.sh` checks transfer of card presentation between a board seat
 and a flight, including stale state and arrival ownership. `scripts/figure-hold-tests.sh`
 checks that native action setup receives the board pose and delayed held samples cannot

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-16 for the general continuation audit, build 512 on dev. This directory holds internal
+Updated 2026-09-16 for the native burn sequencing audit, build 513 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [BURN-SEQUENCING-513.md](BURN-SEQUENCING-513.md): native burn completion before slot/fan replacement, causal observer release and original item effects.
 
 - [DEADLOCK-512.md](DEADLOCK-512.md): native map reward continuation, travel recovery, mandatory close admission, failed conversion fallback and shared reward participation.
 

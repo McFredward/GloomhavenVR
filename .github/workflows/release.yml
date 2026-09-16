@@ -237,6 +237,11 @@ jobs:
           bash scripts/card-loss-modal-tests.sh
           bash scripts/map-flow-tests.sh
           bash scripts/map-button-tests.sh
+          bash scripts/burn-layout-tests.sh
+          bash scripts/remote-burn-sequencing-tests.sh
+          bash scripts/burn-completion-tests.sh
+          bash scripts/item-burn-tests.sh
+          bash scripts/item-appearance-tests.sh
           bash scripts/flight-timing-tests.sh
           bash scripts/figure-hold-tests.sh
           bash scripts/self-update-dialog-tests.sh

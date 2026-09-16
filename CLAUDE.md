@@ -54,7 +54,7 @@ was simply wrong, so treat every claim in a comment as a hypothesis and check it
    Health57, native card appearance58, atomic rig actor59, character decisions60, flight source61,
    flight history62, native decision prompts63, lossless presentation compression64 and damage avoidance65 are additive.
    Second held actor66, held map provenance67 and native appearance provenance68 retain positional
-   source addressing. The 38/40/42 holes may never be reused; 69 carries supplemental native card groups; 70 carries rig board pose and 71 fan insertion; 72 carries shared native video presentation; 73 carries shared native reward presentation; 74 carries key/opening-scoped reward pose participation; 75 is next free.** No id
+   source addressing. The 38/40/42 holes may never be reused; 69 carries supplemental native card groups; 70 carries rig board pose and 71 fan insertion; 72 carries shared native video presentation; 73 carries shared native reward presentation; 74 carries key/opening-scoped reward pose participation; 75 carries durable native burn completion; 76 carries original item appearance; 77 is next free.** No id
    has ever been retired or renumbered and none ever may be.
    **Card identity never goes on the wire** — reveals go only through `Net/RevealGate.cs`.
    `scripts/wire-tests.sh` (final assertion count in STATE.md at ModBuild 497) is the proof; a `Write`+`TryRead` change
