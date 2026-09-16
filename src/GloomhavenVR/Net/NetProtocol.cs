@@ -505,7 +505,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 513;
+    public const ushort ModBuild = 514;
+
+    // ModBuild 514 — restrict additional VR lessons to the first native tutorial.
+    //   The general tutorial predicate previously armed the controls lesson for every
+    //   tutorial/intro scenario. Admission now uses the native tutorial menu's first
+    //   descriptor and the current front-end tutorial identity, never filename numbering.
+    //   Both the controls lesson and extra figure-grab step share this narrower scope;
+    //   leaving it releases their cosmetic chain holds. Later tutorials retain native
+    //   sequencing, VR wording adaptations and the camera-input completion bridge.
+    //   Version 1.0.3 on dev; wire version and records are unchanged. All VR peers use 514.
+    //   See .planning/TUTORIAL-SCOPE-514.md for source evidence and validation limits.
 
     // ModBuild 513 — serialize native burn presentation before card layout changes.
     //   Discover pending/native burns before round-slot compaction, fan exchange, active-grid

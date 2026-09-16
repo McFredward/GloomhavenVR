@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for the verified 1.0.2 release, ModBuild 513.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for first-tutorial-only VR additions, ModBuild 514 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,14 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.3 / ModBuild 514 limits additional VR lessons to the first native tutorial.**
+  Admission uses the tutorial selector's first ID and filename, while later tutorials keep
+  their native sequence and generic VR wording/input adaptations. Pending lesson/skip/hold
+  state retires on scope loss; held messages cannot cross native controller ownership.
+  Focused tests pass: 42 runtime + 17 binding assertions, seven runtime negative controls and
+  one binding negative control. Full integration checks follow; headset acceptance remains open.
+  See [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md). Published 1.0.2 is unchanged.
 
 - **1.0.2 / ModBuild 513 is published from main.** PR #5 merged the hardware-tested
   dev source unchanged as `11107a29`. Release run 35146255179 passed; tag, public

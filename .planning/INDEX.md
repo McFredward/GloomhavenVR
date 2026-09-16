@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-16 for the verified 1.0.2 release, build 513. This directory holds internal
+Updated 2026-09-16 for first-tutorial-only VR additions, build 514 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md): native first-tutorial identity, scoped extra lessons and safe message-hold cleanup.
 
 - [RELEASE-1.0.2.md](RELEASE-1.0.2.md): successful build-513 retest, scoped log review, performance limits and verified main release publication.
 
