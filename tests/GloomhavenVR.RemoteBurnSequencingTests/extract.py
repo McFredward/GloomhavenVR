@@ -13,11 +13,14 @@ burn=source('Remote/RemoteBurnFx.cs'); avatar=source('Remote/RemoteAvatar.cs'); 
 assert avatar.index('_burnFx.PreparePresentation();') < avatar.index('_handFan.Tick(dt);') < avatar.index('_controlBoard.Tick(dt);'), 'Burn discovery must precede every remote card layout'
 assert 'Handover(' not in method(burn,'private bool TryApplyRelease('), 'Receiving release must not bypass native playback'
 drive=method(burn,'private void Drive(')
-assert 'bool release = b.OwnerReleased && (b.CompletionTime < 0f' in drive and 'CardAppearanceMirror.HasPresentedThrough(_owner.PlayerId, actor, card, b.CompletionTime)' in drive, 'Burn flight must wait for exact native completion'
+assert 'bool release = b.OwnerReleased && (b.CompletionTime < 0f' in drive and 'CardAppearanceMirror.HasPresentedThrough(b.PresentationPlayer, actor, card, b.CompletionTime)' in drive, 'Burn flight must wait for exact native completion'
 assert drive.index('_owner.SuppressBurnActiveCard(b.CardId)') < drive.index('b.Go.SetActive(showSlab)'), 'Active burn must remove original renderer before showing its slab'
 assert method(fan,'public void Tick(').index('_owner.HoldsBurnCardLayout') < method(fan,'public void Tick(').index('BeginSwap('), 'Burn hold must precede fan exchange'
 assert method(browse,'public void Tick(').index('_owner.HoldsBurnCardLayout') < method(browse,'public void Tick(').index('BeginEmerge('), 'Burn hold must precede pile fan rebuild'
 assert 'owner.BurnPresentationActor' in source('Remote/RemoteBoardFocus.cs'), 'Early focus packet must retain the burning actor'
+fx=source('Remote/RemoteCardFx.cs')
+assert '_owner.HoldsBurnCardLayout' in method(fx,'private bool TryPlay('), 'Following flights must wait for the earlier native burn'
+assert method(fx,'public void Tick(').index('new PendingFlight(pending.Endpoints') < method(fx,'public void Tick(').index('Time.unscaledTime - pending.ReceivedAt'), 'Burn wait must not spend queued flight resolution lifetime'
 fixture='''using System;
 using System.Collections.Generic;
 internal sealed class CAbilityCard { internal int CardInstanceID; internal CAbilityCard(int id) { CardInstanceID=id; } }

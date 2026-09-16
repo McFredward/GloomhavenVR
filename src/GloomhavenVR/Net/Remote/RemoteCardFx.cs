@@ -54,7 +54,7 @@ internal sealed class RemoteCardFx
 {
     /// <summary>Concurrent flights (a turn-clear can launch both round cards at once). Beyond this
     /// the oldest slab is recycled — the animation is cosmetic, never a queue that may back up.</summary>
-    private const int MaxFlights = 6;
+    private const int MaxFlights = CardAppearanceState.CountMax;
 
     /// <summary>Arc height as a fraction of the travelled distance —
     /// <see cref="VRCard.FlyArcHeightFraction"/>, term for term.
@@ -211,6 +211,8 @@ internal sealed class RemoteCardFx
 
     private bool TryPlay(byte endpoints, byte flags, CardFlightSource? source, long generation)
     {
+        if (_owner.HoldsBurnCardLayout) return false;
+
         // THE WIRE FRAME. Play is called synchronously from RemoteAvatar's packet apply the moment
         // the FX sequence changes, so this IS the frame the wire named the flight — see the TIMING
         // clause of the FLIGHT FACE line for what a non-zero difference would mean.
@@ -841,6 +843,17 @@ internal sealed class RemoteCardFx
 
     public void Tick(float dt)
     {
+        if (_owner.HoldsBurnCardLayout)
+        {
+            // A later semantic flight can beat the earlier burn's final native frame.
+            // Time spent intentionally waiting is not an artwork-resolution timeout.
+            for (int i = 0; i < _pending.Count; i++)
+            {
+                PendingFlight pending = _pending[i];
+                _pending[i] = new PendingFlight(pending.Endpoints, pending.Flags, pending.Source, pending.Generation);
+            }
+            return;
+        }
         for (int i = 0; i < _pending.Count;)
         {
             PendingFlight pending = _pending[i];

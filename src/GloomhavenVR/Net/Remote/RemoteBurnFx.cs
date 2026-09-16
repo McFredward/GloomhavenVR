@@ -267,6 +267,7 @@ internal sealed class RemoteBurnFx
         public int ActorId;
         public bool OwnerReleased;
         public float CompletionTime = -1f;
+        public int PresentationPlayer;
         public long FlightGeneration;
 
         /// <summary>Has the arc been reported? One line per burn, at the hand-over instant.</summary>
@@ -475,6 +476,7 @@ internal sealed class RemoteBurnFx
         public int ActorId;
         public float ReceivedAt;
         public float CompletionTime = -1f;
+        public int PresentationPlayer;
         public bool FallbackPlayed;
     }
 
@@ -482,12 +484,12 @@ internal sealed class RemoteBurnFx
     private const float ReleaseResolveSeconds = 0.25f;
     private const float ReleaseMemorySeconds = 3f;
 
-    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null, float completionTime = -1f)
+    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null, float completionTime = -1f, int presentationPlayer = 0)
     {
         if (NetCardFx.To(endpoints) != CardFxAnchor.Burnt)
             return false;
         int actorId = source?.ActorId ?? NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _));
-        if (TryApplyRelease(endpoints, actorId, flags, source, completionTime))
+        if (TryApplyRelease(endpoints, actorId, flags, source, completionTime, presentationPlayer))
             return true;
         // The semantic packet can beat the host-replicated pile. Defer its fallback briefly so
         // the next model walk can name the real card, then retain a receipt after fallback to
@@ -503,7 +505,7 @@ internal sealed class RemoteBurnFx
         _pendingReleases.Add(new PendingRelease
         {
             Endpoints = endpoints, Flags = flags, Source = source, ActorId = actorId, ReceivedAt = Time.unscaledTime,
-            CompletionTime = completionTime,
+            CompletionTime = completionTime, PresentationPlayer = presentationPlayer,
         });
         _nextWalkAt = 0f;
         return true;
@@ -516,7 +518,7 @@ internal sealed class RemoteBurnFx
         _ => -1,
     };
 
-    private bool TryApplyRelease(byte endpoints, int actorId, byte flags, CardFlightSource? source, float completionTime)
+    private bool TryApplyRelease(byte endpoints, int actorId, byte flags, CardFlightSource? source, float completionTime, int presentationPlayer)
     {
         PruneClaims();
         int recess = ReleaseRecess(endpoints);
@@ -546,6 +548,9 @@ internal sealed class RemoteBurnFx
             RefreshFaceVisibility(burn);
             burn.OwnerReleased = true;
             burn.CompletionTime = completionTime;
+            burn.PresentationPlayer = presentationPlayer != 0 ? presentationPlayer : _owner.PlayerId;
+            if (burn.Widget != null)
+                burn.Art?.SetNativeAppearance(burn.PresentationPlayer, RemoteBoardFocus.ActorById(burn.ActorId), burn.Widget.AbilityCard);
             break;
         }
         return true;
@@ -558,14 +563,15 @@ internal sealed class RemoteBurnFx
         {
             PendingRelease pending = _pendingReleases[i];
             float age = Time.unscaledTime - pending.ReceivedAt;
-            if ((!pending.Source.HasValue && pending.ActorId != actorId) || age > ReleaseMemorySeconds)
+            if ((!pending.Source.HasValue && pending.ActorId != actorId) || pending.CompletionTime < 0f && age > ReleaseMemorySeconds
+                || pending.CompletionTime >= 0f && RemoteBoardFocus.ActorById(pending.ActorId) == null)
             {
                 _pendingReleases.RemoveAt(i);
                 continue;
             }
             if (pending.FallbackPlayed)
                 continue;
-            if (TryApplyRelease(pending.Endpoints, pending.ActorId, pending.Flags, pending.Source, pending.CompletionTime))
+            if (TryApplyRelease(pending.Endpoints, pending.ActorId, pending.Flags, pending.Source, pending.CompletionTime, pending.PresentationPlayer))
             {
                 _pendingReleases.RemoveAt(i);
                 continue;
@@ -818,6 +824,7 @@ internal sealed class RemoteBurnFx
         b.ActorId = actorId;
         b.OwnerReleased = false;
         b.CompletionTime = -1f;
+        b.PresentationPlayer = _owner.PlayerId;
         b.ArtworkWait = 0f;
         b.Recess = recess;
         b.Name = name;
@@ -1060,7 +1067,7 @@ internal sealed class RemoteBurnFx
                 // after the native maximum hold. Never fly from a slot still occupied on its
                 // owner's board merely because this client's UI did not run the native effect.
                 bool release = b.OwnerReleased && (b.CompletionTime < 0f
-                    || CardAppearanceMirror.HasPresentedThrough(_owner.PlayerId, actor, card, b.CompletionTime));
+                    || CardAppearanceMirror.HasPresentedThrough(b.PresentationPlayer, actor, card, b.CompletionTime));
                 if (!release)
                 {
                     // WHO DRAWS THE CARD DURING THE HOLD. While the owner's recess is still drawing
