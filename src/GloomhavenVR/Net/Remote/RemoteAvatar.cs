@@ -942,7 +942,10 @@ internal sealed class RemoteAvatar
     internal bool BurnOwnsActiveCard(int cardInstanceId) => _burnFx.OwnsActiveCard(cardInstanceId);
 
     internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
+    internal bool HoldsBurnCardLayout => _burnFx.HoldsCardLayout;
+    internal ScenarioRuleLibrary.CPlayerActor? BurnPresentationActor => _burnFx.PresentationActor;
     internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
+    internal void SuppressBurnActiveCard(int cardId) => _controlBoard.SuppressBurnActiveCard(cardId);
 
     /// <summary>
     /// Which of this peer's two round recesses is drawing the REAL FACE of the card with
@@ -2497,6 +2500,7 @@ internal sealed class RemoteAvatar
         // THE CALL ORDER BELOW IS UNCHANGED — the scopes wrap, they do not regroup. (The hand fan
         // runs before the board because the board reads the fan's resolved geometry; keeping the
         // sequence byte-identical is what makes this a pure measurement change.)
+        _burnFx.PreparePresentation();
         using (Core.PerfMonitor.Scope("Net.Fans"))
             _handFan.Tick(dt);
         using (Core.PerfMonitor.Scope("Net.Board"))

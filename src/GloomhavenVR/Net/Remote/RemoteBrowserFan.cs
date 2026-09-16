@@ -480,7 +480,6 @@ internal sealed class RemoteBrowserFan
     public void Tick(float dt)
     {
         dt = Mathf.Max(dt, 0f);
-        if (_title != null) _title.gameObject.SetActive(_owner.PileBrowseCardCount > 0 && _owner.PileBrowseOpen);
 
         bool wantOpen = _owner.PileBrowseOpen && _owner.PileBrowseCardCount > 0;
         int wantKind = wantOpen ? _owner.PileBrowseKind : -1;
@@ -518,6 +517,25 @@ internal sealed class RemoteBrowserFan
             return;
         }
         _gateHiddenLogged = false;
+
+        if (_owner.HoldsBurnCardLayout)
+        {
+            // The root may follow a hand/board, but no collapse, new population or reflow
+            // may run over an unfinished burn. Native card materials still update in LateUpdate.
+            if (_root != null && TryResolveAnchor(out Vector3 heldPosition, out Quaternion heldRotation, out float heldScale))
+            {
+                float heldBlend = 1f - Mathf.Exp(-Smoothing * dt);
+                _root.transform.SetPositionAndRotation(Vector3.Lerp(_root.transform.position, heldPosition, heldBlend),
+                    Quaternion.Slerp(_root.transform.rotation, heldRotation, heldBlend));
+                _root.transform.localScale = Vector3.one * heldScale;
+            }
+            if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable,
+                RemoteBoardFocus.DisplayedActor(_owner, out _)) == RevealGate.CardFaceSource.None)
+                _fronts.HideAll();
+            return;
+        }
+
+        if (_title != null) _title.gameObject.SetActive(_owner.PileBrowseCardCount > 0 && _owner.PileBrowseOpen);
 
         // UpdateBrowser re-seeds the already-open pile fan when its character changes, even
         // at equal kind/count. Record 22 names the owner's actual presented character, including

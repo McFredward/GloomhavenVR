@@ -77,6 +77,23 @@ internal static class CardAppearanceMirror
         progress = frame.Clock.Progress(frame.Previous!.SampleTime, frame.Current.SampleTime);
         return true;
     }
+    internal static bool HasPresentedThrough(int playerId, CPlayerActor? actor, CAbilityCard? card, float completionTime)
+    {
+        if (completionTime < 0f) return true; // old senders have no cross-stream watermark
+        if (actor == null || card == null || !Frames.TryGetValue(playerId, out var frame)
+            || frame.Current == null || frame.Current.SampleTime < completionTime
+            || !TryGet(playerId, actor, card, out var previous, out var current, out float progress)) return false;
+        // TryGet already validates the receive-time binding against the live population. The
+        // immutable roster additionally excludes same-seat reuse after rest or a pooled rebuild.
+        if (current == null || current.SourceActorId == 0
+            || !ReferenceEquals(card, CardAppearanceProvenance.Resolve(current))) return false;
+        // If both sides are the same native output, it is already painted even at progress zero.
+        // Otherwise the old side must itself be causally after the release, or its interpolation
+        // must finish. Arrival order and the receiver's inactive native coroutine prove nothing.
+        return ReferenceEquals(previous, current) || progress >= 1f
+            || frame.Previous != null && frame.Previous.SampleTime >= completionTime;
+    }
+
     private static bool Recovered(CPlayerActor? actor, CAbilityCard card)
     {
         var cards = actor?.CharacterClass;

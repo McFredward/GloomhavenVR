@@ -378,8 +378,20 @@ internal sealed class RemoteActiveCards
             panel.TransferToFlight(cardId, actor, generation);
     }
 
+    internal void SuppressBurnCard(int cardId)
+    {
+        if (_panelsByCard.TryGetValue(cardId, out RemoteBoardCard panel)) panel.Blank();
+    }
+
     public void Refresh(CPlayerActor actor, int completedFlightCardId = int.MinValue)
     {
+        if (_owner.HoldsBurnCardLayout)
+        {
+            // Do not compact ActivatedCards over the old cell while its departure burns.
+            // Native material playback remains live independently of this layout refresh.
+            foreach (var panel in _cards) panel.HoldBurnPresentation(actor);
+            return;
+        }
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It
         // still needs a character to resolve against; the ONLY term it drops is the phase.
         //

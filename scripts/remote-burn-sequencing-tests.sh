@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
+work_dir=$(mktemp -d)
+trap 'rm -rf "$work_dir"' EXIT
+cp "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.cs "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.csproj "$work_dir/"
+python3 "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
+dotnet run --project "$work_dir/GloomhavenVR.RemoteBurnSequencingTests.csproj" --configuration Release
+for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order; do
+  mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote"
+  cp "$repo_root/src/GloomhavenVR/Net/Remote/"*.cs "$work_dir/source/src/GloomhavenVR/Net/Remote/"
+  cp "$repo_root/src/GloomhavenVR/Net/CardAppearanceMirror.cs" "$work_dir/source/src/GloomhavenVR/Net/"
+  python3 - "$work_dir/source/src/GloomhavenVR/Net" "$mutation" <<'PY'
+import pathlib,sys
+root=pathlib.Path(sys.argv[1]); mutation=sys.argv[2]
+file,old,new={
+'active-layout':('Remote/RemoteActiveCards.cs','if (_owner.HoldsBurnCardLayout)','if (bool.Parse("false") && _owner.HoldsBurnCardLayout)'),
+'recess-layout':('Remote/RemoteControlBoard.cs','if (_owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))','if (bool.Parse("false") && _owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))'),
+'early-native':('CardAppearanceMirror.cs','progress >= 1f','progress >= 0f'),
+'wrong-provenance':('CardAppearanceMirror.cs','!ReferenceEquals(card, CardAppearanceProvenance.Resolve(current))','bool.Parse("false") && !ReferenceEquals(card, CardAppearanceProvenance.Resolve(current))'),
+'release-bypass':('Remote/RemoteBurnFx.cs','burn.OwnerReleased = true;','burn.OwnerReleased = true; Handover(burn, "early");'),
+'discovery-order':('Remote/RemoteAvatar.cs','        _burnFx.PreparePresentation();',''),
+}[mutation]
+p=root/file;s=p.read_text();assert old in s;p.write_text(s.replace(old,new))
+PY
+  if python3 "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/extract.py" "$work_dir/source" "$work_dir/Production.cs" > "$work_dir/mutant.log" 2>&1; then
+    if dotnet run --project "$work_dir/GloomhavenVR.RemoteBurnSequencingTests.csproj" --configuration Release >> "$work_dir/mutant.log" 2>&1; then
+      cat "$work_dir/mutant.log"; echo "FAIL: $mutation escaped" >&2; exit 1
+    fi
+  fi
+  case "$mutation" in
+    active-layout) expected='Pending burn must not compact the active grid';;
+    recess-layout) expected='Pending burn must not replace the first recess';;
+    early-native) expected='Release must wait while native interpolation still contains pre-completion output';;
+    wrong-provenance) expected='Same seat or id cannot substitute another original card';;
+    release-bypass) expected='Receiving release must not bypass native playback';;
+    discovery-order) expected='substring not found';;
+  esac
+  if ! grep -Fq "$expected" "$work_dir/mutant.log"; then cat "$work_dir/mutant.log"; exit 1; fi
+  echo "Remote burn sequencing negative control: $mutation failed as expected."
+done

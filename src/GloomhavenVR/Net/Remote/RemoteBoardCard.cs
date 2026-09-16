@@ -109,6 +109,7 @@ internal sealed class RemoteBoardCard
     /// at zero (which would strand the panel between two cells).</summary>
     private float _glideSpeed = Defaults.CardLerpSpeed;
 
+    private CAbilityCard? _presentationCard;
     private int _shownId = int.MinValue;
     private bool _shownFront;
     private bool _shownEmpty = true;
@@ -483,6 +484,7 @@ internal sealed class RemoteBoardCard
         // change (the reveal gate opening at the end of the selection phase) or an owner-only
         // change is a repaint of a card that was already lying here, and the owner plays no appear
         // for either — their card never left the slot, so nothing materialises on their screen.
+        _presentationCard = card;
         bool arrived = _shownEmpty || _shownId != id;
         _shownEmpty = empty;
         _shownId = id;
@@ -695,6 +697,15 @@ internal sealed class RemoteBoardCard
     }
 
     // ---------------------------------------------------------- half hover/selection glow --
+
+    internal void HoldBurnPresentation(CPlayerActor? actor)
+    {
+        if (_shownEmpty || _presentationCard == null || _shownId != _presentationCard.CardInstanceID) return;
+        // Layout holds never freeze secrecy: a real phase change still covers the same card.
+        bool front = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
+            _presentationCard.CardInstanceID, scenarioEstablished: true, out _) != RevealGate.CardFaceSource.None;
+        Set(_presentationCard, front, actor);
+    }
 
     /// <summary>The two half glow quads (top / bottom action region), built lazily on the first
     /// synced hover/selection so a board whose owner never touches a half allocates nothing.</summary>

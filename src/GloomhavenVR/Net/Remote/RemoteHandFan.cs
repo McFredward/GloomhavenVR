@@ -1254,6 +1254,28 @@ internal sealed class RemoteHandFan
             return;
         }
 
+        if (_owner.HoldsBurnCardLayout)
+        {
+            // Keep the old fan population and each card's home; a rest may already have
+            // repopulated the model while the last original sacrifice is still burning.
+            PoseFan(holder, dt);
+            if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, _shownActor) == RevealGate.CardFaceSource.None)
+            {
+                for (int i = 0; i < _faces.Count; i++)
+                {
+                    _faces[i].HideFront();
+                    SetFrontFace(i, showsBack: true);
+                }
+                for (int i = 0; i < _leavingFaces.Count; i++)
+                {
+                    _leavingFaces[i]?.HideFront();
+                    if (i < _leaving.Count && _leaving[i] != null)
+                        CardMesh.SetBodyFrontFace(_leaving[i].transform, showsBack: true);
+                }
+            }
+            return;
+        }
+
         int count = Mathf.Clamp(_owner.HandCardCount, 0, MaxCards);
         // NOTHING TO SHOW AND NOTHING IN FLIGHT — the only state that may hide outright.
         //

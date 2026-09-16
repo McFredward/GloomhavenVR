@@ -186,6 +186,11 @@ internal static class RemoteBoardFocus
         if (owner == null)
             return null;
 
+        // Extras focus can arrive before the separate native completion frame. Keep the old
+        // actor's original presentation until its burn drains; visibility gates still run.
+        CPlayerActor? burning = owner.BurnPresentationActor;
+        if (burning != null) return burning;
+
         CPlayerActor? owned = NetPlayerActors.ActorFor(owner.PlayerId);
 
         // A DEAD BOARD HAS NO CARDS — RULE 3'S ONE EXCEPTION, AND THE HOLE THIS ROUND CLOSED.
