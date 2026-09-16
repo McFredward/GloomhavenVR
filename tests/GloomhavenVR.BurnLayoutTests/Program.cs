@@ -16,6 +16,7 @@ static class Program {
             if(flow=="active expiry") Check(d.HasSource(burn.GameCard),"Active source must be captured before layout changes");
             Time.unscaledTime=.2f;burn.FullCard.Playing=true;
             for(int i=0;i<20;i++){Time.unscaledTime+=1;d.Tick();Check(d.Pending&&d.Renders==0&&d.Flights==0&&sibling.Seat==1,"Live burn must never admit sibling movement or replacement");}
+            Check(d.ForeignProgressObservations >= 40,"Foreign progress must be observed during the native barrier before Flush can run");
             burn.FullCard.Playing=false;d.NativeLossActive=true;d.Tick();Check(d.Pending&&d.Renders==0,"Owning-hand loss must finish before layout replacement");
             d.NativeLossActive=false;d.Tick();Check(!d.Pending&&d.Flights==1&&d.Renders==1&&sibling.Seat==0,"Native completion must resume pending layout without a new event");
             d.Tick();Check(d.Flights==1,"Completed loss must not replay");

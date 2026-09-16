@@ -15,6 +15,7 @@ burn=source('Remote/RemoteBurnFx.cs'); avatar=source('Remote/RemoteAvatar.cs'); 
 assert avatar.index('_burnFx.PreparePresentation();') < avatar.index('_handFan.Tick(dt);') < avatar.index('_controlBoard.Tick(dt);'), 'Burn discovery must precede every remote card layout'
 assert 'Handover(' not in method(burn,'private bool TryApplyRelease('), 'Receiving release must not bypass native playback'
 drive=method(burn,'private void Drive(')
+assert 'BurnReleasePolicy.RetireWithoutFlight(b.ObservedOwnerProgress, ownerRunning,' in drive, 'Remote no-flight retirement uses the exact causal policy'
 assert 'bool release = b.OwnerReleased && (b.CompletionTime < 0f' in drive and 'CardAppearanceMirror.HasPresentedThrough(b.PresentationPlayer, actor, card, b.CompletionTime)' in drive, 'Burn flight must wait for exact native completion'
 assert drive.index('_owner.SuppressBurnActiveCard(b.CardId)') < drive.index('b.Go.SetActive(showSlab)'), 'Active burn must remove original renderer before showing its slab'
 assert method(fan,'public void Tick(').index('_owner.HoldsBurnCardLayout') < method(fan,'public void Tick(').index('BeginSwap('), 'Burn hold must precede fan exchange'
@@ -66,6 +67,7 @@ internal static bool Available=true; internal static float Progress; internal st
 private static bool TryGet(int p,CPlayerActor a,CAbilityCard c,out CardAppearanceState? previous,out CardAppearanceState? current,out float progress) {previous=From;current=To;progress=Progress;return Available;}
 '''+method(mirror,'internal static bool HasPresentedThrough(')+method(mirror,'internal static bool HasRecoveredSourceAfter(')+expression(mirror,'internal static bool OwnerBurnInProgress(')+''' }
 '''
+fixture += 'internal static class BurnReleasePolicy {'+expression(source('BurnReleasePolicy.cs'),'internal static bool RetireWithoutFlight(')+'}\n'
 fixture += """
 namespace ScenarioRuleLibrary { internal static class ScenarioManager {internal static object? Scenario=new();} }
 internal readonly record struct CardFlightSource(int ActorId,byte Seat,byte Count);

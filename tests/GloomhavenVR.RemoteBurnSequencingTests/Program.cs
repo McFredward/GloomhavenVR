@@ -124,6 +124,11 @@ internal static class Program
         receiver.ApplyBurnCompletions(new CardBurnCompletionHistory {Entries=new[]{new CardBurnCompletion(0,5,4,0,32,22f)}});
         Check(receiver.Dispatched==0,"A deferred incoming burn ending with a terminal receipt must not replay its historical animation");
         RemoteBoardFocus.Requested=null;
+        Check(BurnReleasePolicy.RetireWithoutFlight(true,false,false,false),"Observed offscreen native completion can retire without inventing a flight");
+        Check(!BurnReleasePolicy.RetireWithoutFlight(true,true,false,false),"Running owner progress retains the burn");
+        Check(!BurnReleasePolicy.RetireWithoutFlight(true,false,true,false),"An actual terminal release must retain its native flight path");
+        Check(!BurnReleasePolicy.RetireWithoutFlight(true,false,false,true),"No-flight retirement still waits for native presentation completion");
+        Check(!BurnReleasePolicy.RetireWithoutFlight(false,false,false,false),"Unobserved absence cannot authorize no-flight retirement");
         Console.WriteLine($"Remote burn sequencing: {assertions} assertions passed.");
     }
 }

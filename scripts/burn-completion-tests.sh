@@ -21,6 +21,12 @@ assert 'viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, 
 hook=(r/'src/GloomhavenVR/Cards/BurnArtwork.cs').read_text()
 assert 'if (burnAnim && running) Net.CardAppearanceSampler.ObserveNativeBurnStart(__instance);' in hook, 'Native progress must be registered at the actual first running burn step'
 assert 'bool firstStep = true;' in hook and 'firstStep = false;' in hook, 'Native progress registration is once per iterator'
+layout=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.8.BurnSequencing.cs').read_text()
+assert layout.index('ObserveForeignBurnProgress(widget);') < layout.index('FlushBurnHolds('), 'Progress must be observed while the native layout barrier still blocks Flush'
+retire=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs').read_text()
+assert 'Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal,' in retire and 'ClearBurnHold(widget); _activeExitOrigins.Remove(widget); _knownBurntWidgets.Add(widget);' in retire, 'No-flight completion retires exact local holds instead of fabricating a flight'
+cleanup=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.2.Update.cs').read_text()
+assert '_foreignBurnProgress.Clear();' in cleanup, 'Progress observations cannot retain old native widgets after teardown'
 print('Burn completion production binding: sampler, legacy/history admission and canonical observer dispatch verified.')
 PYBIND
 dotnet run --project "$project" -c Release --property:SamplerSource="$source"
@@ -57,12 +63,13 @@ PY
   echo "Burn completion negative control: $mutation rejected."
 done
 
-for mutation in proxy-progress stopped-progress; do
+for mutation in proxy-progress stopped-progress early-progress-clear; do
   python3 - "$repo_root/src/GloomhavenVR/Net/CardAppearanceSampler.Progress.cs" "$work_dir/Progress.cs" "$mutation" <<'PYPROGRESS'
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
 a,b={
+'early-progress-clear':('if (running || CardsDriver.ExpectsBurnFlight(tracked.Card)) continue;', 'if (running) continue;'),
 'proxy-progress':('if (!CardsGameApi.ControlsActor(actor)) return;', ''),
 'stopped-progress':('bool running = tracked.Actor != null', 'bool running = bool.Parse("true") || tracked.Actor != null')
 }[sys.argv[3]]
@@ -70,6 +77,7 @@ assert s.count(a)==1
 Path(sys.argv[2]).write_text(s.replace(a,b))
 PYPROGRESS
   case "$mutation" in
+    early-progress-clear) expected='A normal visible burn keeps progress between native completion and its real flight report';;
     proxy-progress) expected='A read-only proxy cannot publish owner burn progress';;
     stopped-progress) expected='Actual native completion clears an unadopted incoming burn without a flight';;
   esac
