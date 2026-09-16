@@ -5,9 +5,9 @@
 The user reports that playing a lost action from the first round recess lets the second
 card slide into that recess while the original is still burning. The requested rule applies
 to every burn: the native effect finishes before card movement or replacement, locally and
-on remote boards. Latest supplied logs still identify local build 510 and remote build 500;
-there is no build-513 headset capture. The defects below are source-proven, not a claimed
-reproduction of new hardware evidence.
+on remote boards. At implementation time, supplied logs identified local build 510 and remote
+build 500. The defects below were source-proven. A subsequent build-513 maintainer retest
+reported no observed issues; see the scoped hardware acceptance below.
 
 ## Findings and changes
 
@@ -120,6 +120,18 @@ The guard's exit 1 reports the reviewed compiled differences, not a checker fail
 counts are 625 config keys, 162 Harmony signatures and 4,728 log tokens. The generated patch
 inventory has 118 classes / 185 patched methods. The build-502 baseline remains unchanged.
 
-Headset acceptance remains open: both recess orders, short/long rest, one/two-card damage,
-active expiry, consumed items, pause/resume and character switching on both owner and observer.
-Automated checks do not establish that headset pixels are correct.
+## Hardware acceptance — 2026-09-16
+
+The maintainer tested commit `66df2561c` (1.0.2 / build 513), reported no observed issues and
+approved release after log review. The current local log also observes a build-513 peer;
+the retained remote files still identify build 500 and are not evidence from this retest.
+All six recorded burns have a subsequent Burnt-pile flight. Four local native holds complete
+at `_GreyOut=1.00`; both observed peer holds release after the owner's final presentation
+frame has played. All recorded phase-stall episodes clear; no orphaned burn is evidenced.
+See [RELEASE-1.0.2.md](RELEASE-1.0.2.md) for exact files, hashes, warning triage and performance
+limitations.
+
+This successful retest supports release of the tested source. It does not establish that
+both recess orders, every rest/damage/expiry/item case, pause/resume or both directions of
+character switching were individually exercised on owner and observer. Automated checks
+likewise do not establish headset pixels.

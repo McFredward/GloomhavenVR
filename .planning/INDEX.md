@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-16 for the native burn sequencing audit, build 513 on dev. This directory holds internal
+Updated 2026-09-16 for the verified 1.0.2 release, build 513. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -10,13 +10,15 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../AGENTS.md](../AGENTS.md) | Agent workflow, integration ownership and current user rulings |
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
-| [RELEASE-READINESS.md](RELEASE-READINESS.md) | Upcoming 1.0.0 repository audit and publication prerequisites |
+| [RELEASE-READINESS.md](RELEASE-READINESS.md) | Historical 1.0.0 repository audit and publication prerequisites |
 | [../docs/DEVELOPING.md](../docs/DEVELOPING.md) | Developer setup and required gates |
 | [../docs/CI-CD.md](../docs/CI-CD.md) | Actual release pipeline and main-branch provenance |
 | [../src/GloomhavenVR/Net/NetProtocol.cs](../src/GloomhavenVR/Net/NetProtocol.cs) | Newest-first build notes and additive wire record registry |
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [RELEASE-1.0.2.md](RELEASE-1.0.2.md): successful build-513 retest, scoped log review, performance limits and verified main release publication.
 
 - [BURN-SEQUENCING-513.md](BURN-SEQUENCING-513.md): native burn completion before slot/fan replacement, causal observer release and original item effects.
 
