@@ -15,7 +15,7 @@ internal static partial class CardAppearanceSampler
         internal CAbilityCard Card = null!;
         internal CardAppearanceState State = null!;
     }
-    private static readonly List<BurnFinal> BurnFinals = new(CardFlightHistory.CountMax);
+    private static readonly List<BurnFinal> BurnFinals = new(CardAppearanceState.CountMax);
     private static bool _finalCapacityLogged;
 
     /// <summary>Keep the actual completed output publishable after its VR wrapper leaves.
@@ -38,7 +38,7 @@ internal static partial class CardAppearanceSampler
             state = state.Copy();
             for (int i = BurnFinals.Count - 1; i >= 0; i--)
                 if (ReferenceEquals(BurnFinals[i].Card, card)) BurnFinals.RemoveAt(i);
-            if (BurnFinals.Count == CardFlightHistory.CountMax) BurnFinals.RemoveAt(0);
+            if (BurnFinals.Count == CardAppearanceState.CountMax) BurnFinals.RemoveAt(0);
             BurnFinals.Add(new BurnFinal { Actor = actor, Card = card, State = state });
             return Time.unscaledTime;
         }

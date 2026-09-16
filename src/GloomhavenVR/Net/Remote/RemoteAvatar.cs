@@ -2269,16 +2269,18 @@ internal sealed class RemoteAvatar
             }
             else
                 foreach (CardFlightEvent flight in p.FlightHistory.Since(_lastFxSeq))
-                    PlayCardFlight(flight.Sequence, flight.Endpoints, flight.Flags, flight.Source);
+                    PlayCardFlight(flight.Sequence, flight.Endpoints, flight.Flags, flight.Source,
+                        p.BurnCompletions?.Find(flight.Sequence) ?? -1f);
         }
         else if (p.HasCardFx)
         {
             byte flags = p.HasCardFxVisibility && p.FxVisibilitySeq == p.FxSeq ? p.FxVisibilityFlags : (byte)0;
-            PlayCardFlight(p.FxSeq, p.FxEndpoints, flags, p.FlightSourceSeq == p.FxSeq ? p.FlightSource : null);
+            PlayCardFlight(p.FxSeq, p.FxEndpoints, flags, p.FlightSourceSeq == p.FxSeq ? p.FlightSource : null,
+                p.BurnCompletions?.Find(p.FxSeq) ?? -1f);
         }
     }
 
-    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source)
+    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source, float completionTime = -1f)
     {
         if (!_fxSeqInit) { _fxSeqInit = true; _lastFxSeq = sequence; return; }
         if (!NetProtocol.IsNewCardFxSequence(sequence, _lastFxSeq)) return;
@@ -2298,17 +2300,19 @@ internal sealed class RemoteAvatar
         }
         if (source.HasValue)
         {
-            CardFlightVisibility.ObserveOwnerRelease(source.Value.ActorId, endpoints, flags, source);
-            NetAvatarDriver.MirrorCharacterCardFlight(this, endpoints, flags, source.Value);
+            CardFlightVisibility.ObserveOwnerRelease(source.Value.ActorId, endpoints, flags, source, completionTime);
+            NetAvatarDriver.MirrorCharacterCardFlight(this, endpoints, flags, source.Value, completionTime);
         }
-        PlayMirroredCardFlight(endpoints, flags, source);
+        PlayMirroredCardFlight(endpoints, flags, source, completionTime, PlayerId);
     }
 
     // Called only after the canonical sender's sequence and actual character ownership validate.
     // A foreign-focus board consumes the same semantic release without minting another sequence.
-    internal void PlayMirroredCardFlight(byte endpoints, byte flags, CardFlightSource? source)
+    internal void PlayMirroredCardFlight(byte endpoints, byte flags, CardFlightSource? source,
+        float completionTime = -1f, int presentationPlayer = 0)
     {
-        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source))
+        _burnFx.PreparePresentation(); // Establish native burn ownership before any following flight.
+        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer))
             _cardFx.Play(endpoints, flags, source);
     }
 

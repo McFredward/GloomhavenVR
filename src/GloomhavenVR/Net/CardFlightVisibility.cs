@@ -86,10 +86,15 @@ internal static class CardFlightVisibility
         flags = 0; completionTime = -1f;
         PruneOwnerReleases();
         int recess = origin == CardFxAnchor.Slot0 ? 0 : origin == CardFxAnchor.Slot1 ? 1 : -1;
-        foreach (OwnerRelease release in OwnerReleases)
+        for (int i = 0; i < OwnerReleases.Count; i++)
         {
+            OwnerRelease release = OwnerReleases[i];
             if (!BurnReleasePolicy.Matches(actorId, origin == CardFxAnchor.Active, recess, source,
                 release.Actor, NetCardFx.From(release.Endpoints), release.Source)) continue;
+            // A visible presentation awaiting its causal frame renews its bounded receipt.
+            // Unclaimed old slot receipts still expire, so a later card cannot inherit them.
+            OwnerReleases[i] = new OwnerRelease(release.Actor, release.Endpoints, release.Flags,
+                release.Source, Now, release.CompletionTime);
             flags = release.Flags; completionTime = release.CompletionTime; return true;
         }
         return false;
@@ -99,7 +104,7 @@ internal static class CardFlightVisibility
     {
         double now = Now;
         for (int i = OwnerReleases.Count - 1; i >= 0; i--)
-            if (OwnerReleases[i].CompletionTime < 0f && now - OwnerReleases[i].Received > 8d) OwnerReleases.RemoveAt(i);
+            if (now - OwnerReleases[i].Received > 8d) OwnerReleases.RemoveAt(i);
     }
 
     internal static void Reset()

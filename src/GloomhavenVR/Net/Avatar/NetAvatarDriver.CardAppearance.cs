@@ -82,7 +82,7 @@ internal sealed partial class NetAvatarDriver
         CardAppearanceSampler.Reset();
     }
 
-    internal static void MirrorCharacterCardFlight(RemoteAvatar sender, byte endpoints, byte flags, CardFlightSource source)
+    internal static void MirrorCharacterCardFlight(RemoteAvatar sender, byte endpoints, byte flags, CardFlightSource source, float completionTime = -1f)
     {
         NetAvatarDriver? driver = _instance;
         if (driver == null) return;
@@ -91,7 +91,7 @@ internal sealed partial class NetAvatarDriver
             if (ReferenceEquals(viewer, sender)) continue;
             CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(viewer, out _);
             if (actor != null && NetFigures.StableActorId(actor) == source.ActorId)
-                viewer.PlayMirroredCardFlight(endpoints, flags, source);
+                viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, sender.PlayerId);
         }
     }
 

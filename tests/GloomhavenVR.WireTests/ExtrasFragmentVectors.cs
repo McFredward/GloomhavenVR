@@ -48,7 +48,7 @@ internal static class ExtrasFragmentVectors
         t.True(!ExtrasVersionAnnouncement.TryRead(extended, extended.Length, out _), "trailing bytes not a handshake");
 
         t.Case("extras envelopes: bounded events and atomic reordered snapshots");
-        foreach (int size in new[] { 8, 199, 200, 201, 800, 801, 1801, 3449, 4096, 4133, 4352 })
+        foreach (int size in new[] { 8, 199, 200, 201, 800, 801, 1801, 3449, 4096, 4133, 4177, 4352 })
         {
             byte[] original = Snapshot(size);
             byte[][] pages = ExtrasFragments.Encode(original, size, 42);
@@ -64,7 +64,7 @@ internal static class ExtrasFragmentVectors
         }
         t.Case("extras envelopes: reward handshake maximum across four peers");
         var rewardReceiver = new ExtrasFragments();
-        byte[] rewardMaximum = Snapshot(4133);
+        byte[] rewardMaximum = Snapshot(4177);
         byte[][] rewardPages = ExtrasFragments.Encode(rewardMaximum, rewardMaximum.Length, 42);
         t.Equal(6, rewardPages.Length, "all worst-case records including74 fit six existing envelopes");
         for (int page = rewardPages.Length - 1; page >= 0; page--)

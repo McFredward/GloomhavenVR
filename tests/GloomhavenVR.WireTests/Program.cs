@@ -40,6 +40,7 @@ internal static class Program
             PresentationCompressionVectors.Run(t);
             DecisionAttributionVectors.Run(t);
             CardFlightHistoryVectors.Run(t);
+        CardBurnCompletionVectors.Run(t);
             BurnFlightCompletionVectors.Run(t, repoRoot);
             GoldenVectors.Run(t);
             StoryVectors.Run(t);
