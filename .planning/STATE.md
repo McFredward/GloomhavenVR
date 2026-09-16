@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for softer Glove finger relief, ModBuild 515 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for the verified 1.0.3 release, ModBuild 515.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,17 +13,24 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **dev / 1.0.3 / ModBuild 515 softens the Glove surface (full install).**
+- **1.0.3 / ModBuild 515 is published from main.** PR #6 merged the accepted runtime/assets
+  with bilingual release highlights as `fd76de86`. Release run 35151926513 passed; tag,
+  public ZIP, bundle hash, release DLL and the unauthenticated latest endpoint were verified.
+  The workflow retained main ancestry on dev and advanced its next version to **1.0.4**.
+  See [RELEASE-1.0.3.md](RELEASE-1.0.3.md).
+
+- **ModBuild 515 softens the Glove surface (full install).**
   Both glove materials reduce authored normal relief from 0.5 to 0.25. Native model renders
   and actual bundle checks cover both hands and confirm that Plate/Arcane, geometry and
   attachment anchors are preserved. The exact Unity 2021.3.5f1 bundle has 617 assets and
   74,942,975 bytes. All 17 checkers and production suites pass; 254,019 wire assertions;
   strict Release zero warnings/errors. Incremental compiled comparison has seven changed types,
   exclusively the propagated ModBuild constant; no added/removed types. Surface counts remain
-  625 / 163 / 4,728, patch inventory 119 / 186. Perceived headset appearance is unverified.
-  See [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md). Published 1.0.2 is unchanged.
+  625 / 163 / 4,728, patch inventory 119 / 186. The maintainer accepted the current changes
+  for release; no new per-case hardware capture accompanies that acceptance.
+  See [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md).
 
-- **dev / 1.0.3 / ModBuild 514 limits additional VR lessons to the first native tutorial.**
+- **ModBuild 514 limits additional VR lessons to the first native tutorial.**
   Admission uses the tutorial selector's first ID and filename, while later tutorials keep
   their native sequence and generic VR wording/input adaptations. Pending lesson/skip/hold
   state retires on scope loss; held messages cannot cross native controller ownership.
@@ -32,13 +39,14 @@ change per build) → this file (where things stand and what is owed) → the bu
   assertions; strict Release zero warnings/errors. Compiled comparison: 71 changed / 42 added /
   zero removed against retained build 502; incremental build-513 comparison 19 changed / two
   added / zero removed, reviewed (tutorial scope plus propagated version/build constants).
-  Surfaces 625 / 163 / 4,728; patch inventory 119 classes / 186 methods. Headset acceptance is open.
-  See [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md). Published 1.0.2 is unchanged.
+  Surfaces 625 / 163 / 4,728; patch inventory 119 classes / 186 methods. The later release
+  acceptance is recorded above; it does not enumerate individual tutorial transition tests.
+  See [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md).
 
-- **1.0.2 / ModBuild 513 is published from main.** PR #5 merged the hardware-tested
+- **Previous release: 1.0.2 / ModBuild 513.** PR #5 merged the hardware-tested
   dev source unchanged as `11107a29`. Release run 35146255179 passed; tag, public
   download, checksum and release DLL were verified. See [RELEASE-1.0.2.md](RELEASE-1.0.2.md).
-  The workflow preserved main ancestry on dev and advanced its next version to **1.0.3**.
+  After that release, the workflow preserved main ancestry on dev and advanced to **1.0.3**.
 
 - **ModBuild 513 sequences every native burn before card replacement.**
   Round slots, fans, active grids and character exchange retain their previous presentation

@@ -64,5 +64,6 @@ all exclusively due to the propagated ModBuild 514 -> 515 constant, with no adde
 The retained baseline was not replaced. Unity editor scripts compile and both preview/verification
 entry points complete successfully.
 
-Headset judgment of the surface remains with the maintainer; the editor comparison does not
-prove the perceived strength in VR.
+The maintainer accepted the current changes for release 1.0.3. No separate new headset
+capture accompanies that acceptance; editor comparison alone does not prove perceived
+strength in VR. See [RELEASE-1.0.3.md](RELEASE-1.0.3.md) for publication verification.
