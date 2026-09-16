@@ -10,11 +10,12 @@ identity_source="${REWARD_IDENTITY_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/M
 placement_source="${REWARD_PLACEMENT_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/RewardShowcasePlacement.cs}"
 poll_source="${REWARD_POLL_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.10.CatchAll.cs}"
 conversion_source="${REWARD_CONVERSION_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.8.Convert.cs}"
+lifecycle_source="${REWARD_LIFECYCLE_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs}"
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-python3 - "$poll_source" "$conversion_source" "$mutation_dir" <<'PY'
+python3 - "$poll_source" "$conversion_source" "$lifecycle_source" "$mutation_dir" <<'PY'
 import pathlib, sys
-poll, conversion, out = map(pathlib.Path, sys.argv[1:])
+poll, conversion, lifecycle, out = map(pathlib.Path, sys.argv[1:])
 source = poll.read_text()
 start = source.index('    private static void AddRewardShowcaseWindow(bool inScenario)')
 end = source.index('\n    // ===', start)
@@ -29,6 +30,13 @@ placement = conversion.index('if (RewardShowcasePlacement.ApplyInitialPose(windo
 registration = conversion.index('Converted.Add(wp);', placement)
 assert 'wp.SpawnAnchor = default;' in conversion[placement:registration]
 assert 'wp.PoseRePlaceDone = true;' in conversion[placement:registration]
+lifecycle = lifecycle.read_text()
+reveal = lifecycle[lifecycle.index('    private static void CompleteReveal(ConvertedPanel panel)'):]
+guard = reveal.index('if (!RewardShowcasePlacement.TryReveal(panel))')
+visible = reveal.index('SetPanelRenderVisible(panel, visible: true,')
+assert guard < visible
+hold = reveal[guard:reveal.index('\n        //', guard)]
+assert 'SetPanelRenderVisible(panel, visible: false);' in hold and 'return;' in hold
 PY
 dotnet run --project "$project" --configuration Release \
     --property:RewardSource="$reward_source" \
@@ -37,7 +45,7 @@ dotnet run --project "$project" --configuration Release \
     --property:CatchAllSource="$mutation_dir/RewardPoll.fixture"
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in missing-listener duplicate-listener reveal authority native-input identity-block placement-key poll-binding; do
+for mutation in missing-listener duplicate-listener reveal authority native-input identity-block placement-key poll-binding premature-reveal pending-pose; do
     python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" <<'PY'
 import pathlib, sys
 reward, identity, placement, out = map(pathlib.Path, sys.argv[1:5])
@@ -52,6 +60,8 @@ mutations = {
     'identity-block': ('Identity', '!choreographer.m_BlockClientMessageProcessing', 'false'),
     'placement-key': ('Placement', 'RewardShowcaseIdentity.ContentKey(window) != _key', 'false'),
     'poll-binding': ('Poll', 'RewardShowcase.Tick(inScenario && WorldUIConfig.ConversionActive);', 'RewardShowcase.Tick(false);'),
+    'premature-reveal': ('Placement', 'return _mayReveal;', 'return _mayReveal || true;'),
+    'pending-pose': ('Placement', '_poseReady && ModalFallback.TryGetGrabFor', '(_poseReady || true) && ModalFallback.TryGetGrabFor'),
 }
 part, before, after = mutations[sys.argv[5]]
 assert sources[part].count(before) == 1, (part, before)
@@ -68,6 +78,8 @@ PY
         identity-block) expected='unblocked stale activation cannot identify current reward' ;;
         placement-key) expected='pose for previous chest cannot move next chest reward' ;;
         poll-binding) expected='gamepad-created campaign button receives one native listener' ;;
+        premature-reveal) expected='follower cannot reveal its local seat before the elected pose arrives' ;;
+        pending-pose) expected='unsettled elected source pose cannot release follower first reveal' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --configuration Release \
         --property:RewardSource="$mutation_dir/Reward.mutant" \

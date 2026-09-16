@@ -27,6 +27,12 @@ static class Program
         FFSNetwork.IsClient = FFSNetwork.IsOnline = false;
         Choreographer.s_Choreographer = null!;
         RewardShowcasePlacement.ClearInitialPose();
+        RewardShowcasePlacement.ClearInitialAuthority();
+        ModalFallback.PlacementWindow = null;
+        ModalFallback.PlacementPanel = null;
+        ModalFallback.PlacementGrab = null;
+        ModalFallback.PlacementFailed = false;
+        ModalFallback.PreservedPoses = 0;
         SharedWindows.Participating = true;
         Time.frameCount += 10;
     }
@@ -333,6 +339,75 @@ static class Program
             "all rejected initial poses leave position and local anchor untouched");
     }
 
+    private static void SharedRevealHandoff()
+    {
+        var guild = new Guild();
+        uint chest = OpenChest("SharedChest");
+        var panel = new ConvertedPanel();
+        var otherPanel = new ConvertedPanel();
+        var grab = new GrabbableModal { GrabRoot = new GameObject("Pending reward holder").transform };
+        ModalFallback.PlacementWindow = guild.Window;
+        ModalFallback.PlacementPanel = panel;
+        ModalFallback.PlacementGrab = grab;
+        Time.unscaledTime = 200f;
+        Check(RewardShowcasePlacement.TryReveal(panel), "standalone reward without network authority reveals normally");
+        RewardShowcasePlacement.SetInitialAuthority(chest, false);
+        Check(!RewardShowcasePlacement.TryReveal(panel), "follower cannot reveal its local seat before the elected pose arrives");
+        Check(RewardShowcase.CanConfirm, "presentation wait does not mutate native confirmation authority");
+        Check(RewardShowcasePlacement.TryReveal(otherPanel), "reward election never delays an unrelated converted panel");
+        for (int elapsed = 1; elapsed <= 30; elapsed++)
+        {
+            Time.unscaledTime = 200f + elapsed;
+            Check(!RewardShowcasePlacement.TryReveal(panel), "follower remains hidden without a deadline fallback to local placement");
+        }
+        var position = new Vector3(10, 4, -2);
+        var rotation = new Quaternion(0, .25f, 0, .95f);
+        RewardShowcasePlacement.SetInitialPose(RewardShowcaseIdentity.HashChestGuid("PreviousChest"), position, rotation, 180f);
+        Check(!RewardShowcasePlacement.TryReveal(panel) && grab.Placements == 0,
+            "previous chest mailbox cannot release the follower reveal gate");
+        RewardShowcasePlacement.SetInitialPose(chest, position, rotation, 180f, ready: false);
+        Check(!RewardShowcasePlacement.TryReveal(panel) && grab.Placements == 0,
+            "unsettled elected source pose cannot release follower first reveal");
+        RewardShowcasePlacement.SetInitialPose(chest, position, rotation, 180f, ready: true);
+        ModalFallback.PlacementGrab = null;
+        Check(!RewardShowcasePlacement.TryReveal(panel), "follower waits until its native grab can accept the elected pose");
+        ModalFallback.PlacementGrab = grab;
+        Check(RewardShowcasePlacement.TryReveal(panel), "valid elected pose releases follower first reveal");
+        Check(grab.Placements == 1 && grab.Position == position && grab.Rotation == rotation
+            && grab.GrabRoot.localScale == new Vector3(1.8f, 1.8f, 1.8f),
+            "follower adopts elected pose and size before it may reveal");
+        Check(ModalFallback.PreservedPoses == 1, "imported reveal pose retires the fallback local anchor");
+        Check(RewardShowcasePlacement.LocalRevealPending, "native pending reveal is exposed for readiness synchronization");
+        panel.RevealPending = false;
+        Check(!RewardShowcasePlacement.LocalRevealPending, "completed native reveal clears transported pending state");
+
+        RewardShowcasePlacement.ClearInitialPose();
+        Check(!RewardShowcasePlacement.TryReveal(panel), "clearing mailbox does not invent follower placement authority");
+        RewardShowcasePlacement.SetInitialAuthority(chest, true);
+        Check(RewardShowcasePlacement.TryReveal(panel), "elected source promotion can reveal without a peer mailbox");
+        RewardShowcasePlacement.SetInitialPose(chest, position, rotation, 180f, ready: false);
+        Check(RewardShowcasePlacement.TryReveal(panel), "elected source does not wait for its own first-reveal readiness");
+        Check(grab.Placements == 1, "promotion itself does not reposition a native holder");
+        RewardShowcasePlacement.SetInitialAuthority(chest, false);
+        RewardShowcasePlacement.ClearInitialAuthority();
+        Check(RewardShowcasePlacement.TryReveal(panel), "network teardown clears authority wait for native standalone continuation");
+        RewardShowcasePlacement.SetInitialAuthority(RewardShowcaseIdentity.HashChestGuid("OtherChest"), false);
+        Check(RewardShowcasePlacement.TryReveal(panel), "authority for a different chest cannot block current presentation");
+        RewardShowcasePlacement.SetInitialAuthority(chest, false);
+        SharedWindows.Participating = false;
+        Check(RewardShowcasePlacement.TryReveal(panel), "local-only settings preserve ordinary reward reveal");
+        SharedWindows.Participating = true;
+        Choreographer.s_Choreographer.m_BlockClientMessageProcessing = false;
+        Check(RewardShowcasePlacement.TryReveal(panel), "unknown current chest identity cannot create a permanent wait");
+        OpenChest("SharedChest");
+        Check(!RewardShowcasePlacement.LocalPlacementFailed, "pending placement is not falsely reported as a local failure");
+        ModalFallback.PlacementFailed = true;
+        Check(RewardShowcasePlacement.LocalPlacementFailed, "actual local conversion failure is available for source re-election");
+        guild.Scenario.Shown = false;
+        Check(!RewardShowcasePlacement.LocalPlacementFailed && RewardShowcasePlacement.TryReveal(panel),
+            "closed native reward drops failure identity and does not obstruct other reveals");
+    }
+
     static void Main()
     {
         CampaignButtonRepair();
@@ -340,6 +415,7 @@ static class Program
         GuildInputAndLifecycle();
         GuildGatesAndAuthority();
         IdentityAndInitialPlacement();
+        SharedRevealHandoff();
         Reset();
         Check(RewardShowcase.Window == null && !RewardShowcase.TryConfirm(), "clean shutdown leaves no actionable reward surface");
         Console.WriteLine($"Reward showcase: {_assertions} assertions passed.");
