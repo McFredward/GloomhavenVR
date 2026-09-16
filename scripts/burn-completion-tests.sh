@@ -74,7 +74,7 @@ a,b={
 'normal-flight-as-noflight':('!tracked.ExpectedFlight && NetCardFx.CompleteBurnWithoutFlight', 'NetCardFx.CompleteBurnWithoutFlight'),
 'early-progress-clear':('if (running || expected) continue;', 'if (running) continue;'),
 'proxy-progress':('if (!CardsGameApi.ControlsActor(actor)) return;', ''),
-'stopped-progress':('bool running = BurnArtwork.Playing', 'bool running = bool.Parse("true") || BurnArtwork.Playing')
+'stopped-progress':('bool running = BurnArtwork.Playing(BurnArtwork.EffectsOf(tracked.Full))', 'bool running = bool.Parse("true") || BurnArtwork.Playing(BurnArtwork.EffectsOf(tracked.Full))')
 }[sys.argv[3]]
 assert s.count(a)==1
 Path(sys.argv[2]).write_text(s.replace(a,b))
