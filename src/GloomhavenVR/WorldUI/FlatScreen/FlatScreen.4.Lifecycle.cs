@@ -96,7 +96,7 @@ internal sealed partial class FlatScreen
     private void UpdateScreenTakeover()
     {
         if (MapFallbackActive && !ManualScreenActive)
-            VRLog.Note("WorldUI", "MODAL MAP FALLBACK: the requested native modal could not float; "
+            VRLog.Note("WorldUI", "MODAL MAP FALLBACK: a blocking map window requires the native desktop; "
                 + "restoring its desktop presentation until the game closes it.");
         ManualScreenActive = _manualShow || _rescueShow || MapFallbackActive;
     }
