@@ -23,9 +23,15 @@ change per build) → this file (where things stand and what is owed) → the bu
   down render targets; capture and diagnostic reads now use existing shared materials.
   This removes that demonstrated failure path, not every possible source of FPS dips.
   Local evidence is build 510; retained remote logs are build 500. See
-  [REWARDS-511.md](REWARDS-511.md). Final integrated checks are being recorded there.
+  [REWARDS-511.md](REWARDS-511.md) for the full evidence and validation record.
   Headset continuation, hover, framing and current multiplayer acceptance remain open.
   No main merge or release publication is part of this fix.
+- **511 integration checks pass:** strict Release zero warnings/errors; all 17 checkers,
+  production suites and 253,759 wire assertions. Reward: 299 assertions / 13 negatives;
+  materials: 2,031 / four; ink: 237 / five runtime negatives plus one placement binding.
+  Retained build-502 compiled comparison: 35 changed types, 25 additions, no removals,
+  reviewed. Config/patch/log surfaces remain 625 / 161 / 4,726; bilingual docs and
+  whitespace checks pass. These checks do not replace the hardware acceptance above.
 - **Build 510's hardware retest failed despite green checks.** Its reward test incorrectly
   modeled ConfirmPressed as an unconditional input latch. Build 511 executes the native
   ProcessRewards iterator through completion, with a negative control for that exact defect.

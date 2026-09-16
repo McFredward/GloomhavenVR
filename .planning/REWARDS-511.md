@@ -59,7 +59,28 @@ trigger; the logs contain other FPS dips and do not establish that every hitch i
 
 ## Validation and hardware acceptance
 
-Final integrated checks are recorded here after all worker changes are reviewed.
+Integrated source review found no additional blocking defect. The independent review
+confirmed the tutorial/custom-mode initializer, actor-owned interactionChecker, native
+ProcessRewards → EndProcess → onProcessEnded → choreographer queue release, and original
+mask intersection. This is source evidence; the native iterator fixture substitutes Unity
+presentation/action-bus calls and does not prove a headset click was delivered.
+
+- Strict Release: zero warnings and errors.
+- All 17 source checkers and production harnesses pass; wire suite: 253,759 assertions.
+- Reward showcase: 299 assertions, 13 runtime negative controls, native iterator fixture
+  verified against the local read-only game reference.
+- Panel materials: 2,031 assertions, four runtime negative controls.
+- Panel ink/heading/placement: 237 assertions, five runtime negative controls and one
+  placement binding negative.
+- Retained build-502 compiled comparison: 35 changed types, 25 additions, no removals.
+  Relative to the build-510 review, PanelSupersample is the additional changed type;
+  PanelGraphicMaterial, RewardContinueButton and RewardHeadingBounds are the additions.
+  Its compiled diff contains only the passive material reader and exact heading bounds.
+  Guard exit 1 denotes these reviewed compiled differences, not a failed checker.
+- Config/patch/log surfaces remain 625 / 161 / 4,726; runtime patch inventory remains
+  117 classes / 184 methods. Bundle unchanged: UnityFS 7 / Unity 2021.3.5f1 / 74,943,763 bytes.
+- Bilingual docs, shell syntax and whitespace checks pass.
+
 Retest the tutorial/custom-scenario chest, Guildmaster and Campaign continuation, visible
 laser/poke hover and press, complete German/English headings, multiple reward groups,
 and shared multiplayer ownership/continuation. Verify character-card browsing retains
