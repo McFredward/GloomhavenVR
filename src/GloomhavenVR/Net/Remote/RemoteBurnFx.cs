@@ -177,7 +177,17 @@ internal sealed class RemoteBurnFx
         return false;
     }
 
-    internal bool HoldsCardLayout => PresentationActor != null;
+    internal bool IncomingBurnPending
+    {
+        get
+        {
+            var requested = RemoteBoardFocus.DisplayedActor(_owner, out _, out _, ignoreBurnHold: true);
+            return requested != null && NetFigures.StableActorId(requested) != _watchActor
+                && CardAppearanceMirror.OwnerBurnInProgress(requested);
+        }
+    }
+
+    internal bool HoldsCardLayout => IncomingBurnPending || PresentationActor != null;
 
     internal CPlayerActor? PresentationActor
     {
@@ -192,6 +202,7 @@ internal sealed class RemoteBurnFx
                     && (actor.CharacterClass.LostAbilityCards.Contains(card)
                         || actor.CharacterClass.PermanentlyLostAbilityCards.Contains(card))) return actor;
             }
+            if (IncomingBurnPending) return RemoteBoardFocus.ActorById(_watchActor);
             foreach (PendingRelease pending in _pendingReleases)
             {
                 if (pending.CompletionTime < 0f || pending.FallbackPlayed || pending.ActorId != _watchActor) continue;

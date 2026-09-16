@@ -50,6 +50,24 @@ internal static class NetCardFx
         int removed = s_completions.RemoveAll(entry => entry.Key == (state.ActorId, state.SourceActorId, state.PoolSeat, state.PoolCount));
         if (removed != 0) RefreshCompletions();
     }
+    internal static void NoteBurnProgress(CardAppearanceState state, float time, bool running)
+    {
+        var key = (state.ActorId, state.SourceActorId, state.PoolSeat, state.PoolCount);
+        int index = s_completions.FindIndex(entry => entry.Key == key);
+        if (!running)
+        {
+            if (index >= 0 && s_completions[index].InProgress) { s_completions.RemoveAt(index); RefreshCompletions(); }
+            return;
+        }
+        if (index >= 0 && s_completions[index].InProgress) return;
+        var progress = new CardBurnCompletion(0, 0, CardBurnCompletion.InProgressBit, time,
+            state.ActorId, state.SourceActorId, state.PoolSeat, state.PoolCount, 0, 0);
+        if (!progress.Valid()) return;
+        if (index >= 0) s_completions[index] = progress;
+        else if (s_completions.Count < CardBurnCompletionHistory.CountMax) s_completions.Add(progress);
+        RefreshCompletions();
+    }
+
     private static void RefreshCompletions()
     {
         var entries = new CardBurnCompletion[s_completions.Count];
@@ -58,7 +76,7 @@ internal static class NetCardFx
             var entry = s_completions[i];
             bool recent = false;
             foreach (var flight in s_history)
-                if (flight.Event.Sequence == entry.Sequence && flight.CompletionTime == entry.Time)
+                if (!entry.InProgress && flight.Event.Sequence == entry.Sequence && flight.CompletionTime == entry.Time)
                 { recent = true; break; }
             entries[i] = entry.WithRecentFlight(recent);
         }

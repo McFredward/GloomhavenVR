@@ -27,6 +27,7 @@ internal static partial class CardAppearanceSampler
             FullAbilityCard? full = card.FullCard;
             CPlayerActor? actor = card.GameCard?.PlayerActor;
             if (full == null || full.cardEffects == null || actor == null) continue;
+            if (card.GameCard != null) ObserveBurnProgress(card.GameCard, full);
             // CopyVisibleCards enumerates this board's real adopted VRCard widgets, never
             // received RemoteCardArt clones. A foreign character's visible card is still part
             // of this board owner's picture; gameplay control is not presentation authority.
@@ -86,6 +87,7 @@ internal static partial class CardAppearanceSampler
         foreach (var full in Removed) { Bindings.Remove(full); Failures.Remove(full); }
         Removed.Clear(); foreach (var full in Failures.Keys) if (!Seen.Contains(full)) Removed.Add(full);
         foreach (var full in Removed) Failures.Remove(full);
+        RefreshBurnProgress();
         AppendBurnFinals(states);
         if (states.Count > CardAppearanceState.CountMax) throw new InvalidOperationException("Native card appearance population exceeds wire bound.");
         states.Sort((a, b) => a.ActorId != b.ActorId ? a.ActorId.CompareTo(b.ActorId) : a.FaceCode.CompareTo(b.FaceCode));
@@ -94,5 +96,5 @@ internal static partial class CardAppearanceSampler
         if (!same) _previous = states.ToArray();
         return _previous;
     }
-    internal static void Reset() { ClearBurnFinals(); _finalCapacityLogged = false; _finalPageStart = 0; _nextFinalPageAt = 0f; CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); States.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
+    internal static void Reset() { ClearBurnProgress(); ClearBurnFinals(); _finalCapacityLogged = false; _finalPageStart = 0; _nextFinalPageAt = 0f; CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); States.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
 }

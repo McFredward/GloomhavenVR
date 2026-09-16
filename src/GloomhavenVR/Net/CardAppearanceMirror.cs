@@ -62,6 +62,10 @@ internal static class CardAppearanceMirror
         frame.Previous = continuous ? frame.Current : snapshot; frame.Current = snapshot;
         if (!continuous) frame.Clock.Reset(snapshot.SampleTime, Time.unscaledTime);
     }
+    internal static bool OwnerBurnInProgress(CPlayerActor? actor)
+        => actor != null && NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? owner)
+            && owner != null && owner.HasBurnInProgress(NetFigures.StableActorId(actor));
+
     internal static void Remove(int playerId) => Frames.Remove(playerId);
     internal static void Reset() { Frames.Clear(); Pile.Clear(); }
     internal static bool TryGet(int playerId, CPlayerActor? actor, CAbilityCard? card,
