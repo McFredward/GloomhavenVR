@@ -289,6 +289,15 @@ internal sealed class ItemsPile
     private ItemChip? _pendingUseChip;
     private ItemChip? _finishingUseChip;
     private bool UseAnimationPending => _finishingUseChip != null;
+    internal bool ItemSourceAddress(ItemChip chip, out byte seat, out byte count, out byte population)
+    {
+        population = (byte)(_demandActive && _demandLoseReward ? 1 : 0);
+        int index = _chips.IndexOf(chip), size = _chips.Count;
+        if (index < 0 && ReferenceEquals(_keptClip, chip)) { index = _keptClipIndex; size = System.Math.Max(_keptClipIndex + 1, ItemsOf(_hand)?.Count ?? 0); }
+        seat = count = 0;
+        if (index < 0 || size == 0 || size > 255 || index >= size) return false;
+        seat = (byte)index; count = (byte)size; return true;
+    }
 
     // ---- THE PLACED CARD OUTLIVES THE **USE**, TOO (user report 2026-08-09) -------------------
     //
@@ -5010,6 +5019,9 @@ internal sealed class ItemsPile
         // reflecting the result — a burn plume (Consumed) or a "tap" roll to 90° with a scale pulse
         // (Spent) — then the chip collapses into the deck. Independent of the collapse/pending states.
         private bool _useFxActive;
+        private bool _useFxConsumed;
+        internal ItemCardUI? NativeItemCard => _cardUI;
+        internal bool BurnPresentationPending => _useFxActive && _useFxConsumed;
         private System.Action? _useFxCompleted;
         private float _useFxTime;
         private bool _useFxSpent;
@@ -6028,9 +6040,9 @@ internal sealed class ItemsPile
 
         /// <summary>
         /// Requirement 6 — after a CONFIRM: play the result flourish (burn plume for Consumed, a "tap"
-        /// roll to 90° with a scale pulse for Spent), then collapse into the deck. The owner has already
-        /// detached the chip from the fan root and removed it from the live list, so this runs to
-        /// completion even if the fan closes/rebuilds.
+        /// roll to 90° with a scale pulse for Spent), then collapse into the deck. Retain the original
+        /// chip and its occupied slot until native playback completes; only then retire it and
+        /// permit fan closure, population changes and replacements.
         /// </summary>
         internal void PlayUseThenCollapse(bool consumed, bool spent, Vector3 collapseWorld, System.Action? completed = null)
         {
@@ -6039,6 +6051,7 @@ internal sealed class ItemsPile
             _useFxActive = true;
             _useFxTime = UseFxSeconds;
             _useFxSpent = spent && !consumed;
+            _useFxConsumed = consumed;
             _useFxCollapseWorld = collapseWorld;
             _useFxBaseRot = transform.localRotation;
             _fingerPopped = false;
@@ -6073,6 +6086,7 @@ internal sealed class ItemsPile
             // Consumed: the card's own burn FX plays over the flourish window; no extra motion.
             if (_useFxTime <= 0f && !ItemBurnPlayback.Playing(_cardUI != null ? _cardUI.cardEffects : null))
             {
+                if (_useFxConsumed) Net.ItemAppearanceSampler.RetainCompletion(this);
                 _useFxActive = false;
                 System.Action? completed = _useFxCompleted;
                 _useFxCompleted = null;

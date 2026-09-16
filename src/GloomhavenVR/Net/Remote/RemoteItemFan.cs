@@ -651,6 +651,14 @@ internal sealed class RemoteItemFan
         // collapse below, which must run on the owner's close timing even though the fan is already
         // logically gone.
         SyncTuning();
+        // Extras may release the recess before the separate original item frame arrives.
+        // Keep its bound source and layout until that terminal output was actually drawn.
+        if (_clipIndex >= 0 && ItemAppearanceMirror.HoldsClip(_owner.PlayerId,
+                NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _)), _clipIndex, _cards.Count))
+        {
+            _fronts.Tick(RemotePileFronts.Content.Items);
+            return;
+        }
 
         // The card LEFT LYING in the mirrored recess after the arc folded away (see _clipDetached).
         // Serviced before anything else, because while it is detached it is the only thing this fan

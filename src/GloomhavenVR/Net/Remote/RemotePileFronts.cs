@@ -715,12 +715,17 @@ internal sealed class RemotePileFronts
             // does not happen. Secrecy is untouched: a shut gate still tears every face down above,
             // before this loop is reached.
             bool drawn = art.HostDrawn;
-            if (resolved && drawn)
+            if ((resolved || content == Content.Items) && drawn)
             {
                 if (content == Content.Items)
                 {
-                    if (i < _itemBuf.Count)
-                        shown = RemoteItemCardSource.ShowFace(art, _itemBuf[i]);
+                    CItem? item = ItemAppearanceMirror.ItemAt(_owner.PlayerId, NetFigures.StableActorId(actor), i, _arts.Count)
+                        ?? (i < _itemBuf.Count ? _itemBuf[i] : null);
+                    if (item != null)
+                    {
+                        shown = RemoteItemCardSource.ShowFace(art, item);
+                        if (shown) art.SetNativeItemAppearance(_owner.PlayerId, actor, item);
+                    }
                 }
                 else if (i < _abilityBuf.Count)
                 {
