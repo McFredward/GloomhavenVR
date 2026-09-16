@@ -454,11 +454,11 @@ internal static partial class ModalFallback
     /// releases the moment the window it was raised for is closed or destroyed, which is exactly the
     /// "requester reports the flow unstuck" ending the latch documents.</para>
     ///
-    /// <para><b>SCOPE.</b> A per-window branch inside <c>CloseTopModal</c>, not a redefinition of the
-    /// chord. Every other window still gets <c>CloseFloatedWindow</c>, and the chord still consumes
-    /// the press one-for-one.</para>
+    /// <para><b>SCOPE.</b> The chord and the final close admission both use this presentation-only
+    /// escape. The latter rechecks pooled windows at click time, because their mandatory policy
+    /// can change after an X was attached. The native decision and callbacks stay untouched.</para>
     /// </summary>
-    internal static void RescueForMandatoryDecision(UIWindow window, string reason, float heldSeconds)
+    internal static void RescueForMandatoryDecision(UIWindow window, string reason, float heldSeconds, string? origin = null)
     {
         // ONLY OWN A RELEASE WE OWN. Another watchdog (FloatingDecisionSurfaces) may already hold
         // the screen up for its own stuck flow; the rescue is a single latch and not a refcount, so
@@ -467,13 +467,22 @@ internal static partial class ModalFallback
         // flicker is cheaper than relying on it healing.
         bool alreadyStanding = FlatScreen.RescueScreenActive;
 
+        string request = origin ?? $"the long-hold escape chord ({heldSeconds:F1}s)";
         FlatScreen.RequestRescueScreen("ModalFallback.MandatoryDecision",
-            $"the long-hold escape chord ({heldSeconds:F1}s) was used on '{window.name}' (ID "
-            + $"{window.ID}), a window where a decision is MANDATORY — {reason}. The chord must NOT "
+            $"{request} was used on '{window.name}' (ID "
+            + $"{window.ID}), a window where a decision is MANDATORY — {reason}. This request must NOT "
             + "hide this window, so it raises the 2D composite instead.");
 
         if (!alreadyStanding)
             _rescueWindow = window;
+
+        if (origin != null)
+        {
+            VRLog.Note("WorldUI", $"MODAL CLOSE: '{window.name}' (ID {window.ID}) redirected from "
+                + $"{origin} to the native screen because its live decision is mandatory ({reason}). "
+                + "No close, mode exit or continuation was sent; the player must use the native options.");
+            return;
+        }
 
         // HW-VERIFY: the line that says the chord took its THIRD action instead of closing the
         // window. A deadlock report carrying this line means the player WAS given the 2D composite
