@@ -265,6 +265,9 @@ internal static partial class CanvasConversion
                 : DropdownListSortingOrder,
             DfsIndex = dfsIndex,
         };
+        // Capture before writing: a failure during adoption must still restore the canvas.
+        int recordIndex = panel.AdoptedCanvases.Count;
+        panel.AdoptedCanvases.Add(record);
         if (overlay)
         {
             nested.overrideSorting = true;                    // keep the on-top contract
@@ -283,8 +286,8 @@ internal static partial class CanvasConversion
         if (nested.GetComponent<GraphicRaycaster>() == null)
             record.AddedRaycaster = nested.gameObject.AddComponent<GraphicRaycaster>();
 
+        panel.AdoptedCanvases[recordIndex] = record; // Include any newly allocated raycaster.
         UguiPokeSurfaces.RegisterNested(panel.HostCanvas, nested);
-        panel.AdoptedCanvases.Add(record);
         // ModBuild 203: a new record can change the min authored order (and therefore every cached
         // offset) of this panel's rebase-eligible set. Re-derive once, before the next write.
         panel.AdoptedOrderRebaseDirty = true;
@@ -522,8 +525,8 @@ internal static partial class CanvasConversion
             {
                 if (!existing.enabled)
                 {
-                    existing.enabled = true; // game-owned but off → turn it on while converted
                     panel.EnabledScrollMasks.Add(existing);
+                    existing.enabled = true; // game-owned but off → turn it on while converted
                     VRLog.Info("WorldUI", $"SCROLL CLIP: enabled the disabled RectMask2D on viewport " +
                                           $"'{viewport.name}' in '{panel.HostGo.name}' — scrolled-out content " +
                                           "now clips at the viewport (task #4; re-disabled on release).");
@@ -719,8 +722,8 @@ internal static partial class CanvasConversion
             if (gw < frameW * BackgroundCoverFraction || gh < frameH * BackgroundCoverFraction)
                 continue; // smaller than the frame → foreground content, keep it
 
-            g.enabled = false; // hide the backing AND its raycast blocker
             panel.HiddenBackgrounds.Add(g);
+            g.enabled = false; // hide the backing AND its raycast blocker
             hidden++;
         }
         BgGraphicScratch.Clear();

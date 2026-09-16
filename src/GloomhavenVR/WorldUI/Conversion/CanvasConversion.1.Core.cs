@@ -138,6 +138,10 @@ internal static partial class CanvasConversion
             return null;
         }
 
+        // Do not adopt a target whose failed attempt is still being restored. Its recorded
+        // native home remains owned by the rollback until cleanup actually succeeds.
+        if (HasFailedConversion(target)) return null;
+
         // FLICKER HUNT: a re-conversion of a still-live target (or a still-live host of
         // the same name) is the convert↔release oscillation signature (like the ActorBars
         // re-adoption bug) — flag it loudly so the log attributes any per-open churn.
@@ -174,6 +178,8 @@ internal static partial class CanvasConversion
             TargetHomeScene = target.gameObject.scene,
             TargetWasPersistent = IsPersistentScene(target.gameObject.scene),
         };
+
+        using var transaction = new ConversionTransaction(panel);
 
         // THE SHARED WINDOW SIZE LAW IS ARMED HERE AND NOWHERE ELSE (ModBuild 450), for one
         // ordering reason worth stating: the design frame is read off the target's ROOT CANVAS, and
@@ -239,9 +245,12 @@ internal static partial class CanvasConversion
         }
 
         var hostGo = new GameObject($"GloomhavenVR.Panel_{name}");
+        panel.HostGo = hostGo; // Own each allocation before the next potentially failing operation.
         hostGo.layer = UiLayer;
         var hostRect = hostGo.AddComponent<RectTransform>();
+        panel.HostRect = hostRect;
         var hostCanvas = hostGo.AddComponent<Canvas>();
+        panel.HostCanvas = hostCanvas;
         hostCanvas.renderMode = RenderMode.WorldSpace;
         hostCanvas.worldCamera = WorldCamera;
         // This is the SEED order only. From the first LateUpdate on, CanvasConversion.8.Order.cs
@@ -254,6 +263,7 @@ internal static partial class CanvasConversion
         panel.BaseSortingOrder = sortingOrder;
         panel.DrawSortingOrder = sortingOrder;
         var raycaster = hostGo.AddComponent<GraphicRaycaster>();
+        panel.HostRaycaster = raycaster;
         raycaster.enabled = !EffectiveLock;
 
         hostRect.sizeDelta = size;
@@ -314,11 +324,6 @@ internal static partial class CanvasConversion
         target.localScale = Vector3.one;
         target.localRotation = Quaternion.identity;
         target.localPosition = new Vector3(target.localPosition.x, target.localPosition.y, 0f);
-
-        panel.HostGo = hostGo;
-        panel.HostCanvas = hostCanvas;
-        panel.HostRaycaster = raycaster;
-        panel.HostRect = hostRect;
 
         AdoptNestedCanvases(panel); // tests #19/#20: sorting-override + raycast hijack
 
@@ -458,6 +463,7 @@ internal static partial class CanvasConversion
                                   : "."));
         if (diagnostic)
             DiagnoseModal(panel, force: true); // one-shot baseline (host state + camera scan) at float time
+        transaction.Complete();
         return panel;
     }
 

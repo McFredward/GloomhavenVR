@@ -339,7 +339,6 @@ internal static partial class CanvasConversion
             Canvas c = HideCanvasScratch[i];
             if (c == null || !c.enabled)
                 continue; // already off (by us on an earlier pass, or by the game on purpose)
-            c.enabled = false;
             panel.HiddenCanvases.Add(c);
             // ModBuild 395: record WHETHER THE `true` WE JUST READ WAS A DECISION. See
             // ConvertedPanel.HiddenCanvasWasPreStart for the full argument; the read itself is one
@@ -347,6 +346,7 @@ internal static partial class CanvasConversion
             // (a canvas already recorded is skipped by the `!c.enabled` line above), and it writes
             // nothing to the game.
             panel.HiddenCanvasWasPreStart.Add(IsOnPreStartWindow(c));
+            c.enabled = false;
             canvasesChanged++;
         }
 
@@ -356,8 +356,8 @@ internal static partial class CanvasConversion
             Renderer r = HideRendererScratch[i];
             if (r == null || !r.enabled)
                 continue;
-            r.enabled = false;
             panel.HiddenRenderers.Add(r);
+            r.enabled = false;
             renderersChanged++;
         }
     }

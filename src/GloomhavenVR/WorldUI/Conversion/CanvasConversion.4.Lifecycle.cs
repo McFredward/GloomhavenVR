@@ -9,6 +9,139 @@ namespace GloomhavenVR.WorldUI;
 
 internal static partial class CanvasConversion
 {
+    // A native window is moved before normal Active/modal enrollment. Exceptions during
+    // adoption, reveal preparation or chrome construction must restore that window before
+    // the desktop fallback can display it. This scope owns partial allocations immediately.
+    private sealed class ConversionTransaction : System.IDisposable
+    {
+        private readonly ConvertedPanel _panel;
+        private bool _complete;
+        internal ConversionTransaction(ConvertedPanel panel) => _panel = panel;
+        internal void Complete() => _complete = true;
+        public void Dispose()
+        {
+            if (!_complete) RollbackFailedConversion(_panel);
+        }
+    }
+
+    private sealed class FailedConversion
+    {
+        internal readonly ConvertedPanel Panel;
+        internal GrabbableModal? Grab;
+        internal bool Reported;
+        internal bool NativeRestored;
+        internal bool HostReleased;
+        internal FailedConversion(ConvertedPanel panel, GrabbableModal? grab)
+        {
+            Panel = panel;
+            Grab = grab;
+        }
+    }
+
+    private static readonly List<FailedConversion> FailedConversions = new(2);
+
+    private static bool HasFailedConversion(RectTransform target)
+    {
+        for (int i = 0; i < FailedConversions.Count; i++)
+            if (ReferenceEquals(FailedConversions[i].Panel.Target, target)) return true;
+        return false;
+    }
+
+    internal static void RollbackFailedConversion(ConvertedPanel? panel, GrabbableModal? grab = null)
+    {
+        if (panel == null) return;
+        // A pending restore is kept outside Active: ordinary frame maintenance must never
+        // re-hide or re-adopt its partially restored native content.
+        Active.Remove(panel);
+        FailedConversion? pending = null;
+        for (int i = 0; i < FailedConversions.Count; i++)
+            if (ReferenceEquals(FailedConversions[i].Panel, panel)) pending = FailedConversions[i];
+        if (pending == null)
+        {
+            pending = new FailedConversion(panel, grab);
+            FailedConversions.Add(pending);
+        }
+        else if (grab != null) pending.Grab = grab;
+        TryRollbackFailedConversion(pending);
+    }
+
+    private static void TryRollbackFailedConversion(FailedConversion pending)
+    {
+        try
+        {
+            // The grab holder owns only mod chrome, never the native window. Keep its
+            // reference if destruction fails, but still attempt native restoration below.
+            pending.Grab?.Destroy();
+            pending.Grab = null;
+        }
+        catch (System.Exception ex)
+        {
+            NoteRollbackFailure(pending, ex);
+        }
+        try
+        {
+            if (!pending.NativeRestored)
+            {
+                pending.Panel.KeepBackgroundHidden = false;
+                Release(pending.Panel); // Includes verified detach and DestroyHostSafely.
+            }
+            else if (!pending.HostReleased)
+            {
+                DestroyHostSafely(pending.Panel, "conversion rollback");
+                if (Active.Count == 0) RestoreCameraMask();
+            }
+            if (pending.NativeRestored) pending.HostReleased = true;
+            // Chrome teardown may need another frame after native restoration completed.
+            // Never replay the old native snapshot over subsequent game layout changes.
+            if (pending.NativeRestored && pending.HostReleased && pending.Grab == null)
+                FailedConversions.Remove(pending);
+        }
+        catch (System.Exception ex)
+        {
+            // Never destroy the host directly or forget its original-home snapshot. A
+            // normal Update retries; no native close, confirm, timeout or lock write occurs.
+            NoteRollbackFailure(pending, ex);
+        }
+    }
+
+    private static bool NativeConversionHomeRestored(ConvertedPanel panel)
+    {
+        if (panel.Target == null) return true;
+        if (panel.HostGo != null && panel.Target.IsChildOf(panel.HostGo.transform)) return false;
+        // A refused home reparent can still permit the safety detach to the scene root.
+        // That protects lifetime, but the desktop needs the original live native parent.
+        return panel.OriginalParent == null || ReferenceEquals(panel.Target.parent, panel.OriginalParent);
+    }
+
+    private static void NoteNativeRollbackRestored(ConvertedPanel panel)
+    {
+        if (!NativeConversionHomeRestored(panel)) return;
+        for (int i = 0; i < FailedConversions.Count; i++)
+            if (ReferenceEquals(FailedConversions[i].Panel, panel))
+                FailedConversions[i].NativeRestored = true;
+    }
+
+    private static void NoteRollbackFailure(FailedConversion pending, System.Exception ex)
+    {
+        if (pending.Reported) return;
+        pending.Reported = true;
+        try
+        {
+            VRLog.Alert("WorldUI", "CONVERSION ROLLBACK PENDING: native window restoration failed "
+                + $"({ex.GetType().Name}: {ex.Message}); ownership retained for a normal-frame retry.");
+        }
+        catch (System.Exception)
+        {
+            // Diagnostics must not replace the original construction failure or lose ownership.
+        }
+    }
+
+    private static void ServiceFailedConversions()
+    {
+        for (int i = FailedConversions.Count - 1; i >= 0; i--)
+            TryRollbackFailedConversion(FailedConversions[i]);
+    }
+
     /// <summary>Restore the panel into its original 2D home and destroy the host.</summary>
     internal static void Release(ConvertedPanel? panel)
     {
@@ -80,7 +213,8 @@ internal static partial class CanvasConversion
             if (record.AddedRaycaster != null)
                 Object.Destroy(record.AddedRaycaster);
         }
-        panel.AdoptedCanvases.Clear();
+        // Keep the records until camera restoration on the far side of reparent succeeds.
+        // A failed release can then retry without losing the original camera ownership.
         panel.PreCapturedCanvases.Clear();
         panel.PreCapturedCameras.Clear();
         // ModBuild 203: the sibling-rebase census describes a set that no longer exists. Zero it and
@@ -307,9 +441,12 @@ internal static partial class CanvasConversion
         // whether or not the target survived: the snapshot is the panel's adoption set and it has to
         // be consumed either way. Writes, reads back, and says both values.
         bool cameraWasWrong = RestoreAdoptedCameras("release");
-        NoteReleaseOwnership(ownershipName, cameraWasWrong, beltHid, gameSaysClosed, ownershipIsWindow);
-
+        if (NativeConversionHomeRestored(panel)) panel.AdoptedCanvases.Clear();
         ReleaseHiddenWindowVeil(panel);
+        // Native state is restored before mod-host destruction/camera-mask teardown. If those
+        // final operations fail, the rollback retries only them, never the old native layout.
+        NoteNativeRollbackRestored(panel);
+        NoteReleaseOwnership(ownershipName, cameraWasWrong, beltHid, gameSaysClosed, ownershipIsWindow);
         DestroyHostSafely(panel, "release");
 
         if (Active.Count == 0)
@@ -319,6 +456,7 @@ internal static partial class CanvasConversion
     /// <summary>Restore every conversion (module shutdown / VR off).</summary>
     internal static void ReleaseAll()
     {
+        ServiceFailedConversions();
         for (int i = Active.Count - 1; i >= 0; i--)
             Release(Active[i]);
         // NOTHING THE BELT SWITCHED OFF MAY OUTLIVE THE MOD. A dark hold standing after a VR-off or
@@ -622,6 +760,7 @@ internal static partial class CanvasConversion
     {
         // Parked hosts first: a host that is only waiting for Unity to allow the detach must be
         // retried on a frame that is NOT inside a SetActive callback, and this is that frame.
+        ServiceFailedConversions();
         ServiceDeferredHosts();
 
         // ModBuild 426: both ownership guards, at the TOP and outside the Active loop, because both

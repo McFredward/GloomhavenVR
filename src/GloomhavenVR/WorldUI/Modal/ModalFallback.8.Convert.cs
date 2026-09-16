@@ -182,6 +182,9 @@ internal static partial class ModalFallback
     private static bool TryConvertWindow(UIWindow window)
     {
         string name = window.name;
+        ConvertedPanel? panel = null;
+        GrabbableModal? grab = null;
+        WindowPanel? wp = null;
         // ROUND 8 — hand the pre-convert 2D blackout back FIRST (part 11). The conversion's own
         // complete render hide (CanvasConversion part 6) only records components whose `enabled`
         // was TRUE when it cleared them, so a canvas still switched off by the blackout would be
@@ -372,7 +375,7 @@ internal static partial class ModalFallback
             // A hover card is a LABEL, not a window: it has no grab bar (181) and no X (181), and
             // now no collider either. Nothing about it was ever meant to be clicked.
             bool hoverCardPick = IsMapRoomHoverCard(window);
-            ConvertedPanel? panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: !hoverCardPick,
+            panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: !hoverCardPick,
                 fitContent: fitContent, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics
                 useModLayer: true, transparentBackground: transparentBg,
@@ -571,7 +574,7 @@ internal static partial class ModalFallback
             // right belt-and-braces and it is where a future reader will look, but GrabbableModal.cs
             // is owned by another lane this round; the cause is here, where the object that must not
             // exist is made.
-            GrabbableModal? grab = null;
+
             // TRANSPARENCY ROUND: the per-menu coplanar DEPTH MASK that used to be requested here
             // (gated to the ESC/Options family + confirmations + results) is gone. Its job was
             // "transparent HUD sitting BEHIND the floated menu must be occluded by it", and it did
@@ -794,7 +797,7 @@ internal static partial class ModalFallback
             if (isTransient)
                 AttachTransientDismiss(panel, window);
 
-            var wp = new WindowPanel
+            wp = new WindowPanel
             {
                 Window = window,
                 Panel = panel,
@@ -880,6 +883,10 @@ internal static partial class ModalFallback
         }
         catch (Exception ex)
         {
+            // Convert may have completed before chrome/placement/enrollment failed. Return
+            // native content immediately; otherwise the advertised desktop fallback is empty.
+            if (wp != null) Converted.Remove(wp);
+            CanvasConversion.RollbackFailedConversion(panel, grab);
             VRLog.Error("WorldUI", $"MODAL WINDOW: conversion of '{name}' FAILED " +
                                    $"({ex.GetType().Name}: {ex.Message}) — falling back to the full " +
                                    "flat screen for this window.");
