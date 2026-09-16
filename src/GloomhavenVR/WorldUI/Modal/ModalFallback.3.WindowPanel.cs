@@ -369,8 +369,10 @@ internal static partial class ModalFallback
     internal static bool TryGetStoryGrab(out GrabbableModal? grab) =>
         SharedWindows.TryGetGrab(SharedWindowKind.ScenarioStory, out grab);
 
-    /// <summary>Explicit conversion failure lets another VR participant publish the reward pose.</summary>
-    internal static bool RewardPlacementFailed(UIWindow? window) => window != null && Failed.Contains(window);
+    /// <summary>A failed or deliberately screen-bound source cannot supply a shared float pose.
+    /// Reuse the actual conversion policy so manual screen mode never strands waiting peers.</summary>
+    internal static bool RewardPlacementFailed(UIWindow? window) =>
+        window != null && (!ConvertBaseActive || Failed.Contains(window));
 
     internal static void PreserveRewardInitialPose(UIWindow window)
     {
