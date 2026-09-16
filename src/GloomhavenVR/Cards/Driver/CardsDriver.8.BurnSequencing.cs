@@ -47,7 +47,7 @@ internal sealed partial class CardsDriver
         // A quiet frame must still complete pending holds, even after the game switched its
         // presented actor. Do this before accepting a new layout so its flight uses the old seat.
         FlushBurnHolds("card layout awaits native burn completion");
-        bool pending = _burnLayoutNativeActive || _burnHoldSince.Count != 0;
+        bool pending = _burnLayoutNativeActive || _burnHoldSince.Count != 0 || IncomingHandBurnActive();
         if (_burnLayoutPending != pending) _dirty = true;
         _burnLayoutPending = pending;
         if (pending)
@@ -56,6 +56,32 @@ internal sealed partial class CardsDriver
             _half.SetReadOnly(true);
         }
     }
+
+    /// <summary>
+    /// An incoming character may already be burning before any of its widgets were adopted by
+    /// the VR factory. Inspect the original hand before ResolveHand commits that focus and before
+    /// a swap parks the old cards. Lost-pile membership alone is historical, so it never starts a
+    /// wait or invents a new flight. A completed/cancelled native sequence admits the queued view
+    /// on the next frame without a deadline or a gameplay callback.
+    /// </summary>
+    private bool IncomingHandBurnActive()
+    {
+        CardsHandUI? incoming = Board.CharacterFocus.PresentedHand(CurrentHand());
+        if (incoming == null || ReferenceEquals(incoming, _boundHand)) return false;
+        // This is the same native lifetime pair used by BurnArtwork.LosingCards. Inactive hands
+        // can retain cancelled bookkeeping; neither flag alone is proof of a running sequence.
+        bool active = incoming.gameObject.activeInHierarchy && incoming.AnimatingLostCards && incoming.animatedLosingCard;
+        if (incoming.cardsUI == null) return active;
+        foreach (AbilityCardUI widget in incoming.cardsUI)
+        {
+            if (widget == null) continue;
+            active |= BurnArtwork.Playing(BurnArtwork.EffectsOf(widget));
+        }
+        return active;
+    }
+
+    private CardsHandUI? PresentedHandForCardLayout(CardsHandUI? gameHand) =>
+        _burnLayoutPending ? _boundHand : Board.CharacterFocus.PresentedHand(gameHand);
 
     private bool DeferLayoutForBurn()
     {

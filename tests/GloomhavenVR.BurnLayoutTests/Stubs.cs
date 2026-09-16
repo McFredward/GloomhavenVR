@@ -1,4 +1,4 @@
-namespace UnityEngine { internal static class Time { internal static float unscaledTime; } }
+namespace UnityEngine { internal sealed class GameObject { internal bool activeInHierarchy=true; } internal static class Time { internal static float unscaledTime; } }
 namespace ScenarioRuleLibrary {
     internal class CAbilityCard { }
     internal class CPlayerActor { internal CCharacterClass CharacterClass = new(); }
@@ -10,7 +10,7 @@ namespace GloomhavenVR.Cards {
     using ScenarioRuleLibrary;
     internal sealed class AbilityCardUI { internal CPlayerActor? PlayerActor; internal CAbilityCard? AbilityCard; internal bool Playing; }
     internal sealed class FullAbilityCard { internal bool Playing; }
-    internal sealed class CardsHandUI { internal CPlayerActor? PlayerActor; }
+    internal sealed class CardsHandUI { internal CPlayerActor? PlayerActor; internal UnityEngine.GameObject gameObject=new(); internal bool AnimatingLostCards,animatedLosingCard; internal List<AbilityCardUI> cardsUI=new(); }
     internal sealed class VRCard { internal AbilityCardUI? GameCard; internal FullAbilityCard FullCard = new(); internal bool IsFlying, IsVanishing, IsHeld, Parked; internal int Seat; }
     internal static class BurnArtwork {
         internal static object? EffectsOf(object? value) => value;
@@ -35,6 +35,8 @@ namespace GloomhavenVR.Cards {
         private bool IsParked(VRCard card) => card.Parked;
         private int CapturedActiveSource(AbilityCardUI widget, CPlayerActor? owner) => 17;
         internal bool NativeLossActive;
+        internal CardsHandUI? Incoming;
+        private CardsHandUI? CurrentHand() => Incoming ?? _boundHand;
         internal int Renders, Flights, GrabBlocks;
         internal List<VRCard> Requested = new();
         internal List<VRCard> Drawn = new();
@@ -45,6 +47,7 @@ namespace GloomhavenVR.Cards {
         internal void ActiveCard(VRCard card) => _active.Cards.Add(card);
         internal bool HasSource(AbilityCardUI card) => _activeExitOrigins.ContainsKey(card);
         internal bool Pending => _burnLayoutPending;
+        internal CPlayerActor? LayoutActor => PresentedHandForCardLayout(CurrentHand())?.PlayerActor;
         internal bool Dirty => _dirty;
         internal bool HalfBlocked => _half.ReadOnly;
         internal void Tick() { _dirty=false; RefreshBurnLayoutBarrier(); RebuildProbe(); }
@@ -62,3 +65,5 @@ namespace GloomhavenVR.Cards {
         }
     }
 }
+
+namespace GloomhavenVR.Board { internal static class CharacterFocus { internal static Cards.CardsHandUI? PresentedHand(Cards.CardsHandUI? hand)=>hand; } }

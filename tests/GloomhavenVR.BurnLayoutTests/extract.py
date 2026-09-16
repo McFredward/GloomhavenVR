@@ -17,6 +17,8 @@ assert rebuild.index('if (DeferLayoutForBurn()) return;') < rebuild.index('Board
 update=(cards/'Driver/CardsDriver.2.Update.cs').read_text()
 assert update.index('RefreshBurnLayoutBarrier();') < update.index('DrainSwapExit();') < update.index('if (_boardChanged && !_burnLayoutPending)') < update.index('Rebuild(anchor);'), 'Burn discovery must precede board replacement'
 assert '_faceRestoreDeadline += Time.unscaledDeltaTime;' in method(source,'private void DrainSwapExit()'), 'Paused exchange must retain original faces'
+assert 'CardsHandUI? presented = PresentedHandForCardLayout(hand);' in update, 'Per-frame card populations must follow the admitted hand'
+assert 'if (!_burnLayoutPending || _boundHand != null)' in update, 'An unbound incoming view must not fall through to new piles'
 assert 'if (modalBlock || _burnLayoutPending)' in update, 'Burn wait must disarm retained card grabs'
 field=(cards/'Driver/CardsDriver.5.Interactions.cs').read_text()
 assert 'if (DeferLayoutForBurn()) return;' in method(field,'private void RelayoutField()'), 'Pick field must await burn'

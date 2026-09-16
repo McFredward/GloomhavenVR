@@ -24,6 +24,21 @@ static class Program {
         {var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var c=Card(actor);d.Add(c);actor.CharacterClass.LostAbilityCards.Add(c.GameCard!.AbilityCard!);d.Known(c.GameCard);d.Requested.Add(c);d.Tick();Check(!d.Pending&&d.Flights==0,"Already-burnt browse cards must not restart a hold");}
         {var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var c=Card(actor);c.Parked=true;c.FullCard.Playing=true;d.Add(c);d.Tick();Check(!d.Pending,"Hidden pooled artwork must not strand another layout");c.Parked=false;c.IsFlying=true;d.Tick();Check(!d.Pending,"A departed flight must not block the next layout");c.IsFlying=false;c.IsVanishing=true;d.Tick();Check(!d.Pending,"An unrelated vanish must not become a burn barrier");c.IsVanishing=false;c.IsHeld=true;c.FullCard.Playing=false;actor.CharacterClass.LostAbilityCards.Add(c.GameCard!.AbilityCard!);d.Tick();Check(!d.Pending,"Held card must not invent an unlaunchable pending flight");}
         {Time.unscaledTime=0;var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var first=Card(actor);var second=Card(actor,1);d.Add(first);d.Add(second);actor.CharacterClass.LostAbilityCards.Add(first.GameCard!.AbilityCard!);actor.CharacterClass.LostAbilityCards.Add(second.GameCard!.AbilityCard!);first.FullCard.Playing=true;d.Tick();Time.unscaledTime=5;d.Tick();Check(d.Pending&&d.Flights==0&&d.Renders==0,"Every burning card must contribute to the shared layout barrier");first.FullCard.Playing=false;second.FullCard.Playing=true;d.Tick();Check(d.Pending&&d.Flights==0,"A second burn must finish before either source departs");second.FullCard.Playing=false;d.Tick();Check(!d.Pending&&d.Flights==2&&d.Renders==1,"A completed burn batch must release every source once");}
+        {
+            var outgoing=new CPlayerActor();var incoming=new CPlayerActor();var d=new CardsDriver();d.Bind(outgoing);
+            var old=Card(outgoing);d.Add(old);var burning=Card(incoming);var replacement=Card(incoming,1);
+            var hand=new CardsHandUI{PlayerActor=incoming};hand.cardsUI.Add(burning.GameCard!);hand.cardsUI.Add(replacement.GameCard!);
+            incoming.CharacterClass.LostAbilityCards.Add(burning.GameCard!.AbilityCard!);
+            burning.GameCard.Playing=true;d.Incoming=hand;d.Requested.Add(replacement);
+            for(int i=0;i<20;i++){Time.unscaledTime+=1;d.Tick();Check(d.Pending&&d.Renders==0&&d.Flights==0&&d.Drawn.Contains(old)&&ReferenceEquals(d.LayoutActor,outgoing),"Incoming native burn must wait before replacing the outgoing character");}
+            burning.GameCard.Playing=false;hand.AnimatingLostCards=true;hand.animatedLosingCard=true;d.Tick();Check(d.Pending&&d.Renders==0,"Incoming owning-hand loss sequence must finish before focus admission");
+            hand.animatedLosingCard=false;d.Tick();Check(!d.Pending&&d.Renders==1&&d.Flights==0,"Completed incoming burns must admit focus without replaying a historical loss");
+            hand.animatedLosingCard=true;hand.gameObject.activeInHierarchy=false;d.Tick();Check(!d.Pending,"An inactive cancelled incoming hand must not freeze focus on stale loss flags");
+            hand.gameObject.activeInHierarchy=true;hand.AnimatingLostCards=false;d.Tick();Check(!d.Pending,"One incoming native loss flag alone must not strand focus");
+            hand.cardsUI.Clear();d.Tick();Check(!d.Pending,"An incoming hand with no native artwork must not invent a burn wait");
+            hand.cardsUI.Add(burning.GameCard);burning.GameCard.Playing=true;d.Tick();Check(d.Pending,"A new incoming burn must re-arm admission from actual native playback");
+            d.Incoming=null;d.Tick();Check(!d.Pending,"Cancelling incoming focus must release its presentation-only wait");
+        }
         Console.WriteLine($"Burn layout: {checks} assertions passed.");
     }
 }

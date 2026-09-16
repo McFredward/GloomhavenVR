@@ -840,7 +840,7 @@ internal sealed partial class CardsDriver
         CardsHandUI? hand = CurrentHand();
         // The character the BOARD is presenting (focus override applied). Resolved once per tick
         // and only handed to surfaces that DISPLAY — never to a path that can reach a game seam.
-        CardsHandUI? presented = Board.CharacterFocus.PresentedHand(hand);
+        CardsHandUI? presented = PresentedHandForCardLayout(hand);
         // THE INVARIANT, BEFORE ANYTHING READS THE PICK GATE THIS FRAME: the mod must never be
         // refusing a pick the GAME genuinely has open. User ruling 2026-09-07, on being offered a
         // visible escape hatch instead — "Nein das will ich nicht. Sorge einfach dafür das so etwas
@@ -862,7 +862,11 @@ internal sealed partial class CardsDriver
         {
             _tray.TickStatus(_fakeActive ? null : hand);
             _rest.TickStatus(_fakeActive ? null : hand);
-            _piles.TickStatus(_fakeActive ? null : hand, _fakeActive ? null : presented);
+            // Pile/item presentation follows the admitted card hand while a focus exchange waits.
+            // Native action/status pumps keep their real hand; an unbound incoming view has no
+            // old pile to update and must not fall back to the new actor before admission.
+            if (!_burnLayoutPending || _boundHand != null)
+                _piles.TickStatus(_fakeActive ? null : hand, _fakeActive ? null : presented);
             // feature 6: rebuild the active area when its set changes — watched on the PRESENTED
             // hand, the same one UpdateActive builds from (see PollActive's doc for why the two
             // halves reading different characters is the item-pile defect shape).
