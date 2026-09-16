@@ -79,6 +79,12 @@ internal static class NetProtocol
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
     public const byte ExtIdVideoWindow = 72;
+    /// <summary>Shared native reward pose; distinct from legacy shared-window record21.</summary>
+    public const byte ExtIdRewardWindow = 73;
+    /// <summary>Record 73 only: absolute scenario game-world pose, independent of local camera pan/seat.
+    /// Legacy record 21 retains its existing frame 0/1 grammar.</summary>
+    public const byte RewardFrameScenario = 2;
+    public const ushort RewardWindowMinPeerBuild = 510;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;

@@ -990,8 +990,8 @@ internal static class MapSyncVectors
         t.Equal(NetProtocol.SharedWindowKindEncounter, NetProtocol.SharedWindowKindMax,
                 "and the encounter is the largest kind this build can name, so a kind 4 from a newer "
                 + "sender is stepped over by its own computed length");
-        t.Equal(4301, PresenceSerializer.MaxSize,
-                "Video72 retains a257-byte margin (worst4044) with allocation-only buffer4301; actual snapshots remain below4096. MB497 added record71 (worst3840) with buffer4097. MB490 raised the buffer to4096 for exclusive second scenario/map provenance66/67 (worst3837, margin259). MaxSize was raised 1600 -> 1800 when records 20 and 21 landed: the worst case went "
+        t.Equal(4331, PresenceSerializer.MaxSize,
+                "Reward73 retains a 257-byte margin (worst 4074) with allocation-only buffer 4331. Video72 used worst4044 and buffer4301; actual snapshots remain below4096. MB497 added record71 (worst3840) with buffer4097. MB490 raised the buffer to4096 for exclusive second scenario/map provenance66/67 (worst3837, margin259). MaxSize was raised 1600 -> 1800 when records 20 and 21 landed: the worst case went "
                 + "1357 -> 1430 (+8 for record 20 with its TLV header, +65 for record 21 with "
                 + "its), and the margin at 1600 would have been 170 — thinner than the largest "
                 + "single record (257, board tuning) and therefore a violation of the rule that "

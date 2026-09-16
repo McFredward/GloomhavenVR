@@ -696,6 +696,19 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
     /// </summary>
     private static NetAvatarDriver? _instance;
 
+    /// <summary>Known live VR participants that understand reward pose readiness. Native flat
+    /// players and older clients never block a new window's first reveal.</summary>
+    internal static void CollectRewardPosePeers(List<int> into)
+    {
+        into.Clear();
+        NetAvatarDriver? driver = _instance;
+        if (driver == null) return;
+        foreach (var pair in driver._avatars)
+            if (pair.Value.TimeSinceUpdate <= NetProtocol.StaleTimeoutSeconds
+                && VersionGuard.PeerBuild(pair.Key) >= NetProtocol.RewardWindowMinPeerBuild)
+                into.Add(pair.Key);
+    }
+
     /// <summary>
     /// A peer's LIVE rig scale — their diorama zoom — or false when that peer has no avatar yet.
     ///
@@ -2049,6 +2062,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             // Both getters return false outright while MapRoomDriver.Active is off, so a client
             // with the 3D map switched off evaluates two bools and is otherwise untouched.
             && !RemoteMapRoom.SendDue && !RemoteMapStory.SendDue && !RemoteVideoPlayback.SendDue
+            && !RemoteMapStory.RewardSendDue
             // …and a shared window being CARRIED here raises the cadence to the rig rate for as long
             // as the hand is on it, exactly as a carried board does (see sharedWindowDue above).
             // Note this sits beside RemoteMapStory.SendDue and does NOT duplicate it: that getter is
@@ -2065,6 +2079,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
 
         FillEnvironmentRecords(ref extras);
         RemoteVideoPlayback.Sample(ref extras, _transport.LocalPlayerId);
+        RemoteMapStory.SampleReward(ref extras, _transport.LocalPlayerId);
 
         if (board != null)
         {
@@ -4161,6 +4176,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
                     RemoteMapRoom.Observe(kv.Key, in p);
                     RemoteMapStory.Observe(kv.Key, in p);
                     RemoteVideoPlayback.Observe(kv.Key, in p);
+                    RemoteMapStory.ObserveReward(kv.Key, in p);
                 }
                 catch (Exception e) { LogPhaseError($"Apply extras packet from player {kv.Key}", e); }
             }
@@ -4191,6 +4207,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         RemoteMapRoom.Resolve();
         RemoteMapStory.Resolve();
         RemoteVideoPlayback.Resolve(_transport != null ? _transport.LocalPlayerId : 0);
+        RemoteMapStory.ResolveReward(_transport != null ? _transport.LocalPlayerId : 0);
     }
 
     /// <summary>A peer's last environment-clock reading (extension record 31) and when it

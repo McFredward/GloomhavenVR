@@ -65,6 +65,8 @@
          Sprite, and this project references UnityEngine.CoreModule and nothing else. -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarSlotIdentity.cs" Link="wire\UseBarSlotIdentity.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\VideoWindowState.cs" Link="wire\VideoWindowState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardWindowState.cs" Link="wire\RewardWindowState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Board\IBoardAnchor.cs" Link="wire\IBoardAnchor.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetPacket.cs" Link="wire\NetPacket.cs" />
     <!-- Record 28's PAGING (2026-08-09). It belongs on this list for the same reason the
          serializers do: it is a wire format with a sender and a receiver that never meet, and its
@@ -272,6 +274,7 @@
     <Compile Include="FanInteractionVectors.cs" />
     <Compile Include="FanInsertionGapVectors.cs" />
     <Compile Include="VideoWindowVectors.cs" />
+    <Compile Include="RewardWindowVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\FanOrderMemory.cs" Link="cards\FanOrderMemory.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\FanPresentationSendState.cs" Link="wire\FanPresentationSendState.cs" />
     <Compile Include="CardPlumeVectors.cs" />

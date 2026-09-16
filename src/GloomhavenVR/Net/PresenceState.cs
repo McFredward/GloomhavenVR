@@ -11,6 +11,8 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal struct PresenceState
 {
+    public bool HasRewardWindow;
+    public RewardWindowState RewardWindow;
     public bool HasVideoWindow;
     public VideoWindowState VideoWindow;
     /// <summary>True when <see cref="Board"/>/<see cref="BoardScale"/> carry a valid control-board
@@ -1610,9 +1612,13 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>Video record72 adds at most204 bytes (160-byte relative clip plus playback/pose):
-    /// 3840 -> 4044 worst case, still below the4096-byte reassembly limit. The allocation-only
-    /// buffer grows to4301, preserving the257-byte spare-record margin.</para>
+    /// <para>Reward record 73 adds at most 30 bytes: 4044 -> 4074 worst case, still below
+    /// the 4096-byte reassembly limit. The allocation-only buffer grows to 4331,
+    /// retaining the 257-byte spare-record margin.</para>
+    ///
+    /// <para>Video record 72 added at most 204 bytes (160-byte relative clip plus playback/pose):
+    /// 3840 -> 4044 worst case. Its allocation-only buffer grew to 4301, preserving the
+    /// 257-byte spare-record margin without changing the reassembly limit.</para>
     ///
     /// <para>MB497 adds three bytes for insertion-gap record71: 3837 -> 3840 worst case.
     /// The allocation-only buffer grows to4097 to retain a257-byte spare-record margin;
@@ -1847,7 +1853,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 4301;
+    public const int MaxSize = 4331;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1923,6 +1929,7 @@ internal static class PresenceSerializer
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
                           || state.HasVideoWindow
+                          || state.HasRewardWindow
                           || state.HasFanInsertionGap
                           || (state.HasFanArcOrder && state.FanArcOrderCount > 0
                               && state.FanArcOrder != null)
@@ -2684,6 +2691,8 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.HasRewardWindow && RewardWindowCodec.Write(buffer, ref i, in state.RewardWindow))
+            records++;
         if (state.HasVideoWindow && VideoWindowCodec.Write(buffer, ref i, in state.VideoWindow))
             records++;
         if (state.HasFanInsertionGap && i + 3 <= buffer.Length)
@@ -3993,7 +4002,11 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
-        if (id == NetProtocol.ExtIdVideoWindow)
+        if (id == NetProtocol.ExtIdRewardWindow)
+        {
+            state.HasRewardWindow = RewardWindowCodec.TryRead(buffer, i, len, out state.RewardWindow);
+        }
+        else if (id == NetProtocol.ExtIdVideoWindow)
         {
             state.HasVideoWindow = VideoWindowCodec.TryRead(buffer, i, len, out state.VideoWindow);
         }
