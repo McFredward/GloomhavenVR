@@ -18,6 +18,9 @@ assert 'PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source,
 assert 'ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard)' in a, 'Burn ownership receives exact completion identity'
 b=(r/'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.CardAppearance.cs').read_text()
 assert 'viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, sender.PlayerId, originalCard)' in b, 'Foreign-focus boards retain the actual appearance publisher'
+hook=(r/'src/GloomhavenVR/Cards/BurnArtwork.cs').read_text()
+assert 'if (burnAnim && running) Net.CardAppearanceSampler.ObserveNativeBurnStart(__instance);' in hook, 'Native progress must be registered at the actual first running burn step'
+assert 'bool firstStep = true;' in hook and 'firstStep = false;' in hook, 'Native progress registration is once per iterator'
 print('Burn completion production binding: sampler, legacy/history admission and canonical observer dispatch verified.')
 PYBIND
 dotnet run --project "$project" -c Release --property:SamplerSource="$source"

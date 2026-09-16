@@ -153,10 +153,16 @@ internal static class BurnArtwork
     {
         private static void Postfix(CardEffects __instance, bool burnAnim, ref System.Collections.IEnumerator __result)
         {
+            bool firstStep = true;
             var playback = new NativeBurnEnumerator(__result,
                 () => RestoreNativeBurnChannels(__instance),
                 running =>
                 {
+                    if (firstStep)
+                    {
+                        firstStep = false;
+                        if (burnAnim && running) Net.CardAppearanceSampler.ObserveNativeBurnStart(__instance);
+                    }
                     // A native no-ramp settle is already authoritative completion. It must not
                     // inherit an earlier cosmetic floor's raw in-progress reading.
                     if (!burnAnim)

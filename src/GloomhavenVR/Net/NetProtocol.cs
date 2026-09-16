@@ -514,6 +514,8 @@ internal static class NetProtocol
     //   Actual native iterator completion distinguishes synchronous bails from stale handles.
     //   Remote burn release carries original card provenance and an owner presentation clock;
     //   retained terminal native output survives widget retirement and delayed delivery.
+    //   Record 75 also carries explicit owner burn progress for incoming character admission;
+    //   unadopted completed effects do not replay or invent flights when focus changes.
     //   Consumed items retain their original clipped widget until its actual native timeline
     //   finishes. Additive item appearance stream 17/18, record 76, mirrors original node output.
     //   Cosmetic waits never stop native gameplay callbacks or auto-confirm mandatory choices.
