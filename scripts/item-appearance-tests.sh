@@ -3,6 +3,7 @@
 set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export PATH="${DOTNET_ROOT:-$HOME/.dotnet}:$PATH"
+python3 "$repo_root/tests/GloomhavenVR.ItemAppearanceTests/transport_bindings.py" "$repo_root"
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.ItemAppearanceTests/"*.cs "$repo_root/tests/GloomhavenVR.ItemAppearanceTests/"*.csproj "$work_dir/"

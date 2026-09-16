@@ -15,7 +15,7 @@ internal static class PresentationSendReuseVectors
             before[peer] = Scheduler((ulong)(32 * (peer + 1)));
             after[peer] = Scheduler((ulong)(32 * (peer + 1)));
         }
-        var bytes = new byte[CardAppearanceCodec.MaxSize];
+        var bytes = new byte[Math.Max(CardAppearanceCodec.MaxSize, ItemAppearanceCodec.MaxSize)];
         for (int frame = 0; frame < 12; frame++)
         {
             for (int peer = 0; peer < 4; peer++)
@@ -25,6 +25,11 @@ internal static class PresentationSendReuseVectors
                 var appearance = Appearance(frame, actor, clear ? 0 : 12);
                 CompareEnqueue(before[peer], after[peer], bytes,
                     CardAppearanceCodec.Write(appearance, bytes), appearance);
+                var items = new ItemAppearanceSnapshot(frame, clear ? Array.Empty<ItemAppearanceState>() : new[] {
+                    new ItemAppearanceState { ActorId = actor, Count = 1, Generation = (uint)actor,
+                        Nodes = new[] { new ItemAppearanceNode { Binding = 1, Value = new CardAppearanceNode { Flags = 3 } } } } });
+                CompareEnqueue(before[peer], after[peer], bytes,
+                    ItemAppearanceCodec.Write(items, bytes), items);
                 var bonus = new UseBarAnimationSnapshot(frame, clear ? Array.Empty<UseBarAnimationState>() : new[] {
                     new UseBarAnimationState { ActorId = actor, Slot = 0, SlotIdentity = (ushort)actor } });
                 CompareEnqueue(before[peer], after[peer], bytes,
