@@ -945,6 +945,8 @@ internal sealed class RemoteAvatar
     internal bool HoldsBurnCardLayout => _burnFx.HoldsCardLayout;
     internal ScenarioRuleLibrary.CPlayerActor? BurnPresentationActor => _burnFx.PresentationActor;
     internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
+    internal ScenarioRuleLibrary.CAbilityCard? PresentedBurnSource(byte endpoints, CardFlightSource? source, int actorId)
+        => _controlBoard.PresentedBurnSource(endpoints, source, actorId);
     internal void SuppressBurnActiveCard(int cardId) => _controlBoard.SuppressBurnActiveCard(cardId);
 
     /// <summary>

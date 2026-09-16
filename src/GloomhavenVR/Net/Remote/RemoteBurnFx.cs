@@ -134,10 +134,9 @@ internal sealed class RemoteBurnFx
     /// </summary>
     private const float WatchSeconds = 0.08f;
 
-    /// <summary>Concurrent burn presentations. A two-card damage burn commits both cards in the
-    /// SAME frame — the 2026-09-05 host log shows exactly that pair — so one is not enough; beyond
-    /// this the oldest is recycled, because a burn animation is cosmetic and must never be a queue
-    /// that backs up.</summary>
+    /// <summary>Concurrent presentations cover the complete native card stream population. The
+    /// old three-slab pool could recycle an unfinished burn when several active bonuses expired
+    /// together. Legitimate simultaneous native cards must all retain their own presentation.</summary>
     private const int MaxBurns = CardAppearanceState.CountMax;
 
     /// <summary>Slack added to (hold + flight) before this mirror stops claiming the owner's
@@ -186,8 +185,27 @@ internal sealed class RemoteBurnFx
                     && (actor.CharacterClass.LostAbilityCards.Contains(card)
                         || actor.CharacterClass.PermanentlyLostAbilityCards.Contains(card))) return actor;
             }
+            foreach (PendingRelease pending in _pendingReleases)
+            {
+                if (pending.CompletionTime < 0f || pending.FallbackPlayed || pending.ActorId != _watchActor) continue;
+                CPlayerActor? actor = RemoteBoardFocus.ActorById(pending.ActorId);
+                if (actor != null && !PendingRecovered(pending, actor)) return actor;
+            }
             return null;
         }
+    }
+
+    private bool PendingRecovered(PendingRelease pending, CPlayerActor actor)
+    {
+        CAbilityCard? card = pending.OriginalCard;
+        if (card == null) return false;
+        var cards = actor.CharacterClass;
+        if (cards.LostAbilityCards.Contains(card) || cards.PermanentlyLostAbilityCards.Contains(card)) return false;
+        bool returned = cards.HandAbilityCards.Contains(card) || cards.RoundAbilityCards.Contains(card)
+            || cards.ActivatedCards.Contains(card);
+        return returned && CardAppearanceMirror.HasRecoveredSourceAfter(
+            pending.PresentationPlayer != 0 ? pending.PresentationPlayer : _owner.PlayerId,
+            actor, card, pending.CompletionTime);
     }
 
     private bool OwnsDisplayedBoard(Burn burn) => BurnReleasePolicy.OwnsBoard(burn.ActorId,
@@ -478,6 +496,7 @@ internal sealed class RemoteBurnFx
         public float CompletionTime = -1f;
         public int PresentationPlayer;
         public bool FallbackPlayed;
+        public CAbilityCard? OriginalCard;
     }
 
     private readonly List<PendingRelease> _pendingReleases = new(MaxBurns);
@@ -506,6 +525,7 @@ internal sealed class RemoteBurnFx
         {
             Endpoints = endpoints, Flags = flags, Source = source, ActorId = actorId, ReceivedAt = Time.unscaledTime,
             CompletionTime = completionTime, PresentationPlayer = presentationPlayer,
+            OriginalCard = _owner.PresentedBurnSource(endpoints, source, actorId),
         });
         _nextWalkAt = 0f;
         return true;
@@ -565,6 +585,12 @@ internal sealed class RemoteBurnFx
             float age = Time.unscaledTime - pending.ReceivedAt;
             if ((!pending.Source.HasValue && pending.ActorId != actorId) || pending.CompletionTime < 0f && age > ReleaseMemorySeconds
                 || pending.CompletionTime >= 0f && RemoteBoardFocus.ActorById(pending.ActorId) == null)
+            {
+                _pendingReleases.RemoveAt(i);
+                continue;
+            }
+            CPlayerActor? pendingActor = RemoteBoardFocus.ActorById(pending.ActorId);
+            if (pending.CompletionTime >= 0f && pendingActor != null && PendingRecovered(pending, pendingActor))
             {
                 _pendingReleases.RemoveAt(i);
                 continue;

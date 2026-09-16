@@ -378,6 +378,12 @@ internal sealed class RemoteActiveCards
             panel.TransferToFlight(cardId, actor, generation);
     }
 
+    internal CAbilityCard? PresentedSource(CardFlightSource? source)
+    {
+        if (!source.HasValue || source.Value.Count != _buffer.Count || source.Value.Seat >= _buffer.Count) return null;
+        return _buffer[source.Value.Seat];
+    }
+
     internal void SuppressBurnCard(int cardId)
     {
         if (_panelsByCard.TryGetValue(cardId, out RemoteBoardCard panel)) panel.Blank();
@@ -389,7 +395,8 @@ internal sealed class RemoteActiveCards
         {
             // Do not compact ActivatedCards over the old cell while its departure burns.
             // Native material playback remains live independently of this layout refresh.
-            foreach (var panel in _cards) panel.HoldBurnPresentation(actor);
+            foreach (var panel in _cards) panel.HoldBurnPresentation(actor, alreadyPublic: true);
+            DrivePulse(actor);
             return;
         }
         // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It

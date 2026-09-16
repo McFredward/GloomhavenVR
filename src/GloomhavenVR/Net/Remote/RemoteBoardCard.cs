@@ -110,6 +110,7 @@ internal sealed class RemoteBoardCard
     private float _glideSpeed = Defaults.CardLerpSpeed;
 
     private CAbilityCard? _presentationCard;
+    internal CAbilityCard? PresentedCard => !_shownEmpty && _presentationCard?.CardInstanceID == _shownId ? _presentationCard : null;
     private int _shownId = int.MinValue;
     private bool _shownFront;
     private bool _shownEmpty = true;
@@ -698,11 +699,12 @@ internal sealed class RemoteBoardCard
 
     // ---------------------------------------------------------- half hover/selection glow --
 
-    internal void HoldBurnPresentation(CPlayerActor? actor)
+    internal void HoldBurnPresentation(CPlayerActor? actor, bool alreadyPublic = false)
     {
         if (_shownEmpty || _presentationCard == null || _shownId != _presentationCard.CardInstanceID) return;
         // Layout holds never freeze secrecy: a real phase change still covers the same card.
-        bool front = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor,
+        bool front = RevealGate.CardFaces(alreadyPublic ? RevealGate.PeerCardPopulation.AlreadyPublic
+            : RevealGate.PeerCardPopulation.Selectable, actor,
             _presentationCard.CardInstanceID, scenarioEstablished: true, out _) != RevealGate.CardFaceSource.None;
         Set(_presentationCard, front, actor);
     }

@@ -529,7 +529,8 @@ internal sealed class RemoteBrowserFan
                     Quaternion.Slerp(_root.transform.rotation, heldRotation, heldBlend));
                 _root.transform.localScale = Vector3.one * heldScale;
             }
-            if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable,
+            if (_shownKind != NetProtocol.PileBrowseKindItems
+                && RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable,
                 RemoteBoardFocus.DisplayedActor(_owner, out _)) == RevealGate.CardFaceSource.None)
                 _fronts.HideAll();
             return;

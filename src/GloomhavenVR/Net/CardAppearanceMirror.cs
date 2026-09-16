@@ -77,6 +77,23 @@ internal static class CardAppearanceMirror
         progress = frame.Clock.Progress(frame.Previous!.SampleTime, frame.Current.SampleTime);
         return true;
     }
+    // Cancellation evidence only. A recovered card no longer has a valid Lost-list address,
+    // but a post-release owner sample in a recovered population proves the old burn ended. Never
+    // use this weaker test to authorize a flight or to paint a recovered card's old materials.
+    internal static bool HasRecoveredSourceAfter(int playerId, CPlayerActor? actor, CAbilityCard? card, float completionTime)
+    {
+        if (completionTime < 0f || actor == null || card == null || !Frames.TryGetValue(playerId, out var frame)
+            || frame.Current == null || frame.Current.SampleTime < completionTime) return false;
+        int actorId = NetFigures.StableActorId(actor);
+        foreach (var state in frame.Current.States)
+            if (state.ActorId == actorId && state.SourceActorId != 0
+                && (NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListHand
+                    || NetProtocol.HeldFaceList(state.FaceCode) == CardPlumeState.RoundList
+                    || NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListActive)
+                && ReferenceEquals(card, CardAppearanceProvenance.Resolve(state))) return true;
+        return false;
+    }
+
     internal static bool HasPresentedThrough(int playerId, CPlayerActor? actor, CAbilityCard? card, float completionTime)
     {
         if (completionTime < 0f) return true; // old senders have no cross-stream watermark

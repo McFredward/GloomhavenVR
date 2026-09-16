@@ -24,19 +24,21 @@ assert method(fx,'public void Tick(').index('new PendingFlight(pending.Endpoints
 fixture='''using System;
 using System.Collections.Generic;
 internal sealed class CAbilityCard { internal int CardInstanceID; internal CAbilityCard(int id) { CardInstanceID=id; } }
-internal sealed class Character { internal List<CAbilityCard> LostAbilityCards=new(), PermanentlyLostAbilityCards=new(); }
+internal sealed class Character { internal List<CAbilityCard> LostAbilityCards=new(), PermanentlyLostAbilityCards=new(), HandAbilityCards=new(), RoundAbilityCards=new(), ActivatedCards=new(); }
 internal sealed class CPlayerActor { internal int Id; internal Character CharacterClass=new(); internal CPlayerActor(int id) { Id=id; } }
 internal sealed class AbilityCardUI { internal CAbilityCard? AbilityCard; }
 internal static class RemoteBoardFocus { internal static Dictionary<int,CPlayerActor> Actors=new(); internal static CPlayerActor? ActorById(int id)=>Actors.GetValueOrDefault(id); }
 internal sealed class Burn { internal bool Active=true, HandoverLogged; internal int ActorId; internal AbilityCardUI? Widget; }
 internal sealed class BurnFixture {
 internal List<Burn> _burns=new();
-'''+method(burn,'internal CPlayerActor? PresentationActor')+'''
+internal sealed class PendingRelease { internal float CompletionTime=-1; internal bool FallbackPlayed; internal int ActorId,PresentationPlayer; internal CAbilityCard? OriginalCard; }
+internal List<PendingRelease> _pendingReleases=new(); internal int _watchActor; internal Owner _owner=new();
+'''+method(burn,'internal CPlayerActor? PresentationActor')+method(burn,'private bool PendingRecovered(').replace('CardAppearanceMirror.','MirrorFixture.')+'''
 }
-internal sealed class Panel { internal int Holds; internal void HoldBurnPresentation(CPlayerActor? a) { Holds++; } }
-internal sealed class Owner { internal bool HoldsBurnCardLayout; internal bool BurnOwnsRecess(int i)=>false; }
+internal sealed class Panel { internal int Holds; internal void HoldBurnPresentation(CPlayerActor? a, bool alreadyPublic=false) { Holds++; } }
+internal sealed class Owner { internal int PlayerId=7; internal bool HoldsBurnCardLayout; internal bool BurnOwnsRecess(int i)=>false; }
 internal sealed class ActiveFixture {
-internal Owner _owner=new(); internal List<Panel> _cards=new(){new(),new()}; internal int Reflows;
+internal Owner _owner=new(); internal List<Panel> _cards=new(){new(),new()}; internal int Reflows, Pulses; private void DrivePulse(CPlayerActor actor) {Pulses++;}
 '''+gate(active,'public void Refresh(','bool showFronts =')+'''Reflows++; }
 }
 internal sealed class BoardFixture {
@@ -44,14 +46,17 @@ internal Owner _owner=new(); internal CPlayerActor? _latchedActor; internal Pane
 void SuppressBurnRecess(int i) {}
 '''+gate(board,'private void SeatSlots(','int wire =').replace('private void SeatSlots','internal void SeatSlots')+'''Replacements++; }
 }
-internal sealed class CardAppearanceState { internal int SourceActorId; internal CAbilityCard? Original; }
-internal sealed class CardAppearanceSnapshot { internal float SampleTime; internal CardAppearanceSnapshot(float time){SampleTime=time;} }
+internal static class NetFigures {internal static int StableActorId(CPlayerActor a)=>a.Id;}
+internal static class NetProtocol {internal const byte HeldFaceListHand=1,HeldFaceListActive=2; internal static byte HeldFaceList(byte code)=>code;}
+internal static class CardPlumeState {internal const byte RoundList=3;}
+internal sealed class CardAppearanceState { internal int ActorId; internal byte FaceCode; internal int SourceActorId; internal CAbilityCard? Original; }
+internal sealed class CardAppearanceSnapshot { internal CardAppearanceState[] States=Array.Empty<CardAppearanceState>(); internal float SampleTime; internal CardAppearanceSnapshot(float time){SampleTime=time;} }
 internal static class CardAppearanceProvenance { internal static CAbilityCard? Resolve(CardAppearanceState s)=>s.Original; }
 internal static class MirrorFixture {
 internal sealed class Frame { internal CardAppearanceSnapshot? Current, Previous; }
 internal static Dictionary<int,Frame> Frames=new();
 internal static bool Available=true; internal static float Progress; internal static CardAppearanceState? From,To;
 private static bool TryGet(int p,CPlayerActor a,CAbilityCard c,out CardAppearanceState? previous,out CardAppearanceState? current,out float progress) {previous=From;current=To;progress=Progress;return Available;}
-'''+method(mirror,'internal static bool HasPresentedThrough(')+''' }
+'''+method(mirror,'internal static bool HasPresentedThrough(')+method(mirror,'internal static bool HasRecoveredSourceAfter(')+''' }
 '''
 out.write_text(fixture)

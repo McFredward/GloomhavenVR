@@ -19,6 +19,7 @@ internal static class Program
             active.Refresh(actor); board.SeatSlots(actor,true,false);
             Check(active.Reflows==0,"Pending burn must not compact the active grid");
             Check(board.Replacements==0,"Pending burn must not replace the first recess");
+            Check(active.Pulses>0,"Layout hold must not freeze native active highlights");
             Check(active._cards[1].Holds>0&&board._cards[1].Holds>0,"Sibling keeps original presentation while native effects tick");
         }
         burn.HandoverLogged=true;
@@ -57,6 +58,21 @@ internal static class Program
         MirrorFixture.From=from;MirrorFixture.Frames[7].Previous=new CardAppearanceSnapshot(10.01f);
         Check(MirrorFixture.HasPresentedThrough(7,actor,card,10f),"Continued samples entirely after completion cannot hold forever");
         Check(MirrorFixture.HasPresentedThrough(7,actor,card,-1f),"Legacy release path remains compatible");
+        var pending=new BurnFixture.PendingRelease {CompletionTime=10f, ActorId=4, OriginalCard=card, PresentationPlayer=7};
+        hold._watchActor=4;hold._pendingReleases.Add(pending);
+        actor.CharacterClass.PermanentlyLostAbilityCards.Clear();actor.CharacterClass.RoundAbilityCards.Add(card);
+        to.ActorId=4;to.FaceCode=9;MirrorFixture.Frames[7].Current!.States=new[]{to};
+        Check(ReferenceEquals(hold.PresentationActor,actor),"Event before model holds the prior actor without treating old Round membership as recovery");
+        to.FaceCode=NetProtocol.HeldFaceListHand;
+        Check(hold.PresentationActor==null,"Causal owner recovery cancels an obsolete unmatched release");
+        pending.OriginalCard=null;
+        Check(ReferenceEquals(hold.PresentationActor,actor),"Unknown original cannot fabricate recovery");
+        pending.FallbackPlayed=true;
+        Check(hold.PresentationActor==null,"Already consumed release leaves no pending hold");
+        pending.FallbackPlayed=false;hold._watchActor=5;
+        Check(hold.PresentationActor==null,"Unrelated focus must never be retargeted by a pending release");
+        hold._watchActor=4;RemoteBoardFocus.Actors.Remove(4);
+        Check(hold.PresentationActor==null,"Destroyed actor releases unresolved causal hold");
         Console.WriteLine($"Remote burn sequencing: {assertions} assertions passed.");
     }
 }

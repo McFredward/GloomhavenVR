@@ -7,7 +7,7 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.cs "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.RemoteBurnSequencingTests.csproj" --configuration Release
-for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight; do
+for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor; do
   mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote"
   cp "$repo_root/src/GloomhavenVR/Net/Remote/"*.cs "$work_dir/source/src/GloomhavenVR/Net/Remote/"
   cp "$repo_root/src/GloomhavenVR/Net/CardAppearanceMirror.cs" "$work_dir/source/src/GloomhavenVR/Net/"
@@ -20,6 +20,8 @@ file,old,new={
 'early-native':('CardAppearanceMirror.cs','progress >= 1f','progress >= 0f'),
 'wrong-provenance':('CardAppearanceMirror.cs','!ReferenceEquals(card, CardAppearanceProvenance.Resolve(current))','bool.Parse("false") && !ReferenceEquals(card, CardAppearanceProvenance.Resolve(current))'),
 'release-bypass':('Remote/RemoteBurnFx.cs','burn.OwnerReleased = true;','burn.OwnerReleased = true; Handover(burn, "early");'),
+'recovery-address':('CardAppearanceMirror.cs','(NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListHand','(bool.Parse("true") || NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListHand'),
+'pending-actor':('Remote/RemoteBurnFx.cs','pending.ActorId != _watchActor','bool.Parse("false") && pending.ActorId != _watchActor'),
 'following-flight':('Remote/RemoteCardFx.cs','        if (_owner.HoldsBurnCardLayout) return false;',''),
 'discovery-order':('Remote/RemoteAvatar.cs','        _burnFx.PreparePresentation();',''),
 }[mutation]
@@ -38,6 +40,8 @@ PY
     release-bypass) expected='Receiving release must not bypass native playback';;
     discovery-order) expected='substring not found';;
     following-flight) expected='Following flights must wait for the earlier native burn';;
+    recovery-address) expected='Event before model holds the prior actor without treating old Round membership as recovery';;
+    pending-actor) expected='Unrelated focus must never be retargeted by a pending release';;
   esac
   if ! grep -Fq "$expected" "$work_dir/mutant.log"; then cat "$work_dir/mutant.log"; exit 1; fi
   echo "Remote burn sequencing negative control: $mutation failed as expected."
