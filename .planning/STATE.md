@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for the reward continuation retest and material fix, ModBuild 511 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for the general continuation audit, ModBuild 512 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.2 / ModBuild 512 audits mandatory input and native continuation.**
+  Map reward managers can be reached outside a scenario controller; failed blocking map
+  conversions can request a usable desktop; travel parking failure retains original guarded
+  input. Reused windows recheck mandatory close admission. Shared reward participation and
+  conversion exception rollback are being integrated and verified in this round.
+  No gameplay lock bypass or timed automatic confirmation is introduced. See
+  [DEADLOCK-512.md](DEADLOCK-512.md) for the scope, evidence and final gate results.
+  Latest supplied logs remain local 510 / remote 500; hardware acceptance is open.
+  No main merge or release publication is part of this audit.
 
 - **dev / 1.0.2 / ModBuild 511 corrects the failed build-510 chest retest.**
   Tutorial/custom scenarios use UIRewardsManager outside Guildmaster mode; its gamepad
@@ -46,7 +56,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   Candidate CI and all local gates passed, including 253,674 wire assertions and
   36 release topology checks. See [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
 - **dev targets 1.0.2.** The workflow preserved main ancestry and advanced the
-  version in bot commit 12f66604. Build 511 is the next hardware candidate;
+  version in bot commit 12f66604. Build 512 is the next hardware candidate;
   the published 1.0.1 release remains unchanged.
 
 - **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**

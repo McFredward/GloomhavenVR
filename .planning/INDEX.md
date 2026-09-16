@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-16 for the reward continuation retest and material fix, build 511 on dev. This directory holds internal
+Updated 2026-09-16 for the general continuation audit, build 512 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [DEADLOCK-512.md](DEADLOCK-512.md): native map reward continuation, travel recovery, mandatory close admission, failed conversion fallback and shared reward participation.
 
 - [REWARDS-511.md](REWARDS-511.md): failed build-510 reward retest, native input/hover, original heading capture and passive TMP material reads.
 

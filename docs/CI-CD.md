@@ -155,7 +155,7 @@ hardware-verification logging and option reachability. The workflow files list t
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
 The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, map-button, flight-timing,
-figure-hold, native-video, reward-showcase, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
+figure-hold, native-video, reward-showcase, modal-close, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
 production source with controlled Unity API substitutes and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
 presentation-send reuse. Their coverage does not replace the full wire vectors or a
@@ -164,11 +164,15 @@ headset test.
 `scripts/card-loss-modal-tests.sh` checks native UI-lock ownership and extracts the actual
 `FlatScreen.WantVisible` method to verify screen, dialog and rescue priorities. Its negative
 controls reject both missing suppression and accidental suppression of real modal screens.
+The production visibility/takeover policy also verifies failed map modal recovery and its
+release after native closure, while preserving movie/loading priority.
 
 `scripts/map-flow-tests.sh` checks native loadout ownership, the actual curtain/travel policies
 and input admission in the map interactor. It covers reusing the party root after the story,
 the separate outer PartyPanel and inner controller-owned window, native multiplayer barriers
-and map locks, with negative controls for the former descendant-only ownership check, missing integration,
+and map locks. Native travel methods execute alongside the actual VR prefix to verify that
+a failed button adoption retains original guarded input and teardown retries the next map.
+The suite includes negative controls for the former descendant-only ownership check, missing integration,
 overbroad curtain release and inappropriate travel visibility.
 
 `scripts/map-button-tests.sh` executes the production off-bar dispatch. It checks complete
@@ -192,7 +196,13 @@ overbroad neutralization and a missing GrabPass remedy.
 `scripts/reward-showcase-tests.sh` executes the native reward iterator through group progression
 and the completion callback, including tutorial/custom-scenario input and multiplayer authority.
 The retained iterator fixture is compared with the read-only game reference when available.
-Negative controls reject the former physical-gamepad adapter and bypasses of native progression.
+Negative controls reject the former physical-gamepad adapter, scenario-only manager lookup
+and bypasses of native progression.
+
+`scripts/modal-close-tests.sh` executes the complete production close method and mandatory
+window classifier. It covers pooled windows that change policy after conversion, native
+rescue ownership, ordinary menus and city destinations. Negative controls restore unchecked
+close, missing rescue and incorrect rescue lifetime behavior.
 
 `scripts/panel-ink-tests.sh` exercises the production ink walker:
 full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and

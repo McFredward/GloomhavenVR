@@ -498,7 +498,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 511;
+    public const ushort ModBuild = 512;
+
+    // ModBuild 512 — general audit of mandatory input and native continuation.
+    //   Map event rewards resolve their live original managers without a scenario controller.
+    //   Failed blocking map conversions can actually raise their requested desktop fallback;
+    //   travel parking failure restores original guarded confirmation and resets on map teardown.
+    //   Final close admission rechecks the current mandatory decision on reused windows.
+    //   Reward pose participation uses an explicit key/opening-scoped handshake so a healthy
+    //   peer without this reward cannot hide the controlling player's sole confirmation forever.
+    //   Failed conversion/attachment restoration keeps ownership of native UI until returned.
+    //   Native callbacks, readiness, player ownership and game locks remain authoritative;
+    //   recovery never auto-confirms a choice or skips a gameplay wait on a timer.
+    //   Source/fault-injection review, not a new hardware reproduction (logs remain 510/500).
+    //   Version 1.0.2, DLL-only since 483; all VR peers use 512. See .planning/DEADLOCK-512.md.
 
     // ModBuild 511 — correct build-510 reward deadlock, hover and cropped announcement.
     //   Tutorial/custom scenarios also use UIRewardsManager, but its ConfirmPressed adapter

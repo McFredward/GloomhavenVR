@@ -323,6 +323,7 @@ jobs:
           bash scripts/self-update-dialog-tests.sh
           bash scripts/native-video-tests.sh
           bash scripts/reward-showcase-tests.sh
+          bash scripts/modal-close-tests.sh
           bash scripts/panel-material-tests.sh
           bash scripts/panel-ink-tests.sh
           bash scripts/video-playback-tests.sh
