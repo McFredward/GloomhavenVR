@@ -49,6 +49,14 @@ reproduction of new hardware evidence.
    start publishes owner progress, including offscreen owned characters; remote and read-only
    local views retain their previous card presentation while that progress is active. Completion
    of an unadopted burn clears the wait without replaying an effect or inventing a flight.
+   No-flight completion also needs a durable original-card record: presence coalescing may omit
+   the entire transient progress phase. Mere absence of progress cannot prove completion.
+   Controlled visible burns retain progress until their real flight is reported, so update order
+   cannot mistake a pending flight for an offscreen completion.
+
+9. A blanket remote flight tick return would also freeze flights already launched before a
+   later burn. Only new/pending admission waits; existing arcs keep moving like local cards.
+   The extracted production tick is covered by a mutation that restores the erroneous return.
 
 ## Producer audit
 
@@ -70,8 +78,10 @@ short-rest burn flights remain concealed. Action-phase sacrifices remain face-up
 ## Protocol and resource limits
 
 Additive record 75 carries durable native burn completion and explicit owner progress.
-Progress has no flight origin and cannot release a flight. Original roster references carry
-no card names. Additive record 76 belongs to the
+Progress and explicit no-flight completion have no flight origin and cannot release a flight.
+Flags distinguish running (4), no-flight completion (8) and normal terminal release; recent
+legacy correlation (2) is never assigned to either non-flight lifecycle state. Original roster
+references carry no card names. Additive record 76 belongs to the
 independent original-item-appearance stream (messages 17/18); it is not added to every presence
 packet. Existing protocol version, messages and field layouts remain intact. All VR peers should
 use build 513 for complete synchronization.
@@ -87,11 +97,28 @@ presence assembly lifetime is exercised under maximum concurrent stream load.
 
 ## Validation
 
-Integration checks and final counts are recorded after the complete combined build. New
-production harnesses cover local layout, remote causal sequencing, retained completion frames
-and native item lifetime. Negative controls restore early layout/flight admission, lost final
-frames, missing lifecycle registration and identity mistakes. Existing maximum-stream saturation
-checks include the item stream at both 90 Hz and 18 Hz.
+Focused production harnesses cover the actual layout, receiver admission, native capture and
+item lifetime, with controlled Unity APIs where a headset is unavailable:
+
+| Suite | Assertions | Runtime negative controls |
+|---|---:|---:|
+| Local burn layout and incoming focus | 204 | 9 |
+| Remote burn sequencing and already-launched flight motion | 70 | 16 |
+| Native completion capture and durable offscreen retirement | 33 | 11 |
+| Native item burn lifetime | 115 | 5 |
+| Original item appearance and transport | 645 | 6 |
+
+The item appearance suite also has a transport-placement negative control. Existing maximum-stream
+saturation checks include the item stream at both 90 Hz and 18 Hz. All 17 guard checkers and their production suites pass. The combined wire run passes 254,019
+assertions. Strict Release has zero warnings and errors; bilingual documentation, shell syntax
+and whitespace checks pass. The retained build-502 comparison contains 65 changed and 40 added
+types/files, with no removals; build-512's additional compiled comparison contains 39 changed
+and 11 added C# types, with no removals. Reviewed changes are confined to burn sequencing,
+native item presentation, additive transport and the build banner. The final follow-up changes
+eight of those types for durable no-flight completion and continued already-launched motion.
+The guard's exit 1 reports the reviewed compiled differences, not a checker failure. Surface
+counts are 625 config keys, 162 Harmony signatures and 4,728 log tokens. The generated patch
+inventory has 118 classes / 185 patched methods. The build-502 baseline remains unchanged.
 
 Headset acceptance remains open: both recess orders, short/long rest, one/two-card damage,
 active expiry, consumed items, pause/resume and character switching on both owner and observer.

@@ -18,10 +18,19 @@ change per build) → this file (where things stand and what is owed) → the bu
   until all native burns finish. Actual iterator completion distinguishes finished handles.
   Observers wait for the canonical owner's completion frame; durable original-card release
   addresses delayed delivery and slot reuse. Consumed items retain their native widget and
-  share original item appearance through additive stream 17/18 (record 76).
+  share original item appearance through additive stream 17/18 (record 76). Incoming character
+  views also wait for actual owner burn progress; offscreen completions do not invent flights.
   Native gameplay callbacks and mandatory decisions keep running. See
   [BURN-SEQUENCING-513.md](BURN-SEQUENCING-513.md). Logs remain local 510 / remote 500;
   build-513 headset acceptance is open. No main merge or release publication is included.
+
+- **513 integration checks pass:** all 17 checkers and production suites; 254,019 wire
+  assertions; strict Release zero warnings/errors. Focused suites: local layout 204, remote
+  sequencing 70, native completion 33, item lifetime 115 and item appearance 645 assertions,
+  with runtime negative controls. Retained build-502 compiled comparison: 65 changed / 40 added /
+  zero removed; additional build-512 comparison: 39 changed / 11 added / zero removed, reviewed.
+  Surfaces 625 / 162 / 4,728; patch inventory 118 classes / 185 methods. Bilingual docs,
+  shell syntax and whitespace pass. These results do not establish headset appearance.
 
 - **dev / 1.0.2 / ModBuild 512 audits mandatory input and native continuation.**
   Map reward managers can be reached outside a scenario controller; failed blocking map
