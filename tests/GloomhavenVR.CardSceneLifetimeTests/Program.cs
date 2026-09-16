@@ -65,6 +65,15 @@ internal static class Program
         wrapped.Dispose();
         Require(native.Disposals == 1, "Failed load must still allow native cleanup");
 
+        var modError = new InvalidOperationException("mod cleanup failure");
+        native = new Native();
+        wrapped = new NativeCardSceneLifetime(native, () => true,
+            () => GloomhavenVR.Core.TickGuard.Run("Cards.SceneRelease", () => throw modError, "Cards"));
+        Require(wrapped.MoveNext() && native.Steps == 1, "Guarded mod release failure must not cancel native loading");
+        Require(ReferenceEquals(GloomhavenVR.Core.TickGuard.LastError, modError), "Guarded release error must be reported unchanged");
+        wrapped.MoveNext();
+        Require(GloomhavenVR.Core.TickGuard.Errors == 1 && native.Steps == 2, "Guarded release failure must not repeat for each native step");
+
         // Separate native operations have no shared latch. A canceled iterator that Unity does
         // not dispose cannot suppress another transition's release or poison later admission.
         var abandoned = new NativeCardSceneLifetime(new Native(), () => true, () => releases++);

@@ -43,7 +43,10 @@ retest is still needed to establish that this was the only contributing defect.
   native load aborts without unloading the original hand.
 - Use native `_loadingSceneType`, not a mod-owned latch, to block card presentation/adoption
   until loading ends. Generic `IsLoading` starts before `EndScenarioSafely` waits for mandatory
-  damage responses; using it would create a new deadlock. Native gameplay callbacks continue.
+  damage responses; using it would create a new deadlock. Native gameplay callbacks continue. Wrapper construction is self-guarded and retains the original
+  native iterator on failure. Mod release runs through the existing production TickGuard; a cleanup
+  failure cannot swallow the native load step. Factory face return precedes separately isolated
+  cosmetic hover cleanup.
 - Recover *every* retained wrapper before presentation resumes. Confirmed pick cards need this
   explicitly because ordinary layout excludes them from `GetOrCreate`. Failed face attachment
   retains the existing widget identity for retry. Real hand destruction still uses the existing
@@ -57,14 +60,16 @@ is bypassed, and no new wire format or remote exception is introduced.
 
 ## Validation
 
-`scripts/card-scene-lifetime-tests.sh`: **32 runtime assertions**, **17 source bindings** and
-**six runtime negative controls**. The production iterator and extracted production factory
+`scripts/card-scene-lifetime-tests.sh`: **35 runtime assertions**, **20 source bindings** and
+**seven runtime negative controls**. The production iterator and extracted production factory
 ownership methods execute against narrow native/Unity adapters. Cases include an unstarted
 iterator, live admission changes, native failure/disposal, an undisposed abandoned iterator,
 nested loads, all retained native faces with mask/Selectable descendants, selected-slot identity,
 load-time adoption refusal, aborted-load full recovery, missing-art retry and idempotent adoption.
 Negative controls deliberately delay release, bypass DataRestoring, repeat release, retain the
-borrowed face, lose selected identity or skip confirmed-slot recovery.
+borrowed face, lose selected identity, skip confirmed-slot recovery or remove the production release guard.
+The guarded-release test compiles the actual production `TickGuard.Run` method; an injected mod
+exception is reported while native iteration continues, whereas native exceptions still propagate.
 
 The simulated destruction tree validates the scheduling/ownership contract; it is not a Unity
 scene-unload run or headset visual proof. Source bindings strip comments and establish the actual

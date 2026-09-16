@@ -61,9 +61,23 @@ internal static class SceneController_LoadScene_CardLifetime
 {
     private static void Postfix(SceneController __instance, ref System.Collections.IEnumerator __result)
     {
-        __result = new NativeCardSceneLifetime(__result,
-            () => __instance != null && !__instance.DataRestoring,
-            () => GloomhavenVR.Core.TickGuard.Run("Cards.SceneRelease",
-                CardsDriver.ReleaseCardsBeforeSceneLoad, "Cards"));
+        try
+        {
+            // Assign only after construction succeeds: failure retains the original iterator.
+            __result = new NativeCardSceneLifetime(__result,
+                () => __instance != null && !__instance.DataRestoring,
+                () => GloomhavenVR.Core.TickGuard.Run("Cards.SceneRelease",
+                    CardsDriver.ReleaseCardsBeforeSceneLoad, "Cards"));
+        }
+        catch (System.Exception ex)
+        {
+            ReportFailure(ex);
+        }
+    }
+
+    private static void ReportFailure(System.Exception ex)
+    {
+        try { GloomhavenVR.Core.VRLog.Error("Cards", $"CARD SCENE RELEASE interception failed; native loading continues: {ex}"); }
+        catch { /* Diagnostics must not escape a network-driven scene transition. */ }
     }
 }

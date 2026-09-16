@@ -13,4 +13,7 @@ def method(file, signature):
         depth += (text[end] == '{') - (text[end] == '}')
         end += 1
     return text[start:end]
-output.write_text('using System.Collections.Generic;\nnamespace GloomhavenVR.Cards {\ninternal partial class VRCardFactory {\n'+method('VRCardFactory.cs', 'internal VRCard GetOrCreate(')+'\n'+method('VRCardFactory.cs', 'internal void ReturnBorrowedFacesBeforeSceneLoad(')+'\n'+method('VRCardFactory.cs', 'internal bool ReattachBorrowedFacesAfterSceneLoad(')+'\n}\ninternal partial class VRCard {\n'+method('VRCard.cs','internal void ReturnBorrowedFaceForSceneLoad(')+'\n}\n}\n')
+output.write_text('using System;\nusing System.Collections.Generic;\nnamespace GloomhavenVR.Cards {\ninternal partial class VRCardFactory {\n'+method('VRCardFactory.cs', 'internal VRCard GetOrCreate(')+'\n'+method('VRCardFactory.cs', 'internal void ReturnBorrowedFacesBeforeSceneLoad(')+'\n'+method('VRCardFactory.cs', 'internal bool ReattachBorrowedFacesAfterSceneLoad(')+'\n}\ninternal partial class VRCard {\n'+method('VRCard.cs','internal void ReturnBorrowedFaceForSceneLoad(')+'\n}\n}\n')
+
+with output.open('a') as target:
+    target.write('\nnamespace GloomhavenVR.Core { internal static partial class TickGuard {\n'+method('../Core/Perf/TickGuard.cs','public static void Run(')+'\n} }\n')

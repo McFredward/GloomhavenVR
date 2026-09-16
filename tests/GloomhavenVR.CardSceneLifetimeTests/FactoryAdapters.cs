@@ -3,9 +3,18 @@ using System.Collections.Generic;
 
 namespace GloomhavenVR.Core
 {
-    internal static class TickGuard
+    internal static partial class TickGuard
     {
-        internal static void Run(string key, Action action, string category) => action();
+        internal static int Errors;
+        internal static Exception? LastError;
+        private static string DeriveScope(string name) => name;
+        private static void NoteThrow(string scope, string name, Exception ex, string subject, string reason, string advice)
+        { Errors++; LastError = ex; }
+    }
+    internal static class PerfMonitor
+    {
+        internal static long BeginStep() => 0;
+        internal static void EndStep(string name, long timestamp) { }
     }
 }
 namespace GloomhavenVR.Cards

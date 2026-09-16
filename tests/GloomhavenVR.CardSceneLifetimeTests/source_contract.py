@@ -37,4 +37,7 @@ require(source(base+'VRCard.cs').count('if (CardsDriver.NativeSceneLoadInProgres
 require('if (CardsDriver.NativeSceneLoadInProgress) return false;' in source(base+'VRCard.cs').split('internal bool AttachGameCard(',1)[1].split('internal bool HasAdoptedFace',1)[0], 'Direct card attachment must not bypass native load admission')
 require('_sceneFacesReturned = !_factory.ReattachBorrowedFacesAfterSceneLoad();' in body, 'Every retained face must recover before layout resumes')
 require('if (ReferenceEquals(previousWidget, card)) GameCard = card;' in source(base+'VRCard.cs'), 'Failed re-adoption must preserve existing native identity for retry')
+require('catch (System.Exception ex)' in patch and 'ReportFailure(ex);' in patch, 'Postfix construction failure must retain native iterator')
+require(release.index('driver._factory.ReturnBorrowedFacesBeforeSceneLoad();') < release.index('driver.ClearLaserHover') and 'Core.TickGuard.Run("Cards.SceneActiveHover"' in release, 'Hover cleanup must not prevent factory face return')
+require('() => GloomhavenVR.Core.TickGuard.Run("Cards.SceneRelease",' in patch, 'Only mod release must be isolated by the native-load wrapper')
 print(f'Card scene lifetime source bindings: {checks} assertions passed.')

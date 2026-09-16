@@ -43,15 +43,17 @@ s = (folder/'Factory.production.fixture').read_text()
 for name, old, new in [
     ('retain-face', 'DetachGameCard();', ''),
     ('drop-identity', 'GameCard = widget;', ''),
-    ('miss-selected', 'complete &= card.AttachGameCard(card.GameCard);', 'complete &= false;')]:
+    ('miss-selected', 'complete &= card.AttachGameCard(card.GameCard);', 'complete &= false;'),
+    ('unguarded-release', 'catch (Exception ex)', 'catch (Exception ex) when (name != "Cards.SceneRelease")')]:
     assert s.count(old) == 1, name
     (folder/(name+'.factory.fixture')).write_text(s.replace(old, new))
 PY
-for mutation in retain-face drop-identity miss-selected; do
+for mutation in retain-face drop-identity miss-selected unguarded-release; do
     case "$mutation" in
         retain-face) expected='Every borrowed native hierarchy must return to its owner' ;;
         drop-identity) expected='Scene release must retain selected wrapper game identity' ;;
         miss-selected) expected='Ready retained face must complete pending recovery' ;;
+        unguarded-release) expected='Unhandled exception. System.InvalidOperationException: mod cleanup failure' ;;
     esac
     if dotnet run --project "$fixture/GloomhavenVR.CardSceneLifetimeTests.csproj" --configuration Release \
         --property:FactorySource="$fixture/$mutation.factory.fixture" \

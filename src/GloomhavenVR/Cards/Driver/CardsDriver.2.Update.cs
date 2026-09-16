@@ -581,10 +581,10 @@ internal sealed partial class CardsDriver
     {
         CardsDriver? driver = Instance;
         if (driver == null) return;
-        driver.ClearLaserHover();
-        driver.ClearActiveHover();
         driver._sceneFacesReturned = true;
         driver._factory.ReturnBorrowedFacesBeforeSceneLoad();
+        Core.TickGuard.Run("Cards.SceneLaserHover", driver.ClearLaserHover, "Cards");
+        Core.TickGuard.Run("Cards.SceneActiveHover", driver.ClearActiveHover, "Cards");
         CardActionQueue.Clear();
         driver._dirty = true; // also rebuild if the native load aborts while the old hand survives
         VRLog.Note("Cards", "CARD SCENE RELEASE: returned borrowed native faces before scene loading; native hand recycling remains authoritative.");
