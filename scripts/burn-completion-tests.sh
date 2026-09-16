@@ -53,3 +53,28 @@ PY
   fi
   echo "Burn completion negative control: $mutation rejected."
 done
+
+for mutation in proxy-progress stopped-progress; do
+  python3 - "$repo_root/src/GloomhavenVR/Net/CardAppearanceSampler.Progress.cs" "$work_dir/Progress.cs" "$mutation" <<'PYPROGRESS'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text()
+a,b={
+'proxy-progress':('if (!CardsGameApi.ControlsActor(actor)) return;', ''),
+'stopped-progress':('bool running = tracked.Actor != null', 'bool running = bool.Parse("true") || tracked.Actor != null')
+}[sys.argv[3]]
+assert s.count(a)==1
+Path(sys.argv[2]).write_text(s.replace(a,b))
+PYPROGRESS
+  case "$mutation" in
+    proxy-progress) expected='A read-only proxy cannot publish owner burn progress';;
+    stopped-progress) expected='Actual native completion clears an unadopted incoming burn without a flight';;
+  esac
+  if dotnet run --project "$project" -c Release --property:SamplerSource="$source" --property:ProgressSource="$work_dir/Progress.cs" > "$work_dir/output" 2>&1; then
+    cat "$work_dir/output"; echo "FAIL: $mutation survived" >&2; exit 1
+  fi
+  if ! rg -Fq "Unhandled exception. System.Exception: $expected" "$work_dir/output"; then
+    cat "$work_dir/output"; exit 1
+  fi
+  echo "Burn completion negative control: $mutation rejected."
+done

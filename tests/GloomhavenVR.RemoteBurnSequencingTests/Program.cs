@@ -110,6 +110,20 @@ internal static class Program
         CardAppearanceProvenance.Originals[(4,0,32)]=card; NetAvatarDriver.OwnershipReady=true;
         receiver.ApplyBurnCompletions(completed);
         Check(receiver.Dispatched==0,"Late roster arrival cannot turn initial historical loss into a live burn");
+        receiver=new RemoteAvatar(); NetAvatarDriver.Controller=receiver;
+        receiver.ApplyBurnCompletions(new CardBurnCompletionHistory());
+        var incomingProgress=new CardBurnCompletionHistory {Entries=new[]{new CardBurnCompletion(0,5,4,0,32,21f,true)}};
+        receiver.ApplyBurnCompletions(incomingProgress);
+        Check(receiver.HasBurnInProgress(5)&&receiver.Dispatched==0,"Owner progress must never dispatch a completed burn or flight");
+        var incomingHold=new BurnFixture {_watchActor=4};
+        RemoteBoardFocus.Requested=other;
+        Check(ReferenceEquals(incomingHold.PresentationActor,actor),"Explicit owner progress retains the previous card actor during an incoming switch");
+        receiver.ApplyBurnCompletions(new CardBurnCompletionHistory());
+        Check(incomingHold.PresentationActor==null&&!receiver.HasBurnInProgress(5),"Unadopted native completion releases incoming focus without requiring a nonexistent flight");
+        receiver.ApplyBurnCompletions(incomingProgress);
+        receiver.ApplyBurnCompletions(new CardBurnCompletionHistory {Entries=new[]{new CardBurnCompletion(0,5,4,0,32,22f)}});
+        Check(receiver.Dispatched==0,"A deferred incoming burn ending with a terminal receipt must not replay its historical animation");
+        RemoteBoardFocus.Requested=null;
         Console.WriteLine($"Remote burn sequencing: {assertions} assertions passed.");
     }
 }

@@ -7,7 +7,7 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.cs "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.RemoteBurnSequencingTests.csproj" --configuration Release
-for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal; do
+for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal incoming-progress progress-is-release; do
   mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote"
   cp "$repo_root/src/GloomhavenVR/Net/Remote/"*.cs "$work_dir/source/src/GloomhavenVR/Net/Remote/"
   cp "$repo_root/src/GloomhavenVR/Net/CardAppearanceMirror.cs" "$work_dir/source/src/GloomhavenVR/Net/"
@@ -15,7 +15,9 @@ for mutation in active-layout recess-layout early-native wrong-provenance releas
 import pathlib,sys
 root=pathlib.Path(sys.argv[1]); mutation=sys.argv[2]
 file,old,new={
-'initial-history':('Remote/RemoteAvatar.cs','if (initial && (card == null || !_burnFx.HasObservedBurn(card)))','if (bool.Parse("false") && initial && (card == null || !_burnFx.HasObservedBurn(card)))'),
+'initial-history':('Remote/RemoteAvatar.cs','if ((initial || _burnProgressKeys.Contains(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))','if (bool.Parse("false") && (initial || _burnProgressKeys.Contains(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))'),
+'incoming-progress':('Remote/RemoteBurnFx.cs','if (IncomingBurnPending) return RemoteBoardFocus.ActorById(_watchActor);',''),
+'progress-is-release':('Remote/RemoteAvatar.cs','if (entry.InProgress) continue;',''),
 'duplicate-terminal':('Remote/RemoteAvatar.cs','if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;',''),
 'active-layout':('Remote/RemoteActiveCards.cs','if (_owner.HoldsBurnCardLayout)','if (bool.Parse("false") && _owner.HoldsBurnCardLayout)'),
 'recess-layout':('Remote/RemoteControlBoard.cs','if (_owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))','if (bool.Parse("false") && _owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))'),
@@ -35,6 +37,8 @@ PY
     fi
   fi
   case "$mutation" in
+    incoming-progress) expected='Explicit owner progress retains the previous card actor during an incoming switch';;
+    progress-is-release) expected='Owner progress must never dispatch a completed burn or flight';;
     initial-history) expected='Joining after historical losses must not create an orphan burn claim';;
     duplicate-terminal) expected='Adopted historical terminal state stays inert on repetition';;
     active-layout) expected='Pending burn must not compact the active grid';;

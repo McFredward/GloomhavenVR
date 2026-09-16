@@ -1,4 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup>
-  <ItemGroup><Compile Include="$(SamplerSource)" Link="Sampler.Burn.cs" /></ItemGroup>
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><TreatWarningsAsErrors>true</TreatWarningsAsErrors><ProgressSource Condition="'$(ProgressSource)' == ''">../../src/GloomhavenVR/Net/CardAppearanceSampler.Progress.cs</ProgressSource></PropertyGroup>
+  <ItemGroup><Compile Include="$(SamplerSource)" Link="Sampler.Burn.cs" /><Compile Include="$(ProgressSource)" Link="Sampler.Progress.cs" /></ItemGroup>
 </Project>

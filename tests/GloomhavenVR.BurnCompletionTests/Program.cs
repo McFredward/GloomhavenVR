@@ -83,6 +83,25 @@ internal static class Program
         Check(seen.Count == 128, "All four complete card populations eventually publish their terminal native frames");
         CardAppearanceSampler.ResetForTest();
         Check(CardAppearanceSampler.Retained().Count == 0, "Teardown drops completed appearance ownership");
+        var progressActor=new CPlayerActor {Id=8};
+        var progressCard=new CAbilityCard();progressActor.CharacterClass.Pool.Add(progressCard);
+        CardAppearanceProvenance.Actors[8]=progressActor;
+        var native=new FullAbilityCard {playerActor=progressActor,AbilityCard=progressCard};
+        native.cardEffects.Full=native; native.cardEffects.Running=true;
+        progressActor.Controlled=false;
+        CardAppearanceSampler.ObserveNativeBurnStart(native.cardEffects);
+        Check(NetCardFx.Progress.Count==0,"A read-only proxy cannot publish owner burn progress");
+        progressActor.Controlled=true;NetAvatarDriver.CanPublishNativePresentation=false;
+        CardAppearanceSampler.ObserveNativeBurnStart(native.cardEffects);
+        Check(NetCardFx.Progress.Count==0,"Offline native burns retain no network progress state");
+        NetAvatarDriver.CanPublishNativePresentation=true;
+        CardAppearanceSampler.ObserveNativeBurnStart(native.cardEffects);
+        Check(NetCardFx.Progress.Contains((8,0)),"Offscreen native start publishes progress without a VR wrapper or AbilityCardUI parent");
+        CardAppearanceSampler.AdvanceProgressForTest();
+        Check(NetCardFx.Progress.Contains((8,0)),"Actual running iterator keeps incoming admission blocked");
+        native.cardEffects.Running=false;
+        CardAppearanceSampler.AdvanceProgressForTest();
+        Check(NetCardFx.Progress.Count==0,"Actual native completion clears an unadopted incoming burn without a flight");
         Console.WriteLine($"Burn completion capture: {checks} assertions passed.");
     }
 }

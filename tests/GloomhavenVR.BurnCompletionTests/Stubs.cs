@@ -7,6 +7,7 @@ namespace ScenarioRuleLibrary
     internal sealed class CPlayerActor
     {
         internal int Id;
+        internal bool Controlled=true;
         internal readonly Character CharacterClass = new();
     }
     internal sealed class Character
@@ -15,8 +16,12 @@ namespace ScenarioRuleLibrary
             HandAbilityCards = new(), RoundAbilityCards = new(), Pool = new();
     }
 }
-internal sealed class CardEffects { internal float Value; }
-internal sealed class FullAbilityCard { internal CardEffects cardEffects = new(); }
+internal sealed class CardEffects {
+internal float Value; internal bool Running; internal FullAbilityCard? Full;
+internal T? GetComponent<T>() where T:class => Full as T;
+internal T? GetComponentInParent<T>() where T:class => Full as T;
+}
+internal sealed class FullAbilityCard { internal CardEffects cardEffects = new(); internal ScenarioRuleLibrary.CPlayerActor? playerActor; internal ScenarioRuleLibrary.CAbilityCard? AbilityCard; }
 internal sealed class AbilityCardUI
 {
     internal FullAbilityCard fullAbilityCard = new();
@@ -33,8 +38,15 @@ internal sealed class CardsHandManager
 namespace GloomhavenVR.Core { internal static class VRLog { internal static void Warn(string category, string message) { } } }
 namespace GloomhavenVR.Cards
 {
+    internal static class BurnArtwork {
+internal static CardEffects? EffectsOf(FullAbilityCard? full)=>full?.cardEffects;
+internal static CardEffects? EffectsOf(AbilityCardUI? widget)=>widget?.fullAbilityCard.cardEffects;
+internal static bool Playing(CardEffects? effects)=>effects?.Running==true;
+internal static bool LosingCards(AbilityCardUI? widget)=>false;
+}
     internal static class CardsGameApi
     {
+        internal static bool ControlsActor(ScenarioRuleLibrary.CPlayerActor actor)=>actor.Controlled;
         internal static void GetPileArcWidgets(CardsHandUI hand, bool burnt, List<AbilityCardUI> output)
         { output.Clear(); output.AddRange(hand.Cards); }
     }
@@ -42,7 +54,11 @@ namespace GloomhavenVR.Cards
 namespace GloomhavenVR.Net
 {
     internal static class CardBurnCompletionHistory { internal const int CountMax=128; }
-    internal static class NetCardFx { internal static void NoteBurnCompletionCapture(CardAppearanceState state,float clock) {} internal static void ForgetBurnCompletion(CardAppearanceState state) {} }
+    internal static class NetCardFx { internal static void NoteBurnCompletionCapture(CardAppearanceState state,float clock) {} internal static void ForgetBurnCompletion(CardAppearanceState state) {}
+internal static readonly HashSet<(int,ushort)> Progress=new();
+internal static void NoteBurnProgress(CardAppearanceState state,float time,bool running) {if(running)Progress.Add((state.ActorId,state.PoolSeat));else Progress.Remove((state.ActorId,state.PoolSeat));}
+}
+    internal static class NetAvatarDriver {internal static bool CanPublishNativePresentation=true;}
     internal static class NetFigures { internal static int StableActorId(ScenarioRuleLibrary.CPlayerActor actor) => actor.Id; }
     internal sealed class CardAppearanceState
     {
@@ -98,6 +114,7 @@ namespace GloomhavenVR.Net
         private static readonly List<AbilityCardUI> Pile = new();
         internal static List<CardAppearanceState> Retained(params CardAppearanceState[] live)
         { var states = new List<CardAppearanceState>(live); AppendBurnFinals(states); return states; }
-        internal static void ResetForTest() { ClearBurnFinals(); _finalCapacityLogged = false; }
+        internal static void AdvanceProgressForTest()=>RefreshBurnProgress();
+        internal static void ResetForTest() { ClearBurnProgress(); ClearBurnFinals(); _finalCapacityLogged = false; }
     }
 }

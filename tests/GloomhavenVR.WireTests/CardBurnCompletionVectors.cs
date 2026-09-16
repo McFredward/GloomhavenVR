@@ -87,6 +87,20 @@ internal static class CardBurnCompletionVectors
         CardFlightVisibility.CancelOwnerReleaseBefore(first, 7.3f);
         t.True(!CardFlightVisibility.TryPeekOwnerRelease(3, CardFxAnchor.Slot0, source, out _, out _, first), "recovery cancels stale original receipt before reuse");
         t.True(CardFlightVisibility.TryConsumeOwnerRelease(3, CardFxAnchor.Slot0, source, out _, second), "completed exact original consumes once");
+        var progressIdentity = new CardAppearanceState {ActorId=5,SourceActorId=5,PoolSeat=2,PoolCount=32};
+        NetCardFx.NoteBurnProgress(progressIdentity, 30f, running:true);
+        var progressEntry = Array.Find(NetCardFx.BurnCompletions.Entries, e => e.ActorId == 5);
+        t.True(progressEntry.InProgress && progressEntry.Endpoints == 0 && progressEntry.Valid(),
+            "Native running admission has immutable provenance and no invented flight origin");
+        length = PresenceSerializer.Write(new PresenceState {BurnCompletions=NetCardFx.BurnCompletions}, bytes);
+        t.True(PresenceSerializer.TryRead(bytes,length,out state) && state.BurnCompletions != null
+            && Array.Exists(state.BurnCompletions.Entries,e=>e.ActorId==5 && e.InProgress),
+            "Actual75 decoder preserves progress independently of terminal release");
+        t.True(!NetCardFx.BurnCompletions.Covers(0,0x41,0,new CardFlightSource(5,0,0)),
+            "Progress cannot swallow a legacy flight as completed");
+        NetCardFx.NoteBurnProgress(progressIdentity,31f,running:false);
+        t.True(!Array.Exists(NetCardFx.BurnCompletions.Entries,e=>e.ActorId==5),
+            "Unadopted native completion clears admission without inventing a terminal flight");
         NetCardFx.Reset(); CardFlightVisibility.Reset();
         t.True(NetCardFx.BurnCompletions.Entries.Length == 0, "teardown clears completed provenance");
     }
