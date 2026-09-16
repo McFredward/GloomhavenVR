@@ -74,6 +74,9 @@ Move a window by grabbing its top bar directly or with the laser. While holding 
 use **that hand's stick** to move it closer or farther away. Grip the bar with both hands to resize
 the window; use its **X** to close it.
 
+**Chest rewards:** use **Continue** in the reward window. In multiplayer, everyone sees
+the reward; the player controlling that character confirms for the group.
+
 | Mark on the window | Who sees it? |
 |---|---|
 | <img src="img/net-shared.svg" width="22" height="16" alt="Blue two-person shared-window symbol"> **Shared** (pulses blue in game) | Everyone. Shared windows and story pages stay synchronized. The symbol sits at the top right, below the close **X** when present. |
