@@ -66,6 +66,9 @@ internal static class NetProtocol
     public const byte MsgNativeDecisionPromptFragments = 15;
     public const byte ExtIdNativeDecisionPrompt = 63;
     public const byte MsgPresentationCompression = 16;
+    public const byte MsgItemAppearance = 17;
+    public const byte MsgItemAppearanceFragments = 18;
+    public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;
     public const byte ExtIdSecondHeldFaceActor = 66;
@@ -502,7 +505,19 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 512;
+    public const ushort ModBuild = 513;
+
+    // ModBuild 513 — serialize native burn presentation before card layout changes.
+    //   Discover pending/native burns before round-slot compaction, fan exchange, active-grid
+    //   relayout or character replacement. Siblings retain their seats until the original burn
+    //   and hand-loss sequence finish; following flights cannot overtake that presentation.
+    //   Actual native iterator completion distinguishes synchronous bails from stale handles.
+    //   Remote burn release carries original card provenance and an owner presentation clock;
+    //   retained terminal native output survives widget retirement and delayed delivery.
+    //   Consumed items retain their original clipped widget until its actual native timeline
+    //   finishes. Additive item appearance stream 17/18, record 76, mirrors original node output.
+    //   Cosmetic waits never stop native gameplay callbacks or auto-confirm mandatory choices.
+    //   Version 1.0.2; all VR peers use 513. See .planning/BURN-SEQUENCING-513.md.
 
     // ModBuild 512 — general audit of mandatory input and native continuation.
     //   Map event rewards resolve their live original managers without a scenario controller.

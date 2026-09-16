@@ -7,7 +7,8 @@ namespace GloomhavenVR.Net;
 internal static class ItemAppearanceCodec
 {
     internal const int MaxSize = 60000;
-    internal const byte Message = 17, FragmentMessage = 18, Record = 76;
+    internal const byte Message = NetProtocol.MsgItemAppearance, FragmentMessage = NetProtocol.MsgItemAppearanceFragments,
+        Record = NetProtocol.ExtIdItemAppearance;
     internal static int Write(ItemAppearanceSnapshot snapshot, byte[] buffer)
     {
         if (buffer == null || buffer.Length < MaxSize) throw new ArgumentException("Invalid native item buffer.");

@@ -586,6 +586,8 @@
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/DamageDecisionPreviewState.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceState.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceCodec.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/ItemAppearanceState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/ItemAppearanceCodec.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightSource.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Cards/BurnFlightCompletion.cs" />
     <Compile Include="BurnFlightCompletionVectors.cs" />

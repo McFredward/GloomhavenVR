@@ -1822,7 +1822,6 @@ internal sealed class RemoteBoardFurniture
                 SetShown(_shortRestEngraving, (buttons & NetProtocol.BoardUiShortRestBit) != 0);
                 SetShown(_longRestEngraving, (buttons & NetProtocol.BoardUiLongRestBit) != 0);
                 _skip.SetShown((buttons & NetProtocol.BoardUiSkipBit) != 0, animate);
-                SetItemUseShown((buttons & NetProtocol.BoardUiItemRecessBit) != 0, animate);
                 // The decision drawer: drawn only while a prompt is actually docked on the
                 // owner's board — an idle local board shows nothing at that mount.
                 SetShown(_decision, (buttons & NetProtocol.BoardUiDecisionBit) != 0);
@@ -1837,10 +1836,16 @@ internal sealed class RemoteBoardFurniture
                 SetShown(_shortRestEngraving, true);
                 SetShown(_longRestEngraving, true);
                 _skip.SetShown(true, animate);
-                SetItemUseShown(true, animate);
                 SetShown(_decision, true);
             }
         }
+
+        // Item appearance can finish after the presence visibility edge. Keep the original
+        // clip parent visible until the owner's final native output has actually been presented.
+        // Re-evaluate even without another buttons packet so completion can hide the recess.
+        bool retainItemClip = ItemAppearanceMirror.HoldsAnyClip(owner.PlayerId,
+            RemoteBoardFocus.DisplayedActor(owner, out _));
+        SetItemUseShown(!synced || (buttons & NetProtocol.BoardUiItemRecessBit) != 0 || retainItemClip, _settled);
 
         // ---- SYNCED CAP STATES (record 4 byte 2 — "every cap looks enabled and un-accented") --
         ApplyCapStates(owner);

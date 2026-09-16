@@ -19,14 +19,15 @@ internal static class PresentationSaturationVectors
             Packet(NetProtocol.MsgUseBarAnimation, UseBarAnimationCodec.MaxSize),
             Packet(NetProtocol.MsgCardPlume, CardPlumeCodec.MaxSize), Packet(NetProtocol.MsgNativeBoard, NativeBoardCodec.MaxSize),
             Packet(NetProtocol.MsgCardAppearance, CardAppearanceCodec.MaxSize),
-            Packet(NetProtocol.MsgNativeDecisionPrompt, NativeDecisionPromptCodec.MaxSize) };
+            Packet(NetProtocol.MsgNativeDecisionPrompt, NativeDecisionPromptCodec.MaxSize),
+            Packet(NetProtocol.MsgItemAppearance, ItemAppearanceCodec.MaxSize) };
         var assemblers = new Dictionary<int, ExtrasFragments>();
         var oldAssemblers = new Dictionary<int, ExtrasFragments>();
         var completed = new HashSet<int>(); var oldCompleted = new HashSet<int>();
-        int[] types = { NetProtocol.MsgExtras, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgCardPlume, NetProtocol.MsgNativeBoard, NetProtocol.MsgCardAppearance, NetProtocol.MsgNativeDecisionPrompt };
+        int[] types = { NetProtocol.MsgExtras, NetProtocol.MsgUseBarAnimation, NetProtocol.MsgCardPlume, NetProtocol.MsgNativeBoard, NetProtocol.MsgCardAppearance, NetProtocol.MsgNativeDecisionPrompt, NetProtocol.MsgItemAppearance };
         int[] envelopes = { NetProtocol.MsgExtrasFragments, NetProtocol.MsgUseBarAnimationFragments,
             NetProtocol.MsgCardPlumeFragments, NetProtocol.MsgNativeBoardFragments,
-            NetProtocol.MsgCardAppearanceFragments, NetProtocol.MsgNativeDecisionPromptFragments };
+            NetProtocol.MsgCardAppearanceFragments, NetProtocol.MsgNativeDecisionPromptFragments, NetProtocol.MsgItemAppearanceFragments };
         for (int i = 0; i < types.Length; i++)
         {
             assemblers.Add(-envelopes[i], new ExtrasFragments((byte)types[i], (byte)envelopes[i], payloads[i].Length,
@@ -73,7 +74,7 @@ internal static class PresentationSaturationVectors
                 if (oldAssemblers[key].Accept(123, page, page.Length, now) != null) oldCompleted.Add(key);
             }
         }
-        t.Equal(30, completed.Count, "all 24 native slots and six other streams complete under sustained saturation");
+        t.Equal(31, completed.Count, "all 24 native slots and seven other streams complete under sustained saturation");
         t.True(oldCompleted.Count < completed.Count, "legacy five-second cosmetic assembly deadline loses valid queued frames");
     }
     private static byte[] Packet(byte type, int length)

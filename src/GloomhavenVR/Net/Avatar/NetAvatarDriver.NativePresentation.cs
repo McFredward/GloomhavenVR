@@ -35,6 +35,8 @@ internal sealed partial class NetAvatarDriver
         catch (Exception e) { _decisionHighlightSnapshot = null; LogPhaseError("Sample native decision highlight", e); }
         try { TickNativePromptSend(now); }
         catch (Exception e) { LogPhaseError("Sample native decision prompt", e); }
+        try { TickItemAppearanceSend(now); }
+        catch (Exception e) { LogPhaseError("Sample native item appearance", e); }
         try { TickCardAppearanceSend(now); }
         catch (Exception e) { LogPhaseError("Sample native card appearance", e); }
         try { TickNativeBoardSend(now); }
@@ -115,6 +117,8 @@ internal sealed partial class NetAvatarDriver
     {
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgNativeDecisionPrompt)
             return QueueNativePrompt(sender, buffer, length);
+        if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgItemAppearance)
+            return QueueItemAppearance(sender, buffer, length);
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgCardAppearance)
             return QueueCardAppearance(sender, buffer, length);
         if (NetPacket.PeekType(buffer, length) == NetProtocol.MsgNativeBoard)
@@ -157,6 +161,7 @@ internal sealed partial class NetAvatarDriver
 
     private void ApplyNativePresentation()
     {
+        ApplyItemAppearance();
         ApplyCardAppearance();
         ApplyNativePrompt();
         foreach (var pair in _pendingBoards)
@@ -198,11 +203,12 @@ internal sealed partial class NetAvatarDriver
     }
 
     private void ForgetNativePresentation(int sender)
-    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); }
+    { _pendingPlumes.Remove(sender); _pendingNative.Remove(sender); _pendingBoards.Remove(sender); ForgetItemAppearance(sender); ForgetCardAppearance(sender); ForgetNativePrompt(sender); }
 
     private void ResetNativePresentation()
     {
         _pendingPlumes.Clear(); _pendingNative.Clear(); _pendingBoards.Clear();
+        ResetItemAppearance();
         ResetCardAppearance();
         ResetNativePrompt();
         _lastSentDamageDecisionPreview = null;

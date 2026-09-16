@@ -218,8 +218,8 @@ internal static class ExtrasFragmentVectors
             scheduler.Enqueue(Motion(8), 8); scheduler.Enqueue(Snapshot(8), 8);
             double now = turn * 0.1;
             byte[] page = scheduler.Next(now)!;
-            t.Equal(turn % 3 == 2 ? (int)NetProtocol.MsgExtrasFragments : envelopeType,
-                NetPacket.PeekType(page, page.Length), "two native turns then waiting presence");
+            t.Equal(turn % 4 >= 2 ? (int)NetProtocol.MsgExtrasFragments : envelopeType,
+                NetPacket.PeekType(page, page.Length), "two native turns then two bounded presence turns");
             t.True(scheduler.Next(now + 0.049) == null, "streams cannot exceed combined event cadence");
         }
         byte[] announcement = ExtrasVersionAnnouncement.Write(486, "v486");
