@@ -46,7 +46,17 @@ Source bindings connect that policy to lesson admission/cleanup and preserve gen
   hold-admission/capture/replay regressions. One binding negative control rejects a gate retained
   only as a comment.
 - The harness is registered in local validation and both existing hosted test suites.
-- Full integration validation is recorded below after completion.
+- All 17 local guard checkers and production suites pass; wire assertions remain 254,019.
+- Strict Release passes with zero warnings and zero errors; bilingual docs and whitespace pass.
+- Retained build-502 compiled comparison: 71 changed, 42 added and zero removed C# types.
+  An additional comparison against the retained build-513 compiled output has 19 changed,
+  two added and zero removed types. All differences were reviewed: six existing tutorial/module
+  types plus two new scope/hook types carry the behavioral change; other changes are propagated
+  ModBuild 514 and the already-authorized post-release dev version 1.0.3 constants.
+- Surfaces: 625 config keys, 163 Harmony signatures and 4,728 log tokens; no removal.
+  Generated patch inventory: 119 classes / 186 methods, all registered once.
+- The retained build-502 baseline is unchanged. The incremental comparison used a private copy
+  of the prior compiled output, not a replacement baseline.
 
 Hardware acceptance remains open: first tutorial -> later tutorial -> first tutorial again,
 including leaving during an additional lesson. The tests establish source behavior and bounded

@@ -18,7 +18,11 @@ change per build) → this file (where things stand and what is owed) → the bu
   their native sequence and generic VR wording/input adaptations. Pending lesson/skip/hold
   state retires on scope loss; held messages cannot cross native controller ownership.
   Focused tests pass: 42 runtime + 17 binding assertions, seven runtime negative controls and
-  one binding negative control. Full integration checks follow; headset acceptance remains open.
+  one binding negative control. All 17 checkers and production suites pass; 254,019 wire
+  assertions; strict Release zero warnings/errors. Compiled comparison: 71 changed / 42 added /
+  zero removed against retained build 502; incremental build-513 comparison 19 changed / two
+  added / zero removed, reviewed (tutorial scope plus propagated version/build constants).
+  Surfaces 625 / 163 / 4,728; patch inventory 119 classes / 186 methods. Headset acceptance is open.
   See [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md). Published 1.0.2 is unchanged.
 
 - **1.0.2 / ModBuild 513 is published from main.** PR #5 merged the hardware-tested
