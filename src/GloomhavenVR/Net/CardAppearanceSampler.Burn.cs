@@ -15,8 +15,10 @@ internal static partial class CardAppearanceSampler
         internal CAbilityCard Card = null!;
         internal CardAppearanceState State = null!;
     }
-    private static readonly List<BurnFinal> BurnFinals = new(CardAppearanceState.CountMax);
+    private static readonly List<BurnFinal> BurnFinals = new(CardBurnCompletionHistory.CountMax);
     private static bool _finalCapacityLogged;
+    private static int _finalPageStart;
+    private static float _nextFinalPageAt;
 
     /// <summary>Keep the actual completed output publishable after its VR wrapper leaves.
     /// The release event names this same owner clock; a receiver must render through it first.</summary>
@@ -38,8 +40,9 @@ internal static partial class CardAppearanceSampler
             state = state.Copy();
             for (int i = BurnFinals.Count - 1; i >= 0; i--)
                 if (ReferenceEquals(BurnFinals[i].Card, card)) BurnFinals.RemoveAt(i);
-            if (BurnFinals.Count == CardAppearanceState.CountMax) BurnFinals.RemoveAt(0);
+            if (BurnFinals.Count >= CardBurnCompletionHistory.CountMax) return -1f;
             BurnFinals.Add(new BurnFinal { Actor = actor, Card = card, State = state });
+            NetCardFx.NoteBurnCompletionCapture(state, Time.unscaledTime);
             return Time.unscaledTime;
         }
         catch (Exception ex)
@@ -64,23 +67,36 @@ internal static partial class CardAppearanceSampler
     private static void AppendBurnFinals(List<CardAppearanceState> states)
     {
         bool full = false;
+        // Reserve all live output. Rotate only retained, completed pictures under pressure;
+        // half-second pages provide recovery without converting idle boards into90Hz traffic.
+        int liveCount = states.Count;
+        if (BurnFinals.Count > CardAppearanceState.CountMax - liveCount && Time.unscaledTime >= _nextFinalPageAt)
+        {
+            _finalPageStart = (_finalPageStart + Math.Max(1, CardAppearanceState.CountMax - liveCount)) % Math.Max(1, BurnFinals.Count);
+            _nextFinalPageAt = Time.unscaledTime + .5f;
+        }
         for (int i = BurnFinals.Count - 1; i >= 0; i--)
         {
             BurnFinal final = BurnFinals[i];
             if (final.Actor == null || !ReferenceEquals(CardAppearanceProvenance.Resolve(final.State), final.Card)
                 || !TryBurnAddress(final.Actor, final.Card, out byte code, out byte count))
-            { BurnFinals.RemoveAt(i); continue; }
+            { NetCardFx.ForgetBurnCompletion(final.State); BurnFinals.RemoveAt(i); continue; }
             if (final.State.FaceCode != code || final.State.ListCount != count)
             {
                 var relocated = final.State.Copy();
                 relocated.FaceCode = code; relocated.ListCount = count; final.State = relocated;
             }
+        }
+        int total = BurnFinals.Count;
+        for (int offset = 0; offset < total; offset++)
+        {
+            BurnFinal final = BurnFinals[(_finalPageStart + offset) % total];
             bool present = false;
             foreach (var live in states)
                 if (live.ActorId == final.State.ActorId && live.SourceActorId == final.State.SourceActorId
                     && live.PoolSeat == final.State.PoolSeat && live.PoolCount == final.State.PoolCount)
                 { present = true; break; }
-            if (present) continue; // The still-visible original always supplies its live pixels.
+            if (present) continue;
             if (states.Count >= CardAppearanceState.CountMax) { full = true; continue; }
             states.Add(final.State);
         }

@@ -94,5 +94,5 @@ internal static partial class CardAppearanceSampler
         if (!same) _previous = states.ToArray();
         return _previous;
     }
-    internal static void Reset() { BurnFinals.Clear(); _finalCapacityLogged = false; CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); States.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
+    internal static void Reset() { BurnFinals.Clear(); _finalCapacityLogged = false; _finalPageStart = 0; _nextFinalPageAt = 0f; CardAppearanceBindings.ResetAssets(); Cards.Clear(); Pile.Clear(); States.Clear(); Bindings.Clear(); Seen.Clear(); Removed.Clear(); Failures.Clear(); _previous = Array.Empty<CardAppearanceState>(); }
 }

@@ -14,6 +14,14 @@ internal static class CardAppearanceMirror
             CurrentCards = System.Array.Empty<CardAppearanceBinding<CAbilityCard>>();
         internal readonly UseBarAnimationPlaybackClock Clock = new();
         internal readonly SpentAppearanceHistory<CAbilityCard, CardAppearanceState> Spent = new();
+        internal readonly Dictionary<CAbilityCard, (int Actor, float Time, CardAppearanceState Source)> Presented = new(CardReferenceComparer.Instance);
+        internal readonly List<CAbilityCard> Retired = new();
+    }
+    private sealed class CardReferenceComparer : IEqualityComparer<CAbilityCard>
+    {
+        internal static readonly CardReferenceComparer Instance = new();
+        public bool Equals(CAbilityCard? x, CAbilityCard? y) => ReferenceEquals(x, y);
+        public int GetHashCode(CAbilityCard value) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(value);
     }
     private static readonly Dictionary<int, Frame> Frames = new();
     private static readonly List<AbilityCardUI> Pile = new();
@@ -23,6 +31,12 @@ internal static class CardAppearanceMirror
         if (frame.Current != null && snapshot.SampleTime <= frame.Current.SampleTime) return;
         bool continuous = frame.Current != null && snapshot.SampleTime - frame.Current.SampleTime <= UseBarAnimationPlaybackClock.MaximumContinuousGap;
         frame.Spent.RemoveRecovered((actorId, card) => Recovered(RemoteBoardFocus.ActorById(actorId), card));
+        frame.Retired.Clear();
+        foreach (var presented in frame.Presented)
+            if (Recovered(RemoteBoardFocus.ActorById(presented.Value.Actor), presented.Key)
+                || !ReferenceEquals(CardAppearanceProvenance.Resolve(presented.Value.Source), presented.Key))
+                frame.Retired.Add(presented.Key);
+        foreach (var card in frame.Retired) frame.Presented.Remove(card);
         var bindings = new CardAppearanceBinding<CAbilityCard>[snapshot.States.Length];
         for (int i = 0; i < bindings.Length; i++)
         {
@@ -75,6 +89,14 @@ internal static class CardAppearanceMirror
         previous ??= current;
         frame.Clock.Advance(Time.unscaledTime, frame.Current.SampleTime);
         progress = frame.Clock.Progress(frame.Previous!.SampleTime, frame.Current.SampleTime);
+        // A completed picture stays acknowledged when retained final pages rotate or a later
+        // unrelated card changes the packet identity. Recovery/provenance invalidation clears it.
+        CardAppearanceState presented = ReferenceEquals(previous, current) || progress >= 1f ? current : previous;
+        float presentedTime = ReferenceEquals(presented, current) ? frame.Current.SampleTime : frame.Previous.SampleTime;
+        if (presented.SourceActorId != 0 && ReferenceEquals(CardAppearanceProvenance.Resolve(presented), card)
+            && (!frame.Presented.TryGetValue(card, out var known) || known.Time < presentedTime)
+            && (frame.Presented.ContainsKey(card) || frame.Presented.Count < CardBurnCompletionHistory.CountMax))
+            frame.Presented[card] = (actorId, presentedTime, presented);
         return true;
     }
     // Cancellation evidence only. A recovered card no longer has a valid Lost-list address,
@@ -97,6 +119,10 @@ internal static class CardAppearanceMirror
     internal static bool HasPresentedThrough(int playerId, CPlayerActor? actor, CAbilityCard? card, float completionTime)
     {
         if (completionTime < 0f) return true; // old senders have no cross-stream watermark
+        if (actor != null && card != null && Frames.TryGetValue(playerId, out var acknowledged)
+            && acknowledged.Presented.TryGetValue(card, out var shown) && shown.Actor == NetFigures.StableActorId(actor)
+            && shown.Time >= completionTime && !Recovered(actor, card)
+            && ReferenceEquals(CardAppearanceProvenance.Resolve(shown.Source), card)) return true;
         if (actor == null || card == null || !Frames.TryGetValue(playerId, out var frame)
             || frame.Current == null || frame.Current.SampleTime < completionTime
             || !TryGet(playerId, actor, card, out var previous, out var current, out float progress)) return false;

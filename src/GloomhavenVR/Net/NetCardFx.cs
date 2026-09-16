@@ -34,11 +34,23 @@ internal static class NetCardFx
     /// OLDEST so the newest, most relevant animation still goes out.</summary>
     private const int MaxQueued = 8;
 
-    private static readonly Queue<(byte Endpoints, byte Flags, CardFlightSource? Source, float CompletionTime)> s_queue = new(MaxQueued);
+    private static readonly Queue<(byte Endpoints, byte Flags, CardFlightSource? Source, float CompletionTime, CardBurnCompletion? Completion)> s_queue = new(MaxQueued);
     private static byte s_seq;
     private static readonly Queue<(CardFlightEvent Event, double SentAt, float CompletionTime)> s_history = new(CardFlightHistory.CountMax);
     private static CardFlightHistory s_historySnapshot = new(0, System.Array.Empty<CardFlightEvent>());
-    internal static CardBurnCompletionHistory BurnCompletions { get; private set; } = new(0, System.Array.Empty<(byte, float)>());
+    private static CardBurnCompletionHistory s_completionsSnapshot = new(0, System.Array.Empty<CardBurnCompletion>());
+    private static readonly List<CardBurnCompletion> s_completions = new(CardBurnCompletionHistory.CountMax);
+    private static CardAppearanceState? s_capturedCompletion;
+    private static float s_capturedAt = -1f;
+    internal static CardBurnCompletionHistory BurnCompletions => s_completionsSnapshot;
+    internal static void NoteBurnCompletionCapture(CardAppearanceState state, float time)
+    { s_capturedCompletion = state; s_capturedAt = time; }
+    internal static void ForgetBurnCompletion(CardAppearanceState state)
+    {
+        int removed = s_completions.RemoveAll(entry => entry.Key == (state.ActorId, state.SourceActorId, state.PoolSeat, state.PoolCount));
+        if (removed != 0) RefreshCompletions();
+    }
+    private static void RefreshCompletions() => s_completionsSnapshot = new CardBurnCompletionHistory(s_seq, s_completions.ToArray());
     internal static CardFlightHistory History => HistoryAt(Clock());
     private static double Clock() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     internal static CardFlightHistory HistoryAt(double now)
@@ -53,13 +65,7 @@ internal static class NetCardFx
     {
         var events = new CardFlightEvent[s_history.Count];
         int i = 0;
-        var completions = new List<(byte, float)>();
-        foreach (var value in s_history)
-        {
-            events[i++] = value.Event;
-            if (value.CompletionTime >= 0f) completions.Add((value.Event.Sequence, value.CompletionTime));
-        }
-        BurnCompletions = new CardBurnCompletionHistory(s_seq, completions.ToArray());
+        foreach (var value in s_history) events[i++] = value.Event;
         s_historySnapshot = new CardFlightHistory(s_seq, events);
     }
     private static bool s_loggedFirst;
@@ -97,7 +103,21 @@ internal static class NetCardFx
             s_dropped++;
         }
         if (to != CardFxAnchor.Burnt || float.IsNaN(completionTime) || float.IsInfinity(completionTime)) completionTime = -1f;
-        s_queue.Enqueue((packed, (byte)(flags & CardFlightVisibility.CoveredBurnBit), source, completionTime));
+        CardBurnCompletion? terminal = null;
+        CardAppearanceState? captured = s_capturedCompletion;
+        if (completionTime >= 0f && completionTime == s_capturedAt && source.HasValue && captured != null
+            && source.Value.ActorId == captured.ActorId)
+        {
+            var entry = new CardBurnCompletion(0, packed, flags, completionTime, captured.ActorId,
+                captured.SourceActorId, captured.PoolSeat, captured.PoolCount, source.Value.Seat, source.Value.Count);
+            if (entry.Valid())
+            {
+                s_completions.RemoveAll(old => old.Key == entry.Key);
+                if (s_completions.Count < CardBurnCompletionHistory.CountMax)
+                { s_completions.Add(entry); terminal = entry; RefreshCompletions(); }
+            }
+        }
+        s_queue.Enqueue((packed, (byte)(flags & CardFlightVisibility.CoveredBurnBit), source, completionTime, terminal));
 
         if (!s_loggedFirst)
         {
@@ -133,6 +153,14 @@ internal static class NetCardFx
         seq = ++s_seq; // wraps at 255 — dense by one per dispatch, which is what makes loss countable
         if (s_history.Count == CardFlightHistory.CountMax) s_history.Dequeue();
         s_history.Enqueue((new CardFlightEvent(seq, endpoints, flags, source), Clock(), next.CompletionTime));
+        if (next.Completion.HasValue)
+        {
+            var completion = next.Completion.Value;
+            for (int i = 0; i < s_completions.Count; i++)
+                if (s_completions[i].Key == completion.Key && s_completions[i].Time == completion.Time)
+                    s_completions[i] = completion.WithSequence(seq);
+        }
+        RefreshCompletions();
         RefreshHistory();
         s_dispatched++;
         LogOutbox();
@@ -177,7 +205,7 @@ internal static class NetCardFx
     {
         s_queue.Clear();
         s_history.Clear();
-        BurnCompletions = new CardBurnCompletionHistory(s_seq, System.Array.Empty<(byte, float)>());
+        s_completions.Clear(); s_capturedCompletion = null; s_capturedAt = -1f; RefreshCompletions();
         s_historySnapshot = new CardFlightHistory(s_seq, System.Array.Empty<CardFlightEvent>());
         CardFlightVisibility.Reset();
         s_loggedFirst = false;

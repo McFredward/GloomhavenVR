@@ -25,10 +25,10 @@ internal static class CardAppearanceProvenance
         state.PoolSeat = seat; state.PoolCount = count;
         return state.SourceActorId != 0;
     }
-    internal static CAbilityCard? Resolve(CardAppearanceState state)
+    internal static CAbilityCard? Resolve(CardAppearanceState state) => Resolve(state.SourceActorId, state.PoolSeat, state.PoolCount);
+    internal static CAbilityCard? Resolve(int actorId, ushort seat, ushort count)
     {
-        CCharacterClass? character = RemoteBoardFocus.ActorById(state.SourceActorId)?.CharacterClass;
-        return character != null ? CardAppearancePool.Resolve(character.AbilityCardsPool, character.SupplyCards,
-            state.PoolSeat, state.PoolCount) : null;
+        CCharacterClass? character = RemoteBoardFocus.ActorById(actorId)?.CharacterClass;
+        return character != null ? CardAppearancePool.Resolve(character.AbilityCardsPool, character.SupplyCards, seat, count) : null;
     }
 }

@@ -2262,6 +2262,8 @@ internal sealed class RemoteAvatar
         PileBrowseHeld = PileBrowseOpen && p.PileBrowseHeld;
         PileBrowseLeftHand = PileBrowseHeld && p.PileBrowseLeftHand;
 
+        ApplyBurnCompletions(p.BurnCompletions);
+
         if (p.FlightHistory != null)
         {
             if (!_fxSeqInit)
@@ -2282,6 +2284,41 @@ internal sealed class RemoteAvatar
         }
     }
 
+    private readonly System.Collections.Generic.Dictionary<(int Actor, int Source, ushort Seat, ushort Count), float> _burnCompletionTimes = new();
+    private object? _burnCompletionScenario;
+    private bool _burnCompletionsInitialized;
+    private void ApplyBurnCompletions(CardBurnCompletionHistory? history)
+    {
+        if (history == null) return;
+        object? scenario = ScenarioRuleLibrary.ScenarioManager.Scenario;
+        if (!ReferenceEquals(scenario, _burnCompletionScenario))
+        {
+            _burnCompletionScenario = scenario;
+            _burnCompletionsInitialized = false;
+            _burnCompletionTimes.Clear();
+        }
+        if (!_burnCompletionsInitialized)
+        {
+            // Joining adopts already completed losses without replaying the whole scenario.
+            _burnCompletionsInitialized = true;
+            foreach (var entry in history.Entries) _burnCompletionTimes[entry.Key] = entry.Time;
+            return;
+        }
+        foreach (var entry in history.Entries)
+        {
+            if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;
+            var actor = RemoteBoardFocus.ActorById(entry.ActorId);
+            var card = CardAppearanceProvenance.Resolve(entry.SourceActorId, entry.PoolSeat, entry.PoolCount);
+            if (actor == null || card == null || !NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? controller)
+                || controller?.PlayerId != PlayerId) continue; // roster/ownership may arrive later
+            if (_burnCompletionTimes.Count >= CardBurnCompletionHistory.CountMax && !_burnCompletionTimes.ContainsKey(entry.Key)) continue;
+            _burnCompletionTimes[entry.Key] = entry.Time;
+            CardFlightVisibility.ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.Flags, entry.Source, entry.Time, card);
+            NetAvatarDriver.MirrorCharacterCardFlight(this, entry.Endpoints, entry.Flags, entry.Source, entry.Time, card);
+            PlayMirroredCardFlight(entry.Endpoints, entry.Flags, entry.Source, entry.Time, PlayerId, card);
+        }
+    }
+
     private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source, float completionTime = -1f)
     {
         if (!_fxSeqInit) { _fxSeqInit = true; _lastFxSeq = sequence; return; }
@@ -2292,6 +2329,9 @@ internal sealed class RemoteAvatar
         _fxSeen++;
         _lastFxSeq = sequence;
         LogCardFxLoss(gap);
+        // Modern burns are dispatched from durable75, independently of62's two-second history.
+        // A late legacy flight sequence must never replay that same terminal release.
+        if (_burnCompletionsInitialized && NetCardFx.To(endpoints) == CardFxAnchor.Burnt) return;
         // Explicit provenance cannot degrade to the currently viewed character after an actor
         // disappears or control changes. A delayed cosmetic event must not dress an unrelated card.
         if (source.HasValue)
@@ -2311,10 +2351,10 @@ internal sealed class RemoteAvatar
     // Called only after the canonical sender's sequence and actual character ownership validate.
     // A foreign-focus board consumes the same semantic release without minting another sequence.
     internal void PlayMirroredCardFlight(byte endpoints, byte flags, CardFlightSource? source,
-        float completionTime = -1f, int presentationPlayer = 0)
+        float completionTime = -1f, int presentationPlayer = 0, ScenarioRuleLibrary.CAbilityCard? originalCard = null)
     {
         _burnFx.PreparePresentation(); // Establish native burn ownership before any following flight.
-        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer))
+        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard))
             _cardFx.Play(endpoints, flags, source);
     }
 

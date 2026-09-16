@@ -1863,7 +1863,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 4434;
+    public const int MaxSize = 7122;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -3286,17 +3286,9 @@ internal static class PresenceSerializer
                 records++;
             }
         }
-        if (state.BurnCompletions != null && i + 2 + CardBurnCompletionHistory.MaxSize <= buffer.Length)
-        {
-            int payload = state.BurnCompletions.Write(buffer, i + 2);
-            if (payload > 0)
-            {
-                buffer[i++] = NetProtocol.ExtIdCardBurnCompletion;
-                buffer[i++] = (byte)payload;
-                i += payload;
-                records++;
-            }
-        }
+        if (state.BurnCompletions != null)
+            i += state.BurnCompletions.Write(buffer, i);
+
         if (state.FlightHistory != null && i + 2 + CardFlightHistory.MaxSize <= buffer.Length)
         {
             int payload = state.FlightHistory.Write(buffer, i + 2);
@@ -4769,7 +4761,7 @@ internal static class PresenceSerializer
         }
         else if (id == NetProtocol.ExtIdCardBurnCompletion && CardBurnCompletionHistory.TryRead(buffer, i, len, out CardBurnCompletionHistory? completion))
         {
-            state.BurnCompletions = completion;
+            state.BurnCompletions = CardBurnCompletionHistory.Merge(state.BurnCompletions, completion!);
         }
         else if (id == NetProtocol.ExtIdCardFlightHistory && CardFlightHistory.TryRead(buffer, i, len, out CardFlightHistory? history))
         {
