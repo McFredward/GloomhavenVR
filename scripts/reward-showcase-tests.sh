@@ -65,7 +65,7 @@ dotnet run --project "$project" --configuration Release \
     --property:CatchAllSource="$mutation_dir/RewardPoll.fixture"
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable; do
+for mutation in missing-listener duplicate-listener reveal authority native-input gamepad-adapter map-scenario-gate hover-state identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable; do
     python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" "$continue_button_source" <<'PY'
 import pathlib, sys
 reward, identity, placement, out = map(pathlib.Path, sys.argv[1:5])
@@ -78,6 +78,7 @@ mutations = {
     'authority': ('Reward', 'guild.interactionChecker != null ? guild.interactionChecker() : !FFSNetwork.IsClient', 'true'),
     'native-input': ('Reward', 'guild.isConfirmPressed = true;', 'guild.MoveToNextReward();'),
     'hover-state': ('Continue', 'SelectionState.Highlighted or SelectionState.Selected => NativeButtonSkin.FaceState.Accent,', 'SelectionState.Highlighted or SelectionState.Selected => NativeButtonSkin.FaceState.Idle,'),
+    'map-scenario-gate': ('Reward', 'UIWindow? campaignWindow = CampaignWindow?.window;', 'if (Manager == null || !Manager.IsShown) return null; UIWindow? campaignWindow = CampaignWindow?.window;'),
     'gamepad-adapter': ('Reward', 'guild.isConfirmPressed = true;', 'guild.ConfirmPressed();'),
     'identity-block': ('Identity', '!choreographer.m_BlockClientMessageProcessing', 'false'),
     'placement-key': ('Placement', 'RewardShowcaseIdentity.ContentKey(window) != _key', 'false'),
@@ -99,6 +100,7 @@ PY
         authority) expected='shared observer cannot enqueue native reward continuation' ;;
         native-input) expected='Presentation must not bypass native reward input' ;;
         hover-state) expected='pointer hover paints native highlighted sprite and tint' ;;
+        map-scenario-gate) expected='map event reward receives its VR Continue without scenario manager' ;;
         gamepad-adapter) expected='explicit VR input works in tutorial and guild modes without physical gamepad edge' ;;
         identity-block) expected='unblocked stale activation cannot identify current reward' ;;
         placement-key) expected='pose for previous chest cannot move next chest reward' ;;

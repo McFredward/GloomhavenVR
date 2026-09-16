@@ -113,7 +113,8 @@ namespace GloomhavenVR.WorldUI;
 /// two examples and his "Zuweisungsfenster" both name the reward flows. It is listed here rather
 /// than covered so that a later round can adopt it on purpose instead of discovering it.</item>
 /// <item><b>The reward SHOWCASE</b> (<c>UICampaignRewardWindow</c> / <c>UIRewardsManager</c>) — it
-/// displays what was won and decides nothing, so there is nothing to operate.</item>
+/// displays what was won rather than assigning it. It still requires native Continue;
+/// <see cref="RewardShowcase"/> supplies that input without transferring reward authority.</item>
 /// </list></para>
 /// </summary>
 internal static class AssignmentWindows

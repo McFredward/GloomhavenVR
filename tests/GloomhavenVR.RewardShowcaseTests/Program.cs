@@ -122,9 +122,11 @@ static class Program
         Check(gamepad.Rewards.NativeCalls == 2 && gamepad.Completions == 2 && extra == 1,
             "stable ticks neither multiply native listener nor remove unrelated listeners");
         gamepad.Scenario.Shown = false;
+        gamepad.Window.IsOpen = gamepad.Window.IsVisible = false;
         RewardShowcase.Tick(true);
         Check(RewardShowcase.Window == null && !RewardShowcase.TryConfirm(), "closed campaign cannot receive bridge input");
         gamepad.Scenario.Shown = true;
+        gamepad.Window.IsOpen = gamepad.Window.IsVisible = true;
         Time.frameCount++;
         RewardShowcase.Tick(true);
         gamepad.Button.onClick.Invoke();
@@ -183,7 +185,7 @@ static class Program
         campaign.Denied(() => campaign.Window.enabled = false, () => campaign.Window.enabled = true, "disabled campaign window cannot confirm");
         campaign.Denied(() => campaign.Rewards.enabled = false, () => campaign.Rewards.enabled = true, "disabled campaign component cannot confirm");
         campaign.Denied(() => campaign.Window.IsOpen = campaign.Window.IsVisible = false, () => campaign.Window.IsOpen = campaign.Window.IsVisible = true, "closed campaign window cannot confirm");
-        campaign.Denied(() => campaign.Scenario.Shown = false, () => campaign.Scenario.Shown = true, "inactive scenario reward flow cannot confirm");
+        campaign.Denied(() => campaign.Rewards.ContinueAction = null, () => campaign.Rewards.ContinueAction = () => campaign.Completions++, "completed reward callback cannot confirm");
         campaign.Denied(() => WorldUIConfig.ConversionActive = false, () => WorldUIConfig.ConversionActive = true, "disabled VR conversion cannot confirm campaign");
         campaign.Denied(() => FlatScreen.ManualScreenActive = true, () => FlatScreen.ManualScreenActive = false, "manual desktop mode gates campaign bridge");
         campaign.Denied(() => Singleton<ESCMenu>.Instance.IsOpen = true, () => Singleton<ESCMenu>.Instance.IsOpen = false, "ESC modal gates campaign bridge");
@@ -285,6 +287,62 @@ static class Program
             "native peer message completes observer without rebroadcast or local ownership bypass");
     }
 
+    private static void MapRewardContinuation()
+    {
+        foreach (bool client in new[] { false, true })
+        {
+            var guild = new Guild();
+            // UIEventPanel.OnFinishedEvent calls UIRewardsManager directly. The map
+            // has no scenario reward controller and uses native host-only authority.
+            Singleton<ScenarioRewardManager>.Instance = null!;
+            FFSNetwork.IsOnline = true;
+            FFSNetwork.IsClient = client;
+            guild.Rewards.InteractionChecker = null;
+            bool distributionReached = false;
+            guild.Rewards.onProcessEnded = () => distributionReached = true;
+            var process = guild.Rewards.BeginNativeRewards(new[] { 41, 42 });
+            guild.Rewards.StepNativeRewards(process);
+            ModalFallback.PollRewardsForTest(true); // TableInFrontOfPlayer includes the 3D map.
+            Check(ReferenceEquals(ModalFallback.PolledWindow, guild.Window)
+                && ReferenceEquals(RewardShowcaseButton.Owner, guild.Rewards),
+                "map event reward receives its VR Continue without scenario manager");
+            Check(RewardShowcase.ContentKey == 0, "map reward cannot claim a scenario chest identity");
+            Check(RewardShowcase.CanConfirm == !client, "map event uses native host authority");
+            for (int reward = 0; reward < 2; reward++)
+            {
+                Time.frameCount++;
+                if (client)
+                {
+                    Check(!RewardShowcase.TryConfirm(), "map reward observer cannot advance host decision");
+                    guild.Rewards.ReceiveNativeProcessNextReward();
+                }
+                else
+                    Check(RewardShowcase.TryConfirm(), "host can advance a map event reward");
+                for (int step = 0; step < 3 && guild.Rewards.ProcessingRewards; step++)
+                    guild.Rewards.StepNativeRewards(process);
+            }
+            Check(distributionReached && guild.Rewards.CompletedProcesses == 1,
+                "native map reward completion reaches reward distribution exactly once");
+            Check(!client || Synchronizer.Sent == 0, "map reward observer never rebroadcasts authority");
+        }
+
+        var campaign = new Campaign();
+        Singleton<ScenarioRewardManager>.Instance = null!;
+        RewardShowcase.Tick(false);
+        campaign.Button.onClick.RemoveListener(campaign.Rewards.OnContinueButtonClick);
+        ModalFallback.PollRewardsForTest(true);
+        Check(ReferenceEquals(RewardShowcase.Window, campaign.Window)
+            && campaign.Button.onClick.ListenerCount == 1,
+            "map campaign native Continue is wired without scenario manager");
+        campaign.Button.onClick.Invoke();
+        Check(campaign.Completions == 1, "map campaign button invokes original native continuation");
+        campaign.Rewards.Revealing = true;
+        Check(!RewardShowcase.TryConfirm(), "map campaign reveal still gates explicit bridge input");
+        campaign.Rewards.Revealing = false;
+        campaign.Button.interactable = false;
+        Check(!RewardShowcase.TryConfirm(), "map campaign original permission still gates input");
+    }
+
     private static void GuildInputAndLifecycle()
     {
         var guild = new Guild();
@@ -354,7 +412,8 @@ static class Program
         owner = true;
         Check(RewardShowcase.CanConfirm, "ownership changes are read live rather than cached");
         Singleton<ScenarioRewardManager>.Instance = null!;
-        Check(RewardShowcase.Window == null && !RewardShowcase.TryConfirm(), "unrelated guild singleton cannot claim absent scenario flow");
+        Check(ReferenceEquals(RewardShowcase.Window, guild.Window) && RewardShowcase.CanConfirm,
+            "native event reward remains actionable without a scenario controller");
     }
 
     private static uint OpenChest(string guid, ScenarioManager.ObjectImportType type = ScenarioManager.ObjectImportType.Chest)
@@ -498,6 +557,8 @@ static class Program
         ModalFallback.Failed.Add(guild.Window);
         Check(RewardShowcasePlacement.LocalPlacementFailed, "actual local conversion failure is available for source re-election");
         guild.Scenario.Shown = false;
+        guild.Window.IsOpen = guild.Window.IsVisible = false;
+        guild.Rewards.ProcessingRewards = false;
         Check(!RewardShowcasePlacement.LocalPlacementFailed && RewardShowcasePlacement.TryReveal(panel),
             "closed native reward drops failure identity and does not obstruct other reveals");
     }
@@ -524,6 +585,7 @@ static class Program
         ModalFallback.Failed.Clear();
         Check(!RewardShowcasePlacement.LocalPlacementFailed, "native conversion recovery restores source eligibility");
         guild.Scenario.Shown = false;
+        guild.Window.IsOpen = guild.Window.IsVisible = false;
         WorldUIConfig.ModalWindowStyle = false;
         FlatScreen.ManualScreenActive = true;
         Check(!RewardShowcasePlacement.LocalPlacementFailed, "closed reward is not reported unavailable by screen configuration alone");
@@ -535,6 +597,7 @@ static class Program
         CampaignGates();
         GuildInputAndLifecycle();
         NativeRewardCompletion();
+        MapRewardContinuation();
         ContinueHoverAndClick();
         GuildGatesAndAuthority();
         IdentityAndInitialPlacement();

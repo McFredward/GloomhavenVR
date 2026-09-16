@@ -26,13 +26,16 @@ internal static partial class RewardShowcase
     {
         get
         {
-            ScenarioRewardManager? manager = Manager;
-            if (manager == null || !manager.IsShown) return null;
-            UIWindow? window = manager is CampaignScenarioRewardManager campaign
-                ? campaign.manager?.rewardsWindow?.window
-                : Guildmaster?.myWindow;
-            return window != null && window.isActiveAndEnabled
-                && (window.IsOpen || window.IsVisible) ? window : null;
+            // UIEventPanel.OnFinishedEvent starts the native showcase directly on the
+            // map, without ScenarioRewardManager. Requiring a scenario controller hid
+            // the VR input there forever, before DistributeRewards could run. Resolve
+            // the live original process/window, while retaining the scenario's exact
+            // campaign manager when one owns the current reward.
+            UIWindow? campaignWindow = CampaignWindow?.window;
+            if (IsLiveWindow(campaignWindow)) return campaignWindow;
+            UIRewardsManager? guild = Guildmaster;
+            return guild != null && guild.ProcessingRewards && IsLiveWindow(guild.myWindow)
+                ? guild.myWindow : null;
         }
     }
 
@@ -43,15 +46,29 @@ internal static partial class RewardShowcase
     private static UIRewardsManager? Guildmaster => Singleton<UIRewardsManager>.IsInitialized
         ? Singleton<UIRewardsManager>.Instance : null;
 
+    private static bool IsLiveWindow(UIWindow? window) => window != null && window.isActiveAndEnabled
+        && (window.IsOpen || window.IsVisible);
+
+    private static UICampaignRewardWindow? CampaignWindow
+    {
+        get
+        {
+            if (Manager is CampaignScenarioRewardManager campaign && campaign.IsShown)
+                return campaign.manager?.rewardsWindow;
+            return Singleton<CampaignRewardsManager>.IsInitialized
+                ? Singleton<CampaignRewardsManager>.Instance?.rewardsWindow : null;
+        }
+    }
+
     internal static bool CanConfirm
     {
         get
         {
             if (!_enabled || !WorldUIConfig.ConversionActive || FlatScreen.ManualScreenActive || Window == null
                 || (Singleton<ESCMenu>.IsInitialized && Singleton<ESCMenu>.Instance.IsOpen)) return false;
-            if (Manager is CampaignScenarioRewardManager campaign)
+            UICampaignRewardWindow? rewards = CampaignWindow;
+            if (rewards != null && ReferenceEquals(Window, rewards.window))
             {
-                UICampaignRewardWindow? rewards = campaign.manager?.rewardsWindow;
                 ExtendedButton? button = rewards?.continueButton;
                 return rewards != null && rewards.isActiveAndEnabled && !rewards.isRevealing && rewards.continueAction != null
                     && button != null && button.gameObject.activeInHierarchy && button.enabled
@@ -83,10 +100,10 @@ internal static partial class RewardShowcase
             _loggedPermission = null;
             return;
         }
-        if (Manager is CampaignScenarioRewardManager campaign)
+        UICampaignRewardWindow? rewards = CampaignWindow;
+        if (rewards != null && ReferenceEquals(window, rewards.window))
         {
             GuildButton.Dispose();
-            UICampaignRewardWindow rewards = campaign.manager.rewardsWindow;
             if (_wiredCampaign != rewards && rewards.continueButton != null)
             {
                 // Remove only this exact native runtime callback, then bind it once. Adding
@@ -105,7 +122,7 @@ internal static partial class RewardShowcase
             _loggedWindow = window;
             _loggedPermission = permission;
             VRLog.Info("WorldUI", $"REWARD SHOWCASE INPUT: native window='{window.name}', "
-                + $"flow={(Manager is CampaignScenarioRewardManager ? "Campaign" : "UIRewardsManager")}, "
+                + $"flow={(rewards != null && ReferenceEquals(window, rewards.window) ? "Campaign" : "UIRewardsManager")}, "
                 + $"canContinue={permission}; native reward continuation retains multiplayer authority.");
         }
     }
@@ -114,8 +131,9 @@ internal static partial class RewardShowcase
     {
         if (!CanConfirm || _lastConfirmFrame == Time.frameCount) return false;
         _lastConfirmFrame = Time.frameCount;
-        if (Manager is CampaignScenarioRewardManager campaign)
-            campaign.manager.rewardsWindow.OnContinueButtonClick();
+        UICampaignRewardWindow? rewards = CampaignWindow;
+        if (rewards != null && ReferenceEquals(Window, rewards.window))
+            rewards.OnContinueButtonClick();
         else
         {
             // UIRewardsManager is also used by SingleScenario / FrontEndTutorial. Its
