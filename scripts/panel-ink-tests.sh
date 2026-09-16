@@ -20,6 +20,13 @@ assert source.count(needle) == 1
 needle = 'RewardHeadingBounds.Expand(host, graphic, bounds)'
 assert source.count(needle) == 1
 (root / 'reward-heading.fixture').write_text(source.replace(needle, 'bounds'))
+needle = 'frameOverride ?? host.rect'
+assert source.count(needle) == 1
+(root / 'mr-frame.fixture').write_text(source.replace(needle, 'host.rect'))
+needle = '(excludedRoots != null && excludedRoots.Contains(t))'
+assert source.count(needle) == 1
+(root / 'mr-hover.fixture').write_text(source.replace(needle, 'false'))
+needle = 'RewardHeadingBounds.Expand(host, graphic, bounds)'
 capture = (repo / 'src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.4.Content.cs').read_text()
 measure = capture[capture.index('    private static void MeasureFrame('):]
 measure = measure[:measure.index('        ContentStack.Clear();', measure.index('        ContentStack.Clear();') + 1)]
@@ -62,7 +69,7 @@ assert 'out content, out contributors, out _, out _, includeParkedHint)' in code
 print('Placement binding negative control: inclusion of owner annotation rejected.')
 PY
 dotnet run --project "$project" --configuration Release --property:DrawnUnionSource="$mutation_dir/union.fixture"
-for mutation in missing broad hint-ink hint-union reward-heading; do
+for mutation in missing broad hint-ink hint-union reward-heading mr-frame mr-hover; do
     ink_source="$mutation_dir/$mutation.fixture"
     union_source="$mutation_dir/union.fixture"
     if [[ "$mutation" == hint-union ]]; then
@@ -80,9 +87,11 @@ for mutation in missing broad hint-ink hint-union reward-heading; do
     if [[ "$mutation" == hint-ink ]]; then expected='placement fallback excludes hint'; fi
     if [[ "$mutation" == reward-heading ]]; then expected='reward heading includes overflowing glyphs'; fi
     if [[ "$mutation" == hint-union ]]; then expected='visible placement excludes hint'; fi
+    if [[ "$mutation" == mr-frame ]]; then expected='mirror backdrop classification uses the sampled owner frame'; fi
+    if [[ "$mutation" == mr-hover ]]; then expected='neutralized remote hover branch must not inflate'; fi
     if ! rg -q "$expected" "$mutation_dir/$mutation.log"; then
         cat "$mutation_dir/$mutation.log"
         exit 1
     fi
 done
-echo "Panel ink negative controls: five runtime mutations and one placement binding mutation rejected."
+echo "Panel ink negative controls: seven runtime mutations and one placement binding mutation rejected."

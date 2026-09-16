@@ -43,12 +43,13 @@ namespace GloomhavenVR.WorldUI;
 ///   nothing here reaches into game state; see <see cref="Release"/> for the extra teardown that
 ///   a plate parented under a GAME object needs and the panel plates do not.</para>
 /// - Converted panels need no registration: <see cref="Tick"/> sweeps
-///   <see cref="CanvasConversion.ActivePanels"/> and keeps a host-rect plate behind EVERY live
-///   converted panel. That deliberately includes the ModalFallback float families whose native
+///   <see cref="CanvasConversion.ActivePanels"/> and backs the measured visible ink of each
+///   converted panel, with a small margin and the grab bar's default fast resize animation.
+///   That deliberately includes the ModalFallback float families whose native
 ///   full-window backing the mod itself strips (WantsTransparentBackground — correct on a flat
 ///   screen, unreadable in MR) and the adopted HUD panels whose game art may be translucent;
 ///   behind a natively opaque panel the plate is simply invisible (drawn first, fully covered),
-///   so over-coverage is harmless while under-coverage is the reported bug. The ONLY exceptions
+///   but transparent frame space and empty windows receive no plate (build 516). The ONLY exceptions
 ///   are panels whose owner set <see cref="ConvertedPanel.MrBackingSuppressed"/> (user ruling
 ///   2026-08-04: actor health bars and the figure-grab stat cards — see that flag's doc for the
 ///   full reasoning; joined 2026-08-09 by the hover PROP-INFO cards, "Geschlossene Tür" and
@@ -279,10 +280,22 @@ internal static class MrBacking
         public bool Faded;
     }
 
+    /// <summary>Optional identity of the latest geometry sample. Re-reading a cached rect does
+    /// not count as independent confirmation; native mirror and owner use the same cadence.</summary>
+    internal interface ISampledBacking
+    {
+        int BackingSampleFrame { get; }
+    }
+
     private sealed class PanelEntry
     {
         public ConvertedPanel Panel = null!;
         public Transform? Plate;
+        public readonly MrBackingLayout Layout = new();
+        public Rect Bounds;
+        public bool BoundsVisible;
+        public int SampleFrame = -1;
+        public int NextSampleFrame;
 
         /// <summary>Change-dedup for the plate-extent line (rounded px) — see <see cref="LogPlateExtent"/>.</summary>
         public string? LoggedExtent;
@@ -292,6 +305,7 @@ internal static class MrBacking
     {
         public IBackedSurface Surface = null!;
         public Transform? Plate;
+        public readonly MrBackingLayout Layout = new();
         public Renderer? PlateRenderer;
 
         /// <summary>Cached at registration: the surface also declared <see cref="IFadedBacking"/>,
@@ -848,6 +862,40 @@ internal static class MrBacking
             bool visible = panel.HostGo.activeInHierarchy
                            && !panel.RenderHidden && !panel.OwnerRenderHidden
                            && r.width > 2f && r.height > 2f;
+            // ModBuild 516: a modal host is often a transparent full-screen layout frame, not
+            // the visible window (too_big_mixed_reality_backgorunds.jpg). Reuse the holder's RAW
+            // ink sample and liveness. Its grab envelope intentionally holds old extents and is
+            // unsuitable here. In particular, a known empty holder must never take the host fallback.
+            bool owned = GrabbableModal.TryGetMrBackingRect(panel, out Rect fitted,
+                out bool ownerVisible, out int sampleFrame);
+            int overflowing = 0;
+            if (owned)
+                visible &= ownerVisible;
+            else
+            {
+                visible &= !panel.FitEnabled || panel.FitMeasuredOnce;
+                // Board-coupled surfaces have no modal ink owner. Their old glyph sweep already
+                // walked all graphics each frame, yet seeded from an oversized/empty host. Measure
+                // real ink instead on a four-frame cadence; retain genuine unclipped glyph overflow.
+                if (visible && Time.frameCount >= entry.NextSampleFrame)
+                {
+                    entry.SampleFrame = Time.frameCount;
+                    entry.NextSampleFrame = Time.frameCount + MrBackingLayout.SampleStrideFrames;
+                    entry.BoundsVisible = PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink)
+                                          && ink.Valid;
+                    entry.Bounds = entry.BoundsVisible
+                        ? GlyphTrueRect(panel, host,
+                            MrBackingLayout.WindowRect(r, ink.Rect, ink.Plates > 0, ink.PlateBottom),
+                            out overflowing)
+                        : default;
+                    LogPlateExtent(entry, host, r, entry.Bounds, overflowing);
+                }
+                fitted = entry.Bounds;
+                sampleFrame = entry.SampleFrame;
+                visible &= entry.BoundsVisible;
+            }
+            visible = entry.Layout.Present(fitted, visible, sampleFrame, Time.unscaledTime,
+                MrBackingLayout.DurationSeconds, out Rect shown);
             if (entry.Plate == null)
             {
                 if (!visible)
@@ -867,13 +915,7 @@ internal static class MrBacking
             if (!visible)
                 continue;
 
-            // Exactly the host rect (host units are canvas px; the host scale carries px→m):
-            // no out-padding — a plate proud of the window edge would read as a frame the
-            // window never had. …UNLESS THE PANEL RENDERS VISIBLE TEXT OUTSIDE THAT RECT, which is
-            // not padding but measurement — see GlyphTrueRect.
-            Rect fitted = GlyphTrueRect(panel, host, r, out int overflowing);
-            Fit(entry.Plate, host, fitted.size, fitted.center);
-            LogPlateExtent(entry, host, r, fitted, overflowing);
+            Fit(entry.Plate, host, shown.size, shown.center);
         }
     }
 
@@ -951,8 +993,8 @@ internal static class MrBacking
     /// (+55…115 px tall as its reveal list fills) — are drawn by text the fit COUNTS, so they keep
     /// their enlarged plates unchanged.</para>
     /// </summary>
-    private static Rect GlyphTrueRect(ConvertedPanel panel, RectTransform host, Rect hostRect,
-                                      out int overflowing)
+    internal static Rect GlyphTrueRect(ConvertedPanel panel, RectTransform host, Rect hostRect,
+                                      out int overflowing, ISet<Transform>? excludedRoots = null)
     {
         overflowing = 0;
         for (int i = 0; i < OverflowNameCap; i++)
@@ -979,7 +1021,7 @@ internal static class MrBacking
             Graphic g = TextScratch[i];
             if (g == null || g is not TMP_Text t || string.IsNullOrEmpty(t.text))
                 continue;
-            if (IsClipped(t.rectTransform, host))
+            if (IsClipped(t.rectTransform, host) || ExcludedByOwner(t.transform, host, excludedRoots))
                 continue;
             Bounds b = t.textBounds;
             if (b.size.x <= 0.0001f || b.size.y <= 0.0001f)
@@ -1013,6 +1055,16 @@ internal static class MrBacking
         }
         TextScratch.Clear();
         return overflowing == 0 ? hostRect : Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+    }
+
+    private static bool ExcludedByOwner(Transform node, Transform host, ISet<Transform>? excludedRoots)
+    {
+        if (excludedRoots == null)
+            return false;
+        for (Transform? current = node; current != null && current != host; current = current.parent)
+            if (excludedRoots.Contains(current))
+                return true;
+        return false;
     }
 
     /// <summary>Is <paramref name="rect"/> under a clipper (<see cref="RectMask2D"/> / stencil
@@ -1144,6 +1196,11 @@ internal static class MrBacking
             bool visible = anchor != null && s.BackingVisible
                            && size.x > 0.0001f && size.y > 0.0001f
                            && alpha > PlateFadeCutoff;
+            if (e.Plate != null && anchor != null && e.Plate.parent != anchor)
+                e.Layout.Reset(); // a replacement owner has no old geometry to animate from
+            visible = e.Layout.Present(new Rect(s.BackingCenter - size * 0.5f, size), visible,
+                s is ISampledBacking sampled ? sampled.BackingSampleFrame : Time.frameCount,
+                Time.unscaledTime, MrBackingLayout.DurationSeconds, out Rect shown);
             if (e.Plate == null)
             {
                 if (!visible)
@@ -1167,7 +1224,7 @@ internal static class MrBacking
             if (e.PlateRenderer != null && e.PlateRenderer.sortingOrder != order)
                 e.PlateRenderer.sortingOrder = order;
 
-            Fit(e.Plate, anchor, size, s.BackingCenter);
+            Fit(e.Plate, anchor, shown.size, shown.center);
             ApplyPlateAlpha(e.PlateRenderer, ref e.FadeMat, ref e.Faded, alpha);
         }
     }
@@ -1234,6 +1291,9 @@ internal static class MrBacking
         }
         for (int i = Panels.Count - 1; i >= 0; i--)
         {
+            Panels[i].Layout.Reset();
+            Panels[i].NextSampleFrame = 0;
+            Panels[i].BoundsVisible = false;
             if (Panels[i].Plate != null)
                 Panels[i].Plate!.gameObject.SetActive(false);
         }
@@ -1249,6 +1309,7 @@ internal static class MrBacking
                 Surfaces.RemoveAt(i);
                 continue;
             }
+            e.Layout.Reset();
             if (e.Plate != null)
                 e.Plate!.gameObject.SetActive(false);
         }

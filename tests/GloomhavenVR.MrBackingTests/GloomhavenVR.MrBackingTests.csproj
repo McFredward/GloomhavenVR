@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LayoutSource Condition="'$(LayoutSource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingLayout.cs</LayoutSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(LayoutSource)" Link="Production/MrBackingLayout.cs" />
+    <Compile Include="$(AccessorSource)" Link="Production/BackingAccessor.cs" />
+  </ItemGroup>
+</Project>

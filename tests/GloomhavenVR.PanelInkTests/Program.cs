@@ -106,6 +106,7 @@ static partial class Program
             "explicit content honors native clipping");
         TestPlacementHintIsolation();
         TestRewardHeading();
+        TestMirrorBackingInk();
         Console.WriteLine($"Panel ink tests: {_assertions} assertions passed.");
     }
 }

@@ -444,7 +444,8 @@ internal static class PanelInkBounds
     /// nothing measurable, which the caller must treat as "keep the frame-based placement".
     /// Never throws: a throw here would stand down a window's whole follow tick.
     /// </summary>
-    internal static bool TryMeasure(ConvertedPanel panel, out Ink ink, bool includeParkedHint = true)
+    internal static bool TryMeasure(ConvertedPanel panel, out Ink ink, bool includeParkedHint = true,
+                                    Rect? frameOverride = null, ISet<Transform>? excludedRoots = null)
     {
         ink = default;
         ink.BottomName = string.Empty;
@@ -455,7 +456,7 @@ internal static class PanelInkBounds
         ink.PlateBottomName = string.Empty;
         try
         {
-            return MeasureCore(panel, ref ink, includeParkedHint);
+            return MeasureCore(panel, ref ink, includeParkedHint, frameOverride, excludedRoots);
         }
         catch (System.Exception)
         {
@@ -465,14 +466,18 @@ internal static class PanelInkBounds
         }
     }
 
-    private static bool MeasureCore(ConvertedPanel panel, ref Ink ink, bool includeParkedHint)
+    private static bool MeasureCore(ConvertedPanel panel, ref Ink ink, bool includeParkedHint, Rect? frameOverride,
+                                    ISet<Transform>? excludedRoots)
     {
         RectTransform? host = panel.HostRect;
         Transform? target = panel.Target;
         if (host == null || target == null || !target.gameObject.activeInHierarchy)
             return false;
 
-        Rect hostRect = host.rect;
+        // Native mirror pivots carry the original parent layout, while the owner's fitted frame
+        // is separate sampled presentation data. Only backdrop classification reads this override;
+        // all actual geometry is still transformed through the original host/pivot.
+        Rect hostRect = frameOverride ?? host.rect;
         float plateW = hostRect.width * PlateWidthFraction;
         float plateH = hostRect.height * PlateHeightFraction;
         bool plateTestUsable = hostRect.width > 1f && hostRect.height > 1f;
@@ -500,7 +505,7 @@ internal static class PanelInkBounds
             ClipFrame node = Stack[last];
             Stack.RemoveAt(last);
             Transform t = node.Transform;
-            if (t == null || !t.gameObject.activeSelf)
+            if (t == null || !t.gameObject.activeSelf || (excludedRoots != null && excludedRoots.Contains(t)))
                 continue;
             if (++nodes > MaxNodes)
             {
