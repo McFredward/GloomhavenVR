@@ -50,11 +50,19 @@ panned/orbited seat frame. A reward-only frame value leaves legacy frame grammar
 The lowest live reward-capable VR participant supplies the initial pose. Pending geometry
 can be transmitted while hidden; a Ready flag prevents followers from revealing an
 unsettled placement. Followers apply that final pose immediately before first visibility.
-A native conversion failure is advertised explicitly and another participant takes over;
-departure uses ordinary membership removal. An absent/disabled net module does not block
+A native conversion failure or screen-only presentation is advertised explicitly and another
+participant takes over. The latter reuses ModalFallback's actual ConvertBaseActive policy:
+a peer showing the manual screen cannot remain an elected publisher without a float.
+Departure uses ordinary membership removal. An absent/disabled net module does not block
 local confirmation or reveal. Later actual user movement takes priority, and omitted/stale
 peer records retire their claim. No reward/character/card identity or continuation command
 is introduced on the mod transport.
+
+The first visible receive also seeds the reward interpolation track at the received endpoint.
+Otherwise the next network tick could move the just-revealed window backward through its
+hidden local spawn pose. The handoff survives identity-settle early returns; subsequent
+visible movement retains ordinary smoothing. An already visible shared endpoint takes
+precedence over a newly joined lower-ID participant's initial local placement.
 
 ## Validation
 
