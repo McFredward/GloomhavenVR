@@ -66,6 +66,7 @@ fi
 bash "$ROOT/scripts/card-bindings-tests.sh"
 bash "$ROOT/scripts/native-playback-tests.sh"
 bash "$ROOT/scripts/native-video-tests.sh"
+bash "$ROOT/scripts/reward-showcase-tests.sh"
 bash "$ROOT/scripts/panel-ink-tests.sh"
 bash "$ROOT/scripts/video-playback-tests.sh"
 bash "$ROOT/scripts/hint-tests.sh"

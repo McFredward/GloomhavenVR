@@ -155,7 +155,7 @@ hardware-verification logging and option reachability. The workflow files list t
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
 The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, map-button, flight-timing,
-figure-hold, native-video, panel-ink, shared-video-playback and introduction-hint harnesses execute
+figure-hold, native-video, reward-showcase, panel-ink, shared-video-playback and introduction-hint harnesses execute
 production source with controlled Unity API substitutes and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
 presentation-send reuse. Their coverage does not replace the full wire vectors or a
