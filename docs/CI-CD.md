@@ -185,6 +185,9 @@ skip routing, video-window cleanup and the actual modal orphan sweep against the
 movie owner. Negative controls cover lost ownership, missing persistent-lifetime enrollment
 and missing content binding. The actual pointer guard and attached click handler cover
 laser/poke skip, stale playback identities and native hero-movie completion.
+`scripts/panel-material-tests.sh` exercises passive native TMP material inspection and
+the actual capture blur handler. Negative controls restore allocating material getters,
+overbroad neutralization and a missing GrabPass remedy.
 `scripts/panel-ink-tests.sh` exercises the production ink walker:
 full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and
 clipped pixels retain their exclusions. It also tests placement-only annotation exclusion
