@@ -30,7 +30,9 @@ static class Program {
             var hand=new CardsHandUI{PlayerActor=incoming};hand.cardsUI.Add(burning.GameCard!);hand.cardsUI.Add(replacement.GameCard!);
             incoming.CharacterClass.LostAbilityCards.Add(burning.GameCard!.AbilityCard!);
             burning.GameCard.Playing=true;d.Incoming=hand;d.Requested.Add(replacement);
+            int observed=GloomhavenVR.Net.CardAppearanceSampler.Observed;
             for(int i=0;i<20;i++){Time.unscaledTime+=1;d.Tick();Check(d.Pending&&d.Renders==0&&d.Flights==0&&d.Drawn.Contains(old)&&ReferenceEquals(d.LayoutActor,outgoing),"Incoming native burn must wait before replacing the outgoing character");}
+            Check(GloomhavenVR.Net.CardAppearanceSampler.Observed-observed==40,"Every incoming original widget must publish its owner progress before adoption");
             burning.GameCard.Playing=false;hand.AnimatingLostCards=true;hand.animatedLosingCard=true;d.Tick();Check(d.Pending&&d.Renders==0,"Incoming owning-hand loss sequence must finish before focus admission");
             hand.animatedLosingCard=false;d.Tick();Check(!d.Pending&&d.Renders==1&&d.Flights==0,"Completed incoming burns must admit focus without replaying a historical loss");
             hand.animatedLosingCard=true;hand.gameObject.activeInHierarchy=false;d.Tick();Check(!d.Pending,"An inactive cancelled incoming hand must not freeze focus on stale loss flags");
@@ -38,6 +40,17 @@ static class Program {
             hand.cardsUI.Clear();d.Tick();Check(!d.Pending,"An incoming hand with no native artwork must not invent a burn wait");
             hand.cardsUI.Add(burning.GameCard);burning.GameCard.Playing=true;d.Tick();Check(d.Pending,"A new incoming burn must re-arm admission from actual native playback");
             d.Incoming=null;d.Tick();Check(!d.Pending,"Cancelling incoming focus must release its presentation-only wait");
+        }
+        {
+            var outgoing=new CPlayerActor();var foreign=new CPlayerActor();var d=new CardsDriver();d.Bind(outgoing);
+            var old=Card(outgoing);d.Add(old);d.Incoming=new CardsHandUI{PlayerActor=foreign};d.Requested.Add(Card(foreign));
+            GloomhavenVR.Net.CardAppearanceMirror.Pending.Add(foreign);
+            d.Tick();Check(d.Pending&&d.Renders==0&&ReferenceEquals(d.LayoutActor,outgoing),"Foreign incoming owner progress must retain the admitted local view when its native proxy is inactive");
+            GloomhavenVR.Net.CardAppearanceMirror.Pending.Remove(foreign);
+            d.Tick();Check(!d.Pending&&d.Renders==1&&d.Flights==0,"Owner progress removal must admit the foreign view without a nonexistent flight release");
+            d.Bind(foreign);GloomhavenVR.Net.CardAppearanceMirror.Pending.Add(foreign);d.Tick();
+            Check(d.Pending&&d.Renders==1,"Owner progress arriving after foreign focus admission must still stop card replacement");
+            GloomhavenVR.Net.CardAppearanceMirror.Pending.Remove(foreign);d.Tick();Check(!d.Pending&&d.Renders==2,"A read-only adopted hand must resume when its owner clears native progress");
         }
         Console.WriteLine($"Burn layout: {checks} assertions passed.");
     }

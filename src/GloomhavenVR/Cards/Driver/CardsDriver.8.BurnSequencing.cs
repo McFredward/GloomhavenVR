@@ -20,7 +20,9 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void RefreshBurnLayoutBarrier()
     {
-        _burnLayoutNativeActive = false;
+        // A read-only adopted hand may have no locally running native iterator. The owner's
+        // explicit progress also protects it when that record arrives just after focus admission.
+        _burnLayoutNativeActive = Net.CardAppearanceMirror.OwnerBurnInProgress(_boundHand?.PlayerActor);
         if (!_fakeActive)
         {
             for (int i = 0; i < _factory.All.Count; i++)
@@ -47,7 +49,10 @@ internal sealed partial class CardsDriver
         // A quiet frame must still complete pending holds, even after the game switched its
         // presented actor. Do this before accepting a new layout so its flight uses the old seat.
         FlushBurnHolds("card layout awaits native burn completion");
-        bool pending = _burnLayoutNativeActive || _burnHoldSince.Count != 0 || IncomingHandBurnActive();
+        // Observe an incoming native sequence even while the outgoing hand still owns a hold;
+        // this also publishes the owner's explicit progress for remote admission.
+        bool incomingActive = IncomingHandBurnActive();
+        bool pending = _burnLayoutNativeActive || _burnHoldSince.Count != 0 || incomingActive;
         if (_burnLayoutPending != pending) _dirty = true;
         _burnLayoutPending = pending;
         if (pending)
@@ -70,11 +75,13 @@ internal sealed partial class CardsDriver
         if (incoming == null || ReferenceEquals(incoming, _boundHand)) return false;
         // This is the same native lifetime pair used by BurnArtwork.LosingCards. Inactive hands
         // can retain cancelled bookkeeping; neither flag alone is proof of a running sequence.
-        bool active = incoming.gameObject.activeInHierarchy && incoming.AnimatingLostCards && incoming.animatedLosingCard;
+        bool active = Net.CardAppearanceMirror.OwnerBurnInProgress(incoming.PlayerActor)
+            || incoming.gameObject.activeInHierarchy && incoming.AnimatingLostCards && incoming.animatedLosingCard;
         if (incoming.cardsUI == null) return active;
         foreach (AbilityCardUI widget in incoming.cardsUI)
         {
             if (widget == null) continue;
+            Net.CardAppearanceSampler.ObserveBurnProgress(widget);
             active |= BurnArtwork.Playing(BurnArtwork.EffectsOf(widget));
         }
         return active;

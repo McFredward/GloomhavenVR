@@ -67,3 +67,8 @@ namespace GloomhavenVR.Cards {
 }
 
 namespace GloomhavenVR.Board { internal static class CharacterFocus { internal static Cards.CardsHandUI? PresentedHand(Cards.CardsHandUI? hand)=>hand; } }
+
+namespace GloomhavenVR.Net {
+    internal static class CardAppearanceSampler { internal static int Observed; internal static void ObserveBurnProgress(Cards.AbilityCardUI widget)=>Observed++; }
+    internal static class CardAppearanceMirror { internal static readonly HashSet<ScenarioRuleLibrary.CPlayerActor> Pending=new(); internal static bool OwnerBurnInProgress(ScenarioRuleLibrary.CPlayerActor? actor)=>actor!=null&&Pending.Contains(actor); }
+}

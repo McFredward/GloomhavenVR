@@ -7,7 +7,7 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.BurnLayoutTests/"*.cs "$repo_root/tests/GloomhavenVR.BurnLayoutTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.BurnLayoutTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.BurnLayoutTests.csproj" --configuration Release
-for mutation in early-layout missed-model missed-native no-retry last-card-only missed-incoming historical-incoming; do
+for mutation in early-layout missed-model missed-native no-retry last-card-only missed-incoming historical-incoming missed-foreign missed-progress; do
     cp "$work_dir/Production.cs" "$work_dir/original.txt"
     python3 - "$work_dir/Production.cs" "$mutation" <<'PY'
 import pathlib,sys
@@ -17,7 +17,9 @@ old,new={
 'missed-model':('if (card.IsHeld || !IsFreshBurn(_boundHand, card)','if (true || card.IsHeld || !IsFreshBurn(_boundHand, card)'),
 'missed-native':('_burnLayoutNativeActive |= BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))','_burnLayoutNativeActive |= false && BurnArtwork.Playing(BurnArtwork.EffectsOf(card.FullCard))'),
 'no-retry':('_dirty = true;', '_dirty = false;'),
-'missed-incoming':(' || IncomingHandBurnActive()', ''),
+'missed-incoming':('bool incomingActive = IncomingHandBurnActive();', 'bool incomingActive = false;'),
+'missed-progress':('Net.CardAppearanceSampler.ObserveBurnProgress(widget);', ''),
+'missed-foreign':('Net.CardAppearanceMirror.OwnerBurnInProgress(incoming.PlayerActor)', 'false'),
 'historical-incoming':('active |= BurnArtwork.Playing(BurnArtwork.EffectsOf(widget));', 'active |= widget.AbilityCard != null;'),
 'last-card-only':('_burnLayoutNativeActive |=', '_burnLayoutNativeActive ='),
 }[sys.argv[2]]
@@ -29,6 +31,8 @@ PY
         missed-native) expected='Live burn must never admit sibling movement or replacement';;
         no-retry) expected='Retained card input must wait and rebuild must remain scheduled';;
         missed-incoming) expected='Incoming native burn must wait before replacing the outgoing character';;
+        missed-progress) expected='Every incoming original widget must publish its owner progress before adoption';;
+        missed-foreign) expected='Foreign incoming owner progress must retain the admitted local view when its native proxy is inactive';;
         historical-incoming) expected='Completed incoming burns must admit focus without replaying a historical loss';;
         last-card-only) expected='Live burn must never admit sibling movement or replacement';;
     esac
