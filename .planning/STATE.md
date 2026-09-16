@@ -17,7 +17,10 @@ change per build) → this file (where things stand and what is owed) → the bu
   Both glove materials reduce authored normal relief from 0.5 to 0.25. Native model renders
   and actual bundle checks cover both hands and confirm that Plate/Arcane, geometry and
   attachment anchors are preserved. The exact Unity 2021.3.5f1 bundle has 617 assets and
-  74,942,975 bytes. Full integration checks follow; perceived headset appearance is unverified.
+  74,942,975 bytes. All 17 checkers and production suites pass; 254,019 wire assertions;
+  strict Release zero warnings/errors. Incremental compiled comparison has seven changed types,
+  exclusively the propagated ModBuild constant; no added/removed types. Surface counts remain
+  625 / 163 / 4,728, patch inventory 119 / 186. Perceived headset appearance is unverified.
   See [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md). Published 1.0.2 is unchanged.
 
 - **dev / 1.0.3 / ModBuild 514 limits additional VR lessons to the first native tutorial.**

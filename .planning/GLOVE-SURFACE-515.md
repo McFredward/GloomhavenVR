@@ -44,10 +44,25 @@ attachment anchors and finger animation are unchanged. Version remains 1.0.3 on 
   data and runtime fields are unchanged. All meshes, textures, prefabs and other materials
   are byte-identical.
 - New bundle: 74,942,975 bytes, UnityFS format 7, Unity 2021.3.5f1.
+  SHA256: `fe1a659c17b4151e929691aa070d402b8cd299a462315b1d6691d2622d491693`.
+  Previous bundle SHA256: `cf9df05f092cf5f09eae559a32c11a5d948c13df1f81a24d10cc281b5a9b6c43`.
 - The editor logs also contain the existing project input-system initialization complaint
   (`activeInputHandler=-1`). HandsBuilder exits successfully, all hand materials are generated,
   native renders complete and actual bundle verification passes. No project input setting was
   changed for this material adjustment.
 
-Full integration gate results follow after completion. Headset judgment of the surface remains
-with the maintainer; the editor comparison does not prove the perceived strength in VR.
+## Integration validation
+
+All 17 guard checkers and production suites pass; 254,019 wire assertions. Strict Release
+passes with zero warnings and errors. Bilingual docs, whitespace and bundle-header checks pass.
+Surfaces remain 625 config keys / 163 Harmony signatures / 4,728 log tokens; patch inventory
+remains 119 classes / 186 methods.
+
+The retained build-502 compiled comparison has 71 changed / 42 added / zero removed C# types.
+A private comparison against the previous build-514 compiled output has seven changed types,
+all exclusively due to the propagated ModBuild 514 -> 515 constant, with no added/removed types.
+The retained baseline was not replaced. Unity editor scripts compile and both preview/verification
+entry points complete successfully.
+
+Headset judgment of the surface remains with the maintainer; the editor comparison does not
+prove the perceived strength in VR.
