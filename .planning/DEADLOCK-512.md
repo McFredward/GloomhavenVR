@@ -92,7 +92,38 @@ objects and diagnostics; it cannot promise usable rendering in a broken engine s
 
 ## Validation
 
-Integration and final required gate results will be recorded after worker review.
+Three independent worker lanes reviewed map/tutorial, scenario decisions and shared-native
+continuation. A separate final review checked rollback ownership, original-home recovery and
+separation of native restoration from mod-only teardown.
+
+| Focused production suite | Assertions | Runtime negative controls |
+|---|---:|---:|
+| Reward progression | 320 | 14 |
+| Map flow/travel | 1,997 | 8 |
+| Card-loss/modal desktop admission | 1,066 | 7 |
+| Final mandatory close admission | 76 | 4 |
+| Shared reward participation/pose | 104 | 6 |
+| Conversion restoration | 87 | 8, plus one ownership binding negative |
+
+The reward suite executes the retained native processing iterator through its completion
+callback; the map fixture includes native selection/travel confirmation. Rollback executes
+production transaction, modal catch, full Release and host destruction guard against simulated
+Unity hierarchy/render APIs. These models cover the named faults, not all engine behavior.
+
+Final combined validation on 2026-09-16:
+
+- All 17 source/surface checkers and every production regression suite pass.
+- Wire suite: 253,893 assertions, including record 74 and bounded four-sender reassembly.
+- Strict Release build: zero warnings and errors. Bilingual docs, shell syntax and whitespace pass.
+- Retained build-502 compiled baseline (080c505e9): 39 changed types, 29 additions,
+  no removals or order-only changes. Guard exit 1 is the expected nonempty compiled diff,
+  not a failed source/test gate. Baseline was not replaced.
+- A second comparison against the retained build-511 compiled output confines this round to
+  the reviewed UI/reward fixes, four new handshake types, serialization and inlined build/buffer
+  constants. No unrelated compiled change found.
+- Surfaces: 625 config keys / 161 patch signatures / 4,728 log tokens; nothing removed.
+  Runtime inventory: 117 patch classes / 184 methods. Shifted documentation line references
+  were regenerated and the inventory rechecked.
 Headset tests must cover map event rewards, chest reward continuation, current mandatory
 close admission, ordinary travel, map conversion recovery and simultaneous multiplayer
 reward opening/late participants. Automated substitutes do not establish rendered pixels

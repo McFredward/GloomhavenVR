@@ -23,6 +23,14 @@ change per build) → this file (where things stand and what is owed) → the bu
   Latest supplied logs remain local 510 / remote 500; hardware acceptance is open.
   No main merge or release publication is part of this audit.
 
+- **512 integration checks pass:** all 17 checkers and production suites; 253,893 wire
+  assertions; strict Release zero warnings/errors. Focused suites: rewards 320, map flow
+  1,997, modal desktop 1,066, mandatory close 76, reward pose 104 and rollback 87 assertions,
+  with runtime negative controls. Retained build-502 comparison: 39 changed / 29 added /
+  zero removed types, reviewed; additional build-511 compiled comparison confined to this
+  audit. Surfaces 625 / 161 / 4,728; patch inventory 117 classes / 184 methods.
+  Bilingual docs, shell syntax and whitespace pass. Hardware outcomes remain unverified.
+
 - **dev / 1.0.2 / ModBuild 511 corrects the failed build-510 chest retest.**
   Tutorial/custom scenarios use UIRewardsManager outside Guildmaster mode; its gamepad
   confirmation adapter rejected the VR click. Continue now supplies only native input,
