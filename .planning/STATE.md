@@ -22,6 +22,11 @@ change per build) → this file (where things stand and what is owed) → the bu
   Available logs are older builds 507/500; the current hardware report is not reproduced
   by those traces. See [REWARDS-510.md](REWARDS-510.md) for source evidence and checks.
   No main merge or release publication is part of this fix.
+- **510 integration checks pass:** strict Release has zero warnings/errors; all 17
+  checkers, 253,759 wire assertions and production suites pass. Reward coverage includes
+  219 assertions / 11 runtime negative controls. Retained build-502 compiled comparison:
+  34 changed types, 22 additions, no removals (reviewed); surfaces 625/161/4,726.
+  Bilingual documentation and whitespace checks pass. Current headset acceptance is open.
 
 - **1.0.1 / ModBuild 509 is published as the latest GitHub release.**
   main and v1.0.1 name PR #3 merge be74759e; Release run 35014316673 succeeded.

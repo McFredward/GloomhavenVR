@@ -66,7 +66,25 @@ precedence over a newly joined lower-ID participant's initial local placement.
 
 ## Validation
 
-Integration checks and final assertion counts are recorded below after the combined run.
+The integrated dev candidate passes the strict Release build with zero warnings/errors,
+all 17 source/asset/surface checkers and the complete production regression suites.
+Wire vectors: 253,759 assertions. Reward continuation/placement: 219 assertions and
+11 deliberate runtime negative controls, including execution of the actual conversion
+eligibility expressions. Reward wire coverage includes malformed records, omission,
+ownership, ready/failure transitions, common coordinates and first-visible interpolation.
+Existing card, flight, figure, four-board, map, video and tutorial suites all pass.
+
+The retained build-502 compiled baseline (080c505e9) reports 34 changed types, 22 additions
+and no removals. Its expected nonzero summary verdict represents reviewed implementation
+changes, not a failed source checker. Compared with the pre-task build-509 review's
+32 changed/14 added, the two newly changed types are SharedWindowFrame and SharedWindowKind;
+the eight new types are the four reward WorldUI helpers and four reward transport helpers.
+Config keys remain 625, patch signatures 161 and runtime patch inventory 117 classes /
+184 methods. Log tokens increase from build 509's 4,724 to 4,726 for reward input/placement.
+Bilingual documentation, shell syntax and whitespace checks pass. Hosted workflows invoke
+the new production regression runner; hosted wire vectors retain their existing compile-only
+limitation because they require the game's Unity runtime for execution.
+
 Hardware acceptance remains open: confirm chest rewards in Campaign and Guildmaster,
 locally and as the remote controlling player; verify original reward artwork, readable
 Continue, shared badge/pose/resize, disabled observer input, sequential identical rewards
