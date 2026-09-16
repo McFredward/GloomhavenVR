@@ -47,6 +47,7 @@ internal sealed class RewardShowcaseButton
         _root.anchorMin = _root.anchorMax = target.pivot;
         _root.pivot = new Vector2(.5f, .5f);
         _root.sizeDelta = new Vector2(320f, 64f);
+        go.AddComponent<LayoutElement>().ignoreLayout = true;
         _image = go.AddComponent<Image>();
         ApplySkin();
         _image.type = Image.Type.Sliced;
@@ -90,6 +91,7 @@ internal sealed class RewardShowcaseButton
     private void Place(UIRewardsManager owner)
     {
         if (_root == null || _root.parent is not RectTransform parent) return;
+        _root.anchorMin = _root.anchorMax = parent.pivot;
         _graphics.Clear();
         if (owner.rewardHolder != null)
             owner.rewardHolder.GetComponentsInChildren(false, _graphics);
