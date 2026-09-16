@@ -123,6 +123,11 @@ internal static class TutorialCameraSkip
             return;
         try
         {
+            if (!TutorialLessonScope.IsActive)
+            {
+                Clear();
+                return;
+            }
             LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
             if (handler == null || !ReferenceEquals(handler.CurrentlyDisplayedBoxMessage, _pending))
             {
@@ -157,7 +162,7 @@ internal static class TutorialCameraSkip
     private static bool ShouldSkip(LevelMessageUILayoutGroup group, CLevelMessage message, out string why)
     {
         why = string.Empty;
-        if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
+        if (!TutorialLessonScope.IsActive)
             return false;
         if (!ControlsTutorial.RanThisScenario)
             return false;
