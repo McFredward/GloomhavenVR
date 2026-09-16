@@ -11,15 +11,23 @@ placement_source="${REWARD_PLACEMENT_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI
 poll_source="${REWARD_POLL_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.10.CatchAll.cs}"
 conversion_source="${REWARD_CONVERSION_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.8.Convert.cs}"
 lifecycle_source="${REWARD_LIFECYCLE_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Conversion/CanvasConversion.4.Lifecycle.cs}"
+window_panel_source="${REWARD_WINDOW_PANEL_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.3.WindowPanel.cs}"
+screen_bind_source="${REWARD_SCREEN_BIND_SOURCE:-$repo_root/src/GloomhavenVR/WorldUI/Modal/ModalFallback.12.ScreenBind.cs}"
 mutation_dir="$(mktemp -d)"
 trap 'rm -rf "$mutation_dir"' EXIT
-python3 - "$poll_source" "$conversion_source" "$lifecycle_source" "$mutation_dir" <<'PY'
-import pathlib, sys
-poll, conversion, lifecycle, out = map(pathlib.Path, sys.argv[1:])
+python3 - "$poll_source" "$conversion_source" "$lifecycle_source" "$window_panel_source" "$screen_bind_source" "$mutation_dir" <<'PY'
+import pathlib, re, sys
+poll, conversion, lifecycle, window_panel, screen_bind, out = map(pathlib.Path, sys.argv[1:])
 source = poll.read_text()
 start = source.index('    private static void AddRewardShowcaseWindow(bool inScenario)')
 end = source.index('\n    // ===', start)
-fixture = 'using UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback\n{\n' + source[start:end] + '\n}\n'
+def expression(path, declaration):
+    matches = re.findall(re.escape(declaration) + r'\s*=>[^;]+;', path.read_text())
+    assert len(matches) == 1, declaration
+    return matches[0]
+availability = expression(window_panel, 'internal static bool RewardPlacementFailed(UIWindow? window)')
+conversion_policy = expression(screen_bind, 'private static bool ConvertBaseActive')
+fixture = 'using UnityEngine.UI;\nnamespace GloomhavenVR.WorldUI;\ninternal static partial class ModalFallback\n{\n' + source[start:end] + '\n' + availability + '\n' + conversion_policy + '\n}\n'
 (out / 'RewardPoll.fixture').write_text(fixture)
 # The actual production enrollment is executed above, not reproduced in the harness.
 # Keep the surrounding teardown and before-reveal binding connected as well.
@@ -45,7 +53,7 @@ dotnet run --project "$project" --configuration Release \
     --property:CatchAllSource="$mutation_dir/RewardPoll.fixture"
 cp "$repo_root/tests/GloomhavenVR.RewardShowcaseTests/"*.cs "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in missing-listener duplicate-listener reveal authority native-input identity-block placement-key poll-binding premature-reveal pending-pose; do
+for mutation in missing-listener duplicate-listener reveal authority native-input identity-block placement-key poll-binding premature-reveal pending-pose screen-unavailable; do
     python3 - "$reward_source" "$identity_source" "$placement_source" "$mutation_dir" "$mutation" <<'PY'
 import pathlib, sys
 reward, identity, placement, out = map(pathlib.Path, sys.argv[1:5])
@@ -62,6 +70,7 @@ mutations = {
     'poll-binding': ('Poll', 'RewardShowcase.Tick(inScenario && WorldUIConfig.ConversionActive);', 'RewardShowcase.Tick(false);'),
     'premature-reveal': ('Placement', 'return _mayReveal;', 'return _mayReveal || true;'),
     'pending-pose': ('Placement', '_poseReady && ModalFallback.TryGetGrabFor', '(_poseReady || true) && ModalFallback.TryGetGrabFor'),
+    'screen-unavailable': ('Poll', '!ConvertBaseActive || Failed.Contains(window)', '(!ConvertBaseActive && false) || Failed.Contains(window)'),
 }
 part, before, after = mutations[sys.argv[5]]
 assert sources[part].count(before) == 1, (part, before)
@@ -80,6 +89,7 @@ PY
         poll-binding) expected='gamepad-created campaign button receives one native listener' ;;
         premature-reveal) expected='follower cannot reveal its local seat before the elected pose arrives' ;;
         pending-pose) expected='unsettled elected source pose cannot release follower first reveal' ;;
+        screen-unavailable) expected='manual desktop reward source is unavailable for shared floating placement' ;;
     esac
     if dotnet run --project "$mutation_dir/GloomhavenVR.RewardShowcaseTests.csproj" --configuration Release \
         --property:RewardSource="$mutation_dir/Reward.mutant" \

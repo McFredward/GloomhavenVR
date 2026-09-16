@@ -214,7 +214,7 @@ namespace GloomhavenVR.WorldUI
         internal static UnityEngine.UI.UIWindow? PlacementWindow;
         internal static ConvertedPanel? PlacementPanel;
         internal static GrabbableModal? PlacementGrab;
-        internal static bool PlacementFailed;
+        internal static readonly HashSet<UnityEngine.UI.UIWindow> Failed = new();
         internal static int PreservedPoses;
         internal static ConvertedPanel? PanelFor(UnityEngine.UI.UIWindow? window) => window != null && ReferenceEquals(window, PlacementWindow) ? PlacementPanel : null;
         internal static bool TryGetGrabFor(UnityEngine.UI.UIWindow window, out GrabbableModal? grab)
@@ -227,14 +227,16 @@ namespace GloomhavenVR.WorldUI
             if (!ReferenceEquals(window, PlacementWindow)) throw new Exception("Preserved foreign reward pose");
             PreservedPoses++;
         }
-        internal static bool RewardPlacementFailed(UnityEngine.UI.UIWindow? window) =>
-            window != null && ReferenceEquals(window, PlacementWindow) && PlacementFailed;
         internal static void NoteSharedAnchorSpent(SharedWindowKind kind, string reason) => SpentAnchors++;
         internal static void PollRewardsForTest(bool inScenario) { PolledWindow = null; AddRewardShowcaseWindow(inScenario); }
         private static void AddPollWindow(UnityEngine.UI.UIWindow? window) => PolledWindow = window;
         private static void LogPollTransition(ref bool previous, bool current, string description) => previous = current;
     }
-    internal static class WorldUIConfig { internal static bool ConversionActive = true; }
+    internal static class WorldUIConfig
+    {
+        internal static bool ConversionActive = true;
+        internal static bool ModalWindowStyle = true;
+    }
     internal static class FlatScreen { internal static bool ManualScreenActive; }
     internal sealed class RewardShowcaseButton
     {

@@ -23,6 +23,7 @@ static class Program
         Singleton<UIRewardsManager>.Instance = null!;
         Singleton<ESCMenu>.Instance = Component<ESCMenu>("Escape menu");
         WorldUIConfig.ConversionActive = true;
+        WorldUIConfig.ModalWindowStyle = true;
         FlatScreen.ManualScreenActive = false;
         FFSNetwork.IsClient = FFSNetwork.IsOnline = false;
         Choreographer.s_Choreographer = null!;
@@ -31,7 +32,7 @@ static class Program
         ModalFallback.PlacementWindow = null;
         ModalFallback.PlacementPanel = null;
         ModalFallback.PlacementGrab = null;
-        ModalFallback.PlacementFailed = false;
+        ModalFallback.Failed.Clear();
         ModalFallback.PreservedPoses = 0;
         SharedWindows.Participating = true;
         Time.frameCount += 10;
@@ -401,11 +402,38 @@ static class Program
         Check(RewardShowcasePlacement.TryReveal(panel), "unknown current chest identity cannot create a permanent wait");
         OpenChest("SharedChest");
         Check(!RewardShowcasePlacement.LocalPlacementFailed, "pending placement is not falsely reported as a local failure");
-        ModalFallback.PlacementFailed = true;
+        ModalFallback.Failed.Add(guild.Window);
         Check(RewardShowcasePlacement.LocalPlacementFailed, "actual local conversion failure is available for source re-election");
         guild.Scenario.Shown = false;
         Check(!RewardShowcasePlacement.LocalPlacementFailed && RewardShowcasePlacement.TryReveal(panel),
             "closed native reward drops failure identity and does not obstruct other reveals");
+    }
+
+    private static void NativeConversionAvailability()
+    {
+        var guild = new Guild();
+        Check(!RewardShowcasePlacement.LocalPlacementFailed, "ordinary floating reward source remains available");
+        FlatScreen.ManualScreenActive = true;
+        Check(RewardShowcasePlacement.LocalPlacementFailed, "manual desktop reward source is unavailable for shared floating placement");
+        FlatScreen.ManualScreenActive = false;
+        Check(!RewardShowcasePlacement.LocalPlacementFailed, "leaving manual desktop restores source eligibility immediately");
+        WorldUIConfig.ModalWindowStyle = false;
+        Check(RewardShowcasePlacement.LocalPlacementFailed, "screen-style reward source cannot promise a shared floating pose");
+        WorldUIConfig.ModalWindowStyle = true;
+        WorldUIConfig.ConversionActive = false;
+        Check(RewardShowcasePlacement.LocalPlacementFailed, "disabled conversion cannot become shared reward placement source");
+        WorldUIConfig.ConversionActive = true;
+        var unrelated = Component<UIWindow>("Failed unrelated float");
+        ModalFallback.Failed.Add(unrelated);
+        Check(!RewardShowcasePlacement.LocalPlacementFailed, "unrelated conversion failure does not reject the native reward source");
+        ModalFallback.Failed.Add(guild.Window);
+        Check(RewardShowcasePlacement.LocalPlacementFailed, "native reward conversion failure rejects this exact source");
+        ModalFallback.Failed.Clear();
+        Check(!RewardShowcasePlacement.LocalPlacementFailed, "native conversion recovery restores source eligibility");
+        guild.Scenario.Shown = false;
+        WorldUIConfig.ModalWindowStyle = false;
+        FlatScreen.ManualScreenActive = true;
+        Check(!RewardShowcasePlacement.LocalPlacementFailed, "closed reward is not reported unavailable by screen configuration alone");
     }
 
     static void Main()
@@ -416,6 +444,7 @@ static class Program
         GuildGatesAndAuthority();
         IdentityAndInitialPlacement();
         SharedRevealHandoff();
+        NativeConversionAvailability();
         Reset();
         Check(RewardShowcase.Window == null && !RewardShowcase.TryConfirm(), "clean shutdown leaves no actionable reward surface");
         Console.WriteLine($"Reward showcase: {_assertions} assertions passed.");
