@@ -378,6 +378,16 @@ internal static partial class ModalFallback
     /// places and never releases anything, so nothing that calls it can change which windows float
     /// or when. That property is what makes it safe to call from the net module.</para>
     /// </summary>
+    internal static bool RewardPlacementFailed(UIWindow? window) => window != null && Failed.Contains(window);
+
+    internal static void PreserveRewardInitialPose(UIWindow window)
+    {
+        WindowPanel? wp = FindPanel(window);
+        if (wp == null) return;
+        wp.SpawnAnchor = default;
+        wp.PoseRePlaceDone = true;
+    }
+
     internal static bool TryGetGrabFor(UIWindow? window, out GrabbableModal? grab)
     {
         grab = null;
