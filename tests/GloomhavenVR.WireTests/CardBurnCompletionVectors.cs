@@ -100,6 +100,9 @@ internal static class CardBurnCompletionVectors
             "Progress cannot swallow a legacy flight as completed");
         t.True(NetCardFx.CompleteBurnWithoutFlight(progressIdentity,31f),"Actual owner completion can retain a durable no-flight terminal");
         var noFlight=Array.Find(NetCardFx.BurnCompletions.Entries,e=>e.ActorId==5);
+        int noFlightLength=PresenceSerializer.Write(new PresenceState {BurnCompletions=new CardBurnCompletionHistory(0,new[]{noFlight})},bytes);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 4B 17 00 01 00 00 08 00 00 F8 41 05 00 00 00 05 00 00 00 02 00 20 00 00 00"),bytes,noFlightLength,
+            "golden no-flight75 preserves native completion clock without a flight endpoint");
         t.True(noFlight.NoFlightCompleted && noFlight.Endpoints==0 && noFlight.Valid(),"No-flight terminal has no invented origin or legacy correlation");
         length=PresenceSerializer.Write(new PresenceState {BurnCompletions=NetCardFx.BurnCompletions},bytes);
         t.True(PresenceSerializer.TryRead(bytes,length,out state) && state.BurnCompletions != null

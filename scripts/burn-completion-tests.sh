@@ -63,12 +63,15 @@ PY
   echo "Burn completion negative control: $mutation rejected."
 done
 
-for mutation in proxy-progress stopped-progress early-progress-clear; do
+for mutation in proxy-progress stopped-progress early-progress-clear noflight-retention noflight-recovery normal-flight-as-noflight; do
   python3 - "$repo_root/src/GloomhavenVR/Net/CardAppearanceSampler.Progress.cs" "$work_dir/Progress.cs" "$mutation" <<'PYPROGRESS'
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
 a,b={
+'noflight-retention':('!tracked.ExpectedFlight && NetCardFx.CompleteBurnWithoutFlight', '!tracked.ExpectedFlight && bool.Parse("false") && NetCardFx.CompleteBurnWithoutFlight'),
+'noflight-recovery':('if (cards.HandAbilityCards.Contains(tracked.Card) || cards.RoundAbilityCards.Contains(tracked.Card)', 'if (bool.Parse("false") || cards.RoundAbilityCards.Contains(tracked.Card)'),
+'normal-flight-as-noflight':('!tracked.ExpectedFlight && NetCardFx.CompleteBurnWithoutFlight', 'NetCardFx.CompleteBurnWithoutFlight'),
 'early-progress-clear':('if (running || expected) continue;', 'if (running) continue;'),
 'proxy-progress':('if (!CardsGameApi.ControlsActor(actor)) return;', ''),
 'stopped-progress':('bool running = BurnArtwork.Playing', 'bool running = bool.Parse("true") || BurnArtwork.Playing')
@@ -77,6 +80,9 @@ assert s.count(a)==1
 Path(sys.argv[2]).write_text(s.replace(a,b))
 PYPROGRESS
   case "$mutation" in
+    noflight-retention) expected='Offscreen completion survives even when every in-progress snapshot was coalesced away';;
+    noflight-recovery) expected='Actual model recovery retires durable no-flight completion';;
+    normal-flight-as-noflight) expected='A normal adopted burn must not be reclassified as an offscreen no-flight completion';;
     early-progress-clear) expected='A normal visible burn keeps progress between native completion and its real flight report';;
     proxy-progress) expected='A read-only proxy cannot publish owner burn progress';;
     stopped-progress) expected='Actual native completion clears an unadopted incoming burn without a flight';;

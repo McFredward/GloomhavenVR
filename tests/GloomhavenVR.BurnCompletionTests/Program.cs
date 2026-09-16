@@ -105,6 +105,7 @@ internal static class Program
         GloomhavenVR.Cards.CardsDriver.ExpectFlight=false;
         CardAppearanceSampler.AdvanceProgressForTest();
         Check(NetCardFx.Progress.Count==0,"Actual native completion clears an unadopted incoming burn without a flight");
+        Check(NetCardFx.NoFlight.Count==0,"A normal adopted burn must not be reclassified as an offscreen no-flight completion");
         progressActor.CharacterClass.LostAbilityCards.Add(progressCard);
         native.cardEffects.Running=true;
         CardAppearanceSampler.ObserveNativeBurnStart(native.cardEffects);
