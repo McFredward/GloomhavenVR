@@ -1011,7 +1011,7 @@ internal sealed partial class CardsDriver
                 // flight the game momentarily reports EVERYTHING deselected — do not
                 // prune on that transient or the still-placed card would snap to the
                 // fan mid-swap; the reopen's completion re-runs this with final state.
-                // ...AND A PARKED CARD IS NOT AN OCCUPANT (item 11d, second half). The
+                // ...AND A PARKED CARD IS NOT A LIVE OCCUPANT (item 11d, second half). The
                 // selection latch above is the game's, and the game does NOT clear it when the
                 // character DIES: the 2026-09-05 host log follows one card the whole way.
                 //   251442  Pick commit (LoseCard): 'ABILITY_CARD_PerverseEdge'
@@ -1033,22 +1033,13 @@ internal sealed partial class CardsDriver
                 // PARKED is the term that separates them, and it needs no new state: a card mid-
                 // handover is by contract left LYING where it is (that is what "the burn path owns
                 // it" means), and only a card whose flight has completed is on the pool root.
-                for (int i = _fieldCards.Count - 1; i >= 0; i--)
-                {
-                    VRCard occupant = _fieldCards[i];
-                    if (occupant == null || occupant.GameCard == null
-                        || IsParked(occupant)
-                        || (!_pickReopenBusy && !occupant.GameCard.IsSelected))
-                    {
-                        // Event-discard batching: a pruned LOCKED card shrinks the
-                        // locked prefix (the step display recomputes from it).
-                        if (i < _pickLockedCount)
-                            _pickLockedCount--;
-                        if (occupant != null)
-                            _pickExitFlown.Remove(occupant);
-                        _fieldCards.RemoveAt(i);
-                    }
-                }
+                // Exception: intentionally flown, still-selected locked discard pages remain
+                // bookkeeping until native confirm/cancel. They are not live occupants;
+                // RelayoutField and fieldAffordance already skip their _pickExitFlown claims.
+                // Removing these parked entries forgot page 1 and reopened the right hint on
+                // the last one-card page (build 515, 2026-09-17). PrunePickField preserves only
+                // that explicit page ownership; stale burns and actual deselections still retire.
+                PrunePickField();
                 // Item 9: the SELECTABLE widgets become the fan. In CardsSelection the
                 // fan is the real hand; in the burn-two-discarded flow the game marks
                 // the DISCARD-pile widgets selectable (CardHandMode.LoseCard, pile

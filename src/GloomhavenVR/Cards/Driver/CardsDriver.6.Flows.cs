@@ -216,7 +216,10 @@ internal sealed partial class CardsDriver
                     mask |= 2;
             }
         }
-        else if (pickLive)
+        // A native confirm dialog admits no new card placement. Keep both hints off
+        // until its confirm/cancel actually lands, including the grab-to-reopen interval.
+        // The exact mask is also sent to every remote board through board-UI record 4.
+        else if (pickLive && !CardsGameApi.IsPickConfirmDialogOpen(hand))
         {
             // Task #11 (a): glow EVERY still-unfilled pick position — placement order is
             // irrelevant to the game (it only counts selections), so a two-card burn
