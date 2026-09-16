@@ -653,6 +653,8 @@ internal sealed class RemoteItemFan
         SyncTuning();
         // Extras may release the recess before the separate original item frame arrives.
         // Keep its bound source and layout until that terminal output was actually drawn.
+        // Present the pending native frame before deciding whether its source slot can retire.
+        if (_clipIndex >= 0) _fronts.Tick(RemotePileFronts.Content.Items);
         if (_clipIndex >= 0 && ItemAppearanceMirror.HoldsClip(_owner.PlayerId,
                 NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _)), _clipIndex, _cards.Count))
         {

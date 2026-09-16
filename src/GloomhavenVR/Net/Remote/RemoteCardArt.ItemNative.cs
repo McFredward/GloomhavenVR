@@ -37,6 +37,7 @@ internal sealed partial class RemoteCardArt
         if (!TryMeasureFxFootprint(_itemNativeImages, out Vector4 bounds)) return;
         TakeFxLookHold();
         if (_itemNativeBindings.Apply(previous, current, progress, bounds, ApplyItemFlameQueue)) ItemAppearanceMirror.MarkPresented(_itemNativePlayer, current, progress);
+        else ItemAppearanceMirror.RejectPresentation(_itemNativePlayer, current);
     }
     private void ApplyItemFlameQueue(Image flame, Material material)
     {

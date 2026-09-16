@@ -8,7 +8,7 @@ cp "$repo_root/tests/GloomhavenVR.ItemBurnTests/"*.cs "$repo_root/tests/Gloomhav
 cp "$repo_root/src/GloomhavenVR/Cards/ItemBurnPlayback.cs" "$work_dir/Playback.cs"
 python3 "$repo_root/tests/GloomhavenVR.ItemBurnTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.ItemBurnTests.csproj" --configuration Release
-for mutation in early-collapse dropped-registration missing-native-lifetime no-disposal; do
+for mutation in early-collapse dropped-registration missing-native-lifetime no-disposal missing-terminal-capture; do
     cp "$work_dir/Production.cs" "$work_dir/production.txt"
     cp "$work_dir/Playback.cs" "$work_dir/playback.txt"
     python3 - "$work_dir" "$mutation" <<'PY'
@@ -17,6 +17,7 @@ root=pathlib.Path(sys.argv[1]);name,old,new={
 'early-collapse':('Production.cs','&& !ItemBurnPlayback.Playing(_cardUI != null ? _cardUI.cardEffects : null)',''),
 'dropped-registration':('Production.cs','PendingUse = true;','PendingUse = false;'),
 'missing-native-lifetime':('Playback.cs','_state.Active++;','_state.Active += 0;'),
+'missing-terminal-capture':('Production.cs','Net.ItemAppearanceSampler.RetainCompletion(this);','_ = this;'),
 'no-disposal':('Playback.cs','(_original as IDisposable)?.Dispose();','_ = _original;'),
 }[sys.argv[2]]
 p=root/name;s=p.read_text();assert old in s;p.write_text(s.replace(old,new))
@@ -25,6 +26,7 @@ PY
     case "$mutation" in
         early-collapse|missing-native-lifetime) expected='Paused native burn must retain card and slot beyond unscaled flourish';;
         dropped-registration) expected='Used chip must remain registered in its original recess';;
+        missing-terminal-capture) expected='Native terminal capture must precede chip retirement and collapse';;
         no-disposal) expected='Overlapping native burns must retain remaining ownership';;
     esac
     if ! grep -Fq "$expected" "$work_dir/negative.log"; then cat "$work_dir/negative.log"; exit 1; fi

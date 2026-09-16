@@ -61,15 +61,15 @@ internal sealed class ItemAppearanceBindings
                 | (graphic is TextMeshProUGUI text && text.enableVertexGradient ? 4 : 0));
             CardAppearanceBindings.Put(node.Values, 0, graphic.color);
             CardAppearanceBindings.Put(node.Values, 4, graphic.canvasRenderer.GetColor());
-            Material material = graphic.material;
-            uint support = Support(graphic, material); node.Mask = support & CardAppearanceNode.AllowedMask(node.Role);
+            Material? material = WorldUI.PanelGraphicMaterial.Read(graphic);
+            uint support = material != null ? Support(graphic, material) : 0; node.Mask = support & CardAppearanceNode.AllowedMask(node.Role);
             for (int f = 0; f < CardAppearanceBindings.FloatIds.Length; f++) if ((node.Mask & 1u << f) != 0)
-                node.Values[8 + f] = material.GetFloat(CardAppearanceBindings.FloatIds[f]);
-            if ((node.Mask & 1u << 15) != 0) CardAppearanceBindings.Put(node.Values, 23, material.GetColor(CardAppearanceBindings.BurnTint));
-            if ((node.Mask & 1u << 16) != 0) CardAppearanceBindings.Put(node.Values, 27, material.GetColor(CardAppearanceBindings.FlameTint));
-            if ((node.Mask & 1u << 17) != 0) { Vector2 scale = material.GetTextureScale(CardAppearanceBindings.Noise); node.Values[31] = scale.x; node.Values[32] = scale.y; }
+                node.Values[8 + f] = material!.GetFloat(CardAppearanceBindings.FloatIds[f]);
+            if ((node.Mask & 1u << 15) != 0) CardAppearanceBindings.Put(node.Values, 23, material!.GetColor(CardAppearanceBindings.BurnTint));
+            if ((node.Mask & 1u << 16) != 0) CardAppearanceBindings.Put(node.Values, 27, material!.GetColor(CardAppearanceBindings.FlameTint));
+            if ((node.Mask & 1u << 17) != 0) { Vector2 scale = material!.GetTextureScale(CardAppearanceBindings.Noise); node.Values[31] = scale.x; node.Values[32] = scale.y; }
             if (node.Role == 11 && (support & NativePlaybackProperties.ParticleMask) != 0
-                && ReferenceEquals(material.GetTexture(CardAppearanceBindings.Particle), Effects.overlayFrameGhost)) node.Flags |= 8;
+                && ReferenceEquals(material!.GetTexture(CardAppearanceBindings.Particle), Effects.overlayFrameGhost)) node.Flags |= 8;
         }
         foreach (var pair in Groups)
         {
@@ -117,9 +117,13 @@ internal sealed class ItemAppearanceBindings
             if (node.Role >= 12) { NativePlaybackWrites.Group(Groups[entry.Binding], V(0), node.Flags); continue; }
             Graphic graphic = Graphics[entry.Binding]; NativePlaybackWrites.Graphic(graphic, C(0), C(4), node.Flags);
             if (graphic is TextMeshProUGUI text && text.enableVertexGradient != ((node.Flags & 4) != 0)) text.enableVertexGradient = (node.Flags & 4) != 0;
-            if (node.Mask == 0 && node.Role >= 7) continue;
-            if (!_materials.TryGetValue(graphic, out Material material) || material == null)
-                _materials[graphic] = material = new Material(graphic.material) { name = graphic.material.name + " (VR native item)" };
+            if (node.Mask == 0) continue;
+            if (!_materials.TryGetValue(graphic, out Material? material) || material == null)
+            {
+                Material? template = WorldUI.PanelGraphicMaterial.Read(graphic);
+                if (template == null) return false;
+                _materials[graphic] = material = new Material(template) { name = template.name + " (VR native item)" };
+            }
             NativePlaybackWrites.Material(graphic, material); uint support = Support(graphic, material);
             if (node.Role < 7 && (support & NativePlaybackProperties.BoundsMask) != 0) NativePlaybackWrites.Vector(material, Shader.PropertyToID("_PosAndBounds"), bounds);
             for (int f = 0; f < CardAppearanceBindings.FloatIds.Length; f++) if ((node.Mask & support & 1u << f) != 0) NativePlaybackWrites.Float(material, CardAppearanceBindings.FloatIds[f], V(8+f));

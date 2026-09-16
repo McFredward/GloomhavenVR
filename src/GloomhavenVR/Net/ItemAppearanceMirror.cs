@@ -11,6 +11,7 @@ internal static class ItemAppearanceMirror
     private sealed class Entry
     {
         internal CItem? Item;
+        internal bool Rejected;
         internal ItemAppearanceState Current = null!, Previous = null!;
         internal float PreviousTime, CurrentTime, TerminalTime = -1, Presented = -1;
     }
@@ -26,7 +27,7 @@ internal static class ItemAppearanceMirror
     private static ulong Key(ItemAppearanceState state) => (ulong)(uint)state.ActorId << 32 | state.Generation;
     internal static void Set(int playerId, ItemAppearanceSnapshot snapshot)
     {
-        if (!Frames.TryGetValue(playerId, out Frame frame)) Frames[playerId] = frame = new Frame();
+        if (!Frames.TryGetValue(playerId, out Frame? frame)) Frames[playerId] = frame = new Frame();
         if (snapshot.SampleTime <= frame.Time) return;
         bool continuous = frame.Time >= 0 && snapshot.SampleTime - frame.Time <= UseBarAnimationPlaybackClock.MaximumContinuousGap;
         if (!continuous) frame.Clock.Reset(snapshot.SampleTime, Time.unscaledTime);
@@ -34,7 +35,7 @@ internal static class ItemAppearanceMirror
         foreach (ItemAppearanceState state in snapshot.States)
         {
             ulong key = Key(state); present.Add(key);
-            if (!frame.Entries.TryGetValue(key, out Entry entry))
+            if (!frame.Entries.TryGetValue(key, out Entry? entry))
             {
                 CPlayerActor? actor = RemoteBoardFocus.ActorById(state.ActorId);
                 entry = new Entry { Item = Resolve(actor, state), Current = state, Previous = state,
@@ -43,6 +44,7 @@ internal static class ItemAppearanceMirror
             }
             else
             {
+                if (entry.Item == null) entry.Item = Resolve(RemoteBoardFocus.ActorById(state.ActorId), state);
                 entry.Previous = continuous ? entry.Current : state;
                 entry.PreviousTime = continuous ? entry.CurrentTime : snapshot.SampleTime;
                 entry.Current = state; entry.CurrentTime = snapshot.SampleTime;
@@ -63,13 +65,17 @@ internal static class ItemAppearanceMirror
         if (items == null) return null;
         int count = 0; CItem? found = null;
         foreach (CItem item in items) if (item != null) { if (count == state.Seat) found = item; count++; }
-        return count == state.Count ? found : null;
+        if (count != state.Count) return null;
+        // A terminal-only arrival cannot identify a removed reward by a now-reused seat.
+        // Inventory burns retain their item object and can safely resolve once the consumed model arrives.
+        if ((state.Flags & 2) != 0 && (state.Population != 0 || found?.SlotState != CItem.EItemSlotState.Consumed)) return null;
+        return found;
     }
     internal static bool TryGet(int playerId, CPlayerActor? actor, CItem? item,
         out ItemAppearanceState? previous, out ItemAppearanceState? current, out float progress)
     {
         previous = current = null; progress = 1;
-        if (actor == null || item == null || !Frames.TryGetValue(playerId, out Frame frame)) return false;
+        if (actor == null || item == null || !Frames.TryGetValue(playerId, out Frame? frame)) return false;
         int actorId = NetFigures.StableActorId(actor); Entry? best = null;
         foreach (Entry entry in frame.Entries.Values)
             if (entry.Current.ActorId == actorId && ReferenceEquals(entry.Item, item)
@@ -82,7 +88,7 @@ internal static class ItemAppearanceMirror
     }
     internal static CItem? ItemAt(int playerId, int actorId, int seat, int count)
     {
-        if (!Frames.TryGetValue(playerId, out Frame frame)) return null;
+        if (!Frames.TryGetValue(playerId, out Frame? frame)) return null;
         Entry? best = null;
         foreach (Entry entry in frame.Entries.Values)
             if (entry.Current.ActorId == actorId && entry.Current.Seat == seat && entry.Current.Count == count
@@ -91,24 +97,29 @@ internal static class ItemAppearanceMirror
     }
     internal static void MarkPresented(int playerId, ItemAppearanceState state, float progress)
     {
-        if (!Frames.TryGetValue(playerId, out Frame frame) || !frame.Entries.TryGetValue(Key(state), out Entry entry)) return;
+        if (!Frames.TryGetValue(playerId, out Frame? frame) || !frame.Entries.TryGetValue(Key(state), out Entry? entry)) return;
+        entry.Rejected = false;
         float presented = entry.PreviousTime + (entry.CurrentTime - entry.PreviousTime) * progress;
         entry.Presented = Math.Max(entry.Presented, presented);
     }
+    internal static void RejectPresentation(int playerId, ItemAppearanceState state)
+    {
+        if (Frames.TryGetValue(playerId, out Frame? frame) && frame.Entries.TryGetValue(Key(state), out Entry? entry)) entry.Rejected = true;
+    }
     internal static bool HoldsAnyClip(int playerId, CPlayerActor? actor)
     {
-        if (actor == null || !Frames.TryGetValue(playerId, out Frame frame)) return false;
+        if (actor == null || !Frames.TryGetValue(playerId, out Frame? frame)) return false;
         int actorId = NetFigures.StableActorId(actor);
         foreach (Entry entry in frame.Entries.Values)
-            if (entry.Item != null && entry.Current.ActorId == actorId
+            if (entry.Item != null && !entry.Rejected && (entry.Current.Flags & 4) != 0 && entry.Current.ActorId == actorId
                 && ((entry.Current.Flags & 1) != 0 || entry.TerminalTime >= 0 && entry.Presented < entry.TerminalTime)) return true;
         return false;
     }
     internal static bool HoldsClip(int playerId, int actorId, int seat, int count)
     {
-        if (!Frames.TryGetValue(playerId, out Frame frame)) return false;
+        if (!Frames.TryGetValue(playerId, out Frame? frame)) return false;
         foreach (Entry entry in frame.Entries.Values)
-            if (entry.Item != null && entry.Current.ActorId == actorId && entry.Current.Seat == seat && entry.Current.Count == count
+            if (entry.Item != null && !entry.Rejected && (entry.Current.Flags & 4) != 0 && entry.Current.ActorId == actorId && entry.Current.Seat == seat && entry.Current.Count == count
                 && ((entry.Current.Flags & 1) != 0 || entry.TerminalTime >= 0 && entry.Presented < entry.TerminalTime)) return true;
         return false;
     }

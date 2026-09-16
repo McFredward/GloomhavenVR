@@ -15,6 +15,7 @@ static class Program {
         Check(chip._cardUI.StateReads==100,"Original item state refresh must precede each completion check");
         Timekeeper.instance.m_GlobalClock.time=1;Timekeeper.instance.m_GlobalClock.deltaTime=1;
         Check(!tracked.MoveNext()&&!ItemBurnPlayback.Playing(effect),"Native completion must clear exact playback lifetime");chip.Tick();
+        Check(GloomhavenVR.Net.ItemAppearanceSampler.Completions==1&&GloomhavenVR.Net.ItemAppearanceSampler.CapturedBeforeRetirement,"Native terminal capture must precede chip retirement and collapse");
         Check(chip.Collapses==1&&!owner.Pending&&owner.Count==1&&!chip.PendingUse&&owner.ClippedChipIndex==-1,"Only native completion may remove the source before collapse");chip.Tick();Check(chip.Collapses==1,"Flourish completion must be once-only");
         var missing=new ItemCardEffects{fgFx=null};var empty=ItemBurnPlayback.Track(missing,missing.BurnCardTimeline(true));Check(!empty.MoveNext()&&!ItemBurnPlayback.Playing(missing),"Native no-art exit must not create a permanent hold");
         var fault=new Probe{Throw=true};var wrap=ItemBurnPlayback.Track(effect,fault);try{wrap.MoveNext();throw new Exception("exception swallowed");}catch(InvalidOperationException e){Check(ReferenceEquals(e,fault.Error),"Native exception identity must survive");}Check(!ItemBurnPlayback.Playing(effect),"Native failure must release playback ownership");

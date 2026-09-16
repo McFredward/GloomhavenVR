@@ -16,16 +16,18 @@ internal sealed class ItemAppearanceState
     internal int ActorId;
     internal byte Seat, Count, Population;
     internal uint Generation;
-    // bit0: the native burn is running; bit1: its terminal output is retained for handoff.
+    // bit0: the native burn is running; bit1: its terminal output is retained for handoff; bit2: occupies the use recess.
     internal byte Flags;
     internal ItemAppearanceNode[] Nodes = Array.Empty<ItemAppearanceNode>();
     internal bool Validate()
     {
-        if (Population > 1 || ActorId == 0 || Count == 0 || Seat >= Count || Generation == 0 || (Flags & ~3) != 0
+        if (Population > 1 || ActorId == 0 || Count == 0 || Seat >= Count || Generation == 0 || (Flags & ~7) != 0
             || (Flags & 3) == 3 || Nodes == null || Nodes.Length == 0 || Nodes.Length > ItemAppearanceSnapshot.MaxNodes) return false;
         var keys = new HashSet<ulong>();
         foreach (var node in Nodes)
             if (node == null || node.Binding == 0 || node.Value == null || !node.Value.Validate()
+                || node.Value.Role != 0 && node.Value.Role != 7 && node.Value.Role != 11 && node.Value.Role != 12
+                || node.Value.Role == 12 && node.Value.Binding != node.Binding
                 || !keys.Add(((ulong)node.Binding << 8) | node.Value.Role)) return false;
         return true;
     }

@@ -43,6 +43,11 @@ internal static class ItemAppearanceSampler
         for (int i = Entries.Count - 1; i >= 0; i--)
         {
             Entry entry = Entries[i];
+            CPlayerActor? actor = RemoteBoardFocus.ActorById(entry.Actor);
+            if (actor == null || entry.TerminalPinned && entry.Item.SlotState != entry.TerminalState)
+            {
+                Entries.RemoveAt(i); continue;
+            }
             // Retain terminal output after source recycling and inventory removal, so a late
             // peer can finish an already-bound burn. Bounded by one latest entry per item.
             if (!entry.Seen && (entry.Published == null || (entry.Published.Flags & 2) == 0)) { Entries.RemoveAt(i); continue; }
@@ -78,7 +83,8 @@ internal static class ItemAppearanceSampler
             // Recovery is a new incarnation: late terminal packets cannot bind to the recovered card.
             if (entry.TerminalPinned)
             {
-                if (chip.BurnPresentationPending || chip.Item.SlotState == entry.TerminalState) return entry;
+                if (ReferenceEquals(entry.Source, source)
+                    && (chip.BurnPresentationPending || chip.Item.SlotState == entry.TerminalState)) return entry;
                 entry.TerminalPinned = false;
                 if (++_generation == 0) _generation++;
                 entry.Generation = _generation; entry.Published = null;
@@ -93,7 +99,7 @@ internal static class ItemAppearanceSampler
             bool running = chip.BurnPresentationPending || ItemBurnPlayback.Playing(source.cardEffects);
             var state = entry.Candidate;
             state.ActorId = actor; state.Seat = seat; state.Count = count; state.Population = population;
-            state.Generation = entry.Generation; state.Flags = (byte)(completed ? 2 : running ? 1 : 0);
+            state.Generation = entry.Generation; state.Flags = (byte)((completed ? 2 : running ? 1 : 0) | (chip.PendingUse ? 4 : 0));
             state.Nodes = entry.Bindings!.Capture();
             if (entry.Published == null || !ItemAppearanceState.Same(entry.Published, state))
             {

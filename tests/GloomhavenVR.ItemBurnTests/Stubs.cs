@@ -38,7 +38,7 @@ namespace GloomhavenVR.Cards {
             internal object? Holder=>null;
             internal bool PendingUse;
             internal Transform transform=new();
-            private bool _useFxActive,_useFxSpent,_fingerPopped,_laserPopped,_recessPopped;
+            private bool _useFxActive,_useFxConsumed,_useFxSpent,_fingerPopped,_laserPopped,_recessPopped;
             private float _useFxTime,_homeScale=1;
             private Vector3 _useFxCollapseWorld;
             private Quaternion _useFxBaseRot;
@@ -54,3 +54,5 @@ namespace GloomhavenVR.Cards {
         }
     }
 }
+
+namespace GloomhavenVR.Net { internal static class ItemAppearanceSampler { internal static int Completions; internal static bool CapturedBeforeRetirement; internal static void RetainCompletion(Cards.ItemsPile.ItemChip chip) { Completions++; CapturedBeforeRetirement = chip.PendingUse && chip.Collapses == 0; } } }
