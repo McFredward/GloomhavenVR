@@ -2289,6 +2289,7 @@ internal sealed class RemoteAvatar
     private bool _burnCompletionsInitialized;
     private readonly System.Collections.Generic.HashSet<int> _burnProgressActors = new();
     private readonly System.Collections.Generic.Dictionary<(int Actor, int Source, ushort Seat, ushort Count), float> _burnProgressKeys = new();
+    private readonly System.Collections.Generic.Dictionary<(int Actor, int Source, ushort Seat, ushort Count), float> _burnNoFlightCompletions = new();
     internal bool HasBurnInProgress(int actorId) => _burnProgressActors.Contains(actorId);
     internal bool TryBurnProgress(int actorId, ScenarioRuleLibrary.CAbilityCard card, out float started)
     {
@@ -2297,6 +2298,14 @@ internal sealed class RemoteAvatar
                 CardAppearanceProvenance.Resolve(entry.Key.Source, entry.Key.Seat, entry.Key.Count)))
             { started = entry.Value; return true; }
         started = -1f; return false;
+    }
+    internal bool TryBurnNoFlightCompletion(int actorId, ScenarioRuleLibrary.CAbilityCard card, out float completed)
+    {
+        foreach (var entry in _burnNoFlightCompletions)
+            if (entry.Key.Actor == actorId && ReferenceEquals(card,
+                CardAppearanceProvenance.Resolve(entry.Key.Source, entry.Key.Seat, entry.Key.Count)))
+            { completed = entry.Value; return true; }
+        completed = -1f; return false;
     }
     internal bool WaitingIncomingBurn => _burnFx.IncomingBurnPending;
     private void ApplyBurnCompletions(CardBurnCompletionHistory? history)
@@ -2308,13 +2317,13 @@ internal sealed class RemoteAvatar
             _burnCompletionScenario = scenario;
             _burnCompletionsInitialized = false;
             _burnCompletionTimes.Clear();
-            _burnProgressActors.Clear(); _burnProgressKeys.Clear();
+            _burnProgressActors.Clear(); _burnProgressKeys.Clear(); _burnNoFlightCompletions.Clear();
         }
         bool initial = !_burnCompletionsInitialized;
         _burnCompletionsInitialized = true;
         foreach (var entry in history.Entries)
         {
-            if (entry.InProgress) continue; // Admission state is never a release or a completed animation.
+            if (entry.InProgress || entry.NoFlightCompleted) continue; // Admission state is never a release or a completed animation.
             if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;
             var card = CardAppearanceProvenance.Resolve(entry.SourceActorId, entry.PoolSeat, entry.PoolCount);
             if ((initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))
@@ -2333,10 +2342,11 @@ internal sealed class RemoteAvatar
             NetAvatarDriver.MirrorCharacterCardFlight(this, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card);
             PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, PlayerId, card);
         }
-        _burnProgressActors.Clear(); _burnProgressKeys.Clear();
+        _burnProgressActors.Clear(); _burnProgressKeys.Clear(); _burnNoFlightCompletions.Clear();
         foreach (var entry in history.Entries)
             if (entry.InProgress)
             { _burnProgressActors.Add(entry.ActorId); _burnProgressKeys[entry.Key] = entry.Time; }
+            else if (entry.NoFlightCompleted) _burnNoFlightCompletions[entry.Key] = entry.Time;
     }
 
     private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source, CardBurnCompletionHistory? completions = null)

@@ -20,7 +20,7 @@ file,old,new={
 'retire-before-native':('BurnReleasePolicy.cs',' && !nativePlaying',''),
 'initial-history':('Remote/RemoteAvatar.cs','if ((initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))','if (bool.Parse("false") && (initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))'),
 'incoming-progress':('Remote/RemoteBurnFx.cs','if (IncomingBurnPending) return RemoteBoardFocus.ActorById(_watchActor);',''),
-'progress-is-release':('Remote/RemoteAvatar.cs','if (entry.InProgress) continue;',''),
+'progress-is-release':('Remote/RemoteAvatar.cs','if (entry.InProgress || entry.NoFlightCompleted) continue;',''),
 'duplicate-terminal':('Remote/RemoteAvatar.cs','if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;',''),
 'active-layout':('Remote/RemoteActiveCards.cs','if (_owner.HoldsBurnCardLayout)','if (bool.Parse("false") && _owner.HoldsBurnCardLayout)'),
 'recess-layout':('Remote/RemoteControlBoard.cs','if (_owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))','if (bool.Parse("false") && _owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))'),

@@ -98,7 +98,14 @@ internal static class CardBurnCompletionVectors
             "Actual75 decoder preserves progress independently of terminal release");
         t.True(!NetCardFx.BurnCompletions.Covers(0,0x41,0,new CardFlightSource(5,0,0)),
             "Progress cannot swallow a legacy flight as completed");
-        NetCardFx.NoteBurnProgress(progressIdentity,31f,running:false);
+        t.True(NetCardFx.CompleteBurnWithoutFlight(progressIdentity,31f),"Actual owner completion can retain a durable no-flight terminal");
+        var noFlight=Array.Find(NetCardFx.BurnCompletions.Entries,e=>e.ActorId==5);
+        t.True(noFlight.NoFlightCompleted && noFlight.Endpoints==0 && noFlight.Valid(),"No-flight terminal has no invented origin or legacy correlation");
+        length=PresenceSerializer.Write(new PresenceState {BurnCompletions=NetCardFx.BurnCompletions},bytes);
+        t.True(PresenceSerializer.TryRead(bytes,length,out state) && state.BurnCompletions != null
+            && Array.Exists(state.BurnCompletions.Entries,e=>e.ActorId==5&&e.NoFlightCompleted),"Actual codec preserves coalesced offscreen completion");
+        t.True(!NetCardFx.BurnCompletions.Covers(0,0,0,new CardFlightSource(5,0,0)),"No-flight receipt cannot correlate or swallow a legacy flight");
+        NetCardFx.ForgetBurnCompletion(progressIdentity);
         t.True(!Array.Exists(NetCardFx.BurnCompletions.Entries,e=>e.ActorId==5),
             "Unadopted native completion clears admission without inventing a terminal flight");
         t.True(BurnReleasePolicy.RetireWithoutFlight(true,false,false,false),"Observed offscreen completion retires without an invented flight");

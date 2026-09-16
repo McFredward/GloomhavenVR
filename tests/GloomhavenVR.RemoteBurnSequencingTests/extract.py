@@ -15,7 +15,7 @@ burn=source('Remote/RemoteBurnFx.cs'); avatar=source('Remote/RemoteAvatar.cs'); 
 assert avatar.index('_burnFx.PreparePresentation();') < avatar.index('_handFan.Tick(dt);') < avatar.index('_controlBoard.Tick(dt);'), 'Burn discovery must precede every remote card layout'
 assert 'Handover(' not in method(burn,'private bool TryApplyRelease('), 'Receiving release must not bypass native playback'
 drive=method(burn,'private void Drive(')
-assert 'BurnReleasePolicy.RetireWithoutFlight(b.ObservedOwnerProgress, ownerRunning,' in drive, 'Remote no-flight retirement uses the exact causal policy'
+assert 'BurnReleasePolicy.RetireWithoutFlight(b.ObservedOwnerProgress || durableNoFlight, ownerRunning,' in drive, 'Remote no-flight retirement uses the exact causal policy'
 assert 'bool release = b.OwnerReleased && (b.CompletionTime < 0f' in drive and 'CardAppearanceMirror.HasPresentedThrough(b.PresentationPlayer, actor, card, b.CompletionTime)' in drive, 'Burn flight must wait for exact native completion'
 assert drive.index('_owner.SuppressBurnActiveCard(b.CardId)') < drive.index('b.Go.SetActive(showSlab)'), 'Active burn must remove original renderer before showing its slab'
 assert method(fan,'public void Tick(').index('_owner.HoldsBurnCardLayout') < method(fan,'public void Tick(').index('BeginSwap('), 'Burn hold must precede fan exchange'
@@ -71,7 +71,7 @@ fixture += 'internal static class BurnReleasePolicy {'+expression(source('BurnRe
 fixture += """
 namespace ScenarioRuleLibrary { internal static class ScenarioManager {internal static object? Scenario=new();} }
 internal readonly record struct CardFlightSource(int ActorId,byte Seat,byte Count);
-internal readonly record struct CardBurnCompletion(byte Sequence,int ActorId,int SourceActorId,ushort PoolSeat,ushort PoolCount,float Time,bool InProgress=false) {
+internal readonly record struct CardBurnCompletion(byte Sequence,int ActorId,int SourceActorId,ushort PoolSeat,ushort PoolCount,float Time,bool InProgress=false,bool NoFlightCompleted=false) {
 internal (int,int,ushort,ushort) Key=>(ActorId,SourceActorId,PoolSeat,PoolCount);
 internal byte Endpoints=>0x41; internal byte Flags=>0; internal byte FlightFlags=>0;
 internal CardFlightSource Source=>new(ActorId,0,0);
@@ -89,9 +89,10 @@ private Dictionary<(int Actor,int Source,ushort Seat,ushort Count),float> _burnC
 private object? _burnCompletionScenario; private bool _burnCompletionsInitialized;
 private HashSet<int> _burnProgressActors=new();
 private Dictionary<(int Actor,int Source,ushort Seat,ushort Count),float> _burnProgressKeys=new();
+private Dictionary<(int Actor,int Source,ushort Seat,ushort Count),float> _burnNoFlightCompletions=new();
 internal bool HasBurnInProgress(int actorId)=>_burnProgressActors.Contains(actorId);
 private void PlayMirroredCardFlight(byte endpoints,byte flags,CardFlightSource source,float time,int player,CAbilityCard card) {Dispatched++;}
-""" + method(avatar,'private void ApplyBurnCompletions(').replace('private void ApplyBurnCompletions','internal void ApplyBurnCompletions') + "\n}\n"
+""" + method(avatar,'internal bool TryBurnNoFlightCompletion(').replace('ScenarioRuleLibrary.CAbilityCard','CAbilityCard') + method(avatar,'private void ApplyBurnCompletions(').replace('private void ApplyBurnCompletions','internal void ApplyBurnCompletions') + "\n}\n"
 fixture += """
 internal static class Time {internal static float unscaledTime;}
 internal sealed class RunningFlightFixture {

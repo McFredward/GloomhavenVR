@@ -105,6 +105,19 @@ internal static class Program
         GloomhavenVR.Cards.CardsDriver.ExpectFlight=false;
         CardAppearanceSampler.AdvanceProgressForTest();
         Check(NetCardFx.Progress.Count==0,"Actual native completion clears an unadopted incoming burn without a flight");
+        progressActor.CharacterClass.LostAbilityCards.Add(progressCard);
+        native.cardEffects.Running=true;
+        CardAppearanceSampler.ObserveNativeBurnStart(native.cardEffects);
+        native.cardEffects.Running=false;
+        CardAppearanceSampler.AdvanceProgressForTest();
+        Check(NetCardFx.NoFlight.Contains((8,0)),"Offscreen completion survives even when every in-progress snapshot was coalesced away");
+        Time.unscaledTime+=100f;CardAppearanceSampler.AdvanceProgressForTest();
+        Check(NetCardFx.NoFlight.Contains((8,0)),"Offscreen completion remains durable until actual recovery");
+        native.cardEffects.Running=true;CardAppearanceSampler.ObserveNativeBurnStart(native.cardEffects);
+        Check(!NetCardFx.NoFlight.Contains((8,0))&&NetCardFx.Progress.Contains((8,0)),"A new native burn replaces the prior no-flight generation");
+        native.cardEffects.Running=false;CardAppearanceSampler.AdvanceProgressForTest();
+        progressActor.CharacterClass.HandAbilityCards.Add(progressCard);CardAppearanceSampler.AdvanceProgressForTest();
+        Check(!NetCardFx.NoFlight.Contains((8,0)),"Actual model recovery retires durable no-flight completion");
         Console.WriteLine($"Burn completion capture: {checks} assertions passed.");
     }
 }

@@ -55,9 +55,10 @@ internal static bool LosingCards(AbilityCardUI? widget)=>false;
 namespace GloomhavenVR.Net
 {
     internal static class CardBurnCompletionHistory { internal const int CountMax=128; }
-    internal static class NetCardFx { internal static void NoteBurnCompletionCapture(CardAppearanceState state,float clock) {} internal static void ForgetBurnCompletion(CardAppearanceState state) {}
-internal static readonly HashSet<(int,ushort)> Progress=new();
-internal static void NoteBurnProgress(CardAppearanceState state,float time,bool running) {if(running)Progress.Add((state.ActorId,state.PoolSeat));else Progress.Remove((state.ActorId,state.PoolSeat));}
+    internal static class NetCardFx { internal static void NoteBurnCompletionCapture(CardAppearanceState state,float clock) {} internal static void ForgetBurnCompletion(CardAppearanceState state) { Progress.Remove((state.ActorId,state.PoolSeat)); NoFlight.Remove((state.ActorId,state.PoolSeat)); }
+internal static readonly HashSet<(int,ushort)> Progress=new(), NoFlight=new();
+internal static bool CompleteBurnWithoutFlight(CardAppearanceState state,float time) { if(!Progress.Remove((state.ActorId,state.PoolSeat)))return false;NoFlight.Add((state.ActorId,state.PoolSeat));return true; }
+internal static void NoteBurnProgress(CardAppearanceState state,float time,bool running) {if(running){Progress.Add((state.ActorId,state.PoolSeat));NoFlight.Remove((state.ActorId,state.PoolSeat));}else Progress.Remove((state.ActorId,state.PoolSeat));}
 }
     internal static class NetAvatarDriver {internal static bool CanPublishNativePresentation=true;}
     internal static class NetFigures { internal static int StableActorId(ScenarioRuleLibrary.CPlayerActor actor) => actor.Id; }

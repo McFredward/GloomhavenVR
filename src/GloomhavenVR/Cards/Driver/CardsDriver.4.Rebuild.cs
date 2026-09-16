@@ -3691,6 +3691,7 @@ internal sealed partial class CardsDriver
     /// <summary>Reused scratch for pruning stale hold entries (allocation-free steady state).</summary>
     private readonly List<AbilityCardUI> _burnHoldPruneScratch = new(4);
 
+    private readonly Dictionary<(int Owner, CAbilityCard Card), float> _retiredForeignNoFlight = new();
     private readonly Dictionary<AbilityCardUI, (CAbilityCard Card, CPlayerActor Actor, int Owner, float Started)> _foreignBurnProgress = new();
 
     private void ObserveForeignBurnProgress(AbilityCardUI widget)
@@ -3802,13 +3803,17 @@ internal sealed partial class CardsDriver
                 && _foreignBurnProgress.TryGetValue(widget, out var observed)
                 && ReferenceEquals(observed.Card, widget.AbilityCard) && ReferenceEquals(observed.Actor, actor)
                 && observed.Owner == owner.PlayerId;
+            float noFlightClock = -1f;
+            bool durableNoFlight = owner != null && owner.TryBurnNoFlightCompletion(actorId, widget.AbilityCard, out noFlightClock)
+                && (!_retiredForeignNoFlight.TryGetValue((owner.PlayerId, widget.AbilityCard), out float retired) || noFlightClock > retired);
             bool hasOwnerRelease = Net.CardFlightVisibility.TryPeekOwnerRelease(actorId, origin, source, out _, out _, widget.AbilityCard);
-            bool completedWithoutFlight = Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal,
+            bool completedWithoutFlight = Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal || durableNoFlight,
                 ownerRunning, hasOwnerRelease, !release);
             if (completedWithoutFlight)
             {
                 // The owner never adopted this burn, so its actual native completion has no
                 // originating VR flight. Retire this read-only hold without inventing one.
+                if (durableNoFlight && owner != null) _retiredForeignNoFlight[(owner.PlayerId, widget.AbilityCard)] = noFlightClock;
                 ClearBurnHold(widget); _activeExitOrigins.Remove(widget); _knownBurntWidgets.Add(widget);
                 _dirty = true;
                 return false;

@@ -8,7 +8,8 @@ namespace GloomhavenVR.Net;
 /// original provenance plus owner time identifies a release across sequence wrap and packet loss.</summary>
 internal readonly struct CardBurnCompletion
 {
-    internal const byte RecentFlightBit = 2, InProgressBit = 4;
+    internal const byte RecentFlightBit = 2, InProgressBit = 4, NoFlightCompletedBit = 8;
+    internal bool NoFlightCompleted => (Flags & NoFlightCompletedBit) != 0;
     internal bool InProgress => (Flags & InProgressBit) != 0;
     internal byte FlightFlags => (byte)(Flags & CardFlightVisibility.CoveredBurnBit);
     internal readonly byte Sequence, Endpoints, Flags, Seat, Count;
@@ -31,9 +32,10 @@ internal readonly struct CardBurnCompletion
     internal bool Valid() => !float.IsNaN(Time) && !float.IsInfinity(Time) && Time >= 0f
         && ActorId != 0 && SourceActorId != 0 && PoolCount > 0 && PoolCount <= 32768
         && (PoolSeat & 32767) < PoolCount && Source.Validate()
-        && (InProgress ? Endpoints == 0 && Seat == 0 && Count == 0 && (Flags & RecentFlightBit) == 0
+        && !(InProgress && NoFlightCompleted)
+        && (InProgress || NoFlightCompleted ? Endpoints == 0 && Seat == 0 && Count == 0 && (Flags & RecentFlightBit) == 0
             : NetCardFx.To(Endpoints) == CardFxAnchor.Burnt && (Endpoints & 15) <= (byte)CardFxAnchor.Active)
-        && (Flags & ~(CardFlightVisibility.CoveredBurnBit | RecentFlightBit | InProgressBit)) == 0;
+        && (Flags & ~(CardFlightVisibility.CoveredBurnBit | RecentFlightBit | InProgressBit | NoFlightCompletedBit)) == 0;
 }
 
 /// <summary>Record75 repeats terminal releases until original recovery or scenario teardown.

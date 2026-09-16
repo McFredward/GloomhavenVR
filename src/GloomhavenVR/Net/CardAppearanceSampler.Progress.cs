@@ -13,6 +13,7 @@ internal static partial class CardAppearanceSampler
         internal CPlayerActor Actor = null!;
         internal CAbilityCard Card = null!;
         internal CardAppearanceState Identity = null!;
+        internal bool CompletedWithoutFlight, ExpectedFlight;
     }
     private static readonly List<NativeBurnProgress> NativeBurns = new(CardBurnCompletionHistory.CountMax);
 
@@ -43,7 +44,16 @@ internal static partial class CardAppearanceSampler
     {
         if (!CardsGameApi.ControlsActor(actor)) return;
         foreach (var tracked in NativeBurns)
-            if (ReferenceEquals(tracked.Card, card)) { if (full != null) tracked.Full = full; return; }
+            if (ReferenceEquals(tracked.Card, card))
+            {
+                if (full != null) tracked.Full = full;
+                if (tracked.CompletedWithoutFlight)
+                {
+                    tracked.CompletedWithoutFlight = tracked.ExpectedFlight = false;
+                    NetCardFx.NoteBurnProgress(tracked.Identity, Time.unscaledTime, running: true);
+                }
+                return;
+            }
         if (NativeBurns.Count >= CardBurnCompletionHistory.CountMax) return;
         var identity = new CardAppearanceState { ActorId = NetFigures.StableActorId(actor) };
         if (!CardAppearanceProvenance.Capture(identity, actor, card)) return;
@@ -57,20 +67,34 @@ internal static partial class CardAppearanceSampler
         for (int i = NativeBurns.Count - 1; i >= 0; i--)
         {
             var tracked = NativeBurns[i];
-            bool running = tracked.Actor != null && CardsGameApi.ControlsActor(tracked.Actor)
-                && ReferenceEquals(CardAppearanceProvenance.Resolve(tracked.Identity), tracked.Card)
-                && (BurnArtwork.Playing(BurnArtwork.EffectsOf(tracked.Full))
-                    || BurnArtwork.Playing(BurnArtwork.EffectsOf(tracked.Widget)) || BurnArtwork.LosingCards(tracked.Widget));
-            if (running || CardsDriver.ExpectsBurnFlight(tracked.Card)) continue;
-            // A visible held burn keeps its progress until the owner reports its real flight.
-            // An unadopted burn has no such flight; clearing progress is its completion edge.
-            NetCardFx.NoteBurnProgress(tracked.Identity, Time.unscaledTime, running: false);
-            NativeBurns.RemoveAt(i);
+            bool valid = tracked.Actor != null && CardsGameApi.ControlsActor(tracked.Actor)
+                && ReferenceEquals(CardAppearanceProvenance.Resolve(tracked.Identity), tracked.Card);
+            if (!valid)
+            { NetCardFx.ForgetBurnCompletion(tracked.Identity); NativeBurns.RemoveAt(i); continue; }
+            if (tracked.CompletedWithoutFlight)
+            {
+                var cards = tracked.Actor!.CharacterClass;
+                if (cards.HandAbilityCards.Contains(tracked.Card) || cards.RoundAbilityCards.Contains(tracked.Card)
+                    || (!cards.LostAbilityCards.Contains(tracked.Card) && !cards.PermanentlyLostAbilityCards.Contains(tracked.Card)))
+                { NetCardFx.ForgetBurnCompletion(tracked.Identity); NativeBurns.RemoveAt(i); }
+                continue;
+            }
+            bool running = BurnArtwork.Playing(BurnArtwork.EffectsOf(tracked.Full))
+                || BurnArtwork.Playing(BurnArtwork.EffectsOf(tracked.Widget)) || BurnArtwork.LosingCards(tracked.Widget);
+            bool expected = CardsDriver.ExpectsBurnFlight(tracked.Card);
+            tracked.ExpectedFlight |= expected;
+            if (running || expected) continue;
+            // A normal visible burn must finish through its real release, even when capture fails.
+            // Offscreen native completion is durable so coalescing cannot erase its entire lifetime.
+            if (!tracked.ExpectedFlight && NetCardFx.CompleteBurnWithoutFlight(tracked.Identity, Time.unscaledTime))
+                tracked.CompletedWithoutFlight = true;
+            else
+            { NetCardFx.NoteBurnProgress(tracked.Identity, Time.unscaledTime, running: false); NativeBurns.RemoveAt(i); }
         }
     }
     private static void ClearBurnProgress()
     {
-        foreach (var tracked in NativeBurns) NetCardFx.NoteBurnProgress(tracked.Identity, Time.unscaledTime, running: false);
+        foreach (var tracked in NativeBurns) NetCardFx.ForgetBurnCompletion(tracked.Identity);
         NativeBurns.Clear();
     }
 }

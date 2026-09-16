@@ -136,6 +136,14 @@ internal static class Program
         Check(runningFlight.Admissions==0 && runningFlight._pending.Count==1,"Later pending flights stay queued throughout a burn");
         runningFlight._owner.HoldsBurnCardLayout=false; runningFlight.Tick(.1f);
         Check(runningFlight.ActiveTicks==2 && runningFlight.Admissions==1,"Queued flight resolves after burn without expiring in the wait");
+        receiver=new RemoteAvatar();NetAvatarDriver.Controller=receiver;
+        receiver.ApplyBurnCompletions(new CardBurnCompletionHistory());
+        receiver.ApplyBurnCompletions(new CardBurnCompletionHistory {Entries=new[]{new CardBurnCompletion(0,4,4,0,32,31f,false,true)}});
+        Check(receiver.Dispatched==0 && receiver.TryBurnNoFlightCompletion(4,card,out float noFlightClock)&&noFlightClock==31f,
+            "An explicit no-flight terminal survives coalesced progress and never dispatches a flight");
+        Check(!receiver.TryBurnNoFlightCompletion(4,new CAbilityCard(31),out _),"No-flight completion cannot attach to another original card with the same id");
+        receiver.ApplyBurnCompletions(new CardBurnCompletionHistory {Entries=new[]{new CardBurnCompletion(0,4,4,0,32,32f,true)}});
+        Check(!receiver.TryBurnNoFlightCompletion(4,card,out _),"A new owner burn invalidates the old no-flight completion before playback");
         Console.WriteLine($"Remote burn sequencing: {assertions} assertions passed.");
     }
 }

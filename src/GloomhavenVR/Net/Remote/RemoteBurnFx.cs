@@ -328,6 +328,7 @@ internal sealed class RemoteBurnFx
         public float ToWidth = RemoteHandFan.DefaultCardWidth;
     }
 
+    private readonly Dictionary<CAbilityCard, float> _retiredNoFlight = new();
     private readonly List<Burn> _burns = new(MaxBurns);
     private GameObject? _root;
 
@@ -795,6 +796,9 @@ internal sealed class RemoteBurnFx
             {
                 if (_burntBuf[i] != null)
                     _known.Add(_burntBuf[i]);
+                if (actor != null && _burntBuf[i]?.AbilityCard != null
+                    && CardAppearanceMirror.TryOwnerBurnNoFlightCompletion(actor, _burntBuf[i].AbilityCard, out float historical))
+                    _retiredNoFlight[_burntBuf[i].AbilityCard] = historical;
             }
             return;
         }
@@ -1080,12 +1084,17 @@ internal sealed class RemoteBurnFx
             CAbilityCard? card = b.OriginalCard;
             bool ownerRunning = actor != null && card != null && CardAppearanceMirror.TryOwnerBurnProgress(actor, card, out _);
             if (ownerRunning) b.ObservedOwnerProgress = true;
-            bool completedWithoutFlight = BurnReleasePolicy.RetireWithoutFlight(b.ObservedOwnerProgress, ownerRunning,
+            float noFlightClock = -1f;
+            bool durableNoFlight = actor != null && card != null
+                && CardAppearanceMirror.TryOwnerBurnNoFlightCompletion(actor, card, out noFlightClock)
+                && (!_retiredNoFlight.TryGetValue(card, out float retired) || noFlightClock > retired);
+            bool completedWithoutFlight = BurnReleasePolicy.RetireWithoutFlight(b.ObservedOwnerProgress || durableNoFlight, ownerRunning,
                 b.OwnerReleased, BurnArtwork.Playing(BurnArtwork.EffectsOf(b.Widget)));
             if (!b.HandoverLogged && (actor == null || card == null || completedWithoutFlight
                 || (!actor.CharacterClass.LostAbilityCards.Contains(card)
                     && !actor.CharacterClass.PermanentlyLostAbilityCards.Contains(card))))
             {
+                if (completedWithoutFlight && durableNoFlight && card != null) _retiredNoFlight[card] = noFlightClock;
                 DropClaim(b.ClaimId);
                 b.Active = false;
                 b.HasFace = false;
@@ -1427,6 +1436,7 @@ internal sealed class RemoteBurnFx
         for (int i = 0; i < _burns.Count; i++)
             _burns[i].Art?.Destroy();
         _burns.Clear();
+        _retiredNoFlight.Clear();
         _known.Clear();
         _burntBuf.Clear();
         _pruneScratch.Clear();

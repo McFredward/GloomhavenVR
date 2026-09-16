@@ -68,6 +68,15 @@ internal static class NetCardFx
         RefreshCompletions();
     }
 
+    internal static bool CompleteBurnWithoutFlight(CardAppearanceState state, float time)
+    {
+        int index = s_completions.FindIndex(entry => entry.Key == (state.ActorId, state.SourceActorId, state.PoolSeat, state.PoolCount));
+        if (index < 0 || !s_completions[index].InProgress) return false;
+        s_completions[index] = new CardBurnCompletion(0, 0, CardBurnCompletion.NoFlightCompletedBit,
+            time, state.ActorId, state.SourceActorId, state.PoolSeat, state.PoolCount, 0, 0);
+        RefreshCompletions(); return true;
+    }
+
     private static void RefreshCompletions()
     {
         var entries = new CardBurnCompletion[s_completions.Count];
@@ -76,7 +85,7 @@ internal static class NetCardFx
             var entry = s_completions[i];
             bool recent = false;
             foreach (var flight in s_history)
-                if (!entry.InProgress && flight.Event.Sequence == entry.Sequence && flight.CompletionTime == entry.Time)
+                if (!entry.InProgress && !entry.NoFlightCompleted && flight.Event.Sequence == entry.Sequence && flight.CompletionTime == entry.Time)
                 { recent = true; break; }
             entries[i] = entry.WithRecentFlight(recent);
         }

@@ -24,7 +24,7 @@ assert 'bool firstStep = true;' in hook and 'firstStep = false;' in hook, 'Nativ
 layout=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.8.BurnSequencing.cs').read_text()
 assert layout.index('ObserveForeignBurnProgress(widget);') < layout.index('FlushBurnHolds('), 'Progress must be observed while the native layout barrier still blocks Flush'
 retire=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs').read_text()
-assert 'Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal,' in retire and 'ClearBurnHold(widget); _activeExitOrigins.Remove(widget); _knownBurntWidgets.Add(widget);' in retire, 'No-flight completion retires exact local holds instead of fabricating a flight'
+assert 'Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal || durableNoFlight,' in retire and 'ClearBurnHold(widget); _activeExitOrigins.Remove(widget); _knownBurntWidgets.Add(widget);' in retire, 'No-flight completion retires exact local holds instead of fabricating a flight'
 cleanup=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.2.Update.cs').read_text()
 assert '_foreignBurnProgress.Clear();' in cleanup, 'Progress observations cannot retain old native widgets after teardown'
 print('Burn completion production binding: sampler, legacy/history admission and canonical observer dispatch verified.')
@@ -69,9 +69,9 @@ from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
 a,b={
-'early-progress-clear':('if (running || CardsDriver.ExpectsBurnFlight(tracked.Card)) continue;', 'if (running) continue;'),
+'early-progress-clear':('if (running || expected) continue;', 'if (running) continue;'),
 'proxy-progress':('if (!CardsGameApi.ControlsActor(actor)) return;', ''),
-'stopped-progress':('bool running = tracked.Actor != null', 'bool running = bool.Parse("true") || tracked.Actor != null')
+'stopped-progress':('bool running = BurnArtwork.Playing', 'bool running = bool.Parse("true") || BurnArtwork.Playing')
 }[sys.argv[3]]
 assert s.count(a)==1
 Path(sys.argv[2]).write_text(s.replace(a,b))
