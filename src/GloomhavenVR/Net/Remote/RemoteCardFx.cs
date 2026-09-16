@@ -852,9 +852,9 @@ internal sealed class RemoteCardFx
                 PendingFlight pending = _pending[i];
                 _pending[i] = new PendingFlight(pending.Endpoints, pending.Flags, pending.Source, pending.Generation);
             }
-            return;
         }
-        for (int i = 0; i < _pending.Count;)
+        // Already launched flights keep moving, just like their local VRCard counterparts.
+        for (int i = 0; !_owner.HoldsBurnCardLayout && i < _pending.Count;)
         {
             PendingFlight pending = _pending[i];
             if (Time.unscaledTime - pending.ReceivedAt > ResolveSeconds

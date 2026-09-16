@@ -92,4 +92,12 @@ private Dictionary<(int Actor,int Source,ushort Seat,ushort Count),float> _burnP
 internal bool HasBurnInProgress(int actorId)=>_burnProgressActors.Contains(actorId);
 private void PlayMirroredCardFlight(byte endpoints,byte flags,CardFlightSource source,float time,int player,CAbilityCard card) {Dispatched++;}
 """ + method(avatar,'private void ApplyBurnCompletions(').replace('private void ApplyBurnCompletions','internal void ApplyBurnCompletions') + "\n}\n"
+fixture += """
+internal static class Time {internal static float unscaledTime;}
+internal sealed class RunningFlightFixture {
+internal Owner _owner=new(); internal int ActiveTicks, Admissions; const float ResolveSeconds=2f;
+internal readonly record struct PendingFlight(byte Endpoints, byte Flags, object? Source, long Generation) {internal float ReceivedAt {get;}=Time.unscaledTime;}
+internal List<PendingFlight> _pending=new(){new(0,0,null,1)};
+private bool TryPlay(byte ends,byte flags,object? source,long generation){Admissions++;return true;}
+"""+gate(fx,'public void Tick(','for (int i = 0; i < _flights.Count; i++)')+"ActiveTicks++; }\n}\n"
 out.write_text(fixture)

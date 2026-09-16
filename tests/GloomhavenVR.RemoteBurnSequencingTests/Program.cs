@@ -129,6 +129,13 @@ internal static class Program
         Check(!BurnReleasePolicy.RetireWithoutFlight(true,false,true,false),"An actual terminal release must retain its native flight path");
         Check(!BurnReleasePolicy.RetireWithoutFlight(true,false,false,true),"No-flight retirement still waits for native presentation completion");
         Check(!BurnReleasePolicy.RetireWithoutFlight(false,false,false,false),"Unobserved absence cannot authorize no-flight retirement");
+        var runningFlight=new RunningFlightFixture();
+        runningFlight._owner.HoldsBurnCardLayout=true; Time.unscaledTime=10f;
+        runningFlight.Tick(.1f);
+        Check(runningFlight.ActiveTicks==1,"Already launched remote flights keep moving during a later burn");
+        Check(runningFlight.Admissions==0 && runningFlight._pending.Count==1,"Later pending flights stay queued throughout a burn");
+        runningFlight._owner.HoldsBurnCardLayout=false; runningFlight.Tick(.1f);
+        Check(runningFlight.ActiveTicks==2 && runningFlight.Admissions==1,"Queued flight resolves after burn without expiring in the wait");
         Console.WriteLine($"Remote burn sequencing: {assertions} assertions passed.");
     }
 }

@@ -7,7 +7,7 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.cs "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.RemoteBurnSequencingTests.csproj" --configuration Release
-for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal incoming-progress progress-is-release retire-with-release retire-before-native; do
+for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal incoming-progress progress-is-release retire-with-release retire-before-native freeze-running; do
   mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote"
   cp "$repo_root/src/GloomhavenVR/Net/Remote/"*.cs "$work_dir/source/src/GloomhavenVR/Net/Remote/"
   cp "$repo_root/src/GloomhavenVR/Net/BurnReleasePolicy.cs" "$work_dir/source/src/GloomhavenVR/Net/"
@@ -29,6 +29,7 @@ file,old,new={
 'release-bypass':('Remote/RemoteBurnFx.cs','burn.OwnerReleased = true;','burn.OwnerReleased = true; Handover(burn, "early");'),
 'recovery-address':('CardAppearanceMirror.cs','(NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListHand','(bool.Parse("true") || NetProtocol.HeldFaceList(state.FaceCode) == NetProtocol.HeldFaceListHand'),
 'pending-actor':('Remote/RemoteBurnFx.cs','pending.ActorId != _watchActor','bool.Parse("false") && pending.ActorId != _watchActor'),
+'freeze-running':('Remote/RemoteCardFx.cs','        // Already launched flights keep moving, just like their local VRCard counterparts.','        if (_owner.HoldsBurnCardLayout) return;'),
 'following-flight':('Remote/RemoteCardFx.cs','        if (_owner.HoldsBurnCardLayout) return false;',''),
 'discovery-order':('Remote/RemoteAvatar.cs','        _burnFx.PreparePresentation();',''),
 }[mutation]
@@ -54,6 +55,7 @@ PY
     discovery-order) expected='substring not found';;
     following-flight) expected='Following flights must wait for the earlier native burn';;
     recovery-address) expected='Event before model holds the prior actor without treating old Round membership as recovery';;
+    freeze-running) expected='Already launched remote flights keep moving during a later burn';;
     pending-actor) expected='Unrelated focus must never be retargeted by a pending release';;
   esac
   if ! grep -Fq "$expected" "$work_dir/mutant.log"; then cat "$work_dir/mutant.log"; exit 1; fi
