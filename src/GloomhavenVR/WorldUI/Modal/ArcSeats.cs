@@ -5486,6 +5486,7 @@ internal static partial class ModalFallback
         SharedWindowKind.MapStory => 0,
         SharedWindowKind.QuestConfirm => 1,
         SharedWindowKind.Encounter => 2,
+        SharedWindowKind.RewardShowcase => 1, // scenario reward beside any continuing story
         _ => -1,
     };
 
@@ -5497,6 +5498,7 @@ internal static partial class ModalFallback
         SharedWindowKind.MapStory,
         SharedWindowKind.QuestConfirm,
         SharedWindowKind.Encounter,
+        SharedWindowKind.RewardShowcase,
     };
 
     /// <summary>

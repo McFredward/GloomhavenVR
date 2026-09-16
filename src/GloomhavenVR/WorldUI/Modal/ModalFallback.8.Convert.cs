@@ -854,6 +854,13 @@ internal static partial class ModalFallback
                 // Null for every non-level-message window.
                 LastLevelMessageKey = CurrentLevelMessageKey(window),
             };
+            // A late native reward window adopts the room's existing pose before its reveal.
+            // Its first content fit must not re-seat that imported pose at the default anchor.
+            if (RewardShowcasePlacement.ApplyInitialPose(window, grab))
+            {
+                wp.SpawnAnchor = default;
+                wp.PoseRePlaceDone = true;
+            }
             Converted.Add(wp);
             // CHAIN CONTINUITY: every scripted PLACEMENT — the rule-1 first spawn just as much
             // as a rule-2 verbatim re-float — makes THIS window the shared chain anchor. This

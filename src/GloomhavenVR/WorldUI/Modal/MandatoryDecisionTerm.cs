@@ -56,7 +56,8 @@ internal enum MandatoryDecisionTerm
     /// encounter window ('Begegnung!'). The reported window.</summary>
     EncounterPanel = 1,
 
-    /// <summary>IDENTITY — <c>UIRewardsManager</c>. Its <c>while (processingRewards)</c> coroutine
+    /// <summary>IDENTITY — <c>UICampaignRewardWindow</c> or <c>UIRewardsManager</c>. Native
+    /// continuation completes the campaign process; the guildmaster <c>while (processingRewards)</c> coroutine
     /// is ended by nothing but <c>EndProcess</c>, which is what CALLS the hide.</summary>
     RewardShowcase = 2,
 

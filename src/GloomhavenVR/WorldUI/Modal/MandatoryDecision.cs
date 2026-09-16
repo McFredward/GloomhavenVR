@@ -232,6 +232,13 @@ internal static partial class ModalFallback
         // just not by a policy: a watchdog raises the 2D composite when it detects the stall,
         // rather than a gate refusing to offer a close in the first place. That is also the same
         // mechanism this file's chord branch now uses, which is why the two ought to stay in step.
+        // Campaign Hide only stops presentation; Confirm releases the blocked message pump.
+        // Classify it explicitly so generic close chords cannot bypass the native continuation.
+        if (window.GetComponent<UICampaignRewardWindow>() != null)
+        {
+            reason = "campaign reward showcase — the native Continue callback must finish the reward process";
+            return MandatoryDecisionTerm.RewardShowcase;
+        }
         if (window.GetComponent<UIRewardsManager>() != null)
         {
             // THE STRONGEST FINDING OF THE WHOLE AUDIT, AND THE MECHANISM IN FULL — because it is
