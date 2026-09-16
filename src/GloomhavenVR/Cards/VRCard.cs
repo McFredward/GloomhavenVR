@@ -600,11 +600,18 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// <summary>Adopt the live face of a game card widget.</summary>
     internal bool AttachGameCard(AbilityCardUI card)
     {
+        if (CardsDriver.NativeSceneLoadInProgress) return false;
         if (_canvasRect == null)
             return false;
+        AbilityCardUI? previousWidget = GameCard;
         DetachGameCard();
         if (!_face.Adopt(card, _canvasRect))
+        {
+            // A surviving selected wrapper must not lose its identity merely because the
+            // native face is not ready on the first frame after a canceled scene load.
+            if (ReferenceEquals(previousWidget, card)) GameCard = card;
             return false;
+        }
         GameCard = card;
         SetCanvasSize(_face.FaceSize, CardsConfig.CardWidth.Value, CardsConfig.CardHeight);
         name = $"VRCard_{CardsGameApi.CardName(card)}";
@@ -613,6 +620,20 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         SetRenderOnTop(true);
         NeutralizeFaceHoverFx();
         return true;
+    }
+
+    internal bool HasAdoptedFace => _face.IsAdopted;
+
+    /// <summary>Release native hierarchy ownership for scene loading while retaining this
+    /// wrapper's identity. If loading aborts, selected-slot/gesture bookkeeping still names
+    /// the same game widget; the factory reattaches every retained face when loading ends.
+    /// </summary>
+    internal void ReturnBorrowedFaceForSceneLoad()
+    {
+        AbilityCardUI? widget = GameCard;
+        _burnFx.Detach();
+        DetachGameCard();
+        GameCard = widget;
     }
 
     /// <summary>Give the face back to the game (pool-safe). Idempotent.</summary>
@@ -2131,6 +2152,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// </summary>
     private void LateUpdate()
     {
+        if (CardsDriver.NativeSceneLoadInProgress) return;
         using (Core.PerfMonitor.Scope("Cards.VRCardArt"))
         {
             _face.MaintainArtArrival();
@@ -2144,6 +2166,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
 
     private void UpdateBody()
     {
+        if (CardsDriver.NativeSceneLoadInProgress) return;
         UpdateCanvasCamera();
         _face.Maintain();
         // Parent enable/disable can cancel the native pulse between rebuilds. Reassert

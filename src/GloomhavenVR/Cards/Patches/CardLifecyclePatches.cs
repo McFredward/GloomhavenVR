@@ -49,3 +49,21 @@ internal static class CardsHandUI_DestroyCardUI_Patch
         }
     }
 }
+
+/// <summary>Return borrowed native faces before Unity starts destroying any scene hierarchy.
+/// CardsHandUI.OnDestroy is too late: a FullAbilityCard moved beneath a scene-owned VR host
+/// can already have lost its children when the native hand tries to recycle the pooled widget.
+/// The load iterator runs only after EndScenarioSafely has finished its mandatory decisions.
+/// IsLoading alone is deliberately NOT used: it also covers that earlier decision wait.
+/// </summary>
+[HarmonyPatch(typeof(SceneController), "LoadSceneCoroutine")]
+internal static class SceneController_LoadScene_CardLifetime
+{
+    private static void Postfix(SceneController __instance, ref System.Collections.IEnumerator __result)
+    {
+        __result = new NativeCardSceneLifetime(__result,
+            () => __instance != null && !__instance.DataRestoring,
+            () => GloomhavenVR.Core.TickGuard.Run("Cards.SceneRelease",
+                CardsDriver.ReleaseCardsBeforeSceneLoad, "Cards"));
+    }
+}

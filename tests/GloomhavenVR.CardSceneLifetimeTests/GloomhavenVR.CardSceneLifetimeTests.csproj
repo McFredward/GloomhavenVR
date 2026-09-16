@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LifetimeSource Condition="'$(LifetimeSource)' == ''">../../src/GloomhavenVR/Cards/Art/NativeCardSceneLifetime.cs</LifetimeSource>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="Program.cs" /><Compile Include="FactoryAdapters.cs" /><Compile Include="$(FactorySource)" Link="Production/Factory.cs" /><Compile Include="$(LifetimeSource)" Link="Production/NativeCardSceneLifetime.cs" /></ItemGroup>
+</Project>
