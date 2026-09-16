@@ -407,6 +407,7 @@ internal static partial class RemoteMapStory
     /// IS the teardown.</summary>
     internal static void Reset()
     {
+        ResetRewardPose();
         StoryPeers.Clear();
         QuestPeers.Clear();
         EncounterPeers.Clear();
@@ -1098,9 +1099,11 @@ internal static partial class RemoteMapStory
             return;
         if (!SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null)
             return;
-        if (!SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size))
+        if (!SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size,
+                allowUnrevealed: kind == SharedWindowKind.RewardShowcase))
             return;
-        if (!ToShared(pos, rot, out Vector3 local3, out Quaternion localRot, out byte frame))
+        if (!ToShared(pos, rot, out Vector3 local3, out Quaternion localRot, out byte frame,
+                scenarioFrame: kind == SharedWindowKind.RewardShowcase))
             return;
         if (kind == SharedWindowKind.MapStory)
         {
@@ -1127,7 +1130,8 @@ internal static partial class RemoteMapStory
     private static void TrackFrame(SharedWindowKind kind, Local local, bool reset)
     {
         if (reset || !SharedWindows.TryGetGrab(kind, out GrabbableModal? grab) || grab == null
-            || !SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size))
+            || !SharedWindowFrame.TryRead(grab, out Vector3 pos, out Quaternion rot, out float size,
+                allowUnrevealed: kind == SharedWindowKind.RewardShowcase))
         {
             local.HaveBaseline = false;
             local.Moving = false;
@@ -1306,7 +1310,7 @@ internal static partial class RemoteMapStory
     /// safe — a receiver decodes with the frame the sender used, not with the one it assumes.</para>
     /// </summary>
     private static bool ToShared(Vector3 worldPos, Quaternion worldRot,
-                                 out Vector3 localPos, out Quaternion localRot, out byte frame)
+                                 out Vector3 localPos, out Quaternion localRot, out byte frame, bool scenarioFrame = false)
     {
         localPos = Vector3.zero;
         localRot = Quaternion.identity;
@@ -1318,6 +1322,14 @@ internal static partial class RemoteMapStory
             // mod's avatar poses have always travelled that way), so there is nothing to rotate
             // out of and nothing per-client to rotate back in.
             localRot = worldRot;
+            return true;
+        }
+        // Scenario rewards share the game's coordinate system, like figures and avatar poses.
+        // A per-viewer orbit focus/seat would place the same window at different map locations.
+        if (scenarioFrame)
+        {
+            frame = NetProtocol.RewardFrameScenario;
+            WorldAnchor.Instance.ToAnchor(worldPos, worldRot, out localPos, out localRot);
             return true;
         }
         frame = NetProtocol.SharedFrameSeatAnchor;
@@ -1333,7 +1345,7 @@ internal static partial class RemoteMapStory
     /// unknown frame never reaches here — <c>PresenceSerializer.TryRead</c> drops the pose block and
     /// keeps the page, which is the fail-closed direction.</summary>
     private static bool ToWorld(byte frame, Vector3 localPos, Quaternion localRot,
-                                out Vector3 worldPos, out Quaternion worldRot)
+                                out Vector3 worldPos, out Quaternion worldRot, bool scenarioFrame = false)
     {
         worldPos = Vector3.zero;
         worldRot = Quaternion.identity;
@@ -1343,6 +1355,11 @@ internal static partial class RemoteMapStory
                 return false;
             worldPos = center + localPos * scale;
             worldRot = localRot;
+            return true;
+        }
+        if (scenarioFrame && frame == NetProtocol.RewardFrameScenario)
+        {
+            WorldAnchor.Instance.ToWorld(localPos, localRot, out worldPos, out worldRot);
             return true;
         }
         if (frame != NetProtocol.SharedFrameSeatAnchor)
@@ -1893,7 +1910,8 @@ internal static partial class RemoteMapStory
         // and it collapses to a single ReferenceEquals here as soon as the subject stops changing.
         if (SharedWindows.TryGetGrab(kind, out GrabbableModal? subject) && subject != null
             && !ReferenceEquals(local.Grab, subject)
-            && SharedWindowFrame.TryRead(subject, out Vector3 sPos, out Quaternion sRot, out float sSize))
+            && SharedWindowFrame.TryRead(subject, out Vector3 sPos, out Quaternion sRot, out float sSize,
+                allowUnrevealed: kind == SharedWindowKind.RewardShowcase))
             SyncIdentity(kind, local, subject, sPos, sRot, sSize);
 
         // NOTHING IS APPLIED ON THE TICK THE SUBJECT CHANGED — the mirror of "nothing is published".
@@ -1949,15 +1967,20 @@ internal static partial class RemoteMapStory
         {
             local.PoseTrack.Reset();
             if (local.HaveBaseline && ToShared(local.FramePos, local.FrameRot,
-                    out Vector3 seedPos, out Quaternion seedRot, out byte seedFrame) && seedFrame == owner.Frame)
+                    out Vector3 seedPos, out Quaternion seedRot, out byte seedFrame,
+                    scenarioFrame: kind == SharedWindowKind.RewardShowcase) && seedFrame == owner.Frame)
                 local.PoseTrack.Seed(new RigPose { Position = seedPos, Rotation = seedRot }, local.FrameSize, Time.unscaledTime);
             local.PoseTrackPeer = bestPeer;
             local.PoseTrackFrame = owner.Frame;
         }
-        RigPose displayed = local.PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
+        RigPose displayed = kind == SharedWindowKind.RewardShowcase
+            ? RewardHandoff.Sample(local.PoseTrack, owner.Pose, size, Time.unscaledTime,
+                RewardShowcasePlacement.LocalRevealPending, out size)
+            : local.PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
         size = WorldUI.SharedWindowSizeLaw.SharedGrabFactor(size); // baseline records the actual displayed grid value
         if (!ToWorld(owner.Frame, displayed.Position, displayed.Rotation,
-                     out Vector3 worldPos, out Quaternion worldRot))
+                     out Vector3 worldPos, out Quaternion worldRot,
+                     scenarioFrame: kind == SharedWindowKind.RewardShowcase))
         {
             Note($"player {bestPeer} published a {kind} pose in frame {owner.Frame} but this client "
                  + "cannot resolve that frame right now (no measurable parchment, or no seat "

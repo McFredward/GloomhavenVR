@@ -155,7 +155,7 @@ hardware-verification logging and option reachability. The workflow files list t
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
 The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, map-button, flight-timing,
-figure-hold, native-video, panel-ink, shared-video-playback and introduction-hint harnesses execute
+figure-hold, native-video, reward-showcase, modal-close, reward-pose, conversion-rollback, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
 production source with controlled Unity API substitutes and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
 presentation-send reuse. Their coverage does not replace the full wire vectors or a
@@ -164,16 +164,30 @@ headset test.
 `scripts/card-loss-modal-tests.sh` checks native UI-lock ownership and extracts the actual
 `FlatScreen.WantVisible` method to verify screen, dialog and rescue priorities. Its negative
 controls reject both missing suppression and accidental suppression of real modal screens.
+The production visibility/takeover policy also verifies failed map modal recovery and its
+release after native closure, while preserving movie/loading priority.
 
 `scripts/map-flow-tests.sh` checks native loadout ownership, the actual curtain/travel policies
 and input admission in the map interactor. It covers reusing the party root after the story,
 the separate outer PartyPanel and inner controller-owned window, native multiplayer barriers
-and map locks, with negative controls for the former descendant-only ownership check, missing integration,
+and map locks. Native travel methods execute alongside the actual VR prefix to verify that
+a failed button adoption retains original guarded input and teardown retries the next map.
+The suite includes negative controls for the former descendant-only ownership check, missing integration,
 overbroad curtain release and inappropriate travel visibility.
 
 `scripts/map-button-tests.sh` executes the production off-bar dispatch. It checks complete
 native toggle notification, sibling deselection and repeated presses; negative controls
 reject the former silent Select/Deselect paths that omitted tutorial listeners.
+
+`scripts/burn-layout-tests.sh` and `scripts/remote-burn-sequencing-tests.sh` exercise
+production card-layout barriers, sequential burns, native release ordering and observer
+handoffs. `scripts/burn-completion-tests.sh` checks retained original final frames through
+widget retirement, recovery and address changes. `scripts/item-burn-tests.sh` observes
+native item iterators, including paused game time, cancellation and overlapping effects.
+`scripts/item-appearance-tests.sh` executes original item capture, codec, native writes and
+clip release against controlled Unity APIs, and verifies the actual transport registration.
+Each runs in both workflows and the local wire driver, with runtime negative controls.
+These controlled tests cannot establish headset rendering quality.
 
 `scripts/flight-timing-tests.sh` checks transfer of card presentation between a board seat
 and a flight, including stale state and arrival ownership. `scripts/figure-hold-tests.sh`
@@ -185,10 +199,40 @@ skip routing, video-window cleanup and the actual modal orphan sweep against the
 movie owner. Negative controls cover lost ownership, missing persistent-lifetime enrollment
 and missing content binding. The actual pointer guard and attached click handler cover
 laser/poke skip, stale playback identities and native hero-movie completion.
+`scripts/panel-material-tests.sh` exercises passive native TMP material inspection and
+the actual capture blur handler. Negative controls restore allocating material getters,
+overbroad neutralization and a missing GrabPass remedy.
+
+`scripts/reward-showcase-tests.sh` executes the native reward iterator through group progression
+and the completion callback, including tutorial/custom-scenario input and multiplayer authority.
+The retained iterator fixture is compared with the read-only game reference when available.
+Negative controls reject the former physical-gamepad adapter, scenario-only manager lookup
+and bypasses of native progression.
+
+`scripts/modal-close-tests.sh` executes the complete production close method and mandatory
+window classifier. It covers pooled windows that change policy after conversion, native
+rescue ownership, ordinary menus and city destinations. Negative controls restore unchecked
+close, missing rescue and incorrect rescue lifetime behavior.
+
+`scripts/reward-pose-tests.sh` executes production reward pose sampling, receiving and election
+with the key/opening-scoped handshake. It covers explicit absence, concurrent keys, late
+opening, stale replies, reordered empty snapshots and a departing position sender. Golden
+wire vectors include record 74, full snapshots and bounded four-sender fragment reassembly.
+
+`scripts/conversion-rollback-tests.sh` executes the production conversion transaction,
+outer modal failure handler, native restoration and host-destruction guard. Injected failures
+cover partial adoption/enrollment, native camera restore, throwing/silent reparent refusal,
+scene-root safety detach and repeated mod-only cleanup. Negative controls reject lost ownership,
+unsafe destruction, premature snapshot disposal and replaying stale native layout on retries.
+An additional binding negative verifies allocation ownership precedes native reparenting.
+
 `scripts/panel-ink-tests.sh` exercises the production ink walker:
 full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and
 clipped pixels retain their exclusions. It also tests placement-only annotation exclusion
-in the ink walk and drawn-content union, while hit/chrome bounds retain the hint controls. `scripts/hint-tests.sh` checks queued native message
+in the ink walk and drawn-content union, while hit/chrome bounds retain the hint controls.
+Original reward-heading glyph overflow is included without broadening native masks or affecting
+other text; transformed, empty and invalid glyph bounds have dedicated negative controls.
+`scripts/hint-tests.sh` checks queued native message
 ownership, pending standalone dissolve cancellation and native sibling text/frame reflow/restoration
 before composite adoption. Their
 negative controls reject premature empty frames, lost message ownership and missing cleanup.

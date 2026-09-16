@@ -287,6 +287,17 @@ internal sealed class ItemsPile
     // Confirm/cancel decision (null = none). While set, the fan never live-rebuilds (so the decision
     // chip is never yanked), the chip is driven to the slot pose each tick, and a Confirm button shows.
     private ItemChip? _pendingUseChip;
+    private ItemChip? _finishingUseChip;
+    private bool UseAnimationPending => _finishingUseChip != null;
+    internal bool ItemSourceAddress(ItemChip chip, out byte seat, out byte count, out byte population)
+    {
+        population = (byte)(_demandActive && _demandLoseReward ? 1 : 0);
+        int index = _chips.IndexOf(chip), size = _chips.Count;
+        if (index < 0 && ReferenceEquals(_keptClip, chip)) { index = _keptClipIndex; size = System.Math.Max(_keptClipIndex + 1, ItemsOf(_hand)?.Count ?? 0); }
+        seat = count = 0;
+        if (index < 0 || size == 0 || size > 255 || index >= size) return false;
+        seat = (byte)index; count = (byte)size; return true;
+    }
 
     // ---- THE PLACED CARD OUTLIVES THE **USE**, TOO (user report 2026-08-09) -------------------
     //
@@ -581,6 +592,7 @@ internal sealed class ItemsPile
     /// </summary>
     private void Open(CardsHandUI hand, VRHand? by = null)
     {
+        if (UseAnimationPending) return;
         // AN EMPTY FAN MUST NOT OPEN (user ruling 2026-08-03: "Da 0 Gegenstände da waren soll es
         // auch gar nicht möglich sein den Fächer zu öffnen!"). With no items the fan used to open
         // anyway: no chips, no laser targets, and only its own "Gegenstände (0)" caption floating
@@ -654,6 +666,7 @@ internal sealed class ItemsPile
     /// </summary>
     internal void Close(string reason = "unspecified", bool keepPlacedCard = true)
     {
+        if (UseAnimationPending) return;
         if (!IsOpen)
             return;
         _lastCloseReason = reason;
@@ -803,6 +816,11 @@ internal sealed class ItemsPile
     /// </summary>
     internal void Tick(CardsHandUI? hand)
     {
+        if (UseAnimationPending)
+        {
+            PlayTray.Current?.SetItemUseSlotVisible(true);
+            return; // native ItemChip.Update keeps its artwork alive; no new inventory layout yet
+        }
         if (!IsOpen)
         {
             // The arc is down, but a card may still be LYING in the use recess (see _keptClip): it
@@ -950,6 +968,7 @@ internal sealed class ItemsPile
 
     private void Populate(CardsHandUI hand)
     {
+        if (UseAnimationPending) return;
         if (_root == null)
             return;
         ClearChips();
@@ -1166,6 +1185,7 @@ internal sealed class ItemsPile
 
     private void Relayout()
     {
+        if (UseAnimationPending) return;
         if (_root == null)
             return;
         int n = _chips.Count;
@@ -4066,15 +4086,6 @@ internal sealed class ItemsPile
         // un-click a bonus the game has already spent.
         _pendingBonus = null;
         _pendingBonusToggled = false;
-        chip.PendingUse = false;
-        // The decision resolved, so this card is no longer the recess survivor (see _keptClip) —
-        // it is about to detach and play its own flourish/collapse.
-        if (ReferenceEquals(_keptClip, chip))
-        {
-            _keptClip = null;
-            _keptClipIndex = -1;
-        }
-
         CItem.EUsageType usage = item.YMLData != null ? item.YMLData.Usage : CItem.EUsageType.None;
         bool consumed = usage == CItem.EUsageType.Consumed
                         || item.SlotState == CItem.EItemSlotState.Consumed;
@@ -4082,18 +4093,38 @@ internal sealed class ItemsPile
                      && (usage == CItem.EUsageType.Spent
                          || item.SlotState == CItem.EItemSlotState.Spent);
         Vector3 converge = PileConvergeWorld();
-        Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
-        if (keep != null)
-            chip.transform.SetParent(keep, worldPositionStays: true);
-        _chips.Remove(chip);
-        ForgetSweepWinner(chip);
-        chip.PlayUseThenCollapse(consumed, spent, converge);
-
+        BeginUsedChipPresentation(chip, consumed, spent, converge);
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
-        PlayTray.Current?.SetItemUseSlotVisible(false);
-        _useSlotShownLogged = false;
         VRLog.Info("Cards", $"ITEM USED {chip.name} ({why}; state now {item.SlotState}) — playing " +
                             $"{(consumed ? "burn" : spent ? "tap" : "use")} FX, then it returns to the deck.");
+    }
+
+    // Keep the original chip in its indexed fan/recess until its native result finishes.
+    // Removing it before the flourish let Populate create a second card over the burning one.
+    private void BeginUsedChipPresentation(ItemChip chip, bool consumed, bool spent, Vector3 converge)
+    {
+        _finishingUseChip = chip;
+        chip.PendingUse = true;
+        ForgetSweepWinner(chip);
+        PlayTray.Current?.SetItemUseSlotVisible(true);
+        chip.PlayUseThenCollapse(consumed, spent, converge, () => CompleteUsedChipPresentation(chip));
+    }
+
+    private void CompleteUsedChipPresentation(ItemChip chip)
+    {
+        if (!ReferenceEquals(_finishingUseChip, chip)) return;
+        _finishingUseChip = null;
+        _chips.Remove(chip);
+        if (ReferenceEquals(_keptClip, chip))
+        {
+            _keptClip = null;
+            _keptClipIndex = -1;
+        }
+        chip.PendingUse = false;
+        Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
+        if (keep != null) chip.transform.SetParent(keep, worldPositionStays: true);
+        PlayTray.Current?.SetItemUseSlotVisible(false);
+        _useSlotShownLogged = false;
     }
 
     // ------------------------------------------------- item-surrender pick (event mali) --
@@ -4427,15 +4458,7 @@ internal sealed class ItemsPile
                                 || item.SlotState == CItem.EItemSlotState.Consumed));
         bool spent = !consumed;
         Vector3 converge = PileConvergeWorld();
-        Transform? keep = PlayTray.Current?.Root != null ? PlayTray.Current!.Root : _anchor;
-        if (keep != null)
-            chip.transform.SetParent(keep, worldPositionStays: true);
-        _chips.Remove(chip);
-        ForgetSweepWinner(chip);
-        chip.PendingUse = false;
-        chip.PlayUseThenCollapse(consumed, spent, converge);
-        PlayTray.Current?.SetItemUseSlotVisible(false);
-        _useSlotShownLogged = false;
+        BeginUsedChipPresentation(chip, consumed, spent, converge);
     }
 
     /// <summary>Demand teardown (picker closed): unclip/return any leftover chip, drop the
@@ -4996,6 +5019,10 @@ internal sealed class ItemsPile
         // reflecting the result — a burn plume (Consumed) or a "tap" roll to 90° with a scale pulse
         // (Spent) — then the chip collapses into the deck. Independent of the collapse/pending states.
         private bool _useFxActive;
+        private bool _useFxConsumed;
+        internal ItemCardUI? NativeItemCard => _cardUI;
+        internal bool BurnPresentationPending => _useFxActive && _useFxConsumed;
+        private System.Action? _useFxCompleted;
         private float _useFxTime;
         private bool _useFxSpent;
         private Vector3 _useFxCollapseWorld;
@@ -6013,16 +6040,18 @@ internal sealed class ItemsPile
 
         /// <summary>
         /// Requirement 6 — after a CONFIRM: play the result flourish (burn plume for Consumed, a "tap"
-        /// roll to 90° with a scale pulse for Spent), then collapse into the deck. The owner has already
-        /// detached the chip from the fan root and removed it from the live list, so this runs to
-        /// completion even if the fan closes/rebuilds.
+        /// roll to 90° with a scale pulse for Spent), then collapse into the deck. Retain the original
+        /// chip and its occupied slot until native playback completes; only then retire it and
+        /// permit fan closure, population changes and replacements.
         /// </summary>
-        internal void PlayUseThenCollapse(bool consumed, bool spent, Vector3 collapseWorld)
+        internal void PlayUseThenCollapse(bool consumed, bool spent, Vector3 collapseWorld, System.Action? completed = null)
         {
-            PendingUse = false;
+            PendingUse = true;
+            _useFxCompleted = completed;
             _useFxActive = true;
             _useFxTime = UseFxSeconds;
             _useFxSpent = spent && !consumed;
+            _useFxConsumed = consumed;
             _useFxCollapseWorld = collapseWorld;
             _useFxBaseRot = transform.localRotation;
             _fingerPopped = false;
@@ -6039,6 +6068,9 @@ internal sealed class ItemsPile
         /// <summary>Requirement 6 — advance the post-confirm flourish, then hand off to the collapse.</summary>
         private void TickUseFx()
         {
+            // Start the original state-change presentation before asking whether it finished.
+            // UpdateState is change-gated; forcing it would restart the burn every frame.
+            if (_cardUI != null) _cardUI.UpdateState();
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             _useFxTime -= dt;
             float k = 1f - Mathf.Exp(-14f * dt);
@@ -6052,9 +6084,13 @@ internal sealed class ItemsPile
                 transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * (_homeScale * pulse), k);
             }
             // Consumed: the card's own burn FX plays over the flourish window; no extra motion.
-            if (_useFxTime <= 0f)
+            if (_useFxTime <= 0f && !ItemBurnPlayback.Playing(_cardUI != null ? _cardUI.cardEffects : null))
             {
+                if (_useFxConsumed) Net.ItemAppearanceSampler.RetainCompletion(this);
                 _useFxActive = false;
+                System.Action? completed = _useFxCompleted;
+                _useFxCompleted = null;
+                completed?.Invoke();
                 BeginCollapse(_useFxCollapseWorld);
             }
         }

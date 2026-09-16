@@ -76,6 +76,9 @@ Ein Fenster direkt oder mit dem Laser an der oberen Stange greifen und verschieb
 mit dem Laser bewegt der **Stick derselben Hand** das Fenster näher oder weiter weg.
 Mit beiden Händen an der Stange die Größe ändern; über das **X** das Fenster schließen.
 
+**Truhenbelohnungen:** im Belohnungsfenster **Weiter** drücken. Im Multiplayer sehen alle
+die Belohnung; der Spieler des betroffenen Characters bestätigt für die Gruppe.
+
 | Zeichen am Fenster | Wer sieht es? |
 |---|---|
 | <img src="img/net-shared.svg" width="22" height="16" alt="Blaues Zwei-Personen-Symbol für geteilte Fenster"> **Geteilt** (im Spiel blau pulsierend) | Alle. Geteilte Fenster und die Seiten der Geschichte bleiben synchron. Das Symbol sitzt oben rechts, unter dem Schließen-**X**, sofern vorhanden. |

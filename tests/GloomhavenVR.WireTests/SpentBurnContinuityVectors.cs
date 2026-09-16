@@ -86,10 +86,13 @@ internal static class SpentBurnContinuityVectors
             () => material = raw,
             running => { raw = material; if (running) material = Math.Max(1f, material); },
             _ => reports++);
+        t.True(!wrapped.Started && !wrapped.Finished, "creating a native iterator never advances or completes it");
         t.True(wrapped.MoveNext() && raw == .5f && material == 1f, "raw half-progress remains separate from full spent picture");
+        t.True(wrapped.Started && !wrapped.Finished, "spent shader floor cannot masquerade as native completion");
         t.True(ReferenceEquals(wrapped.Current, token), "native yield instruction is forwarded by identity");
         t.True(wrapped.MoveNext() && raw == 1f, "native final jump to the exact cosmetic floor is observed");
         t.True(!wrapped.MoveNext() && step == 3, "native completion result and number of steps remain unchanged");
+        t.True(wrapped.Finished, "actual completion is retained despite a stale native Coroutine handle");
         wrapped.Reset(); t.True(native.Resets == 1, "Reset delegates to the original enumerator");
         wrapped.Dispose(); t.True(native.Disposals == 1, "cancellation disposes the original iterator");
         int advances = 0;
@@ -101,6 +104,12 @@ internal static class SpentBurnContinuityVectors
         Exception? caught = null;
         try { failing.MoveNext(); } catch (Exception ex) { caught = ex; }
         t.True(ReferenceEquals(caught, expected) && reports == 0, "native exceptions propagate unchanged");
+        t.True(failing.Finished, "failed native iterator cannot retain a presentation hold");
+        var bailed = new NativeBurnEnumerator(new Probe(() => false, token), () => { }, _ => { }, _ => { });
+        t.True(!bailed.MoveNext() && bailed.Finished, "synchronous bail is terminal even with existing spent paint");
+        var disposed = new NativeBurnEnumerator(new Probe(() => true, token), () => { }, _ => { }, _ => { });
+        disposed.MoveNext(); disposed.Dispose();
+        t.True(disposed.Finished, "native disposal releases presentation completion");
         var cosmetic = new NativeBurnEnumerator(new Probe(() => true, token),
             () => throw new Exception("cosmetic before"), _ => throw new Exception("cosmetic after"), _ => reports++);
         t.True(cosmetic.MoveNext() && reports == 2, "cosmetic failures cannot alter native execution");

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <HandshakeSource Condition="'$(HandshakeSource)' == ''">../../src/GloomhavenVR/Net/RewardPoseHandshake.cs</HandshakeSource>
+    <RewardSource Condition="'$(RewardSource)' == ''">../../src/GloomhavenVR/Net/Remote/RemoteMapStory.Reward.cs</RewardSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(HandshakeSource)" Link="Production/RewardPoseHandshake.cs" />
+    <Compile Include="$(RewardSource)" Link="Production/RemoteMapStory.Reward.cs" />
+  </ItemGroup>
+</Project>

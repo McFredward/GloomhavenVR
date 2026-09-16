@@ -942,7 +942,12 @@ internal sealed class RemoteAvatar
     internal bool BurnOwnsActiveCard(int cardInstanceId) => _burnFx.OwnsActiveCard(cardInstanceId);
 
     internal bool BurnOwnsRecess(int recess) => _burnFx.OwnsRecess(recess);
+    internal bool HoldsBurnCardLayout => _burnFx.HoldsCardLayout;
+    internal ScenarioRuleLibrary.CPlayerActor? BurnPresentationActor => _burnFx.PresentationActor;
     internal void SuppressBurnRecess(int recess) => _controlBoard.SuppressBurnRecess(recess);
+    internal ScenarioRuleLibrary.CAbilityCard? PresentedBurnSource(byte endpoints, CardFlightSource? source, int actorId)
+        => _controlBoard.PresentedBurnSource(endpoints, source, actorId);
+    internal void SuppressBurnActiveCard(int cardId) => _controlBoard.SuppressBurnActiveCard(cardId);
 
     /// <summary>
     /// Which of this peer's two round recesses is drawing the REAL FACE of the card with
@@ -2257,6 +2262,8 @@ internal sealed class RemoteAvatar
         PileBrowseHeld = PileBrowseOpen && p.PileBrowseHeld;
         PileBrowseLeftHand = PileBrowseHeld && p.PileBrowseLeftHand;
 
+        ApplyBurnCompletions(p.BurnCompletions);
+
         if (p.FlightHistory != null)
         {
             if (!_fxSeqInit)
@@ -2266,17 +2273,85 @@ internal sealed class RemoteAvatar
             }
             else
                 foreach (CardFlightEvent flight in p.FlightHistory.Since(_lastFxSeq))
-                    PlayCardFlight(flight.Sequence, flight.Endpoints, flight.Flags, flight.Source);
+                    PlayCardFlight(flight.Sequence, flight.Endpoints, flight.Flags, flight.Source,
+                        p.BurnCompletions);
         }
         else if (p.HasCardFx)
         {
             byte flags = p.HasCardFxVisibility && p.FxVisibilitySeq == p.FxSeq ? p.FxVisibilityFlags : (byte)0;
-            PlayCardFlight(p.FxSeq, p.FxEndpoints, flags, p.FlightSourceSeq == p.FxSeq ? p.FlightSource : null);
+            PlayCardFlight(p.FxSeq, p.FxEndpoints, flags, p.FlightSourceSeq == p.FxSeq ? p.FlightSource : null,
+                p.BurnCompletions);
         }
     }
 
-    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source)
+    private readonly System.Collections.Generic.Dictionary<(int Actor, int Source, ushort Seat, ushort Count), float> _burnCompletionTimes = new();
+    private object? _burnCompletionScenario;
+    private bool _burnCompletionsInitialized;
+    private readonly System.Collections.Generic.HashSet<int> _burnProgressActors = new();
+    private readonly System.Collections.Generic.Dictionary<(int Actor, int Source, ushort Seat, ushort Count), float> _burnProgressKeys = new();
+    private readonly System.Collections.Generic.Dictionary<(int Actor, int Source, ushort Seat, ushort Count), float> _burnNoFlightCompletions = new();
+    internal bool HasBurnInProgress(int actorId) => _burnProgressActors.Contains(actorId);
+    internal bool TryBurnProgress(int actorId, ScenarioRuleLibrary.CAbilityCard card, out float started)
     {
+        foreach (var entry in _burnProgressKeys)
+            if (entry.Key.Actor == actorId && ReferenceEquals(card,
+                CardAppearanceProvenance.Resolve(entry.Key.Source, entry.Key.Seat, entry.Key.Count)))
+            { started = entry.Value; return true; }
+        started = -1f; return false;
+    }
+    internal bool TryBurnNoFlightCompletion(int actorId, ScenarioRuleLibrary.CAbilityCard card, out float completed)
+    {
+        foreach (var entry in _burnNoFlightCompletions)
+            if (entry.Key.Actor == actorId && ReferenceEquals(card,
+                CardAppearanceProvenance.Resolve(entry.Key.Source, entry.Key.Seat, entry.Key.Count)))
+            { completed = entry.Value; return true; }
+        completed = -1f; return false;
+    }
+    internal bool WaitingIncomingBurn => _burnFx.IncomingBurnPending;
+    private void ApplyBurnCompletions(CardBurnCompletionHistory? history)
+    {
+        if (history == null) return;
+        object? scenario = ScenarioRuleLibrary.ScenarioManager.Scenario;
+        if (!ReferenceEquals(scenario, _burnCompletionScenario))
+        {
+            _burnCompletionScenario = scenario;
+            _burnCompletionsInitialized = false;
+            _burnCompletionTimes.Clear();
+            _burnProgressActors.Clear(); _burnProgressKeys.Clear(); _burnNoFlightCompletions.Clear();
+        }
+        bool initial = !_burnCompletionsInitialized;
+        _burnCompletionsInitialized = true;
+        foreach (var entry in history.Entries)
+        {
+            if (entry.InProgress || entry.NoFlightCompleted) continue; // Admission state is never a release or a completed animation.
+            if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;
+            var card = CardAppearanceProvenance.Resolve(entry.SourceActorId, entry.PoolSeat, entry.PoolCount);
+            if ((initial || _burnProgressKeys.ContainsKey(entry.Key)) && (card == null || !_burnFx.HasObservedBurn(card)))
+            {
+                // Seed historical provenance even when its actor/ownership has not arrived yet.
+                // Retrying that baseline later must not create a claim for a past animation.
+                _burnCompletionTimes[entry.Key] = entry.Time;
+                continue;
+            }
+            var actor = RemoteBoardFocus.ActorById(entry.ActorId);
+            if (actor == null || card == null || !NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? controller)
+                || controller?.PlayerId != PlayerId) continue; // roster/ownership may arrive later
+            if (_burnCompletionTimes.Count >= CardBurnCompletionHistory.CountMax && !_burnCompletionTimes.ContainsKey(entry.Key)) continue;
+            _burnCompletionTimes[entry.Key] = entry.Time;
+            CardFlightVisibility.ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card);
+            NetAvatarDriver.MirrorCharacterCardFlight(this, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card);
+            PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, PlayerId, card);
+        }
+        _burnProgressActors.Clear(); _burnProgressKeys.Clear(); _burnNoFlightCompletions.Clear();
+        foreach (var entry in history.Entries)
+            if (entry.InProgress)
+            { _burnProgressActors.Add(entry.ActorId); _burnProgressKeys[entry.Key] = entry.Time; }
+            else if (entry.NoFlightCompleted) _burnNoFlightCompletions[entry.Key] = entry.Time;
+    }
+
+    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source, CardBurnCompletionHistory? completions = null)
+    {
+        const float completionTime = -1f; // Legacy events cannot borrow a clock from a wrapped sequence.
         if (!_fxSeqInit) { _fxSeqInit = true; _lastFxSeq = sequence; return; }
         if (!NetProtocol.IsNewCardFxSequence(sequence, _lastFxSeq)) return;
         int gap = (byte)(sequence - _lastFxSeq);
@@ -2285,6 +2360,9 @@ internal sealed class RemoteAvatar
         _fxSeen++;
         _lastFxSeq = sequence;
         LogCardFxLoss(gap);
+        // Modern burns are dispatched from durable75, independently of62's two-second history.
+        // A late legacy flight sequence must never replay that same terminal release.
+        if (completions != null && completions.Covers(sequence, endpoints, flags, source)) return;
         // Explicit provenance cannot degrade to the currently viewed character after an actor
         // disappears or control changes. A delayed cosmetic event must not dress an unrelated card.
         if (source.HasValue)
@@ -2295,17 +2373,19 @@ internal sealed class RemoteAvatar
         }
         if (source.HasValue)
         {
-            CardFlightVisibility.ObserveOwnerRelease(source.Value.ActorId, endpoints, flags, source);
-            NetAvatarDriver.MirrorCharacterCardFlight(this, endpoints, flags, source.Value);
+            CardFlightVisibility.ObserveOwnerRelease(source.Value.ActorId, endpoints, flags, source, completionTime);
+            NetAvatarDriver.MirrorCharacterCardFlight(this, endpoints, flags, source.Value, completionTime);
         }
-        PlayMirroredCardFlight(endpoints, flags, source);
+        PlayMirroredCardFlight(endpoints, flags, source, completionTime, PlayerId);
     }
 
     // Called only after the canonical sender's sequence and actual character ownership validate.
     // A foreign-focus board consumes the same semantic release without minting another sequence.
-    internal void PlayMirroredCardFlight(byte endpoints, byte flags, CardFlightSource? source)
+    internal void PlayMirroredCardFlight(byte endpoints, byte flags, CardFlightSource? source,
+        float completionTime = -1f, int presentationPlayer = 0, ScenarioRuleLibrary.CAbilityCard? originalCard = null)
     {
-        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source))
+        _burnFx.PreparePresentation(); // Establish native burn ownership before any following flight.
+        if (!_burnFx.ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard))
             _cardFx.Play(endpoints, flags, source);
     }
 
@@ -2497,6 +2577,7 @@ internal sealed class RemoteAvatar
         // THE CALL ORDER BELOW IS UNCHANGED — the scopes wrap, they do not regroup. (The hand fan
         // runs before the board because the board reads the fan's resolved geometry; keeping the
         // sequence byte-identical is what makes this a pure measurement change.)
+        _burnFx.PreparePresentation();
         using (Core.PerfMonitor.Scope("Net.Fans"))
             _handFan.Tick(dt);
         using (Core.PerfMonitor.Scope("Net.Board"))

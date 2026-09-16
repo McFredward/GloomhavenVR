@@ -17,7 +17,50 @@ internal static class Program
         LoadoutTransition();
         NativePartyContainerTransitions();
         NativeMapLocks();
+        FailedTravelParking();
         Console.WriteLine($"Map flow production regression harness: {_assertions:N0} assertions passed.");
+    }
+
+    private static void FailedTravelParking()
+    {
+        var location = new MapLocation();
+        var manager = new AdventureMapUIManager { locationToTravel = location };
+        int confirmed = 0;
+        Action<MapLocation> confirm = received =>
+        {
+            Check(ReferenceEquals(location, received), "Fallback keeps the exact native selected location");
+            confirmed++;
+        };
+        MapRoomDriver.Active = true;
+        MapTravelConfirm._standDown = false;
+        MapTravelConfirm._parkStandDown = false;
+        Check(!MapTravelConfirm.TravelShortcutGate.Run(manager, location, confirm),
+            "Working VR travel parking still blocks accidental second-click travel");
+        Check(ReferenceEquals(manager.onConfirmTravelCallback, confirm),
+            "Ordinary VR selection retains the native callback for its explicit button");
+        MapTravelConfirm._parkStandDown = true;
+        bool runNative = MapTravelConfirm.TravelShortcutGate.Run(manager, location, confirm);
+        Check(runNative, "Failed VR parking must restore the native travel confirmation path");
+        if (runNative) manager.OnSelectedMapLocation(location, confirm);
+        Check(confirmed == 1,
+            "Failed parking dispatches the same native callback exactly once");
+        manager.locationToTravel = location;
+        manager.TravelPermitted = false;
+        if (MapTravelConfirm.TravelShortcutGate.Run(manager, location, confirm)) manager.OnSelectedMapLocation(location, confirm);
+        Check(confirmed == 1, "Native travel conditions still refuse invalid quest travel");
+        manager.TravelPermitted = true;
+        FFSNetwork.IsOnline = true;
+        if (MapTravelConfirm.TravelShortcutGate.Run(manager, location, confirm)) manager.OnSelectedMapLocation(location, confirm);
+        Check(confirmed == 1, "Fallback cannot replace multiplayer ready-up with local confirmation");
+        FFSNetwork.IsOnline = false;
+        MapTravelConfirm.Reset();
+        Check(!MapTravelConfirm._parkStandDown, "A new map hierarchy must retry previously failed travel parking");
+        Check(!MapTravelConfirm.TravelShortcutGate.Run(manager, location, confirm),
+            "New map restores ordinary explicit VR travel confirmation");
+        MapRoomDriver.Active = false;
+        Check(MapTravelConfirm.TravelShortcutGate.Run(manager, location, confirm),
+            "Flat map keeps native confirmation behavior");
+        MapRoomDriver.Active = true;
     }
 
     private static void LoadoutTransition()

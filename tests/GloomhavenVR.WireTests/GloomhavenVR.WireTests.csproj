@@ -65,6 +65,10 @@
          Sprite, and this project references UnityEngine.CoreModule and nothing else. -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\UseBarSlotIdentity.cs" Link="wire\UseBarSlotIdentity.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\VideoWindowState.cs" Link="wire\VideoWindowState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardPoseHandshake.cs" Link="wire\RewardPoseHandshake.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardWindowState.cs" Link="wire\RewardWindowState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\RewardPoseHandoff.cs" Link="wire\RewardPoseHandoff.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Board\IBoardAnchor.cs" Link="wire\IBoardAnchor.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetPacket.cs" Link="wire\NetPacket.cs" />
     <!-- Record 28's PAGING (2026-08-09). It belongs on this list for the same reason the
          serializers do: it is a wire format with a sender and a receiver that never meet, and its
@@ -272,6 +276,8 @@
     <Compile Include="FanInteractionVectors.cs" />
     <Compile Include="FanInsertionGapVectors.cs" />
     <Compile Include="VideoWindowVectors.cs" />
+    <Compile Include="RewardWindowVectors.cs" />
+    <Compile Include="RewardPoseHandshakeVectors.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\FanOrderMemory.cs" Link="cards\FanOrderMemory.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\FanPresentationSendState.cs" Link="wire\FanPresentationSendState.cs" />
     <Compile Include="CardPlumeVectors.cs" />
@@ -580,10 +586,13 @@
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/DamageDecisionPreviewState.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceState.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardAppearanceCodec.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/ItemAppearanceState.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/ItemAppearanceCodec.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightSource.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Cards/BurnFlightCompletion.cs" />
     <Compile Include="BurnFlightCompletionVectors.cs" />
     <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardFlightHistory.cs" />
+    <Compile Include="$(RepoRoot)src/GloomhavenVR/Net/CardBurnCompletionHistory.cs" />
     <Compile Include="DamageDecisionPreviewVectors.cs" />
     <Compile Include="HeldFaceAtomicVectors.cs" />
     <Compile Include="CardAppearanceVectors.cs" />
@@ -608,5 +617,6 @@
     <Compile Include="PresentationCompressionVectors.cs" />
     <Compile Include="DecisionAttributionVectors.cs" />
     <Compile Include="CardFlightHistoryVectors.cs" />
+    <Compile Include="CardBurnCompletionVectors.cs" />
   </ItemGroup>
 </Project>

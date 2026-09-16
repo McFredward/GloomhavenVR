@@ -40,6 +40,7 @@ internal static class Program
             PresentationCompressionVectors.Run(t);
             DecisionAttributionVectors.Run(t);
             CardFlightHistoryVectors.Run(t);
+        CardBurnCompletionVectors.Run(t);
             BurnFlightCompletionVectors.Run(t, repoRoot);
             GoldenVectors.Run(t);
             StoryVectors.Run(t);
@@ -106,6 +107,8 @@ internal static class Program
             UseBarAnimationPlaybackVectors.Run(t);
             SharedWindowPoseVectors.Run(t);
             VideoWindowVectors.Run(t);
+            RewardWindowVectors.Run(t, repoRoot);
+            RewardPoseHandshakeVectors.Run(t);
             FanReflowVectors.Run(t);
             FanInteractionVectors.Run(t);
             FanInsertionGapVectors.Run(t);

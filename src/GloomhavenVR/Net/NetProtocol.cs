@@ -66,6 +66,9 @@ internal static class NetProtocol
     public const byte MsgNativeDecisionPromptFragments = 15;
     public const byte ExtIdNativeDecisionPrompt = 63;
     public const byte MsgPresentationCompression = 16;
+    public const byte MsgItemAppearance = 17;
+    public const byte MsgItemAppearanceFragments = 18;
+    public const byte ExtIdItemAppearance = 76;
     public const byte ExtIdPresentationCompression = 64;
     public const byte ExtIdDamageAvoidance = 65;
     public const byte ExtIdSecondHeldFaceActor = 66;
@@ -79,6 +82,16 @@ internal static class NetProtocol
     public const byte ExtIdFanInsertionGap = 71;
     /// <summary>Native video source and shared pose, independent of the legacy window record21.</summary>
     public const byte ExtIdVideoWindow = 72;
+    /// <summary>Shared native reward pose; distinct from legacy shared-window record21.</summary>
+    public const byte ExtIdRewardWindow = 73;
+    /// <summary>Key/generation-scoped explicit declines of shared reward first-placement candidacy.</summary>
+    public const byte ExtIdRewardPoseHandshake = 74;
+    public const byte ExtIdCardBurnCompletion = 75;
+    /// <summary>Record 73 only: absolute scenario game-world pose, independent of local camera pan/seat.
+    /// Legacy record 21 retains its existing frame 0/1 grammar.</summary>
+    public const byte RewardFrameScenario = 2;
+    // Initial placement requires explicit decline support; older avatars never block it.
+    public const ushort RewardWindowMinPeerBuild = 512;
     public const byte ExtIdDamageDecisionPreview = 57;
     public const byte ExtIdCardAppearance = 58;
     public const byte ExtIdHeldFaceActor = 59;
@@ -492,7 +505,60 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 509;
+    public const ushort ModBuild = 513;
+
+    // ModBuild 513 — serialize native burn presentation before card layout changes.
+    //   Discover pending/native burns before round-slot compaction, fan exchange, active-grid
+    //   relayout or character replacement. Siblings retain their seats until the original burn
+    //   and hand-loss sequence finish; following flights cannot overtake that presentation.
+    //   Actual native iterator completion distinguishes synchronous bails from stale handles.
+    //   Remote burn release carries original card provenance and an owner presentation clock;
+    //   retained terminal native output survives widget retirement and delayed delivery.
+    //   Record 75 also carries explicit owner burn progress for incoming character admission;
+    //   unadopted completed effects do not replay or invent flights when focus changes.
+    //   Consumed items retain their original clipped widget until its actual native timeline
+    //   finishes. Additive item appearance stream 17/18, record 76, mirrors original node output.
+    //   Cosmetic waits never stop native gameplay callbacks or auto-confirm mandatory choices.
+    //   Version 1.0.2; all VR peers use 513. See .planning/BURN-SEQUENCING-513.md.
+
+    // ModBuild 512 — general audit of mandatory input and native continuation.
+    //   Map event rewards resolve their live original managers without a scenario controller.
+    //   Failed blocking map conversions can actually raise their requested desktop fallback;
+    //   travel parking failure restores original guarded confirmation and resets on map teardown.
+    //   Final close admission rechecks the current mandatory decision on reused windows.
+    //   Reward pose participation uses an explicit key/opening-scoped handshake so a healthy
+    //   peer without this reward cannot hide the controlling player's sole confirmation forever.
+    //   Additive record 74 leaves reward record 73 unchanged; extras worst case 4133 bytes,
+    //   bounded assembly 4352 bytes, still six fragments. Participation requires build 512.
+    //   Failed conversion/attachment restoration keeps ownership of native UI until returned.
+    //   Native callbacks, readiness, player ownership and game locks remain authoritative;
+    //   recovery never auto-confirms a choice or skips a gameplay wait on a timer.
+    //   Source/fault-injection review, not a new hardware reproduction (logs remain 510/500).
+    //   Version 1.0.2, DLL-only since 483; all VR peers use 512. See .planning/DEADLOCK-512.md.
+
+    // ModBuild 511 — correct build-510 reward deadlock, hover and cropped announcement.
+    //   Tutorial/custom scenarios also use UIRewardsManager, but its ConfirmPressed adapter
+    //   waits for a physical gamepad edge outside Guildmaster. VR Continue now supplies only
+    //   the native input latch; ProcessRewards retains ownership, network actions and completion.
+    //   Original button artwork represents hover/press/disabled states. Capture and chrome
+    //   include the original heading's actual glyph bounds without changing native layout/masks.
+    //   Passive TMP material reads prevent the build-509 user's null-source instantiation
+    //   exception and repeated render-target teardown; this does not explain every FPS dip.
+    //   Regression tests execute the native reward iterator through its completion callback.
+    //   Local evidence is build 510; retained remote logs are 500. Headset replay remains open.
+    //   Version 1.0.2, DLL-only since 483, no wire change; all VR peers use 511.
+    //   See .planning/REWARDS-511.md for evidence, corrected assumptions and validation.
+
+    // ModBuild 510 — native chest reward continuation and shared reward windows.
+    //   Guildmaster's mouse-only continuation now has a localized VR Continue button;
+    //   Campaign retains its original button with the native callback repaired once.
+    //   Native reveal, ownership and synchronized continuation remain authoritative.
+    //   Additive record 73 shares the exact chest's window pose in WorldAnchor coordinates,
+    //   with ready/failure handoff before follower reveal and normal grab/resize behavior.
+    //   Supplied logs predate this report (local 507, remote 500); source checks establish
+    //   the input defects, while current hardware confirmation remains outstanding.
+    //   Version 1.0.2, DLL-only since 483; all VR peers use 510.
+    //   See .planning/REWARDS-510.md for native evidence and validation.
 
     // ModBuild 509 — release 1.0.1, combat log hidden by default at scenario start.
     //   User request: disable the combat log by default. Change the annotated startup

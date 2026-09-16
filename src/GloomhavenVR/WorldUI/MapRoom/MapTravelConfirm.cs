@@ -515,11 +515,11 @@ internal static class MapTravelConfirm
     /// in the Warn that sets it.</summary>
     private static bool _standDown;
 
-    /// <summary>Only the PARKING stands down (the container is not a RectTransform, or the game took
-    /// it back). The shortcut gate keeps running, because "travel must not commit by accident" is a
-    /// standing ruling that does not depend on the button being reachable — and with the gate up, an
-    /// unreachable button is a missing convenience rather than an accidental journey. Cleared when
-    /// the room stands down, so re-entering the map room retries.</summary>
+    /// <summary>Parking failed (the container is not a RectTransform, or the game took it back).
+    /// The native second-click confirmation must remain available in that case: keeping the
+    /// replacement button unreachable AND suppressing its original input prevented all offline
+    /// travel. The original method still owns travel checks and multiplayer readiness. Reset
+    /// clears this map-hierarchy failure so the next map retries ordinary VR parking.</summary>
     private static bool _parkStandDown;
 
     private static FieldInfo? _locationToTravel;
@@ -1004,8 +1004,8 @@ internal static class MapTravelConfirm
                               + "it back (home transform restored verbatim, our hold-down released) and "
                               + "standing the parking down for this map-room visit. CONSEQUENCE: the "
                               + "Reisen / 'Quest erneut spielen' button is unreachable in the room until "
-                              + "the room is re-entered; the double-press shortcut stays switched off, so "
-                              + "nothing can commit travel by accident in the meantime.");
+                              + "the room is re-entered. The native single-player second-click confirmation "
+                              + "is restored while parking is unavailable, preserving the game's travel checks.");
             Unpark("the game re-parented the travel options");
             _parkStandDown = true;
             return;
@@ -1080,6 +1080,9 @@ internal static class MapTravelConfirm
     internal static void Reset()
     {
         Unpark("map room teardown");
+        // A failed adoption belongs to the old map hierarchy. Retry against the next map
+        // instead of keeping its only travel control unavailable for the entire session.
+        _parkStandDown = false;
         MapQuestReadyUp.Reset();
         MapQuestReadyRoster.Reset();
     }
@@ -1439,8 +1442,8 @@ internal static class MapTravelConfirm
         VRLog.Warn(Scope, $"MAP TRAVEL CONFIRM: cannot park the travel options — {why}, so the anchor "
                           + "arithmetic this class is built on does not apply. The parking stands down. "
                           + "CONSEQUENCE: the Reisen / 'Quest erneut spielen' button stays unreachable in "
-                          + "the 3D map room. The double-press shortcut stays switched off, so travel "
-                          + "still cannot commit by accident. Nothing throws.");
+                          + "the 3D map room. The native single-player second-click confirmation is "
+                          + "restored while parking is unavailable. Native travel checks still apply.");
     }
 
     /// <summary>
@@ -2996,7 +2999,10 @@ internal static class MapTravelConfirm
         private static bool Prefix(AdventureMapUIManager __instance, MapLocation mapLocation,
                                    System.Action<MapLocation> onConfirmTravelCallback)
         {
-            if (_standDown || !MapRoomDriver.Active || __instance == null)
+            // Never remove the native confirmation path after our replacement failed. The
+            // original method retains online readiness and CheckTravel; this restores input,
+            // not permission to travel. Normal VR parking still requires its explicit button.
+            if (_standDown || _parkStandDown || !MapRoomDriver.Active || __instance == null)
                 return true;
             if (!EnsureReflection())
                 return true;

@@ -10,6 +10,11 @@ project="$repo_root/tests/GloomhavenVR.CardLossModalTests/GloomhavenVR.CardLossM
 # Optional source overrides allow an isolated test lane to validate the integrator's files.
 guard_source="${1:-$repo_root/src/GloomhavenVR/WorldUI/CardLossModalGuard.cs}"
 flat_source="${2:-$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.4.Lifecycle.cs}"
+python3 - "$repo_root/src/GloomhavenVR/WorldUI/FlatScreen/FlatScreen.1.Core.cs" <<'BINDING'
+import pathlib, sys
+source = pathlib.Path(sys.argv[1]).read_text()
+assert source.count('\n        UpdateScreenTakeover();') == 1, 'FlatScreen tick must apply desktop takeover'
+BINDING
 dotnet run --project "$project" --configuration Release \
     --property:CardLossGuardSource="$guard_source" --property:FlatScreenLifecycleSource="$flat_source"
 mutation_dir="$(mktemp -d)"
@@ -17,7 +22,7 @@ trap 'rm -rf "$mutation_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.CardLossModalTests/"*.cs "$mutation_dir/"
 cp "$repo_root/tests/GloomhavenVR.CardLossModalTests/extract-flat-screen.py" "$mutation_dir/"
 cp "$project" "$mutation_dir/"
-for mutation in mixed-lock empty-lock idle-hand missing-integration explicit-modal-priority; do
+for mutation in mixed-lock empty-lock idle-hand missing-integration explicit-modal-priority map-visibility map-takeover; do
 python3 - "$guard_source" "$flat_source" "$mutation_dir" "$mutation" <<'MUTATION'
 import pathlib, sys
 source = pathlib.Path(sys.argv[1]).read_text()
@@ -33,6 +38,9 @@ changes = {
         'bool.Parse("false")'),
     'explicit-modal-priority': ('flat', 'if (ModalFallback.ScreenWanted)',
         'if (ModalFallback.ScreenWanted && !CardLossModalGuard.OwnsAllLocks(UIManager.Instance, Cards.Patches.HandSuppression.Active))'),
+    'map-visibility': ('flat', 'if (_rescueShow || MapFallbackActive)', 'if (_rescueShow)'),
+    'map-takeover': ('flat', 'ManualScreenActive = _manualShow || _rescueShow || MapFallbackActive;',
+        'ManualScreenActive = _manualShow || _rescueShow;'),
 }
 which, needle, replacement = changes[sys.argv[4]]
 text = source if which == 'guard' else flat
@@ -56,6 +64,8 @@ case "$mutation" in
     idle-hand) expected='A non-animating hand lock is not owned by card loss' ;;
     missing-integration) expected='Production FlatScreen suppresses the empty native card-loss fallback' ;;
     explicit-modal-priority) expected='Explicit modal composite stays above card-loss suppression' ;;
+    map-visibility) expected='Failed blocking map window reaches the native desktop fallback' ;;
+    map-takeover) expected='Map fallback hands converted widgets back to the desktop' ;;
 esac
 if ! grep -Fq "Unhandled exception. System.InvalidOperationException: $expected" "$mutation_dir/mutant.log"; then
     cat "$mutation_dir/mutant.log"

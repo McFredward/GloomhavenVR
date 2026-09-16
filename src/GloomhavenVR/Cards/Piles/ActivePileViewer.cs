@@ -250,6 +250,8 @@ internal sealed class ActivePileViewer
 
     private void Relayout(bool instant)
     {
+        if (CardsDriver.BurnLayoutPending) return;
+
         if (_root == null)
             return;
         int n = _cards.Count;

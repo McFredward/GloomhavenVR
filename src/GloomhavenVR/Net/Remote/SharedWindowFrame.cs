@@ -20,6 +20,8 @@ internal static class SharedWindowFrame
     /// <summary>
     /// The window's world pose and its owner's size factor, or false when it is not currently a
     /// grabbable, revealed float (nothing to publish, and the caller writes no record).
+    /// Reward pose handoff alone may read its converted frame before first reveal; peers keep
+    /// that pose invisible until the publisher explicitly marks its first visible frame ready.
     ///
     /// <para>ModBuild 450 — THE PUBLISHED FACTOR IS THE WIRE'S OWN VALUE, not a float near it.
     /// <see cref="SharedWindowSizeLaw.SharedGrabFactor"/> is <c>Decode(Encode(x))</c> against the
@@ -30,13 +32,13 @@ internal static class SharedWindowFrame
     /// changes": there is only one clamp left, and it is the wire's.</para>
     /// </summary>
     internal static bool TryRead(GrabbableModal grab, out Vector3 pos, out Quaternion rot,
-                                 out float size)
+                                 out float size, bool allowUnrevealed = false)
     {
         pos = Vector3.zero;
         rot = Quaternion.identity;
         size = 1f;
         var owner = (IPanelGrabOwner)grab;
-        if (!owner.GrabVisible)
+        if (!allowUnrevealed && !owner.GrabVisible)
             return false;
         Transform? frame = owner.GrabRoot;
         if (frame == null)

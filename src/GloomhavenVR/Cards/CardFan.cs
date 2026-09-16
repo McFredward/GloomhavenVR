@@ -124,6 +124,8 @@ internal sealed class CardFan
 
     internal void Open(VRHand hand)
     {
+        if (CardsDriver.BurnLayoutPending) return;
+
         _hand = hand;
         if (_root == null)
         {
@@ -164,6 +166,8 @@ internal sealed class CardFan
 
     internal void Close()
     {
+        if (CardsDriver.BurnLayoutPending) return;
+
         IsOpen = false;
         if (ReferenceEquals(Current, this))
             Current = null;
@@ -1053,7 +1057,7 @@ internal sealed class CardFan
         // Defect B: cards flying INTO the hand are ticked FIRST and unconditionally — the whole
         // point of the inbound-flight seat is that it works while this fan is closed (and therefore
         // while everything below this line is skipped). Cheap no-op when nothing is arriving.
-        if (_arriving.Count > 0)
+        if (_arriving.Count > 0 && !CardsDriver.BurnLayoutPending)
             TickArrivals();
 
         if (_root == null)
@@ -1064,7 +1068,7 @@ internal sealed class CardFan
         // reveal (the fan stays frozen in place — it no longer follows the palm).
         if (!IsOpen)
         {
-            if (_closeElapsed >= 0f)
+            if (_closeElapsed >= 0f && !CardsDriver.BurnLayoutPending)
                 TickCollapse();
             return;
         }
@@ -1081,7 +1085,7 @@ internal sealed class CardFan
         // for as long as the exchange does. Mutually exclusive with the reveal by construction —
         // BeginSwapOut drops _openElapsed — so the two blends can never both write a card's home.
         bool swapping = _swapElapsed >= 0f;
-        if (swapping)
+        if (swapping && !CardsDriver.BurnLayoutPending)
         {
             TickSwap();
             if (_cards.Count > 0)
@@ -1092,7 +1096,7 @@ internal sealed class CardFan
         // (Relayout applies the collapsed→slot lerp while _openElapsed >= 0). dt is capped
         // so a hitch cannot teleport the cards; unscaled so a paused game still animates.
         bool wasOpening = _openElapsed >= 0f;
-        if (_openElapsed >= 0f)
+        if (_openElapsed >= 0f && !CardsDriver.BurnLayoutPending)
         {
             _openElapsed += Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             Relayout(instant: true);
@@ -1926,6 +1930,8 @@ internal sealed class CardFan
 
     private void Relayout(bool instant)
     {
+        if (CardsDriver.BurnLayoutPending) return;
+
         if (_root == null)
             return;
 

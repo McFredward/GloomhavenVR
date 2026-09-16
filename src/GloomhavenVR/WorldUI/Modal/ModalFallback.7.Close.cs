@@ -121,6 +121,17 @@ internal static partial class ModalFallback
             return;
         }
 
+        // The close plate was admitted when the panel was converted. Native pooled
+        // DialogPopup.Show can replace its options and escape policy without changing
+        // that UIWindow (or exposing a closed frame to the conversion poll). Recheck
+        // the LIVE decision before any release flag, mode exit or Escape/Hide. An old
+        // X must never hide the new waiter and discard its only continuation.
+        if (IsMandatoryDecision(window, out string mandatoryReason))
+        {
+            RescueForMandatoryDecision(window, mandatoryReason, 0f, "a mod close request");
+            return;
+        }
+
         // Item 6: flag THIS floated window for release regardless of the game's own IsOpen. A sticky
         // reachable menu the game's single-window toggle already hid stays floated in VR until its
         // OWN X closes it, so here its game state may already be Hidden — the flag is what actually

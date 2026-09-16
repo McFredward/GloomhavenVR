@@ -3,7 +3,7 @@ using GloomhavenVR.WorldUI;
 using UnityEngine;
 using UnityEngine.UI;
 
-static class Program
+static partial class Program
 {
     private static int _assertions;
     private static void Check(bool value, string reason)
@@ -105,6 +105,7 @@ static class Program
         Check(PanelInkBounds.TryMeasure(panel, out ink) && ink.Rect.width == 200 && ink.Rect.height == 100,
             "explicit content honors native clipping");
         TestPlacementHintIsolation();
+        TestRewardHeading();
         Console.WriteLine($"Panel ink tests: {_assertions} assertions passed.");
     }
 }

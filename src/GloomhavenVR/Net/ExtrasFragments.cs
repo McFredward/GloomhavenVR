@@ -10,7 +10,9 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal sealed class ExtrasFragments
 {
-    internal const int MaxSnapshotBytes = 4096;
+    // Reward pose eligibility adds59 bytes to the previous4074-byte worst case.
+    // The envelope grammar/chunk size are unchanged; nine bounded datagrams cover the maximum durable burn history.
+    internal const int MaxSnapshotBytes = 7168;
     internal const int MaxDatagramBytes = 864;
     internal const int ChunkBytes = 200;
     private const int MetadataBytes = 12; // sequence:u64, snapshot length:u16, offset:u16
@@ -247,7 +249,7 @@ internal sealed class ExtrasFragments
     private static bool PayloadAllowed(int type) => type == NetProtocol.MsgExtras
         || type == NetProtocol.MsgUseBarAnimation || type == NetProtocol.MsgCardPlume
         || type == NetProtocol.MsgNativeUseBar || type == NetProtocol.MsgNativeBoard
-        || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt;
+        || type == NetProtocol.MsgCardAppearance || type == NetProtocol.MsgNativeDecisionPrompt || type == NetProtocol.MsgItemAppearance;
 
     /// <summary>Message8 assigns the low five opaque sequence bits to its native slot stream.
     /// Validate routing metadata before choosing an assembler; Accept validates the whole page.</summary>

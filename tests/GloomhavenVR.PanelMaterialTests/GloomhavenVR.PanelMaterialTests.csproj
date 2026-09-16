@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <MaterialSource Condition="'$(MaterialSource)' == ''">../../src/GloomhavenVR/WorldUI/Sharpness/PanelGraphicMaterial.cs</MaterialSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MaterialSource)" Link="Production/PanelGraphicMaterial.cs" />
+    <Compile Include="$(CaptureSource)" Link="Production/CaptureMaterial.cs" />
+  </ItemGroup>
+</Project>

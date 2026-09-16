@@ -299,6 +299,17 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// <summary>Transfer the single visible card to the burn presentation immediately. A covered
     /// sacrifice is not a ShownFaceCardInstanceId, so the former face-only exclusion left its
     /// back underneath the new burn front until the next occupancy refresh (report 5b).</summary>
+    internal CAbilityCard? PresentedBurnSource(byte endpoints, CardFlightSource? source, int actorId)
+    {
+        if (_latchedActor == null || NetFigures.StableActorId(_latchedActor) != actorId) return null;
+        CardFxAnchor origin = NetCardFx.From(endpoints);
+        int recess = origin == CardFxAnchor.Slot0 ? 0 : origin == CardFxAnchor.Slot1 ? 1 : -1;
+        return recess >= 0 ? _cards[recess]?.PresentedCard
+            : origin == CardFxAnchor.Active ? _active?.PresentedSource(source) : null;
+    }
+
+    internal void SuppressBurnActiveCard(int cardId) => _active?.SuppressBurnCard(cardId);
+
     internal void SuppressBurnRecess(int recess)
     {
         if (recess < 0 || recess >= SlotCount)
@@ -2499,6 +2510,17 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
 
     private void SeatSlots(CPlayerActor? actor, bool showFronts, bool exhausted)
     {
+        if (_owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))
+        {
+            // A model-first removal must not replace slot zero with its surviving sibling.
+            // Preserve original identities and occupancy until native burn playback completes.
+            for (int i = 0; i < SlotCount; i++)
+            {
+                if (_owner.BurnOwnsRecess(i)) SuppressBurnRecess(i);
+                else _cards[i].HoldBurnPresentation(actor);
+            }
+            return;
+        }
         // EXHAUSTED OWNER ⇒ BOTH RECESSES EMPTY, whatever the wire last said. The occupancy nibble
         // is a LATCHED fact — the last one its owner sent while their character was alive — so
         // reading it here is exactly how a board that is supposed to be empty keeps two anonymous

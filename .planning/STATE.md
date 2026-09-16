@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 for release 1.0.1 preparation, ModBuild 509.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for the native burn sequencing audit, ModBuild 513 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,13 +13,78 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **1.0.1 / ModBuild 509 is the release candidate requested by the maintainer.**
-  Combat log startup now defaults to off; existing preferences and manual display
-  remain available. This includes the video/tutorial/placement corrections through
-  508. Hosted runner dependency and protected-main release provenance issues found
-  during preparation are corrected; 36 offline release topology assertions pass. Local gates pass with
-  253,674 wire assertions and a strict Release build with zero warnings/errors. See
-  [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
+- **dev / 1.0.2 / ModBuild 513 sequences every native burn before card replacement.**
+  Round slots, fans, active grids and character exchange retain their previous presentation
+  until all native burns finish. Actual iterator completion distinguishes finished handles.
+  Observers wait for the canonical owner's completion frame; durable original-card release
+  addresses delayed delivery and slot reuse. Consumed items retain their native widget and
+  share original item appearance through additive stream 17/18 (record 76). Incoming character
+  views also wait for actual owner burn progress; offscreen completions do not invent flights.
+  Native gameplay callbacks and mandatory decisions keep running. See
+  [BURN-SEQUENCING-513.md](BURN-SEQUENCING-513.md). Logs remain local 510 / remote 500;
+  build-513 headset acceptance is open. No main merge or release publication is included.
+
+- **513 integration checks pass:** all 17 checkers and production suites; 254,019 wire
+  assertions; strict Release zero warnings/errors. Focused suites: local layout 204, remote
+  sequencing 70, native completion 33, item lifetime 115 and item appearance 645 assertions,
+  with runtime negative controls. Retained build-502 compiled comparison: 65 changed / 40 added /
+  zero removed; additional build-512 comparison: 39 changed / 11 added / zero removed, reviewed.
+  Surfaces 625 / 162 / 4,728; patch inventory 118 classes / 185 methods. Bilingual docs,
+  shell syntax and whitespace pass. These results do not establish headset appearance.
+
+- **dev / 1.0.2 / ModBuild 512 audits mandatory input and native continuation.**
+  Map reward managers can be reached outside a scenario controller; failed blocking map
+  conversions can request a usable desktop; travel parking failure retains original guarded
+  input. Reused windows recheck mandatory close admission. Shared rewards use explicit participation replies. Failed
+  conversion and attachment restore native UI, retaining ownership when cleanup needs retry.
+  No gameplay lock bypass or timed automatic confirmation is introduced. See
+  [DEADLOCK-512.md](DEADLOCK-512.md) for the scope, evidence and final gate results.
+  Latest supplied logs remain local 510 / remote 500; hardware acceptance is open.
+  No main merge or release publication is part of this audit.
+
+- **512 integration checks pass:** all 17 checkers and production suites; 253,893 wire
+  assertions; strict Release zero warnings/errors. Focused suites: rewards 320, map flow
+  1,997, modal desktop 1,066, mandatory close 76, reward pose 104 and rollback 87 assertions,
+  with runtime negative controls. Retained build-502 comparison: 39 changed / 29 added /
+  zero removed types, reviewed; additional build-511 compiled comparison confined to this
+  audit. Surfaces 625 / 161 / 4,728; patch inventory 117 classes / 184 methods.
+  Bilingual docs, shell syntax and whitespace pass. Hardware outcomes remain unverified.
+
+- **dev / 1.0.2 / ModBuild 511 corrects the failed build-510 chest retest.**
+  Tutorial/custom scenarios use UIRewardsManager outside Guildmaster mode; its gamepad
+  confirmation adapter rejected the VR click. Continue now supplies only native input,
+  preserving native reward groups, multiplayer ownership/actions and the completion callback.
+  The button paints native hover/press/disabled states. Capture/chrome include the exact
+  original heading's live glyph bounds, retaining layout, fonts and native masks.
+  Separate build-509 user logs exposed allocating TMP material reads that repeatedly tore
+  down render targets; capture and diagnostic reads now use existing shared materials.
+  This removes that demonstrated failure path, not every possible source of FPS dips.
+  Local evidence is build 510; retained remote logs are build 500. See
+  [REWARDS-511.md](REWARDS-511.md) for the full evidence and validation record.
+  Headset continuation, hover, framing and current multiplayer acceptance remain open.
+  No main merge or release publication is part of this fix.
+- **511 integration checks pass:** strict Release zero warnings/errors; all 17 checkers,
+  production suites and 253,759 wire assertions. Reward: 299 assertions / 13 negatives;
+  materials: 2,031 / four; ink: 237 / five runtime negatives plus one placement binding.
+  Retained build-502 compiled comparison: 35 changed types, 25 additions, no removals,
+  reviewed. Config/patch/log surfaces remain 625 / 161 / 4,726; bilingual docs and
+  whitespace checks pass. These checks do not replace the hardware acceptance above.
+- **Build 510's hardware retest failed despite green checks.** Its reward test incorrectly
+  modeled ConfirmPressed as an unconditional input latch. Build 511 executes the native
+  ProcessRewards iterator through completion, with a negative control for that exact defect.
+  The shared-window identity, placement and first-reveal handoff from 510 remain in place;
+  [REWARDS-510.md](REWARDS-510.md) is the historical implementation record.
+
+- **1.0.1 / ModBuild 509 is published as the latest GitHub release.**
+  main and v1.0.1 name PR #3 merge be74759e; Release run 35014316673 succeeded.
+  The public ZIP matches its published SHA256 and contains the complete asset bundle;
+  its DLL reports 1.0.1 / build 509 / be74759 / IsDevBuild=false. Combat log startup
+  defaults to off while saved preferences and manual display remain available.
+  Candidate CI and all local gates passed, including 253,674 wire assertions and
+  36 release topology checks. See [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
+- **dev targets 1.0.2.** The workflow preserved main ancestry and advanced the
+  version in bot commit 12f66604. Build 513 is the next hardware candidate;
+  the published 1.0.1 release remains unchanged.
 
 - **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**
   The user confirms the deadlock is resolved, and the log completes BuyItem/FTUE.

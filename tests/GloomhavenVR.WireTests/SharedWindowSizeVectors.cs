@@ -477,6 +477,11 @@ internal static class SharedWindowSizeVectors
             ("src/GloomhavenVR/WorldUI/FlatScreen/NativeVideoWindow.cs",
              "new Vector2(1280f, 1280f * source.texture.height / source.texture.width)",
              "the movie design frame must derive from decoded movie aspect, never desktop resolution"),
+            // Reward windows use the common authored-frame conversion. A late observer also
+            // adopts the shared grab-size grid before reveal, rather than its local window dial.
+            ("src/GloomhavenVR/WorldUI/Modal/RewardShowcasePlacement.cs",
+             "SharedWindowSizeLaw.SharedGrabFactor",
+             "reward initial placement must retain the same shared resize grid as later updates"),
             ("src/GloomhavenVR/WorldUI/Modal/ModalFallback.9.Spawn.cs",
              "SharedWindowSizeLaw.ExtraScale",
              "DeriveWindowScale must take a shared window's scale from the law, not from this "
@@ -503,7 +508,7 @@ internal static class SharedWindowSizeVectors
         }
 
         // The population is a CLOSED enum, which is what makes "a window you did not enumerate"
-        // impossible rather than merely unlikely. If a sixth kind is added, this assertion fails and
+        // impossible rather than merely unlikely. If another kind is added, this assertion fails and
         // whoever added it has to come here and decide what the new window's design frame is.
         t.Case("shared-window-size/the-population-is-closed");
         string sharedPath = Path.Combine(repoRoot, "src/GloomhavenVR/WorldUI/Modal/SharedWindows.cs");
@@ -515,8 +520,8 @@ internal static class SharedWindowSizeVectors
             string body = start >= 0 && end > start ? src[start..end] : string.Empty;
             int members = Regex.Matches(body, @"^\s{4}[A-Z][A-Za-z]*\s*=\s*\d+\s*,",
                                         RegexOptions.Multiline).Count;
-            t.Equal(6, members,
-                    "SharedWindowKind has 6 members (None + five shared windows, including native video). A new one "
+            t.Equal(7, members,
+                    "SharedWindowKind has 7 members (None + six shared windows, including native video and rewards). A new one "
                     + "means a new window the 1:1 size guarantee has to be given a design frame for "
                     + "— see SharedWindowSize.TryDesignFrame — so update that and this count "
                     + "together.");

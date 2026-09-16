@@ -39,12 +39,14 @@ internal static class CardFlightVisibility
     internal static bool Covered(byte flags) => (flags & CoveredBurnBit) != 0;
     private readonly struct OwnerRelease
     {
-        internal OwnerRelease(int actor, byte endpoints, byte flags, CardFlightSource? source, double received)
-        { Actor = actor; Endpoints = endpoints; Flags = flags; Source = source; Received = received; }
+        internal OwnerRelease(int actor, byte endpoints, byte flags, CardFlightSource? source, double received, float completionTime, object? originalCard)
+        { Actor = actor; Endpoints = endpoints; Flags = flags; Source = source; Received = received; CompletionTime = completionTime; OriginalCard = originalCard; }
         internal readonly int Actor;
         internal readonly byte Endpoints, Flags;
         internal readonly CardFlightSource? Source;
         internal readonly double Received;
+        internal readonly float CompletionTime;
+        internal readonly object? OriginalCard;
     }
     private static readonly List<OwnerRelease> OwnerReleases = new(8);
     private static double Now => (double)Stopwatch.GetTimestamp() / Stopwatch.Frequency;
@@ -52,17 +54,18 @@ internal static class CardFlightVisibility
     // A local read-only character view sees the same native burn as that character's owner.
     // Its inactive proxy timeline cannot authorize an earlier flight. The integrator calls
     // this only after validating the canonical sender and deduplicating its semantic event.
-    internal static void ObserveOwnerRelease(int actorId, byte endpoints, byte flags, CardFlightSource? source)
+    internal static void ObserveOwnerRelease(int actorId, byte endpoints, byte flags, CardFlightSource? source, float completionTime = -1f, object? originalCard = null)
     {
         if (actorId == 0 || NetCardFx.To(endpoints) != CardFxAnchor.Burnt
             || (source.HasValue && source.Value.ActorId != actorId)) return;
         PruneOwnerReleases();
-        if (OwnerReleases.Count >= 32) OwnerReleases.RemoveAt(0);
-        OwnerReleases.Add(new OwnerRelease(actorId, endpoints, flags, source, Now));
+        if (originalCard != null) CancelOwnerRelease(originalCard);
+        if (OwnerReleases.Count >= CardBurnCompletionHistory.CountMax) return;
+        OwnerReleases.Add(new OwnerRelease(actorId, endpoints, flags, source, Now, completionTime, originalCard));
     }
 
     internal static bool TryConsumeOwnerRelease(int actorId, CardFxAnchor origin,
-        CardFlightSource? source, out byte flags)
+        CardFlightSource? source, out byte flags, object? originalCard = null)
     {
         flags = 0;
         PruneOwnerReleases();
@@ -70,7 +73,11 @@ internal static class CardFlightVisibility
         for (int i = 0; i < OwnerReleases.Count; i++)
         {
             OwnerRelease release = OwnerReleases[i];
-            if (!BurnReleasePolicy.Matches(actorId, origin == CardFxAnchor.Active, recess, source,
+            if (originalCard != null && release.OriginalCard != null)
+            {
+                if (release.Actor != actorId || !ReferenceEquals(release.OriginalCard, originalCard)) continue;
+            }
+            else if (!BurnReleasePolicy.Matches(actorId, origin == CardFxAnchor.Active, recess, source,
                 release.Actor, NetCardFx.From(release.Endpoints), release.Source)) continue;
             flags = release.Flags;
             OwnerReleases.RemoveAt(i);
@@ -79,11 +86,51 @@ internal static class CardFlightVisibility
         return false;
     }
 
+    internal static bool TryPeekOwnerRelease(int actorId, CardFxAnchor origin,
+        CardFlightSource? source, out byte flags, out float completionTime, object? originalCard = null)
+    {
+        flags = 0; completionTime = -1f;
+        PruneOwnerReleases();
+        int recess = origin == CardFxAnchor.Slot0 ? 0 : origin == CardFxAnchor.Slot1 ? 1 : -1;
+        for (int i = 0; i < OwnerReleases.Count; i++)
+        {
+            OwnerRelease release = OwnerReleases[i];
+            if (originalCard != null && release.OriginalCard != null)
+            {
+                if (release.Actor != actorId || !ReferenceEquals(release.OriginalCard, originalCard)) continue;
+            }
+            else if (!BurnReleasePolicy.Matches(actorId, origin == CardFxAnchor.Active, recess, source,
+                release.Actor, NetCardFx.From(release.Endpoints), release.Source)) continue;
+            // A visible presentation awaiting its causal frame renews its bounded receipt.
+            // Unclaimed old slot receipts still expire, so a later card cannot inherit them.
+            OwnerReleases[i] = new OwnerRelease(release.Actor, release.Endpoints, release.Flags,
+                release.Source, Now, release.CompletionTime, release.OriginalCard);
+            flags = release.Flags; completionTime = release.CompletionTime; return true;
+        }
+        return false;
+    }
+
+    // A newer native hand/round/active sample is positive owner recovery evidence.
+    // Old local model membership alone is not: it may simply precede delivery of the loss.
+    internal static void CancelOwnerReleaseBefore(object originalCard, float ownerTime)
+    {
+        for (int i = OwnerReleases.Count - 1; i >= 0; i--)
+            if (ReferenceEquals(OwnerReleases[i].OriginalCard, originalCard)
+                && OwnerReleases[i].CompletionTime >= 0f && OwnerReleases[i].CompletionTime <= ownerTime)
+                OwnerReleases.RemoveAt(i);
+    }
+
+    internal static void CancelOwnerRelease(object originalCard)
+    {
+        for (int i = OwnerReleases.Count - 1; i >= 0; i--)
+            if (ReferenceEquals(OwnerReleases[i].OriginalCard, originalCard)) OwnerReleases.RemoveAt(i);
+    }
+
     private static void PruneOwnerReleases()
     {
         double now = Now;
         for (int i = OwnerReleases.Count - 1; i >= 0; i--)
-            if (now - OwnerReleases[i].Received > 8d) OwnerReleases.RemoveAt(i);
+            if (OwnerReleases[i].CompletionTime < 0f && now - OwnerReleases[i].Received > 8d) OwnerReleases.RemoveAt(i);
     }
 
     internal static void Reset()

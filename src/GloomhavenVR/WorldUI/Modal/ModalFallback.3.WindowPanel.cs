@@ -369,10 +369,23 @@ internal static partial class ModalFallback
     internal static bool TryGetStoryGrab(out GrabbableModal? grab) =>
         SharedWindows.TryGetGrab(SharedWindowKind.ScenarioStory, out grab);
 
+    /// <summary>A failed or deliberately screen-bound source cannot supply a shared float pose.
+    /// Reuse the actual conversion policy so manual screen mode never strands waiting peers.</summary>
+    internal static bool RewardPlacementFailed(UIWindow? window) =>
+        window != null && (!ConvertBaseActive || Failed.Contains(window));
+
+    internal static void PreserveRewardInitialPose(UIWindow window)
+    {
+        WindowPanel? wp = FindPanel(window);
+        if (wp == null) return;
+        wp.SpawnAnchor = default;
+        wp.PoseRePlaceDone = true;
+    }
+
     /// <summary>
     /// The mod-owned <see cref="GrabbableModal"/> built for a specific game <see cref="UIWindow"/>,
-    /// or false when that window is not floated (not open, not converted, or still behind the
-    /// reveal gate).
+    /// or false when that window has no converted grab. Pending grabs are returned too;
+    /// transport readers decide whether that window kind may publish before reveal.
     ///
     /// <para>A pure LOOKUP through the private <c>Converted</c> list: it never converts, never
     /// places and never releases anything, so nothing that calls it can change which windows float

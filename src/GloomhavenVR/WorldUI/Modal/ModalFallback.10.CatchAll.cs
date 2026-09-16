@@ -1420,6 +1420,7 @@ internal static partial class ModalFallback
     /// <summary>Catch-all state teardown (module detach — mirrors the part-4 Detach resets).</summary>
     private static void CatchAllReset()
     {
+        RewardShowcase.Tick(false);
         UnknownShown.Clear();
         CatchAllWarned.Clear();
         FloatRefusalTable.Reset(); // ModBuild 232 — the refusal table's edge state and lapse counters
@@ -1494,28 +1495,8 @@ internal static partial class ModalFallback
 
     private static void AddRewardShowcaseWindow(bool inScenario)
     {
-        UIWindow? win = null;
-        if (inScenario && WorldUIConfig.ConversionActive
-            && Singleton<ScenarioRewardManager>.IsInitialized)
-        {
-            ScenarioRewardManager mgr = Singleton<ScenarioRewardManager>.Instance;
-            if (mgr != null && mgr.IsShown)
-            {
-                // Campaign chest showcase: manager (CampaignScenarioRewardManager.cs:15)
-                // → rewardsWindow (CampaignRewardsManager.cs:90) → window
-                // (UICampaignRewardWindow.cs:46) — all publicized.
-                if (mgr is CampaignScenarioRewardManager campaign
-                    && campaign.manager != null && campaign.manager.rewardsWindow != null)
-                    win = campaign.manager.rewardsWindow.window;
-                // Guildmaster showcase: UIRewardsManager.myWindow (UIRewardsManager.cs:69).
-                else if (Singleton<UIRewardsManager>.IsInitialized)
-                {
-                    UIRewardsManager rm = Singleton<UIRewardsManager>.Instance;
-                    if (rm != null)
-                        win = rm.myWindow;
-                }
-            }
-        }
+        RewardShowcase.Tick(inScenario && WorldUIConfig.ConversionActive);
+        UIWindow? win = inScenario && WorldUIConfig.ConversionActive ? RewardShowcase.Window : null;
         bool open = win != null && (win.IsOpen || win.IsVisible);
         LogPollTransition(ref _rewardShowcaseOpen, open,
             "reward showcase (ScenarioRewardManager.IsShown)");

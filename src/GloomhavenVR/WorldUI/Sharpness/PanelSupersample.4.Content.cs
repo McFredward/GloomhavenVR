@@ -263,7 +263,10 @@ internal static partial class PanelSupersample
                             continue; // fully clipped away: neither this nor anything under it draws
                     }
                     var graphic = t.GetComponent<Graphic>();
-                    if (Draws(graphic) && Intersect(clip, bounds, out Rect visible))
+                    // Expand drawn glyphs only; clip geometry and the authored scale census
+                    // must retain the original RectTransform bounds.
+                    Rect drawBounds = RewardHeadingBounds.Expand(host, graphic, bounds);
+                    if (Draws(graphic) && Intersect(clip, drawBounds, out Rect visible))
                     {
                         union = Union(union, visible);
                         NoteExtremes(t.name, visible);
@@ -2630,10 +2633,10 @@ internal static partial class PanelSupersample
     {
         if (g == null)
             return "material UNREADABLE (the graphic went away between the walk and the report)";
-        Material mat;
+        Material? mat;
         try
         {
-            mat = g.material;
+            mat = PanelGraphicMaterial.Read(g);
         }
         catch (System.Exception ex)
         {

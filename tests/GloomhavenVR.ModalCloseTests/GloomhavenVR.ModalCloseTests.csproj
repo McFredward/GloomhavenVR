@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <DecisionSource Condition="'$(DecisionSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/MandatoryDecision.cs</DecisionSource>
+    <TermsSource Condition="'$(TermsSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/MandatoryDecisionTerm.cs</TermsSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(DecisionSource)" Link="Production/MandatoryDecision.cs" />
+    <Compile Include="$(TermsSource)" Link="Production/MandatoryDecisionTerm.cs" />
+    <Compile Include="$(CloseSource)" Link="Production/Close.cs" />
+  </ItemGroup>
+</Project>

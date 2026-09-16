@@ -167,6 +167,8 @@ internal static partial class Loc
     /// </summary>
     internal static string Game(string key, string fallback) => CardsGameApi.Localize(key, fallback);
 
+    internal static string RewardContinue => Game("GUI_CONTINUE", Mod("reward_continue"));
+
     /// <summary>
     /// Localize a MOD-SPECIFIC string by <paramref name="id"/> from the embedded table,
     /// keyed on the current language (fallback: English entry, then the id itself).
@@ -213,6 +215,7 @@ internal static partial class Loc
         // glyph the receiver's font atlas lacks renders as a box, which reads as broken rather than
         // as sealed. Accusative-safe in German so it drops into "Verbrennen …" unchanged.
         ["mp_sealed_card"] = Pair("a sealed card", "eine versiegelte Karte"),
+        ["reward_continue"] = Pair("Continue", "Weiter"),
         ["ctl_next"] = Pair("NEXT", "WEITER"),
         ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
         // ---- the multiplayer quest card ----

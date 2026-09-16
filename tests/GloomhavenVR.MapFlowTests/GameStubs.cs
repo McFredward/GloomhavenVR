@@ -59,18 +59,44 @@ internal sealed class NewPartyDisplayUI : UnityEngine.Object
     internal UnityEngine.UI.UIWindow? window;
     internal readonly HashSet<UnityEngine.Object> hideRequests = new();
 }
-internal sealed class AdventureMapUIManager : UnityEngine.Object
+internal sealed partial class AdventureMapUIManager : UnityEngine.Object
 {
     // Matches the native manager's request-set contract, independent of visual alpha.
     internal readonly HashSet<object> lockRequests = new();
     internal bool IsLocked => lockRequests.Count > 0;
+    internal MapLocation? locationToTravel;
+    internal Action<MapLocation>? onConfirmTravelCallback;
+    internal bool TravelPermitted = true;
+    private readonly object confirmTravelAudiItem = new();
+    private readonly NativeTravelButton travelButton = new();
+    private void DeselectCurrentMapLocation() { }
+    private void SetLocationToTravel(MapLocation location) => locationToTravel = location;
+    private void HideTravelWarning() { }
+    private void SetFocused(bool focused) { }
+    private bool CheckTravel() => TravelPermitted;
+    private void HideTravelOption() => locationToTravel = null;
 }
+internal sealed class MapLocation : UnityEngine.Object { internal bool IsCompleted() => false; }
+internal sealed class NativeTravelButton { internal string? TextLanguageKey; }
+internal sealed class MapMarkersManager { internal void FadeMarkers() { } }
+internal sealed class UIGuildmasterHUD { internal void EnableHeadquartersOptions(object owner, bool enableOptions) { } }
+internal sealed class UIMapMultiplayerController { internal void OnSelectedLocation() { } }
+internal static class UIWindowManager { internal static void RegisterEscapable(object owner) { } }
+internal static class AudioControllerUtils { internal static void PlaySound(object item) { } }
+internal sealed class UIInfoTools
+{
+    internal static readonly UIInfoTools Instance = new();
+    internal readonly object InvalidOptionAudioItem = new();
+}
+internal static class FFSNetwork { internal static bool IsOnline; }
 namespace GloomhavenVR.WorldUI.MapRoom
 {
     internal static class MapRoomDriver { internal static bool Active; }
 }
 namespace GloomhavenVR.WorldUI
 {
+    internal static class MapQuestReadyUp { internal static void Reset() { } }
+    internal static class MapQuestReadyRoster { internal static void Reset() { } }
     internal static partial class StoryComposite
     {
         private const string Scope = "StoryComposite";
@@ -95,6 +121,15 @@ namespace GloomhavenVR.WorldUI
     }
     internal sealed partial class MapTravelConfirm
     {
+        private const string Scope = "MapRoom";
+        internal static bool _standDown;
+        internal static bool _parkStandDown;
+        private static readonly System.Reflection.FieldInfo? _onConfirmCallback = typeof(AdventureMapUIManager)
+            .GetField("onConfirmTravelCallback", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        private static bool EnsureReflection() => true;
+        private static bool IsStagedLocation(AdventureMapUIManager manager, MapLocation location) =>
+            ReferenceEquals(manager.locationToTravel, location);
+        private static void Unpark(string reason) { }
         internal bool _parkedIsReadyToggle;
         internal bool ReadyVisible;
         private bool ReadyToggleVisible() => ReadyVisible;

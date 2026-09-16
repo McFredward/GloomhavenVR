@@ -37,6 +37,10 @@ for signature, guard, effect in checks:
 
 curtain = method(story, '    internal static bool CurtainRefuses(UIWindow? window)')
 withheld = method(story, '    private static int CurtainWithheldNow()')
+reset = method(travel, '    internal static void Reset()')
+shortcut_start = travel.index('        private static bool Prefix(AdventureMapUIManager __instance, MapLocation mapLocation,')
+shortcut_end = travel.index('\n        }', shortcut_start) + len('\n        }')
+shortcut = travel[shortcut_start:shortcut_end]
 active = re.findall(r'        bool active = options\.activeInHierarchy[^;]*;', travel)
 assert len(active) == 1, 'Production travel visibility expression changed'
 output = '''#nullable enable
@@ -61,6 +65,7 @@ namespace GloomhavenVR.WorldUI
     }
 }
 '''
+output += '\nnamespace GloomhavenVR.WorldUI { internal sealed partial class MapTravelConfirm {\n' + reset + '\ninternal static class TravelShortcutGate {\nprivate static bool _logged;\n' + shortcut + '\ninternal static bool Run(AdventureMapUIManager manager, MapLocation location, Action<MapLocation> callback) => Prefix(manager, location, callback);\n} } }\n'
 ancestor = method(Path(sys.argv[5]).read_text(), '    private static UIWindow? RefusedForTheMomentAbove(UIWindow window)')
 output += '\nnamespace GloomhavenVR.WorldUI { internal static partial class ModalFallback {\n' + ancestor + '\n} }\n'
 Path(sys.argv[4]).parent.mkdir(parents=True, exist_ok=True)

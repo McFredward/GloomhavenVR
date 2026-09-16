@@ -11,6 +11,10 @@ namespace GloomhavenVR.Net;
 /// </summary>
 internal struct PresenceState
 {
+    public bool HasRewardWindow;
+    public RewardWindowState RewardWindow;
+    public bool HasRewardPoseHandshake;
+    public RewardPoseHandshakeState RewardPoseHandshake;
     public bool HasVideoWindow;
     public VideoWindowState VideoWindow;
     /// <summary>True when <see cref="Board"/>/<see cref="BoardScale"/> carry a valid control-board
@@ -93,6 +97,7 @@ internal struct PresenceState
     public CardFlightSource? FlightSource;
     public byte FlightSourceSeq;
     public CardFlightHistory? FlightHistory;
+    public CardBurnCompletionHistory? BurnCompletions;
 
     /// <summary>
     /// True when the sender has a control-board PILE BROWSER open this packet (the "Abgelegt" /
@@ -1610,9 +1615,20 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>Video record72 adds at most204 bytes (160-byte relative clip plus playback/pose):
-    /// 3840 -> 4044 worst case, still below the4096-byte reassembly limit. The allocation-only
-    /// buffer grows to4301, preserving the257-byte spare-record margin.</para>
+    /// <para>Durable burn completion75 adds 2732 bytes: 4133 -> 6865 worst case; buffer 7122
+    /// retains 257 spare bytes. Bounded 7168 reassembly needs at most nine unchanged envelopes.</para>
+    ///
+    /// <para>Reward pose handshake74 adds at most59 bytes: 4074 -> 4133 worst case.
+    /// The reassembly bound is4352 and the allocation-only buffer4390 retains257 spare bytes.
+    /// The envelope layout and864-byte datagram cap do not change.</para>
+    ///
+    /// <para>Reward record 73 adds at most 30 bytes: 4044 -> 4074 worst case, still below
+    /// the 4096-byte reassembly limit. The allocation-only buffer grows to 4331,
+    /// retaining the 257-byte spare-record margin.</para>
+    ///
+    /// <para>Video record 72 added at most 204 bytes (160-byte relative clip plus playback/pose):
+    /// 3840 -> 4044 worst case. Its allocation-only buffer grew to 4301, preserving the
+    /// 257-byte spare-record margin without changing the reassembly limit.</para>
     ///
     /// <para>MB497 adds three bytes for insertion-gap record71: 3837 -> 3840 worst case.
     /// The allocation-only buffer grows to4097 to retain a257-byte spare-record margin;
@@ -1847,7 +1863,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 4301;
+    public const int MaxSize = 7122;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1875,7 +1891,7 @@ internal static class PresenceSerializer
         // whether the block goes out — but only when it is NON-default, so a player on the default
         // board still emits the exact bytes previous builds did.
         bool boardStyle = state.BoardStyleCode != NetProtocol.BoardStyleDefaultCode;
-        bool extensions = state.HasDecisionAttribution || state.DamageDecisionPreview != null || state.FlightHistory != null
+        bool extensions = state.HasDecisionAttribution || state.DamageDecisionPreview != null || state.FlightHistory != null || state.BurnCompletions != null
             || (state.HasCardFx && state.FlightSource.HasValue) || state.DecisionHighlight != null || (state.HasCardFx && state.HasCardFxVisibility) || UseBarWidgetCodec.ValidSnapshot(state.UseBarWidgetStates) || state.ShortRestInProgress || state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
@@ -1923,6 +1939,8 @@ internal static class PresenceSerializer
                           // which is what keeps every packet of every other phase byte-identical
                           // to a pre-record-27 sender's.
                           || state.HasVideoWindow
+                          || state.HasRewardPoseHandshake
+                          || state.HasRewardWindow
                           || state.HasFanInsertionGap
                           || (state.HasFanArcOrder && state.FanArcOrderCount > 0
                               && state.FanArcOrder != null)
@@ -2684,6 +2702,10 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.HasRewardPoseHandshake && RewardPoseHandshakeCodec.Write(buffer, ref i, in state.RewardPoseHandshake))
+            records++;
+        if (state.HasRewardWindow && RewardWindowCodec.Write(buffer, ref i, in state.RewardWindow))
+            records++;
         if (state.HasVideoWindow && VideoWindowCodec.Write(buffer, ref i, in state.VideoWindow))
             records++;
         if (state.HasFanInsertionGap && i + 3 <= buffer.Length)
@@ -3264,6 +3286,17 @@ internal static class PresenceSerializer
                 records++;
             }
         }
+        if (state.BurnCompletions != null)
+        {
+            int written = state.BurnCompletions.Write(buffer, i);
+            if (written > 0)
+            {
+                i += written;
+                records += (byte)System.Math.Max(1, (state.BurnCompletions.Entries.Length + CardBurnCompletionHistory.PageCount - 1)
+                    / CardBurnCompletionHistory.PageCount);
+            }
+        }
+
         if (state.FlightHistory != null && i + 2 + CardFlightHistory.MaxSize <= buffer.Length)
         {
             int payload = state.FlightHistory.Write(buffer, i + 2);
@@ -3993,7 +4026,16 @@ internal static class PresenceSerializer
     private static void ReadExtensionRecord(byte[] buffer, int i, byte id, int len,
                                             ref PresenceState state)
     {
-        if (id == NetProtocol.ExtIdVideoWindow)
+        if (id == NetProtocol.ExtIdRewardPoseHandshake)
+        {
+            state.HasRewardPoseHandshake = RewardPoseHandshakeCodec.TryRead(buffer, i, len, out state.RewardPoseHandshake);
+            return;
+        }
+        if (id == NetProtocol.ExtIdRewardWindow)
+        {
+            state.HasRewardWindow = RewardWindowCodec.TryRead(buffer, i, len, out state.RewardWindow);
+        }
+        else if (id == NetProtocol.ExtIdVideoWindow)
         {
             state.HasVideoWindow = VideoWindowCodec.TryRead(buffer, i, len, out state.VideoWindow);
         }
@@ -4724,6 +4766,10 @@ internal static class PresenceSerializer
                 state.HasFanSource = true;
                 state.FanSourceList = list;
             }
+        }
+        else if (id == NetProtocol.ExtIdCardBurnCompletion && CardBurnCompletionHistory.TryRead(buffer, i, len, out CardBurnCompletionHistory? completion))
+        {
+            state.BurnCompletions = CardBurnCompletionHistory.Merge(state.BurnCompletions, completion!);
         }
         else if (id == NetProtocol.ExtIdCardFlightHistory && CardFlightHistory.TryRead(buffer, i, len, out CardFlightHistory? history))
         {

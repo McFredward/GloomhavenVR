@@ -28,6 +28,8 @@ internal sealed class ExtrasSendQueue
                         ? NativeDecisionPromptSnapshot.SameIdentity(h, j)
                     : a.Identity is CardAppearanceSnapshot c && b.Identity is CardAppearanceSnapshot d
                         ? CardAppearanceSnapshot.SameIdentity(c, d)
+                    : a.Identity is ItemAppearanceSnapshot e && b.Identity is ItemAppearanceSnapshot f
+                        ? ItemAppearanceSnapshot.SameIdentity(e, f)
                         : a.Identity is NativeBoardState m && b.Identity is NativeBoardState n && m.Generation == n.Generation;
     }
     private double _next;
@@ -107,6 +109,7 @@ internal sealed class ExtrasSendScheduler
     private readonly ExtrasSendQueue _board;
     private readonly ExtrasSendQueue _appearance;
     private readonly ExtrasSendQueue _prompt;
+    private readonly ExtrasSendQueue _itemAppearance;
     private byte[]? _heldPage;
     private readonly ExtrasSendQueue[] _native = new ExtrasSendQueue[32];
     private readonly byte _animationType;
@@ -123,6 +126,8 @@ internal sealed class ExtrasSendScheduler
             preserveFirst: true, snapshotLimit: NativeBoardCodec.MaxSize);
         _appearance = new ExtrasSendQueue(sequence, NetProtocol.MsgCardAppearance, NetProtocol.MsgCardAppearanceFragments,
             preserveFirst: true, snapshotLimit: CardAppearanceCodec.MaxSize);
+        _itemAppearance = new ExtrasSendQueue(sequence, NetProtocol.MsgItemAppearance, NetProtocol.MsgItemAppearanceFragments,
+            preserveFirst: true, snapshotLimit: ItemAppearanceCodec.MaxSize);
         _prompt = new ExtrasSendQueue(sequence, NetProtocol.MsgNativeDecisionPrompt, NetProtocol.MsgNativeDecisionPromptFragments,
             preserveFirst: true, snapshotLimit: NativeDecisionPromptCodec.MaxSize);
         for (int slot = 8; slot < _native.Length; slot++)
@@ -157,6 +162,11 @@ internal sealed class ExtrasSendScheduler
         {
             if (identity is not CardAppearanceSnapshot && CardAppearanceCodec.TryRead(snapshot, length, out CardAppearanceSnapshot? appearance)) identity = appearance;
             _appearance.Enqueue(snapshot, length, identity);
+        }
+        else if (type == NetProtocol.MsgItemAppearance)
+        {
+            if (identity is not ItemAppearanceSnapshot && ItemAppearanceCodec.TryRead(snapshot, length, out ItemAppearanceSnapshot? appearance)) identity = appearance;
+            _itemAppearance.Enqueue(snapshot, length, identity);
         }
         else if (type == NetProtocol.MsgCardPlume) _plumes.Enqueue(snapshot, length);
         else if (type == NetProtocol.MsgNativeUseBar && nativeSlot >= 8 && nativeSlot < 32)
@@ -199,18 +209,22 @@ internal sealed class ExtrasSendScheduler
     {
         byte[]? result = announcement;
         // Empty streams cost no turn. With only the original two streams populated this is
-        // still exactly two animation pages followed by one waiting presence page.
-        // The extended native card hierarchy can fill 57 KiB before compression. Give it two
+        // two animation pages followed by two presence pages; the larger durable burn record
+        // must also assemble within the shorter presence lifetime when all streams are busy.
+        // The extended native card hierarchy can fill 57 KiB before compression. Give it three
         // turns so even incompressible maximum frames finish within the unchanged 32 s assembly
-        // lifetime under full contention. The global event size and 50 ms cadence do not change.
-        for (int attempt = 0; result == null && attempt < 10; attempt++)
+        // lifetime under full contention. Original item output gets three turns, presence and
+        // boards two each, and the native slot pool three. The 864-byte / 50 ms cap is unchanged.
+        for (int attempt = 0; result == null && attempt < 17; attempt++)
         {
             int turn = _turn;
-            _turn = (_turn + 1) % 10;
+            _turn = (_turn + 1) % 17;
             result = turn < 2 ? _animation.Next(now)
-                : turn == 2 ? _presence.Next(now)
-                : turn == 3 ? _plumes.Next(now) : turn == 6 ? _board.Next(now)
-                : turn == 7 || turn == 8 ? _appearance.Next(now) : turn == 9 ? _prompt.Next(now) : NextNative(now);
+                : turn == 2 || turn == 13 ? _presence.Next(now)
+                : turn == 3 ? _plumes.Next(now) : turn == 6 || turn == 15 ? _board.Next(now)
+                : turn == 7 || turn == 8 || turn == 10 ? _appearance.Next(now)
+                : turn == 11 || turn == 12 || turn == 14 ? _itemAppearance.Next(now)
+                : turn == 9 ? _prompt.Next(now) : NextNative(now);
         }
         return result;
     }
@@ -229,7 +243,7 @@ internal sealed class ExtrasSendScheduler
 
     internal void Clear()
     {
-        _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _prompt.Clear(); _heldPage = null;
+        _presence.Clear(); _animation.Clear(); _plumes.Clear(); _board.Clear(); _appearance.Clear(); _prompt.Clear(); _itemAppearance.Clear(); _heldPage = null;
         for (int i = 8; i < _native.Length; i++) _native[i].Clear();
         _next = 0; _turn = 0; _nativeCursor = 8;
     }

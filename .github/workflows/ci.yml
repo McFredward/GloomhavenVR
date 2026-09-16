@@ -318,10 +318,20 @@ jobs:
           bash scripts/card-loss-modal-tests.sh
           bash scripts/map-flow-tests.sh
           bash scripts/map-button-tests.sh
+          bash scripts/burn-layout-tests.sh
+          bash scripts/remote-burn-sequencing-tests.sh
+          bash scripts/burn-completion-tests.sh
+          bash scripts/item-burn-tests.sh
+          bash scripts/item-appearance-tests.sh
           bash scripts/flight-timing-tests.sh
           bash scripts/figure-hold-tests.sh
           bash scripts/self-update-dialog-tests.sh
           bash scripts/native-video-tests.sh
+          bash scripts/reward-showcase-tests.sh
+          bash scripts/modal-close-tests.sh
+          bash scripts/reward-pose-tests.sh
+          bash scripts/conversion-rollback-tests.sh
+          bash scripts/panel-material-tests.sh
           bash scripts/panel-ink-tests.sh
           bash scripts/video-playback-tests.sh
           bash scripts/hint-tests.sh

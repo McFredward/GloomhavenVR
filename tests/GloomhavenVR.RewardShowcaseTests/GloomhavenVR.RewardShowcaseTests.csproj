@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ContinueButtonSource Condition="'$(ContinueButtonSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/RewardContinueButton.cs</ContinueButtonSource>
+    <RewardSource Condition="'$(RewardSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/RewardShowcase.cs</RewardSource>
+    <IdentitySource Condition="'$(IdentitySource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/RewardShowcaseIdentity.cs</IdentitySource>
+    <PlacementSource Condition="'$(PlacementSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/RewardShowcasePlacement.cs</PlacementSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ContinueButtonSource)" Link="Production/RewardContinueButton.cs" />
+    <Compile Include="$(RewardSource)" Link="Production/RewardShowcase.cs" />
+    <Compile Include="$(IdentitySource)" Link="Production/RewardShowcaseIdentity.cs" />
+    <Compile Include="$(PlacementSource)" Link="Production/RewardShowcasePlacement.cs" />
+    <Compile Include="$(CatchAllSource)" Link="Production/RewardPoll.cs" />
+  </ItemGroup>
+</Project>

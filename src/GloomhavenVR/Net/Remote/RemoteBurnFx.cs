@@ -7,6 +7,10 @@ using UnityEngine;
 namespace GloomhavenVR.Net;
 
 /// <summary>
+/// MB513 supersedes the historical reconstruction/zero-wire notes below: original native output,
+/// immutable provenance and owner lifecycle clocks are authoritative. A flight waits for native
+/// completion; unadopted native burns complete without fabricating a VR flight.
+///
 /// A PEER'S BURN, ON THE RIGHT CARD, AT THE RIGHT MOMENT — the receiving half of the burn flow
 /// (2026-09-05 multiplayer report, items 11a and 11b).
 ///
@@ -134,11 +138,10 @@ internal sealed class RemoteBurnFx
     /// </summary>
     private const float WatchSeconds = 0.08f;
 
-    /// <summary>Concurrent burn presentations. A two-card damage burn commits both cards in the
-    /// SAME frame — the 2026-09-05 host log shows exactly that pair — so one is not enough; beyond
-    /// this the oldest is recycled, because a burn animation is cosmetic and must never be a queue
-    /// that backs up.</summary>
-    private const int MaxBurns = 3;
+    /// <summary>Concurrent presentations cover the complete native card stream population. The
+    /// old three-slab pool could recycle an unfinished burn when several active bonuses expired
+    /// together. Legitimate simultaneous native cards must all retain their own presentation.</summary>
+    private const int MaxBurns = CardAppearanceState.CountMax;
 
     /// <summary>Slack added to (hold + flight) before this mirror stops claiming the owner's
     /// <c>Board -&gt; Burnt</c> wire event. The owner reports the flight when HIS hold releases,
@@ -167,6 +170,65 @@ internal sealed class RemoteBurnFx
         return false;
     }
 
+
+    // Model commits precede the owner's animation. Keep every existing card seat and fan
+    // population intact until the matching release has also drained native owner playback.
+    // This includes a burn still drawn by its original recess (its detached slab is hidden).
+    internal bool HasObservedBurn(CAbilityCard card)
+    {
+        foreach (var burn in _burns)
+            if (burn.Active && !burn.HandoverLogged && ReferenceEquals(burn.OriginalCard, card)) return true;
+        return false;
+    }
+
+    internal bool IncomingBurnPending
+    {
+        get
+        {
+            var requested = RemoteBoardFocus.DisplayedActor(_owner, out _, out _, ignoreBurnHold: true);
+            return requested != null && NetFigures.StableActorId(requested) != _watchActor
+                && CardAppearanceMirror.OwnerBurnInProgress(requested);
+        }
+    }
+
+    internal bool HoldsCardLayout => IncomingBurnPending || PresentationActor != null;
+
+    internal CPlayerActor? PresentationActor
+    {
+        get
+        {
+            foreach (Burn burn in _burns)
+            {
+                if (!burn.Active || burn.HandoverLogged) continue;
+                CPlayerActor? actor = RemoteBoardFocus.ActorById(burn.ActorId);
+                CAbilityCard? card = burn.OriginalCard;
+                if (card != null && actor != null
+                    && (actor.CharacterClass.LostAbilityCards.Contains(card)
+                        || actor.CharacterClass.PermanentlyLostAbilityCards.Contains(card))) return actor;
+            }
+            if (IncomingBurnPending) return RemoteBoardFocus.ActorById(_watchActor);
+            foreach (PendingRelease pending in _pendingReleases)
+            {
+                if (pending.CompletionTime < 0f || pending.FallbackPlayed || pending.ActorId != _watchActor) continue;
+                CPlayerActor? actor = RemoteBoardFocus.ActorById(pending.ActorId);
+                if (actor != null && !PendingRecovered(pending, actor)) return actor;
+            }
+            return null;
+        }
+    }
+
+    private bool PendingRecovered(PendingRelease pending, CPlayerActor actor)
+    {
+        CAbilityCard? card = pending.OriginalCard;
+        if (card == null) return false;
+        var cards = actor.CharacterClass;
+        if (cards.LostAbilityCards.Contains(card) || cards.PermanentlyLostAbilityCards.Contains(card)) return false;
+        bool returned = cards.HandAbilityCards.Contains(card) || cards.RoundAbilityCards.Contains(card)
+            || cards.ActivatedCards.Contains(card);
+        return returned && CardAppearanceMirror.HasRecoveredSourceAfter(
+            pending.PresentationPlayer != 0 ? pending.PresentationPlayer : _owner.PlayerId,
+            actor, card, pending.CompletionTime);
+    }
 
     private bool OwnsDisplayedBoard(Burn burn) => BurnReleasePolicy.OwnsBoard(burn.ActorId,
         NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _)));
@@ -215,6 +277,8 @@ internal sealed class RemoteBurnFx
         /// <summary>This client's native counterpart, retained for model/artwork lookup. It is
         /// not the owner's running coroutine; the owner's semantic event authorizes release.</summary>
         public AbilityCardUI? Widget;
+        public CAbilityCard? OriginalCard;
+        public bool ObservedOwnerProgress;
 
         /// <summary>Whether this client's native counterpart was observed animating. Diagnostic
         /// evidence only; absence cannot finish an owner's burn.</summary>
@@ -244,6 +308,8 @@ internal sealed class RemoteBurnFx
         public int ClaimId;
         public int ActorId;
         public bool OwnerReleased;
+        public float CompletionTime = -1f;
+        public int PresentationPlayer;
         public long FlightGeneration;
 
         /// <summary>Has the arc been reported? One line per burn, at the hand-over instant.</summary>
@@ -262,6 +328,7 @@ internal sealed class RemoteBurnFx
         public float ToWidth = RemoteHandFan.DefaultCardWidth;
     }
 
+    private readonly Dictionary<CAbilityCard, float> _retiredNoFlight = new();
     private readonly List<Burn> _burns = new(MaxBurns);
     private GameObject? _root;
 
@@ -304,12 +371,9 @@ internal sealed class RemoteBurnFx
     /// fallback flight — the anonymous back slab <see cref="RemoteCardFx"/> would have drawn — was
     /// the thing lost, i.e. an animation the owner played and the viewer never saw.</para>
     ///
-    /// <para>THE PART OF THAT FINDING THAT DID NOT SURVIVE RE-DERIVATION is worth recording beside
-    /// the fix: the review also held that the old sweep could be blocked "for a whole turn" because
-    /// a hold has no upper bound. It has one. <c>BurnArtwork.Released</c> returns true
-    /// unconditionally at <c>MaxHoldSeconds</c> (3 s) and <see cref="Drive"/> evaluates it every
-    /// frame, so <c>Active &amp;&amp; !HandoverLogged</c> cannot outlive 3 s of ticks. The leak is
-    /// real; that particular route to it is not.</para>
+    /// <para>Live holds have no elapsed-time ceiling. The owner's completed native iterator
+    /// and the receiver's exact causal appearance frame authorize departure. A paused game
+    /// clock or delayed transport may legitimately keep this claim alive for longer.</para>
     ///
     /// <para>EACH TOKEN NOW CARRIES ITS OWN CLOCK. It cannot expire while its presentation is still
     /// holding (the owner has by definition not cleared his card yet, so his event cannot have been
@@ -451,19 +515,22 @@ internal sealed class RemoteBurnFx
         public CardFlightSource? Source;
         public int ActorId;
         public float ReceivedAt;
+        public float CompletionTime = -1f;
+        public int PresentationPlayer;
         public bool FallbackPlayed;
+        public CAbilityCard? OriginalCard;
     }
 
     private readonly List<PendingRelease> _pendingReleases = new(MaxBurns);
     private const float ReleaseResolveSeconds = 0.25f;
     private const float ReleaseMemorySeconds = 3f;
 
-    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null)
+    internal bool ConsumesWireEvent(byte endpoints, byte flags = 0, CardFlightSource? source = null, float completionTime = -1f, int presentationPlayer = 0, CAbilityCard? originalCard = null)
     {
         if (NetCardFx.To(endpoints) != CardFxAnchor.Burnt)
             return false;
         int actorId = source?.ActorId ?? NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _));
-        if (TryApplyRelease(endpoints, actorId, flags, source))
+        if (TryApplyRelease(endpoints, actorId, flags, source, completionTime, presentationPlayer, originalCard))
             return true;
         // The semantic packet can beat the host-replicated pile. Defer its fallback briefly so
         // the next model walk can name the real card, then retain a receipt after fallback to
@@ -471,7 +538,7 @@ internal sealed class RemoteBurnFx
         if (_pendingReleases.Count >= MaxBurns)
         {
             PendingRelease oldest = _pendingReleases[0];
-            if (!oldest.FallbackPlayed && (oldest.Source.HasValue
+            if (!oldest.FallbackPlayed && oldest.CompletionTime < 0f && (oldest.Source.HasValue
                 || oldest.ActorId == NetFigures.StableActorId(RemoteBoardFocus.DisplayedActor(_owner, out _))))
                 _owner.PlayUnclaimedBurnEvent(oldest.Endpoints, oldest.Flags, oldest.Source);
             _pendingReleases.RemoveAt(0);
@@ -479,6 +546,8 @@ internal sealed class RemoteBurnFx
         _pendingReleases.Add(new PendingRelease
         {
             Endpoints = endpoints, Flags = flags, Source = source, ActorId = actorId, ReceivedAt = Time.unscaledTime,
+            CompletionTime = completionTime, PresentationPlayer = presentationPlayer,
+            OriginalCard = originalCard ?? _owner.PresentedBurnSource(endpoints, source, actorId),
         });
         _nextWalkAt = 0f;
         return true;
@@ -491,7 +560,7 @@ internal sealed class RemoteBurnFx
         _ => -1,
     };
 
-    private bool TryApplyRelease(byte endpoints, int actorId, byte flags, CardFlightSource? source)
+    private bool TryApplyRelease(byte endpoints, int actorId, byte flags, CardFlightSource? source, float completionTime, int presentationPlayer, CAbilityCard? originalCard)
     {
         PruneClaims();
         int recess = ReleaseRecess(endpoints);
@@ -499,7 +568,13 @@ internal sealed class RemoteBurnFx
         for (int i = 0; i < _claimTokens.Count; i++)
         {
             Claim claim = _claimTokens[i];
-            if (!BurnReleasePolicy.Matches(claim.ActorId, claim.FromActive, claim.Recess, claim.Source,
+            if (originalCard != null)
+            {
+                Burn? original = _burns.Find(b => b.Active && b.ClaimId == claim.Id);
+                if (claim.ActorId != actorId || original == null
+                    || !ReferenceEquals(original.OriginalCard, originalCard)) continue;
+            }
+            else if (!BurnReleasePolicy.Matches(claim.ActorId, claim.FromActive, claim.Recess, claim.Source,
                 actorId, NetCardFx.From(endpoints), source)) continue;
             // A Board origin still cannot distinguish two simultaneous unnamed burns.
             if (match >= 0)
@@ -519,8 +594,17 @@ internal sealed class RemoteBurnFx
             // burn must not inherit a different short-rest offer that appeared before delivery.
             burn.ShortRestBurn = CardFlightVisibility.Covered(flags);
             RefreshFaceVisibility(burn);
+            if (originalCard != null)
+            {
+                burn.Recess = ReleaseRecess(endpoints);
+                burn.FromActive = NetCardFx.From(endpoints) == CardFxAnchor.Active;
+                if (burn.FromActive) RemoteActiveDepartures.TryPose(_owner.PlayerId, originalCard, out burn.ActiveLocal);
+            }
             burn.OwnerReleased = true;
-            Handover(burn, "the owner's matching ->Burnt release event arrived for this actor and recess");
+            burn.CompletionTime = completionTime;
+            burn.PresentationPlayer = presentationPlayer != 0 ? presentationPlayer : _owner.PlayerId;
+            if (burn.OriginalCard != null)
+                burn.Art?.SetNativeAppearance(burn.PresentationPlayer, RemoteBoardFocus.ActorById(burn.ActorId), burn.OriginalCard);
             break;
         }
         return true;
@@ -533,19 +617,26 @@ internal sealed class RemoteBurnFx
         {
             PendingRelease pending = _pendingReleases[i];
             float age = Time.unscaledTime - pending.ReceivedAt;
-            if ((!pending.Source.HasValue && pending.ActorId != actorId) || age > ReleaseMemorySeconds)
+            if ((!pending.Source.HasValue && pending.ActorId != actorId) || pending.CompletionTime < 0f && age > ReleaseMemorySeconds
+                || pending.CompletionTime >= 0f && RemoteBoardFocus.ActorById(pending.ActorId) == null)
+            {
+                _pendingReleases.RemoveAt(i);
+                continue;
+            }
+            CPlayerActor? pendingActor = RemoteBoardFocus.ActorById(pending.ActorId);
+            if (pending.CompletionTime >= 0f && pendingActor != null && PendingRecovered(pending, pendingActor))
             {
                 _pendingReleases.RemoveAt(i);
                 continue;
             }
             if (pending.FallbackPlayed)
                 continue;
-            if (TryApplyRelease(pending.Endpoints, pending.ActorId, pending.Flags, pending.Source))
+            if (TryApplyRelease(pending.Endpoints, pending.ActorId, pending.Flags, pending.Source, pending.CompletionTime, pending.PresentationPlayer, pending.OriginalCard))
             {
                 _pendingReleases.RemoveAt(i);
                 continue;
             }
-            if (age >= ReleaseResolveSeconds)
+            if (age >= ReleaseResolveSeconds && pending.CompletionTime < 0f)
             {
                 _owner.PlayUnclaimedBurnEvent(pending.Endpoints, pending.Flags, pending.Source);
                 pending.FallbackPlayed = true;
@@ -607,7 +698,7 @@ internal sealed class RemoteBurnFx
             _shortRestCandidate = null;
     }
 
-    internal void Tick(float dt)
+    internal void PreparePresentation()
     {
         try
         {
@@ -622,6 +713,11 @@ internal sealed class RemoteBurnFx
                               "the baseline is re-seeded silently, so no burn storms when it recovers.");
         }
         TickPendingReleases();
+    }
+
+    internal void Tick(float dt)
+    {
+        PreparePresentation();
         Drive(dt);
     }
 
@@ -638,9 +734,29 @@ internal sealed class RemoteBurnFx
     /// <para>It keeps walking while the peer's board is HIDDEN and simply presents nothing, so
     /// switching <c>[Net] RemoteBoards</c> back on cannot replay a scenario's worth of burns.</para>
     /// </summary>
+    private int _modelStamp;
+    private int _preparedFrame = -1;
     private void Watch()
     {
-        if (Time.unscaledTime < _nextWalkAt)
+        if (_preparedFrame == Time.frameCount) return;
+        _preparedFrame = Time.frameCount;
+        CPlayerActor? sampledActor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+        int stamp = NetFigures.StableActorId(sampledActor);
+        if (sampledActor?.CharacterClass != null)
+        {
+            unchecked
+            {
+                foreach (var card in sampledActor.CharacterClass.LostAbilityCards)
+                    stamp = stamp * 31 + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(card);
+                foreach (var card in sampledActor.CharacterClass.PermanentlyLostAbilityCards)
+                    stamp = stamp * 31 + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(card);
+            }
+        }
+        // Inspect cheap model identities every frame, and only pay the native widget walk on
+        // a changed population or the existing recovery cadence. Same-count replacements count.
+        bool changed = stamp != _modelStamp;
+        _modelStamp = stamp;
+        if (!changed && Time.unscaledTime < _nextWalkAt)
             return;
         _sinceLastWalk = _lastWalkFrame < 0 ? -1f : Time.unscaledTime - _lastWalkAt;
         _lastWalkAt = Time.unscaledTime;
@@ -680,6 +796,9 @@ internal sealed class RemoteBurnFx
             {
                 if (_burntBuf[i] != null)
                     _known.Add(_burntBuf[i]);
+                if (actor != null && _burntBuf[i]?.AbilityCard != null
+                    && CardAppearanceMirror.TryOwnerBurnNoFlightCompletion(actor, _burntBuf[i].AbilityCard, out float historical))
+                    _retiredNoFlight[_burntBuf[i].AbilityCard] = historical;
             }
             return;
         }
@@ -767,6 +886,9 @@ internal sealed class RemoteBurnFx
         b.CardId = cardId;
         b.ActorId = actorId;
         b.OwnerReleased = false;
+        b.ObservedOwnerProgress = false;
+        b.CompletionTime = -1f;
+        b.PresentationPlayer = _owner.PlayerId;
         b.ArtworkWait = 0f;
         b.Recess = recess;
         b.Name = name;
@@ -774,6 +896,7 @@ internal sealed class RemoteBurnFx
         b.ClaimId = 0;              // a recycled slab must not carry the last burn's token
         b.HandoverLogged = false;
         b.Widget = widget;
+        b.OriginalCard = widget.AbilityCard;
         if (widget.AbilityCard != null)
             b.Art?.SetNativeAppearance(_owner.PlayerId, RemoteBoardFocus.ActorById(actorId), widget.AbilityCard);
         b.FromActive = fromActive;
@@ -935,8 +1058,8 @@ internal sealed class RemoteBurnFx
             b.Art?.HideFront();
             b.HasFace = false;
         }
-        else if (!b.HasFace && b.Art != null && b.Widget?.AbilityCard != null)
-            b.HasFace = RemoteAbilityCardSource.ShowFullFace(b.Art, actor, b.Widget.AbilityCard)
+        else if (!b.HasFace && b.Art != null && b.OriginalCard != null)
+            b.HasFace = RemoteAbilityCardSource.ShowFullFace(b.Art, actor, b.OriginalCard)
                 != RemoteAbilityCardSource.FacePath.None;
         SetFrontFace(b, showsBack: !b.HasFace);
     }
@@ -958,11 +1081,20 @@ internal sealed class RemoteBurnFx
             // Recovery/undo can remove a lost card before an owner release. Such a hold must
             // disappear immediately, never retain a claim or suppress a newly seated card.
             CPlayerActor? actor = RemoteBoardFocus.ActorById(b.ActorId);
-            CAbilityCard? card = b.Widget != null ? b.Widget.AbilityCard : null;
-            if (!b.HandoverLogged && (actor == null || card == null
+            CAbilityCard? card = b.OriginalCard;
+            bool ownerRunning = actor != null && card != null && CardAppearanceMirror.TryOwnerBurnProgress(actor, card, out _);
+            if (ownerRunning) b.ObservedOwnerProgress = true;
+            float noFlightClock = -1f;
+            bool durableNoFlight = actor != null && card != null
+                && CardAppearanceMirror.TryOwnerBurnNoFlightCompletion(actor, card, out noFlightClock)
+                && (!_retiredNoFlight.TryGetValue(card, out float retired) || noFlightClock > retired);
+            bool completedWithoutFlight = BurnReleasePolicy.RetireWithoutFlight(b.ObservedOwnerProgress || durableNoFlight, ownerRunning,
+                b.OwnerReleased, BurnArtwork.Playing(BurnArtwork.EffectsOf(b.Widget)));
+            if (!b.HandoverLogged && (actor == null || card == null || completedWithoutFlight
                 || (!actor.CharacterClass.LostAbilityCards.Contains(card)
                     && !actor.CharacterClass.PermanentlyLostAbilityCards.Contains(card))))
             {
+                if (completedWithoutFlight && durableNoFlight && card != null) _retiredNoFlight[card] = noFlightClock;
                 DropClaim(b.ClaimId);
                 b.Active = false;
                 b.HasFace = false;
@@ -1005,10 +1137,10 @@ internal sealed class RemoteBurnFx
                 bool playing = BurnArtwork.Playing(ownerFx);
                 if (playing)
                     b.ArtworkObserved = true;
-                // A missing unreliable release can use the owner's EMPTY recess as fallback,
-                // after the native maximum hold. Never fly from a slot still occupied on its
-                // owner's board merely because this client's UI did not run the native effect.
-                bool release = b.OwnerReleased;
+                // The durable owner release and the displayed native completion are both
+                // required. Local proxy clocks and an empty slot cannot authorize an early flight.
+                bool release = b.OwnerReleased && (b.CompletionTime < 0f
+                    || CardAppearanceMirror.HasPresentedThrough(b.PresentationPlayer, actor, card, b.CompletionTime));
                 if (!release)
                 {
                     // WHO DRAWS THE CARD DURING THE HOLD. While the owner's recess is still drawing
@@ -1031,7 +1163,10 @@ internal sealed class RemoteBurnFx
                     // only while he is showing his, and never for a moment longer.
                     bool showSlab = !recessDraws && CanDrawBurn(b);
                     if (showSlab && OwnsDisplayedBoard(b))
-                        _owner.SuppressBurnRecess(b.Recess);
+                    {
+                        if (b.FromActive) _owner.SuppressBurnActiveCard(b.CardId);
+                        else _owner.SuppressBurnRecess(b.Recess);
+                    }
                     if (b.Go.activeSelf != showSlab)
                         b.Go.SetActive(showSlab);
                     if (recessDraws)
@@ -1081,9 +1216,7 @@ internal sealed class RemoteBurnFx
                     }
                     continue;
                 }
-                Handover(b, "the owner no longer reports an occupied origin recess and the "
-                            + "native maximum hold elapsed without a matching release event; "
-                            + "bounded fallback for a lost unreliable event");
+                Handover(b, "the owner released this card and its native completion frame finished playback");
             }
 
             // THE HAND-OVER. The flight always draws the slab, and it draws it ALREADY CHARRED: a
@@ -1303,6 +1436,7 @@ internal sealed class RemoteBurnFx
         for (int i = 0; i < _burns.Count; i++)
             _burns[i].Art?.Destroy();
         _burns.Clear();
+        _retiredNoFlight.Clear();
         _known.Clear();
         _burntBuf.Clear();
         _pruneScratch.Clear();

@@ -51,7 +51,7 @@ namespace GloomhavenVR.Net;
 ///     <c>exhausted</c> set (user 2026-09-05 #13 — "wenn ein Character tot ist … sollen dort gar
 ///     keine Karten mehr liegen"). The BOARD is still not blank: it keeps its surface and every
 ///     GLOBAL panel; what goes is the CARDS. See the death rule inside
-///     <see cref="DisplayedActor(RemoteAvatar, out bool, out bool)"/> and its consumer
+///     <see cref="DisplayedActor(RemoteAvatar, out bool, out bool, bool)"/> and its consumer
 ///     <c>RemoteControlBoard.ApplyExhaustedCardRule</c>.
 /// </summary>
 /// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire of its own. It re-uses extension record 22
@@ -179,12 +179,21 @@ internal static class RemoteBoardFocus
     /// on <c>owned</c> below.</para>
     /// </summary>
     internal static CPlayerActor? DisplayedActor(RemoteAvatar owner, out bool viaFocus,
-        out bool exhausted)
+        out bool exhausted, bool ignoreBurnHold = false)
     {
         viaFocus = false;
         exhausted = false;
         if (owner == null)
             return null;
+
+        // Extras focus can arrive before the separate native completion frame. Keep the old
+        // actor's original presentation until its burn drains; visibility gates still run.
+        if (!ignoreBurnHold)
+        {
+            CPlayerActor? burning = owner.BurnPresentationActor;
+            if (burning != null) return burning;
+            if (owner.WaitingIncomingBurn) return null;
+        }
 
         CPlayerActor? owned = NetPlayerActors.ActorFor(owner.PlayerId);
 

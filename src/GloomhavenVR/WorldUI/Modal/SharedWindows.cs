@@ -186,6 +186,9 @@ internal enum SharedWindowKind : byte
 
     /// <summary>Native fullscreen movies, presented through their own VR window and record72.</summary>
     Video = 5,
+
+    /// <summary>Native chest rewards: game-owned content/confirmation, shared VR pose on record73.</summary>
+    RewardShowcase = 6,
 }
 
 /// <summary>See <see cref="SharedWindowKind"/> for the whole design; this is the accessor both the
@@ -228,6 +231,9 @@ internal static class SharedWindows
     {
         if (window == null)
             return SharedWindowKind.None;
+
+        if (ReferenceEquals(RewardShowcase.Window, window))
+            return SharedWindowKind.RewardShowcase;
 
         if (ReferenceEquals(NativeVideoWindow.Window, window))
             return SharedWindowKind.Video;
@@ -296,7 +302,7 @@ internal static class SharedWindows
             return false;               // singleplayer: every window is a private window
         return kind switch
         {
-            SharedWindowKind.ScenarioStory or SharedWindowKind.Video => true,
+            SharedWindowKind.ScenarioStory or SharedWindowKind.Video or SharedWindowKind.RewardShowcase => true,
             // THE ENCOUNTER JOINS THE MAP-PHASE GATE, not the scenario one, and that is read from
             // the game rather than assumed: a road/city event is raised from MapChoreographer on
             // the campaign map and its record travels in the map room's parchment frame like the
@@ -461,7 +467,8 @@ internal static class SharedWindows
         || GrabbedHere(SharedWindowKind.MapStory)
         || GrabbedHere(SharedWindowKind.QuestConfirm)
         || GrabbedHere(SharedWindowKind.Encounter)
-        || GrabbedHere(SharedWindowKind.Video);
+        || GrabbedHere(SharedWindowKind.Video)
+        || GrabbedHere(SharedWindowKind.RewardShowcase);
 
     /// <summary>One kind's answer for <see cref="AnyGrabbedHere"/> — participation first, so a
     /// non-participating client never even looks for the window.</summary>
@@ -476,6 +483,8 @@ internal static class SharedWindows
     {
         switch (kind)
         {
+            case SharedWindowKind.RewardShowcase:
+                return RewardShowcase.Window;
             case SharedWindowKind.Video:
                 return NativeVideoWindow.Window;
             case SharedWindowKind.ScenarioStory:
@@ -516,8 +525,9 @@ internal static class SharedWindows
     /// <summary>
     /// The mod-owned grab frame of the floated window of that kind.
     ///
-    /// <para>Returns false when no such window is open, when it is not converted (it fell back to
-    /// the flat screen), or when it is still behind the reveal gate. Every one of those means
+    /// <para>Returns false when the native window has no converted grab (for example, it fell back
+    /// to the flat screen). Pending grabs are returned; the transport reader gates publication.
+    /// A missing grab means
     /// "this client has no grabbable window of that kind" — NEVER "this client cannot take part in
     /// the sync". The page/advance path must not consult this, and a client that cannot place a
     /// window simply keeps its own placement while remaining a full participant.</para>

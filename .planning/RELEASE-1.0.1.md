@@ -53,6 +53,49 @@ dev changes, rejected-push retry and independently advanced versions. The histor
 main-bump failure reproduces with --old. Workflow actionlint, Bash syntax and YAML
 validation pass.
 
-Hosted candidate CI, the final main SHA, Release workflow result and published asset
-will be recorded after completion. The release workflow owns tag creation, ZIP
-publication and the next development version bump.
+Publication completed on 2026-09-15 at 19:39 UTC:
+
+- Final candidate CI: [35013539643](https://github.com/McFredward/GloomhavenVR/actions/runs/35013539643), successful for dev 6dc66256.
+- The maintainer merged PR #3 using a merge commit after the API token refused PR
+  creation. main and annotated tag v1.0.1 both name
+  be74759e33f87aa76be313071010f1ddcbecdf47.
+- [Release workflow 35014316673](https://github.com/McFredward/GloomhavenVR/actions/runs/35014316673)
+  completed successfully, including publication and dev bookkeeping.
+- [GloomhavenVR 1.0.1](https://github.com/McFredward/GloomhavenVR/releases/tag/v1.0.1)
+  is public, latest, and neither draft nor prerelease.
+- The anonymously downloaded GloomhavenVR-1.0.1.zip is 85,069,252 bytes, passes ZIP
+  CRC validation, and matches GitHub's SHA256:
+  4a9c084281f763a1f1e55bc4e9c1561642abbb91bc3ede990e88c0ce39e59af6.
+- The ZIP contains the 74,943,763-byte asset bundle. The actual downloaded plugin's
+  compiled metadata identifies Version 1.0.1, ModBuild 509, commit be74759 and
+  IsDevBuild=false. This verifies download provenance, not headset behavior.
+- Bot merge d6062e55 records main ancestry on dev; bot commit 12f66604 advances
+  dev to Version 1.0.2. The only tree difference between main and that dev tip is
+  the csproj version. The local dev checkout was fast-forwarded to it.
+
+The public latest-release endpoint returns v1.0.1 and the expected ZIP. This does
+not by itself verify an update prompt or installation in a running headset.
+
+## Documentation audience cleanup after publication
+
+The maintainer's 2026-09-15 ruling keeps developer installer arguments, build/release
+bookkeeping and pending hardware tests out of player instructions and release highlights.
+Those validation obligations remain in this record and STATE.md. The English/German
+README, installation guides and packaging text now follow that boundary; Epic remains
+listed consistently. Playing guides were reviewed without changes. AGENTS.md and the
+release-highlights authoring guide record the rule for future edits.
+
+The primary agent prepared documentation integration branch `docs/player-guides-main`
+at `990af4e4`, based directly on main `be74759e`. PR #4 was squash-merged as
+`c9df03d0` on 2026-09-15 at 20:57 UTC after the maintainer granted the token the
+missing permissions. It changes only documentation and retains Version 1.0.1.
+The final commit includes `[skip ci]`; no Release workflow ran for this commit.
+Runtime source, workflows, scripts and assets are identical to the published main
+source. This was a documentation-only PR, not the merge-commit procedure used for
+an actual release. Its ancestry is merged back into dev, which retains Version 1.0.2.
+
+The existing v0.9.0 and v1.0.0 release bodies were edited in place to remove internal
+test status and describe player-visible behavior. The public v1.0.1 body already
+omitted the pending-test sentence; its source highlights now agree. The initial
+HTTP 403 failures are resolved. Release IDs, tags and asset IDs/sizes/digests remain
+unchanged; no release or download was replaced.
