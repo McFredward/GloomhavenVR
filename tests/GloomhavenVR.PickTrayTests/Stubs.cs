@@ -28,5 +28,9 @@ internal sealed partial class CardsDriver {
  private static void LogOverlayHeldByExit(int holds,int flights) { }
  private static bool IsParked(VRCard card) => card.Parked;
  public void Tick(CardsHandUI? h) => UpdateWantedSlots(h);
+ public int LayoutCalls;
+ private void RelayoutField() { LayoutCalls++; _pickLockedCount=Math.Clamp(_pickLockedCount,0,_fieldCards.Count); }
+ public void Retire(VRCard card) => RetirePickFieldCard(card);
+ public int Seat(VRCard card) => PickSeatOfIndex(_fieldCards.IndexOf(card));
  public void Prune() => PrunePickField(); public int Restart() => ArmPickRestart(); public int Target() => PickTargetSlot();
 }

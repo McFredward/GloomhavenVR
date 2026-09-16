@@ -64,6 +64,27 @@ internal static class Program
                 "Removing a deselected locked entry must shift the prefix and keep other pages intact");
             Mask(driver,hand,3,"Revised earlier choice must expose the newly required two-card page");
         }
+        // The native per-widget recycle path must maintain the same prefix as rebuild pruning.
+        for (int removed = 0; removed < 4; removed++)
+        {
+            var driver=new CardsDriver();
+            for(int i=0;i<4;i++) { var card=new VRCard { Parked=true }; driver._fieldCards.Add(card); driver._pickExitFlown.Add(card); }
+            driver._pickLockedCount=4; var visible=new VRCard(); driver._fieldCards.Add(visible);
+            var recycled=driver._fieldCards[removed]; driver.Retire(recycled);
+            Check(driver._pickLockedCount==3 && driver._fieldCards.Count==4,
+                "Recycling a locked page entry must decrease the locked prefix");
+            Check(driver.Seat(visible)==0,"Recycling first or middle locked entry must keep final visible card in left recess");
+            Check(driver._pickExitFlown.Count==3 && !driver._pickExitFlown.Contains(recycled),
+                "Recycling a page entry must retire its exit claim");
+            Check(driver.LayoutCalls==1,"Recycled page entry must request one fresh layout");
+            driver.Retire(recycled);
+            Check(driver._pickLockedCount==3 && driver.LayoutCalls==1,"Repeated recycle must not consume another locked entry");
+            driver.Retire(visible);
+            Check(driver._pickLockedCount==3 && driver._fieldCards.Count==3,
+                "Recycling a live final-page card must preserve all earlier locked pages");
+            Check(driver._pickExitFlown.Count==3 && driver.LayoutCalls==2,
+                "Recycling an unclaimed live card must leave prior flight claims untouched");
+        }
         // Historic burn latches and ordinary unselected seats must still retire.
         var d=new CardsDriver(); var h=new CardsHandUI();
         var oldBurn=new VRCard { Parked=true }; d._fieldCards.Add(oldBurn); d.Prune();
