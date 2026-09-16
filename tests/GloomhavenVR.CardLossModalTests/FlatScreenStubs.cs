@@ -1,6 +1,10 @@
 namespace GloomhavenVR.Core
 {
-    internal static class VRLog { internal static void Info(string category, string text) { } }
+    internal static class VRLog
+    {
+        internal static void Info(string category, string text) { }
+        internal static void Note(string category, string text) { }
+    }
 }
 namespace GloomhavenVR.Core.Events
 {
@@ -32,11 +36,13 @@ namespace GloomhavenVR.WorldUI
         private bool _rescueShow = false;
         private bool _manualShow = false;
         internal bool ConfirmationOpen;
+        internal static bool ManualScreenActive { get; private set; }
         private bool IsConfirmationBoxOpen() => ConfirmationOpen;
         internal bool Read(bool manual = false, bool rescue = false)
         {
             _manualShow = manual;
             _rescueShow = rescue;
+            UpdateScreenTakeover();
             return WantVisible();
         }
     }

@@ -86,6 +86,21 @@ internal sealed partial class FlatScreen
         return scene.buildIndex == 0 || scene.name == IntroSceneName;
     }
 
+    // A failed blocking map conversion already requests the desktop through ScreenWanted.
+    // Previously the map-room exclusion swallowed that request, and the failed window had
+    // no float for the escape chord to reach. Hand native widgets back to the desktop through
+    // the same takeover flag as manual rescue. This is level-triggered: native closure removes
+    // ScreenWanted and returns the room without a timer, synthetic answer or UI-lock write.
+    private static bool MapFallbackActive => MapRoom.MapRoomDriver.Active && ModalFallback.ScreenWanted;
+
+    private void UpdateScreenTakeover()
+    {
+        if (MapFallbackActive && !ManualScreenActive)
+            VRLog.Note("WorldUI", "MODAL MAP FALLBACK: the requested native modal could not float; "
+                + "restoring its desktop presentation until the game closes it.");
+        ManualScreenActive = _manualShow || _rescueShow || MapFallbackActive;
+    }
+
     private bool WantVisible()
     {
         // The [WorldUI] FlatScreen kill switch is gone (always on — user ruling 2026-08-11:
@@ -120,7 +135,7 @@ internal sealed partial class FlatScreen
         //
         // The loading gate above deliberately stays higher: raising a composite of a half-torn-down
         // scene is not a rescue, and the requester's watchdog is still ticking when loading ends.
-        if (_rescueShow)
+        if (_rescueShow || MapFallbackActive)
             return true;
 
         // 3D MAP ROOM GATE ([Rig] Vanilla2DMap off, which is the default from ModBuild 230):

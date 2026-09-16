@@ -474,9 +474,7 @@ internal sealed partial class FlatScreen
         }
 
         TickManualChord();
-        // ONE flag, two writers, no second policy: a programmatic rescue is indistinguishable
-        // downstream from a player's chord press (see the latch block in the fields above).
-        ManualScreenActive = _manualShow || _rescueShow;
+        UpdateScreenTakeover();
 
         bool want = !preMenu && WantVisible();
         if (want && !_visible)
