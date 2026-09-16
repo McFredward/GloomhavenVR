@@ -107,6 +107,37 @@ internal static class RewardWindowVectors
         t.Equal(2, RewardPosePolicy.ConsiderInitialOwner(int.MaxValue, 2, false),
             "removed peer is absent from the live membership election");
 
+        t.Case("reward window: first reveal cannot rewind through hidden interpolation history");
+        var track = new SharedWindowPoseTrack();
+        var handoff = new RewardPoseHandoff();
+        var localHome = new RigPose { Position = Vector3.zero, Rotation = Quaternion.identity };
+        var pendingTarget = new RigPose { Position = new Vector3(8, 0, 0), Rotation = Quaternion.identity };
+        var readyTarget = new RigPose { Position = new Vector3(10, 0, 0), Rotation = Quaternion.identity };
+        track.Seed(localHome, 1f, 0f);
+        RigPose hidden = handoff.Sample(track, pendingTarget, 1.2f, .03f, true, out float visibleSize);
+        t.True(hidden.Position.x == 8 && visibleSize == 1.2f, "hidden receive directly seeds the peer endpoint");
+        // WorldUI can reveal the final Ready endpoint while ResolvePose is still in identity
+        // settling. No Sample call occurs during that early return, so the latch remains armed.
+        RigPose visible = handoff.Sample(track, readyTarget, 1.4f, .05f, false, out visibleSize);
+        t.True(visible.Position.x == 10 && visibleSize == 1.4f,
+            "first successful visible resolve preserves the exact final pose and size shown by WorldUI");
+        track.Reset(); track.Seed(localHome, 1f, 0f); handoff.Reset();
+        visible = handoff.Sample(track, readyTarget, 1.4f, .05f, false, out visibleSize);
+        t.True(visible.Position.x == 10, "handoff also works when no hidden resolve ran before reveal");
+        var nextTarget = readyTarget; nextTarget.Position.x = 12;
+        visible = handoff.Sample(track, nextTarget, 1.6f, .1f, false, out visibleSize);
+        t.True(visible.Position.x == 10 && visibleSize == 1.4f,
+            "subsequent real visible movement retains interpolation instead of snapping");
+        visible = handoff.Sample(track, nextTarget, 1.6f, .3f, false, out visibleSize);
+        t.True(visible.Position.x == 12 && visibleSize == 1.6f, "visible motion reaches its final endpoint");
+        handoff.Reset(); handoff.LocalMove(); track.Reset(); track.Seed(localHome, 1f, 0f);
+        visible = handoff.Sample(track, readyTarget, 1.4f, .05f, false, out _);
+        t.True(visible.Position.x == 0, "a real local move consumes startup so later peer drags interpolate normally");
+        track.Reset(); track.Seed(localHome, 1f, 0f);
+        track.Sample(pendingTarget, 1.2f, .03f, out _);
+        RigPose oldBehavior = track.Sample(readyTarget, 1.4f, .05f, out _);
+        t.True(oldBehavior.Position.x < 10, "negative control: the original hidden-home history rewinds the already revealed endpoint");
+
         t.Case("reward window: lifecycle and initial-pose election protect real movement");
         t.True(!RewardPosePolicy.Matches(0, 1, true) && !RewardPosePolicy.Matches(2, 1, true)
             && !RewardPosePolicy.Matches(1, 1, false) && RewardPosePolicy.Matches(1, 1, true),
@@ -126,7 +157,7 @@ internal static class RewardWindowVectors
         t.True(ForgetsAbsent(code), "production receiver forgets omitted reward entries and their clocks");
         t.True(!ForgetsAbsent(code.Replace("{ ForgetReward(sender); return; }", "{ return; }")),
             "negative control: retaining a closed peer is rejected");
-        t.True(code.Contains("previous.ContentKey != entry.ContentKey") && code.Contains("RewardLocal.Reset(); RewardLocal.Key = key;"),
+        t.True(code.Contains("previous.ContentKey != entry.ContentKey") && code.Contains("RewardHandoff.Reset(); RewardLocal.Key = key;"),
             "new event clears peer stamp provenance and local interpolation baseline");
         t.True(code.Contains("SetInitialAuthority(key") && code.Contains("ClearInitialAuthority()")
             && code.Contains("state.Ready = _rewardSentReady = _rewardSentPose && !pending")

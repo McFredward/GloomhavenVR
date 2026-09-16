@@ -1973,7 +1973,10 @@ internal static partial class RemoteMapStory
             local.PoseTrackPeer = bestPeer;
             local.PoseTrackFrame = owner.Frame;
         }
-        RigPose displayed = local.PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
+        RigPose displayed = kind == SharedWindowKind.RewardShowcase
+            ? RewardHandoff.Sample(local.PoseTrack, owner.Pose, size, Time.unscaledTime,
+                RewardShowcasePlacement.LocalRevealPending, out size)
+            : local.PoseTrack.Sample(owner.Pose, size, Time.unscaledTime, out size);
         size = WorldUI.SharedWindowSizeLaw.SharedGrabFactor(size); // baseline records the actual displayed grid value
         if (!ToWorld(owner.Frame, displayed.Position, displayed.Rotation,
                      out Vector3 worldPos, out Quaternion worldRot,

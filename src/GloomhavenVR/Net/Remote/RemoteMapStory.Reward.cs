@@ -7,6 +7,7 @@ namespace GloomhavenVR.Net;
 internal static partial class RemoteMapStory
 {
     private static readonly Local RewardLocal = new();
+    private static readonly RewardPoseHandoff RewardHandoff = new();
     private static readonly Dictionary<int, PeerEntry> RewardPeers = new(), RewardCandidates = new();
     private static readonly Dictionary<int, byte> RewardStamp = new();
     private static readonly Dictionary<int, float> RewardStampAt = new();
@@ -38,7 +39,7 @@ internal static partial class RemoteMapStory
 
     private static void ResetRewardPose()
     {
-        RewardLocal.Reset(); RewardPeers.Clear(); RewardCandidates.Clear(); RewardStamp.Clear();
+        RewardLocal.Reset(); RewardHandoff.Reset(); RewardPeers.Clear(); RewardCandidates.Clear(); RewardStamp.Clear();
         RewardStampAt.Clear(); RewardMoved.Clear(); RewardUnavailable.Clear(); RewardReady.Clear(); RewardParticipants.Clear();
         _rewardSentKey = 0; _rewardSentPose = _rewardMoved = _rewardSentUnavailable = _rewardSentReady = _rewardWasPending = false;
         _rewardPlayerId = 0; RewardShowcasePlacement.ClearInitialPose(); RewardShowcasePlacement.ClearInitialAuthority();
@@ -46,7 +47,7 @@ internal static partial class RemoteMapStory
     private static void SetRewardIdentity(uint key)
     {
         if (RewardLocal.Key == key) return;
-        RewardLocal.Reset(); RewardLocal.Key = key; _rewardMoved = false; _rewardSentPose = false;
+        RewardLocal.Reset(); RewardHandoff.Reset(); RewardLocal.Key = key; _rewardMoved = false; _rewardSentPose = false;
         _rewardWasPending = _rewardSentReady = false;
     }
     internal static void SampleReward(ref PresenceState presence, int localPlayerId)
@@ -64,6 +65,7 @@ internal static partial class RemoteMapStory
         { RewardLocal.Moving = false; RewardLocal.PoseOwned = false; RewardLocal.MoveSettleAt = 0f; }
         _rewardWasPending = pending;
         _rewardMoved |= RewardLocal.Moving;
+        if (!pending && RewardLocal.Moving) RewardHandoff.LocalMove();
         if (RewardLocal.HaveBaseline && RewardLocal.FollowingPeer == 0
             && RewardInitialOwner(key, localPlayerId) == localPlayerId
             && (RewardLocal.SwapFrame == int.MinValue || Time.frameCount - RewardLocal.SwapFrame > IdentitySettleFrames))
