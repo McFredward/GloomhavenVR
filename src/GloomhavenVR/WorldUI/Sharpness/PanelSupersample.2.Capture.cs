@@ -981,15 +981,8 @@ internal static partial class PanelSupersample
         if (WorldUIConfig.NeutraliseGrabPassBlur == null
             || !WorldUIConfig.NeutraliseGrabPassBlur.Value)
             return;
-        var g = t.GetComponent<Graphic>();
-        if (g == null || g.material == null || g.material.shader == null)
-            return;
-        if (g.material.shader.name.IndexOf("GrabPass", System.StringComparison.OrdinalIgnoreCase) < 0)
-            return;
-        g.material = null;
-        g.color = Color.clear;
-        g.enabled = false;
-        e.GrabPassNeutralised++;
+        if (PanelGraphicMaterial.NeutraliseGrabPass(t.GetComponent<Graphic>()))
+            e.GrabPassNeutralised++;
     }
 
     private static bool BuildDisplay(Entry e, ConvertedPanel panel)

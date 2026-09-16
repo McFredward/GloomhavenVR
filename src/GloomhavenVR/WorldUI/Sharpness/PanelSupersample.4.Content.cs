@@ -2630,10 +2630,10 @@ internal static partial class PanelSupersample
     {
         if (g == null)
             return "material UNREADABLE (the graphic went away between the walk and the report)";
-        Material mat;
+        Material? mat;
         try
         {
-            mat = g.material;
+            mat = PanelGraphicMaterial.Read(g);
         }
         catch (System.Exception ex)
         {
