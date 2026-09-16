@@ -57,7 +57,7 @@ internal sealed partial class CardsDriver
     // Pile-choice fans (notably long rest) and characters controlled by somebody else refuse it.
     private bool CanReorderFan(VRCard? card)
     {
-        if (_fakeActive || card == null) return false;
+        if (_fakeActive || card == null || _burnLayoutPending) return false;
         if (OffScenarioFanActive)
             return WorldUI.MapRoom.MapRoomHand.CanReorderLocalFan(card);
         CardsHandUI? shown = Board.CharacterFocus.PresentedHand(CurrentHand());
@@ -690,6 +690,7 @@ internal sealed partial class CardsDriver
 
     private void Rebuild(Transform anchor)
     {
+        if (DeferLayoutForBurn()) return;
         NoteExhaustedRuleArmed();
 
         // FREE CHARACTER FOCUS: the game's own presented hand goes in, and the hand the player
@@ -2707,7 +2708,9 @@ internal sealed partial class CardsDriver
         Net.CardFxAnchor flightOrigin = BurnOrPileOrigin(card.GameCard, flightSeat);
         byte flightFlags = fate == PileKind.Burnt
             ? Net.CardFlightVisibility.ConsumeBurn(card.GameCard?.AbilityCard) : (byte)0;
-        ReportCardFx(flightOrigin, PileAnchor(fate), flightFlags, FlightSourceOf(card.GameCard));
+        float completionTime = fate == PileKind.Burnt && card.GameCard != null
+            ? Net.CardAppearanceSampler.RetainBurnCompletion(card.GameCard, card.FullCard) : -1f;
+        ReportCardFx(flightOrigin, PileAnchor(fate), flightFlags, FlightSourceOf(card.GameCard), completionTime);
         CardFlightLedger.Note("own", fate.ToString(),
             wasActive ? "own-active-expiry" : wasPickField ? "own-pick-field-commit" : "own-turn-clear",
             CardsGameApi.CardName(card.GameCard!));
@@ -3038,8 +3041,9 @@ internal sealed partial class CardsDriver
         // mirrored flight start at the board centre). `from` above is this same card's real world
         // position, so both ends of this flight now agree on both machines.
         byte flightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
+        float completionTime = Net.CardAppearanceSampler.RetainBurnCompletion(widget, card.FullCard);
         ReportCardFx(BurnOrPileOrigin(widget, _tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
-            flightFlags, FlightSourceOf(widget));
+            flightFlags, FlightSourceOf(widget), completionTime);
         LogBurnAttribution(widget, "park-sweep");
         CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
         VRCard flying = card;
@@ -3477,7 +3481,7 @@ internal sealed partial class CardsDriver
     /// the owning client still reports its own flights on its own board exactly as before.</para>
     /// </summary>
     private static void ReportCardFx(Net.CardFxAnchor from, Net.CardFxAnchor to, byte flags = 0,
-                                     Net.CardFlightSource? source = null)
+                                     Net.CardFlightSource? source = null, float completionTime = -1f)
     {
         if (source.HasValue)
         {
@@ -3487,7 +3491,7 @@ internal sealed partial class CardsDriver
             if (!CardsGameApi.ControlsActor(actor)) return;
         }
         else if (Board.CharacterFocus.ReadOnlyView) return;
-        Net.NetCardFx.Report(from, to, flags, source);
+        Net.NetCardFx.Report(from, to, flags, source, completionTime);
     }
 
     /// <summary>Wire anchor for a board slot index (-1 → the generic board anchor).</summary>
@@ -3699,7 +3703,7 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void FlushBurnHolds(string reason)
     {
-        if (_burnHoldSince.Count == 0) return;
+        if (_burnHoldSince.Count == 0 || _burnLayoutNativeActive) return;
         _burnHoldPruneScratch.Clear();
         foreach (AbilityCardUI widget in _burnHoldSince.Keys)
             _burnHoldPruneScratch.Add(widget);
@@ -3749,17 +3753,27 @@ internal sealed partial class CardsDriver
         // Damage loss has a second native lifecycle outside FullAbilityCard.CardEffects. The
         // owner's event is sent only when both are finished; peers do not infer that edge from
         // their inactive game widget or from their independently advanced animation clock.
-        bool release = BurnFlightCompletion.MayRelease(effectActive, losingCards, held,
+        bool release = BurnFlightCompletion.MayRelease(effectActive || _burnLayoutNativeActive, losingCards, held,
             BurnEffectStartGraceSeconds);
         CPlayerActor? actor = widget.PlayerActor;
         if (actor != null && !CardsGameApi.ControlsActor(actor)
-            && Net.NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out _))
+            && Net.NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out Net.RemoteAvatar? owner))
         {
             Net.CardFxAnchor origin = BurnOrPileOrigin(widget, card != null ? _tray.RecessSeatOfCard(card) : -1);
             Net.CardFlightSource? source = _activeExitOrigins.TryGetValue(widget, out Net.CardFlightSource activeSource)
                 ? activeSource : new Net.CardFlightSource(Net.NetFigures.StableActorId(actor), 0, 0);
-            release = Net.CardFlightVisibility.TryConsumeOwnerRelease(Net.NetFigures.StableActorId(actor),
-                origin, source, out byte ownerFlags);
+            // Receipt and native appearance use different streams. Peek until this local
+            // original widget has displayed the owner's final sample; consuming early would
+            // discard the only completion edge while the visible burn is still running.
+            int actorId = Net.NetFigures.StableActorId(actor);
+            release = release && owner != null
+                && Net.CardFlightVisibility.TryPeekOwnerRelease(actorId, origin, source,
+                    out _, out float completionTime)
+                && (completionTime < 0f || Net.CardAppearanceMirror.HasPresentedThrough(
+                    owner.PlayerId, actor, widget.AbilityCard, completionTime));
+            byte ownerFlags = 0;
+            if (release)
+                release = Net.CardFlightVisibility.TryConsumeOwnerRelease(actorId, origin, source, out ownerFlags);
             if (release && Net.CardFlightVisibility.Covered(ownerFlags))
                 Net.CardFlightVisibility.MarkShortRest(widget.AbilityCard);
         }
@@ -3955,8 +3969,9 @@ internal sealed partial class CardsDriver
             // (item 5's origin half). This branch is reached precisely because the real VR card is
             // still live at its true board position, so the seat is there to be read.
             byte liveFlightFlags = Net.CardFlightVisibility.ConsumeBurn(widget.AbilityCard);
+            float completionTime = Net.CardAppearanceSampler.RetainBurnCompletion(widget, card.FullCard);
             ReportCardFx(BurnOrPileOrigin(widget, _tray.RecessSeatOfCard(card)), Net.CardFxAnchor.Burnt,
-                liveFlightFlags, FlightSourceOf(widget));
+                liveFlightFlags, FlightSourceOf(widget), completionTime);
             LogBurnAttribution(widget, origin);
             CardFlightLedger.Note("own", "Burnt", "own-burn/" + origin, CardsGameApi.CardName(widget));
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
@@ -4012,8 +4027,9 @@ internal sealed partial class CardsDriver
         // (see the line below), so there is no transform to read a recess off. `fromPos` is a
         // REMEMBERED last position, not a seat, and naming a recess from it would be exactly the
         // approximation item 5's fix exists to remove.
+        float slabCompletionTime = Net.CardAppearanceSampler.RetainBurnCompletion(widget, card != null ? card.FullCard : null);
         ReportCardFx(BurnOrPileOrigin(widget, -1), Net.CardFxAnchor.Burnt,
-            flightFlags, FlightSourceOf(widget));
+            flightFlags, FlightSourceOf(widget), slabCompletionTime);
         // MB490: a recycled VRCard never justified losing its original front. The transient
         // owns an inert native clone and releases it on destruction; the source stays untouched.
         VRLog.Note("Cards", $"CARD FACE RULE [{origin}/slab]: '{CardsGameApi.CardName(widget)}' " +

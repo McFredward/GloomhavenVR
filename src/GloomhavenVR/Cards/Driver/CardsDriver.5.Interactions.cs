@@ -1316,6 +1316,8 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void RelayoutField()
     {
+        if (DeferLayoutForBurn()) return;
+
         _pickLockedCount = Mathf.Clamp(_pickLockedCount, 0, _fieldCards.Count);
         int n = _fieldCards.Count;
         if (n <= 2)

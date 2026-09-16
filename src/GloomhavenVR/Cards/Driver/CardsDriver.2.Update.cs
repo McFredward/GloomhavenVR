@@ -616,7 +616,9 @@ internal sealed partial class CardsDriver
                                 "re-places in front of the player this frame.");
         }
 
-        if (_boardChanged)
+        RefreshBurnLayoutBarrier();
+
+        if (_boardChanged && !_burnLayoutPending)
         {
             _boardChanged = false;
             RebuildBoard();
@@ -797,7 +799,7 @@ internal sealed partial class CardsDriver
             }
         }
 
-        if (modalBlock)
+        if (modalBlock || _burnLayoutPending)
             BlockCardInteractions();
         // FIRST in the laser block (user report 2026-08-08): a hand physically INSIDE a card of a
         // fan/pile has no laser at all — the beam would leave through the card and grab/press
