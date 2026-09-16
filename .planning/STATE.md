@@ -16,8 +16,8 @@ change per build) → this file (where things stand and what is owed) → the bu
 - **dev / 1.0.2 / ModBuild 512 audits mandatory input and native continuation.**
   Map reward managers can be reached outside a scenario controller; failed blocking map
   conversions can request a usable desktop; travel parking failure retains original guarded
-  input. Reused windows recheck mandatory close admission. Shared reward participation and
-  conversion exception rollback are being integrated and verified in this round.
+  input. Reused windows recheck mandatory close admission. Shared rewards use explicit participation replies. Failed
+  conversion and attachment restore native UI, retaining ownership when cleanup needs retry.
   No gameplay lock bypass or timed automatic confirmation is introduced. See
   [DEADLOCK-512.md](DEADLOCK-512.md) for the scope, evidence and final gate results.
   Latest supplied logs remain local 510 / remote 500; hardware acceptance is open.

@@ -48,9 +48,12 @@ VR parking against the next map hierarchy.
 
 Initial pose election considered compatible live VR peers without evidence that they
 could publish a pose for this reward. The follower could hide its mandatory native window
-while the elected peer had no matching reward. The correction is being validated as an
-explicit per-opening, key-scoped participation handshake, not absence inferred from a
-packet timeout. Existing reward presentation record 73 remains unchanged.
+while the elected peer had no matching reward. Record 74 now provides an explicit per-opening, key-scoped participation handshake;
+silence is not treated as a decline. Late openers follow the existing publisher, while
+a surviving matching window can take over after the source leaves. Stale generations
+and reordered empty snapshots cannot elect a second initial publisher. Existing reward
+presentation record 73 remains unchanged; participation requires build 512. The bounded
+worst-case extras payload grows from 4,074 to 4,133 bytes, still six transport fragments.
 
 ### Close admission must use the current mandatory decision
 
@@ -60,6 +63,20 @@ the same conversion survives. Final close admission must recheck the current man
 classification before UserClosing, native Escape/Hide or mode exit. A stale cross must
 not discard the new decision's callback; its alternative is original desktop input.
 
+### Failed conversion could strand the original native window
+
+Conversion reparents and hides native UI before enrollment; later chrome or placement
+construction can also throw after conversion succeeds. Those exception paths previously
+lost the original panel or left partial modal enrollment behind. A scoped transaction now
+owns each allocation before the next mutation, and the outer modal catch removes incomplete
+enrollment and returns the original native content before requesting desktop fallback.
+Canvas, mask and visibility originals are recorded before writes. Failed cleanup retains
+its original-home snapshot for normal-frame retry, including silent Unity detach refusal.
+Native restoration and mod-only cleanup are separate stages: a later host/chrome retry must
+not overwrite layout changes the game made after its window was restored. Native children
+are never destroyed to dispose of a failed mod host. Permanent engine refusal retains the
+objects and diagnostics; it cannot promise usable rendering in a broken engine state.
+
 ## Coverage without a newly demonstrated defect
 
 | Area | Paths inspected and result |
@@ -68,8 +85,10 @@ not discard the new decision's callback; its alternative is original desktop inp
 | Tutorials | Merchant/FTUE toggle dispatch, hint queue/owner changes, allowed hint omission callback, controls lessons and action-dismissed instructions reviewed. |
 | Video | Intro Escape and hero EndReached retain native callbacks; distinct cosmetic shared clips are not blindly mapped to a local native skip. |
 | Desktop input | VirtualMouseBridge writes and queues the left-button state; native InControl UnityMouseProvider reads Mouse.current.leftButton. This reaches raw native confirmation as well as uGUI widgets. |
+| Scenario decisions | Damage/card sacrifice, rest, ability pickers, Ready/Undo/Skip admission and native multiplayer authority reviewed; no additional callback bypass introduced. |
+| Shared native decisions | Enemy-info continuation, assignment choice and story/quest/encounter ownership reviewed through their native action routes. |
 | Thread waits | No synchronous Task wait/result cycle found in mod runtime. ModuleConfig's single monitor protects only a bounded registry operation, without callbacks or nested locks. Preloader sleep is a bounded fatal-startup log flush. |
-| Scene ownership | Persistent native windows keep their original scene on conversion; release restores renderer/canvas state and original hierarchy. Exception rollback is under additional review. |
+| Scene ownership | Persistent native windows keep their original scene on conversion; release restores renderer/canvas state and original hierarchy. Failure ownership and native restoration now have dedicated injected-error coverage. |
 
 ## Validation
 

@@ -155,7 +155,7 @@ hardware-verification logging and option reachability. The workflow files list t
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
 The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, map-button, flight-timing,
-figure-hold, native-video, reward-showcase, modal-close, reward-pose, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
+figure-hold, native-video, reward-showcase, modal-close, reward-pose, conversion-rollback, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
 production source with controlled Unity API substitutes and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
 presentation-send reuse. Their coverage does not replace the full wire vectors or a
@@ -208,6 +208,13 @@ close, missing rescue and incorrect rescue lifetime behavior.
 with the key/opening-scoped handshake. It covers explicit absence, concurrent keys, late
 opening, stale replies, reordered empty snapshots and a departing position sender. Golden
 wire vectors include record 74, full snapshots and bounded four-sender fragment reassembly.
+
+`scripts/conversion-rollback-tests.sh` executes the production conversion transaction,
+outer modal failure handler, native restoration and host-destruction guard. Injected failures
+cover partial adoption/enrollment, native camera restore, throwing/silent reparent refusal,
+scene-root safety detach and repeated mod-only cleanup. Negative controls reject lost ownership,
+unsafe destruction, premature snapshot disposal and replaying stale native layout on retries.
+An additional binding negative verifies allocation ownership precedes native reparenting.
 
 `scripts/panel-ink-tests.sh` exercises the production ink walker:
 full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and

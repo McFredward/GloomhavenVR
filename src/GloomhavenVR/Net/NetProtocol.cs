@@ -510,6 +510,8 @@ internal static class NetProtocol
     //   Final close admission rechecks the current mandatory decision on reused windows.
     //   Reward pose participation uses an explicit key/opening-scoped handshake so a healthy
     //   peer without this reward cannot hide the controlling player's sole confirmation forever.
+    //   Additive record 74 leaves reward record 73 unchanged; extras worst case 4133 bytes,
+    //   bounded assembly 4352 bytes, still six fragments. Participation requires build 512.
     //   Failed conversion/attachment restoration keeps ownership of native UI until returned.
     //   Native callbacks, readiness, player ownership and game locks remain authoritative;
     //   recovery never auto-confirms a choice or skips a gameplay wait on a timer.
