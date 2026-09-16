@@ -11,7 +11,7 @@ namespace GloomhavenVR.Net;
 internal sealed class ExtrasFragments
 {
     // Reward pose eligibility adds59 bytes to the previous4074-byte worst case.
-    // The envelope grammar/chunk size are unchanged; six bounded datagrams still suffice.
+    // The envelope grammar/chunk size are unchanged; nine bounded datagrams cover the maximum durable burn history.
     internal const int MaxSnapshotBytes = 7168;
     internal const int MaxDatagramBytes = 864;
     internal const int ChunkBytes = 200;

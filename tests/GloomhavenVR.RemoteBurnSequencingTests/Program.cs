@@ -58,6 +58,13 @@ internal static class Program
         MirrorFixture.From=from;MirrorFixture.Frames[7].Previous=new CardAppearanceSnapshot(10.01f);
         Check(MirrorFixture.HasPresentedThrough(7,actor,card,10f),"Continued samples entirely after completion cannot hold forever");
         Check(MirrorFixture.HasPresentedThrough(7,actor,card,-1f),"Legacy release path remains compatible");
+        MirrorFixture.Frames[7].Presented[card]=(4,10.1f,to);
+        MirrorFixture.Available=false;
+        Check(MirrorFixture.HasPresentedThrough(7,actor,card,10f),"A previously presented terminal frame remains acknowledged after page rotation");
+        actor.CharacterClass.HandAbilityCards.Add(card);
+        Check(!MirrorFixture.HasPresentedThrough(7,actor,card,10f),"Recovery invalidates the old terminal acknowledgement before original reuse");
+        actor.CharacterClass.HandAbilityCards.Clear();
+        MirrorFixture.Frames[7].Presented.Clear(); MirrorFixture.Available=true;
         var pending=new BurnFixture.PendingRelease {CompletionTime=10f, ActorId=4, OriginalCard=card, PresentationPlayer=7};
         hold._watchActor=4;hold._pendingReleases.Add(pending);
         actor.CharacterClass.PermanentlyLostAbilityCards.Clear();actor.CharacterClass.RoundAbilityCards.Add(card);

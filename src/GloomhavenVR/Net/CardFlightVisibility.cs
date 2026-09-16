@@ -59,6 +59,7 @@ internal static class CardFlightVisibility
         if (actorId == 0 || NetCardFx.To(endpoints) != CardFxAnchor.Burnt
             || (source.HasValue && source.Value.ActorId != actorId)) return;
         PruneOwnerReleases();
+        if (originalCard != null) CancelOwnerRelease(originalCard);
         if (OwnerReleases.Count >= CardBurnCompletionHistory.CountMax) return;
         OwnerReleases.Add(new OwnerRelease(actorId, endpoints, flags, source, Now, completionTime, originalCard));
     }
@@ -107,6 +108,22 @@ internal static class CardFlightVisibility
             flags = release.Flags; completionTime = release.CompletionTime; return true;
         }
         return false;
+    }
+
+    // A newer native hand/round/active sample is positive owner recovery evidence.
+    // Old local model membership alone is not: it may simply precede delivery of the loss.
+    internal static void CancelOwnerReleaseBefore(object originalCard, float ownerTime)
+    {
+        for (int i = OwnerReleases.Count - 1; i >= 0; i--)
+            if (ReferenceEquals(OwnerReleases[i].OriginalCard, originalCard)
+                && OwnerReleases[i].CompletionTime >= 0f && OwnerReleases[i].CompletionTime <= ownerTime)
+                OwnerReleases.RemoveAt(i);
+    }
+
+    internal static void CancelOwnerRelease(object originalCard)
+    {
+        for (int i = OwnerReleases.Count - 1; i >= 0; i--)
+            if (ReferenceEquals(OwnerReleases[i].OriginalCard, originalCard)) OwnerReleases.RemoveAt(i);
     }
 
     private static void PruneOwnerReleases()

@@ -2274,13 +2274,13 @@ internal sealed class RemoteAvatar
             else
                 foreach (CardFlightEvent flight in p.FlightHistory.Since(_lastFxSeq))
                     PlayCardFlight(flight.Sequence, flight.Endpoints, flight.Flags, flight.Source,
-                        p.BurnCompletions?.Find(flight.Sequence) ?? -1f);
+                        p.BurnCompletions);
         }
         else if (p.HasCardFx)
         {
             byte flags = p.HasCardFxVisibility && p.FxVisibilitySeq == p.FxSeq ? p.FxVisibilityFlags : (byte)0;
             PlayCardFlight(p.FxSeq, p.FxEndpoints, flags, p.FlightSourceSeq == p.FxSeq ? p.FlightSource : null,
-                p.BurnCompletions?.Find(p.FxSeq) ?? -1f);
+                p.BurnCompletions);
         }
     }
 
@@ -2297,18 +2297,20 @@ internal sealed class RemoteAvatar
             _burnCompletionsInitialized = false;
             _burnCompletionTimes.Clear();
         }
-        if (!_burnCompletionsInitialized)
-        {
-            // Joining adopts already completed losses without replaying the whole scenario.
-            _burnCompletionsInitialized = true;
-            foreach (var entry in history.Entries) _burnCompletionTimes[entry.Key] = entry.Time;
-            return;
-        }
+        bool initial = !_burnCompletionsInitialized;
+        _burnCompletionsInitialized = true;
         foreach (var entry in history.Entries)
         {
             if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;
-            var actor = RemoteBoardFocus.ActorById(entry.ActorId);
             var card = CardAppearanceProvenance.Resolve(entry.SourceActorId, entry.PoolSeat, entry.PoolCount);
+            if (initial && (card == null || !_burnFx.HasObservedBurn(card)))
+            {
+                // Seed historical provenance even when its actor/ownership has not arrived yet.
+                // Retrying that baseline later must not create a claim for a past animation.
+                _burnCompletionTimes[entry.Key] = entry.Time;
+                continue;
+            }
+            var actor = RemoteBoardFocus.ActorById(entry.ActorId);
             if (actor == null || card == null || !NetAvatarDriver.TryGetCharacterDecisionOwner(actor, out RemoteAvatar? controller)
                 || controller?.PlayerId != PlayerId) continue; // roster/ownership may arrive later
             if (_burnCompletionTimes.Count >= CardBurnCompletionHistory.CountMax && !_burnCompletionTimes.ContainsKey(entry.Key)) continue;
@@ -2319,8 +2321,9 @@ internal sealed class RemoteAvatar
         }
     }
 
-    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source, float completionTime = -1f)
+    private void PlayCardFlight(byte sequence, byte endpoints, byte flags, CardFlightSource? source, CardBurnCompletionHistory? completions = null)
     {
+        const float completionTime = -1f; // Legacy events cannot borrow a clock from a wrapped sequence.
         if (!_fxSeqInit) { _fxSeqInit = true; _lastFxSeq = sequence; return; }
         if (!NetProtocol.IsNewCardFxSequence(sequence, _lastFxSeq)) return;
         int gap = (byte)(sequence - _lastFxSeq);
@@ -2331,7 +2334,7 @@ internal sealed class RemoteAvatar
         LogCardFxLoss(gap);
         // Modern burns are dispatched from durable75, independently of62's two-second history.
         // A late legacy flight sequence must never replay that same terminal release.
-        if (_burnCompletionsInitialized && NetCardFx.To(endpoints) == CardFxAnchor.Burnt) return;
+        if (completions != null && completions.Covers(sequence, endpoints, flags, source)) return;
         // Explicit provenance cannot degrade to the currently viewed character after an actor
         // disappears or control changes. A delayed cosmetic event must not dress an unrelated card.
         if (source.HasValue)

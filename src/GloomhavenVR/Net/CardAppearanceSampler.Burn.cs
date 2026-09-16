@@ -14,9 +14,17 @@ internal static partial class CardAppearanceSampler
         internal CPlayerActor Actor = null!;
         internal CAbilityCard Card = null!;
         internal CardAppearanceState State = null!;
+        internal bool AddressReady = true;
     }
     private static readonly List<BurnFinal> BurnFinals = new(CardBurnCompletionHistory.CountMax);
     private static bool _finalCapacityLogged;
+
+    private static void ClearBurnFinals()
+    {
+        foreach (var final in BurnFinals) NetCardFx.ForgetBurnCompletion(final.State);
+        BurnFinals.Clear();
+        _finalPageStart = 0; _nextFinalPageAt = 0f;
+    }
     private static int _finalPageStart;
     private static float _nextFinalPageAt;
 
@@ -68,7 +76,7 @@ internal static partial class CardAppearanceSampler
     {
         bool full = false;
         // Reserve all live output. Rotate only retained, completed pictures under pressure;
-        // half-second pages provide recovery without converting idle boards into90Hz traffic.
+        // half-second pages provide recovery without converting idle boards into 90 Hz traffic.
         int liveCount = states.Count;
         if (BurnFinals.Count > CardAppearanceState.CountMax - liveCount && Time.unscaledTime >= _nextFinalPageAt)
         {
@@ -79,8 +87,13 @@ internal static partial class CardAppearanceSampler
         {
             BurnFinal final = BurnFinals[i];
             if (final.Actor == null || !ReferenceEquals(CardAppearanceProvenance.Resolve(final.State), final.Card)
-                || !TryBurnAddress(final.Actor, final.Card, out byte code, out byte count))
+                || final.Actor.CharacterClass.HandAbilityCards.Contains(final.Card)
+                || final.Actor.CharacterClass.RoundAbilityCards.Contains(final.Card)
+                || (!final.Actor.CharacterClass.LostAbilityCards.Contains(final.Card)
+                    && !final.Actor.CharacterClass.PermanentlyLostAbilityCards.Contains(final.Card)))
             { NetCardFx.ForgetBurnCompletion(final.State); BurnFinals.RemoveAt(i); continue; }
+            final.AddressReady = TryBurnAddress(final.Actor, final.Card, out byte code, out byte count);
+            if (!final.AddressReady) continue; // UI rebuilds do not cancel an already completed native release.
             if (final.State.FaceCode != code || final.State.ListCount != count)
             {
                 var relocated = final.State.Copy();
@@ -91,6 +104,7 @@ internal static partial class CardAppearanceSampler
         for (int offset = 0; offset < total; offset++)
         {
             BurnFinal final = BurnFinals[(_finalPageStart + offset) % total];
+            if (!final.AddressReady) continue;
             bool present = false;
             foreach (var live in states)
                 if (live.ActorId == final.State.ActorId && live.SourceActorId == final.State.SourceActorId

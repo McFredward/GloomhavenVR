@@ -53,7 +53,8 @@ internal sealed class CardAppearanceState { internal int ActorId; internal byte 
 internal sealed class CardAppearanceSnapshot { internal CardAppearanceState[] States=Array.Empty<CardAppearanceState>(); internal float SampleTime; internal CardAppearanceSnapshot(float time){SampleTime=time;} }
 internal static class CardAppearanceProvenance { internal static CAbilityCard? Resolve(CardAppearanceState s)=>s.Original; }
 internal static class MirrorFixture {
-internal sealed class Frame { internal CardAppearanceSnapshot? Current, Previous; }
+internal sealed class Frame { internal CardAppearanceSnapshot? Current, Previous; internal Dictionary<CAbilityCard,(int Actor,float Time,CardAppearanceState Source)> Presented=new(); }
+private static bool Recovered(CPlayerActor actor,CAbilityCard card)=>actor.CharacterClass.HandAbilityCards.Contains(card)||actor.CharacterClass.RoundAbilityCards.Contains(card);
 internal static Dictionary<int,Frame> Frames=new();
 internal static bool Available=true; internal static float Progress; internal static CardAppearanceState? From,To;
 private static bool TryGet(int p,CPlayerActor a,CAbilityCard c,out CardAppearanceState? previous,out CardAppearanceState? current,out float progress) {previous=From;current=To;progress=Progress;return Available;}

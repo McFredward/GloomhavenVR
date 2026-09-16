@@ -3701,6 +3701,10 @@ internal sealed partial class CardsDriver
     private void ClearBurnHold(AbilityCardUI? widget)
     {
         if (widget is null) return;
+        if (_burnHoldSince.ContainsKey(widget) && widget.AbilityCard != null && widget.PlayerActor != null
+            && !widget.PlayerActor.CharacterClass.LostAbilityCards.Contains(widget.AbilityCard)
+            && !widget.PlayerActor.CharacterClass.PermanentlyLostAbilityCards.Contains(widget.AbilityCard))
+            Net.CardFlightVisibility.CancelOwnerRelease(widget.AbilityCard);
         _burnHoldSince.Remove(widget);
         _burnHoldLogged.Remove(widget);
     }
@@ -3777,12 +3781,12 @@ internal sealed partial class CardsDriver
             int actorId = Net.NetFigures.StableActorId(actor);
             release = release && owner != null
                 && Net.CardFlightVisibility.TryPeekOwnerRelease(actorId, origin, source,
-                    out _, out float completionTime)
+                    out _, out float completionTime, widget.AbilityCard)
                 && (completionTime < 0f || Net.CardAppearanceMirror.HasPresentedThrough(
                     owner.PlayerId, actor, widget.AbilityCard, completionTime));
             byte ownerFlags = 0;
             if (release)
-                release = Net.CardFlightVisibility.TryConsumeOwnerRelease(actorId, origin, source, out ownerFlags);
+                release = Net.CardFlightVisibility.TryConsumeOwnerRelease(actorId, origin, source, out ownerFlags, widget.AbilityCard);
             if (release && Net.CardFlightVisibility.Covered(ownerFlags))
                 Net.CardFlightVisibility.MarkShortRest(widget.AbilityCard);
         }

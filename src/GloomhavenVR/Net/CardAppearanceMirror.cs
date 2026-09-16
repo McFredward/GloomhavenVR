@@ -48,6 +48,9 @@ internal static class CardAppearanceMirror
             if (state.SourceActorId != 0 && !ReferenceEquals(card, CardAppearanceProvenance.Resolve(state))) card = null;
             bindings[i] = new CardAppearanceBinding<CAbilityCard>(card);
             byte list = NetProtocol.HeldFaceList(state.FaceCode);
+            if (card != null && state.SourceActorId != 0 && Recovered(actor, card)
+                && (list == NetProtocol.HeldFaceListHand || list == CardPlumeState.RoundList || list == NetProtocol.HeldFaceListActive))
+                CardFlightVisibility.CancelOwnerReleaseBefore(card, snapshot.SampleTime);
             // This history is independent of mutable seats, but requires original immutable
             // provenance and a real owner observation. Legacy/unresolved samples cannot seed it.
             if (card != null && state.SourceActorId != 0 && !Recovered(actor, card)

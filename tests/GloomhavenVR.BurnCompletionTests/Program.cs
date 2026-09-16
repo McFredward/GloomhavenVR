@@ -35,7 +35,13 @@ internal static class Program
         Check(moved.Count == 2 && first[0].FaceCode == 1, "Address refresh must not mutate previously published snapshots");
         Check(moved.Find(s => s.PoolSeat == 0)!.FaceCode == 2 && moved.Find(s => s.PoolSeat == 0)!.Nodes[0] == 0.73f,
             "Burnt list reorder changes the address without swapping completed card artwork");
+        CardsHandManager.Instance.Hands.Remove(actor);
+        Check(CardAppearanceSampler.Retained().Count == 0, "Missing native hand UI does not paint an unresolved terminal address");
+        CardsHandManager.Instance.Hands[actor] = hand;
+        Check(CardAppearanceSampler.Retained().Count == 2, "Temporary native hand absence preserves terminal pixels and durable release");
         actor.CharacterClass.HandAbilityCards.Add(actor.CharacterClass.Pool[0]);
+        Check(CardAppearanceSampler.Retained().Count == 1, "Recovery retires old burn completion before card reuse");
+        actor.CharacterClass.HandAbilityCards.Clear();
         Check(CardAppearanceSampler.Retained().Count == 1, "Recovery retires old burn completion before card reuse");
         actor.CharacterClass.Pool[1] = new CAbilityCard();
         Check(CardAppearanceSampler.Retained().Count == 0, "Immutable roster replacement retires stale completed pixels");
@@ -52,6 +58,29 @@ internal static class Program
         for (int i = 0; i < 32; i++) allLive[i] = new CardAppearanceState { ActorId = 99, PoolSeat = (ushort)i };
         Check(CardAppearanceSampler.Retained(allLive).Count == 32, "Capacity pressure never removes original visible cards or exceeds protocol count");
         Check(CardAppearanceSampler.Retained().Count == 32, "Capacity pressure keeps pending final snapshots for a later frame");
+        for (int a = 4; a <= 6; a++)
+        {
+            var extra = new CPlayerActor { Id = a }; CardAppearanceProvenance.Actors[a] = extra;
+            var extraHand = new CardsHandUI(); CardsHandManager.Instance.Hands[extra] = extraHand;
+            for (int i = 0; i < 32; i++)
+            {
+                var c = new CAbilityCard(); extra.CharacterClass.Pool.Add(c); extra.CharacterClass.LostAbilityCards.Add(c);
+                extraHand.Cards.Add(new AbilityCardUI { PlayerActor = extra, AbilityCard = c });
+            }
+            foreach (var w in extraHand.Cards) CardAppearanceSampler.RetainBurnCompletion(w, w.fullAbilityCard);
+        }
+        var seen = new HashSet<(int, ushort)>();
+        for (int page = 0; page < 5; page++)
+        {
+            Time.unscaledTime += .5f;
+            var current = CardAppearanceSampler.Retained();
+            foreach (var entry in current) seen.Add((entry.ActorId, entry.PoolSeat));
+            Time.unscaledTime += .01f;
+            var unchanged = CardAppearanceSampler.Retained();
+            Check(current.Count == 32 && unchanged.Count == 32 && ReferenceEquals(current[0], unchanged[0]),
+                "Retained terminal paging stays stable between half-second opportunities");
+        }
+        Check(seen.Count == 128, "All four complete card populations eventually publish their terminal native frames");
         CardAppearanceSampler.ResetForTest();
         Check(CardAppearanceSampler.Retained().Count == 0, "Teardown drops completed appearance ownership");
         Console.WriteLine($"Burn completion capture: {checks} assertions passed.");

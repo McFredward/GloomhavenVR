@@ -1615,8 +1615,8 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
-    /// <para>Burn completion75 adds44 bytes: 4133 -> 4177 worst case; buffer4434 keeps257
-    /// spare bytes and existing bounded4352 reassembly still suffices.</para>
+    /// <para>Durable burn completion75 adds 2732 bytes: 4133 -> 6865 worst case; buffer 7122
+    /// retains 257 spare bytes. Bounded 7168 reassembly needs at most nine unchanged envelopes.</para>
     ///
     /// <para>Reward pose handshake74 adds at most59 bytes: 4074 -> 4133 worst case.
     /// The reassembly bound is4352 and the allocation-only buffer4390 retains257 spare bytes.
@@ -3287,7 +3287,15 @@ internal static class PresenceSerializer
             }
         }
         if (state.BurnCompletions != null)
-            i += state.BurnCompletions.Write(buffer, i);
+        {
+            int written = state.BurnCompletions.Write(buffer, i);
+            if (written > 0)
+            {
+                i += written;
+                records += (byte)System.Math.Max(1, (state.BurnCompletions.Entries.Length + CardBurnCompletionHistory.PageCount - 1)
+                    / CardBurnCompletionHistory.PageCount);
+            }
+        }
 
         if (state.FlightHistory != null && i + 2 + CardFlightHistory.MaxSize <= buffer.Length)
         {

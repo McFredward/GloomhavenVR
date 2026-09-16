@@ -48,7 +48,7 @@ internal static class ExtrasFragmentVectors
         t.True(!ExtrasVersionAnnouncement.TryRead(extended, extended.Length, out _), "trailing bytes not a handshake");
 
         t.Case("extras envelopes: bounded events and atomic reordered snapshots");
-        foreach (int size in new[] { 8, 199, 200, 201, 800, 801, 1801, 3449, 4096, 4133, 4177, 4352 })
+        foreach (int size in new[] { 8, 199, 200, 201, 800, 801, 1801, 3449, 4096, 4133, 4177, 4352, 6865, 7168 })
         {
             byte[] original = Snapshot(size);
             byte[][] pages = ExtrasFragments.Encode(original, size, 42);
@@ -64,9 +64,9 @@ internal static class ExtrasFragmentVectors
         }
         t.Case("extras envelopes: reward handshake maximum across four peers");
         var rewardReceiver = new ExtrasFragments();
-        byte[] rewardMaximum = Snapshot(4177);
+        byte[] rewardMaximum = Snapshot(6865);
         byte[][] rewardPages = ExtrasFragments.Encode(rewardMaximum, rewardMaximum.Length, 42);
-        t.Equal(6, rewardPages.Length, "all worst-case records including74 fit six existing envelopes");
+        t.Equal(9, rewardPages.Length, "all worst-case records including durable75 fit nine existing envelopes");
         for (int page = rewardPages.Length - 1; page >= 0; page--)
             for (int peer = 1; peer <= 4; peer++)
             {
@@ -75,11 +75,11 @@ internal static class ExtrasFragmentVectors
                 else t.Wire(rewardMaximum, result!, result!.Length, "independent complete reward handshake snapshot");
             }
         bool oversizedRejected = false;
-        try { ExtrasFragments.Encode(Snapshot(4353), 4353, 99); }
+        try { ExtrasFragments.Encode(Snapshot(7169), 7169, 99); }
         catch (ArgumentException) { oversizedRejected = true; }
         t.True(oversizedRejected, "one byte above new reassembly bound refuses sender allocation");
         var beyondBound = (byte[])rewardPages[0].Clone();
-        beyondBound[16] = 1; beyondBound[17] = 17; //4353 little endian
+        beyondBound[16] = 1; beyondBound[17] = 28; //7169 little endian
         t.True(rewardReceiver.Accept(5, beyondBound, beyondBound.Length, 0) == null,
             "one byte above new reassembly bound refuses receiver allocation");
         byte[][] old = ExtrasFragments.Encode(Snapshot(1801), 1801, 100);

@@ -10,12 +10,14 @@ import sys
 r=Path(sys.argv[1]); sampler=(r/'src/GloomhavenVR/Net/CardAppearanceSampler.cs').read_text()
 assert sampler.index('AppendBurnFinals(states);') < sampler.index('if (states.Count > CardAppearanceState.CountMax)'), 'Final native output must join the actual sender sample before serialization'
 a=(r/'src/GloomhavenVR/Net/Remote/RemoteAvatar.cs').read_text()
-assert 'p.BurnCompletions?.Find(flight.Sequence)' in a and 'p.BurnCompletions?.Find(p.FxSeq)' in a, 'Both flight admission paths must preserve the completion clock'
-assert 'ObserveOwnerRelease(source.Value.ActorId, endpoints, flags, source, completionTime)' in a, 'Read-only local boards need the canonical completion clock'
-assert 'PlayMirroredCardFlight(endpoints, flags, source, completionTime, PlayerId)' in a, 'Original board dispatch must carry its source clock and peer'
-assert 'ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer)' in a, 'Burn ownership must receive the causal clock'
+assert a.index('ApplyBurnCompletions(p.BurnCompletions);') < a.index('foreach (CardFlightEvent flight'), 'Durable releases precede legacy flight admission'
+assert 'completions.Covers(sequence, endpoints, flags, source)' in a, 'Missing capture must retain the legacy release path'
+assert 'initial && (card == null || !_burnFx.HasObservedBurn(card))' in a, 'Joining must not invent a historical burn hold'
+assert 'ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.Flags, entry.Source, entry.Time, card)' in a, 'Read-only local boards need exact native completion provenance'
+assert 'PlayMirroredCardFlight(entry.Endpoints, entry.Flags, entry.Source, entry.Time, PlayerId, card)' in a, 'Original board dispatch carries exact original, clock and peer'
+assert 'ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard)' in a, 'Burn ownership receives exact completion identity'
 b=(r/'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.CardAppearance.cs').read_text()
-assert 'viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, sender.PlayerId)' in b, 'Foreign-focus boards must retain the actual appearance publisher'
+assert 'viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, sender.PlayerId, originalCard)' in b, 'Foreign-focus boards retain the actual appearance publisher'
 print('Burn completion production binding: sampler, legacy/history admission and canonical observer dispatch verified.')
 PYBIND
 dotnet run --project "$project" -c Release --property:SamplerSource="$source"
@@ -31,7 +33,7 @@ a,b={
 'duplicate-live':('if (present) continue;','if (present) { }'),
 'stale-address':('var relocated = final.State.Copy();','var relocated = final.State;'),
 'early-clock':('return Time.unscaledTime;','return Time.unscaledTime - 1f;'),
-'recovered-burn':('cards.HandAbilityCards.Contains(card) || cards.RoundAbilityCards.Contains(card)','false')
+'recovered-burn':('|| final.Actor.CharacterClass.HandAbilityCards.Contains(final.Card)','')
 }[sys.argv[3]]
 assert s.count(a)==1
 Path(sys.argv[2]).write_text(s.replace(a,b))

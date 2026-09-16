@@ -42,11 +42,14 @@ internal sealed class CardBurnCompletionHistory
     internal readonly CardBurnCompletion[] Entries;
     internal CardBurnCompletionHistory(byte sequence, CardBurnCompletion[] entries)
     { Sequence=sequence; Entries=(CardBurnCompletion[])entries.Clone(); }
-    internal float Find(byte sequence)
+    internal bool Covers(byte sequence, byte endpoints, byte flags, CardFlightSource? source)
     {
-        float found=-1f;
-        foreach (var entry in Entries) if (entry.Sequence==sequence) found=Math.Max(found,entry.Time);
-        return found;
+        if (!source.HasValue) return false;
+        foreach (var entry in Entries)
+            if (entry.Sequence == sequence && entry.Endpoints == endpoints && entry.Flags == flags
+                && entry.ActorId == source.Value.ActorId && entry.Seat == source.Value.Seat
+                && entry.Count == source.Value.Count) return true;
+        return false;
     }
     private bool Valid()
     {

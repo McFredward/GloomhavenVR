@@ -170,6 +170,14 @@ internal sealed class RemoteBurnFx
     // Model commits precede the owner's animation. Keep every existing card seat and fan
     // population intact until the matching release has also drained native owner playback.
     // This includes a burn still drawn by its original recess (its detached slab is hidden).
+    internal bool HasObservedBurn(CAbilityCard card)
+    {
+        foreach (var burn in _burns)
+            if (burn.Active && !burn.HandoverLogged && burn.Widget != null
+                && ReferenceEquals(burn.Widget.AbilityCard, card)) return true;
+        return false;
+    }
+
     internal bool HoldsCardLayout => PresentationActor != null;
 
     internal CPlayerActor? PresentationActor

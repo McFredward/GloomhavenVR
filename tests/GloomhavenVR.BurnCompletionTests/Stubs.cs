@@ -41,6 +41,8 @@ namespace GloomhavenVR.Cards
 }
 namespace GloomhavenVR.Net
 {
+    internal static class CardBurnCompletionHistory { internal const int CountMax=128; }
+    internal static class NetCardFx { internal static void NoteBurnCompletionCapture(CardAppearanceState state,float clock) {} internal static void ForgetBurnCompletion(CardAppearanceState state) {} }
     internal static class NetFigures { internal static int StableActorId(ScenarioRuleLibrary.CPlayerActor actor) => actor.Id; }
     internal sealed class CardAppearanceState
     {
@@ -96,6 +98,6 @@ namespace GloomhavenVR.Net
         private static readonly List<AbilityCardUI> Pile = new();
         internal static List<CardAppearanceState> Retained(params CardAppearanceState[] live)
         { var states = new List<CardAppearanceState>(live); AppendBurnFinals(states); return states; }
-        internal static void ResetForTest() { BurnFinals.Clear(); _finalCapacityLogged = false; }
+        internal static void ResetForTest() { ClearBurnFinals(); _finalCapacityLogged = false; }
     }
 }
