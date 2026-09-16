@@ -498,7 +498,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 509;
+    public const ushort ModBuild = 510;
+
+    // ModBuild 510 — native chest reward continuation and shared reward windows.
+    //   Guildmaster's mouse-only continuation now has a localized VR Continue button;
+    //   Campaign retains its original button with the native callback repaired once.
+    //   Native reveal, ownership and synchronized continuation remain authoritative.
+    //   Additive record 73 shares the exact chest's window pose in WorldAnchor coordinates,
+    //   with ready/failure handoff before follower reveal and normal grab/resize behavior.
+    //   Supplied logs predate this report (local 507, remote 500); source checks establish
+    //   the input defects, while current hardware confirmation remains outstanding.
+    //   Version 1.0.2, DLL-only since 483; all VR peers use 510.
+    //   See .planning/REWARDS-510.md for native evidence and validation.
 
     // ModBuild 509 — release 1.0.1, combat log hidden by default at scenario start.
     //   User request: disable the combat log by default. Change the annotated startup

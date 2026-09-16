@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-15 after release 1.0.1 publication, ModBuild 509.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for the chest reward fix, ModBuild 510 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,6 +13,16 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
+- **dev / 1.0.2 / ModBuild 510 repairs chest reward continuation and shares the window.**
+  Guildmaster receives an explicit native-styled Continue button; Campaign keeps its
+  original button and repairs the native callback when gamepad creation omitted it.
+  Native reveal, player ownership and reward progression remain authoritative.
+  Reward windows use normal shared chrome and grab/resize, with exact chest identity,
+  common scenario coordinates and a ready handoff before followers first reveal.
+  Available logs are older builds 507/500; the current hardware report is not reproduced
+  by those traces. See [REWARDS-510.md](REWARDS-510.md) for source evidence and checks.
+  No main merge or release publication is part of this fix.
+
 - **1.0.1 / ModBuild 509 is published as the latest GitHub release.**
   main and v1.0.1 name PR #3 merge be74759e; Release run 35014316673 succeeded.
   The public ZIP matches its published SHA256 and contains the complete asset bundle;
@@ -20,9 +30,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   defaults to off while saved preferences and manual display remain available.
   Candidate CI and all local gates passed, including 253,674 wire assertions and
   36 release topology checks. See [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
-- **dev now targets 1.0.2.** The workflow preserved main ancestry and advanced the
-  version in bot commit 12f66604. ModBuild remains 509 until another hardware build
-  is prepared. No additional main push is needed for this release.
+- **dev targets 1.0.2.** The workflow preserved main ancestry and advanced the
+  version in bot commit 12f66604. Build 510 is the next hardware candidate;
+  the published 1.0.1 release remains unchanged.
 
 - **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**
   The user confirms the deadlock is resolved, and the log completes BuyItem/FTUE.

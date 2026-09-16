@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-15 after release 1.0.1 publication, build 509. This directory holds internal
+Updated 2026-09-16 for the chest reward fix, build 510 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -18,6 +18,7 @@ engineering evidence, historical decisions and current status; it is not the pla
 
 ## Latest measured work
 
+- [REWARDS-510.md](REWARDS-510.md): native chest reward continuation, shared placement and first-reveal handoff.
 - [RELEASE-1.0.1.md](RELEASE-1.0.1.md): combat log startup default and verified main release provenance.
 - [TUTORIAL-508.md](TUTORIAL-508.md): sibling text/frame geometry, owner-only corner bounds
   and user-authorized omission of the premature quest-preparation hint.
