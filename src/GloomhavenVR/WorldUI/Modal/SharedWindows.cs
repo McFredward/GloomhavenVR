@@ -525,8 +525,9 @@ internal static class SharedWindows
     /// <summary>
     /// The mod-owned grab frame of the floated window of that kind.
     ///
-    /// <para>Returns false when no such window is open, when it is not converted (it fell back to
-    /// the flat screen), or when it is still behind the reveal gate. Every one of those means
+    /// <para>Returns false when the native window has no converted grab (for example, it fell back
+    /// to the flat screen). Pending grabs are returned; the transport reader gates publication.
+    /// A missing grab means
     /// "this client has no grabbable window of that kind" — NEVER "this client cannot take part in
     /// the sync". The page/advance path must not consult this, and a client that cannot place a
     /// window simply keeps its own placement while remaining a full participant.</para>

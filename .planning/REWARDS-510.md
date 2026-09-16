@@ -44,10 +44,17 @@ identity from localized text, reward amounts, Unity instance IDs or the latest e
 Thus two chests containing the same reward remain distinct. Unknown identity does not
 publish a guessed pose and never prevents native local confirmation.
 
-Late native windows can adopt an already elected peer pose before reveal. Initial poses
-have a deterministic election; actual user movement takes priority. Omitted/stale peer
-records retire their claim. No reward/character/card identity or continuation command is
-introduced on the mod transport.
+Scenario reward poses use the same absolute WorldAnchor as avatars, not a viewer's
+panned/orbited seat frame. A reward-only frame value leaves legacy frame grammar intact.
+
+The lowest live reward-capable VR participant supplies the initial pose. Pending geometry
+can be transmitted while hidden; a Ready flag prevents followers from revealing an
+unsettled placement. Followers apply that final pose immediately before first visibility.
+A native conversion failure is advertised explicitly and another participant takes over;
+departure uses ordinary membership removal. An absent/disabled net module does not block
+local confirmation or reveal. Later actual user movement takes priority, and omitted/stale
+peer records retire their claim. No reward/character/card identity or continuation command
+is introduced on the mod transport.
 
 ## Validation
 

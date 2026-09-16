@@ -369,15 +369,7 @@ internal static partial class ModalFallback
     internal static bool TryGetStoryGrab(out GrabbableModal? grab) =>
         SharedWindows.TryGetGrab(SharedWindowKind.ScenarioStory, out grab);
 
-    /// <summary>
-    /// The mod-owned <see cref="GrabbableModal"/> built for a specific game <see cref="UIWindow"/>,
-    /// or false when that window is not floated (not open, not converted, or still behind the
-    /// reveal gate).
-    ///
-    /// <para>A pure LOOKUP through the private <c>Converted</c> list: it never converts, never
-    /// places and never releases anything, so nothing that calls it can change which windows float
-    /// or when. That property is what makes it safe to call from the net module.</para>
-    /// </summary>
+    /// <summary>Explicit conversion failure lets another VR participant publish the reward pose.</summary>
     internal static bool RewardPlacementFailed(UIWindow? window) => window != null && Failed.Contains(window);
 
     internal static void PreserveRewardInitialPose(UIWindow window)
@@ -388,6 +380,15 @@ internal static partial class ModalFallback
         wp.PoseRePlaceDone = true;
     }
 
+    /// <summary>
+    /// The mod-owned <see cref="GrabbableModal"/> built for a specific game <see cref="UIWindow"/>,
+    /// or false when that window has no converted grab. Pending grabs are returned too;
+    /// transport readers decide whether that window kind may publish before reveal.
+    ///
+    /// <para>A pure LOOKUP through the private <c>Converted</c> list: it never converts, never
+    /// places and never releases anything, so nothing that calls it can change which windows float
+    /// or when. That property is what makes it safe to call from the net module.</para>
+    /// </summary>
     internal static bool TryGetGrabFor(UIWindow? window, out GrabbableModal? grab)
     {
         grab = null;
