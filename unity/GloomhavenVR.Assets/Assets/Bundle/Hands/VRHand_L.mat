@@ -39,7 +39,7 @@ Material:
     - _DstBlend: 0
     - _FadeAlpha: 1
     - _LightBoost: 0.85
-    - _NormalStrength: 0.5
+    - _NormalStrength: 0.25
     - _SpecStrength: 0
     - _SrcBlend: 1
     - _ZWrite: 1

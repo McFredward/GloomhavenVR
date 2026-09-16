@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for first-tutorial-only VR additions, ModBuild 514 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for softer Glove finger relief, ModBuild 515 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.3 / ModBuild 515 softens the Glove surface (full install).**
+  Both glove materials reduce authored normal relief from 0.5 to 0.25. Native model renders
+  and actual bundle checks cover both hands and confirm that Plate/Arcane, geometry and
+  attachment anchors are preserved. The exact Unity 2021.3.5f1 bundle has 617 assets and
+  74,942,975 bytes. Full integration checks follow; perceived headset appearance is unverified.
+  See [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md). Published 1.0.2 is unchanged.
 
 - **dev / 1.0.3 / ModBuild 514 limits additional VR lessons to the first native tutorial.**
   Admission uses the tutorial selector's first ID and filename, while later tutorials keep

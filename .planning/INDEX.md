@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-16 for first-tutorial-only VR additions, build 514 on dev. This directory holds internal
+Updated 2026-09-16 for softer Glove finger relief, build 515 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md): authored Glove relief reduction, native A/B renders and bundle object verification.
 
 - [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md): native first-tutorial identity, scoped extra lessons and safe message-hold cleanup.
 
