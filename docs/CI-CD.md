@@ -155,7 +155,7 @@ hardware-verification logging and option reachability. The workflow files list t
 commands explicitly. The former eight-check gap in the release workflow is closed.
 
 The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, map-button, flight-timing,
-figure-hold, native-video, reward-showcase, panel-ink, shared-video-playback and introduction-hint harnesses execute
+figure-hold, native-video, reward-showcase, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
 production source with controlled Unity API substitutes and deliberate failing variants. These run on
 hosted CI as well as through the local wire-test driver. The local driver also checks
 presentation-send reuse. Their coverage does not replace the full wire vectors or a
@@ -188,10 +188,19 @@ laser/poke skip, stale playback identities and native hero-movie completion.
 `scripts/panel-material-tests.sh` exercises passive native TMP material inspection and
 the actual capture blur handler. Negative controls restore allocating material getters,
 overbroad neutralization and a missing GrabPass remedy.
+
+`scripts/reward-showcase-tests.sh` executes the native reward iterator through group progression
+and the completion callback, including tutorial/custom-scenario input and multiplayer authority.
+The retained iterator fixture is compared with the read-only game reference when available.
+Negative controls reject the former physical-gamepad adapter and bypasses of native progression.
+
 `scripts/panel-ink-tests.sh` exercises the production ink walker:
 full-frame movie content remains measurable while ordinary backgrounds, hidden graphics and
 clipped pixels retain their exclusions. It also tests placement-only annotation exclusion
-in the ink walk and drawn-content union, while hit/chrome bounds retain the hint controls. `scripts/hint-tests.sh` checks queued native message
+in the ink walk and drawn-content union, while hit/chrome bounds retain the hint controls.
+Original reward-heading glyph overflow is included without broadening native masks or affecting
+other text; transformed, empty and invalid glyph bounds have dedicated negative controls.
+`scripts/hint-tests.sh` checks queued native message
 ownership, pending standalone dissolve cancellation and native sibling text/frame reflow/restoration
 before composite adoption. Their
 negative controls reject premature empty frames, lost message ownership and missing cleanup.

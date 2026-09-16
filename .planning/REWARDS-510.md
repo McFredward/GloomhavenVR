@@ -1,5 +1,10 @@
 # Chest reward continuation and shared presentation — ModBuild 510
 
+**Superseded by the build-510 hardware retest:** the Continue button still deadlocked in
+tutorial/custom scenarios and the heading was clipped. See [REWARDS-511.md](REWARDS-511.md)
+for the corrected mode diagnosis and tests of the native completion path.
+
+
 ## Request and evidence
 
 The maintainer reports an undismissable reward window after opening a chest and requests

@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for the chest reward fix, ModBuild 510 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for the reward continuation retest and material fix, ModBuild 511 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,20 +13,24 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **dev / 1.0.2 / ModBuild 510 repairs chest reward continuation and shares the window.**
-  Guildmaster receives an explicit native-styled Continue button; Campaign keeps its
-  original button and repairs the native callback when gamepad creation omitted it.
-  Native reveal, player ownership and reward progression remain authoritative.
-  Reward windows use normal shared chrome and grab/resize, with exact chest identity,
-  common scenario coordinates and a ready handoff before followers first reveal.
-  Available logs are older builds 507/500; the current hardware report is not reproduced
-  by those traces. See [REWARDS-510.md](REWARDS-510.md) for source evidence and checks.
+- **dev / 1.0.2 / ModBuild 511 corrects the failed build-510 chest retest.**
+  Tutorial/custom scenarios use UIRewardsManager outside Guildmaster mode; its gamepad
+  confirmation adapter rejected the VR click. Continue now supplies only native input,
+  preserving native reward groups, multiplayer ownership/actions and the completion callback.
+  The button paints native hover/press/disabled states. Capture/chrome include the exact
+  original heading's live glyph bounds, retaining layout, fonts and native masks.
+  Separate build-509 user logs exposed allocating TMP material reads that repeatedly tore
+  down render targets; capture and diagnostic reads now use existing shared materials.
+  This removes that demonstrated failure path, not every possible source of FPS dips.
+  Local evidence is build 510; retained remote logs are build 500. See
+  [REWARDS-511.md](REWARDS-511.md). Final integrated checks are being recorded there.
+  Headset continuation, hover, framing and current multiplayer acceptance remain open.
   No main merge or release publication is part of this fix.
-- **510 integration checks pass:** strict Release has zero warnings/errors; all 17
-  checkers, 253,759 wire assertions and production suites pass. Reward coverage includes
-  219 assertions / 11 runtime negative controls. Retained build-502 compiled comparison:
-  34 changed types, 22 additions, no removals (reviewed); surfaces 625/161/4,726.
-  Bilingual documentation and whitespace checks pass. Current headset acceptance is open.
+- **Build 510's hardware retest failed despite green checks.** Its reward test incorrectly
+  modeled ConfirmPressed as an unconditional input latch. Build 511 executes the native
+  ProcessRewards iterator through completion, with a negative control for that exact defect.
+  The shared-window identity, placement and first-reveal handoff from 510 remain in place;
+  [REWARDS-510.md](REWARDS-510.md) is the historical implementation record.
 
 - **1.0.1 / ModBuild 509 is published as the latest GitHub release.**
   main and v1.0.1 name PR #3 merge be74759e; Release run 35014316673 succeeded.
@@ -36,7 +40,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   Candidate CI and all local gates passed, including 253,674 wire assertions and
   36 release topology checks. See [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
 - **dev targets 1.0.2.** The workflow preserved main ancestry and advanced the
-  version in bot commit 12f66604. Build 510 is the next hardware candidate;
+  version in bot commit 12f66604. Build 511 is the next hardware candidate;
   the published 1.0.1 release remains unchanged.
 
 - **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**

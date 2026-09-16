@@ -498,7 +498,20 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 510;
+    public const ushort ModBuild = 511;
+
+    // ModBuild 511 — correct build-510 reward deadlock, hover and cropped announcement.
+    //   Tutorial/custom scenarios also use UIRewardsManager, but its ConfirmPressed adapter
+    //   waits for a physical gamepad edge outside Guildmaster. VR Continue now supplies only
+    //   the native input latch; ProcessRewards retains ownership, network actions and completion.
+    //   Original button artwork represents hover/press/disabled states. Capture and chrome
+    //   include the original heading's actual glyph bounds without changing native layout/masks.
+    //   Passive TMP material reads prevent the build-509 user's null-source instantiation
+    //   exception and repeated render-target teardown; this does not explain every FPS dip.
+    //   Regression tests execute the native reward iterator through its completion callback.
+    //   Local evidence is build 510; retained remote logs are 500. Headset replay remains open.
+    //   Version 1.0.2, DLL-only since 483, no wire change; all VR peers use 511.
+    //   See .planning/REWARDS-511.md for evidence, corrected assumptions and validation.
 
     // ModBuild 510 — native chest reward continuation and shared reward windows.
     //   Guildmaster's mouse-only continuation now has a localized VR Continue button;

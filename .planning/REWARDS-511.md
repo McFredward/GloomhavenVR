@@ -22,7 +22,7 @@ The VR button now supplies that window's local confirmation input latch after ch
 the original eligibility/ownership terms. This is the native coroutine's alternative to
 MouseClickLeft.WasPressed; it is not nextRewardOverride or an authoritative game-state write.
 ProcessRewards still owns group advancement, ProcessNextReward multiplayer actions,
-EndProcess and onProcessEnded. CampaignRewardsManager's separate original button path
+EndProcess and onProcessEnded. CampaignScenarioRewardManager's separate original button path
 retains its own callback. First hover, accepted input and consumed input are observable
 at the ordinary log level.
 
@@ -37,8 +37,11 @@ part of the acceptance test, rather than being assumed from a direct handler inv
 The 510 reward capture reports a 1380x1376 target at 2x density (LogOutput.log:783),
 and incorrectly says no content extends beyond the host. Its bounds walk measures the
 text RectTransform, which can be narrower than the glyphs TMP actually draws. The fix
-must retain original text, font, artwork, animation and native clipping; the screenshot
-does not justify replacing the heading or shrinking the whole window.
+retains original text, font, artwork, animation and native clipping. Only the exact native
+rewardAnnouncementText contributes its live glyph bounds to capture and chrome. Four
+transformed glyph corners expand the draw union after the original mask geometry is
+established. Authored layout still supplies placement/scale metrics. Empty or invalid
+meshes fall back to their layout box; the usual refresh observes the completed mesh.
 
 ## Separate build-509 user report
 

@@ -6,8 +6,8 @@ using UnityEngine.UI;
 namespace GloomhavenVR.WorldUI;
 
 /// <summary>
-/// VR input for the original scenario reward flow. Guildmaster waits for InControl mouse input,
-/// which a world-space uGUI click never sets. Campaign wires its original Continue button only
+/// VR input for the original scenario reward flow. UIRewardsManager waits for native mouse or
+/// confirmation input, which a world-space uGUI click never sets. Campaign wires Continue only
 /// during mouse-mode Awake, so entering VR after gamepad creation can leave that button unwired.
 /// Neither case permits hiding the window: its original continuation releases the choreographer
 /// and, in multiplayer, sends ConfirmReward/ProcessNextReward from the native controlling player.
@@ -105,7 +105,7 @@ internal static partial class RewardShowcase
             _loggedWindow = window;
             _loggedPermission = permission;
             VRLog.Info("WorldUI", $"REWARD SHOWCASE INPUT: native window='{window.name}', "
-                + $"mode={(Manager is CampaignScenarioRewardManager ? "Campaign" : "Guildmaster")}, "
+                + $"flow={(Manager is CampaignScenarioRewardManager ? "Campaign" : "UIRewardsManager")}, "
                 + $"canContinue={permission}; native reward continuation retains multiplayer authority.");
         }
     }
