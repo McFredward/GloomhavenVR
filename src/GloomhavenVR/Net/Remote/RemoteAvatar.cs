@@ -2315,9 +2315,9 @@ internal sealed class RemoteAvatar
                 || controller?.PlayerId != PlayerId) continue; // roster/ownership may arrive later
             if (_burnCompletionTimes.Count >= CardBurnCompletionHistory.CountMax && !_burnCompletionTimes.ContainsKey(entry.Key)) continue;
             _burnCompletionTimes[entry.Key] = entry.Time;
-            CardFlightVisibility.ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.Flags, entry.Source, entry.Time, card);
-            NetAvatarDriver.MirrorCharacterCardFlight(this, entry.Endpoints, entry.Flags, entry.Source, entry.Time, card);
-            PlayMirroredCardFlight(entry.Endpoints, entry.Flags, entry.Source, entry.Time, PlayerId, card);
+            CardFlightVisibility.ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card);
+            NetAvatarDriver.MirrorCharacterCardFlight(this, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card);
+            PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, PlayerId, card);
         }
     }
 

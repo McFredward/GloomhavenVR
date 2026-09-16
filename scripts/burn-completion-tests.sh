@@ -13,8 +13,8 @@ a=(r/'src/GloomhavenVR/Net/Remote/RemoteAvatar.cs').read_text()
 assert a.index('ApplyBurnCompletions(p.BurnCompletions);') < a.index('foreach (CardFlightEvent flight'), 'Durable releases precede legacy flight admission'
 assert 'completions.Covers(sequence, endpoints, flags, source)' in a, 'Missing capture must retain the legacy release path'
 assert 'initial && (card == null || !_burnFx.HasObservedBurn(card))' in a, 'Joining must not invent a historical burn hold'
-assert 'ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.Flags, entry.Source, entry.Time, card)' in a, 'Read-only local boards need exact native completion provenance'
-assert 'PlayMirroredCardFlight(entry.Endpoints, entry.Flags, entry.Source, entry.Time, PlayerId, card)' in a, 'Original board dispatch carries exact original, clock and peer'
+assert 'ObserveOwnerRelease(entry.ActorId, entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, card)' in a, 'Read-only local boards need exact native completion provenance'
+assert 'PlayMirroredCardFlight(entry.Endpoints, entry.FlightFlags, entry.Source, entry.Time, PlayerId, card)' in a, 'Original board dispatch carries exact original, clock and peer'
 assert 'ConsumesWireEvent(endpoints, flags, source, completionTime, presentationPlayer, originalCard)' in a, 'Burn ownership receives exact completion identity'
 b=(r/'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.CardAppearance.cs').read_text()
 assert 'viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, sender.PlayerId, originalCard)' in b, 'Foreign-focus boards retain the actual appearance publisher'

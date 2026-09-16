@@ -8,6 +8,8 @@ namespace GloomhavenVR.Net;
 /// original provenance plus owner time identifies a release across sequence wrap and packet loss.</summary>
 internal readonly struct CardBurnCompletion
 {
+    internal const byte RecentFlightBit = 2;
+    internal byte FlightFlags => (byte)(Flags & CardFlightVisibility.CoveredBurnBit);
     internal readonly byte Sequence, Endpoints, Flags, Seat, Count;
     internal readonly float Time;
     internal readonly int ActorId, SourceActorId;
@@ -21,13 +23,15 @@ internal readonly struct CardBurnCompletion
     }
     internal CardFlightSource Source => new(ActorId, Seat, Count);
     internal (int Actor, int Source, ushort Seat, ushort Count) Key => (ActorId, SourceActorId, PoolSeat, PoolCount);
-    internal CardBurnCompletion WithSequence(byte sequence) => new(sequence, Endpoints, Flags, Time,
+    internal CardBurnCompletion WithSequence(byte sequence) => new CardBurnCompletion(sequence, Endpoints, Flags, Time,
         ActorId, SourceActorId, PoolSeat, PoolCount, Seat, Count);
+    internal CardBurnCompletion WithRecentFlight(bool recent) => new CardBurnCompletion(Sequence, Endpoints,
+        (byte)(FlightFlags | (recent ? RecentFlightBit : 0)), Time, ActorId, SourceActorId, PoolSeat, PoolCount, Seat, Count);
     internal bool Valid() => !float.IsNaN(Time) && !float.IsInfinity(Time) && Time >= 0f
         && ActorId != 0 && SourceActorId != 0 && PoolCount > 0 && PoolCount <= 32768
         && (PoolSeat & 32767) < PoolCount && Source.Validate()
         && NetCardFx.To(Endpoints) == CardFxAnchor.Burnt && (Endpoints & 15) <= (byte)CardFxAnchor.Active
-        && (Flags & ~CardFlightVisibility.CoveredBurnBit) == 0;
+        && (Flags & ~(CardFlightVisibility.CoveredBurnBit | RecentFlightBit)) == 0;
 }
 
 /// <summary>Record75 repeats terminal releases until original recovery or scenario teardown.
@@ -46,7 +50,8 @@ internal sealed class CardBurnCompletionHistory
     {
         if (!source.HasValue) return false;
         foreach (var entry in Entries)
-            if (entry.Sequence == sequence && entry.Endpoints == endpoints && entry.Flags == flags
+            if ((entry.Flags & CardBurnCompletion.RecentFlightBit) != 0
+                && entry.Sequence == sequence && entry.Endpoints == endpoints && entry.FlightFlags == flags
                 && entry.ActorId == source.Value.ActorId && entry.Seat == source.Value.Seat
                 && entry.Count == source.Value.Count) return true;
         return false;
@@ -92,7 +97,7 @@ internal sealed class CardBurnCompletionHistory
             byte seq=buffer[at++],ends=buffer[at++],flags=buffer[at++];float time=AvatarSerializer.ReadF32(buffer,ref at);
             int actor=Get32(buffer,ref at), sourceActor=Get32(buffer,ref at);
             ushort seat=Get16(buffer,ref at),pool=Get16(buffer,ref at);
-            entries[i]=new(seq,ends,flags,time,actor,sourceActor,seat,pool,buffer[at++],buffer[at++]);
+            entries[i]=new CardBurnCompletion(seq,ends,flags,time,actor,sourceActor,seat,pool,buffer[at++],buffer[at++]);
         }
         var result=new CardBurnCompletionHistory(sequence,entries);
         if(!result.Valid())return false;

@@ -50,7 +50,20 @@ internal static class NetCardFx
         int removed = s_completions.RemoveAll(entry => entry.Key == (state.ActorId, state.SourceActorId, state.PoolSeat, state.PoolCount));
         if (removed != 0) RefreshCompletions();
     }
-    private static void RefreshCompletions() => s_completionsSnapshot = new CardBurnCompletionHistory(s_seq, s_completions.ToArray());
+    private static void RefreshCompletions()
+    {
+        var entries = new CardBurnCompletion[s_completions.Count];
+        for (int i = 0; i < entries.Length; i++)
+        {
+            var entry = s_completions[i];
+            bool recent = false;
+            foreach (var flight in s_history)
+                if (flight.Event.Sequence == entry.Sequence && flight.CompletionTime == entry.Time)
+                { recent = true; break; }
+            entries[i] = entry.WithRecentFlight(recent);
+        }
+        s_completionsSnapshot = new CardBurnCompletionHistory(s_seq, entries);
+    }
     internal static CardFlightHistory History => HistoryAt(Clock());
     private static double Clock() => System.Diagnostics.Stopwatch.GetTimestamp() / (double)System.Diagnostics.Stopwatch.Frequency;
     internal static CardFlightHistory HistoryAt(double now)
@@ -67,6 +80,7 @@ internal static class NetCardFx
         int i = 0;
         foreach (var value in s_history) events[i++] = value.Event;
         s_historySnapshot = new CardFlightHistory(s_seq, events);
+        RefreshCompletions();
     }
     private static bool s_loggedFirst;
 
@@ -160,7 +174,6 @@ internal static class NetCardFx
                 if (s_completions[i].Key == completion.Key && s_completions[i].Time == completion.Time)
                     s_completions[i] = completion.WithSequence(seq);
         }
-        RefreshCompletions();
         RefreshHistory();
         s_dispatched++;
         LogOutbox();

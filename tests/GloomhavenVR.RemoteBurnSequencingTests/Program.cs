@@ -8,9 +8,12 @@ internal static class Program
         var actor=new CPlayerActor(4); var other=new CPlayerActor(5); var card=new CAbilityCard(31);
         RemoteBoardFocus.Actors[4]=actor; RemoteBoardFocus.Actors[5]=other;
         actor.CharacterClass.LostAbilityCards.Add(card);
-        var burn=new Burn { ActorId=4, Widget=new AbilityCardUI { AbilityCard=card } };
+        var burn=new Burn { ActorId=4, OriginalCard=card, Widget=new AbilityCardUI { AbilityCard=card } };
         var hold=new BurnFixture(); hold._burns.Add(burn);
         Check(ReferenceEquals(hold.PresentationActor,actor),"Native burn keeps its presentation actor");
+        var nativeWidget=burn.Widget; burn.Widget=null;
+        Check(ReferenceEquals(hold.PresentationActor,actor),"Temporary native widget loss cannot cancel the exact original's burn hold");
+        burn.Widget=nativeWidget;
         var active=new ActiveFixture(); var board=new BoardFixture {_latchedActor=actor};
         foreach (int simulatedFrame in new[]{1,2,60,300,36000})
         {
@@ -80,6 +83,33 @@ internal static class Program
         Check(hold.PresentationActor==null,"Unrelated focus must never be retargeted by a pending release");
         hold._watchActor=4;RemoteBoardFocus.Actors.Remove(4);
         Check(hold.PresentationActor==null,"Destroyed actor releases unresolved causal hold");
+        RemoteBoardFocus.Actors[4]=actor;
+        CardAppearanceProvenance.Originals[(4,0,32)]=card;
+        var completed=new CardBurnCompletionHistory { Entries=new[]{new CardBurnCompletion(1,4,4,0,32,10f)} };
+        var receiver=new RemoteAvatar(); NetAvatarDriver.Controller=receiver;
+        receiver.ApplyBurnCompletions(completed);
+        Check(receiver.Dispatched==0,"Joining after historical losses must not create an orphan burn claim");
+        receiver.ApplyBurnCompletions(completed);
+        Check(receiver.Dispatched==0,"Adopted historical terminal state stays inert on repetition");
+        receiver=new RemoteAvatar(); NetAvatarDriver.Controller=receiver;
+        receiver._burnFx._burns.Add(new Burn {ActorId=4,OriginalCard=card,Widget=new AbilityCardUI {AbilityCard=card}});
+        receiver.ApplyBurnCompletions(completed);
+        Check(receiver.Dispatched==1,"First packet during an observed burn must release its native hold");
+        receiver.ApplyBurnCompletions(completed);
+        Check(receiver.Dispatched==1,"Repeated durable terminal receipt must not replay a burn");
+        receiver=new RemoteAvatar(); NetAvatarDriver.Controller=receiver;
+        receiver.ApplyBurnCompletions(new CardBurnCompletionHistory());
+        receiver.ApplyBurnCompletions(completed);
+        Check(receiver.Dispatched==1,"Empty initial history does not suppress a later durable burn");
+        completed.Entries[0]=new CardBurnCompletion(1,4,4,0,32,20f);
+        receiver.ApplyBurnCompletions(completed);
+        Check(receiver.Dispatched==2,"New generation of the exact original survives sequence wrap without legacy62");
+        receiver=new RemoteAvatar(); NetAvatarDriver.Controller=receiver;
+        CardAppearanceProvenance.Originals.Clear(); NetAvatarDriver.OwnershipReady=false;
+        receiver.ApplyBurnCompletions(completed);
+        CardAppearanceProvenance.Originals[(4,0,32)]=card; NetAvatarDriver.OwnershipReady=true;
+        receiver.ApplyBurnCompletions(completed);
+        Check(receiver.Dispatched==0,"Late roster arrival cannot turn initial historical loss into a live burn");
         Console.WriteLine($"Remote burn sequencing: {assertions} assertions passed.");
     }
 }

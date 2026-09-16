@@ -4,14 +4,14 @@ namespace GloomhavenVR.WireTests;
 internal static class CardBurnCompletionVectors
 {
     private static CardBurnCompletion Entry(byte sequence = 1, ushort seat = 0, int actor = 3, float time = 7.25f)
-        => new(sequence, 0x41, 0, time, actor, actor, seat, 32, 0, 0);
+        => new(sequence, 0x41, CardBurnCompletion.RecentFlightBit, time, actor, actor, seat, 32, 0, 0);
     internal static void Run(Harness t)
     {
         t.Case("513: durable native completion preserves exact original provenance");
         var history = new CardBurnCompletionHistory(1, new[] { Entry() });
         var bytes = new byte[PresenceSerializer.MaxSize];
         int length = PresenceSerializer.Write(new PresenceState { BurnCompletions = history }, bytes);
-        t.Wire(Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 4B 17 01 01 01 41 00 00 00 E8 40 03 00 00 00 03 00 00 00 00 00 20 00 00 00"), bytes, length,
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 4B 17 01 01 01 41 02 00 00 E8 40 03 00 00 00 03 00 00 00 00 00 20 00 00 00"), bytes, length,
             "golden75 carries LE native clock and immutable original alongside legacy source");
         t.True(PresenceSerializer.TryRead(bytes, length, out var state) && state.BurnCompletions != null
             && state.BurnCompletions.Entries[0].Time == 7.25f && state.BurnCompletions.Entries[0].PoolCount == 32,
@@ -55,7 +55,22 @@ internal static class CardBurnCompletionVectors
         NetCardFx.NoteBurnCompletionCapture(capture, 7.25f);
         NetCardFx.Report(CardFxAnchor.Slot0, CardFxAnchor.Burnt, 0, new CardFlightSource(3, 0, 0), 7.25f);
         while (NetCardFx.TryDequeue(out _, out _, out _, out _)) { }
+        foreach (var entry in NetCardFx.BurnCompletions.Entries)
+            t.True(NetCardFx.BurnCompletions.Covers(entry.Sequence, entry.Endpoints, entry.FlightFlags, entry.Source),
+                "Recent exact native receipt correlates its live legacy event");
         NetCardFx.HistoryAt(double.MaxValue);
+        foreach (var entry in NetCardFx.BurnCompletions.Entries)
+            t.True(!NetCardFx.BurnCompletions.Covers(entry.Sequence, entry.Endpoints, entry.FlightFlags, entry.Source),
+                "Expired legacy correlation cannot suppress a future wrapped event");
+        for (int i = 0; i < 255; i++)
+        {
+            NetCardFx.Report(CardFxAnchor.Slot0, CardFxAnchor.Discard);
+            NetCardFx.TryDequeue(out _, out _, out _, out _);
+        }
+        NetCardFx.Report(CardFxAnchor.Slot0, CardFxAnchor.Burnt, 0, new CardFlightSource(3, 0, 0), 99f);
+        NetCardFx.TryDequeue(out byte wrappedEndpoints, out byte wrappedSequence, out byte wrappedFlags, out var wrappedSource);
+        t.True(!NetCardFx.BurnCompletions.Covers(wrappedSequence, wrappedEndpoints, wrappedFlags, wrappedSource),
+            "Wrapped same-slot burn without native capture retains its legacy release path");
         t.True(NetCardFx.BurnCompletions.Entries.Length == 2, "paired same-frame originals survive expiry of the two-second flight history");
         NetCardFx.ForgetBurnCompletion(capture);
         t.True(NetCardFx.BurnCompletions.Entries.Length == 1 && NetCardFx.BurnCompletions.Entries[0].PoolSeat == 0,

@@ -7,7 +7,7 @@ trap 'rm -rf "$work_dir"' EXIT
 cp "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.cs "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/"*.csproj "$work_dir/"
 python3 "$repo_root/tests/GloomhavenVR.RemoteBurnSequencingTests/extract.py" "$repo_root" "$work_dir/Production.cs"
 dotnet run --project "$work_dir/GloomhavenVR.RemoteBurnSequencingTests.csproj" --configuration Release
-for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor; do
+for mutation in active-layout recess-layout early-native wrong-provenance release-bypass discovery-order following-flight recovery-address pending-actor initial-history duplicate-terminal; do
   mkdir -p "$work_dir/source/src/GloomhavenVR/Net/Remote"
   cp "$repo_root/src/GloomhavenVR/Net/Remote/"*.cs "$work_dir/source/src/GloomhavenVR/Net/Remote/"
   cp "$repo_root/src/GloomhavenVR/Net/CardAppearanceMirror.cs" "$work_dir/source/src/GloomhavenVR/Net/"
@@ -15,6 +15,8 @@ for mutation in active-layout recess-layout early-native wrong-provenance releas
 import pathlib,sys
 root=pathlib.Path(sys.argv[1]); mutation=sys.argv[2]
 file,old,new={
+'initial-history':('Remote/RemoteAvatar.cs','if (initial && (card == null || !_burnFx.HasObservedBurn(card)))','if (bool.Parse("false") && initial && (card == null || !_burnFx.HasObservedBurn(card)))'),
+'duplicate-terminal':('Remote/RemoteAvatar.cs','if (_burnCompletionTimes.TryGetValue(entry.Key, out float seen) && seen >= entry.Time) continue;',''),
 'active-layout':('Remote/RemoteActiveCards.cs','if (_owner.HoldsBurnCardLayout)','if (bool.Parse("false") && _owner.HoldsBurnCardLayout)'),
 'recess-layout':('Remote/RemoteControlBoard.cs','if (_owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))','if (bool.Parse("false") && _owner.HoldsBurnCardLayout && ReferenceEquals(actor, _latchedActor))'),
 'early-native':('CardAppearanceMirror.cs','progress >= 1f','progress >= 0f'),
@@ -33,6 +35,8 @@ PY
     fi
   fi
   case "$mutation" in
+    initial-history) expected='Joining after historical losses must not create an orphan burn claim';;
+    duplicate-terminal) expected='Adopted historical terminal state stays inert on repetition';;
     active-layout) expected='Pending burn must not compact the active grid';;
     recess-layout) expected='Pending burn must not replace the first recess';;
     early-native) expected='Release must wait while native interpolation still contains pre-completion output';;
