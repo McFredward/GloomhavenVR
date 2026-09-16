@@ -42,9 +42,10 @@ namespace GloomhavenVR.Compat;
 /// first message is a <c>StoryDialog</c> (<c>TB_1</c>) and the first box that "leads through the
 /// tutorial" is displayed by that dialogue's dismissal (<c>TB_2_1</c>, display trigger
 /// <c>LevelMessageDismissed ctxId='TB_1'</c>). So the lesson arms at scenario start, WAITS for the
-/// dialogue to be dismissed, and then takes the box for itself. Any tutorial with no
-/// <c>StoryDialog</c> queued at all starts after <see cref="StartDelaySeconds"/> instead — the
-/// wait is on a message that exists, never on one that might.</para>
+/// dialogue to be dismissed, and then takes the box for itself. If that first tutorial has no
+/// <c>StoryDialog</c> queued at all it starts after <see cref="StartDelaySeconds"/> instead.
+/// This slot fallback never admits another tutorial; <see cref="TutorialLessonScope"/>
+/// independently requires the selector's first entry.</para>
 ///
 /// <para>WHAT HAPPENS TO THE SCRIPTED CHAIN, and it is the only thing this class does to the game.
 /// From the moment the dialogue closes until the lesson ends, <see cref="TutorialChainHold"/>
@@ -240,13 +241,11 @@ internal static class ControlsTutorial
     /// (.planning/debug/LogOutput.log:790-791), and the resulting order is
     /// <c>TB_1 → TB_2_1 → the lesson → TB_2_2 → TB_3 → TB_4 …</c>.</para>
     ///
-    /// <para>IT IS DERIVED, NOT NAMED. Hard-coding <c>TB_2_1</c> would make the lesson silently
-    /// never run in any other tutorial — and this class is armed for every tutorial scenario, not
-    /// just that one. The derivation uses the same structural fact the old comment already relied
-    /// on ("that dismissal is the display trigger of the first box the tutorial itself would
-    /// open"), it just waits for that box to be dismissed instead of shown. If no such message
-    /// exists the gate falls back to the opening dialogue, which is exactly the previous
-    /// behaviour.</para>
+    /// <para>The slot is derived from the admitted first tutorial's own queue. This does NOT
+    /// authorize inserting the lesson into another tutorial with a similar opening. That former
+    /// generic admission caused the repeated VR course reported on 2026-09-16; eligibility now
+    /// comes exclusively from <see cref="TutorialLessonScope"/>. Within that one tutorial, a
+    /// missing introduction box still falls back to its opening dialogue.</para>
     /// </summary>
     /// <param name="openingDialogName">The MessageName of the FIRST <c>StoryDialog</c> in the
     /// level's own message queue, or null when the level queues none. Read from the controller's
@@ -263,7 +262,7 @@ internal static class ControlsTutorial
     /// place that already walks the queue.</param>
     internal static void RequestForTutorial(string? openingDialogName, string? introMessageName)
     {
-        if (!Enabled || _phase != Phase.Idle)
+        if (!Enabled || !TutorialLessonScope.IsActive || _phase != Phase.Idle)
             return;
         _armedAt = Time.unscaledTime;
         _openAt = _armedAt + StartDelaySeconds;
@@ -305,7 +304,8 @@ internal static class ControlsTutorial
     /// </summary>
     internal static void NoteMessageDismissed(CLevelMessage? messageDismissed)
     {
-        if (_disabledByError || _phase != Phase.WaitingForDialog || messageDismissed == null)
+        if (_disabledByError || !TutorialLessonScope.IsActive
+            || _phase != Phase.WaitingForDialog || messageDismissed == null)
             return;
         if (!string.Equals(messageDismissed.MessageName, _gateMessage, StringComparison.Ordinal))
             return;
@@ -341,6 +341,14 @@ internal static class ControlsTutorial
 
     private static void TickCore()
     {
+        // Scope can end before another scripted level starts (menu, disconnect or scene exit).
+        // Retire the lesson immediately, including the waiting-for-introduction phase; otherwise
+        // its old gate could react to a later tutorial that reuses the same message names.
+        if (!TutorialLessonScope.IsActive)
+        {
+            Stop("the first tutorial context ended");
+            return;
+        }
         float now = Time.unscaledTime;
 
         if (_phase == Phase.WaitingForDialog)
@@ -924,6 +932,11 @@ internal static class ControlsTutorial
     /// </summary>
     private static void OnAction()
     {
+        if (!TutorialLessonScope.IsActive)
+        {
+            Stop("the first tutorial context ended");
+            return;
+        }
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("Tutorial", $"Controls lesson skipped by the player at step {_index} "

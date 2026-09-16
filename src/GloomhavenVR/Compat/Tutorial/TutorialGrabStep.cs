@@ -79,9 +79,9 @@ namespace GloomhavenVR.Compat;
 /// message name (<see cref="MessageName"/>) — no scripted trigger in the tutorial references it
 /// (the flow dump's ctxIds are all <c>TB_*</c>/<c>HT_*</c>), so it is inert by construction.
 ///
-/// SCOPE: single-player tutorial only (<see cref="TutorialVR.IsTutorialActive"/> refuses online
-/// sessions outright) and fires at most once per scenario. Outside a tutorial nothing is ever
-/// shown or held and the game is bit-for-bit vanilla.
+/// SCOPE: only the native selector's first single-player tutorial
+/// (<see cref="TutorialLessonScope"/>), at most once per attempt. Reused hint keys in later
+/// tutorials cannot add a new step or hold their scripted flow.
 /// </summary>
 internal static class TutorialGrabStep
 {
@@ -182,7 +182,7 @@ internal static class TutorialGrabStep
     /// </summary>
     internal static void NoteDismissed(CLevelMessage? messageDismissed)
     {
-        if (_disabledByError || _doneThisScenario || Pending)
+        if (_disabledByError || !TutorialLessonScope.IsActive || _doneThisScenario || Pending)
             return;
         if (messageDismissed == null)
             return;
@@ -243,7 +243,7 @@ internal static class TutorialGrabStep
     {
         LevelMessagesUIHandler? handler = LevelMessagesUIHandler.s_Instance;
         bool inTutorial = LevelEventsController.s_EventsControllerActive
-                          && TutorialVR.IsTutorialActive
+                          && TutorialLessonScope.IsActive
                           && handler != null;
 
         // FAILSAFE 1 — scenario left / tutorial context lost / handler gone.

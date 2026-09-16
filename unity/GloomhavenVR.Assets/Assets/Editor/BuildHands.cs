@@ -112,7 +112,7 @@ namespace GloomhavenVR
         //
         // normalStrength: BoardLit's _NormalStrength, which scales the sampled normal's XY
         // (BoardLit.shader:118). 1.0 is "as authored" and is the shader's default, so a set that
-        // wants it pays nothing for saying so. THE LEATHER GLOVE SHIPS 0.5, on his hardware note
+        // wants it pays nothing for saying so. The leather glove shipped 0.5 after the hardware note
         // of 2026-09-08: "bitte verringe die Stärke der normal-map auf die Hälfte, die Finger
         // sehen so zerknittert aus sonst." The map is fine; the viewing distance is the point. A
         // hand is read at arm's length in a headset, and at that distance the baked leather
@@ -123,10 +123,14 @@ namespace GloomhavenVR
         // same HandVisuals.Build), so a viewer-local dial here would be a 1:1 breach.
         // The plate and arcane sets are untouched: their maps were authored against their own
         // surfaces and neither was reported.
+        // ModBuild 515: the exposed fingers still read as cracked skin (2026-09-16 report).
+        // Reduce the glove to 0.25: half the previous normal perturbation, retaining authored
+        // surface detail without changing the mesh, skinning, UVs or the original colour map.
+        // Both hands and every observer receive this same baked material through the bundle.
         private static readonly (string baseName, string albedo, string normal, string mrs,
                                  bool doubleSided, float normalStrength)[] HandSets =
         {
-            ("VRHand",       Hands + "/VRHand_albedo.png",       Hands + "/VRHand_normal.png",       null,                           false, 0.5f),
+            ("VRHand",       Hands + "/VRHand_albedo.png",       Hands + "/VRHand_normal.png",       null,                           false, 0.25f),
             ("VRHandPlate",  Hands + "/VRHandPlate_albedo.png",  Hands + "/VRHandPlate_normal.png",  Hands + "/VRHandPlate_mrs.png", false, 1.0f),
             ("VRHandArcane", Hands + "/VRHandArcane_albedo.png", Hands + "/VRHandArcane_normal.png", null,                           false, 1.0f),
         };
@@ -285,7 +289,7 @@ namespace GloomhavenVR
             // Written ONLY when the set asks for something other than the shader's 1.0, so a set
             // at "as authored" produces a material byte-identical to every build before this
             // parameter existed — the same opt-in shape _SpecStrength uses above. See HandSets
-            // for why the glove is 0.5 and why it is not a dial.
+            // for why the glove is 0.25 and why it is not a dial.
             if (!Mathf.Approximately(normalStrength, 1f))
                 mat.SetFloat("_NormalStrength", normalStrength);
             // SPECULAR IS OPT-IN, AND THE OPT-IN IS THE MAP (ModBuild 248). A set that delivers

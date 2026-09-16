@@ -336,6 +336,7 @@ jobs:
           bash scripts/video-playback-tests.sh
           bash scripts/hint-tests.sh
           bash scripts/quest-hint-tests.sh
+          bash scripts/tutorial-scope-tests.sh
 
       - name: Wire tests (compile only — see docs/CI-CD.md)
         run: |

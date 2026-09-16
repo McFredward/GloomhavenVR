@@ -37,13 +37,16 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
     {
         try
         {
-            if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
-                return;
-
             // Scenario boundary for the controls phase — anything still open belongs to the level
-            // that just ended (this postfix is the one point where a new scripted level begins).
+            // that just ended. Reset BEFORE admission: a later/non-tutorial scripted level must
+            // also retire the first tutorial's lesson, skip retries and withheld messages.
             ControlsTutorial.Reset();
             TutorialCameraSkip.Reset();
+            TutorialGrabStep.Reset();
+            TutorialCardNames.Reset();
+
+            if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
+                return;
 
             var sb = new StringBuilder(2048);
             List<CLevelMessage>? msgs = __instance.m_MessagesToShow;
@@ -69,9 +72,8 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
             // first, then the lesson, which replaces the camera introduction). It is identified
             // STRUCTURALLY, never by name: the first queued message whose DISPLAY trigger is the
             // UIEvent LevelMessageDismissed(20) naming the opening dialogue. In tutorial 2 that
-            // resolves to TB_2_1; in any other tutorial it resolves to whatever that tutorial's
-            // first box is, and to null if it has none — in which case the lesson falls back to
-            // the dialogue itself, i.e. to exactly its previous behaviour.
+            // resolves to TB_2_1. Structure determines the insertion point, not eligibility:
+            // only the native tutorial selector's FIRST entry may receive additional VR steps.
             string? introBox = null;
             if (!string.IsNullOrEmpty(openingDialog))
                 for (int i = 0; i < n; i++)
@@ -88,7 +90,8 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
                 }
             // Queued rather than started: the hands, the asset bundle and the message handler all
             // come up over the first second of a scenario.
-            ControlsTutorial.RequestForTutorial(openingDialog, introBox);
+            if (TutorialLessonScope.IsActive)
+                ControlsTutorial.RequestForTutorial(openingDialog, introBox);
             sb.Append($"Tutorial flow dump — {n} scripted message(s) queued "
                 + "(display trigger ⇒ shows the hint; dismiss trigger ⇒ closes it):");
             for (int i = 0; i < n; i++)
@@ -108,9 +111,6 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
                 sb.Append($"\n       display: {TutorialVR.Describe(m.DisplayTrigger)}"
                     + $" | dismiss: {TutorialVR.Describe(m.DismissTrigger)}");
             }
-            // Scenario boundary — drop the previous scenario's recorded card references BEFORE
-            // the sweep below re-records this one's.
-            TutorialCardNames.Reset();
             List<CLevelEvent>? evs = __instance.m_LevelEventsToShow;
             for (int i = 0; i < (evs?.Count ?? 0); i++)
             {
@@ -128,8 +128,6 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
             }
             VRLog.Info("Tutorial", sb.ToString());
             TutorialVR.InvalidateWaitCache();
-            // Scenario boundary — the mod-owned extra VR step is a once-per-scenario bonus.
-            TutorialGrabStep.Reset();
         }
         catch (Exception ex)
         {

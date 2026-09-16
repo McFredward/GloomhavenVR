@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-16 for the native burn sequencing audit, build 513 on dev. This directory holds internal
+Updated 2026-09-16 for softer Glove finger relief, build 515 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -10,13 +10,19 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [../AGENTS.md](../AGENTS.md) | Agent workflow, integration ownership and current user rulings |
 | [../CLAUDE.md](../CLAUDE.md) | Technical contracts retained across agent tools |
 | [STATE.md](STATE.md) | Current build, validation and outstanding hardware checks |
-| [RELEASE-READINESS.md](RELEASE-READINESS.md) | Upcoming 1.0.0 repository audit and publication prerequisites |
+| [RELEASE-READINESS.md](RELEASE-READINESS.md) | Historical 1.0.0 repository audit and publication prerequisites |
 | [../docs/DEVELOPING.md](../docs/DEVELOPING.md) | Developer setup and required gates |
 | [../docs/CI-CD.md](../docs/CI-CD.md) | Actual release pipeline and main-branch provenance |
 | [../src/GloomhavenVR/Net/NetProtocol.cs](../src/GloomhavenVR/Net/NetProtocol.cs) | Newest-first build notes and additive wire record registry |
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md): authored Glove relief reduction, native A/B renders and bundle object verification.
+
+- [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md): native first-tutorial identity, scoped extra lessons and safe message-hold cleanup.
+
+- [RELEASE-1.0.2.md](RELEASE-1.0.2.md): successful build-513 retest, scoped log review, performance limits and verified main release publication.
 
 - [BURN-SEQUENCING-513.md](BURN-SEQUENCING-513.md): native burn completion before slot/fan replacement, causal observer release and original item effects.
 

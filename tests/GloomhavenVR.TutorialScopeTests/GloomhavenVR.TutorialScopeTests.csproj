@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <TutorialScopeSource Condition="'$(TutorialScopeSource)' == ''">../../src/GloomhavenVR/Compat/Tutorial/TutorialLessonScope.cs</TutorialScopeSource>
+    <TutorialHoldSource Condition="'$(TutorialHoldSource)' == ''">../../src/GloomhavenVR/Compat/Tutorial/TutorialChainHold.cs</TutorialHoldSource>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="Program.cs" /><Compile Include="$(TutorialScopeSource)" Link="Production/TutorialLessonScope.cs" /><Compile Include="$(TutorialHoldSource)" Link="Production/TutorialChainHold.cs" /></ItemGroup>
+</Project>

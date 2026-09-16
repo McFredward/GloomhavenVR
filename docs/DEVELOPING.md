@@ -232,6 +232,10 @@ The full wire executable is compile-only on hosted runners because it needs the 
 assembly; the surface comparison runs only on PRs there. The local guard covers both.
 See [CI-CD.md](CI-CD.md#3-verification-coverage) for the coverage and limits.
 
+`bash scripts/tutorial-scope-tests.sh` exercises first-tutorial admission and native message-hold
+lifetime, with mutation controls and bindings to lesson entry/cleanup paths. It runs through
+the local wire-test umbrella and both hosted presentation suites.
+
 `check-card-identity-mask.py` is a standalone **twin** of
 `tests/GloomhavenVR.WireTests/CardIdentityMaskVectors.cs`. The C# original is a pure text lint that
 needs no game DLL, but it shares an executable with the golden wire vectors, which do — so it is

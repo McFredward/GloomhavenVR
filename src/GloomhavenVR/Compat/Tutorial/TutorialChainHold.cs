@@ -168,9 +168,9 @@ internal static class TutorialChainHold
     {
         if (!_engaged || _replaying || message == null)
             return false;
-        // Context: the gate may only act inside a live single-player tutorial. (The config
-        // kill-switch went with the 2026-08-13 ruling; the context gate is the real guard.)
-        if (!TutorialVR.IsTutorialActive)
+        // Additional lessons are allowed only in the selector's first tutorial. Never capture
+        // messages from another controller while an old lesson is awaiting its cleanup tick.
+        if (!TutorialLessonScope.IsActive || !ReferenceEquals(controller, _controller))
             return false;
         // NEVER the scenario-won/lost message — dismissing it is what ends the level.
         if (message.DisplayTrigger != null
@@ -179,7 +179,6 @@ internal static class TutorialChainHold
                 || message.DisplayTrigger.EventTriggerTypeInt == ScenarioLostTriggerInt))
             return false;
 
-        _controller = controller;
         HeldMessages.Add(message);
         VRLog.Info("Tutorial", $"VR step HOLD: scripted message '{message.MessageName}' "
             + $"({message.LayoutType}) is withheld at LevelEventsController.{ShowMethodName} — the "
@@ -197,6 +196,8 @@ internal static class TutorialChainHold
     /// </summary>
     internal static bool Engage(string owner, string why)
     {
+        if (!TutorialLessonScope.IsActive || LevelEventsController.s_Instance == null)
+            return false;
         if (!Available)
         {
             VRLog.Warn("Tutorial", "VR step sequencing unavailable — the scripted-message hold "
@@ -214,6 +215,7 @@ internal static class TutorialChainHold
         }
         _engaged = true;
         _owner = owner;
+        _controller = LevelEventsController.s_Instance;
         VRLog.Info("Tutorial", $"VR step HOLD ENGAGED by '{owner}' — {why}. Every scripted level message the "
             + "tutorial tries to show from now on is withheld (the scenario-won/lost message "
             + "excepted) until the step is satisfied or a failsafe fires.");
@@ -249,7 +251,8 @@ internal static class TutorialChainHold
 
         // The level the messages belong to must still be the live one — otherwise they are stale
         // and re-issuing them would inject a dead level's windows into whatever runs now.
-        bool levelAlive = controller != null && LevelEventsController.s_EventsControllerActive;
+        bool levelAlive = controller != null && LevelEventsController.s_EventsControllerActive
+            && ReferenceEquals(controller, LevelEventsController.s_Instance);
         if (!levelAlive || _showLevelMessage == null)
         {
             VRLog.Warn("Tutorial", $"VR step HOLD RELEASED — {reason} — but the level that queued "

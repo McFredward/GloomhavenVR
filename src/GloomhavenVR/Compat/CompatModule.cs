@@ -183,6 +183,10 @@ internal sealed class CompatModule : IVRModule
         // is gone. Its OFF restored vanilla behaviour, and vanilla behaviour IS the deadlock this
         // bridge exists for, so it could only ever strand the tutorial. Scope is unchanged — every
         // seam below is still runtime-gated to tutorial scenarios.
+        // Added VR lessons belong only to the first entry in the native tutorial menu.
+        // Capture its identity before the menu is unloaded; generic VR text/input adaptations
+        // below continue to support every tutorial without inserting those additional steps.
+        VRSession.Harmony?.PatchAll(typeof(TutorialService_StartTutorial_Patch));
         VRSession.Harmony?.PatchAll(typeof(LevelEventsController_StartListeningForEvents_Patch));
         VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDisplayed_Patch));
         VRSession.Harmony?.PatchAll(typeof(LevelEventsController_MessageWasDismissed_Patch));

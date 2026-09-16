@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for the native burn sequencing audit, ModBuild 513 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-16 for softer Glove finger relief, ModBuild 515 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,7 +13,34 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **dev / 1.0.2 / ModBuild 513 sequences every native burn before card replacement.**
+- **dev / 1.0.3 / ModBuild 515 softens the Glove surface (full install).**
+  Both glove materials reduce authored normal relief from 0.5 to 0.25. Native model renders
+  and actual bundle checks cover both hands and confirm that Plate/Arcane, geometry and
+  attachment anchors are preserved. The exact Unity 2021.3.5f1 bundle has 617 assets and
+  74,942,975 bytes. All 17 checkers and production suites pass; 254,019 wire assertions;
+  strict Release zero warnings/errors. Incremental compiled comparison has seven changed types,
+  exclusively the propagated ModBuild constant; no added/removed types. Surface counts remain
+  625 / 163 / 4,728, patch inventory 119 / 186. Perceived headset appearance is unverified.
+  See [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md). Published 1.0.2 is unchanged.
+
+- **dev / 1.0.3 / ModBuild 514 limits additional VR lessons to the first native tutorial.**
+  Admission uses the tutorial selector's first ID and filename, while later tutorials keep
+  their native sequence and generic VR wording/input adaptations. Pending lesson/skip/hold
+  state retires on scope loss; held messages cannot cross native controller ownership.
+  Focused tests pass: 42 runtime + 17 binding assertions, seven runtime negative controls and
+  one binding negative control. All 17 checkers and production suites pass; 254,019 wire
+  assertions; strict Release zero warnings/errors. Compiled comparison: 71 changed / 42 added /
+  zero removed against retained build 502; incremental build-513 comparison 19 changed / two
+  added / zero removed, reviewed (tutorial scope plus propagated version/build constants).
+  Surfaces 625 / 163 / 4,728; patch inventory 119 classes / 186 methods. Headset acceptance is open.
+  See [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md). Published 1.0.2 is unchanged.
+
+- **1.0.2 / ModBuild 513 is published from main.** PR #5 merged the hardware-tested
+  dev source unchanged as `11107a29`. Release run 35146255179 passed; tag, public
+  download, checksum and release DLL were verified. See [RELEASE-1.0.2.md](RELEASE-1.0.2.md).
+  The workflow preserved main ancestry on dev and advanced its next version to **1.0.3**.
+
+- **ModBuild 513 sequences every native burn before card replacement.**
   Round slots, fans, active grids and character exchange retain their previous presentation
   until all native burns finish. Actual iterator completion distinguishes finished handles.
   Observers wait for the canonical owner's completion frame; durable original-card release
@@ -21,8 +48,12 @@ change per build) → this file (where things stand and what is owed) → the bu
   share original item appearance through additive stream 17/18 (record 76). Incoming character
   views also wait for actual owner burn progress; offscreen completions do not invent flights.
   Native gameplay callbacks and mandatory decisions keep running. See
-  [BURN-SEQUENCING-513.md](BURN-SEQUENCING-513.md). Logs remain local 510 / remote 500;
-  build-513 headset acceptance is open. No main merge or release publication is included.
+  [BURN-SEQUENCING-513.md](BURN-SEQUENCING-513.md). The maintainer reports a successful
+  build-513 retest; current local logs also observe a build-513 peer. All six recorded burns
+  complete with subsequent flights, and phase stalls resolve. Retained remote files remain
+  historical build 500. Not every edge case is individually established by this capture.
+  Coarse game-loop cadence declines during the session; no memory/GPU trace establishes
+  its cause or a leak. The release audit records this limitation and warning triage.
 
 - **513 integration checks pass:** all 17 checkers and production suites; 254,019 wire
   assertions; strict Release zero warnings/errors. Focused suites: local layout 204, remote
@@ -39,8 +70,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   conversion and attachment restore native UI, retaining ownership when cleanup needs retry.
   No gameplay lock bypass or timed automatic confirmation is introduced. See
   [DEADLOCK-512.md](DEADLOCK-512.md) for the scope, evidence and final gate results.
-  Latest supplied logs remain local 510 / remote 500; hardware acceptance is open.
-  No main merge or release publication is part of this audit.
+  At implementation time, supplied logs were local 510 / remote 500. The later successful
+  build-513 retest and release review are recorded above; this is the historical audit scope.
 
 - **512 integration checks pass:** all 17 checkers and production suites; 253,893 wire
   assertions; strict Release zero warnings/errors. Focused suites: rewards 320, map flow
@@ -48,7 +79,7 @@ change per build) → this file (where things stand and what is owed) → the bu
   with runtime negative controls. Retained build-502 comparison: 39 changed / 29 added /
   zero removed types, reviewed; additional build-511 compiled comparison confined to this
   audit. Surfaces 625 / 161 / 4,728; patch inventory 117 classes / 184 methods.
-  Bilingual docs, shell syntax and whitespace pass. Hardware outcomes remain unverified.
+  Bilingual docs, shell syntax and whitespace pass. These checks alone do not establish hardware outcomes.
 
 - **dev / 1.0.2 / ModBuild 511 corrects the failed build-510 chest retest.**
   Tutorial/custom scenarios use UIRewardsManager outside Guildmaster mode; its gamepad
@@ -61,8 +92,8 @@ change per build) → this file (where things stand and what is owed) → the bu
   This removes that demonstrated failure path, not every possible source of FPS dips.
   Local evidence is build 510; retained remote logs are build 500. See
   [REWARDS-511.md](REWARDS-511.md) for the full evidence and validation record.
-  Headset continuation, hover, framing and current multiplayer acceptance remain open.
-  No main merge or release publication is part of this fix.
+  Headset acceptance was open at implementation time; the later build-513 maintainer
+  retest reports no observed issues. See the release audit for its actual evidence limits.
 - **511 integration checks pass:** strict Release zero warnings/errors; all 17 checkers,
   production suites and 253,759 wire assertions. Reward: 299 assertions / 13 negatives;
   materials: 2,031 / four; ink: 237 / five runtime negatives plus one placement binding.
@@ -75,16 +106,15 @@ change per build) → this file (where things stand and what is owed) → the bu
   The shared-window identity, placement and first-reveal handoff from 510 remain in place;
   [REWARDS-510.md](REWARDS-510.md) is the historical implementation record.
 
-- **1.0.1 / ModBuild 509 is published as the latest GitHub release.**
-  main and v1.0.1 name PR #3 merge be74759e; Release run 35014316673 succeeded.
+- **Previous release: 1.0.1 / ModBuild 509.**
+  v1.0.1 names PR #3 merge be74759e; Release run 35014316673 succeeded.
   The public ZIP matches its published SHA256 and contains the complete asset bundle;
   its DLL reports 1.0.1 / build 509 / be74759 / IsDevBuild=false. Combat log startup
   defaults to off while saved preferences and manual display remain available.
   Candidate CI and all local gates passed, including 253,674 wire assertions and
   36 release topology checks. See [RELEASE-1.0.1.md](RELEASE-1.0.1.md).
-- **dev targets 1.0.2.** The workflow preserved main ancestry and advanced the
-  version in bot commit 12f66604. Build 513 is the next hardware candidate;
-  the published 1.0.1 release remains unchanged.
+- After 1.0.1, the workflow preserved main ancestry and advanced dev to 1.0.2 in
+  bot commit 12f66604. The subsequent 1.0.2 publication is recorded above.
 
 - **1.0.1 / ModBuild 508 corrects the build-507 tutorial presentation retest.**
   The user confirms the deadlock is resolved, and the log completes BuyItem/FTUE.
