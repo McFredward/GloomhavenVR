@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for tutorial visibility and defeat retry, ModBuild 518 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for animated map-window room making, ModBuild 519 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,22 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 519 adds opening-time window room making.** Overlapping
+  encounter/story windows can move together with a brief animation inside the view.
+  One VR participant authors shared movement; stationary remote grips and manual moves
+  interrupt it. Visible FINISHED story frames retain pose synchronization without reopening
+  the native dialog. Additive record 77 carries explicit held/automatic masks; v3 remains.
+  See [WINDOW-REFLOW-519.md](WINDOW-REFLOW-519.md) for evidence and final validation.
+  Supplied logs remain local 515 / remote 500; hardware validation of this build is open.
+
+- **519 integration passes:** 17 source checkers, all production suites, 254,565 wire
+  assertions and strict Release with zero warnings/errors. Layout: 1,247 runtime + 15
+  bindings / two negatives; authority: 74 + six / four. Surfaces: 625 config / 172 patch
+  signatures / 4,730 log tokens. Patch inventory stays 130 classes / 197 methods; bundle
+  unchanged. Build-518 compiled comparison: 14 changed / three added / zero removed,
+  including five build-only changes and one buffer-size-only change. The retained build-502
+  comparison is 84 changed / 53 added / zero removed. See the build record for evidence.
 
 - **dev / 1.0.4 / ModBuild 518 addresses tutorial controllers and defeat Retry.** Both
   controllers stay visible throughout the custom first-tutorial lesson, with task-specific

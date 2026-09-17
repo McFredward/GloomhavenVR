@@ -58,3 +58,9 @@ The build 500 hardware ruling (2026-09-14) requires immediate return of a held f
 its board position before any non-idle action starts, locally and for remote observers.
 This supersedes the older forced-release glide ruling; ordinary idle manual releases keep
 their usual glide. Native movement must never derive its start from a hand-held transform.
+
+The user's 2026-09-17 window-placement request permits necessary, animated opening-time
+room making when a new window would overlap an existing visible window. Keep affected
+windows in view and use one author for shared movement. This narrowly supersedes the
+historical fixed-window rule; it does not authorize periodic head-following or lost-window
+recall. Manual grabs take precedence, and layout must never gate native continuation.

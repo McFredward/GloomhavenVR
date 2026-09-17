@@ -514,7 +514,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 518;
+    public const ushort ModBuild = 519;
+
+    // ModBuild 519 — animated opening-time room making for overlapping map windows.
+    //   Encounter/story arrivals may shift overlapping windows together within the measured
+    //   view instead of hiding a mandatory decision behind an existing dialog. Motion is
+    //   bounded to the opening/first-fit episode and yields immediately to manual grabs.
+    //   One participating VR client authors shared movement; record 21 carries intermediate
+    //   poses, including the still-visible FINISHED story. Additive record 77 distinguishes
+    //   held windows from automatic movement, including stationary remote grips.
+    //   Native reveal deadlines and gameplay callbacks remain authoritative and unblocked.
+    //   Version 1.0.4 on dev; no bundle changes. All VR peers use 519.
+    //   See .planning/WINDOW-REFLOW-519.md for evidence, coverage and hardware limits.
 
     // ModBuild 518 — persistent tutorial controllers and original defeat-retry placement.
     //   Both controller models remain visible throughout the first tutorial's custom VR

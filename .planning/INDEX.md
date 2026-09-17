@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for tutorial visibility and defeat retry, build 518 on dev. This directory holds internal
+Updated 2026-09-17 for animated map-window room making, build 519 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [WINDOW-REFLOW-519.md](WINDOW-REFLOW-519.md): opening-time overlap correction, shared authority, grip precedence and validation evidence.
 
 - [TUTORIAL-RETRY-518.md](TUTORIAL-RETRY-518.md): integrated controller visibility and original defeat-retry placement, with evidence and validation limits.
 - [TUTORIAL-CONTROLLERS-518.md](TUTORIAL-CONTROLLERS-518.md): persistent models, per-hand highlights, VR render layers and model/hand lifetime recovery.
