@@ -4,10 +4,17 @@ namespace GloomhavenVR.Cards;
 internal sealed class NativeBurnEpisode<T> where T : class
 {
     private T? _card;
-    private bool _running, _completed, _leftRecoveryPile;
+    private bool _running, _completed, _leftRecoveryPile, _restoreAfter;
 
-    internal void Clear() { _card = null; _running = _completed = _leftRecoveryPile = false; }
+    internal void Clear() { _card = null; _running = _completed = _leftRecoveryPile = _restoreAfter = false; }
     internal void CancelIfRunning() { if (_running) Clear(); }
+    internal void RequestRestore() { _restoreAfter |= _running; }
+    internal bool TakeDeferredRestore(bool durable)
+    {
+        if (_running || !_completed || !_restoreAfter || durable) return false;
+        _restoreAfter = false;
+        return true;
+    }
 
     internal void Observe(T card, bool recovered, bool running)
     {

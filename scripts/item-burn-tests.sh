@@ -58,3 +58,19 @@ PY
     mv "$work_dir/playback.txt" "$work_dir/Playback.cs"
     echo "Item burn replay negative control: $mutation failed as expected."
 done
+python3 - "$work_dir" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])/'Playback.cs';s=p.read_text();a='Historical = card.item.SlotState == CItem.EItemSlotState.Consumed';assert s.count(a)==1;p.write_text(s.replace(a,'Historical = false'))
+PY
+if dotnet run --project "$work_dir/GloomhavenVR.ItemBurnTests.csproj" --configuration Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
+if ! grep -Fq 'An initially consumed item host must paint native settled artwork exactly once without replay' "$work_dir/negative.log"; then cat "$work_dir/negative.log"; exit 1; fi
+echo 'Item burn history negative control: historical-host failed as expected.'
+python3 - "$work_dir" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1])/'Playback.cs';s=p.read_text().replace('Historical = false','Historical = card.item.SlotState == CItem.EItemSlotState.Consumed');a='_state.Historical && _historicalReady';assert s.count(a)==1;p.write_text(s.replace(a,'_state.Historical'))
+PY
+if dotnet run --project "$work_dir/GloomhavenVR.ItemBurnTests.csproj" --configuration Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
+if ! grep -Fq 'Missing historical item artwork must allow its first valid settle later' "$work_dir/negative.log"; then cat "$work_dir/negative.log"; exit 1; fi
+echo 'Item burn history negative control: missing-historical-art failed as expected.'

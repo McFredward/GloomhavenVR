@@ -33,3 +33,37 @@ PY
  if ! grep -Fq "$expected" "$work_dir/negative.log"; then cat "$work_dir/negative.log"; exit 1; fi
  echo "Burn replay negative control: $mutation failed as expected."
 done
+cp "$work_dir/original.txt" "$work_dir/NativeBurnEpisode.cs"
+cp "$work_dir/Production.cs" "$work_dir/production.txt"
+for mutation in historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower; do
+ python3 - "$work_dir" "$mutation" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]);s=(p/'production.txt').read_text()
+a,b={
+'historical-init':('history.Completed = history.LeftRecoveryPile = true;', 'history.LeftRecoveryPile = true;'),
+'historical-rebuild':('if (burnAnim && initialCard != null && Durable(initialCard, initialOwner)', 'if (bool.Parse("false") && burnAnim && initialCard != null && Durable(initialCard, initialOwner)'),
+'settled-history':('episode.Observe(initialCard, Recovered(initialCard, initialOwner), running: false);', ''),
+'deferred-reset':('if (!running && episode.TakeDeferredRestore(Durable(card, owner))) __instance.RestoreCard();', ''),
+'follower':('bool followsOriginal = burnAnim && initialCard != null', 'bool followsOriginal = bool.Parse("false") && burnAnim && initialCard != null'),
+'retire-primary':('&& ReferenceEquals(history.Running, playback)) history.Running = null;', '&& ReferenceEquals(history.Running, playback)) { }'),
+'retired-follower':('if (!stillOwned()) return false;', ''),
+'retargeted-follower':('ReferenceEquals(currentCard, card) &&', ''),
+'recovered-follower':('ReferenceEquals(ReadHistory(card, owner, resetting: false), history)', 'true'),
+}[sys.argv[2]]
+assert s.count(a)==1;(p/'Production.cs').write_text(s.replace(a,b))
+PY
+ if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
+ case "$mutation" in
+ historical-init|historical-rebuild) expected='First-seen already-lost widgets must settle native artwork without a historical replay';;
+ settled-history) expected='Historical native settle must survive a standalone reset without blue flash';;
+ deferred-reset) expected='A completed activation must permit the native clean active-card look';;
+ follower) expected='A replacement widget must wait on the original burn without starting another ramp';;
+ retire-primary) expected='Retiring the primary must release replacement waiters without another ramp';;
+ retired-follower) expected='Retired follower iterators must stop without painting recycled artwork';;
+ retargeted-follower) expected='Retargeted follower iterators must stop without altering the new card';;
+ recovered-follower) expected='Original recovery must release waiters without painting a new lost state';;
+ esac
+ if ! grep -Fq "$expected" "$work_dir/negative.log"; then cat "$work_dir/negative.log"; exit 1; fi
+ echo "Burn history negative control: $mutation failed as expected."
+done

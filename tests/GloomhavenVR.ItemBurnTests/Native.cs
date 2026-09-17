@@ -6,7 +6,7 @@ public class ItemCardEffects {
     internal GloomhavenVR.Cards.ItemCardUI? Owner;
     internal T? GetComponentInParent<T>() where T:class=>Owner as T;
     internal System.Collections.IEnumerator? Playing;
-    internal int Starts,Resets;
+    internal int Starts,Resets,NativeAnimated,NativeSettled;
     internal enum FXTask {Consumed,Spent}
     internal void ToggleEffect(bool active,FXTask effect){
         if(!GloomhavenVR.Cards.ItemTestHooks.Allow(typeof(GloomhavenVR.Cards.ItemBurnPlayback.ToggleEffect_Once),this))return;
@@ -14,7 +14,7 @@ public class ItemCardEffects {
     }
     internal void ToggleAdditiveEffect(bool active,FXTask effect){
         if(!GloomhavenVR.Cards.ItemTestHooks.Allow(typeof(GloomhavenVR.Cards.ItemBurnPlayback.ToggleAdditiveEffect_Once),this))return;
-        Starts++;Playing=GloomhavenVR.Cards.ItemBurnPlayback.Track(this,BurnCardTimeline(active));Playing.MoveNext();
+        Starts++;Playing=BurnCardTimeline(active);Playing.MoveNext();
     }
     internal void RestoreCard(){if(GloomhavenVR.Cards.ItemTestHooks.Allow(typeof(GloomhavenVR.Cards.ItemBurnPlayback.RestoreCard_Once),this))Resets++;}
 
@@ -63,8 +63,15 @@ public class ItemCardEffects {
     public Image? fx_Smoke = new();
     public Texture2D overlayFrameBurn = new();
     public string fxAnim = "_FXAnim";
-	public IEnumerator BurnCardTimeline(bool burnAnim)
-	{
+	public IEnumerator BurnCardTimeline(bool burnAnim) {
+        IEnumerator original=NativeBurnCardTimeline(burnAnim);
+        object[] args={this,burnAnim,original};
+        typeof(GloomhavenVR.Cards.ItemBurnPlayback.BurnCardTimeline_Track).GetMethod("Postfix",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.Invoke(null,args);
+        return (IEnumerator)args[2];
+    }
+    private IEnumerator NativeBurnCardTimeline(bool burnAnim)
+    {
+        if(burnAnim)NativeAnimated++;else NativeSettled++;
 		if (fgFx == null)
 		{
 			yield break;

@@ -8,7 +8,7 @@ a=s[start:end]
 start=s.index('    [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.BurnCardTimeline))]')
 end=s.index('    private static void RestoreNativeBurnChannels',start)
 a+=s[start:end]
-output.write_text('using HarmonyLib; namespace GloomhavenVR.Cards; internal static partial class BurnArtwork {\n'+a.replace('private static','internal static')+'\n}')
+output.write_text('using HarmonyLib; using UnityEngine; namespace GloomhavenVR.Cards; internal static partial class BurnArtwork {\n'+a.replace('private static','internal static').replace('private sealed','internal sealed')+'\n}')
 assert 'CardFace.OwnerOf(full)' in a
 assert a.index('if (!AllowEffect(__instance, active, effect)) return false;') < a.index('ClearRecoveredSpentBurnStart(__instance, full);')
 assert 'BurnTimelines.Add(__instance, playback!);' in a

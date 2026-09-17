@@ -18,7 +18,7 @@ internal static class ItemBurnPlayback
     {
         internal int Active;
         internal CItem? Model;
-        internal bool Completed, Retired;
+        internal bool Completed, Retired, Historical;
     }
     private static readonly ConditionalWeakTable<ItemCardEffects, State> States = new();
 
@@ -26,6 +26,15 @@ internal static class ItemBurnPlayback
         && States.TryGetValue(effect, out State? state) && state != null && state.Active != 0;
 
     private static ItemCardUI? Owner(ItemCardEffects effect) => effect.GetComponentInParent<ItemCardUI>();
+
+    /// <summary>A newly hosted already-consumed item needs settled native paint, not another use.</summary>
+    internal static void ObserveInitialState(ItemCardUI? card)
+    {
+        if (card == null || card.cardEffects == null || card.item == null) return;
+        Retire(card.cardEffects);
+        States.Add(card.cardEffects, new State { Model = card.item,
+            Historical = card.item.SlotState == CItem.EItemSlotState.Consumed });
+    }
 
     internal static void Retire(ItemCardEffects? effect)
     {
@@ -47,15 +56,18 @@ internal static class ItemBurnPlayback
     {
         var item = Owner(effect)?.item;
         if (States.TryGetValue(effect, out var old) && !ReferenceEquals(old.Model, item)) Retire(effect);
-        return new Playback(States.GetValue(effect, _ => new State { Model = item }), original);
+        return new Playback(States.GetValue(effect, _ => new State { Model = item }), original,
+            effect.fgFx != null);
     }
 
     private sealed class Playback : IEnumerator, IDisposable
     {
         private readonly State _state;
         private readonly IEnumerator _original;
+        private readonly bool _historicalReady;
         private bool _started, _finished, _disposed, _yielded;
-        internal Playback(State state, IEnumerator original) { _state = state; _original = original; }
+        internal Playback(State state, IEnumerator original, bool historicalReady)
+        { _state = state; _original = original; _historicalReady = historicalReady; }
         public object Current => _original.Current;
         public bool MoveNext()
         {
@@ -66,7 +78,7 @@ internal static class ItemBurnPlayback
             {
                 bool next = _original.MoveNext();
                 _yielded |= next;
-                if (!next) { _state.Completed |= _yielded; Finish(); }
+                if (!next) { _state.Completed |= _yielded || _state.Historical && _historicalReady; Finish(); }
                 return next;
             }
             catch { Finish(); throw; }
@@ -121,7 +133,18 @@ internal static class ItemBurnPlayback
     [HarmonyPatch(typeof(ItemCardEffects), nameof(ItemCardEffects.BurnCardTimeline))]
     internal static class BurnCardTimeline_Track
     {
-        private static void Postfix(ItemCardEffects __instance, ref IEnumerator __result) =>
-            __result = Track(__instance, __result);
+        private static void Postfix(ItemCardEffects __instance, bool burnAnim, ref IEnumerator __result)
+        {
+            try
+            {
+                if (burnAnim && States.TryGetValue(__instance, out var state) && state.Historical)
+                {
+                    __result = __instance.BurnCardTimeline(burnAnim: false);
+                    return;
+                }
+                __result = Track(__instance, __result);
+            }
+            catch { /* Keep native execution when presentation interception cannot be built. */ }
+        }
     }
 }

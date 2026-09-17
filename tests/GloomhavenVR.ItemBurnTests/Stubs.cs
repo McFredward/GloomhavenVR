@@ -12,7 +12,7 @@ namespace UnityEngine {
     public class GameObject {public void SetActive(bool value){}}
     public class Transform {public Quaternion localRotation;public Vector3 localScale;public void SetParent(Transform parent,bool worldPositionStays){}}
     public class Image {public GameObject gameObject=new();public Material material=new();public Color color;}
-    public class Material {public void SetFloat(object key,float value){}public void SetColor(int key,Color c){}public void SetTexture(int key,Texture2D t){}public void SetTextureScale(int key,Vector2 v){}}
+    public class Material {readonly Dictionary<object,float> values=new();public float GetFloat(object key)=>values.TryGetValue(key,out var value)?value:0;public void SetFloat(object key,float value)=>values[key]=value;public void SetColor(int key,Color c){}public void SetTexture(int key,Texture2D t){}public void SetTextureScale(int key,Vector2 v){}}
     public static class Mathf {public const float PI=MathF.PI;public static float Min(float a,float b)=>MathF.Min(a,b);public static float Exp(float x)=>MathF.Exp(x);public static float Sin(float x)=>MathF.Sin(x);public static float Clamp01(float x)=>Clamp(x,0,1);public static float Clamp(float x,float a,float b)=>Math.Clamp(x,a,b);public static float Lerp(float a,float b,float t)=>a+(b-a)*t;}
 }
 namespace GloomhavenVR.Cards {
