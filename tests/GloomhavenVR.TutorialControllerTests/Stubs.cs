@@ -1,11 +1,32 @@
 using UnityEngine;
 namespace UnityEngine {
 public class Object {
+    public bool Destroyed { get; private set; }
+    public static bool operator ==(Object? a, Object? b) {
+        bool noA = ReferenceEquals(a, null), noB = ReferenceEquals(b, null);
+        if (noA && noB) return true;
+        if (noA) return b!.Destroyed;
+        if (noB) return a!.Destroyed;
+        return ReferenceEquals(a, b);
+    }
+    public static bool operator !=(Object? a, Object? b) => !(a == b);
+    public override bool Equals(object? other) => other is Object obj ? this == obj : other is null && Destroyed;
+    public override int GetHashCode() => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
     public static GameObject Instantiate(GameObject source, Transform parent, bool worldPositionStays) { var clone = source.Clone(); clone.transform.SetParent(parent, false); return clone; }
-    public static void Destroy(Object? obj) { if (obj is GameObject go) go.transform.SetParent(null, false); }
+    public static void Destroy(Object? obj) {
+        if (obj == null) return;
+        if (obj is GameObject go) {
+            foreach (Transform child in go.transform.Children.ToArray()) Destroy(child.gameObject);
+            foreach (Component component in go.Components) component.Destroyed = true;
+            go.transform.SetParent(null, false);
+            go.transform.Destroyed = true;
+        }
+        obj!.Destroyed = true;
+    }
 }
 public class GameObject : Object {
     public string name; public int layer; public bool activeSelf = true;
+    public bool activeInHierarchy => !Destroyed && activeSelf && (transform.parent?.gameObject.activeInHierarchy ?? true);
     public Transform transform; public readonly List<Component> Components = new();
     public GameObject(string name) { this.name = name; transform = new Transform(this); }
     public void SetActive(bool active) => activeSelf = active;
@@ -16,7 +37,7 @@ public class GameObject : Object {
     public static GameObject CreatePrimitive(PrimitiveType type) { var go = new GameObject("sphere"); go.AddComponent<Renderer>(); go.AddComponent<Collider>(); return go; }
 }
 public class Component : Object { public GameObject gameObject = null!; public Transform transform => gameObject.transform; }
-public class Transform : IEnumerable<Transform> {
+public class Transform : Object, IEnumerable<Transform> {
     public readonly GameObject gameObject; public string name => gameObject.name;
     public Transform? parent; public readonly List<Transform> Children = new();
     public Vector3 localPosition, localScale; public Quaternion localRotation;

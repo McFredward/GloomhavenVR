@@ -22,7 +22,7 @@ internal static class ControllerKey
 
 /// <summary>
 /// THE PLAYER'S OWN CONTROLLER, IN THE PLAYER'S OWN HAND — the hand mesh steps aside for the
-/// duration of the controls lesson and the real device takes its place, with the key the lesson
+/// controller-teaching steps and the real device takes its place, with the key the lesson
 /// is talking about lit up on it.
 ///
 /// <para>WHY THE DEVICE POSE AND NOT THE HAND ROOT — MEASURED, after the reasoned version of this
@@ -192,7 +192,7 @@ internal sealed class ControllerVisual
 
     /// <summary>
     /// Identify the device before constructing the lesson's first card, which names the
-    /// device in words. Both models remain visible until the lesson ends. Idempotent;
+    /// device in words even on hand-only cards. Idempotent;
     /// the log line still happens exactly once per session.
     /// </summary>
     internal static void EnsureResolved(VRHand? hand)
@@ -266,6 +266,7 @@ internal sealed class ControllerVisual
             BeginSwap(1f);
             return;
         }
+        RestoreHandAfterModelLoss();
         Device device = ResolveDevice(_hand);
         string id = device.Model;
         string hand = _hand.Side == HandSide.Left ? "left" : "right";
@@ -345,7 +346,10 @@ internal sealed class ControllerVisual
     internal void BeginHide()
     {
         if (_model == null)
+        {
+            RestoreHandAfterModelLoss();
             return;
+        }
         BeginSwap(0f);
     }
 
@@ -388,7 +392,10 @@ internal sealed class ControllerVisual
     private void TickSwap()
     {
         if (_model == null)
+        {
+            RestoreHandAfterModelLoss();
             return;
+        }
         if (!Mathf.Approximately(_swap, _swapTarget))
         {
             float step = Mathf.Max(Time.unscaledDeltaTime, 0f) / Mathf.Max(SwapSeconds, 0.0001f);
@@ -415,6 +422,27 @@ internal sealed class ControllerVisual
 
         if (_swap <= 0f && Mathf.Approximately(_swapTarget, 0f))
             Hide();   // the animated hide has finished; now the model can go
+    }
+
+    /// <summary>
+    /// A destroyed model compares equal to null in Unity while its replacement hand renderers
+    /// can still be disabled. Give back only our own hidden renderers immediately, before an
+    /// asset retry or a hand-only step; otherwise rebuilding at scale zero leaves an empty hand
+    /// until the next swap crossover. Retain the requested key for a successful later rebuild,
+    /// but never retain renderer/anchor references owned by the destroyed model.
+    /// </summary>
+    private void RestoreHandAfterModelLoss()
+    {
+        ShowHand();
+        _model = null;
+        if (_marker != null)
+            UnityEngine.Object.Destroy(_marker.gameObject);
+        _marker = null;
+        _keys.Clear();
+        _anchors.Clear();
+        _swap = 0f;
+        _swapTarget = 0f;
+        _swapStartedAt = -1f;
     }
 
     /// <summary>
