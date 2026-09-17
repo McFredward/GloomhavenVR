@@ -20,6 +20,15 @@ change per build) → this file (where things stand and what is owed) → the bu
   Close/reopen, MR toggles and native continuation remain independent of decoration.
   See [MR-ANIMATION-522.md](MR-ANIMATION-522.md); headset confirmation remains open.
 
+- **522 focused checks pass:** MR layout/accessor 258 runtime assertions / 48 bindings /
+  thirteen runtime and three binding negatives; native ink/live visibility 309 assertions /
+  fourteen runtime and one binding negative; erosion mesh 35,833 assertions / ten negatives;
+  actual animation lifecycle and native continuation 542 assertions / three bindings /
+  three negatives. Strict Release has zero warnings/errors. All eleven frame-order locks,
+  617 hardware markers, Actionlint, shell syntax and bilingual docs pass. Config and patch
+  surfaces remain 625 / 172; log tokens increase to 4,732 with one new failure diagnostic.
+  Full unrelated local suites were not repeated, as requested.
+
 - **dev / 1.0.4 / ModBuild 521 restores the original tutorial hand/controller choices.**
   Card handling, fingertip interaction and prose show hands; key lessons show both
   controllers with the existing per-hand highlights. The original 0.22s animation remains.

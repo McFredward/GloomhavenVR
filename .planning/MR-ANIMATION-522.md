@@ -43,6 +43,15 @@ All multiplayer participants must use build 522.
 
 ## Validation
 
+- MR layout/accessor: 258 runtime assertions, 48 bindings, 13 runtime and 3 binding negatives.
+- Native ink/live visibility: 309 assertions, 14 runtime and 1 binding negative.
+- Actual erosion mesh and shared field: 35,833 assertions, 10 negatives; stable topology,
+  restoration, disposal, no repeated Unity rebinds and no measured steady managed allocations.
+- Actual animation presenter and extracted original runner Apply/Finish: 542 assertions,
+  3 bindings, 3 negatives; native callbacks still run exactly once under injected failures.
+- Strict Release: zero warnings/errors. Frame ordering, hardware markers, Actionlint,
+  shell syntax, bilingual docs and compatibility surface checks pass.
+
 Focused production harnesses and the strict Release build cover the changed MR, ink
 and effect paths. The user requested affected checks rather than repeating unrelated
 local suites. Exact final counts are recorded in STATE.md and the integration commit.
