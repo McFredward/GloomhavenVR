@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for shared map-header pose restoration, ModBuild 525 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for native header frames and visible MR extents, ModBuild 526 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,21 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 526 addresses temple-first/repeated temple header drift and
+  general invisible MR contributors.** The build-525 report confirms merchant improvement,
+  but the same header moves down/left after temple entry and contaminates later merchant
+  openings. The new source repair observes native header TRS before conversion and resolves
+  original parent frames rather than replaying local coordinates across different parents.
+  MR extent guards additionally distinguish native renderer transparency and the actual
+  displayed capture footprint from unbounded authored geometry, in every direction.
+  Original visible overflow and the window's existing animation remain part of the contract.
+  Evidence, focused validation and hardware limits: [MR-VISIBLE-526.md](MR-VISIBLE-526.md).
+  Validation: banner 314 assertions; ink/capture/watch 447; MR layout 258; animation 552,
+  with integration bindings and mutation negatives. Strict Release zero warnings/errors.
+  Source/frame/docs checks pass; config/patch/log surfaces unchanged: 625 / 172 / 4,733.
+  Headset confirmation remains pending.
+
 
 - **dev / 1.0.4 / ModBuild 525 repairs the native header that inflated reopened MR windows.**
   Build-524 diagnostics identify the same shared `UI Adventure Header/Icon` drifting upwards

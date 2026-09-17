@@ -54,8 +54,16 @@ mr=code((repo/'src/GloomhavenVR/WorldUI/MrBacking.cs').read_text())
 mirror=code((repo/'src/GloomhavenVR/Net/Remote/RemoteWidgetMirror.cs').read_text())
 m=code(modal)
 def bindings(mr,m,mirror):
-    assert m.index('_mrInkSampleFrame = now;')>m.index('bool measured = PanelInkBounds.TryMeasure(')
-    assert m.index('_mrInkRect = backingMeasured')<m.index('Rect grown = ink.Rect;')
+    sample = m[m.index('private void SampleMrBacking('):m.index('private void ServiceInkCapture(')]
+    service = m[m.index('private void ServiceInkCapture('):]
+    measured = service.index('bool measured = PanelInkBounds.TryMeasure(')
+    assert measured < service.index('SampleMrBacking(hostRect, now);', measured) < service.index('Rect grown = ink.Rect;')
+    assert sample.index('_mrInkSampleFrame = now;') < sample.index('_mrInkRect = backingMeasured')
+    fast = service[service.index('if (now < _inkNextSampleFrame)'):measured]
+    assert 'MrBacking.WantOpaque && !WindowMaterialise.IsAnimating(_panel)' in fast
+    assert '_mrSampleWatch.NeedsSample(_panel, now, MrBackingLayout.SampleStrideFrames)' in fast
+    assert 'SampleMrBacking(hostRect, now);' in fast
+    assert '_mrSampleWatch.Remember(_panel, backingInk);' in sample and '_mrSampleWatch.Reset();' in m
     assert 'MrBackingLayout.WindowRect(hostRect, backingInk.Rect, backingInk.Plates > 0,' in m
     assert 'visible &= ownerVisible;' in mr
     assert 'entry.BoundsVisible = PanelInkBounds.TryMeasure(panel' in mr
@@ -111,7 +119,7 @@ assert 'visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true)' in m
 assert 'bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);' in m
 assert 'if (!holdMrPicture)' in m
 assert 'internal static float GetMrBackingAlpha(ConvertedPanel panel)' in m
-print('MR backing integration bindings: 48 assertions and three negative controls passed.')
+print('MR backing integration bindings: 52 assertions and three negative controls passed.')
 PY
 dotnet run --project "$project" --configuration Release --property:AccessorSource="$mutation_dir/accessor.fixture"
 for mutation in host margin plate confirm sample snap hidden starve ready owed scope scope-siblings scope-ancestor; do

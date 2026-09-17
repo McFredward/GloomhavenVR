@@ -514,7 +514,22 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 525;
+    public const ushort ModBuild = 526;
+
+    // ModBuild 526 — native banner coordinate frames and visible-only MR extents.
+    //   Build-525 hardware confirms merchant reopen improvement but repeated temple entry
+    //   still moves the shared header down/left, then carries that defect back into merchant.
+    //   Capture canonical native header TRS before window conversion and express it through
+    //   each parent's original native frame, including converted/restored destinations.
+    //   Native root layout and child mode configuration remain game-owned.
+    //   MR measurements exclude zero renderer alpha and individually clip contributors to
+    //   the actual displayed capture footprint; uncaptured native UI keeps visible overflow.
+    //   Materialisation retains original alpha and raw per-graphic geometry, then shares its
+    //   existing progress while the capture footprint changes. No fixed size or direction cap.
+    //   Focused tests cover temple-first, restoration order, all four extent directions,
+    //   transparent/cropped contributors and legitimate visible overflow.
+    //   Version 1.0.4 on dev; all VR peers use 526. No bundle or wire change.
+    //   See .planning/MR-VISIBLE-526.md for evidence and final validation.
 
     // ModBuild 525 — restore the shared map header after native reparenting.
     //   Build-524 MR diagnostics identify UI Adventure Header/Icon as the growing top edge:

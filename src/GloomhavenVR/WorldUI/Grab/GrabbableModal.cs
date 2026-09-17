@@ -436,6 +436,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // MR backs the latest measured picture, not the grab bar's monotone envelope. The latter
     // deliberately retains old extents through a tab transition and can be mostly empty air.
     private readonly MrBackingVisibility _mrVisibility = new();
+    private readonly MrBackingSampleWatch _mrSampleWatch = new();
     private bool _mrInkValid;
     private Rect _mrInkRect;
     private int _mrInkSampleFrame = -1;
@@ -2847,6 +2848,35 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkNextSampleFrame = now + InkVerifyStrideFrames;
     }
 
+    private void SampleMrBacking(Rect hostRect, int now)
+    {
+        if (_panel == null) return;
+        bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);
+        _mrVisibility.Root = _panel.Target;
+        // Publish the RAW sample before any envelope/recession logic. Modal backing must shrink
+        // with the current window and must never invent a frame for an empty map conversion.
+        // WindowMaterialise moves/fades individual glyphs and images. Keep its last complete MR
+        // picture while it runs; the presenter follows the runner's actual element progress.
+        if (!holdMrPicture)
+        {
+            // Grab geometry retains its authored-layout contract. MR backs pixels instead:
+            // tall text boxes, hidden mask faces and excluded tooltips are not painted content.
+            // Do not add this geometry walk while MR is off.
+            PanelInkBounds.Ink backingInk = default;
+            bool backingMeasured = MrBacking.WantOpaque
+                && PanelInkBounds.TryMeasure(_panel, out backingInk,
+                    visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && backingInk.Valid;
+            if (MrBacking.WantOpaque) _mrSampleWatch.Remember(_panel, backingInk);
+            else _mrSampleWatch.Reset();
+            _mrInkSampleFrame = now;
+            _mrInkValid = backingMeasured;
+            _mrInkRect = backingMeasured
+                ? MrBackingLayout.WindowRect(hostRect, backingInk.Rect, backingInk.Plates > 0,
+                    backingInk.PlateBottom, fitScoped: true)
+                : default;
+        }
+    }
+
     /// <summary>
     /// Keep the held ink union current. The policy — what counts as an event, why the union is
     /// monotone outward inside a generation, and why it is NOT monotone across the window's life — is
@@ -2927,33 +2957,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
 
         if (now < _inkNextSampleFrame)
+        {
+            // A disappearing edge or changed capture invalidates MR geometry immediately,
+            // without resampling or changing the handle's independent ink envelope.
+            if (MrBacking.WantOpaque && !WindowMaterialise.IsAnimating(_panel)
+                && _mrSampleWatch.NeedsSample(_panel, now, MrBackingLayout.SampleStrideFrames))
+                SampleMrBacking(hostRect, now);
             return;
+        }
         bool settling = now <= _inkSettleUntilFrame;
         _inkNextSampleFrame = now + (settling ? InkSettleStrideFrames : InkVerifyStrideFrames);
 
-        bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);
-        _mrVisibility.Root = _panel.Target;
         bool measured = PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink) && ink.Valid;
-        // Publish the RAW sample before any envelope/recession logic. Modal backing must shrink
-        // with the current window and must never invent a frame for an empty map conversion.
-        // WindowMaterialise moves/fades individual glyphs and images. Keep its last complete MR
-        // picture while it runs; the presenter follows the runner's actual element progress.
-        if (!holdMrPicture)
-        {
-            // Grab geometry retains its authored-layout contract. MR backs pixels instead:
-            // tall text boxes, hidden mask faces and excluded tooltips are not painted content.
-            // Do not add this geometry walk while MR is off.
-            PanelInkBounds.Ink backingInk = default;
-            bool backingMeasured = MrBacking.WantOpaque
-                && PanelInkBounds.TryMeasure(_panel, out backingInk,
-                    visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && backingInk.Valid;
-            _mrInkSampleFrame = now;
-            _mrInkValid = backingMeasured;
-            _mrInkRect = backingMeasured
-                ? MrBackingLayout.WindowRect(hostRect, backingInk.Rect, backingInk.Plates > 0,
-                    backingInk.PlateBottom, fitScoped: true)
-                : default;
-        }
+        SampleMrBacking(hostRect, now);
         // THE MOUSEOVER LEDGER IS TAKEN ON EVERY SAMPLE, including one that could not be measured —
         // "every drawn graphic in this window turned out to be a hover widget" is precisely the
         // failure the exclusion could cause, and it must be readable on the line that reports it.
@@ -3914,6 +3930,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkSigTransientLife = 0;
         _inkModChromeMask = 0;
         _mrVisibility.Reset();
+        _mrSampleWatch.Reset();
         _mrInkValid = false;
         _mrInkRect = default;
         _mrInkSampleFrame = -1;
