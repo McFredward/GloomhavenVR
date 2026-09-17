@@ -505,7 +505,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 516;
+    public const ushort ModBuild = 517;
+
+    // ModBuild 517 — one uninterrupted burn episode per original card.
+    //   Native rest, pile refresh and action effect requests must not reset a running burn
+    //   or replay the completed episode. Recovery and real pool/scene lifetime boundaries
+    //   admit later uses normally; native gameplay callbacks remain authoritative.
+    //   Burn discovery follows original model identity across rebuilt/temporarily missing
+    //   widgets. Remote cards retain owner-painted lost artwork across address gaps.
+    //   Historical lost/consumed widget construction settles native artwork without replay;
+    //   repeated consumed-item updates cannot start overlapping native material timelines.
+    //   Version 1.0.4 on dev; no bundle or wire grammar changes. All VR peers use 517.
+    //   See .planning/BURN-517.md for producer coverage, evidence and validation limits.
 
     // ModBuild 516 — paged discard cues, fitted MR windows and safe card scene lifetime.
     //   Completed discard pages retain their selected, flown bookkeeping until the native

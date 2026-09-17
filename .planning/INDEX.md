@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for the latest hardware follow-up, build 516 on dev. This directory holds internal
+Updated 2026-09-17 for the burn replay review, build 517 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,11 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [BURN-517.md](BURN-517.md): integrated one-episode burn review, all producer paths and validation limits.
+- [BURN-LOCAL-517.md](BURN-LOCAL-517.md): native reset/replay protection, historical reconstruction, replacement waiters and consumed items.
+- [BURN-DRIVER-517.md](BURN-DRIVER-517.md): original-card claims, recovery and duplicate local flight admission.
+- [BURN-REMOTE-517.md](BURN-REMOTE-517.md): stable remote burn discovery and native output continuity across missing address samples.
 
 - [HARDWARE-516.md](HARDWARE-516.md): integrated latest hardware findings, log/screenshot evidence, regression coverage and limits.
 - [TRAY-516.md](TRAY-516.md): paged discard cues, retained selection and recycle/undo lifetime.

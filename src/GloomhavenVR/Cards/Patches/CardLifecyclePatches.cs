@@ -3,8 +3,6 @@ using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.Cards.Patches;
 
-// ---------------------------------------------------------------------------
-
 /// <summary>Pooling is a real lifetime boundary, even when the old model is still lost.
 /// Let the native pool reset every shader and coroutine before this widget is reused.</summary>
 [HarmonyPatch(typeof(AbilityCardUI), nameof(AbilityCardUI.OnReturnedToPool))]
@@ -16,6 +14,8 @@ internal static class AbilityCardUI_OnReturnedToPool_BurnLifetime
             () => BurnArtwork.RetireBurnPlayback(BurnArtwork.EffectsOf(__instance)), "Cards");
     }
 }
+
+// ---------------------------------------------------------------------------
 // Pool-safety patches. The VR layer re-parents each card's live FullAbilityCard
 // canvas onto a world-space card (VRCard). The game POOLS AbilityCardUI objects
 // (ObjectPool.SpawnCard/RecycleCard, verified ObjectPool.cs:415/520): if a card

@@ -3,7 +3,7 @@ root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2])
 cards=root/'src/GloomhavenVR/Cards'
 source=(cards/'Driver/CardsDriver.4.Rebuild.cs').read_text()
 artwork=(cards/'BurnArtwork.cs').read_text()
-assert 'BurnTimelines.Add(__instance, playback);' in artwork and 'return !playback.Finished;' in artwork, 'Layout completion must observe the actual native burn iterator, including synchronous bails'
+assert 'BurnTimelines.Add(__instance, playback!);' in artwork and 'return !playback.Finished;' in artwork, 'Layout completion must observe the actual native burn iterator, including synchronous bails'
 
 def method(text,name):
     start=text.index(name);start=text.rfind('\n',0,start)+1

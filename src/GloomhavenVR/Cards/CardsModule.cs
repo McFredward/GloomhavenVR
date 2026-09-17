@@ -80,9 +80,16 @@ internal sealed class CardsModule : IVRModule
         // once the loads are quiet (see Cards/CardArtGuard.cs).
         VRSession.Harmony?.PatchAll(typeof(FullAbilityCard_ShowCard_ArtGuard));
         VRSession.Harmony?.PatchAll(typeof(BurnArtwork.ToggleEffect_PreserveSpentStart_Patch));
+        VRSession.Harmony?.PatchAll(typeof(BurnArtwork.ToggleAdditiveEffect_PreservePlayback_Patch));
+        VRSession.Harmony?.PatchAll(typeof(BurnArtwork.RestoreCard_PreservePlayback_Patch));
+        VRSession.Harmony?.PatchAll(typeof(BurnArtwork.AbilityCardUI_Init_HistoricalBurn_Patch));
         VRSession.Harmony?.PatchAll(typeof(AbilityCardUI_OnReturnedToPool_BurnLifetime));
         VRSession.Harmony?.PatchAll(typeof(BurnArtwork.BurnCardTimeline_PreserveSpentStart_Patch));
         VRSession.Harmony?.PatchAll(typeof(ItemBurnPlayback.BurnCardTimeline_Track));
+        VRSession.Harmony?.PatchAll(typeof(ItemBurnPlayback.ToggleEffect_Once));
+        VRSession.Harmony?.PatchAll(typeof(ItemBurnPlayback.ToggleAdditiveEffect_Once));
+        VRSession.Harmony?.PatchAll(typeof(ItemBurnPlayback.RestoreCard_Once));
+        VRSession.Harmony?.PatchAll(typeof(ItemBurnPlayback.ReturnedToPool_Retire));
 
         // THE ENCHANTRESS EDGE (user 2026-08-23, item 4): a card enhanced at the Magierin must
         // update in the VR hand fan at once. The map-room fan's face is an Object.Instantiate

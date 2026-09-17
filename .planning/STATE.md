@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for the build-515 hardware follow-up, ModBuild 516 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for the burn replay review, ModBuild 517 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,7 +13,28 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **dev / 1.0.4 / ModBuild 516 addresses the latest hardware findings.**
+- **dev / 1.0.4 / ModBuild 517 addresses repeated burn playback.** Native effect aliases,
+  pile refresh and hover cleanup cannot restart or truncate an owned ability burn. Historical
+  lost/consumed widget construction paints the original settled output; a replacement during
+  playback waits for the original with cancellation-safe ownership. Actual recovery permits
+  later burns. Item effects cannot overlap, and active-card resets requested during playback
+  run after completion. Local/remote discovery uses original model identity; missing remote
+  samples retain the same lost card's last owner-painted output. Actual completed flight claims
+  remain distinct from historical baselines. Scene and pool boundaries retire native guards.
+  Source and focused regression review complete; full integration results are recorded in
+  [BURN-517.md](BURN-517.md). Supplied logs remain local 515 / remote 500, so this is not
+  a headset verification. No bundle, wire-format or published-release changes.
+
+- **517 integration checks pass:** all 17 checkers and production suites; 254,019 wire
+  assertions; strict Release zero warnings/errors. Ability replay: 496 runtime + three
+  bindings / 13 negatives; items 225 / 11; local layout 219 / 16; remote sequencing 108 / 21;
+  scene lifetime 36 + 23 / eight. Retained build-502 compiled diff: 77 changed / 47 added /
+  zero removed. Private build-516 comparison: 16 changed / two added / zero removed,
+  including seven changes limited to the propagated build constant. Reviewed surfaces:
+  625 config / 171 patch signatures / 4,729 log tokens; patch inventory 128 classes / 195
+  methods. Bilingual docs, shell syntax and whitespace pass. Hardware confirmation is open.
+
+- **Build 516 hardware fixes remain included in dev.**
   Completed discard pages retain their native selected claims; final confirmation cannot
   light an unavailable second recess. Native recycling updates the locked prefix, and undo
   keeps earlier page return flights. MR backings fit visible native content with a small margin,
