@@ -25,6 +25,15 @@ change per build) → this file (where things stand and what is owed) → the bu
   build/package the actual main commit without repeating the full suite. No proof
   artifacts are stored. No release or main update is part of this change.
 
+- **520 integration passes:** 17 source checkers, all production harnesses and 254,565
+  wire assertions; strict Release zero warnings/errors. MR: 250 runtime + 41 bindings,
+  13 runtime / three binding negatives; native ink: 259 assertions / ten runtime and one
+  binding negative. CI proof: 23 cases; release topology: 36 assertions; artifact cleanup:
+  20 cases. Actionlint and bilingual docs pass. Config / patch / log surfaces are
+  625 / 172 / 4,731; patch inventory 130 classes / 197 methods; bundle unchanged.
+  Build-519 compiled comparison: 13 changed (seven build-only), one added, zero removed.
+  Retained build-502 comparison: 86 changed / 54 added / zero removed.
+
 - **dev / 1.0.4 / ModBuild 519 adds opening-time window room making.** Overlapping
   encounter/story windows can move together with a brief animation inside the view.
   One VR participant authors shared movement; stationary remote grips and manual moves

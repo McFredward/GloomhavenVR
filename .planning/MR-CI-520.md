@@ -44,7 +44,32 @@ consume GitHub storage. See `docs/CI-CD.md` for the implementation and recovery 
 
 ## Validation
 
-Integration validation is pending. Hardware confirmation remains open: check MR
+- CI evidence: 23 fixture/local-Git test cases pass, including merge conflicts,
+  different trees, forks, wrong workflow identity, failed/cancelled superseding runs,
+  latest attempts, missing proof, stale proof and API failure.
+- Release topology: 36 assertions pass; optional artifact cleanup: 20 tests pass.
+  Actionlint 1.7.7 accepts both workflows. All 37 existing CI step names and all
+  33 production harness commands remain; the PR surface comparison also runs on reuse.
+- MR background: 250 runtime assertions and 41 source bindings; 13 runtime and
+  three binding negative controls reject the broken alternatives.
+- Native ink: 259 assertions, ten runtime and one binding negative control.
+  These run the actual production measurement against oversized parents/siblings,
+  ancestor masks, real portrait artwork, foreign/hidden roots and inert clone trees.
+- Source surfaces: 625 config keys, 172 patch signatures and 4,731 log tokens.
+  The sole new marker is `MR BACKING SCOPE`, emitted at Info for the scoped rows.
+
+- Complete integration guard passes all 17 source checkers, all production harnesses
+  and 254,565 wire assertions. Its exit 1 is the expected compiled-difference verdict,
+  not a failed checker. The bundle remains 74,942,975 bytes / Unity 2021.3.5f1.
+- Strict Release build: zero warnings and errors. Bilingual docs, shell syntax and
+  whitespace checks pass. Patch inventory remains 130 classes / 197 methods.
+- Compared with the private build-519 compiled snapshot: 13 changed types, one added,
+  zero removed. Seven changes only propagate ModBuild 520; the six behavioral changes
+  are the MR measurement/layout and its two remote call sites. `MrBackingScope` is the
+  single added type. The retained build-502 comparison is 86 changed / 54 added / zero
+  removed. No unrelated compiled behavior was found in the incremental comparison.
+
+Hardware confirmation remains open: check MR
 initiative backgrounds with one and several portraits, changing initiative order,
 element rows, and matching remote boards. Also retain the prior normal-window
 growth/shrink check to catch unwanted cropping of legitimate artwork.
