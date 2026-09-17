@@ -20,6 +20,10 @@ change per build) → this file (where things stand and what is owed) → the bu
   were Debug-only. Bounded normal-level records now identify actual MR edge graphics,
   masks/alpha/material state and target/host instances across conversion lifetimes.
   No further rendering or native-flow change is claimed. See [MR-REOPEN-524.md](MR-REOPEN-524.md).
+  Validation: strict Release zero warnings/errors; ink/diagnostics 398 assertions and
+  24 negatives; MR layout/accessor 258 assertions, 48 bindings and 16 negatives; animation
+  lifecycle 545 assertions, three bindings and three negatives. Frame-order, bilingual docs,
+  shell syntax and whitespace pass. Config/patch/log surfaces: 625 / 172 / 4,733.
 
 
 - **dev / 1.0.4 / ModBuild 523 fits MR backgrounds to native painted geometry.**

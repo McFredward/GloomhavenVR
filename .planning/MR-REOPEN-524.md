@@ -50,4 +50,12 @@ This is a focused diagnostic reproduction, not a claim that the visible defect i
 
 ## Validation
 
-Pending integration: strict Release and affected ink/MR diagnostic checks only.
+Integrated strict Release passes with zero warnings and errors. The production-linked ink
+and diagnostics harness passes 398 assertions, 23 runtime negative controls and one placement
+binding negative. MR layout/accessor checks pass 258 assertions, 48 bindings and 16 negatives;
+animation lifecycle checks pass 545 assertions, three bindings and three negatives. Eleven
+frame-order locks, bilingual documentation checks, shell syntax and whitespace pass.
+
+Config keys and patch surface remain 625 and 172; log tokens grow from 4,732 to 4,733 with
+`MR BOUNDS SOURCE`. Existing tokens are preserved. Only affected local suites were run.
+These checks establish diagnostic behavior and compilation, not a corrected headset image.
