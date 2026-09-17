@@ -518,7 +518,7 @@ internal static class NetProtocol
 
     // ModBuild 523 — fit map-window MR backings to native painted geometry.
     //   Merchant/map backgrounds no longer inherit empty layout height from native text
-    //   boxes. MR uses the original rendered mesh, including real artwork/glyph overflow,
+    //   boxes. MR uses original text meshes and image drawing bounds, including real overflow,
     //   with the existing clipping, scope and transient exclusions in one measurement.
     //   The second glyph sweep is retired: it could restore tooltip text excluded earlier.
     //   Opening/dissolving windows and inert remote clones use the same geometry policy.

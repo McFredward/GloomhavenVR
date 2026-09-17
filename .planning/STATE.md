@@ -16,7 +16,7 @@ change per build) → this file (where things stand and what is owed) → the bu
 - **dev / 1.0.4 / ModBuild 523 fits MR backgrounds to native painted geometry.**
   Merchant/map backgrounds no longer include empty text-layout height or reintroduced
   tooltip glyphs. Local steady/effect paths and inert remote surfaces share the original
-  mesh/clip/visibility policy and a small margin. Native layout, hit/capture and grab
+  text/image/clip/visibility policy and a small margin. Native layout, hit/capture and grab
   geometry remain unchanged. Source fixes and build-522 screenshot/log evidence are in
   [MR-MAP-BOUNDS-523.md](MR-MAP-BOUNDS-523.md); headset confirmation remains open.
 

@@ -24,7 +24,8 @@ Two concrete source gaps explain how unpainted space could enter the MR rectangl
 ## Change
 
 MR geometry now uses an explicit painted-geometry mode in the existing ink traversal.
-It reads the original CanvasRenderer mesh without rebuilding native UI. Original
+It reads native TMP mesh vertices, cached legacy text vertices and original Image/RawImage
+drawing dimensions without rebuilding native UI. Original
 backdrop artwork, actual glyph overflow, transforms, masks, native visibility and scope
 are retained; empty layout space and stencil-only mask faces are not painted content.
 Transient-family exclusions remain in the same traversal. There is no second glyph pass
@@ -35,6 +36,11 @@ the existing small margin. The generic authored-layout measurement stays unchang
 grab bars, capture, hit testing and native window placement. Missing initial meshes
 defer only the backing and then join the already-running materialisation effect.
 The build-522 fade timing, late visibility checks and smooth resize remain in place.
+
+The shipped Unity API does not expose CanvasRenderer.GetMesh. Sliced/tiled images,
+partial radial fills and unknown custom graphics therefore retain their own conservative
+adjusted drawing rectangle; they never substitute the parent host. Text never falls back
+to a large layout box when its native mesh is missing.
 
 Geometry uses the existing sampling cadence and reusable buffers. Modal MR sampling is
 skipped while MR is off. Native mesh data is read-only; no forced text/layout rebuild,

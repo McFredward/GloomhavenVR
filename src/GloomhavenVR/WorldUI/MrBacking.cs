@@ -987,7 +987,7 @@ internal static partial class MrBacking
         VRLog.Info("WorldUI", $"MR PLATE EXTENT: '{host.gameObject.name}' painted content plus margin "
             + $"{fitted.width:F0}x{fitted.height:F0}px, x {fitted.xMin:F0}..{fitted.xMax:F0}, "
             + $"y {fitted.yMin:F0}..{fitted.yMax:F0}; layout frame {frame.width:F0}x{frame.height:F0}px. "
-            + "Native mesh geometry, masks and transient exclusions share one measurement.");
+            + "Native text/image geometry, masks and transient exclusions share one measurement.");
     }
 
     /// <summary>
