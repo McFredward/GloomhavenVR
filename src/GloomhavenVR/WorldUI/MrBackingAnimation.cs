@@ -19,12 +19,16 @@ internal static partial class MrBacking
     // There is no backing timer and this decoration never owns a native close callback.
     internal static void BeginWindowMaterialise(ConvertedPanel panel)
     {
-        if (!MixedReality.BackingsWanted || panel.MrBackingSuppressed || panel.HostRect == null)
+        if (panel.MrBackingSuppressed || panel.HostRect == null)
             return;
         try
         {
-            EnsurePlateMaterial();
-            _applied = true;
+            bool wanted = MixedReality.BackingsWanted;
+            if (wanted)
+            {
+                EnsurePlateMaterial();
+                _applied = true;
+            }
             PanelEntry entry = GetAnimationEntry(panel);
             entry.Materialise?.Restore(entry.Plate);
             entry.Faded = false;
@@ -35,6 +39,15 @@ internal static partial class MrBacking
             entry.Animation.Frame = panel.HostRect.rect;
             entry.Animation.Bounds = entry.Shown;
             entry.Visibility.Root = panel.FitContentRoot ?? panel.Target;
+            // Retain the episode while MR is off as well: enabling it during the dust-only
+            // tail must not create an opaque plate. Reuse an existing owner's geometry when
+            // possible; GPU resources are still created only while MR is actually enabled.
+            if (!wanted && GrabbableModal.TryGetMrBackingRect(panel, out Rect cached,
+                    out bool cachedVisible, out _) && cachedVisible)
+            {
+                entry.Animation.Bounds = cached;
+                return;
+            }
             // The reveal can start before Tick has ever built a plate. Measure the same native
             // ink now, while it is still whole; never substitute the transparent host rectangle.
             if (PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink,
@@ -97,6 +110,12 @@ internal static partial class MrBacking
             }
             if (!vanishing)
                 entry.Layout.Settle(entry.Animation.Bounds, Time.unscaledTime);
+            if (!MixedReality.BackingsWanted)
+            {
+                entry.Materialise?.Dispose();
+                DestroyPlate(entry.Plate, entry.FadeMat);
+                Panels.Remove(entry);
+            }
         }
         catch (Exception ex)
         {
@@ -118,7 +137,8 @@ internal static partial class MrBacking
         }
         if (entry.Plate == null)
             return;
-        entry.Plate.gameObject.SetActive(visible);
+        if (entry.Plate.gameObject.activeSelf != visible)
+            entry.Plate.gameObject.SetActive(visible);
         if (!visible)
             return;
         Fit(entry.Plate, host, rect.size, rect.center);
@@ -150,15 +170,25 @@ internal static partial class MrBacking
 
     private static void FailBackingAnimation(ConvertedPanel panel, Exception ex)
     {
-        PanelEntry? entry = FindAnimationEntry(panel);
-        if (entry != null)
+        // This also runs from Finish after its exactly-once latch has been set. Neither a
+        // destroyed decoration nor a failing diagnostic may stop the native close callback.
+        try
         {
-            entry.Animation.Active = false;
-            entry.Animation.Closed = true;
-            if (entry.Plate != null)
-                entry.Plate.gameObject.SetActive(false);
+            PanelEntry? entry = FindAnimationEntry(panel);
+            if (entry != null)
+            {
+                entry.Animation.Active = false;
+                entry.Animation.Closed = true;
+                if (entry.Plate != null)
+                    entry.Plate.gameObject.SetActive(false);
+            }
         }
-        VRLog.Warn("WorldUI", "MR BACKING ANIMATION: decoration disabled after "
-            + ex.GetType().Name + "; native window continuation remains independent.");
+        catch { /* Best-effort cleanup of an already failed, mod-owned decoration. */ }
+        try
+        {
+            VRLog.Warn("WorldUI", "MR BACKING ANIMATION: decoration disabled after "
+                + ex.GetType().Name + "; native window continuation remains independent.");
+        }
+        catch { /* A diagnostic must never prevent the game's pending continuation. */ }
     }
 }

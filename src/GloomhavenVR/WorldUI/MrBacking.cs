@@ -608,7 +608,7 @@ internal static partial class MrBacking
         for (int i = 0; i < Panels.Count; i++)
         {
             PanelEntry e = Panels[i];
-            if (e.Plate == null || e.Animation.Active)
+            if (e.Plate == null || !e.Plate.gameObject.activeSelf || e.Animation.Active)
                 continue; // The materialise runner writes the exact same frame's field itself.
             bool owned = GrabbableModal.TryGetMrBackingRect(e.Panel, out _, out bool shown, out _);
             bool visible = !e.Animation.Closed && !e.Panel.RenderHidden && !e.Panel.OwnerRenderHidden

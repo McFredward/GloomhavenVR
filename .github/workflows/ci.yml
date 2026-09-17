@@ -357,6 +357,8 @@ jobs:
           bash scripts/burn-replay-tests.sh
           bash scripts/pick-tray-tests.sh
           bash scripts/mr-backing-tests.sh
+          bash scripts/mr-backing-materialise-tests.sh
+          bash scripts/mr-backing-animation-tests.sh
           bash scripts/card-scene-lifetime-tests.sh
           bash scripts/remote-burn-sequencing-tests.sh
           bash scripts/burn-completion-tests.sh

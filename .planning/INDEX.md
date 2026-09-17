@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for task-specific tutorial hands, build 521 on dev. This directory holds internal
+Updated 2026-09-17 for MR backing lifetime and animation, build 522 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [MR-ANIMATION-522.md](MR-ANIMATION-522.md): immediate native visibility, shared window erosion field, safe close/reopen and owned-resource cleanup.
 
 - [TUTORIAL-HANDS-521.md](TUTORIAL-HANDS-521.md): restored per-task hands, original animated transitions and missing-model recovery.
 

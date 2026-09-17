@@ -514,7 +514,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 521;
+    public const ushort ModBuild = 522;
+
+    // ModBuild 522 — MR backings share the window's materialisation and dissolution.
+    //   Snapshot fitted native ink before the first element-alpha write; the existing runner
+    //   drives a bounded vertex-alpha mesh with the same host-space erosion field. No backing
+    //   survives into the debris-only tail, adds a timer, or delays native continuation.
+    //   Cached geometry no longer delays visibility: admitted native graphics are checked live
+    //   for hidden/empty/transparent state on local and remote surfaces. Native fades retain
+    //   their actual alpha; transparent backings never write depth. Close/reopen, MR toggles
+    //   and owned-resource cleanup preserve immediate hides and normal animated resizing.
+    //   Version 1.0.4 on dev; no bundle, config or wire grammar changes. All VR peers use 522.
+    //   See .planning/MR-ANIMATION-522.md for focused validation and hardware limits.
 
     // ModBuild 521 — restore task-specific hands in the first tutorial's VR lesson.
     //   Card handling, fingertip interaction and prose steps use the original hands;

@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for task-specific tutorial hands, ModBuild 521 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for MR backing lifetime and animation, ModBuild 522 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 522 couples MR backgrounds to window materialisation.**
+  Backgrounds use the same erosion field and element progress and disappear before
+  the debris-only tail. Native hidden/empty/transparent content clears its backing
+  immediately, locally and remotely, independently of cached geometry measurements.
+  Close/reopen, MR toggles and native continuation remain independent of decoration.
+  See [MR-ANIMATION-522.md](MR-ANIMATION-522.md); headset confirmation remains open.
 
 - **dev / 1.0.4 / ModBuild 521 restores the original tutorial hand/controller choices.**
   Card handling, fingertip interaction and prose show hands; key lessons show both
