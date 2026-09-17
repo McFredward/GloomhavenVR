@@ -149,6 +149,9 @@ jobs:
       - name: CI proof reuse regression tests
         run: python3 -m unittest discover -s tests -p 'test_ci_proof_reuse.py'
 
+      - name: Release upload recovery regression tests
+        run: python3 -m unittest discover -s tests -p 'test_release_upload.py'
+
       - name: Artifact cleanup regression tests
         run: python3 -m unittest discover -s tests -p 'test_prune_dev_artifacts.py'
 

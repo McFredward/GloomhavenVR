@@ -21,7 +21,9 @@ change per build) → this file (where things stand and what is owed) → the bu
   targets main a6d044c4. Publication is blocked by repeated GitHub upload HTTP 500 responses;
   prepared draft 391041682 remains unpublished with no assets, and latest stays v1.0.3.
   The verified main-built ZIP is saved in dist/recovery-1.0.4/. Dev remains 1.0.4 until upload
-  and publication succeed; resume instructions are in the release record.
+  and publication succeed; resume instructions are in the release record. At the maintainer's
+  request, recovery runs through the main Release workflow: rebuild the immutable tagged
+  main source using its successful dev CI evidence, without repeating full checks on main.
 
 - **dev / 1.0.4 / ModBuild 527 preserves the newly opened map window's spawn pose.**
   Build-526 logs show three quest-popup animations moving only the newcomer. The solver now

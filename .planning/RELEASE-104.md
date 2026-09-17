@@ -61,7 +61,9 @@ dir. The final request ID was 970A:CC3F6:14CB701:16BF1E4:6AAC4EF4. GitHub's publ
 endpoint reported operational, which does not negate these actual endpoint failures.
 Latest public release remains v1.0.3. Dev has deliberately not been bumped before publication.
 
-Resume by uploading the verified archive to the existing v1.0.4 draft, verify server size
-and digest, then publish with `gh release edit v1.0.4 --draft=false --latest`. Only after it
-is live, perform the normal release-provenance.sh prepare bookkeeping from fresh refs and
-push the resulting next-version commit to dev. No new game code or main merge is needed.
+The maintainer subsequently requested recovery through the main build pipeline, keeping
+full tests on dev. The local recovery archive is therefore not the publication source.
+A main-only manual resume path is being integrated: it will verify the original tagged main
+source against existing full CI proof, rebuild and package it on the main runner, preserve
+the tag, retry draft uploads and verify the uploaded archive before publication. Normal
+post-publication dev bookkeeping follows. No game code or ModBuild change is involved.
