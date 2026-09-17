@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems><Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors><GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <BackingSource Condition="'$(BackingSource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingMaterialise.cs</BackingSource>
+    <FieldSource Condition="'$(FieldSource)' == ''">../../src/GloomhavenVR/WorldUI/Materialise/WindowMaterialiseField.cs</FieldSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" /><Compile Include="Stubs.cs" />
+    <Compile Include="$(BackingSource)" Link="Production/MrBackingMaterialise.cs" />
+    <Compile Include="$(FieldSource)" Link="Production/WindowMaterialiseField.cs" />
+  </ItemGroup>
+</Project>
