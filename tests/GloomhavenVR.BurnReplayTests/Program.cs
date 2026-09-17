@@ -43,6 +43,21 @@ static class Program {
   var(steady,sc)=Make(ECardPile.Lost);steady.ToggleEffect(true,CardEffects.FXTask.BurnCard);var obsoleteFollower=new CardEffects();obsoleteFollower.Full.AbilityCard=sc;obsoleteFollower.ToggleEffect(true,CardEffects.FXTask.LostMode);var oldFollower=obsoleteFollower.Live!;BurnArtwork.RetireBurnPlayback(obsoleteFollower);Check(!oldFollower.MoveNext()&&obsoleteFollower.Paint==0,"Retired follower iterators must stop without painting recycled artwork");Check(steady.Live!.MoveNext(),"Retiring a follower must not cancel the primary burn");
   var retargeted=new CardEffects();retargeted.Full.AbilityCard=sc;retargeted.ToggleEffect(true,CardEffects.FXTask.LostMode);var staleFollower=retargeted.Live!;retargeted.Full.AbilityCard=new(){CurrentCardPile=ECardPile.Hand};Check(!staleFollower.MoveNext()&&retargeted.Paint==0,"Retargeted follower iterators must stop without altering the new card");
   var(normal,nc)=Make(ECardPile.Hand);normal.ToggleEffect(true,CardEffects.FXTask.DiscardMode);Check(normal.Discards==1,"Unrelated normal discard presentation must remain native");
+  var(preview,previewCard)=Make(ECardPile.Discarded); preview.Full.playerActor=new(); preview.Full.playerActor.CharacterClass.DiscardedAbilityCards.Add(previewCard);
+  CardsHandManager.Instance=new(); CardsHandManager.Instance.Hand.ShortRestedCard=previewCard;preview.Paint=.7f;
+  for(int hover=0;hover<30;hover++){preview.ToggleEffect(false,CardEffects.FXTask.BurnCard);Check(preview.Paint==.7f && preview.Resets==0 && preview.Live==null,"Uncommitted short-rest hover must retain spent artwork without a premature flame preview");}
+  preview.ToggleEffect(true,CardEffects.FXTask.BurnCard); Check(preview.Starts==1,"Confirming the same hovered rest offer must start its native burn exactly once");
+  preview.Full.playerActor.CharacterClass.DiscardedAbilityCards.Clear();preview.Full.playerActor.CharacterClass.LostAbilityCards.Add(previewCard);previewCard.CurrentCardPile=ECardPile.Lost;
+  while(preview.Live!.MoveNext()){} preview.ToggleEffect(false,CardEffects.FXTask.BurnCard);Check(preview.Starts==1 && preview.Paint>=1,"Completed rest artwork must remain burnt after hover exits");
+  var(otherPreview,otherCard)=Make(ECardPile.Discarded);otherPreview.Full.playerActor=preview.Full.playerActor;otherPreview.Full.playerActor.CharacterClass.DiscardedAbilityCards.Add(otherCard);otherPreview.ToggleEffect(false,CardEffects.FXTask.BurnCard);Check(otherPreview.Paint==1 && otherPreview.Resets==1,"Unrelated native burn previews must retain their original behavior");
+  CardsHandManager.Instance.Hand.ShortRestedCard=otherCard;otherPreview.Paint=.7f;int redrawResets=otherPreview.Resets;
+  otherPreview.ToggleEffect(false,CardEffects.FXTask.BurnCard);Check(otherPreview.Paint==.7f && otherPreview.Resets==redrawResets,"Redrawn short-rest offer must retain its own spent artwork");
+  otherPreview.ToggleEffect(false,CardEffects.FXTask.DiscardMode);Check(otherPreview.Discards==1,"Leaving an unaccepted hover must allow the native discarded-pile refresh");
+  CardsHandManager.Instance.Hand.ShortRestedCard=null;otherPreview.ToggleEffect(false,CardEffects.FXTask.BurnCard);Check(otherPreview.Resets==redrawResets+2,"Cancelling the rest must retire preview suppression");
+  preview.Full.playerActor.CharacterClass.LostAbilityCards.Clear();preview.Full.playerActor.CharacterClass.HandAbilityCards.Add(previewCard);previewCard.CurrentCardPile=ECardPile.Hand;preview.RestoreCard();
+  preview.Full.playerActor.CharacterClass.HandAbilityCards.Clear();preview.Full.playerActor.CharacterClass.DiscardedAbilityCards.Add(previewCard);previewCard.CurrentCardPile=ECardPile.Discarded;CardsHandManager.Instance.Hand.ShortRestedCard=previewCard;preview.Paint=.7f;
+  preview.ToggleEffect(false,CardEffects.FXTask.BurnCard);Check(preview.Paint==.7f,"Recovered card offered in another rest must retain its spent preview");preview.ToggleEffect(true,CardEffects.FXTask.BurnCard);Check(preview.Starts==2,"A genuinely recovered card must burn again on later confirmation");
+  CardsHandManager.Instance=null;
   Console.WriteLine($"Burn replay: {count} runtime assertions passed.");
  }
 }

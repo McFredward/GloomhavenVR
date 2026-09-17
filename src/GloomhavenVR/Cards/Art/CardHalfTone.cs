@@ -504,7 +504,14 @@ internal static class CardHalfTone
     /// </summary>
     private static bool IsModOwnedCopy(FullAbilityCard face)
     {
-        if (CardArtGuard.IsAdopted(face))
+        // A native dialog can temporarily own the original outside AbilityCardUI and
+        // outside the adoption registry. Hierarchy absence is not clone ownership. The
+        // original's live CardEffects must retain its private, animated materials; replacing
+        // them with RestCopyOf in mid-burn clears the burn constants and flashes blue even
+        // though the native iterator continues. Remote clones strip this component before
+        // their first rescan, so their initial normalization and owner playback still run.
+        if (face.cardEffects != null || face.GetComponent<CardEffects>() != null
+            || CardArtGuard.IsAdopted(face) || CardFace.OwnerOf(face) != null)
             return false;
         // includeInactive: a clone is configured under an INACTIVE host, which is the one moment a
         // correction lands before a first drawn frame.

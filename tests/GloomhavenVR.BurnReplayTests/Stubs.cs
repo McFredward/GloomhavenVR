@@ -5,7 +5,7 @@ namespace HarmonyLib { static class AccessTools {internal static List<System.Ref
 namespace ScenarioRuleLibrary {
  class CBaseCard { internal enum ECardPile { None,Hand,Round,Discarded,Lost,PermanentlyLost,Activated } }
  class CPlayerActor {internal CCharacterClass CharacterClass=new();}
- class CCharacterClass { internal readonly List<CAbilityCard> HandAbilityCards=new(),RoundAbilityCards=new(),LostAbilityCards=new(),PermanentlyLostAbilityCards=new(),ActivatedCards=new(); }
+ class CCharacterClass { internal readonly List<CAbilityCard> HandAbilityCards=new(),DiscardedAbilityCards=new(),RoundAbilityCards=new(),LostAbilityCards=new(),PermanentlyLostAbilityCards=new(),ActivatedCards=new(); }
  class CAbilityCard { internal CBaseCard.ECardPile CurrentCardPile; }
 }
 class AbilityCardUI { internal FullAbilityCard fullAbilityCard=null!; internal ScenarioRuleLibrary.CAbilityCard AbilityCard=null!; internal ScenarioRuleLibrary.CPlayerActor? PlayerActor=null; internal void Init(){} }
@@ -58,3 +58,6 @@ namespace GloomhavenVR.Cards {
 }
 
 namespace UnityEngine { class WaitForEndOfFrame {} }
+
+class CardsHandUI { internal ScenarioRuleLibrary.CAbilityCard? ShortRestedCard; }
+class CardsHandManager { internal static CardsHandManager? Instance; internal CardsHandUI Hand=new(); internal CardsHandUI GetHand(ScenarioRuleLibrary.CPlayerActor owner)=>Hand; }

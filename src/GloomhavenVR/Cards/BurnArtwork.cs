@@ -224,11 +224,32 @@ internal static class BurnArtwork
     private static bool AllowEffect(CardEffects fx, bool active, CardEffects.FXTask effect)
     {
         bool burn = effect == CardEffects.FXTask.BurnCard || effect == CardEffects.FXTask.LostMode;
-        if (!PreservePlayback(fx, resetting: !burn)) return true;
+        if (!PreservePlayback(fx, resetting: !burn))
+        {
+            // Native short-rest hover asks for BurnCard(false): this is the fully burnt
+            // no-ramp preview, not cancellation. Clicking then restores that fiery preview
+            // to zero and starts the real two-second burn, which looks like a restart.
+            // Keep the uncommitted discarded offer in its existing spent appearance. Only
+            // the confirmation callback starts burn playback; redraw and gameplay stay native.
+            if (!active && effect == CardEffects.FXTask.BurnCard && IsShortRestPreview(fx)) return false;
+            return true;
+        }
         if (burn && active) fx.toggledEffects.Add(effect);
         // Keep the original burn latch through RefreshPile(false) while it is playing.
         // The first real recovery/reset clears the complete native set normally.
         return false;
+    }
+
+    private static bool IsShortRestPreview(CardEffects fx)
+    {
+        FullAbilityCard? full = ResolveOwner(fx, out var widget);
+        var card = widget != null ? widget.AbilityCard : full?.AbilityCard;
+        var owner = widget != null ? widget.PlayerActor : full?.playerActor;
+        var manager = CardsHandManager.Instance;
+        if (card == null || owner?.CharacterClass == null || manager == null
+            || !owner.CharacterClass.DiscardedAbilityCards.Contains(card)) return false;
+        var hand = manager.GetHand(owner);
+        return hand != null && ReferenceEquals(hand.ShortRestedCard, card);
     }
 
     [HarmonyPatch(typeof(CardEffects), nameof(CardEffects.ToggleEffect))]

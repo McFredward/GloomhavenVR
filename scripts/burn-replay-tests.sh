@@ -35,12 +35,13 @@ PY
 done
 cp "$work_dir/original.txt" "$work_dir/NativeBurnEpisode.cs"
 cp "$work_dir/Production.cs" "$work_dir/production.txt"
-for mutation in historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower; do
+for mutation in short-rest-preview historical-init historical-rebuild settled-history deferred-reset follower retire-primary retired-follower retargeted-follower recovered-follower; do
  python3 - "$work_dir" "$mutation" <<'PY'
 from pathlib import Path
 import sys
 p=Path(sys.argv[1]);s=(p/'production.txt').read_text()
 a,b={
+'short-rest-preview':('if (!active && effect == CardEffects.FXTask.BurnCard && IsShortRestPreview(fx)) return false;', ''),
 'historical-init':('history.Completed = history.LeftRecoveryPile = true;', 'history.LeftRecoveryPile = true;'),
 'historical-rebuild':('if (burnAnim && initialCard != null && Durable(initialCard, initialOwner)', 'if (bool.Parse("false") && burnAnim && initialCard != null && Durable(initialCard, initialOwner)'),
 'settled-history':('episode.Observe(initialCard, Recovered(initialCard, initialOwner), running: false);', ''),
@@ -55,6 +56,7 @@ assert s.count(a)==1;(p/'Production.cs').write_text(s.replace(a,b))
 PY
  if dotnet run --project "$work_dir/GloomhavenVR.BurnReplayTests.csproj" -c Release > "$work_dir/negative.log" 2>&1; then cat "$work_dir/negative.log"; exit 1; fi
  case "$mutation" in
+ short-rest-preview) expected='Uncommitted short-rest hover must retain spent artwork without a premature flame preview';;
  historical-init|historical-rebuild) expected='First-seen already-lost widgets must settle native artwork without a historical replay';;
  settled-history) expected='Historical native settle must survive a standalone reset without blue flash';;
  deferred-reset) expected='A completed activation must permit the native clean active-card look';;
