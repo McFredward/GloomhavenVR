@@ -98,6 +98,10 @@ internal static class Program
 
         MrBacking.ResetTest();PanelInkBounds.Valid=false;p=Start(true,out runner);runner.Frame(0.4f);
         Check(!MrBacking.Visible(p),"missing ink never falls back to huge transparent host");
+        PanelInkBounds.Valid=true;runner.Frame(0.41f);
+        Check(MrBacking.Visible(p),"first native mesh joins the running effect without a new timer");
+        Near(MrBacking.Progress(p),1f-0.41f/WindowMaterialiseField.ElementSpan,
+            "deferred first mesh retains original appearance progress");
         runner.Finish("cancelled",true);Check(!MrBacking.Active(p),"cancel releases animation ownership");
 
         foreach(bool hideThrows in new[]{false,true})foreach(bool logThrows in new[]{false,true})

@@ -514,7 +514,18 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 522;
+    public const ushort ModBuild = 523;
+
+    // ModBuild 523 — fit map-window MR backings to native painted geometry.
+    //   Merchant/map backgrounds no longer inherit empty layout height from native text
+    //   boxes. MR uses the original rendered mesh, including real artwork/glyph overflow,
+    //   with the existing clipping, scope and transient exclusions in one measurement.
+    //   The second glyph sweep is retired: it could restore tooltip text excluded earlier.
+    //   Opening/dissolving windows and inert remote clones use the same geometry policy.
+    //   Missing first-frame meshes defer the backing and join the existing effect when ready;
+    //   native layout, capture, grab placement and game callbacks remain unchanged.
+    //   Version 1.0.4 on dev; no bundle, config or wire changes. All VR peers use 523.
+    //   See .planning/MR-MAP-BOUNDS-523.md for evidence and focused validation.
 
     // ModBuild 522 — MR backings share the window's materialisation and dissolution.
     //   Snapshot fitted native ink before the first element-alpha write; the existing runner

@@ -2933,18 +2933,25 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);
         _mrVisibility.Root = _panel.Target;
-        bool measured = PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink,
-            visibleWitnesses: holdMrPicture ? null : _mrVisibility.Witnesses) && ink.Valid;
+        bool measured = PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink) && ink.Valid;
         // Publish the RAW sample before any envelope/recession logic. Modal backing must shrink
         // with the current window and must never invent a frame for an empty map conversion.
         // WindowMaterialise moves/fades individual glyphs and images. Keep its last complete MR
         // picture while it runs; the presenter follows the runner's actual element progress.
         if (!holdMrPicture)
         {
+            // Grab geometry retains its authored-layout contract. MR backs pixels instead:
+            // tall text boxes, hidden mask faces and excluded tooltips are not painted content.
+            // Do not add this geometry walk while MR is off.
+            PanelInkBounds.Ink backingInk = default;
+            bool backingMeasured = MrBacking.WantOpaque
+                && PanelInkBounds.TryMeasure(_panel, out backingInk,
+                    visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && backingInk.Valid;
             _mrInkSampleFrame = now;
-            _mrInkValid = measured;
-            _mrInkRect = measured
-                ? MrBackingLayout.WindowRect(hostRect, ink.Rect, ink.Plates > 0, ink.PlateBottom)
+            _mrInkValid = backingMeasured;
+            _mrInkRect = backingMeasured
+                ? MrBackingLayout.WindowRect(hostRect, backingInk.Rect, backingInk.Plates > 0,
+                    backingInk.PlateBottom, fitScoped: true)
                 : default;
         }
         // THE MOUSEOVER LEDGER IS TAKEN ON EVERY SAMPLE, including one that could not be measured —

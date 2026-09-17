@@ -391,16 +391,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, Wor
         _mrVisibility.Root = contentRoot ?? _cloneRect;
         _mrBoundsVisible = WorldUI.PanelInkBounds.TryMeasure(_mrInkPanel,
             out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,
-            contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses) && ink.Valid;
+            contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && ink.Valid;
         if (!_mrBoundsVisible)
         {
             _mrBounds = default;
             return;
         }
-        Rect bounds = WorldUI.MrBacking.GlyphTrueRect(_mrInkPanel, _pivot,
-            WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect, ink.Plates > 0, ink.PlateBottom,
-                fitScoped: contentRoot != null),
-            out _, _mrExcluded, contentRoot);
+        Rect bounds = WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect,
+            ink.Plates > 0, ink.PlateBottom, fitScoped: true);
         // Ink is measured in the native-layout pivot's px. The MR plate is parented one level
         // above it, so carry the same measured centre into host coordinates without re-fitting UI.
         Vector3 center = _host.transform.InverseTransformPoint(

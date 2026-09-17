@@ -305,8 +305,8 @@ internal static partial class MrBacking
         public bool Faded;
         public Rect Shown;
 
-        /// <summary>Change-dedup for the plate-extent line (rounded px) — see <see cref="LogPlateExtent"/>.</summary>
-        public string? LoggedExtent;
+        public bool ExtentNoted;
+        public Rect LoggedBounds;
     }
 
     private sealed class SurfaceEntry
@@ -905,36 +905,28 @@ internal static partial class MrBacking
             // unsuitable here. In particular, a known empty holder must never take the host fallback.
             bool owned = GrabbableModal.TryGetMrBackingRect(panel, out Rect fitted,
                 out bool ownerVisible, out int sampleFrame);
-            int overflowing = 0;
             if (owned)
                 visible &= ownerVisible;
             else
             {
                 visible &= !panel.FitEnabled || panel.FitMeasuredOnce;
-                // Board-coupled surfaces have no modal ink owner. Their old glyph sweep already
-                // walked all graphics each frame, yet seeded from an oversized/empty host. Measure
-                // real ink instead on a four-frame cadence; retain genuine unclipped glyph overflow.
+                // Board-coupled surfaces have no modal ink owner. Read their actual painted
+                // geometry on the existing cadence, including genuine glyph/artwork overflow.
                 if (visible && Time.frameCount >= entry.NextSampleFrame)
                 {
                     entry.Visibility.Root = panel.FitContentRoot ?? panel.Target;
                     entry.SampleFrame = Time.frameCount;
                     entry.NextSampleFrame = Time.frameCount + MrBackingLayout.SampleStrideFrames;
-                    // Build 519 hardware: the initiative backing extended down through the board.
-                    // Its original owner fits only initiativeTrackHolder, while the outer canvas
-                    // retains full-screen input/reveal siblings. The 516 ink walk measured those
-                    // siblings again. Reuse the explicit owner's content boundary for BOTH ink
-                    // and overflow glyphs; never change native geometry to fix a backing plate.
+                    // Keep the original content boundary and all transient/clip exclusions in
+                    // one walk. A second glyph sweep used to reintroduce excluded tooltip text.
                     entry.BoundsVisible = PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink,
                                               contentRoot: panel.FitContentRoot,
-                                              visibleWitnesses: entry.Visibility.Witnesses)
+                                              visibleWitnesses: entry.Visibility.Witnesses, backingGeometry: true)
                                           && ink.Valid;
                     entry.Bounds = entry.BoundsVisible
-                        ? GlyphTrueRect(panel, host,
-                            MrBackingLayout.WindowRect(r, ink.Rect, ink.Plates > 0, ink.PlateBottom,
-                                fitScoped: panel.FitContentRoot != null),
-                            out overflowing, contentRoot: panel.FitContentRoot)
+                        ? MrBackingLayout.WindowRect(r, ink.Rect, ink.Plates > 0, ink.PlateBottom,
+                            fitScoped: true)
                         : default;
-                    LogPlateExtent(entry, host, r, entry.Bounds, overflowing);
                     if (panel.FitContentRoot != null && (!entry.ScopeNoted
                         || !ReferenceEquals(entry.ContentRoot, panel.FitContentRoot)))
                     {
@@ -951,6 +943,8 @@ internal static partial class MrBacking
                 visible &= entry.BoundsVisible;
                 visible &= entry.Visibility.VisibleNow;
             }
+            if (visible)
+                LogPaintedExtent(entry, host, r, fitted);
             visible = entry.Layout.Present(fitted, visible, sampleFrame, Time.unscaledTime,
                 MrBackingLayout.DurationSeconds, out Rect shown);
             if (entry.Plate == null)
@@ -979,237 +973,21 @@ internal static partial class MrBacking
         }
     }
 
-    /// <summary>Scratch for the per-panel glyph sweep (no steady-state allocation). Collected as
-    /// <see cref="Graphic"/> — the EXACT component type the content fit sweeps
-    /// (<c>CanvasConversion.TryMeasureContent</c>) — and filtered to <see cref="TMP_Text"/> inside
-    /// the loop, so the two passes provably walk the same set of objects and the shared visibility
-    /// verdict below is asked about the same thing the host rect was measured from. The set is
-    /// unchanged from the previous <c>List&lt;TMP_Text&gt;</c> sweep: <c>TMP_Text</c> derives from
-    /// <c>MaskableGraphic</c>, so BOTH the uGUI <c>TextMeshProUGUI</c> and the world-space
-    /// <c>TextMeshPro</c> are Graphics and are found either way.</summary>
-    private static readonly List<Graphic> TextScratch = new(32);
-
-    /// <summary>How many overflowing text objects the extent log names (see
-    /// <see cref="LogPlateExtent"/>). A handful is an identification, a full list is a wall.</summary>
-    private const int OverflowNameCap = 4;
-
-    /// <summary>The first <see cref="OverflowNameCap"/> text objects the last
-    /// <see cref="GlyphTrueRect"/> pass had to grow the plate for, and their glyph rects in HOST
-    /// units — the raw REFERENCES, never their names: <c>Object.name</c> allocates a managed string
-    /// on every read and this sweep runs per panel per frame, so the formatting happens only inside
-    /// the change-gated log line.</summary>
-    private static readonly TMP_Text?[] OverflowText = new TMP_Text?[OverflowNameCap];
-    private static readonly Rect[] OverflowRect = new Rect[OverflowNameCap];
-
-    /// <summary>
-    /// THE PLATE MUST COVER WHAT IS DRAWN, NOT WHAT WAS MEASURED (user hardware report, ModBuild 90:
-    /// "Der Schadenstext 'Schadensphase: Erleide […]' ist nicht vollständig von dem mixed-reality
-    /// Hintergrund abgedeckt, aktuell nur der mittlere Teil des Textes, an den äußeren Rändern fehlt
-    /// etwas vom Hintergrund").
-    ///
-    /// <para>ROOT CAUSE, and why no amount of out-padding was the answer: a converted panel's host
-    /// rect is the content FIT's union of the visible graphics' RECTANGLES, clamped to the window's
-    /// own frame (<c>CanvasConversion.TryMeasureContent</c>). A <see cref="TMP_Text"/> whose line is
-    /// longer than its box does not wrap or clip — uGUI has no implicit clipping — it simply RENDERS
-    /// WIDER THAN EVERY RECTANGLE IN THAT UNION. The take-damage HelpBox is exactly that: a
-    /// 479-px-wide window holding a full sentence, centred, so the host rect (and therefore an
-    /// exactly-host-rect-sized plate) covers the middle of the line and the ends hang off into the
-    /// passthrough room. The fix measures the RENDERED glyph bounds — the same <c>textBounds</c>
-    /// basis the free-floating label plates have always used (<see cref="TickLabels"/>) — and unions
-    /// them into the plate rect, with the same <see cref="LabelPadFraction"/>/
-    /// <see cref="LabelPadFloorMeters"/> margin those label plates use, so an overflowing line gets a
-    /// backing that looks like every other backing in the mod.</para>
-    ///
-    /// <para>NON-OVERFLOWING PANELS ARE BIT-IDENTICAL: a label whose glyphs sit inside the host rect
-    /// contributes nothing and the plate stays exactly <paramref name="hostRect"/>, so the "never a
-    /// frame the window never had" contract still holds for every panel that never had the bug.
-    /// CLIPPED text is skipped outright (a <c>RectMask2D</c>/<c>Mask</c> between the label and the
-    /// host means the renderer crops it to a viewport that is inside the host anyway) — a scrolled-out
-    /// row must never inflate a plate.</para>
-    ///
-    /// <para>ROUND 2 — "VISIBLE" NOW MEANS WHAT THE FIT MEANS BY IT (user hardware report 2026-08-08,
-    /// MR: "Der mixed Reality Hintergrund für die Initiativreihenfolge ist nach deiner letzten
-    /// Änderung vertikal zu lang - davor war es besser, ich will nicht, dass große
-    /// Hintergrund-Rechtecke existieren von denen der Platz garnicht genutzt wird",
-    /// .planning/debug/mixed_reality_background.png: the portrait row sits in the TOP HALF of a plate
-    /// twice its height). Round 1's visibility test was active + non-empty text + not masked, which
-    /// is a far weaker question than the one the host rect was measured with: the content fit rejects
-    /// a graphic as <c>Culled</c> (component-disabled or <c>canvasRenderer.cull</c>), <c>Faint</c>
-    /// (effective alpha under 0.05 — own colour × the inherited CanvasGroup alpha), <c>Empty</c>
-    /// (collapsed draw rect) or <c>ClippedOut</c>, AND skips this mod's own cue art. So this sweep
-    /// was unioning back in EXACTLY the text the fit had already judged invisible, and the hardware
-    /// log names the cost on one panel: the fit reads "1201x175 px … rejected 24 culled/disabled, 65
-    /// faint", the plate one line later reads "16 text line(s) OUTSIDE its fitted host rect …
-    /// 1293x294 px, centred at (46,-59)" — +119 px of height, almost all of it DOWNWARD, under a
-    /// portrait row that is 172 px tall. The predicate is now the fit's OWN
-    /// (<c>CanvasConversion.CountsAsFitContent</c>), called rather than re-implemented, so the two
-    /// can never drift apart again.</para>
-    ///
-    /// <para>WHAT DELIBERATELY DID NOT CHANGE: the fit's FRAME CLAMP is NOT applied here. The fit
-    /// crops its union into the conversion target's own rect; the take-damage HelpBox is a 479 px
-    /// window holding a whole centred sentence that renders WIDER than that frame on purpose, and
-    /// covering exactly that overflow is what this method exists for. The legitimate overflows in the
-    /// same hardware log — <c>Panel_Objectives</c> (+15 px tall) and <c>Panel_EnemyReveal</c>
-    /// (+55…115 px tall as its reveal list fills) — are drawn by text the fit COUNTS, so they keep
-    /// their enlarged plates unchanged.</para>
-    /// </summary>
-    internal static Rect GlyphTrueRect(ConvertedPanel panel, RectTransform host, Rect hostRect,
-                                      out int overflowing, ISet<Transform>? excludedRoots = null, Transform? contentRoot = null)
+    // Report the actual backing, including modal owners. The previous diagnostic only ran
+    // for the secondary glyph sweep, so the merchant report had no measured MR rectangle.
+    private static void LogPaintedExtent(PanelEntry entry, RectTransform host, Rect frame, Rect fitted)
     {
-        overflowing = 0;
-        for (int i = 0; i < OverflowNameCap; i++)
-            OverflowText[i] = null;
-        TextScratch.Clear();
-        host.GetComponentsInChildren(includeInactive: false, TextScratch);
-        if (TextScratch.Count == 0)
-            return hostRect;
-
-        // The fit's per-pass clipper/authored memos are keyed by Transform and only ever cleared at
-        // the START of a pass — this sweep is an outside caller of that same code, so it opens its
-        // own query the same way (see CanvasConversion.BeginContentQuery: the initiative fit disarms
-        // itself after one applied re-fit, so "the next fit pass will clear it" is not true here).
-        CanvasConversion.BeginContentQuery();
-
-        // The label margin in HOST units (canvas px): the floor is authored in real metres, and the
-        // host's own scale carries px→world — the PlateGapMeters conversion in Fit, same reasoning.
-        float unit = LabelPadFloorMeters * PanelLayout.WorldScale
-                     / Mathf.Max(Mathf.Abs(host.lossyScale.x), 1e-5f);
-        Vector2 min = hostRect.min;
-        Vector2 max = hostRect.max;
-        for (int i = 0; i < TextScratch.Count; i++)
-        {
-            Graphic g = TextScratch[i];
-            if (g == null || g is not TMP_Text t || string.IsNullOrEmpty(t.text)
-                || !MrBackingScope.Paint(g.transform, contentRoot))
-                continue;
-            if (IsClipped(t.rectTransform, host) || ExcludedByOwner(t.transform, host, excludedRoots))
-                continue;
-            Bounds b = t.textBounds;
-            if (b.size.x <= 0.0001f || b.size.y <= 0.0001f)
-                continue; // no mesh yet — the rect union already covers the authored box
-            Vector3 lo = host.InverseTransformPoint(
-                t.transform.TransformPoint(new Vector3(b.min.x, b.min.y, 0f)));
-            Vector3 hi = host.InverseTransformPoint(
-                t.transform.TransformPoint(new Vector3(b.max.x, b.max.y, 0f)));
-            Vector2 gMin = Vector2.Min(lo, hi);
-            Vector2 gMax = Vector2.Max(lo, hi);
-            if (gMin.x >= hostRect.xMin - 0.5f && gMax.x <= hostRect.xMax + 0.5f
-                && gMin.y >= hostRect.yMin - 0.5f && gMax.y <= hostRect.yMax + 0.5f)
-                continue; // drawn inside the host rect — the plate already backs it
-            // ROUND 2, and the whole "vertikal zu lang" fix: the LAST question, because it is the
-            // expensive one (an alpha/cull/clip probe plus, for a survivor, a name read) and because
-            // only a geometric overflow candidate can ever grow the plate. A row the FIT did not
-            // count is not on screen — backing it is backing nothing.
-            if (!CanvasConversion.CountsAsFitContent(panel, g))
-                continue;
-            if (overflowing < OverflowNameCap)
-            {
-                OverflowText[overflowing] = t;
-                OverflowRect[overflowing] = Rect.MinMaxRect(gMin.x, gMin.y, gMax.x, gMax.y);
-            }
-            overflowing++;
-            // Half the label margin on each side, so the total margin matches TickLabels exactly.
-            float padX = ((gMax.x - gMin.x) * LabelPadFraction + unit) * 0.5f;
-            float padY = ((gMax.y - gMin.y) * LabelPadFraction + unit) * 0.5f;
-            min = Vector2.Min(min, new Vector2(gMin.x - padX, gMin.y - padY));
-            max = Vector2.Max(max, new Vector2(gMax.x + padX, gMax.y + padY));
-        }
-        TextScratch.Clear();
-        return overflowing == 0 ? hostRect : Rect.MinMaxRect(min.x, min.y, max.x, max.y);
-    }
-
-    private static bool ExcludedByOwner(Transform node, Transform host, ISet<Transform>? excludedRoots)
-    {
-        if (excludedRoots == null)
-            return false;
-        for (Transform? current = node; current != null && current != host; current = current.parent)
-            if (excludedRoots.Contains(current))
-                return true;
-        return false;
-    }
-
-    /// <summary>Is <paramref name="rect"/> under a clipper (<see cref="RectMask2D"/> / stencil
-    /// <see cref="Mask"/>) between it and <paramref name="host"/>? Clipped glyphs are cropped to a
-    /// viewport that lives inside the host rect, so they can never be the uncovered content this
-    /// sweep is looking for — and treating them as such would inflate a plate to the size of a
-    /// scrolled-out list.
-    ///
-    /// <para>This is the ONE place the plate is deliberately STRICTER than the content fit it now
-    /// shares its visibility predicate with (<c>CanvasConversion.CountsAsFitContent</c>): the fit
-    /// CLAMPS a partly-clipped graphic to its viewport and keeps the visible remainder, because it
-    /// measures RECTANGLES it can clamp. This sweep measures rendered GLYPH BOUNDS, which carry no
-    /// clipper clamp — so it declines the text instead of inventing one. Strictness in this
-    /// direction is safe by construction (a clipped line is cropped into a viewport that lives
-    /// inside the host rect, which the plate already covers); the direction that produced the
-    /// "vertikal zu lang" report — accepting what the fit rejected — is the one that is now
-    /// impossible.</para></summary>
-    private static bool IsClipped(Transform rect, Transform host)
-    {
-        for (Transform? t = rect; t != null && !ReferenceEquals(t, host); t = t.parent)
-        {
-            if (t.GetComponent<RectMask2D>() != null)
-                return true;
-            Mask m = t.GetComponent<Mask>();
-            if (m != null && m.enabled)
-                return true;
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// One line per panel whose plate had to be widened past its host rect, change-gated on the
-    /// rounded px — the hardware proof for the ModBuild 90 backdrop report: it states the MEASURED
-    /// text extent, the host rect the plate used to be, and the plate extent now.
-    ///
-    /// <para>ROUND 2 — IT NAMES THE OVERFLOWING OBJECTS. The "vertikal zu lang" report cost a whole
-    /// build to attribute because the line only ever said HOW MANY lines overflowed: 16 anonymous
-    /// text objects on <c>Panel_InitiativeTrack</c>, with nothing in the log to say whether they
-    /// were the portraits' initiative numbers or a row the player cannot see. It now prints the
-    /// first <see cref="OverflowNameCap"/> by NAME with their glyph rect in host units, so the next
-    /// hardware log identifies the culprits directly instead of only counting them. The names are
-    /// read HERE and nowhere else — <c>Object.name</c> allocates on every read, and this line is
-    /// change-gated while the sweep that fills <see cref="OverflowText"/> runs every frame.</para>
-    /// </summary>
-    private static void LogPlateExtent(PanelEntry entry, RectTransform host, Rect hostRect,
-                                       Rect fitted, int overflowing)
-    {
-        if (overflowing == 0)
-        {
-            entry.LoggedExtent = null; // a panel that stops overflowing re-states it if it comes back
+        if (entry.ExtentNoted && Mathf.Abs(entry.LoggedBounds.xMin - fitted.xMin) < 1f
+            && Mathf.Abs(entry.LoggedBounds.yMin - fitted.yMin) < 1f
+            && Mathf.Abs(entry.LoggedBounds.width - fitted.width) < 1f
+            && Mathf.Abs(entry.LoggedBounds.height - fitted.height) < 1f)
             return;
-        }
-        string key = $"{hostRect.width:F0}x{hostRect.height:F0}|{fitted.width:F0}x{fitted.height:F0}";
-        if (entry.LoggedExtent == key)
-            return;
-        entry.LoggedExtent = key;
-        string named = string.Empty;
-        for (int i = 0; i < OverflowNameCap && i < overflowing; i++)
-        {
-            TMP_Text? t = OverflowText[i];
-            if (t == null)
-                continue;
-            Rect g = OverflowRect[i];
-            named += named.Length == 0 ? " Overflowing: " : ", ";
-            named += $"'{t.gameObject.name}' {g.width:F0}x{g.height:F0}px " +
-                     $"at ({g.center.x:F0},{g.center.y:F0})";
-        }
-        if (named.Length > 0 && overflowing > OverflowNameCap)
-            named += $", +{overflowing - OverflowNameCap} more";
-        if (named.Length > 0)
-            named += ".";
-        VRLog.Info("WorldUI", $"MR PLATE EXTENT: '{host.gameObject.name}' draws {overflowing} VISIBLE " +
-                              $"text line(s) OUTSIDE its fitted host rect ({hostRect.width:F0}x" +
-                              $"{hostRect.height:F0} px) — a TMP line does not wrap or clip at its box, " +
-                              "and the content fit measures rectangles, so an exactly-host-rect plate " +
-                              "covered only the middle of it. Visible = the CONTENT FIT's own verdict " +
-                              "(CanvasConversion.CountsAsFitContent), so culled/alpha-faint/collapsed " +
-                              "rows can no longer inflate this plate. It is now fitted to the RENDERED " +
-                              $"glyph bounds plus the standard label margin: {fitted.width:F0}x" +
-                              $"{fitted.height:F0} px, centred at ({fitted.center.x:F0},{fitted.center.y:F0}) " +
-                              $"— {fitted.width - hostRect.width:F0} px wider and " +
-                              $"{fitted.height - hostRect.height:F0} px taller than the host rect, which is " +
-                              "exactly the part of the line that used to sit on the passthrough room." +
-                              named);
+        entry.ExtentNoted = true;
+        entry.LoggedBounds = fitted;
+        VRLog.Info("WorldUI", $"MR PLATE EXTENT: '{host.gameObject.name}' painted content plus margin "
+            + $"{fitted.width:F0}x{fitted.height:F0}px, x {fitted.xMin:F0}..{fitted.xMax:F0}, "
+            + $"y {fitted.yMin:F0}..{fitted.yMax:F0}; layout frame {frame.width:F0}x{frame.height:F0}px. "
+            + "Native mesh geometry, masks and transient exclusions share one measurement.");
     }
 
     /// <summary>

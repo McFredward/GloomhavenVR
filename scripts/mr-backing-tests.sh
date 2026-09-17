@@ -55,8 +55,8 @@ mirror=code((repo/'src/GloomhavenVR/Net/Remote/RemoteWidgetMirror.cs').read_text
 m=code(modal)
 def bindings(mr,m,mirror):
     assert m.index('_mrInkSampleFrame = now;')>m.index('bool measured = PanelInkBounds.TryMeasure(')
-    assert m.index('_mrInkRect = measured')<m.index('Rect grown = ink.Rect;')
-    assert 'MrBackingLayout.WindowRect(hostRect, ink.Rect, ink.Plates > 0, ink.PlateBottom)' in m
+    assert m.index('_mrInkRect = backingMeasured')<m.index('Rect grown = ink.Rect;')
+    assert 'MrBackingLayout.WindowRect(hostRect, backingInk.Rect, backingInk.Plates > 0,' in m
     assert 'visible &= ownerVisible;' in mr
     assert 'entry.BoundsVisible = PanelInkBounds.TryMeasure(panel' in mr
     assert 'visible &= entry.BoundsVisible;' in mr
@@ -71,7 +71,7 @@ def bindings(mr,m,mirror):
     assert 'if (!WorldUI.MrBacking.WantOpaque' in mirror
     assert '_mrNextSampleFrame = Time.frameCount + WorldUI.MrBackingLayout.SampleStrideFrames;' in mirror
     assert 'out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,' in mirror
-    assert 'WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect, ink.Plates > 0, ink.PlateBottom,' in mirror
+    assert 'WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect,' in mirror
     assert 'WorldUI.TransientFamilies.Self(srcNodes[i])' in mirror
     assert 'WorldUI.TransientFamilies.IsDeclaredEffectQuad(srcNodes[i], _source)' in mirror
     assert 'BackingCenter => _mrBounds.center;' in mirror
@@ -86,18 +86,18 @@ local_surfaces=code((repo/'src/GloomhavenVR/WorldUI/Surfaces/TablePanelSurfaces.
 assert 'Panel.FitContentRoot = InitiativeTrack.Instance.initiativeTrackHolder as RectTransform;' in local_surfaces and 'Panel.FitContentRoot = InfusionBoardUI.Instance.elementsHolder as RectTransform;' in local_surfaces
 assert '!MrBackingScope.Valid(target, contentRoot)' in ink
 assert '!MrBackingScope.Visit(t, contentRoot)' in ink
-assert 'if (MrBackingScope.Paint(t, contentRoot)' in ink
-assert 'else if (contentRoot == null && !ReferenceEquals(graphic, panel.ContentGraphic)' in ink
-assert mr.count('contentRoot: panel.FitContentRoot') == 2
-assert 'fitScoped: panel.FitContentRoot != null' in mr
-assert '!MrBackingScope.Paint(g.transform, contentRoot)' in mr
+assert 'if (hasPicture && MrBackingScope.Paint(t, contentRoot)' in ink
+assert '!ReferenceEquals(graphic, panel.ContentGraphic)' in ink
+assert mr.count('contentRoot: panel.FitContentRoot') == 1
+assert 'fitScoped: true' in mr
+assert 'GlyphTrueRect(' not in mr
 assert '_mrCloneContentRoot = sourceRoot != null ? CloneOf(sourceRoot) : null;' in mirror
 assert '_mrContentRootStamp != RebuildStamp || !ReferenceEquals(sourceRoot, _mrSourceContentRoot)' in mirror
 assert '_mrSourceContentRoot = null;' in mirror and '_mrCloneContentRoot = null;' in mirror
 assert 'if (contentRoot == null)' in mirror
-assert 'contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses) && ink.Valid;' in mirror
-assert 'fitScoped: contentRoot != null' in mirror
-assert 'out _, _mrExcluded, contentRoot);' in mirror
+assert 'contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && ink.Valid;' in mirror
+assert 'fitScoped: true' in mirror
+assert 'GlyphTrueRect(' not in mirror
 assert 'backingContentRoot: source => source.GetComponent<InitiativeTrack>()?.initiativeTrackHolder' in initiative
 assert 'backingContentRoot: source => source.GetComponent<InfusionBoardUI>()?.elementsHolder' in elements
 for needle,replacement in [('visible &= ownerVisible;','visible = true;'),('fitted = entry.Bounds;','fitted = r;'),('Fit(entry.Plate, host, shown.size, shown.center);','Fit(entry.Plate, host, fitted.size, fitted.center);')]:
@@ -107,7 +107,7 @@ for needle,replacement in [('visible &= ownerVisible;','visible = true;'),('fitt
 assert re.search(r'_mrBoundsVisible\s*&& _mrVisibility.VisibleNow', mirror)
 assert 'float WorldUI.MrBacking.IFadedBacking.BackingAlpha => _mrVisibility.AlphaNow;' in mirror
 assert '_mrVisibility.Reset();' in mirror
-assert 'visibleWitnesses: holdMrPicture ? null : _mrVisibility.Witnesses' in m
+assert 'visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true)' in m
 assert 'bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);' in m
 assert 'if (!holdMrPicture)' in m
 assert 'internal static float GetMrBackingAlpha(ConvertedPanel panel)' in m

@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for MR backing lifetime and animation, build 522 on dev. This directory holds internal
+Updated 2026-09-17 for painted map-window MR bounds, build 523 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [MR-MAP-BOUNDS-523.md](MR-MAP-BOUNDS-523.md): merchant/map screenshot evidence, original painted geometry, unified local/remote/effect bounds.
 
 - [MR-ANIMATION-522.md](MR-ANIMATION-522.md): immediate native visibility, shared window erosion field, safe close/reopen and owned-resource cleanup.
 

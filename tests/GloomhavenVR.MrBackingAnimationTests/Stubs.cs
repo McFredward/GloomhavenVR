@@ -75,7 +75,7 @@ namespace GloomhavenVR.WorldUI
     {
         internal struct Ink { public bool Valid;public Rect Rect;public int Plates;public float PlateBottom; }
         public static bool Valid=true,Throw;public static Rect Bounds=new(20,30,200,120);public static Action? OnMeasure;
-        public static bool TryMeasure(ConvertedPanel p,out Ink ink,Transform? contentRoot=null,List<CanvasRenderer>? visibleWitnesses=null)
+        public static bool TryMeasure(ConvertedPanel p,out Ink ink,Transform? contentRoot=null,List<CanvasRenderer>? visibleWitnesses=null,bool backingGeometry=false)
         {
             if(Throw)throw new InvalidOperationException("measure");OnMeasure?.Invoke();ink=new(){Valid=Valid,Rect=Bounds};return Valid;
         }
@@ -116,7 +116,7 @@ namespace GloomhavenVR.WorldUI
         private static void DestroyPlate(Transform? t,Material? m){Object.Destroy(t);Object.Destroy(m);}
         private static Material CreateFadeMaterial()=>new();private static Transform CreatePlate(RectTransform host) { var plate=new Transform();plate.Renderer.sharedMaterial=_plateMat;return plate; }
         private static void Fit(Transform plate,RectTransform host,Vector2 size,Vector2 center) { }
-        private static Rect GlyphTrueRect(ConvertedPanel panel,RectTransform host,Rect rect,out bool glyph,Transform? contentRoot=null) {glyph=false;return rect;}
+        private static void LogPaintedExtent(PanelEntry entry,RectTransform host,Rect frame,Rect fitted) { }
         internal static void ResetTest() { Panels.Clear();GrabbableModal.Cached=false;_applied=false;_plateMat=null;MixedReality.BackingsWanted=true;PanelInkBounds.Valid=true;PanelInkBounds.Throw=false;PanelInkBounds.OnMeasure=null;MrBackingMaterialise.ThrowApply=false;MrBackingMaterialise.ThrowRestore=false;MrBackingMaterialise.Disposals=0;GloomhavenVR.Core.VRLog.Throw=false;GloomhavenVR.Core.VRLog.Warnings=0;Time.unscaledTime=0; }
         internal static int EntryCount=>Panels.Count;
         internal static bool Ready=>_applied&&_plateMat!=null;

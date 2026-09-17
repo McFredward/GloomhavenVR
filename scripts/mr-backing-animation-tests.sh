@@ -31,7 +31,8 @@ print('MR backing animation: 3 runner integration bindings passed.')
 # Mutations prove runtime cases detect the two original classes of regression.
 src=(out/'MrBackingAnimation.cs').read_text()
 for name,needle,replacement in (
-    ('tail','&& entry.Animation.Progress < 1f','&& true'),
+    ('tail','visible &= MrBackingLayout.ReadyForSample(true, rect) && entry.Animation.Progress < 1f;',
+     'visible &= MrBackingLayout.ReadyForSample(true, rect);'),
     ('settle','entry.Layout.Settle(entry.Animation.Bounds, Time.unscaledTime);','entry.Layout.Reset();'),
     ('callback','catch { /* Best-effort cleanup of an already failed, mod-owned decoration. */ }','catch { throw; }')):
     assert src.count(needle)==1,name

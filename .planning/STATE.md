@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for MR backing lifetime and animation, ModBuild 522 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for painted map-window MR bounds, ModBuild 523 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,13 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 523 fits MR backgrounds to native painted geometry.**
+  Merchant/map backgrounds no longer include empty text-layout height or reintroduced
+  tooltip glyphs. Local steady/effect paths and inert remote surfaces share the original
+  mesh/clip/visibility policy and a small margin. Native layout, hit/capture and grab
+  geometry remain unchanged. Source fixes and build-522 screenshot/log evidence are in
+  [MR-MAP-BOUNDS-523.md](MR-MAP-BOUNDS-523.md); headset confirmation remains open.
 
 - **dev / 1.0.4 / ModBuild 522 couples MR backgrounds to window materialisation.**
   Backgrounds use the same erosion field and element progress and disappear before

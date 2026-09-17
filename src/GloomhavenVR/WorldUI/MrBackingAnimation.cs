@@ -50,13 +50,7 @@ internal static partial class MrBacking
             }
             // The reveal can start before Tick has ever built a plate. Measure the same native
             // ink now, while it is still whole; never substitute the transparent host rectangle.
-            if (PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink,
-                    contentRoot: panel.FitContentRoot, visibleWitnesses: entry.Visibility.Witnesses)
-                && ink.Valid)
-                entry.Animation.Bounds = GlyphTrueRect(panel, panel.HostRect,
-                    MrBackingLayout.WindowRect(panel.HostRect.rect, ink.Rect, ink.Plates > 0,
-                        ink.PlateBottom, fitScoped: panel.FitContentRoot != null), out _,
-                    contentRoot: panel.FitContentRoot);
+            CaptureAnimationBounds(entry);
         }
         catch (Exception ex)
         {
@@ -125,6 +119,11 @@ internal static partial class MrBacking
 
     private static void DrawWindowAnimation(PanelEntry entry, bool visible)
     {
+        // uGUI may not have built its first mesh when the native reveal starts. Wait for that
+        // real geometry, then join the current field; do not invent a layout-sized rectangle.
+        if (visible && entry.Animation.Progress < 1f
+            && !MrBackingLayout.ReadyForSample(true, entry.Animation.Bounds))
+            CaptureAnimationBounds(entry);
         Rect rect = entry.Animation.Bounds;
         visible &= MrBackingLayout.ReadyForSample(true, rect) && entry.Animation.Progress < 1f;
         RectTransform? host = entry.Panel.HostRect;
@@ -154,6 +153,21 @@ internal static partial class MrBacking
         entry.FadeMat.color = _plateColor;
         entry.Materialise.Apply(entry.Plate, rect, entry.Animation.Frame,
             entry.Animation.Progress, entry.FadeMat);
+    }
+
+    private static void CaptureAnimationBounds(PanelEntry entry)
+    {
+        ConvertedPanel panel = entry.Panel;
+        if (panel.HostRect == null)
+            return;
+        if (PanelInkBounds.TryMeasure(panel, out PanelInkBounds.Ink ink,
+                contentRoot: panel.FitContentRoot, visibleWitnesses: entry.Visibility.Witnesses,
+                backingGeometry: true) && ink.Valid)
+        {
+            entry.Animation.Bounds = MrBackingLayout.WindowRect(panel.HostRect.rect,
+                ink.Rect, ink.Plates > 0, ink.PlateBottom, fitScoped: true);
+            LogPaintedExtent(entry, panel.HostRect, panel.HostRect.rect, entry.Animation.Bounds);
+        }
     }
 
     private static PanelEntry? FindAnimationEntry(ConvertedPanel panel)
