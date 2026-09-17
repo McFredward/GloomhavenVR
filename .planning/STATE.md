@@ -23,6 +23,15 @@ change per build) → this file (where things stand and what is owed) → the bu
   focused coverage and final integration results. Hardware confirmation remains open;
   supplied logs still identify local 515 / remote 500. No bundle, wire or release changes.
 
+- **518 integration checks pass:** all 17 checkers and production suites; 254,019 wire
+  assertions; strict Release zero warnings/errors. Tutorial controllers: 1,019 runtime +
+  four bindings / nine negatives; retry: 433 + 17 / 15. Retained build-502 compiled diff:
+  83 changed / 50 added / zero removed. Private build-517 comparison: 14 changed / three
+  added / zero removed, including seven changes limited to the build constant. Reviewed
+  surfaces: 625 config / 172 patch signatures / 4,729 log tokens; patch inventory 130
+  classes / 197 methods. All 21 classified network-action patches, bilingual docs, shell
+  syntax and whitespace pass. No hardware result is inferred from these checks.
+
 - **Build 517 addresses repeated burn playback.** Native effect aliases,
   pile refresh and hover cleanup cannot restart or truncate an owned ability burn. Historical
   lost/consumed widget construction paints the original settled output; a replacement during

@@ -65,7 +65,24 @@ network-action safety ledger. The dynamic restart patch declares its receiver ty
 the generated inventory and desync guard can see it. The test adapter now includes the
 corresponding real Harmony attribute constructor; no runtime assertions were removed.
 
-Final integration results are recorded after the complete guard and strict Release build.
+## Final integration validation
+
+All 17 guard checkers and production suites pass, including 254,019 golden wire
+assertions. Strict Release passes with zero warnings and errors. Bilingual documentation,
+shell syntax and whitespace checks pass. The generated patch inventory has 130 classes /
+197 methods, all registered once. Reviewed surfaces have 625 config keys, 172 patch
+signatures and 4,729 log tokens, with no removals. The network-action ledger classifies
+21 patch classes on 37 receiver types. The bundle is unchanged at 74,942,975 bytes.
+
+The retained build-502 compiled comparison reports 83 changed types, 50 added and none
+removed. The private build-517 comparison has 14 changed types, three added and none
+removed. Seven changes are only the propagated 517-to-518 constant; the seven substantive
+changes are PlayTray, ControllerVisual, ControlsLesson, ControlsStep, ControlsTutorial,
+RigModule and VRRigDriver. Added types are the retry lifetime and the two native entry-point
+patches. The compiled diff matches the requested scope. Guard exit status 1 denotes these
+expected compiled differences, not a failed test.
+
+No current headset outcome is claimed.
 Headset retest should include every tutorial step, left/right primary controller, a defeat
 after moving/turning/zooming and dragging the board, repeated Retry, round reload followed
 by defeat, pinned/follow mode and all connected participants.
