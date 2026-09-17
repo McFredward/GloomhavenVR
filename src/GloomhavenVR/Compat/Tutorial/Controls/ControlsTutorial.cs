@@ -426,9 +426,7 @@ internal static class ControlsTutorial
         }
 
         ControlsBox.Tick();
-        SetControllersVisible(true, "lesson recovery");
-        _left?.Tick();
-        _right?.Tick();
+        TickControllerVisuals();
 
         if (_index < 0 || _index >= ControlsLesson.Steps.Length)
             return;
@@ -605,8 +603,8 @@ internal static class ControlsTutorial
     /// <summary>
     /// PRINT THE RESOLVED STEP TABLE, once, at the top of a run.
     ///
-    /// <para>Both controller models remain visible throughout the lesson. The table records
-    /// the current key and its acting hands, not the retired per-step hand/model policy.</para>
+    /// <para>The table records the original per-step hand/controller choice and the acting
+    /// hands. Card and fingertip tasks retain hands even though their text names a key.</para>
     ///
     /// <para>SINCE 2026-09-03 EACH ROW ALSO CARRIES ITS AVAILABILITY VERDICT, and it is deliberately
     /// this line rather than a second table. The lesson now adapts to the player's settings, so the
@@ -624,7 +622,7 @@ internal static class ControlsTutorial
             if (i > 0)
                 table.Append(", ");
             table.Append(s.Id).Append('=')
-                 .Append("controller");
+                 .Append(s.ShowsController ? "controller" : "hand");
             if (s.Key != null)
                 table.Append('(').Append(s.Key).Append(')');
             ControlsLesson.StepAvailability verdict = ControlsLesson.Availability(in s);
@@ -749,10 +747,10 @@ internal static class ControlsTutorial
     }
 
     /// <summary>
-    /// Both controllers remain visible for the entire custom lesson (user ruling, build 518),
-    /// including card/fingertip and prose steps. The earlier hand-only step policy caused
-    /// models to disappear between tasks and is superseded. Only highlights change per step;
-    /// completion, skip-to-end, scope loss and scene teardown still restore the ordinary hands.
+    /// Restore the original per-step hand/controller choice (user clarification, build 521).
+    /// Card, fingertip and prose steps show hands; key-teaching steps show both controllers.
+    /// Build 518 misread continuous representation as continuous controller visibility.
+    /// Preserve its layer protection and recovery while keeping the original animated swap.
     ///
     /// <para>WHICH MODEL LIGHTS UP IS A SECOND, SEPARATE QUESTION, and since 2026-09-03 it is
     /// answered per hand (user: <i>"sollte nur derjenige joystick (links/rechts) leuchten, der auch
@@ -761,7 +759,7 @@ internal static class ControlsTutorial
     /// hand, the menu tap on the other one; lighting both told half the players to use a stick that
     /// does nothing.</para>
     ///
-    /// <para>BOTH CONTROLLER MODELS STAY VISIBLE — only the highlight is one-sided. The player is
+    /// <para>ON CONTROLLER STEPS BOTH MODELS STAY VISIBLE — only the highlight is one-sided. The player is
     /// holding two controllers, and making one of them vanish for one card would read as a bug in
     /// the tracking, not as an instruction; the swap in and out of the hands is already the most
     /// startling thing the lesson does. So the acting hand lights and the other stays present and
@@ -776,11 +774,21 @@ internal static class ControlsTutorial
     private static void ApplyStep(int index)
     {
         ref readonly ControlsStep step = ref ControlsLesson.Steps[index];
-        SetControllersVisible(true, step.Id);
-        string? key = step.Key;
+        SetControllersVisible(step.ShowsController, step.Id);
+        string? key = step.ShowsController ? step.Key : null;
         ControlsLesson.StepAvailability verdict = ControlsLesson.Availability(in step);
         _left?.Highlight((verdict.Hands & ControlsLesson.LessonHands.Left) != 0 ? key : null);
         _right?.Highlight((verdict.Hands & ControlsLesson.LessonHands.Right) != 0 ? key : null);
+    }
+
+    private static void TickControllerVisuals()
+    {
+        // Recovery must follow the active step too, or it cancels a hand-back transition
+        // on the next frame. Always tick both sides so their existing swaps can finish.
+        if (_index >= 0 && _index < ControlsLesson.Steps.Length)
+            SetControllersVisible(ControlsLesson.Steps[_index].ShowsController, "lesson recovery");
+        _left?.Tick();
+        _right?.Tick();
     }
 
     private static void SetControllersVisible(bool visible, string stepId)
@@ -834,7 +842,7 @@ internal static class ControlsTutorial
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("Tutorial", $"Controls lesson: controller meshes swapping "
             + $"{(visible ? "IN over the hands" : "OUT, giving the player's own hands back")} for "
-            + $"step '{stepId}' — both remain visible throughout the lesson; only the applicable "
+            + $"step '{stepId}' — both sides stay represented by hands or controllers; only the applicable "
             + "keys pulse, and the swap itself is animated (see the swap measurement line).");
     }
 

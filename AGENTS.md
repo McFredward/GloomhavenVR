@@ -64,3 +64,9 @@ room making when a new window would overlap an existing visible window. Keep aff
 windows in view and use one author for shared movement. This narrowly supersedes the
 historical fixed-window rule; it does not authorize periodic head-following or lost-window
 recall. Manual grabs take precedence, and layout must never gate native continuation.
+
+The user's 2026-09-17 tutorial clarification restores the original task-specific hands/controller
+choice and animated transitions. Card handling and physical fingertip tasks show hands; key
+lessons show controllers. Both tracked sides must remain represented by either a hand or a
+controller. Build 518's interpretation that controller models must stay visible for the whole
+lesson was incorrect and is superseded.

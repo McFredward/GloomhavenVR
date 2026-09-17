@@ -22,11 +22,12 @@ namespace GloomhavenVR.Compat;
 internal static class ControlsTutorial {
 private static ControllerVisual? _left, _right;
 private static bool _controllersUp;
+private static int _index = -1;
 private static float _nextControllerRetryAt;
-internal static void Apply(int index) => ApplyStep(index);
-internal static void Tick() { SetControllersVisible(true, "lesson recovery"); _left?.Tick(); _right?.Tick(); }
+internal static void Apply(int index) { _index = index; ApplyStep(index); }
+internal static void Tick() => TickControllerVisuals();
 internal static void Teardown() { _left?.Hide(); _right?.Hide(); _left = _right = null; _controllersUp = false; }
-''' + method('ApplyStep') + method('SetControllersVisible') + '\n}')
+''' + method('ApplyStep') + method('TickControllerVisuals') + method('SetControllersVisible') + '\n}')
 progress = (base / 'ControlsProgress.cs').read_text()
 start = progress.index('internal enum ControlAction')
 end = progress.index('\n}', start) + 2
@@ -37,5 +38,5 @@ for boundary in ('internal static void Stop(string reason)', 'internal static vo
     block = block[:block.index('\n    }')]
     assert '_left?.Hide();' in block and '_right?.Hide();' in block, 'Both models must retire on completion and scene reset'
 assert 'Stop("the session is shutting down");' in source, 'Shutdown must restore both hands'
-assert 'SetControllersVisible(true, "lesson recovery");\n        _left?.Tick();' in source, 'Running lessons must retry a missing controller before ticking the pair'
+assert '        TickControllerVisuals();' in source, 'Running lessons must advance the original model recovery and transitions'
 print('Tutorial controller source bindings: 4 passed.')

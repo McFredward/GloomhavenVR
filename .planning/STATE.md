@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-17 for scoped MR row backgrounds and CI evidence reuse, ModBuild 520 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for task-specific tutorial hands, ModBuild 521 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -12,6 +12,19 @@ change per build) → this file (where things stand and what is owed) → the bu
 ---
 
 ## 1. Position
+
+- **dev / 1.0.4 / ModBuild 521 restores the original tutorial hand/controller choices.**
+  Card handling, fingertip interaction and prose show hands; key lessons show both
+  controllers with the existing per-hand highlights. The original 0.22s animation remains.
+  Recovery respects the active task and restores a hand immediately if its controller
+  model is lost. Build 518's continuous-controller interpretation was explicitly corrected
+  by the user. See [TUTORIAL-HANDS-521.md](TUTORIAL-HANDS-521.md). Only affected tests and
+  the strict build run for this change, as requested; headset confirmation remains open.
+
+- **521 focused checks pass:** controller presentation 3,452 runtime assertions / four
+  bindings / twelve negatives; first-tutorial scope 42 / 17 / eight. Strict Release has
+  zero warnings/errors. Config, patch and log surfaces are unchanged at 625 / 172 / 4,731.
+  Full local guard and golden-wire suites were not repeated per the user's request.
 
 - **dev / 1.0.4 / ModBuild 520 scopes initiative and element MR backgrounds to their
   original native rows, locally and on inert remote clones.** Transparent host extents

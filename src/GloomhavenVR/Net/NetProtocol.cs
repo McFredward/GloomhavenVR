@@ -514,7 +514,17 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 520;
+    public const ushort ModBuild = 521;
+
+    // ModBuild 521 — restore task-specific hands in the first tutorial's VR lesson.
+    //   Card handling, fingertip interaction and prose steps use the original hands;
+    //   button lessons show both controllers and highlight only the applicable keys.
+    //   Both sides stay represented through the original reversible 0.22s transition.
+    //   Model recovery follows the current step, never overriding a hand task. Losing
+    //   a controller model immediately restores its hand, even while assets are absent.
+    //   Build-518 rendering-layer protection and tracked-hand replacement recovery remain.
+    //   Version 1.0.4 on dev; no bundle or wire changes. All VR peers use 521.
+    //   User requested affected tests only; see .planning/TUTORIAL-HANDS-521.md.
 
     // ModBuild 520 — scoped MR backgrounds for native board rows.
     //   Initiative/element backgrounds measure the same native content root as their

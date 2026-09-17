@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-17 for scoped MR row backgrounds and CI evidence reuse, build 520 on dev. This directory holds internal
+Updated 2026-09-17 for task-specific tutorial hands, build 521 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,8 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [TUTORIAL-HANDS-521.md](TUTORIAL-HANDS-521.md): restored per-task hands, original animated transitions and missing-model recovery.
 
 - [MR-CI-520.md](MR-CI-520.md): scoped local/remote initiative backgrounds, trusted CI result reuse, evidence and validation limits.
 

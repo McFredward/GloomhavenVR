@@ -35,12 +35,20 @@ internal readonly struct ControlsStep
     // than left sitting in the table unread. Which steps need the room in a particular state is
     // still readable from the section comments in ControlsLesson.Steps.
 
-    internal ControlsStep(ControlAction action, string id, string? key,
+    /// <summary>Whether the task teaches controller hardware rather than the hand's pose.
+    /// Card take/hold, fingertip interaction and prose use hands; their keys remain named in
+    /// words. Independent of <see cref="Key"/>, since a task can name a key while needing hands.
+    /// User clarification, build 521: both sides must stay represented, not always as controllers.
+    /// </summary>
+    internal readonly bool ShowsController;
+
+    internal ControlsStep(ControlAction action, string id, string? key, bool showsController,
                           float target = 1f, string? keyNameId = null)
     {
         Action = action;
         Id = id;
         Key = key;
+        ShowsController = showsController;
         Target = target;
         KeyNameId = keyNameId;
     }
@@ -89,9 +97,9 @@ internal static class ControlsLesson
 {
     internal static readonly ControlsStep[] Steps =
     {
-        // Both models remain visible throughout the lesson (user ruling, build 518).
-        // Prose cards simply clear both highlights; visibility is not a per-step choice.
-        new(ControlAction.None, "ctl_welcome", null),
+        // HAND: a prose card that asks for nothing. It names the device in words, which is why
+        // ControllerVisual.EnsureResolved runs before any model is ever shown.
+        new(ControlAction.None, "ctl_welcome", null, showsController: false),
 
         // --- what you cannot play without -------------------------------------------------
         // ctl_laser (ControlAction.LaserClick, "Point and click") STOOD HERE and is gone — user
@@ -132,15 +140,15 @@ internal static class ControlsLesson
         // each needs one hand and one stick. The two-handed zoom and rotate come after, because they are a different gesture
         // (both sticks clicked in at once) and asking for it before the one-handed stick is
         // understood is what makes the stick feel like five unrelated controls.
-        new(ControlAction.WorldDrag, "ctl_drag", ControllerKey.Thumbstick,
+        new(ControlAction.WorldDrag, "ctl_drag", ControllerKey.Thumbstick, showsController: true,
             target: 0.25f),
-        new(ControlAction.Fly, "ctl_fly", ControllerKey.Thumbstick,
+        new(ControlAction.Fly, "ctl_fly", ControllerKey.Thumbstick, showsController: true,
             target: 0.8f),
-        new(ControlAction.SnapTurn, "ctl_turn", ControllerKey.Thumbstick,
+        new(ControlAction.SnapTurn, "ctl_turn", ControllerKey.Thumbstick, showsController: true,
             target: 20f),
-        new(ControlAction.WorldZoom, "ctl_zoom", ControllerKey.Thumbstick,
+        new(ControlAction.WorldZoom, "ctl_zoom", ControllerKey.Thumbstick, showsController: true,
             target: 0.35f),
-        new(ControlAction.WorldRotate, "ctl_rotate", ControllerKey.Thumbstick,
+        new(ControlAction.WorldRotate, "ctl_rotate", ControllerKey.Thumbstick, showsController: true,
             target: 25f),
 
         // THE CONTROL BOARD, CARRIED BY ITS BAR (user request 2026-09-03, verbatim: "noch einen
@@ -166,7 +174,7 @@ internal static class ControlsLesson
         // for that owner only, and never for a laser carry — that is the trigger, and another
         // card). Net rather than summed so tracking jitter on a still hand cannot accumulate into
         // a completion; 0.20 m is a deliberate move and well under the reach of a seated arm.
-        new(ControlAction.BoardCarry, "ctl_board", ControllerKey.Squeeze,
+        new(ControlAction.BoardCarry, "ctl_board", ControllerKey.Squeeze, showsController: true,
             target: 0.20f),
 
         // THE CONTROL BOARD, RESIZED BY BOTH GRIPS (user request 2026-09-03, verbatim: "Dass man
@@ -193,7 +201,7 @@ internal static class ControlsLesson
         // origin is the STEP's (ControlsProgress.BoardScaleStart), not the pinch's, so two small
         // pinches in the same direction add up. 15 % is a change the eye cannot miss and a tenth of
         // the shipped window's span, so a board parked against one limit still has the other way.
-        new(ControlAction.BoardScale, "ctl_board_scale", ControllerKey.Squeeze,
+        new(ControlAction.BoardScale, "ctl_board_scale", ControllerKey.Squeeze, showsController: true,
             target: 0.15f),
 
         // --- the game ---------------------------------------------------------------------
@@ -201,26 +209,33 @@ internal static class ControlsLesson
         // a card in the fan, a window open to reel. That used to set a `Situational` flag that
         // relabelled the box's second button; the button is gone and so is the flag, and the
         // player steps past any of them with the same ÜBERSPRINGEN as every other card.
-        // Card and fingertip tasks retain both controller models as requested in build 518.
-        // Their trigger/grip is highlighted on every hand allowed by Availability.
-        new(ControlAction.CardTake, "ctl_card_take", ControllerKey.Trigger),
-        new(ControlAction.CardInHand, "ctl_card_hold", ControllerKey.Squeeze),
+        // HAND: turning a palm toward the face teaches hand orientation; a controller
+        // model cannot show that palm or the card fan attached to it.
+        new(ControlAction.CardTake, "ctl_card_take", ControllerKey.Trigger, showsController: false),
+        // HAND: the taught thing is a card sitting BETWEEN THUMB AND FINGER and being turned round.
+        // The grip is named in words instead — and on two of the three shipped models it could not
+        // have been lit anyway (the Index's grip is a force sensor with no mesh, the generic model
+        // has no separate grip part).
+        new(ControlAction.CardInHand, "ctl_card_hold", ControllerKey.Squeeze, showsController: false),
 
         // --- conveniences -----------------------------------------------------------------
-        new(ControlAction.FingertipPick, "ctl_fingertip", ControllerKey.Squeeze),
-        new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick),
-        new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary,
+        // HAND, necessarily: the instruction is "touch the board with a FINGERTIP", and a
+        // controller has no fingertip to touch it with. Showing one here would contradict the card.
+        new(ControlAction.FingertipPick, "ctl_fingertip", ControllerKey.Squeeze,
+            showsController: false),
+        new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick, showsController: true),
+        new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary, showsController: true,
             keyNameId: PrimaryKeyNameId),
-        new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary,
+        new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary, showsController: true,
             keyNameId: "ctl_key_secondary"),
         // LAST, and on purpose: it is the card that hands the player everything else. The closing
         // card then points at the settings they have just seen how to reach. CONTROLLER: it is a
         // face button on a named hand, and getting the wrong hand is the whole failure mode.
-        new(ControlAction.OpenMenu, "ctl_menu", ControllerKey.Primary,
+        new(ControlAction.OpenMenu, "ctl_menu", ControllerKey.Primary, showsController: true,
             keyNameId: PrimaryKeyNameId),
 
-        // Both controllers stay visible until the closing card is dismissed.
-        new(ControlAction.None, "ctl_done", null),
+        // HAND: prose again, and the lesson hands the player back their own hands as it ends.
+        new(ControlAction.None, "ctl_done", null, showsController: false),
     };
 
     /// <summary>Which controller(s) a step is performed with. A flag set rather than a
