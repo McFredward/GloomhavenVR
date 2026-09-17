@@ -20,6 +20,13 @@ change per build) → this file (where things stand and what is owed) → the bu
   geometry remain unchanged. Source fixes and build-522 screenshot/log evidence are in
   [MR-MAP-BOUNDS-523.md](MR-MAP-BOUNDS-523.md); headset confirmation remains open.
 
+- **523 focused checks pass:** native ink/painted geometry 368 runtime assertions /
+  nineteen runtime and one binding negative; MR layout/accessor 258 assertions /
+  48 bindings / thirteen runtime and three binding negatives; actual animation lifecycle
+  545 assertions / three bindings / three negatives. Strict Release has zero warnings/errors.
+  Eleven frame-order locks, 617 hardware markers, shell syntax and bilingual docs pass.
+  Config/patch/log surfaces stay 625 / 172 / 4,732. Unrelated local suites were not repeated.
+
 - **dev / 1.0.4 / ModBuild 522 couples MR backgrounds to window materialisation.**
   Backgrounds use the same erosion field and element progress and disappear before
   the debris-only tail. Native hidden/empty/transparent content clears its backing

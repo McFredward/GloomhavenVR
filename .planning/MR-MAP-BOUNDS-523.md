@@ -53,6 +53,12 @@ Affected ink/geometry, MR integration and animation lifecycle harnesses plus the
 Release build are the local checks for this change. Final counts are in STATE.md.
 No bundle, config or wire grammar change; all VR peers use build 523.
 
+Integrated checks passed: ink/painted geometry 368 assertions and 20 negative controls;
+MR layout/accessor 258 assertions, 48 bindings and 16 negatives; actual animation
+lifecycle 545 assertions, three bindings and three negatives. Strict Release has zero
+warnings/errors. Eleven frame-order locks, 617 hardware markers, shell syntax, bilingual
+docs and compatibility surfaces pass. No unrelated full suite was repeated.
+
 In the next headset test, open/reopen merchant, temple and other map destinations,
 hover their item/help controls and scroll their lists. Check that only a small background
 margin remains, real artwork/text is fully backed, and appearance/dissolution still
