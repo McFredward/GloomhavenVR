@@ -10,6 +10,7 @@ internal static class Program
     { _checks++; if (!condition) throw new Exception(reason); }
     private static void Main()
     {
+        _checks += TableAssetVectors.Run();
         R map = new(-1f, 1f, -2f, 2f);
         Check(GuildmasterTableFit.TryFit(map, .3f, .02f, Array.Empty<R>(), out R clear), "clear map fits");
         Check(Math.Abs(clear.Area - 2.6f * 4.6f) < .001f, "clear map retains rim");

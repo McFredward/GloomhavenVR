@@ -16,6 +16,11 @@ internal sealed class GuildmasterTableAssets
 {
     private readonly List<AsyncOperationHandle<UnityEngine.Object>> _loads = new();
     private readonly List<AssetBundleRequest> _bundleLoads = new();
+    private readonly List<AsyncOperationHandle<Material>> _materialLoads = new();
+    private MaterialLoader[] _nativeLoaders = Array.Empty<MaterialLoader>();
+    private MeshRenderer? _materialSource;
+    private bool _requiresExactMaterials;
+    private string _materialRefusal = "";
     private bool _requested;
     internal Mesh? Mesh;
     internal Material[]? Materials;
@@ -23,7 +28,8 @@ internal sealed class GuildmasterTableAssets
     internal Vector3 Scale = Vector3.one;
     internal int Layer;
     internal string Diagnostic => $"mesh={(Mesh != null ? Mesh.name : "none")}, materials={Materials?.Length ?? 0}, "
-        + $"catalogRequests={_loads.Count}, bundleRequests={_bundleLoads.Count}";
+        + $"catalogRequests={_loads.Count}, bundleRequests={_bundleLoads.Count}, exactMaterialRequests={_materialLoads.Count}, "
+        + $"materialRefusal={_materialRefusal}";
 
     private static bool TableName(string name) => name.IndexOf("GH_Map_TableTop_Lg", StringComparison.OrdinalIgnoreCase) >= 0;
     private static bool TableMaterial(string name) => name.IndexOf("GH_Map_Table", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -35,6 +41,7 @@ internal sealed class GuildmasterTableAssets
             _requested = true;
             // The assets can already be resident without a campaign ever having been entered:
             // native shared bundles and inactive scene objects are both included in this sweep.
+            _nativeLoaders = Resources.FindObjectsOfTypeAll<MaterialLoader>();
             MeshRenderer[] renderers = Resources.FindObjectsOfTypeAll<MeshRenderer>();
             for (int i = 0; i < renderers.Length; i++)
                 ReadRenderer(renderers[i]);
@@ -44,14 +51,14 @@ internal sealed class GuildmasterTableAssets
                 for (int i = 0; i < meshes.Length; i++)
                     if (TableName(meshes[i].name)) ReadMesh(meshes[i]);
             }
-            if (Materials == null)
+            if (Materials == null && !_requiresExactMaterials)
             {
                 Material[] materials = Resources.FindObjectsOfTypeAll<Material>();
                 for (int i = 0; i < materials.Length; i++)
                     if (TableMaterial(materials[i].name) && materials[i].mainTexture != null)
                     { Materials = new[] { materials[i] }; break; }
             }
-            if (Mesh == null || Materials == null)
+            if (Mesh == null || (Materials == null && !_requiresExactMaterials))
             {
                 RequestCatalogAssets();
                 RequestLoadedBundleAssets();
@@ -70,6 +77,7 @@ internal sealed class GuildmasterTableAssets
             UnityEngine.Object[] assets = load.allAssets;
             for (int j = 0; j < assets.Length; j++) ReadAsset(assets[j]);
         }
+        ResolveExactMaterials();
         return Mesh != null && Materials != null && Materials.Length == Mesh.subMeshCount;
     }
 
@@ -79,6 +87,7 @@ internal sealed class GuildmasterTableAssets
         {
             for (int i = 0; i < _loads.Count; i++) if (!_loads[i].IsDone) return true;
             for (int i = 0; i < _bundleLoads.Count; i++) if (!_bundleLoads[i].isDone) return true;
+            for (int i = 0; i < _materialLoads.Count; i++) if (!_materialLoads[i].IsDone) return true;
             return false;
         }
     }
@@ -91,23 +100,87 @@ internal sealed class GuildmasterTableAssets
             for (int j = 0; j < renderers.Length; j++) ReadRenderer(renderers[j]);
         }
         else if (asset is Mesh mesh && Mesh == null && TableName(mesh.name)) ReadMesh(mesh);
-        else if (asset is Material material && Materials == null && TableMaterial(material.name)) Materials = new[] { material };
+        else if (asset is Material material && Materials == null && !_requiresExactMaterials && TableMaterial(material.name)) Materials = new[] { material };
     }
 
     private void ReadRenderer(MeshRenderer renderer)
     {
-        if (!TableName(renderer.name)) return;
+        if (!TableName(renderer.name) || _materialSource != null) return;
         MeshFilter? filter = renderer.GetComponent<MeshFilter>();
         if (filter == null || filter.sharedMesh == null) return;
         Mesh = filter.sharedMesh;
         Rotation = renderer.transform.rotation;
         Scale = renderer.transform.lossyScale;
         Layer = renderer.gameObject.layer;
-        // A prefab may carry a MaterialLoader and empty slots until instantiated. Its mesh is
-        // still usable; obtain its original material independently instead of running that loader.
+        _materialSource = renderer;
         Material[] materials = renderer.sharedMaterials;
+        MaterialLoaderData? data = FindMaterialData(renderer);
+        if (data != null && data.MaterialReferences != null && data.MaterialReferences.Count > 0)
+        {
+            // MaterialLoaderData.LoadMaterials disables the renderer but leaves its old non-null
+            // slots in place until ALL references complete. A prefab has not run Start at all.
+            // Neither enabled nor non-null slots prove readiness. Read the exact ordered native
+            // references, acquire independent handles, and never invoke/mutate the native loader.
+            _requiresExactMaterials = true;
+            Materials = null;
+            if (data.IsSaveExistedMaterials)
+            {
+                // That native branch reserves extra slots, waits for ALL slots to be non-null,
+                // then overwrites reference indices with existing slots. Without an authoritative
+                // completed array there is no justified reconstructed order. Do not guess one.
+                for (int i = 0; i < materials.Length; i++)
+                    if (materials[i] != null)
+                    { _materialRefusal = "native retained-material layout has no verified final slot order"; return; }
+            }
+            for (int i = 0; i < data.MaterialReferences.Count; i++)
+            {
+                var reference = data.MaterialReferences[i];
+                if (reference == null || !reference.RuntimeKeyIsValid())
+                { _materialRefusal = $"native material reference {i} is invalid"; return; }
+            }
+            for (int i = 0; i < data.MaterialReferences.Count; i++)
+                _materialLoads.Add(Addressables.LoadAssetAsync<Material>(data.MaterialReferences[i].RuntimeKey));
+            return;
+        }
         if (materials.Length != filter.sharedMesh.subMeshCount) return;
         for (int i = 0; i < materials.Length; i++) if (materials[i] == null) return;
+        Materials = materials;
+    }
+
+    private MaterialLoaderData? FindMaterialData(MeshRenderer renderer)
+    {
+        // Resident loader records can point to a renderer outside their own child hierarchy.
+        // Newly loaded prefabs are covered by the ancestor scan without running their Start.
+        MaterialLoaderData? data = FindMaterialData(_nativeLoaders, renderer);
+        return data ?? FindMaterialData(renderer.GetComponentsInParent<MaterialLoader>(true), renderer);
+    }
+
+    private static MaterialLoaderData? FindMaterialData(MaterialLoader[] loaders, MeshRenderer renderer)
+    {
+        for (int i = 0; i < loaders.Length; i++)
+        {
+            if (loaders[i] == null || loaders[i].LoadersData == null) continue;
+            for (int j = 0; j < loaders[i].LoadersData.Count; j++)
+            {
+                MaterialLoaderData data = loaders[i].LoadersData[j];
+                if (data != null && data.Renderer == renderer) return data;
+            }
+        }
+        return null;
+    }
+
+    private void ResolveExactMaterials()
+    {
+        if (!_requiresExactMaterials || Materials != null || _materialRefusal.Length != 0 || _materialLoads.Count == 0) return;
+        for (int i = 0; i < _materialLoads.Count; i++)
+        {
+            AsyncOperationHandle<Material> load = _materialLoads[i];
+            if (!load.IsDone) return;
+            if (load.Status != AsyncOperationStatus.Succeeded || load.Result == null)
+            { _materialRefusal = $"native material reference {i} failed"; return; }
+        }
+        var materials = new Material[_materialLoads.Count];
+        for (int i = 0; i < materials.Length; i++) materials[i] = _materialLoads[i].Result;
         Materials = materials;
     }
 
@@ -165,6 +238,13 @@ internal sealed class GuildmasterTableAssets
     {
         for (int i = 0; i < _loads.Count; i++)
             if (_loads[i].IsValid()) Addressables.Release(_loads[i]);
+        for (int i = 0; i < _materialLoads.Count; i++)
+            if (_materialLoads[i].IsValid()) Addressables.Release(_materialLoads[i]);
+        _materialLoads.Clear();
+        _nativeLoaders = Array.Empty<MaterialLoader>();
+        _materialSource = null;
+        _requiresExactMaterials = false;
+        _materialRefusal = "";
         _loads.Clear();
         _bundleLoads.Clear();
         Mesh = null;

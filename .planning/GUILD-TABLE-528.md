@@ -49,3 +49,29 @@ intersecting furniture produces `GUILDMASTER TABLE fit refused`. A successful fi
 physical dimensions and prop count in `GUILDMASTER TABLE fitted`. The first headset check should
 start directly in Guildmaster, inspect all table edges/legs against the barrel and bench, then
 switch maps and return to a campaign to confirm both teardown and unchanged campaign furniture.
+
+## Material-loader review correction
+
+Native `MaterialLoaderData.LoadMaterials` disables its renderer without clearing the existing
+`sharedMaterials` array. Only completion of all ordered references replaces that array and enables
+the renderer. A loaded prefab has not even run `MaterialLoader.Start`. Therefore non-null material
+slots or an enabled renderer cannot establish the table's original material readiness.
+
+The tabletop reader now matches `MaterialLoaderData.Renderer` by identity and loads its ordered
+`MaterialReferences[].RuntimeKey` through **independent** `Addressables.LoadAssetAsync<Material>`
+handles. It neither calls `AssetReference.LoadAssetAsync` (which would share that reference's
+cached native operation) nor invokes/mutates the native loader. The original material array is
+published only when every requested slot has succeeded, retaining source order even when loads
+complete out of order. Missing/failed references never fall back to a matching-name placeholder.
+The unusual native retained-material branch has no source-provable complete slot order before
+initialization; it is explicitly refused rather than reconstructed speculatively.
+
+`SceneController.LoadSceneCoroutine` uses ordinary `SceneManager.LoadSceneAsync` for both map
+scenes and unloads unused assets between scenes. This does **not** establish separate Addressables
+availability of the campaign mesh. The cold-start mesh limitation above remains explicit.
+
+Focused validation now adds 24 assertions running the production asset reader against controlled
+native/Addressables objects: enabled prefab and disabled in-flight placeholders, exact opaque
+runtime keys, out-of-order completion, native renderer/reference immutability, single handle
+release, failed/invalid references and the unsupported retained layout. Total: **1,530 assertions**,
+with four negative controls including accepting placeholders and reversing material slots.
