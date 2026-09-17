@@ -1,7 +1,9 @@
 """Fail-closed CI evidence decisions, using real Git merge trees and API fixtures."""
 import copy
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta, timezone
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -242,9 +244,13 @@ class ProofTests(unittest.TestCase):
         output = self.root / 'outputs'
         env = {'GITHUB_REPOSITORY': REPO, 'GITHUB_SHA': merged, 'GITHUB_EVENT_PATH': str(event_path),
                'GITHUB_OUTPUT': str(output), 'GH_TOKEN': 'test-only'}
-        with patch.dict(os.environ, env), patch('sys.argv', ['helper', '--mode', 'release']), \
+        output_text = io.StringIO()
+        # The production helper emits a real Actions error. Keep this intentionally
+        # rejected fixture from adding a misleading error annotation to successful CI.
+        with redirect_stdout(output_text), patch.dict(os.environ, env), patch('sys.argv', ['helper', '--mode', 'release']), \
                 patch.object(Path, 'cwd', return_value=self.root), patch.object(M.GitHub, 'get', side_effect=OSError('API unavailable')):
             self.assertEqual(M.main(), 1)
+        self.assertIn('::error::Release blocked:', output_text.getvalue())
         self.assertIn('reuse=false', output.read_text())
         self.api.listed = []
         self.reject()
