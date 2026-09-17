@@ -64,6 +64,51 @@ static class Program {
             actor.Controlled=true;var next=new CardsDriver();next.Bind(actor);next.Add(card);card.Parked=false;next.Known(card.GameCard);
             Check(!CardsDriver.ExpectsBurnFlight(card.GameCard.AbilityCard!),"Historical lost-pile browsing must not retain progress for a nonexistent flight");
         }
+        {
+            Time.unscaledTime=0;var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);
+            var original=Card(actor);var model=original.GameCard!.AbilityCard!;
+            actor.CharacterClass.LostAbilityCards.Add(model);d.Known(original.GameCard);
+            var replacement=Card(actor);replacement.GameCard!.AbilityCard=model;d.Add(replacement);
+            d.ObserveRecovery();d.Tick();
+            Check(d.KnownModel(replacement.GameCard)&&!d.Pending&&d.Flights==0,"Replacing a completed lost widget must not replay its original burn");
+            d.ObserveRecovery();d.ObserveRecovery();
+            Check(d.KnownModel(replacement.GameCard),"Empty UI snapshots must not retire a still-lost original model");
+            actor.CharacterClass.LostAbilityCards.Clear();actor.CharacterClass.PermanentlyLostAbilityCards.Add(model);d.ObserveRecovery();
+            Check(d.KnownModel(replacement.GameCard),"Permanent loss must preserve an existing completed claim");
+            actor.CharacterClass.PermanentlyLostAbilityCards.Clear();actor.CharacterClass.HandAbilityCards.Add(model);d.ObserveRecovery();
+            Check(!d.KnownModel(replacement.GameCard),"Authoritative recovery must re-arm a real later burn");
+            actor.CharacterClass.HandAbilityCards.Clear();actor.CharacterClass.LostAbilityCards.Add(model);d.Tick();
+            Check(d.Pending&&d.Holds==1,"Recovered originals must start a new burn hold when actually lost again");
+            Time.unscaledTime=1;d.Tick();Check(d.Flights==1,"A recovered and burned original must complete its new flight exactly once");
+        }
+        {
+            Time.unscaledTime=0;var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);
+            var old=Card(actor);var replacement=Card(actor);replacement.GameCard!.AbilityCard=old.GameCard!.AbilityCard;
+            actor.CharacterClass.LostAbilityCards.Add(old.GameCard.AbilityCard!);d.Add(old);d.Add(replacement);old.FullCard.Playing=true;
+            d.Tick();Check(d.Holds==1,"Two widgets for one original must share one pending burn hold");
+            old.FullCard.Playing=false;Time.unscaledTime=1;d.Tick();
+            Check(d.Flights==1&&!d.Pending,"A replacement native widget must not release a second burn flight");
+            replacement.IsFlying=false;d.Tick();Check(d.Flights==1,"A replacement arriving after completion must remain historical");
+        }
+        {
+            var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var c=Card(actor);
+            actor.CharacterClass.LostAbilityCards.Add(c.GameCard!.AbilityCard!);d.SeedClaims();
+            d.Add(c);d.Tick();Check(!d.Pending&&d.Flights==0,"Historical native loss with no initial widget must not become a fresh burn on later UI creation");
+            var permanent=Card(actor);actor.CharacterClass.PermanentlyLostAbilityCards.Add(permanent.GameCard!.AbilityCard!);d.SeedClaims();
+            Check(d.KnownModel(permanent.GameCard),"Initial baselines must include permanently lost originals");
+            var other=new CPlayerActor();var foreign=Card(other);other.CharacterClass.LostAbilityCards.Add(foreign.GameCard!.AbilityCard!);d.Add(foreign);d.Tick();
+            Check(!d.Pending,"A different character's historical original must never create a local flight claim");
+        }
+        {
+            var actor=new CPlayerActor();var d=new CardsDriver();d.Bind(actor);var original=Card(actor);
+            var replacement=Card(actor);replacement.GameCard!.AbilityCard=original.GameCard!.AbilityCard;
+            actor.CharacterClass.LostAbilityCards.Add(original.GameCard.AbilityCard!);d.SeedClaims();
+            Check(d.KnownModel(original.GameCard)&&!d.CompletedModel(replacement.GameCard),"Initial historical seeding must not suppress a first round or active burn handover");
+            d.Complete(original.GameCard);
+            Check(d.CompletedModel(replacement.GameCard),"A second dock or active wrapper must recognize an actually completed original burn");
+            actor.CharacterClass.LostAbilityCards.Clear();actor.CharacterClass.HandAbilityCards.Add(original.GameCard.AbilityCard!);d.ObserveRecovery();
+            Check(!d.CompletedModel(replacement.GameCard),"Real recovery must also clear completed round or active flight claims");
+        }
         Console.WriteLine($"Burn layout: {checks} assertions passed.");
     }
 }

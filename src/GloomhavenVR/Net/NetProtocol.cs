@@ -87,6 +87,15 @@ internal static class NetProtocol
     /// <summary>Key/generation-scoped explicit declines of shared reward first-placement candidacy.</summary>
     public const byte ExtIdRewardPoseHandshake = 74;
     public const byte ExtIdCardBurnCompletion = 75;
+    /// <summary>Explicit shared map-window ownership: held mask, then automatic-motion mask.
+    /// Each byte uses bits 0/1/2 for story/quest/encounter. Zero explicitly clears ownership;
+    /// absence means the peer supplied no ownership statement. Additive TLV; 78 is next free.</summary>
+    public const byte ExtIdSharedWindowMotion = 77;
+    public const byte SharedWindowMotionRecordBytes = 2;
+    public const byte SharedWindowMotionMapStoryBit = 1;
+    public const byte SharedWindowMotionQuestConfirmBit = 2;
+    public const byte SharedWindowMotionEncounterBit = 4;
+    public const byte SharedWindowMotionDefinedMask = 7;
     /// <summary>Record 73 only: absolute scenario game-world pose, independent of local camera pan/seat.
     /// Legacy record 21 retains its existing frame 0/1 grammar.</summary>
     public const byte RewardFrameScenario = 2;
@@ -505,7 +514,147 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 515;
+    public const ushort ModBuild = 527;
+
+    // ModBuild 527 — keep newly opened map windows at their chosen spawn pose.
+    //   Build-526 logs show UI Quest Popup reflow three times, moving only the new window.
+    //   Opening room making now anchors that window and moves only older overlapping members;
+    //   late fits cannot displace newer dialogs. Protected corners remain fixed obstacles.
+    //   Occupancy uses native painted geometry, visibility and displayed capture bounds instead
+    //   of transparent host/hit rectangles. Partial materialisation or pending meshes retry only
+    //   within the existing opening deadline; native reveal and continuation remain independent.
+    //   The legacy quest seat preference now retains a free gaze centre while the quest log is
+    //   standing. Private quest selection with a hidden log keeps its original right corner.
+    //   Shared movement retains one author and cancels when the anchored opening closes or is
+    //   grabbed. No config, wire or bundle changes. Version 1.0.4 on dev; all VR peers use 527.
+    //   See .planning/WINDOW-ANCHOR-527.md for evidence and focused validation.
+
+    // ModBuild 526 — native banner coordinate frames and visible-only MR extents.
+    //   Build-525 hardware confirms merchant reopen improvement but repeated temple entry
+    //   still moves the shared header down/left, then carries that defect back into merchant.
+    //   Capture canonical native header TRS before window conversion and express it through
+    //   each parent's original native frame, including converted/restored destinations.
+    //   Native root layout and child mode configuration remain game-owned.
+    //   MR measurements exclude zero renderer alpha and individually clip contributors to
+    //   the actual displayed capture footprint; uncaptured native UI keeps visible overflow.
+    //   Materialisation retains original alpha and raw per-graphic geometry, then shares its
+    //   existing progress while the capture footprint changes. No fixed size or direction cap.
+    //   Focused tests cover temple-first, restoration order, all four extent directions,
+    //   transparent/cropped contributors and legitimate visible overflow.
+    //   Version 1.0.4 on dev; all VR peers use 526. No bundle or wire change.
+    //   See .planning/MR-VISIBLE-526.md for evidence and final validation.
+
+    // ModBuild 525 — restore the shared map header after native reparenting.
+    //   Build-524 MR diagnostics identify UI Adventure Header/Icon as the growing top edge:
+    //   y 1369.8 on the second merchant opening, then 1938/2318/2572/2742 and 2855 at temple.
+    //   Native SetParent(true) retained the floated window's world pose/scale; the old return
+    //   path skipped restoration once the game had taken the banner into a different parent.
+    //   Borrow the original with its complete root-local pose and restore that pose on either
+    //   return path. Respect native parent/sibling ownership and preserve all child content,
+    //   mode configuration, visibility and callbacks. Repair before any subsequent capture.
+    //   MR/ink/capture geometry and window animations are unchanged; the misplaced source is fixed.
+    //   Focused production-linked tests cover repeated openings, direct destination switches,
+    //   native handoff, replacement, destroyed parents and exactly-once release.
+    //   Version 1.0.4 on dev; no bundle/config/wire change. All VR peers use 525.
+    //   See .planning/MAP-HEADER-525.md for evidence, validation and hardware limits.
+
+    // ModBuild 524 — diagnose map-window MR growth on reopening.
+    //   Hardware build 523 still shows the merchant/map backing growing on the second open.
+    //   Capture/hit envelopes grow while the authored frame stays 1920x1080, but those logs
+    //   do not identify a contributing MR graphic. Existing MR messages required Debug.
+    //   Record bounded, normal-level actual MR extents and native edge contributors across
+    //   openings, including object identity, masks, alpha and sprite/material information.
+    //   Diagnostic only: no further geometry, visibility, animation or native-flow changes;
+    //   the visible defect remains open pending a short first/open-close-reopen capture.
+    //   Version 1.0.4 on dev; no bundle, config or wire changes. All VR peers use 524.
+    //   See .planning/MR-REOPEN-524.md for evidence and focused validation.
+
+    // ModBuild 523 — fit map-window MR backings to native painted geometry.
+    //   Merchant/map backgrounds no longer inherit empty layout height from native text
+    //   boxes. MR uses original text meshes and image drawing bounds, including real overflow,
+    //   with the existing clipping, scope and transient exclusions in one measurement.
+    //   The second glyph sweep is retired: it could restore tooltip text excluded earlier.
+    //   Opening/dissolving windows and inert remote clones use the same geometry policy.
+    //   Missing first-frame meshes defer the backing and join the existing effect when ready;
+    //   native layout, capture, grab placement and game callbacks remain unchanged.
+    //   Version 1.0.4 on dev; no bundle, config or wire changes. All VR peers use 523.
+    //   See .planning/MR-MAP-BOUNDS-523.md for evidence and focused validation.
+
+    // ModBuild 522 — MR backings share the window's materialisation and dissolution.
+    //   Snapshot fitted native ink before the first element-alpha write; the existing runner
+    //   drives a bounded vertex-alpha mesh with the same host-space erosion field. No backing
+    //   survives into the debris-only tail, adds a timer, or delays native continuation.
+    //   Cached geometry no longer delays visibility: admitted native graphics are checked live
+    //   for hidden/empty/transparent state on local and remote surfaces. Native fades retain
+    //   their actual alpha; transparent backings never write depth. Close/reopen, MR toggles
+    //   and owned-resource cleanup preserve immediate hides and normal animated resizing.
+    //   Version 1.0.4 on dev; no bundle, config or wire grammar changes. All VR peers use 522.
+    //   See .planning/MR-ANIMATION-522.md for focused validation and hardware limits.
+
+    // ModBuild 521 — restore task-specific hands in the first tutorial's VR lesson.
+    //   Card handling, fingertip interaction and prose steps use the original hands;
+    //   button lessons show both controllers and highlight only the applicable keys.
+    //   Both sides stay represented through the original reversible 0.22s transition.
+    //   Model recovery follows the current step, never overriding a hand task. Losing
+    //   a controller model immediately restores its hand, even while assets are absent.
+    //   Build-518 rendering-layer protection and tracked-hand replacement recovery remain.
+    //   Version 1.0.4 on dev; no bundle or wire changes. All VR peers use 521.
+    //   User requested affected tests only; see .planning/TUTORIAL-HANDS-521.md.
+
+    // ModBuild 520 — scoped MR backgrounds for native board rows.
+    //   Initiative/element backgrounds measure the same native content root as their
+    //   surface fit. Full-screen siblings and transparent host extents cannot stretch
+    //   the plate; local surfaces and inert remote clones retain matching bounds.
+    //   Normal window artwork and the existing smooth size transition remain intact.
+    //   CI reuses trusted successful dev checks for identical source trees; releases
+    //   still build/package the actual main commit and require that evidence first.
+    //   Version 1.0.4 on dev; no bundle or wire grammar changes. All VR peers use 520.
+    //   See .planning/MR-CI-520.md for evidence, validation and hardware limits.
+
+    // ModBuild 519 — animated opening-time room making for overlapping map windows.
+    //   Encounter/story arrivals may shift overlapping windows together within the measured
+    //   view instead of hiding a mandatory decision behind an existing dialog. Motion is
+    //   bounded to the opening/first-fit episode and yields immediately to manual grabs.
+    //   One participating VR client authors shared movement; record 21 carries intermediate
+    //   poses, including the still-visible FINISHED story. Additive record 77 distinguishes
+    //   held windows from automatic movement, including stationary remote grips.
+    //   Native reveal deadlines and gameplay callbacks remain authoritative and unblocked.
+    //   Version 1.0.4 on dev; no bundle changes. All VR peers use 519.
+    //   See .planning/WINDOW-REFLOW-519.md for evidence, coverage and hardware limits.
+
+    // ModBuild 518 — persistent tutorial controllers and original defeat-retry placement.
+    //   Both controller models remain visible throughout the first tutorial's custom VR
+    //   controls lesson; only the task's applicable buttons and hands are highlighted.
+    //   Controller descendants and key markers use the VR layer, protecting them from
+    //   scenery fading and camera masks that omit the prefab's authored default layer.
+    //   Defeat retry restores each participant's original scenario arrival and control
+    //   board instead of solving a new seat from moved peers or the failed attempt's zoom.
+    //   Native ready-up and restart callbacks remain authoritative on every client.
+    //   Version 1.0.4 on dev; no bundle or wire grammar changes. All VR peers use 518.
+    //   See .planning/TUTORIAL-RETRY-518.md for evidence, coverage and hardware limits.
+
+    // ModBuild 517 — one uninterrupted burn episode per original card.
+    //   Native rest, pile refresh and action effect requests must not reset a running burn
+    //   or replay the completed episode. Recovery and real pool/scene lifetime boundaries
+    //   admit later uses normally; native gameplay callbacks remain authoritative.
+    //   Burn discovery follows original model identity across rebuilt/temporarily missing
+    //   widgets. Remote cards retain owner-painted lost artwork across address gaps.
+    //   Historical lost/consumed widget construction settles native artwork without replay;
+    //   repeated consumed-item updates cannot start overlapping native material timelines.
+    //   Version 1.0.4 on dev; no bundle or wire grammar changes. All VR peers use 517.
+    //   See .planning/BURN-517.md for producer coverage, evidence and validation limits.
+
+    // ModBuild 516 — paged discard cues, fitted MR windows and safe card scene lifetime.
+    //   Completed discard pages retain their selected, flown bookkeeping until the native
+    //   decision ends. The final one-card page cannot re-arm the right recess, and native
+    //   confirmation suppresses new-placement hints locally and through the owner mask.
+    //   MR window backings use current visible content instead of transparent host extents;
+    //   empty/revealing windows stay unbacked and geometry changes use the default grab-bar timing.
+    //   Return borrowed native card hierarchies before the scene loader can destroy their
+    //   VR hosts. Native loading state prevents re-adoption during teardown, while pending
+    //   EndScenarioSafely decisions retain input. The original loader and pool callbacks run.
+    //   Version 1.0.4 on dev; no asset bundle or wire grammar changes. All VR peers use 516.
+    //   See .planning/HARDWARE-516.md for evidence, regression checks and headset limits.
 
     // ModBuild 515 — soften the Glove fingers' authored surface relief (FULL INSTALL).
     //   Baked normal-map cracks remained too strong at the previous 0.5 strength.

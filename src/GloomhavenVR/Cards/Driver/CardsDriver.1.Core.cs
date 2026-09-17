@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using ScenarioRuleLibrary;
 using GloomhavenVR.Cards.Patches;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
@@ -227,10 +228,10 @@ internal sealed partial class CardsDriver : MonoBehaviour
     // straight into the character's Lost pile and recycles the widget, so it just vanished with no
     // VR animation. TickBurnToPile watches the burnt pile's widget set per hand; any card newly
     // added there that the turn-clear path did NOT already claim flies to the BURNT stack with the
-    // same over-the-board arc. _knownBurntWidgets is the previous-tick baseline (re-seeded on a
-    // hand change so a hand's pre-existing burnt cards never animate retroactively).
+    // same over-the-board arc. Claims use native card identity, survive UI replacement, and
+    // re-arm only on authoritative recovery. A hand change seeds historical lost models silently.
     private readonly List<AbilityCardUI> _burntWidgetBuffer = new(8);
-    private readonly HashSet<AbilityCardUI> _knownBurntWidgets = new();
+    private readonly HashSet<CAbilityCard> _knownBurntCards = new();
     private CardsHandUI? _burnWatchHand;
 
     private bool _dirty;

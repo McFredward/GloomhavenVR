@@ -170,6 +170,16 @@ internal sealed class CardFace
 
     internal AbilityCardUI? Owner => _owner;
 
+    // A native short-rest dialog temporarily reparents the full face away from both its
+    // AbilityCardUI and VRCard. Its action-only FullAbilityCard.AbilityCard may be stale;
+    // retain the actual adopted owner across that move for burn episode identity.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FullAbilityCard, AbilityCardUI>
+        AdoptedOwners = new();
+
+    internal static AbilityCardUI? OwnerOf(FullAbilityCard? full) =>
+        full != null && AdoptedOwners.TryGetValue(full, out AbilityCardUI owner)
+            && owner != null && ReferenceEquals(owner.fullAbilityCard, full) ? owner : null;
+
     /// <summary>Pixel size of the face rect (for host canvas sizing).</summary>
     internal Vector2 FaceSize { get; private set; } = new(270f, 400f);
 
@@ -189,6 +199,8 @@ internal sealed class CardFace
             return false;
 
         _owner = owner;
+        AdoptedOwners.Remove(owner.fullAbilityCard);
+        AdoptedOwners.Add(owner.fullAbilityCard, owner);
         _face = face;
         _host = host;
         _reclaimedFromDialog = false;
@@ -1780,6 +1792,7 @@ internal sealed class CardFace
         FaceBlackout.Restore(_face);
         if (_owner != null)
         {
+            if (_owner.fullAbilityCard != null) AdoptedOwners.Remove(_owner.fullAbilityCard);
             CardArtGuard.NoteReleased(_owner.fullAbilityCard);
             _owner.LockFullCard = _origLock;
         }
@@ -1794,6 +1807,7 @@ internal sealed class CardFace
         _fxSpace.Restore();
         RectTransform? face = _face;
         AbilityCardUI? owner = _owner;
+        if (owner != null && owner.fullAbilityCard != null) AdoptedOwners.Remove(owner.fullAbilityCard);
         _face = null;
         _host = null;
         _owner = null;

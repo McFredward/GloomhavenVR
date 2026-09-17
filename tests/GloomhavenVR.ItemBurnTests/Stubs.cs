@@ -12,12 +12,23 @@ namespace UnityEngine {
     public class GameObject {public void SetActive(bool value){}}
     public class Transform {public Quaternion localRotation;public Vector3 localScale;public void SetParent(Transform parent,bool worldPositionStays){}}
     public class Image {public GameObject gameObject=new();public Material material=new();public Color color;}
-    public class Material {public void SetFloat(object key,float value){}public void SetColor(int key,Color c){}public void SetTexture(int key,Texture2D t){}public void SetTextureScale(int key,Vector2 v){}}
+    public class Material {readonly Dictionary<object,float> values=new();public float GetFloat(object key)=>values.TryGetValue(key,out var value)?value:0;public void SetFloat(object key,float value)=>values[key]=value;public void SetColor(int key,Color c){}public void SetTexture(int key,Texture2D t){}public void SetTextureScale(int key,Vector2 v){}}
     public static class Mathf {public const float PI=MathF.PI;public static float Min(float a,float b)=>MathF.Min(a,b);public static float Exp(float x)=>MathF.Exp(x);public static float Sin(float x)=>MathF.Sin(x);public static float Clamp01(float x)=>Clamp(x,0,1);public static float Clamp(float x,float a,float b)=>Math.Clamp(x,a,b);public static float Lerp(float a,float b,float t)=>a+(b-a)*t;}
 }
 namespace GloomhavenVR.Cards {
     using UnityEngine;
-    internal sealed class ItemCardUI {internal ItemCardEffects cardEffects=new();internal int StateReads;internal void UpdateState()=>StateReads++;}
+    internal sealed class ItemCardUI {
+        internal ItemCardEffects cardEffects=new();
+        internal ScenarioRuleLibrary.CItem item=new();
+        internal int StateReads;
+        internal ItemCardUI(){cardEffects.Owner=this;}
+        internal void UpdateState()=>StateReads++;
+        internal void OnReturnedToPool(){ItemTestHooks.Pool(this);cardEffects.RestoreCard();}
+    }
+    internal static class ItemTestHooks {
+        internal static bool Allow(Type patch,ItemCardEffects effect)=>(bool)patch.GetMethod("Prefix",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.Invoke(null,new object[]{effect})!;
+        internal static void Pool(ItemCardUI owner)=>typeof(ItemBurnPlayback.ReturnedToPool_Retire).GetMethod("Prefix",System.Reflection.BindingFlags.NonPublic|System.Reflection.BindingFlags.Static)!.Invoke(null,new object[]{owner});
+    }
     internal sealed class Box {internal bool enabled=true;}
     internal sealed class PlayTray {internal static PlayTray? Current=new();internal Transform? Root=new();internal bool Slot;internal void SetItemUseSlotVisible(bool value)=>Slot=value;}
     internal sealed partial class ItemsPile {
@@ -56,3 +67,5 @@ namespace GloomhavenVR.Cards {
 }
 
 namespace GloomhavenVR.Net { internal static class ItemAppearanceSampler { internal static int Completions; internal static bool CapturedBeforeRetirement; internal static void RetainCompletion(Cards.ItemsPile.ItemChip chip) { Completions++; CapturedBeforeRetirement = chip.PendingUse && chip.Collapses == 0; } } }
+
+namespace ScenarioRuleLibrary { internal sealed class CItem {internal enum EItemSlotState {None,Consumed,Spent,Ready} internal EItemSlotState SlotState=EItemSlotState.Consumed;} }

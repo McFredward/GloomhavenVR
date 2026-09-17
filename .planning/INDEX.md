@@ -1,6 +1,6 @@
 # Planning index
 
-Updated 2026-09-16 for softer Glove finger relief, build 515 on dev. This directory holds internal
+Updated 2026-09-17 for anchored window openings, build 527 on dev. This directory holds internal
 engineering evidence, historical decisions and current status; it is not the player manual.
 
 ## Current entry points
@@ -17,6 +17,39 @@ engineering evidence, historical decisions and current status; it is not the pla
 | [PROJECT.md](PROJECT.md), [ARCHITECTURE.md](ARCHITECTURE.md) | Product scope and architectural reasoning |
 
 ## Latest measured work
+
+- [RELEASE-104.md](RELEASE-104.md): build-527 hardware review and authorized 1.0.4 publication.
+
+- [WINDOW-ANCHOR-527.md](WINDOW-ANCHOR-527.md): incoming window anchor, visible overlap and centre-first quest placement.
+
+- [MR-VISIBLE-526.md](MR-VISIBLE-526.md): temple coordinate-frame regression and general transparent/cropped MR contributors.
+- [MAP-HEADER-525.md](MAP-HEADER-525.md): diagnosed shared header pose contamination and repeated-opening restoration.
+- [MR-REOPEN-524.md](MR-REOPEN-524.md): unresolved second-open backing growth; bounded actual MR edge diagnostics.
+- [MR-MAP-BOUNDS-523.md](MR-MAP-BOUNDS-523.md): merchant/map screenshot evidence, original painted geometry, unified local/remote/effect bounds.
+
+- [MR-ANIMATION-522.md](MR-ANIMATION-522.md): immediate native visibility, shared window erosion field, safe close/reopen and owned-resource cleanup.
+
+- [TUTORIAL-HANDS-521.md](TUTORIAL-HANDS-521.md): restored per-task hands, original animated transitions and missing-model recovery.
+
+- [MR-CI-520.md](MR-CI-520.md): scoped local/remote initiative backgrounds, trusted CI result reuse, evidence and validation limits.
+
+- [WINDOW-REFLOW-519.md](WINDOW-REFLOW-519.md): opening-time overlap correction, shared authority, grip precedence and validation evidence.
+
+- [TUTORIAL-RETRY-518.md](TUTORIAL-RETRY-518.md): integrated controller visibility and original defeat-retry placement, with evidence and validation limits.
+- [TUTORIAL-CONTROLLERS-518.md](TUTORIAL-CONTROLLERS-518.md): persistent models, per-hand highlights, VR render layers and model/hand lifetime recovery.
+- [RETRY-START-518.md](RETRY-START-518.md): per-participant original arrival and board restoration across defeat retries and round reloads.
+
+- [BURN-517.md](BURN-517.md): integrated one-episode burn review, all producer paths and validation limits.
+- [BURN-LOCAL-517.md](BURN-LOCAL-517.md): native reset/replay protection, historical reconstruction, replacement waiters and consumed items.
+- [BURN-DRIVER-517.md](BURN-DRIVER-517.md): original-card claims, recovery and duplicate local flight admission.
+- [BURN-REMOTE-517.md](BURN-REMOTE-517.md): stable remote burn discovery and native output continuity across missing address samples.
+
+- [HARDWARE-516.md](HARDWARE-516.md): integrated latest hardware findings, log/screenshot evidence, regression coverage and limits.
+- [TRAY-516.md](TRAY-516.md): paged discard cues, retained selection and recycle/undo lifetime.
+- [MR-BACKING-516.md](MR-BACKING-516.md): visible-content MR fitting and matching local/remote geometry animation.
+- [RESTART-516.md](RESTART-516.md): pooled native card ownership before scene reload, guarded continuation and aborted-load recovery.
+
+- [RELEASE-1.0.3.md](RELEASE-1.0.3.md): maintainer acceptance, main release provenance and verified public package with the updated Glove assets.
 
 - [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md): authored Glove relief reduction, native A/B renders and bundle object verification.
 

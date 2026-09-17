@@ -1,0 +1,288 @@
+"""Fail-closed CI evidence decisions, using real Git merge trees and API fixtures."""
+import copy
+from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location('ci_proof_reuse', ROOT / 'scripts/ci-proof-reuse.py')
+M = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(M)
+NOW = datetime(2026, 9, 17, 12, tzinfo=timezone.utc)
+REPO = 'owner/project'
+
+
+class API:
+    def __init__(self, runs, jobs):
+        self.records = {r['id']: copy.deepcopy(r) for r in runs}
+        self.listed = copy.deepcopy(runs)
+        self.job_list = jobs
+        self.workflow = {'id': 10, 'path': M.WORKFLOW, 'state': 'active'}
+        self.reread = None
+        self.reads = 0
+
+    def get(self, path):
+        if path == '/actions/workflows/ci.yml':
+            return self.workflow
+        self.reads += 1
+        if self.reread and self.reads > 1:
+            return self.reread
+        return self.records[int(path.rsplit('/', 1)[1])]
+
+    def runs(self, workflow_id):
+        return self.listed
+
+    def jobs(self, run_id, attempt):
+        return self.job_list
+
+
+class ProofTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.g('init', '-q', '-b', 'main')
+        self.g('config', 'user.name', 'Test')
+        self.g('config', 'user.email', 'test@example.invalid')
+        self.write(M.WORKFLOW, 'trusted workflow\n')
+        self.write(M.HELPER, 'trusted verifier\n')
+        self.write('source', 'base\n')
+        self.base = self.save('base')
+        self.g('checkout', '-q', '-b', 'dev')
+        self.write('source', 'candidate\n')
+        self.head = self.save('dev source')
+        self.g('update-ref', 'refs/remotes/origin/dev', self.head)
+        self.tree = M.tree(self.root, 'HEAD')
+        self.run = {'id': 101, 'run_number': 20, 'run_attempt': 1, 'workflow_id': 10,
+                    'repository': {'full_name': REPO}, 'head_repository': {'full_name': REPO},
+                    'path': M.WORKFLOW, 'event': 'push', 'head_branch': 'dev', 'head_sha': self.head,
+                    'status': 'completed', 'conclusion': 'success', 'updated_at': NOW.isoformat()}
+        self.job = {'run_id': 101, 'run_attempt': 1, 'head_sha': self.head,
+                    'name': f'Full checks [{self.tree}]', 'status': 'completed', 'conclusion': 'success',
+                    'steps': [{'name': M.PROOF_STEP, 'status': 'completed', 'conclusion': 'success'}]}
+        self.api = API([self.run], [self.job])
+
+    def g(self, *args):
+        return M.git(self.root, *args)
+
+    def write(self, path, text):
+        file = self.root / path
+        file.parent.mkdir(parents=True, exist_ok=True)
+        file.write_text(text)
+
+    def save(self, message):
+        self.g('add', '.')
+        self.g('commit', '-qm', message)
+        return self.g('rev-parse', 'HEAD')
+
+    def proof(self):
+        return M.find_proof(self.root, REPO, M.tree(self.root, 'HEAD'), self.api, NOW)
+
+    def reject(self):
+        with self.assertRaises(M.NoProof):
+            self.proof()
+
+    def merge(self):
+        self.g('checkout', '-q', 'main')
+        self.g('merge', '--no-ff', '-qm', 'reviewed merge', 'dev')
+        return self.g('rev-parse', 'HEAD')
+
+    def pr_event(self):
+        return {'pull_request': {'head': {'sha': self.head, 'repo': {'full_name': REPO}},
+                                 'base': {'sha': self.base, 'repo': {'full_name': REPO}}}}
+
+    def test_successful_dev_push(self):
+        self.assertTrue(self.proof().endswith('/101/attempts/1'))
+
+    def test_main_merge_reuses_identical_tree(self):
+        merged = self.merge()
+        self.assertNotEqual(self.head, merged)
+        M.candidate(self.root, {'ref': 'refs/heads/main', 'after': merged}, 'release', REPO, merged)
+        self.assertTrue(self.proof())
+
+    def test_pr_validates_both_merge_parents(self):
+        merged = self.merge()
+        self.assertEqual(M.candidate(self.root, self.pr_event(), 'pr', REPO, merged)[1], self.tree)
+        for side in ('head', 'base'):
+            event = self.pr_event()
+            event['pull_request'][side]['sha'] = 'a' * 40
+            with self.assertRaises(M.NoProof):
+                M.candidate(self.root, event, 'pr', REPO, merged)
+
+    def test_head_checkout_is_not_synthetic_merge(self):
+        with self.assertRaises(M.NoProof):
+            M.candidate(self.root, self.pr_event(), 'pr', REPO, self.head)
+
+    def test_fork_always_full(self):
+        merged = self.merge()
+        event = self.pr_event()
+        event['pull_request']['head']['repo']['full_name'] = 'fork/project'
+        with self.assertRaises(M.NoProof):
+            M.candidate(self.root, event, 'pr', REPO, merged)
+
+    def test_wrong_event_sha_or_nonmain_release(self):
+        for sha, ref in [('a' * 40, 'refs/heads/main'), (self.head, 'refs/heads/dev')]:
+            with self.assertRaises(M.NoProof):
+                M.candidate(self.root, {'ref': ref, 'after': self.head}, 'release', REPO, sha)
+
+    def test_docs_source_and_workflow_changes_invalidate_tree(self):
+        for path in ('README.md', 'source', M.WORKFLOW, M.HELPER):
+            with self.subTest(path=path):
+                self.g('reset', '--hard', self.head)
+                self.write(path, 'changed\n')
+                self.save('changed input')
+                self.reject()
+
+    def test_conflict_resolution_changes_require_full_checks(self):
+        self.g('checkout', '-q', 'main')
+        self.write('source', 'main edits\n')
+        self.save('main divergence')
+        result = subprocess.run(['git', '-C', str(self.root), 'merge', '--no-ff', 'dev'], capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.write('source', 'resolved differently\n')
+        self.save('conflict resolution')
+        self.assertNotEqual(M.tree(self.root, 'HEAD'), self.tree)
+        self.reject()
+
+    def test_orphan_same_tree_is_not_dev_evidence(self):
+        orphan = self.g('commit-tree', self.tree, '-m', 'unrelated root')
+        self.api.records[101]['head_sha'] = orphan
+        self.api.listed[0]['head_sha'] = orphan
+        self.reject()
+
+    def test_fork_pr_and_other_workflow_runs_are_not_proof(self):
+        for key, value in [('event', 'pull_request'), ('event', 'workflow_run'), ('head_branch', 'main'),
+                           ('workflow_id', 11), ('path', '.github/workflows/fake.yml'),
+                           ('repository', {'full_name': 'other/project'}),
+                           ('head_repository', {'full_name': 'fork/project'})]:
+            with self.subTest(key=key, value=value):
+                self.api = API([dict(self.run, **{key: value})], [self.job])
+                self.reject()
+
+    def test_newer_failure_cancel_or_pending_supersedes_green(self):
+        for status, conclusion in [('completed', 'failure'), ('completed', 'cancelled'),
+                                   ('completed', 'skipped'), ('queued', None), ('in_progress', None)]:
+            with self.subTest(conclusion=conclusion):
+                newer = dict(self.run, id=102, run_number=21, status=status, conclusion=conclusion)
+                self.api = API([newer, self.run], [self.job])
+                self.reject()
+
+    def test_latest_attempt_required(self):
+        self.api.records[101].update(run_attempt=2, conclusion='failure')
+        self.reject()
+        self.api.records[101]['conclusion'] = 'success'
+        self.reject()  # attempt-one jobs cannot attest attempt two
+        self.job['run_attempt'] = 2
+        self.assertTrue(self.proof().endswith('/attempts/2'))
+
+    def test_rerun_during_read_refuses(self):
+        self.api.reread = dict(self.run, run_attempt=2, status='queued', conclusion=None)
+        self.reject()
+
+    def test_reuse_success_never_mints_new_full_proof(self):
+        self.job['name'] = 'Build and gates'
+        self.reject()
+
+    def test_missing_duplicate_failed_or_skipped_marker_refuses(self):
+        for steps in ([], [self.job['steps'][0], self.job['steps'][0]],
+                      [{'name': M.PROOF_STEP, 'status': 'completed', 'conclusion': 'skipped'}],
+                      [{'name': M.PROOF_STEP, 'status': 'completed', 'conclusion': 'failure'}]):
+            self.job['steps'] = steps
+            self.reject()
+
+    def test_job_identity_tree_and_status_are_checked(self):
+        for field, value in [('head_sha', 'a' * 40), ('name', 'Full checks [wrong]'),
+                             ('run_id', 999), ('run_attempt', 2), ('status', 'queued'),
+                             ('conclusion', 'cancelled')]:
+            with self.subTest(field=field):
+                self.api.job_list = [dict(self.job, **{field: value})]
+                self.reject()
+        self.api.job_list = [self.job, self.job]
+        self.reject()
+
+    def test_stale_future_and_inactive_workflow_refuse(self):
+        for date in (NOW - timedelta(days=31), NOW + timedelta(hours=1)):
+            self.api.records[101]['updated_at'] = date.isoformat()
+            self.reject()
+        self.api.records[101]['updated_at'] = NOW.isoformat()
+        self.api.workflow['state'] = 'disabled_manually'
+        self.reject()
+
+    def test_manual_dev_full_validation_is_proof_independent_of_upload(self):
+        self.api = API([dict(self.run, event='workflow_dispatch')], [self.job])
+        self.job['steps'].append({'name': 'Upload requested dev build', 'status': 'completed', 'conclusion': 'failure'})
+        self.assertTrue(self.proof())  # optional step uses continue-on-error; full job is green
+        self.api.job_list.append({'name': 'Maintain optional dev artifact storage', 'conclusion': 'failure'})
+        self.assertTrue(self.proof())
+
+    def test_advanced_dev_preserves_old_exact_tree_when_policy_unchanged(self):
+        self.write('unrelated', 'new work')
+        newer = self.save('new work')
+        self.g('update-ref', 'refs/remotes/origin/dev', newer)
+        self.g('checkout', '-q', self.head)
+        self.assertTrue(self.proof())
+
+    def test_advanced_dev_policy_change_invalidates_old_proof(self):
+        self.write(M.WORKFLOW, 'new policy')
+        newer = self.save('policy changed')
+        self.g('update-ref', 'refs/remotes/origin/dev', newer)
+        self.g('checkout', '-q', self.head)
+        self.reject()
+
+    def test_missing_proof_and_api_failure_release_fail_closed(self):
+        merged = self.merge()
+        event_path = self.root / 'event.json'
+        event_path.write_text(json.dumps({'ref': 'refs/heads/main', 'after': merged}))
+        output = self.root / 'outputs'
+        env = {'GITHUB_REPOSITORY': REPO, 'GITHUB_SHA': merged, 'GITHUB_EVENT_PATH': str(event_path),
+               'GITHUB_OUTPUT': str(output), 'GH_TOKEN': 'test-only'}
+        output_text = io.StringIO()
+        # The production helper emits a real Actions error. Keep this intentionally
+        # rejected fixture from adding a misleading error annotation to successful CI.
+        with redirect_stdout(output_text), patch.dict(os.environ, env), patch('sys.argv', ['helper', '--mode', 'release']), \
+                patch.object(Path, 'cwd', return_value=self.root), patch.object(M.GitHub, 'get', side_effect=OSError('API unavailable')):
+            self.assertEqual(M.main(), 1)
+        self.assertIn('::error::Release blocked:', output_text.getvalue())
+        self.assertIn('reuse=false', output.read_text())
+        self.api.listed = []
+        self.reject()
+
+
+class WorkflowBindings(unittest.TestCase):
+    def test_required_gate_and_fork_permissions(self):
+        source = (ROOT / M.WORKFLOW).read_text()
+        self.assertIn('name: Build and gates', source)
+        self.assertIn('name: Full checks [${{ needs.plan.outputs.tree }}]', source)
+        self.assertIn('pull_request.head.repo.full_name == github.repository', source)
+        self.assertIn("needs.plan.outputs.reuse != 'true'", source)
+        self.assertIn('persist-credentials: false', source)
+        self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '0' || '1' }}", source)
+        self.assertNotIn('pull_request_target:', source)
+        self.assertIn('"$FORK_PR" != true', source)
+        self.assertIn('Record full-check completion', source)
+        self.assertLess(source.index('Wire tests (compile only'), source.index('Record full-check completion'))
+        self.assertIn('"$(git rev-parse HEAD^{tree})" == "$EXPECTED_TREE"', source)
+
+    def test_release_fresh_build_proof_and_artifact_checks_remain(self):
+        source = (ROOT / '.github/workflows/release.yml').read_text()
+        self.assertIn('branches: [main]', source)
+        self.assertIn("GhvrReleaseBuild: 'true'", source)
+        self.assertIn('scripts/ci-proof-reuse.py --mode release', source)
+        self.assertLess(source.index('--mode release'), source.index('scripts/ci-build.sh Release'))
+        self.assertNotIn('Native presentation regression harnesses', source)
+        for token in ('scripts/release-provenance.sh check', 'scripts/ci-build.sh Release',
+                      'scripts/package-release.sh', 'scripts/check-bundle-format.sh', '--verify-tag',
+                      'git merge-base --is-ancestor "$GITHUB_SHA"'):
+            self.assertIn(token, source)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -721,7 +721,11 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             // player exists as a tracked body, and on a joining client the whole scenario load
             // (during which the FFSNet handshake and the peers' first rig packets land) happens
             // BEFORE it. Round 1 started the clock at rig build and spent most of it on loading.
-            if (_kind == RigKind.Scenario)
+            if (_kind == RigKind.Scenario && _scenarioStart.RestorePending)
+            {
+                RestoreScenarioStart();
+            }
+            else if (_kind == RigKind.Scenario)
             {
                 _ringWindowEnd = Time.unscaledTime + SpawnRingSettleSeconds;
                 _ringNextLogTime = 0f;
@@ -736,7 +740,11 @@ internal sealed partial class VRRigDriver : MonoBehaviour
             }
 
             if (!_ringPlaced)
+            {
                 Recenter();
+                if (_kind == RigKind.Scenario && !_scenarioStart.HasPose)
+                    RememberScenarioStart();
+            }
         }
 
         // Spawn-ring settle window (bounded — see SpawnRingSettleSeconds). TickSpawnRingSettle is
@@ -822,9 +830,14 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         controller.m_IsCameraCodeControlDisabled = true;
         _frozeGameCameraControl = true;
 
+        bool newScenario = _scenarioStart.EnterScenario(Choreographer.s_Choreographer);
+        if (newScenario)
+            _retryBoardRestorePending = false;
         float baseScale = ResolveWorldScale();
-        // Re-apply the pinch-scale the player last reached ([Comfort] SavedScaleMultiplier).
-        float scale = baseScale * ComfortSettings.ClampedSavedMultiplier;
+        // Ordinary entries use saved zoom; an explicit Retry restores the original arrival scale.
+        float scale = _scenarioStart.RestorePending
+            ? _scenarioStart.Pose.Scale
+            : baseScale * ComfortSettings.ClampedSavedMultiplier;
 
         _rigRoot = CreateRigRoot();
         // Rig at the orbit focus, yaw taken from the current camera so the board is
@@ -840,12 +853,12 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // one) must never re-seat a player who has been at this table for ten minutes — that is
         // the "do not fight the player" rule, and it is exactly the kind of thing that only shows
         // up on hardware. Only a kind change INTO Scenario (from the menu rig or from no rig at
-        // all) counts as arriving at the table.
+        // all), or a replacement native scenario behind the same rig kind, counts as arrival.
         //
         // The WINDOW itself is armed later still, by the first tracked pose (see UpdateBody) — a
         // window opened here would be spent on the scenario load. Until then the sentinel end time
         // keeps the poll from acting at all.
-        bool arrival = _priorKind != RigKind.Scenario;
+        bool arrival = newScenario || _priorKind != RigKind.Scenario;
         _ringPlaced = false;
         _ringSettled = !arrival;
         // The arrival window opens and closes with the ring's own window — one writer per event,
@@ -868,7 +881,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // given when they sat down is still the seat the B+Y chord owes them; clearing it here would
         // silently downgrade every recenter after a health re-anchor to the "current side of the
         // table" rule. A genuine arrival at a new table has no remembered seat yet, by definition.
-        if (arrival)
+        if (arrival && !_scenarioStart.RestorePending)
         {
             _ringSeatAngleValid = false;
             _ringSeatAngleDegrees = 0f;

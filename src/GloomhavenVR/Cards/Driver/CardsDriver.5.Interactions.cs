@@ -1293,6 +1293,36 @@ internal sealed partial class CardsDriver
     private int _loggedFieldOverflow = -1;
 
     /// <summary>
+    /// Retire invalid pick seats without forgetting selected cards from a completed VR page.
+    /// Build 515 pruned every parked card, including the two deliberately flown by a
+    /// discard page turn. That reduced the locked prefix to zero: placing the last of
+    /// three cards then advertised a nonexistent right-hand seat, and undo lost the
+    /// return-flight claims. A parked, still-selected locked page remains bookkeeping
+    /// only; RelayoutField already skips its exit claim. Dead/unselected cards still
+    /// retire, so completed burns cannot be reseated by a historical selection latch.
+    /// </summary>
+    private void PrunePickField()
+    {
+        for (int i = _fieldCards.Count - 1; i >= 0; i--)
+        {
+            VRCard occupant = _fieldCards[i];
+            if (occupant == null || occupant.GameCard == null
+                || (IsParked(occupant)
+                    && !(i < _pickLockedCount && _pickExitFlown.Contains(occupant)))
+                || (!_pickReopenBusy && !occupant.GameCard.IsSelected))
+            {
+                // Event-discard batching: a pruned LOCKED card shrinks the
+                // locked prefix (the step display recomputes from it).
+                if (i < _pickLockedCount)
+                    _pickLockedCount--;
+                if (occupant != null)
+                    _pickExitFlown.Remove(occupant);
+                _fieldCards.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>
     /// EVENT-DISCARD BATCHING: the physical seat a field-list index maps to. Cards of
     /// the LIVE batch (index ≥ locked count) take the recesses 0/1; LOCKED cards
     /// (index &lt; locked count) stack on the beside-Slot2 overflow seats (2, 3, …) —
@@ -1909,7 +1939,7 @@ internal sealed partial class CardsDriver
             //
             // THE FIX IS TO USE THE RETURN VALUE. Held or flying, the burn path owns the card and
             // parks it itself: TickBurnToPile re-offers a held widget every tick (a held widget is
-            // deliberately kept OUT of _knownBurntWidgets), and the release launches the same
+            // deliberately kept OUT of _knownBurntCards), and the release launches the same
             // FlyToPile arc from the card's true, still-live pose — so the sequence becomes the one
             // the user asked for: burn artwork to completion, THEN the flight, the card
             // disappearing as part of it. `IsFlying` STAYS as the belt for the OTHER flight that

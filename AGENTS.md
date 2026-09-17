@@ -58,3 +58,18 @@ The build 500 hardware ruling (2026-09-14) requires immediate return of a held f
 its board position before any non-idle action starts, locally and for remote observers.
 This supersedes the older forced-release glide ruling; ordinary idle manual releases keep
 their usual glide. Native movement must never derive its start from a hand-held transform.
+
+The user's 2026-09-17 window-placement request permits necessary, animated opening-time
+room making when a new window would overlap an existing visible window. Keep affected
+windows in view and use one author for shared movement. This narrowly supersedes the
+historical fixed-window rule; it does not authorize periodic head-following or lost-window
+recall. Manual grabs take precedence, and layout must never gate native continuation.
+The build-526 hardware clarification fixes the newly opened window at its spawn pose: only
+older, visibly overlapping windows may move. Transparent host/hit areas are not visual overlap;
+a free quest-popup gaze centre takes precedence over the legacy beside-quest-log preference.
+
+The user's 2026-09-17 tutorial clarification restores the original task-specific hands/controller
+choice and animated transitions. Card handling and physical fingertip tasks show hands; key
+lessons show controllers. Both tracked sides must remain represented by either a hand or a
+controller. Build 518's interpretation that controller models must stay visible for the whole
+lesson was incorrect and is superseded.

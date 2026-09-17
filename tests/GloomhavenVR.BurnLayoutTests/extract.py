@@ -3,7 +3,7 @@ root=pathlib.Path(sys.argv[1]);out=pathlib.Path(sys.argv[2])
 cards=root/'src/GloomhavenVR/Cards'
 source=(cards/'Driver/CardsDriver.4.Rebuild.cs').read_text()
 artwork=(cards/'BurnArtwork.cs').read_text()
-assert 'BurnTimelines.Add(__instance, playback);' in artwork and 'return !playback.Finished;' in artwork, 'Layout completion must observe the actual native burn iterator, including synchronous bails'
+assert 'BurnTimelines.Add(__instance, playback!);' in artwork and 'return !playback.Finished;' in artwork, 'Layout completion must observe the actual native burn iterator, including synchronous bails'
 
 def method(text,name):
     start=text.index(name);start=text.rfind('\n',0,start)+1
@@ -29,7 +29,17 @@ for text in ['if (_arriving.Count > 0 && !CardsDriver.BurnLayoutPending)', 'if (
     assert text in fan, 'Fan animation must await burn'
 active=(cards/'Piles/ActivePileViewer.cs').read_text()
 assert 'if (CardsDriver.BurnLayoutPending) return;' in method(active,'private void Relayout(bool instant)'), 'Active grid must await burn'
+assert '_knownBurntCards.Clear();' not in method(source,'private void TickBurnToPile(').split('PruneRecoveredBurns(hand);')[1], 'Visible widget snapshots must not clear native burn claims'
+assert 'SeedKnownBurns(hand);' in method(source,'private void TickBurnToPile('), 'First sight must seed authoritative lost models, including unbuilt widgets'
+assert '!_burnHoldSince.ContainsKey(widget) && HasBurnHold(widget)' in method(source,'private bool TryTakeBurnFlightSlot('), 'Replacement widgets must not create a second pending episode'
+assert 'if (fate == PileKind.Burnt && card.GameCard != null && IsCompletedBurn(card.GameCard)) return false;' in method(source,'private bool TryStartFlyToPile('), 'Round/active wrappers must not bypass completed original claims'
+assert 'if (IsCompletedBurn(widget)) { ClearBurnHold(widget); continue; }' in method(source,'private void FlushBurnHolds('), 'Duplicate holds must not bypass completed original claims'
+assert 'if (fate == PileKind.Burnt) CompleteBurnClaim(card.GameCard);' in method(source,'private bool TryStartFlyToPile('), 'Round and active burn exits must claim the original immediately'
+assert 'arcUp, widget, minArc);\n        CompleteBurnClaim(widget);' in method(source,'private void LaunchBurnFlight('), 'Fallback slab launch must claim the original immediately'
+assert 'if (w != null && !HasBurnHold(w)) RememberBurn(w);' in source, 'Pending replacement widgets must not prematurely claim a burn'
 result=(cards/'Driver/CardsDriver.8.BurnSequencing.cs').read_text()
+claims=(cards/'Driver/CardsDriver.9.BurnClaims.cs').read_text()
+result+='\n'+claims[claims.index('internal sealed partial class CardsDriver'):]
 result+='\ninternal sealed partial class CardsDriver\n{\n'
 result+=method(source,'private bool IsFreshBurn(')+'\n'
 result+=method(source,'private static RoundCardExit RoundCardExitOf(')+'\n'

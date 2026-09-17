@@ -17,6 +17,8 @@ namespace UnityEngine
     public class Transform : Component
     {
         public Transform? parent;
+        public Matrix4x4 worldToLocalMatrix => new(null,this);
+        public Matrix4x4 localToWorldMatrix => new(this,null);
         public Vector3 localPosition;
         public Vector3 localScale = new(1, 1, 1);
         public float angleDegrees;
@@ -51,6 +53,7 @@ namespace UnityEngine
     }
     public sealed class RectTransform : Transform
     {
+        public Vector2 pivot = new(.5f,.5f);
         public Rect rect = Rect.MinMaxRect(-640, -360, 640, 360);
         public void GetWorldCorners(Vector3[] corners)
         {
@@ -81,6 +84,19 @@ namespace UnityEngine
         public readonly float x, y, z;
         public Vector3(float a, float b, float c) { x = a; y = b; z = c; }
     }
+    // Model precisely the production local-to-world -> world-to-host matrix composition.
+    // Existing transform chains carry rotations/scales; this value wrapper allocates nothing.
+    public readonly struct Matrix4x4
+    {
+        private readonly Transform? _from, _to;
+        public Matrix4x4(Transform? from,Transform? to) { _from=from;_to=to; }
+        public static Matrix4x4 operator *(Matrix4x4 a,Matrix4x4 b) => new(b._from,a._to);
+        public Vector3 MultiplyPoint3x4(Vector3 value)
+        {
+            Vector3 world=_from==null ? value : _from.TransformPoint(value);
+            return _to==null ? world : _to.InverseTransformPoint(world);
+        }
+    }
     public readonly struct Bounds
     {
         public readonly Vector3 min, max;
@@ -93,8 +109,10 @@ namespace UnityEngine
     public struct Rect
     {
         public float xMin, yMin, xMax, yMax;
-        public float width => xMax - xMin;
-        public float height => yMax - yMin;
+        public float width { get=>xMax-xMin; set=>xMax=xMin+value; }
+        public float height { get=>yMax-yMin; set=>yMax=yMin+value; }
+        public float x { get=>xMin; set { float w=width;xMin=value;width=w; } }
+        public float y { get=>yMin; set { float h=height;yMin=value;height=h; } }
         public Rect(float x, float y, float w, float h) { xMin = x; yMin = y; xMax = x + w; yMax = y + h; }
         public static Rect MinMaxRect(float x, float y, float right, float top)
             => new Rect(x, y, right - x, top - y);
@@ -106,17 +124,43 @@ namespace UnityEngine
         public static Vector2 Min(Vector2 a, Vector2 b) => new(Math.Min(a.x, b.x), Math.Min(a.y, b.y));
         public static Vector2 Max(Vector2 a, Vector2 b) => new(Math.Max(a.x, b.x), Math.Max(a.y, b.y));
     }
+    public struct Vector4 { public float x,y,z,w; public Vector4(float a,float b,float c,float d) { x=a;y=b;z=c;w=d; } }
+    public class Sprite { public string name="OriginalSprite";public Rect rect; public Vector4 Padding; }
+    public struct UIVertex { public Vector3 position;public Color32 color; }
+    public class TextGenerator { public readonly List<UIVertex> verts=new(); }
     public struct Color { public float a; }
+    public struct Color32 { public byte a; }
+    public enum HideFlags { HideAndDontSave }
+    public sealed class Mesh
+    {
+        public string name = "";
+        public HideFlags hideFlags;
+        public int Reads;
+        public readonly List<Vector3> Points = new();
+        public readonly List<Color32> Colors = new();
+        public void Clear() { Points.Clear(); Colors.Clear(); }
+        public void GetVertices(List<Vector3> output) { Reads++; output.Clear(); output.AddRange(Points); }
+        public void GetColors(List<Color32> output) { output.Clear(); output.AddRange(Colors); }
+    }
+    public class Shader { public string name="NativeShader"; }
+    public class Material { public string name="NativeMaterial";public Shader? shader=new(); public bool HasProperty(string _) => true;public Color GetColor(string _) => new Color{a=.75f}; }
+    public class CanvasGroup : Component { public float alpha=1;public bool ignoreParentGroups; }
+    public class Canvas : Component { public bool isActiveAndEnabled => enabled && gameObject.activeInHierarchy; }
     public class CanvasRenderer : Component
     {
         public bool cull;
         public float Alpha = 1;
+        public float OwnAlpha = 1;
+        public float GetAlpha() => OwnAlpha;
         public float GetInheritedAlpha() => Alpha;
     }
     public static class Mathf
     {
+        public static float Abs(float a)=>Math.Abs(a);
         public static float Max(float a, float b) => Math.Max(a, b);
         public static float Min(float a, float b) => Math.Min(a, b);
+        public static int RoundToInt(float value) => (int)Math.Round(value);
+        public static float Clamp01(float value) => Math.Clamp(value,0,1);
     }
     public static class Time { public static int frameCount => 1; }
 }
@@ -124,16 +168,34 @@ namespace UnityEngine.UI
 {
     public class Graphic : UnityEngine.Component
     {
+        public bool ThrowOnMaterial;
+        public UnityEngine.Material? material
+        { get { if(ThrowOnMaterial) throw new InvalidOperationException("destroyed diagnostic getter");return new UnityEngine.Material(); } }
+        public UnityEngine.RectTransform rectTransform => gameObject.transform;
+        public UnityEngine.Rect GetPixelAdjustedRect() => rectTransform.rect;
+        public UnityEngine.Vector2 PixelAdjustPoint(UnityEngine.Vector2 point) => point;
+        public UnityEngine.Canvas? canvas;
         public UnityEngine.Color color = new() { a = 1 };
         public UnityEngine.CanvasRenderer canvasRenderer = new();
     }
     public class RawImage : Graphic { }
-    public class Image : Graphic { }
-    public class Text : Graphic { public string text = string.Empty; }
+    public class Image : Graphic
+    {
+        public enum Type { Simple,Sliced,Tiled,Filled }
+        public enum FillMethod { Horizontal,Vertical,Radial90,Radial180,Radial360 }
+        public Type type;public FillMethod fillMethod;public int fillOrigin;
+        public float fillAmount=1;public bool preserveAspect;public UnityEngine.Sprite? overrideSprite;
+    }
+    public class Text : Graphic { public string text = string.Empty; public float pixelsPerUnit=1; public UnityEngine.TextGenerator cachedTextGenerator=new(); }
     public class RectMask2D : UnityEngine.Component { }
-    public class Mask : UnityEngine.Component { }
+    public class Mask : UnityEngine.Component { public bool showMaskGraphic=true; }
 }
-namespace TMPro { public class TMP_Text : UnityEngine.UI.Graphic { public string text = string.Empty; public UnityEngine.Bounds textBounds; } }
+namespace UnityEngine.Sprites { public static class DataUtility { public static UnityEngine.Vector4 GetPadding(UnityEngine.Sprite sprite)=>sprite.Padding; } }
+namespace TMPro
+{
+    public class TMP_Text : UnityEngine.UI.Graphic { public string text=string.Empty;public UnityEngine.Bounds textBounds;public UnityEngine.Mesh? mesh; }
+    public class TMP_SubMeshUI : UnityEngine.UI.Graphic { public UnityEngine.Mesh? mesh; }
+}
 public sealed class NewPartyDisplayUI
 {
     public static NewPartyDisplayUI? PartyDisplay => null;
@@ -149,6 +211,7 @@ namespace GloomhavenVR.WorldUI
 {
     internal sealed class ConvertedPanel
     {
+        internal UnityEngine.Transform? FitContentRoot => null;
         public UnityEngine.RectTransform HostRect = null!;
         public UnityEngine.RectTransform Target = null!;
         public UnityEngine.UI.Graphic? ContentGraphic;
@@ -168,7 +231,8 @@ namespace GloomhavenVR.WorldUI
     internal static class TransientFamilies
     {
         internal const int EffectQuadFamily = 7;
-        internal static int Self(UnityEngine.Transform value) => 0;
+        internal static UnityEngine.Transform? Hover;
+        internal static int Self(UnityEngine.Transform value) => ReferenceEquals(value,Hover) ? 2 : 0;
         internal static bool IsDeclaredEffectQuad(UnityEngine.Transform value, UnityEngine.Transform root) => false;
     }
 }
@@ -179,3 +243,16 @@ public class Singleton<T> where T : class
     public static bool IsInitialized => Instance != null;
 }
 public sealed class UIRewardsManager { public TMPro.TMP_Text? rewardAnnouncementText; }
+
+namespace GloomhavenVR.Core
+{
+    internal enum VRLogLevel { Info }
+    internal static class VRLog
+    {
+        internal static bool Enabled, ThrowOnNote;
+        internal static readonly List<string> Lines=new();
+        internal static bool Wants(VRLogLevel _) => Enabled;
+        internal static void Note(string scope,string message)
+        { if(ThrowOnNote) throw new InvalidOperationException("log unavailable");Lines.Add(message); }
+    }
+}

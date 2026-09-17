@@ -5,10 +5,26 @@
     <Nullable>enable</Nullable>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ReflowBoundsSource Condition="'$(ReflowBoundsSource)' == ''">../../src/GloomhavenVR/WorldUI/Modal/WindowReflowBounds.cs</ReflowBoundsSource>
+    <RootWatchSource Condition="'$(RootWatchSource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingSampleWatch.cs</RootWatchSource>
+    <CaptureBoundsSource Condition="'$(CaptureBoundsSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingCaptureBounds.cs</CaptureBoundsSource>
+    <CaptureAccessorSource Condition="'$(CaptureAccessorSource)' == ''">../../src/GloomhavenVR/WorldUI/Sharpness/PanelSupersample.MrBacking.cs</CaptureAccessorSource>
+    <TraceSource Condition="'$(TraceSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingBoundsTrace.cs</TraceSource>
+    <PaintedSource Condition="'$(PaintedSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/MrBackingPaintedBounds.cs</PaintedSource>
+    <VisibilitySource Condition="'$(VisibilitySource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingVisibility.cs</VisibilitySource>
+    <ScopeSource Condition="'$(ScopeSource)' == ''">../../src/GloomhavenVR/WorldUI/MrBackingScope.cs</ScopeSource>
     <HeadingSource Condition="'$(HeadingSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/RewardHeadingBounds.cs</HeadingSource>
     <InkSource Condition="'$(InkSource)' == ''">../../src/GloomhavenVR/WorldUI/Conversion/PanelInkBounds.cs</InkSource>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(ReflowBoundsSource)" Link="Production/WindowReflowBounds.cs" />
+    <Compile Include="$(RootWatchSource)" Link="Production/MrBackingSampleWatch.cs" />
+    <Compile Include="$(CaptureBoundsSource)" Link="Production/MrBackingCaptureBounds.cs" />
+    <Compile Include="$(CaptureAccessorSource)" Link="Production/PanelSupersample.MrBacking.cs" />
+    <Compile Include="$(TraceSource)" Link="Production/MrBackingBoundsTrace.cs" />
+    <Compile Include="$(PaintedSource)" Link="Production/MrBackingPaintedBounds.cs" />
+    <Compile Include="$(VisibilitySource)" Link="Production/MrBackingVisibility.cs" />
+    <Compile Include="$(ScopeSource)" Link="Production/MrBackingScope.cs" />
     <Compile Include="$(HeadingSource)" Link="Production/RewardHeadingBounds.cs" />
     <Compile Include="$(InkSource)" Link="Production/PanelInkBounds.cs" />
     <Compile Include="$(DrawnUnionSource)" Link="Production/DrawnUnion.cs" />

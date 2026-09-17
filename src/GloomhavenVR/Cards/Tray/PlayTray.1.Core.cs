@@ -650,6 +650,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     internal void EnsureBuilt(VRCardFactory factory, Transform anchorParent)
     {
         _anchorParent = anchorParent;
+        _retryScenarioOwner = Choreographer.s_Choreographer;
         if (_root != null)
         {
             // Re-home only in FOLLOW mode — a pinned tray lives under its world
@@ -1643,6 +1644,8 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             return;
         }
         _placementDeferLogged = false;
+        if (TryRestoreRetryStart())
+            return;
 
         Transform headT = head.transform;
         // PLAIN WORLD-FRAME math (user decision 2026-08, supersedes item 11): this briefly ran
@@ -1749,6 +1752,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         LogArrivalSize(board, appliedScale, sizeSource, targetApparent, sizeSolved,
                        levelDelta.magnitude, scale, firstSeat);
 
+        RememberRetryStart();
         LogBoardFaceDiagnostics(); // ITEM 2 ground truth in the final placed pose (once per board)
     }
 

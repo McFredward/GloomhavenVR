@@ -63,10 +63,14 @@ internal sealed class VRCardFactory
     internal VRCard GetOrCreate(AbilityCardUI widget)
     {
         if (_byWidget.TryGetValue(widget, out VRCard existing) && existing != null)
+        {
+            if (!existing.HasAdoptedFace && !CardsDriver.NativeSceneLoadInProgress)
+                existing.AttachGameCard(widget);
             return existing;
+        }
 
         VRCard card = CreateBlank();
-        if (!card.AttachGameCard(widget))
+        if (!CardsDriver.NativeSceneLoadInProgress && !card.AttachGameCard(widget))
             VRLog.Warn("Cards", $"Face adoption failed for {CardsGameApi.CardName(widget)} — backing only.");
         _byWidget[widget] = card;
         return card;
@@ -118,6 +122,37 @@ internal sealed class VRCardFactory
         card.ForgetActionHighlight();
         card.Grabbable = false;
         card.SetHome(PoolRoot, Vector3.zero, Quaternion.identity, 1f, instant: true);
+    }
+
+    /// <summary>Before native scene loading, return faces without invalidating live wrapper
+    /// identities or selected-slot references. A failed load can rebuild the same hand in place.
+    /// Native hand destruction still retires its wrappers through ReleaseHand as usual.
+    /// </summary>
+    internal void ReturnBorrowedFacesBeforeSceneLoad()
+    {
+        for (int i = _all.Count - 1; i >= 0; i--)
+        {
+            VRCard card = _all[i];
+            if (card != null)
+                Core.TickGuard.Run("Cards.SceneFaceRelease", card.ReturnBorrowedFaceForSceneLoad, "Cards");
+        }
+    }
+
+    /// <summary>Resume every surviving wrapper after an aborted load, including confirmed pick
+    /// slots that normal layout intentionally does not reacquire.
+    /// Native hand destruction has already removed any wrappers whose scene really unloaded.
+    /// </summary>
+    internal bool ReattachBorrowedFacesAfterSceneLoad()
+    {
+        if (CardsDriver.NativeSceneLoadInProgress) return false;
+        bool complete = true;
+        for (int i = 0; i < _all.Count; i++)
+        {
+            VRCard card = _all[i];
+            if (card != null && card.GameCard != null && !card.HasAdoptedFace)
+                complete &= card.AttachGameCard(card.GameCard);
+        }
+        return complete;
     }
 
     /// <summary>Restore all faces and destroy all VR cards (scenario end / shutdown).</summary>

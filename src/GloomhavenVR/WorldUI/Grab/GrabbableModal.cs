@@ -369,7 +369,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // AND IT NEVER FIRES MID-GRAB. A hand holding the handle when the content vanishes keeps it: the
     // collider is not pulled out from under a live grab.
     private const int InkSettleFrames = 24;
-    private const int InkSettleStrideFrames = 4;
+    private const int InkSettleStrideFrames = MrBackingLayout.SampleStrideFrames;
     private const int InkVerifyStrideFrames = 60;
     private const float InkReportThrottleSeconds = 1f;
 
@@ -432,6 +432,47 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// the rect carried forward is the run's OUTER union, so slack here can only ever commit a
     /// LARGER rect than was measured.</summary>
     private const float InkReleaseStabilityPx = 16f;
+
+    // MR backs the latest measured picture, not the grab bar's monotone envelope. The latter
+    // deliberately retains old extents through a tab transition and can be mostly empty air.
+    private readonly MrBackingVisibility _mrVisibility = new();
+    private readonly MrBackingSampleWatch _mrSampleWatch = new();
+    private bool _mrInkValid;
+    private Rect _mrInkRect;
+    private int _mrInkSampleFrame = -1;
+
+    /// <summary>Reuse this holder's ink walk without another geometry scan. A known holder with
+    /// no visible content is authoritative: its caller must not fall back to the transparent host.</summary>
+    internal static bool TryGetMrBackingRect(ConvertedPanel panel, out Rect rect,
+                                             out bool visible, out int sampleFrame)
+    {
+        rect = default;
+        visible = false;
+        sampleFrame = -1;
+        for (int i = 0; i < LiveHolders.Count; i++)
+        {
+            GrabbableModal holder = LiveHolders[i];
+            if (!ReferenceEquals(holder._panel, panel))
+                continue;
+            rect = holder._mrInkRect;
+            sampleFrame = holder._mrInkSampleFrame;
+            bool animating = WindowMaterialise.IsAnimating(panel);
+            visible = holder._mrInkValid && (animating || !holder._barHiddenForEmpty)
+                      && (animating || holder._mrVisibility.VisibleNow)
+                      && !ModalFallback.AppearStillOwed(panel, out _);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Native alpha of the cached MR picture. Window materialisation has its own
+    /// authoritative element progress, applied by the backing presenter while that effect runs.</summary>
+    internal static float GetMrBackingAlpha(ConvertedPanel panel)
+    {
+        for (int i = 0; i < LiveHolders.Count; i++)
+            if (ReferenceEquals(LiveHolders[i]._panel, panel)) return LiveHolders[i]._mrVisibility.AlphaNow;
+        return 1f;
+    }
 
     private bool _inkValid;                     // a committed rectangle exists (survives a generation reset)
     private bool _inkGenSeeded;                 // this generation has contributed a sample to it yet
@@ -799,6 +840,22 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _easing = false;
         _visualValid = false;   // the next Tick pins the drawn pose to the frame outright
         Tick();
+    }
+
+    /// <summary>Start from the currently drawn pose, including an unfinished peer glide.</summary>
+    internal void ReadRoomMakingStart(out Vector3 position, out Quaternion rotation)
+    {
+        position = _visualValid ? _visualPos : _frame!.position;
+        rotation = _visualValid ? _visualRot : _frame!.rotation;
+    }
+
+    /// <summary>One sample of the finite opening-layout tween. Frame, hit geometry and picture
+    /// use the same sample; a second peer-easing pass would lag behind the published pose.</summary>
+    internal void PlaceRoomMakingSample(Vector3 position, Quaternion rotation)
+    {
+        PanelPoseWatch.Announce(_panel, PanelPoseWatch.Writer.RoomMaking,
+            "opening an overlapping map window");
+        SnapFrameTo(position, rotation);
     }
 
     // ---- IPanelGrabOwner --------------------------------------------------------------------
@@ -2791,6 +2848,35 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkNextSampleFrame = now + InkVerifyStrideFrames;
     }
 
+    private void SampleMrBacking(Rect hostRect, int now)
+    {
+        if (_panel == null) return;
+        bool holdMrPicture = _mrInkValid && WindowMaterialise.IsAnimating(_panel);
+        _mrVisibility.Root = _panel.Target;
+        // Publish the RAW sample before any envelope/recession logic. Modal backing must shrink
+        // with the current window and must never invent a frame for an empty map conversion.
+        // WindowMaterialise moves/fades individual glyphs and images. Keep its last complete MR
+        // picture while it runs; the presenter follows the runner's actual element progress.
+        if (!holdMrPicture)
+        {
+            // Grab geometry retains its authored-layout contract. MR backs pixels instead:
+            // tall text boxes, hidden mask faces and excluded tooltips are not painted content.
+            // Do not add this geometry walk while MR is off.
+            PanelInkBounds.Ink backingInk = default;
+            bool backingMeasured = MrBacking.WantOpaque
+                && PanelInkBounds.TryMeasure(_panel, out backingInk,
+                    visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && backingInk.Valid;
+            if (MrBacking.WantOpaque) _mrSampleWatch.Remember(_panel, backingInk);
+            else _mrSampleWatch.Reset();
+            _mrInkSampleFrame = now;
+            _mrInkValid = backingMeasured;
+            _mrInkRect = backingMeasured
+                ? MrBackingLayout.WindowRect(hostRect, backingInk.Rect, backingInk.Plates > 0,
+                    backingInk.PlateBottom, fitScoped: true)
+                : default;
+        }
+    }
+
     /// <summary>
     /// Keep the held ink union current. The policy — what counts as an event, why the union is
     /// monotone outward inside a generation, and why it is NOT monotone across the window's life — is
@@ -2871,11 +2957,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
 
         if (now < _inkNextSampleFrame)
+        {
+            // A disappearing edge or changed capture invalidates MR geometry immediately,
+            // without resampling or changing the handle's independent ink envelope.
+            if (MrBacking.WantOpaque && !WindowMaterialise.IsAnimating(_panel)
+                && _mrSampleWatch.NeedsSample(_panel, now, MrBackingLayout.SampleStrideFrames))
+                SampleMrBacking(hostRect, now);
             return;
+        }
         bool settling = now <= _inkSettleUntilFrame;
         _inkNextSampleFrame = now + (settling ? InkSettleStrideFrames : InkVerifyStrideFrames);
 
         bool measured = PanelInkBounds.TryMeasure(_panel, out PanelInkBounds.Ink ink) && ink.Valid;
+        SampleMrBacking(hostRect, now);
         // THE MOUSEOVER LEDGER IS TAKEN ON EVERY SAMPLE, including one that could not be measured —
         // "every drawn graphic in this window turned out to be a hover widget" is precisely the
         // failure the exclusion could cause, and it must be readable on the line that reports it.
@@ -3835,6 +3929,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkSigTransientChildren = 0;
         _inkSigTransientLife = 0;
         _inkModChromeMask = 0;
+        _mrVisibility.Reset();
+        _mrSampleWatch.Reset();
+        _mrInkValid = false;
+        _mrInkRect = default;
+        _mrInkSampleFrame = -1;
         // ModBuild 243: the empty-window hide is cleared with the holder it hid. A rebuilt bar is a
         // NEW GameObject and is born visible, so a stale true here would take a working handle off
         // the screen for a window that has simply not measured yet.

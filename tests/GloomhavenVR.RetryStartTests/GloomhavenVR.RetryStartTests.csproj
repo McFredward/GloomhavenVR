@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems><Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RetryStateSource Condition="'$(RetryStateSource)' == ''">../../src/GloomhavenVR/Rig/ScenarioRetrySeat.cs</RetryStateSource>
+    <RetryBoardSource Condition="'$(RetryBoardSource)' == ''">../../src/GloomhavenVR/Cards/Tray/PlayTray.RetryStart.cs</RetryBoardSource>
+    <RetryPoseSource Condition="'$(RetryPoseSource)' == ''">../../src/GloomhavenVR/Rig/VRRigDriver.RetryStart.cs</RetryPoseSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(RetryBoardSource)" Link="Production/PlayTray.RetryStart.cs" />
+    <Compile Include="Program.cs" /><Compile Include="Stubs.cs" />
+    <Compile Include="$(RetryStateSource)" Link="Production/ScenarioRetrySeat.cs" />
+    <Compile Include="$(RetryPoseSource)" Link="Production/VRRigDriver.RetryStart.cs" />
+  </ItemGroup>
+</Project>

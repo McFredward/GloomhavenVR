@@ -3,6 +3,18 @@ using ScenarioRuleLibrary;
 
 namespace GloomhavenVR.Cards.Patches;
 
+/// <summary>Pooling is a real lifetime boundary, even when the old model is still lost.
+/// Let the native pool reset every shader and coroutine before this widget is reused.</summary>
+[HarmonyPatch(typeof(AbilityCardUI), nameof(AbilityCardUI.OnReturnedToPool))]
+internal static class AbilityCardUI_OnReturnedToPool_BurnLifetime
+{
+    private static void Prefix(AbilityCardUI __instance)
+    {
+        GloomhavenVR.Core.TickGuard.Run("Cards.PoolBurnRelease",
+            () => BurnArtwork.RetireBurnPlayback(BurnArtwork.EffectsOf(__instance)), "Cards");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pool-safety patches. The VR layer re-parents each card's live FullAbilityCard
 // canvas onto a world-space card (VRCard). The game POOLS AbilityCardUI objects
@@ -47,5 +59,37 @@ internal static class CardsHandUI_DestroyCardUI_Patch
                 return;
             }
         }
+    }
+}
+
+/// <summary>Return borrowed native faces before Unity starts destroying any scene hierarchy.
+/// CardsHandUI.OnDestroy is too late: a FullAbilityCard moved beneath a scene-owned VR host
+/// can already have lost its children when the native hand tries to recycle the pooled widget.
+/// The load iterator runs only after EndScenarioSafely has finished its mandatory decisions.
+/// IsLoading alone is deliberately NOT used: it also covers that earlier decision wait.
+/// </summary>
+[HarmonyPatch(typeof(SceneController), "LoadSceneCoroutine")]
+internal static class SceneController_LoadScene_CardLifetime
+{
+    private static void Postfix(SceneController __instance, ref System.Collections.IEnumerator __result)
+    {
+        try
+        {
+            // Assign only after construction succeeds: failure retains the original iterator.
+            __result = new NativeCardSceneLifetime(__result,
+                () => __instance != null && !__instance.DataRestoring,
+                () => GloomhavenVR.Core.TickGuard.Run("Cards.SceneRelease",
+                    CardsDriver.ReleaseCardsBeforeSceneLoad, "Cards"));
+        }
+        catch (System.Exception ex)
+        {
+            ReportFailure(ex);
+        }
+    }
+
+    private static void ReportFailure(System.Exception ex)
+    {
+        try { GloomhavenVR.Core.VRLog.Error("Cards", $"CARD SCENE RELEASE interception failed; native loading continues: {ex}"); }
+        catch { /* Diagnostics must not escape a network-driven scene transition. */ }
     }
 }

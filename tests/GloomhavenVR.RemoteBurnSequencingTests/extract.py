@@ -29,7 +29,7 @@ using System.Collections.Generic;
 internal sealed class CAbilityCard { internal int CardInstanceID; internal CAbilityCard(int id) { CardInstanceID=id; } }
 internal sealed class Character { internal List<CAbilityCard> LostAbilityCards=new(), PermanentlyLostAbilityCards=new(), HandAbilityCards=new(), RoundAbilityCards=new(), ActivatedCards=new(); }
 internal sealed class CPlayerActor { internal int Id; internal Character CharacterClass=new(); internal CPlayerActor(int id) { Id=id; } }
-internal sealed class AbilityCardUI { internal CAbilityCard? AbilityCard; }
+internal sealed class AbilityCardUI { internal CAbilityCard? AbilityCard; internal bool ArcMember=true; }
 internal static class RemoteBoardFocus { internal static CPlayerActor? Requested; internal static CPlayerActor? DisplayedActor(Owner owner,out bool focus,out bool exhausted,bool ignoreBurnHold=false) {focus=exhausted=false;return Requested;} internal static Dictionary<int,CPlayerActor> Actors=new(); internal static CPlayerActor? ActorById(int id)=>Actors.GetValueOrDefault(id); }
 internal sealed class Burn { internal bool Active=true, HandoverLogged; internal int ActorId; internal AbilityCardUI? Widget; internal CAbilityCard? OriginalCard; }
 internal sealed class BurnFixture {
@@ -64,7 +64,7 @@ internal sealed class Frame { internal CardAppearanceSnapshot? Current, Previous
 private static bool Recovered(CPlayerActor actor,CAbilityCard card)=>actor.CharacterClass.HandAbilityCards.Contains(card)||actor.CharacterClass.RoundAbilityCards.Contains(card);
 internal static Dictionary<int,Frame> Frames=new();
 internal static bool Available=true; internal static float Progress; internal static CardAppearanceState? From,To;
-private static bool TryGet(int p,CPlayerActor a,CAbilityCard c,out CardAppearanceState? previous,out CardAppearanceState? current,out float progress) {previous=From;current=To;progress=Progress;return Available;}
+internal static bool TryGet(int p,CPlayerActor a,CAbilityCard c,out CardAppearanceState? previous,out CardAppearanceState? current,out float progress) {previous=From;current=To;progress=Progress;return Available;}
 '''+method(mirror,'internal static bool HasPresentedThrough(')+method(mirror,'internal static bool HasRecoveredSourceAfter(')+expression(mirror,'internal static bool OwnerBurnInProgress(')+''' }
 '''
 fixture += 'internal static class BurnReleasePolicy {'+expression(source('BurnReleasePolicy.cs'),'internal static bool RetireWithoutFlight(')+'}\n'
@@ -101,4 +101,29 @@ internal readonly record struct PendingFlight(byte Endpoints, byte Flags, object
 internal List<PendingFlight> _pending=new(){new(0,0,null,1)};
 private bool TryPlay(byte ends,byte flags,object? source,long generation){Admissions++;return true;}
 """+gate(fx,'public void Tick(','for (int i = 0; i < _flights.Count; i++)')+"ActiveTicks++; }\n}\n"
+art=source('Remote/RemoteCardArt.Native.cs')
+assert 'DiscoverBurns(actor);' in method(burn,'private void Watch('), 'Lost-card discovery must use the original-identity ledger'
+assert 'private readonly HashSet<CAbilityCard> _known' in burn, 'Burn discovery keys original cards rather than pooled UI widgets'
+assert 'RetainNativeOutputDuringBurn()' in method(art,'internal void ApplyNativeAppearance('), 'Missing owner samples must preserve the original burn picture'
+fixture += """
+internal static class CardsGameApi {internal static bool PileWidgetIsArcMember(AbilityCardUI w)=>w.ArcMember;}
+internal static class CardAppearanceMirror {internal static bool TryOwnerBurnNoFlightCompletion(CPlayerActor a,CAbilityCard c,out float time){time=-1;return false;}}
+internal sealed class BurnDiscoveryFixture {
+internal bool _seeded; internal HashSet<CAbilityCard> _known=new();
+internal List<CAbilityCard> _pruneScratch=new(); internal List<AbilityCardUI> _burntBuf=new();
+internal Dictionary<CAbilityCard,float> _retiredNoFlight=new(); internal List<CAbilityCard> Presented=new();
+private void Present(AbilityCardUI w,CPlayerActor actor){Presented.Add(w.AbilityCard!);}
+"""+method(burn,'private void DiscoverBurns(').replace('private void DiscoverBurns','internal void DiscoverBurns')+"""
+}
+namespace Core {internal static class PerfMonitor {internal static IDisposable Scope(string name)=>new Lease(); private sealed class Lease:IDisposable {public void Dispose(){}}}}
+internal static class RevealGate {internal enum PeerCardPopulation {Selectable} internal enum CardFaceSource {None,Front} internal static CardFaceSource CardFaces(PeerCardPopulation p,CPlayerActor a)=>CardFaceSource.Front;}
+internal sealed class NativeOutputFixture {
+internal object? _nativeBindings=new(),_clone=new(); internal sealed class Host {internal bool activeInHierarchy=true;} internal Host _host=new();
+internal int _nativePlayer, Paints, Clears; internal CPlayerActor? _nativeActor; internal CAbilityCard? _nativeCard;
+internal bool _nativeOutputApplied; internal CardAppearanceState? _localNativeFrame;
+internal enum FxSurface {Recess,Hand,Held,Active,Flight,CardFlight} internal FxSurface Surface;
+private bool TryCaptureNativeDefaults()=>true;
+private void ClearPendingNativeAppearance(){Clears++;}
+private void ApplyNativeFrame(CardAppearanceState from,CardAppearanceState to,float progress){Paints++;_nativeOutputApplied=true;}
+"""+expression(art,'private bool ExplicitFlightOwnsLook')+method(art,'internal void SetNativeAppearance(')+method(art,'internal void ApplyNativeAppearance(').replace('CardAppearanceMirror.','MirrorFixture.')+method(art,'private bool RetainNativeOutputDuringBurn(')+"\n}\n"
 out.write_text(fixture)

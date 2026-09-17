@@ -250,6 +250,7 @@ internal static partial class ModalFallback
         ReleaseAllScreenBind("module shutdown");
         RestoreMenuSelectionGuard(); // put InControl mouse-hover focus back before we drop the windows
         Core.MixedReality.KeepMenusUnclipped(false); // item 5a: release the backdrop depth override
+        CancelWindowRoomMaking();
         ReleaseAllWindows("module shutdown");
         Open.Clear();
         OpenWindows.Clear();
@@ -3058,6 +3059,7 @@ internal static partial class ModalFallback
         //     frame and never after it. Runs directly after 5b so a window whose scale was
         //     re-derived THIS tick is re-placed in the same tick (one-shot, see TickPoseRePlace).
         TickPoseRePlace();
+        TickWindowRoomMaking();
 
         EnterPhase(PhaseChainPose);
         // 5c. LEVEL-MESSAGE CHAIN POSE: record where the player is reading the scripted message

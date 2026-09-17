@@ -480,6 +480,7 @@ internal sealed partial class VRRigDriver
         // overwrites it, which is right — the corrected seat IS the arrival seat.
         _ringSeatAngleDegrees = seat.AngleDegrees;
         _ringSeatAngleValid = true;
+        RememberScenarioStart();
         _ringPeersAtPlacement = seat.PeerCount;
         _ringTilesAtPlacement = seat.TileCount;
         _ringNextLogTime = now + RingLogIntervalSeconds;

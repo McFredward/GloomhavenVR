@@ -4,6 +4,8 @@ def method(name):
     start=s.index(name);start=s.rfind('\n',0,start)+1;br=s.index('{',start);depth=1;i=br+1
     while depth:depth+=(s[i]=='{')-(s[i]=='}');i+=1
     return s[start:i]
+host=method('private bool TryHostRealCard(')
+assert host.index('cardUI.item = item;') < host.index('ItemBurnPlayback.ObserveInitialState(cardUI);') < host.index('cardUI.Show(highlightElement: false);'), 'Historical consumed hosts must be classified before the first native state paint'
 module=(root/'src/GloomhavenVR/Cards/CardsModule.cs').read_text()
 assert 'PatchAll(typeof(ItemBurnPlayback.BurnCardTimeline_Track))' in module,'Native item burn tracker must be registered'
 for name in ['private void Open(', 'internal void Close(', 'private void Populate(', 'private void Relayout(', 'internal void Tick(CardsHandUI? hand)']:

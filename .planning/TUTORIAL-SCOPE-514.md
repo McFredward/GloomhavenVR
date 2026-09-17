@@ -58,7 +58,7 @@ Source bindings connect that policy to lesson admission/cleanup and preserve gen
 - The retained build-502 baseline is unchanged. The incremental comparison used a private copy
   of the prior compiled output, not a replacement baseline.
 
-Hardware acceptance remains open: first tutorial -> later tutorial -> first tutorial again,
-including leaving during an additional lesson. The tests establish source behavior and bounded
-native continuation, not headset appearance. This change targets dev version 1.0.3; published
-1.0.2 remains unchanged.
+The maintainer accepted the current changes for release 1.0.3. That acceptance does not
+enumerate individual first tutorial -> later tutorial -> first tutorial transitions or leaving
+during an additional lesson. Tests establish source behavior and bounded native continuation,
+not headset appearance. See [RELEASE-1.0.3.md](RELEASE-1.0.3.md) for publication verification.

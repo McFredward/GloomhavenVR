@@ -22,7 +22,7 @@ internal static class ControllerKey
 
 /// <summary>
 /// THE PLAYER'S OWN CONTROLLER, IN THE PLAYER'S OWN HAND — the hand mesh steps aside for the
-/// duration of the controls lesson and the real device takes its place, with the key the lesson
+/// controller-teaching steps and the real device takes its place, with the key the lesson
 /// is talking about lit up on it.
 ///
 /// <para>WHY THE DEVICE POSE AND NOT THE HAND ROOT — MEASURED, after the reasoned version of this
@@ -156,6 +156,7 @@ internal sealed class ControllerVisual
     private readonly List<Renderer> _hidden = new(32);
     private MaterialPropertyBlock? _block;
     private string? _lit;
+    private bool _missingPrefabReported;
 
     // ---- the swap ----------------------------------------------------------------------------
     // _swap is 0 when the hand is fully out and 1 when the controller is fully in; _swapTarget is
@@ -173,6 +174,10 @@ internal sealed class ControllerVisual
 
     internal bool IsShowing => _model != null;
 
+    internal string? HighlightedKey => _lit;
+
+    internal bool IsBoundTo(VRHand? hand) => ReferenceEquals(_hand, hand);
+
     /// <summary>The device id whose model is being shown, for the log.</summary>
     internal static string DeviceId => _resolved?.Id ?? Generic;
 
@@ -186,10 +191,9 @@ internal sealed class ControllerVisual
     internal static bool HasDpad => _resolved?.Dpad ?? false;
 
     /// <summary>
-    /// Identify the device WITHOUT showing anything. Since the 2026-09-02 ruling the models are
-    /// only up while a step actually asks for a key press, but the very first card names the
-    /// device in words ("your {0} controllers") — so the name has to be resolved before the first
-    /// model ever appears. Idempotent; the log line still happens exactly once per session.
+    /// Identify the device before constructing the lesson's first card, which names the
+    /// device in words even on hand-only cards. Idempotent;
+    /// the log line still happens exactly once per session.
     /// </summary>
     internal static void EnsureResolved(VRHand? hand)
     {
@@ -262,6 +266,7 @@ internal sealed class ControllerVisual
             BeginSwap(1f);
             return;
         }
+        RestoreHandAfterModelLoss();
         Device device = ResolveDevice(_hand);
         string id = device.Model;
         string hand = _hand.Side == HandSide.Left ? "left" : "right";
@@ -269,21 +274,29 @@ internal sealed class ControllerVisual
         GameObject? prefab = WorldUI.WorldUIAssets.TryLoadPrefab(path);
         if (prefab == null && id != Generic)
         {
-            VRLog.Warn("Tutorial", $"{path} is not in the bundle — falling back to the generic "
-                + "controller. (A bundle older than the controls lesson will do this.)");
+            if (!_missingPrefabReported)
+                VRLog.Warn("Tutorial", $"{path} is not in the bundle — falling back to the generic "
+                    + "controller. (A bundle older than the controls lesson will do this.)");
             path = $"Assets/Bundle/Controllers/{Generic}/Controller_{Generic}_{hand}.prefab";
             prefab = WorldUI.WorldUIAssets.TryLoadPrefab(path);
         }
         if (prefab == null)
         {
-            VRLog.Warn("Tutorial", $"{path} is not in the bundle — the controls lesson runs "
-                + "WITHOUT a controller model; every step still names its key in words and every "
-                + "check still works.");
+            if (!_missingPrefabReported)
+                VRLog.Warn("Tutorial", $"{path} is not in the bundle — the controls lesson runs "
+                    + "WITHOUT a controller model; every step still names its key in words and every "
+                    + "check still works.");
+            _missingPrefabReported = true;
             return;
         }
 
         _model = UnityEngine.Object.Instantiate(prefab, _hand.transform, worldPositionStays: false);
         _model.name = $"GloomhavenVR.Controller_{id}_{hand}";
+        // Parenting does not inherit a layer. Authored parts (body/trigger/etc.) use layer 0
+        // and carry no mod name prefix, so the wall-fade census could treat one controller
+        // as scenery and camera masks could cull it. Protect every descendant, not just the
+        // named root. The model is a sibling of HandRoot, outside hand hiding/ghosting.
+        VRLayers.Apply(_model);
         _model.transform.localPosition = Vector3.zero;
         _model.transform.localRotation = Quaternion.identity;
         _model.transform.localScale = Vector3.zero;   // grown by the swap, never popped in
@@ -298,11 +311,8 @@ internal sealed class ControllerVisual
                 _anchors[part.name] = anchor;
         }
 
-        // A key may already have been asked for before the model existed: since the per-step
-        // hand/controller ruling, a step can name a key and still show the HAND, which leaves
-        // `_lit` set with nothing to light. Re-apply it against the renderers that have just
-        // appeared — Highlight early-returns when `_lit` already equals the key, so without this
-        // the key would silently never light on the next controller step.
+        // Reapply a requested key after model creation; Highlight otherwise early-returns
+        // when its latch already matches even though the new renderers were never painted.
         string? want = _lit;
         _lit = null;
         Highlight(want);
@@ -336,7 +346,10 @@ internal sealed class ControllerVisual
     internal void BeginHide()
     {
         if (_model == null)
+        {
+            RestoreHandAfterModelLoss();
             return;
+        }
         BeginSwap(0f);
     }
 
@@ -379,7 +392,10 @@ internal sealed class ControllerVisual
     private void TickSwap()
     {
         if (_model == null)
+        {
+            RestoreHandAfterModelLoss();
             return;
+        }
         if (!Mathf.Approximately(_swap, _swapTarget))
         {
             float step = Mathf.Max(Time.unscaledDeltaTime, 0f) / Mathf.Max(SwapSeconds, 0.0001f);
@@ -406,6 +422,27 @@ internal sealed class ControllerVisual
 
         if (_swap <= 0f && Mathf.Approximately(_swapTarget, 0f))
             Hide();   // the animated hide has finished; now the model can go
+    }
+
+    /// <summary>
+    /// A destroyed model compares equal to null in Unity while its replacement hand renderers
+    /// can still be disabled. Give back only our own hidden renderers immediately, before an
+    /// asset retry or a hand-only step; otherwise rebuilding at scale zero leaves an empty hand
+    /// until the next swap crossover. Retain the requested key for a successful later rebuild,
+    /// but never retain renderer/anchor references owned by the destroyed model.
+    /// </summary>
+    private void RestoreHandAfterModelLoss()
+    {
+        ShowHand();
+        _model = null;
+        if (_marker != null)
+            UnityEngine.Object.Destroy(_marker.gameObject);
+        _marker = null;
+        _keys.Clear();
+        _anchors.Clear();
+        _swap = 0f;
+        _swapTarget = 0f;
+        _swapStartedAt = -1f;
     }
 
     /// <summary>
@@ -524,6 +561,7 @@ internal sealed class ControllerVisual
         {
             GameObject sphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             sphere.name = "GloomhavenVR.KeyMarker";
+            VRLayers.Apply(sphere);
             UnityEngine.Object.Destroy(sphere.GetComponent<Collider>());
             var r = sphere.GetComponent<Renderer>();
             r.material = WorldUI.WorldUIAssets.CreateFlatMaterial(GlowHigh);

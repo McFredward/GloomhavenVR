@@ -238,6 +238,8 @@ internal static partial class RemoteMapStory
         /// applied for this kind while it is fresh; see <see cref="IdentitySettleFrames"/>.</summary>
         internal int SwapFrame = int.MinValue;
 
+        internal bool Reflow;
+        internal int ReflowRevision;
         internal bool PoseOwned;
         internal bool Moving;
         internal float MoveSettleAt;
@@ -252,6 +254,8 @@ internal static partial class RemoteMapStory
 
         internal void ForgetPose()
         {
+            Reflow = false;
+            unchecked { ReflowRevision++; }
             PoseTrack.Reset();
             PoseTrackPeer = 0;
             HaveBaseline = false;
@@ -408,6 +412,7 @@ internal static partial class RemoteMapStory
     internal static void Reset()
     {
         ResetRewardPose();
+        ResetReflow();
         StoryPeers.Clear();
         QuestPeers.Clear();
         EncounterPeers.Clear();
@@ -914,6 +919,8 @@ internal static partial class RemoteMapStory
             // stamp nobody made, and fall silent — the whole record absent, the packet unchanged.
             StoryLocal.Reset();
             QuestLocal.Reset();
+            EncounterLocal.Reset();
+            ResetReflow();
             _sentValid = false;
             return;
         }
@@ -935,12 +942,15 @@ internal static partial class RemoteMapStory
         bool clickedThrough = StoryClickedThroughHere(box);
         if (box == null || clickedThrough)
         {
-            TrackFrame(SharedWindowKind.MapStory, StoryLocal, reset: true);
-            // THE LINGER IS THE BOUND FOR BOTH BRANCHES, unchanged: FinishedUntil was last written
-            // by the OPEN branch below, so a click-through publishes inside the same 60 s window a
-            // box that vanished does, and the idle packet still goes back to being byte-identical.
+            // A finished story can remain visibly pinned during an encounter. Its page
+            // stays FINISHED, but its still-interactive frame must continue sharing movement.
+            bool visiblePose = clickedThrough && VisibleStoryPose();
+            TrackFrame(SharedWindowKind.MapStory, StoryLocal, reset: !visiblePose);
+            // Completion lingers for a bounded interval after the native close. A still-visible
+            // moved float additionally retains its pose endpoint, without advertising OPEN or
+            // changing the native completion decision. Once the float is gone it falls silent.
             bool lingering = StoryLocal.Key != 0u && now < StoryLocal.FinishedUntil;
-            if (lingering)
+            if (lingering || (visiblePose && (StoryLocal.PoseOwned || StoryLocal.Moving)))
             {
                 // The box is down here and we clicked it through: keep saying so for a bounded
                 // while, so the statement that unlocks a peer survives packet loss.
@@ -950,6 +960,7 @@ internal static partial class RemoteMapStory
                 SendBuffer[n].Page = NetProtocol.EncodeStoryPage(StoryLocal.PageCount);
                 SendBuffer[n].PageCount = StoryLocal.PageCount;
                 SendBuffer[n].ContentKey = StoryLocal.Key;
+                if (visiblePose) WritePose(SharedWindowKind.MapStory, StoryLocal, ref SendBuffer[n]);
                 n++;
             }
             else if (!clickedThrough)
@@ -1054,6 +1065,7 @@ internal static partial class RemoteMapStory
             }
         }
 
+        SampleReflow(ref extras);
         _sentValid = true;
         _sentStoryPage = box != null ? box.currentDialogIndex : int.MinValue;
         // THE SAME EXPRESSION THE GATE COMPARES, through the same helper - see StoryFinishedHere
@@ -1186,14 +1198,15 @@ internal static partial class RemoteMapStory
             // line prints once. The window itself is already safe (a grabbed window is never
             // re-placed), so this covers the interval between the release and the settle.
             WorldUI.ModalFallback.NoteSharedAnchorSpent(
-                kind, $"this client moved its own {kind} window by hand");
+                kind, local.Reflow ? $"this client arranged its own {kind} window on opening"
+                    : $"this client moved its own {kind} window by hand");
             // A hand owns it right now: stop following anybody. Never yank a panel out of a hand,
             // and never fight a hand at 5 Hz.
             local.FollowingPeer = 0;
             local.FollowedStampValid = false;
             return;
         }
-        if (!local.Moving || grab.IsGrabbed || now < local.MoveSettleAt)
+        if (!local.Moving || local.Reflow || grab.IsGrabbed || now < local.MoveSettleAt)
             return;
         local.Moving = false;
         local.PoseOwned = true;
@@ -1380,6 +1393,7 @@ internal static partial class RemoteMapStory
     {
         if (senderId <= 0)
             return;
+        ObserveReflow(senderId, in p);
         bool sawStory = false;
         bool sawQuest = false;
         bool sawEncounter = false;
@@ -1397,16 +1411,19 @@ internal static partial class RemoteMapStory
                     case NetProtocol.SharedWindowKindMapStory:
                         sawStory = true;
                         StoryPeers[senderId] = new PeerEntry(in e, now);
+                        ObserveReflowPose(senderId, SharedWindowKind.MapStory, in e, StoryStamp);
                         NoteStamp(senderId, in e, StoryStamp, StoryStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindQuestConfirm:
                         sawQuest = true;
                         QuestPeers[senderId] = new PeerEntry(in e, now);
+                        ObserveReflowPose(senderId, SharedWindowKind.QuestConfirm, in e, QuestStamp);
                         NoteStamp(senderId, in e, QuestStamp, QuestStampAt, now);
                         break;
                     case NetProtocol.SharedWindowKindEncounter:
                         sawEncounter = true;
                         EncounterPeers[senderId] = new PeerEntry(in e, now);
+                        ObserveReflowPose(senderId, SharedWindowKind.Encounter, in e, EncounterStamp);
                         NoteStamp(senderId, in e, EncounterStamp, EncounterStampAt, now);
                         break;
                     default:
@@ -2020,6 +2037,7 @@ internal static partial class RemoteMapStory
         // PlaceFrameAt and never the HOST: GrabbableModal copies the frame onto the host every
         // frame in both Update and LateUpdate, so a write to the host is a write that is about to
         // be overwritten.
+        unchecked { local.ReflowRevision++; }
         grab.PlaceFrameAt(worldPos, worldRot);
         // TELL THE IDENTITY LATCH, so it does not move the kind off this window in the same frame the
         // write landed. PanelPoseWatch classifies a pose write it cannot attribute as Unattributed and

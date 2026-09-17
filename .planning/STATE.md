@@ -1,6 +1,6 @@
 # State — where the project stands
 
-**Updated 2026-09-16 for softer Glove finger relief, ModBuild 515 on dev.** The file this replaces had gone 168 builds
+**Updated 2026-09-17 for anchored window openings, ModBuild 527 on dev.** The file this replaces had gone 168 builds
 stale while still saying "read this first"; it is kept as `STATE-ARCHIVE-through-2026-08.md` for
 its round-by-round narrative and for nothing else.
 
@@ -13,17 +13,225 @@ change per build) → this file (where things stand and what is owed) → the bu
 
 ## 1. Position
 
-- **dev / 1.0.3 / ModBuild 515 softens the Glove surface (full install).**
+- **1.0.4 release authorized after the build-527 hardware report.** The maintainer reports
+  no visible issues. Current local logs show completed encounter room making with the new
+  window fixed and no mod Error/Fatal entries. Old remote logs are not current evidence.
+  Release preparation and audit: [RELEASE-104.md](RELEASE-104.md). Publication still pending
+  final local/CI gates and the reviewed main merge.
+
+- **dev / 1.0.4 / ModBuild 527 preserves the newly opened map window's spawn pose.**
+  Build-526 logs show three quest-popup animations moving only the newcomer. The solver now
+  anchors incoming windows and admits only older movable overlaps. Visual occupancy uses
+  original painted/cropped content instead of transparent host/hit rectangles, after opening
+  effects settle. The legacy standing-quest-log preference now keeps a free gaze centre;
+  hidden-log private quest selection retains its established corner placement.
+  Evidence and focused validation: [WINDOW-ANCHOR-527.md](WINDOW-ANCHOR-527.md).
+  Validation: reflow 1,322 assertions / 18 bindings / three negatives; quest seat 43 / three
+  negatives; painted occupancy 453 / 29 negatives; shared reflow 74 / six bindings / four
+  negatives. Strict Release zero warnings/errors. Frame-order, partial-order, bilingual docs,
+  Actionlint, shell syntax and whitespace pass. Config/patch/log census unchanged:
+  625 / 172 / 4,733. The user confirms the hardware behavior; a current matching-peer log was not supplied.
+
+- **dev / 1.0.4 / ModBuild 526 addresses temple-first/repeated temple header drift and
+  general invisible MR contributors.** The build-525 report confirms merchant improvement,
+  but the same header moves down/left after temple entry and contaminates later merchant
+  openings. The new source repair observes native header TRS before conversion and resolves
+  original parent frames rather than replaying local coordinates across different parents.
+  MR extent guards additionally distinguish native renderer transparency and the actual
+  displayed capture footprint from unbounded authored geometry, in every direction.
+  Original visible overflow and the window's existing animation remain part of the contract.
+  Evidence, focused validation and hardware limits: [MR-VISIBLE-526.md](MR-VISIBLE-526.md).
+  Validation: banner 314 assertions; ink/capture/watch 447; MR layout 258; animation 552,
+  with integration bindings and mutation negatives. Strict Release zero warnings/errors.
+  Source/frame/docs checks pass; config/patch/log surfaces unchanged: 625 / 172 / 4,733.
+  The user confirms the MR reopen defect is fixed in the build-526 hardware test.
+
+
+- **dev / 1.0.4 / ModBuild 525 repairs the native header that inflated reopened MR windows.**
+  Build-524 diagnostics identify the same shared `UI Adventure Header/Icon` drifting upwards
+  and shrinking on every merchant reopening, then carrying the defect into temple.
+  The native world-preserving parent change retained the converted window's pose/scale;
+  the old mod return path skipped geometry restoration after native ownership resumed.
+  A tracked borrow now restores the original root-local layout/pose on both return paths,
+  preserving native parent/sibling choices and child content. No MR geometry clamp or
+  animation change. Source cause and reproduction are in [MAP-HEADER-525.md](MAP-HEADER-525.md);
+  corrected headset appearance still needs confirmation.
+  Validation: 180 runtime assertions, three bindings, four runtime negatives and one binding
+  negative; strict Release zero warnings/errors. Frame-order, bilingual docs, Actionlint,
+  shell syntax and whitespace pass. Config/patch/log surfaces unchanged: 625 / 172 / 4,733.
+
+
+- **dev / 1.0.4 / ModBuild 524 is a diagnostic build; the MR reopen defect remains open.**
+  The user reports first merchant/map opening correct and subsequent openings too tall.
+  Local logs identify 523; remote logs remain historical 500. Capture/hit bounds grow,
+  but their extrema do not establish the actual MR contributor. Previous MR diagnostics
+  were Debug-only. Bounded normal-level records now identify actual MR edge graphics,
+  masks/alpha/material state and target/host instances across conversion lifetimes.
+  No further rendering or native-flow change is claimed. See [MR-REOPEN-524.md](MR-REOPEN-524.md).
+  Validation: strict Release zero warnings/errors; ink/diagnostics 398 assertions and
+  24 negatives; MR layout/accessor 258 assertions, 48 bindings and 16 negatives; animation
+  lifecycle 545 assertions, three bindings and three negatives. Frame-order, bilingual docs,
+  shell syntax and whitespace pass. Config/patch/log surfaces: 625 / 172 / 4,733.
+
+
+- **dev / 1.0.4 / ModBuild 523 fits MR backgrounds to native painted geometry.**
+  Source changes exclude empty text-layout height and reintroduced tooltip glyphs,
+  but build-523 hardware evidence confirms that merchant/map reopen growth persists. Local steady/effect paths and inert remote surfaces share the original
+  text/image/clip/visibility policy and a small margin. Native layout, hit/capture and grab
+  geometry remain unchanged. Source fixes and build-522 screenshot/log evidence are in
+  [MR-MAP-BOUNDS-523.md](MR-MAP-BOUNDS-523.md); headset confirmation remains open.
+
+- **523 focused checks pass:** native ink/painted geometry 368 runtime assertions /
+  nineteen runtime and one binding negative; MR layout/accessor 258 assertions /
+  48 bindings / thirteen runtime and three binding negatives; actual animation lifecycle
+  545 assertions / three bindings / three negatives. Strict Release has zero warnings/errors.
+  Eleven frame-order locks, 617 hardware markers, shell syntax and bilingual docs pass.
+  Config/patch/log surfaces stay 625 / 172 / 4,732. Unrelated local suites were not repeated.
+
+- **dev / 1.0.4 / ModBuild 522 couples MR backgrounds to window materialisation.**
+  Backgrounds use the same erosion field and element progress and disappear before
+  the debris-only tail. Native hidden/empty/transparent content clears its backing
+  immediately, locally and remotely, independently of cached geometry measurements.
+  Close/reopen, MR toggles and native continuation remain independent of decoration.
+  See [MR-ANIMATION-522.md](MR-ANIMATION-522.md); headset confirmation remains open.
+
+- **522 focused checks pass:** MR layout/accessor 258 runtime assertions / 48 bindings /
+  thirteen runtime and three binding negatives; native ink/live visibility 309 assertions /
+  fourteen runtime and one binding negative; erosion mesh 35,833 assertions / ten negatives;
+  actual animation lifecycle and native continuation 542 assertions / three bindings /
+  three negatives. Strict Release has zero warnings/errors. All eleven frame-order locks,
+  617 hardware markers, Actionlint, shell syntax and bilingual docs pass. Config and patch
+  surfaces remain 625 / 172; log tokens increase to 4,732 with one new failure diagnostic.
+  Full unrelated local suites were not repeated, as requested.
+
+- **dev / 1.0.4 / ModBuild 521 restores the original tutorial hand/controller choices.**
+  Card handling, fingertip interaction and prose show hands; key lessons show both
+  controllers with the existing per-hand highlights. The original 0.22s animation remains.
+  Recovery respects the active task and restores a hand immediately if its controller
+  model is lost. Build 518's continuous-controller interpretation was explicitly corrected
+  by the user. See [TUTORIAL-HANDS-521.md](TUTORIAL-HANDS-521.md). Only affected tests and
+  the strict build run for this change, as requested; headset confirmation remains open.
+
+- **521 focused checks pass:** controller presentation 3,452 runtime assertions / four
+  bindings / twelve negatives; first-tutorial scope 42 / 17 / eight. Strict Release has
+  zero warnings/errors. Config, patch and log surfaces are unchanged at 625 / 172 / 4,731.
+  Full local guard and golden-wire suites were not repeated per the user's request.
+
+- **dev / 1.0.4 / ModBuild 520 scopes initiative and element MR backgrounds to their
+  original native rows, locally and on inert remote clones.** Transparent host extents
+  and sibling UI cannot inflate those backgrounds. Normal window artwork and smooth
+  sizing remain. Local evidence is build 519; remote files remain historical build 500.
+  See [MR-CI-520.md](MR-CI-520.md) for evidence, validation and hardware limits.
+
+- **CI now reuses trusted successful dev evidence for identical source trees.** Dev
+  still runs full checks; unchanged internal PRs can reuse them, while forks and changed
+  merges run full validation. Main releases require successful full-test evidence, then
+  build/package the actual main commit without repeating the full suite. No proof
+  artifacts are stored. No release or main update is part of this change.
+
+- **520 integration passes:** 17 source checkers, all production harnesses and 254,565
+  wire assertions; strict Release zero warnings/errors. MR: 250 runtime + 41 bindings,
+  13 runtime / three binding negatives; native ink: 259 assertions / ten runtime and one
+  binding negative. CI proof: 23 cases; release topology: 36 assertions; artifact cleanup:
+  20 cases. Actionlint and bilingual docs pass. Config / patch / log surfaces are
+  625 / 172 / 4,731; patch inventory 130 classes / 197 methods; bundle unchanged.
+  Build-519 compiled comparison: 13 changed (seven build-only), one added, zero removed.
+  Retained build-502 comparison: 86 changed / 54 added / zero removed.
+
+- **dev / 1.0.4 / ModBuild 519 adds opening-time window room making.** Overlapping
+  encounter/story windows can move together with a brief animation inside the view.
+  One VR participant authors shared movement; stationary remote grips and manual moves
+  interrupt it. Visible FINISHED story frames retain pose synchronization without reopening
+  the native dialog. Additive record 77 carries explicit held/automatic masks; v3 remains.
+  See [WINDOW-REFLOW-519.md](WINDOW-REFLOW-519.md) for evidence and final validation.
+  Supplied logs remain local 515 / remote 500; hardware validation of this build is open.
+
+- **519 integration passes:** 17 source checkers, all production suites, 254,565 wire
+  assertions and strict Release with zero warnings/errors. Layout: 1,247 runtime + 15
+  bindings / two negatives; authority: 74 + six / four. Surfaces: 625 config / 172 patch
+  signatures / 4,730 log tokens. Patch inventory stays 130 classes / 197 methods; bundle
+  unchanged. Build-518 compiled comparison: 14 changed / three added / zero removed,
+  including five build-only changes and one buffer-size-only change. The retained build-502
+  comparison is 84 changed / 53 added / zero removed. See the build record for evidence.
+
+- **dev / 1.0.4 / ModBuild 518 addresses tutorial controllers and defeat Retry.** Both
+  controllers stay visible throughout the custom first-tutorial lesson, with task-specific
+  highlights on the applicable hands. Recursive VR-layer assignment protects their parts
+  from scenery fading; missing models and rebuilt hands recover during the lesson.
+  Retry restores each participant's original scenario head pose, scale and board pose.
+  Round reloads preserve that baseline, and later peer movement or saved zoom cannot
+  redefine it. See [TUTORIAL-RETRY-518.md](TUTORIAL-RETRY-518.md) for source evidence,
+  focused coverage and final integration results. Hardware confirmation remains open;
+  supplied logs still identify local 515 / remote 500. No bundle, wire or release changes.
+
+- **518 integration checks pass:** all 17 checkers and production suites; 254,019 wire
+  assertions; strict Release zero warnings/errors. Tutorial controllers: 1,019 runtime +
+  four bindings / nine negatives; retry: 433 + 17 / 15. Retained build-502 compiled diff:
+  83 changed / 50 added / zero removed. Private build-517 comparison: 14 changed / three
+  added / zero removed, including seven changes limited to the build constant. Reviewed
+  surfaces: 625 config / 172 patch signatures / 4,729 log tokens; patch inventory 130
+  classes / 197 methods. All 21 classified network-action patches, bilingual docs, shell
+  syntax and whitespace pass. No hardware result is inferred from these checks.
+
+- **Build 517 addresses repeated burn playback.** Native effect aliases,
+  pile refresh and hover cleanup cannot restart or truncate an owned ability burn. Historical
+  lost/consumed widget construction paints the original settled output; a replacement during
+  playback waits for the original with cancellation-safe ownership. Actual recovery permits
+  later burns. Item effects cannot overlap, and active-card resets requested during playback
+  run after completion. Local/remote discovery uses original model identity; missing remote
+  samples retain the same lost card's last owner-painted output. Actual completed flight claims
+  remain distinct from historical baselines. Scene and pool boundaries retire native guards.
+  Source and focused regression review complete; full integration results are recorded in
+  [BURN-517.md](BURN-517.md). Supplied logs remain local 515 / remote 500, so this is not
+  a headset verification. No bundle, wire-format or published-release changes.
+
+- **517 integration checks pass:** all 17 checkers and production suites; 254,019 wire
+  assertions; strict Release zero warnings/errors. Ability replay: 496 runtime + three
+  bindings / 13 negatives; items 225 / 11; local layout 219 / 16; remote sequencing 108 / 21;
+  scene lifetime 36 + 23 / eight. Retained build-502 compiled diff: 77 changed / 47 added /
+  zero removed. Private build-516 comparison: 16 changed / two added / zero removed,
+  including seven changes limited to the propagated build constant. Reviewed surfaces:
+  625 config / 171 patch signatures / 4,729 log tokens; patch inventory 128 classes / 195
+  methods. Bilingual docs, shell syntax and whitespace pass. Hardware confirmation is open.
+
+- **Build 516 hardware fixes remain included in dev.**
+  Completed discard pages retain their native selected claims; final confirmation cannot
+  light an unavailable second recess. Native recycling updates the locked prefix, and undo
+  keeps earlier page return flights. MR backings fit visible native content with a small margin,
+  reject empty/transient measurements and animate over a shared 150 ms locally and remotely.
+  Borrowed native card hierarchies return before scene unload; native loading state blocks
+  re-adoption, while aborted loads restore retained selected identities and original callbacks.
+  Supplied local evidence is release 515; remote files remain historical 500. The exact first
+  Unity destruction order is not logged. Hardware retest remains open; see
+  [HARDWARE-516.md](HARDWARE-516.md) and its three lane reports.
+
+- **516 integration checks pass:** all 17 guard checkers and production suites; 254,019 wire
+  assertions; strict Release zero warnings/errors. Pick tray: 245 runtime + eight bindings /
+  six negatives. MR: 233 + 25 / ten runtime + three binding negatives. Scene lifetime:
+  35 + 20 / seven negatives. Native ink: 243 assertions. Retained build-502 compiled diff:
+  76 changed / 45 added / zero removed; private build-515 comparison: 21 changed / three
+  added / zero removed, with 13 changes limited to version/build constants. Reviewed surfaces:
+  625 config / 164 patch signatures / 4,729 log tokens; patch inventory 120 classes / 187
+  methods. Bilingual docs, shell syntax and whitespace pass. Published 1.0.3 is unchanged.
+
+- **1.0.3 / ModBuild 515 is published from main.** PR #6 merged the accepted runtime/assets
+  with bilingual release highlights as `fd76de86`. Release run 35151926513 passed; tag,
+  public ZIP, bundle hash, release DLL and the unauthenticated latest endpoint were verified.
+  The workflow retained main ancestry on dev and advanced its next version to **1.0.4**.
+  See [RELEASE-1.0.3.md](RELEASE-1.0.3.md).
+
+- **ModBuild 515 softens the Glove surface (full install).**
   Both glove materials reduce authored normal relief from 0.5 to 0.25. Native model renders
   and actual bundle checks cover both hands and confirm that Plate/Arcane, geometry and
   attachment anchors are preserved. The exact Unity 2021.3.5f1 bundle has 617 assets and
   74,942,975 bytes. All 17 checkers and production suites pass; 254,019 wire assertions;
   strict Release zero warnings/errors. Incremental compiled comparison has seven changed types,
   exclusively the propagated ModBuild constant; no added/removed types. Surface counts remain
-  625 / 163 / 4,728, patch inventory 119 / 186. Perceived headset appearance is unverified.
-  See [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md). Published 1.0.2 is unchanged.
+  625 / 163 / 4,728, patch inventory 119 / 186. The maintainer accepted the current changes
+  for release; no new per-case hardware capture accompanies that acceptance.
+  See [GLOVE-SURFACE-515.md](GLOVE-SURFACE-515.md).
 
-- **dev / 1.0.3 / ModBuild 514 limits additional VR lessons to the first native tutorial.**
+- **ModBuild 514 limits additional VR lessons to the first native tutorial.**
   Admission uses the tutorial selector's first ID and filename, while later tutorials keep
   their native sequence and generic VR wording/input adaptations. Pending lesson/skip/hold
   state retires on scope loss; held messages cannot cross native controller ownership.
@@ -32,13 +240,14 @@ change per build) → this file (where things stand and what is owed) → the bu
   assertions; strict Release zero warnings/errors. Compiled comparison: 71 changed / 42 added /
   zero removed against retained build 502; incremental build-513 comparison 19 changed / two
   added / zero removed, reviewed (tutorial scope plus propagated version/build constants).
-  Surfaces 625 / 163 / 4,728; patch inventory 119 classes / 186 methods. Headset acceptance is open.
-  See [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md). Published 1.0.2 is unchanged.
+  Surfaces 625 / 163 / 4,728; patch inventory 119 classes / 186 methods. The later release
+  acceptance is recorded above; it does not enumerate individual tutorial transition tests.
+  See [TUTORIAL-SCOPE-514.md](TUTORIAL-SCOPE-514.md).
 
-- **1.0.2 / ModBuild 513 is published from main.** PR #5 merged the hardware-tested
+- **Previous release: 1.0.2 / ModBuild 513.** PR #5 merged the hardware-tested
   dev source unchanged as `11107a29`. Release run 35146255179 passed; tag, public
   download, checksum and release DLL were verified. See [RELEASE-1.0.2.md](RELEASE-1.0.2.md).
-  The workflow preserved main ancestry on dev and advanced its next version to **1.0.3**.
+  After that release, the workflow preserved main ancestry on dev and advanced to **1.0.3**.
 
 - **ModBuild 513 sequences every native burn before card replacement.**
   Round slots, fans, active grids and character exchange retain their previous presentation

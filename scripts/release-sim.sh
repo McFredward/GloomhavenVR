@@ -178,8 +178,10 @@ release, ci = (Path(p).read_text() for p in sys.argv[1:])
 assert release.index('refs/tags/v$VERSION') < release.index('name: Build ('), 'duplicate tag must fail before build'
 assert 'scripts/release-provenance.sh check' in release
 assert '"$PROVENANCE_SCRIPT" prepare' in release
-for workflow in (release, ci):
-    assert workflow.index('install --no-install-recommends --yes ripgrep') < workflow.index('bash scripts/map-button-tests.sh')
+assert ci.index('install --no-install-recommends --yes ripgrep') < ci.index('bash scripts/map-button-tests.sh')
+assert release.index('scripts/ci-proof-reuse.py --mode release') < release.index('name: Build (')
+assert 'bash scripts/map-button-tests.sh' not in release, 'release reuses verified exact-tree full CI'
+assert 'scripts/ci-build.sh Release' in release and 'scripts/package-release.sh' in release
 assert 'git push origin HEAD:dev' in release and 'git push --force' not in release
 PY
 assertions=$((assertions + 1))

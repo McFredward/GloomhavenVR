@@ -26,7 +26,7 @@ namespace GloomhavenVR.Net;
 /// local converted dock; other mirrors keep their existing source/layout policy. The fitted
 /// original envelope also drives the same MrBacking treatment used by local converted panels.
 /// </summary>
-internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
+internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface, WorldUI.MrBacking.ISampledBacking, WorldUI.MrBacking.IFadedBacking
 {
     /// <summary>Which mechanism a mirrored section is currently drawing with — reported per section
     /// in the <c>Remote board content</c> diagnostic so a hardware log PROVES parity instead of
@@ -126,6 +126,10 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
 
     // Native use bars fit their full visible union, including pickers outside the strip rect.
     private readonly bool _contentOutsideFrame;
+
+    // Source identity, not viewer geometry: scoped board surfaces use the same original holder
+    // locally and on their inert clone. Its siblings are layout/input furniture, not MR content.
+    private readonly System.Func<Transform, Transform?>? _backingContentRoot;
 
     /// <summary>Whose resolved layout this mirror shows — see <see cref="LayoutOwner"/>. Every
     /// behaviour change this flag buys is written as <c>if (_layoutOwner == ...)</c> and nothing
@@ -288,9 +292,11 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         Vector2 grow, bool fitWidth = true, float densityScale = 1f, bool driveFromSource = true,
         LayoutOwner layoutOwner = LayoutOwner.Source,
         System.Func<Transform, bool>? externallyShownBranch = null, bool contentOutsideFrame = false,
-        System.Func<Transform, bool>? excludedFromFitBranch = null)
+        System.Func<Transform, bool>? excludedFromFitBranch = null,
+        System.Func<Transform, Transform?>? backingContentRoot = null)
     {
         _contentOutsideFrame = contentOutsideFrame;
+        _backingContentRoot = backingContentRoot;
         _layoutOwner = layoutOwner;
         _externalBranch = externallyShownBranch;
         _excludedFromFitBranch = excludedFromFitBranch;
@@ -339,6 +345,69 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// host rect does). Zero until the first successful fit, which reads as "nothing to back".</summary>
     private Vector2 _backingSizePx;
 
+    // Measurement-only descriptor: never registered as a conversion, never runs controllers.
+    // The native clone and its original masks feed exactly the owner's backing ink walk.
+    private readonly WorldUI.ConvertedPanel _mrInkPanel = new();
+    private readonly HashSet<Transform> _mrExcluded = new();
+    private Rect _mrFrame, _mrBounds;
+    private readonly WorldUI.MrBackingVisibility _mrVisibility = new();
+    private bool _mrBoundsVisible;
+    private int _mrSampleFrame = -1;
+    private int _mrNextSampleFrame;
+    private Transform? _mrSourceContentRoot, _mrCloneContentRoot;
+    private int _mrContentRootStamp = -1;
+
+    private void SampleMrBacking()
+    {
+        if (!WorldUI.MrBacking.WantOpaque || _host == null || _pivot == null || _cloneRect == null
+            || !_host.activeInHierarchy || !WorldUI.MrBackingLayout.ReadyForSample(_fitApplied, _mrFrame)
+            || Time.frameCount < _mrNextSampleFrame)
+            return;
+        _mrSampleFrame = Time.frameCount;
+        _mrNextSampleFrame = Time.frameCount + WorldUI.MrBackingLayout.SampleStrideFrames;
+        _mrInkPanel.Target = _cloneRect;
+        _mrInkPanel.HostRect = _pivot;
+        Transform? contentRoot = null;
+        if (_backingContentRoot != null)
+        {
+            Transform? sourceRoot = _source != null ? _backingContentRoot(_source) : null;
+            if (_mrContentRootStamp != RebuildStamp || !ReferenceEquals(sourceRoot, _mrSourceContentRoot)
+                || (sourceRoot != null && _mrCloneContentRoot == null))
+            {
+                _mrContentRootStamp = RebuildStamp;
+                _mrSourceContentRoot = sourceRoot;
+                _mrCloneContentRoot = sourceRoot != null ? CloneOf(sourceRoot) : null;
+            }
+            contentRoot = _mrCloneContentRoot;
+            if (contentRoot == null)
+            {
+                // A missing holder/clone is not permission to back the full-screen parent.
+                _mrBounds = default;
+                _mrBoundsVisible = false;
+                _mrVisibility.Reset();
+                return;
+            }
+        }
+        _mrVisibility.Root = contentRoot ?? _cloneRect;
+        _mrBoundsVisible = WorldUI.PanelInkBounds.TryMeasure(_mrInkPanel,
+            out WorldUI.PanelInkBounds.Ink ink, frameOverride: _mrFrame, excludedRoots: _mrExcluded,
+            contentRoot: contentRoot, visibleWitnesses: _mrVisibility.Witnesses, backingGeometry: true) && ink.Valid;
+        if (!_mrBoundsVisible)
+        {
+            _mrBounds = default;
+            return;
+        }
+        Rect bounds = WorldUI.MrBackingLayout.WindowRect(_mrFrame, ink.Rect,
+            ink.Plates > 0, ink.PlateBottom, fitScoped: true);
+        // Ink is measured in the native-layout pivot's px. The MR plate is parented one level
+        // above it, so carry the same measured centre into host coordinates without re-fitting UI.
+        Vector3 center = _host.transform.InverseTransformPoint(
+            _pivot.TransformPoint(new Vector3(bounds.center.x, bounds.center.y, 0f)));
+        _mrBounds = new Rect(new Vector2(center.x, center.y) - bounds.size * 0.5f, bounds.size);
+    }
+
+    int WorldUI.MrBacking.ISampledBacking.BackingSampleFrame => _mrSampleFrame;
+
     /// <summary>
     /// The AUTHORED PIXEL SIZE the last applied fit measured — the number <see cref="Fit"/> divides
     /// the mount budget by, i.e. the emulated host rect (union, framed and padded exactly as
@@ -365,13 +434,19 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// carries its own MR treatment. An opaque plate left standing behind a hidden mirror would be
     /// a dark rectangle floating on the peer's board.</summary>
     bool WorldUI.MrBacking.IBackedSurface.BackingVisible
-        => _host != null && _host.activeInHierarchy && _clone != null;
+        => _host != null && _host.activeInHierarchy && _clone != null && _mrBoundsVisible
+           && _mrVisibility.VisibleNow;
 
-    Vector2 WorldUI.MrBacking.IBackedSurface.BackingSize => _backingSizePx;
+    float WorldUI.MrBacking.IFadedBacking.BackingAlpha => _mrVisibility.AlphaNow;
 
-    /// <summary>Zero by construction: <see cref="Fit"/> re-centres the measured content on the host
-    /// origin by moving the pivot, so the host origin IS the content centre.</summary>
-    Vector2 WorldUI.MrBacking.IBackedSurface.BackingCenter => Vector2.zero;
+    Vector2 WorldUI.MrBacking.IBackedSurface.BackingSize
+    {
+        get { SampleMrBacking(); return _mrBounds.size; }
+    }
+
+    /// <summary>Visible native ink can occupy only part of the fitted frame; preserve its actual
+    /// centre just as the local backing does instead of expanding it to the host origin.</summary>
+    Vector2 WorldUI.MrBacking.IBackedSurface.BackingCenter => _mrBounds.center;
 
     /// <summary>The plate shares the mirror canvas's own ladder slot; MrBacking's earlier
     /// renderQueue is what keeps it under this content and above everything farther back. Read
@@ -629,6 +704,16 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             for (int i = 0; i < n; i++)
                 if (srcNodes[i] != null && _excludedFromFitBranch(srcNodes[i]))
                     _pairs[i].ExcludeFromFit();
+        // Classification must use the original components; Neutralize deliberately removes them
+        // from the clone. Cache only clone roots, then share the owner's ink/glyph walk at runtime.
+        _mrExcluded.Clear();
+        for (int i = 0; i < n; i++)
+            if (_pairs[i].External || _pairs[i].ExcludedFromFit
+                || (i > 0 && WorldUI.TransientFamilies.Self(srcNodes[i]) != 0)
+                || WorldUI.TransientFamilies.IsDeclaredEffectQuad(srcNodes[i], _source))
+                _mrExcluded.Add(_pairs[i].Dst);
+        _mrNextSampleFrame = 0;
+        _mrBoundsVisible = false;
         int secret = SuppressSecretBranches(clone.transform);
         RebuildStamp++; // CloneOf holders must re-resolve against the fresh clone
         // A clone rebuild is an Instantiate of a whole game panel plus a full re-pair — the single
@@ -1322,7 +1407,19 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         }
         _cloneRect = null;
         _cloneFitter = null;
+        _mrFrame = default;
+        _mrBounds = default;
+        _mrSampleFrame = -1;
+        _mrVisibility.Reset();
+        _mrInkPanel.Target = null!;
+        _mrSourceContentRoot = null;
+        _mrCloneContentRoot = null;
+        _mrContentRootStamp = -1;
+        _mrInkPanel.HostRect = null!;
         _pairs = System.Array.Empty<Pair>();
+        _mrExcluded.Clear();
+        _mrBoundsVisible = false;
+        _mrNextSampleFrame = 0;
         _source = null;
         // Per-CLONE verdicts, all of them: a fresh clone has not been fitted, has not failed a
         // sanity check, and has not had its frame verdict taken. _ownersColumnPx deliberately
@@ -1584,6 +1681,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         // present is exactly the rect the plate must cover (see the class doc's MIXED REALITY
         // block). Host-local px — the host scale above carries them into board metres.
         _backingSizePx = sizePx;
+        _mrFrame = new Rect(centerPx - sizePx * 0.5f, sizePx);
 
         // The applied fit in MOUNT-LOCAL METRES. Published because a caller that stacks something
         // UNDER this panel has to know how tall it actually came out — the mirrored decision row's

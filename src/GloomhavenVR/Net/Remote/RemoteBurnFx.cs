@@ -334,8 +334,8 @@ internal sealed class RemoteBurnFx
 
     // ---- the model watch (the whole identity story) ------------------------------------------
     private readonly List<AbilityCardUI> _burntBuf = new(16);
-    private readonly HashSet<AbilityCardUI> _known = new();
-    private readonly List<AbilityCardUI> _pruneScratch = new(4);
+    private readonly HashSet<CAbilityCard> _known = new();
+    private readonly List<CAbilityCard> _pruneScratch = new(4);
     private int _watchActor;                 // stable id of the actor the baseline belongs to
     private bool _seeded;
     private float _nextWalkAt;
@@ -722,14 +722,13 @@ internal sealed class RemoteBurnFx
     }
 
     /// <summary>
-    /// Diff the displayed character's BURNT pile against the previous walk. A new entry is a burn
-    /// this client has just learned about, at the same instant the owner's own watcher learns it —
-    /// both read the same host-replicated list.
+    /// Discover original cards entering the displayed character's lost populations. UI widgets
+    /// bind presentation to those originals; replacing or temporarily missing a widget is not a
+    /// new loss. Owner native output and completion receipts establish animation timing.
     ///
-    /// <para>THE BASELINE IS SEEDED SILENTLY on the first walk and on every actor change, exactly
-    /// as <c>CardsDriver.TickBurnToPile</c> re-seeds <c>_knownBurntWidgets</c> on a hand change and
-    /// for the same reason: a character's long-burned cards must never animate retroactively when
-    /// the board starts presenting them.</para>
+    /// <para>The baseline is seeded silently on the first walk and on every actor change. As in
+    /// the local burn watcher, historical lost originals must never animate retroactively merely
+    /// because their board or native widgets become available.</para>
     ///
     /// <para>It keeps walking while the peer's board is HIDDEN and simply presents nothing, so
     /// switching <c>[Net] RemoteBoards</c> back on cannot replay a scenario's worth of burns.</para>
@@ -789,47 +788,45 @@ internal sealed class RemoteBurnFx
         _burntBuf.Clear();
         CardsGameApi.GetPileWidgets(hand, burnt: true, _burntBuf);
 
+        if (actor != null) DiscoverBurns(actor);
+    }
+
+    // A pooled widget is not a burn identity. Rebuilding the pile used to remove its old
+    // widget from _known, then start another presentation when that same card's new widget
+    // appeared. Preserve the claim through missing/replaced UI and release it only when the
+    // original model leaves both lost piles. Focus seeding includes originals whose widgets
+    // have not materialised yet, so historical burns never become new animations later.
+    private void DiscoverBurns(CPlayerActor actor)
+    {
+        var cards = actor.CharacterClass;
         if (!_seeded)
         {
             _seeded = true;
-            for (int i = 0; i < _burntBuf.Count; i++)
-            {
-                if (_burntBuf[i] != null)
-                    _known.Add(_burntBuf[i]);
-                if (actor != null && _burntBuf[i]?.AbilityCard != null
-                    && CardAppearanceMirror.TryOwnerBurnNoFlightCompletion(actor, _burntBuf[i].AbilityCard, out float historical))
-                    _retiredNoFlight[_burntBuf[i].AbilityCard] = historical;
-            }
+            foreach (var card in cards.LostAbilityCards) _known.Add(card);
+            foreach (var card in cards.PermanentlyLostAbilityCards) _known.Add(card);
+            foreach (var card in _known)
+                if (CardAppearanceMirror.TryOwnerBurnNoFlightCompletion(actor, card, out float historical))
+                    _retiredNoFlight[card] = historical;
             return;
         }
+
+        _pruneScratch.Clear();
+        foreach (CAbilityCard card in _known)
+            if (!cards.LostAbilityCards.Contains(card) && !cards.PermanentlyLostAbilityCards.Contains(card))
+                _pruneScratch.Add(card);
+        foreach (CAbilityCard card in _pruneScratch) _known.Remove(card);
+        _pruneScratch.Clear();
 
         for (int i = 0; i < _burntBuf.Count; i++)
         {
             AbilityCardUI widget = _burntBuf[i];
-            if (widget == null || !_known.Add(widget))
-                continue;
-            // The SAME membership expression the owner's own browse arc and the mirrored pile fan
-            // apply — a long-rest placeholder or a widget with no model card is not a burn.
-            if (!CardsGameApi.PileWidgetIsArcMember(widget))
-                continue;
+            if (widget == null) continue;
+            CAbilityCard? card = widget.AbilityCard;
+            if (card == null || !CardsGameApi.PileWidgetIsArcMember(widget)
+                || (!cards.LostAbilityCards.Contains(card) && !cards.PermanentlyLostAbilityCards.Contains(card))
+                || !_known.Add(card)) continue;
             Present(widget, actor);
         }
-
-        // Drop anything that LEFT the pile (a recovered lost card) so a re-burn animates again.
-        // Through a reused scratch list rather than RemoveWhere: this runs per peer at the board
-        // cadence and a lambda that captures `this` allocates a delegate on every call.
-        _pruneScratch.Clear();
-        // Membership in the game's own list is the whole test: a widget the game has destroyed is
-        // no longer in it either, so a separate Unity-null test would only add a branch (and a
-        // nullable-flow suppression) for a case this already covers.
-        foreach (AbilityCardUI k in _known)
-        {
-            if (!_burntBuf.Contains(k))
-                _pruneScratch.Add(k);
-        }
-        for (int i = 0; i < _pruneScratch.Count; i++)
-            _known.Remove(_pruneScratch[i]);
-        _pruneScratch.Clear();
     }
 
     /// <summary>Start one burn presentation for <paramref name="widget"/>.</summary>

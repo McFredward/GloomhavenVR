@@ -1,6 +1,6 @@
 # CI/CD — build, verification and release
 
-Current workflow reference, reviewed against the tracked scripts on 2026-09-15.
+Current workflow reference, reviewed against the tracked scripts on 2026-09-17.
 Start with [DEVELOPING.md](DEVELOPING.md) for local setup. The workflow files and scripts
 are authoritative; historical build results live in [STATE.md](../.planning/STATE.md).
 
@@ -32,9 +32,9 @@ both packaging paths. Validate the update path when changing the package.
 | Event | Workflow | Result |
 |---|---|---|
 | Push to `dev` | `.github/workflows/ci.yml` | Build and gates; no artifact, release, tag or version bump |
-| Pull request to `dev` or `main` | `ci.yml` | Build and gates, including a surface comparison against the PR base |
+| Pull request to `dev` or `main` | `ci.yml` | Reuse full dev CI for an identical merged tree, otherwise full checks; always compare surfaces against the PR base |
 | Manual CI on `dev`, `upload_dev_build=true` | `ci.yml` | Full build and gates, then an optional temporary DLL download |
-| Push to `main` | `.github/workflows/release.yml` | Build, package, tag and publish; then advance the next version on `dev` |
+| Push to `main` | `.github/workflows/release.yml` | Require exact-tree full CI evidence, then build, package, tag and publish; advance the next version on `dev` |
 
 **Every release comes from `main`.** Integrate work into `dev`, then merge a reviewed
 `dev` → `main` pull request when a release is authorized. Use a merge commit, not a
@@ -54,8 +54,8 @@ if it still names the released version. An independently advanced version stays 
 including when only the release ancestry needs recording. A rejected push is retried
 against freshly fetched refs; no force-push is used. Nothing commits to `main`.
 
-Both workflows explicitly install `ripgrep` before the production test scripts; hosted
-runner images are not assumed to provide the `rg` command.
+Full CI and release builds explicitly install `ripgrep`; hosted runner images are not
+assumed to provide the `rg` command.
 
 `global.json` prefers stable .NET SDK 8.0.4xx and permits a later SDK family when absent.
 Both workflows install .NET 8 and verify that 8.0.4xx was selected. Local .NET 10-only
@@ -143,16 +143,24 @@ checks and a successful build do not prove that the public endpoint is reachable
 
 ## 3. Verification coverage
 
-Both workflows run the same source checks, strict build, reference-assembly validation,
-bundle-format check, bilingual-docs check and standalone native presentation harnesses.
-The surface diff runs only for pull requests, because it needs a base commit. Locally,
-`refactor-guard.sh` compares against the stored baseline even without a PR.
+Full CI runs the source checks, strict build, reference-assembly validation, bundle-format
+check, bilingual-docs check and standalone native presentation harnesses. Every dev push
+and manual CI run executes them. Internal PRs may reuse that evidence only for an identical
+merged Git tree; fork PRs always execute full checks with read-only permissions and no secrets.
+The PR surface diff still runs when evidence is reused. Locally, `refactor-guard.sh` compares
+against the stored baseline even without a PR.
+Dev planning checks out only the current commit; PR planning loads history for merge ancestry
+and proof lookup. Normal dev pushes do not download historical asset versions just to name a tree.
+
+Release verifies existing full CI evidence before rebuilding the exact main commit with
+release flags. It does not duplicate source checks or regression harnesses. The fresh build,
+reference assembly check, bundle validation, package layout/text checks and version checks remain.
 
 The shared source checks cover mirrored constants, frame order, patch inventory, wire
 coverage, identity secrecy, remote dial ownership, enum array sizes, partial initializer
 order, instrument writes, remote defaults, tuning IDs, network-action receivers,
 hardware-verification logging and option reachability. The workflow files list the
-commands explicitly. The former eight-check gap in the release workflow is closed.
+commands explicitly; release admission verifies their successful full-CI completion.
 
 The card-capture, native-playback, board-refresh, card-loss-modal, map-flow, map-button, flight-timing,
 figure-hold, native-video, reward-showcase, modal-close, reward-pose, conversion-rollback, panel-material, panel-ink, shared-video-playback and introduction-hint harnesses execute
@@ -186,7 +194,8 @@ widget retirement, recovery and address changes. `scripts/item-burn-tests.sh` ob
 native item iterators, including paused game time, cancellation and overlapping effects.
 `scripts/item-appearance-tests.sh` executes original item capture, codec, native writes and
 clip release against controlled Unity APIs, and verifies the actual transport registration.
-Each runs in both workflows and the local wire driver, with runtime negative controls.
+Each runs in full CI and the local wire driver, with runtime negative controls. Release
+requires that exact-tree CI evidence instead of executing them again.
 These controlled tests cannot establish headset rendering quality.
 
 `scripts/flight-timing-tests.sh` checks transfer of card presentation between a board seat
@@ -232,6 +241,11 @@ clipped pixels retain their exclusions. It also tests placement-only annotation 
 in the ink walk and drawn-content union, while hit/chrome bounds retain the hint controls.
 Original reward-heading glyph overflow is included without broadening native masks or affecting
 other text; transformed, empty and invalid glyph bounds have dedicated negative controls.
+`scripts/banner-pose-tests.sh` exercises the original guildmaster header's borrow/return
+transaction across repeated openings and destination changes. A transformed-parent fixture
+reproduces native world-preserving reparenting; checks cover root layout/pose restoration,
+native parent/sibling ownership, unchanged child configuration, replacement/destruction and
+repeated release. Integration bindings and mutations reject the missing native-handoff repair.
 `scripts/hint-tests.sh` checks queued native message
 ownership, pending standalone dissolve cancellation and native sibling text/frame reflow/restoration
 before composite adoption. Their
@@ -242,10 +256,43 @@ Negative controls remove the callback, broaden producer matching and remove the 
 `scripts/video-playback-tests.sh` additionally exercises cosmetic decoder failures and native audio
 restoration; wire vectors cover the additive movie record and stale playback identities.
 
+### Exact-tree CI evidence
+
+`scripts/ci-proof-reuse.py` uses GitHub's [workflow-run metadata](https://docs.github.com/en/rest/actions/workflow-runs)
+and [attempt-specific job metadata](https://docs.github.com/en/rest/actions/workflow-jobs).
+It downloads no artifacts, binaries or executable logs. Proof is restricted to this repository's
+active `ci.yml`, triggered by a dev push or manual dev run, with a source commit still reachable
+from current dev. Its entire tree must match the candidate, including documentation, build
+scripts and workflow files. The workflow and verifier must also match current dev's policy.
+
+For PRs, the checked-out synthetic merge must have the event's exact base and head as its two
+parents. The workflow-run `head_sha` alone never establishes which PR merge was tested.
+Only the dedicated `Full checks [TREE]` job and its successful final completion step establish
+proof; `Build and gates` remains the required branch-protection check but cannot mint proof.
+A reused PR success cannot be reused recursively as if it had executed tests.
+
+The newest matching dev run and its latest attempt must succeed. A later failed, cancelled,
+queued or running attempt supersedes an older green result. Evidence expires after 30 days;
+lookup is bounded to the latest 500 dev workflow runs. Missing/inaccessible/stale metadata means
+full PR validation. Release fails before building or publishing: run full CI on dev for that
+exact tree, then rerun Release. If the workflow/verifier policy changed, integrate current dev
+through the normal reviewed main merge first. Existing runs from before this completion marker
+was introduced do not qualify; the first new dev push creates the initial proof.
+
+A manually requested DLL upload does not change what full CI proves. Its optional failure does
+not invalidate successful checks, and neither uploads nor artifact cleanup can establish proof.
+Every release still comes from main; PR merge-resolution edits must first be integrated and
+validated on dev under the existing release provenance rule. No paid account or artifact storage
+is required for evidence reuse. Fixture and local-Git regression tests run with:
+
+```bash
+python3 -m unittest discover -s tests -p 'test_ci_proof_reuse.py'
+```
+
 ## Temporary development downloads
 
-Normal pushes and pull requests run every existing check and retain their workflow logs,
-without uploading binaries. Local installation through `scripts/install.ps1` is unchanged.
+Normal dev pushes run every check; an internal PR may reuse identical-tree evidence.
+Both retain workflow logs without uploading binaries. Local installation through `scripts/install.ps1` is unchanged.
 For a hardware-test download, request the existing CI workflow explicitly on `dev`:
 
 ```bash
@@ -294,7 +341,8 @@ use separate limits; do not move release ZIPs into temporary Actions artifacts.
 
 `release.yml` performs these steps in order:
 
-1. Read `<Version>`, reject an existing tag, require a clean tree and verify main/dev provenance.
+1. Require successful full dev CI for the exact Git tree. Read `<Version>`, reject an existing
+   tag, require a clean tree and verify main/dev provenance.
 2. Build and verify with job-level `GhvrReleaseBuild=true`, including builds inside packaging.
 3. Package and require the exact versioned archive, the asset bundle and an unchanged tracked tree.
 4. Render release notes; recheck that the tag is absent and `main` still contains the candidate.
@@ -331,6 +379,7 @@ including its race cases. It does not simulate the hosted build, GitHub API or u
 | Existing version tag | Check whether the release already completed and whether the next-version bump landed. Do not overwrite or delete a published tag. The sole documented exception is the build-503 refresh of the existing `v1.0.0` ZIP: it retains the original tag and replaces only the release asset/body from the final `main` commit. |
 | Candidate fails release provenance | Use a normal merge of reviewed `dev` into `main`; its tree must match the dev source parent. Integrate content/conflict resolutions into `dev` first. |
 | Tag exists but release creation failed | Inspect the failed run; recover the release using the already-tested tag and matching archive. Do not retag a different commit. |
+| Release reports missing CI proof | Run full CI on dev for the exact candidate tree, wait for success, then rerun Release. Reused PR checks and old workflow runs without the completion marker do not qualify. |
 | Optional dev download missing | Read the CI summary and cleanup/upload step. Check artifact quota; deletion may take 6–12 hours to become visible. Checks remain strict. |
 | Release published, dev bookkeeping failed | Merge the release commit into current `dev`, preserve concurrent work, and advance the version if still needed. `scripts/release-provenance.sh prepare REPO RELEASE_SHA DEV_SHA MAIN_SHA RELEASE_VERSION` prepares this locally; review and push `dev` normally. Do not rerun publication. |
 | Hundreds of missing game members at compile time | Check game/reference-assembly versions; regenerate stubs as in §2.4. |
@@ -346,9 +395,10 @@ quantization depends on `Mathf.RoundToInt` behavior. Metadata-only references ca
 and replacing that implementation with a test shim would change the behavior under test.
 The real game DLL cannot be redistributed to hosted runners.
 
-Both workflows therefore **compile** this project and explicitly announce that its
-byte-level assertions were not executed. Run `scripts/wire-tests.sh` locally before a
-release; it reports the current assertion count. The local umbrella guard already calls it.
+Full CI therefore **compiles** this project and explicitly announces that its byte-level
+assertions were not executed. Release reuses that compile evidence. Run `scripts/wire-tests.sh`
+locally before a release; it reports the current assertion count. The local umbrella guard
+already calls it.
 
 Pure source checks should live in `scripts/`, or have a standalone twin there, so CI
 can execute them. `check-card-identity-mask.py` and `CardIdentityMaskVectors.cs` are such

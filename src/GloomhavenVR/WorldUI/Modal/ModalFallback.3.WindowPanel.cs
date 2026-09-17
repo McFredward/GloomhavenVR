@@ -24,6 +24,13 @@ internal static partial class ModalFallback
     /// </summary>
     private sealed class WindowPanel
     {
+        // Opening-scoped reflow only: no periodic lost-window recall. One fallback admission can
+        // be followed by one late native content-fit correction during the first three seconds.
+        public float ReflowOpenedAt = -1f;
+        public float ReflowNextTry;
+        public bool ReflowTried;
+        public bool ReflowFinalFitTried;
+        public bool ReflowCancelled;
         public UIWindow Window = null!;
         public ConvertedPanel Panel = null!;
 

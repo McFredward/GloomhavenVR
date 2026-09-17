@@ -19,12 +19,12 @@ assert 'ConsumesWireEvent(endpoints, flags, source, completionTime, presentation
 b=(r/'src/GloomhavenVR/Net/Avatar/NetAvatarDriver.CardAppearance.cs').read_text()
 assert 'viewer.PlayMirroredCardFlight(endpoints, flags, source, completionTime, sender.PlayerId, originalCard)' in b, 'Foreign-focus boards retain the actual appearance publisher'
 hook=(r/'src/GloomhavenVR/Cards/BurnArtwork.cs').read_text()
-assert 'if (burnAnim && running) Net.CardAppearanceSampler.ObserveNativeBurnStart(__instance);' in hook, 'Native progress must be registered at the actual first running burn step'
+assert 'if (burnAnim && running && !followsOriginal) Net.CardAppearanceSampler.ObserveNativeBurnStart(__instance);' in hook, 'Native progress must be registered at the actual first running burn step'
 assert 'bool firstStep = true;' in hook and 'firstStep = false;' in hook, 'Native progress registration is once per iterator'
 layout=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.8.BurnSequencing.cs').read_text()
 assert layout.index('ObserveForeignBurnProgress(widget);') < layout.index('FlushBurnHolds('), 'Progress must be observed while the native layout barrier still blocks Flush'
 retire=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.4.Rebuild.cs').read_text()
-assert 'Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal || durableNoFlight,' in retire and 'ClearBurnHold(widget); _activeExitOrigins.Remove(widget); _knownBurntWidgets.Add(widget);' in retire, 'No-flight completion retires exact local holds instead of fabricating a flight'
+assert 'Net.BurnReleasePolicy.RetireWithoutFlight(witnessedOriginal || durableNoFlight,' in retire and 'ClearBurnHold(widget); _activeExitOrigins.Remove(widget); CompleteBurnClaim(widget);' in retire, 'No-flight completion retires exact local holds instead of fabricating a flight'
 cleanup=(r/'src/GloomhavenVR/Cards/Driver/CardsDriver.2.Update.cs').read_text()
 assert '_foreignBurnProgress.Clear();' in cleanup, 'Progress observations cannot retain old native widgets after teardown'
 print('Burn completion production binding: sampler, legacy/history admission and canonical observer dispatch verified.')

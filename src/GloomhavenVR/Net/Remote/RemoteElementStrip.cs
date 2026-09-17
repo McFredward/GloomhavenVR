@@ -772,7 +772,8 @@ internal sealed class RemoteElementStrip
         // content is FORCED to its width budget, which this one's is not.
         _mirror = new RemoteWidgetMirror("ElementBoard", mount,
             PlayTray.ElementMountWidth, PlayTray.ElementMountMaxHeight, Vector2.left,
-            densityScale: ElementDensityScale);
+            densityScale: ElementDensityScale,
+            backingContentRoot: source => source.GetComponent<InfusionBoardUI>()?.elementsHolder);
 
         // … and the FALLBACK strip, half a dock width to the LEFT of it — the mount's origin is
         // RIGHT-centre growing left (the objectives convention), so the shift belongs INSIDE the

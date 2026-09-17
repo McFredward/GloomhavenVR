@@ -375,6 +375,7 @@ internal static partial class ModalFallback
             // A hover card is a LABEL, not a window: it has no grab bar (181) and no X (181), and
             // now no collider either. Nothing about it was ever meant to be clicked.
             bool hoverCardPick = IsMapRoomHoverCard(window);
+            MapRoom.GuildmasterDestinations.PrepareBannerForConversion(window);
             panel = CanvasConversion.Convert(rect, $"Modal_{name}", pokeable: !hoverCardPick,
                 fitContent: fitContent, sortingOrder: ModalHostSortingOrder,
                 diagnostic: true, // FLICKER HUNT: per-frame change-gated host/child/camera diagnostics

@@ -331,7 +331,8 @@ internal sealed partial class CardsDriver
         _lastCardWorldRot.Clear();
         _lastCardWorldWidth.Clear();
         _burnWatchHand = null; // issue B
-        _knownBurntWidgets.Clear();
+        _knownBurntCards.Clear();
+        _completedBurnClaims.Clear();
         _foreignBurnProgress.Clear();
         _retiredForeignNoFlight.Clear();
         _burnHoldSince.Clear(); // artwork holds die with the driver — no orphaned release later
@@ -482,7 +483,8 @@ internal sealed partial class CardsDriver
                                  // pick-field pre-filter is a membership test on exactly this set
         _dockAnimSuppressed = true; // issue 2: the next hand's cards populate silently (no storm)
         _burnWatchHand = null; // issue B: re-baseline the burnt set for the next hand
-        _knownBurntWidgets.Clear();
+        _knownBurntCards.Clear();
+        _completedBurnClaims.Clear();
         _loggedStaleHandCard.Clear(); // ditto the item 10 model-belt dedupe (widgets are recycled)
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
         _shortRestPresented = null;
@@ -491,6 +493,16 @@ internal sealed partial class CardsDriver
         if (_boundHand == hand)
             _boundHand = null;
         _dirty = true;
+    }
+
+    private void RetirePickFieldCard(VRCard card)
+    {
+        int index = _fieldCards.IndexOf(card);
+        if (index < 0) return;
+        _fieldCards.RemoveAt(index);
+        if (index < _pickLockedCount) _pickLockedCount--;
+        _pickExitFlown.Remove(card);
+        RelayoutField();
     }
 
     private void OnCardRecycling(AbilityCardUI widget)
@@ -517,11 +529,7 @@ internal sealed partial class CardsDriver
             _browser.Remove(card);
             _active.Remove(card); // feature 6: drop from the active grid if the widget recycled
             ClearActiveHighlight(card);
-            if (_fieldCards.Remove(card))
-            {
-                _pickExitFlown.Remove(card);
-                RelayoutField();
-            }
+            RetirePickFieldCard(card);
             if (ReferenceEquals(card, _shortRestCard)) // sacrifice widget recycled under us
             {
                 _shortRestCard = null;
@@ -556,8 +564,45 @@ internal sealed partial class CardsDriver
             UpdateBody();
     }
 
+    private bool _sceneFacesReturned;
+
+    internal static bool NativeSceneLoadInProgress
+    {
+        get
+        {
+            SceneController? scene = SceneController.Instance;
+            return scene != null && scene._loadingSceneType != SceneController.ESceneType.None;
+        }
+    }
+
+    /// <summary>Run before the first native load-iterator step, not in an OnDestroy callback.
+    /// Preserve native pool ownership before the outgoing scene's destruction wave is scheduled.
+    /// EndScenarioSafely has already completed; this must never pre-empt its pending decisions.
+    /// </summary>
+    internal static void ReleaseCardsBeforeSceneLoad()
+    {
+        CardsDriver? driver = Instance;
+        if (driver == null) return;
+        driver._sceneFacesReturned = true;
+        driver._factory.ReturnBorrowedFacesBeforeSceneLoad();
+        Core.TickGuard.Run("Cards.SceneLaserHover", driver.ClearLaserHover, "Cards");
+        Core.TickGuard.Run("Cards.SceneActiveHover", driver.ClearActiveHover, "Cards");
+        CardActionQueue.Clear();
+        driver._dirty = true; // also rebuild if the native load aborts while the old hand survives
+        VRLog.Note("Cards", "CARD SCENE RELEASE: returned borrowed native faces before scene loading; native hand recycling remains authoritative.");
+    }
+
     private void UpdateBody()
     {
+        // Native operation state is the admission authority, with no wrapper-owned latch to
+        // strand the driver if Unity cancels a coroutine without disposing its enumerator.
+        // The generic IsLoading flag starts BEFORE EndScenarioSafely's damage-choice wait;
+        // pausing on that flag would turn a valid restart into a mandatory-input deadlock.
+        if (NativeSceneLoadInProgress) return;
+        if (_sceneFacesReturned)
+        {
+            _sceneFacesReturned = !_factory.ReattachBorrowedFacesAfterSceneLoad();
+        }
         CardActionQueue.Pump();
         HandSuppression.Tick();
         // Card-art warm-up + its falsifier. DELIBERATELY ABOVE the hands-down bail-out below: the

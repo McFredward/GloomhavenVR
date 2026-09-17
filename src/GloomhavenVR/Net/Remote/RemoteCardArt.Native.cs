@@ -13,7 +13,6 @@ internal sealed partial class RemoteCardArt
     private readonly NativePlaybackProperties[] _nativePropertySupport = new NativePlaybackProperties[12];
     private int _nativePlayer;
     private bool _nativeOutputApplied;
-    private byte _nativeLastSourceList;
     private CardAppearanceNode[]? _nativeDefaults;
     private CardAppearanceNode[]? _nativeExtraDefaults;
     private CardAppearanceState? _localNativeFrame;
@@ -117,21 +116,21 @@ internal sealed partial class RemoteCardArt
         if (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, _nativeActor) == RevealGate.CardFaceSource.None) return;
         if (!CardAppearanceMirror.TryGet(_nativePlayer, _nativeActor, _nativeCard, out var from, out var to, out float progress))
         {
-            // A discarded/active card changes its address when it starts burning. The old
-            // sample is correctly invalidated, but erasing its already drawn wash would flash
-            // a fresh blue card until the first owner sample at the lost address arrives.
-            if (_nativeOutputApplied && RetainSpentRecessDuringBurn()) return;
+            // Lost-list positions/counts change while another card burns and widgets can
+            // briefly disappear during a rebuild. Neither invalidates already painted output
+            // for this same original. Clearing it flashed blue and made resumed native output
+            // look like a fresh burn; keep the last picture on every surface until the next
+            // authoritative sample. Recovery/identity changes still relinquish it immediately.
+            if (_nativeOutputApplied && RetainNativeOutputDuringBurn()) return;
             if (_nativeOutputApplied && !ExplicitFlightOwnsLook) ClearPendingNativeAppearance();
             _nativeOutputApplied = false;
             return;
         }
         ApplyNativeFrame(from!, to!, progress);
     }
-    private bool RetainSpentRecessDuringBurn()
+    private bool RetainNativeOutputDuringBurn()
     {
-        if (Surface != FxSurface.Recess || _nativeCard == null || _nativeActor?.CharacterClass == null
-            || _nativeLastSourceList != NetProtocol.HeldFaceListDiscard && _nativeLastSourceList != NetProtocol.HeldFaceListActive)
-            return false;
+        if (_nativeCard == null || _nativeActor?.CharacterClass == null) return false;
         var cards = _nativeActor.CharacterClass;
         // Identity/actor changes already relinquish _nativeOutputApplied in SetNativeAppearance.
         // Actual recovery immediately releases the old paint even if a delayed lost stamp remains.
@@ -226,7 +225,6 @@ internal sealed partial class RemoteCardArt
                     material.renderQueue = Mathf.Min(_faceQueue + 1, FlameQueueCeiling);
             }
         }
-        _nativeLastSourceList = NetProtocol.HeldFaceList(to.FaceCode);
         _nativeOutputApplied = true;
     }
 }

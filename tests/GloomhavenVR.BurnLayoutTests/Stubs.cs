@@ -31,7 +31,7 @@ namespace GloomhavenVR.Cards {
         private readonly Half _half = new();
         private bool _fakeActive, _dirty;
         private CardsHandUI? _boundHand, _burnWatchHand;
-        private readonly HashSet<AbilityCardUI> _knownBurntWidgets = new();
+        private readonly HashSet<CAbilityCard> _knownBurntCards = new();
         private readonly Dictionary<AbilityCardUI, BurnHold> _burnHoldSince = new();
         private readonly Dictionary<AbilityCardUI, int> _activeExitOrigins = new();
         private readonly struct BurnHold { internal BurnHold(float since, bool artworkSeen) { Since=since; } internal readonly float Since; }
@@ -46,9 +46,15 @@ namespace GloomhavenVR.Cards {
         internal CardsDriver() { Instance=this; _fakeActive=false; }
         internal void Bind(CPlayerActor actor) { _boundHand=new CardsHandUI{PlayerActor=actor}; _burnWatchHand=_boundHand; }
         internal void Add(VRCard card) { _factory.All.Add(card); Drawn.Add(card); }
-        internal void Known(AbilityCardUI card) => _knownBurntWidgets.Add(card);
+        internal void Known(AbilityCardUI card) => RememberBurn(card);
         internal void ActiveCard(VRCard card) => _active.Cards.Add(card);
         internal bool HasSource(AbilityCardUI card) => _activeExitOrigins.ContainsKey(card);
+        internal bool CompletedModel(AbilityCardUI widget) => IsCompletedBurn(widget);
+        internal void Complete(AbilityCardUI widget) => CompleteBurnClaim(widget);
+        internal bool KnownModel(AbilityCardUI widget) => IsKnownBurn(widget);
+        internal void SeedClaims() => SeedKnownBurns(_boundHand!);
+        internal void ObserveRecovery() => PruneRecoveredBurns(_boundHand!);
+        internal int Holds => _burnHoldSince.Count;
         internal bool Pending => _burnLayoutPending;
         internal CPlayerActor? LayoutActor => PresentedHandForCardLayout(CurrentHand())?.PlayerActor;
         internal bool Dirty => _dirty;
@@ -62,7 +68,7 @@ namespace GloomhavenVR.Cards {
             if (_burnLayoutNativeActive || NativeLossActive) return;
             foreach (var pair in _burnHoldSince.ToArray()) {
                 if (UnityEngine.Time.unscaledTime-pair.Value.Since < .5f) continue;
-                _burnHoldSince.Remove(pair.Key);_knownBurntWidgets.Add(pair.Key); Flights++;
+                _burnHoldSince.Remove(pair.Key);CompleteBurnClaim(pair.Key); Flights++;
                 var card=_factory.All.Find(x=>ReferenceEquals(x.GameCard,pair.Key));if(card!=null) card.IsFlying=true;
             }
         }
