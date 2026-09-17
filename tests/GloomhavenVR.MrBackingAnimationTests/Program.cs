@@ -18,6 +18,7 @@ internal static class Program
         bool measuredBeforeAlpha=false;PanelInkBounds.OnMeasure=()=>measuredBeforeAlpha=runner.Alpha==1;
         MrBacking.BeginWindowMaterialise(p);runner.Frame(0);
         Check(measuredBeforeAlpha,"geometry sampled before first native alpha");
+        Check(PanelInkBounds.PaintedQuery,"opening snapshot uses the same painted geometry as steady MR");
         Check(MrBacking.Active(p),"initial reveal owns backing before normal Tick");
         Check(!MrBacking.Visible(p),"initial reveal begins empty");Near(runner.Alpha,0,"native reveal starts empty");
         Rect frozen=MrBacking.Bounds(p);PanelInkBounds.Bounds=new(0,0,1000,1000);

@@ -74,9 +74,10 @@ namespace GloomhavenVR.WorldUI
     internal static class PanelInkBounds
     {
         internal struct Ink { public bool Valid;public Rect Rect;public int Plates;public float PlateBottom; }
-        public static bool Valid=true,Throw;public static Rect Bounds=new(20,30,200,120);public static Action? OnMeasure;
+        public static bool Valid=true,Throw,PaintedQuery;public static Rect Bounds=new(20,30,200,120);public static Action? OnMeasure;
         public static bool TryMeasure(ConvertedPanel p,out Ink ink,Transform? contentRoot=null,List<CanvasRenderer>? visibleWitnesses=null,bool backingGeometry=false)
         {
+            PaintedQuery=backingGeometry;
             if(Throw)throw new InvalidOperationException("measure");OnMeasure?.Invoke();ink=new(){Valid=Valid,Rect=Bounds};return Valid;
         }
     }
