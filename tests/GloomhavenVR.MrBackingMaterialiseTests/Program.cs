@@ -54,8 +54,19 @@ static class Program
         }
         Color[] colors = mesh.colors;
         int writes = mesh.ColorWrites;
+        int meshWrites = plate.Filter.MeshWrites, materialWrites = plate.Renderer!.MaterialWrites;
         helper.Apply(plate, shown, host, .45f, fade);
         Check(mesh.ColorWrites == writes && ReferenceEquals(mesh.colors, colors), "Same field inputs must not upload colors or allocate per eye");
+        Check(plate.Filter.MeshWrites == meshWrites, "Repeated field apply must not rebind the same mesh");
+        Check(plate.Renderer.MaterialWrites == materialWrites, "Repeated field apply must not rebind the same material");
+        helper.Apply(plate, shown, host, .46f, fade);
+        Check(plate.Filter.MeshWrites == meshWrites, "Progress changes must upload colors without rebinding the mesh");
+        Check(plate.Renderer.MaterialWrites == materialWrites, "Progress changes must keep the already-bound fade material");
+        var changedFade = new Material();
+        helper.Apply(plate, shown, host, .46f, changedFade);
+        Check(plate.Renderer.MaterialWrites == materialWrites + 1 && ReferenceEquals(plate.Renderer.sharedMaterial, changedFade), "A changed fade material must bind exactly once");
+        helper.Apply(plate, shown, host, .46f, fade);
+        Check(plate.Renderer.MaterialWrites == materialWrites + 2 && ReferenceEquals(plate.Renderer.sharedMaterial, fade), "Returning to the original fade material must rebind once");
         float[] previous = new float[colors.Length]; Array.Fill(previous, 1f);
         for (int step = 1; step <= 20; step++)
         {

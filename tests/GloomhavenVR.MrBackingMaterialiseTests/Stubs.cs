@@ -25,8 +25,19 @@ public sealed class Transform : Object
     public Renderer? Renderer;
     public T? GetComponent<T>() where T : Object => (Filter as T) ?? Renderer as T;
 }
-public sealed class MeshFilter : Object { public Mesh? sharedMesh; }
-public sealed class Renderer : Object { public Material? sharedMaterial; public bool enabled = true; }
+public sealed class MeshFilter : Object
+{
+    private Mesh? _mesh;
+    public int MeshWrites;
+    public Mesh? sharedMesh { get => _mesh; set { _mesh = value; MeshWrites++; } }
+}
+public sealed class Renderer : Object
+{
+    private Material? _material;
+    public int MaterialWrites;
+    public Material? sharedMaterial { get => _material; set { _material = value; MaterialWrites++; } }
+    public bool enabled = true;
+}
 public sealed class Mesh : Object
 {
     public static int Created;

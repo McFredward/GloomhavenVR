@@ -91,8 +91,10 @@ internal sealed class MrBackingMaterialise : IDisposable
             _mesh!.colors = _colors!;
             _progress = progress;
         }
-        _filter.sharedMesh = _mesh;
-        _renderer.sharedMaterial = fadeMaterial;
+        if (_filter.sharedMesh != _mesh)
+            _filter.sharedMesh = _mesh;
+        if (_renderer.sharedMaterial != fadeMaterial)
+            _renderer.sharedMaterial = fadeMaterial;
         _fadeMaterial = fadeMaterial;
     }
 

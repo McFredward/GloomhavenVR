@@ -21,17 +21,21 @@ for name, old, new in [
     ('host-cache', '!Same(_hostFrame, hostFrame)', 'false'),
     ('restore', '_filter.sharedMesh = _originalMesh;', '_filter.sharedMesh = _mesh;'),
     ('owned-dispose', 'UnityEngine.Object.Destroy(_mesh);', '_mesh.name = "leaked";'),
-    ('visibility', '_renderer.sharedMaterial = fadeMaterial;', '_renderer.enabled = true; _renderer.sharedMaterial = fadeMaterial;'),
+    ('visibility', '_fadeMaterial = fadeMaterial;', '_renderer.enabled = true; _fadeMaterial = fadeMaterial;'),
+    ('mesh-rebind', 'if (_filter.sharedMesh != _mesh)\n            _filter.sharedMesh = _mesh;', '_filter.sharedMesh = _mesh;'),
+    ('material-rebind', 'if (_renderer.sharedMaterial != fadeMaterial)\n            _renderer.sharedMaterial = fadeMaterial;', '_renderer.sharedMaterial = fadeMaterial;'),
 ]:
     assert s.count(old)==1, name
     (dest/(name+'.fixture')).write_text(s.replace(old,new))
 PY
-for mutation in plate-uv aspect uniform-alpha fit-cache host-cache restore owned-dispose visibility; do
+for mutation in plate-uv aspect uniform-alpha fit-cache host-cache restore owned-dispose visibility mesh-rebind material-rebind; do
     case "$mutation" in
         plate-uv|aspect|uniform-alpha|fit-cache|host-cache) expected='Backing vertices must match the original host field' ;;
         restore) expected='Progress zero must restore original opaque quad and material' ;;
         owned-dispose) expected='Dispose must destroy only the owned mesh once' ;;
         visibility) expected='Restore must not reveal a natively hidden plate' ;;
+        mesh-rebind) expected='Repeated field apply must not rebind the same mesh' ;;
+        material-rebind) expected='Repeated field apply must not rebind the same material' ;;
     esac
     if dotnet run --project "$fixture/GloomhavenVR.MrBackingMaterialiseTests.csproj" --configuration Release \
         --property:BackingSource="$fixture/$mutation.fixture" \
