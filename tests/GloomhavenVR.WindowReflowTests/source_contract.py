@@ -14,7 +14,7 @@ checks = {
     'fit timeout retains a visible-window fallback': '(!fitted && age < 0.65f)' in runtime,
     'opening admission expires instead of idle following': 'age > 3f' in runtime,
     'ray footprint participates in measurement': 'CanvasConversion.TryGetHitRect(wp.Panel.HostCanvas' in runtime,
-    'frame pivot follows the measured footprint centre': 'WindowReflowPose.FramePositionForCentre(frame.position, frame.rotation,' in runtime,
+    'frame pivot follows the measured footprint centre': 'WindowReflowPose.FramePositionForCentre(ReflowFrom[i], ReflowFromRotation[i],' in runtime,
     'shared motion cancels on peer revision': 'SharedWindowReflowBridge.Revision?.Invoke(ReflowKinds[i])' in runtime,
     'manual grip cancels animation': 'wp.Grab!.IsGrabbed' in runtime,
     'closing windows cancel animation': '!Converted.Contains(wp) || !ReflowVisible(wp)' in runtime,

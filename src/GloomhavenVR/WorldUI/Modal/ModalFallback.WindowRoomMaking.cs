@@ -150,18 +150,17 @@ internal static partial class ModalFallback
             SharedWindowKind kind = ReflowKinds[i];
             claimed++;
             WindowPanel wp = ReflowWindows[i]!;
-            Transform frame = ((IPanelGrabOwner)wp.Grab!).GrabRoot!;
-            wp.Grab.ReadRoomMakingStart(out ReflowFrom[i], out ReflowFromRotation[i]);
+            wp.Grab!.ReadRoomMakingStart(out ReflowFrom[i], out ReflowFromRotation[i]);
             // Keep vertical position and scale. Width includes the full native hit rect, not just
             // visible ink, so the transparent canvas cannot keep intercepting the other window.
             Vector3 target = eye + forward * depth + right * ReflowTargetX[i];
             target.y = ReflowCentres[i].y;
             ReflowToRotation[i] = Quaternion.LookRotation(forward, Vector3.up);
-            ReflowTo[i] = WindowReflowPose.FramePositionForCentre(frame.position, frame.rotation,
+            ReflowTo[i] = WindowReflowPose.FramePositionForCentre(ReflowFrom[i], ReflowFromRotation[i],
                 ReflowCentres[i], target, ReflowToRotation[i]);
-            Quaternion delta = ReflowToRotation[i] * Quaternion.Inverse(frame.rotation);
+            Quaternion delta = ReflowToRotation[i] * Quaternion.Inverse(ReflowFromRotation[i]);
             for (int c = 0; c < 4; c++)
-                ReflowFootprints[i, c] = ReflowTo[i] + delta * (ReflowFootprints[i, c] - frame.position);
+                ReflowFootprints[i, c] = ReflowTo[i] + delta * (ReflowFootprints[i, c] - ReflowFrom[i]);
             if (!ReadReflowViewport(camera, i, out Rect destination)) return false;
             Rect original = ReflowViewports[i];
             // The horizontal solver is yaw-only; the actual headset can be looking up/down. Never
