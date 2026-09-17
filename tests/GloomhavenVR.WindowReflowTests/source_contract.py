@@ -22,6 +22,8 @@ checks = {
     'attributed room-making is accepted by pose lock': 'case Writer.RoomMaking:' in code(base+'Conversion/PanelPoseWatch.cs'),
     'measured HMD cone caps placement': 'Mathf.Min(35f, UsableHalfConeDeg())' in runtime,
     'pitched headset viewport gates admission and endpoint': runtime.count('ReadReflowViewport(camera,') == 2,
+    'reading-distance limit uses author physical metres': '3.5f * physicalScale' in runtime and 'physicalScale = Mathf.Max(PanelLayout.WorldScale' in runtime,
+    'offscreen incoming windows cannot trigger room making': 'if (!inView) return false;' in runtime,
     'parked quest corner remains protected': '!corner && !wp.Grab!.IsGrabbed' in runtime,
 }
 for name, passed in checks.items():

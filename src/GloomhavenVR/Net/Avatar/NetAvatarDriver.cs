@@ -1353,7 +1353,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
         //
         // "GRABBED" RATHER THAN "THE POSE CHANGED": see SharedWindows.AnyGrabbedHere for why there is
         // no single last-sent pose to diff here and why the grab is the right superset.
-        bool sharedWindowDue = WorldUI.SharedWindows.AnyGrabbedHere()
+        bool sharedWindowDue = (WorldUI.SharedWindows.AnyGrabbedHere() || RemoteMapStory.SharedReflowMoving)
                                && _extrasAccumulator >= fastInterval;
 
         // BOARD-UI (defects 4 + 5): which controls the owner's board shows RIGHT NOW plus the
@@ -2062,7 +2062,7 @@ internal sealed partial class NetAvatarDriver : MonoBehaviour
             // Both getters return false outright while MapRoomDriver.Active is off, so a client
             // with the 3D map switched off evaluates two bools and is otherwise untouched.
             && !RemoteMapRoom.SendDue && !RemoteMapStory.SendDue && !RemoteVideoPlayback.SendDue
-            && !RemoteMapStory.RewardSendDue
+            && !RemoteMapStory.RewardSendDue && !RemoteMapStory.SharedReflowSendDue
             // …and a shared window being CARRIED here raises the cadence to the rig rate for as long
             // as the hand is on it, exactly as a carried board does (see sharedWindowDue above).
             // Note this sits beside RemoteMapStory.SendDue and does NOT duplicate it: that getter is

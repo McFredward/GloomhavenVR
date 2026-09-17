@@ -59,6 +59,16 @@ internal static class Program
         var wide = new[]{W(-0.2f,1.24f,1.36f),W(0.1f,1.21f,1.36f)};
         Check(Arrange(wide,out var wx,out _,out var dz), "Hardware overlap must find a layout");
         Check(dz > 1.36f, "Wide windows must move farther instead of offscreen");
+        // Build-515 hardware used different live rig and stable parchment scales. A 1.7 m
+        // physical reading distance must not be rejected as more than 3.5 parchment metres.
+        var zoomed = new[]{W(-80f,509.5572f,577.497f),W(80f,509.5572f,577.497f)};
+        var zx = new float[2]; var zi = new bool[2];
+        float cone = MathF.Tan(35f * MathF.PI / 180f);
+        Check(!WindowReflowLayout.TryArrange(zoomed,2,0,cone,6.9342f,3.5f*198.12f,zi,zx,out _),
+            "Stable parchment units reproduce the false distance refusal");
+        Check(WindowReflowLayout.TryArrange(zoomed,2,0,cone,6.9342f,3.5f*424.63f,zi,zx,out float zd),
+            "Readable zoomed hardware windows must fit in physical metres");
+        Check(zd/424.63f < 1.8f,"The hardware correction remains a comfortable reading distance");
         for (int seed = 0; seed < 240; seed++)
         {
             var random = new Random(seed);

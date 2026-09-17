@@ -129,13 +129,16 @@ internal static partial class ModalFallback
                 incomingIndex = n;
             }
         }
-        float scale = MapRoom.MapRoomDriver.TryGetParchmentFrame(out _, out float roomScale)
-            ? Mathf.Max(roomScale, 0.01f) : Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        // Serialization uses the stable table frame, but reading distance is measured in the
+        // elected author's physical metres. Pinch zoom makes those scales differ substantially.
+        float physicalScale = Mathf.Max(PanelLayout.WorldScale, 0.01f);
+        float gapScale = MapRoom.MapRoomDriver.TryGetParchmentFrame(out _, out float roomScale)
+            ? Mathf.Max(roomScale, 0.01f) : physicalScale;
         // The measured comfortable view is capped at 70 degrees. Wider
         // native panels move slightly farther away instead of being shrunk or shunted off-screen.
         float halfView = Mathf.Tan(Mathf.Min(35f, UsableHalfConeDeg()) * Mathf.Deg2Rad);
         if (!WindowReflowLayout.TryArrange(ReflowGeometry, _reflowCount, incomingIndex, halfView,
-                0.035f * scale, 3.5f * scale, ReflowIncluded, ReflowTargetX, out float depth))
+                0.035f * gapScale, 3.5f * physicalScale, ReflowIncluded, ReflowTargetX, out float depth))
         {
             if (WindowReflowLayout.HasVisibleOverlap(ReflowGeometry, _reflowCount, incomingIndex, halfView))
                 VRLog.Note("WorldUI", $"WINDOW ROOM MAKING: '{incoming.Window.name}' overlaps, but no "
@@ -187,7 +190,7 @@ internal static partial class ModalFallback
         _reflowStarted = Time.unscaledTime;
         _reflowRunning = true;
         VRLog.Note("WorldUI", $"WINDOW ROOM MAKING: '{incoming.Window.name}' opens into an overlap; "
-            + $"animating {claimed} windows over {ReflowSeconds:F2}s, depth {depth / scale:F2}m. "
+            + $"animating {claimed} windows over {ReflowSeconds:F2}s, depth {depth / physicalScale:F2}m. "
             + "One author, existing shared pose stream, no native UI callbacks.");
         return true;
     }
