@@ -67,3 +67,15 @@ A main-only manual resume path is being integrated: it will verify the original 
 source against existing full CI proof, rebuild and package it on the main runner, preserve
 the tag, retry draft uploads and verify the uploaded archive before publication. Normal
 post-publication dev bookkeeping follows. No game code or ModBuild change is involved.
+
+The recovery workflow landed in main through PR #8 (e9cb378d). Full dev CI 35272595156
+passed; PR CI 35273927614 reused its proof and skipped full checks. Main recovery run
+35274136888 accepted the original tagged tree's proof and successfully built/packaged it.
+Publication exposed an adapter defect: GitHub's release-by-tag endpoint does not discover
+drafts. Five newly created empty duplicate drafts were removed after checking each ID,
+tag, draft flag and empty asset list; the original draft 391041682 remains. Recovery is
+being corrected to discover authenticated draft listings and pin the release ID for all
+subsequent requests, including upload. API-adapter tests and a real read-only discovery
+check are required before the next main attempt. The corrected adapter passes 21 upload
+tests, including seven HTTP-adapter cases. A real read-only call successfully discovered
+and pinned draft 391041682 and verified a6d044c4 against the tag and main history.
